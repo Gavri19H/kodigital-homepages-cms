@@ -89,16 +89,22 @@ import {
   LEADGEN_COLUMN_MOBILE_MODES,
   LEADGEN_COLUMN_RATIOS,
   LEADGEN_FIELD_ACCEPT_FORMATS,
+  LEADGEN_FIELD_LEADING_ICONS,
   LEADGEN_GAP_TOKENS,
   LEADGEN_GRID_SIZINGS,
   LEADGEN_MAX_CONTAINER_DEPTH,
+  LEADGEN_NODE_BORDER_COLOR_ROLES,
+  LEADGEN_NODE_CORNERS,
   LEADGEN_PANEL_BACKGROUNDS,
   LEADGEN_PANEL_PADDINGS,
   LEADGEN_PANEL_RADII,
   LEADGEN_PANEL_SHADOWS,
   LEADGEN_PANEL_WIDTHS,
+  LEADGEN_SIZE_HEIGHT_PRESETS,
+  LEADGEN_SIZE_WIDTH_PRESETS,
   LEADGEN_STACK_ALIGNS,
   LEADGEN_STACK_DIRECTIONS,
+  LEADGEN_TEXT_BLOCK_ROLES,
   REQUIRED_FIELDS,
   isLayoutContainerType,
   validateSectionContent,
@@ -473,6 +479,15 @@ const CONTENT_PROP_FIELDS: Record<ComponentType, readonly string[]> = {
   DropdownQuestion: ["placeholder", "helper_text"],
   SearchableDropdownQuestion: ["placeholder", "helper_text"],
   OtherGroupSelector: ["helper_text"],
+  // v3.1 §8.3 Basics: "Field label (only you see this)" (node.props.label,
+  // NEW — §11.3) is NOT listed here for the 8 Accept-swappable text-input
+  // types — the generic CONTENT_CONTROLS "label" row's shared text ("Label")
+  // is wrong for them (ContinueButton's "label" means "Button label"; a text
+  // field's means "Field label"). The Content tab renders a DEDICATED
+  // "Field label" input for the Accept-swappable family instead (still
+  // `data-inspector-field="label"` — the generic populate/collect loop reads
+  // any matching element regardless of which markup rendered it), gated by
+  // `acceptFormatOfNode(node) !== null`, so there is no double-registration.
   FreeTextQuestion: ["placeholder", "helper_text"],
   NumberInputQuestion: ["placeholder", "helper_text"],
   CurrencyInputQuestion: ["placeholder", "currency", "helper_text"],
@@ -589,6 +604,11 @@ export function componentSeedTemplates(): Record<string, Record<string, unknown>
 // only — Q5: the server geocode leg stays out of authoring scope).
 export interface StudioTypeMetaBlob {
   label: string;
+  // v3.1 §8.1 "what it is" one-line description — the SAME catalog copy the
+  // library tiles use server-side; the inspector scope header (island-side
+  // scopeWhatItIs) falls back to this for any selection outside the 3
+  // contract-asserted fixture rows (ZIP field / headline / continue).
+  description: string;
   container: boolean;
   layout: boolean;
   // The type has a Layout-tab structured-prop group (data-container-group):
@@ -619,6 +639,7 @@ export function studioTypeMeta(): Record<string, StudioTypeMetaBlob> {
     const spec: RequiredSpec = REQUIRED_FIELDS[type];
     out[type] = {
       label: STUDIO_TYPE_META[type].label,
+      description: STUDIO_TYPE_META[type].description,
       container: isLayoutContainerType(type),
       layout: COMPONENT_CATALOG[type].category === "layout",
       layout_props: STRUCTURED_PROP_TYPES.has(type),
@@ -1110,10 +1131,13 @@ export function renderScopePillsMarkup(): string {
   // Builder (the island enables it once usage loads; many funnels → a picker;
   // zero usage keeps it disabled). SSR ships it disabled — usage is not known
   // at render time.
+  // v3.1 §8.1 (Appendix A "Inspector" — asserted verbatim): "This section" /
+  // "This element" (NOT "This Section" / "Component" — a pre-v3.1 label this
+  // phase corrects; the data-scope-pill VALUES are internal keys, unchanged).
   return `<div class="studio-scope-pills" role="group" aria-label="Editing scope">
     <button type="button" class="studio-scope-pill" data-scope-pill="frame" disabled title="Page-frame elements are edited in the Quote Builder">Funnel frame</button>
-    <button type="button" class="studio-scope-pill active" data-scope-pill="section" aria-pressed="true">This Section</button>
-    <button type="button" class="studio-scope-pill" data-scope-pill="component" aria-pressed="false" disabled>Component</button>
+    <button type="button" class="studio-scope-pill active" data-scope-pill="section" aria-pressed="true">This section</button>
+    <button type="button" class="studio-scope-pill" data-scope-pill="component" aria-pressed="false" disabled>This element</button>
     <button type="button" class="studio-scope-pill" data-scope-pill="choice" aria-pressed="false" disabled>Choice</button>
   </div>`;
 }
@@ -1183,6 +1207,69 @@ const ACCEPT_LABELS: Record<(typeof LEADGEN_FIELD_ACCEPT_FORMATS)[number], strin
 const ACCEPT_OPTION_HTML = LEADGEN_FIELD_ACCEPT_FORMATS.map(
   (f) => `<option value="${f}">${escapeHtml(ACCEPT_LABELS[f])}</option>`,
 ).join("");
+
+// v3.1 §8.5b "Enumerations (exact, asserted)" — the 12-value leading-icon
+// picker (Content tab, Basics). Values are LEADGEN_FIELD_LEADING_ICONS
+// (content-schema.ts, single source of truth); labels are the asserted
+// display copy (golden 452-453's worked example anchors "Location pin").
+const LEADING_ICON_LABELS: Record<(typeof LEADGEN_FIELD_LEADING_ICONS)[number], string> = {
+  location: "Location pin",
+  calendar: "Calendar",
+  dollar: "Dollar",
+  phone: "Phone",
+  email: "Email",
+  lock: "Lock",
+  person: "Person",
+  home: "Home",
+  car: "Car",
+  shield: "Shield",
+  star: "Star",
+  none: "None",
+};
+const LEADING_ICON_OPTION_HTML = LEADGEN_FIELD_LEADING_ICONS.map(
+  (v) => `<option value="${v}">${escapeHtml(LEADING_ICON_LABELS[v])}</option>`,
+).join("");
+
+// v3.1 §8.5b — the 7-value TextBlock `role` picker (Style tab, Text/bound
+// headline selection). Values are LEADGEN_TEXT_BLOCK_ROLES (content-schema.ts).
+const TEXT_BLOCK_ROLE_LABELS: Record<(typeof LEADGEN_TEXT_BLOCK_ROLES)[number], string> = {
+  heading: "Heading",
+  body: "Body",
+  category_label: "Category label",
+  helper: "Helper",
+  legal: "Legal",
+  reassurance: "Reassurance",
+  secure_badge: "Secure badge",
+};
+const TEXT_BLOCK_ROLE_OPTION_HTML = LEADGEN_TEXT_BLOCK_ROLES.map(
+  (v) => `<option value="${v}">${escapeHtml(TEXT_BLOCK_ROLE_LABELS[v])}</option>`,
+).join("");
+
+// v3.1 §8.5/§8.5b — Style tab Width/Height presets (segmented, §7.1) and the
+// Corners/Border-color enums (node.design_overrides — Phase C addition,
+// content-schema.ts). Segmented buttons reuse the existing btn/btn-sm/active
+// idiom (viewport toggle, sim-state buttons) rather than new chrome.
+const SIZE_WIDTH_LABELS: Record<(typeof LEADGEN_SIZE_WIDTH_PRESETS)[number], string> = {
+  s: "S",
+  m: "M",
+  l: "L",
+  full: "Full",
+};
+const SIZE_HEIGHT_LABELS: Record<(typeof LEADGEN_SIZE_HEIGHT_PRESETS)[number], string> = {
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
+};
+const NODE_CORNERS_LABELS: Record<(typeof LEADGEN_NODE_CORNERS)[number], string> = {
+  sharp: "Sharp",
+  rounded: "Rounded",
+  pill: "Pill",
+};
+const NODE_BORDER_COLOR_LABELS: Record<(typeof LEADGEN_NODE_BORDER_COLOR_ROLES)[number], string> = {
+  neutral: "Neutral",
+  brand: "Brand",
+  accent: "Accent",
+};
 
 // §6.1 anatomy 1–9, left → right. The toolbar is ALWAYS visible (§6.5 row 1:
 // nothing selected still shows breadcrumb(root) · pills · undo/redo ·
@@ -1620,6 +1707,7 @@ function renderLayoutPanel(): string {
 function renderScopeHeaderShell(): string {
   return `<div class="studio-scope-header" data-studio-scope-header aria-live="polite">
   <p class="studio-scope-editing">Editing: <strong data-scope-editing-name>This Section (question unit)</strong></p>
+  <p class="studio-muted-note" data-scope-what-it-is hidden></p>
   ${renderScopePillsMarkup()}
   <p class="studio-scope-affects" data-scope-affects>Affects: changes apply everywhere this Section is used.</p>
 </div>`;
@@ -1635,6 +1723,11 @@ function renderScopeHeaderShell(): string {
 export function renderStudioInspector(design: FunnelDesign): string {
   const opOptions = options(CONDITION_OP_OPTIONS);
   const patternOptions = options(PATTERN_PRESETS);
+  // The generic per-type copy fields (CONTENT_PROP_FIELDS projection) — still
+  // used by many non-field types (ContinueButton/TextBlock/containers/etc);
+  // the 8 Accept-swappable text-input types get their OWN dedicated "Field
+  // label"/"Leading icon" controls below (§8.3 Basics — see the
+  // CONTENT_PROP_FIELDS comment: the shared "Label" text is wrong for them).
   const contentInputs = CONTENT_CONTROLS.map(
     (ctl) => `<div class="form-group lg-inspector-field" data-content-prop="${escapeHtml(ctl.key)}" hidden>
   <label class="form-label" for="lg-content-${escapeHtml(ctl.key)}">${escapeHtml(ctl.label)}</label>
@@ -1642,16 +1735,19 @@ export function renderStudioInspector(design: FunnelDesign): string {
 </div>`,
   ).join("");
 
+  // v3.1 §8.2 — the golden's 5 DYNAMIC tabs (never a fixed strip); "Advanced"
+  // is a separate persistent disclosure BELOW the tab body (golden 606-618),
+  // not a 6th tab. Rules/Maps/Offers are hidden per-selection by
+  // availableTabsFor (populateInspector, island-side); Content/Style always
+  // show '' server-side default state renders all 5 unhidden — the island's
+  // initial populateInspector call (on load) corrects visibility before the
+  // first user-visible paint, exactly like the pre-v3.1 9-tab strip did.
   const tabs: ReadonlyArray<{ key: string; label: string }> = [
     { key: "content", label: "Content" },
-    { key: "choices", label: "Choices" },
-    { key: "layout", label: "Layout" },
-    { key: "design", label: "Design" },
-    { key: "validation", label: "Validation" },
+    { key: "style", label: "Style" },
+    { key: "rules", label: "Rules" },
     { key: "maps", label: "Maps" },
-    { key: "dependencies", label: "Dependencies" },
-    { key: "mapping", label: "Mapping" },
-    { key: "advanced", label: "Advanced" },
+    { key: "offers", label: "Offers" },
   ];
   const tabButtons = tabs
     .map(
@@ -1665,112 +1761,218 @@ export function renderStudioInspector(design: FunnelDesign): string {
   <p class="form-help studio-section-scope-note" data-studio-section-scope-note>Edit the question headline, subheadline and Continue behavior in the Question strip above. Select a component on the canvas to edit its content and design.</p>
   <div class="studio-tabs" role="tablist" aria-label="Inspector tabs">${tabButtons}</div>
 
+  <!-- ============================================================ -->
+  <!-- CONTENT tab (§8.3/§8.4): bound headline/subheadline · continue ·
+       field Basics/Behavior/Answer-format/Connect-to-Offers · choices ·
+       defaults. Exactly one of the four blocks below is shown per selection
+       (populateInspector), matching §8.2's "Content shown for a copy-bearing
+       or answer selection" rule. -->
   <div class="studio-panel" data-studio-panel="content" role="tabpanel">
-    <div class="form-group lg-inspector-field" data-bound-content hidden>
-      <label class="form-label" for="lg-bound-shared-text" data-bound-content-label>Question headline (shared with the Section header above)</label>
-      <input id="lg-bound-shared-text" class="form-input" type="text" data-bound-shared-input />
+
+    <!-- headline/subheadline (bound node selected) — §8.4 -->
+    <div class="lg-inspector-field" data-content-headline-block hidden>
+      <div class="studio-panel-eyebrow">The question</div>
+      <label class="form-label" for="lg-bound-headline-input">Headline</label>
+      <input id="lg-bound-headline-input" class="form-input" type="text" data-bound-shared-input="section_headline" />
+      <label class="form-label" for="lg-bound-subheadline-input">Subheadline</label>
+      <input id="lg-bound-subheadline-input" class="form-input" type="text" data-bound-shared-input="section_subheadline" />
+      <p class="form-help studio-inline-note">Same text as the header box above — one source, two places to edit.</p>
+      <button type="button" class="studio-danger-link" data-bound-hide>Hide in this question</button>
+      <p class="form-help">The text is kept — you can show it again anytime.</p>
     </div>
-    ${contentInputs}
-    <div class="form-group lg-inspector-field" data-default-wrap="yesno" hidden>
-      <label class="form-label" for="lg-default-yesno">Default answer (§5.5)</label>
-      <select id="lg-default-yesno" class="form-input" data-default-control="yesno">
-        <option value="">No default — the visitor picks</option>
-        <option value="true">Yes (pre-selected)</option>
-        <option value="false">No (pre-selected)</option>
-      </select>
-      <p class="form-help">A default pre-selects the answer — the visitor must still confirm it before continuing (§5.5).</p>
+
+    <!-- continue (§8.4) -->
+    <div class="lg-inspector-field" data-content-continue-block hidden>
+      <p class="alert studio-callout-blue">The button&#8217;s look &amp; position are set once for the whole funnel. <a href="#0" data-open-quote-builder>Open Quote Builder &#8594;</a></p>
+      <label class="form-label" for="lg-continue-label-input">Button label</label>
+      <input id="lg-continue-label-input" class="form-input" type="text" data-inspector-field="label" />
+      <div class="studio-panel-eyebrow">Inherited from the frame</div>
+      <div class="studio-inherited-row"><span>Color</span><span>Brand primary <span class="studio-inherited-tag">inherited</span></span></div>
+      <div class="studio-inherited-row"><span>Position</span><span>Bottom, full width <span class="studio-inherited-tag">inherited</span></span></div>
     </div>
-    <div class="form-group lg-inspector-field" data-default-wrap="range" hidden>
-      <label class="form-label" for="lg-default-range">Default value (§5.5)</label>
-      <input id="lg-default-range" class="form-input" type="number" data-default-control="range" placeholder="Starts at the minimum when empty" />
-      <p class="form-help">Where the slider starts. Leave empty to start at the minimum.</p>
+
+    <!-- field: Basics/Behavior/Answer-format/Connect-to-Offers (§8.3) -->
+    <div data-content-field-block hidden>
+      <div class="studio-panel-eyebrow">Basics</div>
+      <div class="lg-inspector-field" data-field-label-wrap hidden>
+        <label class="form-label" for="lg-field-label">Field label <span class="studio-muted-note">&#183; only you see this</span></label>
+        <input id="lg-field-label" class="form-input" type="text" data-inspector-field="label" />
+      </div>
+      ${contentInputs}
+      <div class="lg-inspector-field" data-leading-icon-wrap hidden>
+        <label class="form-label" for="lg-leading-icon">Leading icon</label>
+        <select id="lg-leading-icon" class="form-input" data-inspector-field="icon"><option value="">&#8212; none &#8212;</option>${LEADING_ICON_OPTION_HTML}</select>
+      </div>
+
+      <div class="studio-hr"></div>
+      <div class="studio-panel-eyebrow">Behavior</div>
+      <div class="studio-row-between">
+        <span class="lg-check-label">Required</span>
+        <label class="lg-check"><input type="checkbox" data-inspector-field="required" aria-label="Required" /></label>
+      </div>
+      <p class="form-help">Visitors must answer before they can continue.</p>
+      <div class="form-label">When answered</div>
+      <div class="studio-segmented" role="group" aria-label="When answered" data-continue-mode-group>
+        <button type="button" data-set-continue-mode="button">Wait for Continue</button>
+        <button type="button" data-set-continue-mode="auto_advance">Go to next</button>
+      </div>
+
+      <div class="studio-hr"></div>
+      <div class="studio-panel-eyebrow">Answer format</div>
+      <div class="lg-inspector-field" data-accept-wrap hidden>
+        <label class="form-label" for="lg-inspector-accept">Accept</label>
+        <select id="lg-inspector-accept" class="form-input" data-inspector-accept>${ACCEPT_OPTION_HTML}</select>
+      </div>
+      <div class="form-group lg-inspector-field" data-vprop="min" hidden>
+        <label class="form-label" for="lg-vprop-min">Min</label>
+        <input id="lg-vprop-min" class="form-input" data-inspector-vprop="min" />
+      </div>
+      <div class="form-group lg-inspector-field" data-vprop="max" hidden>
+        <label class="form-label" for="lg-vprop-max">Max</label>
+        <input id="lg-vprop-max" class="form-input" data-inspector-vprop="max" />
+      </div>
+      <div class="form-group lg-inspector-field" data-vprop="step" hidden>
+        <label class="form-label" for="lg-vprop-step">Step</label>
+        <input id="lg-vprop-step" class="form-input" data-inspector-vprop="step" />
+      </div>
+      <div class="form-group lg-inspector-field" data-vprop="maxLen" hidden>
+        <label class="form-label" for="lg-vprop-maxLen">Max length</label>
+        <input id="lg-vprop-maxLen" class="form-input" data-inspector-vprop="maxLen" />
+      </div>
+      <div class="form-group lg-inspector-field" data-vprop="pattern" hidden>
+        <label class="form-label" for="lg-vprop-pattern">Pattern preset (§6.5)</label>
+        <select id="lg-vprop-pattern" class="form-input" data-inspector-vprop="pattern_preset">${patternOptions}</select>
+        <input class="form-input" type="text" data-inspector-vprop="pattern" placeholder="custom regex (custom preset only)" hidden />
+      </div>
+      <div class="form-group lg-inspector-field" data-vprop-error-wrap hidden>
+        <label class="form-label" for="lg-vprop-error">If it&#8217;s wrong, say</label>
+        <input id="lg-vprop-error" class="form-input" type="text" data-inspector-vprop="error_text" />
+      </div>
+      <p class="form-help" data-range-format-note hidden>Provider output format is set per Offer in the Offers tab (value transform) &#8212; sliders store the plain number here (§5.5).</p>
+
+      <div class="studio-hr"></div>
+      <div class="lg-inspector-field studio-connect-offers-card" data-connect-offers-card hidden>
+        <p data-connect-offers-text></p>
+        <button type="button" class="studio-link-btn" data-connect-offers-review>Review mapping &#8594;</button>
+      </div>
+
+      <div data-field-choices-block hidden>
+        <div class="lg-choice-list" data-inspector-choices></div>
+        <button type="button" class="btn btn-sm btn-secondary" id="lg-choice-add">+ Add choice</button>
+        <div class="form-group lg-inspector-field studio-othergroup">
+          <label class="lg-check"><input type="checkbox" data-choicedisplay="otherGroupEnabled" /> Enable &quot;Other&quot; group (B9 §6.4)</label>
+          <input class="form-input" type="text" data-choicedisplay="otherGroupLabel" placeholder="Other-group label (default: Other)" />
+          <label class="lg-check"><input type="checkbox" data-choicedisplay="searchableOther" /> Searchable Other panel</label>
+        </div>
+        <div class="form-group lg-inspector-field">
+          <label class="form-label" for="lg-choice-bulk">Bulk paste (one per line: label = value)</label>
+          <textarea id="lg-choice-bulk" class="form-input" rows="3" data-choice-bulk placeholder="Toyota = toyota&#10;Honda = honda"></textarea>
+          <button type="button" class="btn btn-sm btn-secondary" id="lg-choice-bulk-apply">Apply bulk paste</button>
+        </div>
+        <p class="form-help" data-choices-c1-note>Answer choices own display and normalization only. Provider values are set per Offer in the Offers tab &#8212; each row&#8217;s chip shows them read-only.</p>
+      </div>
+
+      <div class="form-group lg-inspector-field" data-default-wrap="yesno" hidden>
+        <label class="form-label" for="lg-default-yesno">Default answer (§5.5)</label>
+        <select id="lg-default-yesno" class="form-input" data-default-control="yesno">
+          <option value="">No default — the visitor picks</option>
+          <option value="true">Yes (pre-selected)</option>
+          <option value="false">No (pre-selected)</option>
+        </select>
+        <p class="form-help">A default pre-selects the answer — the visitor must still confirm it before continuing (§5.5).</p>
+      </div>
+      <div class="form-group lg-inspector-field" data-default-wrap="range" hidden>
+        <label class="form-label" for="lg-default-range">Default value (§5.5)</label>
+        <input id="lg-default-range" class="form-input" type="number" data-default-control="range" placeholder="Starts at the minimum when empty" />
+        <p class="form-help">Where the slider starts. Leave empty to start at the minimum.</p>
+      </div>
+      <div class="form-group lg-inspector-field" data-default-wrap="dropdown" hidden>
+        <label class="form-label" for="lg-default-dropdown">Default choice (§5.5)</label>
+        <select id="lg-default-dropdown" class="form-input" data-default-control="dropdown"><option value="">No default — the visitor picks</option></select>
+        <p class="form-help">Pre-selects one of this component&#8217;s choices.</p>
+      </div>
     </div>
-    <div class="form-group lg-inspector-field" data-default-wrap="dropdown" hidden>
-      <label class="form-label" for="lg-default-dropdown">Default choice (§5.5)</label>
-      <select id="lg-default-dropdown" class="form-input" data-default-control="dropdown"><option value="">No default — the visitor picks</option></select>
-      <p class="form-help">Pre-selects one of this component&#8217;s choices.</p>
-    </div>
-    <p class="form-help" data-content-empty hidden>This component has no editable copy — see the Layout / Advanced tabs.</p>
+
+    <p class="form-help" data-content-empty hidden>This component has no editable copy — see the Style / Advanced disclosures.</p>
   </div>
 
-  <div class="studio-panel" data-studio-panel="choices" role="tabpanel" hidden>
-    <div class="lg-choice-list" data-inspector-choices></div>
-    <button type="button" class="btn btn-sm btn-secondary" id="lg-choice-add">+ Add choice</button>
-    <div class="form-group lg-inspector-field studio-othergroup">
-      <label class="lg-check"><input type="checkbox" data-choicedisplay="otherGroupEnabled" /> Enable &quot;Other&quot; group (B9 §6.4)</label>
-      <input class="form-input" type="text" data-choicedisplay="otherGroupLabel" placeholder="Other-group label (default: Other)" />
-      <label class="lg-check"><input type="checkbox" data-choicedisplay="searchableOther" /> Searchable Other panel</label>
+  <!-- ============================================================ -->
+  <!-- STYLE tab (§8.5/§8.5b): field Width/Height/Corners/Border-color ·
+       Text/bound-headline Role/Text-color · Continue read-only inherited. -->
+  <div class="studio-panel" data-studio-panel="style" role="tabpanel" hidden>
+
+    <div data-style-field-block hidden>
+      <div class="studio-panel-eyebrow-row"><span class="studio-panel-eyebrow">Size &amp; width</span><span class="studio-muted-note" data-style-theme-note>from theme: Navy</span></div>
+      <label class="form-label">Width</label>
+      <div class="studio-segmented" role="group" aria-label="Width" data-width-preset-group>
+        <button type="button" data-set-width="s">S</button>
+        <button type="button" data-set-width="m">M</button>
+        <button type="button" data-set-width="l">L</button>
+        <button type="button" data-set-width="full">Full</button>
+      </div>
+      <div class="studio-custom-chip" data-width-custom-chip hidden>
+        <div><span class="studio-custom-chip-label" data-width-custom-label>Custom</span><div class="form-help">Set by dragging on the canvas — overrides the preset</div></div>
+        <button type="button" class="studio-link-btn" data-reset-width>Reset</button>
+      </div>
+      <label class="form-label">Height</label>
+      <div class="studio-segmented" role="group" aria-label="Height" data-height-preset-group>
+        <button type="button" data-set-height="small">Small</button>
+        <button type="button" data-set-height="medium">Medium</button>
+        <button type="button" data-set-height="large">Large</button>
+      </div>
+      <p class="form-help studio-inline-note">Presets keep every question in the funnel consistent. Drag a handle on the canvas for a one-off size — it becomes <b>Custom</b> and overrides the preset here.</p>
+
+      <div class="studio-panel-eyebrow">Appearance</div>
+      <label class="form-label">Corners</label>
+      <div class="studio-segmented" role="group" aria-label="Corners" data-corners-group>
+        <button type="button" data-set-corners="sharp">Sharp</button>
+        <button type="button" data-set-corners="rounded">Rounded</button>
+        <button type="button" data-set-corners="pill">Pill</button>
+      </div>
+      <label class="form-label">Border color</label>
+      <div class="studio-swatch-row" role="group" aria-label="Border color" data-border-color-group>
+        <button type="button" data-set-border-color="neutral"><span class="studio-role-swatch" data-border-swatch="neutral"></span>Neutral</button>
+        <button type="button" data-set-border-color="brand"><span class="studio-role-swatch" data-border-swatch="brand"></span>Brand</button>
+        <button type="button" data-set-border-color="accent"><span class="studio-role-swatch" data-border-swatch="accent"></span>Accent</button>
+      </div>
+      <p class="form-help studio-inline-note">Colors are theme roles, not fixed shades — change the theme once and every question updates. <a href="/admin/leadgen/themes" data-open-manage-theme>Manage theme &#8594;</a></p>
+
+      <div class="studio-hr"></div>
+      <p class="form-help">§8.5 tokenized layout props — dropdowns of the allowed values only.</p>
+      ${renderLayoutPanel()}
+      ${renderDesignPanel(design)}
     </div>
-    <div class="form-group lg-inspector-field">
-      <label class="form-label" for="lg-choice-bulk">Bulk paste (one per line: label = value)</label>
-      <textarea id="lg-choice-bulk" class="form-input" rows="3" data-choice-bulk placeholder="Toyota = toyota&#10;Honda = honda"></textarea>
-      <button type="button" class="btn btn-sm btn-secondary" id="lg-choice-bulk-apply">Apply bulk paste</button>
+
+    <div data-style-text-block hidden>
+      <div class="lg-inspector-field" data-text-role-wrap hidden>
+        <label class="form-label" for="lg-text-block-role">Role</label>
+        <select id="lg-text-block-role" class="form-input" data-text-block-role>${TEXT_BLOCK_ROLE_OPTION_HTML}</select>
+      </div>
+      <div class="lg-inspector-field">
+        <label class="form-label" for="lg-text-color-role">Text color role</label>
+        <select id="lg-text-color-role" class="form-input" data-inspector-override="featureColor"><option value="">Inherited</option>${roleSelectOptions()}</select>
+      </div>
     </div>
-    <p class="form-help" data-choices-c1-note>Answer choices own display and normalization only. Provider values are set per Offer in the Mapping tab &#8212; each row&#8217;s chip shows them read-only.</p>
+
+    <div data-style-continue-block hidden>
+      <div class="studio-panel-eyebrow">Inherited from the frame</div>
+      <div class="studio-inherited-row"><span>Color</span><span>Brand primary <span class="studio-inherited-tag">inherited</span></span></div>
+      <div class="studio-inherited-row"><span>Position</span><span>Bottom, full width <span class="studio-inherited-tag">inherited</span></span></div>
+      <div class="studio-inherited-row"><span>Size</span><span>Medium <span class="studio-inherited-tag">inherited</span></span></div>
+    </div>
   </div>
 
-  <div class="studio-panel" data-studio-panel="layout" role="tabpanel" hidden>
-    <p class="form-help">§8.5 tokenized layout props — dropdowns of the allowed values only.</p>
-    ${renderLayoutPanel()}
-  </div>
-
-  <div class="studio-panel" data-studio-panel="design" role="tabpanel" hidden>
-    ${renderDesignPanel(design)}
-  </div>
-
-  <div class="studio-panel" data-studio-panel="validation" role="tabpanel" hidden>
-    <div class="form-group lg-inspector-field"><label class="lg-check"><input type="checkbox" data-inspector-field="required" /> Required</label></div>
-    <div class="form-group lg-inspector-field" data-vprop="min" hidden>
-      <label class="form-label" for="lg-vprop-min">Min</label>
-      <input id="lg-vprop-min" class="form-input" data-inspector-vprop="min" />
+  <!-- ============================================================ -->
+  <!-- RULES tab (§8.6): visual IF/THEN over the existing dependency
+       evaluator — "Always show" default, sentence-rendered condition,
+       "Add a condition" reveals the (existing) picker fieldset. -->
+  <div class="studio-panel" data-studio-panel="rules" role="tabpanel" hidden>
+    <div class="studio-panel-eyebrow">When to show this</div>
+    <div class="studio-rules-always-row" data-rules-always-row>
+      <span class="studio-dot-green"></span>
+      <span class="lg-check-label">Always show</span>
     </div>
-    <div class="form-group lg-inspector-field" data-vprop="max" hidden>
-      <label class="form-label" for="lg-vprop-max">Max</label>
-      <input id="lg-vprop-max" class="form-input" data-inspector-vprop="max" />
-    </div>
-    <div class="form-group lg-inspector-field" data-vprop="step" hidden>
-      <label class="form-label" for="lg-vprop-step">Step</label>
-      <input id="lg-vprop-step" class="form-input" data-inspector-vprop="step" />
-    </div>
-    <div class="form-group lg-inspector-field" data-vprop="maxLen" hidden>
-      <label class="form-label" for="lg-vprop-maxLen">Max length</label>
-      <input id="lg-vprop-maxLen" class="form-input" data-inspector-vprop="maxLen" />
-    </div>
-    <div class="form-group lg-inspector-field" data-vprop="pattern" hidden>
-      <label class="form-label" for="lg-vprop-pattern">Pattern preset (§6.5)</label>
-      <select id="lg-vprop-pattern" class="form-input" data-inspector-vprop="pattern_preset">${patternOptions}</select>
-      <input class="form-input" type="text" data-inspector-vprop="pattern" placeholder="custom regex (custom preset only)" hidden />
-    </div>
-    <div class="form-group lg-inspector-field">
-      <label class="form-label" for="lg-vprop-error">Error text override</label>
-      <input id="lg-vprop-error" class="form-input" type="text" data-inspector-vprop="error_text" />
-    </div>
-    <p class="form-help" data-range-format-note hidden>Provider output format is set per Offer in the Mapping tab (value transform) &#8212; sliders store the plain number here (§5.5).</p>
-  </div>
-
-  <div class="studio-panel" data-studio-panel="maps" role="tabpanel" hidden>
-    <p class="form-help">§8.8 field-level Google-Maps config (browser Places leg). Per-field config WINS over the legacy global toggle. Absent browser key &#8658; graceful no-op — manual entry keeps working.</p>
-    <div class="form-group lg-inspector-field" data-maps-mode="address"><label class="lg-check"><input type="checkbox" data-maps-flag="enable_autocomplete" /> Enable address autocomplete</label></div>
-    <div class="form-group lg-inspector-field" data-maps-mode="address"><label class="lg-check"><input type="checkbox" data-maps-flag="validate_full_address" /> Validate full address</label></div>
-    <div class="form-group lg-inspector-field" data-maps-mode="zip"><label class="lg-check"><input type="checkbox" data-maps-flag="validate_zip" /> Validate ZIP</label></div>
-    <div class="form-group lg-inspector-field" data-maps-mode="both">
-      <label class="form-label" for="lg-maps-autofill-state">Autofill state &#8594; field</label>
-      <select id="lg-maps-autofill-state" class="form-input" data-maps-fill="autofill_state"><option value="">&#8212; none &#8212;</option></select>
-    </div>
-    <div class="form-group lg-inspector-field" data-maps-mode="both">
-      <label class="form-label" for="lg-maps-autofill-city">Autofill city &#8594; field</label>
-      <select id="lg-maps-autofill-city" class="form-input" data-maps-fill="autofill_city"><option value="">&#8212; none &#8212;</option></select>
-    </div>
-    <div class="form-group lg-inspector-field" data-maps-mode="address">
-      <label class="form-label" for="lg-maps-autofill-zip">Autofill ZIP &#8594; field</label>
-      <select id="lg-maps-autofill-zip" class="form-input" data-maps-fill="autofill_zip"><option value="">&#8212; none &#8212;</option></select>
-    </div>
-    <div class="form-group lg-inspector-field" data-maps-mode="address"><label class="lg-check"><input type="checkbox" data-maps-flag="normalize_address_line" /> Normalize address line</label></div>
-    <p class="form-help" data-maps-zip-note hidden>ZIP features ride Places autocomplete on the ZIP input — the saved config carries <code>enable_autocomplete</code> automatically (the runtime wiring gate).</p>
-  </div>
-
-  <div class="studio-panel" data-studio-panel="dependencies" role="tabpanel" hidden>
-    <fieldset class="form-group lg-inspector-field lg-inspector-conditional">
+    <fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-rules-condition-fields hidden>
       <legend class="form-label">Show this component IF (§6.10)</legend>
       <p class="form-help studio-cond-sentence" data-cond-sentence aria-live="polite"></p>
       <select class="form-input" data-inspector-cond="when" aria-label="Depends on field"><option value="">— always visible —</option></select>
@@ -1782,8 +1984,12 @@ export function renderStudioInspector(design: FunnelDesign): string {
       <input class="form-input" type="number" data-inspector-cond="to" placeholder="to" aria-label="Range to" hidden />
       <input class="form-input" type="text" data-inspector-cond="values" placeholder="values, comma-separated" aria-label="Condition values" hidden />
     </fieldset>
+    <button type="button" class="studio-add-condition-btn" data-rules-add-condition>+ Add a condition</button>
+    <button type="button" class="studio-link-btn studio-danger-link" data-rules-remove-condition hidden>Remove condition &#8212; always show</button>
+
+    <div class="studio-hr"></div>
     <fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-reqcond-wrap hidden>
-      <legend class="form-label">Require this component IF (§7.3)</legend>
+      <legend class="form-label">Require this question IF (§7.3)</legend>
       <p class="form-help studio-cond-sentence" data-reqcond-sentence aria-live="polite"></p>
       <select class="form-input" data-inspector-reqcond="when" aria-label="Required when field"><option value="">— only when marked Required —</option></select>
       <select class="form-input" data-inspector-reqcond="op" aria-label="Required-when operator">${opOptions}</select>
@@ -1797,24 +2003,58 @@ export function renderStudioInspector(design: FunnelDesign): string {
     </fieldset>
   </div>
 
-  <div class="studio-panel" data-studio-panel="mapping" role="tabpanel" hidden>
-    <p class="form-help">How this component&#39;s answer maps to each selected Offer. Quick-map picks the Offer&#39;s field — never a typed path.</p>
-    <div class="studio-inspector-mapping" data-studio-inspector-mapping></div>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-open-mapping-drawer>Open Offer mapping drawer</button>
+  <!-- ============================================================ -->
+  <!-- MAPS tab (§9): toggle + 3 whole-row jobs, writes props.maps
+       {enabled, jobs:{validate,auction,autocomplete}} (Phase C — replaces
+       the old flat autofill-oriented panel). -->
+  <div class="studio-panel" data-studio-panel="maps" role="tabpanel" hidden>
+    <div class="studio-panel-eyebrow">Google Maps</div>
+    <div class="studio-row-between">
+      <span class="lg-check-label">Validate with Google Maps</span>
+      <label class="lg-check"><input type="checkbox" data-maps-enabled-toggle aria-label="Validate with Google Maps" /></label>
+    </div>
+    <p class="form-help">Uses this site&#8217;s Maps key. Per-field settings win over the funnel&#8217;s global toggle.</p>
+    <div data-maps-jobs-block hidden>
+      <p class="form-label">What should Maps do? <span class="studio-muted-note">&#183; pick at least one</span></p>
+      <div class="alert alert-warning studio-maps-zero-job-banner" data-maps-zero-job-banner hidden role="status" aria-live="polite">Pick at least one job for Maps, or turn it off — otherwise it does nothing at runtime.</div>
+      <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="validate" /><span><span class="lg-check-label">Validate the answer</span><span class="form-help" data-maps-validate-copy></span></span></label>
+      <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="auction" /><span><span class="lg-check-label">Use in auction rules</span><span class="form-help">Turn the ZIP into a location the auction can target or exclude by state, city or ZIP. <a href="/admin/leadgen/rules" data-open-auction-rules>Open auction rules &#8594;</a></span></span></label>
+      <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="autocomplete" /><span><span class="lg-check-label">Auto-complete the address</span><span class="form-help">Fill this field and the other address fields in this section (city, state, street) from the ZIP.</span></span></label>
+    </div>
   </div>
 
-  <div class="studio-panel" data-studio-panel="advanced" role="tabpanel" hidden>
+  <!-- ============================================================ -->
+  <!-- OFFERS tab (§8.7): per-Offer destination rows (existing mapping
+       mechanism, relocated + relabeled). -->
+  <div class="studio-panel" data-studio-panel="offers" role="tabpanel" hidden>
+    <div class="studio-panel-eyebrow">Where this answer goes</div>
+    <p class="form-help">This answer is sent to each buyer in the auction. Field names differ per buyer &#8212; that&#8217;s handled here.</p>
+    <div class="studio-inspector-mapping" data-studio-inspector-mapping></div>
+    <button type="button" class="btn btn-sm btn-outline" data-studio-open-mapping-drawer>Open full mapping &#8594;</button>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- ADVANCED (§8.8): a persistent disclosure OUTSIDE the tab system
+       (golden 606-618), collapsed by default for every selection — the ONLY
+       place ids/JSON/hex appear. -->
+  <div class="studio-hr"></div>
+  <button type="button" class="studio-advanced-toggle" data-studio-advanced-toggle aria-expanded="false">
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" data-studio-advanced-chevron><path d="M8 5l8 7-8 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>Advanced</span>
+  </button>
+  <div class="studio-advanced-body" data-studio-advanced-body hidden>
+    <p class="form-help">For developers. Renaming these can unlink Offer mappings.</p>
     <div class="form-group lg-inspector-field">
-      <label class="form-label" for="lg-inspector-internal-field">Internal field (normalized answer name)</label>
-      <input id="lg-inspector-internal-field" class="form-input" type="text" data-inspector-field="internal_field" placeholder="e.g. currently_insured" />
+      <label class="form-label" for="lg-inspector-internal-field">Internal field</label>
+      <input id="lg-inspector-internal-field" class="form-input studio-mono-input" type="text" data-inspector-field="internal_field" placeholder="e.g. currently_insured" />
       <p class="alert alert-error studio-rename-warning" data-studio-rename-warning hidden role="status" aria-live="polite"></p>
     </div>
     <div class="form-group lg-inspector-field">
-      <label class="form-label" for="lg-inspector-question-key">Question key</label>
-      <input id="lg-inspector-question-key" class="form-input" type="text" data-inspector-field="question_key" />
+      <label class="form-label" for="lg-inspector-question-key">Analytics label</label>
+      <input id="lg-inspector-question-key" class="form-input studio-mono-input" type="text" data-inspector-field="question_key" />
     </div>
     <div class="form-group lg-inspector-field">
-      <span class="form-label">Debug ids (read-only)</span>
+      <span class="form-label">Component id (read-only)</span>
       <code class="studio-debug-id" data-studio-debug-id></code>
     </div>
     <div class="form-group lg-inspector-field">
@@ -1975,12 +2215,11 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
     <button type="button" class="studio-tab studio-drawer-tab" role="tab" data-studio-drawer-tab="validation" aria-selected="false">Validation</button>
     <button type="button" class="studio-tab studio-drawer-tab active" role="tab" data-studio-drawer-tab="preview" aria-selected="true">Preview in a quote</button>
     <button type="button" class="studio-tab studio-drawer-tab-minor" role="tab" data-studio-drawer-tab="design" aria-selected="false" style="margin-left:8px;font-size:11px;color:${STUDIO_COLOR.faintSub};background:none;border:0;cursor:pointer;padding:4px 8px">Design overrides</button>
-    <div style="margin-left:auto;display:flex;align-items:center;gap:15px">
-      <a href="/admin/leadgen/themes" data-studio-preview-theme-link style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:${STUDIO_COLOR.muted};cursor:pointer;font-weight:600;text-decoration:none">
-        <span style="width:13px;height:13px;border-radius:4px;background:${STUDIO_COLOR.navy};position:relative;display:inline-block"><span style="position:absolute;right:-2px;bottom:-2px;width:7px;height:7px;border-radius:2px;background:${STUDIO_COLOR.accent};border:1px solid ${STUDIO_COLOR.white}"></span></span>
-        Preview theme:&nbsp;<b style="color:${STUDIO_COLOR.navy}">Navy</b>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="${STUDIO_COLOR.faint}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </a>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+      <span style="width:13px;height:13px;border-radius:4px;background:${STUDIO_COLOR.navy};position:relative;display:inline-block"><span style="position:absolute;right:-2px;bottom:-2px;width:7px;height:7px;border-radius:2px;background:${STUDIO_COLOR.accent};border:1px solid ${STUDIO_COLOR.white}"></span></span>
+      <label style="font-size:12px;color:${STUDIO_COLOR.muted};font-weight:600" for="lg-preview-theme">Preview theme:</label>
+      <select id="lg-preview-theme" class="form-input" data-studio-preview-theme style="font-size:12px;padding:3px 6px;max-width:130px"><option value="">Navy (default)</option></select>
+      <a href="/admin/leadgen/themes" data-studio-manage-theme-link style="font-size:12px;color:${STUDIO_COLOR.muted};font-weight:600;text-decoration:none">Manage theme &#8594;</a>
       <div style="width:1px;height:20px;background:${STUDIO_COLOR.linePanel}"></div>
       <button type="button" data-studio-drawer-expand aria-pressed="false" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:${STUDIO_COLOR.faintSub};cursor:pointer;background:none;border:0;padding:0">Expand<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="${STUDIO_COLOR.faintSub}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div>
@@ -2199,6 +2438,43 @@ export const SECTION_STUDIO_STYLES = `
 .studio-tab{border:0;background:none;padding:6px 10px;font-size:12px;cursor:pointer;border-bottom:2px solid transparent;color:var(--c-muted)}
 .studio-tab.active{border-bottom-color:var(--c-primary);color:var(--c-primary);font-weight:600}
 .studio-tab[hidden]{display:none}
+/* v3.1 §8 Phase C — the 5-tab inspector's new shared chrome (semantic
+   classes + CSS custom properties, matching the rest of this file's idiom —
+   NOT literal golden hex; §0's "translate the logic" doctrine). */
+.studio-panel-eyebrow{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--c-muted);margin:12px 0 8px}
+.studio-panel-eyebrow-row{display:flex;align-items:baseline;justify-content:space-between;margin:12px 0 8px}
+.studio-panel-eyebrow-row .studio-panel-eyebrow{margin:0}
+.studio-muted-note{font-size:11px;color:var(--c-muted);font-weight:500}
+.studio-hr{height:1px;background:var(--c-border);margin:14px 0}
+.studio-row-between{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.lg-check-label{font-size:13px;font-weight:600}
+.studio-segmented{display:inline-flex;background:var(--c-surface-alt,#edf0f5);border-radius:6px;padding:2px;width:100%;margin-bottom:9px}
+.studio-segmented button{flex:1;text-align:center;font-size:12px;font-weight:600;padding:6px 4px;border:0;background:none;color:var(--c-muted);cursor:pointer;border-radius:5px}
+.studio-segmented button.active{background:var(--c-card,#fff);color:var(--c-primary);box-shadow:0 1px 2px rgba(16,24,40,.1)}
+.studio-custom-chip{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--c-primary-wash,#eaf0f6);border:1px solid var(--c-primary);border-radius:8px;padding:8px 10px;margin-bottom:10px}
+.studio-custom-chip-label{font-size:12.5px;font-weight:700;color:var(--c-primary)}
+.studio-swatch-row{display:flex;gap:9px;margin-bottom:12px}
+.studio-swatch-row button{display:flex;flex-direction:column;align-items:center;gap:5px;border:0;background:none;cursor:pointer;font-size:10.5px;color:var(--c-muted);font-weight:600}
+.studio-swatch-row button.active{color:var(--c-primary)}
+.studio-swatch-row .studio-role-swatch{width:30px;height:30px;border-radius:8px}
+.studio-inherited-row{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border:1px solid var(--c-border);border-radius:6px;margin-bottom:6px;font-size:12.5px}
+.studio-inherited-tag{font-size:9.5px;background:var(--c-surface-alt,#eef1f6);color:var(--c-muted);padding:1px 6px;border-radius:9px;margin-left:5px}
+.studio-danger-link{border:0;background:none;color:#b23a2c;cursor:pointer;font-size:12.5px;font-weight:600;padding:0;text-decoration:underline}
+.studio-callout-blue{background:#eaf1f8;border:1px solid #d4e2f0;color:#33506f;font-size:12px}
+.studio-inline-note{background:var(--c-surface-alt,#f6f8fb);border-radius:6px;padding:8px 10px;color:var(--c-muted)}
+.studio-connect-offers-card{background:#edf7f1;border:1px solid #cfe8db;border-radius:8px;padding:10px 12px}
+.studio-connect-offers-card p{color:#1e6b41;font-weight:600;margin:0 0 4px}
+.studio-rules-always-row{display:flex;align-items:center;gap:8px;padding:9px 11px;border:1px solid var(--c-border);border-radius:8px;margin-bottom:10px;background:var(--c-surface-alt,#f7f9fb)}
+.studio-dot-green{width:8px;height:8px;border-radius:50%;background:#0e7c3a;flex:0 0 auto}
+.studio-add-condition-btn{border:1px solid var(--c-primary);color:var(--c-primary);background:none;border-radius:6px;padding:7px 12px;font-size:12.5px;font-weight:700;cursor:pointer}
+.studio-maps-job-row{display:flex;gap:9px;align-items:flex-start;padding:10px;border:1px solid var(--c-border);border-radius:8px;margin-bottom:8px;cursor:pointer}
+.studio-maps-job-row input{margin-top:2px}
+.studio-maps-zero-job-banner{font-size:11.5px;padding:8px 10px;margin-bottom:10px}
+.studio-mono-input{font-family:var(--font-mono,monospace);font-size:11.5px}
+.studio-advanced-toggle{display:flex;align-items:center;gap:6px;padding:10px 0 4px;background:none;border:0;cursor:pointer;color:var(--c-muted);font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;width:100%;text-align:left}
+.studio-advanced-toggle svg{transition:transform .15s ease}
+.studio-advanced-toggle[aria-expanded="true"] svg{transform:rotate(90deg)}
+.studio-advanced-body{padding-top:4px}
 .lg-inspector-heading{font-size:13px;margin:0 0 8px}
 .lg-inspector-field{margin-bottom:10px}
 .lg-inspector-conditional{display:flex;gap:4px;flex-wrap:wrap;border:0;padding:0;margin:0}
@@ -3126,7 +3402,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (key === 'bind') {
       var strip = stripInputFor(ref.node.bind);
       if (strip) { strip.value = text; }
-      var mirror = document.querySelector('[data-bound-shared-input]');
+      var mirror = document.querySelector('[data-bound-shared-input="' + ref.node.bind + '"]');
       if (mirror && strip) { mirror.value = strip.value; }
       markDirty();
       scheduleCanvasRender();
@@ -3335,25 +3611,20 @@ export const SECTION_STUDIO_SCRIPT = `
     return refs;
   }
 
-  // --- §8.8 field-level Maps config model helpers -----------------------------
-  // The EXACT runtime keys (runtime/maps.ts parseMapsConfig flat spellings):
-  // flags per mode + autofill field-picker keys per mode. The UI emits ONLY
-  // these keys; parseMapsConfig treats an absent key as off.
-  var MAPS_FLAG_KEYS = {
-    address: ['enable_autocomplete', 'validate_full_address', 'normalize_address_line'],
-    zip: ['validate_zip']
-  };
-  var MAPS_FILL_KEYS = {
-    address: ['autofill_state', 'autofill_city', 'autofill_zip'],
-    zip: ['autofill_city', 'autofill_state']
-  };
+  // --- §9 field-level Maps config model helpers (Phase C job-based shape) -----
+  // Legacy flat-key spellings (runtime/maps.ts parseMapsConfig's liberal
+  // parse) stay recognized for OLD stored content — the new UI (below) only
+  // ever authors the {enabled, jobs} shape.
   function mapsConfigOf(node) {
     var m = node && node.props ? node.props.maps : null;
     return (m && typeof m === 'object' && !Array.isArray(m)) ? m : null;
   }
   // The autofilled part names, in the runtime's link order (street, city,
   // state, zip) — reading BOTH the flat autofill_* spelling and the nested
-  // fills object exactly like parseMapsConfig's pick().
+  // fills object exactly like parseMapsConfig's pick(). Retained for OLD
+  // stored content's canvas chip decoration (buildFrameBadge sibling); the
+  // new Maps tab authors no fills object (§9 — no per-field autofill-target
+  // picker in the golden design; FLAGGED contract gap, see final report).
   function mapsFillLabels(node) {
     var cfg = mapsConfigOf(node);
     if (!cfg) { return []; }
@@ -3366,11 +3637,13 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     return out;
   }
-  // Maps-enabled = the per-field config switches SOMETHING on (any §8.8 flag
-  // — either spelling parseMapsConfig accepts — or an autofill target).
+  // Maps-enabled = the per-field config switches SOMETHING on: the NEW
+  // {enabled:true} shape, any OLD flat flag (either spelling parseMapsConfig
+  // accepts), or an autofill target on legacy stored content.
   function nodeMapsEnabled(node) {
     var cfg = mapsConfigOf(node);
     if (!cfg) { return false; }
+    if (cfg.enabled === true) { return true; }
     if (cfg.enable_autocomplete === true || cfg.autocomplete === true) { return true; }
     if (cfg.validate_full_address === true || cfg.validate_zip === true || cfg.validate === true) { return true; }
     if (cfg.normalize_address_line === true || cfg.normalize === true) { return true; }
@@ -4026,11 +4299,11 @@ export const SECTION_STUDIO_SCRIPT = `
       chip.setAttribute('data-mapping-overlay-chip', qid);
       chip.setAttribute('data-overlay-state', info.required_missing ? 'required-missing' : 'mapped');
       chip.setAttribute('data-overlay-count', String(info.count));
-      chip.title = 'Open the Mapping tab for this component';
+      chip.title = 'Open the Offers tab for this component';
       chip.appendChild(document.createTextNode(info.required_missing ? 'Required \\u2014 missing' : 'Mapped \\u00B7 ' + info.count + ' Offer' + (info.count === 1 ? '' : 's')));
       chip.addEventListener('click', function () {
         selectComponent(this.getAttribute('data-mapping-overlay-chip'));
-        setInspectorTab('mapping');
+        setInspectorTab('offers');
       });
       if (nodes[i].parentNode) { nodes[i].parentNode.insertBefore(chip, nodes[i]); }
     }
@@ -4374,8 +4647,25 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   function scopeEditingName(node) {
     if (scopeState === 'choice') { return 'Answer choice \\u201C' + choiceScopeLabel + '\\u201D'; }
-    if (scopeState === 'component' && node) { return typeLabel(node.type); }
+    // §5.6/§8.1: "the inspector name is always 'Short text field'" for the
+    // 8-value Accept-swap family — the SAME special-case decorateFieldSelection
+    // already applies to the canvas name-tag (its own comment names this
+    // exact parity goal); every other field type keeps its own catalog label.
+    if (scopeState === 'component' && node) { return acceptFormatOfNode(node) ? 'Short text field' : typeLabel(node.type); }
     return 'This Section (question unit)';
+  }
+  // §8.1 "what it is" one-line description. Three rows are contract-ASSERTED
+  // fixture strings (ZIP field / headline / continue); every OTHER selection
+  // has no asserted copy (a recorded contract gap — never invented), so it
+  // falls back to the REAL catalog description already shipped for every
+  // type (typeMeta(type).description, the same data the library tiles use),
+  // never a fabricated sentence.
+  function scopeWhatItIs(node) {
+    if (scopeState !== 'component' || !node) { return ''; }
+    if (node.bind !== undefined) { return 'The main ask of this question'; }
+    if (node.type === 'ContinueButton') { return 'Moves to the next question'; }
+    if (acceptFormatOfNode(node) === 'us_zip') { return 'Collects the visitor\\u2019s ZIP'; }
+    return typeMeta(node.type).description || '';
   }
   var scopeFlashTimer = null;
   function renderScopeHeader() {
@@ -4385,10 +4675,16 @@ export const SECTION_STUDIO_SCRIPT = `
     if (scopeState !== 'section' && !node) { scopeState = 'section'; }
     var nameEl = header.querySelector('[data-scope-editing-name]');
     var affectsEl = header.querySelector('[data-scope-affects]');
+    var whatEl = header.querySelector('[data-scope-what-it-is]');
     var changed = false;
     var newName = scopeEditingName(node);
     if (nameEl && nameEl.textContent !== newName) { nameEl.textContent = newName; changed = true; }
     if (affectsEl) { affectsEl.textContent = scopeAffectsText(node); }
+    if (whatEl) {
+      var whatText = scopeWhatItIs(node);
+      whatEl.textContent = whatText;
+      whatEl.hidden = whatText === '';
+    }
     // §6.1.2: ONE pill implementation, two hosts — every instance syncs.
     var pills = document.querySelectorAll('[data-scope-pill]');
     var i, key, active;
@@ -4610,7 +4906,7 @@ export const SECTION_STUDIO_SCRIPT = `
     applyCanvasDecoration();
     renderBreadcrumb();
     if (!selectedQuestionId && pendingInsert) { pendingInsert = null; updatePendingUi(); }
-    populateInspector();
+    populateInspector(true);
     renderInspectorMapping();
     renderScopeHeader();
     updateCanvasToolbar();
@@ -4641,9 +4937,11 @@ export const SECTION_STUDIO_SCRIPT = `
     scopeState = 'choice';
     applyCanvasDecoration();
     renderBreadcrumb();
-    populateInspector();
+    populateInspector(true);
     renderInspectorMapping();
-    setInspectorTab('choices');
+    // v3.1 §8.2: choices now live INSIDE the Content tab (folded from the
+    // old standalone 'choices' tab) — open Content, not a dead panel key.
+    setInspectorTab('content');
     // populateInspector/setInspectorTab may have re-scoped — re-assert CHOICE.
     scopeState = 'choice';
     focusChoiceRow(value);
@@ -4652,45 +4950,62 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   // --- inspector tabs (§7.3: DYNAMIC per selection — never a fixed strip) -------
+  // v3.1 §8.2 — the 5 DYNAMIC tabs (never a fixed strip), per the table's
+  // EXACT 3-row partition: Answer/input field = Content·Style·Rules·Maps*·
+  // Offers; Bound headline/subheadline/Text = Content·Style ONLY; Continue
+  // button = Content·Style ONLY. "Advanced" is a persistent disclosure
+  // OUTSIDE this tab system now (setAdvancedOpen below), so it is never
+  // returned here. Simplification (flagged, reported): the pre-v3.1
+  // frame-scope special-case (page-frame elements got NO design/
+  // dependencies tabs) is folded into the general rule — a frame-scope node
+  // still only shows 'maps'/'offers' when meta.maps/meta.produces are
+  // truthy (never true for frame-scope catalog entries), so it now ALSO gets
+  // 'style' and 'rules' where before it got neither — a capability EXPANSION,
+  // never a regression (no existing affordance is removed). This
+  // frame-scope carve-out is DISTINCT from (and does not touch) the
+  // contract's explicit bound/Continue restriction below.
   function availableTabsFor(node) {
     if (!node) { return []; }
     var meta = typeMeta(node.type);
     var tabs = [];
-    // Content shows for a COPY-BEARING selection only (§7.3 "Shown when"): a
-    // type with content props, or a §5.2 BOUND node (its shared text field).
-    var hasContent = node.bind !== undefined || (meta.content_props || []).length > 0;
-    // §5.4/§8.2: a legacy PAGE-FRAME element is not a unit component — it gets
-    // its copy/structured props + Advanced, but no unit tabs (design/
-    // validation/dependencies/mapping are unit-scope surfaces).
-    if (meta.scope === 'frame') {
-      if (hasContent) { tabs.push('content'); }
-      if (meta.layout_props) { tabs.push('layout'); }
-      tabs.push('advanced');
-      return tabs;
-    }
+    var isBound = node.bind !== undefined;
+    var isContinue = node.type === 'ContinueButton';
+    // Content shows for a COPY-BEARING or CHOICE-BEARING selection (§8.2): a
+    // type with content props, a §5.2 BOUND node, or a choice-bearing type
+    // (it hosts the Choices sub-block even absent its own content_props).
+    var hasContent = isBound || (meta.content_props || []).length > 0 || meta.choice === true;
     if (hasContent) { tabs.push('content'); }
-    if (meta.choice) { tabs.push('choices'); }
-    // Structured-prop containers/leaves (Stack/Grid/…/TrustBar/LogoStrip)
-    // author their token props on the Layout tab (wave-2 folds this into
-    // Design depth per §7.3).
-    if (meta.layout_props) { tabs.push('layout'); }
-    // Design: any visual selection (§7.3) — containers included.
-    tabs.push('design');
-    if (meta.produces) { tabs.push('validation'); }
+    // Style: any visual selection (§8.5 "any visual selection").
+    tabs.push('style');
+    // Rules: the contract's table EXCLUDES it for the bound headline/
+    // subheadline/Text row and the Continue-button row — both are
+    // Content·Style ONLY. Every other selection (fields, choices,
+    // containers) keeps the dependency evaluator.
+    if (!isBound && !isContinue) { tabs.push('rules'); }
+    // Maps: ZIP/Address types only (§8.2 "*Maps only for ZIP/Address types").
     if (meta.maps) { tabs.push('maps'); }
-    tabs.push('dependencies');
-    if (meta.produces) { tabs.push('mapping'); }
-    tabs.push('advanced');
+    // Offers: answer-producing types only (folds the old 'mapping' tab).
+    if (meta.produces) { tabs.push('offers'); }
     return tabs;
   }
-  function setInspectorTab(key) {
-    // §7.5: opening the Advanced tab is tracked (admin-side, console-only —
-    // no schema change).
-    if (key === 'advanced' && currentInspectorTab !== 'advanced' && window.console && window.console.info) {
+  var advancedOpen = false;
+  // §8.8: the Advanced disclosure — collapsed by default for EVERY selection
+  // (contract-asserted), opening emits the console-only section_advanced_opened
+  // event (§7.5's tracking requirement, carried over from the old Advanced TAB).
+  function setAdvancedOpen(open) {
+    advancedOpen = open;
+    if (open && window.console && window.console.info) {
       window.console.info('section_advanced_opened', { section: state.public_id || 'new', component: selectedQuestionId });
     }
-    // Leaving the Choices tab ends the choice scope (§7.2 retarget).
-    if (key !== 'choices' && scopeState === 'choice') { scopeState = selectedQuestionId ? 'component' : 'section'; renderScopeHeader(); }
+    var toggle = document.querySelector('[data-studio-advanced-toggle]');
+    var body = document.querySelector('[data-studio-advanced-body]');
+    if (toggle) { toggle.setAttribute('aria-expanded', open ? 'true' : 'false'); }
+    if (body) { body.hidden = !open; }
+  }
+  function setInspectorTab(key) {
+    // Leaving the Content tab ends the choice scope (§7.2 retarget) — Choices
+    // now lives INSIDE Content (folded per §8.2), not its own tab.
+    if (key !== 'content' && scopeState === 'choice') { scopeState = selectedQuestionId ? 'component' : 'section'; renderScopeHeader(); }
     currentInspectorTab = key;
     var tabs = document.querySelectorAll('[data-studio-inspector-tab]');
     var panels = document.querySelectorAll('[data-studio-panel]');
@@ -4714,7 +5029,61 @@ export const SECTION_STUDIO_SCRIPT = `
     if (field === 'design_preset') { return node.design_preset; }
     return node.props ? node.props[field] : '';
   }
-  function populateInspector() {
+  // §8.1/§8.4: the Content tab shows exactly ONE of headline/continue/field.
+  function contentVariantOf(node) {
+    if (!node) { return null; }
+    if (node.bind !== undefined) { return 'headline'; }
+    if (node.type === 'ContinueButton') { return 'continue'; }
+    return 'field';
+  }
+  // §8.5b: the Style tab shows exactly ONE of field/text/continue variants.
+  // "Text/bound headline" = TextBlock (role-based) OR any bound node OR the
+  // pre-§5.3 discrete text-role types (TEXT_ROLE_TYPES) — preserving every
+  // existing text-ish selection's style surface.
+  function styleVariantOf(node) {
+    if (!node) { return null; }
+    if (node.type === 'ContinueButton') { return 'continue'; }
+    if (node.type === 'TextBlock' || node.bind !== undefined || TEXT_ROLE_TYPES.indexOf(node.type) !== -1) { return 'text'; }
+    return 'field';
+  }
+  function populateContentVariant(node) {
+    var variant = contentVariantOf(node);
+    var headlineBlock = document.querySelector('[data-content-headline-block]');
+    var continueBlock = document.querySelector('[data-content-continue-block]');
+    var fieldBlock = document.querySelector('[data-content-field-block]');
+    if (headlineBlock) { headlineBlock.hidden = variant !== 'headline'; }
+    if (continueBlock) { continueBlock.hidden = variant !== 'continue'; }
+    if (fieldBlock) { fieldBlock.hidden = variant !== 'field'; }
+    if (variant === 'headline') {
+      var hIn = document.querySelector('[data-bound-shared-input="section_headline"]');
+      var sIn = document.querySelector('[data-bound-shared-input="section_subheadline"]');
+      var hStrip = stripInputFor('section_headline');
+      var sStrip = stripInputFor('section_subheadline');
+      if (hIn) { hIn.value = hStrip ? hStrip.value : ''; }
+      if (sIn) { sIn.value = sStrip ? sStrip.value : ''; }
+    }
+  }
+  function populateStyleVariant(node) {
+    var variant = styleVariantOf(node);
+    var fieldBlock = document.querySelector('[data-style-field-block]');
+    var textBlock = document.querySelector('[data-style-text-block]');
+    var continueBlock = document.querySelector('[data-style-continue-block]');
+    if (fieldBlock) { fieldBlock.hidden = variant !== 'field'; }
+    if (textBlock) { textBlock.hidden = variant !== 'text'; }
+    if (continueBlock) { continueBlock.hidden = variant !== 'continue'; }
+    if (variant === 'field') { populateSizeControls(node); populateCornersBorderControls(node); }
+    if (variant === 'text') { populateTextRoleControls(node); }
+  }
+  // §6.2 "Selecting a node retargets the inspector and resets its active tab
+  // to Content" — a NEW SELECTION (isNewSelection=true, from
+  // selectComponent/selectChoice ONLY) forces the tab back to Content
+  // (falling back to the first available tab if Content isn't offered, e.g.
+  // a structural container). A property-mutation refresh (preset apply,
+  // override reset/convert, Accept-swap, continue-mode — every OTHER
+  // populateInspector caller) must NOT yank the operator off whatever tab
+  // they are actively editing, so it keeps the pre-existing
+  // stay-if-still-available behavior.
+  function populateInspector(isNewSelection) {
     var node = selectedNode();
     var meta = node ? typeMeta(node.type) : {};
     var isBound = !!node && node.bind !== undefined;
@@ -4730,27 +5099,17 @@ export const SECTION_STUDIO_SCRIPT = `
       tabs[i].hidden = avail.indexOf(k) === -1;
     }
     if (avail.length === 0) { setInspectorTab('none'); }
+    else if (isNewSelection === true && avail.indexOf('content') !== -1) { setInspectorTab('content'); }
     else if (avail.indexOf(currentInspectorTab) === -1) { setInspectorTab(avail[0]); }
     else { setInspectorTab(currentInspectorTab); }
+    // §8.8 "collapsed by default": a NEW selection re-collapses Advanced.
+    if (isNewSelection === true) { setAdvancedOpen(false); }
 
-    // §5.2: a BOUND node's Content tab shows the SAME single shared field —
-    // never a second text store. The generic props.text control is hidden for
-    // it; the shared input mirrors the strip input (one store, two views).
-    var boundWrap = document.querySelector('[data-bound-content]');
-    var boundInput = document.querySelector('[data-bound-shared-input]');
-    var boundLabel = document.querySelector('[data-bound-content-label]');
-    if (boundWrap) { boundWrap.hidden = !isBound; }
-    if (isBound && boundInput) {
-      var boundStrip = stripInputFor(node.bind);
-      boundInput.value = boundStrip ? boundStrip.value : '';
-      if (boundLabel) {
-        boundLabel.textContent = node.bind === 'section_subheadline'
-          ? 'Subheadline (shared with the Section header above)'
-          : 'Question headline (shared with the Section header above)';
-      }
-    }
+    populateContentVariant(node);
+    populateStyleVariant(node);
 
     // content controls: only the selected type's copy fields are visible
+    // (unchanged mechanism — now scoped inside data-content-field-block).
     var wraps = document.querySelectorAll('[data-content-prop]');
     var cp = meta.content_props || [];
     var anyContent = isBound;
@@ -4762,6 +5121,29 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     var emptyNote = document.querySelector('[data-content-empty]');
     if (emptyNote) { emptyNote.hidden = anyContent || !node; }
+
+    // §8.3 Basics: Field label + Leading icon — the 8 Accept-swappable types
+    // only (dedicated controls, distinct from the generic CONTENT_CONTROLS
+    // "label"/"icon" rows used by other types — see CONTENT_PROP_FIELDS).
+    var acceptFmt = acceptFormatOfNode(node);
+    var labelWrap = document.querySelector('[data-field-label-wrap]');
+    if (labelWrap) { labelWrap.hidden = acceptFmt === null; if (acceptFmt !== null) { anyContent = true; } }
+    var iconWrap = document.querySelector('[data-leading-icon-wrap]');
+    if (iconWrap) { iconWrap.hidden = acceptFmt === null; }
+    if (emptyNote && acceptFmt !== null) { emptyNote.hidden = true; }
+    var acceptWrap = document.querySelector('[data-accept-wrap]');
+    var acceptSel = document.querySelector('[data-inspector-accept]');
+    if (acceptWrap) { acceptWrap.hidden = acceptFmt === null; }
+    if (acceptSel && acceptFmt !== null) { acceptSel.value = acceptFmt; }
+    var errWrap = document.querySelector('[data-vprop-error-wrap]');
+    if (errWrap) { errWrap.hidden = !node || !meta.produces; }
+
+    // §8.3 Behavior: When-answered segmented (section-wide continue_mode).
+    var mode = state.continue_mode || 'button';
+    var modeBtns = document.querySelectorAll('[data-set-continue-mode]');
+    for (i = 0; i < modeBtns.length; i++) {
+      modeBtns[i].className = modeBtns[i].getAttribute('data-set-continue-mode') === mode ? 'active' : '';
+    }
 
     // A6: the image-fit Design control shows ONLY for the image answer grid.
     var fitWrap = document.querySelector('[data-image-fit-wrap]');
@@ -4797,15 +5179,19 @@ export const SECTION_STUDIO_SCRIPT = `
     renderOverrideDecorations(node);
     renderPresetControls();
     populateValidation(node, meta);
-    populateMapsPanel(node);
+    populateMapsTab(node, meta);
     populateConditional(node);
+    populateRulesAlwaysRow(node);
     populateRequiredWhen(node);
     populateDefaultControls(node);
+    populateConnectOffersCard(node);
     var groups = document.querySelectorAll('[data-container-group]');
     for (i = 0; i < groups.length; i++) {
       groups[i].hidden = !node || groups[i].getAttribute('data-container-group') !== node.type;
     }
     populateContainerProps(node);
+    var choicesBlock = document.querySelector('[data-field-choices-block]');
+    if (choicesBlock) { choicesBlock.hidden = !node || meta.choice !== true; }
     renderChoiceEditor(node);
     populateChoiceDisplay(node);
     var dbg = document.querySelector('[data-studio-debug-id]');
@@ -4954,100 +5340,289 @@ export const SECTION_STUDIO_SCRIPT = `
     if (errIn) { errIn.value = (node && node.props && node.props.error_text) ? String(node.props.error_text) : ''; }
   }
 
-  // --- §8.8 Maps panel: populate + collect (address/zip modes) -----------------
-  function mapsControl(kind, key) {
-    return document.querySelector('[data-maps-' + kind + '="' + key + '"]');
+  // --- §9 Maps tab: populate + collect (job-based model, Phase C) -------------
+  // Replaces the old flat autofill-oriented panel with the contract's
+  // {enabled, jobs:{validate,auction,autocomplete}} shape (content-schema.ts
+  // §9.2). The manual per-field "autofill target" picker is RETIRED — the
+  // golden's 3 whole-row jobs are the only controls; the runtime's own
+  // cross-field autofill wiring (parseMapsConfig's fills object) has no UI producer
+  // anymore (FLAGGED contract gap — see the final report: no naming/role
+  // convention exists to auto-detect sibling city/state/street fields without
+  // reintroducing a manual picker the golden design does not show).
+  function mapsConfigEnabledOf(node) {
+    var cfg = mapsConfigOf(node);
+    return !!cfg && cfg.enabled === true;
   }
-  function populateMapsPanel(node) {
-    var meta = node ? typeMeta(node.type) : {};
+  function mapsJobsOf(node) {
+    var cfg = mapsConfigOf(node);
+    var jobs = (cfg && cfg.jobs && typeof cfg.jobs === 'object') ? cfg.jobs : {};
+    return { validate: jobs.validate === true, auction: jobs.auction === true, autocomplete: jobs.autocomplete === true };
+  }
+  function mapsAnyJobOn(jobs) { return jobs.validate === true || jobs.auction === true || jobs.autocomplete === true; }
+  // §9.1 "Validate the answer" sub-copy is asserted ZIP-specific; Address has
+  // no asserted string (FLAGGED contract gap) — a faithful analogous
+  // generalization is used for the Address mode.
+  function mapsValidateCopyFor(mode) {
+    return mode === 'address'
+      ? 'Validate the full street address. An incomplete address blocks the Continue button.'
+      : 'Allow only valid US ZIP codes. An invalid ZIP blocks the Continue button.';
+  }
+  function populateMapsTab(node, metaIn) {
+    var meta = metaIn || (node ? typeMeta(node.type) : {});
     var mode = meta.maps || null;
-    var wraps = document.querySelectorAll('[data-maps-mode]');
-    var i, m;
-    for (i = 0; i < wraps.length; i++) {
-      m = wraps[i].getAttribute('data-maps-mode');
-      wraps[i].hidden = !mode || (m !== 'both' && m !== mode);
+    var toggle = document.querySelector('[data-maps-enabled-toggle]');
+    var jobsBlock = document.querySelector('[data-maps-jobs-block]');
+    var banner = document.querySelector('[data-maps-zero-job-banner]');
+    var validateCopy = document.querySelector('[data-maps-validate-copy]');
+    if (!mode) {
+      if (jobsBlock) { jobsBlock.hidden = true; }
+      if (toggle) { toggle.checked = false; }
+      return;
     }
-    var zipNote = document.querySelector('[data-maps-zip-note]');
-    if (zipNote) { zipNote.hidden = mode !== 'zip'; }
-    if (!mode) { return; }
-    var cfg = mapsConfigOf(node) || {};
-    var flags = document.querySelectorAll('[data-maps-flag]');
-    var k;
-    for (i = 0; i < flags.length; i++) {
-      k = flags[i].getAttribute('data-maps-flag');
-      flags[i].checked = cfg[k] === true;
+    var enabled = mapsConfigEnabledOf(node);
+    var jobs = mapsJobsOf(node);
+    if (toggle) { toggle.checked = enabled; }
+    if (jobsBlock) { jobsBlock.hidden = !enabled; }
+    if (validateCopy) { validateCopy.textContent = mapsValidateCopyFor(mode); }
+    var jobEls = document.querySelectorAll('[data-maps-job]');
+    var i, k;
+    for (i = 0; i < jobEls.length; i++) {
+      k = jobEls[i].getAttribute('data-maps-job');
+      jobEls[i].checked = jobs[k] === true;
     }
-    // Field pickers: THIS section's internal fields, excluding the component
-    // itself (§8.8 — an autofill target is always ANOTHER question's field).
-    var fields = internalFieldsOf();
-    var fills = document.querySelectorAll('[data-maps-fill]');
-    var sel, cur, opt, j;
-    for (i = 0; i < fills.length; i++) {
-      sel = fills[i];
-      k = sel.getAttribute('data-maps-fill');
-      cur = typeof cfg[k] === 'string' ? cfg[k] : '';
-      clearChildren(sel);
-      opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = '\\u2014 none \\u2014';
-      sel.appendChild(opt);
-      for (j = 0; j < fields.length; j++) {
-        if (node.internal_field && fields[j] === node.internal_field) { continue; }
-        opt = document.createElement('option');
-        opt.value = fields[j];
-        opt.textContent = fields[j];
-        sel.appendChild(opt);
-      }
-      // a saved target that left the tree still displays (never silently drop)
-      var exists = false;
-      for (j = 0; j < sel.options.length; j++) {
-        if (sel.options[j].value === cur) { exists = true; break; }
-      }
-      if (cur !== '' && !exists) {
-        opt = document.createElement('option');
-        opt.value = cur;
-        opt.textContent = cur + ' (missing from this Section)';
-        sel.appendChild(opt);
-      }
-      sel.value = cur;
-    }
+    // §9.3 "if on and zero jobs selected: amber banner" — a LIVE mirror of
+    // the save-time maps_no_job warning (content-schema.ts), computed
+    // instantly from the in-memory node so the operator sees it before Save.
+    if (banner) { banner.hidden = !(enabled && !mapsAnyJobOn(jobs)); }
   }
-  // Build the §8.8 config object with the EXACT runtime keys for the mode.
-  // Only switched-on keys are emitted (parseMapsConfig: absent = off). A ZIP
-  // config with ANY feature on also carries enable_autocomplete — the
-  // runtime's initMapsFields wires Places ONLY when autocomplete is enabled,
-  // and §8.8 gives ZIP fields no separate autocomplete toggle.
-  function buildMapsConfig(mode) {
-    var cfg = {};
-    var flagKeys = MAPS_FLAG_KEYS[mode] || [];
-    var fillKeys = MAPS_FILL_KEYS[mode] || [];
-    var i, el, v, any = false;
-    for (i = 0; i < flagKeys.length; i++) {
-      el = mapsControl('flag', flagKeys[i]);
-      if (el && el.checked) { cfg[flagKeys[i]] = true; any = true; }
-    }
-    for (i = 0; i < fillKeys.length; i++) {
-      el = mapsControl('fill', fillKeys[i]);
-      v = el ? trimStr(el.value) : '';
-      if (v !== '') { cfg[fillKeys[i]] = v; any = true; }
-    }
-    if (mode === 'zip' && any) { cfg.enable_autocomplete = true; }
-    return cfg;
-  }
-  function collectMapsConfig() {
+  function collectMapsToggle() {
     var node = selectedNode();
-    if (!node) { return; }
-    var meta = typeMeta(node.type);
-    if (!meta.maps) { return; }
-    var cfg = buildMapsConfig(meta.maps);
-    var empty = true, k;
-    for (k in cfg) { if (Object.prototype.hasOwnProperty.call(cfg, k)) { empty = false; break; } }
+    var meta = node ? typeMeta(node.type) : {};
+    if (!node || !meta.maps) { return; }
+    var toggle = document.querySelector('[data-maps-enabled-toggle]');
+    var on = !!toggle && toggle.checked;
     var props = ensureObj(node, 'props');
-    // removing ALL config deletes props.maps — the node stays clean
-    if (empty) { delete props.maps; } else { props.maps = cfg; }
+    if (!on) {
+      // Turning the toggle off removes the config entirely (§9.2 — no
+      // "enabled:false" residue authored fresh; existing stored
+      // enabled:false content still round-trips via the generic path).
+      delete props.maps;
+    } else {
+      var jobs = mapsJobsOf(node);
+      props.maps = { enabled: true, jobs: jobs };
+    }
     cleanupEmpty(node, 'props');
+    populateMapsTab(node, meta);
     applyCanvasDecoration();
     afterModelChange();
+  }
+  function collectMapsJob(input) {
+    var node = selectedNode();
+    var meta = node ? typeMeta(node.type) : {};
+    if (!node || !meta.maps) { return; }
+    var key = input.getAttribute('data-maps-job');
+    if (!key) { return; }
+    // Guard BEFORE any mutation: bail out without creating a stray empty
+    // props object when the node has no enabled:true config yet (the jobs
+    // block is only visible/interactive once the toggle is already on).
+    var cfg = mapsConfigOf(node);
+    if (!cfg || cfg.enabled !== true) { return; }
+    var props = ensureObj(node, 'props');
+    var jobs = mapsJobsOf(node);
+    jobs[key] = !!input.checked;
+    props.maps = { enabled: true, jobs: jobs };
+    populateMapsTab(node, meta);
+    applyCanvasDecoration();
+    afterModelChange();
+  }
+
+  // --- §8.5/§8.5b Style tab: Width/Height presets + Custom/Reset, Corners,
+  // Border color (field variant); Role (text variant) --------------------------
+  // The theme currently PREVIEWED in the bottom drawer (§10.6 "Preview theme"
+  // switcher, default Navy) — a Section stores no theme of its own, it always
+  // inherits whichever theme renders it, so this is a PREVIEW-CONTEXT label,
+  // not a per-node stored value.
+  var previewThemeName = 'Navy';
+  function populateSizeControls(node) {
+    var size = (node && node.design_overrides && node.design_overrides.size) ? node.design_overrides.size : {};
+    var widthVal = size.width;
+    var isCustomWidth = widthVal !== undefined && typeof widthVal === 'object';
+    var customPx = currentCustomWidthPx(node);
+    var widthBtns = document.querySelectorAll('[data-set-width]');
+    var i;
+    for (i = 0; i < widthBtns.length; i++) {
+      widthBtns[i].className = (!isCustomWidth && widthVal === widthBtns[i].getAttribute('data-set-width')) ? 'active' : '';
+    }
+    var customChip = document.querySelector('[data-width-custom-chip]');
+    var customLabel = document.querySelector('[data-width-custom-label]');
+    if (customChip) { customChip.hidden = !isCustomWidth; }
+    if (customLabel && customPx !== null) { customLabel.textContent = 'Custom \\u00b7 \\u2248 ' + customPx + ' px'; }
+    var heightVal = size.height;
+    var heightBtns = document.querySelectorAll('[data-set-height]');
+    for (i = 0; i < heightBtns.length; i++) {
+      heightBtns[i].className = heightVal === heightBtns[i].getAttribute('data-set-height') ? 'active' : '';
+    }
+    var themeNote = document.querySelector('[data-style-theme-note]');
+    if (themeNote) { themeNote.textContent = 'from theme: ' + previewThemeName; }
+  }
+  // §7.1 bullet 2: "Selecting a preset writes that preset name to the node and
+  // clears any custom value." Reused by BOTH the Style-tab segmented buttons
+  // here and — via the same design_overrides.size storage — the Phase-B
+  // canvas-drag mechanism (onWidthHandleMouseDown) stays the OTHER writer of
+  // the identical key.
+  function setWidthPreset(preset) {
+    var node = selectedNode();
+    if (!node) { return; }
+    if (!node.design_overrides) { node.design_overrides = {}; }
+    if (!node.design_overrides.size) { node.design_overrides.size = {}; }
+    node.design_overrides.size.width = preset;
+    populateSizeControls(node);
+    applyCanvasDecoration();
+    afterModelChange();
+  }
+  function setHeightPreset(preset) {
+    var node = selectedNode();
+    if (!node) { return; }
+    if (!node.design_overrides) { node.design_overrides = {}; }
+    if (!node.design_overrides.size) { node.design_overrides.size = {}; }
+    node.design_overrides.size.height = preset;
+    populateSizeControls(node);
+    afterModelChange();
+  }
+  // §7.1 bullet 4: "Reset removes the custom value -> the field re-inherits
+  // the theme preset." Deletes ONLY the width key (never touches height) —
+  // absent = inherit theme default (§7.2).
+  function resetWidthCustom() {
+    var node = selectedNode();
+    if (!node || !node.design_overrides || !node.design_overrides.size) { return; }
+    delete node.design_overrides.size.width;
+    cleanupEmpty(node.design_overrides, 'size');
+    cleanupEmpty(node, 'design_overrides');
+    populateSizeControls(node);
+    applyCanvasDecoration();
+    afterModelChange();
+  }
+  // §8.5b Appearance: Corners + Border color — plain enum-scalar
+  // design_overrides keys (content-schema.ts CURATED_DESIGN_OVERRIDE_KEYS),
+  // never hex. Absent shows the golden fixture's default segment
+  // (rounded/neutral) as the VISUAL default — the actual resolved value is a
+  // theme concern; no live per-theme default is wired into this admin view.
+  function populateCornersBorderControls(node) {
+    var corners = (node && node.design_overrides && typeof node.design_overrides.corners === 'string') ? node.design_overrides.corners : 'rounded';
+    var borderColor = (node && node.design_overrides && typeof node.design_overrides.border_color === 'string') ? node.design_overrides.border_color : 'neutral';
+    var cornersBtns = document.querySelectorAll('[data-set-corners]');
+    var i;
+    for (i = 0; i < cornersBtns.length; i++) {
+      cornersBtns[i].className = cornersBtns[i].getAttribute('data-set-corners') === corners ? 'active' : '';
+    }
+    var borderBtns = document.querySelectorAll('[data-set-border-color]');
+    for (i = 0; i < borderBtns.length; i++) {
+      borderBtns[i].className = borderBtns[i].getAttribute('data-set-border-color') === borderColor ? 'active' : '';
+    }
+  }
+  function setNodeCorners(val) {
+    var node = selectedNode();
+    if (!node) { return; }
+    var overrides = ensureObj(node, 'design_overrides');
+    overrides.corners = val;
+    populateCornersBorderControls(node);
+    afterModelChange();
+  }
+  function setNodeBorderColor(val) {
+    var node = selectedNode();
+    if (!node) { return; }
+    var overrides = ensureObj(node, 'design_overrides');
+    overrides.border_color = val;
+    populateCornersBorderControls(node);
+    afterModelChange();
+  }
+  // §8.5b Text/bound-headline Style variant: Role (TextBlock only).
+  function populateTextRoleControls(node) {
+    var wrap = document.querySelector('[data-text-role-wrap]');
+    var sel = document.querySelector('[data-text-block-role]');
+    var isTextBlock = !!node && node.type === 'TextBlock';
+    if (wrap) { wrap.hidden = !isTextBlock; }
+    if (sel && isTextBlock) { sel.value = (node.props && typeof node.props.role === 'string') ? node.props.role : 'body'; }
+  }
+  function collectTextBlockRole() {
+    var node = selectedNode();
+    if (!node || node.type !== 'TextBlock') { return; }
+    var sel = document.querySelector('[data-text-block-role]');
+    if (!sel) { return; }
+    var props = ensureObj(node, 'props');
+    props.role = sel.value;
+    afterModelChange();
+  }
+
+  // --- §8.6 Rules tab: "Always show" default / revealed condition builder -----
+  // rulesFieldsRevealed is a UI-ONLY toggle (independent of the stored
+  // conditional) so "+ Add a condition" can open the picker fieldset BEFORE
+  // any field is chosen; it re-locks to the stored state on every new
+  // selection ("collapsed/always-show by default" — matching the Advanced
+  // disclosure's per-selection re-lock doctrine).
+  var rulesFieldsRevealed = false;
+  function renderRulesFieldsVisibility(show) {
+    var row = document.querySelector('[data-rules-always-row]');
+    var fields = document.querySelector('[data-rules-condition-fields]');
+    var addBtn = document.querySelector('[data-rules-add-condition]');
+    var removeBtn = document.querySelector('[data-rules-remove-condition]');
+    if (row) { row.hidden = show; }
+    if (fields) { fields.hidden = !show; }
+    if (addBtn) { addBtn.hidden = show; }
+    if (removeBtn) { removeBtn.hidden = !show; }
+  }
+  function populateRulesAlwaysRow(node) {
+    var hasCond = !!(node && node.conditional && node.conditional.when);
+    rulesFieldsRevealed = hasCond;
+    renderRulesFieldsVisibility(hasCond);
+  }
+
+  // --- §8.3 Connect-to-Offers green card (Content tab, field variant) ---------
+  // "This answer fills <field> on all N Offers." — read-only, computed from
+  // the SAME mapping data the Offers tab renders (offersList/edgesForOffer/
+  // answerFieldOf); "all N" only when EVERY selected Offer maps this field.
+  function populateConnectOffersCard(node) {
+    var card = document.querySelector('[data-connect-offers-card]');
+    var textEl = document.querySelector('[data-connect-offers-text]');
+    if (!card) { return; }
+    if (!node || !node.internal_field || !offersData) { card.hidden = true; return; }
+    var list = offersList();
+    var selected = [], i, offer, live;
+    for (i = 0; i < list.length; i++) {
+      offer = list[i];
+      live = offerLiveState(offer);
+      if (live.state !== 'not_selected') { selected.push(offer); }
+    }
+    if (selected.length === 0) { card.hidden = true; return; }
+    var mappedCount = 0, fieldLabel = '', j, edges, e, f;
+    for (i = 0; i < selected.length; i++) {
+      edges = edgesForOffer(selected[i].id);
+      for (j = 0; j < edges.length; j++) {
+        e = edges[j];
+        if (e.internal_field === node.internal_field) {
+          mappedCount += 1;
+          if (fieldLabel === '') {
+            f = answerFieldOf(selected[i], e.offer_payload_field_path);
+            fieldLabel = f ? fieldDisplayLabel(f) : e.offer_payload_field_path;
+          }
+          break;
+        }
+      }
+    }
+    if (mappedCount === 0) { card.hidden = true; return; }
+    card.hidden = false;
+    if (textEl) {
+      clearChildren(textEl);
+      textEl.appendChild(document.createTextNode('This answer fills '));
+      var b = document.createElement('b');
+      b.appendChild(document.createTextNode(fieldLabel || node.internal_field));
+      textEl.appendChild(b);
+      textEl.appendChild(document.createTextNode(
+        mappedCount === selected.length
+          ? (' on all ' + selected.length + ' Offer' + (selected.length === 1 ? '' : 's') + '.')
+          : (' on ' + mappedCount + ' of ' + selected.length + ' Offers.')
+      ));
+    }
   }
 
   // --- §8.5 container prop collectors -------------------------------------------
@@ -6778,7 +7353,7 @@ export const SECTION_STUDIO_SCRIPT = `
       return;
     }
     if (act === 'label') {
-      setInspectorTab('choices');
+      setInspectorTab('content');
       focusChoiceRow(value);
       return;
     }
@@ -6818,7 +7393,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (choiceBtn) { handleChoiceAct(choiceBtn.getAttribute('data-choice-act')); return; }
       var chipBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-value-chip]') : null;
       if (chipBtn && selectedChoiceValue !== null) {
-        setInspectorTab('choices');
+        setInspectorTab('content');
         focusChoiceRow(String(selectedChoiceValue));
         return;
       }
@@ -6838,7 +7413,7 @@ export const SECTION_STUDIO_SCRIPT = `
         return;
       }
       var valShortcut = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-open-validation]') : null;
-      if (valShortcut) { setInspectorTab('validation'); return; }
+      if (valShortcut) { setInspectorTab('content'); return; }
       var searchToggle = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-searchable]') : null;
       if (searchToggle) {
         var sNode = selectedNode();
@@ -7044,13 +7619,100 @@ export const SECTION_STUDIO_SCRIPT = `
     vpropEls[ve].addEventListener('input', function () { collectValidationProp(this); });
     vpropEls[ve].addEventListener('change', function () { collectValidationProp(this); });
   }
-  // §8.8 Maps controls: every toggle/picker change re-collects the whole
-  // config for the selected node's mode (exact-keys emission).
-  var mapsEls = document.querySelectorAll('[data-maps-flag], [data-maps-fill]');
-  var me;
-  for (me = 0; me < mapsEls.length; me++) {
-    mapsEls[me].addEventListener('change', collectMapsConfig);
+  // §9 Maps tab controls: the enabled toggle re-collects the whole {enabled,
+  // jobs} object (turning ON seeds all-false jobs — triggers the zero-job
+  // banner immediately per §9.3); each job checkbox re-collects just itself.
+  var mapsToggleEl = document.querySelector('[data-maps-enabled-toggle]');
+  if (mapsToggleEl) { mapsToggleEl.addEventListener('change', collectMapsToggle); }
+  var mapsJobEls = document.querySelectorAll('[data-maps-job]');
+  var mj;
+  for (mj = 0; mj < mapsJobEls.length; mj++) {
+    mapsJobEls[mj].addEventListener('change', function () { collectMapsJob(this); });
   }
+
+  // §8.5 Style tab: Width/Height presets, Reset, Corners, Border color.
+  var widthPresetEls = document.querySelectorAll('[data-set-width]');
+  var wpi;
+  for (wpi = 0; wpi < widthPresetEls.length; wpi++) {
+    widthPresetEls[wpi].addEventListener('click', function () { setWidthPreset(this.getAttribute('data-set-width')); });
+  }
+  var heightPresetEls = document.querySelectorAll('[data-set-height]');
+  var hpi;
+  for (hpi = 0; hpi < heightPresetEls.length; hpi++) {
+    heightPresetEls[hpi].addEventListener('click', function () { setHeightPreset(this.getAttribute('data-set-height')); });
+  }
+  var resetWidthEl = document.querySelector('[data-reset-width]');
+  if (resetWidthEl) { resetWidthEl.addEventListener('click', resetWidthCustom); }
+  var cornersEls = document.querySelectorAll('[data-set-corners]');
+  var cni;
+  for (cni = 0; cni < cornersEls.length; cni++) {
+    cornersEls[cni].addEventListener('click', function () { setNodeCorners(this.getAttribute('data-set-corners')); });
+  }
+  var borderColorEls = document.querySelectorAll('[data-set-border-color]');
+  var bci;
+  for (bci = 0; bci < borderColorEls.length; bci++) {
+    borderColorEls[bci].addEventListener('click', function () { setNodeBorderColor(this.getAttribute('data-set-border-color')); });
+  }
+  var textBlockRoleEl = document.querySelector('[data-text-block-role]');
+  if (textBlockRoleEl) { textBlockRoleEl.addEventListener('change', collectTextBlockRole); }
+
+  // §8.3 Content tab: dedicated Accept select (reuses setAcceptFormat — the
+  // SAME §5.6 Accept-swap rule the canvas toolbar's data-toolbar-accept
+  // already wires) + the When-answered segmented (reuses setContinueMode —
+  // the SAME section-wide control the question strip already wires).
+  var inspectorAcceptEl = document.querySelector('[data-inspector-accept]');
+  if (inspectorAcceptEl) {
+    inspectorAcceptEl.addEventListener('change', function () {
+      var node = selectedNode();
+      if (node) { setAcceptFormat(node, this.value); populateInspector(); applyCanvasDecoration(); }
+    });
+  }
+  var contentModeEls = document.querySelectorAll('[data-set-continue-mode]');
+  var cmi;
+  for (cmi = 0; cmi < contentModeEls.length; cmi++) {
+    contentModeEls[cmi].addEventListener('click', function () { setContinueMode(this.getAttribute('data-set-continue-mode')); populateInspector(); });
+  }
+
+  // §8.4 "Hide in this question" (headline/subheadline) — reuses the
+  // existing removeNode mechanism (the bound TEXT lives in headline_text/
+  // subheadline_text, untouched by removing the NODE; "Show" already
+  // re-inserts via insertBoundNodeAtTop, wired elsewhere).
+  var boundHideEl = document.querySelector('[data-bound-hide]');
+  if (boundHideEl) {
+    boundHideEl.addEventListener('click', function () {
+      var node = selectedNode();
+      if (node) { removeNode(node.question_id); }
+    });
+  }
+  // §8.3 "Review mapping →" — switches the inspector to the Offers tab.
+  var connectOffersReviewEl = document.querySelector('[data-connect-offers-review]');
+  if (connectOffersReviewEl) { connectOffersReviewEl.addEventListener('click', function () { setInspectorTab('offers'); }); }
+
+  // §8.6 Rules: "+ Add a condition" reveals the picker (UI-only, until a
+  // field is actually chosen); "Remove condition" clears the stored
+  // conditional and returns to "Always show".
+  var rulesAddBtn = document.querySelector('[data-rules-add-condition]');
+  if (rulesAddBtn) {
+    rulesAddBtn.addEventListener('click', function () { rulesFieldsRevealed = true; renderRulesFieldsVisibility(true); });
+  }
+  var rulesRemoveBtn = document.querySelector('[data-rules-remove-condition]');
+  if (rulesRemoveBtn) {
+    rulesRemoveBtn.addEventListener('click', function () {
+      var node = selectedNode();
+      if (node) { delete node.conditional; }
+      rulesFieldsRevealed = false;
+      populateConditional(node);
+      renderConditionSentences(node);
+      renderRulesFieldsVisibility(false);
+      afterModelChange();
+    });
+  }
+
+  // §8.8 Advanced: a persistent disclosure (collapsed by default, re-locks
+  // per selection — setAdvancedOpen(false) in populateInspector).
+  var advancedToggleEl = document.querySelector('[data-studio-advanced-toggle]');
+  if (advancedToggleEl) { advancedToggleEl.addEventListener('click', function () { setAdvancedOpen(!advancedOpen); }); }
+
   var condEls = document.querySelectorAll('[data-inspector-cond]');
   var ce;
   for (ce = 0; ce < condEls.length; ce++) {
@@ -7262,6 +7924,10 @@ export const SECTION_STUDIO_SCRIPT = `
     if (frameCtx !== null) { requestBody.frame_context = frameCtx; }
     var designSel = document.getElementById('lg-preview-design');
     if (designSel && trimStr(designSel.value) !== '') { requestBody.design_id = trimStr(designSel.value); }
+    // §10.6 "Preview theme" switcher (Phase A's additive theme_id preview
+    // param) — absent/blank selection previews the default (Navy).
+    var themeSel = document.getElementById('lg-preview-theme');
+    if (themeSel && trimStr(themeSel.value) !== '') { requestBody.theme_id = trimStr(themeSel.value); }
     fetch('/api/admin/leadgen/sections/preview', {
       method: 'POST',
       credentials: 'same-origin',
@@ -8397,17 +9063,18 @@ export const SECTION_STUDIO_SCRIPT = `
     }
   }
   // "Fix type…" → the mapped component's internal-field surface (the
-  // Advanced-tab input) — the place the answer identity is authored.
+  // Advanced DISCLOSURE input, §8.8 — no longer a tab) — the place the
+  // answer identity is authored.
   function openFixTypeSurface(internalField) {
     var node = questionByField(internalField);
     if (!node) { return false; }
     selectComponent(node.question_id);
-    setInspectorTab('advanced');
+    setAdvancedOpen(true);
     var inp = document.getElementById('lg-inspector-internal-field');
     if (inp && inp.focus) { inp.focus(); }
     return true;
   }
-  // "Re-link…" → the component's quick-map on the inspector Mapping tab
+  // "Re-link…" → the component's quick-map on the inspector Offers tab
   // (picking a field there drops the stale edge for this Offer + component
   // and upserts the new one); a component-less edge falls back to the
   // Map-fields editor.
@@ -8415,7 +9082,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var node = trimStr(internalField) === '' ? null : questionByField(internalField);
     if (!node) { openFixMapGrid(offer, path); return; }
     selectComponent(node.question_id);
-    setInspectorTab('mapping');
+    setInspectorTab('offers');
     var sel = document.querySelector('[data-inspector-quickmap="' + offer.id + '"]');
     if (sel) {
       if (sel.scrollIntoView) { sel.scrollIntoView({ block: 'nearest' }); }
@@ -8535,31 +9202,46 @@ export const SECTION_STUDIO_SCRIPT = `
     });
   }
 
-  // --- §5.2 binding wiring: strip ⇄ bound-node views of the ONE store ----------
-  // The strip inputs ARE the store (headline_text/subheadline_text). The
-  // inspector's shared field and the canvas render are the other views.
-  function collectBoundShared() {
-    var node = selectedNode();
-    if (!node || node.bind === undefined) { return; }
-    var inputEl = document.querySelector('[data-bound-shared-input]');
-    var strip = stripInputFor(node.bind);
+  // --- §5.2/§8.4 binding wiring: strip ⇄ bound-node views of the ONE store -----
+  // The strip inputs ARE the store (headline_text/subheadline_text). v3.1
+  // §8.4: the Content tab's headline variant shows BOTH Headline AND
+  // Subheadline inputs together (whichever bound node is selected) — so BOTH
+  // data-bound-shared-input="section_headline"/"section_subheadline"
+  // elements need their OWN wiring (a single generic bare-attribute
+  // selector, pre-v3.1, only ever reached the FIRST one in DOM order).
+  function collectBoundShared(bindValue) {
+    var inputEl = document.querySelector('[data-bound-shared-input="' + bindValue + '"]');
+    var strip = stripInputFor(bindValue);
     if (!inputEl || !strip) { return; }
     strip.value = inputEl.value;
     markDirty();
     scheduleCanvasRender();
   }
-  var boundSharedInput = document.querySelector('[data-bound-shared-input]');
-  if (boundSharedInput) {
-    boundSharedInput.addEventListener('input', collectBoundShared);
-    boundSharedInput.addEventListener('change', collectBoundShared);
+  function wireBoundSharedInput(bindValue) {
+    var el = document.querySelector('[data-bound-shared-input="' + bindValue + '"]');
+    if (!el) { return; }
+    el.addEventListener('input', function () { collectBoundShared(bindValue); });
+    el.addEventListener('change', function () { collectBoundShared(bindValue); });
   }
-  // Typing in the strip live-updates the canvas render (bound nodes) and the
-  // inspector mirror when a bound node is selected.
+  wireBoundSharedInput('section_headline');
+  wireBoundSharedInput('section_subheadline');
+  // Typing in either strip input live-updates the canvas render AND mirrors
+  // BOTH inspector fields (the Content tab shows both simultaneously
+  // whenever any bound node is selected — §8.4 "one source, two places").
   function onStripInput() {
+    // Gate the mirror sync on "a bound node IS the current selection" (the
+    // pre-v3.1 single-field behavior) — otherwise typing in the strip while
+    // some OTHER node is selected would silently write into the (hidden,
+    // irrelevant) Content-tab headline/subheadline inputs, which is
+    // observable as a second live-value field even though nothing shows it.
     var node = selectedNode();
-    if (node && node.bind !== undefined && boundSharedInput) {
-      var strip = stripInputFor(node.bind);
-      if (strip && boundSharedInput.value !== strip.value) { boundSharedInput.value = strip.value; }
+    if (node && node.bind !== undefined) {
+      var hIn = document.querySelector('[data-bound-shared-input="section_headline"]');
+      var hStrip = stripInputFor('section_headline');
+      if (hIn && hStrip && hIn.value !== hStrip.value) { hIn.value = hStrip.value; }
+      var sIn = document.querySelector('[data-bound-shared-input="section_subheadline"]');
+      var sStrip = stripInputFor('section_subheadline');
+      if (sIn && sStrip && sIn.value !== sStrip.value) { sIn.value = sStrip.value; }
     }
     scheduleCanvasRender();
   }
@@ -8593,7 +9275,7 @@ export const SECTION_STUDIO_SCRIPT = `
         if (!node || typeMeta(node.type).choice !== true) { return; }
         var first = (node.choices && node.choices.length) ? node.choices[0] : null;
         choiceScopeLabel = first && first.label !== undefined ? String(first.label) : '';
-        setInspectorTab('choices');
+        setInspectorTab('content');
         setScope('choice');
         return;
       }
@@ -8671,6 +9353,44 @@ export const SECTION_STUDIO_SCRIPT = `
       renderScopeHeader();
       renderFramePreviewEmpty();
     }).catch(function () {});
+  }
+
+  // §10.6 "Preview theme" switcher (drawer): populates from the REAL
+  // lg-funnel-themes KV list (GET /api/admin/leadgen/themes, Phase A/D's
+  // JSON API — this admin studio only CONSUMES it; the Themes manager
+  // SCREEN is Phase D's). A blank selection previews the default (Navy);
+  // picking a theme re-renders via runPreview's additive theme_id param and
+  // updates the Style tab's "from theme: X" note to the SAME picked name.
+  function loadThemesList() {
+    var sel = document.getElementById('lg-preview-theme');
+    if (!sel) { return; }
+    fetch('/api/admin/leadgen/themes', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var items = (j && j.items) || [];
+        clearChildren(sel);
+        var blank = document.createElement('option');
+        blank.value = '';
+        blank.textContent = 'Navy (default)';
+        sel.appendChild(blank);
+        var i, o;
+        for (i = 0; i < items.length; i++) {
+          o = document.createElement('option');
+          o.value = items[i].id;
+          o.textContent = items[i].name;
+          sel.appendChild(o);
+        }
+      })
+      .catch(function () {});
+  }
+  var previewThemeSelEl = document.getElementById('lg-preview-theme');
+  if (previewThemeSelEl) {
+    previewThemeSelEl.addEventListener('change', function () {
+      var chosen = this.options[this.selectedIndex];
+      previewThemeName = (chosen && trimStr(this.value) !== '') ? chosen.textContent : 'Navy';
+      populateSizeControls(selectedNode());
+      runPreview();
+    });
   }
 
   // --- scalar controls (continue mode + Maps toggle) --------------------------------------
@@ -8909,6 +9629,7 @@ export const SECTION_STUDIO_SCRIPT = `
   loadVerticals();
   loadOffers();
   loadUsage();
+  loadThemesList();
   // R5 fix-link integration: /admin/leadgen/sections/:id/edit#mapping (the
   // quote activation preflight's "Open Section Mapping" link) opens the
   // mapping drawer tab directly.

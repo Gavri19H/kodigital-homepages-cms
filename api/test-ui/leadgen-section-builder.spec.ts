@@ -139,9 +139,9 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     const inline = `Which sector fits best ${uniq}?`;
     await canvasHeadline.click();
     await expect(page.locator("[data-scope-editing-name]")).toHaveText("Question headline");
-    // §5.2: the selected BOUND node's Content tab shows the SAME single field
-    await expect(page.locator("[data-bound-content-label]")).toHaveText("Question headline (shared with the Section header above)");
-    await expect(page.locator("[data-bound-shared-input]")).toHaveValue(typed);
+    // v3.1 §8.4: the selected BOUND node's Content tab shows BOTH Headline
+    // and Subheadline inputs together (one source, two places to edit)
+    await expect(page.locator('[data-bound-shared-input="section_headline"]')).toHaveValue(typed);
     await canvasHeadline.dblclick();
     await expect(canvasHeadline).toHaveAttribute("contenteditable", "true");
     await page.keyboard.press("ControlOrMeta+a");
@@ -175,32 +175,40 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     // "nothing selected on open" assumption.
     await expect(scopeName).toHaveText("Image answer cards");
 
-    // ZIP component → component scope header + ZIP's tab set (Maps present)
+    // v3.1 §8.2: the golden's 5 dynamic tabs (choices/validation fold into
+    // Content; design+layout fold into Style; mapping -> Offers).
+    // ZIP component → component scope header + ZIP's tab set (Maps present).
+    // v3.1 §5.6/§8.1: the whole 8-value Accept-swap family reads "Short text
+    // field" — never its own concrete-type label ("ZIP").
     await canvas(page).locator(`${CANVAS} [data-component-type="ZIPInputQuestion"]`).click();
-    await expect(scopeName).toHaveText("ZIP");
+    await expect(scopeName).toHaveText("Short text field");
     await expect(affects).toContainText("Affects: this question unit");
     await expect(tab("maps")).toBeVisible();
-    await expect(tab("validation")).toBeVisible();
-    await expect(tab("mapping")).toBeVisible();
-    await expect(tab("choices")).toBeHidden();
+    await expect(tab("content")).toBeVisible();
+    await expect(tab("offers")).toBeVisible();
+    // ZIP has no choices — the Content tab's choices sub-block stays hidden
+    await tab("content").click();
+    await expect(page.locator("[data-field-choices-block]")).toBeHidden();
 
-    // a CHOICE card → choice scope header ("this card only") + Choices tab
+    // a CHOICE card → choice scope header ("this card only") + Content tab
+    // (choices now fold into Content, §8.2)
     await canvas(page).locator(`${CANVAS} [data-lg-choice="${IMAGE_CHOICES[0].value}"]`).click();
     await expect(scopeName).toContainText("Answer choice");
     await expect(scopeName).toContainText(IMAGE_CHOICES[0].label);
     await expect(affects).toHaveText("Affects: this card only.");
     await expect(page.locator('[data-scope-pill="choice"].active').first()).toBeVisible();
-    await expect(tab("choices")).toBeVisible();
-    await expect(page.locator('[data-studio-panel="choices"]')).toBeVisible();
+    await expect(tab("content")).toBeVisible();
+    await expect(page.locator('[data-studio-panel="content"]')).toBeVisible();
+    await expect(page.locator("[data-field-choices-block]")).toBeVisible();
     await page.screenshot({ path: `${SHOT_DIR}/leadgen-c-02a-choice-scope.png` });
 
     // Component pill → the grid's component scope + ITS dynamic tabs
     await page.locator('[data-scope-pill="component"]').first().click();
     await expect(scopeName).toHaveText("Image answer cards");
     await expect(affects).toContainText("Affects: this question unit");
-    await expect(tab("choices")).toBeVisible();
-    await expect(tab("design")).toBeVisible();
-    await expect(tab("mapping")).toBeVisible();
+    await expect(tab("content")).toBeVisible();
+    await expect(tab("style")).toBeVisible();
+    await expect(tab("offers")).toBeVisible();
     await expect(tab("maps"), "Maps is ZIP/address-only — not on a card grid").toBeHidden();
     await page.screenshot({ path: `${SHOT_DIR}/leadgen-c-02b-component-scope-tabs.png` });
   });
@@ -209,11 +217,11 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     test.setTimeout(120_000);
     await openImageSection(page);
     await canvas(page).locator(`${CANVAS} [data-lg-choice="${IMAGE_CHOICES[0].value}"]`).click();
-    const panel = page.locator('[data-studio-panel="choices"]');
+    const panel = page.locator('[data-studio-panel="content"]');
     await expect(panel).toBeVisible();
 
     // the §12.2 copy: provider values are per Offer, in the Mapping tab
-    await expect(panel.locator("[data-choices-c1-note]")).toContainText("Provider values are set per Offer in the Mapping tab");
+    await expect(panel.locator("[data-choices-c1-note]")).toContainText("Provider values are set per Offer in the Offers tab");
 
     // NO provider-value control: every editable choice field is Section-owned
     const rows = panel.locator("[data-choice-row]");
@@ -264,7 +272,7 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     test.setTimeout(180_000);
     await openImageSection(page);
     await canvas(page).locator(`${CANVAS} [data-lg-choice="${IMAGE_CHOICES[0].value}"]`).click();
-    const panel = page.locator('[data-studio-panel="choices"]');
+    const panel = page.locator('[data-studio-panel="content"]');
     await expect(panel).toBeVisible();
     const rows = panel.locator("[data-choice-row]");
     await expect(rows).toHaveCount(2);
@@ -297,7 +305,7 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     await Promise.all([page.waitForEvent("load"), page.locator("#lg-section-save").click()]);
     await expect(canvas(page).locator(`${CANVAS} h1.lg-headline`)).toBeVisible({ timeout: 20_000 });
     await canvas(page).locator(`${CANVAS} [data-lg-choice="${edits[0]!.value}"]`).click();
-    const panelAfter = page.locator('[data-studio-panel="choices"]');
+    const panelAfter = page.locator('[data-studio-panel="content"]');
     await expect(panelAfter).toBeVisible();
     const rowsAfter = panelAfter.locator("[data-choice-row]");
     for (let i = 0; i < 2; i += 1) {
@@ -330,8 +338,8 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     // select the grid (card → Component pill), open the Design tab
     await canvas(page).locator(`${CANVAS} [data-lg-choice]`).first().click();
     await page.locator('[data-scope-pill="component"]').first().click();
-    await page.locator('[data-studio-inspector-tab="design"]').click();
-    const panel = page.locator('[data-studio-panel="design"]');
+    await page.locator('[data-studio-inspector-tab="style"]').click();
+    const panel = page.locator('[data-studio-panel="style"]');
     await expect(panel).toBeVisible();
 
     // the §9.4 role row: swatch chip + role select with OPERATOR labels
@@ -353,7 +361,7 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     // over the stored ROLE as well.
     await canvas(page).locator(`${CANVAS} [data-lg-choice]`).first().click();
     await page.locator('[data-scope-pill="component"]').first().click();
-    await page.locator('[data-studio-inspector-tab="design"]').click();
+    await page.locator('[data-studio-inspector-tab="style"]').click();
     await expect(panel.locator('[data-override-source="iconColor"]')).toContainText("Brand primary");
     await expect(panel.locator('[data-override-reset="iconColor"]'), "Reset to inherited appears once overridden").toBeVisible();
     const swatchBg = await panel
@@ -368,11 +376,11 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     expect(grid.design_overrides?.["iconColor"], "the stored value is the ROLE").toBe("brand_primary");
   });
 
-  test("⑥ map an answer to an Offer field from the Mapping tab via PICKERS only (no JSON anywhere in the flow)", async ({ page }) => {
+  test("⑥ map an answer to an Offer field from the Offers tab via PICKERS only (no JSON anywhere in the flow)", async ({ page }) => {
     test.setTimeout(120_000);
     await openImageSection(page);
     await canvas(page).locator(`${CANVAS} [data-component-type="ZIPInputQuestion"]`).click();
-    await page.locator('[data-studio-inspector-tab="mapping"]').click();
+    await page.locator('[data-studio-inspector-tab="offers"]').click();
     const wrap = page.locator("[data-studio-inspector-mapping]");
     await expect(wrap).toBeVisible();
 

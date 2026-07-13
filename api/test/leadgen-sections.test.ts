@@ -134,6 +134,41 @@ describe("validateSection — §12.1 fields + content", () => {
     expect(value).toBeNull();
     expect(errors["continue_mode"]).toBeTruthy();
   });
+
+  // v3.1 §9.3 — the SAVE path (validateSection → problems[]) that sections-
+  // handlers.ts returns to the client. Tests THROUGH the real producer, not the
+  // content validator in isolation: maps.enabled + zero jobs must ride the save
+  // as a non-blocking, path-precise, component-scoped `problems[]` warning (the
+  // amber-banner signal); the save still succeeds (value !== null).
+  const ZIP_MAPS_CONTENT = (jobs: { validate: boolean; auction: boolean; autocomplete: boolean }) =>
+    JSON.stringify({
+      components: [
+        { type: "ZIPInputQuestion", question_id: "q_zip", internal_field: "zip", props: { maps: { enabled: true, jobs } } },
+      ],
+    });
+
+  it("§9.3 emits maps_no_job as a path-precise component-scoped problems[] warning on save (0 jobs)", () => {
+    const { value, errors, problems } = validateSection(
+      baseBody({ content_json: ZIP_MAPS_CONTENT({ validate: false, auction: false, autocomplete: false }) }),
+    );
+    expect(errors).toEqual({});
+    expect(value).not.toBeNull(); // non-blocking — the save succeeds
+    const mapsNoJob = problems.filter((p) => p.message.includes("does nothing at runtime"));
+    expect(mapsNoJob).toHaveLength(1);
+    const p0 = mapsNoJob[0];
+    expect(p0).toBeDefined();
+    expect(p0?.severity).toBe("warning");
+    expect(p0?.scope).toBe("component");
+    expect(p0?.path).toBe("components[0].props.maps");
+  });
+
+  it("§9.3 emits NO maps_no_job problem when at least one job is selected", () => {
+    const { value, problems } = validateSection(
+      baseBody({ content_json: ZIP_MAPS_CONTENT({ validate: true, auction: false, autocomplete: false }) }),
+    );
+    expect(value).not.toBeNull();
+    expect(problems.some((p) => p.message.includes("does nothing at runtime"))).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

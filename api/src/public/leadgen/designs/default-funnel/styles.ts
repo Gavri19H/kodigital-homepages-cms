@@ -694,6 +694,21 @@ export function funnelChromeCss(
       "box-sizing": "border-box",
       padding: input.padding,
       border: input.border,
+      // v3.1 fix-round (adversarial review, CSS-cascade regression close-
+      // out): a LATER declaration in the SAME rule overrides just the color
+      // channel of the `border` shorthand above (same specificity, source
+      // order decides). var(--lg-field-border, …) lets components/
+      // presets.ts's fieldAppearanceStyle supply a per-field design_
+      // overrides.border_color role as an inline CUSTOM PROPERTY on the
+      // RESTING state only — :focus / [aria-invalid] below set border-color
+      // DIRECTLY (higher specificity: a pseudo-class/attribute selector
+      // beats a bare class) and so still win over this var-driven default
+      // exactly as they did before this feature existed. Unset (no per-
+      // field override authored, the common case) falls back to
+      // color.border — the SAME token presets.ts's border_color:"neutral"
+      // resolves to, so "no override" and "explicit neutral" render byte-
+      // identically by construction.
+      "border-color": `var(--lg-field-border, ${color.border})`,
       "border-radius": input.borderRadius,
       "font-size": input.fontSize,
       "font-family": "inherit",

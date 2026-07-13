@@ -447,17 +447,29 @@ describeDb("leadgen section editor — M1 authoring wired", () => {
     expect(seeds["ProgressBar"]).toEqual({});
   });
 
-  it("the inspector renders the §8.6 authoring controls (content/choices/validation/dependencies/advanced)", async () => {
+  // v3.1 §8.2 (contract-v3.1.html): the old 9-panel strip (content/choices/
+  // layout/design/validation/maps/dependencies/mapping/advanced) is REPLACED
+  // by the golden's 5 dynamic tabs — Content/Style/Rules/Maps/Offers, with
+  // Advanced now a persistent disclosure OUTSIDE the tab system (not a 6th
+  // tab). The underlying mechanisms this test asserted (choices, the typed
+  // conditional builder, internal_field/question_key, raw JSON) all survive,
+  // relocated: choices/validation fold into Content, dependencies -> Rules,
+  // mapping -> Offers, layout+design -> Style, advanced stays the one
+  // ids/JSON surface (contract §8.8).
+  it("the inspector renders the §8.2 5-tab structure + Advanced disclosure with the folded-in authoring controls", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
-    // tabs (§8.6 per-selection panels)
-    for (const tab of ["content", "choices", "layout", "design", "validation", "dependencies", "mapping", "advanced"]) {
+    // the 5 dynamic tabs (§8.2)
+    for (const tab of ["content", "style", "rules", "maps", "offers"]) {
       expect(html, `inspector tab ${tab}`).toContain(`data-studio-inspector-tab="${tab}"`);
       expect(html, `inspector panel ${tab}`).toContain(`data-studio-panel="${tab}"`);
     }
+    // Advanced (§8.8): a persistent disclosure, not a data-studio-panel.
+    expect(html).toContain("data-studio-advanced-toggle");
+    expect(html).toContain("data-studio-advanced-body");
     // Advanced owns internal_field/question_key (+ the ONLY raw-JSON surface);
-    // Validation owns the required toggle; Dependencies the typed IF builder.
+    // Content owns Required + choices; Rules the typed IF builder.
     expect(html).toContain('data-inspector-field="internal_field"');
     expect(html).toContain('data-inspector-field="question_key"');
     expect(html).toContain('data-inspector-field="required"');

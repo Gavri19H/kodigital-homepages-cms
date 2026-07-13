@@ -870,14 +870,22 @@ function selectBlock(html: string, selectId: string): string {
 }
 
 describeDb("section studio SSR — §8.6 inspector + §8.5 container props", () => {
-  it("renders the per-selection tab set with panels (question vs container vs affordance gating is island-side; all panels SSR once)", async () => {
+  // v3.1 §8.2: the old 9-panel strip is REPLACED by the golden's 5 dynamic
+  // tabs (Content/Style/Rules/Maps/Offers); Advanced is now a persistent
+  // disclosure outside the tab system (not a data-studio-panel). The
+  // choices/layout/design/validation/dependencies/mapping mechanisms this
+  // test asserted all survive, FOLDED into the new tabs — the assertions
+  // below still check them via their (unchanged) underlying data hooks.
+  it("renders the per-selection 5-tab set with panels + the Advanced disclosure (question vs container vs affordance gating is island-side; all panels SSR once)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    for (const tab of ["content", "choices", "layout", "design", "validation", "dependencies", "mapping", "advanced"]) {
+    for (const tab of ["content", "style", "rules", "maps", "offers"]) {
       expect(html).toContain(`data-studio-inspector-tab="${tab}"`);
       expect(html).toContain(`data-studio-panel="${tab}"`);
     }
+    expect(html).toContain("data-studio-advanced-toggle");
+    expect(html).toContain("data-studio-advanced-body");
     // §8.6 Content: per-family display-copy controls (union, island-gated)
     for (const key of ["text", "placeholder", "yesLabel", "noLabel", "heading", "message", "minLabel", "maxLabel", "loadingLabel"]) {
       expect(html, `content control ${key}`).toContain(`data-content-prop="${key}"`);
@@ -1147,13 +1155,20 @@ const MODEL_FUNCS = [
   "setLinesProp",
   "collectContainerProp",
   "collectSection",
-  // §8.8 Maps config model + collectors + banner
+  // §9 Maps config model + collectors + banner (v3.1 Phase C job-based shape;
+  // mapsControl/buildMapsConfig/collectMapsConfig retired with the old flat
+  // autofill-picker panel — see leadgen-section-studio-ui.test.ts's own
+  // "§8.8 field-level Maps config" describe block, rewritten for §9)
   "mapsConfigOf",
   "mapsFillLabels",
   "nodeMapsEnabled",
-  "mapsControl",
-  "buildMapsConfig",
-  "collectMapsConfig",
+  "mapsConfigEnabledOf",
+  "mapsJobsOf",
+  "mapsAnyJobOn",
+  "mapsValidateCopyFor",
+  "populateMapsTab",
+  "collectMapsToggle",
+  "collectMapsJob",
   "renderMapsBanner",
 ] as const;
 
@@ -1206,9 +1221,6 @@ function studioProbe(html: string, content: unknown, docStub?: Record<string, un
     "function showRefusal(m) { refusals.push(m); }",
     "function clearRefusal() {}",
     "function applyCanvasDecoration() {}",
-    // the §8.8 per-mode key tables the Maps collectors consume (served code)
-    sliceIslandVar(island, "MAPS_FLAG_KEYS"),
-    sliceIslandVar(island, "MAPS_FILL_KEYS"),
     ...MODEL_FUNCS.map((n) => sliceIslandFunction(island, n)),
   ].join("\n");
   runInNewContext(source, sandbox);
@@ -1915,13 +1927,14 @@ describeDb("section studio SSR — §8.2 Activity/Vertical dropdowns + E9 skelet
     expect(previewPanel).toContain("Offer mapping overlay");
     const island = studioIsland(html);
     // toggle → repaint; chips rebuild inside the decoration pass; click →
-    // the inspector Mapping tab scoped to the chip's component
+    // the inspector Offers tab (v3.1 §8.2 folds Mapping -> Offers) scoped to
+    // the chip's component
     expect(island).toContain("mappingOverlayOn = !mappingOverlayOn;");
     expect(island).toContain("function decorateMappingOverlay(");
     expect(island).toContain("decorateMappingOverlay(region);");
     expect(island).toContain("'data-mapping-overlay-chip'");
     expect(island).toContain("selectComponent(this.getAttribute('data-mapping-overlay-chip'));");
-    expect(island).toMatch(/data-mapping-overlay-chip'\)\);\s*setInspectorTab\('mapping'\);/);
+    expect(island).toMatch(/data-mapping-overlay-chip'\)\);\s*setInspectorTab\('offers'\);/);
     // the overlay chips are part of the stale-cleanup list (rebuild per pass)
     expect(island).toContain(".studio-mapoverlay-chip");
   });
@@ -2458,10 +2471,13 @@ describeDb("section studio EXECUTED island — 12 §12.1 panel decode + Fix rout
     // Map… → the per-Offer Map-fields editor with the row's question select focused
     expect(island).toContain("function openFixMapGrid(");
     expect(island).toContain("'[data-map-question=\"' + path + '\"]'");
-    // Fix type… → the component's Advanced internal-field surface
+    // Fix type… → the component's Advanced internal-field surface (v3.1
+    // §8.8: Advanced is a persistent disclosure now — opened via
+    // setAdvancedOpen, not a tab switch)
     expect(island).toContain("function openFixTypeSurface(");
-    expect(island).toMatch(/setInspectorTab\('advanced'\);\s*var inp = document\.getElementById\('lg-inspector-internal-field'\);/);
-    // Re-link… → the component's quick-map on the Mapping tab
+    expect(island).toMatch(/setAdvancedOpen\(true\);\s*var inp = document\.getElementById\('lg-inspector-internal-field'\);/);
+    // Re-link… → the component's quick-map on the Offers tab (v3.1 §8.2
+    // folds Mapping -> Offers)
     expect(island).toContain("function openFixRelink(");
     expect(island).toContain("'[data-inspector-quickmap=\"' + offer.id + '\"]'");
     // the delegated handler routes data-studio-fix kinds; 'values' never
@@ -2789,29 +2805,23 @@ const MAPS_CONTENT = {
   ],
 };
 
-// The EXACT §8.8 emissions the inspector writes (runtime/maps.ts
-// parseMapsConfig flat authoring keys). MIRRORED VERBATIM by the hydration
-// suite's "§8.8 studio emissions" cross-check — keep both in lockstep.
-const MAPS_EMITTED_ADDRESS = {
-  enable_autocomplete: true,
-  validate_full_address: true,
-  normalize_address_line: true,
-  autofill_state: "state_field",
-  autofill_city: "city",
-  autofill_zip: "zip",
-};
-const MAPS_EMITTED_ZIP = {
-  validate_zip: true,
-  autofill_city: "city",
-  autofill_state: "state_field",
-  enable_autocomplete: true,
-};
-const MAPS_EMITTED_ZIP_VALIDATE_ONLY = { validate_zip: true, enable_autocomplete: true };
+// v3.1 §9 — the EXACT {enabled,jobs} shape the inspector writes (Phase C:
+// replaces the old flat runtime-key emissions the pre-v3.1 inspector wrote
+// directly; presets.ts's mapsJobsFor/isNewMapsShape TRANSLATES this to the
+// runtime's flat wire keys, cross-checked in leadgen-components-render.test.ts
+// "v3.1 §9.3 — Maps job-based precedence").
+function mapsShape(jobs: { validate?: boolean; auction?: boolean; autocomplete?: boolean }): Record<string, unknown> {
+  return { enabled: true, jobs: { validate: false, auction: false, autocomplete: false, ...jobs } };
+}
 
 interface MapsControlStub {
   checked?: boolean;
   value?: string;
   getAttribute?: (k: string) => string | null;
+}
+
+function mapsJobStub(job: string, checked: boolean): MapsControlStub {
+  return { checked, getAttribute: (k) => (k === "data-maps-job" ? job : null) };
 }
 
 interface MapsBannerStub {
@@ -2830,45 +2840,65 @@ function mapsBannerStub(keyConfigured: boolean): MapsBannerStub {
   };
 }
 
-// A document stub that serves ONLY the §8.8 selectors the Maps collectors +
-// banner renderer touch — every control value rides the mutable `controls`
-// record so a test can flip toggles between collectMapsConfig runs.
-function mapsDocStub(
-  controls: Record<string, MapsControlStub>,
-  banner?: MapsBannerStub,
-): Record<string, unknown> {
+interface MapsHiddenStub {
+  hidden: boolean;
+}
+interface MapsTextStub {
+  textContent: string;
+}
+
+// A document stub that serves ONLY the §9 selectors populateMapsTab/
+// collectMapsToggle/collectMapsJob touch. `toggle` and `jobEls` are mutable
+// so a test can flip them between collect/populate runs (mirrors the
+// pre-v3.1 idiom this replaces).
+function mapsDocStub(opts: {
+  toggle?: MapsControlStub;
+  jobEls?: MapsControlStub[];
+  jobsBlock?: MapsHiddenStub;
+  zeroJobBanner?: MapsHiddenStub;
+  validateCopy?: MapsTextStub;
+  keyMissingBanner?: MapsBannerStub;
+}): Record<string, unknown> {
+  const jobsBlock = opts.jobsBlock ?? { hidden: true };
+  const zeroJobBanner = opts.zeroJobBanner ?? { hidden: true };
+  const validateCopy = opts.validateCopy ?? { textContent: "" };
   return {
     getElementById() {
       return null;
     },
     querySelector(sel: string) {
-      if (sel === "[data-studio-maps-banner]") return banner ?? null;
-      const m = /^\[data-maps-(flag|fill)="([^"]+)"\]$/.exec(sel);
-      return m ? (controls[`${m[1]}:${m[2]}`] ?? null) : null;
+      if (sel === "[data-maps-enabled-toggle]") return opts.toggle ?? null;
+      if (sel === "[data-maps-jobs-block]") return jobsBlock;
+      if (sel === "[data-maps-zero-job-banner]") return zeroJobBanner;
+      if (sel === "[data-maps-validate-copy]") return validateCopy;
+      if (sel === "[data-studio-maps-banner]") return opts.keyMissingBanner ?? null;
+      return null;
     },
-    querySelectorAll() {
+    querySelectorAll(sel: string) {
+      if (sel === "[data-maps-job]") return opts.jobEls ?? [];
       return [];
     },
   };
 }
 
-describeDb("section studio — §8.8 field-level Maps config (E6, browser Places leg)", () => {
-  it("SSR: Maps inspector tab + controls carry the EXACT runtime keys; the meta blob marks address/zip modes; the legacy toggle notes per-field wins", async () => {
+// v3.1 §9 — the pre-v3.1 flat autofill-picker Maps panel is REPLACED by the
+// golden's toggle + 3 whole-row jobs (Validate/Use in auction/Auto-complete),
+// writing node.props.maps = {enabled, jobs:{validate,auction,autocomplete}}
+// (content-schema.ts §9.2). The manual per-field autofill-TARGET picker has
+// no successor in the golden design (flagged contract gap, final report) —
+// mapsFillLabels/nodeMapsEnabled stay for legacy stored content only.
+describeDb("section studio — §9 field-level Maps config (job-based model, Phase C)", () => {
+  it("SSR: Maps tab carries the toggle + 3 job checkboxes; the meta blob marks address/zip modes; the legacy toggle notes per-field wins", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
     expect(html).toContain('data-studio-inspector-tab="maps"');
     expect(html).toContain('data-studio-panel="maps"');
-    // control hooks = the runtime parseMapsConfig flat authoring keys, exactly
-    for (const flag of ["enable_autocomplete", "validate_full_address", "validate_zip", "normalize_address_line"]) {
-      expect(html, `flag ${flag}`).toContain(`data-maps-flag="${flag}"`);
-    }
-    for (const fill of ["autofill_state", "autofill_city", "autofill_zip"]) {
-      expect(html, `fill ${fill}`).toContain(`data-maps-fill="${fill}"`);
-    }
-    // mode gating wrappers for the island (address-only / zip-only / shared)
-    for (const mode of ["address", "zip", "both"]) {
-      expect(html, `mode ${mode}`).toContain(`data-maps-mode="${mode}"`);
+    expect(html).toContain("data-maps-enabled-toggle");
+    expect(html).toContain("data-maps-jobs-block");
+    expect(html).toContain("data-maps-zero-job-banner");
+    for (const job of ["validate", "auction", "autocomplete"]) {
+      expect(html, `job ${job}`).toContain(`data-maps-job="${job}"`);
     }
     // the studio meta blob drives the tab + panel gating island-side
     const meta = extractJsonBlob(html, "lg-studio-meta");
@@ -2876,7 +2906,7 @@ describeDb("section studio — §8.8 field-level Maps config (E6, browser Places
     expect(types["AddressAutocompleteQuestion"]!["maps"]).toBe("address");
     expect(types["ZIPInputQuestion"]!["maps"]).toBe("zip");
     expect(types["TwoButtonYesNo"]!["maps"]).toBeNull();
-    // §8.8: the legacy global checkbox STAYS, with per-field-wins copy
+    // §9.3: the legacy global checkbox STAYS, with per-field-wins copy
     expect(html).toContain('id="lg-address-validation"');
     expect(html).toContain("data-maps-legacy-note");
     const legacyNote = /<span class="lg-maps-note" data-maps-legacy-note>([^<]+)<\/span>/.exec(html);
@@ -2898,71 +2928,92 @@ describeDb("section studio — §8.8 field-level Maps config (E6, browser Places
     expect(banner![1]).toContain("Autocomplete/validation will no-op; manual entry still works");
   });
 
-  it("EXECUTED: address collectors write EXACTLY the runtime keys (deep-equal + parseMapsConfig cross-check); clearing deletes props.maps", async () => {
+  it("EXECUTED: the enabled toggle writes {enabled:true, jobs:{false,false,false}}; turning it off deletes props.maps entirely", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    const controls: Record<string, MapsControlStub> = {
-      "flag:enable_autocomplete": { checked: true },
-      "flag:validate_full_address": { checked: true },
-      "flag:normalize_address_line": { checked: true },
-      "fill:autofill_state": { value: "state_field" },
-      "fill:autofill_city": { value: "city" },
-      "fill:autofill_zip": { value: "zip" },
-    };
-    const probe = studioProbe(html, MAPS_CONTENT, mapsDocStub(controls));
+    const toggle: MapsControlStub = { checked: true };
+    const probe = studioProbe(html, MAPS_CONTENT, mapsDocStub({ toggle }));
     probe.sandbox.selectedQuestionId = "q_addr";
-    probe.run("collectMapsConfig()");
+    probe.run("collectMapsToggle()");
     const node = probe.run("findRef('q_addr').node") as { props?: Record<string, unknown> };
-    // the EXACT §8.8 authoring keys — nothing more, nothing less. The
-    // runtime-reader decode of THIS literal (parseMapsConfig → wired config)
-    // is pinned in leadgen-runtime-hydration.test.ts "§8.8 studio emissions".
-    expect(node.props?.["maps"]).toEqual(MAPS_EMITTED_ADDRESS);
+    expect(node.props?.["maps"]).toEqual(mapsShape({}));
     // the mutated tree stays valid for the REAL server validator
     expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
 
-    // unchecking everything + clearing the pickers deletes props.maps — and
-    // the (otherwise-empty) props object itself: the node is CLEAN again
-    for (const key of Object.keys(controls)) {
-      if (controls[key]!.checked !== undefined) controls[key]!.checked = false;
-      if (controls[key]!.value !== undefined) controls[key]!.value = "";
-    }
-    probe.run("collectMapsConfig()");
+    // turning OFF deletes props.maps — and the (otherwise-empty) props
+    // object itself: the node is CLEAN again
+    toggle.checked = false;
+    probe.run("collectMapsToggle()");
     const cleared = probe.run("findRef('q_addr').node") as Record<string, unknown>;
     expect(cleared["props"]).toBeUndefined();
   });
 
-  it("EXECUTED: ZIP collectors emit the zip keys + the enable_autocomplete wiring gate; address-only keys never leak into a zip config", async () => {
+  it("EXECUTED: job checkboxes collect independently once enabled; a job change is a no-op while enabled is not true (guard)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    const controls: Record<string, MapsControlStub> = {
-      "flag:validate_zip": { checked: true },
-      "fill:autofill_city": { value: "city" },
-      "fill:autofill_state": { value: "state_field" },
-      // address-only controls LEFT CHECKED on purpose: the zip mode must
-      // never read them (per-mode key tables, not whatever the DOM holds)
-      "flag:enable_autocomplete": { checked: true },
-      "flag:validate_full_address": { checked: true },
-      "flag:normalize_address_line": { checked: true },
-      "fill:autofill_zip": { value: "zip" },
-    };
-    const probe = studioProbe(html, MAPS_CONTENT, mapsDocStub(controls));
+    const toggle: MapsControlStub = { checked: true };
+    const probe = studioProbe(html, MAPS_CONTENT, mapsDocStub({ toggle }));
     probe.sandbox.selectedQuestionId = "q_zip";
-    probe.run("collectMapsConfig()");
-    const node = probe.run("findRef('q_zip').node") as { props?: Record<string, unknown> };
-    // §8.8 zip keys + the wiring gate: the runtime's initMapsFields attaches
-    // Places ONLY when autocomplete is enabled, and zip fields have no
-    // separate autocomplete toggle — the collector rides it automatically.
-    // (runtime decode of THIS literal: hydration suite "§8.8 studio emissions")
-    expect(node.props?.["maps"]).toEqual(MAPS_EMITTED_ZIP);
-    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
-    // a validate-only zip config still carries the gate; no fills
-    controls["fill:autofill_city"]!.value = "";
-    controls["fill:autofill_state"]!.value = "";
-    probe.run("collectMapsConfig()");
-    const validateOnly = probe.run("findRef('q_zip').node") as { props?: Record<string, unknown> };
-    expect(validateOnly.props?.["maps"]).toEqual(MAPS_EMITTED_ZIP_VALIDATE_ONLY);
+    probe.run("collectMapsToggle()"); // seeds enabled:true, all jobs false
+    // collectMapsJob takes the CHECKBOX ELEMENT directly (not a document
+    // query) — call it with an inline stub, mirroring how the ES5 handler
+    // wires "this" from the change-event listener.
+    const jobStubExpr = (job: string, checked: boolean): string =>
+      `{ checked: ${String(checked)}, getAttribute: function (k) { return k === 'data-maps-job' ? '${job}' : null; } }`;
+    probe.run(`collectMapsJob(${jobStubExpr("validate", true)})`);
+    let node = probe.run("findRef('q_zip').node") as { props?: Record<string, unknown> };
+    expect(node.props?.["maps"]).toEqual(mapsShape({ validate: true }));
+
+    probe.run(`collectMapsJob(${jobStubExpr("autocomplete", true)})`);
+    node = probe.run("findRef('q_zip').node") as { props?: Record<string, unknown> };
+    expect(node.props?.["maps"]).toEqual(mapsShape({ validate: true, autocomplete: true }));
+
+    probe.run(`collectMapsJob(${jobStubExpr("validate", false)})`);
+    node = probe.run("findRef('q_zip').node") as { props?: Record<string, unknown> };
+    expect(node.props?.["maps"]).toEqual(mapsShape({ autocomplete: true }));
+
+    // the guard: a job-checkbox change on a node with NO enabled:true config
+    // (never toggled on) must not fabricate a config.
+    probe.sandbox.selectedQuestionId = "q_addr";
+    probe.run(`collectMapsJob(${jobStubExpr("validate", true)})`);
+    const addrNode = probe.run("findRef('q_addr').node") as Record<string, unknown>;
+    expect(addrNode["props"]).toBeUndefined();
+  });
+
+  it("EXECUTED: populateMapsTab reflects enabled/jobs state, the zero-job banner, and the mode-specific validate copy", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const toggle: MapsControlStub = { checked: false };
+    const zeroJobBanner: MapsHiddenStub = { hidden: true };
+    const validateCopy: MapsTextStub = { textContent: "" };
+    const jobEls = [mapsJobStub("validate", false), mapsJobStub("auction", false), mapsJobStub("autocomplete", false)];
+    const probe = studioProbe(html, MAPS_CONTENT, mapsDocStub({ toggle, jobEls, zeroJobBanner, validateCopy }));
+    probe.sandbox.selectedQuestionId = "q_zip";
+    // enabled:true + 0 jobs -> the LIVE zero-job banner shows (§9.3 mirror of
+    // the save-time maps_no_job warning) + ZIP-specific validate copy
+    probe.run(
+      "findRef('q_zip').node.props = { maps: { enabled: true, jobs: { validate: false, auction: false, autocomplete: false } } }",
+    );
+    probe.run("populateMapsTab(findRef('q_zip').node, typeMeta('ZIPInputQuestion'))");
+    expect(toggle.checked).toBe(true);
+    expect(zeroJobBanner.hidden).toBe(false);
+    expect(validateCopy.textContent).toContain("ZIP");
+    // a job selected -> banner clears
+    probe.run("findRef('q_zip').node.props.maps.jobs.validate = true");
+    probe.run("populateMapsTab(findRef('q_zip').node, typeMeta('ZIPInputQuestion'))");
+    expect(zeroJobBanner.hidden).toBe(true);
+    expect(jobEls[0]!.checked).toBe(true);
+    // the address mode gets its OWN validate copy (flagged contract gap: no
+    // asserted Address-specific string exists — a faithful generalization)
+    probe.sandbox.selectedQuestionId = "q_addr";
+    probe.run(
+      "findRef('q_addr').node.props = { maps: { enabled: true, jobs: { validate: true, auction: false, autocomplete: false } } }",
+    );
+    probe.run("populateMapsTab(findRef('q_addr').node, typeMeta('AddressAutocompleteQuestion'))");
+    expect(validateCopy.textContent).toContain("address");
   });
 
   it("EXECUTED: chip labels derive from the config's autofill keys in the runtime link order (flat AND nested-fills legacy shape)", async () => {
@@ -2978,26 +3029,33 @@ describeDb("section studio — §8.8 field-level Maps config (E6, browser Places
     // the nested `fills` spelling parseMapsConfig also accepts
     probe.run("findRef('q_addr').node.props = { maps: { fills: { state: 'state_field' } } }");
     expect(probe.run("mapsFillLabels(findRef('q_addr').node)")).toEqual(["state"]);
-    // nodeMapsEnabled: {} config → nothing on; legacy compat spellings count
+    // nodeMapsEnabled: {} config → nothing on; legacy compat spellings count;
+    // the NEW {enabled:true} shape counts too (§9.3)
     probe.run("findRef('q_addr').node.props = { maps: {} }");
     expect(probe.run("nodeMapsEnabled(findRef('q_addr').node)")).toBe(false);
     probe.run("findRef('q_addr').node.props = { maps: { validate: true } }");
+    expect(probe.run("nodeMapsEnabled(findRef('q_addr').node)")).toBe(true);
+    probe.run(
+      "findRef('q_addr').node.props = { maps: { enabled: true, jobs: { validate: false, auction: false, autocomplete: false } } }",
+    );
     expect(probe.run("nodeMapsEnabled(findRef('q_addr').node)")).toBe(true);
     probe.run("findRef('q_addr').node.props = {}");
     expect(probe.run("nodeMapsEnabled(findRef('q_addr').node)")).toBe(false);
   });
 
-  it("EXECUTED: the key-missing banner shows ONLY for enabled-config + missing key (key present → hidden; nothing enabled → hidden)", async () => {
+  it("EXECUTED: the key-missing banner shows ONLY for enabled-config + missing key (key present → hidden; nothing enabled → hidden); recognizes the NEW shape", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
     const banner = mapsBannerStub(false);
-    const probe = studioProbe(html, MAPS_CONTENT, mapsDocStub({}, banner));
+    const probe = studioProbe(html, MAPS_CONTENT, mapsDocStub({ keyMissingBanner: banner }));
     // no Maps-enabled component → hidden even without a key
     probe.run("renderMapsBanner()");
     expect(banner.hidden).toBe(true);
-    // a Maps-enabled component + missing key → SHOWN
-    probe.run("findRef('q_zip').node.props = { maps: { validate_zip: true, enable_autocomplete: true } }");
+    // a Maps-enabled component (NEW shape) + missing key → SHOWN
+    probe.run(
+      "findRef('q_zip').node.props = { maps: { enabled: true, jobs: { validate: true, auction: false, autocomplete: false } } }",
+    );
     probe.run("renderMapsBanner()");
     expect(banner.hidden).toBe(false);
     // key configured → hidden regardless of config
@@ -3006,18 +3064,17 @@ describeDb("section studio — §8.8 field-level Maps config (E6, browser Places
     expect(banner.hidden).toBe(true);
   });
 
-  it("round-trip: props.maps → content JSON → REAL validator clean → renderComponent emits data-lg-maps with the exact config (the preset seam)", async () => {
+  it("round-trip: props.maps {enabled,jobs} → content JSON → REAL validator clean → renderComponent translates to the runtime's flat data-lg-maps wire keys (the preset seam)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    const controls: Record<string, MapsControlStub> = {
-      "flag:validate_zip": { checked: true },
-      "fill:autofill_city": { value: "city" },
-      "fill:autofill_state": { value: "state_field" },
-    };
-    const probe = studioProbe(html, MAPS_CONTENT, mapsDocStub(controls));
+    const toggle: MapsControlStub = { checked: true };
+    const probe = studioProbe(html, MAPS_CONTENT, mapsDocStub({ toggle }));
     probe.sandbox.selectedQuestionId = "q_zip";
-    probe.run("collectMapsConfig()");
+    probe.run("collectMapsToggle()");
+    probe.run(
+      "collectMapsJob({ checked: true, getAttribute: function (k) { return k === 'data-maps-job' ? 'validate' : null; } })",
+    );
     // serialize exactly like the save path (collectSection JSON.stringifys
     // state.content), re-parse, and run the REAL server validator
     const roundTripped = JSON.parse(JSON.stringify(probe.sandbox.state.content)) as {
@@ -3026,9 +3083,13 @@ describeDb("section studio — §8.8 field-level Maps config (E6, browser Places
     expect(validateSectionContent(roundTripped).errors).toEqual([]);
     const zipNode = flattenComponents(roundTripped.components).find((n) => n.question_id === "q_zip");
     expect(zipNode, "zip node survives the round trip").toBeDefined();
-    expect(zipNode!.props?.["maps"]).toEqual(MAPS_EMITTED_ZIP);
-    // …and the REAL preset renderer serializes it VERBATIM into data-lg-maps
+    expect(zipNode!.props?.["maps"]).toEqual(mapsShape({ validate: true }));
+    // …and the REAL preset renderer TRANSLATES it to the runtime's flat wire
+    // keys (mapsJobsFor/mapsConfigJson, presets.ts) — cross-checked against
+    // this EXACT translation in leadgen-components-render.test.ts's
+    // "v3.1 §9.3 — Maps job-based precedence" describe block.
     const rendered = renderComponent(zipNode!, defaultFunnelDesign);
+    expect(rendered).toContain('data-validate="google"');
     const attr = /data-lg-maps="([^"]*)"/.exec(rendered);
     expect(attr, "data-lg-maps attribute present").not.toBeNull();
     const decoded = attr![1]!
@@ -3037,11 +3098,7 @@ describeDb("section studio — §8.8 field-level Maps config (E6, browser Places
       .replace(/&lt;/g, "<")
       .replace(/&gt;/g, ">")
       .replace(/&amp;/g, "&");
-    // the attribute value IS the config, byte-faithful after entity decode —
-    // exactly what the runtime reader receives (its decode of THIS literal is
-    // pinned in the hydration suite's "§8.8 studio emissions" cross-check)
-    expect(JSON.parse(decoded)).toEqual(MAPS_EMITTED_ZIP);
-    expect(decoded).toBe(JSON.stringify(zipNode!.props?.["maps"]));
+    expect(JSON.parse(decoded)).toEqual({ enable_autocomplete: false, validate: true });
     // the address twin: an UNCONFIGURED address node keeps the "{}" compat
     // fallback (runtime defaults; graceful no-op)
     const addrNode = flattenComponents(roundTripped.components).find((n) => n.question_id === "q_addr");
@@ -3367,13 +3424,23 @@ describeDb("P4 authoring gaps — TrustBar/LogoStrip/StepIndicator inspectors", 
     }
     expect(meta["ReassuranceBadge"]!["layout_props"]).toBe(false);
 
-    // the SLICED availableTabsFor exposes the Layout tab for the affordances
+    // v3.1 §8.5 "Style tab (any visual selection)": the pre-v3.1 Layout tab
+    // folded into Style UNCONDITIONALLY for every type (a capability
+    // EXPANSION, not gated per-type at the tab level anymore) — the SLICED
+    // availableTabsFor now returns 'style' for ALL three, and for
+    // ReassuranceBadge too. The REAL remaining differentiation is which
+    // data-container-group renders WITHIN the Style tab body (still gated
+    // per type, unchanged mechanism) — StepIndicator/TrustBar have one,
+    // ReassuranceBadge does not.
     const island = studioIsland(html);
     const probe = studioProbe(html, P4_GAPS_CONTENT);
     probe.run(sliceIslandFunction(island, "availableTabsFor"));
-    expect(probe.run("availableTabsFor({ type: 'StepIndicator' })")).toContain("layout");
-    expect(probe.run("availableTabsFor({ type: 'TrustBar' })")).toContain("layout");
-    expect(probe.run("availableTabsFor({ type: 'ReassuranceBadge' })")).not.toContain("layout");
+    expect(probe.run("availableTabsFor({ type: 'StepIndicator' })")).toContain("style");
+    expect(probe.run("availableTabsFor({ type: 'TrustBar' })")).toContain("style");
+    expect(probe.run("availableTabsFor({ type: 'ReassuranceBadge' })")).toContain("style");
+    expect(html).toContain('data-container-group="StepIndicator"');
+    expect(html).toContain('data-container-group="TrustBar"');
+    expect(html).not.toContain('data-container-group="ReassuranceBadge"');
   });
 
   it("EXECUTED: TrustBar items (icon|text lines) + layout collect into the model, render via the REAL preset, and round-trip the populate leg", async () => {
@@ -4025,15 +4092,19 @@ describeDb("v2.5 §5.2 EXECUTED — strip⇄canvas ONE store (live server seam)"
     expect(island).toContain("stripHeadline.addEventListener('input', onStripInput)");
     expect(island).toContain("stripSubheadline.addEventListener('input', onStripInput)");
     expect(sliceIslandFunction(island, "onStripInput")).toContain("scheduleCanvasRender()");
-    // inspector shared field → strip store (ONE store, never a second field)
+    // inspector shared fields → strip store (ONE store, never a THIRD field).
+    // v3.1 §8.4: the Content tab shows BOTH Headline and Subheadline inputs
+    // together — collectBoundShared now takes the bind value explicitly (a
+    // single generic selector can only ever reach the FIRST of two same-
+    // attribute elements) and BOTH get their own wireBoundSharedInput call.
     const collect = sliceIslandFunction(island, "collectBoundShared");
     expect(collect).toContain("strip.value = inputEl.value");
     expect(collect).toContain("scheduleCanvasRender()");
-    expect(island).toContain("boundSharedInput.addEventListener('input', collectBoundShared)");
-    // the §5.2 inspector label for the shared single field (headline + the
-    // subheadline variant, island-swapped)
-    expect(html).toContain("Question headline (shared with the Section header above)");
-    expect(island).toContain("Subheadline (shared with the Section header above)");
+    expect(island).toContain("wireBoundSharedInput('section_headline')");
+    expect(island).toContain("wireBoundSharedInput('section_subheadline')");
+    // the §8.4 Content tab: both Headline and Subheadline inputs, SSR once
+    expect(html).toContain('data-bound-shared-input="section_headline"');
+    expect(html).toContain('data-bound-shared-input="section_subheadline"');
     // selecting a bound node hides the generic props.text control (no second
     // text field anywhere)
     expect(island).toContain("!(isBound && k === 'text')");
@@ -4167,6 +4238,10 @@ describeDb("v2.5 §7 — scope header, pills, dynamic tabs", () => {
     const html = await studioPage(env, section.public_id);
     const island = studioIsland(html);
     const probe = studioProbe(html, YESNO_CONTENT);
+    // scopeEditingName's v3.1 §5.6 "Short text field" special-case calls
+    // acceptFormatOfNode, which reads the module-level ACCEPT_TYPE_FORMAT var.
+    probe.run(sliceIslandVar(island, "ACCEPT_TYPE_FORMAT"));
+    probe.run(sliceIslandFunction(island, "acceptFormatOfNode"));
     probe.run(sliceIslandFunction(island, "scopeEditingName"));
     probe.run(sliceIslandFunction(island, "scopeAffectsText"));
     probe.run("var scopeState = 'section'; var choiceScopeLabel = ''; var usageQuoteCount = null;");
@@ -4189,6 +4264,12 @@ describeDb("v2.5 §7 — scope header, pills, dynamic tabs", () => {
     );
     // a legacy frame node names its real owner
     expect(probe.run("scopeAffectsText({ type: 'HeaderBar' })")).toContain("edited in the Quote Builder");
+    // v3.1 §5.6/§8.1: the whole 8-value Accept-swap family reads "Short text
+    // field" — never its OWN concrete-type catalog label (e.g. "ZIP"/"Text")
+    expect(probe.run("scopeEditingName({ type: 'ZIPInputQuestion' })")).toBe("Short text field");
+    expect(probe.run("scopeEditingName({ type: 'FreeTextQuestion' })")).toBe("Short text field");
+    // a non-Accept-swap field keeps its own catalog label
+    expect(probe.run("scopeEditingName({ type: 'TwoButtonYesNo' })")).toBe("Yes / No");
 
     // Choice scope: the §7.1 binding pattern
     probe.run("scopeState = 'choice'; choiceScopeLabel = 'Sole Proprietor';");
@@ -4205,44 +4286,39 @@ describeDb("v2.5 §7 — scope header, pills, dynamic tabs", () => {
     probe.run(sliceIslandFunction(island, "availableTabsFor"));
     const tabsOf = (expr: string): string[] => probe.run(`availableTabsFor(${expr})`) as string[];
 
+    // v3.1 §8.2: the golden's 5 dynamic tabs (content/style/rules/maps/
+    // offers) replace the pre-v3.1 9-tab set (choices/layout/design fold
+    // into style; validation folds into content; dependencies -> rules;
+    // mapping -> offers). Advanced is no longer in this array at all (a
+    // persistent disclosure now, setAdvancedOpen — see populateInspector).
+    //
     // nothing selected → NO tabs (Section scope edits live in the strip)
     expect(tabsOf("null")).toEqual([]);
-    // a BOUND node is copy-bearing (the shared field) — Content present
-    expect(tabsOf("{ type: 'QuestionHeadline', bind: 'section_headline' }")).toEqual([
-      "content",
-      "design",
-      "dependencies",
-      "advanced",
-    ]);
-    // answer-producing choice grid: the full §7.3 row
-    expect(tabsOf("{ type: 'ImageCardAnswerGrid' }")).toEqual([
-      "content",
-      "choices",
-      "design",
-      "validation",
-      "dependencies",
-      "mapping",
-      "advanced",
-    ]);
-    // ZIP input adds Maps; no Choices
-    expect(tabsOf("{ type: 'ZIPInputQuestion' }")).toEqual([
-      "content",
-      "design",
-      "validation",
-      "maps",
-      "dependencies",
-      "mapping",
-      "advanced",
-    ]);
-    // containers are a visual selection → Design joins their Layout tab
-    expect(tabsOf("{ type: 'Stack' }")).toEqual(["layout", "design", "dependencies", "advanced"]);
-    expect(tabsOf("{ type: 'Spacer' }")).toEqual(["layout", "design", "dependencies", "advanced"]);
-    // a legacy PAGE-FRAME element is NOT a unit component: no design/
-    // validation/dependencies/mapping — copy/structured props + Advanced only
-    expect(tabsOf("{ type: 'HeaderBar' }")).toEqual(["layout", "advanced"]);
-    expect(tabsOf("{ type: 'ProgressBar' }")).toEqual(["content", "advanced"]);
+    // §8.2's table EXPLICITLY restricts the bound headline/subheadline row
+    // to Content·Style ONLY — no Rules (the dependency evaluator doesn't
+    // apply to the shared strip-store field).
+    expect(tabsOf("{ type: 'QuestionHeadline', bind: 'section_headline' }")).toEqual(["content", "style"]);
+    // §8.2's table EXPLICITLY restricts Continue to Content·Style ONLY too.
+    expect(tabsOf("{ type: 'ContinueButton' }")).toEqual(["content", "style"]);
+    // answer-producing choice grid: the full §8.2 row (Content·Style·Rules·Offers)
+    expect(tabsOf("{ type: 'ImageCardAnswerGrid' }")).toEqual(["content", "style", "rules", "offers"]);
+    // ZIP input adds Maps (§8.2 "*Maps only for ZIP/Address types")
+    expect(tabsOf("{ type: 'ZIPInputQuestion' }")).toEqual(["content", "style", "rules", "maps", "offers"]);
+    // containers are ANY visual selection (§8.5) → Style unconditionally,
+    // but no Content (no content_props, not choice-bearing)
+    expect(tabsOf("{ type: 'Stack' }")).toEqual(["style", "rules"]);
+    expect(tabsOf("{ type: 'Spacer' }")).toEqual(["style", "rules"]);
+    // a legacy PAGE-FRAME element: the pre-v3.1 special-case (no design/
+    // dependencies at all) is FOLDED into the general rule now — §8.5's
+    // "any visual selection" is unconditional, so HeaderBar (no
+    // content_props) now ALSO gets Style+Rules where before it got neither
+    // (a capability EXPANSION, never a regression — flagged in the phase
+    // report). It still never gets Maps/Offers (meta.maps/produces are
+    // false for it).
+    expect(tabsOf("{ type: 'HeaderBar' }")).toEqual(["style", "rules"]);
+    expect(tabsOf("{ type: 'ProgressBar' }")).toEqual(["content", "style", "rules"]);
     // affordances with copy stay lean
-    expect(tabsOf("{ type: 'ReassuranceBadge' }")).toEqual(["content", "design", "dependencies", "advanced"]);
+    expect(tabsOf("{ type: 'ReassuranceBadge' }")).toEqual(["content", "style", "rules"]);
   });
 
   it("§7.4: the rename consequence is inline and counted against the LIVE mapping model; Advanced owns the bind marker", async () => {
@@ -4383,11 +4459,11 @@ describeDb("v2.5 A6 — image_fit is a COMPONENT prop on ImageCardAnswerGrid", (
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    // SSR: the control lives on the DESIGN panel (A6 placement decision),
-    // hidden until an image grid is selected
+    // SSR: the control lives on the STYLE panel (v3.1 §8.5 folds Design in;
+    // A6's original placement decision), hidden until an image grid is selected
     const designPanel = html.slice(
-      html.indexOf('data-studio-panel="design"'),
-      html.indexOf('data-studio-panel="validation"'),
+      html.indexOf('data-studio-panel="style"'),
+      html.indexOf('data-studio-panel="rules"'),
     );
     expect(designPanel).toMatch(/data-image-fit-wrap[^>]*hidden/);
     const fitSelect = selectBlock(html, "lg-inspector-image-fit");
@@ -4837,8 +4913,9 @@ describeDb("wave 2 — §7.3 C1 provider chip over the DEV-55 projection", () =>
     // the row grid's field list carries NO provider field of any spelling
     expect(island).not.toContain("provider_value");
     expect(island).not.toContain("'provider'");
-    // the C1 note names the Mapping tab as the only provider-value editor
-    expect(html).toContain("Provider values are set per Offer in the Mapping tab");
+    // the C1 note names the Offers tab (v3.1 §8.2 folds Mapping -> Offers)
+    // as the only provider-value editor
+    expect(html).toContain("Provider values are set per Offer in the Offers tab");
     // executed: the chip projection — one row PER SELECTED OFFER
     const probe = studioProbe(html, YESNO_CONTENT);
     probe.run(
@@ -5637,7 +5714,7 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
     // §5.5 range provider-format note ships + gates island-side
     expect(html).toContain("data-range-format-note");
-    expect(html).toContain("Provider output format is set per Offer in the Mapping tab");
+    expect(html).toContain("Provider output format is set per Offer in the Offers tab");
     expect(island).toContain("node.type !== 'RangeQuestion' && node.type !== 'NumberRangeQuestion' && node.type !== 'CurrencyRangeQuestion'");
   });
 
@@ -5750,8 +5827,11 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
       getElementById(id: string) {
         return id === "lg-section-headline" ? strip : null;
       },
+      // v3.1 §8.4: the Content tab's headline variant carries TWO
+      // data-bound-shared-input elements (headline/subheadline) — the
+      // mirror lookup is now value-specific, not a bare-attribute match.
       querySelector(sel: string) {
-        return sel === "[data-bound-shared-input]" ? mirror : null;
+        return sel === '[data-bound-shared-input="section_headline"]' ? mirror : null;
       },
       querySelectorAll() {
         return [];

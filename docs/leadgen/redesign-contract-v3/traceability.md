@@ -73,8 +73,11 @@ Values the golden master and contract do not specify. Per §0.1 these are record
 | Height preset `small` | §7.1/§8.5b | resolver returns preset name; no explicit height emitted (golden `fieldBoxStyle` is padding-only `16px 18px`, no height term) | Phase B (Small/Medium/Large height design tokens) |
 | Height preset `medium` | §7.1/§8.5b | same | Phase B |
 | Height preset `large` | §7.1/§8.5b | same | Phase B |
+| Text/bound-headline **Size step** control | §8.5b | OMITTED from the Style tab — no `design_overrides` storage key and no runtime consumer exist; per §0.1 not fabricated. Text ships Role + Text-color-role only. | Design addendum defining the storage key + a renderer consumer |
+| Text/bound-headline **Align** control | §8.5b | OMITTED — same (no storage/consumer). | Design addendum |
+| Corners `sharp` → `border-radius:0` | §3.3/§8.5b | Emitted, but `0` is INFERRED — §3.3 gives no explicit "sharp" px. `0` is the only reading of "no rounding"; `rounded`=8px and `pill`=20px ARE §3.3-cited. | Confirm `0` against a design addendum if a non-zero "sharp" is intended |
 
-GROUNDED and emitted exactly: width `full`→`width:100%` (golden `fieldWrapStyle` non-custom branch; = 100% of the 600 unit column, Appendix B); `custom_px`→explicit `{axis}:{px}px` (§7.2, clamp [200,600], snap 4px). Absent size → no style (byte-identical to pre-v3.1).
+GROUNDED and emitted exactly: width `full`→`width:100%` (golden `fieldWrapStyle` non-custom branch; = 100% of the 600 unit column, Appendix B); `custom_px`→explicit `{axis}:{px}px` (§7.2, clamp [200,600], snap 4px). Absent size → no style (byte-identical to pre-v3.1). Corners `rounded`→8px / `pill`→20px and border-color roles (neutral→border/brand→primary/accent→accent) resolve at render time via the theme `design` object (§12), emitted as `--lg-field-border` so `:focus`/`[aria-invalid]` retain precedence (Phase C).
 
 ---
 

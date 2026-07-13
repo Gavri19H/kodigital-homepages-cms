@@ -210,7 +210,9 @@ const TYPE_LABELS: Record<string, string> = {
   TwoButtonYesNo: "Yes / No",
   IconCardAnswerGrid: "Icon answer cards",
   MultiChoiceCardGroup: "Multi-select cards",
-  ZIPInputQuestion: "ZIP",
+  // v3.1 §5.6/§8.1: the whole 8-value Accept-swap family reads "Short text
+  // field" in the inspector scope header — never its own concrete-type label.
+  ZIPInputQuestion: "Short text field",
   ContinueButton: "Continue button",
   Stack: "Stack",
   GridContainer: "Answer grid",
@@ -295,20 +297,34 @@ async function openInspectorTab(page: Page, key: string): Promise<void> {
   await tab.click();
 }
 
+// v3.1 §8.3: "label" can resolve to more than one element in the panel
+// (Continue's "Button label", a text field's dedicated "Field label", the
+// generic CONTENT_CONTROLS "Label" row) — only ONE is visible per selection.
 async function setContentField(page: Page, key: string, value: string): Promise<void> {
   await openInspectorTab(page, "content");
-  await page.locator(`[data-studio-panel="content"] input[data-inspector-field="${key}"]`).fill(value);
+  await page.locator(`[data-studio-panel="content"] input[data-inspector-field="${key}"]:visible`).fill(value);
+}
+
+// v3.1 §8.8: Advanced is a persistent disclosure BELOW the 5-tab strip (not
+// a 6th tab/panel) — open it via its own toggle button.
+async function openAdvancedDisclosure(page: Page): Promise<void> {
+  const body = page.locator("[data-studio-advanced-body]");
+  if (await body.isHidden()) {
+    await page.locator("[data-studio-advanced-toggle]").click();
+  }
+  await expect(body).toBeVisible();
 }
 
 async function setInternalField(page: Page, value: string): Promise<void> {
-  await openInspectorTab(page, "advanced");
+  await openAdvancedDisclosure(page);
   await page
-    .locator('[data-studio-panel="advanced"] input[data-inspector-field="internal_field"]')
+    .locator('[data-studio-advanced-body] input[data-inspector-field="internal_field"]')
     .fill(value);
 }
 
+// v3.1 §8.2/§8.5: Layout folds into the Style tab.
 function containerGroup(page: Page, type: string) {
-  return page.locator(`[data-studio-panel="layout"] [data-container-group="${type}"]`);
+  return page.locator(`[data-studio-panel="style"] [data-container-group="${type}"]`);
 }
 
 function choiceRows(page: Page) {
@@ -529,12 +545,12 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
       subheadline: "Compare rates from top carriers in minutes.",
     });
     await addComponent(page, "GridContainer");
-    await openInspectorTab(page, "layout");
+    await openInspectorTab(page, "style");
     const grid = containerGroup(page, "GridContainer");
     await grid.locator('select[data-container-prop="columnsDesktop"]').selectOption("2");
     await grid.locator('select[data-container-prop="gap"]').selectOption("m");
     await addComponent(page, "ButtonAnswerGroup"); // INTO the selected grid
-    await openInspectorTab(page, "choices");
+    await openInspectorTab(page, "content");
     await fillChoiceRow(page, 0, { label: "State Farm", value: "state_farm", analytics_id: "a_state_farm" });
     await fillChoiceRow(page, 1, { label: "Another carrier", value: "other_carrier", analytics_id: "a_other" });
     await setInternalField(page, "current_carrier");
@@ -687,7 +703,7 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
     // it (equivalent end model shape: Stack containing the ButtonAnswerGroup).
     await addComponent(page, "ButtonAnswerGroup");
     await groupSelectionIntoStack(page);
-    await openInspectorTab(page, "layout");
+    await openInspectorTab(page, "style");
     const stack = containerGroup(page, "Stack");
     await stack.locator('select[data-container-prop="direction"]').selectOption("vertical");
     await stack.locator('select[data-container-prop="gap"]').selectOption("s");
@@ -695,7 +711,7 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
     // re-select the ButtonAnswerGroup CHILD (grouping moved the selection to
     // the new Stack wrapper) before authoring its choices.
     await studioCanvas(page).locator('[data-component-type="ButtonAnswerGroup"]').click();
-    await openInspectorTab(page, "choices");
+    await openInspectorTab(page, "content");
     await fillChoiceRow(page, 0, { label: "Home coverage", value: "home", analytics_id: "b_home" });
     await fillChoiceRow(page, 1, { label: "Auto coverage", value: "auto", analytics_id: "b_auto" });
     await page.locator("#lg-choice-add").click();
@@ -954,7 +970,7 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
       headline: "Who is the coverage for?",
     });
     await addComponent(page, "IconCardAnswerGrid");
-    await openInspectorTab(page, "choices");
+    await openInspectorTab(page, "content");
     await fillChoiceRow(page, 0, {
       label: "For me",
       value: "self",
@@ -981,7 +997,7 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
       headline: "Which benefits matter most?",
     });
     await addComponent(page, "MultiChoiceCardGroup");
-    await openInspectorTab(page, "choices");
+    await openInspectorTab(page, "content");
     await fillChoiceRow(page, 0, {
       label: "Low premium",
       value: "low_premium",

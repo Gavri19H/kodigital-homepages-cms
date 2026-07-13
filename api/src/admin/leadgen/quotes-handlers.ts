@@ -3107,10 +3107,60 @@ function countLegacyHexOverrides(
   return count;
 }
 
-// Variant-level rows: overrides schema (error, per-variant message) · contrast
-// lint (warning) · and — when the funnel HAS a configured frame (§14.4) — the
-// per-section chrome (error/warning per compat, C2) · local progress/back ·
-// duplicate Continue · missing headline · legacy-hex rows.
+// v3.1 §9.3 — "Save with maps.enabled and zero jobs -> problems[] warning
+// maps_no_job (path-precise); the builder shows the amber banner. Activation
+// preflight escalates it to a BLOCKING error (same pattern as
+// frame_scope_component)." The section-save-time warning already exists
+// (content-schema.ts's validateSectionContent, wired through
+// sections-handlers.ts's validateSection). THIS is the escalation half —
+// runs UNCONDITIONALLY (unlike the frame-scope rows below, which are gated
+// on the funnel having a configured page-frame): a Maps misconfiguration is a
+// per-field content concern, not a frame concern, so it must block
+// activation even for a legacy Quote with no frame_config_json at all.
+async function computeMapsNoJobProblems(
+  db: D1Database,
+  variant: LeadgenFunnelVariantRow,
+): Promise<Problem[]> {
+  const problems: Problem[] = [];
+  const orderedRefs = await readVariantSections(db, variant.id);
+  for (const ref of orderedRefs) {
+    if (ref.status !== "active") continue;
+    const row = await db
+      .prepare("SELECT public_id, section_name, content_json FROM leadgen_sections WHERE id = ? LIMIT 1")
+      .bind(ref.section_id)
+      .first<{ public_id: string; section_name: string; content_json: string }>();
+    if (row === null) continue;
+    const parsed = parseJsonColumn(row.content_json);
+    const topLevel = isRecord(parsed) && Array.isArray(parsed["components"]) ? (parsed["components"] as unknown[]) : [];
+    const nodes = (flattenComponents(topLevel as unknown as LeadgenComponentNode[]) as unknown[]).filter(isRecord);
+    for (const node of nodes) {
+      const props = node["props"];
+      if (!isRecord(props)) continue;
+      const maps = props["maps"];
+      if (!isRecord(maps) || maps["enabled"] !== true) continue;
+      const jobs = maps["jobs"];
+      const anyJob =
+        isRecord(jobs) && (jobs["validate"] === true || jobs["auction"] === true || jobs["autocomplete"] === true);
+      if (!anyJob) {
+        const questionId = typeof node["question_id"] === "string" ? node["question_id"] : "";
+        problems.push({
+          path: `section.${row.public_id}.components[${questionId}].props.maps`,
+          scope: "component",
+          severity: "error",
+          message: `'${row.section_name}' has a Maps-enabled field with no job selected (validate/auction/autocomplete) — it does nothing at runtime. Pick a job or turn Maps off.`,
+          fix_url: SECTION_MAPPING_LINK(row.public_id),
+        });
+      }
+    }
+  }
+  return problems;
+}
+
+// Variant-level rows: maps_no_job escalation (UNCONDITIONAL, §9.3) · overrides
+// schema (error, per-variant message) · contrast lint (warning) · and — when
+// the funnel HAS a configured frame (§14.4) — the per-section chrome
+// (error/warning per compat, C2) · local progress/back · duplicate Continue ·
+// missing headline · legacy-hex rows.
 async function computeVariantV25Problems(
   db: D1Database,
   quote: LeadgenQuoteRow,
@@ -3119,6 +3169,7 @@ async function computeVariantV25Problems(
   variant: LeadgenFunnelVariantRow,
 ): Promise<Problem[]> {
   const problems: Problem[] = [];
+  problems.push(...(await computeMapsNoJobProblems(db, variant)));
   const fixQuote = QUOTE_BUILDER_LINK(quote.public_id);
 
   // --- variant frame_overrides_json invalid (row 3, error — per-variant) ----

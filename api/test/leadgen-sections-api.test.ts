@@ -1143,4 +1143,67 @@ describeDb("POST /sections/:id/validate-payload — §12.8 ZIP validation", () =
     const body = (await res.json()) as ZipValidationBody;
     expect(body.address_validation).toBeNull();
   });
+
+  // v3.1 §9.3 per-field precedence (adversarial-review fix round, MINOR-1):
+  // this admin leg keyed SOLELY off address_validation_enabled and validated
+  // ALL zip fields — it never consulted a field's OWN props.maps.jobs.validate,
+  // contradicting §9.3 (the client leg + key-injection gate already honor
+  // jobs.validate) and §12 parity. Both directions below prove the field's
+  // own maps config — when present — is now authoritative over the legacy
+  // Section-level column, exactly like the runtime/key-injection legs.
+  const ZIP_WITH_FIELD_MAPS = (validate: boolean) => ({
+    components: [
+      {
+        type: "ZIPInputQuestion",
+        question_id: "zq",
+        question_key: "zip_q",
+        internal_field: "zip",
+        props: { maps: { enabled: true, jobs: { validate, auction: false, autocomplete: false } } },
+      },
+    ],
+  });
+
+  it("a field's OWN props.maps.jobs.validate:false wins over an ENABLED address_validation_enabled column — preview shows NO zip validation (the fix-round regression scenario, verbatim)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(
+      env,
+      sectionBody({ content_json: JSON.stringify(ZIP_WITH_FIELD_MAPS(false)), address_validation_enabled: true }),
+    );
+    const res = await admin.request(
+      `${API}/sections/${section.public_id}/validate-payload`,
+      jsonInit("POST", { answers: { zip: "9021" } }), // malformed — would flag if this field were validated
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as ZipValidationBody;
+    expect(body.address_validation).toBeNull();
+  });
+
+  it("a field's OWN props.maps.jobs.validate:true still validates even when address_validation_enabled is OFF (per-field precedence both directions)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, sectionBody({ content_json: JSON.stringify(ZIP_WITH_FIELD_MAPS(true)) })); // address_validation_enabled defaults false
+    const res = await admin.request(
+      `${API}/sections/${section.public_id}/validate-payload`,
+      jsonInit("POST", { answers: { zip: "9021" } }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as ZipValidationBody;
+    expect(body.address_validation?.enabled).toBe(true);
+    expect(body.address_validation?.has_malformed).toBe(true);
+    expect(body.address_validation?.checks.find((cc) => cc.field === "zip")?.valid).toBe(false);
+  });
+
+  it("a field with NO props.maps at all still falls back to the legacy address_validation_enabled column (§12 no-regression for pre-v3.1 content)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, sectionBody({ content_json: JSON.stringify(ZIP_CONTENT), address_validation_enabled: true }));
+    const res = await admin.request(
+      `${API}/sections/${section.public_id}/validate-payload`,
+      jsonInit("POST", { answers: { zip: "9021" } }),
+      env,
+    );
+    const body = (await res.json()) as ZipValidationBody;
+    expect(body.address_validation?.enabled).toBe(true);
+    expect(body.address_validation?.checks.find((cc) => cc.field === "zip")?.valid).toBe(false);
+  });
 });

@@ -408,6 +408,197 @@ describeDb("theme_controls threading (v3.1 §7/§12, adversarial review MAJOR-1)
 });
 
 // ===========================================================================
+// M1 (MAJOR, adversarial-review fix round) — Style tab Corners/Border-color
+// render wiring (§8.5b/§11.5/§12): setNodeCorners/setNodeBorderColor
+// (ui-section-studio.ts) persisted design_overrides.corners/.border_color
+// and highlighted the segment active, but no renderer consumed them — a
+// silent no-op with false "active" feedback. This proves the wiring at REAL
+// HTTP level (never a hand-built ctx) across all THREE §12 paths, mirroring
+// the size-threading proof above.
+// ===========================================================================
+
+// A FreeTextQuestion node with (or without) v3.1 §8.5b Corners/Border-color
+// node.design_overrides.
+function sectionContentJsonAppearance(overrides: { corners?: string; border_color?: string } | null): string {
+  return JSON.stringify({
+    components: [
+      { type: "QuestionHeadline", question_id: "q1_h", bind: "section_headline", props: {} },
+      {
+        type: "FreeTextQuestion",
+        question_id: "q1",
+        question_key: "q1_key",
+        internal_field: "q1_field",
+        ...(overrides !== null ? { design_overrides: overrides } : {}),
+      },
+    ],
+  });
+}
+
+// Reuses seedActivatedFixture's full quote/funnel/variant/section/activation
+// wiring, then overwrites JUST content_json with the appearance-specific
+// node tree — additive, touches none of the existing size-parity fixtures.
+async function seedAppearanceFixture(
+  slug: string,
+  overrides: { corners?: string; border_color?: string } | null,
+): Promise<SeededFixture> {
+  const fx = await seedActivatedFixture(slug, false);
+  fx.h.sdb
+    .prepare("UPDATE leadgen_sections SET content_json = ? WHERE public_id = ?")
+    .run(sectionContentJsonAppearance(overrides), fx.sectionPublicId);
+  return fx;
+}
+
+describeDb("Style tab Corners/Border-color render wiring (v3.1 §8.5b/§11.5/§12, fix-round MAJOR-1)", () => {
+  it("PATH 1/3 — runtime GET /lg/:slug renders corners:pill as border-radius:20px and border_color:brand as the theme's brand_primary hex", async () => {
+    const fx = await seedAppearanceFixture("appearance-runtime", { corners: "pill", border_color: "brand" });
+    await assignTheme(fx.h.env, fx.funnelPublicId);
+
+    const res = await app.request(`${TENANT_ORIGIN}/lg/appearance-runtime`, {}, fx.h.env);
+    expect(res.status, await res.clone().text()).toBe(200);
+    const html = await res.text();
+    // border_color rides the --lg-field-border CUSTOM PROPERTY, not
+    // border-color directly (adversarial-review cascade-regression
+    // close-out: a direct inline border-color would beat .lg-input:focus/
+    // [aria-invalid] by specificity — see designs/default-funnel/styles.ts's
+    // .lg-input rule + the live Playwright proof in leadgen-section-studio.spec.ts).
+    expect(html).toContain(
+      `data-lg-input style="border-radius:20px;--lg-field-border:${THEME_BODY.roles.brand_primary}"`,
+    );
+  });
+
+  it("PATH 2/3 — POST /sections/preview (section-in-frame) renders the SAME corners/border_color", async () => {
+    const fx = await seedAppearanceFixture("appearance-preview", { corners: "pill", border_color: "brand" });
+    await assignTheme(fx.h.env, fx.funnelPublicId);
+
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", {
+        content_json: sectionContentJsonAppearance({ corners: "pill", border_color: "brand" }),
+        headline: "Question?",
+        section_public_id: fx.sectionPublicId,
+        frame_context: { funnel_public_id: fx.funnelPublicId, variant_public_id: fx.variantPublicId },
+      }),
+      fx.h.env,
+    );
+    expect(res.status, `preview: ${await res.clone().text()}`).toBe(200);
+    const body = (await res.json()) as { preview: { desktop: string } };
+    expect(body.preview.desktop).toContain(
+      `data-lg-input style="border-radius:20px;--lg-field-border:${THEME_BODY.roles.brand_primary}"`,
+    );
+  });
+
+  it("PATH 3/3 — POST /variants/:id/preview (composed-variant preview) renders the SAME corners/border_color", async () => {
+    const fx = await seedAppearanceFixture("appearance-composed", { corners: "pill", border_color: "brand" });
+    await assignTheme(fx.h.env, fx.funnelPublicId);
+
+    const res = await admin.request(
+      `${API}/variants/${fx.variantPublicId}/preview`,
+      jsonInit("POST", { mode: "section", section_public_id: fx.sectionPublicId }),
+      fx.h.env,
+    );
+    expect(res.status, `composed preview: ${await res.clone().text()}`).toBe(200);
+    const body = (await res.json()) as { preview: { html: string } };
+    expect(body.preview.html).toContain(
+      `data-lg-input style="border-radius:20px;--lg-field-border:${THEME_BODY.roles.brand_primary}"`,
+    );
+  });
+
+  it("border_color:accent resolves to the theme's accent role hex; border_color:neutral (no theme assigned) resolves to the base design's color.border token", async () => {
+    const fxAccent = await seedAppearanceFixture("appearance-accent", { border_color: "accent" });
+    await assignTheme(fxAccent.h.env, fxAccent.funnelPublicId);
+    const accentRes = await app.request(`${TENANT_ORIGIN}/lg/appearance-accent`, {}, fxAccent.h.env);
+    expect(accentRes.status, await accentRes.clone().text()).toBe(200);
+    expect(await accentRes.text()).toContain(`data-lg-input style="--lg-field-border:${THEME_BODY.roles.accent}"`);
+
+    const fxNeutral = await seedAppearanceFixture("appearance-neutral", { border_color: "neutral" });
+    // No theme assigned — the plain base design's own color.border token
+    // (designs/default-funnel/tokens.ts: color.border = "#D2D9E5") — the
+    // SAME value the base .lg-input rule's var() fallback resolves to when
+    // NO override is authored at all, so this is byte-identical to the
+    // absent case (see the REGRESSION test below).
+    const neutralRes = await app.request(`${TENANT_ORIGIN}/lg/appearance-neutral`, {}, fxNeutral.h.env);
+    expect(neutralRes.status, await neutralRes.clone().text()).toBe(200);
+    expect(await neutralRes.text()).toContain('data-lg-input style="--lg-field-border:#D2D9E5"');
+  });
+
+  it("corners:sharp renders border-radius:0 (inferred — no explicit §3.3 px), corners:rounded renders border-radius:8px (§3.3 controls/inputs)", async () => {
+    const fxSharp = await seedAppearanceFixture("appearance-sharp", { corners: "sharp" });
+    const sharpRes = await app.request(`${TENANT_ORIGIN}/lg/appearance-sharp`, {}, fxSharp.h.env);
+    expect(sharpRes.status, await sharpRes.clone().text()).toBe(200);
+    expect(await sharpRes.text()).toContain('data-lg-input style="border-radius:0"');
+
+    const fxRounded = await seedAppearanceFixture("appearance-rounded", { corners: "rounded" });
+    const roundedRes = await app.request(`${TENANT_ORIGIN}/lg/appearance-rounded`, {}, fxRounded.h.env);
+    expect(roundedRes.status, await roundedRes.clone().text()).toBe(200);
+    expect(await roundedRes.text()).toContain('data-lg-input style="border-radius:8px"');
+  });
+
+  it("CASCADE close-out — the field never carries an inline border-color directly; the served <style> block's .lg-input rule reads the custom property while :focus/[aria-invalid] still set border-color DIRECTLY (unchanged, still higher-specificity)", async () => {
+    const fx = await seedAppearanceFixture("appearance-cascade", { border_color: "brand" });
+    await assignTheme(fx.h.env, fx.funnelPublicId);
+
+    const res = await app.request(`${TENANT_ORIGIN}/lg/appearance-cascade`, {}, fx.h.env);
+    expect(res.status, await res.clone().text()).toBe(200);
+    const html = await res.text();
+
+    // The field itself carries ONLY the custom property — never a direct
+    // inline border-color (which would beat :focus/[aria-invalid] by
+    // specificity regardless of what the base rule does). The closing `"`
+    // in this exact substring match means the style attribute's content is
+    // EXACTLY this value — nothing else (e.g. a trailing ";border-color:…")
+    // could be appended without breaking the match.
+    expect(html).toContain(`data-lg-input style="--lg-field-border:${THEME_BODY.roles.brand_primary}"`);
+
+    // The served stylesheet's base .lg-input rule reads the var() with a
+    // fallback (never hard-codes the override) …
+    expect(html).toMatch(/\.lg-input\{[^}]*border-color:var\(--lg-field-border,\s*#[0-9a-fA-F]{6}\)/);
+    // … while :focus / [aria-invalid] are UNCHANGED — still a DIRECT
+    // border-color declaration, never themselves reading the var (so their
+    // higher selector-specificity keeps winning over the resting-state var
+    // exactly as it did before this feature existed).
+    expect(html).toMatch(/\.lg-input:focus\{[^}]*border-color:#[0-9a-fA-F]{6}/);
+    expect(html).toMatch(/\.lg-input\[aria-invalid="true"\]\{border-color:#[0-9a-fA-F]{6}/);
+  });
+
+  it("REGRESSION — absent design_overrides.corners/.border_color renders NO style attribute on the field, on all 3 paths (byte-identical, strictly additive)", async () => {
+    const fx = await seedAppearanceFixture("appearance-absent", null);
+    await assignTheme(fx.h.env, fx.funnelPublicId);
+
+    // Mirrors the sibling size-parity REGRESSION test's own marker-adjacency
+    // check above: a blanket "no border-radius/border-color anywhere on the
+    // page" would be WRONG — the frame's OWN <style> block legitimately
+    // declares .lg-input{border-radius:…} / .lg-input:focus{border-color:…}
+    // as base CSS. "No style attribute on THIS field" means data-lg-input is
+    // never immediately followed by ` style=`.
+    const noFieldStyle = (html: string): void => expect(html).not.toContain("data-lg-input style=");
+
+    const runtimeRes = await app.request(`${TENANT_ORIGIN}/lg/appearance-absent`, {}, fx.h.env);
+    noFieldStyle(await runtimeRes.text());
+
+    const previewRes = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", {
+        content_json: sectionContentJsonAppearance(null),
+        headline: "Question?",
+        section_public_id: fx.sectionPublicId,
+        frame_context: { funnel_public_id: fx.funnelPublicId, variant_public_id: fx.variantPublicId },
+      }),
+      fx.h.env,
+    );
+    const previewBody = (await previewRes.json()) as { preview: { desktop: string } };
+    noFieldStyle(previewBody.preview.desktop);
+
+    const composedRes = await admin.request(
+      `${API}/variants/${fx.variantPublicId}/preview`,
+      jsonInit("POST", { mode: "section", section_public_id: fx.sectionPublicId }),
+      fx.h.env,
+    );
+    const composedBody = (await composedRes.json()) as { preview: { html: string } };
+    noFieldStyle(composedBody.preview.html);
+  });
+});
+
+// ===========================================================================
 // BLOCKER-1 defense-in-depth — a KV-tampered theme record (bypassing
 // validateThemeBody) can never reach the served <style> block
 // ===========================================================================

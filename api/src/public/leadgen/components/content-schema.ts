@@ -126,12 +126,16 @@ export const CURATED_DESIGN_OVERRIDE_KEYS = [
   "gridGap",
   "mobileBehavior",
   // v3.1 §7.2 — NEW: width/height preset-or-custom_px (object-valued; see
-  // `LeadgenSizeOverride` below). NOTE (scope, flagged): §11.3's example also
-  // shows sibling `corners`/`border_color` design_overrides keys, but ONLY
-  // `size` is in this slice's mandate — corners/border_color stay
-  // unsupported (rejected as `non_curated_override_key` if authored) until a
-  // later phase adds them.
+  // `LeadgenSizeOverride` below).
   "size",
+  // v3.1 §8.5/§8.5b — Phase C (this phase) adds the two node.design_overrides
+  // keys §11.3's example already showed but Phase A explicitly deferred
+  // ("corners/border_color stay unsupported... until a later phase adds
+  // them" — this IS that later phase, the Style tab). Both are plain
+  // enum-scalar keys (never object-shaped like `size`); values are
+  // role/preset NAMES only — never hex (§8.5 "no hex anywhere on this tab").
+  "corners",
+  "border_color",
 ] as const;
 
 export type CuratedDesignOverrideKey = (typeof CURATED_DESIGN_OVERRIDE_KEYS)[number];
@@ -308,6 +312,18 @@ const TEXT_BLOCK_ROLE_SET: ReadonlySet<string> = new Set(LEADGEN_TEXT_BLOCK_ROLE
 export const LEADGEN_IMAGE_BLOCK_SOURCES = ["media", "auto_logo"] as const;
 export type LeadgenImageBlockSource = (typeof LEADGEN_IMAGE_BLOCK_SOURCES)[number];
 const IMAGE_BLOCK_SOURCE_SET: ReadonlySet<string> = new Set(LEADGEN_IMAGE_BLOCK_SOURCES);
+
+// v3.1 §8.5b Style tab — the node-level `design_overrides.corners` /
+// `.border_color` enums (Phase C). Distinct from the 14-value funnel-wide
+// THEME roles (LEADGEN_THEME_ROLES/§9.1) — border_color is its OWN small
+// 3-value role vocabulary, never the general color-role set and never hex.
+export const LEADGEN_NODE_CORNERS = ["sharp", "rounded", "pill"] as const;
+export type LeadgenNodeCorners = (typeof LEADGEN_NODE_CORNERS)[number];
+const NODE_CORNERS_SET: ReadonlySet<string> = new Set(LEADGEN_NODE_CORNERS);
+
+export const LEADGEN_NODE_BORDER_COLOR_ROLES = ["neutral", "brand", "accent"] as const;
+export type LeadgenNodeBorderColorRole = (typeof LEADGEN_NODE_BORDER_COLOR_ROLES)[number];
+const NODE_BORDER_COLOR_ROLE_SET: ReadonlySet<string> = new Set(LEADGEN_NODE_BORDER_COLOR_ROLES);
 
 // §9.2 — the field-level Maps config (`node.props.maps`), valid only on
 // ZIP/Address types (§9 "field Maps tab").
@@ -1751,6 +1767,22 @@ export function validateSectionContent(content: unknown): SectionContentValidati
             // typed, so it takes its own dedicated branch ahead of the
             // scalar-only checks below.
             validateSizeOverride(value, `${base}.design_overrides.size`, push);
+          } else if (key === "corners") {
+            if (typeof value !== "string" || !NODE_CORNERS_SET.has(value)) {
+              push(
+                "invalid_override_value",
+                `${base}.design_overrides.corners`,
+                `design_overrides.corners must be one of: ${LEADGEN_NODE_CORNERS.join(", ")} (§8.5b)`,
+              );
+            }
+          } else if (key === "border_color") {
+            if (typeof value !== "string" || !NODE_BORDER_COLOR_ROLE_SET.has(value)) {
+              push(
+                "invalid_override_value",
+                `${base}.design_overrides.border_color`,
+                `design_overrides.border_color must be one of: ${LEADGEN_NODE_BORDER_COLOR_ROLES.join(", ")} (§8.5b)`,
+              );
+            }
           } else if (looksLikeArbitraryCss(value)) {
             push(
               "arbitrary_css_override",

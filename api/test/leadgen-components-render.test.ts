@@ -261,11 +261,20 @@ describe("validateSectionContent — per-node rejects", () => {
   });
 
   it("accepts every curated override key with token values", () => {
-    // v3.1 §7.2: `size` is the one object-shaped curated key (added by the
-    // conductor fix round) — every other key stays a scalar token value.
+    // v3.1 §7.2: `size` is the one object-shaped curated key. v3.1 §8.5b
+    // (Phase C): `corners`/`border_color` are plain enum-scalar keys with
+    // their OWN small vocabularies (sharp/rounded/pill;
+    // neutral/brand/accent) — NOT the general color-role/hex vocabulary the
+    // other scalar keys accept, so they need their own valid representative
+    // value here too.
     const overrides: Record<string, string | number | { width: string }> = {};
     for (const k of CURATED_DESIGN_OVERRIDE_KEYS) {
-      overrides[k] = k === "columns" ? 3 : k === "size" ? { width: "full" } : "#1B3A5C";
+      overrides[k] =
+        k === "columns" ? 3
+        : k === "size" ? { width: "full" }
+        : k === "corners" ? "rounded"
+        : k === "border_color" ? "neutral"
+        : "#1B3A5C";
     }
     const c = {
       components: [
@@ -916,6 +925,200 @@ describe("v2.4 §3.3 — data-lg-maps (field-level props.maps; compat fallback)"
     for (const type of ["FreeTextQuestion", "ButtonAnswerGroup", "ContinueButton"] as const) {
       expect(renderComponent(NODE_SPECS[type], DESIGN), type).not.toContain("data-lg-maps");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v3.1 §9.3 — the NEW {enabled,jobs} shape's per-field precedence over the
+// legacy validate flag / legacy flat props.maps. Regression: before this
+// phase's presets.ts fix, ANY object-shaped props.maps (new OR legacy) was
+// treated as unconditionally Maps-enabled and passed through VERBATIM —
+// jobs.validate was never consulted, so a field with maps.enabled:true but
+// jobs.validate:false still rendered as validate-active.
+// ---------------------------------------------------------------------------
+
+describe("v3.1 §9.3 — Maps job-based precedence (NEW shape wins over legacy)", () => {
+  function zipNode(props: Record<string, unknown>) {
+    return { type: "ZIPInputQuestion" as const, question_id: "q_zip", internal_field: "zip", props };
+  }
+  function addressNode(props: Record<string, unknown>) {
+    return { type: "AddressAutocompleteQuestion" as const, question_id: "q_addr", internal_field: "addr", props };
+  }
+
+  it("ZIP: jobs.validate=true → data-validate + data-lg-maps validate:true", () => {
+    const html = renderComponent(
+      zipNode({ maps: { enabled: true, jobs: { validate: true, auction: false, autocomplete: false } } }),
+      DESIGN,
+    );
+    expect(html).toContain('data-validate="google"');
+    expect(html).toContain("data-lg-maps=");
+    expect(html).toContain("&quot;validate&quot;:true");
+  });
+
+  it("ZIP: jobs.validate=false → NO data-validate, even though maps.enabled is true (§9.3 regression)", () => {
+    const html = renderComponent(
+      zipNode({ maps: { enabled: true, jobs: { validate: false, auction: true, autocomplete: false } } }),
+      DESIGN,
+    );
+    expect(html).not.toContain("data-validate=");
+    expect(html).toContain("&quot;validate&quot;:false");
+  });
+
+  it("ZIP: maps.enabled=false → NO data-lg-maps at all, even with jobs.validate:true stored (per-field OFF wins)", () => {
+    const html = renderComponent(
+      zipNode({ maps: { enabled: false, jobs: { validate: true, auction: false, autocomplete: false } } }),
+      DESIGN,
+    );
+    expect(html).not.toContain("data-lg-maps");
+    expect(html).not.toContain("data-validate=");
+  });
+
+  it("ZIP: NEW shape's jobs.validate WINS over the legacy bare props.validate flag when both are present", () => {
+    // per-field precedence (§9.3): the new authoring shape is authoritative —
+    // a stale/unrelated legacy `validate` flag must NOT leak through.
+    const html = renderComponent(
+      zipNode({ validate: true, maps: { enabled: true, jobs: { validate: false, auction: false, autocomplete: false } } }),
+      DESIGN,
+    );
+    expect(html).not.toContain("data-validate=");
+  });
+
+  it("ZIP: jobs.autocomplete=true → data-lg-maps carries enable_autocomplete:true (translated to the runtime's flat wire key)", () => {
+    const html = renderComponent(
+      zipNode({ maps: { enabled: true, jobs: { validate: false, auction: false, autocomplete: true } } }),
+      DESIGN,
+    );
+    expect(html).toContain("&quot;enable_autocomplete&quot;:true");
+  });
+
+  it("Address: maps.enabled=false now actually turns Maps OFF (pre-v3.1 it was unconditional)", () => {
+    const html = renderComponent(addressNode({ maps: { enabled: false, jobs: { validate: false, auction: false, autocomplete: false } } }), DESIGN);
+    expect(html).not.toContain("data-lg-maps");
+  });
+
+  it("Address: maps.enabled=true, jobs.validate=true → data-lg-maps carries validate:true", () => {
+    const html = renderComponent(addressNode({ maps: { enabled: true, jobs: { validate: true, auction: false, autocomplete: true } } }), DESIGN);
+    expect(html).toContain("data-lg-maps=");
+    expect(html).toContain("&quot;validate&quot;:true");
+  });
+
+  it("a legacy flat-shape props.maps (no .jobs key) still passes through VERBATIM on both types (§12 no-regression)", () => {
+    const zipHtml = renderComponent(zipNode({ maps: { validate_zip: true } }), DESIGN);
+    expect(zipHtml).toContain("data-lg-maps=");
+    expect(zipHtml).toContain("validate_zip");
+    const addrHtml = renderComponent(addressNode({ maps: { autofill_city: "city" } }), DESIGN);
+    expect(addrHtml).toContain("autofill_city");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v3.1 §8.5b/§11.5/§12 (adversarial-review fix round, MAJOR-1) — Style tab
+// Corners/Border-color render wiring: setNodeCorners/setNodeBorderColor
+// (ui-section-studio.ts) persisted design_overrides.corners/.border_color
+// and highlighted the segment active, but no renderer consumed them — a
+// silent no-op with false "active" feedback. See also the real-HTTP §12
+// 3-path parity proof in leadgen-v31-themes-size-parity.test.ts; these are
+// the unit-level grounding + placement + defensive-guard checks.
+// ---------------------------------------------------------------------------
+describe("v3.1 §8.5b/§11.5/§12 — Style tab Corners/Border-color render wiring (fix-round MAJOR-1)", () => {
+  function freeTextNode(designOverrides: Record<string, unknown>) {
+    return {
+      type: "FreeTextQuestion" as const,
+      question_id: "q_ft",
+      internal_field: "ft",
+      design_overrides: designOverrides,
+    };
+  }
+  function currencyNode(designOverrides: Record<string, unknown>) {
+    return {
+      type: "CurrencyInputQuestion" as const,
+      question_id: "q_cur",
+      internal_field: "cur",
+      design_overrides: designOverrides,
+    };
+  }
+  function addrAppearanceNode(designOverrides: Record<string, unknown>) {
+    return {
+      type: "AddressAutocompleteQuestion" as const,
+      question_id: "q_addr2",
+      internal_field: "addr2",
+      design_overrides: designOverrides,
+    };
+  }
+
+  it("corners:pill -> border-radius:20px (§3.3 pills/chips), corners:rounded -> 8px (§3.3 controls/inputs), corners:sharp -> 0 (inferred, flagged — no explicit contract px)", () => {
+    expect(renderComponent(freeTextNode({ corners: "pill" }), DESIGN)).toContain('style="border-radius:20px"');
+    expect(renderComponent(freeTextNode({ corners: "rounded" }), DESIGN)).toContain('style="border-radius:8px"');
+    expect(renderComponent(freeTextNode({ corners: "sharp" }), DESIGN)).toContain('style="border-radius:0"');
+  });
+
+  it("border_color:brand/accent resolve to the ACTIVE design's OWN color.primary/color.accent tokens (never a fabricated hex); neutral resolves to color.border", () => {
+    expect(renderComponent(freeTextNode({ border_color: "brand" }), DESIGN)).toContain(
+      `style="--lg-field-border:${DESIGN.color.primary}"`,
+    );
+    expect(renderComponent(freeTextNode({ border_color: "accent" }), DESIGN)).toContain(
+      `style="--lg-field-border:${DESIGN.color.accent}"`,
+    );
+    expect(renderComponent(freeTextNode({ border_color: "neutral" }), DESIGN)).toContain(
+      `style="--lg-field-border:${DESIGN.color.border}"`,
+    );
+  });
+
+  // Adversarial-review cascade-regression close-out: border_color rides the
+  // --lg-field-border CUSTOM PROPERTY, never `border-color` directly. A
+  // direct inline border-color would beat designs/default-funnel/styles.ts's
+  // .lg-input:focus / .lg-input[aria-invalid="true"] rules by specificity
+  // (inline always wins over a class/attribute selector without
+  // !important), silently losing the focus/invalid border color. The full
+  // live browser proof (computed style under :focus/[aria-invalid]) is in
+  // test-ui/leadgen-section-studio.spec.ts; this is the render-output-shape
+  // pin at the unit level.
+  it("border_color NEVER emits a direct border-color on the field — only the --lg-field-border custom property (cascade-regression close-out)", () => {
+    const html = renderComponent(freeTextNode({ border_color: "brand" }), DESIGN);
+    // The closing `"` in this exact substring means the style attribute's
+    // content is EXACTLY this value — a trailing ";border-color:…" would
+    // break the match.
+    expect(html).toContain(`style="--lg-field-border:${DESIGN.color.primary}"`);
+  });
+
+  it('both keys together merge into ONE style attribute (never two style="…" attributes on one tag)', () => {
+    const html = renderComponent(freeTextNode({ corners: "pill", border_color: "brand" }), DESIGN);
+    expect(html).toContain(`style="border-radius:20px;--lg-field-border:${DESIGN.color.primary}"`);
+    expect(html.match(/style="/g)?.length).toBe(1);
+  });
+
+  it("REGRESSION — a node with NO corners/border_color renders NO style attribute at all (byte-identical to pre-fix output)", () => {
+    const html = renderComponent(freeTextNode({}), DESIGN);
+    expect(html).not.toContain("style=");
+  });
+
+  it("CurrencyInputQuestion — corners/border_color render on the INNER lg-input element (the .lg-currency wrapper has no border of its own in designs/default-funnel/styles.ts)", () => {
+    const html = renderComponent(currencyNode({ corners: "pill", border_color: "accent" }), DESIGN);
+    expect(html).not.toMatch(/<div class="lg-currency"[^>]*style=/);
+    expect(html).toContain(
+      `lg-currency-input" type="text" inputmode="numeric" data-lg-input style="border-radius:20px;--lg-field-border:${DESIGN.color.accent}"`,
+    );
+  });
+
+  it("AddressAutocompleteQuestion — corners/border_color render on the INNER lg-input element, not the lg-address wrapper", () => {
+    const html = renderComponent(addrAppearanceNode({ corners: "sharp", border_color: "neutral" }), DESIGN);
+    expect(html).not.toMatch(/<div class="lg-address"[^>]*style=/);
+    expect(html).toContain(
+      `lg-address-input" type="text" data-lg-input style="border-radius:0;--lg-field-border:${DESIGN.color.border}"`,
+    );
+  });
+
+  it("a stale/corrupt design_overrides.corners value outside sharp|rounded|pill is ignored defensively (no crash; that key alone emits nothing, the other key is unaffected)", () => {
+    const html = renderComponent(freeTextNode({ corners: "square", border_color: "brand" }), DESIGN);
+    expect(html).not.toContain("border-radius");
+    expect(html).toContain(`style="--lg-field-border:${DESIGN.color.primary}"`);
+  });
+
+  it("the served .lg-input base rule reads border-color:var(--lg-field-border, color.border) while :focus/[aria-invalid] keep setting border-color DIRECTLY, unconditionally (funnelChromeCss structure pin)", () => {
+    const chrome = funnelChromeCss(DESIGN);
+    expect(chrome).toContain(`border-color:var(--lg-field-border, ${DESIGN.color.border})`);
+    expect(chrome).toContain(`.lg-input:focus{outline:none;border-color:${DESIGN.input.focusBorderColor}}`);
+    expect(chrome).toContain(`.lg-input[aria-invalid="true"]{border-color:${DESIGN.input.errorBorderColor}}`);
   });
 });
 
