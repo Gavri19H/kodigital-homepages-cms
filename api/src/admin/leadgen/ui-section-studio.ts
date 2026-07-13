@@ -2540,14 +2540,37 @@ export const SECTION_STUDIO_STYLES = `
 .lg-preview-frame{border:1px solid var(--c-border);border-radius:8px;width:100%;min-height:360px;margin-top:8px;background:#fff}
 .lg-preview-frame-mobile{max-width:375px}
 .lg-viewport-toggle,.lg-states-simulator{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
-.lg-preview-design{width:auto;font-size:12px;padding:4px 6px}
+/* v3.1 Phase E: these 5 selects (the drawer's 4 [data-frame-pick-*] pickers
+   + the §8.9 design picker) are repopulated from ADMIN-WIDE, UNSCOPED lists
+   (loadFramePickerQuotes() reads every Quote ever created, any operator,
+   any funnel) -- with no width discipline a native select auto-sizes to
+   its WIDEST option, so the box visibly grows as the Quote catalog grows.
+   #lg-preview-theme (below) already closes this exact gap for the sibling
+   theme picker; a max-width alone still lets the box shrink on sparse
+   content (narrower on a fresh catalog than a grown one -- still content-
+   dependent, still "drift"), so width is pinned too, removing the
+   dependency entirely -- same fixed-width discipline this file's own gate1c
+   baseline spec had to reach for as a TEST-side workaround before this
+   product fix existed (leadgen-v31-gate1c-baselines.spec.ts).  */
+.lg-preview-design{width:220px;max-width:220px;font-size:12px;padding:4px 6px}
 .lg-dependency-panel{border:1px dashed var(--c-border);border-radius:6px;padding:8px;margin-bottom:8px}
 .lg-dependency-panel textarea{width:100%;font-family:var(--font-mono,monospace);font-size:12px;margin-bottom:6px}
 .lg-dependency-status{font-size:12px;margin:6px 0 0}
 .lg-dependency-status[data-continue-blocked="true"]{color:#842029}
 /* §8.2 activity/vertical pair controls */
 .studio-pair{display:flex;gap:4px;align-items:center}
-.studio-pair select{min-width:120px}
+/* v3.1 Phase E: #lg-section-activity/#lg-section-vertical are repopulated
+   (loadActivities()/loadVerticals()) from the ADMIN-WIDE, UNSCOPED
+   /api/admin/leadgen/activities+/verticals lists -- every Section/Offer/
+   Quote ever created, not just this one's own values -- so a floor-only
+   min-width (the old rule) still lets the box grow unbounded as that
+   catalog grows. Fixed width (matching the sibling .lg-preview-design
+   discipline above) removes the content-dependence: the box never grows OR
+   shrinks with catalog size, so a real operator's own Activity/Vertical
+   layout stays stable regardless of how many other Activities/Verticals
+   exist system-wide. 160px comfortably fits this contract's own fixture
+   values ("Insurance"/"Car") with headroom. */
+.studio-pair select{width:160px;max-width:160px}
 /* §8.7 mapping panel */
 .studio-mapping-table td,.studio-mapping-table th{font-size:12px;vertical-align:middle}
 .studio-offers-empty p{margin:4px 0}

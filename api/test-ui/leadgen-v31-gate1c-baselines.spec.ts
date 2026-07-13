@@ -179,69 +179,51 @@
 // (line ~2251) HAS `max-width:130px` and measured pixel-IDENTICAL (130px)
 // in both environments despite 689 accumulated theme records -- proof the
 // missing constraint, not some unavoidable randomness, is what makes (A)/(B)
-// unstable. PRODUCT FINDING (flagged only -- out of this file's ownership;
-// not fixed here): `.studio-pair select` and `.lg-preview-design` lack the
-// same max-width discipline `#lg-preview-theme` already has, so a REAL
-// admin operator's own browser would see this identical layout drift as
-// their Activity/Vertical/Quote catalogs grow -- independent of testing.
+// unstable.
 //
-// FIRST FIX ATTEMPT (tried, then DISPROVEN by re-running the exact repro --
-// not theorized away): masking the two SYMPTOM regions --
-// `#lg-section-form fieldset` + `[data-studio-frame-preview]` -- looked
-// like the natural move (same §13 "dynamic content masked" carve-out the
-// SECOND FINDING already uses), but made the shard run WORSE
-// (0.82% -> 1.17%). Cause, confirmed by re-reading what Playwright's
-// `mask:` actually does: it paints a box at the LOCATOR's live bounding
-// rect AT CAPTURE TIME, not a fixed pixel rect. When the masked element's
-// own rect is exactly what's shifting (per the measurements above), the
-// baseline's mask box and a fresh run's mask box land at DIFFERENT
-// coordinates -- leaving an unmasked sliver where real content moved into
-// frame in one capture but not the other. Masking cannot stabilize a region
-// whose own geometry is the instability.
-// ACTUAL FIX (this file only, in waitForStudioSettled's injected stylesheet,
-// same one that already hard-disables transitions) -- THREE rules, each
-// closing a gap the previous one left (every step confirmed by re-measuring
-// getBoundingClientRect on both a fresh D1 and the polluted one, not assumed):
-//  1. `#lg-section-activity, #lg-section-vertical { width: 160px }` and
-//     `.lg-preview-design { width: 220px }` (all 4 `[data-frame-pick-*]`
-//     selects) -- a first pass used `max-width` only, which measurably
-//     capped the UPPER bound (confirmed identical 160px/220px on both a
-//     pristine and a heavily-polluted D1) but a `max-width` still lets the
-//     select SHRINK to its content's natural width when that content is
-//     narrow (measured 120px/169px on a pristine D1 with only 1-2 short
-//     options vs 160px/220px once polluted) -- still a real, measured delta.
-//     Switching to a fixed `width` (kept alongside `max-width` as a no-op
-//     belt) removes content-dependence entirely: measured byte-for-byte
-//     identical select rects on a pristine D1, the shard-2/3-polluted D1,
-//     and a synthetically-stress-polluted D1 (extra sections with 50+
-//     character activity/vertical strings).
-//  2. `.studio-settings { grid-template-columns: 640px 1fr !important }` --
-//     even with BOTH selects individually fixed-width, `form#lg-section-form`
-//     (region A's column 2) still measured a residual 80px position shift
-//     (x=915 vs the pristine x=835) under real pollution, because column 1's
-//     GRID TRACK width is computed from the min-content of ITS OWN flex-wrap
-//     row (eyebrow + the two now-fixed-width select-pairs + the On-answer/
-//     Maps-chip group), which still isn't perfectly constant across
-//     environments. Pinning the grid's column split directly removes that
-//     last variable: column 1 is now always exactly 640px regardless of its
-//     content's own wrapping, so column 2 (the form, whose own 438px width
-//     was ALREADY stable across every measurement, driven only by this
-//     fixture's fixed headline/subheadline/hint text) always starts at the
-//     same x. Re-verified on a pristine D1, the shard-2/3-polluted D1, and
-//     the synthetic stress-pollution D1: identical `#lg-section-form` (x=946,
-//     w=438) and `#lg-section-form fieldset` (x=1280 -- i.e. ENTIRELY past
-//     the 1280px viewport edge, 0 visible pixels) in all three. A fully
-//     off-screen element cannot produce a pixel diff regardless of what
-//     its own (still-unbounded) content does inside it.
-// Net effect: the golden fields -- headline/subheadline inputs (already
-// narrow pre-existing behavior: the committed pre-fix baseline at HEAD
-// already showed the same "Wh"/"Rates…" truncation, confirmed via
-// `git show HEAD:.../01-build-default.png` -- this fix does not make them
-// any narrower), the Activity/Vertical select TEXT itself (now fixed-width
-// but still fully rendered and compared, not hidden), the On-answer toggle,
-// and the Maps-connected chip -- stay fully UNMASKED and pixel-enforced
-// throughout. Nothing new is masked; [data-studio-events-list] (SECOND
-// FINDING) remains the only mask in this file.
+// PRODUCT FIX (v3.1 Phase E -- fixed AT THE SOURCE, not pinned in this
+// file): an earlier round of this file masked/pinned (A)/(B) here as a
+// TEST-side workaround (see git history, not present in the current file)
+// -- but that captured a stable studio a real admin operator would NOT see,
+// since `.studio-pair select`/`.lg-preview-design` themselves carried no
+// width discipline in the product. ui-section-studio.ts's
+// SECTION_STUDIO_STYLES now carries the fix directly: `.studio-pair select`
+// gets a fixed `width:160px` (covering `#lg-section-activity`/
+// `#lg-section-vertical`) and `.lg-preview-design` gets a fixed
+// `width:220px` (covering all 4 `[data-frame-pick-*]` selects + the §8.9
+// design picker) -- the same fixed-`width` discipline (not `max-width`
+// alone -- a max-width-only pass still lets the box shrink on sparse
+// content, a real, measured delta) this file's own prior investigation
+// already proved necessary, now living in the product instead of an
+// injected test stylesheet.
+//
+// Confirmed by direct getBoundingClientRect measurement, not assumed: on a
+// freshly-migrated+seeded D1 running ONLY this file's own beforeAll
+// fixture, and again after running leadgen-studio-patterns.spec.ts +
+// leadgen-theme-manager.spec.ts (both create long, uniq-suffixed
+// Activity/Vertical/Quote values -- e.g. `fixp4-act-<epoch>`,
+// `tm-quote-<epoch>` -- the same admin-wide-pollution mechanism (A)/(B)
+// above measured), every one of these selects' getBoundingClientRect()
+// measured BYTE-IDENTICAL between the two runs (`#lg-section-activity`
+// x=354.84375 w=160, `#lg-section-vertical` x=665.328125 w=160, all 5
+// `.lg-preview-design` selects w=220, both times) -- AND critically,
+// `#lg-section-form` (x=914.765625, w=437.703125) and `#lg-section-form
+// fieldset` (x=1248.421875, w=196.203125) ALSO measured byte-identical both
+// times, with NO `.studio-settings` grid-template-columns override
+// anywhere: fixing the two selects' own widths was sufficient by itself to
+// stop that grid column from reallocating -- no separate `.studio-settings`
+// override was needed.
+//
+// This file therefore masks/pins NONE of (A)/(B) any more -- no injected
+// width override, no grid override. The baseline now captures the REAL
+// product render, and it is the PRODUCT (not this test) that keeps it
+// stable as Activity/Vertical/Quote catalogs grow -- independent of
+// testing, exactly like `#lg-preview-theme` already was.
+// Net effect: every field in this fixture -- headline/subheadline inputs,
+// the Activity/Vertical selects, the frame-pick selects, the On-answer
+// toggle, and the Maps-connected chip -- stays fully UNMASKED and
+// pixel-enforced throughout. [data-studio-events-list] (SECOND FINDING)
+// remains the only mask in this file.
 
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -437,25 +419,18 @@ async function pixelDiffRatio(page: Page, aPng: Buffer, bPng: Buffer): Promise<n
 // transition (e.g. the real 300ms .studio-scope-header background-color
 // transition) can be caught mid-frame.
 //
-// THIRD-FINDING fix (full diagnosis + 3-step derivation in the file header):
-// three rules normalize the admin-wide-data-dependent selects and the
-// `.studio-settings` grid split to a fixed, content-independent layout —
-// `#lg-section-activity`/`#lg-section-vertical` and `.lg-preview-design`
-// (the drawer's 4 `[data-frame-pick-*]` selects) get a fixed `width` (not
-// just `max-width` — a max-width-only pass still let them shrink on sparse
-// data, measured), and `.studio-settings`'s grid-template-columns is pinned
-// so column 2's position no longer depends on column 1's own content width.
-// Re-verified byte-identical on a pristine D1, the real shard-2/3-polluted
-// D1, and a synthetic heavy-pollution D1 (file header has the numbers).
+// THIRD-FINDING fix (full diagnosis in the file header): v3.1 Phase E moved
+// this from a test-injected width override to a PRODUCT fix
+// (ui-section-studio.ts's SECTION_STUDIO_STYLES now pins `.studio-pair
+// select`/`.lg-preview-design` to a fixed width, at the source) — this
+// stylesheet no longer pins any select width or grid-column override; it
+// only hard-disables transitions/animations/caret, exactly like every other
+// admin studio page this helper serves.
 async function waitForStudioSettled(page: Page): Promise<void> {
   await page.waitForLoadState("networkidle");
   await page.evaluate(() => document.fonts.ready);
   await page.addStyleTag({
-    content:
-      "*, *::before, *::after { transition: none !important; animation: none !important; caret-color: transparent !important; } " +
-      "#lg-section-activity, #lg-section-vertical { width: 160px !important; max-width: 160px !important; } " +
-      ".lg-preview-design { width: 220px !important; max-width: 220px !important; } " +
-      ".studio-settings { grid-template-columns: 640px 1fr !important; }",
+    content: "*, *::before, *::after { transition: none !important; animation: none !important; caret-color: transparent !important; }",
   });
 }
 
@@ -489,9 +464,10 @@ async function captureBaseline(page: Page, name: string): Promise<void> {
   // mask: [data-studio-events-list] — the ONE genuinely dynamic region (a
   // per-page-load random session_id inside a debug event-log line; see
   // "SECOND FINDING" file-header note). THIRD-FINDING's two regions are
-  // fixed upstream instead, in waitForStudioSettled's injected width caps —
-  // NOT masked here (see file header for why masking a region whose own
-  // rect shifts is unstable). Absent on the Themes-manager pages (states
+  // fixed in the PRODUCT now (ui-section-studio.ts's fixed-width select CSS,
+  // v3.1 Phase E) — NOT masked here (see file header for why masking a
+  // region whose own rect shifts is unstable, back when the product itself
+  // hadn't fixed that rect yet). Absent on the Themes-manager pages (states
   // 6/7) — a mask locator matching zero elements is a no-op.
   const shot = await page.screenshot({ animations: "disabled", mask: [page.locator("[data-studio-events-list]")] });
   writeFileSync(join(EVIDENCE_DIR, `${name}.png`), shot); // evidence every run

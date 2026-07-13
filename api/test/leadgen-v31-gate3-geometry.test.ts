@@ -375,6 +375,39 @@ describe("Gate 3 geometry — studio SSR (renderSectionStudio, pure)", () => {
     );
   });
 
+  it("v3.1 Phase E: Activity/Vertical + frame-pick selects carry a fixed width (no admin-catalog-driven layout drift)", () => {
+    // Regression guard for the Phase E product fix (ui-section-studio.ts):
+    // `.studio-pair select` (#lg-section-activity/#lg-section-vertical) and
+    // `.lg-preview-design` (the drawer's 4 [data-frame-pick-*] selects + the
+    // §8.9 design picker) are populated from ADMIN-WIDE, UNSCOPED catalogs
+    // (every Activity/Vertical/Quote ever created, any spec/operator) — a
+    // native <select> with no width discipline auto-sizes to its WIDEST
+    // <option>, so the box visibly grows/shrinks as those catalogs grow —
+    // confirmed by live getBoundingClientRect measurement on a fresh vs. a
+    // deliberately-polluted local D1 (leadgen-v31-gate1c-baselines.spec.ts's
+    // own file-header note has the numbers: both were byte-identical once
+    // this fixed width shipped). `max-width` ALONE is not enough (it still
+    // lets the box shrink on sparse content — a real, measured delta); a
+    // fixed `width` is required, mirroring the sibling `#lg-preview-theme`'s
+    // own max-width:130px discipline one step further. If this test breaks
+    // because the width/max-width pair was removed or changed, the gate1c
+    // baseline spec's own removed test-side width pins would need to come
+    // back to keep that suite's baselines stable — i.e. this assertion is
+    // what lets that test stay hack-free.
+    expect(SECTION_STUDIO_STYLES, "Activity/Vertical selects: fixed width, matching #lg-preview-theme's discipline").toContain(
+      ".studio-pair select{width:160px;max-width:160px}",
+    );
+    expect(SECTION_STUDIO_STYLES, "the old floor-only (unbounded) rule is gone").not.toContain(
+      ".studio-pair select{min-width:120px}",
+    );
+    expect(SECTION_STUDIO_STYLES, "frame-pick + design-picker selects: fixed width").toContain(
+      ".lg-preview-design{width:220px;max-width:220px;font-size:12px;padding:4px 6px}",
+    );
+    expect(SECTION_STUDIO_STYLES, "the old unbounded width:auto rule is gone").not.toContain(
+      ".lg-preview-design{width:auto;font-size:12px;padding:4px 6px}",
+    );
+  });
+
   it("unit column width 600 renders on the canvas preview (design.header.contentMaxWidth)", () => {
     expect(STUDIO_GEOMETRY.unitColumnWidth).toBe(600);
     // The canvas's unit column is the FUNNEL design's own contentMaxWidth
