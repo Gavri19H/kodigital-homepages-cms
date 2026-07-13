@@ -519,7 +519,9 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     // the callout redirects page chrome to the Quote Builder
     const callout = page.locator("[data-studio-frame-callout]");
     await expect(callout).toBeVisible();
-    await expect(callout).toContainText("Looking for the page header, footer, progress bar or background?");
+    // E2 F5: the Appendix-A verbatim copy (§5.2 / Appendix A) — rendered text,
+    // so &amp;/&#8212; decode to & / em-dash.
+    await expect(callout).toContainText("Header, footer, progress & background belong to the whole funnel");
     await expect(callout).toContainText("Quote Builder");
     await expect(callout.locator("[data-studio-callout-open]")).toHaveAttribute("href", "/admin/leadgen/quotes");
     await page.screenshot({ path: `${SHOT_DIR}/leadgen-c-08-palette-callout.png` });

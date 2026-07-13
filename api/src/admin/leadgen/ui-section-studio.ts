@@ -158,6 +158,9 @@ interface StudioGroup {
   label: string;
   tiles: readonly StudioTile[];
   defaultOpen: boolean;
+  // §5.2 / Appendix A / golden :145: a right-aligned group-header subcopy —
+  // only the Answer-fields group carries one ("how visitors answer").
+  subcopy?: string;
 }
 
 // The 20 verbatim golden tile SVGs (Appendix D: "data-tile data-name='…' —
@@ -222,6 +225,7 @@ export const STUDIO_LIBRARY_GROUPS: readonly StudioGroup[] = [
     key: "answer-fields",
     label: "Answer fields",
     defaultOpen: true,
+    subcopy: "how visitors answer",
     tiles: [
       TILE_BUTTONS,
       TILE_CARDS,
@@ -975,10 +979,19 @@ function renderFrameCallout(): string {
   return `<div class="studio-frame-callout" data-studio-frame-callout role="note" style="margin-top:16px;padding:12px 13px;background:${STUDIO_COLOR.infoBlueTint};border:1px solid ${STUDIO_COLOR.frameCalloutBorder};border-radius:9px">
   <div style="display:flex;align-items:flex-start;gap:9px">
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto;margin-top:1px"><rect x="3" y="4" width="18" height="16" rx="2" stroke="${STUDIO_COLOR.infoBlue}" stroke-width="1.8"/><path d="M3 9h18" stroke="${STUDIO_COLOR.infoBlue}" stroke-width="1.8"/></svg>
-    <span class="studio-frame-callout-copy" style="font-size:12px;color:${STUDIO_COLOR.frameCalloutText};line-height:1.5">Looking for the page header, footer, progress bar or background? Those live in the <strong>Quote Builder</strong> &#8594; <a href="/admin/leadgen/quotes" class="studio-frame-callout-open" data-studio-callout-open style="color:${STUDIO_COLOR.navy};font-weight:700;border-bottom:1px solid ${STUDIO_COLOR.frameCalloutLinkUnderline}">Open</a></span>
+    <span class="studio-frame-callout-copy" style="font-size:12px;color:${STUDIO_COLOR.frameCalloutText};line-height:1.5">Header, footer, progress &amp; background belong to the whole funnel &#8212; set them once in the <strong>Quote Builder</strong>. <a href="/admin/leadgen/quotes" class="studio-frame-callout-open" data-studio-callout-open style="color:${STUDIO_COLOR.navy};font-weight:700;border-bottom:1px solid ${STUDIO_COLOR.frameCalloutLinkUnderline}">Open &#8594;</a></span>
     <button type="button" class="studio-frame-callout-dismiss" data-studio-callout-dismiss aria-label="Dismiss" style="border:0;background:none;cursor:pointer;font-size:14px;line-height:1;color:inherit;padding:0 2px">&#215;</button>
   </div>
 </div>`;
+}
+
+// §5.2 / Appendix A / golden :220: the dashed-border explanatory callout that
+// sits directly below the Content group's tiles. &amp;/&#8212; are the repo's
+// entity forms (cf. renderFrameCallout / gate2 idiom). The bg #F6F8FB is a
+// golden-sourced literal (no §3 token exists for it — Gate 1b's tier-3 golden
+// allowance covers it); border/text/bold-Text trace to §3 tokens byte-exactly.
+function renderContentCallout(): string {
+  return `<div class="studio-content-callout" role="note" style="margin-top:9px;padding:9px 11px;background:#F6F8FB;border:1px dashed ${STUDIO_COLOR.contentDashedBorder};border-radius:8px;font-size:11.5px;color:${STUDIO_COLOR.contentDashedText};line-height:1.45">Legal notes, reassurance lines &amp; secure badges are just <b style="color:${STUDIO_COLOR.text2Strong};font-weight:700">Text</b> &#8212; pick a style in its settings. No separate blocks.</div>`;
 }
 
 // §5.1 group header: chevron (rotates 0→90° open, golden's chev() helper) +
@@ -992,11 +1005,12 @@ export function renderStudioLibrary(design: FunnelDesign, _content: LeadgenSecti
   void design; // the tile SVGs are bespoke assets, independent of the active funnel design
   const groups = STUDIO_LIBRARY_GROUPS.map((group) => {
     const items = group.tiles.map(renderLibraryItem).join("");
-    const callout = group.key === "layout" ? renderFrameCallout() : "";
+    const callout =
+      group.key === "layout" ? renderFrameCallout() : group.key === "content" ? renderContentCallout() : "";
     return `<div class="studio-library-group" data-library-group="${escapeHtml(group.key)}">
   <div class="studio-library-heading" data-library-group-toggle="${escapeHtml(group.key)}" role="button" tabindex="0" aria-expanded="${group.defaultOpen}" style="display:flex;align-items:center;gap:7px;padding:${STUDIO_GEOMETRY.groupHeaderPadding};cursor:pointer;user-select:none">
     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" style="${chevronStyle(group.defaultOpen)}"><path d="M8 5l8 7-8 7" stroke="${STUDIO_COLOR.hintIconStroke}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <span style="font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:${STUDIO_COLOR.faint}">${escapeHtml(group.label)}</span>
+    <span style="font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:${STUDIO_COLOR.faint}">${escapeHtml(group.label)}</span>${group.subcopy ? `<span class="studio-library-subcopy" style="margin-left:auto;font-size:11px;font-weight:600;color:${STUDIO_COLOR.answerFieldsSubcopy}">${escapeHtml(group.subcopy)}</span>` : ""}
   </div>
   <div class="studio-library-items" data-library-items="${escapeHtml(group.key)}"${group.defaultOpen ? "" : " hidden"} style="display:grid;grid-template-columns:1fr 1fr;gap:${STUDIO_GEOMETRY.tile.gap}px">${items}</div>
 </div>${callout}`;
@@ -1005,7 +1019,7 @@ export function renderStudioLibrary(design: FunnelDesign, _content: LeadgenSecti
   <div style="font-size:13px;font-weight:800;color:${STUDIO_COLOR.inkStrong};margin-bottom:11px">Add to this question</div>
   <div style="position:relative;margin-bottom:15px">
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="position:absolute;left:11px;top:50%;transform:translateY(-50%)"><circle cx="11" cy="11" r="7" stroke="${STUDIO_COLOR.searchIconStroke}" stroke-width="2"/><path d="M20 20l-3.2-3.2" stroke="${STUDIO_COLOR.searchIconStroke}" stroke-width="2" stroke-linecap="round"/></svg>
-    <input type="search" class="studio-library-search" data-studio-library-search placeholder="Search components…" aria-label="Search components" style="width:100%;padding:9px 12px 9px 34px;font-size:13px;border:1px solid ${STUDIO_COLOR.lineControl};border-radius:${STUDIO_RADIUS.control}px;outline:none;background:${STUDIO_COLOR.searchInputBg};box-sizing:border-box" />
+    <input type="search" class="studio-library-search" data-studio-library-search placeholder="Search components" aria-label="Search components" style="width:100%;padding:9px 12px 9px 34px;font-size:13px;border:1px solid ${STUDIO_COLOR.lineControl};border-radius:${STUDIO_RADIUS.control}px;outline:none;background:${STUDIO_COLOR.searchInputBg};box-sizing:border-box" />
   </div>
   ${groups}
 </div>`;
@@ -2364,11 +2378,11 @@ export const SECTION_STUDIO_STYLES = `
 .studio-name{min-width:220px}
 .studio-activity,.studio-vertical{min-width:140px}
 .studio-chip{font-size:12px;border-radius:999px;padding:4px 10px;border:1px solid var(--c-border);background:var(--c-surface);cursor:pointer}
-.studio-chip-validation[data-issue-count="0"]{color:#0f5132;background:#d1e7dd;border-color:#badbcc}
-.studio-chip-validation:not([data-issue-count="0"]){color:#842029;background:#f8d7da;border-color:#f5c2c7}
+.studio-chip-validation[data-issue-count="0"]{color:${STUDIO_COLOR.muted};background:${STUDIO_COLOR.issuesChipBg};border-color:${STUDIO_COLOR.issuesChipBg}}
+.studio-chip-validation:not([data-issue-count="0"]){color:${STUDIO_COLOR.warnStrong};background:${STUDIO_COLOR.warnTint};border-color:${STUDIO_COLOR.warn}}
 .studio-settings{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:12px}
 @media (max-width:640px){.studio-settings{grid-template-columns:1fr}}
-.lg-editor-grid{display:grid;grid-template-columns:280px 1fr 380px;gap:16px;align-items:start}
+.lg-editor-grid{display:grid;grid-template-columns:${STUDIO_GEOMETRY.leftLibraryWidth}px 1fr ${STUDIO_GEOMETRY.rightInspectorWidth}px;gap:16px;align-items:start}
 @media (max-width:1023px){.lg-editor-grid{grid-template-columns:1fr}}
 .lg-editor-spacer{flex:1}
 .lg-maps-note{color:var(--c-muted);font-size:12px}
@@ -2526,14 +2540,37 @@ export const SECTION_STUDIO_STYLES = `
 .lg-preview-frame{border:1px solid var(--c-border);border-radius:8px;width:100%;min-height:360px;margin-top:8px;background:#fff}
 .lg-preview-frame-mobile{max-width:375px}
 .lg-viewport-toggle,.lg-states-simulator{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
-.lg-preview-design{width:auto;font-size:12px;padding:4px 6px}
+/* v3.1 Phase E: these 5 selects (the drawer's 4 [data-frame-pick-*] pickers
+   + the §8.9 design picker) are repopulated from ADMIN-WIDE, UNSCOPED lists
+   (loadFramePickerQuotes() reads every Quote ever created, any operator,
+   any funnel) -- with no width discipline a native select auto-sizes to
+   its WIDEST option, so the box visibly grows as the Quote catalog grows.
+   #lg-preview-theme (below) already closes this exact gap for the sibling
+   theme picker; a max-width alone still lets the box shrink on sparse
+   content (narrower on a fresh catalog than a grown one -- still content-
+   dependent, still "drift"), so width is pinned too, removing the
+   dependency entirely -- same fixed-width discipline this file's own gate1c
+   baseline spec had to reach for as a TEST-side workaround before this
+   product fix existed (leadgen-v31-gate1c-baselines.spec.ts).  */
+.lg-preview-design{width:220px;max-width:220px;font-size:12px;padding:4px 6px}
 .lg-dependency-panel{border:1px dashed var(--c-border);border-radius:6px;padding:8px;margin-bottom:8px}
 .lg-dependency-panel textarea{width:100%;font-family:var(--font-mono,monospace);font-size:12px;margin-bottom:6px}
 .lg-dependency-status{font-size:12px;margin:6px 0 0}
 .lg-dependency-status[data-continue-blocked="true"]{color:#842029}
 /* §8.2 activity/vertical pair controls */
 .studio-pair{display:flex;gap:4px;align-items:center}
-.studio-pair select{min-width:120px}
+/* v3.1 Phase E: #lg-section-activity/#lg-section-vertical are repopulated
+   (loadActivities()/loadVerticals()) from the ADMIN-WIDE, UNSCOPED
+   /api/admin/leadgen/activities+/verticals lists -- every Section/Offer/
+   Quote ever created, not just this one's own values -- so a floor-only
+   min-width (the old rule) still lets the box grow unbounded as that
+   catalog grows. Fixed width (matching the sibling .lg-preview-design
+   discipline above) removes the content-dependence: the box never grows OR
+   shrinks with catalog size, so a real operator's own Activity/Vertical
+   layout stays stable regardless of how many other Activities/Verticals
+   exist system-wide. 160px comfortably fits this contract's own fixture
+   values ("Insurance"/"Car") with headroom. */
+.studio-pair select{width:160px;max-width:160px}
 /* §8.7 mapping panel */
 .studio-mapping-table td,.studio-mapping-table th{font-size:12px;vertical-align:middle}
 .studio-offers-empty p{margin:4px 0}
@@ -2588,7 +2625,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-breadcrumb .studio-crumb-current{color:#1B3A5C;font-weight:700;background:#EAF0F6;padding:3px 9px;border-radius:6px;cursor:default}
 .studio-breadcrumb span:not(.studio-crumb-current){color:#C2CACF;padding:0 1px}
 .studio-toolbar-problems{font-size:11px;color:#842029}
-.studio-control-invalid{outline:2px solid #dc3545;outline-offset:1px}
+.studio-control-invalid{outline:2px solid ${STUDIO_COLOR.danger};outline-offset:1px}
 /* §6.2 inline-edit + choice-op rules moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
 /* §9.4 role swatch rows + §9.5 section overrides */
 .studio-role-line{display:flex;gap:6px;align-items:center}

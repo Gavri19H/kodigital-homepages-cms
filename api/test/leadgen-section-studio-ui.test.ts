@@ -804,8 +804,10 @@ describeDb("section studio SSR — §5 component library (v3.1)", () => {
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
     expect(html).toContain("data-studio-frame-callout");
-    expect(html).toContain("Looking for the page header, footer, progress bar or background? Those live in the <strong>Quote Builder</strong>");
-    expect(html).toMatch(/data-studio-callout-open[^>]*>Open</);
+    // E2 F5: the Appendix-A verbatim copy (§5.2 line 269 / Appendix A line
+    // 653), not the pre-fix "Looking for the page ..." rephrase.
+    expect(html).toContain("Header, footer, progress &amp; background belong to the whole funnel &#8212; set them once in the <strong>Quote Builder</strong>");
+    expect(html).toMatch(/data-studio-callout-open[^>]*>Open &#8594;</);
     expect(html).toMatch(/<a href="\/admin\/leadgen\/quotes"[^>]*data-studio-callout-open/);
     expect(html).toContain("data-studio-callout-dismiss");
     // renders AFTER the Layout group (golden position, below the 4 groups)
