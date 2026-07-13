@@ -357,23 +357,20 @@ describe("Gate 3 geometry — studio SSR (renderSectionStudio, pure)", () => {
     expect(STUDIO_HTML).toContain(`min-height:${STUDIO_GEOMETRY.canvasToolbarHeight}px`);
   });
 
-  it("token module says rail widths 292/344 (Appendix B) — CONFIRMED DIVERGENCE: the rendered CSS grid uses 280/380", () => {
-    // FINDING (not fixed here — out of this test-harness phase's scope,
-    // conductor decision per dispatch instructions): STUDIO_GEOMETRY and
-    // Appendix B both say 292/344, byte-identical to the golden
-    // (leadgen-studio-tokens.test.ts proves this at the module level). But
-    // the ACTUAL rendered CSS grid that lays out the three studio columns —
-    // `.lg-editor-grid{grid-template-columns:280px 1fr 380px}`
-    // (ui-section-studio.ts:2371) — uses 280px/380px, NOT the token values.
-    // Nothing in ui-section-studio.ts ever interpolates
-    // STUDIO_GEOMETRY.leftLibraryWidth/rightInspectorWidth into that rule —
-    // confirmed by direct grep (zero hits for "292" or "344" anywhere in the
-    // file). The two assertions below are BOTH true and BOTH real: the
-    // contract/token side (292/344) and the current render side (280/380)
-    // simply disagree. Reported verbatim as a Gate 1a/Gate 3 finding.
+  it("rail widths render 292/344 (Appendix B §2): the .lg-editor-grid emits the token values, byte-identical to the golden's 292 left rail", () => {
+    // ENFORCES the golden (was a documented E1 divergence; FIXED in E2, F1):
+    // STUDIO_GEOMETRY.leftLibraryWidth/rightInspectorWidth (292/344, Appendix
+    // B — byte-identical to golden :103's `flex:0 0 292px` and §2/§5's "left
+    // rail 292 / right rail 344") are now interpolated into the rendered
+    // `.lg-editor-grid` grid-template-columns, replacing the pre-fix 280/380.
+    // Asserts the RENDERED CSS (SECTION_STUDIO_STYLES), not merely the module
+    // constant — a constant nobody consumes would still pass a module test.
     expect(STUDIO_GEOMETRY.leftLibraryWidth, "Appendix B / token module").toBe(292);
     expect(STUDIO_GEOMETRY.rightInspectorWidth, "Appendix B / token module").toBe(344);
-    expect(SECTION_STUDIO_STYLES, "current .lg-editor-grid rendered rail widths").toContain(
+    expect(SECTION_STUDIO_STYLES, "rendered .lg-editor-grid rail widths == token 292/344").toContain(
+      `grid-template-columns:${STUDIO_GEOMETRY.leftLibraryWidth}px 1fr ${STUDIO_GEOMETRY.rightInspectorWidth}px`,
+    );
+    expect(SECTION_STUDIO_STYLES, "the pre-fix 280/380 divergence is gone").not.toContain(
       "grid-template-columns:280px 1fr 380px",
     );
   });

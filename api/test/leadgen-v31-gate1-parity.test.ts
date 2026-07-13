@@ -37,6 +37,7 @@ import {
   renderSectionStudio,
   STUDIO_LIBRARY_GROUPS,
   SECTION_STUDIO_SCRIPT,
+  SECTION_STUDIO_STYLES,
   type StudioSectionView,
   type StudioMappingSummary,
 } from "../src/admin/leadgen/ui-section-studio";
@@ -388,6 +389,39 @@ describe("Gate 1a parity — top bar (Appendix D)", () => {
     expect(STUDIO_HTML).toContain(">Section<"); // eyebrow label (operator words; golden's ALL-CAPS is CSS text-transform, not the source string)
     expect(STUDIO_HTML).toContain(">Archive<");
     expect(GOLDEN_TOP_BAR).toContain(">Archive</div>");
+  });
+
+  it("the 'No issues' chip renders NEUTRAL (golden :49, §3.1b), not the pre-fix bootstrap green — this is the fixture-surface state (§1.2 fixture has 0 validation errors)", () => {
+    // ENFORCES the golden (E2 part-2 reconciliation — a fixture-surface
+    // finding the conductor caught after the F1-F6 close: the built chip
+    // used Bootstrap #0f5132/#d1e7dd/#badbcc while golden :49 is a plain
+    // neutral chip, color:#5A6470;background:#F1F3F7, no border).
+    expect(GOLDEN_TOP_BAR).toContain("color:#5A6470;background:#F1F3F7");
+    expect(STUDIO_HTML).toContain(">No issues<");
+    expect(SECTION_STUDIO_STYLES).toContain(
+      `.studio-chip-validation[data-issue-count="0"]{color:${STUDIO_COLOR.muted};background:${STUDIO_COLOR.issuesChipBg}`,
+    );
+    expect(SECTION_STUDIO_STYLES.toLowerCase(), "bootstrap green (#0f5132) gone from this rule").not.toMatch(
+      /\.studio-chip-validation\[data-issue-count="0"\]\{color:#0f5132/,
+    );
+  });
+
+  it("the sibling top-bar Mapping badge ('Mapping 2 / 2 complete') and the bottom-drawer Mapping badge ('2/2') were ALREADY §3-correct before this fix — regression guard, not a new conversion", () => {
+    // Confirmed by direct read: renderStudioTopBar's mappingBadgeColor/
+    // mappingBadgeBg already use STUDIO_COLOR.success/successTintAlt (golden
+    // :45 color:#0E7C3A;background:#E9F4EE — byte-exact), and
+    // renderStudioDrawer's drawer badge already uses STUDIO_COLOR.success/
+    // mappingBadgeBg (golden :374 color:#0E7C3A;background:#DBEEE2 — byte-
+    // exact). Neither needed a product fix; this test locks in the sibling
+    // check the conductor asked for so a future edit can't silently regress
+    // either one back to a bootstrap hex.
+    expect(GOLDEN_TOP_BAR).toContain("color:#0E7C3A;background:#E9F4EE");
+    expect(GOLDEN_BOTTOM_DRAWER).toContain("color:#0E7C3A;background:#DBEEE2");
+    expect(STUDIO_COLOR.success).toBe("#0E7C3A");
+    expect(STUDIO_COLOR.successTintAlt).toBe("#E9F4EE");
+    expect(STUDIO_COLOR.mappingBadgeBg).toBe("#DBEEE2");
+    expect(STUDIO_HTML).toContain(`color:${STUDIO_COLOR.success};background:${STUDIO_COLOR.successTintAlt}`);
+    expect(STUDIO_HTML).toContain(`color:${STUDIO_COLOR.success};background:${STUDIO_COLOR.mappingBadgeBg}`);
   });
 });
 

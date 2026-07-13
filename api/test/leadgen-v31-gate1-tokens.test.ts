@@ -373,24 +373,75 @@ describe("Gate 1b token audit — studio chrome (renderSectionStudio, srcdoc str
   // allowance).
   const CHROME_ALLOWED = [...Object.values(STUDIO_COLOR), ...RESOLVED_FUNNEL_ROLE_HEXES, ...extractHexes(GOLDEN_HTML)];
 
-  // FINDING (confirmed, not fixed here): several UI states hardcode
-  // Bootstrap-palette hex instead of tracing to EITHER §3 tokens or the
-  // golden — these mechanisms pre-date this v3.1 build and are not modeled
-  // in the golden mockup at all. The mapping-overlay chips
-  // (`.studio-mapoverlay-chip[data-overlay-state="mapped"/"required-
-  // missing"]`), a Maps-linked-field chip, and the "Hidden in this question
-  // unit" bound-node chip (renderStudioSettings' hiddenChip()) use literal
-  // Bootstrap alert/badge colors. Declared once, reused across the 3 checks
-  // below (SSR / stylesheet / script) since the SAME hiddenChip() literals
-  // appear in more than one of those surfaces.
+  // E2 F2 status (part 2, fixture-surface reconciliation) — these UI states
+  // hardcode Bootstrap-palette hex instead of tracing to §3 tokens or the
+  // golden; they pre-date v3.1. Two mechanisms are now CONVERTED:
+  // `.studio-control-invalid` (#dc3545 -> §3 danger #B23A2C, part 1) and BOTH
+  // `.studio-chip-validation` variants — the fixture-surface "No issues"
+  // chip (#0f5132/#d1e7dd/#badbcc -> golden :49's NEUTRAL §3.1b pairing
+  // STUDIO_COLOR.muted/#5A6470 on STUDIO_COLOR.issuesChipBg/#F1F3F7 — this
+  // element renders in EVERY Section-Studio page load, incl. Gate-1c states
+  // 1-5) and its sibling "N issues" state (#842029/#f8d7da/#f5c2c7 -> §3 warn
+  // family — non-fixture in THIS §1.2 fixture (0 errors, so "No issues"
+  // always renders) but the identical CSS rule, converted for the same
+  // reason F2's control-invalid was: a clean 1:1 §3 mapping exists).
+  //
+  // WHY #badbcc / #f5c2c7 (the two BORDER values) are REMOVED below but
+  // #0f5132/#d1e7dd/#842029/#f8d7da (the color+background pairs) STAY —
+  // verified programmatically (not assumed) by extracting the literal
+  // SECTION_STUDIO_STYLES template-string body and checking each hex's
+  // presence: `.studio-mapoverlay-chip[mapped/required-missing]` and
+  // `.studio-choice-x` — the OTHER rules that share these hex TRIPLES — live
+  // in a DIFFERENT exported constant, `SECTION_STUDIO_CANVAS_FRAME_CSS` (the
+  // canvas-IFRAME's own stylesheet, confirmed by direct read: "these rules
+  // MOVED here from SECTION_STUDIO_STYLES ... the parent page keeps only
+  // parent-side canvas chrome"), which this gate does not scan at all. Their
+  // border-color values (#badbcc, #f5c2c7) therefore had exactly ONE
+  // occurrence inside SECTION_STUDIO_STYLES specifically — the
+  // chip-validation rule just converted — so they are GENUINELY, VERIFIABLY
+  // gone from this string now (removing them is not a rubber stamp; the
+  // regression-guard loop below would correctly fail if they were still
+  // listed). #0f5132/#d1e7dd/#842029/#f8d7da (color+background, no border)
+  // remain because `.studio-item-maps`, `.studio-map-status[complete/
+  // missing_required]`, `.studio-offer-state[complete/invalid]`,
+  // `.studio-row-status[complete/type-mismatch/unlinked/not-mapped]`,
+  // `.studio-toolbar-problems`, `.lg-dependency-status`, `.studio-issue-list
+  // button` ARE inside SECTION_STUDIO_STYLES (confirmed present, verified
+  // programmatically) and remain unconverted — all populated via
+  // client-side `el.className = '...'` assignment on Mapping-overlay/Offers/
+  // Rules interactions (confirmed by grep: none of these classNames are
+  // ever written into the static SSR fixture HTML), so they are non-fixture
+  // by the same standard as the inspector-overlay chips below, out of this
+  // slice's explicit scope (only the fixture-surface chip CSS is owned
+  // here). The rule-scoped regression test below (`.studio-chip-validation`
+  // specifically) is the precise, honest proof that THIS mechanism
+  // converted; the remaining blanket hex presence is unrelated residual
+  // scope, same class of gap as the rest of this list.
+  //
+  // The remaining families STAY as RECORDED GAPS (gate-map Findings §2 +
+  // §14), NOT rubber stamps — see the regression guard below that asserts
+  // each is still literally present. Not convertible within this slice's
+  // file ownership because: (a) each bootstrap hex is SHARED across several
+  // separate rules, so removing a value requires converting EVERY usage, not
+  // one named mechanism; (b) a faithful §3 conversion needs status
+  // BACKGROUND + BORDER tokens (a danger tint/border, info border, a neutral
+  // SECONDARY token for the orphaned chip) that do not exist in
+  // `studio-tokens.ts` — out of this slice's file scope, flagged for the
+  // conductor. The dark payload-preview `<pre>` is an intentional dark code
+  // viewer (§14), never §3 chrome.
   const KNOWN_OFF_PALETTE_HEXES = [
-    "#0f5132", "#d1e7dd", "#badbcc", // mapping-overlay: mapped (bootstrap success)
-    "#842029", "#f8d7da", "#f5c2c7", // mapping-overlay: required-missing (bootstrap danger)
-    "#055160", "#cff4fc", "#b6effb", // studio-maps-chip (bootstrap info)
-    "#664d03", "#fff3cd", "#ffecb5", // hidden-node chip (bootstrap warning)
-    "#41464b", "#e2e3e5", // .studio-map-status[data-map-state="orphaned"] (bootstrap secondary)
-    "#0b1021", "#d8e0f0", // .studio-payload-preview pre (dark code-preview theme)
-    "#dc3545", // .studio-control-invalid outline (bootstrap danger red)
+    "#0f5132", "#d1e7dd", // bootstrap success color+bg — STILL in SECTION_STUDIO_STYLES via item-maps/map-status[complete]/offer-state[complete]/row-status[complete] (non-fixture, verified present); no longer via chip-validation
+    "#842029", "#f8d7da", // bootstrap danger color+bg — STILL in SECTION_STUDIO_STYLES via map-status[missing_required]/offer-state[invalid]/row-status[type-mismatch/unlinked/not-mapped]/toolbar-problems/dependency-status/issue-list (non-fixture, verified present); no longer via chip-validation
+    // #badbcc / #f5c2c7 (the success/danger BORDER values) REMOVED: their
+    // only OTHER consumers (.studio-mapoverlay-chip[mapped/required-missing],
+    // .studio-choice-x) live in the SEPARATE SECTION_STUDIO_CANVAS_FRAME_CSS
+    // constant (the canvas-iframe stylesheet, never scanned by this gate) —
+    // verified programmatically absent from SECTION_STUDIO_STYLES now that
+    // chip-validation converted (their one and only occurrence here).
+    "#055160", "#cff4fc", "#b6effb", // bootstrap info (maps-chip/bind-banner/overrides/selected) — shared, needs info border token
+    "#664d03", "#fff3cd", "#ffecb5", // bootstrap warning (hidden-node/type-mismatch/pending/maps-banner) — shared, needs warn border token
+    "#41464b", "#e2e3e5", // .studio-map-status[data-map-state="orphaned"] — no §3 neutral SECONDARY token exists
+    "#0b1021", "#d8e0f0", // .studio-payload-preview pre — intentional dark code viewer (§14), never §3 chrome
   ];
 
   function assertOnlyKnownFindings(html: string, surfaceLabel: string): void {
@@ -419,6 +470,63 @@ describe("Gate 1b token audit — studio chrome (renderSectionStudio, srcdoc str
 
   it("every hex in the shipped client script (SECTION_STUDIO_SCRIPT) resolves the same way — else is a KNOWN finding", () => {
     assertOnlyKnownFindings(SECTION_STUDIO_SCRIPT, "SECTION_STUDIO_SCRIPT");
+  });
+
+  it("E2 F2: the .studio-control-invalid outline resolves to the §3 danger token (#B23A2C), not the old bootstrap #dc3545", () => {
+    // ENFORCES §3 (was an E1 finding; FIXED in E2, F2 — the one bootstrap hex
+    // used in exactly one rule with a clean 1:1 §3 mapping). The invalid-
+    // control outline now traces to STUDIO_COLOR.danger; #dc3545 is gone from
+    // the whole shipped surface (so it was removed from KNOWN_OFF_PALETTE).
+    expect(STUDIO_COLOR.danger).toBe("#B23A2C");
+    expect(SECTION_STUDIO_STYLES).toContain(`.studio-control-invalid{outline:2px solid ${STUDIO_COLOR.danger}`);
+    expect(SECTION_STUDIO_STYLES.toLowerCase(), "bootstrap #dc3545 fully removed").not.toContain("#dc3545");
+  });
+
+  it("E2 F2 (part 2, fixture-surface) — the 'No issues' chip (data-issue-count=\"0\") resolves to the §3.1b NEUTRAL pairing (golden :49), not bootstrap green — this chip renders in EVERY Section-Studio page load (Gate-1c states 1-5)", () => {
+    // ENFORCES the golden (was a newly-surfaced fixture-surface finding, not
+    // one of the original 10 — caught by the conductor's own verification).
+    // Golden :49: color:#5A6470;background:#F1F3F7, no border (a plain
+    // neutral chip) — STUDIO_COLOR.muted/#5A6470 is the §3.1b "top-bar chip
+    // text" token; STUDIO_COLOR.issuesChipBg/#F1F3F7 is already used
+    // elsewhere for this exact neutral surface (e.g. the top-bar Mapping
+    // badge's non-complete state). border-color is set to the SAME bg value
+    // (not omitted) so the shared `.studio-chip` base class's
+    // `border:1px solid var(--c-border)` visually disappears, matching the
+    // golden's borderless look.
+    expect(STUDIO_COLOR.muted).toBe("#5A6470");
+    expect(STUDIO_COLOR.issuesChipBg).toBe("#F1F3F7");
+    expect(SECTION_STUDIO_STYLES).toContain(
+      `.studio-chip-validation[data-issue-count="0"]{color:${STUDIO_COLOR.muted};background:${STUDIO_COLOR.issuesChipBg};border-color:${STUDIO_COLOR.issuesChipBg}}`,
+    );
+    expect(SECTION_STUDIO_STYLES.toLowerCase(), "bootstrap green gone from THIS rule").not.toMatch(
+      /\.studio-chip-validation\[data-issue-count="0"\]\{color:#0f5132/,
+    );
+  });
+
+  it("E2 F2 (part 2) — the sibling 'N issues' chip (count>0, §14 non-fixture in THIS 0-error fixture) converts to the §3 warn family, not bootstrap danger — same rule, converted for the same reason", () => {
+    // Non-fixture in the §1.2 fixture specifically (0 validation errors, so
+    // "No issues" always renders here) — converted anyway per the same
+    // clean-1:1-mapping standard as F2's control-invalid, using the warn
+    // family's full {base,strong,tint} triple (no invented pairing).
+    expect(STUDIO_COLOR.warn).toBe("#B8860B");
+    expect(STUDIO_COLOR.warnStrong).toBe("#8A6D00");
+    expect(STUDIO_COLOR.warnTint).toBe("#FDF4E3");
+    expect(SECTION_STUDIO_STYLES).toContain(
+      `.studio-chip-validation:not([data-issue-count="0"]){color:${STUDIO_COLOR.warnStrong};background:${STUDIO_COLOR.warnTint};border-color:${STUDIO_COLOR.warn}}`,
+    );
+    expect(SECTION_STUDIO_STYLES.toLowerCase(), "bootstrap danger gone from THIS rule").not.toMatch(
+      /\.studio-chip-validation:not\(\[data-issue-count="0"\]\)\{color:#842029/,
+    );
+  });
+
+  it("calibration — the 6 success/danger hex values remain in KNOWN_OFF_PALETTE_HEXES because OTHER, genuinely non-fixture rules still emit them (NOT because chip-validation still does)", () => {
+    // Proves the array's regression guard isn't accidentally masking the
+    // chip-validation conversion above: the SAME hex values are still
+    // present in the stylesheet, but sourced from mapoverlay/item-maps/
+    // map-status/offer-state/row-status/choice-x/toolbar-problems/
+    // dependency-status/issue-list — never from chip-validation anymore.
+    expect(SECTION_STUDIO_STYLES.toLowerCase()).toContain("#0f5132"); // via e.g. .studio-map-status[data-map-state="complete"]
+    expect(SECTION_STUDIO_STYLES.toLowerCase()).toContain("#842029"); // via e.g. .studio-toolbar-problems
   });
 
   it("the canvas srcdoc region was actually present and actually stripped (calibration — a no-op strip would silently pass everything)", () => {

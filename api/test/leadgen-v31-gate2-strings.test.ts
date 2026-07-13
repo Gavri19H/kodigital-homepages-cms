@@ -159,15 +159,15 @@ describe("Gate 2 strings — Component library (Appendix A)", () => {
     );
   });
 
-  it("FINDING (confirmed): the 'Answer fields' group subcopy 'how visitors answer' does not render at all", () => {
-    // Appendix A / §5.2 requires it (golden 145: "how visitors answer" next
-    // to the Answer-fields group label). Direct grep of ui-section-studio.ts
-    // confirms zero occurrences of this phrase anywhere in the file —
-    // renderStudioLibrary's group-header template only emits the chevron +
-    // uppercase label, no subcopy span for ANY group. Asserted here as
-    // CURRENT (confirmed-absent) behavior, not fixed (out of this test-
-    // harness phase's scope) and not silently omitted from the suite.
-    expect(STUDIO_HTML).not.toContain("how visitors answer");
+  it("the 'Answer fields' group subcopy 'how visitors answer' renders on the group header (Appendix A / §5.2, golden :145)", () => {
+    // ENFORCES the golden (was an E1 FINDING; FIXED in E2, F3): §5.2's
+    // Answer-fields group carries the "how visitors answer" subcopy next to
+    // its uppercase label (golden :145 — a right-aligned #BAC2CF span).
+    // renderStudioLibrary now emits it for the answer-fields group.
+    expect(STUDIO_HTML).toContain("how visitors answer");
+    // it belongs to the Answer-fields group specifically — assert it renders
+    // right after that group's label, not some other group's.
+    expect(STUDIO_HTML).toMatch(/Answer fields<\/span>\s*<span[^>]*>how visitors answer<\/span>/);
   });
 
   it("all 20 tile labels render", () => {
@@ -181,30 +181,46 @@ describe("Gate 2 strings — Component library (Appendix A)", () => {
     );
   });
 
-  it("FINDING (confirmed): the Content-group's explanatory callout ('Legal notes, reassurance lines & secure badges are just Text...No separate blocks.') does not render at all", () => {
-    // Appendix A / golden :220 requires this exact dashed-border callout
-    // directly below the Content group's 3 tiles. Direct grep confirms zero
-    // occurrences of "Legal notes", "reassurance lines", or "No separate
-    // blocks" anywhere in ui-section-studio.ts — renderStudioLibrary only
-    // renders the Layout-group's Quote-Builder frame callout (via
-    // renderFrameCallout()), never a Content-group callout. Asserted as
-    // CURRENT (confirmed-absent) behavior, not fixed here.
-    expect(STUDIO_HTML).not.toContain("Legal notes");
-    expect(STUDIO_HTML).not.toContain("No separate blocks");
+  it("the Content-group's explanatory callout renders verbatim (Appendix A / golden :220): 'Legal notes, reassurance lines & secure badges are just Text — pick a style in its settings. No separate blocks.'", () => {
+    // ENFORCES the golden (was an E1 FINDING; FIXED in E2, F4): the dashed-
+    // border callout directly below the Content group's tiles (golden :220).
+    // The ampersand renders as the HTML entity &amp; and the em-dash as
+    // &#8212; (repo convention — cf. "Size &amp; width", "Also shown on the
+    // canvas &#8212;"); the copy is split by a <b>Text</b> span, so the two
+    // contiguous text runs (before the &-clause / after the </b>) are the
+    // byte-accurate substrings to assert.
+    expect(STUDIO_HTML).toContain("Legal notes, reassurance lines &amp; secure badges are just");
+    expect(STUDIO_HTML).toContain("pick a style in its settings. No separate blocks.");
   });
 
-  it("FINDING (confirmed, cosmetic): the Quote-Builder frame callout renders an operator-equivalent REPHRASE, not the golden's byte-identical string", () => {
-    // Golden: "Header, footer, progress & background belong to the whole
-    // funnel — set them once in the Quote Builder. Open →" (§5.2). Built
-    // (renderFrameCallout, confirmed by direct read): "Looking for the page
-    // header, footer, progress bar or background? Those live in the Quote
-    // Builder → Open". Same MEANING, different WORDING — Appendix A's
-    // "Completeness rule" calls for verbatim strings, so this is a real
-    // (low-severity) Gate 2 finding, not silently matched to the golden's
-    // literal text.
+  it("the Quote-Builder frame callout renders the Appendix-A verbatim string (§5.2 line 269 / Appendix A line 653), not the pre-fix rephrase", () => {
+    // ENFORCES the contract string (was an E1 FINDING; FIXED in E2, F5).
+    // Gate 2's own definition (§13) is "assert every Appendix A string
+    // renders" — Appendix A (line 653) + §5.2 body (line 269) BOTH read
+    // "Header, footer, progress & background belong to the whole funnel —
+    // set them once in the Quote Builder. Open →". (Recorded discrepancy:
+    // the golden MOCKUP line 253 reads "Header, logo, progress, footer &
+    // background ..." — a golden-vs-AppendixA inconsistency; Appendix A is
+    // authoritative for string assertions per §13 Gate 2, and gate1-parity
+    // does not assert this callout's copy, so converging to Appendix A is
+    // correct. See gate-map Findings §5.) &amp;/&#8212;/&#8594; are the
+    // repo's entity forms for & / em-dash / →.
+    expect(STUDIO_HTML).toContain(
+      "Header, footer, progress &amp; background belong to the whole funnel &#8212; set them once in the",
+    );
     expect(STUDIO_HTML).toContain("Quote Builder");
-    expect(STUDIO_HTML).toContain(">Open<");
-    expect(STUDIO_HTML).not.toContain("Header, footer, progress &amp; background belong to the whole funnel");
+    expect(STUDIO_HTML).toContain("Open &#8594;");
+    // the pre-fix rephrase is gone
+    expect(STUDIO_HTML).not.toContain("Looking for the page header");
+  });
+
+  it("the library search placeholder is EXACTLY 'Search components' — no trailing ellipsis (Appendix A / golden :108; E2 F6)", () => {
+    // ENFORCES the exact Appendix-A string (was an E1 FINDING #6; FIXED in
+    // E2, F6): the placeholder carried a trailing horizontal-ellipsis
+    // character ("Search components…") absent from the golden/Appendix A.
+    // The aria-label was already exact.
+    expect(STUDIO_HTML).toContain('placeholder="Search components"');
+    expect(STUDIO_HTML).not.toContain("Search components…"); // U+2026 HORIZONTAL ELLIPSIS
   });
 });
 
