@@ -17,6 +17,15 @@
 // re-reading); "Back to section" nav via ?from=; the REAL "Manage theme →"
 // round-trip from a live Section-Studio page.
 //
+// Fix round (adversarial review, v3.1 §10.2 integration completion):
+//   M1 — ui-section-studio.ts's two "Manage theme →" hrefs (Style tab +
+//        drawer) now append ?from=<section public_id>, so the round trip
+//        from a REAL section actually returns to it (was: always the
+//        sections LIST, §10.2 intent broken). The round-trip test below
+//        asserts BOTH fixed hrefs and the corrected "Back to section" landing.
+//   M2 — "New theme" click -> POST -> redirect -> selected glue.
+//   M3 — the 3 previously-rendered-but-unasserted Appendix-A strings.
+//
 // Screenshots (1280x800) land in test-artifacts/leadgen-theme-manager/.
 
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
@@ -130,7 +139,10 @@ test.describe.serial('LeadGen Themes manager — §10 browser flows (Phase D)', 
     await page.goto(`/admin/leadgen/themes?theme=${fx.navy.id}`, { waitUntil: 'domcontentloaded' });
     await expect(page.getByText('Themes', { exact: true })).toBeVisible();
     await expect(page.getByText('one look & feel per funnel · A/B-testable in a quote')).toBeVisible();
-    await expect(page.getByText('New theme')).toBeVisible();
+    // the button, not getByText('New theme') — M2 below legitimately creates
+    // a theme RECORD literally named "New theme", which would otherwise make
+    // this assertion ambiguous (button + card both carry that text).
+    await expect(page.locator('#tm-new-theme')).toBeVisible();
     await expect(page.getByText('Your themes')).toBeVisible();
 
     const navyCard = cardLocator(page, fx.navy.id);
@@ -279,7 +291,7 @@ test.describe.serial('LeadGen Themes manager — §10 browser flows (Phase D)', 
     await expect(page).toHaveURL(new RegExp(`/admin/leadgen/sections/${section.public_id}/edit$`));
   });
 
-  test('"Manage theme →" round-trip from a REAL section (drawer Preview-theme switcher)', async ({ page }) => {
+  test('M1: "Manage theme →" round-trip from a REAL section now RETURNS to that section (both fixed hrefs)', async ({ page }) => {
     const fx = await seedThemesFixture(page.request);
     const section = await json<{ public_id: string }>(
       await page.request.post(`${LG_API}/sections`, {
@@ -299,29 +311,97 @@ test.describe.serial('LeadGen Themes manager — §10 browser flows (Phase D)', 
       }),
       'create section for manage-theme round trip',
     );
+    const expectedHref = `/admin/leadgen/themes?from=${section.public_id}`;
 
     await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
-    const manageLink = page.locator('[data-studio-manage-theme-link]');
-    await expect(manageLink).toHaveAttribute('href', '/admin/leadgen/themes');
-    await expect(manageLink).toHaveText('Manage theme →');
 
-    await manageLink.click();
+    // drawer link (ui-section-studio.ts renderStudioDrawer, ~:2222) — visible
+    // by default (the drawer's "preview" tab is active on load).
+    const drawerManageLink = page.locator('[data-studio-manage-theme-link]');
+    await expect(drawerManageLink).toHaveAttribute('href', expectedHref);
+    await expect(drawerManageLink).toHaveText('Manage theme →');
+
+    // Style-tab link (ui-section-studio.ts renderStudioInspector, ~:1938) —
+    // only rendered once a FIELD is selected and the Style tab is active;
+    // a static href check (the drawer link below drives the full click
+    // round-trip so both fixed hrefs are proven end-to-end / at-rest).
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="TwoButtonYesNo"]').click();
+    await page.locator('[data-studio-inspector-tab="style"]').click();
+    const styleManageLink = page.locator('[data-open-manage-theme]');
+    await expect(styleManageLink).toHaveAttribute('href', expectedHref);
+    await expect(styleManageLink).toHaveText('Manage theme →');
+
+    // click through the drawer link: the manager URL carries ?from=<id>...
+    await drawerManageLink.click();
     await page.waitForLoadState('domcontentloaded');
-    await expect(page).toHaveURL(/\/admin\/leadgen\/themes$/);
+    expect(page.url()).toContain(expectedHref);
     await expect(page.getByText('Themes', { exact: true })).toBeVisible();
     await expect(page.getByText('Your themes')).toBeVisible();
-    // the fixture's own theme cards render on this bare (no ?theme=) landing
     await expect(cardLocator(page, fx.navy.id)).toBeVisible();
 
-    // "Back to section" with NO ?from= (this real entry point carries none
-    // today) degrades to the sections list, never a dead link.
+    // ...and M1's fix: "Back to section" now returns to THIS section's
+    // editor — not the sections list (the pre-fix behavior).
     const backLink = page.getByText('Back to section');
-    await expect(backLink).toHaveAttribute('href', '/admin/leadgen/sections');
+    await expect(backLink).toHaveAttribute('href', `/admin/leadgen/sections/${section.public_id}/edit`);
     await backLink.click();
     await page.waitForLoadState('domcontentloaded');
-    await expect(page).toHaveURL(/\/admin\/leadgen\/sections$/);
+    await expect(page).toHaveURL(new RegExp(`/admin/leadgen/sections/${section.public_id}/edit$`));
 
     await page.screenshot({ path: `${SHOT_DIR}/d4-manage-theme-roundtrip.png` });
+  });
+
+  test('M2: "New theme" click -> POST -> redirect to ?theme=<newId> -> the new theme renders selected', async ({ page }) => {
+    // The POST API + payload shape are already proven (unit tests +
+    // themes-handlers.ts's own suite) — this covers the click->redirect glue
+    // the ES5 island (wireNewTheme) owns. The new theme's id is read back
+    // from the POST-redirect URL (NOT the POST response body): the island's
+    // `window.location.href = ...` reassignment fires immediately inside the
+    // same fetch .then(), which tears down the response's CDP resource
+    // before Playwright can reliably read its body — a known race, not a
+    // product bug. Reading the id from the LANDED url sidesteps it and is
+    // exactly the same signal the coordinator asked to prove either way.
+    await page.goto('/admin/leadgen/themes', { waitUntil: 'domcontentloaded' });
+
+    const [postRes] = await Promise.all([
+      page.waitForResponse((res) => res.url().endsWith('/api/admin/leadgen/themes') && res.request().method() === 'POST'),
+      page.locator('#tm-new-theme').click(),
+    ]);
+    expect(postRes.status(), 'POST create New theme').toBe(201);
+
+    await page.waitForURL(/[?&]theme=/, { waitUntil: 'domcontentloaded' }); // the click -> POST -> redirect glue under test
+    const newId = new URL(page.url()).searchParams.get('theme');
+    expect(newId, 'redirects to ?theme=<newId>').toBeTruthy();
+
+    const newCard = cardLocator(page, newId as string);
+    await expect(newCard).toBeVisible();
+    await expect(newCard).toContainText('New theme');
+    await expect(newCard).toContainText('DRAFT'); // brand new, unused by any funnel/variant
+    const style = await newCard.getAttribute('style');
+    expect(style, 'the new theme lands SELECTED (active card border)').toContain('#1B3A5C');
+
+    await expect(page.locator('#tm-headline-font')).toHaveValue('Newsreader'); // the seeded default persisted
+
+    const record = await json<{ item: { name: string } }>(await page.request.get(`${LG_API}/themes/${newId}`), 'get new theme');
+    expect(record.item.name).toBe('New theme');
+  });
+
+  test('M3: Appendix-A strings rendered but previously unasserted (footer note, "for developers", Advanced intro)', async ({ page }) => {
+    const fx = await seedThemesFixture(page.request);
+    await page.goto(`/admin/leadgen/themes?theme=${fx.navy.id}`, { waitUntil: 'domcontentloaded' });
+
+    // LEFT list footer note (full sentence, spans a <b> boundary).
+    await expect(
+      page.getByText('A/B testing: assign different themes to two variants of the same funnel to see which converts better.'),
+    ).toBeVisible();
+
+    // Advanced header sub-label — always visible, collapsed or not.
+    await expect(page.getByText('for developers', { exact: true })).toBeVisible();
+
+    // Advanced BODY intro sentence — only visible once expanded.
+    await expect(page.locator('#tm-adv-body')).toBeHidden();
+    await page.locator('#tm-adv-toggle').click();
+    await expect(page.locator('#tm-adv-body')).toBeVisible();
+    await expect(page.getByText('For developers. Renaming these can unlink Offer mappings.')).toBeVisible();
   });
 
   test('an unknown ?theme= id degrades gracefully to SOME real selection, never a crash', async ({ page }) => {
