@@ -49,6 +49,10 @@ import {
   leadgenSectionsNewPage,
   leadgenSectionEditorPage,
 } from "./ui-sections";
+// v3.1 §10 (Concern 2) — Themes manager, Phase D. Reachable from the Section
+// Builder's "Manage theme →" / "Preview theme:" affordances (§10.2); a
+// standalone full page, not a tab of its own.
+import { leadgenThemeManagerPage } from "./ui-theme-manager";
 import {
   leadgenQuotesListPage,
   leadgenQuotesNewPage,
@@ -225,6 +229,10 @@ leadgenUi.get("/admin/leadgen/offers/:id/edit", leadgenOfferEditorPage);
 leadgenUi.get("/admin/leadgen/sections", leadgenSectionsListPage);
 leadgenUi.get("/admin/leadgen/sections/new", leadgenSectionsNewPage);
 leadgenUi.get("/admin/leadgen/sections/:id/edit", leadgenSectionEditorPage);
+
+// Themes manager — LIVE (Phase D, contract v3.1 §10). Standalone page, not a
+// tab: reached from the Section Builder, never from the top-level nav.
+leadgenUi.get("/admin/leadgen/themes", leadgenThemeManagerPage);
 
 // Quotes tab — LIVE (Phase-7 Stage B, contract 03 §9.4 / 06 §15–§17).
 // Editor shells registered static-before-param (01 §5.2): /quotes/new precedes
