@@ -45,11 +45,19 @@ import type {
   DefaultFunnelDesign,
   LeadgenIconCardDepthSlots,
 } from "../designs/default-funnel/tokens";
-import { isLayoutContainerType, LEADGEN_MAX_CONTAINER_DEPTH, resolveFieldSize } from "./content-schema";
+import {
+  isLayoutContainerType,
+  LEADGEN_MAX_CONTAINER_DEPTH,
+  LEADGEN_NODE_BORDER_COLOR_ROLES,
+  LEADGEN_NODE_CORNERS,
+  resolveFieldSize,
+} from "./content-schema";
 import type {
   LeadgenChoice,
   LeadgenComponentNode,
   LeadgenDesignOverrides,
+  LeadgenNodeBorderColorRole,
+  LeadgenNodeCorners,
   LeadgenResolvedSizeAxis,
 } from "./content-schema";
 import { baseTokenForRole, isFunnelTokenRole } from "../designs/theme";
@@ -1038,7 +1046,12 @@ export function isNewMapsShape(raw: unknown): raw is LeadgenNewMapsShape {
 // legacy bare `props.validate` flag (no live writer in the current admin;
 // kept readable for old stored content, §12 no-regression) is consulted only
 // when the node carries NO new-shape config at all.
-function mapsJobsFor(node: LeadgenComponentNode): { validate: boolean; autocomplete: boolean } {
+// Exported (v3.1 fix-round MINOR-1) so sections-handlers.ts's admin
+// section-preview zipValidation leg applies the SAME per-field precedence
+// the runtime (renderZIPInputQuestion/renderAddressAutocompleteQuestion
+// below) and serve.ts's funnelNeedsMapsKey already apply — one source of
+// truth for the jobs decision, never duplicated/drifted logic.
+export function mapsJobsFor(node: LeadgenComponentNode): { validate: boolean; autocomplete: boolean } {
   const raw = node.props?.["maps"];
   if (isNewMapsShape(raw)) {
     if (raw.enabled !== true) return { validate: false, autocomplete: false };
@@ -1057,6 +1070,21 @@ function mapsJobsFor(node: LeadgenComponentNode): { validate: boolean; autocompl
   // "global address_validation_enabled era", §9.3).
   const legacyValidate = propBool(node, "validate") === true;
   return { validate: legacyValidate, autocomplete: false };
+}
+
+// Whether a node carries ANY props.maps object at all (the NEW {enabled,
+// jobs} shape OR the pre-§9.2 legacy flat shape) — the per-field precedence
+// GATE itself (§9.3): present ⇒ mapsJobsFor(node) is THIS field's own
+// authoritative answer; absent ⇒ the field has no per-field opinion at all,
+// so a caller falls through to ITS OWN legacy default (mapsJobsFor's own
+// fallback is the bare props.validate prop; sections-handlers.ts's admin
+// zipValidation leg falls through to the Section's address_validation_
+// enabled column instead — a DIFFERENT legacy default per caller, hence a
+// separate exported predicate rather than baking one fallback into
+// mapsJobsFor itself).
+export function hasFieldMapsConfig(node: LeadgenComponentNode): boolean {
+  const raw = node.props?.["maps"];
+  return typeof raw === "object" && raw !== null && !Array.isArray(raw);
 }
 
 // The §9 field-level Maps config → the 03 §3.3 `data-lg-maps` attribute
@@ -1138,24 +1166,158 @@ function sizeAxisCssValue(axis: LeadgenResolvedSizeAxis, axisKind: "width" | "he
   return axisKind === "width" && axis.preset === "full" ? "100%" : undefined;
 }
 
-// PURE-per-call inline style for a node's design_overrides.size (§7.1/§7.2/
-// §12): absent `size` -> "" (BYTE-IDENTICAL to pre-v3.1 output — the base
-// .lg-input/.lg-currency/.lg-address CSS class sizing applies, untouched);
-// present -> both axes resolve (each independently inheriting the theme
-// default when its OWN key is absent, exactly like resolveFieldSize's own
-// per-axis contract), and ONLY the two grounded cases above ride as inline
-// style — never raw author CSS, only computed/verbatim values through the
-// SAME `style()` helper every other preset uses (so a hostile value can
-// never escape the attribute either).
-function fieldSizeStyle(node: LeadgenComponentNode, ctx: LeadgenSectionRenderCtx | undefined): string {
+// PURE-per-call style ENTRIES (not yet wrapped) for a node's
+// design_overrides.size (§7.1/§7.2/§12): absent `size` -> {} (BYTE-IDENTICAL
+// to pre-v3.1 output — the base .lg-input/.lg-currency/.lg-address CSS class
+// sizing applies, untouched); present -> both axes resolve (each
+// independently inheriting the theme default when its OWN key is absent,
+// exactly like resolveFieldSize's own per-axis contract), and ONLY the two
+// grounded cases above ride as inline style — never raw author CSS, only
+// computed/verbatim values. Split out from fieldSizeStyle (below) so the
+// combined text-input style attribute (fieldStyleAttr) can merge these WITH
+// the appearance entries below into ONE `style()` call — two separate
+// `style="…"` attributes on one tag is invalid HTML (the second is silently
+// dropped by the parser), so every element that carries BOTH concerns must
+// resolve them through a single style() call.
+function sizeStyleEntries(
+  node: LeadgenComponentNode,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): { width?: string; height?: string } {
   const sizeOverride = node.design_overrides?.size;
-  if (sizeOverride === undefined) return "";
+  if (sizeOverride === undefined) return {};
   const controls = ctx?.theme_controls ?? DEFAULT_SIZE_THEME_CONTROLS;
   const resolved = resolveFieldSize(sizeOverride, controls);
-  return style({
+  return {
     width: sizeAxisCssValue(resolved.width, "width"),
     height: sizeAxisCssValue(resolved.height, "height"),
-  });
+  };
+}
+
+// PURE-per-call inline style for a node's design_overrides.size — unchanged
+// public shape/behavior (still node,ctx -> "" | ` style="…"`), now a thin
+// wrapper over sizeStyleEntries so the ONE resolution rule lives in ONE
+// place. Still used verbatim on the `.lg-currency`/`.lg-address` OUTER
+// wrapper (the size axis is a whole-control/box concern there), never
+// author CSS, only computed/verbatim values through the SAME `style()`
+// helper every other preset uses (so a hostile value can never escape the
+// attribute either).
+function fieldSizeStyle(node: LeadgenComponentNode, ctx: LeadgenSectionRenderCtx | undefined): string {
+  return style(sizeStyleEntries(node, ctx));
+}
+
+// v3.1 §8.5b/§11.5 Style tab "Corners" (Sharp/Rounded/Pill) -> §3.3 radii
+// tokens, verbatim: "controls/inputs 8px … pills/chips 20px" (Appendix B
+// restates "controls 8 … pills 20"). A field IS a control/input, so
+// rounded=8px and pill=20px cite §3.3 directly, byte for byte. "Sharp" has
+// NO explicit px value anywhere in the contract (only the enum NAME) — 0 is
+// the only reading consistent with "no rounding at all", but it is an
+// INFERRED value, NOT an explicit contract number (the same class of gap as
+// SIZE_HEIGHT_CUSTOM_PX_MIN's flagged inference above) — flagged for
+// conductor/adversarial-review confirmation against the golden master.
+const NODE_CORNERS_RADIUS_PX: Record<LeadgenNodeCorners, string> = {
+  sharp: "0",
+  rounded: "8px",
+  pill: "20px",
+};
+
+// Defensive re-validation at RENDER time (belt-and-suspenders over
+// content-schema.ts's save-time enum enforcement — mirrors the
+// clampInt-at-render idiom used throughout this module for legacy/corrupt
+// stored values): node.design_overrides is typed as a generic
+// string|number|boolean map (LeadgenDesignOverrides), so a stale/corrupt
+// stored value must be re-checked against the real enum before it drives a
+// lookup or a role switch.
+function isNodeCorners(value: unknown): value is LeadgenNodeCorners {
+  return typeof value === "string" && (LEADGEN_NODE_CORNERS as readonly string[]).includes(value);
+}
+function isNodeBorderColorRole(value: unknown): value is LeadgenNodeBorderColorRole {
+  return typeof value === "string" && (LEADGEN_NODE_BORDER_COLOR_ROLES as readonly string[]).includes(value);
+}
+
+// v3.1 §8.5b border_color role -> the ACTIVE design's OWN resolved color —
+// read off the SAME `design` object every renderer already threads for
+// every other themed color value (identical precedent: design.header.
+// logoColor above), so a themed/composed `design` (resolveTokens' mutated
+// EffectiveFunnelDesign, role colors baked in via theme.ts's setRoleToken)
+// yields the CURRENT theme's brand/accent/border, and the plain
+// defaultFunnelDesign yields the base palette — never a fabricated hex,
+// always the design's own token. Bridge grounded in designs/theme.ts's
+// ROLE_TO_BASE_TOKEN (border -> color.border, brand_primary -> color.primary,
+// accent -> color.accent); border_color's OWN 3-value vocabulary
+// (content-schema.ts's LEADGEN_NODE_BORDER_COLOR_ROLES) is deliberately
+// smaller than the 14-role set ("border_color is its OWN small 3-value role
+// vocabulary, never the general color-role set" — content-schema.ts) so
+// "neutral" maps onto the 14-role system's OWN neutral-border-line concept
+// (the literal "border" role, base token color.border) rather than a
+// fabricated new token.
+function nodeBorderColorValue(role: LeadgenNodeBorderColorRole, design: DefaultFunnelDesign): string {
+  switch (role) {
+    case "brand":
+      return design.color.primary;
+    case "accent":
+      return design.color.accent;
+    case "neutral":
+    default:
+      return design.color.border;
+  }
+}
+
+// PURE-per-call style ENTRIES for a node's design_overrides.corners/
+// .border_color (§8.5b/§11.5/§12) — absent key -> undefined for that key
+// (BYTE-IDENTICAL to pre-fix output when neither is authored); each key
+// resolves independently. NEVER raw hex/CSS from the node — only the
+// grounded lookup/bridge above, through the closed enum guards.
+//
+// v3.1 fix-round (adversarial review, CSS-cascade regression close-out):
+// border_color rides the CUSTOM PROPERTY `--lg-field-border`, NEVER the
+// `border-color` property directly. A DIRECT inline border-color would beat
+// designs/default-funnel/styles.ts's `.lg-input:focus` / `.lg-input[aria-
+// invalid="true"]` rules by specificity (inline always wins over a class/
+// attribute selector without !important) — an overridden field would then
+// show its role color EVEN when focused or invalid, silently losing that
+// state feedback. The base `.lg-input` rule instead reads `border-color:
+// var(--lg-field-border, <default>)`: setting the CUSTOM PROPERTY inline
+// only supplies the value the base rule's OWN (lower-specificity)
+// declaration consults, so :focus/[aria-invalid]'s DIRECT, higher-
+// specificity border-color declarations still win exactly as before this
+// whole feature existed. `border-radius` has no such collision (nothing
+// else sets it via a class/attribute rule) so it stays a direct property.
+function appearanceStyleEntries(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+): { "border-radius"?: string; "--lg-field-border"?: string } {
+  const cornersRaw = node.design_overrides?.corners;
+  const borderColorRaw = node.design_overrides?.border_color;
+  return {
+    "border-radius": isNodeCorners(cornersRaw) ? NODE_CORNERS_RADIUS_PX[cornersRaw] : undefined,
+    "--lg-field-border": isNodeBorderColorRole(borderColorRaw)
+      ? nodeBorderColorValue(borderColorRaw, design)
+      : undefined,
+  };
+}
+
+// Standalone wrapped appearance style — used on the CURRENCY/ADDRESS INNER
+// `<input class="lg-input …">` (the element the visible .lg-input border/
+// radius CSS actually renders on; their OUTER `.lg-currency`/`.lg-address`
+// wrapper carries no border of its own — verified against
+// designs/default-funnel/styles.ts, which has no `.lg-currency`/`.lg-address`
+// border rule at all, only `.lg-input`/`.lg-input:focus`/
+// `.lg-input[aria-invalid]`). Absent both keys -> "" (byte-identical).
+function fieldAppearanceStyle(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  return style(appearanceStyleEntries(node, design));
+}
+
+// Combined size+appearance style for the SINGLE-ELEMENT text-input family
+// (free text/number/currency-less text/email/phone/date/zip — the `.lg-input`
+// element IS both the sizing box and the visual border/radius target, unlike
+// currency/address where they're different elements) — merged into ONE
+// `style()` call so the element never carries two `style="…"` attributes.
+function fieldStyleAttr(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): string {
+  return style({ ...sizeStyleEntries(node, ctx), ...appearanceStyleEntries(node, design) });
 }
 
 function renderTextInput(
@@ -1169,13 +1331,21 @@ function renderTextInput(
   const maxLen = propNum(node, "maxLen");
   // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
   // the :focus / [aria-invalid] state rules win by cascade (no !important).
+  // An authored design_overrides.border_color rides the `--lg-field-border`
+  // CUSTOM PROPERTY (appearanceStyleEntries), never `border-color` directly,
+  // so it only supplies the value the base .lg-input rule's OWN var()
+  // fallback consults — :focus/[aria-invalid]'s direct, higher-specificity
+  // border-color declarations still win over it exactly as before this
+  // feature existed (adversarial-review cascade-regression close-out).
   // 03 §3.3: data-lg-input marks every text/date/email/phone/zip input.
-  // v3.1 §7/§12: fieldSizeStyle is the ONLY inline style this element ever
-  // carries — empty string (no attribute at all) when the node authors no
-  // design_overrides.size, so pre-v3.1 output is untouched byte for byte.
+  // v3.1 §7/§12: fieldStyleAttr (size + corners/border_color merged into ONE
+  // style() call) is the ONLY inline style this element ever carries — ""
+  // (no attribute at all) when the node authors none of design_overrides.
+  // size/.corners/.border_color, so pre-v3.1 output is untouched byte for
+  // byte.
   return (
     `<input class="lg-input" type="${type}"${hydration(node)} data-lg-input` +
-    fieldSizeStyle(node, ctx) +
+    fieldStyleAttr(node, design, ctx) +
     attr("placeholder", placeholder) +
     attr("maxlength", maxLen) +
     (node.required === true ? " required" : "") +
@@ -1221,14 +1391,19 @@ export function renderNumberInputQuestion(
 // control's visible box), same absent-is-empty discipline as renderTextInput.
 export function renderCurrencyInputQuestion(
   node: LeadgenComponentNode,
-  _design: DefaultFunnelDesign,
+  design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
 ): string {
   const currency = propStr(node, "currency") ?? "$";
   return (
     `<div class="lg-currency"${hydration(node)}${fieldSizeStyle(node, ctx)}>` +
     `<span class="lg-currency-prefix" aria-hidden="true">${esc(currency)}</span>` +
-    `<input class="lg-input lg-currency-input" type="text" inputmode="numeric" data-lg-input` +
+    // v3.1 §8.5b/§11.5/§12: corners/border_color ride the INNER `.lg-input`
+    // element (fieldAppearanceStyle), not the `.lg-currency` wrapper above —
+    // the wrapper carries no border/radius of its own (designs/default-
+    // funnel/styles.ts has no `.lg-currency` border rule), only `.lg-input`
+    // does, so this is where the visible box actually renders.
+    `<input class="lg-input lg-currency-input" type="text" inputmode="numeric" data-lg-input${fieldAppearanceStyle(node, design)}` +
     attr("placeholder", propStr(node, "placeholder")) +
     attr("data-min", propNum(node, "min")) +
     attr("data-max", propNum(node, "max")) +
@@ -1338,8 +1513,15 @@ export function renderAddressAutocompleteQuestion(
     // absent-is-empty discipline as the other field renderers.
     `<div class="lg-address"${hydration(node)}${fieldSizeStyle(node, ctx)} data-provider="${esc(provider)}"${addressMapsEnabled ? attr("data-lg-maps", mapsConfigJson(node)) : ""}>` +
     // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
-    // the :focus / [aria-invalid] state rules win by cascade (no !important).
-    `<input class="lg-input lg-address-input" type="text" data-lg-input` +
+    // the :focus / [aria-invalid] state rules win by cascade (no !important;
+    // see renderTextInput's fuller comment — border_color rides the
+    // --lg-field-border custom property, never border-color directly, so
+    // this cascade holds even when an override is authored). corners/
+    // border_color ride THIS inner `.lg-input` element (fieldAppearanceStyle),
+    // not the `.lg-address` wrapper above — the wrapper carries no border/
+    // radius of its own (designs/default-funnel/styles.ts has no
+    // `.lg-address` rule at all), only `.lg-input` does.
+    `<input class="lg-input lg-address-input" type="text" data-lg-input${fieldAppearanceStyle(node, design)}` +
     ` autocomplete="street-address"${attr("placeholder", placeholder)}` +
     (node.required === true ? " required" : "") +
     ` data-address-autocomplete="true">` +

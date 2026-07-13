@@ -863,6 +863,115 @@ test.describe.serial('LeadGen Section Studio v3.1 Phase C — the golden 5-tab i
     expect(zipNode?.design_overrides?.size?.width).toBe('s');
   });
 
+  test('§8.5b Style-tab Corners + Border color actually render on the canvas field (fix-round adversarial-review MAJOR-1 — was a silent no-op before this fix)', async ({ page }) => {
+    const vert = `c-appearance-${uniq}`;
+    const section = await createStudioSection(page.request, `C1 Appearance ${uniq}`, ACT_A, vert);
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
+    await page.locator('[data-studio-inspector-tab="style"]').click();
+
+    // hydration() stamps data-component-type/data-question-id/data-lg-input
+    // on the SAME <input> element (presets.ts) — this locator is the actual
+    // rendered field, not a studio-added wrapper.
+    const canvasInput = page.frameLocator('#lg-studio-canvas-frame').locator('[data-question-id="q_zip"][data-lg-input]');
+    await expect(canvasInput).toBeVisible();
+    // BEFORE: proves the assertions below are a REAL, visible CHANGE — not a
+    // coincidental match against the base design's own default radius
+    // (designs/default-funnel/tokens.ts input.borderRadius = "10px").
+    const baseRadius = await canvasInput.evaluate((el) => getComputedStyle(el).borderRadius);
+    expect(baseRadius).not.toBe('20px');
+
+    const pillBtn = page.locator('[data-set-corners="pill"]');
+    await expect(pillBtn).toBeVisible();
+    await pillBtn.click();
+    await expect(pillBtn).toHaveClass(/active/);
+
+    const brandBtn = page.locator('[data-set-border-color="brand"]');
+    await expect(brandBtn).toBeVisible();
+    await brandBtn.click();
+    await expect(brandBtn).toHaveClass(/active/);
+
+    // LIVE canvas proof (not just persistence + the segment's own "active"
+    // highlight, which is ALL the pre-fix code already did): the rendered
+    // field itself now carries the §3.3 pill radius (20px) and the default
+    // design's OWN brand token (color.primary #1B3A5C = rgb(27, 58, 92)) as
+    // its border color — read via getComputedStyle so a CSS-cascade/
+    // specificity regression would be caught too, not just an attribute
+    // string. scheduleCanvasRender debounces ~300ms, so poll rather than a
+    // single synchronous read.
+    await expect.poll(() => canvasInput.evaluate((el) => getComputedStyle(el).borderRadius)).toBe('20px');
+    await expect.poll(() => canvasInput.evaluate((el) => getComputedStyle(el).borderColor)).toBe('rgb(27, 58, 92)');
+    await page.screenshot({ path: `${SHOT_DIR}/c1-05-style-corners-border-color.png` });
+
+    // persists + reloads with the segment still marked active AND the
+    // canvas still visibly reflecting it (mirrors the Width-preset test's
+    // own save/reload convention above).
+    await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
+    await page.locator('[data-studio-inspector-tab="style"]').click();
+    await expect(page.locator('[data-set-corners="pill"]')).toHaveClass(/active/);
+    await expect(page.locator('[data-set-border-color="brand"]')).toHaveClass(/active/);
+    await expect.poll(() => canvasInput.evaluate((el) => getComputedStyle(el).borderRadius)).toBe('20px');
+
+    const detail = await json<{ content_json: { components: Array<{ question_id: string; design_overrides?: { corners?: string; border_color?: string } }> } }>(
+      await page.request.get(`${LG_API}/sections/${section.public_id}`),
+      'appearance section detail',
+    );
+    const zipNode = detail.content_json.components.find((c) => c.question_id === 'q_zip');
+    expect(zipNode?.design_overrides?.corners).toBe('pill');
+    expect(zipNode?.design_overrides?.border_color).toBe('brand');
+  });
+
+  test('§8.5b Border color CASCADE close-out — an overridden field still shows the FOCUS/[aria-invalid] state color, not its resting role color (adversarial-review cascade-regression fix)', async ({ page }) => {
+    const vert = `c-appearance-cascade-${uniq}`;
+    const section = await createStudioSection(page.request, `C1 Appearance Cascade ${uniq}`, ACT_A, vert);
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
+    await page.locator('[data-studio-inspector-tab="style"]').click();
+    const canvasInput = page.frameLocator('#lg-studio-canvas-frame').locator('[data-question-id="q_zip"][data-lg-input]');
+    await expect(canvasInput).toBeVisible();
+
+    // Accent (#E85D26 / rgb(232, 93, 38)) — deliberately NOT Brand: the
+    // default design's color.primary (#1B3A5C) is COINCIDENTALLY identical
+    // to input.focusBorderColor, so a Brand-colored field can never
+    // distinguish "still showing its role color" (the bug) from "showing
+    // the focus color" (the fix) — Accent's hex differs from BOTH the focus
+    // (#1B3A5C) and invalid (#D32F2F) colors, so each state below is
+    // unambiguous.
+    const accentBtn = page.locator('[data-set-border-color="accent"]');
+    await expect(accentBtn).toBeVisible();
+    await accentBtn.click();
+    await expect(accentBtn).toHaveClass(/active/);
+
+    // RESTING: the role color shows.
+    await expect.poll(() => canvasInput.evaluate((el) => getComputedStyle(el).borderColor)).toBe('rgb(232, 93, 38)');
+
+    // FOCUSED: designs/default-funnel/styles.ts's `.lg-input:focus` rule
+    // (higher specificity — a pseudo-class beats a bare class) must win over
+    // the resting-state var(--lg-field-border, …) default. Before this fix
+    // (a direct inline border-color) this assertion FAILS — the field would
+    // stay accent-colored even while focused.
+    await canvasInput.focus();
+    await expect.poll(() => canvasInput.evaluate((el) => getComputedStyle(el).borderColor)).toBe('rgb(27, 58, 92)');
+    await page.screenshot({ path: `${SHOT_DIR}/c1-06-style-border-color-focus.png` });
+
+    // Blur, then simulate the runtime's OWN aria-invalid="true" marker
+    // (setFieldError — exercised elsewhere in this file's §9.2 sim tests;
+    // this test targets the CSS rule's reaction to the attribute, not the
+    // validation logic that sets it) — `.lg-input[aria-invalid="true"]`
+    // must ALSO keep winning over the resting-state var default.
+    await canvasInput.evaluate((el) => (el as HTMLElement).blur());
+    await canvasInput.evaluate((el) => el.setAttribute('aria-invalid', 'true'));
+    await expect.poll(() => canvasInput.evaluate((el) => getComputedStyle(el).borderColor)).toBe('rgb(211, 47, 47)');
+
+    // Clearing aria-invalid (still un-focused) reverts to the resting role
+    // color — the override itself is untouched by either transient state.
+    await canvasInput.evaluate((el) => el.removeAttribute('aria-invalid'));
+    await expect.poll(() => canvasInput.evaluate((el) => getComputedStyle(el).borderColor)).toBe('rgb(232, 93, 38)');
+  });
+
   test('§8.6 Rules tab: "Always show" by default; "Add a condition" reveals the picker and renders the sentence "Show this question when X is Y"', async ({ page }) => {
     const vert = `c-rules-${uniq}`;
     const section = await createStudioSection(page.request, `C1 Rules ${uniq}`, ACT_A, vert);

@@ -1012,6 +1012,117 @@ describe("v3.1 §9.3 — Maps job-based precedence (NEW shape wins over legacy)"
 });
 
 // ---------------------------------------------------------------------------
+// v3.1 §8.5b/§11.5/§12 (adversarial-review fix round, MAJOR-1) — Style tab
+// Corners/Border-color render wiring: setNodeCorners/setNodeBorderColor
+// (ui-section-studio.ts) persisted design_overrides.corners/.border_color
+// and highlighted the segment active, but no renderer consumed them — a
+// silent no-op with false "active" feedback. See also the real-HTTP §12
+// 3-path parity proof in leadgen-v31-themes-size-parity.test.ts; these are
+// the unit-level grounding + placement + defensive-guard checks.
+// ---------------------------------------------------------------------------
+describe("v3.1 §8.5b/§11.5/§12 — Style tab Corners/Border-color render wiring (fix-round MAJOR-1)", () => {
+  function freeTextNode(designOverrides: Record<string, unknown>) {
+    return {
+      type: "FreeTextQuestion" as const,
+      question_id: "q_ft",
+      internal_field: "ft",
+      design_overrides: designOverrides,
+    };
+  }
+  function currencyNode(designOverrides: Record<string, unknown>) {
+    return {
+      type: "CurrencyInputQuestion" as const,
+      question_id: "q_cur",
+      internal_field: "cur",
+      design_overrides: designOverrides,
+    };
+  }
+  function addrAppearanceNode(designOverrides: Record<string, unknown>) {
+    return {
+      type: "AddressAutocompleteQuestion" as const,
+      question_id: "q_addr2",
+      internal_field: "addr2",
+      design_overrides: designOverrides,
+    };
+  }
+
+  it("corners:pill -> border-radius:20px (§3.3 pills/chips), corners:rounded -> 8px (§3.3 controls/inputs), corners:sharp -> 0 (inferred, flagged — no explicit contract px)", () => {
+    expect(renderComponent(freeTextNode({ corners: "pill" }), DESIGN)).toContain('style="border-radius:20px"');
+    expect(renderComponent(freeTextNode({ corners: "rounded" }), DESIGN)).toContain('style="border-radius:8px"');
+    expect(renderComponent(freeTextNode({ corners: "sharp" }), DESIGN)).toContain('style="border-radius:0"');
+  });
+
+  it("border_color:brand/accent resolve to the ACTIVE design's OWN color.primary/color.accent tokens (never a fabricated hex); neutral resolves to color.border", () => {
+    expect(renderComponent(freeTextNode({ border_color: "brand" }), DESIGN)).toContain(
+      `style="--lg-field-border:${DESIGN.color.primary}"`,
+    );
+    expect(renderComponent(freeTextNode({ border_color: "accent" }), DESIGN)).toContain(
+      `style="--lg-field-border:${DESIGN.color.accent}"`,
+    );
+    expect(renderComponent(freeTextNode({ border_color: "neutral" }), DESIGN)).toContain(
+      `style="--lg-field-border:${DESIGN.color.border}"`,
+    );
+  });
+
+  // Adversarial-review cascade-regression close-out: border_color rides the
+  // --lg-field-border CUSTOM PROPERTY, never `border-color` directly. A
+  // direct inline border-color would beat designs/default-funnel/styles.ts's
+  // .lg-input:focus / .lg-input[aria-invalid="true"] rules by specificity
+  // (inline always wins over a class/attribute selector without
+  // !important), silently losing the focus/invalid border color. The full
+  // live browser proof (computed style under :focus/[aria-invalid]) is in
+  // test-ui/leadgen-section-studio.spec.ts; this is the render-output-shape
+  // pin at the unit level.
+  it("border_color NEVER emits a direct border-color on the field — only the --lg-field-border custom property (cascade-regression close-out)", () => {
+    const html = renderComponent(freeTextNode({ border_color: "brand" }), DESIGN);
+    // The closing `"` in this exact substring means the style attribute's
+    // content is EXACTLY this value — a trailing ";border-color:…" would
+    // break the match.
+    expect(html).toContain(`style="--lg-field-border:${DESIGN.color.primary}"`);
+  });
+
+  it('both keys together merge into ONE style attribute (never two style="…" attributes on one tag)', () => {
+    const html = renderComponent(freeTextNode({ corners: "pill", border_color: "brand" }), DESIGN);
+    expect(html).toContain(`style="border-radius:20px;--lg-field-border:${DESIGN.color.primary}"`);
+    expect(html.match(/style="/g)?.length).toBe(1);
+  });
+
+  it("REGRESSION — a node with NO corners/border_color renders NO style attribute at all (byte-identical to pre-fix output)", () => {
+    const html = renderComponent(freeTextNode({}), DESIGN);
+    expect(html).not.toContain("style=");
+  });
+
+  it("CurrencyInputQuestion — corners/border_color render on the INNER lg-input element (the .lg-currency wrapper has no border of its own in designs/default-funnel/styles.ts)", () => {
+    const html = renderComponent(currencyNode({ corners: "pill", border_color: "accent" }), DESIGN);
+    expect(html).not.toMatch(/<div class="lg-currency"[^>]*style=/);
+    expect(html).toContain(
+      `lg-currency-input" type="text" inputmode="numeric" data-lg-input style="border-radius:20px;--lg-field-border:${DESIGN.color.accent}"`,
+    );
+  });
+
+  it("AddressAutocompleteQuestion — corners/border_color render on the INNER lg-input element, not the lg-address wrapper", () => {
+    const html = renderComponent(addrAppearanceNode({ corners: "sharp", border_color: "neutral" }), DESIGN);
+    expect(html).not.toMatch(/<div class="lg-address"[^>]*style=/);
+    expect(html).toContain(
+      `lg-address-input" type="text" data-lg-input style="border-radius:0;--lg-field-border:${DESIGN.color.border}"`,
+    );
+  });
+
+  it("a stale/corrupt design_overrides.corners value outside sharp|rounded|pill is ignored defensively (no crash; that key alone emits nothing, the other key is unaffected)", () => {
+    const html = renderComponent(freeTextNode({ corners: "square", border_color: "brand" }), DESIGN);
+    expect(html).not.toContain("border-radius");
+    expect(html).toContain(`style="--lg-field-border:${DESIGN.color.primary}"`);
+  });
+
+  it("the served .lg-input base rule reads border-color:var(--lg-field-border, color.border) while :focus/[aria-invalid] keep setting border-color DIRECTLY, unconditionally (funnelChromeCss structure pin)", () => {
+    const chrome = funnelChromeCss(DESIGN);
+    expect(chrome).toContain(`border-color:var(--lg-field-border, ${DESIGN.color.border})`);
+    expect(chrome).toContain(`.lg-input:focus{outline:none;border-color:${DESIGN.input.focusBorderColor}}`);
+    expect(chrome).toContain(`.lg-input[aria-invalid="true"]{border-color:${DESIGN.input.errorBorderColor}}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // v2.4 06 §6.4 (B9) — Other-group markup on choice components with
 // choiceDisplay.otherGroupEnabled. Attributes/markup appear ONLY with the
 // metadata (no existing content has it → no visual change by construction).

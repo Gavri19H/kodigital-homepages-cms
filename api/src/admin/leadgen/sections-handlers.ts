@@ -20,6 +20,8 @@
 import { getFunnelDesign } from "../../public/leadgen/designs/registry";
 import type { FunnelDesign } from "../../public/leadgen/designs/registry";
 import {
+  hasFieldMapsConfig,
+  mapsJobsFor,
   renderSectionComponents,
   renderSectionComponentsVisible,
   type LeadgenSectionRenderCtx,
@@ -2139,9 +2141,21 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
 // internal fields normalizeAnswers populates: a top-level `internal_field`
 // wins for any node (incl. AddressAutocompleteQuestion); otherwise an
 // AddressAutocompleteQuestion expands to `props.internal_fields` (default
-// street/city/state/zip). Then keeps only the zip-ish fields.
-function zipFieldsOfContent(content: LeadgenSectionContent): string[] {
-  const out: string[] = [];
+// street/city/state/zip). Then keeps only the zip-ish fields. Carries the
+// owning NODE alongside each field name (not just the string) so
+// zipValidation (below) can read that node's OWN props.maps for the v3.1
+// §9.3 per-field precedence gate — a container AddressAutocompleteQuestion's
+// several sub-field names all share the ONE owning node's maps config.
+function zipFieldsOfContent(
+  content: LeadgenSectionContent,
+): Array<{ field: string; node: LeadgenComponentNode }> {
+  const out: Array<{ field: string; node: LeadgenComponentNode }> = [];
+  const seen = new Set<string>();
+  const push = (field: string, node: LeadgenComponentNode): void => {
+    if (seen.has(field)) return;
+    seen.add(field);
+    out.push({ field, node });
+  };
   // §8.5: probe the flattened projection — the SAME leaf universe
   // normalizeAnswers walks — so a nested ZIP/Address component is found.
   for (const node of flattenComponents(content.components)) {
@@ -2149,24 +2163,24 @@ function zipFieldsOfContent(content: LeadgenSectionContent): string[] {
     const type = node["type"];
     const topField = trimmedString(node["internal_field"]);
     if (type === "ZIPInputQuestion") {
-      if (topField !== null) out.push(topField);
+      if (topField !== null) push(topField, node);
     } else if (type === "AddressAutocompleteQuestion") {
       if (topField !== null) {
         // A singular top-level internal_field is what normalizeAnswers uses;
         // count it only if it is itself a ZIP field.
-        if (/zip/i.test(topField)) out.push(topField);
+        if (/zip/i.test(topField)) push(topField, node);
       } else {
         const props = isRecord(node["props"]) ? (node["props"] as Record<string, unknown>) : {};
         const fields = Array.isArray(props["internal_fields"])
           ? (props["internal_fields"] as unknown[])
           : ["street", "city", "state", "zip"];
         for (const f of fields) {
-          if (typeof f === "string" && /zip/i.test(f)) out.push(f);
+          if (typeof f === "string" && /zip/i.test(f)) push(f, node);
         }
       }
     }
   }
-  return [...new Set(out)];
+  return out;
 }
 
 // §12.8: validate every ZIP answer with maps.validateZip (`/^\d{5}$/`) when the
@@ -2183,8 +2197,21 @@ function zipValidation(
   malformed: string[];
   has_malformed: boolean;
 } | null {
-  if (row.address_validation_enabled === 0) return null;
-  const fields = zipFieldsOfContent(content);
+  const legacyEnabled = row.address_validation_enabled !== 0;
+  // v3.1 §9.3 per-field precedence (adversarial review MINOR-1): a field
+  // carrying its OWN props.maps (the NEW {enabled,jobs} shape or the
+  // pre-§9.2 legacy flat shape) has mapsJobsFor(node).validate as ITS OWN
+  // authoritative answer — the SAME precedence the client leg
+  // (components/presets.ts renderZIPInputQuestion/
+  // renderAddressAutocompleteQuestion) and the key-injection gate
+  // (serve.ts funnelNeedsMapsKey) already apply. A field with NO props.maps
+  // object at all has no per-field opinion, so it falls through to the
+  // Section's legacy address_validation_enabled column — the ONLY gate this
+  // leg consulted before this fix, preserved verbatim for content that never
+  // authored a maps config (§12 no-regression).
+  const fields = zipFieldsOfContent(content)
+    .filter(({ node }) => (hasFieldMapsConfig(node) ? mapsJobsFor(node).validate : legacyEnabled))
+    .map(({ field }) => field);
   if (fields.length === 0) return null;
   const checks = fields.map((field) => {
     const value = answers[field];
