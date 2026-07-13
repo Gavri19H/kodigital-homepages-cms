@@ -21,6 +21,8 @@ A `6bc597a` (#101) · B `8ed9124` (#102) · C `8e34878` (#103) · D `133c229` (#
 
 **Gate enforcement proven** (Phase-E review): reverting product fixes turns the flipped gates RED — the §13 gates ENFORCE the golden, they do not merely document it.
 
+**Pre-deploy audit round G (operator-requested, 2026-07-13, merged `d7e1d7d` #107).** A mission-wide 1:1 fidelity audit (3 fresh-context auditors, full contract, both directions) on merged main found **4 MAJOR deviations** the per-phase gates structurally missed — off-palette chrome via inherited `--c-primary` (#2563eb), the 3 §8.1 verbatim affects sentences not rendering, dead Helper-text/Leading-icon controls (`helper_text` key mismatch + renderer read neither), and drag-inserts dropping `childTypes`/`defaultProps` — plus ledger gaps. All fixed with fail-before/pass-after + new enforcing gates (incl. a `--c-primary` override guard and canvas-preview string assertions), independently confirmed SHIP by a fresh reviewer; a follow-on paint-order occlusion bug (icon painted over by the selection wrap — invisible to DOM probes) was caught by pixel inspection and fixed. Rows 10/12 evidence re-verified by the conductor against the new gates on merged main: **PASS re-affirmed**. Post-audit close ritual (own hand, merged main): `tsc` 0 · vitest **4927/4927 (355)** · Playwright **205/205 == `--list`** (fresh 3-shard 73+68+64) · `verify:all` PASS, bundle **40,044 B**. Errata now 8; contract gaps ledger extended (11 field-box icon assets; pre-existing v2.4 container-ops toolbar strings).
+
 ## Design Element Traceability Matrix — ALL PASS (with executed evidence)
 
 | Row | Design element | § | Gate | Status | Evidence (phase PR · proving gate/spec) |
