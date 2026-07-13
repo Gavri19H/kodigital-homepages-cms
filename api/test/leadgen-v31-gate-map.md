@@ -27,18 +27,34 @@ Legend:
 |---|---|---|---|
 | `api/test/util/golden-master-v31.ts` | util | — (parser, no assertions) | typechecks, consumed by all 5 below |
 | `api/test/leadgen-v31-gate1-parity.test.ts` | vitest | 25 | green (E2 part 2: +2 — the "No issues" chip NEUTRAL assertion + the sibling top-bar/drawer Mapping-badge regression guard) |
-| `api/test/leadgen-v31-gate1-tokens.test.ts` | vitest | 16 | green (E2 part 1: +1 for the F2 §3-danger resolution of `.studio-control-invalid`; E2 part 2: +3 — the fixture-surface "No issues"/"N issues" chip conversions + a calibration test) |
-| `api/test/leadgen-v31-gate3-geometry.test.ts` | vitest | 12 | green (E2: the rail-width test now ENFORCES 292/344) |
+| `api/test/leadgen-v31-gate1-tokens.test.ts` | vitest | 15 | green (E2 part 1: +1 for the F2 §3-danger resolution of `.studio-control-invalid`; E2 part 2: +3 — the fixture-surface "No issues"/"N issues" chip conversions + a calibration test) |
+| `api/test/leadgen-v31-gate3-geometry.test.ts` | vitest | 13 | green (E2: the rail-width test now ENFORCES 292/344; E2 part 3: +1 the product select max-width regression guard) |
 | `api/test/leadgen-v31-gate2-strings.test.ts` | vitest | 33 | green (E2: F3/F4/F5 flipped to ENFORCE the golden; +1 for the F6 exact-placeholder test) |
 | `api/test/leadgen-v31-gate4-behavior.test.ts` | vitest | 26 | green |
 | `api/test-ui/leadgen-v31-gate1c-baselines.spec.ts` | Playwright | 7 | green — RE-MINTED TWICE in E2 (part 1: rail/copy fixes; part 2: the fixture-surface chip recolor, which affects states 1-5 since they all share the top-bar chip); ratio=0 across re-mints + 2 stability runs each time, delta visually confirmed = ONLY the intended change (see the E2 re-mint notes below) |
 | `api/test-ui/leadgen-v31-gate4-behavior.spec.ts` | Playwright | 3 | green (NEW, E2) — the browser probes for Findings 8/9/10 (real Reset, presets-deselect, maps_no_job activation block); visually confirmed |
 
-vitest total (this harness): **111 tests** across the 5 gate files (E1 104 →
-E2 part 1 106 → E2 part 2 111: +2 gate1-parity, +3 gate1-tokens for the
-fixture-surface chip reconciliation). Full suite: **355 files / 4902 tests,
-all green by count** (`npm test`, cwd `api/` — E1 was 4895, E2 part 1 was
-4897).
+vitest total (this harness): **112 tests** across the 5 gate files
+(gate1-parity 25 · gate1-tokens 15 · gate3-geometry 13 · gate2-strings 33 ·
+gate4-behavior 26 = 112; E1 104 → E2 part 1 106 → E2 part 2 111 → E2 part 3
+112: +1 gate3 for the product select max-width regression guard). Full
+suite: **355 files / 4903 tests, all green by count** (`npm test`, cwd
+`api/` — E1 was 4895, E2 part 1 4897, E2 part 2 4902).
+
+### CI-enforcement caveat (adversarial-review M2 — recorded, pre-existing)
+
+The pure `describe` blocks of all 5 gate files (studio SSR parity / tokens /
+geometry / strings / behavior — where every F1–F6 fixture-surface
+reconciliation assertion lives) run under CI's `npm test`. The `describeDb`
+blocks (themes-manager row-18 parity/geometry/strings, ~17 tests) use
+`node:sqlite`, which requires Node ≥ 22.5; `.github/workflows/deploy.yml`
+pins Node 20, so those `describe.skip` in CI (verified 0-skip locally on Node
+25). This is a **pre-existing repo-wide pattern** (71 test files use the same
+guard, incl. the pre-v3.1 `leadgen-theme-manager-ui.test.ts`), NOT introduced
+by this phase, and it does not affect the reconciliation's critical path
+(studio-SSR gates are CI-enforced). OPERATOR/FOLLOW-UP: bumping CI Node to ≥22
+would enable the DB-backed gate rows in CI, but must first be verified against
+the full suite on Node 22 (all 71 files' DB blocks would newly execute in CI).
 
 ## E2 (part 2 — reconciliation) summary
 
