@@ -34,9 +34,9 @@ A `6bc597a` (#101) · B `8ed9124` (#102) · C `8e34878` (#103) · D `133c229` (#
 | 7 | Direct-manipulation selection + handles | 6 | 1,4 | **PASS** | B · E `gate1-parity` (8 handles exact tuples) + `leadgen-section-studio` §6.2 (live) |
 | 8 | Frame hint | 6.3 | 1 | **PASS** | B · E `gate1-parity` (default-ON skeleton) + `gate2-strings` |
 | 9 | Presets vs manual custom + Reset (C1) | 7 | 1,4 | **PASS** | B drag / C Style-tab · E `gate4` probe2/3 + `gate4-behavior` spec (real Reset click, presets-deselect) |
-| 10 | Scope header, pills, affects lines | 8.1 | 2 | **PASS** | C · E `gate2-strings` (Editing eyebrow + 3 pills + affects sentences) |
+| 10 | Scope header, pills, affects lines | 8.1 | 2 | **PASS** | C · E `gate2-strings` (Editing eyebrow + 3 pills + affects sentences) + audit-round G: `gate1-parity` (§8.1 cream callout `#FBFBF3`/`#F0EAC9` + accent star; active pill solid navy) + `gate2-strings` (the 3 verbatim affects sentences render for their selections) |
 | 11 | Dynamic tab matrix | 8.2 | 4 | **PASS** | C · E `gate4` probe1 + `leadgen-section-studio` §8.2 (live: field=5, choice=no Maps, headline/continue=2) |
-| 12 | Field Content controls | 8.3 | 2,4 | **PASS** | C · E `gate2-strings` + `leadgen-section-studio-ui` (live populate/collect) |
+| 12 | Field Content controls | 8.3 | 2,4 | **PASS** | C · E `gate2-strings` + `leadgen-section-studio-ui` (live populate/collect) + audit-round G: `gate2-strings` (canvas-preview "We never share this" helper + pin via renderSectionComponents) + `leadgen-components-render` (helper+pin in renderTextInput output) + `leadgen-v31-themes-size-parity` (helper+pin identical on all 3 §12 paths) + `gate4-behavior` (helper control canonical `props.helper`) |
 | 13 | Inheritance tags (continue/style) | 8.4-8.5 | 2 | **PASS** | C · E `gate2-strings` (Color=Brand primary / Position=Bottom, both `inherited`) |
 | 14 | Role-based color, no hex | 8.5 | 2,4 | **PASS** | C · E `gate1-tokens` (no raw hex on Style tab) + `gate2-strings` + `leadgen-section-builder` ⑤ (role stored) |
 | 15 | Offers per-Offer mapping | 8.7 | 4 | **PASS** | C · `leadgen-section-studio-ui` §8.7 (live-D1 per-Offer answer maps) |
@@ -70,6 +70,10 @@ All 26 rows PASS with executed evidence. Gate→test detail: `api/test/leadgen-v
 
 6. **§11.3's worked example nests `required` under `props`, but the repository's real, already-wired mechanism stores it at node top-level (`node.required`, read by hydration + the field renderers). The v3.1 schema validates the top-level field and REJECTS `props.required` as invalid — same repo-reality-over-contract-text precedent as erratum (2) (`name`→`section_name`). Contract §11.3's literal example would therefore fail validation; authoring must use top-level `required`. No Gate-4 storage probe tests `required` placement, so no acceptance impact.**
 
+7. **§4.2 Activity/Vertical dropdowns + `image_json`** → these persist to `leadgen_sections.activity` / `.vertical` / `.image_json` — pre-existing v2.5.1-faithful writes (Artifact C binding; the §1.2 fixture itself lists Activity/Vertical) that §11's storage-mapping table never names. Recorded per the erratum-(2) precedent (repo-reality-over-contract-text); no acceptance impact. (audit-round G)
+
+8. **`props.helper_text` legacy alias** → the canonical §8.1/§11.3 helper-line key is `props.helper` (Phase-A schema already validates it). Legacy v2.5 sections may carry `props.helper_text`. audit-round G FIX 3 makes the Studio Helper-text control write `props.helper`, adds a read-fallback to `helper_text` on load (`inspectorFieldValue`) and on render (`presets.ts renderTextInput`), and a §5.3-style save migration (`collectSection` sets `helper` and deletes `helper_text`). `helper_text` stays ACCEPTED by the schema so existing content keeps validating.
+
 ---
 
 ## CONTRACT GAPS (un-sourced values — resolve before the dependent gate)
@@ -87,6 +91,8 @@ Values the golden master and contract do not specify. Per §0.1 these are record
 | Text/bound-headline **Size step** control | §8.5b | OMITTED from the Style tab — no `design_overrides` storage key and no runtime consumer exist; per §0.1 not fabricated. Text ships Role + Text-color-role only. | Design addendum defining the storage key + a renderer consumer |
 | Text/bound-headline **Align** control | §8.5b | OMITTED — same (no storage/consumer). | Design addendum |
 | Corners `sharp` → `border-radius:0` | §3.3/§8.5b | Emitted, but `0` is INFERRED — §3.3 gives no explicit "sharp" px. `0` is the only reading of "no rounding"; `rounded`=8px and `pill`=20px ARE §3.3-cited. | Confirm `0` against a design addendum if a non-zero "sharp" is intended |
+| §8.1 field-box leading-icon assets (11 of the 12 picker values) | §8.1 | `props.icon` is STORED for every picker value, but a field-box SVG exists in the golden (:323) ONLY for **Location** (the pin). Calendar/Dollar/Phone/Email/Lock/Person/Home/Car/Shield/Star/None render NO field-box icon — never an invented SVG (mirrors the S/M/L width-preset precedent). audit-round G FIX 3a. | Design addendum supplying the other picker SVGs |
+| v2.4 container-ops selection-toolbar strings | Appendix A | The container selection-toolbar copy ("Group → Stack / Card panel / Grid / Columns", "Ungroup", "Duplicate", "Delete", "+ Before", "+ After", "↑↓") renders on the fixture screen but is absent from Appendix A + the golden — licensed by Artifact C (v2.5.1/v2.4 architecture not re-opened, §0.1 row C) + baseline-pre-existing. Recorded as an Appendix-A completeness gap (audit-round G). | Design addendum completing Appendix A |
 
 GROUNDED and emitted exactly: width `full`→`width:100%` (golden `fieldWrapStyle` non-custom branch; = 100% of the 600 unit column, Appendix B); `custom_px`→explicit `{axis}:{px}px` (§7.2, clamp [200,600], snap 4px). Absent size → no style (byte-identical to pre-v3.1). Corners `rounded`→8px / `pill`→20px and border-color roles (neutral→border/brand→primary/accent→accent) resolve at render time via the theme `design` object (§12), emitted as `--lg-field-border` so `:focus`/`[aria-invalid]` retain precedence (Phase C).
 

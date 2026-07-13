@@ -243,7 +243,29 @@ interface SeededFixture {
   sectionPublicId: string;
 }
 
-async function seedActivatedFixture(slug: string, withCustomWidth: boolean): Promise<SeededFixture> {
+// v3.1 audit-round G FIX 3: a field node carrying the §8.1 props.helper +
+// props.icon (Location) — the pre-fix renderTextInput dropped BOTH on every
+// path. Same shape as sectionContentJson (a renderTextInput-backed field).
+function sectionContentHelperIconJson(): string {
+  return JSON.stringify({
+    components: [
+      { type: "QuestionHeadline", question_id: "q1_h", bind: "section_headline", props: {} },
+      {
+        type: "ZIPInputQuestion",
+        question_id: "q1",
+        question_key: "q1_key",
+        internal_field: "q1_field",
+        props: { placeholder: "Enter your ZIP code", helper: "We never share this", icon: "location" },
+      },
+    ],
+  });
+}
+
+async function seedActivatedFixture(
+  slug: string,
+  withCustomWidth: boolean,
+  contentJsonOverride?: string,
+): Promise<SeededFixture> {
   const h = newHarness();
   const createRes = await admin.request(
     `${API}/quotes`,
@@ -266,7 +288,7 @@ async function seedActivatedFixture(slug: string, withCustomWidth: boolean): Pro
     .prepare(
       "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, address_validation_enabled, status) VALUES (?, 'Q1', 'quote_funnel', 'life', 'Question?', ?, 'button', 0, 'active')",
     )
-    .run(sectionPublicId, sectionContentJson(withCustomWidth));
+    .run(sectionPublicId, contentJsonOverride ?? sectionContentJson(withCustomWidth));
   const sectionRow = h.sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(sectionPublicId) as {
     id: number;
   };
@@ -631,5 +653,68 @@ describeDb("theme typography stored-XSS — defense-in-depth (v3.1, adversarial 
     const html = await res.text();
     expect(html).not.toContain("</style><script>");
     expect(html).not.toContain(payload);
+  });
+});
+
+// ===========================================================================
+// audit-round G FIX 3 — §8.1 helper line + leading pin render IDENTICALLY on
+// all 3 §12 paths (the pre-fix renderTextInput emitted NEITHER on ANY path).
+// Same real-HTTP harness as MAJOR-1 above; the field node carries props.helper
+// + props.icon="location" instead of a size override.
+// ===========================================================================
+const HELPER_TEXT = "We never share this"; // golden :326
+const PIN_PATH = '<path d="M12 21s7-6.6 7-12a7 7 0 10-14 0c0 5.4 7 12 7 12z" stroke="#8DA0B6" stroke-width="1.8"/>'; // golden :323
+function assertHelperAndPin(html: string, label: string): void {
+  expect(html, `${label}: §8.1 helper line must render`).toContain(HELPER_TEXT);
+  expect(html, `${label}: §8.1 leading pin must render`).toContain(PIN_PATH);
+}
+
+describeDb("audit-round G FIX 3 — §8.1 helper + leading pin, all 3 §12 paths", () => {
+  it("PATH 1/3 — runtime GET /lg/:slug renders the helper line + leading pin", async () => {
+    const fx = await seedActivatedFixture("hi-runtime", false, sectionContentHelperIconJson());
+    await assignTheme(fx.h.env, fx.funnelPublicId);
+    const res = await app.request(`${TENANT_ORIGIN}/lg/hi-runtime`, {}, fx.h.env);
+    expect(res.status, await res.clone().text()).toBe(200);
+    assertHelperAndPin(await res.text(), "runtime /lg");
+  });
+
+  it("PATH 2/3 — POST /sections/preview (section-in-frame) renders the SAME helper + pin", async () => {
+    const fx = await seedActivatedFixture("hi-preview", false, sectionContentHelperIconJson());
+    await assignTheme(fx.h.env, fx.funnelPublicId);
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", {
+        content_json: sectionContentHelperIconJson(),
+        headline: "Question?",
+        section_public_id: fx.sectionPublicId,
+        frame_context: { funnel_public_id: fx.funnelPublicId, variant_public_id: fx.variantPublicId },
+      }),
+      fx.h.env,
+    );
+    expect(res.status, `preview: ${await res.clone().text()}`).toBe(200);
+    const body = (await res.json()) as { preview: { desktop: string } };
+    assertHelperAndPin(body.preview.desktop, "section preview");
+  });
+
+  it("PATH 3/3 — POST /variants/:id/preview (composed-variant preview) renders the SAME helper + pin", async () => {
+    const fx = await seedActivatedFixture("hi-composed", false, sectionContentHelperIconJson());
+    await assignTheme(fx.h.env, fx.funnelPublicId);
+    const res = await admin.request(
+      `${API}/variants/${fx.variantPublicId}/preview`,
+      jsonInit("POST", { mode: "section", section_public_id: fx.sectionPublicId }),
+      fx.h.env,
+    );
+    expect(res.status, `composed preview: ${await res.clone().text()}`).toBe(200);
+    const body = (await res.json()) as { preview: { html: string } };
+    assertHelperAndPin(body.preview.html, "composed variant preview");
+  });
+
+  it("REGRESSION — a field WITHOUT props.helper/icon renders NEITHER on all 3 paths (strictly additive)", async () => {
+    const fx = await seedActivatedFixture("hi-absent", false);
+    await assignTheme(fx.h.env, fx.funnelPublicId);
+    const runtime = await (await app.request(`${TENANT_ORIGIN}/lg/hi-absent`, {}, fx.h.env)).text();
+    expect(runtime).not.toContain(HELPER_TEXT);
+    expect(runtime).not.toContain("lg-field-help");
+    expect(runtime).not.toContain(PIN_PATH);
   });
 });

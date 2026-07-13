@@ -38,18 +38,23 @@ import {
   STUDIO_LIBRARY_GROUPS,
   SECTION_STUDIO_SCRIPT,
   SECTION_STUDIO_STYLES,
+  SECTION_STUDIO_CANVAS_FRAME_CSS,
   type StudioSectionView,
   type StudioMappingSummary,
 } from "../src/admin/leadgen/ui-section-studio";
-import { STUDIO_COLOR } from "../src/admin/leadgen/studio-tokens";
+import { STUDIO_COLOR, STUDIO_GEOMETRY } from "../src/admin/leadgen/studio-tokens";
 import type { LeadgenComponentNode, LeadgenSectionContent } from "../src/public/leadgen/components/content-schema";
 import {
   goldenBetween,
+  GOLDEN_HTML,
   GOLDEN_TOP_BAR,
   GOLDEN_QUESTION_STRIP,
   GOLDEN_CANVAS_TOOLBAR,
   GOLDEN_BOTTOM_DRAWER,
   GOLDEN_SCOPE_HEADER,
+  GOLDEN_SCOPE_PILLS,
+  GOLDEN_AFFECTS_LINE,
+  GOLDEN_STYLE_TAB,
   GOLDEN_THEMES_TOPBAR,
   GOLDEN_THEMES_LEFT_LIST,
   GOLDEN_TILE_DATA_NAMES,
@@ -648,5 +653,69 @@ describeDb("Gate 1a parity — themes manager top bar + theme-list swatches (App
     // existing leadgen-theme-manager-ui.test.ts) — DRAFT is the correct
     // default for an unassigned theme.
     expect(html).toContain(">DRAFT<");
+  });
+});
+
+// ===========================================================================
+// Gate 1a/1b parity — audit-round G (final 3-auditor FIX-FIRST): the Studio
+// chrome renders the golden's NAVY/ACCENT palette (FIX 1) and the §8.1 affects
+// line is the golden cream callout with the accent star (FIX 2). Each assertion
+// pairs a GOLDEN source string with the shipped product string.
+// ===========================================================================
+describe("Gate parity — audit-round G: navy/accent chrome + §8.1 affects callout", () => {
+  // FIX 1a — the Studio scope-overrides the shell's generic --c-primary to the
+  // §3 navy, so no control can inherit the #2563eb shell blue.
+  it("FIX 1a: the Studio scope-overrides --c-primary to the §3 navy (chrome + canvas iframe), guarding against a shell re-blue", () => {
+    expect(SECTION_STUDIO_STYLES).toContain(`.studio-root{--c-primary:${STUDIO_COLOR.navy}}`);
+    expect(STUDIO_HTML).toContain('<div class="studio-root">');
+    // same root cause on the canvas iframe (selection outline / drop hints).
+    expect(SECTION_STUDIO_CANVAS_FRAME_CSS).toContain(`:root{--c-primary:${STUDIO_COLOR.navy};`);
+    expect(SECTION_STUDIO_CANVAS_FRAME_CSS).not.toContain("#2563eb");
+  });
+  // FIX 1b — active inspector tab: navy text + 2px ACCENT underline (golden :759
+  // tab() helper / Appendix B), never a navy underline.
+  it("FIX 1b: the active inspector tab is a 2px accent (#F5C518) underline + navy text (golden tab helper)", () => {
+    expect(GOLDEN_HTML).toContain("border-bottom:2px solid #F5C518");
+    expect(SECTION_STUDIO_STYLES).toContain(
+      `.studio-tab.active{border-bottom:2px solid ${STUDIO_COLOR.accent};color:var(--c-primary);font-weight:600}`,
+    );
+    // the previously-unused Appendix-B token now traces to this render.
+    expect(STUDIO_GEOMETRY.activeTabUnderline).toBe(`2px ${STUDIO_COLOR.accent}`);
+    // no longer a navy (var(--c-primary)) underline.
+    expect(SECTION_STUDIO_STYLES).not.toContain(".studio-tab.active{border-bottom-color:var(--c-primary)");
+  });
+  // FIX 1d — active scope pill: solid navy chip, white text (golden :416).
+  it("FIX 1d: the active scope pill is a solid navy chip with white text (golden 'This element')", () => {
+    expect(GOLDEN_SCOPE_PILLS).toContain("color:#fff;background:#1B3A5C");
+    expect(SECTION_STUDIO_STYLES).toContain(
+      `.studio-scope-pill.active{border-color:${STUDIO_COLOR.navy};background:${STUDIO_COLOR.navy};color:${STUDIO_COLOR.white};font-weight:700}`,
+    );
+  });
+  // FIX 1c — §7.3 custom chip: golden :529-530 bg/border/label/sub.
+  it("FIX 1c: the §7.3 custom chip uses the golden bg #EAF0F6, border #C7D6E6, navy label, sub #5E799B (golden :529-530)", () => {
+    expect(GOLDEN_STYLE_TAB).toContain("background:#EAF0F6;border:1px solid #C7D6E6");
+    expect(GOLDEN_STYLE_TAB).toContain("color:#5E799B");
+    expect(SECTION_STUDIO_STYLES).toContain(
+      `.studio-custom-chip{display:flex;align-items:center;justify-content:space-between;gap:8px;background:${STUDIO_COLOR.navyTint};border:1px solid #C7D6E6`,
+    );
+    expect(SECTION_STUDIO_STYLES).toContain(".studio-custom-chip-label{font-size:12.5px;font-weight:700;color:var(--c-primary)}");
+    expect(SECTION_STUDIO_STYLES).toContain(".studio-custom-chip-sub{font-size:10.5px;color:#5E799B}");
+    // the chip border is no longer the (shell-blue-leaking) var(--c-primary).
+    expect(SECTION_STUDIO_STYLES).not.toContain("border:1px solid var(--c-primary);border-radius:8px;padding:8px 10px;margin-bottom:10px}");
+  });
+  // FIX 2 — §8.1 affects line = cream callout + accent star (golden :420-421).
+  it("FIX 2: the §8.1 affects line is a cream callout (#FBFBF3/#F0EAC9) with the accent star (golden :420-421)", () => {
+    expect(GOLDEN_AFFECTS_LINE).toContain("background:#FBFBF3;border:1px solid #F0EAC9;border-radius:8px;padding:8px 10px");
+    expect(GOLDEN_AFFECTS_LINE).toContain(
+      'd="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5 20.2l1.4-6.8L1.3 8.9l6.9-.7z" fill="#F5C518"',
+    );
+    expect(SECTION_STUDIO_STYLES).toContain(
+      ".studio-scope-affects{margin-top:11px;display:flex;align-items:flex-start;gap:7px;background:#FBFBF3;border:1px solid #F0EAC9;border-radius:8px;padding:8px 10px}",
+    );
+    expect(SECTION_STUDIO_STYLES).toContain(".studio-scope-affects-text{font-size:11.5px;color:#7A6B2E;line-height:1.45}");
+    // the SSR scope header ships the accent star (fill = STUDIO_COLOR.accent).
+    expect(STUDIO_HTML).toContain(
+      `<path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5 20.2l1.4-6.8L1.3 8.9l6.9-.7z" fill="${STUDIO_COLOR.accent}"/>`,
+    );
   });
 });

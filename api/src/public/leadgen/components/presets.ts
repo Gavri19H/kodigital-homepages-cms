@@ -1320,6 +1320,37 @@ function fieldStyleAttr(
   return style({ ...sizeStyleEntries(node, ctx), ...appearanceStyleEntries(node, design) });
 }
 
+// v3.1 audit-round G FIX 3a: §8.1 leading icon. The golden ships a field-box
+// asset for the Location PIN ONLY (golden :323 — 19×19, viewBox 0 0 24 24,
+// strokes #8DA0B6, copied verbatim). The other 11 §8.1 picker values
+// (Calendar/Dollar/Phone/Email/Lock/Person/Home/Car/Shield/Star/None) have NO
+// golden/contract field-box asset, so props.icon is STORED but renders no icon
+// for them — a recorded CONTRACT GAP, never an invented SVG (mirrors the
+// S/M/L width-preset precedent). props.icon is the canonical §8.1 key.
+const FIELD_LOCATION_PIN =
+  '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto">' +
+  '<path d="M12 21s7-6.6 7-12a7 7 0 10-14 0c0 5.4 7 12 7 12z" stroke="#8DA0B6" stroke-width="1.8"/>' +
+  '<circle cx="12" cy="9" r="2.4" stroke="#8DA0B6" stroke-width="1.8"/>' +
+  "</svg>";
+function fieldLeadingIcon(node: LeadgenComponentNode): string {
+  return propStr(node, "icon") === "location" ? FIELD_LOCATION_PIN : "";
+}
+// v3.1 audit-round G FIX 3a: §8.1 helper line below the field box. props.helper
+// is canonical (contract §8.1/§11.3); props.helper_text is the accepted legacy
+// v2.5 alias (erratum 8) read as a fallback so a v2.5 section still renders its
+// helper. Golden :326 verbatim inline style. Shared by the whole text-input
+// family + the currency/address wrappers, so the helper renders identically on
+// runtime + both previews (§12 parity).
+function fieldHelperLine(node: LeadgenComponentNode): string {
+  const helper = propStr(node, "helper") ?? propStr(node, "helper_text");
+  // audit-round G MINOR-3: propStr returns "" (not undefined) for an
+  // authored empty-string prop, so a legacy node migrated to helper:"" must
+  // still gate out here — trimmed-non-empty, not merely !== undefined —
+  // else it would emit an empty <div class="lg-field-help"></div>.
+  return helper === undefined || helper.trim() === ""
+    ? ""
+    : `<div class="lg-field-help" style="font-size:12.5px;color:#96A0AF;margin-top:7px;padding-left:2px">${esc(helper)}</div>`;
+}
 function renderTextInput(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
@@ -1329,6 +1360,8 @@ function renderTextInput(
 ): string {
   const placeholder = propStr(node, "placeholder");
   const maxLen = propNum(node, "maxLen");
+  const icon = fieldLeadingIcon(node);
+  const helper = fieldHelperLine(node);
   // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
   // the :focus / [aria-invalid] state rules win by cascade (no !important).
   // An authored design_overrides.border_color rides the `--lg-field-border`
@@ -1342,16 +1375,47 @@ function renderTextInput(
   // style() call) is the ONLY inline style this element ever carries — ""
   // (no attribute at all) when the node authors none of design_overrides.
   // size/.corners/.border_color, so pre-v3.1 output is untouched byte for
-  // byte.
-  return (
+  // byte. FIX 3a: a leading icon adds a left inset so the input text clears
+  // the pin (the box wrapper positions the pin over that inset).
+  const styleAttr =
+    icon === ""
+      ? fieldStyleAttr(node, design, ctx)
+      : style({ ...sizeStyleEntries(node, ctx), ...appearanceStyleEntries(node, design), "padding-left": "42px" });
+  const input =
     `<input class="lg-input" type="${type}"${hydration(node)} data-lg-input` +
-    fieldStyleAttr(node, design, ctx) +
+    styleAttr +
     attr("placeholder", placeholder) +
     attr("maxlength", maxLen) +
     (node.required === true ? " required" : "") +
     extra +
-    `>`
-  );
+    `>`;
+  // §12 no-regression: absent icon AND helper -> the bare input, byte-for-byte
+  // with pre-FIX-3a output (fieldStyleAttr unchanged in that branch).
+  if (icon === "" && helper === "") return input;
+  const boxed =
+    icon === ""
+      ? input
+      : '<span class="lg-field-box" style="position:relative;display:block">' +
+        // audit-round G MINOR-1 (surfaced by adding real baseline-pin
+        // coverage): the Studio's own selection decoration wraps the field's
+        // <input> in its OWN `position:relative` span (`[data-selection-
+        // wrap]`) once a node is selectable/selected. That wrap and this icon
+        // span are BOTH position:absolute/relative siblings with an implicit
+        // z-index:auto, so paint order falls back to DOM order — the LATER
+        // wrap (holding the input's own opaque background) paints OVER this
+        // EARLIER icon span, hiding it completely even though it's still a
+        // real, present, correctly-positioned DOM node (confirmed via a
+        // direct Playwright boundingBox()/count() probe against the live
+        // canvas — the element exists with a valid box; only the PAINT was
+        // occluded). An explicit z-index wins over z-index:auto regardless of
+        // DOM order, so this is a one-line fix scoped to this render function
+        // (no change needed in the Studio's own decoration script).
+        '<span class="lg-field-icon" aria-hidden="true" style="position:absolute;left:14px;top:0;bottom:0;display:flex;align-items:center;pointer-events:none;z-index:1">' +
+        icon +
+        "</span>" +
+        input +
+        "</span>";
+  return '<span class="lg-field-boxed" style="display:block">' + boxed + helper + "</span>";
 }
 
 export function renderFreeTextQuestion(
@@ -1411,7 +1475,10 @@ export function renderCurrencyInputQuestion(
     attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field) +
     (node.required === true ? " required" : "") +
     `>` +
-    `</div>`
+    `</div>` +
+    // v3.1 audit-round G FIX 3a: helper line below the currency box (this
+    // wrapper bypasses renderTextInput). "" when no props.helper/helper_text.
+    fieldHelperLine(node)
   );
 }
 export function renderEmailInputQuestion(
@@ -1528,7 +1595,10 @@ export function renderAddressAutocompleteQuestion(
     // Distinct normalized sub-fields for payload mapping (§12.8).
     `<input type="hidden" data-address-part="street"><input type="hidden" data-address-part="city">` +
     `<input type="hidden" data-address-part="state"><input type="hidden" data-address-part="zip">` +
-    `</div>`
+    `</div>` +
+    // v3.1 audit-round G FIX 3a: helper line below the address box (this
+    // wrapper bypasses renderTextInput). "" when no props.helper/helper_text.
+    fieldHelperLine(node)
   );
 }
 

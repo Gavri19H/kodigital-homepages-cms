@@ -182,7 +182,11 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     // field" — never its own concrete-type label ("ZIP").
     await canvas(page).locator(`${CANVAS} [data-component-type="ZIPInputQuestion"]`).click();
     await expect(scopeName).toHaveText("Short text field");
-    await expect(affects).toContainText("Affects: this question unit");
+    // audit-round G FIX 2: a field selection (the 8-value Accept-swap family,
+    // ZIP included) now renders the §8.1/Appendix-A verbatim sentence inside
+    // the cream affects callout, not the pre-fix generic "this question unit"
+    // line — golden :422 / contract §7.3 row 1.
+    await expect(affects).toContainText("Changes here affect this question only, everywhere this section is reused.");
     await expect(tab("maps")).toBeVisible();
     await expect(tab("content")).toBeVisible();
     await expect(tab("offers")).toBeVisible();

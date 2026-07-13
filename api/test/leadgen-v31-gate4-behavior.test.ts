@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 import {
   STUDIO_LIBRARY_GROUPS,
   renderSectionStudio,
+  SECTION_STUDIO_SCRIPT,
   type StudioSectionView,
   type StudioMappingSummary,
 } from "../src/admin/leadgen/ui-section-studio";
@@ -112,14 +113,22 @@ describe("Gate 4 probe 2 — Drag side handle writes custom_px", () => {
     expect(true).toBe(true);
   });
 
-  it("FINDING (confirmed, not fixed): 'presets deselect' on drag is NOT asserted anywhere — grep of the referenced Playwright test's body (lines 619-695) finds no assertion that a preset button loses its active state after a width drag", () => {
-    // This is reported as a coverage gap, not a product bug (the underlying
-    // storage behavior — a custom_px entirely REPLACES any preset string,
-    // confirmed by resolveFieldSize's own {mode:'custom'} vs {mode:'preset'}
-    // discriminated union above — makes "presets deselect" a NECESSARY
-    // consequence of the data model, but the UI's own preset-button active-
-    // class removal on drag has no direct browser-level proof today).
-    expect(true).toBe(true);
+  it("PROVEN (data + island source): a width drag deselects the preset — custom_px resolves to {mode:'custom'} (no preset), and the island's preset-button reconciliation only marks a button active when NOT custom", () => {
+    // audit-round G FIX 5d: the pre-fix placebo (expect(true)) is replaced by a
+    // real, two-sided proof. (1) DATA — a drag writes design_overrides.size.
+    // width.custom_px, and resolveFieldSize maps that to {mode:'custom'} with
+    // NO `preset` field, so the preset is necessarily deselected in storage.
+    const dragged = resolveFieldSize({ width: { custom_px: 320 } }, DEFAULT_THEME_CONTROLS);
+    expect(dragged.width).toEqual({ mode: "custom", px: 320 });
+    expect((dragged.width as { preset?: string }).preset).toBeUndefined();
+    // (2) ISLAND SOURCE — the shipped preset-button reconciliation marks a
+    // width button 'active' ONLY when the width is NOT a custom object; a
+    // custom_px (isCustomWidth === true) therefore clears every preset button.
+    expect(SECTION_STUDIO_SCRIPT).toContain(
+      "(!isCustomWidth && widthVal === widthBtns[i].getAttribute('data-set-width')) ? 'active' : ''",
+    );
+    // and the drag handler is the writer of that custom_px.
+    expect(SECTION_STUDIO_SCRIPT).toContain("design_overrides.size.width = { custom_px: clamped }");
   });
 });
 
@@ -147,22 +156,17 @@ describe("Gate 4 probe 3 — Reset deletes custom_px and re-inherits the theme p
     expect(emptyOverride.width).toEqual({ mode: "preset", preset: "full" });
   });
 
-  it("FINDING (confirmed gap, not fixed): NO existing test — vitest or Playwright — exercises the UI's OWN Reset button (data-reset-width) end-to-end", () => {
-    // Confirmed by direct grep during this phase's grounding: 0 hits for
-    // "Reset" as a functional locator/assertion anywhere in
-    // api/test/leadgen-section-studio-ui.test.ts (7061 lines); the ONE
-    // Playwright test whose TITLE mentions Reset
-    // (api/test-ui/leadgen-section-studio.spec.ts, '§8.5 Style-tab Width
-    // preset buttons write design_overrides.size.width; Reset removes a
-    // custom_px...') never actually drags to create a custom_px nor clicks
-    // `[data-reset-width]` in its body — title over-promises vs. the test
-    // body, confirmed by direct read. The pure data-layer proof above DOES
-    // verify the contract's claimed RESOLUTION behavior; the UI-button-
-    // click-triggers-the-delete wiring itself has no live-browser proof.
-    // Adding that Playwright test is out of this phase's file-ownership
-    // scope (only leadgen-v31-gate1c-baselines.spec.ts is owned here) —
-    // flagged for the conductor to authorize as a follow-up.
-    expect(true).toBe(true);
+  it("PROVEN (island source + data): the [data-reset-width] button wires to resetWidthCustom, which deletes the width key; resolveFieldSize then re-inherits the theme preset (§7.1 bullet 4)", () => {
+    // audit-round G FIX 5d: the pre-fix placebo (expect(true)) is replaced by a
+    // real proof of the Reset button's own wiring + effect. (1) ISLAND SOURCE —
+    // the [data-reset-width] control is bound to resetWidthCustom, whose body
+    // deletes design_overrides.size.width (the storage-level Reset effect).
+    expect(SECTION_STUDIO_SCRIPT).toContain("resetWidthEl.addEventListener('click', resetWidthCustom)");
+    expect(SECTION_STUDIO_SCRIPT).toContain("delete node.design_overrides.size.width");
+    // (2) DATA — after that delete, resolveFieldSize re-inherits the theme
+    // preset (the exact re-resolution the deleted key produces).
+    const afterReset = resolveFieldSize({}, DEFAULT_THEME_CONTROLS);
+    expect(afterReset.width).toEqual({ mode: "preset", preset: "full" });
   });
 });
 
@@ -333,5 +337,42 @@ describe("Gate 4 probe 8 — Primitive collapse (Text/Image)", () => {
 
   it("REFERENCED: the tile-label -> concrete-type synonym mapping (e.g. 'legal note reassurance disclosure' data-name -> TextBlock) is proven live in api/test-ui/leadgen-studio-patterns.spec.ts (ReassuranceBadge-copy-collapses-into-Text coverage, verified present by direct read) — the DEEPER role/source-parameterization proof above is this phase's own new contribution (Agent-confirmed gap: 0 grep hits for 'props.role'/'auto-logo' in the existing suite)", () => {
     expect(true).toBe(true);
+  });
+});
+
+// ===========================================================================
+// audit-round G FIX 4 — drag-insert carries childTypes + defaultProps through
+// the 'add:' JSON envelope, so a DRAG insert is byte-identical to the click/
+// keyboard insert (§5.6 determinism — ONE insert per tile). Structural proof
+// at the island-source level; the LIVE synthetic-DragEvent proof (Contact-drag
+// → 3-child Stack; Divider-drag → Spacer variant:"line") lives in
+// api/test-ui/leadgen-section-studio.spec.ts (CDP raw-drag limitation → the
+// width-drag spec's dispatchEvent pattern).
+// ===========================================================================
+describe("Gate 4 — audit-round G FIX 4: drag payload carries childTypes + defaultProps", () => {
+  it("dragstart encodes a JSON envelope (type + childTypes + defaultProps), not the bare type", () => {
+    expect(SECTION_STUDIO_SCRIPT).toContain("ev.dataTransfer.setData('text/plain', 'add:' + JSON.stringify(spec))");
+    expect(SECTION_STUDIO_SCRIPT).toContain("if (childTypes) { spec.childTypes = childTypes; }");
+    expect(SECTION_STUDIO_SCRIPT).toContain("if (defaultProps) { spec.defaultProps = defaultProps; }");
+    // the pre-fix bare-type payload (which dropped childTypes/defaultProps) is gone.
+    expect(SECTION_STUDIO_SCRIPT).not.toContain("'add:' + btn.getAttribute('data-add-component')");
+  });
+  it("the drop handler parses the envelope and threads childTypes+defaultProps into all 3 insert paths", () => {
+    // parsed inline in onCanvasDrop (self-contained for the vm-probe slice):
+    expect(SECTION_STUDIO_SCRIPT).toContain("var addSpec = { type: payload }");
+    expect(SECTION_STUDIO_SCRIPT).toContain("var addParsed = JSON.parse(payload)");
+    expect(SECTION_STUDIO_SCRIPT).toContain("addComponentAt(addSpec.type, hint.qid, null, addSpec.childTypes, addSpec.defaultProps)");
+    expect(SECTION_STUDIO_SCRIPT).toContain(
+      "insertRelative(hint.qid, hint.mode, addSpec.type, addSpec.childTypes, addSpec.defaultProps)",
+    );
+    expect(SECTION_STUDIO_SCRIPT).toContain("addComponentAt(addSpec.type, null, null, addSpec.childTypes, addSpec.defaultProps)");
+  });
+  it("the Contact tile carries the 3 childTypes and the Divider tile carries defaultProps variant:line (the payload the drag now preserves)", () => {
+    const tiles = STUDIO_LIBRARY_GROUPS.flatMap((g) => g.tiles);
+    const contact = tiles.find((t) => t.label === "Contact");
+    const divider = tiles.find((t) => t.label === "Divider");
+    expect(contact?.childTypes).toEqual(["NameFieldsGroup", "EmailInputQuestion", "PhoneInputQuestion"]);
+    expect(divider?.defaultType).toBe("Spacer");
+    expect(divider?.defaultProps).toEqual({ variant: "line" });
   });
 });

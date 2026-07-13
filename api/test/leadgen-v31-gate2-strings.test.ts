@@ -48,6 +48,8 @@ import {
 } from "../src/admin/leadgen/ui-section-studio";
 import { STUDIO_COLOR } from "../src/admin/leadgen/studio-tokens";
 import { COMPONENT_CATALOG } from "../src/public/leadgen/components/registry";
+import { getFunnelDesign } from "../src/public/leadgen/designs/registry";
+import { renderSectionComponents, type LeadgenSectionRenderCtx } from "../src/public/leadgen/components/presets";
 import { FUNNEL_TOKEN_ROLES } from "../src/public/leadgen/designs/theme";
 import type { LeadgenComponentNode, LeadgenSectionContent } from "../src/public/leadgen/components/content-schema";
 
@@ -795,5 +797,78 @@ describeDb("Gate 2 strings — forbidden vocabulary on Themes manager (extends l
     expect(tmShell).toContain('data-role="brand_primary"');
     expect(stripped).not.toContain('data-role="brand_primary"');
     expect(stripped.length).toBeLessThan(tmShell.length);
+  });
+});
+
+// ===========================================================================
+// Gate 2 strings — audit-round G (final 3-auditor FIX-FIRST):
+//  FIX 3 — the Appendix-A "Canvas funnel preview" strings render through the
+//    REAL shared preview renderer (renderSectionComponents — the SAME function
+//    the runtime + studio canvas + section preview all call), including the
+//    §8.1 helper line ("We never share this") and the leading pin, which the
+//    pre-fix renderTextInput never emitted on ANY path.
+//  FIX 2 — the THREE §7.3 affects sentences (Appendix A, golden :422-424)
+//    render for their selections, byte-for-byte, with the #5C5015 bold color.
+// ===========================================================================
+const PREVIEW_DESIGN = getFunnelDesign(null);
+const PREVIEW_NODES: LeadgenComponentNode[] = [
+  { type: "QuestionHeadline", question_id: "q_h", bind: "section_headline" },
+  { type: "Subheadline", question_id: "q_s", bind: "section_subheadline" },
+  {
+    type: "ZIPInputQuestion",
+    question_id: "q_zip",
+    internal_field: "zip",
+    answer_type: "string",
+    required: true,
+    props: { label: "ZIP code", placeholder: "Enter your ZIP code", helper: "We never share this", icon: "location", format: "us_zip" },
+  },
+  { type: "ContinueButton", question_id: "q_cont", props: { label: "View My Quote" } },
+];
+const PREVIEW_CTX: LeadgenSectionRenderCtx = {
+  headline_text: "What's your ZIP code?",
+  subheadline_text: "Rates differ by up to 40% based on ZIP code",
+};
+const PREVIEW_HTML = renderSectionComponents(PREVIEW_NODES, PREVIEW_DESIGN, PREVIEW_CTX);
+
+describe("Gate 2 strings — audit-round G FIX 3: Canvas funnel preview (REAL shared renderer)", () => {
+  it("all 5 Appendix-A canvas-preview strings render through renderSectionComponents", () => {
+    for (const s of [
+      "We never share this", // §8.1 helper — the pre-fix bug: never rendered on ANY path
+      "Enter your ZIP code", // field placeholder
+      "What&#39;s your ZIP code?", // bound headline (ctx) — apostrophe SSR-escaped by esc()
+      "Rates differ by up to 40% based on ZIP code", // bound subheadline (ctx)
+      "View My Quote", // continue label
+    ]) {
+      expect(PREVIEW_HTML, `canvas preview must render: ${s}`).toContain(s);
+    }
+  });
+  it("the §8.1 leading pin (Location) renders verbatim inside the field box (golden :323)", () => {
+    expect(PREVIEW_HTML).toContain(
+      '<path d="M12 21s7-6.6 7-12a7 7 0 10-14 0c0 5.4 7 12 7 12z" stroke="#8DA0B6" stroke-width="1.8"/>',
+    );
+    expect(PREVIEW_HTML).toContain('<circle cx="12" cy="9" r="2.4" stroke="#8DA0B6" stroke-width="1.8"/>');
+    // the helper line carries the golden :326 style + text.
+    expect(PREVIEW_HTML).toContain(
+      '<div class="lg-field-help" style="font-size:12.5px;color:#96A0AF;margin-top:7px;padding-left:2px">We never share this</div>',
+    );
+  });
+});
+
+describe("Gate 2 strings — audit-round G FIX 2: the 3 §7.3 affects sentences (golden :422-424)", () => {
+  it("all three verbatim sentence parts + the #5C5015 bold color ship in the island", () => {
+    // field selection (Short text field family)
+    expect(SECTION_STUDIO_SCRIPT).toContain("Changes here affect ");
+    expect(SECTION_STUDIO_SCRIPT).toContain("this question only");
+    expect(SECTION_STUDIO_SCRIPT).toContain(", everywhere this section is reused.");
+    // bound headline selection
+    expect(SECTION_STUDIO_SCRIPT).toContain("This is the same text as the ");
+    expect(SECTION_STUDIO_SCRIPT).toContain(" box up top \\u2014 editing either updates both.");
+    // continue selection (bare ampersand, byte-for-byte with the golden)
+    expect(SECTION_STUDIO_SCRIPT).toContain("Color, size & position come from the ");
+    expect(SECTION_STUDIO_SCRIPT).toContain(". Here you can override just the label.");
+    // the bold segments and their #5C5015 color
+    expect(SECTION_STUDIO_SCRIPT).toContain("'Question headline'");
+    expect(SECTION_STUDIO_SCRIPT).toContain("'funnel frame'");
+    expect(SECTION_STUDIO_SCRIPT).toContain("#5C5015");
   });
 });

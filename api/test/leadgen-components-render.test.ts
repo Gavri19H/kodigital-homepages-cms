@@ -1923,3 +1923,81 @@ describe("layout containers — render recursion + §8.5 token mapping", () => {
     expect(viaTree).toBe(viaFilter);
   });
 });
+
+// ===========================================================================
+// audit-round G FIX 3a — renderTextInput (exercised through renderComponent)
+// emits the §8.1 leading pin (icon="location", golden :323) + the helper line
+// (props.helper, golden :326), reads legacy props.helper_text as a fallback
+// (erratum 8), renders NO icon for the other 11 §8.1 picker values (contract
+// gap — only Location has a golden asset), and is byte-identical to the bare
+// input when neither is authored (strictly additive, §12 no-regression).
+// ===========================================================================
+describe("audit-round G FIX 3a — renderTextInput §8.1 leading pin + helper line", () => {
+  const base: LeadgenComponentNode = {
+    type: "ZIPInputQuestion",
+    question_id: "q_zip",
+    internal_field: "zip",
+    answer_type: "string",
+  };
+  const PIN = '<path d="M12 21s7-6.6 7-12a7 7 0 10-14 0c0 5.4 7 12 7 12z" stroke="#8DA0B6" stroke-width="1.8"/>';
+  const HELPER = '<div class="lg-field-help" style="font-size:12.5px;color:#96A0AF;margin-top:7px;padding-left:2px">We never share this</div>';
+
+  it("icon='location' + props.helper: pin verbatim + helper line + input left-inset", () => {
+    const html = renderComponent(
+      { ...base, props: { placeholder: "Enter your ZIP code", helper: "We never share this", icon: "location" } },
+      DESIGN,
+    );
+    expect(html).toContain(PIN);
+    expect(html).toContain('<circle cx="12" cy="9" r="2.4" stroke="#8DA0B6" stroke-width="1.8"/>');
+    expect(html).toContain(HELPER);
+    expect(html).toContain('style="padding-left:42px"');
+  });
+
+  it("audit-round G MINOR-1 regression guard: the icon span carries z-index:1 so it paints ABOVE the Studio's own [data-selection-wrap] decoration span (both position:relative/absolute siblings at the implicit z-index:auto level — without an explicit z-index the LATER-DOM wrap's opaque input background visually occludes the icon even though it remains a real, present, correctly-positioned DOM node; confirmed live via a Playwright canvas probe during this fix's investigation)", () => {
+    const html = renderComponent(
+      { ...base, props: { placeholder: "Enter your ZIP code", icon: "location" } },
+      DESIGN,
+    );
+    expect(html).toContain(
+      '<span class="lg-field-icon" aria-hidden="true" style="position:absolute;left:14px;top:0;bottom:0;display:flex;align-items:center;pointer-events:none;z-index:1">',
+    );
+  });
+
+  it("legacy props.helper_text is read as a fallback (erratum 8) when props.helper is absent", () => {
+    const html = renderComponent({ ...base, props: { helper_text: "Legacy helper" } }, DESIGN);
+    expect(html).toContain(
+      '<div class="lg-field-help" style="font-size:12.5px;color:#96A0AF;margin-top:7px;padding-left:2px">Legacy helper</div>',
+    );
+  });
+
+  it("the other §8.1 icon values (e.g. 'calendar') render NO icon — contract gap, never an invented SVG", () => {
+    const html = renderComponent({ ...base, props: { icon: "calendar" } }, DESIGN);
+    expect(html).not.toContain('stroke="#8DA0B6"');
+    expect(html).not.toContain("lg-field-icon");
+  });
+
+  it("REGRESSION — absent icon AND helper renders the bare <input> (byte-identical, no wrapper)", () => {
+    const html = renderComponent({ ...base, props: { placeholder: "Enter your ZIP code" } }, DESIGN);
+    expect(html.startsWith('<input class="lg-input"')).toBe(true);
+    expect(html).not.toContain("lg-field-boxed");
+    expect(html).not.toContain("lg-field-help");
+    expect(html).not.toContain("lg-field-icon");
+  });
+
+  it("audit-round G MINOR-3: helper:'' (e.g. a legacy node migrated from helper_text:'') renders NO helper div — byte-identical to absent", () => {
+    const html = renderComponent({ ...base, props: { placeholder: "Enter your ZIP code", helper: "" } }, DESIGN);
+    expect(html).not.toContain("lg-field-help");
+    expect(html).not.toContain("lg-field-boxed");
+    expect(html.startsWith('<input class="lg-input"')).toBe(true);
+  });
+
+  it("audit-round G MINOR-3: helper:'   ' (whitespace-only) also renders NO helper div", () => {
+    const html = renderComponent({ ...base, props: { placeholder: "Enter your ZIP code", helper: "   " } }, DESIGN);
+    expect(html).not.toContain("lg-field-help");
+  });
+
+  it("audit-round G MINOR-3: legacy helper_text:'' (post-migration empty alias) also renders NO helper div", () => {
+    const html = renderComponent({ ...base, props: { placeholder: "Enter your ZIP code", helper_text: "" } }, DESIGN);
+    expect(html).not.toContain("lg-field-help");
+  });
+});

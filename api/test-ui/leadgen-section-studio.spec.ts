@@ -694,6 +694,80 @@ test.describe('LeadGen Section Studio v3.1 — golden-chrome browser flows (§5/
     expect(zipNode?.design_overrides?.size?.width?.custom_px).toBe(px);
   });
 
+  test('§5.6 audit-round G FIX 4: drag-insert carries childTypes + defaultProps — Contact drags a 3-child Stack; Divider drags a Spacer variant:line (drag == click == keyboard)', async ({ page }) => {
+    // HTML5 drag-drop cannot be driven by CDP raw pointer input (the same
+    // nested-srcdoc-iframe limitation the §7.1.3 width-drag test documents), so
+    // we dispatch synthetic DragEvents with a REAL shared DataTransfer: the
+    // product's OWN library dragstart handler populates it (the 'add:' JSON
+    // envelope) and its OWN onCanvasDrop reads it — exercising the exact wiring
+    // a real drag delivers, without CDP pointer fidelity this env lacks.
+    const section = await createStudioSection(page.request, `V31 Drag Insert ${uniq}`, ACT_A, `v31-draginsert-${uniq}`, {
+      content_json: {
+        components: [
+          { type: 'QuestionHeadline', question_id: 'q_bound_headline', bind: 'section_headline' },
+          { type: 'ZIPInputQuestion', question_id: 'q_zip', internal_field: 'zip', answer_type: 'string', props: { placeholder: 'ZIP code' } },
+        ],
+      },
+    });
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-studio-library]')).toBeVisible();
+
+    // Synthetic HTML5 drag of the library tile matching data-name onto the
+    // canvas surface (mode 'append' — no dragover hint needed for a top-level
+    // insert). Returns the payload the product's dragstart handler emitted.
+    const dragTileToCanvas = (dataName: string) =>
+      page.evaluate((name) => {
+        const out = { ok: false, reason: '', payload: '' };
+        const dt = new DataTransfer();
+        const tile = document.querySelector('[data-studio-library] [data-name="' + name + '"]');
+        if (!tile) {
+          out.reason = 'tile not found: ' + name;
+          return out;
+        }
+        tile.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true, cancelable: true }));
+        out.payload = dt.getData('text/plain');
+        const surface = document.querySelector('.studio-canvas-surface');
+        if (!surface) {
+          out.reason = 'canvas surface not found';
+          return out;
+        }
+        surface.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+        out.ok = true;
+        return out;
+      }, dataName);
+
+    const contactDrag = await dragTileToCanvas('contact name email phone');
+    expect(contactDrag.ok, contactDrag.reason).toBe(true);
+    // the dragstart payload is the JSON envelope (not the pre-fix bare type)
+    expect(contactDrag.payload).toContain('"childTypes"');
+    expect(contactDrag.payload).toContain('NameFieldsGroup');
+
+    const dividerDrag = await dragTileToCanvas('divider line');
+    expect(dividerDrag.ok, dividerDrag.reason).toBe(true);
+    expect(dividerDrag.payload).toContain('"defaultProps"');
+    expect(dividerDrag.payload).toContain('"variant":"line"');
+
+    await page.screenshot({ path: `${SHOT_DIR}/v31-06-drag-insert-childtypes.png` });
+
+    // persist + re-fetch: the saved tree carries the Contact Stack (3 children)
+    // and the Divider Spacer(line) — the drag now reproduces the click/keyboard insert.
+    await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);
+    const detail = await json<{
+      content_json: { components: Array<{ type: string; children?: Array<{ type: string }>; props?: { variant?: string } }> };
+    }>(await page.request.get(`${LG_API}/sections/${section.public_id}`), 'drag-insert section detail');
+    const comps = detail.content_json.components;
+    const stack = comps.find((c) => c.type === 'Stack');
+    expect(stack, 'a Stack was inserted by the Contact drag').toBeTruthy();
+    expect((stack!.children ?? []).map((c) => c.type)).toEqual([
+      'NameFieldsGroup',
+      'EmailInputQuestion',
+      'PhoneInputQuestion',
+    ]);
+    const spacer = comps.find((c) => c.type === 'Spacer');
+    expect(spacer, 'a Spacer was inserted by the Divider drag').toBeTruthy();
+    expect(spacer!.props?.variant).toBe('line');
+  });
+
   test('§6.1/§6.3 the canvas toolbar Frame-hint toggle (default ON) shows/hides the dimmed non-interactive skeleton', async ({ page }) => {
     const section = await createStudioSection(page.request, `V31 Frame Hint ${uniq}`, ACT_A, `v31-framehint-${uniq}`);
     await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
