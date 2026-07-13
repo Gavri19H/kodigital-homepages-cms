@@ -605,3 +605,23 @@ describeDb("Gate 1b token audit — themes manager (leadgenThemeManagerPage, D1+
     expect(tmShellHtml).toContain("</div>");
   });
 });
+
+// ===========================================================================
+// Gate 1b — audit-round G FIX 1a: the Studio scope-overrides the admin shell's
+// generic --c-primary (#2563eb, layout.ts) to a §3 palette value for the whole
+// Studio page. This is the structural guard the token audit relies on: if a
+// future shell change (or a revert of the scope) let the Studio inherit a
+// non-§3 --c-primary, every var(--c-primary) control would silently re-blue —
+// so pin the override to a STUDIO_COLOR value here.
+// ===========================================================================
+describe("Gate 1b — Studio --c-primary scope override is a §3 value", () => {
+  it("FIX 1a: .studio-root sets --c-primary to STUDIO_COLOR.navy (a §3 palette value), and the page is wrapped in it", () => {
+    expect(SECTION_STUDIO_STYLES).toContain(`.studio-root{--c-primary:${STUDIO_COLOR.navy}}`);
+    expect(STUDIO_CHROME_HTML).toContain('<div class="studio-root">');
+    // the override value is a real §3 (STUDIO_COLOR) value, not an off-palette hex.
+    expect(Object.values(STUDIO_COLOR)).toContain(STUDIO_COLOR.navy);
+    // and it is NOT the admin shell's generic blue (the pre-fix leak).
+    expect(STUDIO_COLOR.navy).not.toBe("#2563eb");
+    expect(SECTION_STUDIO_STYLES.toLowerCase()).not.toContain("--c-primary:#2563eb");
+  });
+});

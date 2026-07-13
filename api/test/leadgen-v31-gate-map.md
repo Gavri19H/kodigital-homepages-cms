@@ -391,3 +391,31 @@ reference for Gate 1c. The operator's visual sign-off (docs/leadgen/
 redesign-contract-v3/traceability.md "OPERATOR-OWNED" section, "Frozen-
 baseline design sign-off") remains a separate, later, Phase-F act — these
 baselines are the ARTIFACT that sign-off reviews, not a replacement for it.
+
+---
+
+## Audit-round G — final 3-auditor FIX-FIRST (4 MAJOR deviations + ledger)
+
+A final contract audit returned FIX-FIRST with 4 MAJOR deviations against the
+golden. All fixed to the golden (golden wins), each with a fail-before/pass-after
+gate. New/changed gates below (counts are per-file `vitest run` at pass-after).
+
+| MAJOR | Deviation (pre-fix) | Fix (golden-faithful) | Proving gate(s) |
+|-------|----------------------|-----------------------|-----------------|
+| 1 | Studio chrome rendered the admin-shell blue (`--c-primary:#2563eb`, layout.ts) instead of the golden navy/accent — active tab, scope pill, custom chip, library hover, + the canvas-iframe selection outline | `.studio-root` scope-overrides `--c-primary` → §3 navy (chrome) + the canvas-iframe `:root` → navy (same root cause); active tab = 2px `#F5C518` underline + navy text (`STUDIO_GEOMETRY.activeTabUnderline`); active pill = solid navy + white; custom chip = golden `#EAF0F6`/`#C7D6E6`/`#5E799B` | `gate1-parity` (5 new: FIX 1a/1b/1c/1d + FIX 2) · `gate1-tokens` (scope-override is a §3 value — future shell change can't re-blue) |
+| 2 | §8.1 affects line was a generic gray sentence; golden is a cream callout (`#FBFBF3`/`#F0EAC9`) with the `#F5C518` star + 3 verbatim per-selection sentences (bold `#5C5015`, text `#7A6B2E`) | SSR cream callout + static accent star; island `scopeAffectsParts` returns the 3 verbatim sentences (byte-for-byte incl. em-dash + bare `&`) painted via safe DOM (`<b>` #5C5015); non-covered selections keep the generic copy inside the same callout | `gate1-parity` (callout bg/border/star) · `gate2-strings` (3 verbatim sentences render) |
+| 3 | `props.helper` + `props.icon` (Location pin) never rendered on ANY path — `renderTextInput` read neither, and the §8.3 control wrote the wrong key (`helper_text`) | `presets.ts renderTextInput` (+ currency/address wrappers) render the helper line (golden :326) + the pin (golden :323, Location only; other 11 = recorded gap); Studio control writes canonical `props.helper` with load-fallback + save-migration from legacy `helper_text` | `gate2-strings` (canvas-preview strings via real `renderSectionComponents`) · `leadgen-components-render` (helper+pin in `renderTextInput`) · `leadgen-v31-themes-size-parity` (helper+pin identical on all 3 §12 paths + absent-is-nothing regression) · `gate4-behavior` (helper key) |
+| 4 | drag-insert dropped childTypes/defaultProps — dragging Contact → empty Stack; Divider → plain Spacer (lost `variant:"line"`) | dragstart encodes a JSON envelope `add:{type,childTypes,defaultProps}`; drop handler `parseAddPayload` threads them into all 3 insert paths, so drag == click == keyboard | `gate4-behavior` (3 new: envelope encode/decode + tile payloads) · LIVE synthetic-DragEvent proof in `api/test-ui/leadgen-section-studio.spec.ts` (CDP raw-drag → dispatchEvent, mirroring the width-drag spec) |
+
+### Ledger (FIX 5)
+- **ERRATUM 7** (traceability.md) — §4.2 Activity/Vertical + `image_json` persist to `leadgen_sections` (pre-existing v2.5.1-faithful writes §11 never names).
+- **ERRATUM 8** (traceability.md) — `props.helper_text` legacy alias (read-fallback + save-migration to `props.helper`).
+- **CONTRACT GAPS** (traceability.md) — the 11 field-box icon assets (only Location has a golden SVG); the pre-existing v2.4 container-ops selection-toolbar strings (absent from Appendix A + golden, licensed by Artifact C).
+- **gate4-behavior placebos** (`test/leadgen-v31-gate4-behavior.test.ts`) — the two `FINDING (confirmed, not fixed)` / `expect(true)` bodies (presets-deselect-on-drag; Reset-button e2e) are replaced by REAL data + island-source assertions with truthful titles.
+- Traceability rows 10 + 12 evidence citations updated to the new proofs (status left unchanged for conductor re-verification).
+
+### Re-mint (Gate 1c)
+The 7 Gate-1c baselines change for the intended deltas ONLY: navy/accent chrome
+(FIX 1), the §8.1 cream affects callout (FIX 2), and the helper line + leading
+pin in the canvas field states (FIX 3). Re-minted per the established flow;
+stability proven by 2× fresh-env `--shard=2/3` runs.

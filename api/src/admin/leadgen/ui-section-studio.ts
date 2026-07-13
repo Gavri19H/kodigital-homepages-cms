@@ -461,7 +461,11 @@ export const STUDIO_SAMPLE_NODES: Record<ComponentType, LeadgenComponentNode> = 
 // ---------------------------------------------------------------------------
 
 // Content-tab prop keys per type (display copy the §8.6 Content tab edits).
-// `helper_text` is the generic per-node helper line the old inspector kept.
+// `helper` is the CANONICAL per-node helper-line key (contract §8.1/§11.3,
+// Phase-A schema). v3.1 audit-round G FIX 3b renamed it from the pre-fix
+// `helper_text` (which the golden/contract never named); legacy v2.5 sections
+// may still carry props.helper_text — inspectorFieldValue read-falls-back to
+// it on load and the save rewrite migrates it to props.helper (erratum 8).
 const CONTENT_PROP_FIELDS: Record<ComponentType, readonly string[]> = {
   ProgressBar: ["label"],
   HeaderLogo: ["logoMediaId"],
@@ -472,17 +476,17 @@ const CONTENT_PROP_FIELDS: Record<ComponentType, readonly string[]> = {
   QuestionHeadline: ["text"],
   Subheadline: ["text"],
   HelperText: ["text"],
-  RangeQuestion: ["minLabel", "maxLabel", "helper_text"],
-  CurrencyRangeQuestion: ["minLabel", "maxLabel", "currency", "helper_text"],
-  NumberRangeQuestion: ["minLabel", "maxLabel", "helper_text"],
-  ButtonAnswerGroup: ["helper_text"],
-  TwoButtonYesNo: ["yesLabel", "noLabel", "helper_text"],
-  IconCardAnswerGrid: ["helper_text"],
-  ImageCardAnswerGrid: ["helper_text"],
-  MultiChoiceCardGroup: ["helper_text"],
-  DropdownQuestion: ["placeholder", "helper_text"],
-  SearchableDropdownQuestion: ["placeholder", "helper_text"],
-  OtherGroupSelector: ["helper_text"],
+  RangeQuestion: ["minLabel", "maxLabel", "helper"],
+  CurrencyRangeQuestion: ["minLabel", "maxLabel", "currency", "helper"],
+  NumberRangeQuestion: ["minLabel", "maxLabel", "helper"],
+  ButtonAnswerGroup: ["helper"],
+  TwoButtonYesNo: ["yesLabel", "noLabel", "helper"],
+  IconCardAnswerGrid: ["helper"],
+  ImageCardAnswerGrid: ["helper"],
+  MultiChoiceCardGroup: ["helper"],
+  DropdownQuestion: ["placeholder", "helper"],
+  SearchableDropdownQuestion: ["placeholder", "helper"],
+  OtherGroupSelector: ["helper"],
   // v3.1 §8.3 Basics: "Field label (only you see this)" (node.props.label,
   // NEW — §11.3) is NOT listed here for the 8 Accept-swappable text-input
   // types — the generic CONTENT_CONTROLS "label" row's shared text ("Label")
@@ -492,15 +496,15 @@ const CONTENT_PROP_FIELDS: Record<ComponentType, readonly string[]> = {
   // `data-inspector-field="label"` — the generic populate/collect loop reads
   // any matching element regardless of which markup rendered it), gated by
   // `acceptFormatOfNode(node) !== null`, so there is no double-registration.
-  FreeTextQuestion: ["placeholder", "helper_text"],
-  NumberInputQuestion: ["placeholder", "helper_text"],
-  CurrencyInputQuestion: ["placeholder", "currency", "helper_text"],
-  EmailInputQuestion: ["placeholder", "helper_text"],
-  PhoneInputQuestion: ["placeholder", "helper_text"],
-  NameFieldsGroup: ["helper_text"],
-  DateQuestion: ["placeholder", "helper_text"],
-  ZIPInputQuestion: ["placeholder", "helper_text"],
-  AddressAutocompleteQuestion: ["placeholder", "helper_text"],
+  FreeTextQuestion: ["placeholder", "helper"],
+  NumberInputQuestion: ["placeholder", "helper"],
+  CurrencyInputQuestion: ["placeholder", "currency", "helper"],
+  EmailInputQuestion: ["placeholder", "helper"],
+  PhoneInputQuestion: ["placeholder", "helper"],
+  NameFieldsGroup: ["helper"],
+  DateQuestion: ["placeholder", "helper"],
+  ZIPInputQuestion: ["placeholder", "helper"],
+  AddressAutocompleteQuestion: ["placeholder", "helper"],
   ContinueButton: ["label", "loadingLabel"],
   AutoAdvanceButton: ["label"],
   ReassuranceBadge: ["text", "icon"],
@@ -538,7 +542,7 @@ const CONTENT_CONTROLS: ReadonlyArray<{ key: string; label: string }> = [
   { key: "yesLabel", label: "Yes label" },
   { key: "noLabel", label: "No label" },
   { key: "placeholder", label: "Placeholder" },
-  { key: "helper_text", label: "Helper text" },
+  { key: "helper", label: "Helper text" },
   { key: "heading", label: "Heading" },
   { key: "message", label: "Message" },
   { key: "icon", label: "Icon (emoji / glyph)" },
@@ -963,8 +967,9 @@ function renderLibraryItem(tile: StudioTile): string {
   const childAttr = tile.childTypes ? ` data-add-children="${escapeHtml(tile.childTypes.join(","))}"` : "";
   // additive (m2): a tile whose insert needs starting props beyond a bare
   // default-typed node (the Divider's variant:"line") carries them JSON-
-  // encoded — a plain drag-drop payload ('text/plain' cannot carry an object)
-  // degrades to the bare defaultType, same documented precedent as childTypes.
+  // encoded. v3.1 audit-round G FIX 4: BOTH childTypes and defaultProps now
+  // ride the drag 'add:' JSON envelope too, so a drag insert reproduces the
+  // click/keyboard insert exactly (§5.6 determinism — no drag-drop degradation).
   const propsAttr = tile.defaultProps ? ` data-add-props="${escapeHtml(JSON.stringify(tile.defaultProps))}"` : "";
   return `<div class="studio-library-item" data-tile role="button" tabindex="0" draggable="true" data-add-component="${escapeHtml(tile.defaultType)}"${childAttr}${propsAttr} data-name="${escapeHtml(tile.dataName)}" aria-label="Add ${escapeHtml(tile.label)}" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:${STUDIO_GEOMETRY.tile.padding};border:1px solid ${STUDIO_COLOR.linePanel};border-radius:${STUDIO_RADIUS.tile}px;background:${STUDIO_COLOR.white};cursor:grab">
   ${tile.svg}
@@ -1062,8 +1067,11 @@ export function studioCanvasDocument(
 // empty state, frame sizing). The :root block pins the admin custom
 // properties the rules consume; the minimal .btn set styles the §5.4 badge
 // buttons the decoration pass creates.
+// v3.1 audit-round G FIX 1: --c-primary is the golden's brand NAVY (§3 /
+// golden :315/:330 canvas selection outline), NOT the pre-fix generic
+// shell blue — the same root cause the chrome scope-override below closes.
 export const SECTION_STUDIO_CANVAS_FRAME_CSS = `
-:root{--c-primary:#2563eb;--c-border:#e5e7eb;--c-muted:#6b7280;--c-surface:#fff}
+:root{--c-primary:${STUDIO_COLOR.navy};--c-border:#e5e7eb;--c-muted:#6b7280;--c-surface:#fff}
 html,body{margin:0;padding:0;background:#fff}
 .studio-canvas-render [data-question-id]{cursor:pointer}
 .studio-canvas-render .studio-selected-node{outline:2px solid var(--c-primary);outline-offset:2px;border-radius:4px}
@@ -1723,7 +1731,10 @@ function renderScopeHeaderShell(): string {
   <p class="studio-scope-editing">Editing: <strong data-scope-editing-name>This Section (question unit)</strong></p>
   <p class="studio-muted-note" data-scope-what-it-is hidden></p>
   ${renderScopePillsMarkup()}
-  <p class="studio-scope-affects" data-scope-affects>Affects: changes apply everywhere this Section is used.</p>
+  <div class="studio-scope-affects" data-studio-affects-callout>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5 20.2l1.4-6.8L1.3 8.9l6.9-.7z" fill="${STUDIO_COLOR.accent}"/></svg>
+    <span class="studio-scope-affects-text" data-scope-affects>Affects: changes apply everywhere this Section is used.</span>
+  </div>
 </div>`;
 }
 
@@ -1933,7 +1944,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <button type="button" data-set-width="full">Full</button>
       </div>
       <div class="studio-custom-chip" data-width-custom-chip hidden>
-        <div><span class="studio-custom-chip-label" data-width-custom-label>Custom</span><div class="form-help">Set by dragging on the canvas — overrides the preset</div></div>
+        <div><span class="studio-custom-chip-label" data-width-custom-label>Custom</span><div class="studio-custom-chip-sub">Set by dragging on the canvas — overrides the preset</div></div>
         <button type="button" class="studio-link-btn" data-reset-width>Reset</button>
       </div>
       <label class="form-label">Height</label>
@@ -2355,7 +2366,14 @@ export function renderSectionStudio(
   // configured (the exact no-op contract copy). Key state rides as a data
   // attribute so the island never needs a second bootstrap blob.
   const mapsBanner = `<p class="studio-maps-banner" data-studio-maps-banner data-maps-key-configured="${mapsKeyConfigured ? "true" : "false"}" hidden role="status" aria-live="polite">No Google-Maps browser key is configured &#8212; Autocomplete/validation will no-op; manual entry still works. The per-field Maps config stays saved and activates once the key is added.</p>`;
-  return `${renderStudioTopBar(view, summary, statusPillHtml, initialIssueCount(view.content))}
+  // v3.1 audit-round G FIX 1a: the whole Studio page is wrapped in .studio-root
+  // so the chrome's `var(--c-primary)` resolves to the golden's brand NAVY (§3),
+  // scope-overriding the admin SHELL's generic #2563eb (layout.ts) WITHOUT
+  // touching the shell — every other admin surface keeps its blue. The
+  // wrapper spans top bar + strip + editor grid + drawer + pickers so
+  // out-of-grid chrome (e.g. the strip's `.studio-hidden-show` link) is covered
+  // too.
+  return `<div class="studio-root">${renderStudioTopBar(view, summary, statusPillHtml, initialIssueCount(view.content))}
 ${renderStudioSettings(view, mapsKeyConfigured)}
 ${mapsBanner}
 <div class="lg-editor-grid studio-grid">
@@ -2365,7 +2383,7 @@ ${mapsBanner}
 </div>
 ${renderStudioDrawer(summary, answerMapCount, view.public_id)}
 ${renderStudioMediaPicker(aiImageAvailable)}
-${renderStudioSeedData()}`;
+${renderStudioSeedData()}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -2373,6 +2391,15 @@ ${renderStudioSeedData()}`;
 // ---------------------------------------------------------------------------
 
 export const SECTION_STUDIO_STYLES = `
+/* v3.1 audit-round G FIX 1a: scope-override the admin shell's generic
+   --c-primary (a non-golden blue defined in layout.ts) to the brand NAVY for the WHOLE
+   Studio page only — every studio control that references var(--c-primary)
+   (library hover, focus rings, scope-pill/tab active, segmented, swatches,
+   links, add-condition) resolves NAVY here. The shell keeps its blue on all
+   other admin surfaces (this variable is not touched in layout.ts). Gate 1b
+   asserts this override is a §3 value so a future shell change can't silently
+   re-blue the Studio. */
+.studio-root{--c-primary:${STUDIO_COLOR.navy}}
 .studio-topbar{display:flex;align-items:flex-end;gap:12px;margin-bottom:12px;flex-wrap:wrap}
 .studio-topbar .form-group{margin:0}
 .studio-name{min-width:220px}
@@ -2455,10 +2482,19 @@ export const SECTION_STUDIO_STYLES = `
 .studio-scope-header{border-bottom:1px solid var(--c-border);padding:0 0 8px;margin:0 0 8px;transition:background-color .3s ease}
 .studio-scope-header.studio-scope-flash{background:#fff3cd}
 .studio-scope-editing{font-size:13px;margin:0 0 6px}
-.studio-scope-affects{font-size:11px;color:var(--c-muted);margin:6px 0 0}
+/* v3.1 audit-round G FIX 2: §8.1 affects line is a CREAM CALLOUT (golden :420
+   — #FBFBF3 bg, #F0EAC9 border, radius 8, padding 8px 10px) with the accent
+   star SVG and the blast-radius sentence (text #7A6B2E, bold segments #5C5015
+   — golden :422-424). Colors are golden-sourced literals (Gate 1b tier-3). */
+.studio-scope-affects{margin-top:11px;display:flex;align-items:flex-start;gap:7px;background:#FBFBF3;border:1px solid #F0EAC9;border-radius:8px;padding:8px 10px}
+.studio-scope-affects svg{flex:0 0 auto;margin-top:1px}
+.studio-scope-affects-text{font-size:11.5px;color:#7A6B2E;line-height:1.45}
 .studio-scope-pills{display:flex;gap:4px;flex-wrap:wrap}
 .studio-scope-pill{font-size:11px;border-radius:999px;padding:2px 10px;border:1px solid var(--c-border);background:var(--c-surface);cursor:pointer;color:var(--c-muted)}
-.studio-scope-pill.active{border-color:var(--c-primary);color:var(--c-primary);font-weight:600}
+/* v3.1 audit-round G FIX 1d: the ACTIVE scope pill is a SOLID navy chip with
+   white text (golden :416 "This element": color:#fff;background:#1B3A5C;
+   font-weight:700), not a navy-outlined/navy-text pill. */
+.studio-scope-pill.active{border-color:${STUDIO_COLOR.navy};background:${STUDIO_COLOR.navy};color:${STUDIO_COLOR.white};font-weight:700}
 .studio-scope-pill[disabled]{opacity:.5;cursor:not-allowed}
 .studio-frame-pill-picker{display:inline-flex;gap:4px;flex-wrap:wrap;margin-left:6px}
 .studio-cond-sentence{font-weight:600;color:var(--c-text,#1a1f36)}
@@ -2466,7 +2502,14 @@ export const SECTION_STUDIO_STYLES = `
 /* inspector + drawer */
 .studio-tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--c-border);margin-bottom:10px}
 .studio-tab{border:0;background:none;padding:6px 10px;font-size:12px;cursor:pointer;border-bottom:2px solid transparent;color:var(--c-muted)}
-.studio-tab.active{border-bottom-color:var(--c-primary);color:var(--c-primary);font-weight:600}
+/* v3.1 audit-round G FIX 1b: the ACTIVE inspector tab is navy text + a 2px
+   ACCENT underline (golden :759 / Appendix B "Active tab underline: 2px
+   #F5C518" — STUDIO_GEOMETRY.activeTabUnderline), NOT a navy underline. The
+   underline color is STUDIO_COLOR.accent (the sole distinguishing value the
+   previously-unused activeTabUnderline token encodes); text is var(--c-primary)
+   = navy via the .studio-root scope. The bottom-drawer tabs carry their OWN
+   .studio-drawer-tab.active rule (border:0, navy chip) and are unaffected. */
+.studio-tab.active{border-bottom:2px solid ${STUDIO_COLOR.accent};color:var(--c-primary);font-weight:600}
 .studio-tab[hidden]{display:none}
 /* v3.1 §8 Phase C — the 5-tab inspector's new shared chrome (semantic
    classes + CSS custom properties, matching the rest of this file's idiom —
@@ -2481,8 +2524,13 @@ export const SECTION_STUDIO_STYLES = `
 .studio-segmented{display:inline-flex;background:var(--c-surface-alt,#edf0f5);border-radius:6px;padding:2px;width:100%;margin-bottom:9px}
 .studio-segmented button{flex:1;text-align:center;font-size:12px;font-weight:600;padding:6px 4px;border:0;background:none;color:var(--c-muted);cursor:pointer;border-radius:5px}
 .studio-segmented button.active{background:var(--c-card,#fff);color:var(--c-primary);box-shadow:0 1px 2px rgba(16,24,40,.1)}
-.studio-custom-chip{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--c-primary-wash,#eaf0f6);border:1px solid var(--c-primary);border-radius:8px;padding:8px 10px;margin-bottom:10px}
+/* v3.1 audit-round G FIX 1c: §7.3 custom chip matches golden :529-531 — bg
+   navyTint #EAF0F6, border #C7D6E6 (a golden-sourced hairline, NOT navy — so
+   the var(--c-primary) border the shell blue leaked through is replaced),
+   label navy (var(--c-primary) via .studio-root), sub #5E799B. */
+.studio-custom-chip{display:flex;align-items:center;justify-content:space-between;gap:8px;background:${STUDIO_COLOR.navyTint};border:1px solid #C7D6E6;border-radius:8px;padding:8px 10px;margin-bottom:10px}
 .studio-custom-chip-label{font-size:12.5px;font-weight:700;color:var(--c-primary)}
+.studio-custom-chip-sub{font-size:10.5px;color:#5E799B}
 .studio-swatch-row{display:flex;gap:9px;margin-bottom:12px}
 .studio-swatch-row button{display:flex;flex-direction:column;align-items:center;gap:5px;border:0;background:none;cursor:pointer;font-size:10.5px;color:var(--c-muted);font-weight:600}
 .studio-swatch-row button.active{color:var(--c-primary)}
@@ -4698,6 +4746,41 @@ export const SECTION_STUDIO_SCRIPT = `
     if (usageQuoteCount === 0) { return 'Affects: not used in any quote yet.'; }
     return 'Affects: used in ' + usageQuoteCount + ' quote' + (usageQuoteCount === 1 ? '' : 's') + '; changes apply everywhere it\\u2019s used.';
   }
+  // v3.1 audit-round G FIX 2: the §8.1 affects line, returned as STRUCTURED
+  // PARTS so the caller builds it with SAFE DOM nodes (never innerHTML). The
+  // THREE contract-asserted selections (Appendix A §7.3, golden :422-424)
+  // return a {before,bold,after} split whose bold segment the caller paints
+  // #5C5015 (golden bold color); byte-for-byte with the golden — the em-dash
+  // rides \\u2014 and sentence 3's ampersand is a bare '&' exactly as the
+  // golden emits it. Every OTHER selection (choices/containers/frame-scope/
+  // section) returns {text:...} = the operator-true generic scopeAffectsText
+  // copy. The contract table defines only these 3.
+  function scopeAffectsParts(node) {
+    if (scopeState === 'component' && node) {
+      if (node.bind !== undefined) {
+        return { before: 'This is the same text as the ', bold: 'Question headline', after: ' box up top \\u2014 editing either updates both.' };
+      }
+      if (node.type === 'ContinueButton') {
+        return { before: 'Color, size & position come from the ', bold: 'funnel frame', after: '. Here you can override just the label.' };
+      }
+      if (acceptFormatOfNode(node)) {
+        return { before: 'Changes here affect ', bold: 'this question only', after: ', everywhere this section is reused.' };
+      }
+    }
+    return { text: scopeAffectsText(node) };
+  }
+  // Paint the affects parts into el via text nodes + one bold (#5C5015) node —
+  // no innerHTML (the copy is constant chrome, but safe DOM is the standard).
+  function renderAffectsParts(el, parts) {
+    while (el.firstChild) { el.removeChild(el.firstChild); }
+    if (parts.text !== undefined) { el.appendChild(document.createTextNode(parts.text)); return; }
+    el.appendChild(document.createTextNode(parts.before));
+    var strong = document.createElement('b');
+    strong.style.color = '#5C5015';
+    strong.appendChild(document.createTextNode(parts.bold));
+    el.appendChild(strong);
+    el.appendChild(document.createTextNode(parts.after));
+  }
   function scopeEditingName(node) {
     if (scopeState === 'choice') { return 'Answer choice \\u201C' + choiceScopeLabel + '\\u201D'; }
     // §5.6/§8.1: "the inspector name is always 'Short text field'" for the
@@ -4732,7 +4815,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var changed = false;
     var newName = scopeEditingName(node);
     if (nameEl && nameEl.textContent !== newName) { nameEl.textContent = newName; changed = true; }
-    if (affectsEl) { affectsEl.textContent = scopeAffectsText(node); }
+    if (affectsEl) { renderAffectsParts(affectsEl, scopeAffectsParts(node)); }
     if (whatEl) {
       var whatText = scopeWhatItIs(node);
       whatEl.textContent = whatText;
@@ -5080,6 +5163,12 @@ export const SECTION_STUDIO_SCRIPT = `
     if (field === 'internal_field') { return node.internal_field; }
     if (field === 'question_key') { return node.question_key; }
     if (field === 'design_preset') { return node.design_preset; }
+    // v3.1 audit-round G FIX 3b: the Helper-text control is canonical
+    // props.helper, with a read-fallback to the legacy props.helper_text
+    // (erratum 8) so a v2.5 section still shows its saved helper on load.
+    if (field === 'helper' && node.props) {
+      return node.props.helper !== undefined ? node.props.helper : node.props.helper_text;
+    }
     return node.props ? node.props[field] : '';
   }
   // §8.1/§8.4: the Content tab shows exactly ONE of headline/continue/field.
@@ -7040,16 +7129,17 @@ export const SECTION_STUDIO_SCRIPT = `
     if (node) { selectComponent(node.question_id); }
   }
   // §5.6 the "Contact" tile carries data-add-children (comma-separated types)
-  // — click/keyboard build the full 3-node Stack; a plain drag-drop (whose
-  // 'text/plain' payload cannot carry a children list) degrades to an EMPTY
-  // Stack container, still clearly a real (if unpopulated) insert.
+  // — a full 3-node Stack. v3.1 audit-round G FIX 4: drag now carries these
+  // through the 'add:' JSON envelope, so a DRAG insert builds the same
+  // populated Stack as click/keyboard (no longer degrades to an EMPTY Stack).
   function libraryChildTypesOf(btn) {
     var attr = btn.getAttribute('data-add-children');
     return attr ? attr.split(',') : undefined;
   }
   // m2: data-add-props (JSON-encoded, e.g. the Divider tile's {"variant":
-  // "line"}) — same drag-drop-degrades-gracefully precedent as childTypes
-  // (the 'text/plain' payload cannot carry an object either).
+  // "line"}). v3.1 audit-round G FIX 4: drag carries these through the same
+  // JSON envelope, so a dragged Divider is a Spacer variant:"line" (no longer
+  // a plain Spacer) — drag == click == keyboard.
   function libraryPropsOf(btn) {
     var attr = btn.getAttribute('data-add-props');
     if (!attr) { return undefined; }
@@ -7077,7 +7167,17 @@ export const SECTION_STUDIO_SCRIPT = `
     libraryEl.addEventListener('dragstart', function (ev) {
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-add-component]') : null;
       if (!btn || !ev.dataTransfer) { return; }
-      ev.dataTransfer.setData('text/plain', 'add:' + btn.getAttribute('data-add-component'));
+      // v3.1 audit-round G FIX 4: carry the tile's childTypes + defaultProps
+      // through a JSON envelope so a DRAG insert is byte-identical to the
+      // click/keyboard insert (§5.6 determinism — ONE insert per tile). The
+      // 'add:' prefix stays so the drop handler's kind split (first ':') is
+      // unchanged; everything after it is the JSON spec.
+      var spec = { type: btn.getAttribute('data-add-component') };
+      var childTypes = libraryChildTypesOf(btn);
+      if (childTypes) { spec.childTypes = childTypes; }
+      var defaultProps = libraryPropsOf(btn);
+      if (defaultProps) { spec.defaultProps = defaultProps; }
+      ev.dataTransfer.setData('text/plain', 'add:' + JSON.stringify(spec));
     });
     // §5.1 group collapse/expand: chevron rotates 0→90°, click toggles.
     function setGroupOpen(key, open) {
@@ -7310,9 +7410,23 @@ export const SECTION_STUDIO_SCRIPT = `
         return;
       }
       if (kind === 'add') {
-        if (hint.mode === 'into') { placed = addComponentAt(payload, hint.qid, null); }
-        else if (hint.mode === 'before' || hint.mode === 'after') { placed = insertRelative(hint.qid, hint.mode, payload); }
-        else { placed = addComponentAt(payload, null, null); }
+        // v3.1 audit-round G FIX 4: the 'add:' payload is a JSON envelope
+        // {type, childTypes?, defaultProps?} (a bare type string — legacy /
+        // non-brace — degrades to a childless insert). Parsed inline (the drop
+        // handler owns its payload decode; keeps onCanvasDrop self-contained
+        // for the vm-probe slice). childTypes+defaultProps are threaded so drag
+        // == click == keyboard (a dragged Contact builds the 3-child Stack; a
+        // dragged Divider is a Spacer variant:"line").
+        // charCodeAt 123 is the JSON open-brace code — tested by code, never
+        // a literal open-brace char in a string or comment (a literal one
+        // would unbalance the vm-probe brace-count slicer for this handler).
+        var addSpec = { type: payload };
+        if (payload && payload.charCodeAt(0) === 123) {
+          try { var addParsed = JSON.parse(payload); if (addParsed && addParsed.type) { addSpec = addParsed; } } catch (eAdd) { addSpec = { type: payload }; }
+        }
+        if (hint.mode === 'into') { placed = addComponentAt(addSpec.type, hint.qid, null, addSpec.childTypes, addSpec.defaultProps); }
+        else if (hint.mode === 'before' || hint.mode === 'after') { placed = insertRelative(hint.qid, hint.mode, addSpec.type, addSpec.childTypes, addSpec.defaultProps); }
+        else { placed = addComponentAt(addSpec.type, null, null, addSpec.childTypes, addSpec.defaultProps); }
         if (placed) { selectComponent(placed.question_id); }
       } else if (kind === 'move') {
         if (payload === hint.qid) { return; }
@@ -9474,6 +9588,28 @@ export const SECTION_STUDIO_SCRIPT = `
 
   // --- Save (POST create / PATCH update) — the UNCHANGED old-island body shape ------------
   function collectSection() {
+    // v3.1 audit-round G FIX 3b: §5.3-style save rewrite — migrate the legacy
+    // props.helper_text to the canonical props.helper (contract §8.1/§11.3),
+    // deleting the legacy key when writing the new one. With the load-fallback
+    // in inspectorFieldValue this upgrades a v2.5 section to the canonical key
+    // without losing copy (erratum 8). Runs at SAVE time on the whole tree
+    // (nested container children included); preview keeps the render-time
+    // fallback in presets.ts renderTextInput, so no double-write. Inlined as a
+    // self-contained local recursion so the sliced collectSection carries its
+    // own migration through the vm-probe save seam (no external walkTree dep).
+    function migrateHelperKey(list) {
+      var i, node;
+      for (i = 0; i < list.length; i++) {
+        node = list[i];
+        if (!node || typeof node !== 'object') { continue; }
+        if (node.props && node.props.helper_text !== undefined) {
+          if (node.props.helper === undefined) { node.props.helper = node.props.helper_text; }
+          delete node.props.helper_text;
+        }
+        if (node.children && node.children.length) { migrateHelperKey(node.children); }
+      }
+    }
+    if (state.content && state.content.components) { migrateHelperKey(state.content.components); }
     var nameEl = document.getElementById('lg-section-name');
     var actEl = document.getElementById('lg-section-activity');
     var verEl = document.getElementById('lg-section-vertical');
