@@ -78,7 +78,7 @@ import { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "./designs/default-fun
 // admin preview, quote preview, and persisted content_html render the live
 // shell sections. Pure over (nodes, design) with a pinned en-US locale, so the
 // server-rendered body stays variant-invariant under the cache-key axes.
-import { renderSectionComponents, type LeadgenSectionRenderCtx } from "./components/presets";
+import { isNewMapsShape, renderSectionComponents, type LeadgenSectionRenderCtx } from "./components/presets";
 // v2.5 redesign §13.3 composition swap: `frame_config_json` NULL → the
 // byte-pinned legacy shell (renderLegacyShell mirrors the historical inline
 // root construction 1:1); non-NULL → the ONE composition path renderQuoteFrame
@@ -239,9 +239,14 @@ function leadgenConfigEtag(
 // Signals, mirroring the presets' data-lg-maps emission exactly:
 //   * address_validation_enabled=1 on a section (the global-checkbox compat
 //     fallback — the column stays for compat, §8.8);
-//   * an AddressAutocompleteQuestion component (always Maps-capable);
-//   * a ZIPInputQuestion with the legacy per-node validate flag OR a
-//     field-level props.maps config (§8.8 — per-field config wins).
+//   * an AddressAutocompleteQuestion component: Maps-capable UNLESS a v3.1
+//     §9.2 NEW-shape config explicitly sets enabled:false (§9.3 per-field
+//     precedence — isNewMapsShape/presets.ts, the same check the renderer
+//     uses, so this key-injection gate and the rendered data-lg-maps
+//     attribute never disagree);
+//   * a ZIPInputQuestion with the legacy per-node validate flag, a
+//     legacy flat-shape props.maps object (unconditional, §12 no-regression),
+//     or a NEW-shape config with enabled:true.
 // content_json parses through the shared parseSectionComponents (dedicated
 // try/catch per the D1 JSON-parse safety rule — a corrupt blob never throws)
 // and the walk runs over the §8.5 canonical flattenComponents projection so a
@@ -254,10 +259,20 @@ function funnelNeedsMapsKey(resolved: ResolvedActivatedFunnel): boolean {
     if (typeof raw !== "string" || raw === "") continue;
     for (const c of flattenComponents(parseSectionComponents(raw))) {
       if (c === null || typeof c !== "object") continue;
-      if (c.type === "AddressAutocompleteQuestion") return true;
+      const props = c.props ?? {};
+      const maps = props["maps"];
+      if (c.type === "AddressAutocompleteQuestion") {
+        if (isNewMapsShape(maps)) {
+          if (maps.enabled === true) return true;
+          continue; // explicit enabled:false — this field does not need the key
+        }
+        return true; // legacy/absent config — unconditional (§12 no-regression)
+      }
       if (c.type === "ZIPInputQuestion") {
-        const props = c.props ?? {};
-        const maps = props["maps"];
+        if (isNewMapsShape(maps)) {
+          if (maps.enabled === true) return true;
+          continue;
+        }
         if (props["validate"] === true) return true;
         if (typeof maps === "object" && maps !== null && !Array.isArray(maps)) return true;
       }

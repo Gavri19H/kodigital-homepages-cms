@@ -473,10 +473,13 @@ const TYPE_LABELS: Record<string, string> = {
   IconCardAnswerGrid: 'Icon answer cards',
   ImageCardAnswerGrid: 'Image answer cards',
   DropdownQuestion: 'Dropdown',
-  ZIPInputQuestion: 'ZIP',
+  // v3.1 §5.6/§8.1: the whole 8-value Accept-swap family (FreeText/Number/
+  // Currency/Email/Phone/ZIP/Date/Address) reads "Short text field" in the
+  // inspector scope header — never its own concrete-type catalog label.
+  ZIPInputQuestion: 'Short text field',
+  EmailInputQuestion: 'Short text field',
+  PhoneInputQuestion: 'Short text field',
   NameFieldsGroup: 'Name',
-  EmailInputQuestion: 'Email',
-  PhoneInputQuestion: 'Phone',
   NumberRangeQuestion: 'Slider',
   CurrencyRangeQuestion: 'Amount slider',
   ContinueButton: 'Continue button',
@@ -600,31 +603,45 @@ async function openInspectorTab(page: Page, key: string): Promise<void> {
 }
 
 // Content tab copy field. Panel-scoped: the §6.5 canvas toolbar carries
-// sibling quick controls with the same data-inspector-field keys.
+// sibling quick controls with the same data-inspector-field keys. v3.1 §8.3:
+// "label" now resolves to THREE distinct elements in the same panel
+// (Continue's "Button label", a text field's dedicated "Field label", and
+// the generic CONTENT_CONTROLS "Label" row for other types) — only ONE is
+// ever visible for a given selection, so scope to the visible match.
 async function setContentField(page: Page, key: string, value: string): Promise<void> {
   await openInspectorTab(page, 'content');
-  await page.locator(`[data-studio-panel="content"] input[data-inspector-field="${key}"]`).fill(value);
+  await page.locator(`[data-studio-panel="content"] input[data-inspector-field="${key}"]:visible`).fill(value);
 }
 
-// Advanced tab internal_field (the sanctioned rename surface).
+// v3.1 §8.8: Advanced is a persistent disclosure BELOW the 5-tab strip (not
+// a 6th tab/panel) — open it via its own toggle button, not openInspectorTab.
+async function openAdvancedDisclosure(page: Page): Promise<void> {
+  const body = page.locator('[data-studio-advanced-body]');
+  if (await body.isHidden()) {
+    await page.locator('[data-studio-advanced-toggle]').click();
+  }
+  await expect(body).toBeVisible();
+}
+
+// Advanced disclosure internal_field (the sanctioned rename surface).
 async function setInternalField(page: Page, value: string): Promise<void> {
-  await openInspectorTab(page, 'advanced');
+  await openAdvancedDisclosure(page);
   await page
-    .locator('[data-studio-panel="advanced"] input[data-inspector-field="internal_field"]')
+    .locator('[data-studio-advanced-body] input[data-inspector-field="internal_field"]')
     .fill(value);
 }
 
-// Validation tab rule input (min/max/step/maxLen).
+// v3.1 §8.2: Validation folds into the Content tab's Answer-format group.
 async function setValidationProp(page: Page, key: string, value: string): Promise<void> {
-  await openInspectorTab(page, 'validation');
+  await openInspectorTab(page, 'content');
   await page.locator(`[data-inspector-vprop="${key}"]`).fill(value);
 }
 
-// §8.5 Layout tab container prop (scoped by container group — keys repeat
-// across groups; only the selected type's group is visible). PANEL-scoped:
-// the §6.5 canvas toolbar mirrors the same data-container-prop quick controls.
+// v3.1 §8.2/§8.5: Layout folds into the Style tab (design_overrides.size'
+// per-selection variant, field-style-block). PANEL-scoped: the §6.5 canvas
+// toolbar mirrors the same data-container-prop quick controls.
 function containerGroup(page: Page, type: string) {
-  return page.locator(`[data-studio-panel="layout"] [data-container-group="${type}"]`);
+  return page.locator(`[data-studio-panel="style"] [data-container-group="${type}"]`);
 }
 
 function choiceRows(page: Page) {
@@ -773,7 +790,7 @@ test.describe('LeadGen Studio §8.11 — four capability patterns, frame(Quote) 
     // assertion originally meant to pin).
     await expect(page.locator('[data-bound-chip="section_headline"]')).toBeHidden();
     await addComponent(page, 'ButtonAnswerGroup');
-    await openInspectorTab(page, 'choices');
+    await openInspectorTab(page, 'content');
     await fillChoiceRow(page, 0, { label: 'Yes, I have coverage', value: 'yes', analytics_id: 'p1_yes' });
     await fillChoiceRow(page, 1, { label: 'Not yet', value: 'no', analytics_id: 'p1_no' });
     await setInternalField(page, 'currently_insured');
@@ -902,7 +919,7 @@ test.describe('LeadGen Studio §8.11 — four capability patterns, frame(Quote) 
     // — just insert-then-wrap instead of wrap-then-insert-into).
     await addComponent(page, 'ButtonAnswerGroup');
     await groupSelectionIntoStack(page);
-    await openInspectorTab(page, 'layout');
+    await openInspectorTab(page, 'style');
     const stack = containerGroup(page, 'Stack');
     await stack.locator('select[data-container-prop="direction"]').selectOption('vertical');
     await stack.locator('select[data-container-prop="gap"]').selectOption('s');
@@ -910,7 +927,7 @@ test.describe('LeadGen Studio §8.11 — four capability patterns, frame(Quote) 
     // re-select the ButtonAnswerGroup CHILD (grouping moved the selection to
     // the new Stack wrapper) before authoring its choices.
     await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ButtonAnswerGroup"]').click();
-    await openInspectorTab(page, 'choices');
+    await openInspectorTab(page, 'content');
     await fillChoiceRow(page, 0, { label: 'Home coverage', value: 'home', analytics_id: 'p2_home' });
     await fillChoiceRow(page, 1, { label: 'Auto coverage', value: 'auto', analytics_id: 'p2_auto' });
     await page.locator('#lg-choice-add').click();
@@ -1113,7 +1130,7 @@ test.describe('LeadGen Studio §8.11 — four capability patterns, frame(Quote) 
     });
     // §5.2: the bound headline/subheadline nodes are pre-seeded on a NEW unit
     await addComponent(page, 'IconCardAnswerGrid');
-    await openInspectorTab(page, 'choices');
+    await openInspectorTab(page, 'content');
     await fillChoiceRow(page, 0, {
       label: 'For me',
       value: 'self',
@@ -1280,7 +1297,11 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     // selection is announced by the §7.1 scope header (operator label)
     await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="DropdownQuestion"]').click();
     await expect(page.locator('[data-scope-editing-name]')).toHaveText('Dropdown');
-    await openInspectorTab(page, 'dependencies');
+    await openInspectorTab(page, 'rules');
+    // v3.1 §8.6: the condition fieldset is hidden behind "Always show" until
+    // "+ Add a condition" reveals it (the golden's IF/THEN builder).
+    await expect(page.locator('[data-rules-always-row]')).toBeVisible();
+    await page.locator('[data-rules-add-condition]').click();
     await page.locator('[data-inspector-cond="when"]').selectOption('currently_insured');
     const boolValue = page.locator('[data-inspector-cond="value-bool"]');
     await expect(boolValue, 'boolean when-field switches the value input to a true/false picker').toBeVisible();
@@ -1380,8 +1401,8 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
 
     await addComponent(page, 'ZIPInputQuestion');
     await setContentField(page, 'placeholder', 'ZIP code');
-    await openInspectorTab(page, 'validation');
-    await page.locator('[data-studio-panel="validation"] input[data-inspector-field="required"]').check();
+    await openInspectorTab(page, 'content');
+    await page.locator('[data-studio-panel="content"] input[data-inspector-field="required"]').check();
     await setInternalField(page, 'zip');
 
     await saveStudio(page);
@@ -1485,7 +1506,7 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
       page.locator('[data-library-group="answer-fields"] [data-tile][data-name="cards"] .studio-item-name'),
     ).toHaveText('Cards');
     await addComponent(page, 'IconCardAnswerGrid');
-    await openInspectorTab(page, 'choices');
+    await openInspectorTab(page, 'content');
     await fillChoiceRow(page, 0, { label: 'Sole proprietor', value: 'sole', analytics_id: 'b_sole', icon: '🏢' });
     await fillChoiceRow(page, 1, { label: 'LLC', value: 'llc', analytics_id: 'b_llc', icon: '🏛' });
     await page.locator('#lg-choice-add').click();
@@ -1554,7 +1575,7 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     await openNewStudio(page, `Main Other ${uniq}`);
 
     await addComponent(page, 'ButtonAnswerGroup');
-    await openInspectorTab(page, 'choices');
+    await openInspectorTab(page, 'content');
     await fillChoiceRow(page, 0, { label: 'Toyota', value: 'toyota', analytics_id: 'm_toyota' });
     await fillChoiceRow(page, 1, { label: 'Honda', value: 'honda', analytics_id: 'm_honda' });
     await page.locator('#lg-choice-add').click();
@@ -1627,7 +1648,7 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     await expect(page.locator('[data-scope-editing-name]')).toContainText('Answer choice');
     await page.locator('[data-scope-pill="component"]').first().click();
     await expect(page.locator('[data-scope-editing-name]')).toHaveText('Simple answer buttons');
-    await openInspectorTab(page, 'choices');
+    await openInspectorTab(page, 'content');
     await page.locator('[data-choicedisplay="otherGroupEnabled"]').check();
 
     await saveStudio(page);

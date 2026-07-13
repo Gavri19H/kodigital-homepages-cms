@@ -1013,15 +1013,65 @@ export function renderOtherGroupSelector(
 // free-form + PII inputs
 // ---------------------------------------------------------------------------
 
-// The §8.8 field-level Maps config → the 03 §3.3 `data-lg-maps` attribute
-// value. `props.maps` (an object) serializes VERBATIM when present (field-level
-// config wins); the compat fallback for pre-§8.8 content — where Maps-enablement
-// rode the component itself (any AddressAutocompleteQuestion; a ZIP with
-// props.validate=true, i.e. the global address_validation_enabled era) — is the
-// empty config "{}" (runtime defaults). Callers gate on WHETHER the component
-// is Maps-enabled; this only shapes the value.
+// v3.1 §9.2/§9.3 — the two `props.maps` shapes this module must translate to
+// the ONE wire format `runtime/maps.ts`'s parseMapsConfig already understands
+// (flat keys: enable_autocomplete/validate/normalize_address_line, or their
+// pre-existing synonyms). NEVER changes runtime/maps.ts (unowned this phase);
+// this module is the translation layer between the NEW authoring shape and
+// the EXISTING wire contract.
+// Exported so serve.ts's funnelNeedsMapsKey (the funnel-wide "does the
+// browser key need injecting" gate) mirrors the SAME per-field enabled/jobs
+// interpretation as this module's renderers — one source of truth for the
+// shape check, never duplicated/drifted logic.
+export interface LeadgenNewMapsShape {
+  enabled?: unknown;
+  jobs?: { validate?: unknown; auction?: unknown; autocomplete?: unknown };
+}
+
+export function isNewMapsShape(raw: unknown): raw is LeadgenNewMapsShape {
+  return typeof raw === "object" && raw !== null && !Array.isArray(raw) && typeof (raw as Record<string, unknown>)["jobs"] === "object";
+}
+
+// §9.3 "the Validate job wins over the legacy global toggle... per-field
+// precedence": when the NEW {enabled,jobs} shape is authored on the node,
+// jobs.validate/jobs.autocomplete are AUTHORITATIVE for THIS field — the
+// legacy bare `props.validate` flag (no live writer in the current admin;
+// kept readable for old stored content, §12 no-regression) is consulted only
+// when the node carries NO new-shape config at all.
+function mapsJobsFor(node: LeadgenComponentNode): { validate: boolean; autocomplete: boolean } {
+  const raw = node.props?.["maps"];
+  if (isNewMapsShape(raw)) {
+    if (raw.enabled !== true) return { validate: false, autocomplete: false };
+    return { validate: raw.jobs?.validate === true, autocomplete: raw.jobs?.autocomplete === true };
+  }
+  // Legacy flat shape (props.maps already an object, pre-§9.2 authoring) —
+  // pass its OWN flags through unchanged (byte-identical to pre-v3.1).
+  if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+    const flat = raw as Record<string, unknown>;
+    return {
+      validate: flat["validate_full_address"] === true || flat["validate_zip"] === true || flat["validate"] === true,
+      autocomplete: flat["enable_autocomplete"] === true || flat["autocomplete"] === true,
+    };
+  }
+  // No props.maps object at all — the bare legacy per-node flag (the
+  // "global address_validation_enabled era", §9.3).
+  const legacyValidate = propBool(node, "validate") === true;
+  return { validate: legacyValidate, autocomplete: false };
+}
+
+// The §9 field-level Maps config → the 03 §3.3 `data-lg-maps` attribute
+// value. A NEW-shape `props.maps` TRANSLATES to the flat wire keys
+// (mapsJobsFor's per-field-precedence result); a pre-existing flat-shape
+// `props.maps` serializes VERBATIM (byte-identical, §12 no-regression); the
+// compat fallback for pre-§8.8 content — where Maps-enablement rode the
+// component itself (any AddressAutocompleteQuestion; a ZIP with
+// props.validate=true) — is the empty config "{}" (runtime defaults).
 function mapsConfigJson(node: LeadgenComponentNode): string {
   const raw = node.props?.["maps"];
+  if (isNewMapsShape(raw)) {
+    const jobs = mapsJobsFor(node);
+    return JSON.stringify({ enable_autocomplete: jobs.autocomplete, validate: jobs.validate });
+  }
   if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
     return JSON.stringify(raw);
   }
@@ -1217,12 +1267,21 @@ export function renderZIPInputQuestion(
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
 ): string {
-  const googleValidate = propBool(node, "validate");
-  // 03 §3.3 / 08 §8.8: a ZIP component is Maps-enabled when it carries a
-  // field-level props.maps config OR the legacy per-node validate flag (the
-  // global address_validation_enabled era) — then it emits data-lg-maps.
-  const mapsEnabled =
-    typeof node.props?.["maps"] === "object" && node.props?.["maps"] !== null
+  const mapsRaw = node.props?.["maps"];
+  // v3.1 §9.3 per-field precedence: a NEW-shape config's jobs.validate is
+  // authoritative for THIS field (mapsJobsFor) — it wins over the legacy
+  // bare props.validate flag wherever the new shape is present, including
+  // deciding it OFF when maps.enabled is false. Only a node with NO
+  // props.maps object at all falls back to the legacy flag.
+  const googleValidate = mapsJobsFor(node).validate;
+  // 03 §3.3 / 08 §8.8 / v3.1 §9.3: a ZIP component is Maps-enabled when it
+  // carries a NEW-shape config with enabled:true, a pre-existing flat-shape
+  // props.maps object (legacy, unconditional per §12 no-regression), or the
+  // legacy per-node validate flag (the global address_validation_enabled
+  // era) — then it emits data-lg-maps.
+  const mapsEnabled = isNewMapsShape(mapsRaw)
+    ? mapsRaw.enabled === true
+    : typeof mapsRaw === "object" && mapsRaw !== null
       ? true
       : googleValidate;
   return renderTextInput(
@@ -1263,15 +1322,21 @@ export function renderAddressAutocompleteQuestion(
 ): string {
   const provider = propStr(node, "provider") ?? "google";
   const placeholder = propStr(node, "placeholder") ?? "Start typing your address…";
+  const addressMapsRaw = node.props?.["maps"];
+  // v3.1 §9.3 per-field precedence: a NEW-shape config's `enabled` now
+  // actually gates Address too (pre-v3.1 it was unconditionally "always
+  // Maps-capable" — an Address field with an explicit enabled:false must be
+  // able to turn Maps off, same as ZIP). Legacy flat-shape / absent-config
+  // content keeps the pre-v3.1 unconditional behavior (§12 no-regression).
+  const addressMapsEnabled = isNewMapsShape(addressMapsRaw) ? addressMapsRaw.enabled === true : true;
   return (
-    // 03 §3.3 / 08 §8.8: an address component is ALWAYS Maps-capable →
-    // data-lg-maps carries the field-level props.maps config (or the "{}"
-    // compat fallback for global-checkbox-era content). The KEY itself never
-    // rides here — runtime/maps.ts no-ops gracefully when the shell injected
-    // no window.__LG_MAPS_KEY__. v3.1 §7/§12: fieldSizeStyle rides the OUTER
-    // `.lg-address` wrapper, same absent-is-empty discipline as the other
-    // field renderers.
-    `<div class="lg-address"${hydration(node)}${fieldSizeStyle(node, ctx)} data-provider="${esc(provider)}"${attr("data-lg-maps", mapsConfigJson(node))}>` +
+    // 03 §3.3 / 08 §8.8: data-lg-maps carries the field-level props.maps
+    // config (or the "{}" compat fallback for global-checkbox-era content).
+    // The KEY itself never rides here — runtime/maps.ts no-ops gracefully
+    // when the shell injected no window.__LG_MAPS_KEY__. v3.1 §7/§12:
+    // fieldSizeStyle rides the OUTER `.lg-address` wrapper, same
+    // absent-is-empty discipline as the other field renderers.
+    `<div class="lg-address"${hydration(node)}${fieldSizeStyle(node, ctx)} data-provider="${esc(provider)}"${addressMapsEnabled ? attr("data-lg-maps", mapsConfigJson(node)) : ""}>` +
     // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
     // the :focus / [aria-invalid] state rules win by cascade (no !important).
     `<input class="lg-input lg-address-input" type="text" data-lg-input` +

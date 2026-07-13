@@ -228,3 +228,67 @@ function parseGeocodeBody(body: unknown): LeadgenAddressValidationResult {
     normalized: { street, city, state, zip },
   };
 }
+
+// v3.1 §9 — the auction LOCATION FACET (PROPOSED). "Use in auction rules"
+// turns a validated ZIP into a location the auction can target/exclude by
+// state, city or ZIP (§9.1). This is a NEW available data shape, additive to
+// the auction answer-rule evaluation namespace (auction-rules.ts reads a flat
+// {state, city, zip, …} record) — a LATER wiring step merges the facet into
+// that namespace. The auction ENGINE + configs + payload stay UNTOUCHED
+// (§1.3 preserve list): this module only DERIVES the facet, it never evaluates
+// or mutates a rule.
+//
+// Key discipline (§9.3): the facet "still derives server-side" even when the
+// BROWSER key is absent — the browser key only powers the client
+// validate/autocomplete legs; a bare validated ZIP is itself a location, and a
+// server-side geocode (SERVER key) enriches it with state/city. So the derive
+// accepts EITHER a raw answer ZIP (facet = { zip }) OR a server-side
+// validateAddress result / normalized address (facet = { zip, state?, city? }).
+// A ZIP that is not exactly 5 digits (§12.8) yields null — no facet.
+export interface LeadgenLocationFacet {
+  zip: string;
+  state?: string;
+  city?: string;
+}
+
+export function deriveLocationFacet(
+  input: string | LeadgenAddressValidationResult | LeadgenNormalizedAddress | null | undefined,
+): LeadgenLocationFacet | null {
+  if (input === null || input === undefined) return null;
+
+  // A bare answer ZIP string: the facet carries only the ZIP (no geocode ran).
+  if (typeof input === "string") {
+    return validateZip(input) ? { zip: input } : null;
+  }
+  if (typeof input !== "object") return null;
+
+  const result = input as Partial<LeadgenAddressValidationResult>;
+  const addr = input as Partial<LeadgenNormalizedAddress>;
+  const normalized = result.normalized;
+
+  // ZIP source order: the geocode-normalized ZIP, else a normalized-address ZIP.
+  const zip =
+    normalized !== undefined && typeof normalized.zip === "string"
+      ? normalized.zip
+      : typeof addr.zip === "string"
+        ? addr.zip
+        : undefined;
+  if (!validateZip(zip)) return null;
+
+  const facet: LeadgenLocationFacet = { zip: zip as string };
+  const state =
+    (typeof result.state === "string" && result.state !== "" ? result.state : undefined) ??
+    (normalized !== undefined && typeof normalized.state === "string" && normalized.state !== ""
+      ? normalized.state
+      : undefined) ??
+    (typeof addr.state === "string" && addr.state !== "" ? addr.state : undefined);
+  const city =
+    (typeof result.city === "string" && result.city !== "" ? result.city : undefined) ??
+    (normalized !== undefined && typeof normalized.city === "string" && normalized.city !== ""
+      ? normalized.city
+      : undefined) ??
+    (typeof addr.city === "string" && addr.city !== "" ? addr.city : undefined);
+  if (state !== undefined) facet.state = state;
+  if (city !== undefined) facet.city = city;
+  return facet;
+}

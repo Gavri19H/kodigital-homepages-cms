@@ -742,6 +742,85 @@ describeDb("C2 LIVE (Phase D) — error-severity problems block the activation P
   });
 });
 
+// v3.1 §9.3 — maps_no_job escalates to a BLOCKING error at activation
+// preflight, UNCONDITIONALLY (unlike the frame-scope C2 rows above): this
+// Quote has NO frame_config_json at all (the exact §14.4 "legacy Quote"
+// shape the earlier describe block proved yields ZERO problems) — proving
+// the escalation is a per-field content concern, not gated on a configured
+// frame.
+describeDb("v3.1 §9.3 — maps_no_job escalates to a BLOCKING activation error", () => {
+  const MAPS_NO_JOB_CONTENT = JSON.stringify({
+    components: [
+      { type: "QuestionHeadline", question_id: "h5", props: { text: "ZIP?" } },
+      {
+        type: "ZIPInputQuestion",
+        question_id: "q_zip",
+        question_key: "k_zip",
+        internal_field: "zip",
+        props: { maps: { enabled: true, jobs: { validate: false, auction: false, autocomplete: false } } },
+      },
+      { type: "ContinueButton", question_id: "c5", props: { label: "Continue" } },
+    ],
+  });
+
+  it("a maps.enabled + 0-jobs field → 409 even with NO frame configured (legacy Quote shape); nothing persists", async () => {
+    const h = newHarness();
+    const s1 = seedSection(h.sdb, { contentJson: MAPS_NO_JOB_CONTENT });
+    const seeded = await seedQuote(h, "Maps No-Job Quote", [s1.id]);
+    // Deliberately NO frame_config_json update — this is the §14.4 "legacy
+    // Quote" shape that the C2 describe block's sibling test proves yields
+    // zero FRAME-gated problems.
+
+    const put = await admin.request(
+      `${API}/quotes/${seeded.quotePublicId}/activation/site-1`,
+      jsonInit("PUT", { enabled: true, slug: "maps-no-job-blocked" }),
+      h.env,
+    );
+    expect(put.status, await put.clone().text()).toBe(409);
+    const body = (await put.json()) as Record<string, unknown>;
+    expect(body["error"]).toBe("quote_activation_blocked");
+    const problems = body["problems"] as Problem[];
+    const mapsProblem = firstMatch(
+      problems,
+      (p) => p.path === `section.${s1.public_id}.components[q_zip].props.maps`,
+      "maps_no_job row in the 409 body",
+    );
+    expect(mapsProblem.severity).toBe("error");
+    expect(mapsProblem.message).toContain("no job selected");
+    expect(mapsProblem.scope).toBe("component");
+
+    // Nothing persisted.
+    const row = h.sdb.prepare("SELECT id FROM leadgen_site_quotes WHERE site_id = 'site-1'").get();
+    expect(row ?? null).toBeNull();
+  });
+
+  it("selecting a job (e.g. jobs.validate=true) removes the block → activation 200", async () => {
+    const h = newHarness();
+    const fixedContent = JSON.stringify({
+      components: [
+        { type: "QuestionHeadline", question_id: "h6", props: { text: "ZIP?" } },
+        {
+          type: "ZIPInputQuestion",
+          question_id: "q_zip2",
+          question_key: "k_zip2",
+          internal_field: "zip2",
+          props: { maps: { enabled: true, jobs: { validate: true, auction: false, autocomplete: false } } },
+        },
+        { type: "ContinueButton", question_id: "c6", props: { label: "Continue" } },
+      ],
+    });
+    const s1 = seedSection(h.sdb, { contentJson: fixedContent });
+    const seeded = await seedQuote(h, "Maps Fixed Quote", [s1.id]);
+
+    const put = await admin.request(
+      `${API}/quotes/${seeded.quotePublicId}/activation/site-1`,
+      jsonInit("PUT", { enabled: true, slug: "maps-fixed" }),
+      h.env,
+    );
+    expect(put.status, await put.clone().text()).toBe(200);
+  });
+});
+
 // ===========================================================================
 
 describeDb("bumpActiveVariantContentVersions (03 §3.1)", () => {

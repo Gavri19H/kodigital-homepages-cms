@@ -400,7 +400,14 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
     await expect(list.locator('li')).toHaveCount(0);
   });
 
-  test('⑦ §8.8 ZIP Maps config via the inspector: exact runtime keys persist through save/reload; linked-field chip + key banner', async ({ page }) => {
+  // v3.1 §9 — the pre-v3.1 flat autofill-picker Maps panel (data-maps-flag/
+  // data-maps-fill) is REPLACED by the golden's toggle + 3 whole-row jobs,
+  // writing props.maps = {enabled, jobs:{validate,auction,autocomplete}}. The
+  // manual per-field autofill-target picker (and its canvas "fills: city,
+  // state" chip) has no successor in the golden design (flagged contract
+  // gap — see the phase report); this spec now exercises the zero-job
+  // banner instead, a NEW §9.3 behavior the old panel never had.
+  test('⑦ §9 ZIP Maps config via the inspector: the enabled toggle + job checkboxes persist through save/reload; zero-job banner; key-missing banner', async ({ page }) => {
     test.setTimeout(90_000);
     const vert = `maps-${uniq}`;
     const section = await createStudioSection(page.request, `Maps Section ${uniq}`, ACT_A, vert, {
@@ -425,30 +432,24 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
     await expect(mapsTab).toBeVisible();
     await mapsTab.click();
 
-    // zip mode: validate toggle + city/state pickers; address-only controls hidden
-    const validateZip = page.locator('[data-maps-flag="validate_zip"]');
-    await expect(validateZip).toBeVisible();
-    await expect(page.locator('[data-maps-flag="enable_autocomplete"]')).toBeHidden();
-    await expect(page.locator('[data-maps-flag="validate_full_address"]')).toBeHidden();
-    await expect(page.locator('[data-maps-fill="autofill_zip"]')).toBeHidden();
+    // the toggle + jobs block; jobs stay hidden until enabled
+    const toggle = page.locator('[data-maps-enabled-toggle]');
+    await expect(toggle).toBeVisible();
+    const jobsBlock = page.locator('[data-maps-jobs-block]');
+    await expect(jobsBlock).toBeHidden();
+    const zeroJobBanner = page.locator('[data-maps-zero-job-banner]');
 
-    // the pickers list THIS Section's internal fields, excluding the ZIP itself
-    const cityPick = page.locator('[data-maps-fill="autofill_city"]');
-    const statePick = page.locator('[data-maps-fill="autofill_state"]');
-    await expect(cityPick.locator('option[value="city"]')).toHaveCount(1);
-    await expect(cityPick.locator('option[value="zip"]')).toHaveCount(0);
+    // turning the toggle ON with no job selected → the §9.3 amber banner
+    await toggle.check();
+    await expect(jobsBlock).toBeVisible();
+    await expect(zeroJobBanner).toBeVisible();
+    await expect(zeroJobBanner).toContainText('Pick at least one job for Maps');
+    await page.screenshot({ path: `${SHOT_DIR}/09-maps-zero-job-banner.png` });
 
-    // configure: validate ZIP + autofill city/state via pickers only
-    await validateZip.check();
-    await cityPick.selectOption('city');
-    await statePick.selectOption('state');
-
-    // the §8.8 linked-field chip appears on the canvas from the config's
-    // autofill keys — "fills: city, state"
-    const chip = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-studio-maps-chip]');
-    await expect(chip).toHaveCount(1);
-    await expect(chip).toHaveAttribute('data-fills', 'city,state');
-    await expect(chip).toHaveText('fills: city, state');
+    // picking a job clears the banner
+    const validateJob = page.locator('[data-maps-job="validate"]');
+    await validateJob.check();
+    await expect(zeroJobBanner).toBeHidden();
 
     // key-missing banner: shown ONLY when a Maps-enabled component exists AND
     // no browser key is configured (local dev ships no GOOGLE_MAPS_BROWSER_KEY)
@@ -459,37 +460,29 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
     } else {
       await expect(banner).toBeHidden();
     }
-    await page.screenshot({ path: `${SHOT_DIR}/09-maps-config-chip-banner.png` });
 
-    // save → reload (same URL): the config persisted with the EXACT runtime keys
+    // save → reload (same URL): the config persisted with the EXACT §9.2 shape
     await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);
     const detail = await json<{ content_json: { components: Array<{ question_id: string; props?: Record<string, unknown> }> } }>(
       await page.request.get(`${LG_API}/sections/${section.public_id}`),
       'maps section detail',
     );
     const zipNode = detail.content_json.components.find((c) => c.question_id === 'q_zip');
-    expect(zipNode?.props?.['maps'], 'the §8.8 emission — exactly the runtime parseMapsConfig keys').toEqual({
-      validate_zip: true,
-      autofill_city: 'city',
-      autofill_state: 'state',
-      enable_autocomplete: true,
+    expect(zipNode?.props?.['maps'], 'the §9.2 emission — {enabled,jobs}').toEqual({
+      enabled: true,
+      jobs: { validate: true, auction: false, autocomplete: false },
     });
 
-    // the fresh page re-derives the chip from the saved model, and the
-    // inspector re-populates the saved config
-    await expect(page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-studio-maps-chip]')).toHaveAttribute('data-fills', 'city,state');
+    // the fresh page re-populates the saved config in the inspector
     await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
     await page.locator('[data-studio-inspector-tab="maps"]').click();
-    await expect(page.locator('[data-maps-flag="validate_zip"]')).toBeChecked();
-    await expect(page.locator('[data-maps-fill="autofill_city"]')).toHaveValue('city');
-    await expect(page.locator('[data-maps-fill="autofill_state"]')).toHaveValue('state');
+    await expect(page.locator('[data-maps-enabled-toggle]')).toBeChecked();
+    await expect(page.locator('[data-maps-job="validate"]')).toBeChecked();
+    await expect(page.locator('[data-maps-job="auction"]')).not.toBeChecked();
     await page.screenshot({ path: `${SHOT_DIR}/10-maps-config-persisted.png` });
 
-    // clearing everything deletes props.maps (clean node) on the next save
-    await page.locator('[data-maps-flag="validate_zip"]').uncheck();
-    await page.locator('[data-maps-fill="autofill_city"]').selectOption('');
-    await page.locator('[data-maps-fill="autofill_state"]').selectOption('');
-    await expect(page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-studio-maps-chip]')).toHaveCount(0);
+    // turning the toggle OFF deletes props.maps (clean node) on the next save
+    await page.locator('[data-maps-enabled-toggle]').uncheck();
     await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);
     const cleared = await json<{ content_json: { components: Array<{ question_id: string; props?: Record<string, unknown> }> } }>(
       await page.request.get(`${LG_API}/sections/${section.public_id}`),
@@ -721,5 +714,263 @@ test.describe('LeadGen Section Studio v3.1 — golden-chrome browser flows (§5/
     await expect(frameHintBtn).toHaveAttribute('aria-pressed', 'true');
     await expect(topSkeleton).toBeVisible();
     await page.screenshot({ path: `${SHOT_DIR}/v31-05-frame-hint-toggle.png` });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v3.1 Phase C — the golden's 5-tab inspector (Content·Style·Rules·Maps·
+// Offers), the Style-tab size presets, the Rules sentence, the Accept-swap
+// dropdown, and the Advanced disclosure — through the REAL browser (contract
+// §8.2/§8.5/§8.6/§8.8).
+// ---------------------------------------------------------------------------
+
+test.describe.serial('LeadGen Section Studio v3.1 Phase C — the golden 5-tab inspector', () => {
+  test('§8.2 tab visibility is DYNAMIC per selection: field=Content/Style/Rules/Maps*/Offers; headline/continue=Content/Style only', async ({ page }) => {
+    const vert = `c-tabs-${uniq}`;
+    // mappableContent() (createStudioSection's default) has no bound
+    // headline/continue node — provide the full 4-node set explicitly.
+    const section = await createStudioSection(page.request, `C1 Tabs ${uniq}`, ACT_A, vert, {
+      content_json: {
+        components: [
+          { type: 'QuestionHeadline', question_id: 'q_head', bind: 'section_headline' },
+          {
+            type: 'TwoButtonYesNo',
+            question_id: 'q_ins',
+            internal_field: 'currently_insured',
+            answer_type: 'boolean',
+            props: { yesLabel: 'Yes', noLabel: 'No' },
+          },
+          { type: 'ZIPInputQuestion', question_id: 'q_zip', internal_field: 'zip', answer_type: 'string', props: { placeholder: 'ZIP code' } },
+          { type: 'ContinueButton', question_id: 'q_cont', props: { label: 'Continue' } },
+        ],
+      },
+    });
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    const tab = (key: string) => page.locator(`[data-studio-inspector-tab="${key}"]`);
+
+    // the ZIP field (answer-producing, ZIP type): all 5 tabs. §5.6/§8.1: the
+    // whole 8-value Accept-swap family reads "Short text field", never its
+    // own concrete-type catalog label ("ZIP").
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
+    await expect(page.locator('[data-scope-editing-name]')).toHaveText('Short text field');
+    for (const key of ['content', 'style', 'rules', 'maps', 'offers']) await expect(tab(key), key).toBeVisible();
+
+    // a choice-based answer field (TwoButtonYesNo): Content/Style/Rules/Offers — NO Maps
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="TwoButtonYesNo"]').click();
+    for (const key of ['content', 'style', 'rules', 'offers']) await expect(tab(key), key).toBeVisible();
+    await expect(tab('maps'), 'Maps is ZIP/Address-only').toBeHidden();
+
+    // the bound headline: Content/Style only (no Rules/Maps/Offers)
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="QuestionHeadline"]').click();
+    await expect(page.locator('[data-scope-editing-name]')).toHaveText('Question headline');
+    await expect(tab('content')).toBeVisible();
+    await expect(tab('style')).toBeVisible();
+    for (const key of ['rules', 'maps', 'offers']) await expect(tab(key), key).toBeHidden();
+
+    // the Continue button: Content/Style only
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ContinueButton"]').click();
+    await expect(page.locator('[data-scope-editing-name]')).toHaveText('Continue button');
+    await expect(tab('content')).toBeVisible();
+    await expect(tab('style')).toBeVisible();
+    for (const key of ['rules', 'maps', 'offers']) await expect(tab(key), key).toBeHidden();
+
+    // §6.2: selecting a NEW node resets the active tab back to Content
+    await page.locator('[data-studio-inspector-tab="style"]').click();
+    await expect(page.locator('[data-studio-panel="style"]')).toBeVisible();
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
+    await expect(page.locator('[data-studio-panel="content"]')).toBeVisible();
+    await page.screenshot({ path: `${SHOT_DIR}/c1-01-tab-visibility.png` });
+  });
+
+  test('§5.6 Accept-swap via the Content-tab dropdown SWAPS the node type, preserving internal_field/required', async ({ page }) => {
+    const vert = `c-accept-${uniq}`;
+    const section = await createStudioSection(page.request, `C1 Accept ${uniq}`, ACT_A, vert, {
+      content_json: {
+        components: [
+          { type: 'FreeTextQuestion', question_id: 'q_txt', internal_field: 'note', answer_type: 'string', required: true },
+        ],
+      },
+    });
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="FreeTextQuestion"]').click();
+    await page.locator('[data-studio-inspector-tab="content"]').click();
+    const accept = page.locator('[data-inspector-accept]');
+    await expect(accept).toBeVisible();
+    await expect(accept).toHaveValue('text');
+
+    // the exact 8-value enumeration (§8.5b), in order
+    const optionValues = await accept.locator('option').evaluateAll((els) => els.map((e) => (e as HTMLOptionElement).value));
+    expect(optionValues).toEqual(['text', 'number', 'currency', 'email', 'phone', 'us_zip', 'date', 'street_address']);
+
+    await accept.selectOption('us_zip');
+    // the canvas re-renders under the NEW concrete type; the inspector name
+    // stays "Short text field" (§5.6: the Accept-swap rule)
+    await expect(page.locator('[data-scope-editing-name]')).toHaveText('Short text field');
+    await expect(page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]')).toBeVisible();
+
+    await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);
+    const detail = await json<{ content_json: { components: Array<{ question_id: string; type: string; internal_field?: string; required?: boolean; props?: Record<string, unknown> }> } }>(
+      await page.request.get(`${LG_API}/sections/${section.public_id}`),
+      'accept-swap section detail',
+    );
+    const node = detail.content_json.components.find((c) => c.question_id === 'q_txt');
+    expect(node?.type).toBe('ZIPInputQuestion');
+    expect(node?.internal_field, 'internal_field survives the swap').toBe('note');
+    expect(node?.required, 'required survives the swap').toBe(true);
+    expect(node?.props?.['format']).toBe('us_zip');
+  });
+
+  test('§8.5 Style-tab Width preset buttons write design_overrides.size.width; Reset removes a custom_px (re-inherits the preset)', async ({ page }) => {
+    const vert = `c-size-${uniq}`;
+    const section = await createStudioSection(page.request, `C1 Size ${uniq}`, ACT_A, vert);
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
+    await page.locator('[data-studio-inspector-tab="style"]').click();
+    const fullBtn = page.locator('[data-set-width="full"]');
+    await expect(fullBtn).toBeVisible();
+    await fullBtn.click();
+    await expect(fullBtn).toHaveClass(/active/);
+
+    await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);
+    let detail = await json<{ content_json: { components: Array<{ question_id: string; design_overrides?: { size?: { width?: unknown } } }> } }>(
+      await page.request.get(`${LG_API}/sections/${section.public_id}`),
+      'size-preset section detail (full)',
+    );
+    let zipNode = detail.content_json.components.find((c) => c.question_id === 'q_zip');
+    expect(zipNode?.design_overrides?.size?.width, 'preset writes a STRING preset name').toBe('full');
+
+    // re-select, switch to a DIFFERENT preset, then use Reset (§7.1 bullet 4)
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
+    await page.locator('[data-studio-inspector-tab="style"]').click();
+    await page.locator('[data-set-width="s"]').click();
+    await expect(page.locator('[data-set-width="s"]')).toHaveClass(/active/);
+    await expect(page.locator('[data-set-width="full"]')).not.toHaveClass(/active/);
+
+    await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
+    await page.locator('[data-studio-inspector-tab="style"]').click();
+    await expect(page.locator('[data-set-width="s"]')).toHaveClass(/active/);
+    await page.screenshot({ path: `${SHOT_DIR}/c1-02-size-preset-s.png` });
+
+    detail = await json<{ content_json: { components: Array<{ question_id: string; design_overrides?: { size?: { width?: unknown } } }> } }>(
+      await page.request.get(`${LG_API}/sections/${section.public_id}`),
+      'size-preset section detail (s)',
+    );
+    zipNode = detail.content_json.components.find((c) => c.question_id === 'q_zip');
+    expect(zipNode?.design_overrides?.size?.width).toBe('s');
+  });
+
+  test('§8.6 Rules tab: "Always show" by default; "Add a condition" reveals the picker and renders the sentence "Show this question when X is Y"', async ({ page }) => {
+    const vert = `c-rules-${uniq}`;
+    const section = await createStudioSection(page.request, `C1 Rules ${uniq}`, ACT_A, vert);
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
+    await page.locator('[data-studio-inspector-tab="rules"]').click();
+
+    const alwaysRow = page.locator('[data-rules-always-row]');
+    await expect(alwaysRow).toBeVisible();
+    await expect(alwaysRow).toContainText('Always show');
+    await expect(page.locator('[data-rules-condition-fields]')).toBeHidden();
+
+    await page.locator('[data-rules-add-condition]').click();
+    await expect(alwaysRow).toBeHidden();
+    const fields = page.locator('[data-rules-condition-fields]');
+    await expect(fields).toBeVisible();
+    await fields.locator('[data-inspector-cond="when"]').selectOption('currently_insured');
+    const boolValue = fields.locator('[data-inspector-cond="value-bool"]');
+    await expect(boolValue).toBeVisible();
+    await boolValue.selectOption('true');
+    await expect(fields.locator('[data-cond-sentence]')).toHaveText('Show this question when currently_insured is true');
+    await page.screenshot({ path: `${SHOT_DIR}/c1-03-rules-sentence.png` });
+
+    // "Remove condition" returns to Always show
+    await page.locator('[data-rules-remove-condition]').click();
+    await expect(alwaysRow).toBeVisible();
+    await expect(fields).toBeHidden();
+
+    await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);
+    const detail = await json<{ content_json: { components: Array<{ question_id: string; conditional?: unknown }> } }>(
+      await page.request.get(`${LG_API}/sections/${section.public_id}`),
+      'rules-removed section detail',
+    );
+    expect(detail.content_json.components.find((c) => c.question_id === 'q_zip')?.conditional).toBeUndefined();
+  });
+
+  test('§8.8 Advanced disclosure: collapsed by default, re-collapses per new selection, opening emits section_advanced_opened to the console', async ({ page }) => {
+    const vert = `c-adv-${uniq}`;
+    const section = await createStudioSection(page.request, `C1 Advanced ${uniq}`, ACT_A, vert);
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
+    const toggle = page.locator('[data-studio-advanced-toggle]');
+    const body = page.locator('[data-studio-advanced-body]');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(body).toBeHidden();
+
+    const consoleEvents: string[] = [];
+    page.on('console', (msg) => {
+      if (msg.text().includes('section_advanced_opened')) consoleEvents.push(msg.text());
+    });
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(body).toBeVisible();
+    await expect(body.locator('input[data-inspector-field="internal_field"]')).toHaveValue('zip');
+    await page.waitForTimeout(200);
+    expect(consoleEvents.length, 'section_advanced_opened logged on open').toBeGreaterThan(0);
+    await page.screenshot({ path: `${SHOT_DIR}/c1-04-advanced-open.png` });
+
+    // re-collapses on a NEW selection (§8.8 "collapsed by default" per selection)
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="TwoButtonYesNo"]').click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(body).toBeHidden();
+  });
+
+  test('§10.6 drawer "Preview theme" switcher: populates from the REAL themes KV, re-renders via POST theme_id; "Manage theme →" links to /admin/leadgen/themes', async ({ page }) => {
+    const themeName = `C1 Bold ${uniq}`;
+    const createdTheme = await json<{ item: { id: string; name: string } }>(
+      await page.request.post('/api/admin/leadgen/themes', {
+        data: {
+          name: themeName,
+          roles: {
+            brand_primary: '#0B5FFF',
+            accent: '#AA3300',
+            page_bg: '#F4F6F9',
+            card: '#F9FAFC',
+            text: '#101828',
+            success: '#127A3B',
+            error: '#B42318',
+          },
+          typography: { headline_font: 'Newsreader', body_font: 'Inter', base_px: 16 },
+          controls: { field_height: 'medium', button_size: 'm', corners: 'rounded' },
+          spacing: 'cozy',
+        },
+      }),
+      'create preview theme',
+    );
+
+    const vert = `c-theme-${uniq}`;
+    const section = await createStudioSection(page.request, `C1 Theme Preview ${uniq}`, ACT_A, vert);
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    const themeSelect = page.locator('[data-studio-preview-theme]');
+    await expect(themeSelect.locator(`option[value="${createdTheme.item.id}"]`)).toHaveText(themeName, { timeout: 10_000 });
+
+    const manageLink = page.locator('[data-studio-manage-theme-link]');
+    await expect(manageLink).toHaveAttribute('href', '/admin/leadgen/themes');
+    await expect(manageLink).toHaveText('Manage theme →');
+
+    // picking a theme re-renders the preview via the SAME additive theme_id
+    // param the section-preview endpoint already accepts (Phase A).
+    const [previewReq] = await Promise.all([
+      page.waitForRequest((req) => req.url().includes('/sections/preview') && req.method() === 'POST'),
+      themeSelect.selectOption(createdTheme.item.id),
+    ]);
+    const body = previewReq.postDataJSON() as { theme_id?: string };
+    expect(body.theme_id).toBe(createdTheme.item.id);
+    await page.screenshot({ path: `${SHOT_DIR}/c1-05-preview-theme-switcher.png` });
   });
 });

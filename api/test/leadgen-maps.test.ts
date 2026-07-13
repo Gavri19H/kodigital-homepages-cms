@@ -8,6 +8,7 @@ import {
   validateZip,
   resolveBrowserMapsKey,
   validateAddress,
+  deriveLocationFacet,
   ZIP_CACHE_NAMESPACE,
   LG_ZIP_CACHE_TTL_S,
   GOOGLE_MAPS_BROWSER_KEY,
@@ -172,5 +173,61 @@ describe("validateAddress — §12.8 server validate/geocode + §30.2 no-op", ()
     const r = await validateAddress(env, { zip: "90210" });
     expect(r.status).toBe("ok");
     expect(r.cached).toBeUndefined(); // came from geocode, not the corrupt cache
+  });
+});
+
+describe("deriveLocationFacet — §9 auction location facet (PROPOSED, engine-untouched)", () => {
+  it("derives { zip } from a bare valid answer ZIP (server-side, no geocode / no browser key)", () => {
+    // §9.3: the facet still derives with just the ZIP when the Maps keys are
+    // absent — a valid ZIP is itself a location.
+    expect(deriveLocationFacet("90210")).toEqual({ zip: "90210" });
+    expect(deriveLocationFacet("00000")).toEqual({ zip: "00000" });
+  });
+
+  it("returns null for a ZIP that is not exactly 5 digits, or nullish input", () => {
+    for (const bad of ["9021", "902101", "9021a", " 90210", "abcde", ""]) {
+      expect(deriveLocationFacet(bad), bad).toBeNull();
+    }
+    expect(deriveLocationFacet(null)).toBeNull();
+    expect(deriveLocationFacet(undefined)).toBeNull();
+  });
+
+  it("enriches the facet with state + city from a server-side validateAddress result", () => {
+    // §9.1: "target or exclude by state, city or ZIP" — the geocode result adds
+    // the state/city dims to the ZIP.
+    const facet = deriveLocationFacet({
+      status: "ok",
+      city: "Beverly Hills",
+      state: "CA",
+      normalized: { street: "", city: "Beverly Hills", state: "CA", zip: "90210" },
+    });
+    expect(facet).toEqual({ zip: "90210", state: "CA", city: "Beverly Hills" });
+  });
+
+  it("derives from a bare normalized address, and reads the ZIP from normalized when top-level is absent", () => {
+    const facet = deriveLocationFacet({ street: "1 Main St", city: "Austin", state: "TX", zip: "73301" });
+    expect(facet).toEqual({ zip: "73301", state: "TX", city: "Austin" });
+  });
+
+  it("omits empty/absent state & city (a valid ZIP still yields a facet)", () => {
+    // A geocode that resolved a ZIP but no locality/admin area (empty strings)
+    // must NOT emit blank state/city keys.
+    const facet = deriveLocationFacet({
+      status: "ok",
+      city: "",
+      state: "",
+      normalized: { street: "", city: "", state: "", zip: "10001" },
+    });
+    expect(facet).toEqual({ zip: "10001" });
+    expect(Object.prototype.hasOwnProperty.call(facet, "state")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(facet, "city")).toBe(false);
+  });
+
+  it("returns null for a validation result carrying no resolvable ZIP (no_op / invalid)", () => {
+    // Absent SERVER key ⇒ validateAddress returns { status: "no_op" } with no
+    // normalized ZIP; there is nothing to derive from the result alone (the
+    // caller passes the raw answer ZIP in that case — covered above).
+    expect(deriveLocationFacet({ status: "no_op" })).toBeNull();
+    expect(deriveLocationFacet({ status: "invalid" })).toBeNull();
   });
 });

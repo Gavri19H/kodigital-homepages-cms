@@ -1360,6 +1360,63 @@ describeDb("v2.4 03 §3.2d — the Maps key also injects for a ZIP-validate funn
   });
 });
 
+// v3.1 §9.3 — the NEW {enabled,jobs} shape's per-field precedence in the
+// KEY-INJECTION gate (funnelNeedsMapsKey), mirroring presets.ts's renderer.
+// Regression: before this phase, ANY object-shaped props.maps (new or
+// legacy) counted as "needs the key" unconditionally — an explicit
+// maps.enabled:false must now suppress it for that field.
+describeDb("v3.1 §9.3 — funnelNeedsMapsKey respects an explicit maps.enabled:false (no key injected)", () => {
+  it("a funnel whose ONLY Maps signal is a ZIP with maps.enabled:false gets NO key splice", async () => {
+    const { sdb, env } = newHarness();
+    const zipJson = JSON.stringify({
+      components: [
+        {
+          type: "ZIPInputQuestion",
+          question_id: "q_zip",
+          question_key: "zip",
+          internal_field: "zip",
+          props: { maps: { enabled: false, jobs: { validate: false, auction: false, autocomplete: false } } },
+        },
+      ],
+    });
+    await seedActivatedFunnel(env, sdb, {
+      quoteName: "Zip Off Quote",
+      slug: "zip-off",
+      sectionContentJson: zipJson,
+      addressValidation: false,
+    });
+
+    const html = await (await get(env, "/lg/zip-off")).text();
+    expect(html).not.toContain("window.__LG_MAPS_KEY__");
+    expect(html).not.toContain("data-lg-maps");
+  });
+
+  it("a funnel whose ONLY Maps signal is a ZIP with maps.enabled:true (new shape) DOES get the key splice", async () => {
+    const { sdb, env } = newHarness();
+    const zipJson = JSON.stringify({
+      components: [
+        {
+          type: "ZIPInputQuestion",
+          question_id: "q_zip",
+          question_key: "zip",
+          internal_field: "zip",
+          props: { maps: { enabled: true, jobs: { validate: true, auction: false, autocomplete: false } } },
+        },
+      ],
+    });
+    await seedActivatedFunnel(env, sdb, {
+      quoteName: "Zip On Quote",
+      slug: "zip-on",
+      sectionContentJson: zipJson,
+      addressValidation: false,
+    });
+
+    const html = await (await get(env, "/lg/zip-on")).text();
+    expect(html).toContain("window.__LG_MAPS_KEY__");
+    expect(html).toContain("data-lg-maps=");
+  });
+});
+
 describeDb("M1 — /lg/config never goes stale across a test start (ab_rev cache axis, §16.2)", () => {
   it("the control variant's config flips single_control → ab_hash after a start (NOT the stale cached body)", async () => {
     const { sdb, env } = newHarness();

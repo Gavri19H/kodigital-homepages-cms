@@ -251,19 +251,23 @@ function removeContainers(html: string, opener: RegExp, tag: string, keepSummary
 //   · details.lg-rb-advanced — the rules-builder's per-card "Advanced"
 //     disclosure (same §7.3 pattern, rules-builder class; its summary label
 //     was DEV-66a-fixed to the operator word);
-//   · div[data-studio-panel="advanced"] — the studio inspector's Advanced tab
-//     panel (07 §7.3);
+//   · div[data-studio-advanced-body] — v3.1 §8.8: the studio inspector's
+//     Advanced disclosure, now a PERSISTENT region below the 5-tab strip
+//     (not a 6th data-studio-panel tab, replacing the pre-v3.1
+//     div[data-studio-panel="advanced"] entry this superseded) — "the ONLY
+//     place ids/JSON/hex appear";
 //   · div[data-studio-drawer-panel="preview"] — the studio "Preview & debug"
 //     drawer: 12 §12.3 declares the debug drawer AN ADVANCED SURFACE ("renders
 //     the redacted JSON in the debug drawer (Advanced surface — JSON allowed
 //     there)").
 // DEV-66a: the details entries keep their <summary> labels on the normal
 // surface (always-visible while collapsed); the div panels have no summary —
-// their visible affordance is the tab/drawer BUTTON, which lives outside the
-// panel and is already scanned.
+// their visible affordance is the tab/toggle BUTTON, which lives outside the
+// panel and is already scanned (v3.1: data-studio-advanced-toggle is a
+// sibling of data-studio-advanced-body, matching this exact pattern).
 const ADVANCED_CONTAINERS: ReadonlyArray<{ opener: RegExp; tag: string; keepSummary?: boolean }> = [
   { opener: /<details\b[^>]*class="[^"]*(?:lg-advanced|lg-rb-advanced|studio-advanced-json)[^"]*"[^>]*>/, tag: "details", keepSummary: true },
-  { opener: /<div\b[^>]*data-studio-panel="advanced"[^>]*>/, tag: "div" },
+  { opener: /<div\b[^>]*data-studio-advanced-body[^>]*>/, tag: "div" },
   { opener: /<div\b[^>]*data-studio-drawer-panel="preview"[^>]*>/, tag: "div" },
 ];
 
@@ -683,10 +687,15 @@ describeDb("15 §15.2 glossary-lint — normal-mode language over the emitted bu
       expect(p.literals.length, `${label} island literals`).toBeGreaterThan(100);
     }
     // the Advanced strip actually removed the known Advanced ELEMENTS (the
-    // stylesheet keeps mentioning the class names — styles are not copy)
+    // stylesheet keeps mentioning the class names — styles are not copy).
+    // NOTE: `.normal` retains <script> (only `.visible` strips it) — the ES5
+    // island legitimately references the bare `[data-studio-advanced-body]`
+    // selector by NAME in querySelector calls, so the assertion checks the
+    // full MARKUP opening tag (which never occurs inside script SOURCE
+    // TEXT), not the bare attribute name.
     const studio = all.find((x) => x.label === "studio-edit")!;
-    expect(studio.raw).toContain('data-studio-panel="advanced"');
-    expect(studio.normal).not.toContain('data-studio-panel="advanced"');
+    expect(studio.raw).toContain('class="studio-advanced-body" data-studio-advanced-body');
+    expect(studio.normal).not.toContain('class="studio-advanced-body" data-studio-advanced-body');
     expect(studio.normal).not.toContain('<details class="studio-advanced-json"');
     expect(studio.raw).toContain('data-studio-drawer-panel="preview"');
     expect(studio.normal).not.toContain('data-studio-drawer-panel="preview"');
