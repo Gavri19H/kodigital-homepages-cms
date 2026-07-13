@@ -922,7 +922,7 @@ export function renderStudioSettings(view: StudioSectionView, mapsKeyConfigured:
       </div>
     </div>
   </div>
-  <form id="lg-section-form" novalidate style="display:flex;gap:16px;align-items:flex-end">
+  <form id="lg-section-form" novalidate style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end">
     <div class="form-group" style="flex:1.5;margin:0">
       <label class="form-label" for="lg-section-headline" style="display:block;font-size:11px;font-weight:700;color:${STUDIO_COLOR.mutedLabel};margin-bottom:5px">Question headline *</label>
       <input id="lg-section-headline" name="headline_text" required aria-required="true" value="${escapeHtml(view.headline_text)}" style="width:100%;padding:10px 13px;font-size:15px;font-weight:600;color:${STUDIO_COLOR.ink};border:1px solid ${STUDIO_COLOR.stripInputBorder};border-radius:${STUDIO_RADIUS.control}px;outline:none;background:${STUDIO_COLOR.white}" />
@@ -2407,8 +2407,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-chip{font-size:12px;border-radius:999px;padding:4px 10px;border:1px solid var(--c-border);background:var(--c-surface);cursor:pointer}
 .studio-chip-validation[data-issue-count="0"]{color:${STUDIO_COLOR.muted};background:${STUDIO_COLOR.issuesChipBg};border-color:${STUDIO_COLOR.issuesChipBg}}
 .studio-chip-validation:not([data-issue-count="0"]){color:${STUDIO_COLOR.warnStrong};background:${STUDIO_COLOR.warnTint};border-color:${STUDIO_COLOR.warn}}
-.studio-settings{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:12px}
-@media (max-width:640px){.studio-settings{grid-template-columns:1fr}}
+.studio-settings{display:flex;flex-direction:column;gap:12px;margin-bottom:12px}
 .lg-editor-grid{display:grid;grid-template-columns:${STUDIO_GEOMETRY.leftLibraryWidth}px 1fr ${STUDIO_GEOMETRY.rightInspectorWidth}px;gap:16px;align-items:start}
 @media (max-width:1023px){.lg-editor-grid{grid-template-columns:1fr}}
 .lg-editor-spacer{flex:1}

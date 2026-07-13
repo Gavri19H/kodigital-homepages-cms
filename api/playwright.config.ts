@@ -21,6 +21,28 @@ import { defineConfig, devices } from '@playwright/test';
 // header via extraHTTPHeaders (RFC compliance), so dev substitutes the
 // ADMIN_HOST literal to the loopback hostname instead. The behavioral
 // contract under test is invariant; only the literal hostname differs.
+// R0b (register §A M1 / R0a spike, api/test-ui/r0a-drag-spike.spec.ts):
+// a REAL page.mouse drag into the studio's srcdoc canvas frame hangs on the
+// 2nd move under Chromium/CDP (environment limitation — reproduced with
+// BOTH the original srcdoc frame and a spiked src-URL frame, so it is not a
+// srcdoc-vs-src property; the src-URL experiment was reverted). The same
+// drag completes under Firefox (Juggler protocol, no CDP). Every "gesture"
+// spec (real page.mouse drag probes) therefore runs on a dedicated firefox
+// project instead of the default chromium one. The two arrays below are
+// kept as a single source of truth so a file can never end up in BOTH
+// projects (double-counted in --list) or in NEITHER (silently unrun):
+// firefox's testMatch and chromium's testIgnore are the exact same list.
+const GESTURE_SPEC_PATTERNS = [
+  'r0a-drag-spike.spec.ts',
+  'forensic-live-probe.spec.ts',
+  // Future-proof: any spec explicitly named *.gesture.spec.ts is a real
+  // page.mouse gesture spec by convention and runs on firefox too. No file
+  // matches this pattern today (verified via `find test-ui -iname
+  // "*.gesture.spec.ts"`), so adding it changes nothing about today's
+  // counts — it only pre-wires the convention for R2/R6.
+  '**/*.gesture.spec.ts',
+];
+
 export default defineConfig({
   testDir: './test-ui',
   // LeadGen v2.5 15 §15.4: committed toHaveScreenshot baselines live under
@@ -52,6 +74,18 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      // Every gesture spec runs on firefox instead (see GESTURE_SPEC_PATTERNS
+      // above) — excluded here so no file is ever picked up by both projects.
+      testIgnore: GESTURE_SPEC_PATTERNS,
+    },
+    {
+      name: 'firefox',
+      use: { ...devices['Desktop Firefox'] },
+      // ONLY the real page.mouse gesture specs run here (see
+      // GESTURE_SPEC_PATTERNS above) — Firefox's Juggler protocol completes
+      // the multi-move drag that hangs under Chromium/CDP against the
+      // studio's nested srcdoc canvas iframe.
+      testMatch: GESTURE_SPEC_PATTERNS,
     },
   ],
   webServer: [

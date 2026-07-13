@@ -882,7 +882,7 @@ export async function runAuction(
   // row's (04 §4.5/§4.9 multi-placement).
   const contextByOfferPlacement = new Map<string, LeadGenRuntimeContext>();
   const contextFor = (b: AuctionBundleOffer): LeadGenRuntimeContext => {
-    const key = `${b.offer.public_id} ${b.placement_external_id ?? ""}`;
+    const key = `${b.offer.public_id}\0${b.placement_external_id ?? ""}`;
     const existing = contextByOfferPlacement.get(key);
     if (existing !== undefined) return existing;
     const ctx = buildLeadgenRuntimeContext(contextSource, {
