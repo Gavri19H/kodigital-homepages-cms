@@ -1953,6 +1953,16 @@ describe("audit-round G FIX 3a — renderTextInput §8.1 leading pin + helper li
     expect(html).toContain('style="padding-left:42px"');
   });
 
+  it("audit-round G MINOR-1 regression guard: the icon span carries z-index:1 so it paints ABOVE the Studio's own [data-selection-wrap] decoration span (both position:relative/absolute siblings at the implicit z-index:auto level — without an explicit z-index the LATER-DOM wrap's opaque input background visually occludes the icon even though it remains a real, present, correctly-positioned DOM node; confirmed live via a Playwright canvas probe during this fix's investigation)", () => {
+    const html = renderComponent(
+      { ...base, props: { placeholder: "Enter your ZIP code", icon: "location" } },
+      DESIGN,
+    );
+    expect(html).toContain(
+      '<span class="lg-field-icon" aria-hidden="true" style="position:absolute;left:14px;top:0;bottom:0;display:flex;align-items:center;pointer-events:none;z-index:1">',
+    );
+  });
+
   it("legacy props.helper_text is read as a fallback (erratum 8) when props.helper is absent", () => {
     const html = renderComponent({ ...base, props: { helper_text: "Legacy helper" } }, DESIGN);
     expect(html).toContain(
@@ -1972,5 +1982,22 @@ describe("audit-round G FIX 3a — renderTextInput §8.1 leading pin + helper li
     expect(html).not.toContain("lg-field-boxed");
     expect(html).not.toContain("lg-field-help");
     expect(html).not.toContain("lg-field-icon");
+  });
+
+  it("audit-round G MINOR-3: helper:'' (e.g. a legacy node migrated from helper_text:'') renders NO helper div — byte-identical to absent", () => {
+    const html = renderComponent({ ...base, props: { placeholder: "Enter your ZIP code", helper: "" } }, DESIGN);
+    expect(html).not.toContain("lg-field-help");
+    expect(html).not.toContain("lg-field-boxed");
+    expect(html.startsWith('<input class="lg-input"')).toBe(true);
+  });
+
+  it("audit-round G MINOR-3: helper:'   ' (whitespace-only) also renders NO helper div", () => {
+    const html = renderComponent({ ...base, props: { placeholder: "Enter your ZIP code", helper: "   " } }, DESIGN);
+    expect(html).not.toContain("lg-field-help");
+  });
+
+  it("audit-round G MINOR-3: legacy helper_text:'' (post-migration empty alias) also renders NO helper div", () => {
+    const html = renderComponent({ ...base, props: { placeholder: "Enter your ZIP code", helper_text: "" } }, DESIGN);
+    expect(html).not.toContain("lg-field-help");
   });
 });

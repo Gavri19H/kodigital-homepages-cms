@@ -414,8 +414,66 @@ gate. New/changed gates below (counts are per-file `vitest run` at pass-after).
 - **gate4-behavior placebos** (`test/leadgen-v31-gate4-behavior.test.ts`) — the two `FINDING (confirmed, not fixed)` / `expect(true)` bodies (presets-deselect-on-drag; Reset-button e2e) are replaced by REAL data + island-source assertions with truthful titles.
 - Traceability rows 10 + 12 evidence citations updated to the new proofs (status left unchanged for conductor re-verification).
 
-### Re-mint (Gate 1c)
-The 7 Gate-1c baselines change for the intended deltas ONLY: navy/accent chrome
-(FIX 1), the §8.1 cream affects callout (FIX 2), and the helper line + leading
-pin in the canvas field states (FIX 3). Re-minted per the established flow;
-stability proven by 2× fresh-env `--shard=2/3` runs.
+### Re-mint (Gate 1c) — round 1 (the 4 MAJORs)
+The 7 Gate-1c baselines changed for the intended deltas: navy/accent chrome
+(FIX 1), the §8.1 cream affects callout (FIX 2), and the §8.1 helper line in
+the canvas field states (FIX 3). CORRECTION (see MINOR-1 below): this round's
+`leadgen-v31-gate1c-baselines.spec.ts` fixture seeded `props.helper` but NOT
+`props.icon`, so the leading pin did **not** yet have real visual-baseline
+coverage here — round 1 captured the helper line only, never the pin, despite
+FIX 3 (presets.ts) already being able to render it. Re-minted per the
+established flow; stability proven by 2× fresh-env `--shard=2/3` runs.
+
+### Confirmation-review MINORs (2 closed; a 3rd left alone)
+A fresh-context confirmation review SHIP'd all 4 MAJORs and flagged 3 cheap
+MINORs. Two were closed this round (ownership: `presets.ts`,
+`leadgen-v31-gate1c-baselines.spec.ts` + baselines, this file); the 3rd
+(pre-existing REFERENCED stubs in `gate4-behavior.test.ts` — legitimate
+pointers to live Playwright coverage elsewhere, not placebos) was left alone
+per the review's own instruction.
+
+- **MINOR-1 (baseline pin coverage + gate-map accuracy).** Added
+  `icon:"location"` to the gate1c fixture's ZIP field so the golden :323
+  leading pin has REAL visual-baseline coverage (round-1's baselines never
+  actually exercised it — see the correction above). Re-minting with the pin
+  now authored surfaced a genuine, previously-undetected PRODUCT BUG: the
+  Studio's own client-side selection decoration wraps a selected field's
+  `<input>` in its own `<span data-selection-wrap="1" style="position:
+  relative;...">`. That wrap and the icon's `<span class="lg-field-icon"
+  style="position:absolute;...">` are BOTH positioned siblings at the
+  implicit `z-index:auto` level, so paint order fell back to DOM order — the
+  LATER wrap (carrying the input's own opaque background) painted OVER the
+  EARLIER icon span, visually hiding it completely even though it remained a
+  real, present, correctly-positioned DOM node (a Playwright `boundingBox()`/
+  `count()` probe against the LIVE canvas — which does not detect paint
+  occlusion — reported it as fully present and positioned; only a pixel-level
+  screenshot inspection revealed it was invisible). FIX: an explicit
+  `z-index:1` on the icon span (`presets.ts` `renderTextInput`) wins over the
+  wrap's `z-index:auto` regardless of DOM order — a one-line, in-scope fix,
+  no change needed to the Studio's decoration script. Regression-guarded by a
+  new `leadgen-components-render.test.ts` assertion on the icon span's exact
+  style string (fail-before/pass-after confirmed). Round 1's baselines never
+  showed the icon at all (blank field-box gap), so this is not a visual
+  regression against round 1 — the baselines actually change from "no pin
+  ever rendered" to "pin correctly rendered", the FIRST time this element has
+  real pixel coverage.
+- **MINOR-3 (empty-helper guard).** `presets.ts` `fieldHelperLine` gated on
+  `helper === undefined`, but `propStr` returns `""` (not `undefined`) for an
+  authored empty-string prop — so a legacy node migrated from
+  `helper_text:""` to `helper:""` (FIX 3b's save migration) would emit an
+  empty `<div class="lg-field-help"></div>`. FIX: gate on trimmed-non-empty
+  (`helper === undefined || helper.trim() === ""`). 3 new unit tests in
+  `leadgen-components-render.test.ts` (empty string, whitespace-only, empty
+  legacy alias — each renders NO helper div, byte-identical to absent);
+  fail-before/pass-after confirmed.
+
+### Re-mint (Gate 1c) — round 2 (MINOR-1)
+States 1-5 (the ZIP-fixture-bearing studio states) re-minted a second time
+with `icon:"location"` in the fixture AND the z-index fix applied, so the
+leading pin now has its first-ever real pixel baseline. States 6-7
+(Themes-manager, no ZIP fixture) were left untouched and independently
+confirmed unaffected (compared at `ratio=0` against their existing,
+untouched baselines during both the mint and the confirm passes — proving
+this change's blast radius is exactly the ZIP field's icon, nothing else).
+Stability proven by a fresh-preamble mint pass (7 passed) followed by a
+fresh-preamble confirm pass (7/7 `ratio=0`).

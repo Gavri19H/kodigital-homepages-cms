@@ -1343,7 +1343,11 @@ function fieldLeadingIcon(node: LeadgenComponentNode): string {
 // runtime + both previews (§12 parity).
 function fieldHelperLine(node: LeadgenComponentNode): string {
   const helper = propStr(node, "helper") ?? propStr(node, "helper_text");
-  return helper === undefined
+  // audit-round G MINOR-3: propStr returns "" (not undefined) for an
+  // authored empty-string prop, so a legacy node migrated to helper:"" must
+  // still gate out here — trimmed-non-empty, not merely !== undefined —
+  // else it would emit an empty <div class="lg-field-help"></div>.
+  return helper === undefined || helper.trim() === ""
     ? ""
     : `<div class="lg-field-help" style="font-size:12.5px;color:#96A0AF;margin-top:7px;padding-left:2px">${esc(helper)}</div>`;
 }
@@ -1392,7 +1396,21 @@ function renderTextInput(
     icon === ""
       ? input
       : '<span class="lg-field-box" style="position:relative;display:block">' +
-        '<span class="lg-field-icon" aria-hidden="true" style="position:absolute;left:14px;top:0;bottom:0;display:flex;align-items:center;pointer-events:none">' +
+        // audit-round G MINOR-1 (surfaced by adding real baseline-pin
+        // coverage): the Studio's own selection decoration wraps the field's
+        // <input> in its OWN `position:relative` span (`[data-selection-
+        // wrap]`) once a node is selectable/selected. That wrap and this icon
+        // span are BOTH position:absolute/relative siblings with an implicit
+        // z-index:auto, so paint order falls back to DOM order — the LATER
+        // wrap (holding the input's own opaque background) paints OVER this
+        // EARLIER icon span, hiding it completely even though it's still a
+        // real, present, correctly-positioned DOM node (confirmed via a
+        // direct Playwright boundingBox()/count() probe against the live
+        // canvas — the element exists with a valid box; only the PAINT was
+        // occluded). An explicit z-index wins over z-index:auto regardless of
+        // DOM order, so this is a one-line fix scoped to this render function
+        // (no change needed in the Studio's own decoration script).
+        '<span class="lg-field-icon" aria-hidden="true" style="position:absolute;left:14px;top:0;bottom:0;display:flex;align-items:center;pointer-events:none;z-index:1">' +
         icon +
         "</span>" +
         input +

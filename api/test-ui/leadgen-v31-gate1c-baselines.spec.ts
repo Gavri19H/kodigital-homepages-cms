@@ -271,7 +271,11 @@ function fixtureContent(customPx?: number): Record<string, unknown> {
     internal_field: "zip",
     answer_type: "string",
     required: true,
-    props: { label: "ZIP code", placeholder: "Enter your ZIP code", helper: "We never share this", format: "us_zip" },
+    // audit-round G MINOR-1: icon:"location" so the golden :323 leading pin
+    // has real visual-baseline coverage alongside the helper line — a bare
+    // `helper` (no `icon`) never renders the pin (fieldLeadingIcon gates on
+    // icon==="location"), so pre-MINOR-1 baselines captured the helper only.
+    props: { label: "ZIP code", placeholder: "Enter your ZIP code", helper: "We never share this", icon: "location", format: "us_zip" },
   };
   if (customPx !== undefined) {
     zipNode["design_overrides"] = { size: { width: { custom_px: customPx } } };
