@@ -1720,7 +1720,15 @@ function renderScopeHeaderShell(): string {
 // §7.3: the tab STRIP is dynamic per selection (availableTabsFor island-side)
 // — never a fixed strip; §7.4 relabeling keeps every visible string in
 // operator words.
-export function renderStudioInspector(design: FunnelDesign): string {
+export function renderStudioInspector(design: FunnelDesign, sectionPublicId: string | null): string {
+  // v3.1 §10.2 fix round (M1 — adversarial review): the Style tab's "Manage
+  // theme →" link must carry ?from=<section public_id> so the Themes
+  // manager's "← Back to section" can return here instead of degrading to
+  // the sections list (ui-theme-manager.ts's OWN documented fallback for a
+  // bare, param-less landing). A brand-new (unsaved) Section has no
+  // public_id yet — the link stays bare, matching that same fallback.
+  const manageThemeHref =
+    sectionPublicId !== null ? `/admin/leadgen/themes?from=${encodeURIComponent(sectionPublicId)}` : "/admin/leadgen/themes";
   const opOptions = options(CONDITION_OP_OPTIONS);
   const patternOptions = options(PATTERN_PRESETS);
   // The generic per-type copy fields (CONTENT_PROP_FIELDS projection) — still
@@ -1935,7 +1943,7 @@ export function renderStudioInspector(design: FunnelDesign): string {
         <button type="button" data-set-border-color="brand"><span class="studio-role-swatch" data-border-swatch="brand"></span>Brand</button>
         <button type="button" data-set-border-color="accent"><span class="studio-role-swatch" data-border-swatch="accent"></span>Accent</button>
       </div>
-      <p class="form-help studio-inline-note">Colors are theme roles, not fixed shades — change the theme once and every question updates. <a href="/admin/leadgen/themes" data-open-manage-theme>Manage theme &#8594;</a></p>
+      <p class="form-help studio-inline-note">Colors are theme roles, not fixed shades — change the theme once and every question updates. <a href="${manageThemeHref}" data-open-manage-theme>Manage theme &#8594;</a></p>
 
       <div class="studio-hr"></div>
       <p class="form-help">§8.5 tokenized layout props — dropdowns of the allowed values only.</p>
@@ -2195,7 +2203,15 @@ const MAPPING_TABLE_COLUMNS = [
 // in §2/Appendix A) — kept reachable (preserve-every-mechanism) as a smaller,
 // visually-subordinate 4th control so it never competes with the 3 golden
 // pills for attention.
-export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount: number): string {
+export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount: number, sectionPublicId: string | null): string {
+  // v3.1 §10.2 fix round (M1): same ?from= completion as renderStudioInspector's
+  // Style-tab link, for the drawer's "Preview theme" → "Manage theme →" link.
+  // No server-known "current preview theme_id" exists at this SSR point (the
+  // <select id="lg-preview-theme"> is populated client-side from the live KV
+  // list — the Section editor stores no theme itself), so &theme= is omitted
+  // per the fix's own "optional; ?from is the required part" scoping.
+  const manageThemeHref =
+    sectionPublicId !== null ? `/admin/leadgen/themes?from=${encodeURIComponent(sectionPublicId)}` : "/admin/leadgen/themes";
   const mappingSummary = summary.publishable
     ? `<span class="badge badge-published" data-publishable="true">Publishable</span>`
     : `<span class="badge badge-archived" data-publishable="false">Blocked from publish (§12.11)</span>`;
@@ -2219,7 +2235,7 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
       <span style="width:13px;height:13px;border-radius:4px;background:${STUDIO_COLOR.navy};position:relative;display:inline-block"><span style="position:absolute;right:-2px;bottom:-2px;width:7px;height:7px;border-radius:2px;background:${STUDIO_COLOR.accent};border:1px solid ${STUDIO_COLOR.white}"></span></span>
       <label style="font-size:12px;color:${STUDIO_COLOR.muted};font-weight:600" for="lg-preview-theme">Preview theme:</label>
       <select id="lg-preview-theme" class="form-input" data-studio-preview-theme style="font-size:12px;padding:3px 6px;max-width:130px"><option value="">Navy (default)</option></select>
-      <a href="/admin/leadgen/themes" data-studio-manage-theme-link style="font-size:12px;color:${STUDIO_COLOR.muted};font-weight:600;text-decoration:none">Manage theme &#8594;</a>
+      <a href="${manageThemeHref}" data-studio-manage-theme-link style="font-size:12px;color:${STUDIO_COLOR.muted};font-weight:600;text-decoration:none">Manage theme &#8594;</a>
       <div style="width:1px;height:20px;background:${STUDIO_COLOR.linePanel}"></div>
       <button type="button" data-studio-drawer-expand aria-pressed="false" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:${STUDIO_COLOR.faintSub};cursor:pointer;background:none;border:0;padding:0">Expand<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="${STUDIO_COLOR.faintSub}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div>
@@ -2331,9 +2347,9 @@ ${mapsBanner}
 <div class="lg-editor-grid studio-grid">
   <div class="card studio-cell-library">${renderStudioLibrary(design, view.content)}</div>
   <div class="card studio-cell-canvas">${renderStudioCanvas(view.content, design, { headline_text: view.headline_text, subheadline_text: view.subheadline_text })}</div>
-  <div class="card studio-cell-inspector">${renderStudioInspector(design)}</div>
+  <div class="card studio-cell-inspector">${renderStudioInspector(design, view.public_id)}</div>
 </div>
-${renderStudioDrawer(summary, answerMapCount)}
+${renderStudioDrawer(summary, answerMapCount, view.public_id)}
 ${renderStudioMediaPicker(aiImageAvailable)}
 ${renderStudioSeedData()}`;
 }

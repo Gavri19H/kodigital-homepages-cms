@@ -1069,7 +1069,10 @@ test.describe.serial('LeadGen Section Studio v3.1 Phase C — the golden 5-tab i
     await expect(themeSelect.locator(`option[value="${createdTheme.item.id}"]`)).toHaveText(themeName, { timeout: 10_000 });
 
     const manageLink = page.locator('[data-studio-manage-theme-link]');
-    await expect(manageLink).toHaveAttribute('href', '/admin/leadgen/themes');
+    // v3.1 §10.2 fix round (M1): the link now carries ?from=<section public_id>
+    // so the Themes manager's "Back to section" can return HERE (was a bare
+    // href — the stale assertion this replaces predates that fix).
+    await expect(manageLink).toHaveAttribute('href', `/admin/leadgen/themes?from=${section.public_id}`);
     await expect(manageLink).toHaveText('Manage theme →');
 
     // picking a theme re-renders the preview via the SAME additive theme_id
