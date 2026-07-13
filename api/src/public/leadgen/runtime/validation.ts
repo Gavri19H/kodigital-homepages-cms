@@ -20,6 +20,8 @@ export type LgValidationCode =
   | "invalid_value"
   | "min"
   | "max"
+  | "min_count"
+  | "max_count"
   | "step"
   | "min_length"
   | "max_length"
@@ -116,6 +118,12 @@ export function validateValue(
 ): LgValidationFailure[] {
   const out: LgValidationFailure[] = [];
   const cv: Record<string, unknown> = component.client_validation ?? {};
+  // E1-C1: the authored error_text (config-dto projects it into
+  // client_validation) overrides the generic per-rule copy on any "value is
+  // wrong" failure. Applied ONCE at the end — the empty/required branch returns
+  // before it, so required's own copy is deliberately never overridden.
+  const et = cv["error_text"];
+  const errText = typeof et === "string" && et !== "" ? et : undefined;
 
   const required = requiredNow || cv["required"] === true || component.required === true;
   if (!isAnswered(value)) {
@@ -136,24 +144,38 @@ export function validateValue(
   const max = ruleNumber(cv, "max");
   const step = ruleNumber(cv, "step");
   if (min !== null || max !== null || step !== null) {
-    const n = asFiniteNumber(value);
-    if (n !== null) {
-      if (min !== null && n < min) {
-        out.push({ code: "min", message: `Enter a value of at least ${min}.` });
+    if (Array.isArray(value)) {
+      // E1-NEW-3: min/max on an ARRAY answer (MultiChoice selection) validate
+      // the selection COUNT — the scalar leg below skips arrays
+      // (asFiniteNumber(array) === null), so multi-select count limits were
+      // enforced NOWHERE before this. `step` is meaningless for a count.
+      const count = value.length;
+      if (min !== null && count < min) {
+        out.push({ code: "min_count", message: `Select at least ${min} options.` });
       }
-      if (max !== null && n > max) {
-        out.push({ code: "max", message: `Enter a value of at most ${max}.` });
+      if (max !== null && count > max) {
+        out.push({ code: "max_count", message: `Select at most ${max} options.` });
       }
-      if (step !== null && step > 0) {
-        const base = min !== null ? min : 0;
-        const ratio = (n - base) / step;
-        if (Math.abs(ratio - Math.round(ratio)) > 1e-9) {
-          out.push({ code: "step", message: `Use steps of ${step}.` });
+    } else {
+      const n = asFiniteNumber(value);
+      if (n !== null) {
+        if (min !== null && n < min) {
+          out.push({ code: "min", message: `Enter a value of at least ${min}.` });
         }
+        if (max !== null && n > max) {
+          out.push({ code: "max", message: `Enter a value of at most ${max}.` });
+        }
+        if (step !== null && step > 0) {
+          const base = min !== null ? min : 0;
+          const ratio = (n - base) / step;
+          if (Math.abs(ratio - Math.round(ratio)) > 1e-9) {
+            out.push({ code: "step", message: `Use steps of ${step}.` });
+          }
+        }
+      } else if (typeof value === "string" || typeof value === "number") {
+        // A numeric rule on a non-numeric answer is itself a failure.
+        out.push({ code: "invalid_value", message: "Enter a number." });
       }
-    } else if (typeof value === "string" || typeof value === "number") {
-      // A numeric rule on a non-numeric answer is itself a failure.
-      out.push({ code: "invalid_value", message: "Enter a number." });
     }
   }
 
@@ -181,6 +203,11 @@ export function validateValue(
   }
 
   checkFormat(formatKindFor(component), value, out);
+  // E1-C1: swap in the authored copy for every value-wrong failure collected
+  // above (required already returned; only "wrong value" codes remain here).
+  if (errText !== undefined) {
+    for (const failure of out) failure.message = errText;
+  }
   return out;
 }
 

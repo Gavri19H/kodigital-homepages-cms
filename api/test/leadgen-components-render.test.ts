@@ -1290,7 +1290,7 @@ describe("v2.4 08 §8.3/§8.10 — new leaf components", () => {
     expect(html).toContain("data-lg-searchable");
     expect(html).toContain("data-lg-dropdown-search");
     expect(html).toContain('aria-label="Search options"');
-    expect(html).toContain('<select class="lg-input lg-dropdown">');
+    expect(html).toContain('<select class="lg-input lg-dropdown" data-lg-input>');
     expect(html).toContain('data-lg-choice="sole_prop"');
     expect(html).toContain('data-lg-choice="partnership"');
     expect(html).toContain('data-analytics-id="biz_sole"');

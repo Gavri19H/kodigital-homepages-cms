@@ -202,6 +202,20 @@ export function parseSectionDesignOverrides(
 // Client-safe validation rules for a component: `required`, the enum domain,
 // and any bounded numeric/length/pattern props authored on the node. These are
 // UI-validation hints only (no server/provider data).
+// E1-C2 (register §E.2): the FreeText "Pattern preset" (letters/digits) is
+// stored as props.pattern_preset with NO props.pattern (the studio only writes
+// props.pattern for the `custom` preset — ui-section-studio.ts:5435-5446), so
+// letters/digits enforced NOTHING at the answer layer. Translate them here to
+// the SAME anchored regexes the server's §6.5 free-text preset leg uses
+// (leadgen/payload.ts FREE_TEXT_PRESET_RES: letters=^[A-Za-z ]+$, digits=
+// ^[0-9]+$) so the client validateValue pattern rule enforces the preset's
+// promise. `custom` keeps its authored props.pattern (copied below); `none`/
+// absent contributes nothing.
+const PATTERN_PRESET_REGEX: Readonly<Record<string, string>> = {
+  letters: "^[A-Za-z ]+$",
+  digits: "^[0-9]+$",
+};
+
 function buildClientValidation(node: LeadgenComponentNode): Record<string, unknown> | undefined {
   const cv: Record<string, unknown> = {};
   if (node.required === true) cv["required"] = true;
@@ -212,6 +226,24 @@ function buildClientValidation(node: LeadgenComponentNode): Record<string, unkno
   for (const key of ["min", "max", "step", "minLength", "maxLength", "pattern"] as const) {
     const v = props[key];
     if (v !== undefined && v !== null) cv[key] = v;
+  }
+  // E1-C2: a letters/digits pattern_preset with no authored regex becomes the
+  // grounded preset regex (a custom preset already supplied props.pattern above
+  // and is never overridden).
+  if (cv["pattern"] === undefined) {
+    const preset = props["pattern_preset"];
+    if (typeof preset === "string") {
+      const regex = PATTERN_PRESET_REGEX[preset];
+      if (regex !== undefined) cv["pattern"] = regex;
+    }
+  }
+  // E1-C1 (register §E.2): the authored error_text ("If it's wrong, say …")
+  // rides client_validation so the runtime validateValue can use it as the
+  // human message override for format/range/pattern/length failures (it hard-
+  // coded generic copy before). Whitelisted non-empty string only.
+  const errorText = props["error_text"];
+  if (typeof errorText === "string" && errorText.trim() !== "") {
+    cv["error_text"] = errorText;
   }
   return Object.keys(cv).length > 0 ? cv : undefined;
 }
