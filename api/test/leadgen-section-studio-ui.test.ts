@@ -1943,18 +1943,19 @@ describeDb("section studio SSR — §8.2 Activity/Vertical dropdowns + E9 skelet
     expect(rawJsonSurfaces).toHaveLength(1);
   });
 
-  it("the 12 §12.3 mapping-overlay toggle ships in the preview drawer and the island wires it to the canvas decoration", async () => {
+  it("the 12 §12.3 mapping-overlay toggle ships in the canvas toolbar and the island wires it to the canvas decoration", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    // the toggle lives INSIDE the preview drawer panel (§12.3 'toggle in
-    // preview drawer')
-    const previewPanel = html.slice(
-      html.indexOf('data-studio-drawer-panel="preview"'),
-      html.indexOf("</iframe>", html.indexOf('data-studio-drawer-panel="preview"')),
+    // R4a E3-NEW-10: relocated from the preview drawer to the ALWAYS-VISIBLE
+    // canvas toolbar — its handler repaints the canvas, so the control now
+    // lives where its effect is seen.
+    const canvasToolbar = html.slice(
+      html.indexOf("data-studio-canvas-toolbar"),
+      html.indexOf('<div class="studio-canvas-surface"'),
     );
-    expect(previewPanel).toMatch(/data-studio-overlay-toggle[^>]*aria-pressed="false"/);
-    expect(previewPanel).toContain("Offer mapping overlay");
+    expect(canvasToolbar).toMatch(/data-studio-overlay-toggle[^>]*aria-pressed="false"/);
+    expect(canvasToolbar).toContain("Offer mapping overlay");
     const island = studioIsland(html);
     // toggle → repaint; chips rebuild inside the decoration pass; click →
     // the inspector Offers tab (v3.1 §8.2 folds Mapping -> Offers) scoped to
@@ -6980,8 +6981,10 @@ describeDb("review FIX 5 — save-response problems[] + inline routing", () => {
         sliceIslandFunction(island, "routeSaveFieldErrors"),
       ].join("\n"),
     );
-    // the save handler itself consumes both legs
-    expect(island).toContain("if (!isNew && problems.length > 0) {");
+    // the save handler itself consumes both legs. R4a E3-NEW-1: problems[]
+    // now surface unconditionally (new OR existing Section) — a first save
+    // no longer discards them by redirecting away first.
+    expect(island).toContain("if (problems.length > 0) {");
     expect(island).toContain("routeSaveFieldErrors(res.body && res.body.fields);");
     // problems[] → the summary + one row per problem
     probe.run(

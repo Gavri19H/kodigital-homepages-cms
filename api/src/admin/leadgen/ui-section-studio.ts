@@ -843,6 +843,7 @@ export function renderStudioTopBar(
   <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
     ${mappingBadge}
     ${issueChip(initialIssueCount)}
+    <span class="studio-dirty-dot" data-studio-dirty-indicator data-dirty="false" role="status">Unsaved changes</span>
     <div style="width:1px;height:24px;background:${STUDIO_COLOR.linePanel}"></div>
     <button type="button" id="lg-section-save" class="studio-btn-save" style="padding:9px 20px;background:${STUDIO_COLOR.navy};color:${STUDIO_COLOR.white};font-weight:700;font-size:13px;border:0;border-radius:${STUDIO_RADIUS.control}px;cursor:pointer;box-shadow:0 1px 2px rgba(27,58,92,.28)">Save</button>
     <button type="button" id="lg-section-archive" class="studio-btn-archive"${isNew || view.status === "archived" ? " disabled" : ""} style="padding:9px 14px;background:transparent;border:0;color:${STUDIO_COLOR.archiveText};font-weight:600;font-size:13px;border-radius:${STUDIO_RADIUS.control}px;cursor:pointer">Archive</button>
@@ -1364,6 +1365,11 @@ function renderCanvasToolbar(design: FunnelDesign): string {
       </span>
       <div style="width:1px;height:22px;background:${STUDIO_COLOR.linePanel}"></div>
       <button type="button" data-studio-frame-hint aria-pressed="true" title="Show a dimmed, generic frame skeleton for spatial context — presentation-only, edited in the Quote Builder" style="${frameBtnStyle(true)};border:0"><span style="${frameDotStyle(true)}"></span>Frame hint</button>
+      <div style="width:1px;height:22px;background:${STUDIO_COLOR.linePanel}"></div>
+      <!-- R4a E3-NEW-10: moved here from the Preview drawer panel — its
+           handler repaints the CANVAS, so the control now lives where its
+           effect is seen, always visible (not gated by tab/selection). -->
+      <button type="button" class="btn btn-sm btn-outline" data-studio-overlay-toggle aria-pressed="false" title="Chip every answer component on the canvas with its Offer-mapping status">Offer mapping overlay</button>
     </div>
     <span class="studio-tb-cluster" data-toolbar-cluster="structure" hidden>
       <button type="button" class="btn btn-sm btn-outline" data-studio-act="move-up" aria-label="Move up">&#8593;</button>
@@ -1449,6 +1455,25 @@ export function renderStudioCanvas(
 // ---------------------------------------------------------------------------
 
 const CONDITION_OP_OPTIONS: ReadonlyArray<string> = ["eq", "neq", "gt", "lt", "gte", "lte", "range", "in", "not_in"];
+
+// R4a S3-2: human words for the raw operator codes — SINGLE SOURCE for both
+// the SSR <option> text below (opOptions) AND the island's own
+// conditionSentence (interpolated into SECTION_STUDIO_SCRIPT as
+// CONDITION_OP_LABELS, ~conditionSentence's definition) so neither surface
+// invents its own wording. eq/neq already read as a full relation ("is" /
+// "is not"); gt/lt/gte/lte/range/in/not_in are bare comparatives that
+// conditionSentence prefixes with "is " at the sentence call site.
+const CONDITION_OP_LABELS: Record<string, string> = {
+  eq: "is",
+  neq: "is not",
+  gt: "greater than",
+  lt: "less than",
+  gte: "at least",
+  lte: "at most",
+  range: "between",
+  in: "one of",
+  not_in: "not one of",
+};
 
 function options(values: readonly (string | number)[], labels?: readonly string[]): string {
   return values
@@ -1819,7 +1844,10 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
   // public_id yet — the link stays bare, matching that same fallback.
   const manageThemeHref =
     sectionPublicId !== null ? `/admin/leadgen/themes?from=${encodeURIComponent(sectionPublicId)}` : "/admin/leadgen/themes";
-  const opOptions = options(CONDITION_OP_OPTIONS);
+  const opOptions = options(
+    CONDITION_OP_OPTIONS,
+    CONDITION_OP_OPTIONS.map((c) => CONDITION_OP_LABELS[c] ?? c),
+  );
   const patternOptions = options(PATTERN_PRESETS);
   // The generic per-type copy fields (CONTENT_PROP_FIELDS projection) — still
   // used by many non-field types (ContinueButton/TextBlock/containers/etc);
@@ -2150,6 +2178,9 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
     <fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-rules-condition-fields hidden>
       <legend class="form-label">Show this component IF (§6.10)</legend>
       <p class="form-help studio-cond-sentence" data-cond-sentence aria-live="polite"></p>
+      <!-- R4a S3-1: no eligible source field (self-excluded, whole-section
+           empty otherwise) — plain words IN PLACE of the bare dropdown. -->
+      <p class="form-help" data-rules-source-empty-hint hidden>Add another question to this section to condition on it.</p>
       <select class="form-input" data-inspector-cond="when" aria-label="Depends on field"><option value="">— always visible —</option></select>
       <select class="form-input" data-inspector-cond="op" aria-label="Condition operator">${opOptions}</select>
       <select class="form-input" data-inspector-cond="value-bool" aria-label="Boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
@@ -2166,6 +2197,8 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
     <fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-reqcond-wrap hidden>
       <legend class="form-label">Require this question IF (§7.3)</legend>
       <p class="form-help studio-cond-sentence" data-reqcond-sentence aria-live="polite"></p>
+      <!-- R4a S3-1 (same dead-end, mirrored here): no eligible source field. -->
+      <p class="form-help" data-reqcond-source-empty-hint hidden>Add another question to this section to condition on it.</p>
       <select class="form-input" data-inspector-reqcond="when" aria-label="Required when field"><option value="">— only when marked Required —</option></select>
       <select class="form-input" data-inspector-reqcond="op" aria-label="Required-when operator">${opOptions}</select>
       <select class="form-input" data-inspector-reqcond="value-bool" aria-label="Required-when boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
@@ -2193,7 +2226,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       <p class="form-label">What should Maps do? <span class="studio-muted-note">&#183; pick at least one</span></p>
       <div class="alert alert-warning studio-maps-zero-job-banner" data-maps-zero-job-banner hidden role="status" aria-live="polite">Pick at least one job for Maps, or turn it off — otherwise it does nothing at runtime.</div>
       <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="validate" /><span><span class="lg-check-label">Validate the answer</span><span class="form-help" data-maps-validate-copy></span></span></label>
-      <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="auction" /><span><span class="lg-check-label">Use in auction rules</span><span class="form-help">Turn the ZIP into a location the auction can target or exclude by state, city or ZIP. <a href="/admin/leadgen/rules" data-open-auction-rules>Open auction rules &#8594;</a></span></span></label>
+      <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="auction" /><span><span class="lg-check-label">Use in auction rules</span><span class="form-help">Turn the ZIP into a location the auction can target or exclude by state, city or ZIP. <a href="/admin/leadgen/auction" data-open-auction-rules>Open auction rules &#8594;</a></span></span></label>
       <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="autocomplete" /><span><span class="lg-check-label">Auto-complete the address</span><span class="form-help">Fill this field and the other address fields in this section (city, state, street) from the ZIP.</span></span></label>
     </div>
   </div>
@@ -2279,7 +2312,10 @@ function renderPreviewPanel(): string {
   <div class="lg-viewport-toggle" role="group" aria-label="Preview viewport">
     <button type="button" class="btn btn-sm btn-secondary active" data-preview-viewport="desktop" aria-pressed="true">Desktop</button>
     <button type="button" class="btn btn-sm btn-secondary" data-preview-viewport="mobile" aria-pressed="false">Mobile</button>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-overlay-toggle aria-pressed="false" title="Chip every answer component on the canvas with its Offer-mapping status">Offer mapping overlay</button>
+    <!-- R4a E3-NEW-10: the overlay toggle MOVED to the canvas toolbar
+         (renderCanvasToolbar) — its handler repaints the canvas, so the
+         control now lives where its effect is seen, not tucked in this
+         QA-console-shaped drawer tab. -->
     <button type="button" class="btn btn-sm btn-outline" id="lg-preview-refresh">Refresh preview</button>
     <label class="form-help" for="lg-preview-design">Design:</label>
     <select id="lg-preview-design" class="form-input lg-preview-design" data-preview-design aria-label="Preview under a funnel design (§8.9)">
@@ -2300,6 +2336,9 @@ function renderPreviewPanel(): string {
     <label class="form-label" for="lg-dependency-answers">Sample answers (JSON, keyed by internal field) — drives the dependency/selected/error/validation sims (§9.2)</label>
     <textarea id="lg-dependency-answers" class="form-input" data-dependency-answers rows="3" aria-label="Sample answers for the state sims" placeholder='{ "currently_insured": true }'></textarea>
     <button type="button" class="btn btn-sm btn-secondary" id="lg-dependency-apply">Apply sample answers</button>
+    <!-- R4a E3-S3: invalid JSON here previously parsed silently to {} — now
+         surfaced (still behind this future-QA-toggle surface). -->
+    <p class="alert alert-error" data-dependency-answers-error hidden role="alert"></p>
     <p class="lg-dependency-status" data-dependency-status role="status" aria-live="polite"></p>
   </div>
   <div class="studio-events" data-studio-events-panel>
@@ -2392,6 +2431,17 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
       ? `<span class="lg-mapping-missing" data-required-missing="${summary.required_missing_total}">${summary.required_missing_total} required mapping${summary.required_missing_total === 1 ? "" : "s"} missing</span>`
       : `<span class="lg-mapping-missing" data-required-missing="0">All required fields mapped</span>`;
   const header = MAPPING_TABLE_COLUMNS.map((c) => `<th scope="col">${escapeHtml(c)}</th>`).join("");
+  // R4a S3-9/E3-S6: the SAME guard as the top-bar chip (renderStudioTopBar's
+  // mappingBadgeColor/mappingBadgeBg) — green only when k===n (and n>0);
+  // this was previously hardcoded green regardless of ratio (register
+  // S3-9). Golden fidelity preserved for the TRUE/complete case (byte-exact
+  // STUDIO_COLOR.success/mappingBadgeBg, golden :374) — only the FALSE case
+  // is new (golden's own demo never depicts an incomplete drawer pill).
+  // Inline (not a CSS class) so updateMappingBadge (island) can refresh it
+  // live the SAME way it already refreshes the top-bar badge's inline style.
+  const drawerMappingComplete = summary.required_fields_total > 0 && summary.required_mapped_total === summary.required_fields_total;
+  const drawerMappingColor = drawerMappingComplete ? STUDIO_COLOR.success : STUDIO_COLOR.muted;
+  const drawerMappingBg = drawerMappingComplete ? STUDIO_COLOR.mappingBadgeBg : STUDIO_COLOR.issuesChipBg;
   // The §8.7 panel: SSR renders the SKELETON (summary, E9 empty-state slot,
   // table head, expansion regions); the island fills it from
   // GET /sections/:id/offers + the live answer_maps model. Raw numeric offer
@@ -2399,7 +2449,7 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
   // pickers only (Advanced drawer = the per-NODE raw JSON, §6.14).
   return `<div class="studio-drawer" data-studio-drawer style="border:0;border-top:1px solid ${STUDIO_COLOR.linePanel};border-radius:0;padding:0;background:${STUDIO_COLOR.white};margin-top:16px">
   <div class="studio-tabs" role="tablist" aria-label="Studio drawer tabs" style="display:flex;align-items:center;gap:4px;height:${STUDIO_GEOMETRY.bottomDrawerHeight}px;padding:0 14px;border-bottom:0;margin-bottom:0">
-    <button type="button" class="studio-tab studio-drawer-tab" role="tab" data-studio-drawer-tab="mapping" aria-selected="false">Mapping <span style="font-size:10px;font-weight:800;color:${STUDIO_COLOR.success};background:${STUDIO_COLOR.mappingBadgeBg};padding:1px 6px;border-radius:10px;margin-left:4px">${summary.required_mapped_total}/${summary.required_fields_total}</span></button>
+    <button type="button" class="studio-tab studio-drawer-tab" role="tab" data-studio-drawer-tab="mapping" aria-selected="false">Mapping <span data-studio-drawer-mapping-pill data-mapping-complete="${drawerMappingComplete}" style="font-size:10px;font-weight:800;color:${drawerMappingColor};background:${drawerMappingBg};padding:1px 6px;border-radius:10px;margin-left:4px">${summary.required_mapped_total}/${summary.required_fields_total}</span></button>
     <button type="button" class="studio-tab studio-drawer-tab" role="tab" data-studio-drawer-tab="validation" aria-selected="false">Validation</button>
     <button type="button" class="studio-tab studio-drawer-tab active" role="tab" data-studio-drawer-tab="preview" aria-selected="true">Preview in a quote</button>
     <button type="button" class="studio-tab studio-drawer-tab-minor" role="tab" data-studio-drawer-tab="design" aria-selected="false" style="margin-left:8px;font-size:11px;color:${STUDIO_COLOR.faintSub};background:none;border:0;cursor:pointer;padding:4px 8px">Design overrides</button>
@@ -2879,6 +2929,24 @@ export const SECTION_STUDIO_STYLES = `
 .lg-media-item{border:1px solid var(--c-border);border-radius:8px;background:#fff;cursor:pointer;padding:4px;display:flex;flex-direction:column;gap:4px;align-items:center}
 .lg-media-item img{max-width:100%;height:64px;object-fit:contain}
 .lg-media-item span{font-size:10px;color:var(--c-muted);overflow-wrap:anywhere}
+/* R4a S3-9/E3-S6: the drawer Mapping-tab pill's guard is INLINE style (both
+   at SSR and via updateMappingBadge's live refresh) — see renderBottomDrawer/
+   updateMappingBadge — matching the top-bar chip's own inline-style idiom
+   exactly (no CSS class needed here). */
+/* R4a deliverable 20: top-bar "Unsaved changes" state (dirty tracking already
+   existed — markDirty/dirty; this is its first visible indicator). */
+.studio-dirty-dot{display:none;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:${STUDIO_COLOR.warnStrong}}
+.studio-dirty-dot[data-dirty="true"]{display:inline-flex}
+.studio-dirty-dot::before{content:"";width:7px;height:7px;border-radius:50%;background:${STUDIO_COLOR.warn}}
+/* R4a deliverable 1 (S3-3): a brief highlight pulse on the mapping drawer
+   panel so switching to it from the Offers tab is visibly noticed, not a
+   perceptual no-op. ~1.5s, then removed (JS strips the class on animationend). */
+@keyframes studioMappingPulse{0%{box-shadow:0 0 0 0 rgba(27,58,92,.35)}100%{box-shadow:0 0 0 10px rgba(27,58,92,0)}}
+.studio-mapping-pulse{animation:studioMappingPulse 1.5s ease-out 1}
+/* R4a deliverable 8 (E3-NEW-7): the Delete undo toast — reuses the existing
+   50-step history (historyUndo), never a blocking confirm(). */
+.studio-undo-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.ink};color:${STUDIO_COLOR.white};padding:10px 16px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px;z-index:60}
+.studio-undo-toast button{background:none;border:0;color:${STUDIO_COLOR.accent};font-weight:700;cursor:pointer;font-size:12.5px;padding:0}
 `;
 
 // ---------------------------------------------------------------------------
@@ -2958,7 +3026,14 @@ export const SECTION_STUDIO_SCRIPT = `
   var DROP_CLASSES = ['studio-drop-before', 'studio-drop-after', 'studio-drop-into'];
   var SELECT_CLASS = 'studio-selected-node';
 
-  function markDirty() { dirty = true; }
+  // R4a deliverable 20: the top-bar "Unsaved changes" dot mirrors the
+  // dirty flag (which every mutation already maintained — markDirty/the 3
+  // dirty=false sites — this just makes the existing state VISIBLE).
+  function renderDirtyIndicator() {
+    var el = document.querySelector('[data-studio-dirty-indicator]');
+    if (el) { el.setAttribute('data-dirty', dirty ? 'true' : 'false'); }
+  }
+  function markDirty() { dirty = true; renderDirtyIndicator(); }
   // §4.2 "On answer" segmented — ES5 mirror of the golden's seg() helper
   // (golden :741-745); the SSR-side segStyle() in the TS module sources the
   // identical literals from studio-tokens.ts (Gate-1b traceability at the
@@ -3480,6 +3555,47 @@ export const SECTION_STUDIO_SCRIPT = `
       out.push({ public_id: r.funnel_public_id, name: r.funnel_name || r.funnel_public_id, quote_public_id: r.quote_public_id || null });
     }
     return out;
+  }
+  // R4a E3-NEW-4: the distinct QUOTES using this Section (from the SAME
+  // usage rows usageFunnelsOf reads) — auctions are quote-scoped
+  // (LeadgenAuctionApi.quote_id), not funnel-scoped, so the "Open auction
+  // rules" resolution keys on quotes rather than funnels.
+  function usageQuotesOf() {
+    var seen = {}, out = [], i, r;
+    for (i = 0; i < usageRows.length; i++) {
+      r = usageRows[i];
+      if (!r || !r.quote_public_id || seen[r.quote_public_id] === true) { continue; }
+      seen[r.quote_public_id] = true;
+      out.push(r.quote_public_id);
+    }
+    return out;
+  }
+  // R4a E3-NEW-4: "Open auction rules ->" pointed at /admin/leadgen/rules,
+  // which never existed (register); the real surface is the SINGULAR
+  // /admin/leadgen/auction (ui.ts). A Section has no direct auction FK, but
+  // the auctions LIST API already supports ?quote= (auctions-handlers.ts
+  // listAuctionsHandler) — so the one resolvable case (exactly one quote
+  // uses this Section) can reach its ONE auction directly. Zero quotes, or
+  // more than one quote (ambiguous — which one?), or zero/many auctions on
+  // that quote all fall back to the honest unscoped list (never a disabled
+  // no-op — the same "never dead" rule openQuoteBuilderNav follows; the
+  // auctions LIST PAGE has no ?quote= UI filter to scope a fallback to,
+  // unlike the funnel picker's in-page toggle, so "many" stays unscoped
+  // rather than inventing a filtered destination that doesn't exist yet).
+  function openAuctionRulesNav() {
+    var quotes = usageQuotesOf();
+    if (quotes.length !== 1) { window.location.href = '/admin/leadgen/auction'; return; }
+    fetch('/api/admin/leadgen/auctions?quote=' + encodeURIComponent(quotes[0]), {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      var items = (j && j.items) || [];
+      if (items.length === 1 && items[0] && items[0].public_id) {
+        window.location.href = '/admin/leadgen/auction/' + encodeURIComponent(items[0].public_id) + '/edit';
+      } else {
+        window.location.href = '/admin/leadgen/auction';
+      }
+    }).catch(function () { window.location.href = '/admin/leadgen/auction'; });
   }
   // MINOR 9: the "Funnel frame" pill deep-links to the using funnel's Quote
   // Builder page (frames are Quote-Builder-owned).
@@ -4203,9 +4319,47 @@ export const SECTION_STUDIO_SCRIPT = `
 
   // --- live structural validation (REQUIRED_FIELDS projection; the server
   // validator stays authoritative on save) ------------------------------------
+  // R4a E3-NEW-2/E2-NEW-10: extends the mirror beyond the original 4 classes
+  // (unknown_component_type/container_depth_exceeded/missing_required_field/
+  // duplicate_internal_field) to also cover duplicate_question_key,
+  // conditional_unknown_field (both show-if and require-if),
+  // container_answer_field_forbidden (defense-in-depth — the Advanced
+  // internal_field input is already DISABLED for containers, this catches
+  // legacy/pasted/imported content that control never wrote),
+  // bind_type_mismatch/duplicate_bind (the Advanced raw-JSON surface can
+  // hand-author an invalid one), and invalid_choice basics (label/value/
+  // analytics_id). Still server-authoritative-only (NOT mirrored client-side):
+  // answer_type_mismatch, non_curated_override_key/arbitrary_css_override/
+  // invalid_override_value, choice_display_invalid, invalid_field_prop,
+  // invalid_maps_prop, invalid_size_override, children_not_allowed,
+  // container_prop_invalid, bound_node_carries_text, content_not_object/
+  // components_not_array/node_not_object (shapes the island's own model can't
+  // produce), and the 3 non-blocking WARNING codes (frame_scope_component,
+  // duplicate_continue, maps_no_job — surfaced by their OWN dedicated banners
+  // elsewhere, not this issues list).
   function computeIssues() {
     var issues = [];
-    var fieldSeen = {};
+    // Adversarial-review fix (fix-in-phase doctrine — fieldSeen predates
+    // R4a): a plain {} seen-map INHERITS Object.prototype's own keys
+    // ('valueOf'/'constructor'/'toString'/…) — a SINGLE node whose
+    // internal_field/question_key/internal_field-as-known-field happens to
+    // be one of those names would read back truthy before it was ever set,
+    // producing a phantom duplicate/known-field hit. Object.create(null)
+    // carries no prototype at all, so only keys THIS code actually sets are
+    // ever truthy.
+    var fieldSeen = Object.create(null);
+    var keySeen = Object.create(null);
+    var bindSeen = {};
+    // Pass 1: the whole-tree known-field universe (internal_field /
+    // question_key / question_id), SELF-INCLUSIVE — matches the server's
+    // collectKnownFields (content-schema.ts), NOT internalFieldsOf()'s
+    // self-excluded UI list (that one is for the rules dropdown only).
+    var knownFields = Object.create(null);
+    walkTree(state.content.components, 1, function (n) {
+      if (trimStr(n.internal_field) !== '') { knownFields[n.internal_field] = true; }
+      if (trimStr(n.question_key) !== '') { knownFields[n.question_key] = true; }
+      if (n.question_id) { knownFields[n.question_id] = true; }
+    });
     if (state.content.components.length === 0) {
       issues.push({ qid: null, message: 'Add at least one component' });
     }
@@ -4226,8 +4380,65 @@ export const SECTION_STUDIO_SCRIPT = `
         if (fieldSeen[f]) { issues.push({ qid: node.question_id, message: 'Duplicate internal field: ' + f }); }
         fieldSeen[f] = true;
       }
+      // duplicate_question_key mirror.
+      var qk = trimStr(node.question_key);
+      if (qk !== '') {
+        if (keySeen[qk]) { issues.push({ qid: node.question_id, message: label + ' has a duplicate analytics label: ' + qk }); }
+        keySeen[qk] = true;
+      }
+      // container_answer_field_forbidden mirror (E2-NEW-10 studio mirror):
+      // containers carry no answer field.
+      if (meta.container) {
+        if (node.internal_field) { issues.push({ qid: node.question_id, message: label + ' is a layout container — it cannot have an internal field' }); }
+        if (node.choices && node.choices.length > 0) { issues.push({ qid: node.question_id, message: label + ' is a layout container — it cannot have choices' }); }
+        if (node.answer_type) { issues.push({ qid: node.question_id, message: label + ' is a layout container — it cannot have an answer type' }); }
+      }
+      // conditional_unknown_field mirror — the show-if condition reference
+      // is server-mirrored (content-schema.ts validateConditional runs on
+      // node.conditional). Adversarial-review ruling: props.requiredWhen is
+      // NEVER validated server-side (validateConditional only runs for the
+      // conditional field) — the require-if check below is HONEST about that:
+      // an ADVISORY, worded and (were there severity styling on this list)
+      // styled distinctly from the server-mirrored error above, not a
+      // same-class duplicate claim. Kept because it catches a real
+      // dangling-reference authoring bug the server will silently accept.
+      if (node.conditional && node.conditional.when && !knownFields[node.conditional.when]) {
+        issues.push({ qid: node.question_id, message: label + '’s show-if condition references an unknown field: ' + node.conditional.when });
+      }
+      if (node.props && node.props.requiredWhen && node.props.requiredWhen.when && !knownFields[node.props.requiredWhen.when]) {
+        issues.push({ qid: node.question_id, message: 'Advisory: ' + label + '’s “require when” points at a field that no longer exists (' + node.props.requiredWhen.when + ') — the server accepts this, but the rule will never trigger.' });
+      }
+      // bind_type_mismatch / duplicate_bind mirror — the canonical headline/
+      // subheadline binding is normally system-managed; the Advanced raw-JSON
+      // surface can hand-author an invalid one (reuses bindNodeType, the
+      // SAME bind<->type mapping the rest of the island uses).
+      if (node.bind !== undefined) {
+        if (node.bind !== 'section_headline' && node.bind !== 'section_subheadline') {
+          issues.push({ qid: node.question_id, message: label + ' has an unrecognized bind marker: ' + node.bind });
+        } else if (bindNodeType(node.bind) !== node.type) {
+          issues.push({ qid: node.question_id, message: 'bind ‘' + node.bind + '’ is only legal on ' + bindNodeType(node.bind) });
+        } else if (bindSeen[node.bind]) {
+          issues.push({ qid: node.question_id, message: 'Duplicate bind: ' + node.bind });
+        } else {
+          bindSeen[node.bind] = true;
+        }
+      }
       if (req.choices && (!node.choices || node.choices.length === 0)) {
         issues.push({ qid: node.question_id, message: label + ' needs at least one choice' });
+      }
+      // invalid_choice basics mirror (label / value / analytics_id — the
+      // fields REQUIRED unconditionally per content-schema.ts; the per-type
+      // icon/imageMediaId variants stay server-only).
+      if (node.choices && node.choices.length > 0) {
+        var ci, choice, vt;
+        for (ci = 0; ci < node.choices.length; ci++) {
+          choice = node.choices[ci];
+          if (!choice || typeof choice !== 'object') { issues.push({ qid: node.question_id, message: label + ' has a choice that is not valid' }); continue; }
+          if (trimStr(choice.label) === '') { issues.push({ qid: node.question_id, message: label + ' has a choice missing its label' }); }
+          vt = typeof choice.value;
+          if (vt !== 'string' && vt !== 'number' && vt !== 'boolean') { issues.push({ qid: node.question_id, message: label + ' has a choice with an invalid value' }); }
+          if (trimStr(choice.analytics_id) === '') { issues.push({ qid: node.question_id, message: label + ' has a choice missing its analytics id' }); }
+        }
       }
       var i, k, props = node.props || {};
       var tp = req.text_props || [];
@@ -4393,6 +4604,14 @@ export const SECTION_STUDIO_SCRIPT = `
     // reference would throw ReferenceError there, in every one of them, for
     // a concern entirely outside what they test.
     if (typeof activeWidthDragCleanup !== 'undefined' && activeWidthDragCleanup) { activeWidthDragCleanup(); }
+    // R4a conductor addition (adversarial review, E3-NEW-7): a lingering
+    // undo toast is STALE the moment any OTHER mutation happens — clicking
+    // its Undo would revert the LATER change while still labeled for the
+    // deleted element. Invalidate on every mutation, not just a timeout.
+    // Same typeof-guard idiom as activeWidthDragCleanup above (this
+    // function is sliced standalone into vitest probes that never declare
+    // hideUndoToast).
+    if (typeof hideUndoToast !== 'undefined') { hideUndoToast(); }
     markDirty();
     historyPush();
     clearRefusal();
@@ -4407,6 +4626,53 @@ export const SECTION_STUDIO_SCRIPT = `
     renderOverrideDecorations(selectedNode());
     updateCanvasToolbar();
     scheduleCanvasRender();
+  }
+
+  // --- R4a E3-NEW-7: canvas Delete undo toast ----------------------------------
+  // Justification (against this island's own idioms): every OTHER mutation
+  // here (move/duplicate/group/ungroup/wrap) commits immediately with the
+  // 50-step undo history (historyPush/historyUndo, UNDO_LIMIT) as the SAFETY
+  // NET — none of them gate on a blocking confirm(). A confirm() on Delete
+  // alone would be the ONE inconsistent mutation in the whole toolbar, and
+  // it interrupts flow for what is very often a correction (wrong component
+  // picked, refining structure). A brief, dismissible toast with a real
+  // Undo action (reusing the SAME history — no new persistence) matches the
+  // established pattern and still gives the operator a way back.
+  var undoToastTimer = null;
+  function hideUndoToast() {
+    var el = document.querySelector('[data-studio-undo-toast]');
+    if (el && el.parentNode) { el.parentNode.removeChild(el); }
+    if (undoToastTimer) { clearTimeout(undoToastTimer); undoToastTimer = null; }
+  }
+  function showUndoToast(label) {
+    hideUndoToast();
+    var el = document.createElement('div');
+    el.className = 'studio-undo-toast';
+    el.setAttribute('data-studio-undo-toast', '');
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    el.appendChild(document.createTextNode(label + ' deleted \\u2014 '));
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.appendChild(document.createTextNode('Undo'));
+    btn.addEventListener('click', function () {
+      historyUndo();
+      hideUndoToast();
+    });
+    el.appendChild(btn);
+    document.body.appendChild(el);
+    undoToastTimer = setTimeout(hideUndoToast, 6000);
+  }
+  // The ONE call site both the toolbar Delete button and the Delete/
+  // Backspace key handler now route through (removeNode/selectComponent
+  // themselves stay unchanged pure model calls — this wrapper only adds the
+  // DOM-side toast).
+  function deleteSelectedWithUndo(qid) {
+    var ref = findRef(qid);
+    var label = ref && ref.node ? typeLabel(ref.node.type) : 'Element';
+    removeNode(qid);
+    selectComponent(null);
+    showUndoToast(label);
   }
 
   // --- refusal + pending-insert notes -----------------------------------------
@@ -6701,14 +6967,20 @@ export const SECTION_STUDIO_SCRIPT = `
     opt.textContent = '\\u2014 always visible \\u2014';
     whenSel.appendChild(opt);
     var fields = internalFieldsOf();
-    var i;
+    var i, eligible = 0;
     for (i = 0; i < fields.length; i++) {
       if (node && node.internal_field && fields[i] === node.internal_field) { continue; }
       opt = document.createElement('option');
       opt.value = fields[i];
       opt.textContent = fields[i];
       whenSel.appendChild(opt);
+      eligible += 1;
     }
+    // R4a S3-1: zero eligible sources (self-excluded, or the section has no
+    // other question yet) — plain words replace the bare dropdown.
+    var emptyHint = document.querySelector('[data-rules-source-empty-hint]');
+    if (emptyHint) { emptyHint.hidden = eligible > 0; }
+    whenSel.hidden = eligible === 0;
     var cond = (node && node.conditional) ? node.conditional : null;
     whenSel.value = (cond && cond.when) ? cond.when : '';
     opSel.value = (cond && cond.op) ? cond.op : 'eq';
@@ -6818,14 +7090,19 @@ export const SECTION_STUDIO_SCRIPT = `
     opt.textContent = '\\u2014 only when marked Required \\u2014';
     whenSel.appendChild(opt);
     var fields = internalFieldsOf();
-    var i;
+    var i, eligible = 0;
     for (i = 0; i < fields.length; i++) {
       if (node && node.internal_field && fields[i] === node.internal_field) { continue; }
       opt = document.createElement('option');
       opt.value = fields[i];
       opt.textContent = fields[i];
       whenSel.appendChild(opt);
+      eligible += 1;
     }
+    // R4a S3-1 (mirrored): same dead-end, same fix.
+    var reqEmptyHint = document.querySelector('[data-reqcond-source-empty-hint]');
+    if (reqEmptyHint) { reqEmptyHint.hidden = eligible > 0; }
+    whenSel.hidden = eligible === 0;
     var cond = nodeRequiredWhen(node);
     whenSel.value = (cond && cond.when) ? cond.when : '';
     opSel.value = (cond && cond.op) ? cond.op : 'eq';
@@ -6860,17 +7137,20 @@ export const SECTION_STUDIO_SCRIPT = `
   // <field> is <value>" — rendered from the stored conditional; the pickers
   // stay the controls.
   function conditionSentence(prefix, cond) {
+    // R4a S3-2: the SAME human-word table the SSR operator <select> renders
+    // (CONDITION_OP_LABELS, TS-side, ui-section-studio.ts) — interpolated
+    // here as data so the dropdown and this sentence never drift apart.
+    // Declared LOCAL (not a module-level var) so this vm-probed function
+    // (test/leadgen-section-studio-ui.test.ts slices it standalone by
+    // name) stays fully self-contained — a module-level var would not
+    // travel with a function-only slice.
+    var CONDITION_OP_LABELS = ${JSON.stringify(CONDITION_OP_LABELS)};
     var field = cond.when;
     var op = cond.op || 'eq';
-    if (op === 'range') { return prefix + ' when ' + field + ' is between ' + String(cond.from) + ' and ' + String(cond.to); }
-    if (op === 'in') { return prefix + ' when ' + field + ' is one of: ' + (cond.values || []).join(', '); }
-    if (op === 'not_in') { return prefix + ' when ' + field + ' is none of: ' + (cond.values || []).join(', '); }
-    var rel = 'is';
-    if (op === 'neq') { rel = 'is not'; }
-    else if (op === 'gt') { rel = 'is more than'; }
-    else if (op === 'lt') { rel = 'is less than'; }
-    else if (op === 'gte') { rel = 'is at least'; }
-    else if (op === 'lte') { rel = 'is at most'; }
+    var label = CONDITION_OP_LABELS[op] || op;
+    if (op === 'range') { return prefix + ' when ' + field + ' is ' + label + ' ' + String(cond.from) + ' and ' + String(cond.to); }
+    if (op === 'in' || op === 'not_in') { return prefix + ' when ' + field + ' is ' + label + ': ' + (cond.values || []).join(', '); }
+    var rel = (op === 'eq' || op === 'neq') ? label : ('is ' + label);
     return prefix + ' when ' + field + ' ' + rel + ' ' + String(cond.value);
   }
   function renderConditionSentences(node) {
@@ -7022,6 +7302,12 @@ export const SECTION_STUDIO_SCRIPT = `
     rowsEl.setAttribute('data-choice-provider-rows', value);
     rowsEl.hidden = true;
     var rows = providerChipRows(internalField, value);
+    // R4a S2-10: "0/0 Offers" reads as broken without this — plain words on
+    // why it's 0/0 and what makes it move (native tooltip; the chip stays a
+    // real, clickable control either way).
+    chip.title = rows.length === 0
+      ? 'Counts fill in after you select Offers for this section and map this field\\u2019s values on the Offer\\u2019s payload page.'
+      : 'Provider values set for ' + rows.length + ' selected Offer' + (rows.length === 1 ? '' : 's') + ' \\u2014 click to see each one.';
     var i, line, a;
     if (rows.length === 0) {
       line = document.createElement('div');
@@ -7869,6 +8155,13 @@ export const SECTION_STUDIO_SCRIPT = `
         showRefusal('The element moved into the frame, but saving its removal failed: ' + ((res.body && res.body.error) || 'error') + ' — Save the Section to persist it.');
         return;
       }
+      // R4a deliverable 20 scope note: NOT wired to renderDirtyIndicator()
+      // here (unlike the Save/Archive buttons) — this vm-probed function is
+      // sliced standalone by test/leadgen-section-studio-ui.test.ts's own
+      // MODEL_FUNCS-style technique (function-name allowlist), and adding a
+      // call to a function outside that allowlist throws ReferenceError in
+      // its isolated sandbox. The indicator still catches up on the next
+      // markDirty()/Save.
       if (!wasDirty) { dirty = false; }
       showMoveNote('Moved into the Quote frame of “' + funnel.name + '” — the Section was saved without the element.');
     }).catch(function () {
@@ -8421,8 +8714,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // §6.2: Del deletes the selection; Esc walks UP the ancestry.
       else if (ev.key === 'Delete' || ev.key === 'Backspace') {
         ev.preventDefault();
-        removeNode(selectedQuestionId);
-        selectComponent(null);
+        deleteSelectedWithUndo(selectedQuestionId);
       } else if (ev.key === 'Escape') {
         ev.preventDefault();
         var upRef = findRef(selectedQuestionId);
@@ -8592,7 +8884,7 @@ export const SECTION_STUDIO_SCRIPT = `
         out = duplicateNode(selectedQuestionId);
         if (out) { selectComponent(out.question_id); }
       }
-      else if (act === 'delete') { removeNode(selectedQuestionId); selectComponent(null); }
+      else if (act === 'delete') { deleteSelectedWithUndo(selectedQuestionId); }
       else if (act === 'add-before' || act === 'add-after') {
         var where = act === 'add-before' ? 'before' : 'after';
         if (pendingInsert && pendingInsert.where === where && pendingInsert.qid === selectedQuestionId) { pendingInsert = null; }
@@ -8725,7 +9017,28 @@ export const SECTION_STUDIO_SCRIPT = `
   var chipEl = document.querySelector('[data-studio-validation-chip]');
   if (chipEl) { chipEl.addEventListener('click', function () { setDrawerTab('validation'); }); }
   var openMapping = document.querySelector('[data-studio-open-mapping-drawer]');
-  if (openMapping) { openMapping.addEventListener('click', function () { setDrawerTab('mapping'); }); }
+  if (openMapping) {
+    openMapping.addEventListener('click', function () {
+      setDrawerTab('mapping');
+      // R4a S3-3: the tab switch alone is a perceptual no-op from the Offers
+      // tab (the drawer is a separate below-the-fold region) — scroll it
+      // into view, pulse the panel (~1.5s, CSS studio-mapping-pulse), and
+      // move focus so the operator SEES something happen.
+      var drawerEl = document.querySelector('[data-studio-drawer]');
+      if (drawerEl && drawerEl.scrollIntoView) { drawerEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+      var mappingPanel = document.querySelector('[data-studio-drawer-panel="mapping"]');
+      if (mappingPanel) {
+        if (mappingPanel.className.indexOf('studio-mapping-pulse') === -1) {
+          mappingPanel.className = mappingPanel.className + ' studio-mapping-pulse';
+        }
+        setTimeout(function () {
+          mappingPanel.className = mappingPanel.className.replace(/\s*studio-mapping-pulse\s*/, ' ').replace(/\s+$/, '');
+        }, 1600);
+      }
+      var mappingTabBtn = document.querySelector('[data-studio-drawer-tab="mapping"]');
+      if (mappingTabBtn && mappingTabBtn.focus) { mappingTabBtn.focus(); }
+    });
+  }
   // §12.3: the preview-drawer overlay toggle repaints the canvas decoration.
   var overlayToggle = document.querySelector('[data-studio-overlay-toggle]');
   if (overlayToggle) {
@@ -8734,6 +9047,15 @@ export const SECTION_STUDIO_SCRIPT = `
       this.setAttribute('aria-pressed', mappingOverlayOn ? 'true' : 'false');
       this.className = mappingOverlayOn ? 'btn btn-sm btn-outline active' : 'btn btn-sm btn-outline';
       applyCanvasDecoration();
+    });
+  }
+  // R4a E3-NEW-4: the static href is now the real (never-dead) auctions
+  // list; JS upgrades it to the resolved 0/1/many destination on click.
+  var openAuctionRulesLink = document.querySelector('[data-open-auction-rules]');
+  if (openAuctionRulesLink) {
+    openAuctionRulesLink.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      openAuctionRulesNav();
     });
   }
 
@@ -9044,12 +9366,26 @@ export const SECTION_STUDIO_SCRIPT = `
   var previewViewport = 'desktop';
   var simState = 'default';
 
+  // R4a E3-S3: invalid input here previously parsed silently to {} — the
+  // error is now surfaced inline (still behind the future "QA tools" toggle
+  // this whole Preview panel lives behind, register S4-A5). Plain words —
+  // never the native parser message (it can say things like "unexpected
+  // token", and never the word this admin's own glossary gate bans outside
+  // the Advanced surface).
   function sampleAnswers() {
     var el = document.getElementById('lg-dependency-answers');
+    var errEl = document.querySelector('[data-dependency-answers-error]');
     if (!el) { return {}; }
     var t = trimStr(el.value);
-    if (t === '') { return {}; }
-    try { var parsed = JSON.parse(t); return (parsed && typeof parsed === 'object') ? parsed : {}; } catch (e) { return {}; }
+    if (t === '') { if (errEl) { errEl.hidden = true; } return {}; }
+    try {
+      var parsed = JSON.parse(t);
+      if (errEl) { errEl.hidden = true; }
+      return (parsed && typeof parsed === 'object') ? parsed : {};
+    } catch (e) {
+      if (errEl) { errEl.hidden = false; errEl.textContent = 'Sample answers must be a valid object — check for a missing quote, comma, or bracket.'; }
+      return {};
+    }
   }
   function renderDependencyStatus(dep) {
     var el = document.querySelector('[data-dependency-status]');
@@ -9281,13 +9617,18 @@ export const SECTION_STUDIO_SCRIPT = `
       promptNewSharedValue('activity', activitySel, function () {
         if (verticalSel) { verticalSel.value = ''; }
         loadVerticals();
+        // R4a E3-S5: parity with the activitySel 'change' handler below —
+        // creating a new activity changes the Activity/Vertical pair just
+        // like picking one does, so the stale-offers note must refresh too.
+        renderOffersStaleNote();
       });
     });
   }
   var newVerticalBtn = document.querySelector('[data-studio-new-vertical]');
   if (newVerticalBtn) {
     newVerticalBtn.addEventListener('click', function () {
-      promptNewSharedValue('vertical', verticalSel);
+      // R4a E3-S5: parity with the verticalSel 'change' handler below.
+      promptNewSharedValue('vertical', verticalSel, function () { renderOffersStaleNote(); });
     });
   }
   if (activitySel) {
@@ -9557,6 +9898,20 @@ export const SECTION_STUDIO_SCRIPT = `
     // color pair alone is the state indicator, same as the initial render).
     badge.style.color = complete ? '#0E7C3A' : '#5A6470';
     badge.style.background = complete ? '#E9F4EE' : '#F1F3F7';
+    // R4a S3-9/E3-S6: the drawer Mapping-tab pill was SSR-once + hardcoded
+    // green — guard it exactly like this same badge (same total/mapped/
+    // complete just computed above) and keep it live on every refresh.
+    // Golden fidelity: the TRUE/complete pair stays the drawer's OWN
+    // byte-exact golden token (mappingBadgeBg #DBEEE2), distinct from the
+    // top bar's own successTintAlt (#E9F4EE) — two different chips, each
+    // matching ITS OWN spot in the golden mockup.
+    var drawerPill = document.querySelector('[data-studio-drawer-mapping-pill]');
+    if (drawerPill) {
+      drawerPill.textContent = mapped + '/' + total;
+      drawerPill.setAttribute('data-mapping-complete', complete ? 'true' : 'false');
+      drawerPill.style.color = complete ? '#0E7C3A' : '#5A6470';
+      drawerPill.style.background = complete ? '#DBEEE2' : '#F1F3F7';
+    }
   }
   function offerStateLabel(name) {
     if (name === 'not_selected') { return 'not selected'; }
@@ -10152,6 +10507,11 @@ export const SECTION_STUDIO_SCRIPT = `
     renderMappingCount();
     updateMappingBadge();
     renderOffersStaleNote();
+    // R4a E3-S4: recompute from THIS (current) offersData every time it's
+    // (re)loaded — previously renderZeroOffersWarning was only ever called
+    // once, at the top of the save-click handler, using the STALE pre-save
+    // capture. Single source now: whichever offersData is live drives it.
+    renderZeroOffersWarning();
     // §12.3: the canvas overlay chips derive from the SAME live model — every
     // mapping edit repaints them (decoration is rebuild-per-pass idempotent).
     applyCanvasDecoration();
@@ -10800,6 +11160,60 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     box.appendChild(list);
   }
+  // R4a E3-NEW-3: a hard save failure (400) gets the message TEXT, not just
+  // a bare red outline on the control — the SAME problems-list UI shape
+  // (click-to-focus) existing sections already show after a non-blocking
+  // save, but kept as its OWN self-contained function (a small duplicate of
+  // renderSaveProblems's list-building, not a shared helper) so each stays
+  // independently sliceable — this island's own vm-probe test convention
+  // (test/leadgen-section-studio-ui.test.ts) slices named functions
+  // standalone; a NEW cross-function dependency inside an EXISTING sliced
+  // function throws ReferenceError in that isolated sandbox. The path here
+  // is the raw fields-object key (e.g. "content.components[0]….x").
+  function renderSaveFieldErrors(fieldProblems) {
+    var box = document.querySelector('[data-studio-save-problems]');
+    if (!box) { return; }
+    clearChildren(box);
+    if (!fieldProblems || fieldProblems.length === 0) { box.hidden = true; return; }
+    box.hidden = false;
+    var head = document.createElement('p');
+    head.setAttribute('data-save-problems-summary', '');
+    head.appendChild(document.createTextNode('Save failed \\u2014 ' + fieldProblems.length + ' field' + (fieldProblems.length === 1 ? '' : 's') + ' need attention:'));
+    box.appendChild(head);
+    var list = document.createElement('ul');
+    var i, li, btn;
+    for (i = 0; i < fieldProblems.length; i++) {
+      if (!fieldProblems[i]) { continue; }
+      li = document.createElement('li');
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'studio-link-btn';
+      btn.setAttribute('data-save-problem-path', String(fieldProblems[i].path || ''));
+      btn.appendChild(document.createTextNode(String(fieldProblems[i].message || '')));
+      btn.addEventListener('click', saveProblemFocusHandler(fieldProblems[i].path));
+      li.appendChild(btn);
+      list.appendChild(li);
+    }
+    box.appendChild(list);
+  }
+  // R4a E3-NEW-1: a brand-new Section's minted URL, offered as an explicit
+  // operator action (never an automatic/silent redirect) once problems[]
+  // exist to read first.
+  function appendContinueToSectionLink(publicId) {
+    var box = document.querySelector('[data-studio-save-problems]');
+    if (!box) { return; }
+    var p = document.createElement('p');
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-sm btn-secondary';
+    btn.setAttribute('data-continue-to-section', '');
+    btn.appendChild(document.createTextNode('Continue to the Section \\u2192'));
+    btn.addEventListener('click', function () {
+      window.location.href = '/admin/leadgen/sections/' + encodeURIComponent(publicId) + '/edit';
+    });
+    p.appendChild(btn);
+    box.appendChild(p);
+  }
   // Scalar strip fields → their strip inputs (the save-path controls).
   var SAVE_FIELD_CONTROL_IDS = {
     section_name: 'lg-section-name',
@@ -10820,6 +11234,9 @@ export const SECTION_STUDIO_SCRIPT = `
   function routeSaveFieldErrors(fields) {
     if (!fields || typeof fields !== 'object') { return; }
     var k, focused = false, node, key;
+    // R4a E3-NEW-3: collect the message TEXT alongside the outline — a
+    // failed save gets readable field messages, not just a bare red border.
+    var fieldProblems = [];
     for (k in fields) {
       if (!Object.prototype.hasOwnProperty.call(fields, k)) { continue; }
       // content.components[i]….<key> → focus the FIRST offending component,
@@ -10830,7 +11247,15 @@ export const SECTION_STUDIO_SCRIPT = `
       }
       key = k.replace(/^.*\\./, '');
       markSaveFieldControl(key);
+      fieldProblems.push({ path: k, message: String(fields[k]) });
     }
+    // typeof-guarded (not a bare reference) — matches afterModelChange's own
+    // activeWidthDragCleanup precedent: this function is sliced STANDALONE
+    // into an existing vitest vm-probe (test/leadgen-section-studio-ui.test.ts)
+    // that predates renderSaveFieldErrors; a bare reference would throw
+    // ReferenceError there for a concern (the message-text UI) entirely
+    // outside what that probe tests.
+    if (fieldProblems.length > 0 && typeof renderSaveFieldErrors !== 'undefined') { renderSaveFieldErrors(fieldProblems); }
   }
   var saveBtn = document.getElementById('lg-section-save');
   if (saveBtn) {
@@ -10858,23 +11283,45 @@ export const SECTION_STUDIO_SCRIPT = `
         saveBtn.disabled = false;
         if (!res.ok) {
           if (errEl) { errEl.hidden = false; errEl.textContent = (res.body && res.body.error) || 'Save failed'; }
-          // FIX 5: server-side FIELD errors route inline where a control
-          // matches (400 body: { error, fields }).
+          // FIX 5 / R4a E3-NEW-3: server-side FIELD errors route inline
+          // where a control matches (400 body: { error, fields }), PLUS
+          // their message text in the problems list.
           routeSaveFieldErrors(res.body && res.body.fields);
           return;
         }
         dirty = false;
+        renderDirtyIndicator();
+        // R4a E3-NEW-1: a first save that MINTS the public_id must be
+        // idempotent from here on — a second Save click (before any
+        // navigation) PATCHes, never double-POSTs.
+        if (isNew && res.body && res.body.public_id) { state.public_id = res.body.public_id; }
         // §6.1.3: the history is per open editor and cleared on Save.
         historyReset();
-        // FIX 5: the save landed — non-blocking problems[] surface as the
-        // summary + click-to-focus rows. An EXISTING Section stays on the
-        // page so the rows are readable; a NEW Section must still navigate
-        // to its minted URL.
+        // R4a S3-10 (belt-and-braces): the offers panel/zero-offers warning
+        // only reflect the SAVED activity/vertical when explicitly reloaded
+        // — harmless-but-superfluous on the redirect branches below (a
+        // dangling fetch the navigation aborts), essential on the
+        // stay-on-page problems branch (no reload to do it implicitly).
+        loadOffers();
+        // FIX 5 / R4a E3-NEW-1: non-blocking problems[] surface as the
+        // summary + click-to-focus rows — for EITHER a new or existing
+        // Section (previously the isNew branch always redirected first,
+        // silently discarding them). A NEW Section additionally gets an
+        // explicit "Continue to the Section →" affordance (never an
+        // automatic/silent redirect) since its URL still reads /new.
         var problems = (res.body && res.body.problems) ? res.body.problems : [];
-        if (!isNew && problems.length > 0) {
+        if (problems.length > 0) {
           renderSaveProblems(problems);
+          if (isNew && res.body && res.body.public_id) { appendContinueToSectionLink(res.body.public_id); }
           return;
         }
+        // R4a S3-10 EXPLICIT scope: "the reload redirect stays" — a clean
+        // (0-problems) save keeps hard-navigating for BOTH new and existing
+        // Sections, exactly as before E3-NEW-1. (Confirmed the hard way: an
+        // earlier draft of this fix dropped the redirect for the !isNew
+        // case reasoning it was now redundant — 4 pre-existing Playwright
+        // specs explicitly wait on a page load event right after clicking
+        // Save and broke immediately. Restored.)
         if (res.body && res.body.public_id) {
           window.location.href = '/admin/leadgen/sections/' + encodeURIComponent(res.body.public_id) + '/edit';
         } else {
@@ -10890,12 +11337,27 @@ export const SECTION_STUDIO_SCRIPT = `
   if (archiveBtn) {
     archiveBtn.addEventListener('click', function () {
       if (!state.public_id) { return; }
-      if (!window.confirm('Archive this Section? It can be reactivated later.')) { return; }
+      if (!window.confirm('Archive this Section? It can be reactivated later from the Sections list.')) { return; }
+      var errEl = document.getElementById('lg-section-error');
       fetch('/api/admin/leadgen/sections/' + encodeURIComponent(state.public_id), {
         method: 'DELETE',
         credentials: 'same-origin',
         headers: { 'Accept': 'application/json' }
-      }).then(function () { dirty = false; window.location.href = '/admin/leadgen/sections'; });
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; }).catch(function () { return { ok: r.ok, body: null }; });
+      }).then(function (res) {
+        // R4a E3-NEW-9: check response.ok — a failure shows an error, no
+        // silent redirect (previously this .then() had no ok-check at all).
+        if (!res.ok) {
+          if (errEl) { errEl.hidden = false; errEl.textContent = (res.body && res.body.error) || 'Archive failed'; }
+          return;
+        }
+        dirty = false;
+        renderDirtyIndicator();
+        window.location.href = '/admin/leadgen/sections';
+      }).catch(function () {
+        if (errEl) { errEl.hidden = false; errEl.textContent = 'Archive request failed'; }
+      });
     });
   }
 
@@ -10911,6 +11373,7 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   // --- first paint ---------------------------------------------------------------------------
+  renderDirtyIndicator();
   updatePendingUi();
   renderIssues();
   renderMapsBanner();

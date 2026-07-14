@@ -454,7 +454,11 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[]): s
   return `<div style="flex:1 1 auto;overflow-y:auto;padding:24px 28px;min-width:0">
       <div style="display:flex;align-items:center;gap:13px;margin-bottom:5px">
         ${bigSwatch(theme.roles.brand_primary, false)}
-        <div style="font-size:21px;font-weight:800;color:${TM_COLOR.themeTitle}">${escapeHtml(theme.name)}</div>
+        <!-- R4a E3-NEW-6: the server already supports PATCH {name}
+             (themes-handlers.ts mergeThemeBody/validateThemeBody) — this
+             was the only missing piece: an input to send it. Reuses the
+             SAME patchTheme() ES5 helper every other control here calls. -->
+        <input type="text" id="tm-theme-name" class="tm-name-input" data-tm-name data-theme-id="${escapeHtml(theme.id)}" value="${escapeHtml(theme.name)}" maxlength="80" aria-label="Theme name" style="font-size:21px;font-weight:800;color:${TM_COLOR.themeTitle};border:1px solid transparent;border-radius:6px;padding:2px 6px;margin:-2px -6px;background:transparent;min-width:0;flex:1 1 auto" />
       </div>
       <div style="font-size:12.5px;color:${TM_COLOR.themeUse};margin-bottom:24px">${escapeHtml(themeUseLine(matches))}</div>
 
@@ -577,6 +581,9 @@ export const THEME_MGR_STYLES = `
 .tm-adv-toggle:hover{background:${TM_COLOR.advHoverBg}}
 .tm-adv-toggle:focus-visible{outline:2px solid ${TM_COLOR.navy};outline-offset:2px}
 [data-tm-seg]:hover{opacity:.85}
+/* R4a E3-NEW-6: the theme-name input reads as plain text until touched. */
+.tm-name-input:hover,.tm-name-input:focus{border-color:${TM_COLOR.backHoverBorder};background:#fff}
+.tm-name-input:focus-visible{outline:2px solid ${TM_COLOR.navy};outline-offset:1px}
 .tm-shell{position:relative;display:flex;flex-direction:column;min-height:0;border-radius:14px;overflow:hidden;border:1px solid #C4CCD9;background:${TM_COLOR.appBg}}
 .tm-body{flex:1 1 auto;display:flex;min-height:640px}
 `;
@@ -661,6 +668,18 @@ export const THEME_MGR_SCRIPT = `
     }
   }
 
+  // R4a E3-NEW-6: theme rename — the SAME patchTheme() every other control
+  // here already calls; the server's mergeThemeBody/validateThemeBody
+  // (themes-handlers.ts) already accept + validate {name} on its own.
+  function wireNameInput() {
+    var input = document.getElementById('tm-theme-name');
+    if (!input) { return; }
+    input.addEventListener('change', function () {
+      var themeId = input.getAttribute('data-theme-id');
+      patchTheme(themeId, { name: input.value });
+    });
+  }
+
   function wireAdvancedToggle() {
     var toggle = document.getElementById('tm-adv-toggle');
     var body = document.getElementById('tm-adv-body');
@@ -714,6 +733,7 @@ export const THEME_MGR_SCRIPT = `
   wireFontSelect('tm-headline-font', 'headline_font');
   wireFontSelect('tm-body-font', 'body_font');
   wireHexInputs();
+  wireNameInput();
   wireAdvancedToggle();
   wireNewTheme();
 }());
