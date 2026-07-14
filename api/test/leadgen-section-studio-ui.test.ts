@@ -889,7 +889,8 @@ describeDb("section studio SSR — §8.6 inspector + §8.5 container props", () 
     expect(html).toContain("data-studio-advanced-toggle");
     expect(html).toContain("data-studio-advanced-body");
     // §8.6 Content: per-family display-copy controls (union, island-gated)
-    for (const key of ["text", "placeholder", "yesLabel", "noLabel", "heading", "message", "minLabel", "maxLabel", "loadingLabel"]) {
+    // v3.1 R3 MINOR-4: loadingLabel control removed (out-of-contract, §8.4) — no longer projected.
+    for (const key of ["text", "placeholder", "yesLabel", "noLabel", "heading", "message", "minLabel", "maxLabel"]) {
       expect(html, `content control ${key}`).toContain(`data-content-prop="${key}"`);
     }
     // §8.6 Validation: required + rules + §6.5 pattern presets + error text
@@ -943,17 +944,27 @@ describeDb("section studio SSR — §8.6 inspector + §8.5 container props", () 
     expect(html).toContain(`data-container-cta="tel"`);
   });
 
-  it("§8.6 Design tab: curated token DROPDOWNS sourced from the design's slots — no free-CSS input anywhere (§9.4: color keys are ROLE swatch rows)", async () => {
+  it("§8.6 Style tab: curated token DROPDOWNS sourced from the design's slots — no free-CSS input anywhere (§9.4: color keys are ROLE swatch rows)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    for (const key of ["iconColor", "columns", "featureColor", "rangeColor", "buttonBackground", "buttonText", "gridGap"]) {
+    // R3b S2-7/S4-A4 (rail removal, renderDesignPanel -> renderStyleExtraControls):
+    // featureColor/buttonBackground/buttonText rows DIED from this rail —
+    // only the genuinely-consumed, correctly-gated survivors remain.
+    for (const key of ["iconColor", "columns", "rangeColor", "gridGap"]) {
       expect(html).toContain(`<select id="lg-inspector-${key}"`);
     }
     // FIX 4b: the mobileBehavior control is GONE (zero renderer consumers —
     // a dead write); the schema key stays legal for stored legacy data.
     expect(html).not.toContain('<select id="lg-inspector-mobileBehavior"');
     expect(html).not.toContain('data-inspector-override="mobileBehavior"');
+    // R3b: the OLD rail ids are gone by NAME, not merely hidden — featureColor
+    // is now the text family's OWN "Text color role" control (pinned below);
+    // buttonBackground/buttonText are frame/theme-owned (§8.5b), no authoring
+    // control at all (legacy stored values still render, renderer untouched).
+    expect(html).not.toContain('<select id="lg-inspector-featureColor"');
+    expect(html).not.toContain('<select id="lg-inspector-buttonBackground"');
+    expect(html).not.toContain('<select id="lg-inspector-buttonText"');
     // FIX 4b: the structural rows carry the gating hook the island uses to
     // hide dead-write rows per type (columns/gridGap → card grids only).
     expect(html).toContain('data-override-row="columns"');
@@ -968,10 +979,12 @@ describeDb("section studio SSR — §8.6 inspector + §8.5 container props", () 
     expect(icon).not.toContain('<option value="#');
     // §7.4: the no-override state reads as an inherited value
     expect(icon).toContain('<option value="">Inherited (design default)</option>');
-    // §9.4 inheritance/source + reset + legacy-convert affordances per row
+    // §9.4 inheritance/source + reset + legacy-convert affordances per row —
+    // re-pinned against the 2 SURVIVING color-typed keys (iconColor/rangeColor;
+    // buttonBackground/buttonText no longer have rows to carry these hooks).
     expect(html).toContain('data-override-source="iconColor"');
-    expect(html).toContain('data-override-reset="buttonBackground"');
-    expect(html).toContain('data-override-convert="buttonText"');
+    expect(html).toContain('data-override-reset="rangeColor"');
+    expect(html).toContain('data-override-convert="rangeColor"');
     expect(html).toContain("Custom color (legacy)");
     // structural keys keep the design-slot vocabulary (NOT color-typed)
     const gap = selectBlock(html, "lg-inspector-gridGap");
@@ -982,6 +995,12 @@ describeDb("section studio SSR — §8.6 inspector + §8.5 container props", () 
     expect(html).toContain("data-preset-select");
     expect(html).toContain("<option value=\"\">(none)</option>");
     expect(html).not.toMatch(/<input[^>]*data-inspector-field="design_preset"/);
+    // R3b deliverable 2/E2-C1: featureColor's REAL home is now the text
+    // family's own "Text color role" control (data-style-text-block) — the
+    // renderer WIRING (E2-C1) makes this a genuinely-consumed control, unlike
+    // the old rail's dead-axis row.
+    expect(html).toContain('<select id="lg-text-color-role"');
+    expect(html).toContain('data-inspector-override="featureColor"');
   });
 
   it("bootstrap blobs: lg-section-data (unchanged shape), lg-component-seeds (legacy shape), lg-studio-meta (REQUIRED_FIELDS projection)", async () => {
@@ -1662,7 +1681,16 @@ describeDb("section studio EXECUTED island — live server seams", () => {
     expect(savedContent.components).toHaveLength(1);
     expect(savedContent.components[0]!["type"]).toBe("Stack");
     const kids = savedContent.components[0]!["children"] as Array<Record<string, unknown>>;
-    expect(kids.map((k) => k["type"])).toEqual(["TwoButtonYesNo", "HelperText"]);
+    // R3b deliverable 7 (E2-NEW-4/E3-NEW-5): collectSection now invokes the
+    // retired-node migration at the SAME save seam as migrateHelperKey — the
+    // authored HelperText node is rewritten to its primitive TextBlock form
+    // (role:"helper") before it ever reaches the PATCH body. This PIN's RED
+    // (expecting "HelperText" to survive unmigrated) was itself proof the
+    // migration now runs: §5.3 promises "Save rewrites the node to the
+    // primitive form," and nothing called that function anywhere before this
+    // phase (register E2-NEW-4).
+    expect(kids.map((k) => k["type"])).toEqual(["TwoButtonYesNo", "TextBlock"]);
+    expect(kids[1]!["props"]).toMatchObject({ role: "helper" });
     expect(kids[0]!["question_id"]).toBe("q1");
 
     // D2 browser-flow catch: an EMPTY subheadline input must serialize as
@@ -3436,6 +3464,12 @@ describeDb("P4 authoring gaps — TrustBar/LogoStrip/StepIndicator inspectors", 
     // ReassuranceBadge does not.
     const island = studioIsland(html);
     const probe = studioProbe(html, P4_GAPS_CONTENT);
+    // R3b: availableTabsFor now also reads these two top-level island vars
+    // (frame-scope Content honesty + the text-family Rules exclusion) —
+    // inject them alongside the sliced function, mirroring how this sandbox
+    // already injects every other sibling dependency.
+    probe.run(sliceIslandVar(island, "FRAME_SCOPE_STUDIO_TYPES"));
+    probe.run(sliceIslandVar(island, "RULES_EXCLUDED_TEXT_TYPES"));
     probe.run(sliceIslandFunction(island, "availableTabsFor"));
     expect(probe.run("availableTabsFor({ type: 'StepIndicator' })")).toContain("style");
     expect(probe.run("availableTabsFor({ type: 'TrustBar' })")).toContain("style");
@@ -4285,6 +4319,12 @@ describeDb("v2.5 §7 — scope header, pills, dynamic tabs", () => {
     const html = await studioPage(env, section.public_id);
     const island = studioIsland(html);
     const probe = studioProbe(html, YESNO_CONTENT);
+    // R3b: availableTabsFor now also reads these two top-level island vars
+    // (frame-scope Content honesty + the text-family Rules exclusion) —
+    // inject them alongside the sliced function, mirroring how this sandbox
+    // already injects every other sibling dependency.
+    probe.run(sliceIslandVar(island, "FRAME_SCOPE_STUDIO_TYPES"));
+    probe.run(sliceIslandVar(island, "RULES_EXCLUDED_TEXT_TYPES"));
     probe.run(sliceIslandFunction(island, "availableTabsFor"));
     const tabsOf = (expr: string): string[] => probe.run(`availableTabsFor(${expr})`) as string[];
 
@@ -4313,11 +4353,15 @@ describeDb("v2.5 §7 — scope header, pills, dynamic tabs", () => {
     // a legacy PAGE-FRAME element: the pre-v3.1 special-case (no design/
     // dependencies at all) is FOLDED into the general rule now — §8.5's
     // "any visual selection" is unconditional, so HeaderBar (no
-    // content_props) now ALSO gets Style+Rules where before it got neither
-    // (a capability EXPANSION, never a regression — flagged in the phase
-    // report). It still never gets Maps/Offers (meta.maps/produces are
-    // false for it).
-    expect(tabsOf("{ type: 'HeaderBar' }")).toEqual(["style", "rules"]);
+    // content_props) ALSO gets Style+Rules where before it got neither
+    // (a capability EXPANSION, never a regression). It still never gets
+    // Maps/Offers (meta.maps/produces are false for it). R3b deliverable 8
+    // (E2-NEW-3/E2-NEW-8/E2-C4): HeaderBar is now ALSO one of the 10
+    // FRAME_SCOPE_STUDIO_TYPES — hasContent is true for it via that set even
+    // though content_props is empty, so it gains 'content' too (the Content
+    // tab shows the read-only "edited in the Quote Builder" notice there,
+    // never dead editing controls).
+    expect(tabsOf("{ type: 'HeaderBar' }")).toEqual(["content", "style", "rules"]);
     expect(tabsOf("{ type: 'ProgressBar' }")).toEqual(["content", "style", "rules"]);
     // affordances with copy stay lean
     expect(tabsOf("{ type: 'ReassuranceBadge' }")).toEqual(["content", "style", "rules"]);
@@ -4457,17 +4501,21 @@ describeDb("v2.5 A6 — image_fit is a COMPONENT prop on ImageCardAnswerGrid", (
     expect(bare).not.toContain("object-fit");
   });
 
-  it("studio: the Design-tab control writes props.image_fit through the standard collect path, gated to the image grid, and PATCHes for real", async () => {
+  it("studio: the Content-tab control writes props.image_fit through the standard collect path, gated to the image grid, and PATCHes for real", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    // SSR: the control lives on the STYLE panel (v3.1 §8.5 folds Design in;
-    // A6's original placement decision), hidden until an image grid is selected
-    const designPanel = html.slice(
+    // R3b deliverable 2 (rail removal) relocated this control from the OLD
+    // Design-tab rail to the Content tab, next to the choices editor
+    // (renderImageFitControl, deliverable 4's image-controls neighborhood) —
+    // hidden until an image grid is selected. Conductor correction: the
+    // control is ImageCardAnswerGrid's per-grid image_fit prop, NOT the
+    // ImageBlock primitive (dispatch phrasing error, now recorded).
+    const contentPanel = html.slice(
+      html.indexOf('data-studio-panel="content"'),
       html.indexOf('data-studio-panel="style"'),
-      html.indexOf('data-studio-panel="rules"'),
     );
-    expect(designPanel).toMatch(/data-image-fit-wrap[^>]*hidden/);
+    expect(contentPanel).toMatch(/data-image-fit-wrap[^>]*hidden/);
     const fitSelect = selectBlock(html, "lg-inspector-image-fit");
     expect(fitSelect).toContain('data-inspector-field="image_fit"');
     expect(fitSelect).toContain('<option value="cover">');
@@ -5353,6 +5401,13 @@ describeDb("wave 2 — §5.4 Move to Quote frame (LIVE semantics)", () => {
         sliceIslandFunction(island, "mergeFrameGroups"),
         // FIX 1a: the child-preserving removal finishMoveToFrame delegates to.
         sliceIslandFunction(island, "removeMovedFrameNode"),
+        // R3 MINOR-3 (reland): finishMoveToFrame now calls collectSection,
+        // which calls confirmSaveMigrationLoss's sibling helpers — FRAME_NODE_
+        // CONTENT has no LogoStrip, so confirmSaveMigrationLoss short-circuits
+        // to `true` without prompting (confirms stays length 1 throughout).
+        sliceIslandLine(island, "var LOSSY_LOGOSTRIP_SAVE_CONFIRM"),
+        sliceIslandFunction(island, "contentHasRetiredLogoStrip"),
+        sliceIslandFunction(island, "confirmSaveMigrationLoss"),
         sliceIslandFunction(island, "finishMoveToFrame"),
         sliceIslandFunction(island, "doMoveToFrame"),
         sliceIslandFunction(island, "renderFunnelPicker"),
@@ -5450,6 +5505,12 @@ describeDb("wave 2 — §5.4 Move to Quote frame (LIVE semantics)", () => {
       fetches.push(`${init?.method ?? "GET"} ${url}`);
       return Promise.resolve(admin.request(url, init ?? {}, env));
     };
+    // R3 GRANT-2: the vm-probe now ALSO slices collectSection's migration
+    // helpers (confirmSaveMigrationLoss/contentHasRetiredLogoStrip + the
+    // LOSSY_LOGOSTRIP_SAVE_CONFIRM string) alongside finishMoveToFrame/
+    // doMoveToFrame — MINOR-3 reland routes finishMoveToFrame's PATCH through
+    // collectSection, so this sandbox must carry every symbol that call graph
+    // now touches (collectSection itself already rides via MODEL_FUNCS).
     probe.run(
       [
         "function markDirty() { dirty = true; }",
@@ -5461,6 +5522,9 @@ describeDb("wave 2 — §5.4 Move to Quote frame (LIVE semantics)", () => {
         sliceIslandFunction(island, "equivalentFrameGroup"),
         sliceIslandFunction(island, "mergeFrameGroups"),
         sliceIslandFunction(island, "removeMovedFrameNode"),
+        sliceIslandLine(island, "var LOSSY_LOGOSTRIP_SAVE_CONFIRM"),
+        sliceIslandFunction(island, "contentHasRetiredLogoStrip"),
+        sliceIslandFunction(island, "confirmSaveMigrationLoss"),
         sliceIslandFunction(island, "finishMoveToFrame"),
         sliceIslandFunction(island, "doMoveToFrame"),
         sliceIslandFunction(island, "renderFunnelPicker"),
@@ -5474,7 +5538,9 @@ describeDb("wave 2 — §5.4 Move to Quote frame (LIVE semantics)", () => {
       await new Promise((r) => setTimeout(r, 5));
     }
     expect(probe.sandbox.refusals, "no refusal on the happy path").toEqual([]);
-    // FIX 1c: the confirm NAMES the contents' fate
+    // FIX 1c: the confirm NAMES the contents' fate. This section has no
+    // retired LogoStrip, so confirmSaveMigrationLoss short-circuits to `true`
+    // WITHOUT prompting — still exactly ONE confirm (the move confirm).
     expect(confirms).toHaveLength(1);
     expect(confirms[0]).toContain("Panel funnel");
     expect(confirms[0]).toContain("Its contents stay in this Section.");
@@ -5504,13 +5570,141 @@ describeDb("wave 2 — §5.4 Move to Quote frame (LIVE semantics)", () => {
     const saved = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as Record<string, unknown>;
     const savedContent = saved["content_json"] as { components: Array<Record<string, unknown>> };
     expect(savedContent.components.map((n) => n["question_id"])).toEqual(["h1", "q1", "help1", "c1"]);
+    // MIGRATED (E2-NEW-4, R3 MINOR-3 reland): finishMoveToFrame now routes its
+    // content-only PATCH through collectSection, so the retired HelperText
+    // child is rewritten to TextBlock(role:helper) on THIS save, same as the
+    // main Save button — no more permanently-legacy shape via this path.
     expect(savedContent.components.map((n) => n["type"])).toEqual([
       "QuestionHeadline",
       "TwoButtonYesNo",
-      "HelperText",
+      "TextBlock",
       "ContinueButton",
     ]);
+    const migratedHelper = savedContent.components.find((n) => n["question_id"] === "help1");
+    expect(migratedHelper?.["props"]).toMatchObject({ role: "helper", text: "Takes two minutes." });
     expect(probe.sandbox["dirty"]).toBe(false);
+  });
+
+  it("MINOR-3 reland: the lossy-LogoStrip save confirm gates the move-to-frame path too — decline aborts BEFORE any write; accept proceeds and migrates the WHOLE tree (E2-NEW-4)", async () => {
+    const { env } = newHarness();
+    const quoteRes = await admin.request(
+      `${API}/quotes`,
+      jsonInit("POST", { quote_name: "Lossy Move Quote", activity: "quote_funnel", verticals: ["life"], funnel_name: "Lossy Move funnel" }),
+      env,
+    );
+    expect(quoteRes.status).toBe(201);
+    const quote = (await quoteRes.json()) as { public_id: string };
+    const funnels = (await (
+      await admin.request(`${API}/quotes/${quote.public_id}/funnels`, {}, env)
+    ).json()) as { items: Array<{ public_id: string; funnel_name: string }> };
+    const funnel = funnels.items[0]!;
+    // The LogoStrip is a STRAY node — NOT the one being moved — proving the
+    // guard covers the whole-tree migration collectSection now runs, not just
+    // the moved subtree.
+    const LOSSY_MOVE_CONTENT = {
+      components: [
+        { type: "QuestionHeadline", question_id: "h1", props: { text: "Are you insured?" } },
+        { type: "LogoStrip", question_id: "logos1", props: { logos: ["a.png", "b.png"] } },
+        {
+          type: "BackgroundPanel",
+          question_id: "bg1",
+          props: { gradient: "primary", imageMediaId: "media_bg_7" },
+          children: [
+            { type: "TwoButtonYesNo", question_id: "q1", question_key: "insured_q", internal_field: "currently_insured", answer_type: "boolean" },
+          ],
+        },
+        { type: "ContinueButton", question_id: "c1", props: { label: "Continue" } },
+      ],
+    };
+    const section = await createSection(env, { content_json: JSON.stringify(LOSSY_MOVE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const sliceMoveFns = [
+      "function markDirty() { dirty = true; }",
+      "function selectComponent() {}",
+      "function showMoveNote() {}",
+      "var selectedQuestionId = null;",
+      sliceIslandFunction(island, "usageFunnelsOf"),
+      sliceIslandFunction(island, "moveConfirmMessage"),
+      sliceIslandFunction(island, "equivalentFrameGroup"),
+      sliceIslandFunction(island, "mergeFrameGroups"),
+      sliceIslandFunction(island, "removeMovedFrameNode"),
+      sliceIslandLine(island, "var LOSSY_LOGOSTRIP_SAVE_CONFIRM"),
+      sliceIslandFunction(island, "contentHasRetiredLogoStrip"),
+      sliceIslandFunction(island, "confirmSaveMigrationLoss"),
+      sliceIslandFunction(island, "finishMoveToFrame"),
+      sliceIslandFunction(island, "doMoveToFrame"),
+      sliceIslandFunction(island, "renderFunnelPicker"),
+      sliceIslandFunction(island, "funnelPickBtn"),
+      sliceIslandFunction(island, "startMoveToFrame"),
+    ].join("\n");
+
+    // ---- DECLINE: accept the move-confirm, DECLINE the lossy-confirm ----
+    const confirmsDecline: string[] = [];
+    const fetchesDecline: string[] = [];
+    const probeDecline = studioProbe(html, LOSSY_MOVE_CONTENT);
+    probeDecline.sandbox["window"] = {
+      confirm(msg: string) {
+        confirmsDecline.push(msg);
+        return confirmsDecline.length === 1; // 1st (move) = accept, 2nd (lossy) = decline
+      },
+    };
+    probeDecline.sandbox["dirty"] = false;
+    (probeDecline.sandbox.state as Record<string, unknown>)["public_id"] = section.public_id;
+    probeDecline.sandbox["usageRows"] = [
+      { quote_public_id: quote.public_id, funnel_public_id: funnel.public_id, funnel_name: funnel.funnel_name, variant_public_id: "lgn_x" },
+    ];
+    probeDecline.sandbox["fetch"] = (url: string, init?: RequestInit): Promise<Response> => {
+      fetchesDecline.push(`${init?.method ?? "GET"} ${url}`);
+      return Promise.resolve(admin.request(url, init ?? {}, env));
+    };
+    probeDecline.run(sliceMoveFns);
+    probeDecline.run("startMoveToFrame('bg1')");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(confirmsDecline, "move-confirm then lossy-confirm, both shown").toHaveLength(2);
+    expect(confirmsDecline[1]).toContain("retired Logo strip");
+    expect(fetchesDecline, "declining the lossy confirm aborts BEFORE any write (no frame GET/PUT, no content PATCH)").toEqual([]);
+    expect(
+      probeDecline.run("state.content.components.some(function (n) { return n.type === 'LogoStrip'; })"),
+      "content untouched — the LogoStrip is still unmigrated",
+    ).toBe(true);
+
+    // ---- ACCEPT: both confirms accepted — the move AND the whole-tree save migration proceed ----
+    const confirmsAccept: string[] = [];
+    const fetchesAccept: string[] = [];
+    const probeAccept = studioProbe(html, LOSSY_MOVE_CONTENT);
+    probeAccept.sandbox["window"] = {
+      confirm(msg: string) {
+        confirmsAccept.push(msg);
+        return true;
+      },
+    };
+    probeAccept.sandbox["dirty"] = false;
+    (probeAccept.sandbox.state as Record<string, unknown>)["public_id"] = section.public_id;
+    probeAccept.sandbox["usageRows"] = [
+      { quote_public_id: quote.public_id, funnel_public_id: funnel.public_id, funnel_name: funnel.funnel_name, variant_public_id: "lgn_x" },
+    ];
+    probeAccept.sandbox["fetch"] = (url: string, init?: RequestInit): Promise<Response> => {
+      fetchesAccept.push(`${init?.method ?? "GET"} ${url}`);
+      return Promise.resolve(admin.request(url, init ?? {}, env));
+    };
+    probeAccept.run(sliceMoveFns);
+    probeAccept.run("startMoveToFrame('bg1')");
+    for (let i = 0; i < 200 && fetchesAccept.length < 3; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(confirmsAccept).toHaveLength(2);
+    expect(fetchesAccept).toEqual([
+      `GET /api/admin/leadgen/funnels/${funnel.public_id}/frame`,
+      `PUT /api/admin/leadgen/funnels/${funnel.public_id}/frame`,
+      `PATCH /api/admin/leadgen/sections/${section.public_id}`,
+    ]);
+    const saved = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as Record<string, unknown>;
+    const savedContent = saved["content_json"] as { components: Array<Record<string, unknown>> };
+    const migratedLogo = savedContent.components.find((n) => n["question_id"] === "logos1");
+    expect(migratedLogo?.["type"], "the STRAY LogoStrip elsewhere in the tree migrates too — collectSection runs on the whole tree (E2-NEW-4)").toBe("ImageBlock");
+    expect(migratedLogo?.["props"]).toMatchObject({ source: "auto_logo" });
+    expect((migratedLogo?.["props"] as Record<string, unknown>)?.["logos"], "its logos are dropped (lossy)").toBeUndefined();
   });
 
   it("used-by-many: a funnel PICKER opens (no confirm yet); zero funnels: a refusal names the Quote Builder", async () => {
@@ -5687,7 +5881,13 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     expect(savedChoice).toMatchObject({ title: "Acme Insurance", subtitle: "Best rated", badge: "Recommended", disabled: true, aria_label: "Choose Acme" });
     // the row grid ships the media PICKER cell + the §5.5 idiom markers
     expect(island).toContain("data-choice-media-choose");
-    expect(island).toContain("openMediaPicker({ input: input, onpick: collectChoices });");
+    // R3a (S2-5d): the image cell's Choose… now shows a live THUMBNAIL next to
+    // the picker, so onpick must do more than re-collect the choice — it
+    // refreshes the thumb <img> from the newly-picked value FIRST, so the
+    // preview never lags one pick behind.
+    expect(island).toContain(
+      "openMediaPicker({ input: input, onpick: function () { setChoiceThumb(thumb, input.value); collectChoices(); } });",
+    );
   });
 
   it("bulk paste accepts the §5.5 'label = value' idiom (legacy 'label|value' kept); the searchable toggle SWITCHES the dropdown type; the range note gates to sliders", async () => {
@@ -6634,8 +6834,15 @@ describeDb("review FIX 4b — dead-write controls are gated per type (executed i
     const html = await studioPage(env, section.public_id);
     const island = studioIsland(html);
     const probe = studioProbe(html, YESNO_CONTENT);
+    // R3b: overrideRowHidden now also calls isRangeFamilyType (rangeColor's
+    // corrected gating) — inject it alongside the sliced function, mirroring
+    // how this sandbox already injects every other sibling dependency.
     probe.run(
-      [sliceIslandFunction(island, "isCardGridType"), sliceIslandFunction(island, "overrideRowHidden")].join("\n"),
+      [
+        sliceIslandFunction(island, "isCardGridType"),
+        sliceIslandFunction(island, "isRangeFamilyType"),
+        sliceIslandFunction(island, "overrideRowHidden"),
+      ].join("\n"),
     );
     // the toolbar clusters key off isCardGridType (selIcon + choiceLayout)
     expect(island).toContain("selIcon.hidden = !isCardGridType(node);");
@@ -6651,11 +6858,30 @@ describeDb("review FIX 4b — dead-write controls are gated per type (executed i
       expect(probe.run(`overrideRowHidden('columns', { type: '${t}' })`), `${t} columns hidden`).toBe(true);
       expect(probe.run(`overrideRowHidden('gridGap', { type: '${t}' })`), `${t} gridGap hidden`).toBe(true);
     }
-    // MCG has no icon slot → its iconColor row is gated off; the grids keep it
+    // R3b S2-7: iconColor is now hidden EVERYWHERE except the card grids (was
+    // "hidden for MultiChoiceCardGroup only" — the wrong-axis bug the rail
+    // removal fixed); MCG (no icon slot) and a non-grid choice type both stay
+    // gated off, the two grids keep it.
     expect(probe.run("overrideRowHidden('iconColor', { type: 'MultiChoiceCardGroup' })")).toBe(true);
+    expect(probe.run("overrideRowHidden('iconColor', { type: 'ButtonAnswerGroup' })")).toBe(true);
     expect(probe.run("overrideRowHidden('iconColor', { type: 'IconCardAnswerGrid' })")).toBe(false);
-    // consumed color rows stay visible everywhere
-    for (const key of ["featureColor", "rangeColor", "buttonBackground", "buttonText"]) {
+    expect(probe.run("overrideRowHidden('iconColor', { type: 'ImageCardAnswerGrid' })")).toBe(false);
+    // R3b S2-7: rangeColor is now hidden EVERYWHERE except the range family
+    // (was ungated/always-visible — another wrong-axis dead-write row the
+    // rail removal fixed).
+    expect(probe.run("overrideRowHidden('rangeColor', { type: 'ButtonAnswerGroup' })")).toBe(true);
+    for (const rangeType of ["RangeQuestion", "CurrencyRangeQuestion", "NumberRangeQuestion"]) {
+      expect(probe.run(`overrideRowHidden('rangeColor', { type: '${rangeType}' })`), rangeType).toBe(false);
+    }
+    // R3b S2-7/S4-A4: featureColor/buttonBackground/buttonText no longer have
+    // ANY rendered row at all (rail removal — featureColor's real home is now
+    // the text family's own "Text color role" control; buttonBackground/
+    // buttonText are frame/theme-owned, no authoring control). overrideRowHidden
+    // has no per-key branch for them, so it falls through to its default
+    // (`false`, i.e. "not explicitly hidden") — vacuously true since there is
+    // no row for that default to ever apply to; this documents the fallthrough
+    // rather than claiming these are "visible controls".
+    for (const key of ["featureColor", "buttonBackground", "buttonText"]) {
       expect(probe.run(`overrideRowHidden('${key}', { type: 'ButtonAnswerGroup' })`), key).toBe(false);
     }
     // no selection → structural rows hidden (nothing to write to)

@@ -62,6 +62,11 @@ export const COMPONENT_CATALOG = {
   QuestionHeadline: { category: "affordance", scope: "both", produces: null, props: ["text"], validation: [], events: [], tokenSlots: ["headline"] },
   Subheadline:   { category: "affordance", scope: "both", produces: null, props: ["text"], validation: [], events: [], tokenSlots: ["subheadline"] },
 
+  // v3.1 R3b E1-NEW-10 (catalog hygiene): legacy-only — NOT reachable from the
+  // palette or the canvas toolbar's Format-$ switch (that switch toggles
+  // ONLY between NumberRangeQuestion/CurrencyRangeQuestion, its documented
+  // 2-type family). Existing stored content of this exact type keeps
+  // rendering/validating; new authoring should use the Slider tile instead.
   RangeQuestion:         { category: "question", scope: "unit", produces: "number",   props: ["internal_field","min","max","step","default","format(number|currency)","minLabel","maxLabel","required"], validation: ["min<=value<=max"], events: ["answer_click","answer_change"], tokenSlots: ["rangeQuestion"], capabilityExample: "screenshot: 'How much do you need?' $10k–$1M+ slider, value $330,000" },
   CurrencyRangeQuestion: { category: "question", scope: "unit", produces: "currency", props: ["...RangeQuestion","currency"], validation: ["min<=value<=max"], events: ["answer_click","answer_change"], tokenSlots: ["rangeQuestion"], capabilityExample: "screenshot: BUSINESS LOAN currency range" },
   NumberRangeQuestion:   { category: "question", scope: "unit", produces: "number",   props: ["...RangeQuestion"], validation: ["min<=value<=max"], events: ["answer_click","answer_change"], tokenSlots: ["rangeQuestion"] },
@@ -73,13 +78,22 @@ export const COMPONENT_CATALOG = {
   MultiChoiceCardGroup:{ category: "question", scope: "unit", produces: "array", props: ["internal_field","choices[]","min","max"], validation: ["min<=count<=max"], events: ["answer_click"], tokenSlots: ["iconCard","multiChoice"] },
   DropdownQuestion:   { category: "question", scope: "unit", produces: "enum", props: ["internal_field","choices[]","placeholder","required","conditional?"], validation: ["value in choices"], events: ["answer_click"], tokenSlots: ["dropdown"], capabilityExample: "spec: insurer dropdown shown when 'insured=yes'" },
   SearchableDropdownQuestion: { category: "question", scope: "unit", produces: "enum", props: ["internal_field","choices[]","placeholder?","required?"], validation: ["value in choices"], events: ["answer_click"], tokenSlots: ["dropdown","input"], capabilityExample: "08 §8.3/§8.10: DropdownQuestion plus a search input above the options (runtime filters client-side)" },
+  // v3.1 R3b E1-C7 (catalog hygiene): fully rendered + labeled, but has no
+  // palette tile/swap path of its own — ButtonAnswerGroup's own "Enable
+  // Other group" toggle (choiceDisplay.otherGroupEnabled) produces the
+  // identical B9 behavior on any choice type, superseding the need to
+  // insert this dedicated type directly. Kept for existing content.
   OtherGroupSelector: { category: "question", scope: "unit", produces: "enum", props: ["internal_field","choices[]","required?"], validation: ["value in choices"], events: ["answer_click"], tokenSlots: ["primaryButton","input"], capabilityExample: "08 §8.3 (B9 §6.4): main choices as answer buttons + the Other tail; auto-applied when a mapped field has choiceDisplay.otherGroupEnabled" },
 
   FreeTextQuestion:   { category: "question", scope: "unit", produces: "string", props: ["internal_field","placeholder","maxLen","required","pii?"], validation: ["required","maxLen"], events: ["answer_change"], tokenSlots: ["input"] },
   NumberInputQuestion:   { category: "question", scope: "unit", produces: "number",   props: ["internal_field","min?","max?","step?","placeholder?","required?"], validation: ["numeric","min<=value<=max when set"], events: ["answer_change","validation_error"], tokenSlots: ["input"], capabilityExample: "08 §8.3/§8.10: plain number input (inputmode=numeric) — NOT a Range variant" },
   CurrencyInputQuestion: { category: "question", scope: "unit", produces: "currency", props: ["internal_field","currency?","min?","max?","placeholder?","required?"], validation: ["numeric","min<=value<=max when set"], events: ["answer_change","validation_error"], tokenSlots: ["input"], capabilityExample: "08 §8.10: currency-prefixed plain input (prefix from props.currency ?? \"$\") — NOT a Range variant" },
   EmailInputQuestion: { category: "question", scope: "unit", produces: "string", props: ["internal_field","required"], validation: ["email format"], events: ["answer_change","validation_error"], tokenSlots: ["input"] },
-  PhoneInputQuestion: { category: "question", scope: "unit", produces: "string", props: ["internal_field","required","format"], validation: ["phone format"], events: ["answer_change","validation_error"], tokenSlots: ["input"] },
+  // v3.1 R3b E1-C6 (catalog hygiene): "format" removed from props — it was
+  // documented but has zero readers/writers anywhere (renderPhoneInputQuestion
+  // never consumes it, no inspector control ever wrote it). Not a schema
+  // change (content-schema never enforced this prop); doc-only correction.
+  PhoneInputQuestion: { category: "question", scope: "unit", produces: "string", props: ["internal_field","required"], validation: ["phone format"], events: ["answer_change","validation_error"], tokenSlots: ["input"] },
   NameFieldsGroup:    { category: "question", scope: "unit", produces: "object", props: ["fields(first,last)","required"], validation: ["required per field"], events: ["answer_change"], tokenSlots: ["input"] },
   DateQuestion:       { category: "question", scope: "unit", produces: "string", props: ["internal_field","min","max","required"], validation: ["date range"], events: ["answer_change","validation_error"], tokenSlots: ["input"] },
   ZIPInputQuestion:   { category: "question", scope: "unit", produces: "string", props: ["internal_field","required","validate(google?)"], validation: ["/^\\d{5}$/","google validate if enabled"], events: ["answer_change","address_validation_success","address_validation_error"], tokenSlots: ["input"] },
@@ -120,7 +134,10 @@ export const COMPONENT_CATALOG = {
   CardPanel:       { category: "layout", scope: "both", produces: null, props: ["width(s|m|l|full)","background(card|wash|ghost|transparent)","shadow(none|sm|md|lg|xl)","radius(sm|md|lg|xl)","padding(s|m|l)","children[]"], validation: ["§8.5 token enums","max depth 4"], events: [], tokenSlots: ["cardPanel"], capabilityExample: "08 §8.11 pattern 1/4: the centered question card" },
   BackgroundPanel: { category: "layout", scope: "frame", produces: null, props: ["background(card|wash|ghost|page|primary)","imageMediaId?","gradient(primary|accent|wash)?","children[]"], validation: ["§8.5 approved design tokens only"], events: [], tokenSlots: ["backgroundPanel"], capabilityExample: "08 §8.11 pattern 4: full-background design with centered card" },
   // Prop-driven layout leaves (3): NO children — structured props only.
-  Spacer:          { category: "layout", scope: "both", produces: null, props: ["size(xs|s|m|l|xl)"], validation: ["§8.5 token enums"], events: [], tokenSlots: ["spacer"], capabilityExample: "08 §8.5: token-sized vertical gap" },
+  // v3.1 R3b (catalog hygiene, own catch): "variant(gap|line)" was schema-legal
+  // and renderer-consumed (renderSpacer's line-divider branch) but missing
+  // from this doc — added for parity with content-schema's real contract.
+  Spacer:          { category: "layout", scope: "both", produces: null, props: ["size(xs|s|m|l|xl)","variant(gap|line)"], validation: ["§8.5 token enums"], events: [], tokenSlots: ["spacer"], capabilityExample: "08 §8.5: token-sized vertical gap" },
   HeaderBar:       { category: "layout", scope: "frame", produces: null, props: ["logoMediaId?","logoAlt?","back?","backLabel?","secure?","secureText?","cta{label,href|tel}?"], validation: ["§8.5 cta shape + safe href"], events: [], tokenSlots: ["headerBar"], capabilityExample: "08 §8.11 pattern 3: header with logo + call CTA (+ back / secure slots)" },
   FooterBar:       { category: "layout", scope: "frame", produces: null, props: ["legalHtml?","trustMessages[]?","links[{label,href}]?"], validation: ["§8.5 links shape + safe href"], events: [], tokenSlots: ["footerBar"], capabilityExample: "08 §8.11 pattern 4: legal footer with trust messaging + links" },
 } as const satisfies Record<string, CatalogEntryContract>;

@@ -57,6 +57,7 @@
 
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { seedActiveSite, uploadPng } from './listicles-p6-seed';
+import { LEADGEN_FIELD_LEADING_ICONS } from '../src/public/leadgen/components/content-schema';
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
@@ -648,9 +649,29 @@ function choiceRows(page: Page) {
   return page.locator('[data-inspector-choices] [data-choice-row]');
 }
 
+// R3a (register S2-4/S2-5/6c): 'icon' is now a curated <select> of the SAME 12
+// section-8.1 leading-icon options PLUS a "Custom glyph…" escape hatch (the
+// choice.icon prop stays free-glyph per content-schema — isNonEmptyString, no
+// enum — so authoring an arbitrary business-type emoji, as several patterns
+// below do, still routes through the picker's own custom-text sibling).
+// 'emoji' is a curated palette (button click), never a text input.
 async function fillChoiceRow(page: Page, index: number, fields: Record<string, string>): Promise<void> {
   const row = choiceRows(page).nth(index);
   for (const [key, value] of Object.entries(fields)) {
+    if (key === 'icon') {
+      const iconSelect = row.locator('[data-choice-icon-select]');
+      if ((LEADGEN_FIELD_LEADING_ICONS as readonly string[]).includes(value)) {
+        await iconSelect.selectOption(value);
+      } else {
+        await iconSelect.selectOption('__custom__');
+        await row.locator('[data-choice-icon-custom]').fill(value);
+      }
+      continue;
+    }
+    if (key === 'emoji') {
+      await row.locator(`[data-choice-emoji="${value}"]`).click();
+      continue;
+    }
     await row.locator(`input[data-choice-field="${key}"]`).fill(value);
   }
 }
@@ -1880,7 +1901,13 @@ test.describe('LeadGen Studio §9.4 + §8.13 (Slice F)', () => {
     test.setTimeout(150_000);
     // Fixture copied from test/leadgen-sample-answers.test.ts
     // (linkSectionWithComponents): 7 flat components, NO containers — a
-    // realistic pre-§8.5 Section body.
+    // realistic pre-§8.5 Section body. CRUCIAL PRECONDITION (R3 MAJOR-2): this
+    // fixture has NO retired/legacy-keyed nodes (no LogoStrip, no CategoryLabel/
+    // HelperText/LegalNote/ReassuranceBadge/SecureFormBadge, no DisclosureLink
+    // html-key, no helper_text alias), so collectSection's §5.3/§8.1 save
+    // migrations are a NO-OP here — that is precisely WHY the no-edit save stays
+    // byte-identical. The §8.13b/§8.13c companions below cover the MIGRATED
+    // (retired-node) case; this clean-content byte-identity is NOT weakened.
     const LEGACY_FLAT_CONTENT = {
       components: [
         {
@@ -1936,5 +1963,83 @@ test.describe('LeadGen Studio §9.4 + §8.13 (Slice F)', () => {
     expect(JSON.stringify(after.content_json), 'no-edit save is byte-lossless').toBe(beforeStr);
     // the server detected NO content change (content_version untouched)
     expect(after.content_version).toBe(before.content_version);
+  });
+
+  test('§8.13b MIGRATED case: retired LogoStrip + CategoryLabel rewrite to their primitives on save (lossy confirm ACCEPTED)', async ({ page }) => {
+    test.setTimeout(150_000);
+    // Retired-node fixture. LogoStrip + CategoryLabel are both CREATE-valid
+    // (REQUIRED_FIELDS.LogoStrip {}, CategoryLabel { text }). A DisclosureLink
+    // html-key node CANNOT be seeded through the API — the validator requires
+    // panelHtml on create, so that legacy shape only ever exists as
+    // pre-requirement D1 content; its html->panelHtml migration is proven
+    // EXECUTABLY by the vm-probe in test/leadgen-r3b-consumption.test.ts.
+    const RETIRED_CONTENT = {
+      components: [
+        { type: 'CategoryLabel', question_id: 'q-cat', props: { text: 'Your details', icon: 'star' } },
+        { type: 'LogoStrip', question_id: 'q-logos', props: { logos: ['a.png', 'b.png', 'c.png'] } },
+        { type: 'ButtonAnswerGroup', question_id: 'q-x', internal_field: 'x', answer_type: 'enum', choices: [{ label: 'A', value: 'a', analytics_id: 'a' }] },
+      ],
+    };
+    await ensureFeederOffer(page.request);
+    const created = await createSection(page.request, `Retired Nodes ${uniq}`, JSON.stringify(RETIRED_CONTENT));
+
+    await page.goto(`/admin/leadgen/sections/${created.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+    const canvas = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render');
+    await expect(canvas.locator('[data-component-type]').first()).toBeAttached({ timeout: 20_000 });
+
+    // the LOSSY LogoStrip conversion is ANNOUNCED before it runs — accept it.
+    // saveStudio waits for the post-save navigation (window.location on success),
+    // so the migrated PATCH has fully landed before we re-fetch.
+    let sawConfirm = false;
+    page.on('dialog', (d) => { sawConfirm = true; void d.accept(); });
+    await saveStudio(page);
+    expect(sawConfirm, 'the lossy LogoStrip save is announced before it runs').toBe(true);
+
+    const after = await fetchSection(page.request, created.public_id);
+    const byId: Record<string, StudioNode> = {};
+    for (const c of after.content_json.components) byId[c.question_id] = c;
+    // CategoryLabel -> TextBlock(role:category_label), text + icon preserved
+    expect(byId['q-cat']!.type).toBe('TextBlock');
+    expect(byId['q-cat']!.props).toMatchObject({ role: 'category_label', text: 'Your details', icon: 'star' });
+    // LogoStrip -> ImageBlock(source:auto_logo), individual logos DROPPED (lossy)
+    expect(byId['q-logos']!.type).toBe('ImageBlock');
+    expect(byId['q-logos']!.props).toMatchObject({ source: 'auto_logo' });
+    expect(byId['q-logos']!.props!['logos'], 'the individual logos are removed').toBeUndefined();
+    // the untouched question survives verbatim
+    expect(byId['q-x']!.type).toBe('ButtonAnswerGroup');
+    await page.screenshot({ path: `${SHOT_DIR}/8-13b-migrated.png` });
+  });
+
+  test('§8.13c the lossy LogoStrip conversion is CANCELLABLE — dismiss ⇒ no PATCH, content untouched', async ({ page }) => {
+    test.setTimeout(150_000);
+    const LOGOSTRIP_CONTENT = {
+      components: [
+        { type: 'LogoStrip', question_id: 'q-logos', props: { logos: ['a.png', 'b.png'] } },
+        { type: 'ButtonAnswerGroup', question_id: 'q-x', internal_field: 'x', answer_type: 'enum', choices: [{ label: 'A', value: 'a', analytics_id: 'a' }] },
+      ],
+    };
+    await ensureFeederOffer(page.request);
+    const created = await createSection(page.request, `Cancel Lossy ${uniq}`, JSON.stringify(LOGOSTRIP_CONTENT));
+    const before = await fetchSection(page.request, created.public_id);
+
+    await page.goto(`/admin/leadgen/sections/${created.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+    await expect(page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render').locator('[data-component-type="LogoStrip"]')).toBeAttached({ timeout: 20_000 });
+
+    // watch for ANY PATCH to this section — a cancelled lossy save fires none.
+    let patchFired = false;
+    page.on('request', (r) => { if (r.method() === 'PATCH' && r.url().includes(`/sections/${created.public_id}`)) patchFired = true; });
+    let sawConfirm = false;
+    page.on('dialog', (d) => { sawConfirm = true; void d.dismiss(); });
+
+    await page.locator('#lg-section-save').click();
+    // the aborted save re-enables the button and never leaves it disabled.
+    await expect(page.locator('#lg-section-save')).toBeEnabled({ timeout: 8000 });
+    expect(sawConfirm, 'the confirm is shown').toBe(true);
+    expect(patchFired, 'a cancelled lossy save fires NO PATCH').toBe(false);
+
+    // the server content is untouched: still a LogoStrip, same content_version.
+    const after = await fetchSection(page.request, created.public_id);
+    expect(after.content_version).toBe(before.content_version);
+    expect(after.content_json.components.find((c) => c.type === 'LogoStrip'), 'LogoStrip still present, not migrated').toBeTruthy();
   });
 });

@@ -347,6 +347,11 @@ async function assignTheme(env: Env, funnelPublicId: string): Promise<ThemeRecor
 // ===========================================================================
 
 describeDb("theme_controls threading (v3.1 §7/§12, adversarial review MAJOR-1)", () => {
+  // R3 fix-round grounding erratum (register): the absent HEIGHT axis now
+  // ALSO resolves (inherits theme_controls.field_height, §7.2 "absent =
+  // inherit theme default") on all 3 paths — this test's OWN purpose (proving
+  // theme_controls threading reaches the render) is fulfilled MORE completely
+  // now that both axes are observable, not just the custom_px width.
   it("PATH 1/3 — runtime GET /lg/:slug renders the node's custom_px width inline (ctx reaches fieldSizeStyle)", async () => {
     const fx = await seedActivatedFixture("size-runtime", true);
     await assignTheme(fx.h.env, fx.funnelPublicId);
@@ -354,7 +359,7 @@ describeDb("theme_controls threading (v3.1 §7/§12, adversarial review MAJOR-1)
     const res = await app.request(`${TENANT_ORIGIN}/lg/size-runtime`, {}, fx.h.env);
     expect(res.status, await res.clone().text()).toBe(200);
     const html = await res.text();
-    expect(html).toContain('style="width:384px"');
+    expect(html).toContain('style="width:384px;height:60px"');
   });
 
   it("PATH 2/3 — POST /sections/preview (section-in-frame) renders the SAME custom_px width", async () => {
@@ -373,7 +378,7 @@ describeDb("theme_controls threading (v3.1 §7/§12, adversarial review MAJOR-1)
     );
     expect(res.status, `preview: ${await res.clone().text()}`).toBe(200);
     const body = (await res.json()) as { preview: { desktop: string } };
-    expect(body.preview.desktop).toContain('style="width:384px"');
+    expect(body.preview.desktop).toContain('style="width:384px;height:60px"');
   });
 
   it("PATH 3/3 — POST /variants/:id/preview (composed-variant preview) renders the SAME custom_px width", async () => {
@@ -387,7 +392,7 @@ describeDb("theme_controls threading (v3.1 §7/§12, adversarial review MAJOR-1)
     );
     expect(res.status, `composed preview: ${await res.clone().text()}`).toBe(200);
     const body = (await res.json()) as { preview: { html: string } };
-    expect(body.preview.html).toContain('style="width:384px"');
+    expect(body.preview.html).toContain('style="width:384px;height:60px"');
   });
 
   it("REGRESSION — absent design_overrides.size renders NO style attribute on the field, on all 3 paths (byte-identical, strictly additive)", async () => {

@@ -299,21 +299,21 @@ test.describe("R2 canvas interactions (firefox real input)", () => {
     await expect.poll(async () => page.locator("#lg-section-headline").inputValue(), { timeout: 8000 }).toContain("Edited headline");
   });
 
-  test("(x) R2 adversarial-review MAJOR fix #1: a non-size-consuming type (ButtonAnswerGroup) keeps selection chrome but has NO resize handle to grab; a drag attempt at the would-be handle position writes nothing and changes nothing", async ({ page }) => {
+  test("(x) R2 adversarial-review MAJOR fix #1: a non-size-consuming type (NameFieldsGroup — R3a widened ButtonAnswerGroup into the consuming set, so the non-consuming example moved to a still-non-consuming field type) keeps selection chrome but has NO resize handle to grab; a drag attempt at the would-be handle position writes nothing and changes nothing", async ({ page }) => {
     const s = await createSection(page.request, `R2 NonConsuming ${uniq}`, [
       HEADLINE,
-      { type: "ButtonAnswerGroup", question_id: "q_btn", internal_field: "coverage", answer_type: "enum", choices: [{ label: "Basic", value: "basic", analytics_id: "b" }, { label: "Full", value: "full", analytics_id: "f" }] },
+      { type: "NameFieldsGroup", question_id: "q_name", internal_field: "name", answer_type: "object" },
       CONT,
     ]);
     await boot(page, s);
-    await selectNode(page, "q_btn");
+    await selectNode(page, "q_name");
 
     // the alignment contract still holds (chrome for ALL field-chrome types) —
     // the measured outline tracks the field within tolerance exactly like a
     // consuming type would.
-    const field = frame(page).locator('[data-question-id="q_btn"]');
+    const field = frame(page).locator('[data-question-id="q_name"]');
     const fieldRect = box2rect(await field.boundingBox());
-    const outlineRect = box2rect(await outlineOf(page, "q_btn").boundingBox());
+    const outlineRect = box2rect(await outlineOf(page, "q_name").boundingBox());
     assertOverlayAligned(fieldRect, outlineRect, 4);
 
     // NOTHING to grab: zero resize-handle locators for this node (the inert
@@ -342,7 +342,7 @@ test.describe("R2 canvas interactions (firefox real input)", () => {
     expect(Math.round(fieldRectAfter.height), "height unchanged").toBe(heightBefore);
 
     // the deepest proof: SAVE (hard-navigates, the established idiom) then
-    // re-fetch the persisted content_json — the ButtonAnswerGroup node must
+    // re-fetch the persisted content_json — the NameFieldsGroup node must
     // carry NO design_overrides.size at all. A phantom write that the canvas
     // merely fails to RENDER would still show up here; this proves no write
     // ever reached the model, not just that the render looks unchanged.
@@ -351,9 +351,9 @@ test.describe("R2 canvas interactions (firefox real input)", () => {
       await page.request.get(`${LG_API}/sections/${s.public_id}`),
       "post-drag section detail",
     );
-    const btnNode = detail.content_json.components.find((c) => c.question_id === "q_btn");
-    expect(btnNode, "the ButtonAnswerGroup node round-trips").toBeTruthy();
-    expect(btnNode?.design_overrides?.size, "no design_overrides.size was ever written").toBeUndefined();
+    const nameNode = detail.content_json.components.find((c) => c.question_id === "q_name");
+    expect(nameNode, "the NameFieldsGroup node round-trips").toBeTruthy();
+    expect(nameNode?.design_overrides?.size, "no design_overrides.size was ever written").toBeUndefined();
     await page.screenshot({ path: `${SHOT}/x-non-consuming.png` });
   });
 });

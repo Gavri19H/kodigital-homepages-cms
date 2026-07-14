@@ -83,7 +83,6 @@ import { escapeHtml } from "../templates/layout";
 import { COMPONENT_CATALOG, type ComponentType } from "../../public/leadgen/components/registry";
 import {
   COLOR_TYPED_OVERRIDE_KEYS,
-  CURATED_DESIGN_OVERRIDE_KEYS,
   LEADGEN_BG_PANEL_BACKGROUNDS,
   LEADGEN_BG_PANEL_GRADIENTS,
   LEADGEN_COLUMN_MOBILE_MODES,
@@ -102,6 +101,7 @@ import {
   LEADGEN_PANEL_WIDTHS,
   LEADGEN_SIZE_HEIGHT_PRESETS,
   LEADGEN_SIZE_WIDTH_PRESETS,
+  LEADGEN_SPACER_VARIANTS,
   LEADGEN_STACK_ALIGNS,
   LEADGEN_STACK_DIRECTIONS,
   LEADGEN_TEXT_BLOCK_ROLES,
@@ -305,7 +305,9 @@ const STUDIO_TYPE_META: Record<ComponentType, { label: string; description: stri
   NumberInputQuestion: { label: "Number", description: "Plain numeric input (not a slider)." },
   CurrencyInputQuestion: { label: "Amount ($)", description: "Currency-prefixed plain input." },
   EmailInputQuestion: { label: "Email", description: "Email input with format validation." },
-  PhoneInputQuestion: { label: "Phone", description: "Phone input with format validation." },
+  // v3.1 R3b E1-C6: "with format validation" was inaccurate — the renderer
+  // never consumed a format prop (registry.ts hygiene note).
+  PhoneInputQuestion: { label: "Phone", description: "Phone number input." },
   NameFieldsGroup: { label: "Name", description: "First + last name field pair." },
   DateQuestion: { label: "Date", description: "Date input with an allowed range." },
   ZIPInputQuestion: { label: "ZIP", description: "5-digit ZIP input (Maps validation optional)." },
@@ -317,7 +319,9 @@ const STUDIO_TYPE_META: Record<ComponentType, { label: string; description: stri
   SecureFormBadge: { label: "Secure-form badge", description: "Lock badge naming the form security." },
   TrustBar: { label: "Trust points", description: "Icon/text trust pairs, horizontal or stacked." },
   LogoStrip: { label: "Logo row", description: "Carrier / partner logo row." },
-  ValidationError: { label: "Error message line", description: "Inline error line for a field." },
+  // v3.1 R3b E2-C5: clarified so an operator doesn't mistake this preview
+  // copy for the actual message a visitor will see.
+  ValidationError: { label: "Error message line", description: "Static fallback message — the live funnel replaces this with the real validation error." },
   LegalNote: { label: "Legal note", description: "Small-print legal copy block." },
   Stack: { label: "Stack", description: "Vertical/horizontal token-gap grouping." },
   GridContainer: { label: "Answer grid", description: "Per-breakpoint column grid container." },
@@ -470,7 +474,13 @@ const CONTENT_PROP_FIELDS: Record<ComponentType, readonly string[]> = {
   ProgressBar: ["label"],
   HeaderLogo: ["logoMediaId"],
   BackButton: ["label"],
-  DisclosureLink: ["html"],
+  // v3.1 R3 MINOR-6 (register E2-NEW-8): DisclosureLink is a FRAME-SCOPE type
+  // (FRAME_SCOPE_STUDIO_TYPES) — selecting it renders the read-only "edited in
+  // the Quote Builder" notice, which SUPERSEDES this content-prop projection,
+  // so these keys never reached an operator (dead projection). Emptied. The
+  // html->panelHtml SAVE-REPAIR (migrateDisclosureLinkKey, at the save seam)
+  // and the frame-scope strip both STAY — a legacy node still round-trips.
+  DisclosureLink: [],
   StepIndicator: [],
   CategoryLabel: ["text"],
   QuestionHeadline: ["text"],
@@ -501,11 +511,16 @@ const CONTENT_PROP_FIELDS: Record<ComponentType, readonly string[]> = {
   CurrencyInputQuestion: ["placeholder", "currency", "helper"],
   EmailInputQuestion: ["placeholder", "helper"],
   PhoneInputQuestion: ["placeholder", "helper"],
-  NameFieldsGroup: ["helper"],
+  // v3.1 R3b E1-NEW-7: firstLabel/lastLabel are ALREADY consumed by the
+  // renderer (renderNameFieldsGroup) but had no authoring control at all.
+  NameFieldsGroup: ["firstLabel", "lastLabel", "helper"],
   DateQuestion: ["placeholder", "helper"],
   ZIPInputQuestion: ["placeholder", "helper"],
   AddressAutocompleteQuestion: ["placeholder", "helper"],
-  ContinueButton: ["label", "loadingLabel"],
+  // v3.1 R3 MINOR-4 (register E2-NEW-6 AMENDED): §8.4 lists ONLY "Button label",
+  // so loadingLabel is OUT-OF-CONTRACT — no authoring control. The renderer
+  // still CONSUMES a legacy stored loadingLabel (presets.ts:1615, render-only).
+  ContinueButton: ["label"],
   AutoAdvanceButton: ["label"],
   ReassuranceBadge: ["text", "icon"],
   SuccessState: ["heading", "message", "icon"],
@@ -526,12 +541,13 @@ const CONTENT_PROP_FIELDS: Record<ComponentType, readonly string[]> = {
   // contract (§8.5b: "Text / bound headline ... Style tab shows: Role
   // [Heading·Body·...]"), not Content tab, so it is intentionally absent
   // here; `text`/`icon` mirror the retired ReassuranceBadge/SecureFormBadge
-  // content_props this primitive consolidates. ImageBlock's `source` toggle
-  // and `alt` text have no CONTENT_CONTROLS entry yet (new controls, Phase B
-  // Studio-UI work) — `logoMediaId` is the one existing key that already
-  // applies (the HeaderLogo content_props precedent).
+  // content_props this primitive consolidates.
   TextBlock: ["text", "icon"],
-  ImageBlock: ["logoMediaId"],
+  // v3.1 R3b deliverable 4: ImageBlock is EMPTY here (not the generic bare-
+  // input path) — its source toggle / alt text / media-picker-with-thumbnail
+  // are a dedicated block (data-content-imageblock-block, gated to
+  // node.type==='ImageBlock') built for this phase; see renderStudioInspector.
+  ImageBlock: [],
 };
 
 // The union of content controls the Content tab server-renders once; the
@@ -547,11 +563,14 @@ const CONTENT_CONTROLS: ReadonlyArray<{ key: string; label: string }> = [
   { key: "message", label: "Message" },
   { key: "icon", label: "Icon (emoji / glyph)" },
   { key: "html", label: "Rich text / legal copy" },
+  { key: "panelHtml", label: "Disclosure text" },
   { key: "minLabel", label: "Min label" },
   { key: "maxLabel", label: "Max label" },
   { key: "currency", label: "Currency symbol" },
-  { key: "loadingLabel", label: "Loading label" },
+  // v3.1 R3 MINOR-4: loadingLabel control removed (out-of-contract, §8.4).
   { key: "logoMediaId", label: "Logo media id" },
+  { key: "firstLabel", label: "First name label" },
+  { key: "lastLabel", label: "Last name label" },
 ];
 
 interface ValidationField {
@@ -706,6 +725,10 @@ export function renderStudioSeedData(): string {
       types: studioTypeMeta(),
       roles: resolved.roles,
       role_labels: STUDIO_ROLE_LABELS,
+      // v3.1 R3 S2-5/6c: the 12 §8.1 leading-icon options (value+label), so the
+      // choice-editor icon picker reuses the SAME curated list as the leading-
+      // icon field — no drift, single source (LEADGEN_FIELD_LEADING_ICONS).
+      leading_icons: LEADGEN_FIELD_LEADING_ICONS.map((v) => ({ value: v, label: LEADING_ICON_LABELS[v] })),
     })
   );
 }
@@ -1477,17 +1500,15 @@ export function curatedTokenOptions(design: FunnelDesign): Record<string, TokenO
   };
 }
 
-// FIX 4b: `mobileBehavior` is NOT listed — no renderer consumes it, so its
-// Design-tab control was a dead write and is REMOVED. The schema key stays
-// legal (content-schema CURATED_DESIGN_OVERRIDE_KEYS unchanged) so stored
-// legacy data keeps validating.
+// v3.1 R3b S2-7/S4-A4 (register-ruled removal): the old "§8.5 tokenized
+// layout props" rail dumped EVERY CURATED_DESIGN_OVERRIDE_KEYS row behind one
+// jargon paragraph, gated on the WRONG axis (shown for every 'field'-variant
+// type regardless of whether that type's renderer ever reads the key).
+// featureColor/buttonBackground/buttonText are GONE from this table — see
+// their disposition below; only the genuinely-consumed, correctly-gated
+// rows remain (iconColor/rangeColor/columns/gridGap).
 const TOKEN_CONTROL_LABELS: Record<string, string> = {
-  iconColor: "Icon color token",
   columns: "Card columns (2–5)",
-  featureColor: "Feature color token",
-  rangeColor: "Range fill token",
-  buttonBackground: "Button background token",
-  buttonText: "Button text token",
   gridGap: "Answer-grid gap token",
 };
 
@@ -1495,26 +1516,42 @@ const TOKEN_CONTROL_LABELS: Record<string, string> = {
 // "token" vocabulary on this surface).
 const ROLE_CONTROL_LABELS: Record<string, string> = {
   iconColor: "Icon color",
-  featureColor: "Feature color",
   rangeColor: "Range fill",
-  buttonBackground: "Button color",
-  buttonText: "Button text color",
 };
 
-function renderDesignPanel(design: FunnelDesign): string {
+// v3.1 R3b (renamed from renderDesignPanel — S2-7/S4-A4 rail removal; the
+// golden-regions scan tracks blocks by NAME, so the rename is itself part of
+// "drops renderDesignPanel from non-golden blocks"). Disposition of the OLD
+// rail's 7 rows, per product logic (register S2-7 + E2-C1/E2-NEW-7):
+//   - featureColor: DIED here — the Style tab's pre-existing "Text color
+//     role" control (data-style-text-block) already covers every consumer
+//     (E2-C1 wired the renderers to it instead); this rail's copy would have
+//     been a dead-on-arrival DUPLICATE for the 'field'-variant types that
+//     never showed it correctly in the first place.
+//   - buttonBackground/buttonText: DIE — frame/theme-owned per contract
+//     §8.5b; renderContinueButton/renderAutoAdvanceButton/answerGroupRootStyle
+//     keep reading a LEGACY stored value untouched (§12 no-regression), but
+//     no NEW authoring control exists for them.
+//   - iconColor: SURVIVES, re-gated to its real consumer (renderCardGrid) —
+//     was "gated for exactly one type, dead elsewhere" (S2-7); now hidden
+//     everywhere EXCEPT the two card grids (overrideRowHidden below).
+//   - rangeColor: SURVIVES — renderRange DOES consume it (the fill color);
+//     re-gated to the range family only.
+//   - columns/gridGap: unchanged (already correctly gated to the card grids).
+//   - imageFit: RELOCATED to the Content tab, next to the choices editor
+//     (deliverable 4's image-controls area) — see renderImageFitControl.
+function renderStyleExtraControls(design: FunnelDesign): string {
   const tokenOptions = curatedTokenOptions(design);
-  const curated: ReadonlySet<string> = new Set(CURATED_DESIGN_OVERRIDE_KEYS);
   const colorTyped: ReadonlySet<string> = new Set(COLOR_TYPED_OVERRIDE_KEYS);
-  const selects = Object.keys(TOKEN_CONTROL_LABELS)
-    .filter((key) => curated.has(key))
+  const roleRows = Object.keys(ROLE_CONTROL_LABELS)
     .map((key) => {
       // §9.4 (wave 2): COLOR-typed keys are role swatch rows — option VALUES
       // are the 14 §9.1 ROLE NAMES (picking writes the role, never hex), an
       // inheritance tag + source line, "Reset to inherited" once overridden,
       // and the legacy-hex "Custom color (legacy) — [Convert…]" affordance
       // (island-populated from the stored value). NO hex text renders here.
-      if (colorTyped.has(key)) {
-        return `<div class="form-group lg-inspector-field studio-role-row" data-override-row="${escapeHtml(key)}">
+      if (!colorTyped.has(key)) return "";
+      return `<div class="form-group lg-inspector-field studio-role-row" data-override-row="${escapeHtml(key)}">
   <label class="form-label" for="lg-inspector-${escapeHtml(key)}">${escapeHtml(ROLE_CONTROL_LABELS[key] ?? key)}</label>
   <div class="studio-role-line">
     <span class="studio-role-swatch" data-override-swatch="${escapeHtml(key)}" aria-hidden="true"></span>
@@ -1524,7 +1561,10 @@ function renderDesignPanel(design: FunnelDesign): string {
   <p class="form-help studio-role-source" data-override-source="${escapeHtml(key)}"></p>
   <p class="form-help studio-role-legacy" data-override-legacy="${escapeHtml(key)}" hidden>Custom color (legacy) &#8212; <button type="button" class="studio-link-btn" data-override-convert="${escapeHtml(key)}">Convert to a theme color</button></p>
 </div>`;
-      }
+    })
+    .join("");
+  const structuralRows = Object.keys(TOKEN_CONTROL_LABELS)
+    .map((key) => {
       const opts = (tokenOptions[key] ?? [])
         .map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(`${o.label} (${o.value})`)}</option>`)
         .join("");
@@ -1532,25 +1572,13 @@ function renderDesignPanel(design: FunnelDesign): string {
       // (design default)") — re-picking it IS the "Reset to inherited"
       // affordance for the structural keys. The row wrapper carries
       // data-override-row so the island can GATE dead-write rows per type
-      // (FIX 4b: columns/gridGap render only for the card grids).
+      // (columns/gridGap render only for the card grids).
       return `<div class="form-group lg-inspector-field" data-override-row="${escapeHtml(key)}">
   <label class="form-label" for="lg-inspector-${escapeHtml(key)}">${escapeHtml(TOKEN_CONTROL_LABELS[key])}</label>
   <select id="lg-inspector-${escapeHtml(key)}" class="form-input" data-inspector-override="${escapeHtml(key)}"><option value="">Inherited (design default)</option>${opts}</select>
 </div>`;
     })
     .join("");
-  // A6 (05 §5.5): image fit is a COMPONENT prop on ImageCardAnswerGrid — a
-  // Design-tab control (it is presentation, §7.3 "Design | any visual
-  // selection"), island-gated to the image grid only. Writes props.image_fit
-  // through the standard data-inspector-field collect path.
-  const imageFit = `<div class="form-group lg-inspector-field" data-image-fit-wrap hidden>
-  <label class="form-label" for="lg-inspector-image-fit">Image fit (how card photos fill their box)</label>
-  <select id="lg-inspector-image-fit" class="form-input" data-inspector-field="image_fit">
-    <option value="">Default (browser fit)</option>
-    <option value="cover">Cover — fill the card, may crop</option>
-    <option value="contain">Contain — show the whole image</option>
-  </select>
-</div>`;
   // §6.6 (F3): the preset control is the SAVED-presets dropdown (island fills
   // it from GET /component-presets, filtered to the selected node's type) +
   // "(none)". Picking a preset MERGES its overrides/props onto the node and
@@ -1561,8 +1589,24 @@ function renderDesignPanel(design: FunnelDesign): string {
   <select id="lg-inspector-preset" class="form-input" data-preset-select><option value="">(none)</option></select>
   <p class="form-help">Saved presets for this component type. Applying merges the preset&#8217;s design/layout values onto this component.</p>
 </div>
-${imageFit}
-${selects}`;
+${roleRows}
+${structuralRows}`;
+}
+
+// v3.1 R3b deliverable 2 (imageFit relocation): the SAME control the old rail
+// carried, moved to the Content tab next to the choices editor (deliverable
+// 4's image-controls neighborhood) — still gated to ImageCardAnswerGrid only
+// (its one real consumer, renderCardGrid's per-node image_fit read), still
+// writing props.image_fit through the standard data-inspector-field path.
+function renderImageFitControl(): string {
+  return `<div class="form-group lg-inspector-field" data-image-fit-wrap hidden>
+  <label class="form-label" for="lg-inspector-image-fit">Image fit (how card photos fill their box)</label>
+  <select id="lg-inspector-image-fit" class="form-input" data-inspector-field="image_fit">
+    <option value="">Default (browser fit)</option>
+    <option value="cover">Cover — fill the card, may crop</option>
+    <option value="contain">Contain — show the whole image</option>
+  </select>
+</div>`;
 }
 
 // §8.5 container prop controls — dropdowns of the EXACT enum values
@@ -1620,7 +1664,14 @@ const CONTAINER_PROP_CONTROLS: ReadonlyArray<{ type: string; controls: readonly 
   },
   {
     type: "Spacer",
-    controls: [{ key: "size", label: "Size token", kind: "enum", values: LEADGEN_GAP_TOKENS }],
+    controls: [
+      { key: "size", label: "Size token", kind: "enum", values: LEADGEN_GAP_TOKENS },
+      // v3.1 R3b E2-NEW-9 (main): renderSpacer has ALWAYS rendered the "line"
+      // variant correctly (a horizontal divider) — only authoring it was
+      // missing. Gap is the default (absent/unknown value renders the plain
+      // spacer, unchanged).
+      { key: "variant", label: "Style", kind: "enum", values: LEADGEN_SPACER_VARIANTS },
+    ],
   },
   {
     type: "HeaderBar",
@@ -1710,7 +1761,13 @@ function renderContainerControl(type: string, control: ContainerControl): string
 </div>`;
 }
 
-function renderLayoutPanel(): string {
+// v3.1 R3b (renamed from renderLayoutPanel — S2-7/S4-A4 rail removal; see the
+// golden-regions note on renderStyleExtraControls above). The container prop
+// controls THEMSELVES are unchanged, real, and consumed — only the jargon
+// "§8.5 tokenized layout props" preamble that used to sit above this output
+// is gone (deliverable 2: "a clean, jargon-free Layout section... for
+// container types only").
+function renderContainerLayoutPanel(): string {
   const groups = CONTAINER_PROP_CONTROLS.map((group) => {
     const controls = group.controls.map((ctl) => renderContainerControl(group.type, ctl)).join("");
     const cta =
@@ -1824,16 +1881,53 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
 
     <!-- continue (§8.4) -->
     <div class="lg-inspector-field" data-content-continue-block hidden>
-      <p class="alert studio-callout-blue">The button&#8217;s look &amp; position are set once for the whole funnel. <a href="#0" data-open-quote-builder>Open Quote Builder &#8594;</a></p>
+      <p class="alert studio-callout-blue">The button&#8217;s look &amp; position are set once for the whole funnel. <button type="button" class="studio-link-btn" data-open-quote-builder>Open Quote Builder &#8594;</button></p>
       <label class="form-label" for="lg-continue-label-input">Button label</label>
       <input id="lg-continue-label-input" class="form-input" type="text" data-inspector-field="label" />
-      <div class="studio-panel-eyebrow">Inherited from the frame</div>
-      <div class="studio-inherited-row"><span>Color</span><span>Brand primary <span class="studio-inherited-tag">inherited</span></span></div>
-      <div class="studio-inherited-row"><span>Position</span><span>Bottom, full width <span class="studio-inherited-tag">inherited</span></span></div>
+    </div>
+
+    <!-- v3.1 R3b deliverable 8 (E2-NEW-3/E2-NEW-8/E2-C4): the 10 frame-scope
+         types (HeaderBar/FooterBar/TrustBar/LogoStrip/StepIndicator/
+         ProgressBar/HeaderLogo/BackButton/DisclosureLink/BackgroundPanel) —
+         frame.ts synthesizes its OWN chrome for these concerns; an in-Section
+         instance's props are production-inert. A read-only notice REPLACES
+         editing controls (Content AND Style — see data-style-framescope-
+         block) instead of showing dead-write controls; canvas render of the
+         legacy node itself is UNCHANGED (this notice only touches the
+         inspector). DisclosureLink's save-repair (deliverable 5b) still runs
+         regardless of this notice; LogoStrip is ALSO a retired type — the
+         deliverable-7 migration converts it to ImageBlock ON SAVE, so this
+         notice is a PRE-SAVE-only view for it. -->
+    <div class="lg-inspector-field" data-content-framescope-block hidden>
+      <p class="alert studio-callout-blue" data-framescope-note>This element is part of the funnel frame — it&#8217;s edited in the Quote Builder. <button type="button" class="studio-link-btn" data-framescope-change-in-frame>Change in frame &#8594;</button></p>
     </div>
 
     <!-- field: Basics/Behavior/Answer-format/Connect-to-Offers (§8.3) -->
     <div data-content-field-block hidden>
+      <!-- v3.1 R3b deliverable 4 (E2-NEW-1): ImageBlock's completed controls —
+           source toggle (Image from library / Site logo), alt text (media
+           source only), and a REAL media picker + live thumbnail (the same
+           choice-cell mechanism deliverable 6d of R3a built, applied to this
+           single node-level field). Gated to node.type==='ImageBlock' only. -->
+      <div data-content-imageblock-block hidden>
+        <div class="studio-panel-eyebrow">Image</div>
+        <label class="form-label">Source</label>
+        <div class="studio-segmented" role="group" aria-label="Image source" data-imageblock-source-group>
+          <button type="button" data-set-imageblock-source="media">Image from library</button>
+          <button type="button" data-set-imageblock-source="auto_logo">Site logo</button>
+        </div>
+        <div data-imageblock-media-fields hidden>
+          <label class="form-label" for="lg-imageblock-media">Image</label>
+          <div class="lg-choice-image-row">
+            <img class="lg-choice-thumb" data-imageblock-thumb alt="" hidden>
+            <input id="lg-imageblock-media" class="form-input" type="text" data-inspector-field="logoMediaId" placeholder="Image URL" />
+            <button type="button" class="btn btn-sm btn-outline" data-imageblock-media-choose>Choose&#8230;</button>
+          </div>
+          <label class="form-label" for="lg-imageblock-alt">Alt text</label>
+          <input id="lg-imageblock-alt" class="form-input" type="text" data-inspector-field="alt" placeholder="Describe the image for screen readers" />
+        </div>
+        <p class="form-help" data-imageblock-autologo-note hidden>Renders your site&#8217;s logo automatically. The Section Studio preview shows a placeholder — the live funnel fills in the real logo.</p>
+      </div>
       <div class="studio-panel-eyebrow">Basics</div>
       <div class="lg-inspector-field" data-field-label-wrap hidden>
         <label class="form-label" for="lg-field-label">Field label <span class="studio-muted-note">&#183; only you see this</span></label>
@@ -1845,6 +1939,12 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <select id="lg-leading-icon" class="form-input" data-inspector-field="icon"><option value="">&#8212; none &#8212;</option>${LEADING_ICON_OPTION_HTML}</select>
       </div>
 
+      <!-- v3.1 R3b E1-C8: Behavior (Required/When-answered) only makes sense
+           for an ANSWER-PRODUCING selection — gated to meta.produces!==null
+           (island-side) so it never shows for TextBlock/CategoryLabel/
+           HelperText/LegalNote or AutoAdvanceButton (produces:null; the
+           register's own "nonsense controls" example). -->
+      <div data-content-behavior-section hidden>
       <div class="studio-hr"></div>
       <div class="studio-panel-eyebrow">Behavior</div>
       <div class="studio-row-between">
@@ -1857,6 +1957,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <button type="button" data-set-continue-mode="button">Wait for Continue</button>
         <button type="button" data-set-continue-mode="auto_advance">Go to next</button>
       </div>
+      </div><!-- /data-content-behavior-section -->
 
       <div class="studio-hr"></div>
       <div class="studio-panel-eyebrow">Answer format</div>
@@ -1898,6 +1999,11 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       </div>
 
       <div data-field-choices-block hidden>
+        <!-- v3.1 R3b E1-C5 (catalog hygiene): discoverability hint for the
+             3-type card-style family (Icon/Image/Plain share ONE toolbar
+             switch, not 3 separate insert paths). -->
+        <p class="form-help" data-card-style-hint hidden>Card style: Icon &#183; Image &#183; Plain &#8212; switch in the toolbar.</p>
+        ${renderImageFitControl()}
         <div class="lg-choice-list" data-inspector-choices></div>
         <button type="button" class="btn btn-sm btn-secondary" id="lg-choice-add">+ Add choice</button>
         <div class="form-group lg-inspector-field studio-othergroup">
@@ -1942,7 +2048,21 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
        Text/bound-headline Role/Text-color · Continue read-only inherited. -->
   <div class="studio-panel" data-studio-panel="style" role="tabpanel" hidden>
 
+    <!-- v3.1 R3b deliverable 8: the SAME read-only frame-scope notice as the
+         Content tab (data-content-framescope-block) — no Width/Corners/Layout
+         controls render for these 10 types either. -->
+    <div class="lg-inspector-field" data-style-framescope-block hidden>
+      <p class="alert studio-callout-blue">This element is part of the funnel frame — it&#8217;s edited in the Quote Builder. <button type="button" class="studio-link-btn" data-framescope-change-in-frame>Change in frame &#8594;</button></p>
+    </div>
+
     <div data-style-field-block hidden>
+      <!-- v3.1 R3 (register S2-1/E1-C3/E2-NEW-7): the Width/Height/Corners/Border
+           quad renders ONLY for a type whose renderer CONSUMES those overrides
+           (isSizeConsumingType — the 8 text-input family + the 8 R3 choice/
+           dropdown types); hidden for every other 'field'-variant type
+           (containers, Range family, NameFieldsGroup) so no control is shown
+           that the renderer would ignore. -->
+      <div data-style-size-appearance hidden>
       <div class="studio-panel-eyebrow-row"><span class="studio-panel-eyebrow">Size &amp; width</span><span class="studio-muted-note" data-style-theme-note>from theme: Navy</span></div>
       <label class="form-label">Width</label>
       <div class="studio-segmented" role="group" aria-label="Width" data-width-preset-group>
@@ -1981,11 +2101,13 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <button type="button" data-set-border-color="accent"><span class="studio-role-swatch" data-border-swatch="accent"></span>Accent</button>
       </div>
       <p class="form-help studio-inline-note">Colors are theme roles, not fixed shades — change the theme once and every question updates. <a href="${manageThemeHref}" data-open-manage-theme>Manage theme &#8594;</a></p>
+      </div><!-- /data-style-size-appearance -->
 
       <div class="studio-hr"></div>
-      <p class="form-help">§8.5 tokenized layout props — dropdowns of the allowed values only.</p>
-      ${renderLayoutPanel()}
-      ${renderDesignPanel(design)}
+      <div class="studio-panel-eyebrow">Layout</div>
+      ${renderContainerLayoutPanel()}
+      <div class="studio-hr"></div>
+      ${renderStyleExtraControls(design)}
     </div>
 
     <div data-style-text-block hidden>
@@ -2001,9 +2123,17 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
 
     <div data-style-continue-block hidden>
       <div class="studio-panel-eyebrow">Inherited from the frame</div>
-      <div class="studio-inherited-row"><span>Color</span><span>Brand primary <span class="studio-inherited-tag">inherited</span></span></div>
-      <div class="studio-inherited-row"><span>Position</span><span>Bottom, full width <span class="studio-inherited-tag">inherited</span></span></div>
-      <div class="studio-inherited-row"><span>Size</span><span>Medium <span class="studio-inherited-tag">inherited</span></span></div>
+      <!-- v3.1 R3b S2-2 (reclassified, contract §8.5b: the frame owns look/
+           position — no editable pickers here by design). Each row shows the
+           REAL resolved value (island-populated) instead of a hardcoded
+           string, plus a working deep link into the Quote Builder that
+           actually owns the setting. -->
+      <div class="studio-inherited-row"><span>Color</span><span><span data-continue-color-text>Button</span> <span class="studio-inherited-tag">inherited</span></span></div>
+      <button type="button" class="studio-link-btn" data-continue-change-in-frame="color">Change in frame &#8594;</button>
+      <div class="studio-inherited-row"><span>Position</span><span><span data-continue-position-text>Inside the question &#183; default &#8212; set per funnel in the Quote Builder</span> <span class="studio-inherited-tag">inherited</span></span></div>
+      <button type="button" class="studio-link-btn" data-continue-change-in-frame="position">Change in frame &#8594;</button>
+      <div class="studio-inherited-row"><span>Size</span><span>Medium (fixed) <span class="studio-inherited-tag">inherited</span></span></div>
+      <button type="button" class="studio-link-btn" data-continue-change-in-frame="size">Change in frame &#8594;</button>
     </div>
   </div>
 
@@ -2092,6 +2222,11 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
     <div class="form-group lg-inspector-field">
       <label class="form-label" for="lg-inspector-internal-field">Internal field</label>
       <input id="lg-inspector-internal-field" class="form-input studio-mono-input" type="text" data-inspector-field="internal_field" placeholder="e.g. currently_insured" />
+      <!-- v3.1 R3b E2-NEW-10 (studio part): containers carry no answer field
+           (server-enforced container_answer_field_forbidden, §8.5) — the
+           input disables with a short human note instead of accepting a
+           value that would 400 on save. -->
+      <p class="form-help" data-internal-field-container-note hidden>Layout containers don&#8217;t collect an answer, so there&#8217;s no internal field to set here.</p>
       <p class="alert alert-error studio-rename-warning" data-studio-rename-warning hidden role="status" aria-live="polite"></p>
     </div>
     <div class="form-group lg-inspector-field">
@@ -2570,6 +2705,19 @@ export const SECTION_STUDIO_STYLES = `
 .lg-choice-list{display:flex;flex-direction:column;gap:4px;margin-bottom:6px}
 .lg-choice-row{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
 .lg-choice-row .form-input{flex:1 1 90px;min-width:0}
+/* v3.1 R3 S2-4/S2-5: labeled choice cells + emoji palette + image thumbnail */
+.lg-choice-cell{display:flex;flex-direction:column;gap:2px;flex:1 1 96px;min-width:0}
+.lg-choice-cell .form-input{flex:1 1 auto;width:100%;min-width:0}
+.lg-choice-cell-label{font-size:10px;font-weight:600;color:#8A93A3;letter-spacing:.02em;text-transform:uppercase}
+.lg-choice-image-row{display:flex;gap:4px;align-items:center}
+.lg-choice-thumb{width:30px;height:30px;border-radius:6px;object-fit:cover;border:1px solid #eef1f6;flex:0 0 auto;background:#f6f8fb}
+.lg-choice-emoji-head{display:flex;gap:6px;align-items:center}
+.lg-choice-emoji-preview{font-size:18px;line-height:1;min-width:20px}
+.lg-choice-emoji-palette{display:flex;flex-wrap:wrap;gap:2px;margin-top:2px}
+.lg-choice-emoji-btn{border:1px solid #eef1f6;background:#fff;border-radius:6px;font-size:15px;line-height:1;padding:3px 4px;cursor:pointer}
+.lg-choice-emoji-btn:hover{background:#f2f6fa;border-color:#1B3A5C}
+.lg-choice-icon-picker{display:flex;flex-direction:column;gap:3px;flex:1 1 auto;min-width:0}
+.lg-choice-icon-custom{margin-top:2px}
 .studio-debug-id{font-size:11px;color:var(--c-muted)}
 .studio-advanced-json textarea{width:100%;font-family:var(--font-mono,monospace);font-size:11px;margin:6px 0}
 .studio-rename-warning{font-size:12px}
@@ -2766,6 +2914,13 @@ export const SECTION_STUDIO_SCRIPT = `
   // legacy-hex Convert exact match) and role → operator label.
   var ROLE_VALUES = studioMeta.roles || {};
   var ROLE_LABELS = studioMeta.role_labels || {};
+  // v3.1 R3 S2-6: the Border-color swatches (data-border-swatch) map the node's
+  // 3-value border_color vocabulary onto the §9.1 funnel-token roles the
+  // renderer resolves against (presets.ts nodeBorderColorValue: neutral→border,
+  // brand→brand_primary, accent→accent), so each swatch paints the SAME resolved
+  // color the canvas would render — reusing the ROLE_VALUES map (the sibling
+  // resolvedOverrideColor mechanism).
+  var BORDER_SWATCH_ROLE = { neutral: 'border', brand: 'brand_primary', accent: 'accent' };
 
   var selectedQuestionId = null;
   var pendingInsert = null;
@@ -2907,9 +3062,18 @@ export const SECTION_STUDIO_SCRIPT = `
   function isCardGridType(node) {
     return !!node && (node.type === 'IconCardAnswerGrid' || node.type === 'ImageCardAnswerGrid');
   }
+  function isRangeFamilyType(node) {
+    return !!node && (node.type === 'RangeQuestion' || node.type === 'CurrencyRangeQuestion' || node.type === 'NumberRangeQuestion');
+  }
+  // v3.1 R3b S2-7: iconColor/rangeColor were gated on the WRONG axis (shown
+  // for every type except one, dead everywhere else) — now hidden EVERYWHERE
+  // except their real consumer (renderCardGrid's icon slot / renderRange's
+  // fill), the same "hidden unless this type's renderer consumes it"
+  // discipline the Width/Height/Corners/Border quad already uses.
   function overrideRowHidden(rowKey, node) {
     if (rowKey === 'columns' || rowKey === 'gridGap') { return !isCardGridType(node); }
-    if (rowKey === 'iconColor') { return !!node && node.type === 'MultiChoiceCardGroup'; }
+    if (rowKey === 'iconColor') { return !isCardGridType(node); }
+    if (rowKey === 'rangeColor') { return !isRangeFamilyType(node); }
     return false;
   }
 
@@ -3347,6 +3511,20 @@ export const SECTION_STUDIO_SCRIPT = `
       wrap.appendChild(framePillPickBtn(funnels[i]));
     }
     parent.appendChild(wrap);
+  }
+  // v3.1 R3b deliverable 1 (S2-2 reclassified): the ONE shared "open the real
+  // Quote Builder" navigation every frame-owned deep link uses — 0 funnels ->
+  // the quotes LIST (an honest destination, never a disabled no-op); 1 ->
+  // navigate straight to its Quote Builder page; many -> the SAME picker the
+  // 'frame' scope pill already renders (toggled next to the clicked trigger).
+  // Reused by: the Continue Content-tab "Open Quote Builder ->" link, the
+  // Continue Style-tab's 3 "Change in frame ->" row buttons, and the frame-
+  // scope read-only notice's own deep link (deliverable 8).
+  function openQuoteBuilderNav(triggerEl) {
+    var funnels = usageFunnelsOf();
+    if (funnels.length === 0) { window.location.href = funnelQuoteUrl(null); return; }
+    if (funnels.length === 1) { window.location.href = funnelQuoteUrl(funnels[0]); return; }
+    renderFramePillPicker(triggerEl, funnels);
   }
   // §5.4: the explicit confirm NAMES the funnel — and, for a container with
   // children, NAMES what happens to them (FIX 1c: the contents are NOT
@@ -3857,6 +4035,17 @@ export const SECTION_STUDIO_SCRIPT = `
       k = list[i];
       if (!node.props) { node.props = {}; }
       if (typeof node.props[k] !== 'number') { node.props[k] = (k === 'max' ? 100 : 0); }
+    }
+    // v3.1 R3b E2-C2: TextBlock has NO required text_props (every prop is
+    // optional per REQUIRED_FIELDS.TextBlock), so the generic loop above never
+    // seeds anything — a fresh insert rendered a real, present, but VISUALLY
+    // EMPTY heading (propStr(node,'text') undefined -> esc("") -> nothing on
+    // screen). A real default role+text so a new TextBlock is visible the
+    // moment it lands, exactly like every other primitive's seed.
+    if (type === 'TextBlock') {
+      if (!node.props) { node.props = {}; }
+      if (trimStr(node.props.role) === '') { node.props.role = 'heading'; }
+      if (trimStr(node.props.text) === '') { node.props.text = 'New text'; }
     }
     return node;
   }
@@ -4544,8 +4733,18 @@ export const SECTION_STUDIO_SCRIPT = `
   // #1). PINNED by a vitest set-equality test (test/leadgen-r2-canvas.test.ts)
   // against an INDEPENDENT derivation from presets.ts source, so R3 widening
   // presets.ts consumption fails that test until this list widens in lockstep.
-  var SIZE_CONSUMING_TYPES = { FreeTextQuestion: 1, NumberInputQuestion: 1, EmailInputQuestion: 1, PhoneInputQuestion: 1, DateQuestion: 1, ZIPInputQuestion: 1, CurrencyInputQuestion: 1, AddressAutocompleteQuestion: 1 };
+  // v3.1 R3 §7/§8.5b (register S2-1/E1-C3/E2-NEW-7): the choice/button/card/
+  // dropdown renderers now CONSUME design_overrides.size/.corners/.border_color
+  // (presets.ts), so they join the size-consuming set in LOCKSTEP with the
+  // presets.ts widening — the set-equality pin (test/leadgen-r2-canvas.test.ts)
+  // re-derives this set from presets.ts SOURCE and fails if the two drift.
+  var SIZE_CONSUMING_TYPES = { FreeTextQuestion: 1, NumberInputQuestion: 1, EmailInputQuestion: 1, PhoneInputQuestion: 1, DateQuestion: 1, ZIPInputQuestion: 1, CurrencyInputQuestion: 1, AddressAutocompleteQuestion: 1, ButtonAnswerGroup: 1, TwoButtonYesNo: 1, IconCardAnswerGrid: 1, ImageCardAnswerGrid: 1, MultiChoiceCardGroup: 1, DropdownQuestion: 1, SearchableDropdownQuestion: 1, OtherGroupSelector: 1 };
   function isSizeConsumingType(type) { return SIZE_CONSUMING_TYPES[type] === 1; }
+  // v3.1 R3 E1-NEW-6: the toolbar Placeholder quick-input is dead for these 5
+  // types — their renderers never read props.placeholder (the range family are
+  // sliders; TwoButtonYesNo is fixed Yes/No; NameFieldsGroup has its own
+  // firstLabel/lastLabel). Gated OFF so the toolbar never advertises a no-op.
+  var PLACEHOLDER_INERT_TYPES = { RangeQuestion: 1, CurrencyRangeQuestion: 1, NumberRangeQuestion: 1, TwoButtonYesNo: 1, NameFieldsGroup: 1 };
   // §6.2 selection-chrome "kind": which of the golden's 3 variants applies.
   // Only 'field' gets the 8 handles — golden's headline/continue selections
   // show ONLY an outline + name tag (contract: "corner/vertical handles are
@@ -5301,7 +5500,8 @@ export const SECTION_STUDIO_SCRIPT = `
     var selIcon = document.querySelector('[data-tb-selected-role="icon"]');
     if (selIcon) { selIcon.hidden = !isCardGridType(node); }
     var inputQuick = document.querySelector('[data-toolbar-input-quick]');
-    if (inputQuick) { inputQuick.hidden = !node || !meta.produces || meta.choice === true; }
+    // E1-NEW-6: also OFF for the 5 placeholder-inert types (range/Yes-No/Name).
+    if (inputQuick) { inputQuick.hidden = !node || !meta.produces || meta.choice === true || (PLACEHOLDER_INERT_TYPES[node.type] === 1); }
     // FIX 4b: only renderCardGrid consumes columns/gridGap overrides — the
     // quick layout cluster is gated to the two card grids (ButtonAnswerGroup /
     // dropdowns / MultiChoiceCardGroup wrote dead keys).
@@ -5444,6 +5644,11 @@ export const SECTION_STUDIO_SCRIPT = `
   // never a regression (no existing affordance is removed). This
   // frame-scope carve-out is DISTINCT from (and does not touch) the
   // contract's explicit bound/Continue restriction below.
+  // v3.1 R3b E2-NEW-5: the 4 text-primitive types are Content·Style ONLY per
+  // §8.2's table (same row as the bound headline/Continue exclusions below) —
+  // a TextBlock/CategoryLabel/HelperText/LegalNote selection has no rule
+  // condition to author (it never gates visibility of anything else).
+  var RULES_EXCLUDED_TEXT_TYPES = { TextBlock: 1, CategoryLabel: 1, HelperText: 1, LegalNote: 1 };
   function availableTabsFor(node) {
     if (!node) { return []; }
     var meta = typeMeta(node.type);
@@ -5453,7 +5658,14 @@ export const SECTION_STUDIO_SCRIPT = `
     // Content shows for a COPY-BEARING or CHOICE-BEARING selection (§8.2): a
     // type with content props, a §5.2 BOUND node, or a choice-bearing type
     // (it hosts the Choices sub-block even absent its own content_props).
-    var hasContent = isBound || (meta.content_props || []).length > 0 || meta.choice === true;
+    // v3.1 R3b deliverable 4: ImageBlock also always qualifies — its source/
+    // alt/media controls live in a DEDICATED block (data-content-imageblock-
+    // block), not the generic CONTENT_PROP_FIELDS rows, so content_props is
+    // deliberately [] for it and would otherwise wrongly hide the tab.
+    // v3.1 R3b deliverable 8: the 10 frame-scope types also always qualify —
+    // Content shows the read-only notice (data-content-framescope-block)
+    // rather than dead editing controls.
+    var hasContent = isBound || (meta.content_props || []).length > 0 || meta.choice === true || node.type === 'ImageBlock' || FRAME_SCOPE_STUDIO_TYPES[node.type] === 1;
     if (hasContent) { tabs.push('content'); }
     // Style: any visual selection (§8.5 "any visual selection").
     tabs.push('style');
@@ -5461,7 +5673,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // subheadline/Text row and the Continue-button row — both are
     // Content·Style ONLY. Every other selection (fields, choices,
     // containers) keeps the dependency evaluator.
-    if (!isBound && !isContinue) { tabs.push('rules'); }
+    if (!isBound && !isContinue && RULES_EXCLUDED_TEXT_TYPES[node.type] !== 1) { tabs.push('rules'); }
     // Maps: ZIP/Address types only (§8.2 "*Maps only for ZIP/Address types").
     if (meta.maps) { tabs.push('maps'); }
     // Offers: answer-producing types only (folds the old 'mapping' tab).
@@ -5515,21 +5727,30 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     return node.props ? node.props[field] : '';
   }
-  // §8.1/§8.4: the Content tab shows exactly ONE of headline/continue/field.
+  // v3.1 R3b deliverable 8 (E2-NEW-3/E2-NEW-8/E2-C4): frame.ts synthesizes its
+  // OWN chrome for these 10 types — an in-Section instance's props are
+  // production-inert (double-chrome risk if BOTH render). Explicit type list
+  // (not meta.scope==='frame': TrustBar/LogoStrip are catalog scope:"both",
+  // legitimately placeable in a Section, but STILL frame-duplicated for this
+  // exact concern) per the register's own framing.
+  var FRAME_SCOPE_STUDIO_TYPES = { HeaderBar: 1, FooterBar: 1, TrustBar: 1, LogoStrip: 1, StepIndicator: 1, ProgressBar: 1, HeaderLogo: 1, BackButton: 1, DisclosureLink: 1, BackgroundPanel: 1 };
+  // §8.1/§8.4: the Content tab shows exactly ONE of headline/continue/frame_scope/field.
   function contentVariantOf(node) {
     if (!node) { return null; }
     if (node.bind !== undefined) { return 'headline'; }
     if (node.type === 'ContinueButton') { return 'continue'; }
+    if (FRAME_SCOPE_STUDIO_TYPES[node.type] === 1) { return 'frame_scope'; }
     return 'field';
   }
-  // §8.5b: the Style tab shows exactly ONE of field/text/continue variants.
-  // "Text/bound headline" = TextBlock (role-based) OR any bound node OR the
-  // pre-§5.3 discrete text-role types (TEXT_ROLE_TYPES) — preserving every
-  // existing text-ish selection's style surface.
+  // §8.5b: the Style tab shows exactly ONE of field/text/continue/frame_scope
+  // variants. "Text/bound headline" = TextBlock (role-based) OR any bound
+  // node OR the pre-§5.3 discrete text-role types (TEXT_ROLE_TYPES) —
+  // preserving every existing text-ish selection's style surface.
   function styleVariantOf(node) {
     if (!node) { return null; }
     if (node.type === 'ContinueButton') { return 'continue'; }
     if (node.type === 'TextBlock' || node.bind !== undefined || TEXT_ROLE_TYPES.indexOf(node.type) !== -1) { return 'text'; }
+    if (FRAME_SCOPE_STUDIO_TYPES[node.type] === 1) { return 'frame_scope'; }
     return 'field';
   }
   function populateContentVariant(node) {
@@ -5537,9 +5758,11 @@ export const SECTION_STUDIO_SCRIPT = `
     var headlineBlock = document.querySelector('[data-content-headline-block]');
     var continueBlock = document.querySelector('[data-content-continue-block]');
     var fieldBlock = document.querySelector('[data-content-field-block]');
+    var frameScopeBlock = document.querySelector('[data-content-framescope-block]');
     if (headlineBlock) { headlineBlock.hidden = variant !== 'headline'; }
     if (continueBlock) { continueBlock.hidden = variant !== 'continue'; }
     if (fieldBlock) { fieldBlock.hidden = variant !== 'field'; }
+    if (frameScopeBlock) { frameScopeBlock.hidden = variant !== 'frame_scope'; }
     if (variant === 'headline') {
       var hIn = document.querySelector('[data-bound-shared-input="section_headline"]');
       var sIn = document.querySelector('[data-bound-shared-input="section_subheadline"]');
@@ -5554,11 +5777,22 @@ export const SECTION_STUDIO_SCRIPT = `
     var fieldBlock = document.querySelector('[data-style-field-block]');
     var textBlock = document.querySelector('[data-style-text-block]');
     var continueBlock = document.querySelector('[data-style-continue-block]');
+    var frameScopeStyleBlock = document.querySelector('[data-style-framescope-block]');
     if (fieldBlock) { fieldBlock.hidden = variant !== 'field'; }
     if (textBlock) { textBlock.hidden = variant !== 'text'; }
     if (continueBlock) { continueBlock.hidden = variant !== 'continue'; }
-    if (variant === 'field') { populateSizeControls(node); populateCornersBorderControls(node); }
+    if (frameScopeStyleBlock) { frameScopeStyleBlock.hidden = variant !== 'frame_scope'; }
+    // v3.1 R3 (register S2-1/E1-C3/E2-NEW-7): the Width/Height/Corners/Border
+    // quad renders ONLY where the renderer CONSUMES those overrides
+    // (isSizeConsumingType) — a 'field'-variant type whose renderer ignores
+    // size/corners/border (containers, Range family, NameFieldsGroup) shows an
+    // EMPTY size-appearance section instead of dead controls.
+    var consumesSize = !!(node && isSizeConsumingType(node.type));
+    var sizeAppear = document.querySelector('[data-style-size-appearance]');
+    if (sizeAppear) { sizeAppear.hidden = variant !== 'field' || !consumesSize; }
+    if (variant === 'field' && consumesSize) { populateSizeControls(node); populateCornersBorderControls(node); }
     if (variant === 'text') { populateTextRoleControls(node); }
+    if (variant === 'continue') { populateContinueStyleRows(); }
   }
   // §6.2 "Selecting a node retargets the inspector and resets its active tab
   // to Content" — a NEW SELECTION (isNewSelection=true, from
@@ -5601,7 +5835,10 @@ export const SECTION_STUDIO_SCRIPT = `
     var anyContent = isBound;
     for (i = 0; i < wraps.length; i++) {
       k = wraps[i].getAttribute('data-content-prop');
-      var on = !!node && cp.indexOf(k) !== -1 && !(isBound && k === 'text');
+      // v3.1 R3 E1-C4: a native <input type="date"> ignores placeholder
+      // (browser no-op), so hide the Placeholder Content control for DateQuestion.
+      var dateNoPlaceholder = !!node && node.type === 'DateQuestion' && k === 'placeholder';
+      var on = !!node && cp.indexOf(k) !== -1 && !(isBound && k === 'text') && !dateNoPlaceholder;
       wraps[i].hidden = !on;
       if (on) { anyContent = true; }
     }
@@ -5614,8 +5851,15 @@ export const SECTION_STUDIO_SCRIPT = `
     var acceptFmt = acceptFormatOfNode(node);
     var labelWrap = document.querySelector('[data-field-label-wrap]');
     if (labelWrap) { labelWrap.hidden = acceptFmt === null; if (acceptFmt !== null) { anyContent = true; } }
+    // v3.1 R3a (conductor-ruled consumption-honesty addition): of the 8 Accept-
+    // swappable types, CurrencyInputQuestion is the ONE renderer that does NOT
+    // consume props.icon — renderCurrencyInputQuestion has no fieldLeadingIcon
+    // call; the $ prefix span already owns the left-inset slot a leading icon
+    // would occupy (presets.ts). Showing the picker there would be a control
+    // that visibly does nothing when changed — gated off same as the 5
+    // Placeholder-inert types above.
     var iconWrap = document.querySelector('[data-leading-icon-wrap]');
-    if (iconWrap) { iconWrap.hidden = acceptFmt === null; }
+    if (iconWrap) { iconWrap.hidden = acceptFmt === null || (!!node && node.type === 'CurrencyInputQuestion'); }
     if (emptyNote && acceptFmt !== null) { emptyNote.hidden = true; }
     var acceptWrap = document.querySelector('[data-accept-wrap]');
     var acceptSel = document.querySelector('[data-inspector-accept]');
@@ -5623,6 +5867,23 @@ export const SECTION_STUDIO_SCRIPT = `
     if (acceptSel && acceptFmt !== null) { acceptSel.value = acceptFmt; }
     var errWrap = document.querySelector('[data-vprop-error-wrap]');
     if (errWrap) { errWrap.hidden = !node || !meta.produces; }
+
+    // v3.1 R3b E1-C8: Required/When-answered only make sense for a real
+    // answer-producing selection — hides for TextBlock/CategoryLabel/
+    // HelperText/LegalNote AND AutoAdvanceButton (produces:null), the exact
+    // "nonsense controls" the register flagged.
+    var behaviorSection = document.querySelector('[data-content-behavior-section]');
+    if (behaviorSection) { behaviorSection.hidden = !node || !meta.produces; }
+
+    // v3.1 R3b E2-NEW-10 (studio part): disable Internal field for the 5
+    // layout containers (server forbids it outright, container_answer_field_
+    // forbidden) with a short human note; every other type keeps the input
+    // enabled. computeIssues' own container mirror is R4a's, not this slice's.
+    var internalFieldInput = document.getElementById('lg-inspector-internal-field');
+    var internalFieldNote = document.querySelector('[data-internal-field-container-note]');
+    var isContainerSelection = !!node && meta.container === true;
+    if (internalFieldInput) { internalFieldInput.disabled = isContainerSelection; }
+    if (internalFieldNote) { internalFieldNote.hidden = !isContainerSelection; }
 
     // §8.3 Behavior: When-answered segmented (section-wide continue_mode).
     var mode = state.continue_mode || 'button';
@@ -5676,8 +5937,11 @@ export const SECTION_STUDIO_SCRIPT = `
       groups[i].hidden = !node || groups[i].getAttribute('data-container-group') !== node.type;
     }
     populateContainerProps(node);
+    populateImageBlockControls(node);
     var choicesBlock = document.querySelector('[data-field-choices-block]');
     if (choicesBlock) { choicesBlock.hidden = !node || meta.choice !== true; }
+    var cardStyleHint = document.querySelector('[data-card-style-hint]');
+    if (cardStyleHint) { cardStyleHint.hidden = cardStyleOf(node) === null; }
     renderChoiceEditor(node);
     populateChoiceDisplay(node);
     var dbg = document.querySelector('[data-studio-debug-id]');
@@ -6030,6 +6294,15 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < borderBtns.length; i++) {
       borderBtns[i].className = borderBtns[i].getAttribute('data-set-border-color') === borderColor ? 'active' : '';
     }
+    // v3.1 R3 S2-6: paint the (previously empty) role swatches from the resolved
+    // theme role colors — the same ROLE_VALUES map the design-panel swatches use.
+    var swatches = document.querySelectorAll('[data-border-swatch]');
+    var sr, roleKey;
+    for (i = 0; i < swatches.length; i++) {
+      sr = swatches[i].getAttribute('data-border-swatch');
+      roleKey = BORDER_SWATCH_ROLE[sr];
+      if (swatches[i].style && roleKey) { swatches[i].style.background = ROLE_VALUES[roleKey] || ''; }
+    }
   }
   function setNodeCorners(val) {
     var node = selectedNode();
@@ -6059,6 +6332,28 @@ export const SECTION_STUDIO_SCRIPT = `
     if (wrap) { wrap.hidden = !isTextBlock; }
     if (sel && isTextBlock) { sel.value = (node.props && typeof node.props.role === 'string') ? node.props.role : 'body'; }
   }
+  // v3.1 R3b deliverable 1 (S2-2 reclassified): REAL resolved values for the
+  // read-only Continue Style rows. Color reads the SAME button_primary_bg
+  // role renderContinueButton itself falls back to (ROLE_VALUES — the
+  // currently-previewed theme's OWN resolved role, computed server-side by
+  // the identical resolveTokens() the renderer consumes; sectionRoleValue/
+  // per-node overrides can still win at render time, but this IS the honest
+  // base the frame/theme actually provides absent those). Position shows the
+  // frames.ts schema DEFAULT for section_slot.continue_placement
+  // ("inside_unit") — the Studio has no single specific funnel in scope here
+  // (a Section may be used by 0/N funnels, each with its own frame), so a
+  // per-funnel value cannot be resolved without a new cross-file dependency;
+  // showing the documented default (never a fabricated string) plus the
+  // "Change in frame ->" deep link is the honest resolution. Size has no
+  // product-wide config key at all (register SEAM-5) — "Medium (fixed)" is a
+  // static, accurate acknowledgment, not a resolved value.
+  function populateContinueStyleRows() {
+    var colorText = document.querySelector('[data-continue-color-text]');
+    if (colorText) {
+      var hex = ROLE_VALUES['button_primary_bg'];
+      colorText.textContent = (typeof hex === 'string' && hex !== '') ? 'Button (' + hex + ')' : 'Button';
+    }
+  }
   function collectTextBlockRole() {
     var node = selectedNode();
     if (!node || node.type !== 'TextBlock') { return; }
@@ -6066,6 +6361,17 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!sel) { return; }
     var props = ensureObj(node, 'props');
     props.role = sel.value;
+    afterModelChange();
+  }
+  // v3.1 R3b deliverable 4: the ImageBlock source toggle — writes props.source
+  // (media|auto_logo) and re-populates so the media-vs-auto_logo sub-sections
+  // swap immediately.
+  function setImageBlockSource(value) {
+    var node = selectedNode();
+    if (!node || node.type !== 'ImageBlock') { return; }
+    var props = ensureObj(node, 'props');
+    props.source = value;
+    populateImageBlockControls(node);
     afterModelChange();
   }
 
@@ -6274,6 +6580,30 @@ export const SECTION_STUDIO_SCRIPT = `
       k = ctas[i].getAttribute('data-container-cta');
       ctas[i].value = (cta[k] === undefined || cta[k] === null) ? '' : String(cta[k]);
     }
+  }
+  // v3.1 R3b deliverable 4 (E2-NEW-1): ImageBlock's dedicated Content-tab
+  // block — gate visibility, sync the source segmented control + the
+  // media-vs-auto_logo sub-sections, and refresh the thumbnail from the
+  // CURRENT logoMediaId value (the generic data-inspector-field loop already
+  // populated the underlying input's .value before this runs).
+  function populateImageBlockControls(node) {
+    var block = document.querySelector('[data-content-imageblock-block]');
+    var isImageBlock = !!node && node.type === 'ImageBlock';
+    if (block) { block.hidden = !isImageBlock; }
+    if (!isImageBlock) { return; }
+    var source = (node.props && node.props.source === 'auto_logo') ? 'auto_logo' : 'media';
+    var btns = document.querySelectorAll('[data-set-imageblock-source]');
+    var i;
+    for (i = 0; i < btns.length; i++) {
+      btns[i].className = btns[i].getAttribute('data-set-imageblock-source') === source ? 'active' : '';
+    }
+    var mediaFields = document.querySelector('[data-imageblock-media-fields]');
+    var autoLogoNote = document.querySelector('[data-imageblock-autologo-note]');
+    if (mediaFields) { mediaFields.hidden = source !== 'media'; }
+    if (autoLogoNote) { autoLogoNote.hidden = source !== 'auto_logo'; }
+    var thumb = document.querySelector('[data-imageblock-thumb]');
+    var mediaInput = document.getElementById('lg-imageblock-media');
+    if (thumb && mediaInput) { setChoiceThumb(thumb, mediaInput.value); }
   }
 
   // --- dependencies (§6.10 typed IF/THEN builder) --------------------------------
@@ -6645,7 +6975,33 @@ export const SECTION_STUDIO_SCRIPT = `
   // ends with the read-only "Provider values: k/n Offers" chip (§12.2).
   var CHOICE_FIELDS = ['label', 'value', 'analytics_id', 'title', 'subtitle', 'badge', 'icon', 'emoji', 'imageMediaId', 'image_alt', 'aria_label', 'description'];
   // §12.4: placeholders are operator copy — raw storage keys never surface.
-  var CHOICE_FIELD_PLACEHOLDERS = { analytics_id: 'Analytics label (auto)', imageMediaId: 'Image', image_alt: 'Image alt text', aria_label: 'Screen-reader label' };
+  var CHOICE_FIELD_PLACEHOLDERS = { analytics_id: 'Analytics label (auto)', imageMediaId: 'Image URL', image_alt: 'Image alt text', aria_label: 'Screen-reader label' };
+  // v3.1 R3 S2-4/E1-NEW-2: visible column LABELS (register: "Label / Saved value
+  // / Analytics ID" for the three primary columns; the rest labeled for parity).
+  var CHOICE_FIELD_LABELS = { label: 'Label', value: 'Saved value', analytics_id: 'Analytics ID', title: 'Title', subtitle: 'Subtitle', badge: 'Badge', icon: 'Icon', emoji: 'Emoji', imageMediaId: 'Image', image_alt: 'Image alt', aria_label: 'Screen-reader label', description: 'Description' };
+  // v3.1 R3 E1-NEW-2: the per-type VISIBLE choice fields, DERIVED from which
+  // fields each renderer consumes (presets.ts) — the same discipline as the size
+  // pin. A vitest set-equality pin (test/leadgen-r3a-choice-fields.test.ts)
+  // re-derives this from presets.ts source so future drift fails. BAG/DDQ/SDQ/OGS
+  // consume only label/value/analytics_id; MCG adds title/subtitle; the two card
+  // grids consume every field (renderCardGrid references all 12).
+  var CHOICE_FIELD_CONSUMPTION = {
+    ButtonAnswerGroup: ['label', 'value', 'analytics_id'],
+    DropdownQuestion: ['label', 'value', 'analytics_id'],
+    SearchableDropdownQuestion: ['label', 'value', 'analytics_id'],
+    OtherGroupSelector: ['label', 'value', 'analytics_id'],
+    MultiChoiceCardGroup: ['label', 'value', 'analytics_id', 'title', 'subtitle'],
+    IconCardAnswerGrid: CHOICE_FIELDS,
+    ImageCardAnswerGrid: CHOICE_FIELDS
+  };
+  function choiceFieldsFor(node) {
+    var f = node ? CHOICE_FIELD_CONSUMPTION[node.type] : null;
+    return f || CHOICE_FIELDS;
+  }
+  // v3.1 R3 S2-5: curated emoji palette (human choice, not a bare text input).
+  var CHOICE_EMOJI_PALETTE = ['\\u2705', '\\u274C', '\\u2B50', '\\uD83D\\uDD25', '\\uD83D\\uDC4D', '\\uD83D\\uDC4E', '\\u2764\\uFE0F', '\\uD83C\\uDFE0', '\\uD83D\\uDE97', '\\uD83D\\uDCB0', '\\uD83D\\uDCC5', '\\uD83D\\uDCDE', '\\uD83D\\uDCE7', '\\uD83D\\uDD12', '\\uD83D\\uDC64', '\\uD83D\\uDEE1\\uFE0F'];
+  // v3.1 R3 S2-5/6c: the icon picker reuses the SAME 12 §8.1 leading-icon options.
+  var CHOICE_ICON_OPTIONS = studioMeta.leading_icons || [];
   function choiceContainer() { return document.querySelector('[data-inspector-choices]'); }
   // §6.4 "internal-value chip" + §12.2 chip: one row per SELECTED Offer with
   // that Offer's provider value or "not set", deep-linking into the Offer's
@@ -6691,28 +7047,231 @@ export const SECTION_STUDIO_SCRIPT = `
     wrap.appendChild(rowsEl);
     return wrap;
   }
+  // v3.1 R3 S2-4: a labeled cell wraps every visible field (label above the
+  // control) — the register's "Label / Saved value / Analytics ID" columns are
+  // no longer bare unlabeled inputs.
+  function choiceCellWrap(field) {
+    var cell = document.createElement('div');
+    cell.className = 'lg-choice-cell';
+    cell.setAttribute('data-choice-cell', field);
+    var lab = document.createElement('span');
+    lab.className = 'lg-choice-cell-label';
+    lab.appendChild(document.createTextNode(CHOICE_FIELD_LABELS[field] || field));
+    cell.appendChild(lab);
+    return cell;
+  }
+  function buildChoiceTextInput(field, choice) {
+    var inp = document.createElement('input');
+    inp.className = 'form-input';
+    inp.setAttribute('data-choice-field', field);
+    inp.setAttribute('aria-label', CHOICE_FIELD_LABELS[field] || field);
+    inp.setAttribute('placeholder', CHOICE_FIELD_PLACEHOLDERS[field] || CHOICE_FIELD_LABELS[field] || field);
+    var v = choice ? choice[field] : undefined;
+    inp.value = (v === undefined || v === null) ? '' : String(v);
+    inp.addEventListener('input', collectChoices);
+    inp.addEventListener('change', collectChoices);
+    return inp;
+  }
+  // v3.1 R3 S2-5/6c: the choice 'icon' picker is the SAME 12 section-8.1
+  // leading-icon options (a select, clearable via the "none" first option). A
+  // stored legacy raw glyph is preserved as its own selectable option so it
+  // round-trips.
+  // v3.1 R3a correction (conductor-ruled): the choice 'icon' control is a
+  // HYBRID — a curated <select> of the SAME 12 section-8.1 leading-icon options
+  // (the common, human-legible case: home/car/shield/etc.) PLUS a "Custom
+  // glyph…" escape hatch that preserves the PRE-EXISTING free-glyph convention
+  // content-schema has always allowed for choice.icon (validateSectionContent's
+  // isNonEmptyString check on choice.icon — NO enum restriction, unlike
+  // node.props.icon's LEADGEN_FIELD_LEADING_ICONS gate). A pure closed picker
+  // would silently regress real, validated authoring (e.g. business-type emoji
+  // unrelated to the leading-icon vocabulary — a legitimate §8.4 use the studio
+  // has always supported). The hidden input is the SINGLE value carrier
+  // collectChoices reads (the emoji cell's own idiom, for consistency);
+  // onChange fires on every user edit (select OR custom text) so the mutual-
+  // exclusivity-with-emoji rule (§8.4) stays wired at the source of the change,
+  // not via a synthetic event on the (non-firing) hidden input.
+  function buildChoiceIconSelect(choice, onChange) {
+    var cur = (choice && typeof choice.icon === 'string') ? choice.icon : '';
+    var hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.setAttribute('data-choice-field', 'icon');
+    hidden.value = cur;
+
+    var sel = document.createElement('select');
+    sel.className = 'form-input';
+    sel.setAttribute('data-choice-icon-select', '');
+    sel.setAttribute('aria-label', 'Icon');
+    var opt0 = document.createElement('option');
+    opt0.value = '';
+    opt0.appendChild(document.createTextNode('\\u2014 none \\u2014'));
+    sel.appendChild(opt0);
+    var i, o, known = false;
+    for (i = 0; i < CHOICE_ICON_OPTIONS.length; i++) {
+      if (CHOICE_ICON_OPTIONS[i].value === 'none') { continue; }
+      o = document.createElement('option');
+      o.value = CHOICE_ICON_OPTIONS[i].value;
+      o.appendChild(document.createTextNode(CHOICE_ICON_OPTIONS[i].label));
+      sel.appendChild(o);
+      if (CHOICE_ICON_OPTIONS[i].value === cur) { known = true; }
+    }
+    var customOpt = document.createElement('option');
+    customOpt.setAttribute('data-choice-icon-custom-opt', '');
+    customOpt.value = '__custom__';
+    customOpt.appendChild(document.createTextNode('Custom glyph\\u2026'));
+    sel.appendChild(customOpt);
+
+    var isCustom = cur !== '' && cur !== 'none' && !known;
+    sel.value = isCustom ? '__custom__' : (cur === 'none' ? '' : cur);
+
+    var custom = document.createElement('input');
+    custom.type = 'text';
+    custom.className = 'form-input lg-choice-icon-custom';
+    custom.setAttribute('data-choice-icon-custom', '');
+    custom.setAttribute('aria-label', 'Custom icon glyph');
+    custom.setAttribute('placeholder', 'Paste an emoji or glyph');
+    custom.value = isCustom ? cur : '';
+    custom.hidden = !isCustom;
+
+    function commit(val) {
+      hidden.value = val;
+      if (onChange) { onChange(val); }
+    }
+    sel.addEventListener('change', function () {
+      if (sel.value === '__custom__') {
+        custom.hidden = false;
+        commit(custom.value);
+      } else {
+        custom.hidden = true;
+        custom.value = '';
+        commit(sel.value);
+      }
+    });
+    custom.addEventListener('input', function () { commit(custom.value); });
+    custom.addEventListener('change', function () { commit(custom.value); });
+
+    var wrap = document.createElement('span');
+    wrap.className = 'lg-choice-icon-picker';
+    wrap.appendChild(hidden);
+    wrap.appendChild(sel);
+    wrap.appendChild(custom);
+    return {
+      wrap: wrap,
+      hidden: hidden,
+      clear: function () {
+        sel.value = '';
+        custom.hidden = true;
+        custom.value = '';
+        hidden.value = '';
+      },
+    };
+  }
+  function setChoiceThumb(img, url) {
+    if (url && trimStr(url) !== '') { img.src = url; img.hidden = false; }
+    else { img.removeAttribute('src'); img.hidden = true; }
+  }
+  // v3.1 R3 S2-5(d): the image cell shows a THUMBNAIL next to Choose… (the media
+  // picker is already wired). imageMediaId is a URL (presets renders src=it).
+  function buildChoiceImageCell(choice) {
+    var input = document.createElement('input');
+    input.className = 'form-input';
+    input.setAttribute('data-choice-field', 'imageMediaId');
+    input.setAttribute('aria-label', 'Image');
+    input.setAttribute('placeholder', CHOICE_FIELD_PLACEHOLDERS.imageMediaId);
+    var v = (choice && typeof choice.imageMediaId === 'string') ? choice.imageMediaId : '';
+    input.value = v;
+    var thumb = document.createElement('img');
+    thumb.className = 'lg-choice-thumb';
+    thumb.setAttribute('data-choice-thumb', '');
+    thumb.alt = '';
+    setChoiceThumb(thumb, v);
+    var choose = document.createElement('button');
+    choose.type = 'button';
+    choose.className = 'btn btn-sm btn-outline';
+    choose.setAttribute('data-choice-media-choose', '');
+    choose.appendChild(document.createTextNode('Choose\\u2026'));
+    choose.addEventListener('click', function () {
+      openMediaPicker({ input: input, onpick: function () { setChoiceThumb(thumb, input.value); collectChoices(); } });
+    });
+    input.addEventListener('input', function () { setChoiceThumb(thumb, input.value); collectChoices(); });
+    input.addEventListener('change', function () { setChoiceThumb(thumb, input.value); collectChoices(); });
+    var row = document.createElement('div');
+    row.className = 'lg-choice-image-row';
+    row.appendChild(thumb);
+    row.appendChild(input);
+    row.appendChild(choose);
+    return { row: row, input: input };
+  }
   function buildChoiceRow(choice, isMain, node) {
     var wrap = document.createElement('div');
     wrap.className = 'lg-choice-row';
     wrap.setAttribute('data-choice-row', '');
-    var i, inp, val;
+    var fields = choiceFieldsFor(node);
+    var i, field, cell, control, val;
     var inputsByField = {};
-    for (i = 0; i < CHOICE_FIELDS.length; i++) {
-      inp = document.createElement('input');
-      inp.className = 'form-input';
-      inp.setAttribute('data-choice-field', CHOICE_FIELDS[i]);
-      inp.setAttribute('placeholder', CHOICE_FIELD_PLACEHOLDERS[CHOICE_FIELDS[i]] || CHOICE_FIELDS[i]);
-      val = choice ? choice[CHOICE_FIELDS[i]] : undefined;
-      inp.value = (val === undefined || val === null) ? '' : String(val);
-      inp.addEventListener('input', collectChoices);
-      inp.addEventListener('change', collectChoices);
-      inputsByField[CHOICE_FIELDS[i]] = inp;
-      wrap.appendChild(inp);
-      // §5.5: the image cell is a PICKER cell — Choose… opens the shared
-      // Media-library chooser writing into this input (same collect path).
-      if (CHOICE_FIELDS[i] === 'imageMediaId') {
-        wrap.appendChild(buildChoiceMediaButton(inp));
+    var emojiHidden = null, emojiPreview = null, iconCellRef = null;
+    for (i = 0; i < fields.length; i++) {
+      field = fields[i];
+      cell = choiceCellWrap(field);
+      if (field === 'icon') {
+        // §8.4: emoji ⊕ icon are mutually exclusive — a real icon edit (select
+        // OR the custom-glyph text) clears any stored emoji (closure captures
+        // the emojiHidden/emojiPreview VARIABLES, assigned when the 'emoji'
+        // field is processed later in this same loop — safe: the callback only
+        // fires on a later user event, by which point the loop has finished).
+        iconCellRef = buildChoiceIconSelect(choice, function (val2) {
+          if (trimStr(val2) !== '' && emojiHidden) {
+            emojiHidden.value = '';
+            if (emojiPreview) { emojiPreview.textContent = '\\u2014'; }
+          }
+          collectChoices();
+        });
+        inputsByField.icon = iconCellRef.hidden;
+        cell.appendChild(iconCellRef.wrap);
+      } else if (field === 'emoji') {
+        // v3.1 R3 S2-5(c): a curated emoji palette (hidden input stores the value
+        // for collectChoices; a preview + clear + palette provide human choice).
+        emojiHidden = document.createElement('input');
+        emojiHidden.type = 'hidden';
+        emojiHidden.setAttribute('data-choice-field', 'emoji');
+        emojiHidden.value = (choice && typeof choice.emoji === 'string') ? choice.emoji : '';
+        inputsByField.emoji = emojiHidden;
+        var head = document.createElement('div');
+        head.className = 'lg-choice-emoji-head';
+        emojiPreview = document.createElement('span');
+        emojiPreview.className = 'lg-choice-emoji-preview';
+        emojiPreview.setAttribute('data-choice-emoji-preview', '');
+        emojiPreview.appendChild(document.createTextNode(emojiHidden.value || '\\u2014'));
+        var clr = document.createElement('button');
+        clr.type = 'button';
+        clr.className = 'btn btn-sm btn-outline';
+        clr.setAttribute('data-choice-emoji-clear', '');
+        clr.appendChild(document.createTextNode('Clear'));
+        head.appendChild(emojiPreview);
+        head.appendChild(clr);
+        var palette = document.createElement('div');
+        palette.className = 'lg-choice-emoji-palette';
+        var pj, pb;
+        for (pj = 0; pj < CHOICE_EMOJI_PALETTE.length; pj++) {
+          pb = document.createElement('button');
+          pb.type = 'button';
+          pb.className = 'lg-choice-emoji-btn';
+          pb.setAttribute('data-choice-emoji', CHOICE_EMOJI_PALETTE[pj]);
+          pb.appendChild(document.createTextNode(CHOICE_EMOJI_PALETTE[pj]));
+          palette.appendChild(pb);
+        }
+        cell.appendChild(emojiHidden);
+        cell.appendChild(head);
+        cell.appendChild(palette);
+      } else if (field === 'imageMediaId') {
+        var imgCell = buildChoiceImageCell(choice);
+        inputsByField.imageMediaId = imgCell.input;
+        cell.appendChild(imgCell.row);
+      } else {
+        control = buildChoiceTextInput(field, choice);
+        inputsByField[field] = control;
+        cell.appendChild(control);
       }
+      wrap.appendChild(cell);
     }
     // §7.3: value auto-suggested from the label while un-edited.
     var valueInput = inputsByField['value'];
@@ -6729,15 +7288,28 @@ export const SECTION_STUDIO_SCRIPT = `
         }
       });
     }
-    // §8.4: emoji ⊕ icon are mutually exclusive — setting one clears the other.
-    var iconInput = inputsByField['icon'];
-    var emojiInput = inputsByField['emoji'];
-    if (iconInput && emojiInput) {
-      iconInput.addEventListener('input', function () {
-        if (trimStr(this.value) !== '' && trimStr(emojiInput.value) !== '') { emojiInput.value = ''; collectChoices(); }
-      });
-      emojiInput.addEventListener('input', function () {
-        if (trimStr(this.value) !== '' && trimStr(iconInput.value) !== '') { iconInput.value = ''; collectChoices(); }
+    // §8.4: emoji ⊕ icon are mutually exclusive — choosing one clears the other.
+    // (the icon→emoji direction is wired at buildChoiceIconSelect's onChange
+    // callback above; this is the emoji→icon direction.)
+    var emojiBtns = wrap.querySelectorAll('[data-choice-emoji]');
+    var eb;
+    for (eb = 0; eb < emojiBtns.length; eb++) {
+      emojiBtns[eb].addEventListener('click', (function (btn) {
+        return function () {
+          var v2 = btn.getAttribute('data-choice-emoji');
+          if (emojiHidden) { emojiHidden.value = v2; }
+          if (emojiPreview) { emojiPreview.textContent = v2; }
+          if (iconCellRef) { iconCellRef.clear(); }
+          collectChoices();
+        };
+      })(emojiBtns[eb]));
+    }
+    var emojiClear = wrap.querySelector('[data-choice-emoji-clear]');
+    if (emojiClear) {
+      emojiClear.addEventListener('click', function () {
+        if (emojiHidden) { emojiHidden.value = ''; }
+        if (emojiPreview) { emojiPreview.textContent = '\\u2014'; }
+        collectChoices();
       });
     }
     var disabledLabel = document.createElement('label');
@@ -6793,17 +7365,6 @@ export const SECTION_STUDIO_SCRIPT = `
       if (delta < 0 && wrap.previousElementSibling) { parent.insertBefore(wrap, wrap.previousElementSibling); }
       else if (delta > 0 && wrap.nextElementSibling) { parent.insertBefore(wrap.nextElementSibling, wrap); }
       collectChoices();
-    });
-    return b;
-  }
-  function buildChoiceMediaButton(input) {
-    var b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'btn btn-sm btn-outline';
-    b.setAttribute('data-choice-media-choose', '');
-    b.textContent = 'Choose\\u2026';
-    b.addEventListener('click', function () {
-      openMediaPicker({ input: input, onpick: collectChoices });
     });
     return b;
   }
@@ -7294,7 +7855,13 @@ export const SECTION_STUDIO_SCRIPT = `
       method: 'PATCH',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ content_json: JSON.stringify(state.content) })
+      // v3.1 R3 MINOR-3 (reland): route through collectSection — the ONE
+      // shared save/migration helper, no duplicate logic — so this
+      // content-only PATCH runs the SAME §5.3/§8.1/§11.3 migrations as the
+      // main Save. confirmSaveMigrationLoss already gated doMoveToFrame
+      // before any write began, so by here the operator has consented if the
+      // tree contains a retired LogoStrip anywhere.
+      body: JSON.stringify({ content_json: collectSection().content_json })
     }).then(function (r) {
       return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
@@ -7313,6 +7880,12 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!ref) { return; }
     // §5.4: explicit confirm that NAMES the funnel, before any write.
     if (!window.confirm(moveConfirmMessage(ref.node, funnel.name))) { return; }
+    // v3.1 R3 MINOR-3 (reland): the ensuing finishMoveToFrame save now runs
+    // collectSection's §5.3 migration, which is LOSSY for a retired LogoStrip
+    // ANYWHERE in the section (not just the moved node) — confirm BEFORE any
+    // write (frame GET/PUT + content PATCH) so a cancel leaves EVERYTHING
+    // untouched, matching the main Save button's "cancel = no save" contract.
+    if (!confirmSaveMigrationLoss()) { return; }
     var group = equivalentFrameGroup(ref.node);
     if (group === null) {
       showRefusal('This element has no Quote-frame equivalent — configure it in the Quote Builder instead.');
@@ -8221,6 +8794,32 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   var textBlockRoleEl = document.querySelector('[data-text-block-role]');
   if (textBlockRoleEl) { textBlockRoleEl.addEventListener('change', collectTextBlockRole); }
+
+  // v3.1 R3b deliverable 4: ImageBlock's source toggle + media picker/thumb.
+  var imageBlockSourceEls = document.querySelectorAll('[data-set-imageblock-source]');
+  var ibsi;
+  for (ibsi = 0; ibsi < imageBlockSourceEls.length; ibsi++) {
+    imageBlockSourceEls[ibsi].addEventListener('click', function () { setImageBlockSource(this.getAttribute('data-set-imageblock-source')); });
+  }
+  var imageBlockMediaInput = document.getElementById('lg-imageblock-media');
+  var imageBlockThumb = document.querySelector('[data-imageblock-thumb]');
+  if (imageBlockMediaInput && imageBlockThumb) {
+    var refreshImageBlockThumb = function () { setChoiceThumb(imageBlockThumb, imageBlockMediaInput.value); };
+    imageBlockMediaInput.addEventListener('input', refreshImageBlockThumb);
+    imageBlockMediaInput.addEventListener('change', refreshImageBlockThumb);
+  }
+  var imageBlockChooseBtn = document.querySelector('[data-imageblock-media-choose]');
+  if (imageBlockChooseBtn && imageBlockMediaInput) {
+    imageBlockChooseBtn.addEventListener('click', function () {
+      openMediaPicker({
+        input: imageBlockMediaInput,
+        onpick: function () {
+          if (imageBlockThumb) { setChoiceThumb(imageBlockThumb, imageBlockMediaInput.value); }
+          collectInspectorField(imageBlockMediaInput);
+        },
+      });
+    });
+  }
 
   // §8.3 Content tab: dedicated Accept select (reuses setAcceptFormat — the
   // SAME §5.6 Accept-swap rule the canvas toolbar's data-toolbar-accept
@@ -9857,6 +10456,25 @@ export const SECTION_STUDIO_SCRIPT = `
       }
     });
   }
+  // v3.1 R3b deliverable 1 (S2-2 reclassified): the Continue Content-tab
+  // "Open Quote Builder →" link (was href="#0", dead) and the Style-tab's 3
+  // "Change in frame →" row buttons all share the ONE navigation function.
+  var openQuoteBuilderBtn = document.querySelector('[data-open-quote-builder]');
+  if (openQuoteBuilderBtn) {
+    openQuoteBuilderBtn.addEventListener('click', function () { openQuoteBuilderNav(this); });
+  }
+  var changeInFrameBtns = document.querySelectorAll('[data-continue-change-in-frame]');
+  var cif;
+  for (cif = 0; cif < changeInFrameBtns.length; cif++) {
+    changeInFrameBtns[cif].addEventListener('click', function () { openQuoteBuilderNav(this); });
+  }
+  // v3.1 R3b deliverable 8: the frame-scope read-only notice's OWN deep link
+  // (Content + Style tab copies) — the SAME shared navigation.
+  var frameScopeChangeBtns = document.querySelectorAll('[data-framescope-change-in-frame]');
+  var fsc;
+  for (fsc = 0; fsc < frameScopeChangeBtns.length; fsc++) {
+    frameScopeChangeBtns[fsc].addEventListener('click', function () { openQuoteBuilderNav(this); });
+  }
   // §7.5: focusing a choice row retargets the scope header to that choice
   // (synchronous — well inside the 100 ms probe budget).
   var choicesPanelWrap = document.querySelector('[data-inspector-choices]');
@@ -9985,6 +10603,30 @@ export const SECTION_STUDIO_SCRIPT = `
     continueSegEls[csi].addEventListener('keydown', onContinueSegKey);
   }
 
+  // v3.1 R3 MAJOR-2 (register E2-NEW-4): the §5.3 save-rewrite turns a retired
+  // LogoStrip into the Site-logo image block, DROPPING its individual logos —
+  // the one LOSSY migration (the text-role, helper_text->helper and
+  // html->panelHtml rewrites are all lossless, so they stay silent). Every
+  // save path (main Save + move-to-frame) confirms first via
+  // confirmSaveMigrationLoss; a cancel returns before collectSection runs, so
+  // the tree is never mutated and no PATCH fires.
+  var LOSSY_LOGOSTRIP_SAVE_CONFIRM = 'This section contains a retired Logo strip element. Saving converts it to the Site-logo block and its individual logos are removed. Save anyway?';
+  function contentHasRetiredLogoStrip(list) {
+    var i;
+    if (!list) { return false; }
+    for (i = 0; i < list.length; i++) {
+      if (!list[i] || typeof list[i] !== 'object') { continue; }
+      if (list[i].type === 'LogoStrip') { return true; }
+      if (list[i].children && list[i].children.length && contentHasRetiredLogoStrip(list[i].children)) { return true; }
+    }
+    return false;
+  }
+  function confirmSaveMigrationLoss() {
+    if (state.content && state.content.components && contentHasRetiredLogoStrip(state.content.components)) {
+      return window.confirm(LOSSY_LOGOSTRIP_SAVE_CONFIRM);
+    }
+    return true;
+  }
   // --- Save (POST create / PATCH update) — the UNCHANGED old-island body shape ------------
   function collectSection() {
     // v3.1 audit-round G FIX 3b: §5.3-style save rewrite — migrate the legacy
@@ -10008,7 +10650,72 @@ export const SECTION_STUDIO_SCRIPT = `
         if (node.children && node.children.length) { migrateHelperKey(node.children); }
       }
     }
-    if (state.content && state.content.components) { migrateHelperKey(state.content.components); }
+    // v3.1 R3b deliverable 5b (E2-NEW-2): a node stored under the OLD (wrong)
+    // "html" key before this phase's CONTENT_PROP_FIELDS fix must still save
+    // cleanly — migrate html -> panelHtml at the SAME save seam
+    // migrateHelperKey uses. Without this, previously-broken content stays
+    // broken forever (REQUIRED_FIELDS.DisclosureLink.textProps=["panelHtml"]
+    // 400s any save that lacks panelHtml).
+    function migrateDisclosureLinkKey(list) {
+      var i, node;
+      for (i = 0; i < list.length; i++) {
+        node = list[i];
+        if (!node || typeof node !== 'object') { continue; }
+        if (node.type === 'DisclosureLink' && node.props && node.props.html !== undefined) {
+          if (node.props.panelHtml === undefined) { node.props.panelHtml = node.props.html; }
+          delete node.props.html;
+        }
+        if (node.children && node.children.length) { migrateDisclosureLinkKey(node.children); }
+      }
+    }
+    // v3.1 R3b deliverable 7 (E2-NEW-4/E3-NEW-5): §5.3's OWN retirement
+    // migration (content-schema.ts rewriteRetiredNodeToPrimitive/
+    // primitiveViewOfNode) was never invoked anywhere — a retired one-off
+    // node (CategoryLabel/HelperText/LegalNote/ReassuranceBadge/
+    // SecureFormBadge/LogoStrip) saved and stayed its OLD type forever,
+    // contradicting §5.3's own "Save rewrites the node to the primitive
+    // form." Re-implemented inline (ES5, no import — the island is an inline
+    // script, same discipline as migrateHelperKey above) to mirror content-
+    // schema.ts's function LOGIC-FOR-LOGIC (never re-derived/approximated):
+    // LogoStrip -> ImageBlock(source:auto_logo) — LOSSY by the contract's OWN
+    // documented simplification (only the first of >1 logos survives); the 5
+    // text roles -> TextBlock(role:...) with text sourced from props.html for
+    // legal / props.text for the rest, icon carried through when non-empty.
+    // Mutates in place (matching migrateHelperKey's own mutation idiom) —
+    // every OTHER field (question_id, internal_field, conditional,
+    // design_overrides, children, ...) survives untouched, exactly like the
+    // real function's spread-then-overwrite-type/props return shape.
+    var RETIRED_TEXT_ROLE_BY_TYPE = { CategoryLabel: 'category_label', HelperText: 'helper', LegalNote: 'legal', ReassuranceBadge: 'reassurance', SecureFormBadge: 'secure_badge' };
+    function rewriteRetiredNodeToPrimitiveInline(node) {
+      if (node.type === 'LogoStrip') {
+        node.type = 'ImageBlock';
+        node.props = { source: 'auto_logo' };
+        return;
+      }
+      var role = RETIRED_TEXT_ROLE_BY_TYPE[node.type];
+      if (role === undefined) { return; }
+      var oldProps = node.props || {};
+      var text = role === 'legal' ? oldProps.html : oldProps.text;
+      var icon = oldProps.icon;
+      var newProps = { role: role };
+      if (typeof text === 'string') { newProps.text = text; }
+      if (typeof icon === 'string' && icon !== '') { newProps.icon = icon; }
+      node.type = 'TextBlock';
+      node.props = newProps;
+    }
+    function migrateRetiredNodes(list) {
+      var i;
+      for (i = 0; i < list.length; i++) {
+        if (!list[i] || typeof list[i] !== 'object') { continue; }
+        rewriteRetiredNodeToPrimitiveInline(list[i]);
+        if (list[i].children && list[i].children.length) { migrateRetiredNodes(list[i].children); }
+      }
+    }
+    if (state.content && state.content.components) {
+      migrateHelperKey(state.content.components);
+      migrateDisclosureLinkKey(state.content.components);
+      migrateRetiredNodes(state.content.components);
+    }
     var nameEl = document.getElementById('lg-section-name');
     var actEl = document.getElementById('lg-section-activity');
     var verEl = document.getElementById('lg-section-vertical');
@@ -10132,6 +10839,11 @@ export const SECTION_STUDIO_SCRIPT = `
       if (errEl) { errEl.hidden = true; }
       renderSaveProblems([]);
       renderZeroOffersWarning();
+      // v3.1 R3 MAJOR-2 (register E2-NEW-4): the §5.3 save-rewrite drops a
+      // retired LogoStrip's individual logos — confirm BEFORE anything mutates
+      // (collectSection runs the migration in place). Cancel = content
+      // untouched, no PATCH, button re-enabled.
+      if (!confirmSaveMigrationLoss()) { return; }
       saveBtn.disabled = true;
       var isNew = !state.public_id;
       var url = isNew ? '/api/admin/leadgen/sections' : '/api/admin/leadgen/sections/' + encodeURIComponent(state.public_id);

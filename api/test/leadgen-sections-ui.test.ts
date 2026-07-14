@@ -307,15 +307,28 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
     expect(html).toMatch(/<iframe[^>]*id="lg-studio-canvas-frame"[^>]*sandbox="allow-same-origin"/);
     expect(html).toContain("data-question-id=&quot;q1&quot;");
 
-    // RIGHT: the §8.6 Design tab — curated token DROPDOWNS only (§14.8; the
+    // RIGHT: the §8.6 Style tab (renderStyleExtraControls, R3b rename of the
+    // old renderDesignPanel) — curated token DROPDOWNS only (§14.8; the
     // free-text token inputs are gone, values come from the design's slots).
     // FIX 4b: mobileBehavior is NOT rendered (zero renderer consumers — a
     // dead write); the schema key stays legal for stored legacy data.
-    for (const key of ["iconColor", "columns", "featureColor", "rangeColor", "buttonBackground", "buttonText", "gridGap"]) {
+    // R3b S2-7/S4-A4 (rail removal): featureColor/buttonBackground/buttonText
+    // rows DIED — featureColor is now the text family's OWN "Text color role"
+    // control (data-style-text-block, pinned below); buttonBackground/
+    // buttonText are frame/theme-owned per contract §8.5b, no authoring
+    // control at all (legacy stored values still render, renderer untouched).
+    for (const key of ["iconColor", "columns", "rangeColor", "gridGap"]) {
       expect(html, `token control ${key}`).toContain(`data-inspector-override="${key}"`);
       expect(html, `token control ${key} is a select`).toContain(`<select id="lg-inspector-${key}"`);
     }
     expect(html, "the dead mobileBehavior control is gone").not.toContain('<select id="lg-inspector-mobileBehavior"');
+    expect(html, "the old rail's featureColor id is gone (removed, not merely hidden)").not.toContain('<select id="lg-inspector-featureColor"');
+    expect(html, "the old rail's buttonBackground id is gone").not.toContain('<select id="lg-inspector-buttonBackground"');
+    expect(html, "the old rail's buttonText id is gone").not.toContain('<select id="lg-inspector-buttonText"');
+    // the text family's own "Text color role" control (deliverable 2) is the
+    // REAL home for featureColor now — pinned by id + the correct override key.
+    expect(html, "the Text color role control exists").toContain('<select id="lg-text-color-role"');
+    expect(html, "it writes the featureColor override key").toContain('data-inspector-override="featureColor"');
     // BOTTOM drawer: the D2 §8.7 mapping panel skeleton + the summary derived
     // from the seeded (complete) mapping — data preserved untouched.
     expect(html).toContain('data-studio-drawer-tab="mapping"');

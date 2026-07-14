@@ -1970,10 +1970,10 @@ describe("audit-round G FIX 3a — renderTextInput §8.1 leading pin + helper li
     );
   });
 
-  it("the other §8.1 icon values (e.g. 'calendar') render NO icon — contract gap, never an invented SVG", () => {
+  it("R3a (register erratum): the other §8.1 icon values (e.g. 'calendar') now render a style-matched SVG — golden shipped only the Location pin; R3a shipped the remaining 10 in the same #8DA0B6/19x19 family", () => {
     const html = renderComponent({ ...base, props: { icon: "calendar" } }, DESIGN);
-    expect(html).not.toContain('stroke="#8DA0B6"');
-    expect(html).not.toContain("lg-field-icon");
+    expect(html).toContain('stroke="#8DA0B6"');
+    expect(html).toContain("lg-field-icon");
   });
 
   it("REGRESSION — absent icon AND helper renders the bare <input> (byte-identical, no wrapper)", () => {
