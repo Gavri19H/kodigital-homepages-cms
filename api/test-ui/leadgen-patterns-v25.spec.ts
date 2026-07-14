@@ -117,6 +117,7 @@ import {
   type SectionDetail,
   type StudioNode,
 } from "./leadgen-e-seed";
+import { LEADGEN_FIELD_LEADING_ICONS } from "../src/public/leadgen/components/content-schema";
 
 // Realistic desktop Chrome UA — /lg's runtimeRequestGuard bot arm must not
 // trip on the §15.4 live-page navigations (the leadgen-live-funnel DEV-GUARD
@@ -331,9 +332,29 @@ function choiceRows(page: Page) {
   return page.locator("[data-inspector-choices] [data-choice-row]");
 }
 
+// R3a (register S2-4/S2-5/6c): 'icon' is now a curated <select> of the SAME 12
+// section-8.1 leading-icon options PLUS a "Custom glyph…" escape hatch (the
+// choice.icon prop stays free-glyph per content-schema — isNonEmptyString, no
+// enum — so authoring an arbitrary business-type emoji, as pattern D does,
+// still routes through the picker's own custom-text sibling).
+// 'emoji' is a curated palette (button click), never a text input.
 async function fillChoiceRow(page: Page, index: number, fields: Record<string, string>): Promise<void> {
   const row = choiceRows(page).nth(index);
   for (const [key, value] of Object.entries(fields)) {
+    if (key === "icon") {
+      const iconSelect = row.locator("[data-choice-icon-select]");
+      if ((LEADGEN_FIELD_LEADING_ICONS as readonly string[]).includes(value)) {
+        await iconSelect.selectOption(value);
+      } else {
+        await iconSelect.selectOption("__custom__");
+        await row.locator("[data-choice-icon-custom]").fill(value);
+      }
+      continue;
+    }
+    if (key === "emoji") {
+      await row.locator(`[data-choice-emoji="${value}"]`).click();
+      continue;
+    }
     await row.locator(`input[data-choice-field="${key}"]`).fill(value);
   }
 }

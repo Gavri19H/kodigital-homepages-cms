@@ -376,7 +376,10 @@ describe("v3.1 §7/§12 — field size APPLICATION is wired into rendered HTML (
     expect(html).not.toMatch(/style="[^"]*height/);
   });
 
-  it("width 'full' renders width:100% — GROUNDED, byte-identical to the golden's non-custom fieldWrapStyle — and NO height (height presets are ungrounded)", () => {
+  // R3 fix-round grounding erratum (register): the node's explicit
+  // height:"medium" now resolves too (52px, the §10.4 "shared size language"
+  // theme default) — pinned instead of asserted absent.
+  it("width 'full' renders width:100% — GROUNDED, byte-identical to the golden's non-custom fieldWrapStyle — height:medium renders its grounded 52px", () => {
     const node: LeadgenComponentNode = {
       type: "ZIPInputQuestion",
       question_id: "q2",
@@ -385,7 +388,7 @@ describe("v3.1 §7/§12 — field size APPLICATION is wired into rendered HTML (
     };
     const html = renderComponent(node, DESIGN);
     expect(html).toContain("width:100%");
-    expect(html).not.toMatch(/style="[^"]*height/);
+    expect(html).toContain("height:52px");
   });
 
   it("width absent -> inherits the design default 'full' -> ALSO renders width:100% (the resolver's own absent-width fallback, not a new special case)", () => {
@@ -398,7 +401,11 @@ describe("v3.1 §7/§12 — field size APPLICATION is wired into rendered HTML (
     expect(renderComponent(node, DESIGN)).toContain("width:100%");
   });
 
-  it("width s/m/l tiers render NO explicit width — UNGROUNDED, no fabricated px (contract gap: no golden/contract px table for these tiers)", () => {
+  // R3 fix-round grounding erratum (register): width s/m/l now resolve to
+  // GROUNDED px — m=384px is contract §7.1's own "384 (= 64% of the 600
+  // column)"; s/l=300/480px are the proposed-errata 50%/80% brackets.
+  it("width s/m/l tiers render their grounded px (R3 fix-round erratum: 300/384/480px)", () => {
+    const WIDTH_PX: Record<string, string> = { s: "300px", m: "384px", l: "480px" };
     for (const width of ["s", "m", "l"] as const) {
       const node: LeadgenComponentNode = {
         type: "ZIPInputQuestion",
@@ -406,24 +413,32 @@ describe("v3.1 §7/§12 — field size APPLICATION is wired into rendered HTML (
         internal_field: "zip",
         design_overrides: { size: { width } },
       };
-      expect(renderComponent(node, DESIGN), width).not.toMatch(/style="[^"]*width/);
+      expect(renderComponent(node, DESIGN), width).toContain(`width:${WIDTH_PX[width]}`);
     }
   });
 
-  it("EVERY height preset (small/medium/large) renders NO explicit height, REGARDLESS of theme_controls.field_height — UNGROUNDED, matches the golden's fieldBoxStyle (padding only, never a height term)", () => {
+  // R3 fix-round grounding erratum (register): height small/medium/large now
+  // resolve to the §10.4 "shared size language" control heights (44/52/60px
+  // — base .lg-input min-height + theme Button-size M/L). The size override
+  // is now genuinely ABSENT (matching this test's OWN pre-existing comment,
+  // which the original code contradicted by setting an explicit "medium"),
+  // so each iteration actually exercises theme_controls.field_height's
+  // per-value fallback instead of a constant explicit override.
+  it("EVERY height preset (small/medium/large) renders its grounded height when the axis is ABSENT and inherits theme_controls.field_height (44/52/60px)", () => {
+    const HEIGHT_PX: Record<string, string> = { small: "44px", medium: "52px", large: "60px" };
     for (const field_height of ["small", "medium", "large"] as const) {
       const node: LeadgenComponentNode = {
         type: "ZIPInputQuestion",
         question_id: `q4-${field_height}`,
         internal_field: "zip",
-        design_overrides: { size: { height: "medium" } }, // absent -> inherits theme_controls.field_height
+        design_overrides: { size: {} }, // height key ABSENT -> inherits theme_controls.field_height
       };
       const html = renderSectionComponents([node], DESIGN, {
         headline_text: "",
         subheadline_text: null,
         theme_controls: { field_height, button_size: "m", corners: "rounded" },
       });
-      expect(html, field_height).not.toMatch(/style="[^"]*height/);
+      expect(html, field_height).toContain(`height:${HEIGHT_PX[field_height]}`);
     }
   });
 

@@ -215,6 +215,59 @@ runtime answer-recording test per input component (slider class).
 **Phase status:** R0 **MERGED** (PR #109 → main @ 9cd252f, 2026-07-13; adversarial review SHIP
 after 2 fix rounds). Rows closed by R0: S4-B1 (headline strip at golden proportions, two-rule fix)
 + the M1/M5/M6 gate primitives + engine.ts encoding + firefox gesture lane.
+**R3a ROUTING NOTES (conductor-ruled, 2026-07-14):**
+- Buttons/cards `border_color` rides a direct inline `border-color` (their CSS idiom lacks a
+  `--lg-field-border` read), which beats hover/selected border-color; background selection
+  feedback is retained so no state is lost. The fully state-safe variant is ONE line in
+  `designs/default-funnel/styles.ts` (`border-color: var(--lg-field-border, <current>)`) —
+  **routed to R5 as an explicit deliverable** (R5 owns styles.ts + the full visual re-pin;
+  changing it in R3 would churn the A0 byte pins twice). NOT a dropped deliverable — new
+  polish nuance discovered in R3a, no data loss, no lying UI.
+- CurrencyInput's leading-icon control: its `$` prefix occupies the icon slot and the renderer
+  does not consume `props.icon` → the control is GATED OFF for Currency per the
+  consumption-honesty rule (E1-NEW-9 scoped Address only; a prefix+icon layout would be new
+  design — operator's call if ever wanted).
+
+**R3 FIX-ROUND ERRATA + BLAST RADIUS (conductor, 2026-07-14):**
+- **Size presets GROUNDED** (review BLOCKER: they were inert with fake active feedback — the M4
+  mechanism): width m=384px (contract §7.1's own "384 = 64% of the 600 column"), width full=100%,
+  heights small/medium/large = 44/52/60px min-height (§10.4 shared size language: base .lg-input
+  44 + theme button sizes 52/60; medium = the theme default field_height). **PROPOSED ERRATA
+  needing operator sign-off at R5:** width s=300px (50% of the unit column) and l=480px (80%) —
+  bracketing the golden demo, unspecified anywhere authoritative.
+- **Blast radius (contract-grounded, §7.2 "absent axis = inherit theme default"):** stored size
+  presets that previously rendered NOTHING now render their grounded px; AND a one-axis override
+  (e.g. width-only custom) now also emits the theme default for the absent axis. Nodes with NO
+  size override are byte-identical (100+-zone default rendering untouched). Runtime bundle
+  byte-identical (server-side resolver). Visual deltas surface at the R5 re-pin + staging
+  sign-off.
+- **Lossy migration is LOUD:** a save converting a retired LogoStrip asks first (cancel = no
+  save); pure-rename migrations stay silent. §8.13 legacy-lossless narrowed EXPLICITLY: byte-
+  identity for content without retired/legacy-keyed nodes + companion tests pin the migrated
+  output (accept) and the no-PATCH path (cancel). Island migrations now have EXECUTING proofs
+  (vm-probe + real browser save with API re-fetch).
+- loadingLabel input REMOVED (contract §8.4; render-only consumption keeps legacy values).
+  Position row qualified "· default — set per funnel in the Quote Builder" (review adjudication).
+
+**R3b INTERPRETIVE RULINGS (conductor, 2026-07-14):**
+- **Continue "Position" row** shows the frames.ts SCHEMA DEFAULT ("Inside the question"), not a
+  per-funnel live resolution — grounded: a section is many-to-many with funnels and the studio's
+  main preview carries no frame_context; live resolution would need a new API. The row's
+  "Change in frame →" deep link (0→list / 1→direct / many→picker) is the disambiguator.
+  Adversarial review to adjudicate whether multi-funnel wording needs "default" qualification.
+- **gate2 ERRATUM:** Appendix-A's verbatim "Bottom, full width" was the golden DEMO funnel's
+  placement value; the binding contract is now the REAL resolved value (gate updated, ratified).
+- **imageFit** is consumed by ImageCardAnswerGrid (NOT the ImageBlock primitive — conductor's
+  dispatch phrasing corrected); relocated to the Content tab for its real consumer.
+- **ImageBlock auto_logo in-Section** renders a labeled placeholder permanently — repo-wide grep
+  confirms nothing populates branding onto in-Section auto_logo nodes (the real branding logo is
+  the FRAME's HeaderLogo); the placeholder is the honest state, not a stub.
+- **Golden-allowlist reclassification:** renderDesignPanel/renderLayoutPanel (the §8.5 rail)
+  REMOVED (stale entries purged); successors renderStyleExtraControls / renderImageFitControl /
+  renderContainerLayoutPanel classified golden:false-accepted (consumed, per-type-gated,
+  jargon-free) pending R5 golden arbitration. Census: 31 blocks / 21 golden / 10 documented /
+  0 unclassified / 0 stale. Jargon TOTAL 39→38 (the §8.5 paragraph itself died).
+
 **ERRATUM (R2, conductor-ruled):** contract Appendix B's absolute selection-handle geometry
 (rows −11/19/49, left:-11px, outline height 66px) encodes the golden MOCKUP's single demo field;
 the golden's intent is chrome ON the element. The measured overlay supersedes the demo absolutes;
@@ -231,6 +284,24 @@ the R5 re-pin captures the new chrome. "Byte-identical to R0" no longer holds pa
 Height custom_px bounds discovered: **[4,600] snap-4** (content-schema validateSizeAxis :1080-1090)
 — intentionally distinct from width's [200,600] (§7.2's own worked example stores a 56px height).
 
+R3 (inspector honesty, stages A+B) **SHIP** (2026-07-14; adversarial review FIX-FIRST — 1 BLOCKER
+[inert size presets = the M4 mechanism inside our own effect matrix] + 1 MAJOR [unproven silent
+lossy migration] + 4 minors → all fixed in-phase → SHIP on independent re-verification, 23/23
+gesture matrix now clicking EVERY preset). Rows closed: S2-1 + E1-C3 + E2-NEW-7 (size/corners/
+border consumed by all 8 choice/button/dropdown families; presets GROUNDED 300/384/480 · 100% ·
+44/52/60 — s/l = proposed errata for R5 sign-off), S2-2 (real resolved values + working deep links,
+0/1/many picker; NO pickers per §8.5b), S2-4/S2-5 (labeled choices editor, per-type gating pinned
+to source, emoji palette + hybrid icon picker + thumbnails), S2-6 (swatches painted), S2-7/S4-A4
+(§8.5 rail dead; consumed props migrated; jargon 39→38), S2-8 + E1-NEW-9 (12 icons live incl.
+Address), E1-NEW-2/5/6/7/8/10, E1-C4/C5/C6/C7/C8, E2-NEW-1 (ImageBlock usable: source/alt/picker/
+thumbnail/seed), E2-NEW-2 (key fix + save-seam repair), E2-NEW-3/8 + E2-C4 (frame-scope stripped
+to notice + deep link, 10 types), E2-NEW-4 + E3-NEW-5 (retired migration WIRED with executing
+proofs; LOSSY LogoStrip conversion is LOUD — confirm gates BOTH save paths; §8.13 narrowed
+explicitly w/ companions), E2-NEW-5 (Rules tab per §8.2), E2-NEW-6 (loadingLabel input removed),
+E2-NEW-9 (Spacer variant), E2-NEW-10-studio (container internal_field disabled), E2-C1 (text-color
+role WIRED for the text family), E2-C2/C3/C5/C6. Gates: vitest 5,144/5,144 (362) · gesture 23/23 +
+10/10 + 7/7 firefox · patterns 19/19 (incl. §8.13b/c) · shards 249/256 + gate-1c report-only ·
+bundle 40,908 · jargon 38 · census 31/21/10/0/0.
 R2 (canvas interaction real) **SHIP** (2026-07-14; adversarial review FIX-FIRST — 1 MAJOR
 honest-interim + 3 minors → all fixed in-phase → SHIP on independent re-verification). Rows
 closed: S1-1/S1-2 (measured overlay, ≤4px proven across 9 types incl. helper+icon), S1-3/S1-4

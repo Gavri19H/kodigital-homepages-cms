@@ -338,16 +338,20 @@ describe("Gate 2 strings — Inspector (Appendix A)", () => {
     assertAllPresent(STUDIO_HTML, ["Advanced", "Internal field", "Analytics label", "Component id"], "Advanced disclosure");
   });
 
-  it("Continue's inherited tags render verbatim (Appendix C row 13 — §8.4/§8.5 'Inherited from the frame'): Color=Brand primary, Position=Bottom, full width, both tagged 'inherited'", () => {
-    // Both the Content-tab and Style-tab Continue blocks carry this same
-    // "Inherited from the frame" group (confirmed by direct read: identical
-    // markup appears twice in ui-section-studio.ts, once per tab) — the
-    // static SSR shell renders BOTH regardless of current selection (per-
-    // selection visibility is client-toggled), so this is provable without
-    // any live interaction.
+  it("Continue's inherited tags render verbatim (Appendix C row 13 — §8.4/§8.5 'Inherited from the frame'): Position=Inside the question, tagged 'inherited'", () => {
+    // R3b conductor erratum (S2-2 reclassified, deliverable 1): the golden
+    // demo's "Bottom, full width" was ITS OWN demo funnel's placement value,
+    // never a resolved fact this Studio could assert for every Section — the
+    // binding contract is now "the REAL resolved value" (frames.ts's own
+    // section_slot.continue_placement default, "inside_unit", surfaced
+    // honestly instead of a fabricated string; register S2-2). The
+    // Content-tab's OWN duplicate "Inherited from the frame" rows were also
+    // REMOVED as part of the same fix (dead duplication of stale text) — only
+    // the Style-tab's block carries this group now, so this is no longer a
+    // "appears twice" pin, just the one live copy.
     assertAllPresent(
       STUDIO_HTML,
-      ["Inherited from the frame", "Brand primary", "Bottom, full width", ">inherited<"],
+      ["Inherited from the frame", "Inside the question", ">inherited<"],
       "Continue inherited tags",
     );
   });

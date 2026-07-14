@@ -100,15 +100,27 @@ function derivePresetsSizeConsumingTypes(): string[] {
   // Step 1: every "function renderXxx(" whose OWN brace-bounded body (not a
   // naive "slice to the next function" — that leaks unrelated file content
   // for any function with no sibling before the next render* declaration)
-  // calls fieldStyleAttr(/fieldSizeStyle(/renderTextInput( — the three call
-  // sites that apply design_overrides.size to computed CSS (confirmed
-  // exhaustive: grep finds no other caller of these in the whole render tree).
+  // calls one of the design_overrides.size call sites. The R2 set was the three
+  // .lg-input-family sites (fieldStyleAttr/fieldSizeStyle/renderTextInput). R3
+  // widened consumption to the choice/button/card/dropdown renderers, which
+  // apply the per-ITEM size axis via choiceItemStyle( (buttons/cards/multi/other-
+  // group + renderCardGrid itself) and the dropdown <select> via fieldStyleAttr(;
+  // the two icon/image grid wrappers delegate to renderCardGrid(. Adding
+  // choiceItemStyle( and renderCardGrid( keeps the derivation SOURCE-DERIVED and
+  // drift-proof: any future renderer that consumes size through one of these
+  // five call sites is caught.
   const consumingFnNames = new Set<string>();
   const fnMatches = [...src.matchAll(/(?:export )?function (render\w+)\(/g)];
   for (const fm of fnMatches) {
     const body = bracedBody(src, fm.index ?? -1);
     if (body === null) continue;
-    if (body.includes("fieldStyleAttr(") || body.includes("fieldSizeStyle(") || body.includes("renderTextInput(")) {
+    if (
+      body.includes("fieldStyleAttr(") ||
+      body.includes("fieldSizeStyle(") ||
+      body.includes("renderTextInput(") ||
+      body.includes("choiceItemStyle(") ||
+      body.includes("renderCardGrid(")
+    ) {
       consumingFnNames.add(fm[1]!);
     }
   }
@@ -146,9 +158,10 @@ describe("R2 adversarial-review MAJOR fix #1 — the SIZE-CONSUMING type predica
     expect(fromIsland).toEqual(fromPresets);
   });
 
-  it("the derived/pinned set is exactly the 8 types this review round expects (text-input family + Currency + Address)", () => {
+  it("the derived/pinned set is exactly the 16 types R3 expects (the 8 text-input/Currency/Address family + the 8 R3 choice/button/card/dropdown renderers)", () => {
     expect(islandSizeConsumingTypes()).toEqual(
       [
+        // R2 baseline — the .lg-input family
         "AddressAutocompleteQuestion",
         "CurrencyInputQuestion",
         "DateQuestion",
@@ -157,6 +170,16 @@ describe("R2 adversarial-review MAJOR fix #1 — the SIZE-CONSUMING type predica
         "NumberInputQuestion",
         "PhoneInputQuestion",
         "ZIPInputQuestion",
+        // R3 widening — the choice/button/card/dropdown renderers now consume
+        // design_overrides.size/.corners/.border_color (presets.ts)
+        "ButtonAnswerGroup",
+        "DropdownQuestion",
+        "IconCardAnswerGrid",
+        "ImageCardAnswerGrid",
+        "MultiChoiceCardGroup",
+        "OtherGroupSelector",
+        "SearchableDropdownQuestion",
+        "TwoButtonYesNo",
       ].sort(),
     );
   });
@@ -185,7 +208,7 @@ describe("R2 adversarial-review MAJOR fix #1 — the SIZE-CONSUMING type predica
     expect(inert).not.toContain("addEventListener");
   });
 
-  it("fake-DOM: applyCanvasDecoration on a non-consuming type (ButtonAnswerGroup) renders handles with NO resize locator and NO listener wired — a drag attempt has nothing to grab", () => {
+  it("fake-DOM: applyCanvasDecoration on a non-consuming type (NameFieldsGroup — R3 made ButtonAnswerGroup consuming, so the non-consuming example moved to a still-non-consuming field type) renders handles with NO resize locator and NO listener wired — a drag attempt has nothing to grab", () => {
     // Minimal fake-DOM harness: enough surface for decorateFieldSelection's
     // measurement + child-append calls, none of the full studio-ui vm-probe's
     // machinery (this file intentionally stays lightweight, per its own header).
@@ -241,8 +264,8 @@ describe("R2 adversarial-review MAJOR fix #1 — the SIZE-CONSUMING type predica
       };
       return el;
     }
-    const fieldEl = fakeEl("div"); // ButtonAnswerGroup's node is a container div, not a bare input
-    const node = { type: "ButtonAnswerGroup", design_overrides: {} };
+    const fieldEl = fakeEl("div"); // NameFieldsGroup's node is a container div, not a bare input
+    const node = { type: "NameFieldsGroup", design_overrides: {} };
     const src = [
       "function frameCreate(tag) { return fakeElFactory(tag); }",
       sliceVarLine("var SIZE_CONSUMING_TYPES"),

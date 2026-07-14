@@ -513,9 +513,15 @@ export function renderQuestionHeadline(
   // source. ctx absent + bound node → empty text (never a throw). An UNBOUND
   // legacy node with props.text renders byte-identically to v2.4.
   const text = node.bind === "section_headline" ? ctx?.headline_text : propStr(node, "text");
+  // v3.1 R3b E2-C1: the Style tab's "Text color role" control (data-style-
+  // text-block) has always covered this type — the RENDERER never consumed
+  // it. Same §9.4 layer-5 role-or-hex resolution the choice/button families
+  // use; absent override falls to the SAME design.headline.color already
+  // unconditionally emitted here (byte-identical when unauthored).
+  const color = ovColor(node, "featureColor", design, ctx) ?? design.headline.color;
   return (
     `<h1 class="lg-headline"${hydration(node)}` +
-    style({ "font-family": design.headline.fontFamily, color: design.headline.color }) +
+    style({ "font-family": design.headline.fontFamily, color }) +
     `>${esc(text)}</h1>`
   );
 }
@@ -528,8 +534,10 @@ export function renderSubheadline(
   // 03 §3.4 — same rule as renderQuestionHeadline for the subheadline column
   // (a NULL column renders as empty text, exactly like an absent props.text).
   const text = node.bind === "section_subheadline" ? ctx?.subheadline_text : propStr(node, "text");
+  // v3.1 R3b E2-C1: wire the pre-existing Style-tab "Text color role" control.
+  const color = ovColor(node, "featureColor", design, ctx) ?? design.subheadline.color;
   return (
-    `<p class="lg-subheadline"${hydration(node)}${style({ color: design.subheadline.color })}>` +
+    `<p class="lg-subheadline"${hydration(node)}${style({ color })}>` +
     `${esc(text)}</p>`
   );
 }
@@ -646,12 +654,23 @@ function iconCardDepthSlots(design: DefaultFunnelDesign): LeadgenIconCardDepthSl
 // Section re-pointing honored) and rides the group ROOT as the --lg-sel-bg
 // custom property; the base sheet's selected rule consumes it with the token
 // fallback. ADDITIVE: no override ⇒ style() emits nothing ⇒ byte-identical.
-function answerGroupSelectedVar(
+//
+// v3.1 R3 §7 (register S2-1/E1-C3): the group ROOT additionally carries the
+// node's design_overrides.size.width ("the group/control width") MERGED into
+// this ONE style() call — two `style="…"` attributes on one tag is invalid HTML,
+// so the selected-var and the width must resolve together (the fieldStyleAttr
+// merge discipline). Width absent (or a non-grounded s/m/l preset) ⇒ omitted;
+// both concerns absent ⇒ "" (byte-identical to pre-R3). Per-BUTTON
+// height/corners/border ride choiceItemStyle (below).
+function answerGroupRootStyle(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx: LeadgenSectionRenderCtx | undefined,
 ): string {
-  return style({ "--lg-sel-bg": ovColor(node, "buttonBackground", design, ctx) });
+  return style({
+    "--lg-sel-bg": ovColor(node, "buttonBackground", design, ctx),
+    width: sizeStyleEntries(node, ctx).width,
+  });
 }
 
 export function renderButtonAnswerGroup(
@@ -660,8 +679,12 @@ export function renderButtonAnswerGroup(
   ctx?: LeadgenSectionRenderCtx,
 ): string {
   const autoAdvance = propBool(node, "auto_advance");
+  // v3.1 R3 §7/§8.5b: each answer button carries the node's per-item
+  // design_overrides (height→min-height, corners→radius, border_color→role
+  // border); "" when the node authors none (byte-identical to pre-R3).
+  const itemStyle = choiceItemStyle(node, design, ctx);
   const btn = (c: LeadgenChoice): string =>
-    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
+    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${itemStyle}` +
     attr("data-value", c.value) +
     // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
     attr("data-lg-choice", c.value) +
@@ -685,9 +708,11 @@ export function renderButtonAnswerGroup(
     body = choiceList(node).map(btn).join("");
   }
   return (
-    `<div class="lg-answer-group" role="radiogroup"${hydration(node)}${answerGroupSelectedVar(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
+    `<div class="lg-answer-group" role="radiogroup"${hydration(node)}${answerGroupRootStyle(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
     body +
-    `</div>`
+    `</div>` +
+    // v3.1 R3 E1-NEW-8: helper line below the group ("" when no props.helper).
+    fieldHelperLine(node)
   );
 }
 
@@ -700,18 +725,22 @@ export function renderTwoButtonYesNo(
   const no = propStr(node, "noLabel") ?? "No";
   const autoAdvance = propBool(node, "auto_advance");
   // Same discipline as renderButtonAnswerGroup: base + state chrome is fully
-  // class-driven (.lg-btn.lg-btn-answer) so the §14.6 selected/hover states apply;
-  // no inline background/color/border to defeat them. FIX 4a: the curated
-  // buttonBackground override rides the group root as --lg-sel-bg (additive).
+  // class-driven (.lg-btn.lg-btn-answer) so the §14.6 selected/hover states apply.
+  // FIX 4a: the curated buttonBackground override rides the group root as
+  // --lg-sel-bg. v3.1 R3: per-item height/corners/border ride choiceItemStyle,
+  // group width rides answerGroupRootStyle (both "" when unauthored).
+  const itemStyle = choiceItemStyle(node, design, ctx);
   const btn = (label: string, value: boolean): string =>
-    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
+    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${itemStyle}` +
     // 03 §3.3: data-lg-choice mirrors data-value (the stored boolean).
     ` data-value="${value ? "true" : "false"}" data-lg-choice="${value ? "true" : "false"}">${esc(label)}</button>`;
   return (
-    `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)}${answerGroupSelectedVar(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
+    `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)}${answerGroupRootStyle(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
     btn(yes, true) +
     btn(no, false) +
-    `</div>`
+    `</div>` +
+    // v3.1 R3 E1-NEW-8: helper line below the group ("" when no props.helper).
+    fieldHelperLine(node)
   );
 }
 
@@ -737,6 +766,10 @@ function renderCardGrid(
   // re-pointed) role; legacy `#hex` renders as-is.
   const iconColor = ovColor(node, "iconColor", design, ctx) ?? design.iconCard.iconColor;
   const ic = iconCardDepthSlots(design);
+  // v3.1 R3 §7/§8.5b: each card carries the node's per-item design_overrides
+  // (height→min-height, corners→radius, border_color→role border); "" when the
+  // node authors none (byte-identical to pre-R3).
+  const itemStyle = choiceItemStyle(node, design, ctx);
   // A6 (05 §5.5): `image_fit` is a COMPONENT prop on the image grid — the
   // canonical authoring surface (content-schema optional enum + the studio
   // Design-tab control). Resolved once for the whole grid; the per-choice
@@ -751,8 +784,16 @@ function renderCardGrid(
     // §8.4: emoji renders where the icon would (emoji ⊕ icon per validator);
     // an image card falls to the emoji slot only when it has no image.
     const emoji = typeof c.emoji === "string" && c.emoji !== "" ? c.emoji : undefined;
-    const iconSlot = (glyph: string | undefined): string =>
-      `<span class="lg-card-icon"${style({ color: iconColor })} aria-hidden="true">${esc(glyph)}</span>`;
+    // v3.1 R3 S2-5/6c: a choice `icon` may now be one of the §8.1 SEMANTIC ids
+    // (the "same 12-icon picker used for leading icons") → render it as the
+    // golden field-box SVG so the editor picker is HONEST. A raw glyph/emoji
+    // (every pre-R3 stored icon, and the emoji slot) is NOT a map key, so it
+    // still renders esc(glyph) byte-identically. The id "none"/"" maps to "".
+    const iconSlot = (glyph: string | undefined): string => {
+      const known = glyph !== undefined && Object.prototype.hasOwnProperty.call(FIELD_LEADING_ICON_SVGS, glyph);
+      const inner = known ? FIELD_LEADING_ICON_SVGS[glyph as string] ?? "" : esc(glyph);
+      return `<span class="lg-card-icon"${style({ color: iconColor })} aria-hidden="true">${inner}</span>`;
+    };
     const hasImage = typeof c.imageMediaId === "string" && c.imageMediaId !== "";
     // §8.4/A6 image fit (cover|contain — the 05 §5.5 grid control): the
     // COMPONENT prop (nodeFit above) is canonical; a legacy PER-CHOICE
@@ -805,7 +846,7 @@ function renderCardGrid(
     // §8.4 disabled rides the native attribute + aria-disabled (the §14.4
     // .lg-card:disabled/[aria-disabled] chrome rules style it).
     return (
-      `<button type="button" class="lg-card" role="radio" aria-checked="false"` +
+      `<button type="button" class="lg-card" role="radio" aria-checked="false"${itemStyle}` +
       (c.disabled === true ? ` disabled aria-disabled="true"` : "") +
       attr("data-value", c.value) +
       // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
@@ -835,8 +876,12 @@ function renderCardGrid(
   }
   return (
     `<div class="lg-card-grid" role="radiogroup"${hydration(node)}` +
-    style({ "--lg-cols": String(cols), gap }) +
-    `>${cards}</div>`
+    // v3.1 R3 §7: width → the grid container's max-width (per the register's
+    // "grid/container max-width for card grids"); "" when unauthored.
+    style({ "--lg-cols": String(cols), gap, "max-width": sizeStyleEntries(node, ctx).width }) +
+    `>${cards}</div>` +
+    // v3.1 R3 E1-NEW-8: helper line below the grid ("" when no props.helper).
+    fieldHelperLine(node)
   );
 }
 
@@ -868,6 +913,9 @@ export function renderMultiChoiceCardGroup(
   // renders the same iconCard.subtitle* token slots. A choice carrying
   // neither renders byte-identically to the pre-depth markup.
   const ic = iconCardDepthSlots(design);
+  // v3.1 R3 §7/§8.5b: per-card design_overrides (height/corners/border); "" when
+  // unauthored (byte-identical to pre-R3).
+  const itemStyle = choiceItemStyle(node, design, ctx);
   const card = (c: LeadgenChoice): string => {
     const titleText = typeof c.title === "string" && c.title !== "" ? c.title : c.label;
     const desc =
@@ -880,7 +928,7 @@ export function renderMultiChoiceCardGroup(
     // Base border/background live in the scoped chrome CSS (.lg-card) — not
     // inline — so the §14.4 selected/hover/focus state rules apply.
     return (
-      `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"` +
+      `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"${itemStyle}` +
       attr("data-value", c.value) +
       // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
       attr("data-lg-choice", c.value) +
@@ -908,11 +956,14 @@ export function renderMultiChoiceCardGroup(
     `<div class="lg-card-grid lg-multi" role="group"${hydration(node)}` +
     // §9.5 layer 4: the multi grid's gap falls back to the design token —
     // Section gapDefault applies between them. Columns stay the structural
-    // "2" (not a design default; columnsDefault does not apply).
-    style({ "--lg-cols": "2", gap: sectionGapDefault(ctx) ?? design.iconCardGrid.gap }) +
+    // "2" (not a design default; columnsDefault does not apply). v3.1 R3 §7:
+    // width → the grid container's max-width ("" when unauthored).
+    style({ "--lg-cols": "2", gap: sectionGapDefault(ctx) ?? design.iconCardGrid.gap, "max-width": sizeStyleEntries(node, ctx).width }) +
     attr("data-min", min) +
     attr("data-max", max) +
-    `>${cards}</div>`
+    `>${cards}</div>` +
+    // v3.1 R3 E1-NEW-8: helper line below the grid ("" when no props.helper).
+    fieldHelperLine(node)
   );
 }
 
@@ -927,7 +978,11 @@ function dropdownDefaultValue(node: LeadgenComponentNode): string | undefined {
   return choiceList(node).some((c) => String(c.value) === def) ? def : undefined;
 }
 
-export function renderDropdownQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+export function renderDropdownQuestion(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const placeholder = propStr(node, "placeholder") ?? "Select…";
   const def = dropdownDefaultValue(node);
   // 03 §3.3: each <option> is a selectable choice → data-lg-choice. A dropdown
@@ -951,12 +1006,19 @@ export function renderDropdownQuestion(node: LeadgenComponentNode, design: Defau
   // (they feed applySelectionClasses on restore for choice-projecting nodes);
   // they are inert for the click delegate because native option selection never
   // reaches the root click listener as an option-targeted event.
+  // v3.1 R3 §7/§8.5b: the <select> IS a `.lg-input`, so it consumes
+  // design_overrides.size/.corners/.border_color through the SAME fieldStyleAttr
+  // merge (width/height + border-radius + the --lg-field-border custom property)
+  // the text-input family uses — fully state-safe (:focus/[aria-invalid] retain
+  // precedence). "" when the node authors none (byte-identical to pre-R3).
   return (
-    `<select class="lg-input lg-dropdown"${hydration(node)} data-lg-input` +
+    `<select class="lg-input lg-dropdown"${hydration(node)} data-lg-input${fieldStyleAttr(node, design, ctx)}` +
     `>` +
     `<option value="" disabled${def === undefined ? " selected" : ""}>${esc(placeholder)}</option>` +
     options +
-    `</select>`
+    `</select>` +
+    // v3.1 R3 E1-NEW-8: helper line below the dropdown ("" when no props.helper).
+    fieldHelperLine(node)
   );
 }
 
@@ -967,7 +1029,11 @@ export function renderDropdownQuestion(node: LeadgenComponentNode, design: Defau
 // DropdownQuestion option shape (data-lg-choice + data-analytics-id per
 // option) so answer semantics are identical. Base chrome is fully class-driven
 // (.lg-input / .lg-dropdown) — no inline style.
-export function renderSearchableDropdownQuestion(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+export function renderSearchableDropdownQuestion(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const placeholder = propStr(node, "placeholder") ?? "Select…";
   // §5.5 (FIX 8b): the SAME props.default semantics as DropdownQuestion — the
   // two dropdown shapes may never disagree on what a default means.
@@ -986,7 +1052,10 @@ export function renderSearchableDropdownQuestion(node: LeadgenComponentNode, _de
     // renderDropdownQuestion) so a searchable dropdown records its answer via
     // the engine change listener. The search input above is a filter only
     // (data-lg-dropdown-search) and deliberately carries NO data-lg-input.
-    `<select class="lg-input lg-dropdown" data-lg-input>` +
+    // v3.1 R3 §7/§8.5b: the control <select> (a `.lg-input`) consumes
+    // size/corners/border_color through fieldStyleAttr, exactly like
+    // renderDropdownQuestion — "" when unauthored (byte-identical to pre-R3).
+    `<select class="lg-input lg-dropdown" data-lg-input${fieldStyleAttr(node, design, ctx)}>` +
     `<option value="" disabled${def === undefined ? " selected" : ""}>${esc(placeholder)}</option>` +
     options +
     `</select>` +
@@ -1010,8 +1079,11 @@ export function renderOtherGroupSelector(
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
 ): string {
+  // v3.1 R3 §7/§8.5b: per-button design_overrides (height/corners/border); "" when
+  // unauthored (byte-identical to pre-R3).
+  const itemStyle = choiceItemStyle(node, design, ctx);
   const btn = (c: LeadgenChoice): string =>
-    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
+    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${itemStyle}` +
     attr("data-value", c.value) +
     attr("data-lg-choice", c.value) +
     attr("data-analytics-id", c.analytics_id) +
@@ -1032,9 +1104,11 @@ export function renderOtherGroupSelector(
     body = choiceList(node).map(btn).join("");
   }
   return (
-    `<div class="lg-answer-group lg-other-group" role="radiogroup"${hydration(node)}${answerGroupSelectedVar(node, design, ctx)}>` +
+    `<div class="lg-answer-group lg-other-group" role="radiogroup"${hydration(node)}${answerGroupRootStyle(node, design, ctx)}>` +
     body +
-    `</div>`
+    `</div>` +
+    // v3.1 R3 E1-NEW-8: helper line below the group ("" when no props.helper).
+    fieldHelperLine(node)
   );
 }
 
@@ -1130,61 +1204,72 @@ function mapsConfigJson(node: LeadgenComponentNode): string {
 // ---------------------------------------------------------------------------
 // v3.1 §7/§12 — field size APPLICATION (the resolveFieldSize WIRING point).
 //
-// Adversarial-review correction (§0.1 "an un-sourced value is a contract GAP
-// to record, NEVER invented in code"): a prior cut of this module shipped a
-// per-preset px LOOKUP TABLE (s/m/l/full width, small/medium/large height).
-// Only ONE entry in that table was ever grounded — the rest were invented.
-// Re-derived from the golden master VERBATIM
-// (docs/leadgen/redesign-contract-v3/golden/golden-master-source.dc.html):
-//
-//   fieldBoxStyle:  '...padding:16px 18px...'                (ALWAYS — no
-//                    height term at all, in EITHER hMode branch: the golden
-//                    never renders an explicit height for ANY height preset)
-//   fieldWrapStyle: wMode==='custom' ? 'width:64%' : 'width:100%'
-//                    (64% is the FAKED demo measurement the contract itself
-//                    disclaims — "the real UI... renders the true measured
-//                    value in the identical format", §0 fidelity-vs-function
-//                    rule; 100% is the ONE real, asserted value — and it is
-//                    the SAME for every non-custom wMode, i.e. it says
-//                    nothing about s/m/l specifically, only "not custom")
-//
-// So the ONLY two grounded resolutions are:
-//   - width resolves to the "full" preset -> 100% (golden's non-custom
-//     fieldWrapStyle, byte for byte; this is ALSO Appendix B's "Unit column
-//     width: 600" — 100% of the 600 column).
-//   - EITHER axis resolves to {custom_px} -> the literal stored/clamped/
-//     snapped NUMBER, never a lookup — this was never invented (the number
-//     comes from the node itself, §7.2's own "custom_px = manual override").
-// Width s/m/l and EVERY height preset (small/medium/large) have NO
-// golden/contract px anywhere — rendering emits NO explicit dimension for
-// them (falls through to the base .lg-input/.lg-currency/.lg-address CSS
-// class's intrinsic sizing/padding, exactly like an absent override does).
-// This is a recorded CONTRACT GAP (traceability, not this module) — Phase B
-// calibrates the real values once a design-token table exists; the
-// theme_controls PLUMBING below stays wired so that calibration is a
-// same-shape follow-up, not a rewire.
+// R3 BLOCKER-1 grounding: the preset->px table below is now SOURCED (see
+// sizeAxisCssValue), not a recorded gap. HEIGHT small/medium/large ride the
+// §10.4 "Buttons & inputs — the shared size language" control-height scale
+// (44/52/60px = base .lg-input min-height + theme Button-size M/L min-heights);
+// WIDTH m/full are grounded to §7.1's own "384 (= 64% of the 600 column)" +
+// the golden's verbatim non-custom fieldWrapStyle 100%; WIDTH s/l are the two
+// proposed-errata brackets (300/480 = 50%/80% of the 600 unit column) recorded
+// for operator sign-off. custom_px stays the literal stored/clamped/snapped
+// NUMBER (grounded — the value comes from the node itself, §7.2 "custom_px =
+// manual override"). Every value is within the axis clamp and on the 4px grid.
 // ---------------------------------------------------------------------------
 
 // Fallback theme controls for when a render call site has no resolved
-// theme_controls at all (ctx absent, or ctx.theme_controls absent). Under
-// the grounded-only mapping above this NEVER changes rendered bytes today
-// (a preset-mode height never emits a dimension regardless of which name it
-// resolves to) — it exists only so resolveFieldSize's per-axis "funnel theme
-// default" data path keeps resolving real data for Phase B to read/extend.
+// theme_controls at all (ctx absent, or ctx.theme_controls absent) — the
+// funnel-theme-default tier of resolveFieldSize's per-axis chain (§7.1). Its
+// field_height="medium" is what an absent HEIGHT axis inherits (§7.2 line 357
+// "absent key = inherit theme default"), now resolving to the grounded 52px.
 const DEFAULT_SIZE_THEME_CONTROLS: ThemeRecordControls = {
   field_height: "medium",
   button_size: "m",
   corners: "rounded",
 };
 
-// The one non-invented CSS value for a resolved axis: `custom` is always the
-// literal stored number (grounded — never a lookup); `preset` is grounded
-// ONLY for width "full" (the golden's verbatim non-custom fieldWrapStyle).
-// Every other preset (width s/m/l; every height preset) returns undefined —
-// no fabricated px, no fallback number, nothing rendered for that axis.
+// v3.1 §7.1/§7.2/§10.4/§12 — the preset-name -> px resolver. The contract
+// routes a preset name through "the theme's resolved px" (§12 line 606
+// "preset name -> theme.controls resolved px"; §7.2 line 358 "still inherits
+// the preset's resolved px from the theme"), and designs/theme.ts DELEGATES
+// that px math to HERE by design ("never interprets e.g. field_height into
+// pixels itself — that math belongs to the size resolver", theme.ts:346-348).
+// This is that math. Sourced below; the s/l WIDTH values are the ONLY
+// proposed-errata entries (operator sign-off) — everything else is grounded.
+//
+// HEIGHT (small/medium/large) — the §10.4 "Buttons & inputs — the shared size
+// language" scale (contract line 503), i.e. the design's own control heights:
+//   small  = 44px — the base `.lg-input` min-height (styles.ts:716), the
+//                   design-default field height (an unset field renders here).
+//   medium = 52px — the theme Button-size M min-height (theme.ts:210); this IS
+//                   the theme default field_height="medium" (§10.4 line 514),
+//                   and ~= the intrinsic rendered height (44px floor + padding),
+//                   so it is the low-surprise default the absent-axis inherits.
+//   large  = 60px — the theme Button-size L min-height (theme.ts:211).
+// Applied as `min-height` on the item/text idioms (choiceItemStyle,
+// renderTextInput) so a preset only ever FLOORS the box — it never clips.
+//
+// WIDTH (s/m/l) — §7.1 gives width NO theme knob (only field_height/
+// button_size/corners; DEFAULT_WIDTH_PRESET falls to "full"), so these resolve
+// against the §13 Gate-3 "unit column 600":
+//   m    = 384px — GROUNDED: §7.1 line 345 states the demo width verbatim as
+//                  "384 (= 64% of the 600 column)"; = §7.2's custom_px:384
+//                  worked example. The canonical middle (theme button_size="m").
+//   s    = 300px — PROPOSED errata (50% of the 600 column) — brackets below m.
+//   l    = 480px — PROPOSED errata (80% of the 600 column) — brackets above m.
+//   full = 100%  — GROUNDED (golden's verbatim non-custom fieldWrapStyle) —
+//                  UNCHANGED, byte-identical to the pre-R3 fix output.
+// s/m/l/full are within the [200,600] width clamp and on the 4px grid, so a
+// preset and a hand drag (custom_px, also [200,600] snap-4) live on one scale.
+// `custom` stays the literal stored/clamped/snapped number (grounded, never a
+// lookup) — byte-identical to before.
+const WIDTH_PRESET_CSS: Record<string, string> = { s: "300px", m: "384px", l: "480px", full: "100%" };
+const HEIGHT_PRESET_CSS: Record<string, string> = { small: "44px", medium: "52px", large: "60px" };
 function sizeAxisCssValue(axis: LeadgenResolvedSizeAxis, axisKind: "width" | "height"): string | undefined {
   if (axis.mode === "custom") return `${axis.px}px`;
-  return axisKind === "width" && axis.preset === "full" ? "100%" : undefined;
+  // A stale/corrupt stored preset name (design_overrides is a loose map) falls
+  // through the lookup to undefined -> nothing rendered for that axis (the same
+  // defensive posture the rest of this module uses for legacy stored values).
+  return axisKind === "width" ? WIDTH_PRESET_CSS[axis.preset] : HEIGHT_PRESET_CSS[axis.preset];
 }
 
 // PURE-per-call style ENTRIES (not yet wrapped) for a node's
@@ -1341,20 +1426,98 @@ function fieldStyleAttr(
   return style({ ...sizeStyleEntries(node, ctx), ...appearanceStyleEntries(node, design) });
 }
 
-// v3.1 audit-round G FIX 3a: §8.1 leading icon. The golden ships a field-box
-// asset for the Location PIN ONLY (golden :323 — 19×19, viewBox 0 0 24 24,
-// strokes #8DA0B6, copied verbatim). The other 11 §8.1 picker values
-// (Calendar/Dollar/Phone/Email/Lock/Person/Home/Car/Shield/Star/None) have NO
-// golden/contract field-box asset, so props.icon is STORED but renders no icon
-// for them — a recorded CONTRACT GAP, never an invented SVG (mirrors the
-// S/M/L width-preset precedent). props.icon is the canonical §8.1 key.
+// ---------------------------------------------------------------------------
+// v3.1 R3 §7/§8.5b — the CHOICE/BUTTON/CARD families (register S2-1/E1-C3/
+// E2-NEW-7). The text-input family and the dropdown <select> ARE `.lg-input`
+// elements, so they consume design_overrides through fieldStyleAttr (size +
+// appearanceStyleEntries' --lg-field-border custom property — state-safe).
+// Buttons (.lg-btn-answer) and cards (.lg-card) style their border via the
+// `border`/`border-color` CSS idiom THEIR OWN chrome uses (no --lg-field-border
+// read in designs/default-funnel/styles.ts), so on those items corners ride a
+// direct `border-radius` (no state rule collides — it has no :hover/selected
+// declaration) and border_color rides a direct `border-color`. All three values
+// flow through the SAME grounded resolvers the text family uses (never invented
+// CSS); a node WITHOUT design_overrides.size/.corners/.border_color emits ""
+// (byte-identical to pre-R3).
+// ---------------------------------------------------------------------------
+
+// The grounded corner radius for a node's design_overrides.corners
+// (sharp/rounded/pill → 0/8px/20px per §8.5b + Appendix B), or undefined when
+// unauthored/invalid (the same closed-enum guard the .lg-input path uses).
+function nodeCornersRadius(node: LeadgenComponentNode): string | undefined {
+  const raw = node.design_overrides?.corners;
+  return isNodeCorners(raw) ? NODE_CORNERS_RADIUS_PX[raw] : undefined;
+}
+// The node's design_overrides.border_color role resolved to the active design's
+// OWN themed color (neutral→border / brand→primary / accent→accent) via the
+// SAME nodeBorderColorValue bridge the .lg-input path resolves — or undefined.
+function nodeBorderColorCss(node: LeadgenComponentNode, design: DefaultFunnelDesign): string | undefined {
+  const raw = node.design_overrides?.border_color;
+  return isNodeBorderColorRole(raw) ? nodeBorderColorValue(raw, design) : undefined;
+}
+// Per-ITEM style for a choice button/card node: height→min-height (the group's
+// height axis is a per-item concern, unlike the text box), corners→border-radius,
+// border_color→a DIRECT border-color (the item idiom). "" when the node authors
+// none of the three.
+function choiceItemStyle(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): string {
+  return style({
+    "min-height": sizeStyleEntries(node, ctx).height,
+    "border-radius": nodeCornersRadius(node),
+    "border-color": nodeBorderColorCss(node, design),
+  });
+}
+
+// v3.1 R3 S2-8/E1-NEW-9/U9 (register): §8.1 leading icons. The golden ships a
+// field-box asset for the Location PIN ONLY (golden :323 — 19×19, viewBox 0 0
+// 24 24, strokes #8DA0B6, copied VERBATIM below — never re-drawn). Pre-R3 the
+// other 11 §8.1 picker values had NO asset and rendered NOTHING (U9: the picker
+// stored the id but the field stayed byte-identical). R3 ships the 10 missing
+// glyph icons (calendar/dollar/phone/email/lock/person/home/car/shield/star) in
+// the SAME style family (19×19, viewBox 0 0 24 24, stroke #8DA0B6 width 1.8,
+// round caps/joins — a shared <g> carries the stroke so each path stays terse);
+// "none"/absent/unknown → "" (byte-identical to pre-R3 for those). The register
+// erratum covers the golden's asset gap for the 10 new glyphs.
 const FIELD_LOCATION_PIN =
   '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto">' +
   '<path d="M12 21s7-6.6 7-12a7 7 0 10-14 0c0 5.4 7 12 7 12z" stroke="#8DA0B6" stroke-width="1.8"/>' +
   '<circle cx="12" cy="9" r="2.4" stroke="#8DA0B6" stroke-width="1.8"/>' +
   "</svg>";
+// Shared wrapper for the 10 NEW glyphs — one <g> carries the golden stroke
+// family (#8DA0B6 / 1.8 / round) so each icon body is just its path data.
+function fieldIconGlyph(inner: string): string {
+  return (
+    '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto">' +
+    '<g stroke="#8DA0B6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+    inner +
+    "</g></svg>"
+  );
+}
+// Keyed by the §8.1 semantic-id enum (content-schema LEADGEN_FIELD_LEADING_ICONS).
+// Exported so the vitest completeness pin asserts every enum value has an asset
+// and the choice-editor's icon picker + the icon-card renderer resolve the SAME
+// id → SVG (register S2-5/6c). "none" is a real entry mapping to "" (no icon).
+export const FIELD_LEADING_ICON_SVGS: Record<string, string> = {
+  location: FIELD_LOCATION_PIN,
+  calendar: fieldIconGlyph('<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"/>'),
+  dollar: fieldIconGlyph('<path d="M12 3v18"/><path d="M16 7c0-1.7-1.8-2.8-4-2.8S8 5.4 8 7.3s1.9 2.6 4 3 4 1.3 4 3.2-1.8 3-4 3-4-1.1-4-2.8"/>'),
+  phone: fieldIconGlyph('<path d="M7 3.5h3l1.5 4.5-2.2 1.4a11 11 0 004.8 4.8l1.4-2.2 4.5 1.5v3a2.5 2.5 0 01-2.7 2.5A15.5 15.5 0 014.5 6.2 2.5 2.5 0 017 3.5z"/>'),
+  email: fieldIconGlyph('<rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3.7 7.2l8.3 6 8.3-6"/>'),
+  lock: fieldIconGlyph('<rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V8a4 4 0 018 0v2.5"/>'),
+  person: fieldIconGlyph('<circle cx="12" cy="8" r="3.6"/><path d="M5.5 20a6.5 6.5 0 0113 0"/>'),
+  home: fieldIconGlyph('<path d="M4 11l8-6.5 8 6.5"/><path d="M6.2 9.6V20h11.6V9.6"/>'),
+  car: fieldIconGlyph('<path d="M4.5 14l1.6-4.8A2 2 0 018 7.8h8a2 2 0 011.9 1.4L19.5 14"/><path d="M4 14h16v4h-2.5v-1.8h-11V18H4z"/><circle cx="7.5" cy="16" r="1.1"/><circle cx="16.5" cy="16" r="1.1"/>'),
+  shield: fieldIconGlyph('<path d="M12 3.5l7 2.4v5.1c0 4.4-3 7.4-7 9.5-4-2.1-7-5.1-7-9.5V5.9z"/>'),
+  star: fieldIconGlyph('<path d="M12 4l2.5 5.3 5.7.7-4.2 3.9 1.1 5.6L12 16.8 6.9 19.5 8 13.9 3.8 10l5.7-.7z"/>'),
+  none: "",
+};
 function fieldLeadingIcon(node: LeadgenComponentNode): string {
-  return propStr(node, "icon") === "location" ? FIELD_LOCATION_PIN : "";
+  const id = propStr(node, "icon");
+  if (id === undefined || !Object.prototype.hasOwnProperty.call(FIELD_LEADING_ICON_SVGS, id)) return "";
+  return FIELD_LEADING_ICON_SVGS[id] ?? "";
 }
 // v3.1 audit-round G FIX 3a: §8.1 helper line below the field box. props.helper
 // is canonical (contract §8.1/§11.3); props.helper_text is the accepted legacy
@@ -1574,7 +1737,12 @@ export function renderNameFieldsGroup(node: LeadgenComponentNode, design: Defaul
     `<div class="lg-name-group"${hydration(node)}>` +
     field(first, "first", "given-name") +
     field(last, "last", "family-name") +
-    `</div>`
+    `</div>` +
+    // v3.1 R3b E1-NEW-7: the Content-tab "Helper text" control has always
+    // been advertised for this type (CONTENT_PROP_FIELDS.NameFieldsGroup)
+    // but the renderer never called fieldHelperLine — wire it (the shared
+    // golden helper styling, "" when unauthored — byte-identical otherwise).
+    fieldHelperLine(node)
   );
 }
 
@@ -1592,6 +1760,30 @@ export function renderAddressAutocompleteQuestion(
   // able to turn Maps off, same as ZIP). Legacy flat-shape / absent-config
   // content keeps the pre-v3.1 unconditional behavior (§12 no-regression).
   const addressMapsEnabled = isNewMapsShape(addressMapsRaw) ? addressMapsRaw.enabled === true : true;
+  // v3.1 R3 S2-8/E1-NEW-9/U9: the §8.1 leading icon (this bespoke renderer never
+  // called fieldLeadingIcon, so even "location" was dead on Address). The icon
+  // rides the SAME lg-field-box/lg-field-icon markup + left inset renderTextInput
+  // uses (so the scoped chrome CSS applies identically); "" when no props.icon
+  // ⇒ the bare input, byte-identical to pre-R3.
+  const icon = fieldLeadingIcon(node);
+  const inputStyleAttr =
+    icon === ""
+      ? fieldAppearanceStyle(node, design)
+      : style({ ...appearanceStyleEntries(node, design), "padding-left": "42px" });
+  const input =
+    `<input class="lg-input lg-address-input" type="text" data-lg-input${inputStyleAttr}` +
+    ` autocomplete="street-address"${attr("placeholder", placeholder)}` +
+    (node.required === true ? " required" : "") +
+    ` data-address-autocomplete="true">`;
+  const boxedInput =
+    icon === ""
+      ? input
+      : '<span class="lg-field-box" style="position:relative;display:block">' +
+        '<span class="lg-field-icon" aria-hidden="true" style="position:absolute;left:14px;top:0;bottom:0;display:flex;align-items:center;pointer-events:none;z-index:1">' +
+        icon +
+        "</span>" +
+        input +
+        "</span>";
   return (
     // 03 §3.3 / 08 §8.8: data-lg-maps carries the field-level props.maps
     // config (or the "{}" compat fallback for global-checkbox-era content).
@@ -1609,10 +1801,7 @@ export function renderAddressAutocompleteQuestion(
     // not the `.lg-address` wrapper above — the wrapper carries no border/
     // radius of its own (designs/default-funnel/styles.ts has no
     // `.lg-address` rule at all), only `.lg-input` does.
-    `<input class="lg-input lg-address-input" type="text" data-lg-input${fieldAppearanceStyle(node, design)}` +
-    ` autocomplete="street-address"${attr("placeholder", placeholder)}` +
-    (node.required === true ? " required" : "") +
-    ` data-address-autocomplete="true">` +
+    boxedInput +
     // Distinct normalized sub-fields for payload mapping (§12.8).
     `<input type="hidden" data-address-part="street"><input type="hidden" data-address-part="city">` +
     `<input type="hidden" data-address-part="state"><input type="hidden" data-address-part="zip">` +
@@ -1836,9 +2025,15 @@ export function renderLogoStrip(node: LeadgenComponentNode, _design: DefaultFunn
   return `<div class="lg-logo-strip"${hydration(node)}>${logos}</div>`;
 }
 
-export function renderHelperText(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+export function renderHelperText(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  // v3.1 R3b E2-C1: wire the pre-existing Style-tab "Text color role" control.
+  const color = ovColor(node, "featureColor", design, ctx) ?? design.validation.helperColor;
   return (
-    `<p class="lg-helper"${hydration(node)}${style({ color: design.validation.helperColor })}>` +
+    `<p class="lg-helper"${hydration(node)}${style({ color })}>` +
     `${esc(propStr(node, "text"))}</p>`
   );
 }
@@ -1854,10 +2049,16 @@ export function renderValidationError(node: LeadgenComponentNode, design: Defaul
   );
 }
 
-export function renderLegalNote(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+export function renderLegalNote(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   // html is author rich text → escaped (the runtime renders it into the note).
+  // v3.1 R3b E2-C1: wire the pre-existing Style-tab "Text color role" control.
+  const color = ovColor(node, "featureColor", design, ctx) ?? design.validation.helperColor;
   return (
-    `<div class="lg-legal"${hydration(node)}${style({ color: design.validation.helperColor })}>` +
+    `<div class="lg-legal"${hydration(node)}${style({ color })}>` +
     `${esc(propStr(node, "html"))}</div>`
   );
 }
@@ -1882,24 +2083,40 @@ export function renderLegalNote(node: LeadgenComponentNode, design: DefaultFunne
 // has zero CSS/JS consumers today, grep-verified).
 // ---------------------------------------------------------------------------
 
-function renderTextBlockHeading(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+function renderTextBlockHeading(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   // No retired one-off precedent (Heading/Body are NEW roles, §5.3) — reuses
   // the QuestionHeadline token family (design.headline) as the closest
   // "heading-styled text" treatment already in this design.
+  // v3.1 R3b E2-C1: wire the Style tab's "Text color role" control (already
+  // unconditionally shown for every TextBlock role — the renderer never
+  // consumed it for 6/7 roles until now).
+  const color = ovColor(node, "featureColor", design, ctx) ?? design.headline.color;
   return (
     `<h2 class="lg-text-heading"${hydration(node)}` +
-    style({ "font-family": design.headline.fontFamily, color: design.headline.color }) +
+    style({ "font-family": design.headline.fontFamily, color }) +
     `>${esc(propStr(node, "text"))}</h2>`
   );
 }
 
-function renderTextBlockBody(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+function renderTextBlockBody(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   // No retired one-off precedent and no existing "generic body paragraph"
   // token group (headline/subheadline/categoryLabel/validation/reassurance/
   // secureFormBadge are all narrower-purpose) — plain escaped text, no inline
-  // style, so the page's base type treatment applies (the same
-  // no-exotic-styling choice FooterBar's legal slot makes elsewhere).
-  return `<p class="lg-text-body"${hydration(node)}>${esc(propStr(node, "text"))}</p>`;
+  // style by default (the same no-exotic-styling choice FooterBar's legal
+  // slot makes elsewhere). v3.1 R3b E2-C1: UNLIKE the other roles, Body never
+  // had an unconditional color before — an authored featureColor override is
+  // the ONLY thing that emits a color here, so absent override stays
+  // byte-identical (no forced default color would be honest for a role that
+  // never rendered one).
+  return `<p class="lg-text-body"${hydration(node)}${style({ color: ovColor(node, "featureColor", design, ctx) })}>${esc(propStr(node, "text"))}</p>`;
 }
 
 // Byte-identical markup shape to renderCategoryLabel (role="category_label").
@@ -1916,9 +2133,15 @@ function renderTextBlockCategoryLabel(
 }
 
 // Byte-identical markup shape to renderHelperText (role="helper").
-function renderTextBlockHelper(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+function renderTextBlockHelper(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  // v3.1 R3b E2-C1: wire the Style tab's "Text color role" control.
+  const color = ovColor(node, "featureColor", design, ctx) ?? design.validation.helperColor;
   return (
-    `<p class="lg-helper"${hydration(node)}${style({ color: design.validation.helperColor })}>` +
+    `<p class="lg-helper"${hydration(node)}${style({ color })}>` +
     `${esc(propStr(node, "text"))}</p>`
   );
 }
@@ -1926,22 +2149,36 @@ function renderTextBlockHelper(node: LeadgenComponentNode, design: DefaultFunnel
 // Byte-identical markup shape to renderLegalNote (role="legal") — reads
 // props.text (the new unified TextBlock convention) rather than the legacy
 // props.html key; both flow through the identical esc() call.
-function renderTextBlockLegal(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+function renderTextBlockLegal(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  // v3.1 R3b E2-C1: wire the Style tab's "Text color role" control.
+  const color = ovColor(node, "featureColor", design, ctx) ?? design.validation.helperColor;
   return (
-    `<div class="lg-legal"${hydration(node)}${style({ color: design.validation.helperColor })}>` +
+    `<div class="lg-legal"${hydration(node)}${style({ color })}>` +
     `${esc(propStr(node, "text"))}</div>`
   );
 }
 
 // Byte-identical markup shape to renderReassuranceBadge (role="reassurance").
 // icon stays a free-form glyph (content-schema.ts's badge-role carve-out).
-function renderTextBlockReassurance(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+function renderTextBlockReassurance(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const rb = design.reassuranceBadge;
   const icon = propStr(node, "icon") ?? "✓";
   const text = propStr(node, "text") ?? rb.exampleCopy;
+  // v3.1 R3b E2-C1: wire the Style tab's "Text color role" control (the
+  // badge's TEXT color specifically — border/background/icon stay token-fixed,
+  // matching the reassurance family's own visual language).
+  const color = ovColor(node, "featureColor", design, ctx) ?? rb.textColor;
   return (
     `<div class="lg-badge"${hydration(node)}` +
-    style({ border: rb.border, background: rb.background, color: rb.textColor }) +
+    style({ border: rb.border, background: rb.background, color }) +
     `>` +
     `<span class="lg-badge-icon"${style({ color: rb.iconColor })} aria-hidden="true">${esc(icon)}</span>` +
     `<span class="lg-badge-text">${esc(text)}</span>` +
@@ -1950,13 +2187,19 @@ function renderTextBlockReassurance(node: LeadgenComponentNode, design: DefaultF
 }
 
 // Byte-identical markup shape to renderSecureFormBadge (role="secure_badge").
-function renderTextBlockSecureBadge(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+function renderTextBlockSecureBadge(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const sb = design.secureFormBadge;
   const icon = propStr(node, "icon") ?? "🔒";
   const text = propStr(node, "text") ?? sb.exampleCopy;
+  // v3.1 R3b E2-C1: wire the Style tab's "Text color role" control.
+  const color = ovColor(node, "featureColor", design, ctx) ?? sb.textColor;
   return (
     `<div class="lg-secure-badge"${hydration(node)}` +
-    style({ border: sb.border, background: sb.background, color: sb.textColor }) +
+    style({ border: sb.border, background: sb.background, color }) +
     `>` +
     `<span class="lg-secure-badge-icon"${style({ color: sb.iconColor })} aria-hidden="true">${esc(icon)}</span>` +
     `<span class="lg-secure-badge-text">${esc(text)}</span>` +
@@ -1973,20 +2216,20 @@ export function renderTextBlock(
 ): string {
   switch (propStr(node, "role")) {
     case "body":
-      return renderTextBlockBody(node, design);
+      return renderTextBlockBody(node, design, ctx);
     case "category_label":
       return renderTextBlockCategoryLabel(node, design, ctx);
     case "helper":
-      return renderTextBlockHelper(node, design);
+      return renderTextBlockHelper(node, design, ctx);
     case "legal":
-      return renderTextBlockLegal(node, design);
+      return renderTextBlockLegal(node, design, ctx);
     case "reassurance":
-      return renderTextBlockReassurance(node, design);
+      return renderTextBlockReassurance(node, design, ctx);
     case "secure_badge":
-      return renderTextBlockSecureBadge(node, design);
+      return renderTextBlockSecureBadge(node, design, ctx);
     case "heading":
     default:
-      return renderTextBlockHeading(node, design);
+      return renderTextBlockHeading(node, design, ctx);
   }
 }
 
@@ -2001,14 +2244,36 @@ export function renderTextBlock(
 // an accessibility regression (duplicate landmarks), not a fidelity win —
 // only the logo RESOLUTION markup (img vs text+accent span) matches byte for
 // byte.
+// v3.1 R3b deliverable 4: neither this module nor ANY caller (grep-verified —
+// zero non-schema/non-studio hits for "auto_logo" repo-wide) ever injects real
+// site branding (logoUrl/siteName) onto an in-Section ImageBlock node the way
+// frame.ts's logoNodeProps() does for the frame-scope HeaderLogo — a Section is
+// authored independent of any one funnel/site, so this primitive's "auto
+// site logo" resolution genuinely has NO branding context to read, in the
+// Studio canvas preview AND in a hypothetical future runtime path alike. A
+// bare, un-styled empty <span> (the pre-R3b behavior) is an invisible box,
+// not an honest placeholder. Absent BOTH identifying props, render a labeled
+// placeholder using ONLY existing design tokens (input.border/
+// page.textLightColor — no new visual language invented) — the moment a real
+// caller populates logoUrl/siteName (this function's own existing, unchanged
+// contract), the placeholder branch is bypassed and real branding renders,
+// byte-identical to today.
 function renderImageBlockAutoLogo(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const logoUrl = propStr(node, "logoUrl");
-  const siteName = propStr(node, "siteName") ?? "";
+  const siteNameRaw = propStr(node, "siteName");
+  const siteName = siteNameRaw !== undefined && siteNameRaw !== "" ? siteNameRaw : undefined;
   const accent = propStr(node, "accent");
+  if (logoUrl === undefined && siteName === undefined) {
+    return (
+      `<div class="lg-image-block lg-image-block-logo lg-image-block-placeholder"${hydration(node)} data-source="auto_logo" data-placeholder="true"` +
+      style({ border: design.input.border, color: design.page.textLightColor, "font-family": design.header.logoFontFamily }) +
+      `>Site logo</div>`
+    );
+  }
   const inner =
     logoUrl !== undefined && logoUrl !== ""
-      ? `<img class="lg-logo-img" src="${esc(logoUrl)}" alt="${esc(siteName)}" decoding="async"${style({ "max-height": design.header.logoFontSize })}>`
-      : `<span class="lg-logo"${style({ color: design.header.logoColor, "font-family": design.header.logoFontFamily })}>${esc(siteName)}` +
+      ? `<img class="lg-logo-img" src="${esc(logoUrl)}" alt="${esc(siteName ?? "")}" decoding="async"${style({ "max-height": design.header.logoFontSize })}>`
+      : `<span class="lg-logo"${style({ color: design.header.logoColor, "font-family": design.header.logoFontFamily })}>${esc(siteName ?? "")}` +
         (accent !== undefined
           ? `<span class="lg-logo-accent"${style({ color: design.header.logoAccentColor })}>${esc(accent)}</span>`
           : "") +
@@ -2020,11 +2285,18 @@ function renderImageBlockAutoLogo(node: LeadgenComponentNode, design: DefaultFun
 // precedent to match; LogoStrip is a MULTI-logo strip and ImageCardAnswerGrid
 // is choice cards, neither is "one plain authored image"). Reuses the
 // logoMediaId->src convention already used by HeaderLogo/HeaderBar.
-function renderImageBlockMedia(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+function renderImageBlockMedia(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const mediaId = propStr(node, "logoMediaId");
   const alt = propStr(node, "alt") ?? "";
   if (mediaId === undefined || mediaId === "") {
-    return `<div class="lg-image-block"${hydration(node)} data-source="media"></div>`;
+    // v3.1 R3b deliverable 4: an honest labeled placeholder (same token-only
+    // treatment as the auto_logo branch above) instead of an invisible box —
+    // the operator sees exactly where a chosen image will render.
+    return (
+      `<div class="lg-image-block lg-image-block-placeholder"${hydration(node)} data-source="media" data-placeholder="true"` +
+      style({ border: design.input.border, color: design.page.textLightColor }) +
+      `>Image</div>`
+    );
   }
   return (
     `<div class="lg-image-block"${hydration(node)} data-source="media">` +
@@ -2444,9 +2716,9 @@ export function renderComponent(
     case "MultiChoiceCardGroup":
       return renderMultiChoiceCardGroup(node, design, state?.ctx);
     case "DropdownQuestion":
-      return renderDropdownQuestion(node, design);
+      return renderDropdownQuestion(node, design, state?.ctx);
     case "SearchableDropdownQuestion":
-      return renderSearchableDropdownQuestion(node, design);
+      return renderSearchableDropdownQuestion(node, design, state?.ctx);
     case "OtherGroupSelector":
       return renderOtherGroupSelector(node, design, state?.ctx);
     case "FreeTextQuestion":
@@ -2504,11 +2776,11 @@ export function renderComponent(
     case "LogoStrip":
       return renderLogoStrip(node, design);
     case "HelperText":
-      return renderHelperText(node, design);
+      return renderHelperText(node, design, state?.ctx);
     case "ValidationError":
       return renderValidationError(node, design);
     case "LegalNote":
-      return renderLegalNote(node, design);
+      return renderLegalNote(node, design, state?.ctx);
     case "TextBlock":
       return renderTextBlock(node, design, state?.ctx);
     case "ImageBlock":

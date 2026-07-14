@@ -103,22 +103,10 @@
       "note": "Canvas surface shell — the iframe-vs-flex-column MODEL divergence is register S4-B6 (golden-divergent, 'iframe kept, errata'), a different axis (B = both have it, shipped wrong) than this gate's A-axis (region not in golden at all)."
     },
     {
-      "id": "src/admin/leadgen/ui-section-studio.ts::renderDesignPanel",
-      "golden": false,
-      "register": "S4-A4",
-      "note": "The '§8.5 tokenized layout props' Style-tab layer — golden's Style tab ends at the Border-color note (golden :554-555); this whole design panel has no golden counterpart."
-    },
-    {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderContainerControl",
       "golden": false,
       "register": "S4-A4",
       "note": "Helper consumed only by renderDesignPanel/renderLayoutPanel (S4-A4) — no independent golden use."
-    },
-    {
-      "id": "src/admin/leadgen/ui-section-studio.ts::renderLayoutPanel",
-      "golden": false,
-      "register": "S4-A4",
-      "note": "Container-prop panel paired with renderDesignPanel — same S4-A4 non-golden rail."
     },
     {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderScopeHeaderShell",
@@ -197,6 +185,24 @@
       "golden": true,
       "register": null,
       "note": "Error page — not flagged."
+    },
+    {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderStyleExtraControls",
+      "golden": false,
+      "register": "S4-A4 successor (R3b)",
+      "note": "Replaces the removed §8.5 rail: ONLY the consumed, per-type-gated role rows survive (iconColor for card grids, rangeColor for the range family). Jargon-free; consumption-honesty gated. Not a golden region — accepted extension pending R5 golden arbitration (conductor-classified 2026-07-14)."
+    },
+    {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderImageFitControl",
+      "golden": false,
+      "register": "E2-C6 / R3b",
+      "note": "imageFit control relocated to the Content tab for ImageCardAnswerGrid (its real consumer). Consumed + gated; not a golden region — accepted extension (conductor-classified 2026-07-14)."
+    },
+    {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderContainerLayoutPanel",
+      "golden": false,
+      "register": "S4-A4 successor (R3b)",
+      "note": "Containers' REAL layout props (Stack/Grid/Columns/CardPanel/Spacer) in a clean jargon-free panel, container types only. Consumed; not a golden region — accepted extension pending R5 (conductor-classified 2026-07-14)."
     }
   ]
 }

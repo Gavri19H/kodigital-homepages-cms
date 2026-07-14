@@ -603,12 +603,12 @@ test.describe('LeadGen Section Studio v3.1 — golden-chrome browser flows (§5/
     // scoped to the 8-value Accept-swap family only).
     const insWrap = canvas.locator('[data-question-id="q_ins"]').locator('xpath=..');
     await canvas.locator('[data-question-id="q_ins"]').click();
-    // TwoButtonYesNo is not size-consuming (honest interim, R2) — resize
-    // affordance appears only where the renderer consumes design_overrides.
-    // size; the set-equality pin in test/leadgen-r2-canvas.test.ts forces
-    // this to widen in lockstep when R3 extends the renderers (at which
-    // point this flips back to 2).
-    await expect(insWrap.locator('[data-width-handle]')).toHaveCount(0);
+    // R3 (register S2-1/E1-C3): TwoButtonYesNo's renderer now CONSUMES
+    // design_overrides.size/.corners/.border_color (presets.ts), so it joins the
+    // size-consuming set — the 2 interactive E/W width handles are back. The
+    // set-equality pin in test/leadgen-r2-canvas.test.ts forced this flip in
+    // lockstep with the renderer widening (conductor-pre-ratified for R3).
+    await expect(insWrap.locator('[data-width-handle]')).toHaveCount(2);
     await expect(insWrap.locator('text=Yes / No')).toBeVisible();
     await expect(insWrap.locator('text=Short text field')).toHaveCount(0);
 
