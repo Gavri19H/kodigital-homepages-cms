@@ -1226,9 +1226,11 @@ function validateMapsProp(
   // the legacy shape and is validated ONLY as "a record" — no existing
   // content_json may regress.
   if (!("jobs" in value)) return;
-  const extraKeys = Object.keys(value).filter((k) => k !== "enabled" && k !== "jobs");
+  // R4b (S3-7): `fills` is an OPTIONAL third key alongside enabled/jobs — the
+  // sibling-fill targets the Maps-tab picker authors (props.maps.fills.<slot>).
+  const extraKeys = Object.keys(value).filter((k) => k !== "enabled" && k !== "jobs" && k !== "fills");
   for (const key of extraKeys) {
-    push("invalid_maps_prop", `${path}.${key}`, `unknown maps key '${key}' (only enabled/jobs, §9.2)`);
+    push("invalid_maps_prop", `${path}.${key}`, `unknown maps key '${key}' (only enabled/jobs/fills, §9.2)`);
   }
   const enabled = value["enabled"];
   if (typeof enabled !== "boolean") {
@@ -1267,6 +1269,46 @@ function validateMapsProp(
       path,
       "maps.enabled is true but no job (validate/auction/autocomplete) is selected — it does nothing at runtime (§9.3)",
     );
+  }
+  // R4b (S3-7): validate the OPTIONAL sibling-fill targets, when authored.
+  if (value["fills"] !== undefined) {
+    validateMapsFills(value["fills"], `${path}.fills`, push);
+  }
+}
+
+// R4b (S3-7) — the four sibling-fill slots, mirroring runtime/maps.ts
+// parseMapsConfig's nested `fills` reader EXACTLY (the parity source): each
+// slot is OPTIONAL, and — when present — must be a non-empty string (the
+// target internal_field). No dangling-target validation is performed here
+// (whether that internal_field still exists elsewhere in the Section): a
+// stale/removed target is a runtime NO-OP by design (runtime/maps.ts's
+// autofill simply finds no matching DOM field and skips it), and the
+// Maps-tab picker only ever OFFERS the Section's own other internal_field
+// values in the first place — a dangling value can only arise if a field is
+// deleted AFTER being chosen as a fill target, which this validator
+// deliberately does not chase (matching the legacy flat-shape autofill_*
+// keys, which have never been target-validated either).
+const MAPS_FILL_SLOTS = ["street", "city", "state", "zip"] as const;
+
+function validateMapsFills(
+  value: unknown,
+  path: string,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  if (!isRecord(value)) {
+    push("invalid_maps_prop", path, "props.maps.fills must be an object {street?,city?,state?,zip?} (§9.2)");
+    return;
+  }
+  const slotSet: ReadonlySet<string> = new Set(MAPS_FILL_SLOTS);
+  const extraKeys = Object.keys(value).filter((k) => !slotSet.has(k));
+  for (const key of extraKeys) {
+    push("invalid_maps_prop", `${path}.${key}`, `unknown maps fill slot '${key}' (only street/city/state/zip, §9.2)`);
+  }
+  for (const slot of MAPS_FILL_SLOTS) {
+    const v = value[slot];
+    if (v !== undefined && (typeof v !== "string" || v === "")) {
+      push("invalid_maps_prop", `${path}.${slot}`, `props.maps.fills.${slot} must be a non-empty string (§9.2)`);
+    }
   }
 }
 

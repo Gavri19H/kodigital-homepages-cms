@@ -254,29 +254,46 @@ function leadgenConfigEtag(
 // found exactly like a top-level one (flat legacy content is unchanged).
 function funnelNeedsMapsKey(resolved: ResolvedActivatedFunnel): boolean {
   for (const rs of resolved.sections) {
-    if (rs.section.address_validation_enabled === 1) return true;
+    const columnEnabled = rs.section.address_validation_enabled === 1;
     const raw = rs.section.content_json;
-    if (typeof raw !== "string" || raw === "") continue;
-    for (const c of flattenComponents(parseSectionComponents(raw))) {
+    const components =
+      typeof raw === "string" && raw !== "" ? flattenComponents(parseSectionComponents(raw)) : [];
+    // v3.1 §9.3 (S3-8) per-field precedence: an address/ZIP node carrying its
+    // OWN props.maps config is AUTHORITATIVE for THAT field — the legacy Section
+    // column (address_validation_enabled) is only a FALLBACK for nodes with no
+    // per-field opinion. The old code checked the column FIRST, letting it
+    // OVERRIDE a per-field enabled:false (the S3-8 defect); it is now consulted
+    // per-node AFTER per-field config, matching sections-handlers.ts's
+    // zipValidation leg and the renderer's own per-field decision.
+    let sawAddressOrZipField = false;
+    for (const c of components) {
       if (c === null || typeof c !== "object") continue;
       const props = c.props ?? {};
       const maps = props["maps"];
       if (c.type === "AddressAutocompleteQuestion") {
+        sawAddressOrZipField = true;
         if (isNewMapsShape(maps)) {
           if (maps.enabled === true) return true;
-          continue; // explicit enabled:false — this field does not need the key
+          continue; // explicit enabled:false — per-field wins over the column
         }
         return true; // legacy/absent config — unconditional (§12 no-regression)
       }
       if (c.type === "ZIPInputQuestion") {
+        sawAddressOrZipField = true;
         if (isNewMapsShape(maps)) {
           if (maps.enabled === true) return true;
-          continue;
+          continue; // per-field wins over the column
         }
         if (props["validate"] === true) return true;
         if (typeof maps === "object" && maps !== null && !Array.isArray(maps)) return true;
+        // No per-field opinion — fall back to the legacy Section column.
+        if (columnEnabled) return true;
       }
     }
+    // Legacy content whose Section column is on but which carries NO address/ZIP
+    // field with a per-field opinion: preserve the pre-fix behavior (column ⇒
+    // key) so no existing funnel regresses.
+    if (columnEnabled && !sawAddressOrZipField) return true;
   }
   return false;
 }
