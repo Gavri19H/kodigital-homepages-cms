@@ -38,6 +38,11 @@ import {
   renderQuoteFrame,
 } from "../../public/leadgen/designs/frame";
 import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
+// R6 SEAM 3 (register D3/E5): a Section's content changing must invalidate the
+// SAME §28 shell cache the theme-edit path already does — reuses the EXACT
+// exported helper themes-handlers.ts calls, no new invalidation channel.
+import { invalidateOnVariantPublish } from "../../public/leadgen/invalidate";
+import type { Env } from "../../env";
 // v3.1 §10.6/§12: the preview theme_id override re-uses the SAME PURE
 // resolveTokens the runtime/composed-preview path already calls (theme.ts);
 // getThemeRecord is the KV `lg-funnel-themes` lookup (themes-handlers.ts owns
@@ -904,6 +909,92 @@ export async function getSectionHandler(c: AdminContext): Promise<Response> {
 // PATCH /sections/:id — merge-then-revalidate + derived rebuild (§12.1)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// R6 SEAM 3 (register D3/E5): section-edit cache invalidation
+// ---------------------------------------------------------------------------
+// MIRRORS themes-handlers.ts's theme-edit invalidation (scheduleThemeInvalidate
+// / invalidateThemeAcrossFunnels) byte-for-byte in shape: a Section's stored
+// content changing makes every ACTIVE funnel that orders it stale, on every
+// site its quote is activated on. Sections previously had NO invalidation path
+// at all (frames/quotes/themes already had one — this was an asymmetry, not a
+// design) — the operator's original "not automatically saving" report. Same
+// exported helper (invalidateOnVariantPublish), same fire-and-forget waitUntil
+// discipline, same fail-open contract. No new invalidation channel.
+
+// Hono's c.executionCtx getter THROWS where no ExecutionContext exists (the
+// node:sqlite unit-test harness passes none) — the SAME safeExecutionCtx idiom
+// themes-handlers.ts / quotes-handlers.ts use, duplicated here per this
+// codebase's small-helper convention.
+function safeExecutionCtx(c: AdminContext): ExecutionContext {
+  try {
+    return c.executionCtx;
+  } catch {
+    return {
+      waitUntil(): void {
+        /* no-op outside workerd (unit-test harness) */
+      },
+      passThroughOnException(): void {
+        /* no-op */
+      },
+    } as unknown as ExecutionContext;
+  }
+}
+
+interface AffectedSectionFunnel {
+  public_id: string;
+  quote_id: number;
+}
+
+// Bounded to ACTIVE funnels that actually ORDER this section (the §7.3 P7 join
+// sectionUsageHandler already uses, filtered to f.status='active'). A section
+// referenced by zero funnels, or only by draft/archived ones, touches NO cache
+// key — a safe, empty invalidation set.
+async function findActiveFunnelsReferencingSection(
+  db: D1Database,
+  sectionId: number,
+): Promise<AffectedSectionFunnel[]> {
+  const rows = await db
+    .prepare(
+      `SELECT DISTINCT f.public_id AS public_id, f.quote_id AS quote_id
+       FROM leadgen_funnel_variant_sections fvs
+       JOIN leadgen_funnel_variants v ON v.id = fvs.variant_id
+       JOIN leadgen_funnels f ON f.id = v.funnel_id
+       WHERE fvs.section_id = ? AND f.status = 'active'`,
+    )
+    .bind(sectionId)
+    .all<{ public_id: string; quote_id: number }>();
+  return rows.results ?? [];
+}
+
+// For every affected funnel, sweep EVERY site its quote is activated on — the
+// EXACT §28 discipline invalidateThemeAcrossFunnels / scheduleVariantPublish-
+// Invalidate already apply, reusing the SAME exported invalidateOnVariantPublish
+// (no new KV-delete machinery). Per-funnel site lookups run in parallel; a
+// hiccup in one funnel's sweep never blocks another's (invalidateOnVariant-
+// Publish is itself fail-open — see invalidate.ts).
+async function invalidateSectionAcrossFunnels(env: Env, db: D1Database, sectionId: number): Promise<void> {
+  const funnels = await findActiveFunnelsReferencingSection(db, sectionId);
+  await Promise.all(
+    funnels.map(async (funnel) => {
+      const sites = await db
+        .prepare("SELECT site_id FROM leadgen_site_quotes WHERE quote_id = ?")
+        .bind(funnel.quote_id)
+        .all<{ site_id: string }>();
+      await Promise.all(
+        (sites.results ?? []).map((s) => invalidateOnVariantPublish(env, s.site_id, funnel.public_id)),
+      );
+    }),
+  );
+}
+
+// Fire-and-forget entry point (mirrors scheduleThemeInvalidate): rides
+// waitUntil, fail-open, never blocks or breaks the admin PATCH response.
+function scheduleSectionContentInvalidate(c: AdminContext, sectionId: number): void {
+  safeExecutionCtx(c).waitUntil(
+    invalidateSectionAcrossFunnels(c.env, c.env.DB, sectionId).catch(() => {}),
+  );
+}
+
 const SECTION_PATCH_FIELDS = [
   "section_name",
   "activity",
@@ -1006,6 +1097,10 @@ export async function patchSectionHandler(c: AdminContext): Promise<Response> {
     .bind(existing.id)
     .first<LeadgenSectionRow>();
   if (!updated) return c.json({ error: "Update failed" }, 500);
+  // R6 SEAM 3: only a REAL content change invalidates downstream shell caches —
+  // the SAME byte-diff-gated discipline the theme PATCH applies (a scalar-only
+  // save, e.g. renaming the Section, never bumped content_version either).
+  if (contentChanged) scheduleSectionContentInvalidate(c, existing.id);
   // FIX 5 (03 §3.6): non-blocking validation problems ride the PATCH success
   // response (same shape as the POST leg — the island surfaces them inline).
   return c.json({ ...(await sectionDetailJson(c.env.DB, updated)), problems: prepared.problems });

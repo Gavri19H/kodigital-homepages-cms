@@ -71,6 +71,10 @@ import {
   loadAnswerMapVersions,
 } from "./config-dto";
 import { flattenComponents } from "./components/content-schema";
+// R6 SEAM 5 (register F7): the frame-scope check renderVariantSectionsHtml
+// below applies at serve time — same catalog the content-schema save-time
+// warning (frame_scope_component) already reads.
+import { COMPONENT_CATALOG } from "./components/registry";
 import { mintFunnelAttempt } from "./attempt";
 import { getFunnelDesign, type FunnelDesign } from "./designs/registry";
 import { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "./designs/default-funnel/styles";
@@ -539,6 +543,26 @@ export function renderVariantSectionsHtml(
       const nodes = parseSectionComponents(
         typeof rs.section.content_json === "string" ? rs.section.content_json : "",
       );
+      // R6 SEAM 5 (register F7): the frame owns chrome. When a frame IS present
+      // it synthesizes its OWN footer/progress/etc (designs/frame.ts) via the
+      // SAME leaf renderers (renderFooterBar/renderStepIndicator) a legacy
+      // scope:"frame" node inside this section's content would ALSO emit —
+      // double chrome. content-schema.ts flags such a node as a save-time
+      // WARNING only (legal in stored content, never blocking), so it can
+      // persist from before R3's studio strip; skip it HERE, at render, rather
+      // than mutating stored content. A frameless legacy funnel has no frame
+      // chrome at all, so its section-embedded frame-scope nodes are the ONLY
+      // chrome and must keep rendering — never orphan frameless legacy content.
+      // Optional-chained: an unknown/non-catalog type string (legacy/imported/
+      // version-skew content — parseSectionComponents does zero type
+      // validation and activation preflight never runs the full content
+      // validator) must NOT throw here. A throw would 500 EVERY request for
+      // this funnel (renderFunnelShell has no try/catch, nothing ever caches)
+      // — a full outage, regressing the pre-R6 graceful "" render
+      // (renderComponent's default case). An unknown type is KEPT (never
+      // filtered out) and falls through to that same default case.
+      const renderNodes =
+        frame === null ? nodes : nodes.filter((n) => COMPONENT_CATALOG[n.type]?.scope !== "frame");
       const ctx: LeadgenSectionRenderCtx = {
         headline_text: rs.section.headline_text,
         subheadline_text: rs.section.subheadline_text ?? null,
@@ -556,7 +580,7 @@ export function renderVariantSectionsHtml(
       return (
         `<section data-lg-section data-lg-section-id="${escapeHtml(rs.section.public_id)}"` +
         ` data-lg-index="${i}" data-screen-label="${escapeHtml(label)}"${i === 0 ? "" : " hidden"}>` +
-        renderSectionComponents(nodes, presetDesign, ctx) +
+        renderSectionComponents(renderNodes, presetDesign, ctx) +
         `</section>`
       );
     })

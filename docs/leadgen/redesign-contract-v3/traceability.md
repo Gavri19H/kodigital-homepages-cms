@@ -133,3 +133,21 @@ Delegated model tiers per the ladder: Fable 5 conductor (this session); Sonnet 5
 4. **Live A/B theme activation** on a real quote — the build ships fixture-driven proof (`scanVariantThemeUsage` over seeded D1); assigning a theme to a live funnel variant is an operator action.
 
 **Follow-up (non-blocking, recorded):** CI (`deploy.yml`) pins Node 20; the DB-backed (`node:sqlite`, Node ≥22.5) gate blocks `describe.skip` in CI (pre-existing repo-wide pattern; studio-SSR reconciliation gates ARE CI-enforced). Bumping CI Node ≥22 would enable the themes-manager row-18 DB-backed gate rows in CI, after a full-suite Node-22 verification.
+
+
+---
+
+## POST-DEPLOY CORRECTION + REMEDIATION POINTER (2026-07-15)
+
+The 2026-07-13 operator acceptance test FALSIFIED this file's "26/26 PASS" verdict: the shipped
+studio was largely unusable (see `forensic-defect-register.md` — 52 wave-1 findings + the
+exhaustive matrix, ~150 defects). Specific corrections to rows above:
+- **Row 5 (retired-type migration)**: the recorded PASS was false — `rewriteRetiredNodeToPrimitive`
+  had ZERO call sites. Wired in remediation R3 with executing proofs + a loud lossy-migration
+  confirm (register E2-NEW-4).
+- **Maps operator row**: `GOOGLE_MAPS_BROWSER_KEY` was PRESENT in production all along (the
+  BLOCKED-missing claim was wrong); `GOOGLE_MAPS_SERVER_KEY` remains the only outstanding secret,
+  and the server validate/auction legs (wired in remediation R4b) no-op gracefully until it exists.
+- The §13 gates recorded here proved markup existence, not function — remediation R0–R6 rebuilt
+  them as real-input/effect/armed gates. **The authoritative record is now
+  `forensic-defect-register.md` (mission SHIP 2026-07-15, PRs #109–#116).**

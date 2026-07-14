@@ -28,16 +28,16 @@ Rules for this register:
 
 | ID | Surface | Operator report | Evidence so far | Status |
 |----|---------|-----------------|-----------------|--------|
-| U1 | Canvas selection/resize | Overlay box offset from the component; resize works E/W only, no N/S; overlay doesn't track | Image1; §7 implemented width-drag only; overlay geometry bug (S1 tracing) | OPEN |
-| U2 | Continue button | Can't resize/drag on canvas; Style shows Color/Position/Size all "inherited", only label editable; no path to edit the frame | Image2 — dead-end by construction | OPEN |
-| U3 | Canvas editing | NO component can be dragged/moved on the canvas at all | Image1/2/11; flow layout + toolbar ↑↓ only (S1 confirming) | OPEN |
-| U4 | Offers → "Open full mapping →" | Click does nothing | Image3; button `ui-section-studio.ts:2066`, island queries `:7757`; handler behavior TBD (S3/L5) | OPEN |
-| U5 | Choices editor UX | Unlabeled triple `Option 1 / option_1 / option_1`; `emoji` is a bare text input (no picker, no emojis); icon/Image without choosers; wall of unlabeled inputs | Image5 | OPEN |
-| U6 | Style presets | Width S/M/L/Full, Height, Corners clicks change NOTHING on canvas | Image6 (Simple answer buttons) | OPEN |
-| U7 | Rules tab | Cannot author any rule; IF-dropdown offers only "— always visible —"; raw operator code `eq` shown as UI copy | Image7 | OPEN |
-| U8 | Golden fidelity + legacy junk | Tiny headline/subheadline inputs ("Wh"/"rates d"); "— pick —"/"+New…" Activity/Vertical; legacy element-toolbar row; top-right internal spec-text block ("Legacy… §8.8 … wrangler secret (GOOGLE_MAPS_BROWSER_KEY)"); extra "§8.5 tokenized layout props" rail section; empty Border-color swatches; canvas headline typography smaller than golden | Image8 (approved) vs Image9 (shipped); 525 `§` occurrences in `ui-section-studio.ts`, a subset user-visible | OPEN |
-| U9 | Leading icon picker | Only "Location pin" works; the other 11 options do nothing | Image10; `presets.ts` `fieldLeadingIcon` renders only `"location"` (~:1338) — comment admits the other 11 "render no icon"; shipped anyway | OPEN |
-| U10 | Slider | Poorly designed, looks bad; Step=5 affects nothing; many steps change nothing | Image11; renderer/runtime step consumption TBD (S2/L5) | OPEN |
+| U1 | Canvas selection/resize | Overlay box offset from the component; resize works E/W only, no N/S; overlay doesn't track | Image1; §7 implemented width-drag only; overlay geometry bug (S1 tracing) | CLOSED — R2 (measured overlay ≤4px; probe P2 asserts) |
+| U2 | Continue button | Can't resize/drag on canvas; Style shows Color/Position/Size all "inherited", only label editable; no path to edit the frame | Image2 — dead-end by construction | CLOSED — R3 (real resolved values + working frame deep link; probe P5 asserts) |
+| U3 | Canvas editing | NO component can be dragged/moved on the canvas at all | Image1/2/11; flow layout + toolbar ↑↓ only (S1 confirming) | CLOSED — R2 (selected node draggable; real-drag move; probes P3/P4 assert) |
+| U4 | Offers → "Open full mapping →" | Click does nothing | Image3; button `ui-section-studio.ts:2066`, island queries `:7757`; handler behavior TBD (S3/L5) | CLOSED — R4a (scroll+pulse+focus; probe P7 asserts) |
+| U5 | Choices editor UX | Unlabeled triple `Option 1 / option_1 / option_1`; `emoji` is a bare text input (no picker, no emojis); icon/Image without choosers; wall of unlabeled inputs | Image5 | CLOSED — R3 (labeled columns, per-type gating, emoji/icon pickers, thumbnails) |
+| U6 | Style presets | Width S/M/L/Full, Height, Corners clicks change NOTHING on canvas | Image6 (Simple answer buttons) | CLOSED — R3 (renderers consume; presets GROUNDED; probe P6 asserts expected px) |
+| U7 | Rules tab | Cannot author any rule; IF-dropdown offers only "— always visible —"; raw operator code `eq` shown as UI copy | Image7 | CLOSED — R4a (empty-state hint + human labels; probe P8 authors+persists) |
+| U8 | Golden fidelity + legacy junk | Tiny headline/subheadline inputs ("Wh"/"rates d"); "— pick —"/"+New…" Activity/Vertical; legacy element-toolbar row; top-right internal spec-text block ("Legacy… §8.8 … wrangler secret (GOOGLE_MAPS_BROWSER_KEY)"); extra "§8.5 tokenized layout props" rail section; empty Border-color swatches; canvas headline typography smaller than golden | Image8 (approved) vs Image9 (shipped); 525 `§` occurrences in `ui-section-studio.ts`, a subset user-visible | CLOSED — R5 (full-bleed golden shell; jargon 0; typography; gates armed) |
+| U9 | Leading icon picker | Only "Location pin" works; the other 11 options do nothing | Image10; `presets.ts` `fieldLeadingIcon` renders only `"location"` (~:1338) — comment admits the other 11 "render no icon"; shipped anyway | CLOSED — R3 (12 icons live incl. Address; probe P9 asserts render) |
+| U10 | Slider | Poorly designed, looks bad; Step=5 affects nothing; many steps change nothing | Image11; renderer/runtime step consumption TBD (S2/L5) | CLOSED — R1+R2 (records answers, live value/fill, step honored; probe P10 asserts) |
 
 Operator bottom line: the above is a SAMPLE — estimate 100+ defects. Full-matrix sweep required.
 
@@ -240,8 +240,9 @@ after 2 fix rounds). Rows closed by R0: S4-B1 (headline strip at golden proporti
   proposals (renderCanvasToolbar, renderThemesOverlay). Final census: 33 blocks / 24 golden /
   9 documented / 0 unclassified / 0 stale — BOTH gates ARMED in verify:all.
 - **SEAM-1 base_px** wired via scaleFontSizes with defense-in-depth clamping; every repo path is
-  identity (base_px 16). Pre-deploy spot-check queued for R6: read the LIVE lg-funnel-themes KV
-  record for hand-edited non-16 values (wrangler kv read — safe).
+  identity (base_px 16). **Spot-check CLOSED (R6, conductor's own hand):** the production CACHE
+  KV read for `lg-funnel-themes` returns 404 — the key does not exist; NO live theme records
+  exist at all (consistent with 0 active funnels). base_px blast radius = zero.
 - **Operator sign-off items** (staging package README): the s=300/l=480 preset px, all-navy
   handles, typography before/after, and the surfaced product question — the studio canvas is
   THEME-NEUTRAL by construction (getFunnelDesign(null), studio:2661): it never reflects an
@@ -302,6 +303,28 @@ selection-capture states (1/4/5 — state-1 measured 0.16408 vs R0's 0.16439; st
 the R5 re-pin captures the new chrome. "Byte-identical to R0" no longer holds past R2 — expected.
 Height custom_px bounds discovered: **[4,600] snap-4** (content-schema validateSizeAxis :1080-1090)
 — intentionally distinct from width's [200,600] (§7.2's own worked example stores a 56px height).
+
+**MISSION COMPLETE — FINAL AUDIT VERDICT: SHIP (2026-07-15).** All 9 mission-level acceptance
+items PASS on named proving tests; every register row CLOSED-with-evidence, CLOSED-AS-DESIGNED, or
+SURFACED-operator; U1–U10 flipped with per-probe citations; both-directions contract sample clean.
+R6 (live matrix + seams) **SHIP** (final audit FIX-FIRST — 1 MAJOR [the STOP-2 frame filter's
+unguarded catalog deref turned legacy unknown-type content from a graceful empty render into a
+serve 500 on framed funnels — the M3 axis catching our own fix] → one-character optional-chain fix
+with the predicted TypeError→500 reproduced as the executed fail-before → SHIP). R6 also: the
+forensic probe suite is now a GATE (12/12 asserting the remediated contract — the operator's
+original screenshots are the mission's final acceptance test); seam tests 1–6 green incl. TWO real
+product bugs found+fixed in-phase (STOP-1: section edits now invalidate live funnels, mirroring
+the theme mechanism, bounded to active funnels; STOP-2: frame owns chrome — no double render,
+frameless legacy preserved); legacy axis green; production KV spot-check closed (no live theme
+records exist). OBS-A ruling: the two legacy chromium dispatchEvent clusters are KEPT as
+documented supplementary lockstep coverage — the WORKS-proof burden sits entirely on the clean
+firefox real-input lane. Final gates: vitest 5,266/5,266 (370) · playwright 278/278 uncropped
+(95+92+91) · probe gate 12/12 · verify:all exit 0 with jargon(0) + golden-census(33/24/9/0/0)
+ARMED · bundle 40,908 byte-identical (§1.3 client engine intact).
+**Operator-owned residue (the ONLY open items):** production deploy (workflow_dispatch) ·
+GOOGLE_MAPS_SERVER_KEY creation + secret set · staging visual sign-off (s=300/l=480 preset px,
+all-navy handles, typography before/after, canvas theme-neutrality — package in
+api/test-artifacts/leadgen-r5-staging-signoff/) · manual QA · post-deploy D3/D4 verification.
 
 R5 (golden purge + full-bleed + typography + gate arming) **SHIP** (2026-07-14; adversarial review
 SHIP first pass — 3 informational findings only; reviewer independently ran 117 R5 units, gate-1c
