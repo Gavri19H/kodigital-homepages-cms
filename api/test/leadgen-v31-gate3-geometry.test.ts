@@ -483,27 +483,63 @@ describe("Gate 3 geometry — studio SSR (renderSectionStudio, pure)", () => {
     ).not.toMatch(/width:20px;height:20px;border-radius:6px/);
   });
 
-  it("8-handle selection geometry (Appendix B: 11×11 · offsets −11/−6/−30 · rows −11/19/49) ships verbatim in the client script", () => {
+  it("8-handle selection geometry ships from MEASUREMENT, not the golden demo's absolute rows (Appendix-B erratum, 2026-07-14 remediation phase R2)", () => {
     // §6.2 the selection chrome (outline, 8 handles, name tag, custom badge)
     // is 100% client-injected (buildHandle/decorateFieldSelection in the
     // ES5 island) — there is NO SSR markup for it at all (confirmed by
     // direct read: renderStudioCanvas's SSR output is only the toolbar +
-    // empty srcdoc iframe + empty-state text). The STUDIO_GEOMETRY.selection
-    // constants are proven byte-identical to golden at the MODULE level by
-    // leadgen-studio-tokens.test.ts; this is the render-time complement —
-    // proving the actual SHIPPED CLIENT BYTES (SECTION_STUDIO_SCRIPT, which
-    // IS part of "the built UI") carry the identical literals, since no
-    // vm-execution or live browser is available to this vitest file.
-    expect(STUDIO_GEOMETRY.selection.handleSize).toBe(11);
-    expect(STUDIO_GEOMETRY.selection.handleSideOffset).toBe(-11);
-    expect(STUDIO_GEOMETRY.selection.handleRadius).toBe(3);
-    expect(STUDIO_GEOMETRY.selection.handleRows).toEqual({ top: -11, mid: 19, bottom: 49 });
-    expect(SECTION_STUDIO_SCRIPT).toContain("width:11px;height:11px;border-radius:3px");
-    expect(SECTION_STUDIO_SCRIPT).toContain("left:-11px;");
-    expect(SECTION_STUDIO_SCRIPT).toContain("right:-11px;");
-    expect(SECTION_STUDIO_SCRIPT).toContain("left:calc(50% - 5px);");
-    // the two interactive (side-midpoint) handles are filled navy + ew-resize
-    expect(SECTION_STUDIO_SCRIPT).toContain(`background:${STUDIO_COLOR.navy};border:2px solid ${STUDIO_COLOR.navy};cursor:ew-resize`);
+    // empty srcdoc iframe + empty-state text).
+    //
+    // ERRATUM: Appendix B's absolute rows (offsets −11/−6/−30, rows −11/19/49)
+    // encoded the golden MOCKUP's one demo field — register S1-1/S1-2 measured
+    // this wrong-by-construction on a real 452×54 field (dx=-6 dy=-6 dw=+12
+    // dh=+16), worst on fields with a helper line or leading icon. The golden's
+    // INTENT (selection chrome ON the element, tracking its real box) is what
+    // ships now: every handle/outline/tag/badge position is DERIVED FROM
+    // MEASUREMENT (el.getBoundingClientRect inside the iframe doc), proven at
+    // ±4px across 7 component types by the real-gesture overlay-alignment gate
+    // (api/test-ui/leadgen-canvas-interactions.gesture.spec.ts test (i)) — the
+    // browser-executed complement no vm-execution/pure-SSR vitest file can
+    // provide. This test pins (a) the golden constants that DO survive
+    // (dimensions/radius/color/border — unrelated to the demo's absolute
+    // position) and (b) the measurement MECHANISM itself + the absence of the
+    // old hardcoded literals, so a regression back to fixed offsets fails here
+    // even before the browser gate would catch it.
+    expect(STUDIO_GEOMETRY.selection.handleSize, "Appendix B — survives").toBe(11);
+    expect(STUDIO_GEOMETRY.selection.handleRadius, "Appendix B — survives").toBe(3);
+    expect(STUDIO_GEOMETRY.selection.outlineWidth, "Appendix B — survives").toBe(2);
+    expect(STUDIO_GEOMETRY.selection.outlineColor, "Appendix B — survives").toBe(STUDIO_COLOR.navy);
+    expect(STUDIO_GEOMETRY.selection.outlineRadius, "Appendix B — survives (field outline radius)").toBe(12);
+    // the fixed-appearance handle literal ships verbatim (11x11/radius-3/navy
+    // fill+border) — unconditional now, every one of the 8 handles, not just
+    // the golden's 2 interactive side-midpoints
+    expect(SECTION_STUDIO_SCRIPT).toContain(
+      `width:11px;height:11px;border-radius:3px;background:${STUDIO_COLOR.navy};border:2px solid ${STUDIO_COLOR.navy}`,
+    );
+    // the measured selection OUTLINE's border/color/radius survive too (2px
+    // solid navy, radius 12 — STUDIO_GEOMETRY.selection.outline* above)
+    expect(SECTION_STUDIO_SCRIPT).toContain(`border-radius:12px;outline:2px solid ${STUDIO_COLOR.navy};outline-offset:3px`);
+    // per-axis cursors for all 4 directions (2 new: ns/nwse/nesw; 1 legacy: ew)
+    for (const cursor of ["ew-resize", "ns-resize", "nwse-resize", "nesw-resize"]) {
+      expect(SECTION_STUDIO_SCRIPT, `cursor literal '${cursor}'`).toContain(`'${cursor}'`);
+    }
+    // MECHANISM PIN: positions are DERIVED FROM MEASUREMENT — a regression to
+    // a hardcoded offset must fail THIS assertion, not just the browser gate.
+    expect(SECTION_STUDIO_SCRIPT, "measures the field's own box").toContain(
+      "el.getBoundingClientRect ? el.getBoundingClientRect()",
+    );
+    expect(SECTION_STUDIO_SCRIPT, "measures the wrap's box (offsets are relative to it)").toContain(
+      "wrap.getBoundingClientRect ? wrap.getBoundingClientRect()",
+    );
+    // the golden demo's absolute literals must NEVER return
+    expect(SECTION_STUDIO_SCRIPT, "the demo-absolute left offset must not return").not.toContain("left:-11px;");
+    expect(SECTION_STUDIO_SCRIPT, "the demo-absolute right offset must not return").not.toContain("right:-11px;");
+    expect(SECTION_STUDIO_SCRIPT, "the demo-absolute centered handle must not return").not.toContain(
+      "left:calc(50% - 5px);",
+    );
+    expect(SECTION_STUDIO_SCRIPT, "the demo-absolute 66px outline height must not return").not.toContain(
+      "top:-6px;height:66px",
+    );
   });
 
   it("every STUDIO_GEOMETRY hex/px value used above traces to the §3 token module (no invented literal in this test)", () => {

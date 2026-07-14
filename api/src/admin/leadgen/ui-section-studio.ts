@@ -1183,6 +1183,14 @@ const TOOLBAR_LAYOUT_TYPES: ReadonlyArray<{ type: string; keys: readonly string[
   { type: "GridContainer", keys: ["columnsDesktop", "columnsTablet", "columnsMobile", "gap"] },
   { type: "Columns", keys: ["ratio", "mobile"] },
   { type: "CardPanel", keys: ["width", "padding", "radius", "shadow", "background"] },
+  // R2 E2-NEW-9: Spacer is granted the 'layout' toolbar cluster
+  // (toolbarClustersFor → layout_props === true, STRUCTURED_PROP_TYPES has
+  // Spacer) but had NO entry here, so the cluster rendered an EMPTY bordered
+  // segment. Spacer's real `size` control (CONTAINER_PROP_CONTROLS Spacer →
+  // {key:"size"}, LEADGEN_GAP_TOKENS, consumed by renderSpacer) now rides the
+  // toolbar too — the forward-compatible choice (R3 adds the gap/line variant
+  // toggle alongside it), one populate/collect path shared with the inspector.
+  { type: "Spacer", keys: ["size"] },
 ];
 
 function renderToolbarLayoutCluster(design: FunnelDesign): string {
@@ -1952,6 +1960,10 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <button type="button" data-set-height="small">Small</button>
         <button type="button" data-set-height="medium">Medium</button>
         <button type="button" data-set-height="large">Large</button>
+      </div>
+      <div class="studio-custom-chip" data-height-custom-chip hidden>
+        <div><span class="studio-custom-chip-label" data-height-custom-label>Custom</span><div class="studio-custom-chip-sub">Set by dragging on the canvas — overrides the preset</div></div>
+        <button type="button" class="studio-link-btn" data-reset-height>Reset</button>
       </div>
       <p class="form-help studio-inline-note">Presets keep every question in the funnel consistent. Drag a handle on the canvas for a one-off size — it becomes <b>Custom</b> and overrides the preset here.</p>
 
@@ -3494,6 +3506,11 @@ export const SECTION_STUDIO_SCRIPT = `
     var cp = typeMeta(node.type).content_props || [];
     if (cp.indexOf('text') !== -1) { return 'text'; }
     if (cp.indexOf('label') !== -1) { return 'label'; }
+    // R2 S1-7 / E1-C4: the text-input family edits its PLACEHOLDER in place.
+    // DateQuestion is EXCLUDED — a native date control's placeholder is a
+    // browser no-op (the control is hidden in R3); returning null here keeps
+    // the native dblclick behavior (no preventDefault) for a date field.
+    if (node.type !== 'DateQuestion' && cp.indexOf('placeholder') !== -1) { return 'placeholder'; }
     return null;
   }
   function commitInlineText(qid, key, text) {
@@ -3550,6 +3567,43 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     el.addEventListener('blur', onBlur);
     el.addEventListener('keydown', onKey);
+    return true;
+  }
+  // R2 S1-7: inline-edit a text field's PLACEHOLDER in place. A bare <input>
+  // has no editable text content (contenteditable is a no-op on it), so —
+  // unlike startInlineEdit's contenteditable session — this swaps the input's
+  // VALUE to the current placeholder, lets the operator edit it natively (an
+  // input is always type-editable), then commits value -> props.placeholder and
+  // restores the input's original (preview) value. The canvas input never
+  // carries a real answer in the studio, so borrowing its value for the edit is
+  // side-effect-free. Enter/blur commit, Escape cancels — the SAME lifecycle as
+  // startInlineEdit; inlineEditing pauses the debounced re-render meanwhile.
+  function startPlaceholderEdit(inputEl, qid) {
+    if (inlineEditing || !inputEl) { return false; }
+    var ref = findRef(qid);
+    if (!ref) { return false; }
+    inlineEditing = true;
+    var props = ref.node.props || {};
+    var original = inputEl.value;
+    inputEl.value = (props.placeholder === undefined || props.placeholder === null) ? '' : String(props.placeholder);
+    if (inputEl.focus) { inputEl.focus(); }
+    if (inputEl.select) { inputEl.select(); }
+    function finish(apply) {
+      if (!inlineEditing) { return; }
+      inlineEditing = false;
+      inputEl.removeEventListener('blur', onBlur);
+      inputEl.removeEventListener('keydown', onKey);
+      var typed = inputEl.value;
+      inputEl.value = original;
+      if (apply) { commitInlineText(qid, 'placeholder', typed); } else { scheduleCanvasRender(); }
+    }
+    function onBlur() { finish(true); }
+    function onKey(keyEv) {
+      if (keyEv.key === 'Enter') { keyEv.preventDefault(); keyEv.stopPropagation(); finish(true); }
+      else if (keyEv.key === 'Escape') { keyEv.preventDefault(); keyEv.stopPropagation(); finish(false); }
+    }
+    inputEl.addEventListener('blur', onBlur);
+    inputEl.addEventListener('keydown', onKey);
     return true;
   }
 
@@ -4303,6 +4357,11 @@ export const SECTION_STUDIO_SCRIPT = `
   // the funnel → real PUT /funnels/:id/frame + node removal persisted on the
   // same action; used-by-many → funnel picker; the C2 consequence line stays.
   function buildFrameBadge(qid, type) {
+    // NOTE: buildFrameBadge is sliced-and-run in ISOLATION by the studio-ui
+    // vm-probe (it's a leaf), so it must not reference the island-scoped frameCreate()
+    // helper (undefined in an isolated slice). It keeps document.createElement
+    // — the badge is a SIBLING insert whose adoption into the frame is harmless;
+    // the register's S1-10 scope is the selection-chrome createElement calls.
     var badge = document.createElement('div');
     badge.className = 'studio-frame-badge';
     badge.setAttribute('data-frame-badge', qid);
@@ -4346,7 +4405,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue)) {
         card.className = card.className + ' studio-choice-selected';
       }
-      x = document.createElement('button');
+      x = frameCreate('button');
       x.type = 'button';
       x.className = 'studio-choice-x';
       x.setAttribute('data-choice-x', card.getAttribute('data-lg-choice'));
@@ -4361,7 +4420,7 @@ export const SECTION_STUDIO_SCRIPT = `
       qid = nodes[i].getAttribute('data-question-id');
       type = nodes[i].getAttribute('data-component-type');
       if (typeMeta(type).choice === true) {
-        ghost = document.createElement('button');
+        ghost = frameCreate('button');
         ghost.type = 'button';
         ghost.className = 'lg-card studio-choice-ghost';
         ghost.setAttribute('data-choice-ghost', qid);
@@ -4371,7 +4430,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // §6.2: resize handle on the SELECTED CardPanel — snaps to width presets.
       if (type === 'CardPanel' && qid === selectedQuestionId) {
         nodes[i].style.position = 'relative';
-        handle = document.createElement('span');
+        handle = frameCreate('span');
         handle.className = 'studio-resize-handle';
         handle.setAttribute('data-resize-handle', qid);
         handle.title = 'Drag to resize \\u2014 snaps to the width presets (s / m / l / full)';
@@ -4393,7 +4452,7 @@ export const SECTION_STUDIO_SCRIPT = `
       ref = findRef(qid);
       if (!ref || !ref.node || !typeMeta(ref.node.type).produces || trimStr(ref.node.internal_field) === '') { continue; }
       info = overlayChipInfo(ref.node.internal_field);
-      chip = document.createElement('button');
+      chip = frameCreate('button');
       chip.type = 'button';
       chip.className = 'studio-mapoverlay-chip';
       chip.setAttribute('data-mapping-overlay-chip', qid);
@@ -4423,6 +4482,70 @@ export const SECTION_STUDIO_SCRIPT = `
     if (w && typeof w === 'object' && typeof w.custom_px === 'number') { return w.custom_px; }
     return null;
   }
+  // R2 S1-4 HEIGHT drag range (binding, read from content-schema.ts): unlike
+  // WIDTH's [200,600] Appendix-B unit column, height custom_px is validated —
+  // BOTH at save time (validateSizeAxis via validateSizeOverride) AND at render
+  // (resolveFieldSize's defensive clamp) — to [4,600] snapped to a 4px grid.
+  // The floor is 4 (grid-native), NOT 200: the contract's own §7.2 worked
+  // example stores a height custom_px of 56, below the width floor, so the
+  // width floor would reject the contract's example (content-schema.ts
+  // SIZE_HEIGHT_CUSTOM_PX_MIN/MAX + SIZE_GRID_PX, lines documenting this).
+  var HEIGHT_PX_MIN = 4, HEIGHT_PX_MAX = 600, HEIGHT_PX_GRID = 4;
+  function snapHeightCustomPx(px) {
+    var snapped = Math.round(px / HEIGHT_PX_GRID) * HEIGHT_PX_GRID;
+    return Math.max(HEIGHT_PX_MIN, Math.min(HEIGHT_PX_MAX, snapped));
+  }
+  function currentCustomHeightPx(node) {
+    var h = node && node.design_overrides && node.design_overrides.size && node.design_overrides.size.height;
+    if (h && typeof h === 'object' && typeof h.custom_px === 'number') { return h.custom_px; }
+    return null;
+  }
+  // R2 S1-10: decoration nodes are INSERTED into the canvas iframe document, so
+  // they must be CREATED by that same document — createElement in the parent
+  // doc then inserting cross-document is an implicit adoption (works today, but
+  // fragile). frameCreate() creates through the frame doc when reachable, falling back to
+  // the parent document only if the frame is not yet loaded (in which case the
+  // element is adopted on insert exactly as before — never worse).
+  function frameCreate(tag) {
+    var doc = canvasFrameDoc();
+    return (doc && doc.createElement) ? doc.createElement(tag) : document.createElement(tag);
+  }
+  // R2 S1-5/S1-6: the field types whose [data-question-id] node is a BARE
+  // <input> (presets.ts renderTextInput). For these, a native mouse drag on the
+  // field body arms text-selection, not a move — so the input is NOT the native
+  // drag source (draggable stays off); onFieldMoveMouseDown is instead attached
+  // DIRECTLY to the input element (decorateFieldSelection below) so a body drag
+  // reorders it. Currency/Address are DIV hosts (.lg-currency/.lg-address) so
+  // they reorder via ordinary native DnD.
+  var BARE_INPUT_FIELD_TYPES = { FreeTextQuestion: 1, NumberInputQuestion: 1, EmailInputQuestion: 1, PhoneInputQuestion: 1, ZIPInputQuestion: 1, DateQuestion: 1 };
+  function isBareInputFieldType(type) { return BARE_INPUT_FIELD_TYPES[type] === 1; }
+  // R2 adversarial-review MAJOR fix #1: the SIZE-CONSUMING type predicate.
+  // Membership = the EXACT set of types whose presets.ts renderer applies
+  // design_overrides.size to computed CSS — derived by reading presets.ts's
+  // consumption call sites (brace-bounded per function body), never assumed:
+  //   - the text-input family routes through renderTextInput -> fieldStyleAttr
+  //     -> sizeStyleEntries (presets.ts ~1403-1404): FreeTextQuestion,
+  //     NumberInputQuestion, EmailInputQuestion, PhoneInputQuestion,
+  //     DateQuestion, ZIPInputQuestion (their renderFreeTextQuestion/
+  //     renderNumberInputQuestion/renderEmailInputQuestion/
+  //     renderPhoneInputQuestion/renderDateQuestion/renderZIPInputQuestion all
+  //     call renderTextInput).
+  //   - CurrencyInputQuestion and AddressAutocompleteQuestion apply
+  //     fieldSizeStyle (-> sizeStyleEntries) directly to their OUTER
+  //     .lg-currency / .lg-address wrapper — the ONLY other two call sites
+  //     of fieldSizeStyle/fieldStyleAttr/sizeStyleEntries in the whole render
+  //     tree (confirmed exhaustively — no other file references them).
+  // Every OTHER field-chrome type (ButtonAnswerGroup/Dropdown/Range/
+  // ImageBlock/etc. — register S2-1, assigned to R3 "WIRE renderers + gate")
+  // does NOT consume size yet: a resize drag on one would write a phantom
+  // design_overrides.size.custom_px that persists to D1 (the server validator
+  // accepts it for any node) with NO visible canvas change — the operator's
+  // original U6/P6 complaint through a new door (R2 adversarial review finding
+  // #1). PINNED by a vitest set-equality test (test/leadgen-r2-canvas.test.ts)
+  // against an INDEPENDENT derivation from presets.ts source, so R3 widening
+  // presets.ts consumption fails that test until this list widens in lockstep.
+  var SIZE_CONSUMING_TYPES = { FreeTextQuestion: 1, NumberInputQuestion: 1, EmailInputQuestion: 1, PhoneInputQuestion: 1, DateQuestion: 1, ZIPInputQuestion: 1, CurrencyInputQuestion: 1, AddressAutocompleteQuestion: 1 };
+  function isSizeConsumingType(type) { return SIZE_CONSUMING_TYPES[type] === 1; }
   // §6.2 selection-chrome "kind": which of the golden's 3 variants applies.
   // Only 'field' gets the 8 handles — golden's headline/continue selections
   // show ONLY an outline + name tag (contract: "corner/vertical handles are
@@ -4456,7 +4579,7 @@ export const SECTION_STUDIO_SCRIPT = `
     }
   }
   function ensureSelectionWrap(el) {
-    var wrap = document.createElement('span');
+    var wrap = frameCreate('span');
     wrap.setAttribute('data-selection-wrap', '1');
     wrap.style.cssText = 'position:relative;display:inline-block;width:100%;vertical-align:top';
     if (el.parentNode) { el.parentNode.insertBefore(wrap, el); }
@@ -4476,14 +4599,26 @@ export const SECTION_STUDIO_SCRIPT = `
   // second, independent guard (finishUp is a no-op after its own cleanup
   // already ran).
   var activeWidthDragCleanup = null;
+  // R2 S1-3/S1-4: generalized from the E/W-only width drag to ALL 8 handles
+  // (name kept as onWidthHandleMouseDown — it is the OTHER writer of
+  // design_overrides.size that selectComponent/afterModelChange cross-reference,
+  // and the studio-ui vm-probe slices it by this name). A handle declares which
+  // axis/axes it drives via data-fr-wside ('left'|'right'|'') and data-fr-hside
+  // ('top'|'bottom'|''): the two mid E/W handles set only wside, the two mid N/S
+  // only hside, the four CORNERS BOTH. Width snaps/clamps to [200,600]; height to
+  // [4,600] (snapHeightCustomPx — the schema's distinct height range). The
+  // legacy data-width-handle/data-handle-side attributes are still READ as a
+  // fallback so the original width-only fixtures keep exercising this path. Every
+  // m3 lost-mouseup/stale-gesture guard below is preserved verbatim.
   function onWidthHandleMouseDown(ev) {
-    var handle = ev.target && ev.target.closest ? ev.target.closest('[data-width-handle]') : null;
+    var handle = ev.target && ev.target.closest ? (ev.target.closest('[data-field-resize-handle]') || ev.target.closest('[data-width-handle]')) : null;
     if (!handle) { return; }
     ev.preventDefault();
     if (ev.stopPropagation) { ev.stopPropagation(); }
     if (activeWidthDragCleanup) { activeWidthDragCleanup(); }
-    var qid = handle.getAttribute('data-width-handle');
-    var side = handle.getAttribute('data-handle-side');
+    var qid = handle.getAttribute('data-field-resize-handle') || handle.getAttribute('data-width-handle');
+    var wSide = handle.getAttribute('data-fr-wside') || handle.getAttribute('data-handle-side') || '';
+    var hSide = handle.getAttribute('data-fr-hside') || '';
     var wrap = handle.parentNode;
     var target = wrap ? wrap.querySelector('[data-question-id="' + qid + '"]') : null;
     // §7.1.3: applyCanvasDecoration already keeps this field NON-draggable
@@ -4492,8 +4627,11 @@ export const SECTION_STUDIO_SCRIPT = `
     // toggling it here would be too late) — this restores the ordinary
     // container/canvas drag-reorder source the instant the gesture ends,
     // rather than waiting for the next debounced re-render.
-    var startWidth = target && target.getBoundingClientRect ? target.getBoundingClientRect().width : 0;
+    var startRect = target && target.getBoundingClientRect ? target.getBoundingClientRect() : null;
+    var startWidth = startRect ? startRect.width : 0;
+    var startHeight = startRect ? startRect.height : 0;
     var startX = ev.clientX;
+    var startY = ev.clientY;
     var innerDoc = canvasFrameDoc();
     var startedInFrame = !!(innerDoc && handle.ownerDocument === innerDoc);
     var dragActive = true;
@@ -4528,19 +4666,38 @@ export const SECTION_STUDIO_SCRIPT = `
       cleanupListeners();
       if (target && target.setAttribute) { target.setAttribute('draggable', 'true'); }
       if (!moved) { return; }
-      var endX = upEv.clientX;
       var frame = canvasFrameEl();
+      var frameLeft = 0, frameTop = 0;
       if (startedInFrame && viaParent && frame && frame.getBoundingClientRect) {
-        endX = upEv.clientX - frame.getBoundingClientRect().left;
+        var fr = frame.getBoundingClientRect();
+        frameLeft = fr.left;
+        frameTop = fr.top;
       }
-      var deltaX = endX - startX;
-      var rawWidth = side === 'left' ? (startWidth - deltaX) : (startWidth + deltaX);
-      var clamped = snapWidthCustomPx(rawWidth);
       var ref = findRef(qid);
       if (!ref) { return; }
       if (!ref.node.design_overrides) { ref.node.design_overrides = {}; }
       if (!ref.node.design_overrides.size) { ref.node.design_overrides.size = {}; }
-      ref.node.design_overrides.size.width = { custom_px: clamped };
+      if (wSide) {
+        var deltaX = (upEv.clientX - frameLeft) - startX;
+        var rawWidth = wSide === 'left' ? (startWidth - deltaX) : (startWidth + deltaX);
+        var clamped = snapWidthCustomPx(rawWidth);
+        ref.node.design_overrides.size.width = { custom_px: clamped };
+      }
+      if (hSide) {
+        var deltaY = (upEv.clientY - frameTop) - startY;
+        var rawHeight = hSide === 'top' ? (startHeight - deltaY) : (startHeight + deltaY);
+        var clampedH = snapHeightCustomPx(rawHeight);
+        ref.node.design_overrides.size.height = { custom_px: clampedH };
+      }
+      // R2 S1-4: refresh the Style-tab size controls so the Custom chip + Reset
+      // (width AND height) reflect the drag LIVE — afterModelChange re-renders
+      // the canvas/toolbar but never repopulates the inspector (setWidthPreset
+      // calls populateSizeControls itself; the drag path used to skip it, so a
+      // dragged custom_px never lit its chip until the next re-selection).
+      // typeof-guarded (same idiom as activeWidthDragCleanup below): this handler
+      // is sliced STANDALONE into vitest probes that never declare
+      // populateSizeControls — a bare reference would ReferenceError there.
+      if (typeof populateSizeControls === 'function') { populateSizeControls(ref.node); }
       afterModelChange();
     }
     function onUpInner(upEv) { finishUp(upEv, false); }
@@ -4557,14 +4714,14 @@ export const SECTION_STUDIO_SCRIPT = `
     // committed a bogus width. mousedown always precedes mouseup, so the
     // only airtight point left is the very next mousedown, anywhere,
     // BEFORE it can bubble to whatever handler that interaction has. Skips
-    // handle-targeted mousedowns: a fresh onWidthHandleMouseDown already
+    // handle-targeted mousedowns: a fresh onResizeHandleMouseDown already
     // tears down any prior drag itself (this function's own top) and then
     // re-arms activeWidthDragCleanup for its OWN gesture — this listener
     // must never immediately undo that brand new registration. Capture
     // phase so no other handler's stopPropagation can hide the mousedown
     // from this listener first.
     function onOtherMouseDown(dEv) {
-      var onHandle = dEv.target && dEv.target.closest ? dEv.target.closest('[data-width-handle]') : null;
+      var onHandle = dEv.target && dEv.target.closest ? dEv.target.closest('[data-field-resize-handle]') : null;
       if (onHandle) { return; }
       if (activeWidthDragCleanup) { activeWidthDragCleanup(); }
     }
@@ -4578,35 +4735,192 @@ export const SECTION_STUDIO_SCRIPT = `
     document.addEventListener('mouseup', onUpOuter);
     document.addEventListener('mousemove', onMoveOuter);
   }
-  // §6.2 the 8 handles (golden :338-345): exact offsets left/right -11px;
-  // rows at top -11/+19/+49. Only the two +19 side-midpoint handles are
-  // filled navy + interactive (ew-resize); the other six are white +
-  // pointer-events:none (presentation for this field type).
-  function buildHandle(top, side, interactive, qid) {
-    var el = document.createElement('span');
-    el.setAttribute('data-selection-chrome', '1');
-    var css = 'position:absolute;top:' + top + 'px;width:11px;height:11px;border-radius:3px;';
-    css += side === 'left' ? 'left:-11px;' : side === 'right' ? 'right:-11px;' : 'left:calc(50% - 5px);';
-    if (interactive) {
-      css += 'background:#1B3A5C;border:2px solid #1B3A5C;cursor:ew-resize;pointer-events:auto';
-      el.setAttribute('data-width-handle', qid);
-      el.setAttribute('data-handle-side', side);
-      el.addEventListener('mousedown', onWidthHandleMouseDown);
-    } else {
-      css += 'background:#fff;border:2px solid #1B3A5C;pointer-events:none';
+  // R2 S1-5/S1-6: MOVE the selected field by dragging its BODY with a real
+  // mouse. The text-input family's [data-question-id] node is a bare <input>
+  // (presets.ts renderTextInput) — a native HTML5 drag started on it arms
+  // caret/text-selection instead of dragstart (Currency/Address escape this via
+  // their outer-div host, so containers/choice cards keep their native reorder).
+  // So for a bare-input field the measured selection OUTLINE doubles as the drag
+  // surface (pointer-events:auto, data-drag-qid) and runs a MOUSE-event reorder
+  // gesture — the SAME primitive class the resize handles use (which a real
+  // page.mouse CAN drive into the srcdoc canvas, unlike native HTML5 DnD).
+  // mousedown -> track the pointer (via elementFromPoint in the frame doc) ->
+  // on mouseup drop before/after/into the node under the release point.
+  var activeFieldMoveCleanup = null;
+  function onFieldMoveMouseDown(ev) {
+    // Bound to a bare-input field element (the <input> that IS the
+    // [data-question-id] node). preventDefault stops the native caret/text-
+    // selection so a body drag can reorder instead.
+    var surface = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
+    if (!surface) { return; }
+    ev.preventDefault();
+    if (ev.stopPropagation) { ev.stopPropagation(); }
+    if (activeFieldMoveCleanup) { activeFieldMoveCleanup(); }
+    var qid = surface.getAttribute('data-question-id');
+    var startX = ev.clientX, startY = ev.clientY;
+    var innerDoc = canvasFrameDoc();
+    var moved = false;
+    var dragActive = true;
+    function cleanup() {
+      if (innerDoc && innerDoc.removeEventListener) {
+        innerDoc.removeEventListener('mouseup', onUpInner);
+        innerDoc.removeEventListener('mousemove', onMoveInner);
+      }
+      document.removeEventListener('mouseup', onUpOuter);
+      document.removeEventListener('mousemove', onMoveOuter);
+      if (activeFieldMoveCleanup === cleanup) { activeFieldMoveCleanup = null; }
+      clearDropClasses();
     }
-    el.setAttribute('style', css);
+    function trackAt(clientX, clientY, viaParent) {
+      if (Math.abs(clientX - startX) < 4 && Math.abs(clientY - startY) < 4) { return; }
+      moved = true;
+      var doc = canvasFrameDoc();
+      if (!doc || !doc.elementFromPoint) { return; }
+      var fx = clientX, fy = clientY;
+      var frame = canvasFrameEl();
+      if (viaParent && frame && frame.getBoundingClientRect) {
+        var fr = frame.getBoundingClientRect();
+        fx = clientX - fr.left;
+        fy = clientY - fr.top;
+      }
+      clearDropClasses();
+      dropHint = null;
+      var over = doc.elementFromPoint(fx, fy);
+      var host = over && over.closest ? over.closest('[data-question-id]') : null;
+      if (!host || host.getAttribute('data-question-id') === qid) { return; }
+      var hqid = host.getAttribute('data-question-id');
+      var type = host.getAttribute('data-component-type');
+      var rect = host.getBoundingClientRect();
+      var y = fy - rect.top;
+      if (isContainerType(type) && y > rect.height * 0.25 && y < rect.height * 0.75) {
+        dropHint = { qid: hqid, mode: 'into' };
+        host.className = withoutClasses(host.className, DROP_CLASSES) + ' studio-drop-into';
+      } else if (y < rect.height / 2) {
+        dropHint = { qid: hqid, mode: 'before' };
+        host.className = withoutClasses(host.className, DROP_CLASSES) + ' studio-drop-before';
+      } else {
+        dropHint = { qid: hqid, mode: 'after' };
+        host.className = withoutClasses(host.className, DROP_CLASSES) + ' studio-drop-after';
+      }
+    }
+    function finishUp() {
+      if (!dragActive) { return; }
+      dragActive = false;
+      var hint = dropHint;
+      cleanup();
+      dropHint = null;
+      if (!moved || !hint || !hint.qid || hint.qid === qid) { return; }
+      if (hint.mode === 'into') { moveNodeTo(qid, hint.qid, null); }
+      else {
+        var ref = findRef(hint.qid);
+        if (ref) { moveNodeTo(qid, ref.parent ? ref.parent.question_id : null, ref.index + (hint.mode === 'after' ? 1 : 0)); }
+      }
+      selectComponent(qid);
+    }
+    function onMoveInner(mEv) { trackAt(mEv.clientX, mEv.clientY, false); }
+    function onMoveOuter(mEv) { trackAt(mEv.clientX, mEv.clientY, true); }
+    function onUpInner() { finishUp(); }
+    function onUpOuter() { finishUp(); }
+    activeFieldMoveCleanup = cleanup;
+    if (innerDoc && innerDoc.addEventListener) {
+      innerDoc.addEventListener('mouseup', onUpInner);
+      innerDoc.addEventListener('mousemove', onMoveInner);
+    }
+    document.addEventListener('mouseup', onUpOuter);
+    document.addEventListener('mousemove', onMoveOuter);
+  }
+  // R2 S1-1/S1-2/S1-3: a MEASURED selection handle. All 8 handles are now
+  // interactive (pointer-events:auto) with a real cursor and the axis/axes they
+  // drive (wSide/hSide) — the register's "6 of 8 are dead decoration" is fixed.
+  // Position is a MEASURED px offset (leftPx/topPx, relative to the wrap), never
+  // the old hardcoded golden-demo -11/+19/+49 rows. The two mid E/W handles ALSO
+  // carry the legacy data-width-handle + data-handle-side attributes so the
+  // synthetic §7.1.3 width-drag test / r0a spike / forensic probe locators are
+  // unchanged (the drag behavior now flows from data-fr-wside/data-fr-hside).
+  function buildHandle(leftPx, topPx, cursor, wSide, hSide, qid) {
+    var el = frameCreate('span');
+    el.setAttribute('data-selection-chrome', '1');
+    el.setAttribute('data-field-resize-handle', qid);
+    el.setAttribute('data-fr-wside', wSide);
+    el.setAttribute('data-fr-hside', hSide);
+    if (wSide && !hSide) {
+      el.setAttribute('data-width-handle', qid);
+      el.setAttribute('data-handle-side', wSide);
+    }
+    // The measured position/cursor ride the variable part; the fixed appearance
+    // (incl. the navy hex) is a SEPARATE declaration-list literal that STARTS with
+    // a property name, in a single style-sink statement, so the §15.2 hex-lint
+    // recognizes it as a style-sink CSS literal (the codebase idiom).
+    el.setAttribute('style', 'position:absolute;left:' + leftPx + 'px;top:' + topPx + 'px;cursor:' + cursor + ';' + 'width:11px;height:11px;border-radius:3px;background:#1B3A5C;border:2px solid #1B3A5C;box-sizing:border-box;pointer-events:auto');
+    el.addEventListener('mousedown', onWidthHandleMouseDown);
+    return el;
+  }
+  // R2 adversarial-review MAJOR fix #1: the presentational counterpart of
+  // buildHandle for a NON-size-consuming type (isSizeConsumingType false) —
+  // the SAME visible box (position/dims/color) so selection chrome stays
+  // consistent across all field-chrome types, but with NO resize affordance:
+  // no per-axis cursor, no pointer-events:auto, no mousedown listener, and
+  // none of the data-field-resize-handle/data-fr-wside/data-fr-hside/
+  // data-width-handle locators a real or synthetic drag needs to find
+  // something to grab. A drag attempt at this handle's position therefore
+  // does nothing — it can never write a phantom design_overrides.size the
+  // renderer doesn't consume (register U6/P6, the operator's "resize does
+  // nothing" complaint through a new door).
+  function buildInertHandle(leftPx, topPx) {
+    var el = frameCreate('span');
+    el.setAttribute('data-selection-chrome', '1');
+    el.setAttribute('style', 'position:absolute;left:' + leftPx + 'px;top:' + topPx + 'px;' + 'width:11px;height:11px;border-radius:3px;background:#1B3A5C;border:2px solid #1B3A5C;box-sizing:border-box;pointer-events:none');
     return el;
   }
   function decorateFieldSelection(el, qid, node) {
     var wrap = ensureSelectionWrap(el);
-    var outline = document.createElement('div');
+    // R2 S1-1/S1-2: MEASURE the field's real box (getBoundingClientRect inside
+    // the iframe doc) and derive ALL chrome geometry from it — no hardcoded
+    // 66px height / -11/+19/+49 handle rows (those were copied from the golden's
+    // one demo field and were wrong on every real field, worst on ones with a
+    // helper line or a leading icon). Offsets are px relative to the wrap.
+    var fr = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
+    var wr = wrap.getBoundingClientRect ? wrap.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
+    var ox = fr.left - wr.left;
+    var oy = fr.top - wr.top;
+    var ow = fr.width;
+    var oh = fr.height;
+    var isBareInput = !!(node && isBareInputFieldType(node.type));
+    // R2 adversarial-review MAJOR fix #1: whether THIS node's renderer
+    // actually consumes design_overrides.size (see SIZE_CONSUMING_TYPES
+    // above). Gates the resize handles + Custom badge below — the measured
+    // outline + name tag stay for EVERY field-chrome type regardless (the
+    // alignment contract holds for all of them; only the RESIZE affordance
+    // is type-gated).
+    var sizeConsuming = !!(node && isSizeConsumingType(node.type));
+    var outline = frameCreate('div');
     outline.setAttribute('data-selection-chrome', '1');
-    outline.style.cssText = 'position:absolute;left:-6px;right:-6px;top:-6px;height:66px;border:2px solid #1B3A5C;border-radius:12px;pointer-events:none';
+    // The outline's border-box is COINCIDENT with the field box (measured), so
+    // getBoundingClientRect(outline) === field rect (assertOverlayAligned <=4px
+    // on x/y/w/h). The visible ring is drawn with the CSS outline + outline-offset
+    // properties (painted OUTSIDE the border box, excluded from the measured
+    // rect) so the ring shows a small margin WITHOUT moving the measured geometry.
+    // The outline is ALWAYS pointer-events:none (presentation only) so the field
+    // stays directly clickable — S1-5/S1-6's move-drag is armed on the FIELD
+    // element itself (below), not by covering it.
+    var outlinePe = 'pointer-events:none';
+    // S1-5/S1-6: a bare-input field's [data-question-id] node is an <input>, so a
+    // native mouse drag on it arms caret/text-selection, not a move. Attach the
+    // MOUSE-EVENT move gesture (onFieldMoveMouseDown) directly to the input and
+    // preventDefault the caret so a body drag reorders it (Currency/Address div
+    // hosts reorder via ordinary native DnD; onFieldMoveMouseDown is bare-input
+    // only). cursor:move signals the affordance without intercepting clicks.
+    if (isBareInput && el.addEventListener) {
+      el.addEventListener('mousedown', onFieldMoveMouseDown);
+      el.style.cursor = 'move';
+    }
+    // The hex-bearing declaration-list literal STARTS with a property name in a
+    // single .style.cssText sink statement (the §15.2 hex-lint idiom).
+    outline.style.cssText = 'position:absolute;left:' + ox + 'px;top:' + oy + 'px;width:' + ow + 'px;height:' + oh + 'px;' + 'box-sizing:border-box;border-radius:12px;outline:2px solid #1B3A5C;outline-offset:3px;' + outlinePe;
     wrap.appendChild(outline);
-    var tag = document.createElement('div');
+    var tag = frameCreate('div');
     tag.setAttribute('data-selection-chrome', '1');
-    tag.style.cssText = 'position:absolute;top:-30px;left:-6px;background:#1B3A5C;color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px 6px 6px 0;pointer-events:none;white-space:nowrap';
+    tag.style.cssText = 'position:absolute;top:' + (oy - 28) + 'px;left:' + ox + 'px;' + 'background:#1B3A5C;color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px 6px 6px 0;pointer-events:none;white-space:nowrap';
     // §5.6's "Short text field" tag is scoped to the 8-value Accept-swap
     // text-input family (acceptFormatOfNode returns non-null ONLY for those
     // 8 types) — every OTHER field kind reaching this 8-handle chrome
@@ -4616,39 +4930,56 @@ export const SECTION_STUDIO_SCRIPT = `
     // selected (adversarial review M2).
     tag.appendChild(document.createTextNode(node && acceptFormatOfNode(node) ? 'Short text field' : typeLabel(node ? node.type : '')));
     wrap.appendChild(tag);
-    var customPx = currentCustomWidthPx(node);
-    if (customPx !== null) {
-      var badge = document.createElement('div');
+    // R2 S1-4: the custom badge covers EITHER axis (width takes precedence when
+    // both are custom; the inspector's two chips disambiguate). Format is the
+    // golden's "≈ N px · custom" (unchanged regex for the width-drag gates).
+    // R2 adversarial-review MAJOR fix #1: gated on sizeConsuming — a
+    // non-consuming type's node can never GAIN a custom_px through this
+    // canvas anymore (the handles below are inert for it), but a value
+    // authored some OTHER way (a legacy/API-authored node) must still not
+    // show a badge implying a resize the renderer will not render.
+    var customPxW = currentCustomWidthPx(node);
+    var customPxH = currentCustomHeightPx(node);
+    if (sizeConsuming && (customPxW !== null || customPxH !== null)) {
+      var badge = frameCreate('div');
       badge.setAttribute('data-selection-chrome', '1');
-      badge.style.cssText = 'position:absolute;top:-30px;right:-6px;background:#1B3A5C;color:#fff;font-size:10.5px;font-weight:700;padding:4px 8px;border-radius:6px 6px 0 6px;pointer-events:none;white-space:nowrap';
-      badge.appendChild(document.createTextNode('≈ ' + customPx + ' px · custom'));
+      badge.style.cssText = 'position:absolute;top:' + (oy - 28) + 'px;left:' + (ox + ow) + 'px;transform:translateX(-100%);' + 'background:#1B3A5C;color:#fff;font-size:10.5px;font-weight:700;padding:4px 8px;border-radius:6px 6px 0 6px;pointer-events:none;white-space:nowrap';
+      badge.appendChild(document.createTextNode('≈ ' + (customPxW !== null ? customPxW : customPxH) + ' px · custom'));
       wrap.appendChild(badge);
     }
-    wrap.appendChild(buildHandle(-11, 'left', false, qid));
-    wrap.appendChild(buildHandle(-11, 'center', false, qid));
-    wrap.appendChild(buildHandle(-11, 'right', false, qid));
-    wrap.appendChild(buildHandle(19, 'left', true, qid));
-    wrap.appendChild(buildHandle(19, 'right', true, qid));
-    wrap.appendChild(buildHandle(49, 'left', false, qid));
-    wrap.appendChild(buildHandle(49, 'center', false, qid));
-    wrap.appendChild(buildHandle(49, 'right', false, qid));
+    // 8 MEASURED handles: 4 corners (both axes) + 4 edge-midpoints (one axis).
+    // A handle is 11px, centered on its point (offset -5.5). R2
+    // adversarial-review MAJOR fix #1: a non-size-consuming type gets the
+    // INERT look-alike (buildInertHandle) — same box, no affordance — so
+    // "chrome for all 41 types" holds without a misleading resize on the ~33
+    // types R3 hasn't wired yet (register S2-1).
+    var leftX = ox - 5.5, rightX = ox + ow - 5.5, midX = ox + ow / 2 - 5.5;
+    var topY = oy - 5.5, botY = oy + oh - 5.5, midY = oy + oh / 2 - 5.5;
+    wrap.appendChild(sizeConsuming ? buildHandle(leftX, topY, 'nwse-resize', 'left', 'top', qid) : buildInertHandle(leftX, topY));
+    wrap.appendChild(sizeConsuming ? buildHandle(rightX, topY, 'nesw-resize', 'right', 'top', qid) : buildInertHandle(rightX, topY));
+    wrap.appendChild(sizeConsuming ? buildHandle(leftX, botY, 'nesw-resize', 'left', 'bottom', qid) : buildInertHandle(leftX, botY));
+    wrap.appendChild(sizeConsuming ? buildHandle(rightX, botY, 'nwse-resize', 'right', 'bottom', qid) : buildInertHandle(rightX, botY));
+    wrap.appendChild(sizeConsuming ? buildHandle(midX, topY, 'ns-resize', '', 'top', qid) : buildInertHandle(midX, topY));
+    wrap.appendChild(sizeConsuming ? buildHandle(midX, botY, 'ns-resize', '', 'bottom', qid) : buildInertHandle(midX, botY));
+    wrap.appendChild(sizeConsuming ? buildHandle(leftX, midY, 'ew-resize', 'left', '', qid) : buildInertHandle(leftX, midY));
+    wrap.appendChild(sizeConsuming ? buildHandle(rightX, midY, 'ew-resize', 'right', '', qid) : buildInertHandle(rightX, midY));
   }
   // headline (golden :314-317) / continue (golden :352-355): outline + name
   // tag ONLY — no handles (§6.2: handles are field-type-only presentation).
   function decorateSimpleSelection(el, kind) {
     var wrap = ensureSelectionWrap(el);
-    var outline = document.createElement('div');
+    var outline = frameCreate('div');
     outline.setAttribute('data-selection-chrome', '1');
     outline.style.cssText = kind === 'continue'
       ? 'position:absolute;left:-6px;right:-6px;top:-6px;bottom:-6px;border:2px solid #1B3A5C;border-radius:14px;pointer-events:none'
       : 'position:absolute;left:-6px;right:-6px;top:-6px;bottom:-6px;border:2px solid #1B3A5C;border-radius:10px;pointer-events:none';
     wrap.appendChild(outline);
-    var tag = document.createElement('div');
+    var tag = frameCreate('div');
     tag.setAttribute('data-selection-chrome', '1');
     tag.style.cssText = 'position:absolute;top:-30px;left:-6px;background:#1B3A5C;color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px 6px 6px 0;pointer-events:none;white-space:nowrap;display:flex;align-items:center;gap:6px';
     if (kind === 'continue') {
       tag.appendChild(document.createTextNode('Continue button'));
-      var chip = document.createElement('span');
+      var chip = frameCreate('span');
       chip.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:rgba(255,255,255,.18);padding:1px 6px;border-radius:10px;font-size:10px';
       chip.appendChild(document.createTextNode('from frame'));
       tag.appendChild(chip);
@@ -4672,27 +5003,33 @@ export const SECTION_STUDIO_SCRIPT = `
     clearSelectionChrome(region);
     var nodes = region.querySelectorAll('[data-question-id]');
     var qid, base, ref, labels, chip, nodeType, chromeKind;
+    var selEl = null, selKind = null, selNode = null, selQid = null;
     for (i = 0; i < nodes.length; i++) {
       qid = nodes[i].getAttribute('data-question-id');
       ref = findRef(qid);
       chromeKind = (qid === selectedQuestionId && ref) ? selectionChromeKind(ref.node) : null;
-      // §7.1.3: the selected FIELD's own input sits directly under/beside its
-      // width-drag handles. Confirmed via a real mousedown dispatched on the
-      // input itself: with draggable="true" (the container/canvas reorder
-      // mechanism's default for every [data-question-id]), that mousedown
-      // arms a NATIVE HTML5 drag on the input — a real browser behavior, not
-      // an artifact of any particular test tool. Suppress it for exactly the
-      // one node that's both selected AND field-chrome'd, so grabbing near
-      // the input while its resize handles are showing can never accidentally
-      // start a native drag instead of (or on top of) the width-drag gesture.
-      // Every other node (incl. this same field once deselected) keeps the
-      // existing reorder-by-drag mechanism.
-      nodes[i].setAttribute('draggable', chromeKind === 'field' ? 'false' : 'true');
+      // R2 S1-5/S1-6: the blanket draggable="false" on EVERY selected field is
+      // GONE — it made choice groups / currency / address (the nodes the operator
+      // touches) un-movable, the "no component can be dragged" defect. Now only a
+      // SELECTED BARE-INPUT field keeps draggable="false", and for a real reason:
+      // its [data-question-id] node IS an <input>, so it is NOT the drag source
+      // (a native mouse drag on an input selects text, not a move) — the measured
+      // outline is its drag surface instead (onFieldMoveMouseDown, a mouse-event
+      // reorder). Every OTHER node (choice groups, currency/address div hosts,
+      // containers, the same field once deselected) is draggable="true" and
+      // reorders via ordinary native DnD. A drag starting ON a resize handle
+      // still RESIZES (the handle's mousedown preventDefaults + stopPropagations
+      // before any native drag can arm).
+      nodeType = nodes[i].getAttribute('data-component-type');
+      // NOTE: this function is sliced-and-run STANDALONE by the studio-ui
+      // vm-probe, so the bare-input membership is inlined here rather than via
+      // the island-scoped isBareInputFieldType helper (undefined in a slice).
+      // Keep this list identical to BARE_INPUT_FIELD_TYPES above.
+      nodes[i].setAttribute('draggable', (chromeKind === 'field' && ',FreeTextQuestion,NumberInputQuestion,EmailInputQuestion,PhoneInputQuestion,ZIPInputQuestion,DateQuestion,'.indexOf(',' + nodeType + ',') !== -1) ? 'false' : 'true');
       base = withoutClasses(nodes[i].className, [SELECT_CLASS]);
       nodes[i].className = qid === selectedQuestionId ? base + ' ' + SELECT_CLASS : base;
       // §5.4: legacy frame-scope node → amber badge (unless Keep-acknowledged
       // this session). Inserted as a SIBLING above the node element.
-      nodeType = nodes[i].getAttribute('data-component-type');
       if (typeMeta(nodeType).scope === 'frame' && keptLegacyFrameNodes[qid] !== true && nodes[i].parentNode) {
         nodes[i].parentNode.insertBefore(buildFrameBadge(qid, nodeType), nodes[i]);
       }
@@ -4701,7 +5038,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // contain children).
       labels = ref ? mapsFillLabels(ref.node) : [];
       if (labels.length > 0 && nodes[i].parentNode) {
-        chip = document.createElement('span');
+        chip = frameCreate('span');
         chip.className = 'studio-maps-chip';
         chip.setAttribute('data-studio-maps-chip', '');
         chip.setAttribute('data-chip-for', qid);
@@ -4709,15 +5046,23 @@ export const SECTION_STUDIO_SCRIPT = `
         chip.appendChild(document.createTextNode('fills: ' + labels.join(', ')));
         nodes[i].parentNode.insertBefore(chip, nodes[i].nextSibling);
       }
-      // §6.2 golden selection chrome (field 8-handles / headline / continue) —
-      // additive over the generic .studio-selected-node outline above; only
-      // for the CURRENTLY selected node, and only for these 3 golden kinds
-      // (containers keep their existing .studio-resize-handle mechanism).
-      if (chromeKind === 'field') { decorateFieldSelection(nodes[i], qid, ref.node); }
-      else if (chromeKind === 'headline' || chromeKind === 'continue') { decorateSimpleSelection(nodes[i], chromeKind); }
+      // §6.2 golden selection chrome (field 8-handles / headline / continue):
+      // only the CURRENTLY selected node, and only these 3 golden kinds
+      // (containers keep their existing .studio-resize-handle mechanism). CAPTURE
+      // it here but DECORATE it AFTER decorateChoiceCards (below) — R2 S1-1/S1-2:
+      // the measured overlay must enclose the group's FINAL box, and
+      // decorateChoiceCards appends the "+ Add choice" ghost to a selected choice
+      // group, growing its height AFTER this loop would have measured it.
+      if (chromeKind === 'field' || chromeKind === 'headline' || chromeKind === 'continue') {
+        selEl = nodes[i]; selKind = chromeKind; selQid = qid; selNode = ref.node;
+      }
     }
     decorateChoiceCards(region);
     decorateMappingOverlay(region);
+    // §6.2 measured selection chrome LAST — after the ghost/choice-X inserts, so
+    // getBoundingClientRect reflects the node's final laid-out box.
+    if (selKind === 'field') { decorateFieldSelection(selEl, selQid, selNode); }
+    else if (selKind === 'headline' || selKind === 'continue') { decorateSimpleSelection(selEl, selKind); }
     // badges/chips/handles change the document height — keep the frame sized.
     updateCanvasFrameHeight();
   }
@@ -5599,17 +5944,26 @@ export const SECTION_STUDIO_SCRIPT = `
     if (customChip) { customChip.hidden = !isCustomWidth; }
     if (customLabel && customPx !== null) { customLabel.textContent = 'Custom \\u00b7 \\u2248 ' + customPx + ' px'; }
     var heightVal = size.height;
+    // R2 S1-4: height now has the SAME custom/preset duality as width — a
+    // custom_px object (from an N/S or corner drag) deselects every height
+    // preset and shows the Custom chip + Reset (the width chip's twin).
+    var isCustomHeight = heightVal !== undefined && typeof heightVal === 'object';
+    var customPxH = currentCustomHeightPx(node);
     var heightBtns = document.querySelectorAll('[data-set-height]');
     for (i = 0; i < heightBtns.length; i++) {
-      heightBtns[i].className = heightVal === heightBtns[i].getAttribute('data-set-height') ? 'active' : '';
+      heightBtns[i].className = (!isCustomHeight && heightVal === heightBtns[i].getAttribute('data-set-height')) ? 'active' : '';
     }
+    var heightChip = document.querySelector('[data-height-custom-chip]');
+    var heightLabel = document.querySelector('[data-height-custom-label]');
+    if (heightChip) { heightChip.hidden = !isCustomHeight; }
+    if (heightLabel && customPxH !== null) { heightLabel.textContent = 'Custom \\u00b7 \\u2248 ' + customPxH + ' px'; }
     var themeNote = document.querySelector('[data-style-theme-note]');
     if (themeNote) { themeNote.textContent = 'from theme: ' + previewThemeName; }
   }
   // §7.1 bullet 2: "Selecting a preset writes that preset name to the node and
   // clears any custom value." Reused by BOTH the Style-tab segmented buttons
   // here and — via the same design_overrides.size storage — the Phase-B
-  // canvas-drag mechanism (onWidthHandleMouseDown) stays the OTHER writer of
+  // canvas-drag mechanism (onResizeHandleMouseDown) stays the OTHER writer of
   // the identical key.
   function setWidthPreset(preset) {
     var node = selectedNode();
@@ -5628,6 +5982,10 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!node.design_overrides.size) { node.design_overrides.size = {}; }
     node.design_overrides.size.height = preset;
     populateSizeControls(node);
+    // R2 S2-11: a preset REPLACES any height custom_px object, so the canvas
+    // custom badge must be re-derived — setWidthPreset already did this; the
+    // height twin was the omission the register flagged.
+    applyCanvasDecoration();
     afterModelChange();
   }
   // §7.1 bullet 4: "Reset removes the custom value -> the field re-inherits
@@ -5637,6 +5995,18 @@ export const SECTION_STUDIO_SCRIPT = `
     var node = selectedNode();
     if (!node || !node.design_overrides || !node.design_overrides.size) { return; }
     delete node.design_overrides.size.width;
+    cleanupEmpty(node.design_overrides, 'size');
+    cleanupEmpty(node, 'design_overrides');
+    populateSizeControls(node);
+    applyCanvasDecoration();
+    afterModelChange();
+  }
+  // R2 S1-4: the height twin of resetWidthCustom — deletes ONLY the height key
+  // (never touches width), so the field re-inherits the theme height preset.
+  function resetHeightCustom() {
+    var node = selectedNode();
+    if (!node || !node.design_overrides || !node.design_overrides.size) { return; }
+    delete node.design_overrides.size.height;
     cleanupEmpty(node.design_overrides, 'size');
     cleanupEmpty(node, 'design_overrides');
     populateSizeControls(node);
@@ -5667,6 +6037,9 @@ export const SECTION_STUDIO_SCRIPT = `
     var overrides = ensureObj(node, 'design_overrides');
     overrides.corners = val;
     populateCornersBorderControls(node);
+    // R2 S2-11: re-decorate on corners/border like width already does, so the
+    // selection overlay stays measured-accurate after the change re-renders.
+    applyCanvasDecoration();
     afterModelChange();
   }
   function setNodeBorderColor(val) {
@@ -5675,6 +6048,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var overrides = ensureObj(node, 'design_overrides');
     overrides.border_color = val;
     populateCornersBorderControls(node);
+    applyCanvasDecoration();
     afterModelChange();
   }
   // §8.5b Text/bound-headline Style variant: Role (TextBlock only).
@@ -7284,6 +7658,12 @@ export const SECTION_STUDIO_SCRIPT = `
         }
         return;
       }
+      // R2 S1-8: a click on a resize handle (mousedown+mouseup with no real
+      // drag) must NEVER change selection. The trailing native click's target is
+      // the handle — a SIBLING of the field inside the selection wrap — whose
+      // closest('[data-question-id]') used to resolve to the PARENT container and
+      // silently DESELECT the field. Swallow any click that lands on a handle.
+      if (ev.target && ev.target.closest && ev.target.closest('[data-field-resize-handle]')) { return; }
       var el = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
       if (!el || !canvasOwns(el)) { return; }
       ev.preventDefault();
@@ -7294,30 +7674,48 @@ export const SECTION_STUDIO_SCRIPT = `
         selectChoice(el.getAttribute('data-question-id'), cardEl.getAttribute('data-lg-choice'));
         return;
       }
-      selectComponent(el.getAttribute('data-question-id'));
+      // R2 S1-7: skip a same-node re-select. Re-selecting re-runs
+      // applyCanvasDecoration (rebuilding this field's wrap/chrome); clicking an
+      // ALREADY-selected field would then rebuild between the two clicks of a
+      // dblclick, and the inline placeholder edit (S1-7) would never start. A
+      // same-node click is a no-op — the field stays selected, its chrome stable.
+      var clickQid = el.getAttribute('data-question-id');
+      if (clickQid !== selectedQuestionId) { selectComponent(clickQid); }
   }
   // §6.2 inline text editing on double-click: bound/label/helper text writes
   // the bound column or props; a choice card edits its label.
   function onCanvasDblClick(ev) {
+      // R2 S1-8: a dblclick on a resize handle does nothing (keep native).
+      if (ev.target && ev.target.closest && ev.target.closest('[data-field-resize-handle]')) { return; }
       var host = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
+      var qid = host ? host.getAttribute('data-question-id') : null;
+      var fieldEl = host;
       if (!host || !canvasOwns(host)) { return; }
-      var qid = host.getAttribute('data-question-id');
       var ref = findRef(qid);
       if (!ref) { return; }
-      ev.preventDefault();
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
-      var editEl, committer;
       if (cardEl && typeMeta(ref.node.type).choice === true) {
+        ev.preventDefault();
         var choiceValue = cardEl.getAttribute('data-lg-choice');
-        editEl = cardEl.querySelector('.lg-card-title') || cardEl;
-        committer = function (text) { commitInlineChoiceLabel(qid, choiceValue, text); };
-      } else {
-        var key = inlineEditKeyFor(ref.node);
-        if (key === null) { return; }
-        editEl = host;
-        committer = function (text) { commitInlineText(qid, key, text); };
+        var cardTitle = cardEl.querySelector('.lg-card-title') || cardEl;
+        startInlineEdit(cardTitle, function (text) { commitInlineChoiceLabel(qid, choiceValue, text); });
+        return;
       }
-      startInlineEdit(editEl, committer);
+      // R2 S1-7 / E1-C4: the support check runs BEFORE preventDefault — an
+      // UNSUPPORTED type (e.g. a native DATE field: inlineEditKeyFor -> null,
+      // date excluded) keeps its native dblclick behavior instead of hitting the
+      // old silent dead end (preventDefault-then-bail).
+      var key = inlineEditKeyFor(ref.node);
+      if (key === null) { return; }
+      ev.preventDefault();
+      if (key === 'placeholder') {
+        // The text-input family edits its PLACEHOLDER via the input's value
+        // (contenteditable is a no-op on an <input>) — see startPlaceholderEdit.
+        var inputEl = (fieldEl && fieldEl.tagName && String(fieldEl.tagName).toUpperCase() === 'INPUT') ? fieldEl : (fieldEl && fieldEl.querySelector ? fieldEl.querySelector('input') : null);
+        if (inputEl) { startPlaceholderEdit(inputEl, qid); }
+        return;
+      }
+      startInlineEdit(host, function (text) { commitInlineText(qid, key, text); });
   }
   // §6.2 container resize handles snap to the width presets only. The handle
   // lives in the frame document; the release may land in EITHER document
@@ -7809,6 +8207,8 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   var resetWidthEl = document.querySelector('[data-reset-width]');
   if (resetWidthEl) { resetWidthEl.addEventListener('click', resetWidthCustom); }
+  var resetHeightEl = document.querySelector('[data-reset-height]');
+  if (resetHeightEl) { resetHeightEl.addEventListener('click', resetHeightCustom); }
   var cornersEls = document.querySelectorAll('[data-set-corners]');
   var cni;
   for (cni = 0; cni < cornersEls.length; cni++) {

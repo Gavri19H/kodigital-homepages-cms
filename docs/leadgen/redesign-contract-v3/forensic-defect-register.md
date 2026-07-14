@@ -117,7 +117,7 @@ as are zoom/scale/resize causes).
 | S1-6 | Even unselected, text-input-family drag is unreliable with a REAL mouse: drag source is the bare `<input>` → native caret/text-selection arms instead of dragstart (synthetic dispatch bypasses this). Currency/Address (outer-div hosts) unaffected; containers/choice-cards drag fine; toolbar ↑↓ + keyboard arrows work | presets:132-147,1507-1537; onCanvasDragStart studio:7354-7367; working paths studio:1338-1339,7449-7450,7619-7620,3867-3906,4346 | PARTIAL | P1 |
 | S1-7 | Inline editing DEAD for the entire input family incl. the default-selected ZIP field: their content_props are only placeholder/helper, `inlineEditKeyFor` checks text/label only; AND `onCanvasDblClick` calls `preventDefault()` BEFORE the support check → silent dead end (native dblclick suppressed, nothing offered). Works: headline/subheadline/category/helper, Continue label, choice labels | studio:7302-7322 (preventDefault :7308), 3493-3499, 469-509 | DEAD (input family) | P1 |
 | S1-8 | Clicking (not dragging) a width handle SILENTLY DESELECTS the field: trailing native click bubbles; `closest('[data-question-id]')` from the handle (a SIBLING of the input inside the wrap) matches the parent container → `selectComponent(parentId)`. Exactly the occlusion class synthetic-dispatch tests never surface | finishUp no-op studio:4514,4526-4531; onCanvasClick studio:7251-7299 (:7298) | MISALIGNED | P1 |
-| S1-9 | Inert duplicate listener set: full canvas listener map bound on the parent-doc `#lg-studio-canvas` (separate event root — can never see in-iframe events) in addition to the load-bearing iframe-doc set | studio:7463-7495,7242 | DEAD (inert) | P2 |
+| S1-9 | Inert duplicate listener set: full canvas listener map bound on the parent-doc `#lg-studio-canvas` (separate event root — can never see in-iframe events) in addition to the load-bearing iframe-doc set. **R2 AMENDMENT: partially REFUTED — the parent surface owns the tabindex=0 keyboard-reorder path (load-bearing) and the §5.6 synthetic spec dispatches on it; conductor ratified KEEP. Not removed.** | studio:7463-7495,7242 | PARTIAL (keyboard path live) | P2 |
 | S1-10 | All 145 canvas-decoration `createElement` calls use the PARENT document then insert into the iframe (implicit adoption) — works today, fragile | e.g. studio:4460,4587,4604,4622 vs canvasFrameDoc studio:4201-4214 | WIRED (fragile) | P2 |
 
 ### S3 — rules / offer mapping / Maps jobs (COMPLETE)
@@ -215,6 +215,35 @@ runtime answer-recording test per input component (slider class).
 **Phase status:** R0 **MERGED** (PR #109 → main @ 9cd252f, 2026-07-13; adversarial review SHIP
 after 2 fix rounds). Rows closed by R0: S4-B1 (headline strip at golden proportions, two-rule fix)
 + the M1/M5/M6 gate primitives + engine.ts encoding + firefox gesture lane.
+**ERRATUM (R2, conductor-ruled):** contract Appendix B's absolute selection-handle geometry
+(rows −11/19/49, left:-11px, outline height 66px) encodes the golden MOCKUP's single demo field;
+the golden's intent is chrome ON the element. The measured overlay supersedes the demo absolutes;
+the binding contract is now: 8 handles, ALL interactive on SIZE-CONSUMING types (E/W width · N/S
+height · corners both; non-consuming types show selection chrome WITHOUT a resize affordance until
+R3 wires their renderers — R2 review finding #1, honest-interim ruling), golden visual constants
+preserved (11px handles, border 2px solid #1B3A5C, ALL-NAVY fill — the golden's white fill
+signified "not interactive", a state that no longer exists; navy = the golden's own interactive
+language, reviewer-adjudicated, operator eyes at the R5 staging sign-off), positions DERIVED FROM
+MEASUREMENT, alignment ≤4px enforced by the firefox gesture gate.
+**gate-1c note (R2):** the measured-overlay rewrite GROWS the expected report-only delta in the
+selection-capture states (1/4/5 — state-1 measured 0.16408 vs R0's 0.16439; states 2/3 unaffected);
+the R5 re-pin captures the new chrome. "Byte-identical to R0" no longer holds past R2 — expected.
+Height custom_px bounds discovered: **[4,600] snap-4** (content-schema validateSizeAxis :1080-1090)
+— intentionally distinct from width's [200,600] (§7.2's own worked example stores a 56px height).
+
+R2 (canvas interaction real) **SHIP** (2026-07-14; adversarial review FIX-FIRST — 1 MAJOR
+honest-interim + 3 minors → all fixed in-phase → SHIP on independent re-verification). Rows
+closed: S1-1/S1-2 (measured overlay, ≤4px proven across 9 types incl. helper+icon), S1-3/S1-4
+(all 8 handles live ON SIZE-CONSUMING types — height custom_px [4,600] snap-4 + Custom chip/Reset;
+honest-interim: non-consuming types show inert chrome until R3 widens renderers, enforced by a
+set-equality pin re-deriving the consuming set from presets.ts source), S1-5/S1-6 (selected node
+draggable; input-armed move; drag-on-handle resizes), S1-7 + E1-C4-part (inline edit honesty; date
+excluded), S1-8 (handle-click keeps selection), S1-10 partial (frameCreate; buildFrameBadge
+vm-probe exception), S2-11 (all four setters decorate), E2-NEW-9-part (Spacer toolbar cluster).
+S1-9 amended-KEEP (keyboard path load-bearing). Gates: gesture spec 10/10 firefox (incl. the
+non-consuming no-write proof via save+re-fetch of persisted content_json) · vitest 5,024/5,024
+(359) · playwright 224/231 + gate-1c report-only (delta grows in selection states 1/4/5 per the
+measured-overlay rewrite — recorded for the R5 re-pin) · bundle 40,908 · jargon 39.
 R1 (runtime answer integrity) **SHIP** (2026-07-14; adversarial review FIX-FIRST → both blockers
 fixed in-phase → SHIP on independent re-verification). Rows closed: E1-NEW-1 (dropdowns record —
 data-lg-input + engine chain), S2-3 (slider records + live value/fill; step honored), E1-NEW-4
