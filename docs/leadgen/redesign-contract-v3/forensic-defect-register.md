@@ -284,6 +284,7 @@ the R5 re-pin captures the new chrome. "Byte-identical to R0" no longer holds pa
 Height custom_px bounds discovered: **[4,600] snap-4** (content-schema validateSizeAxis :1080-1090)
 — intentionally distinct from width's [200,600] (§7.2's own worked example stores a 56px height).
 
+R4a (pipeline + UX dead-ends) **SHIP** (2026-07-14; adversarial review FIX-FIRST — 2 MINORS [prototype-key false positives in the new live checker; require-if advisory overclaiming server parity] + conductor stale-toast addition → all fixed with real-validator cross-checks → SHIP on independent re-verification). Rows closed: S3-1/2/3/9/10, S2-10, E3-NEW-1/2(10-of-32 honest mirror)/3/4/6/7(undo-toast w/ stale-invalidation)/9(+real Reactivate)/10, E3-S1/S3/S4/S5, E3-S7 MOOT (structural proof), E2-NEW-10-mirror. Surfaced: SURF-1 (server never validates requiredWhen refs — advisory shipped; server-side = R6/operator). Gates: vitest 5,186/5,186 (363) · browser 30/30 + shards 257/264 + gate-1c report-only · bundle 40,908 · jargon 37 (raw op codes humanized) · census 31/21/10/0/0 · list 265.
 R3 (inspector honesty, stages A+B) **SHIP** (2026-07-14; adversarial review FIX-FIRST — 1 BLOCKER
 [inert size presets = the M4 mechanism inside our own effect matrix] + 1 MAJOR [unproven silent
 lossy migration] + 4 minors → all fixed in-phase → SHIP on independent re-verification, 23/23
@@ -401,7 +402,7 @@ in R6.
 | Row | Defect | Phase |
 |---|---|---|
 | E3-NEW-1 | New-section first save silently discards `problems[]` (studio:9762-9769 unconditional redirect) | R4a |
-| E3-NEW-2 | Live validation (`computeIssues` studio:3964-4037) mirrors ~7 of 29 server codes — "No issues" false all-clear | R4a |
+| E3-NEW-2 | Live validation (`computeIssues` studio:3964-4037) mirrors ~7 of 29 server codes — "No issues" false all-clear. **R4a CORRECTION: the server now carries 32 codes (register count was stale). R4a mirrors 10 (unknown_component_type, container_depth_exceeded, missing_required_field, duplicate_internal_field, duplicate_question_key, conditional_unknown_field, container_answer_field_forbidden, bind_type_mismatch, duplicate_bind, invalid_choice-basics); the remaining server-only codes are enumerated in the code comment — 14 model-unreachable/deep-validation classes + 3 warnings with dedicated banners. Honest partial, documented.** | R4a |
 | E3-NEW-3 | Hard save failure: generic banner + bare outline, no `fields[key]` message text (studio:9748-9752,9705-9713) | R4a |
 | E3-NEW-4 | Maps tab "Open auction rules →" → nonexistent `/admin/leadgen/rules` (studio:2054; real = `/admin/leadgen/auction`, ui.ts:244-249) | R4a (+ many-funnel disambiguation) |
 | E3-NEW-5 | (= E2-NEW-4 migration dead code; contradicts old traceability row 5 "PASS") | R3 + R6 traceability correction |
@@ -417,6 +418,11 @@ in R6.
 | E3-S5 | "+New" activity/vertical skip `renderOffersStaleNote()` (studio:8281-8288) | R4a |
 | E3-S6 | (= S3-9 drawer pill) | R4a |
 | E3-S7 | FooterBar links rows silently dropped on bad format (no client href hint) | R4a |
+
+### E.4b Gaps SURFACED during remediation (not silently absorbed)
+| Row | Gap | Status |
+|---|---|---|
+| SURF-1 (R4a review) | The server never validates `props.requiredWhen` references — a dangling "require B when A" (A deleted) saves clean and the rule silently never triggers. The studio now shows an honest ADVISORY (beyond-server, labeled as such). Server-side WARNING-class validation is a candidate for R6/later — adding it could flag existing content, so it needs its own blast-radius pass. | SURFACED — operator/R6 decision |
 
 ### E.5 Seam scout (wider product) → phases
 | Row | Defect | Phase |

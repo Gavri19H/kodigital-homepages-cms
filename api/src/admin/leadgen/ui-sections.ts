@@ -140,6 +140,12 @@ export function mappingSummaryOf(
 
 const LG_SECTIONS_STYLES = `
 .lg-editor-pubid{color:var(--c-muted);font-size:12px}
+/* R4a E3-S1: the row "Usage" action — an inline expandable panel replacing
+   window.alert() (same data: GET .../usage, now readable + dismissible). */
+.lg-usage-row td{background:var(--c-surface);border-top:0}
+.lg-usage-panel{font-size:12.5px;color:var(--c-text)}
+.lg-usage-panel ul{margin:6px 0 0;padding-left:18px}
+.lg-usage-panel li{margin:2px 0}
 ${SECTION_STUDIO_STYLES}
 `;
 
@@ -172,6 +178,15 @@ function completenessBadge(c: SectionListItem["completeness"]): string {
 }
 
 function renderSectionListRow(s: SectionListItem): string {
+  // R4a E3-NEW-9: the server supports reactivating via the same general
+  // PATCH {status} the editor's Advanced surfaces already use
+  // (sections-handlers.ts patchSectionHandler; "status" rides
+  // SECTION_PATCH_FIELDS) — an archived row gets a real Reactivate action
+  // instead of a disabled Archive button promising nothing.
+  const archiveOrReactivate =
+    s.status === "archived"
+      ? `<button type="button" class="btn btn-sm btn-secondary" data-section-reactivate="${escapeHtml(s.public_id)}">Reactivate</button>`
+      : `<button type="button" class="btn btn-sm btn-danger" data-section-archive="${escapeHtml(s.public_id)}">Archive</button>`;
   return `<tr data-entity-id="${s.id}" data-entity-name="${escapeHtml(s.section_name)}">
   <td>${escapeHtml(s.section_name)}</td>
   <td>${escapeHtml(s.activity)} / ${escapeHtml(s.vertical)}</td>
@@ -184,9 +199,12 @@ function renderSectionListRow(s: SectionListItem): string {
   <td class="lg-num" data-metric="validation_error_rate"><span class="skel" aria-hidden="true"></span></td>
   <td>
     <a href="/admin/leadgen/sections/${escapeHtml(s.public_id)}/edit" class="btn btn-sm btn-secondary">Edit</a>
-    <button type="button" class="btn btn-sm btn-outline" data-section-usage="${escapeHtml(s.public_id)}">Usage</button>
-    <button type="button" class="btn btn-sm btn-danger" data-section-archive="${escapeHtml(s.public_id)}"${s.status === "archived" ? " disabled" : ""}>Archive</button>
+    <button type="button" class="btn btn-sm btn-outline" data-section-usage="${escapeHtml(s.public_id)}" aria-expanded="false">Usage</button>
+    ${archiveOrReactivate}
   </td>
+</tr>
+<tr class="lg-usage-row" data-section-usage-row="${escapeHtml(s.public_id)}" hidden>
+  <td colspan="${SECTION_LIST_COLUMNS.length}"><div class="lg-usage-panel" data-section-usage-panel role="status" aria-live="polite"></div></td>
 </tr>`;
 }
 
@@ -254,25 +272,83 @@ const SECTION_LIST_SCRIPT = `
     for (j = 0; j < rows.length; j++) { fillRow(tables[t], rows[j]); }
   }
 
-  // row actions: archive (confirm + DELETE), usage (fetch + alert summary)
+  // row actions: archive/reactivate (confirm + response.ok-checked PATCH/
+  // DELETE), usage (inline expandable panel — R4a E3-S1, replaces alert())
   document.addEventListener('click', function (ev) {
     var el = ev.target;
     if (!el || !el.getAttribute) { return; }
     var archiveId = el.getAttribute('data-section-archive');
     if (archiveId) {
-      if (!window.confirm('Archive this Section?')) { return; }
+      if (!window.confirm('Archive this Section? It can be reactivated later from this list.')) { return; }
       fetch('/api/admin/leadgen/sections/' + encodeURIComponent(archiveId), {
         method: 'DELETE', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-      }).then(function () { window.location.reload(); });
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, body: j }; });
+      }).then(function (res) {
+        // R4a E3-NEW-9: check response.ok — a failure shows an error, no
+        // silent redirect (previously this .then() had no ok-check at all).
+        if (!res.ok) { window.alert((res.body && res.body.error) || 'Archive failed'); return; }
+        window.location.reload();
+      }).catch(function () { window.alert('Archive request failed'); });
+      return;
+    }
+    // R4a E3-NEW-9: reactivate — the server already supports flipping
+    // status back to 'active' via the general PATCH (patchSectionHandler);
+    // this is the ONLY new client action, no new server work needed.
+    var reactivateId = el.getAttribute('data-section-reactivate');
+    if (reactivateId) {
+      if (!window.confirm('Reactivate this Section?')) { return; }
+      fetch('/api/admin/leadgen/sections/' + encodeURIComponent(reactivateId), {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ status: 'active' })
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) { window.alert((res.body && res.body.error) || 'Reactivate failed'); return; }
+        window.location.reload();
+      }).catch(function () { window.alert('Reactivate request failed'); });
       return;
     }
     var usageId = el.getAttribute('data-section-usage');
     if (usageId) {
+      var panelRow = document.querySelector('[data-section-usage-row="' + usageId + '"]');
+      if (!panelRow) { return; }
+      var wasHidden = panelRow.hidden;
+      // toggle: a second click on the SAME row collapses it again.
+      panelRow.hidden = !wasHidden;
+      el.setAttribute('aria-expanded', wasHidden ? 'true' : 'false');
+      if (!wasHidden) { return; }
+      var panel = panelRow.querySelector('[data-section-usage-panel]');
+      if (!panel || panel.getAttribute('data-loaded') === 'true') { return; }
+      panel.appendChild(document.createTextNode('Loading usage\\u2026'));
       fetch('/api/admin/leadgen/sections/' + encodeURIComponent(usageId) + '/usage', {
         credentials: 'same-origin', headers: { 'Accept': 'application/json' }
       }).then(function (r) { return r.json(); }).then(function (body) {
         var variants = (body && body.usage && body.usage.variants) ? body.usage.variants : [];
-        window.alert(variants.length === 0 ? 'Not used by any funnel variant.' : 'Used by ' + variants.length + ' funnel variant(s).');
+        clearChildren(panel);
+        panel.setAttribute('data-loaded', 'true');
+        if (variants.length === 0) {
+          panel.appendChild(document.createTextNode('Not used by any funnel variant.'));
+          return;
+        }
+        var head = document.createElement('p');
+        head.appendChild(document.createTextNode('Used by ' + variants.length + ' funnel variant(s):'));
+        panel.appendChild(head);
+        var list = document.createElement('ul');
+        var i, v, li;
+        for (i = 0; i < variants.length; i++) {
+          v = variants[i];
+          li = document.createElement('li');
+          li.appendChild(document.createTextNode(
+            (v.quote_name || 'Quote') + ' \\u203A ' + (v.funnel_name || v.funnel_public_id || 'Funnel') + ' \\u203A Variant ' + (v.variant_label || '?')
+          ));
+          list.appendChild(li);
+        }
+        panel.appendChild(list);
+      }).catch(function () {
+        clearChildren(panel);
+        panel.appendChild(document.createTextNode('Failed to load usage.'));
       });
     }
   });
