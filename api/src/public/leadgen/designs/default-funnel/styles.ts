@@ -278,6 +278,16 @@ export function funnelChromeCss(
       "text-align": subheadline.textAlign,
       margin: `0 0 ${subheadline.marginBottom} 0`,
     }),
+    // R5 D11 (register S4-B2, conductor-ratified blast-radius discipline): a
+    // SURGICAL, later same-selector declaration overrides ONLY the question-
+    // card subheadline's font-size to golden's 15px (golden :313) — the
+    // SHARED subheadline.fontSize TOKEN above (0.825rem) is deliberately left
+    // UNTOUCHED because it also feeds .lg-card-desc (icon-card choice
+    // descriptions) and other non-headline consumers this deliverable does
+    // not touch. Same specificity (bare class selector) + later source order
+    // = this wins the font-size property only; color/text-align/margin from
+    // the rule above are unaffected.
+    rule(`${scope} .lg-subheadline`, { "font-size": "15px" }),
   );
   mobile.push(rule(`${scope} .lg-headline`, { "font-size": headline.fontSizeMobile }));
 
@@ -420,6 +430,20 @@ export function funnelChromeCss(
       background: color.card,
       color: page.textColor,
       border: input.border,
+      // R5 state-safe border (register R3a ROUTING NOTES): a LATER
+      // declaration in the SAME rule overrides just the color channel of the
+      // `border` shorthand above (same specificity, source order decides).
+      // presets.ts's choiceItemStyle supplies a per-node design_overrides.
+      // border_color role as an inline CUSTOM PROPERTY on the RESTING state
+      // only — :hover / [aria-checked="true"] / [data-selected="true"] below
+      // set border-color/background DIRECTLY (higher specificity: a
+      // pseudo-class/attribute selector beats a bare compound-class
+      // declaration) and so still win over this var-driven default. Unset
+      // (no per-item override authored, the common case) falls back to
+      // color.border — the SAME token nodeBorderColorCss resolves to for
+      // "neutral", so "no override" and "explicit neutral" render byte-
+      // identically by construction (mirrors the .lg-input idiom below).
+      "border-color": `var(--lg-field-border, ${color.border})`,
       transition: `border-color var(--lg-transition-card), background var(--lg-transition-card)`,
     }),
     rule(`${scope} .lg-btn.lg-btn-answer:hover`, {
@@ -601,6 +625,13 @@ export function funnelChromeCss(
       "justify-content": "center",
       gap: spacing.xs,
       border: iconCard.border,
+      // R5 state-safe border (register R3a ROUTING NOTES) — same idiom as
+      // .lg-btn.lg-btn-answer above: a per-node border_color rides
+      // --lg-field-border so :hover/[aria-checked="true"]/[data-selected=
+      // "true"] below (higher specificity) still win. Fallback = color.border
+      // = the SAME "neutral" resolution, so the unauthored case is
+      // byte-identical.
+      "border-color": `var(--lg-field-border, ${color.border})`,
       "border-radius": iconCard.borderRadius,
       background: iconCard.background,
       "min-height": iconCard.minHeight,

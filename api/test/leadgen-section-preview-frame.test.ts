@@ -14,13 +14,20 @@
 // BYTE-PIN PROTOCOL (legacy unit-only capture): the two fixtures under
 // test/fixtures/leadgen-section-preview-frame/ were minted from the
 // PRE-CHANGE handler (before the frame_context branch and the sectionCtx
-// thread landed). Every response field must stay byte-identical, with TWO
+// thread landed). Every response field must stay byte-identical, with THREE
 // documented exceptions: `preview.css` moved (a) the `.lg-card-subtitle` /
 // `.lg-card{position:relative}` / `.lg-card-badge` rules (DEV-57 Phase-C
 // item) and (b) the FIX-4a `--lg-sel-bg` consuming rule (DEV-68) from the
 // frameRegions-gated block into the base sheet (each carried by a
-// coordinated legacy-pin re-pin on the shell/variant surfaces) — so the
-// css assertion is: live css MINUS exactly those moved chunks == captured
+// coordinated legacy-pin re-pin on the shell/variant surfaces), and (c) the
+// R5 state-safe-border grant (register R3a ROUTING NOTES): the
+// `.lg-btn.lg-btn-answer` and `.lg-card` BASE rules each gained ONE appended
+// declaration — `border-color:var(--lg-field-border, #D2D9E5);` — so a
+// per-node design_overrides.border_color rides the custom property (state-
+// safe) instead of a direct border-color that would beat the :hover/
+// [aria-checked]/[data-selected] rules by inline-style specificity — so the
+// css assertion is: live css with the R5 rule bodies mapped back to their
+// PRE-R5 text, MINUS exactly the DEV-57/DEV-68 moved chunks, == captured
 // css, plus producer equality with funnelChromeCss. Re-mint deliberately with
 //   LEADGEN_PIN_UPDATE=1 npx vitest run test/leadgen-section-preview-frame.test.ts
 // (an update run fails on purpose; rerun without the flag to verify).
@@ -463,6 +470,54 @@ const MOVED_CARD_RULES =
 const MOVED_SEL_BG_RULE =
   `${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer[aria-checked="true"], ${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer[data-selected="true"]{background:var(--lg-sel-bg, ${defaultFunnelDesign.iconCard.selectedBackground})}\n`;
 
+// The R5 state-safe-border grant (register R3a ROUTING NOTES): the ONLY
+// legal delta against the pre-R5 capture is ONE appended declaration per
+// rule — `border-color:var(--lg-field-border, ${NEUTRAL});` — inserted
+// between the existing `border:` shorthand and the rule's next declaration.
+// Mapped OLD (pre-R5) <-> NEW (post-R5) full-rule-body pairs so the actual
+// response can be reverse-mapped to its pre-R5 shape before the byte
+// comparison below — a targeted full-rule replace (not a bare-substring
+// remove) because `border-color:var(--lg-field-border, ...)` ALSO appears,
+// pre-existing and unrelated, in the .lg-input rule (a bare-substring removal
+// would over-match and silently swallow that unrelated occurrence too).
+const R5_BORDER_NEUTRAL = defaultFunnelDesign.color.border; // "#D2D9E5"
+const R5_OLD_BTN_ANSWER_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer{background:${defaultFunnelDesign.color.card};color:${defaultFunnelDesign.page.textColor};border:${defaultFunnelDesign.input.border};transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}`;
+const R5_NEW_BTN_ANSWER_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer{background:${defaultFunnelDesign.color.card};color:${defaultFunnelDesign.page.textColor};border:${defaultFunnelDesign.input.border};border-color:var(--lg-field-border, ${R5_BORDER_NEUTRAL});transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}`;
+const R5_OLD_CARD_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${defaultFunnelDesign.spacing.xs};border:${defaultFunnelDesign.iconCard.border};border-radius:${defaultFunnelDesign.iconCard.borderRadius};background:${defaultFunnelDesign.iconCard.background};min-height:${defaultFunnelDesign.iconCard.minHeight};padding:${defaultFunnelDesign.iconCard.padding};cursor:pointer;text-align:center;transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}`;
+const R5_NEW_CARD_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${defaultFunnelDesign.spacing.xs};border:${defaultFunnelDesign.iconCard.border};border-color:var(--lg-field-border, ${R5_BORDER_NEUTRAL});border-radius:${defaultFunnelDesign.iconCard.borderRadius};background:${defaultFunnelDesign.iconCard.background};min-height:${defaultFunnelDesign.iconCard.minHeight};padding:${defaultFunnelDesign.iconCard.padding};cursor:pointer;text-align:center;transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}`;
+
+// The R5 D11 typography grant (register S4-B2, operator decision 1): the
+// headline PRESET inlines font-family/color directly on every rendered
+// <h1 class="lg-headline"> (in addition to the base .lg-headline CSS rule,
+// covered separately by the funnelChromeCss-level pin in
+// leadgen-frame-legacy-pin.test.ts) — so this SAME two-property change also
+// shows up in preview.desktop/preview.mobile's rendered HTML. Reverse-mapped
+// here, the same targeted-substring-replace idiom as the R5 border rules
+// above (not a bare split, since these two exact literal fragments cannot
+// collide with anything else in this fixture's small, known content).
+const R5_OLD_HEADLINE_INLINE = `style="font-family:&#39;Literata&#39;,serif;color:#1A1F36"`;
+const R5_NEW_HEADLINE_INLINE = `style="font-family:&#39;Newsreader&#39;,serif;color:#16324f"`;
+function unmapR5Typography(html: string): string {
+  return html.split(R5_NEW_HEADLINE_INLINE).join(R5_OLD_HEADLINE_INLINE);
+}
+// The SAME R5 D11 typography grant, at the CSS-rule level (.lg-headline base
+// rule + .lg-subheadline's color + the NEW question-card-only font-size
+// override — see designs/default-funnel/tokens.ts + styles.ts).
+const R5_OLD_HEADLINE_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-headline{font-family:'Literata',serif;font-size:1.75rem;font-weight:700;line-height:1.25;color:#1A1F36;text-align:center;text-wrap:balance;margin:0 0 6px 0}`;
+const R5_NEW_HEADLINE_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-headline{font-family:'Newsreader',serif;font-size:31px;font-weight:600;line-height:1.15;color:#16324f;text-align:center;text-wrap:balance;margin:0 0 6px 0}`;
+const R5_OLD_SUBHEAD_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-subheadline{font-size:0.825rem;color:#4A5568;text-align:center;margin:0 0 20px 0}`;
+const R5_NEW_SUBHEAD_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-subheadline{font-size:0.825rem;color:#63707F;text-align:center;margin:0 0 20px 0}`;
+// the surgical question-card-only 15px override is a NET-NEW appended rule
+// (array-join adds its own leading \n separator) — removed the same way
+// MOVED_CARD_RULES/MOVED_SEL_BG_RULE remove a net-new addition above.
+const R5_NEW_SUBHEAD_OVERRIDE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-subheadline{font-size:15px}`;
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -522,16 +577,38 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
   expect(Object.keys(actualPreview)).toEqual(Object.keys(expectedPreview));
   for (const key of Object.keys(expectedPreview)) {
     if (key === "css") continue;
-    expect(actualPreview[key], `preview.${key}`).toEqual(expectedPreview[key]);
+    // R5 D11: desktop/mobile HTML carries the SAME headline typography
+    // delta inline (per-node) — reverse-map before comparing, exactly the
+    // css modulo idiom below, so this stays a true "nothing ELSE changed" pin.
+    const actualVal = typeof actualPreview[key] === "string" ? unmapR5Typography(actualPreview[key] as string) : actualPreview[key];
+    expect(actualVal, `preview.${key}`).toEqual(expectedPreview[key]);
   }
   // css: the ONLY legal deltas are the moved base-sheet chunks (byte-exact):
-  // the three DEV-57 card rules + the DEV-68 --lg-sel-bg consumer.
+  // the three DEV-57 card rules + the DEV-68 --lg-sel-bg consumer + the R5
+  // state-safe-border rule bodies + the R5 D11 typography rule bodies
+  // (headline/subheadline, reverse-mapped to their pre-R5 shape FIRST — a
+  // full-rule replace, not a bare-substring remove, since the inserted
+  // `border-color:var(--lg-field-border, ...)` text also occurs,
+  // pre-existing and unrelated, inside the .lg-input rule).
   const cssMinusMove = (actualPreview["css"] as string)
+    .split(R5_NEW_BTN_ANSWER_RULE)
+    .join(R5_OLD_BTN_ANSWER_RULE)
+    .split(R5_NEW_CARD_RULE)
+    .join(R5_OLD_CARD_RULE)
+    .split(R5_NEW_HEADLINE_RULE)
+    .join(R5_OLD_HEADLINE_RULE)
+    .split(R5_NEW_SUBHEAD_OVERRIDE_RULE)
+    .join("")
+    .split(R5_NEW_SUBHEAD_RULE)
+    .join(R5_OLD_SUBHEAD_RULE)
     .split(MOVED_CARD_RULES)
     .join("")
     .split(MOVED_SEL_BG_RULE)
     .join("");
-  expect(cssMinusMove, "preview.css modulo the DEV-57 + DEV-68 moved rules").toBe(expectedPreview["css"]);
+  expect(
+    cssMinusMove,
+    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies",
+  ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));
   if (expected["dependencies"] !== undefined) {

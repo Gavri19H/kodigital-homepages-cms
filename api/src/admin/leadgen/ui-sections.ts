@@ -17,9 +17,11 @@ import {
   EMPTY_PAGING,
   EM_DASH,
   leadgenPageShell,
+  leadgenStandalonePageShell,
   pageParam,
   renderLeadgenTabs,
   statusBadge,
+  studioActivePill,
   type ListBody,
   type UiContext,
 } from "./ui";
@@ -139,7 +141,20 @@ export function mappingSummaryOf(
 // ---------------------------------------------------------------------------
 
 const LG_SECTIONS_STYLES = `
-.lg-editor-pubid{color:var(--c-muted);font-size:12px}
+/* R5 grant 1 (register S4-A1/A9/A10): the full-bleed Section Studio editor
+   has NO admin-shell chrome to host these above the studio any more — golden
+   is a self-contained full-screen editor with nothing above it. Both the
+   error surfaces AND the /new "New Section" label now float as small,
+   unobtrusive fixed-position affordances instead of pushing content down:
+   [hidden] (ADMIN_STYLES' global rule) keeps them at zero layout impact in
+   the (overwhelmingly common) no-error case — the golden look is untouched;
+   an actual error/warning appears as a floating banner ON TOP of the studio,
+   never as chrome ABOVE it. */
+.lg-editor-pubid{position:fixed;top:14px;left:14px;z-index:500;color:var(--c-muted);font-size:11px;background:#fff;border:1px solid var(--c-border);border-radius:6px;padding:3px 8px;box-shadow:0 1px 3px rgba(16,24,40,.08)}
+#lg-section-error,[data-studio-save-problems]{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:600;max-width:560px;width:calc(100% - 28px);box-shadow:0 4px 16px rgba(16,24,40,.12)}
+#lg-section-error{margin:0}
+[data-studio-save-problems]{margin:0}
+[data-studio-save-problems][hidden]{display:none!important}
 /* R4a E3-S1: the row "Usage" action — an inline expandable panel replacing
    window.alert() (same data: GET .../usage, now readable + dismissible). */
 .lg-usage-row td{background:var(--c-surface);border-top:0}
@@ -499,6 +514,19 @@ function toStudioView(section: SectionDetail | null): StudioSectionView {
   };
 }
 
+// R5 census split (register §A M2 / E.5b): sectionEditorHtml itself
+// legitimately calls the golden renderSectionStudio (ui-section-studio.ts),
+// but the small chrome it wraps around that call — the "New Section" pubid
+// label and the two error/warning alert surfaces — has no golden depiction
+// (golden's static mockup shows no new/unsaved/error state). Its OWN
+// top-level render* block so golden-allowlist.mjs's scanner can classify it
+// independently of the (golden-legit) call to renderSectionStudio.
+function renderSectionEditorChrome(isNew: boolean): string {
+  return `${isNew ? `<span class="lg-editor-pubid">New Section</span>` : ""}
+  <p id="lg-section-error" class="alert alert-error" hidden role="alert"></p>
+  <div class="alert alert-warning" data-studio-save-problems hidden role="status" aria-live="polite"></div>`;
+}
+
 function sectionEditorHtml(data: EditorData, brand: { userEmail?: string }): string {
   const s = data.section;
   const isNew = s === null;
@@ -506,20 +534,25 @@ function sectionEditorHtml(data: EditorData, brand: { userEmail?: string }): str
   // §7.4 "Normal designers see NO ids": the top bar carries the status badge
   // only — the public id lives on the Advanced surfaces (inspector Advanced
   // tab / debug drawer), never in normal-mode chrome.
-  const statusPillHtml = isNew ? "" : statusBadge((s as SectionDetail).status);
+  // R5 D7 (register S4-B5): the STUDIO topbar uses the golden dot+pill
+  // treatment (studioActivePill), not the shared list-page statusBadge —
+  // the Sections LIST page (renderSectionListRow above) is UNCHANGED.
+  const statusPillHtml = isNew ? "" : studioActivePill((s as SectionDetail).status);
 
-  const content = `${renderLeadgenTabs("sections")}
-<div id="lg-section-editor"${isNew ? "" : ` data-section-id="${(s as SectionDetail).id}" data-section-public-id="${escapeHtml((s as SectionDetail).public_id)}"`}>
-  ${isNew ? `<span class="lg-editor-pubid">New Section</span>` : ""}
-  <p id="lg-section-error" class="alert alert-error" hidden role="alert"></p>
-  <div class="alert alert-warning" data-studio-save-problems hidden role="status" aria-live="polite"></div>
+  // R5 grant 1 (register S4-A1/A9/A10): the editor route is a self-contained
+  // full-bleed page — no LeadGen sub-tabs row (that belonged to the admin-
+  // shell tab strip, gone with the shell) and no visible chrome above the
+  // studio (the pubid label + error/warning surfaces float — see
+  // LG_SECTIONS_STYLES, renderSectionEditorChrome above). "← Sections" (the
+  // studio's OWN top-bar back link, renderStudioTopBar) is the one working
+  // way back to the list, matching golden.
+  const content = `<div id="lg-section-editor"${isNew ? "" : ` data-section-id="${(s as SectionDetail).id}" data-section-public-id="${escapeHtml((s as SectionDetail).public_id)}"`}>
+  ${renderSectionEditorChrome(isNew)}
   ${renderSectionStudio(view, data.summary, statusPillHtml, data.mapsKeyConfigured, s !== null ? (s.answer_maps ?? []).length : 0, data.aiImageAvailable)}
   <script type="application/json" id="lg-section-data">${sectionDataBlob(s)}</script>
 </div>`;
 
-  return leadgenPageShell({
-    activePath: "/admin/leadgen/sections",
-    userEmail: brand.userEmail,
+  return leadgenStandalonePageShell({
     content,
     styles: LG_SECTIONS_STYLES,
     scripts: SECTION_STUDIO_SCRIPT,

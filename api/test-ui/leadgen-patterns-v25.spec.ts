@@ -272,7 +272,13 @@ async function addComponent(page: Page, type: string): Promise<void> {
   await tile.click();
   await expect(canvasNodes).toHaveCount(before + 1, { timeout: 20_000 });
   if (insert.swap === "accept") {
-    await page.locator("[data-toolbar-accept]").selectOption(insert.swapValue!);
+    // R5 D3 toolbar migration: the Accept-format control moved from the
+    // toolbar (data-toolbar-accept, deleted) to the Content tab's "Answer
+    // format" section (data-inspector-accept, ui-section-studio.ts:2004).
+    // A real click onto the Content tab first — the new legitimate flow —
+    // rather than assuming it is already active.
+    await openInspectorTab(page, "content");
+    await page.locator("[data-inspector-accept]").selectOption(insert.swapValue!);
   } else if (insert.swap === "cardStyle") {
     await page.locator(`[data-card-style="${insert.swapValue}"]`).click();
   } else if (insert.swap === "sliderFormat") {
@@ -288,6 +294,14 @@ async function addComponent(page: Page, type: string): Promise<void> {
 // new Stack and moves the selection to it — insert the child FIRST, then
 // group it (equivalent end model shape to the old wrap-then-insert-into).
 async function groupSelectionIntoStack(page: Page): Promise<void> {
+  // R5 D3 toolbar migration: "Group → Stack" moved into the "More actions"
+  // popover (data-studio-more-panel) — a real click on the "⋮" toggle
+  // (data-studio-more-toggle) opens it first (the new legitimate flow;
+  // never force-clicking the hidden action directly). The toggle is shown
+  // whenever the current selection's structure cluster is available
+  // (updateCanvasToolbar's hasMore check) — true for any selected node.
+  await page.locator("[data-studio-more-toggle]").click();
+  await expect(page.locator("[data-studio-more-panel]")).toBeVisible();
   await page.locator('[data-studio-act="group-stack"]').click();
   await expect(page.locator("[data-scope-editing-name]")).toHaveText("Stack");
 }

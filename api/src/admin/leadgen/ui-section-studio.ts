@@ -778,9 +778,19 @@ export interface StudioMappingSummary {
   required_fields_total: number;
 }
 
+// R5 D7 (register S4-B4): golden's "No issues" chip (golden :49-52) is a
+// rounded-RECT (8px = STUDIO_RADIUS.control, not the shared .studio-chip
+// pill radius) carrying a leading info-glyph icon — copied VERBATIM from the
+// golden's own <svg> (circle + vertical line + dot), stroke="currentColor" so
+// it always matches whichever text color the issue-count state resolves to
+// (muted for zero, warn for non-zero — colors unchanged, both already
+// measured 1:1 from golden per the existing STUDIO_COLOR.issuesChipBg/
+// STUDIO_COLOR.muted comments).
+const ISSUE_CHIP_ICON =
+  '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16.5" r="1.2" fill="currentColor"/></svg>';
 function issueChip(count: number): string {
   const label = count === 1 ? "1 issue" : `${count} issues`;
-  return `<button type="button" class="studio-chip studio-chip-validation" data-studio-validation-chip data-issue-count="${count}" aria-live="polite">${escapeHtml(count === 0 ? "No issues" : label)}</button>`;
+  return `<button type="button" class="studio-chip studio-chip-validation" data-studio-validation-chip data-issue-count="${count}" aria-live="polite" style="display:inline-flex;align-items:center;gap:6px;border-radius:${STUDIO_RADIUS.control}px">${ISSUE_CHIP_ICON}${escapeHtml(count === 0 ? "No issues" : label)}</button>`;
 }
 
 // The §8.1 top bar. §8.2 (Slice D2): Activity/Vertical are DROPDOWNS — the
@@ -800,9 +810,13 @@ function issueChip(count: number): string {
 // Shared select-option-with-saved-value helper — Activity/Vertical selects
 // live in the §4.2 question strip now (renderStudioSettings); Save/Archive
 // forms may grow more selects later, so this stays a module-level helper.
-function savedOption(value: string): string {
+// R5 D5 (register S4-A8/B8): the empty option is a STYLED placeholder pill
+// (data-pair-empty on the wrapper, styled below), never the literal
+// "— pick —" glyph-dash copy the golden never depicts. `placeholder` names
+// the field so Activity/Vertical each get a distinct, readable hint.
+function savedOption(value: string, placeholder: string): string {
   return value === ""
-    ? `<option value="" selected>— pick —</option>`
+    ? `<option value="" selected>${escapeHtml(placeholder)}</option>`
     : `<option value="${escapeHtml(value)}" selected>${escapeHtml(value)}</option>`;
 }
 
@@ -895,42 +909,55 @@ function frameDotStyle(on: boolean): string {
     : `width:8px;height:8px;border-radius:50%;background:${STUDIO_COLOR.breadcrumbChevron}`;
 }
 
+// R5 census split (register §A M2 / E.5b "R3/R5 should split this function
+// so the golden strip and the non-golden fieldset/pickers become
+// independently classifiable blocks"): the Activity/Vertical pickers (S4-A8
+// — moved here from the top bar in an earlier phase, no golden position
+// exists for them) are their OWN top-level render* block below
+// (renderActivityVerticalPickers) so golden-allowlist.mjs's block scanner
+// can classify them separately from the golden-legit strip they render
+// alongside. The legacy global Maps/validation fieldset this comment used to
+// describe is GONE (see renderStudioSettings' own inline comment) — removing
+// it was the OTHER half of this same census split; only the pickers remain
+// as this function's non-golden content.
+function renderActivityVerticalPickers(view: StudioSectionView): string {
+  const dropdownChevron = (color: string): string =>
+    `<svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  return `<div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:11px;color:${STUDIO_COLOR.faint};font-weight:600">Activity</span>
+      <div class="studio-pair" data-pair-empty="${view.activity === ""}" style="display:inline-flex;align-items:center;gap:4px;padding:5px 8px 5px 10px;background:${view.activity === "" ? STUDIO_COLOR.issuesChipBg : STUDIO_COLOR.white};border:1px ${view.activity === "" ? "dashed" : "solid"} ${STUDIO_COLOR.lineControl};border-radius:7px;font-size:12.5px;font-weight:600">
+        <select id="lg-section-activity" name="activity" data-studio-activity required aria-required="true" style="border:0;background:transparent;font:inherit;color:${view.activity === "" ? STUDIO_COLOR.faint : "inherit"};outline:none">${savedOption(view.activity, "Choose an activity")}</select>
+        ${dropdownChevron(STUDIO_COLOR.faint)}
+        <button type="button" class="studio-pair-new-btn" data-studio-new-activity title="Create a new activity" aria-label="Create a new activity" style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:0;border-radius:50%;background:${STUDIO_COLOR.issuesChipBg};color:${STUDIO_COLOR.faint};cursor:pointer;font-size:13px;line-height:1;padding:0">+</button>
+      </div>
+      <span style="font-size:11px;color:${STUDIO_COLOR.faint};font-weight:600;margin-left:4px">Vertical</span>
+      <div class="studio-pair" data-pair-empty="${view.vertical === ""}" style="display:inline-flex;align-items:center;gap:4px;padding:5px 8px 5px 10px;background:${view.vertical === "" ? STUDIO_COLOR.issuesChipBg : STUDIO_COLOR.white};border:1px ${view.vertical === "" ? "dashed" : "solid"} ${STUDIO_COLOR.lineControl};border-radius:7px;font-size:12.5px;font-weight:600">
+        <select id="lg-section-vertical" name="vertical" data-studio-vertical required aria-required="true" style="border:0;background:transparent;font:inherit;color:${view.vertical === "" ? STUDIO_COLOR.faint : "inherit"};outline:none">${savedOption(view.vertical, "Choose a vertical")}</select>
+        ${dropdownChevron(STUDIO_COLOR.faint)}
+        <button type="button" class="studio-pair-new-btn" data-studio-new-vertical title="Create a new vertical" aria-label="Create a new vertical" style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:0;border-radius:50%;background:${STUDIO_COLOR.issuesChipBg};color:${STUDIO_COLOR.faint};cursor:pointer;font-size:13px;line-height:1;padding:0">+</button>
+      </div>
+    </div>`;
+}
+
 // §4.2 question strip (golden 59–97): row 1 = eyebrow "The question" ·
-// Activity/Vertical dropdowns (MOVED here from the top bar — same element ids
-// so collectSection + the dirty watcher are unaffected) · "On answer"
-// segmented [Wait for Continue | Go to next] (writes continue_mode) · Maps
-// status chip (informational — §9's field Maps tab is the real control). Row
-// 2 = the canonical Headline/Subheadline inputs (§5.2 single store) + the
-// exact hint copy. The legacy global address-validation checkbox is NOT part
-// of the golden strip (§9's real per-field Maps tab supersedes it, Phase C) —
-// kept working (preserve-every-mechanism) but visually subordinate, below a
-// hairline, since no golden position exists for it.
+// Activity/Vertical dropdowns (renderActivityVerticalPickers above — MOVED
+// here from the top bar in an earlier phase — same element ids so
+// collectSection + the dirty watcher are unaffected) · "On answer" segmented
+// [Wait for Continue | Go to next] (writes continue_mode) · Maps status chip
+// (informational — §9's field Maps tab is the real control). Row 2 = the
+// canonical Headline/Subheadline inputs (§5.2 single store) + the exact hint
+// copy. The legacy global address-validation checkbox this strip used to
+// carry is REMOVED (R5 D2, register S4-A2 — see the inline comment inside
+// renderStudioSettings below); the only non-golden content remaining in
+// THIS function is the Activity/Vertical picker group, now its own block.
 export function renderStudioSettings(view: StudioSectionView, mapsKeyConfigured: boolean): string {
-  const mapsKeyNote = mapsKeyConfigured
-    ? `<span class="lg-maps-note" data-maps-key="configured">Maps key configured (operator-owned browser key) — autofill available.</span>`
-    : `<span class="lg-maps-note" data-maps-key="absent">Maps key not configured — autofill disabled (§30.2 no-op).</span>`;
   const hiddenChip = (bind: "section_headline" | "section_subheadline"): string =>
     `<span class="studio-hidden-chip" data-bound-chip="${bind}" hidden style="display:inline-block;font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:999px;padding:2px 8px;margin-top:4px">Hidden in this question unit &#183; <button type="button" class="studio-hidden-show" data-bound-show="${bind}" style="border:0;background:none;color:${STUDIO_COLOR.navy};cursor:pointer;font-size:11px;padding:0;text-decoration:underline">Show</button></span>`;
   const waitActive = view.continue_mode !== "auto_advance";
-  const dropdownChevron = (color: string): string =>
-    `<svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   return `<div class="studio-settings" data-studio-settings data-studio-question-strip style="padding:${STUDIO_GEOMETRY.questionStripPadding};background:${STUDIO_COLOR.stripBg};border-bottom:1px solid ${STUDIO_COLOR.lineStrip}">
   <div style="display:flex;align-items:center;gap:14px;margin-bottom:11px;flex-wrap:wrap">
     <span style="font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:${STUDIO_COLOR.questionEyebrow}">The question</span>
-    <div style="display:flex;align-items:center;gap:8px">
-      <span style="font-size:11px;color:${STUDIO_COLOR.faint};font-weight:600">Activity</span>
-      <div class="studio-pair" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:${STUDIO_COLOR.white};border:1px solid ${STUDIO_COLOR.lineControl};border-radius:7px;font-size:12.5px;font-weight:600">
-        <select id="lg-section-activity" name="activity" data-studio-activity required aria-required="true" style="border:0;background:transparent;font:inherit;color:inherit;outline:none">${savedOption(view.activity)}</select>
-        ${dropdownChevron(STUDIO_COLOR.faint)}
-        <button type="button" class="btn btn-sm btn-outline" data-studio-new-activity title="Create a new activity" style="border:0;background:none;color:${STUDIO_COLOR.faint};cursor:pointer;font-size:11px;padding:0 0 0 4px">+New&#8230;</button>
-      </div>
-      <span style="font-size:11px;color:${STUDIO_COLOR.faint};font-weight:600;margin-left:4px">Vertical</span>
-      <div class="studio-pair" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:${STUDIO_COLOR.white};border:1px solid ${STUDIO_COLOR.lineControl};border-radius:7px;font-size:12.5px;font-weight:600">
-        <select id="lg-section-vertical" name="vertical" data-studio-vertical required aria-required="true" style="border:0;background:transparent;font:inherit;color:inherit;outline:none">${savedOption(view.vertical)}</select>
-        ${dropdownChevron(STUDIO_COLOR.faint)}
-        <button type="button" class="btn btn-sm btn-outline" data-studio-new-vertical title="Create a new vertical" style="border:0;background:none;color:${STUDIO_COLOR.faint};cursor:pointer;font-size:11px;padding:0 0 0 4px">+New&#8230;</button>
-      </div>
-    </div>
+    ${renderActivityVerticalPickers(view)}
     <div style="margin-left:auto;display:flex;align-items:center;gap:16px">
       <div style="display:flex;align-items:center;gap:8px" title="The Continue button&#8217;s default style and position come from the Quote&#8217;s frame.">
         <span style="font-size:11px;color:${STUDIO_COLOR.faint};font-weight:600">On answer</span>
@@ -961,14 +988,17 @@ export function renderStudioSettings(view: StudioSectionView, mapsKeyConfigured:
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto"><path d="M4 7l8 5 8-5" stroke="${STUDIO_COLOR.hintIconStroke}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12v0" stroke="${STUDIO_COLOR.hintIconStroke}" stroke-width="1.8"/><path d="M4 6v8" stroke="${STUDIO_COLOR.hintIconStroke}" stroke-width="1.8" stroke-linecap="round"/></svg>
       Also shown on the canvas &#8212; edit in either place.
     </div>
-    <div style="flex-basis:100%;height:0"></div>
-    <fieldset class="form-group" style="flex-basis:100%;margin:10px 0 0;padding:10px 0 0;border:0;border-top:1px dashed ${STUDIO_COLOR.lineHairline}">
-      <legend class="form-label" style="font-size:11px;color:${STUDIO_COLOR.faintSub}">Legacy: address / ZIP validation (§8.8 supersedes — real per-field control lives in the field&#8217;s Maps tab)</legend>
-      <label class="lg-check" style="font-size:12px;color:${STUDIO_COLOR.mutedLabel}"><input type="checkbox" id="lg-address-validation" name="address_validation_enabled"${view.address_validation_enabled ? " checked" : ""} /> Google-Maps address / ZIP validation (§12.8)</label>
-      <span class="lg-maps-note" data-maps-legacy-note>Legacy GLOBAL toggle (column kept for compat) — per-field Maps config on an Address/ZIP component (Inspector &#8594; Maps tab) WINS over it when present (§8.8).</span>
-      <span class="lg-maps-note">The Maps key is a wrangler secret (GOOGLE_MAPS_BROWSER_KEY) — never embedded in cached HTML. Absent key &#8658; the validation leg no-ops.</span>
-      ${mapsKeyNote}
-    </fieldset>
+    <!-- R5 D2 (register S4-A2): the legacy global Maps/validation fieldset is
+         REMOVED — safe post-R4b (S3-8: both readers migrated to per-field
+         precedence, proven in both the single- and mixed-multi-section
+         case). No replacement control is needed: state.address_validation_
+         enabled initializes from the #lg-section-data JSON blob (NOT from
+         this DOM element — see the island's state = JSON.parse(...) at
+         load) and collectSection() reads !!state.address_validation_enabled
+         directly, so the value keeps round-tripping load -> save with NO
+         DOM element at all. A field's own Maps tab (§9) is the real,
+         current per-field mechanism; S3-8 proved it wins over this value
+         when both are present. -->
   </form>
 </div>
 <div class="studio-bind-banner" data-bind-banner hidden role="status" aria-live="polite"></div>`;
@@ -1198,48 +1228,14 @@ function roleSelectOptions(): string {
   ).join("");
 }
 
-// §6.1.6 toolbar layout cluster: compact per-type control strips over the
-// SAME data-container-prop/data-container-group hooks the inspector Layout
-// tab uses — one populate/collect implementation, two hosts. Toolbar copies
-// carry lg-tb- ids (unique) + aria-labels instead of visible labels.
-const TOOLBAR_LAYOUT_TYPES: ReadonlyArray<{ type: string; keys: readonly string[] }> = [
-  { type: "Stack", keys: ["direction", "gap", "align"] },
-  { type: "GridContainer", keys: ["columnsDesktop", "columnsTablet", "columnsMobile", "gap"] },
-  { type: "Columns", keys: ["ratio", "mobile"] },
-  { type: "CardPanel", keys: ["width", "padding", "radius", "shadow", "background"] },
-  // R2 E2-NEW-9: Spacer is granted the 'layout' toolbar cluster
-  // (toolbarClustersFor → layout_props === true, STRUCTURED_PROP_TYPES has
-  // Spacer) but had NO entry here, so the cluster rendered an EMPTY bordered
-  // segment. Spacer's real `size` control (CONTAINER_PROP_CONTROLS Spacer →
-  // {key:"size"}, LEADGEN_GAP_TOKENS, consumed by renderSpacer) now rides the
-  // toolbar too — the forward-compatible choice (R3 adds the gap/line variant
-  // toggle alongside it), one populate/collect path shared with the inspector.
-  { type: "Spacer", keys: ["size"] },
-];
-
-function renderToolbarLayoutCluster(design: FunnelDesign): string {
-  const groups = TOOLBAR_LAYOUT_TYPES.map((entry) => {
-    const spec = CONTAINER_PROP_CONTROLS.find((g) => g.type === entry.type);
-    const controls = (spec?.controls ?? [])
-      .filter((ctl) => entry.keys.includes(ctl.key))
-      .map(
-        (ctl) =>
-          `<select id="lg-tb-${escapeHtml(entry.type)}-${escapeHtml(ctl.key)}" class="form-input studio-tb-select" data-container-prop="${escapeHtml(ctl.key)}" data-container-kind="${ctl.kind}" aria-label="${escapeHtml(ctl.label)}" title="${escapeHtml(ctl.label)}"><option value="">${escapeHtml(ctl.label)}: default</option>${options(ctl.values ?? [])}</select>`,
-      )
-      .join("");
-    return `<span class="studio-tb-group" data-container-group="${escapeHtml(entry.type)}" hidden>${controls}</span>`;
-  }).join("");
-  // Choice-grid quick layout (§6.5 "layout(columns/gap)") — design_overrides
-  // keys through the SAME data-inspector-override hooks as the Design tab.
-  const gapOptions = (curatedTokenOptions(design)["gridGap"] ?? [])
-    .map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`)
-    .join("");
-  const choiceLayout = `<span class="studio-tb-group" data-toolbar-choice-layout hidden>
-    <select id="lg-tb-choice-columns" class="form-input studio-tb-select" data-inspector-override="columns" aria-label="Card columns" title="Card columns"><option value="">Columns: inherit</option>${options([2, 3, 4, 5])}</select>
-    <select id="lg-tb-choice-gap" class="form-input studio-tb-select" data-inspector-override="gridGap" aria-label="Answer-grid gap token" title="Answer-grid gap token"><option value="">Gap: inherit</option>${gapOptions}</select>
-  </span>`;
-  return `<span class="studio-tb-cluster" data-toolbar-cluster="layout" hidden>${groups}${choiceLayout}</span>`;
-}
+// R5 D3 (register S4-A3 removal): renderToolbarLayoutCluster/
+// TOOLBAR_LAYOUT_TYPES (the canvas toolbar's "layout" cluster) DELETED — it
+// was a DUPLICATE of renderContainerLayoutPanel (Style tab, R3b), which
+// already renders the SAME container props over the SAME data-container-
+// prop/data-container-group hooks for container types. The choice-grid
+// columns/gap quick layout (formerly this function's own addition, not
+// duplicated elsewhere) MOVED into the Style tab's size-appearance block —
+// see renderStudioInspector's data-style-choice-layout.
 
 // §5.6 "The Accept-swap rule" — exact enumeration (contract §8.5b): "Any
 // text · Number · Amount ($) · Email · Phone · ZIP code (5 digits) · Date ·
@@ -1260,6 +1256,23 @@ const ACCEPT_LABELS: Record<(typeof LEADGEN_FIELD_ACCEPT_FORMATS)[number], strin
 };
 const ACCEPT_OPTION_HTML = LEADGEN_FIELD_ACCEPT_FORMATS.map(
   (f) => `<option value="${f}">${escapeHtml(ACCEPT_LABELS[f])}</option>`,
+).join("");
+
+// R5 D3 (register S4-A3 migration): the 5-type "copy node" TYPE-SWAP —
+// MIGRATED from the canvas toolbar into the Content tab's Answer-format-
+// analogous "Type" row (isCopyNode selections only). Values are the actual
+// component TYPES this select swaps between (island: convertTextRole); named
+// "text type" here to avoid confusion with TextBlock's OWN internal `role`
+// prop picker (Style tab, TEXT_BLOCK_ROLE_OPTION_HTML — a different axis).
+const COPY_NODE_TYPE_SWAP: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "QuestionHeadline", label: "Headline" },
+  { value: "Subheadline", label: "Subheadline" },
+  { value: "CategoryLabel", label: "Kicker" },
+  { value: "HelperText", label: "Helper" },
+  { value: "LegalNote", label: "Legal" },
+];
+const COPY_NODE_TYPE_SWAP_OPTION_HTML = COPY_NODE_TYPE_SWAP.map(
+  (r) => `<option value="${escapeHtml(r.value)}">${escapeHtml(r.label)}</option>`,
 ).join("");
 
 // v3.1 §8.5b "Enumerations (exact, asserted)" — the 12-value leading-icon
@@ -1330,16 +1343,6 @@ const NODE_BORDER_COLOR_LABELS: Record<(typeof LEADGEN_NODE_BORDER_COLOR_ROLES)[
 // viewport); the island toggles the per-selection clusters (pure
 // toolbarClustersFor — the §6.5 matrix).
 function renderCanvasToolbar(design: FunnelDesign): string {
-  const textRoles: ReadonlyArray<{ value: string; label: string }> = [
-    { value: "QuestionHeadline", label: "Headline" },
-    { value: "Subheadline", label: "Subheadline" },
-    { value: "CategoryLabel", label: "Kicker" },
-    { value: "HelperText", label: "Helper" },
-    { value: "LegalNote", label: "Legal" },
-  ];
-  const textRoleOptions = textRoles
-    .map((r) => `<option value="${escapeHtml(r.value)}">${escapeHtml(r.label)}</option>`)
-    .join("");
   // min-height, not height: golden's 46px is the SINGLE-cluster bar (§6.5
   // matrix row 1 / the static mockup), but several selections (e.g. a
   // choice-bearing container) show TWO clusters simultaneously (structure +
@@ -1350,6 +1353,25 @@ function renderCanvasToolbar(design: FunnelDesign): string {
   // min-height keeps golden's 46px look for every single-cluster selection
   // (the common case — identical rendered height) while letting the bar
   // grow, and the canvas correctly reflow below it, whenever it doesn't.
+  // R5 D3 (register S4-A3, golden single-row toolbar): the canvas toolbar
+  // is now golden's OWN ONE-ROW chrome model (breadcrumb/pills · undo/redo ·
+  // viewport · frame hint · offer-mapping toggle · problems), plus ONE
+  // compact "More actions" popover for the two genuinely toolbar-native
+  // concerns the golden mockup doesn't depict AT ALL (structure actions:
+  // move/reorder/group/delete a selection; choice-item quick actions: an
+  // operator clicking a specific choice ON THE CANVAS). Every OTHER
+  // per-selection cluster that used to balloon this row was either an exact
+  // DUPLICATE of a control the Content/Style tab already owns (accept,
+  // required, placeholder, "Validation…" [it only ever jumped to the
+  // Content tab — never Rules — see the removed data-toolbar-open-validation
+  // handler], +Add choice, Auto-advance, the layout/container props already
+  // in renderContainerLayoutPanel, the text-color role already in the Style
+  // tab's data-style-text-block) and is REMOVED (not migrated — nothing to
+  // migrate, it already existed), or a genuine type-swap/style control that
+  // belongs in an inspector tab and is MIGRATED there (searchable/card-style/
+  // slider-format/text-type-swap → Content "Answer format"; selected-role +
+  // preset apply/save + choice-grid columns/gap → Style tab). See
+  // renderStudioInspector for the migrated destinations.
   return `<div class="studio-toolbar" data-studio-selection-toolbar data-studio-canvas-toolbar style="min-height:${STUDIO_GEOMETRY.canvasToolbarHeight}px;padding:0 16px;background:${STUDIO_COLOR.white};border-bottom:1px solid ${STUDIO_COLOR.linePanel};gap:12px">
     <nav class="studio-breadcrumb" data-studio-breadcrumb aria-live="polite" aria-label="Selection breadcrumb"></nav>
     ${renderScopePillsMarkup()}
@@ -1370,61 +1392,39 @@ function renderCanvasToolbar(design: FunnelDesign): string {
            handler repaints the CANVAS, so the control now lives where its
            effect is seen, always visible (not gated by tab/selection). -->
       <button type="button" class="btn btn-sm btn-outline" data-studio-overlay-toggle aria-pressed="false" title="Chip every answer component on the canvas with its Offer-mapping status">Offer mapping overlay</button>
+      <div style="width:1px;height:22px;background:${STUDIO_COLOR.linePanel}"></div>
+      <!-- R5 D3: the ONE compact popover replacing the old ballooning
+           clusters — structure actions (the golden mockup has none at all;
+           documented judgment call) + choice-item quick actions (operator
+           clicks a choice ON THE CANVAS). Hidden entirely when the current
+           selection has neither (updateCanvasToolbar). -->
+      <button type="button" class="studio-tb-more-btn" data-studio-more-toggle aria-haspopup="true" aria-expanded="false" title="More actions for this selection" hidden style="width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;cursor:pointer;border:0;background:none;font-size:18px;line-height:1;color:${STUDIO_COLOR.muted}">&#8942;</button>
     </div>
-    <span class="studio-tb-cluster" data-toolbar-cluster="structure" hidden>
-      <button type="button" class="btn btn-sm btn-outline" data-studio-act="move-up" aria-label="Move up">&#8593;</button>
-      <button type="button" class="btn btn-sm btn-outline" data-studio-act="move-down" aria-label="Move down">&#8595;</button>
-      <button type="button" class="btn btn-sm btn-outline" data-studio-act="add-before" aria-pressed="false">+ Before</button>
-      <button type="button" class="btn btn-sm btn-outline" data-studio-act="add-after" aria-pressed="false">+ After</button>
-      <button type="button" class="btn btn-sm btn-outline" data-studio-act="duplicate">Duplicate</button>
-      <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-stack">Group &#8594; Stack</button>
-      <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-cardpanel">Group &#8594; Card panel</button>
-      <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-grid">Group &#8594; Grid</button>
-      <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-columns">Group &#8594; Columns</button>
-      <button type="button" class="btn btn-sm btn-outline" data-studio-act="ungroup">Ungroup</button>
-      <button type="button" class="btn btn-sm btn-danger" data-studio-act="delete">Delete</button>
-    </span>
-    ${renderToolbarLayoutCluster(design)}
-    <span class="studio-tb-cluster" data-toolbar-cluster="text" hidden>
-      <select id="lg-tb-text-role" class="form-input studio-tb-select" data-text-role aria-label="Type role" title="Type role (maps to the design type slots)">${textRoleOptions}</select>
-      <span data-toolbar-text-color hidden><select id="lg-tb-text-color" class="form-input studio-tb-select" data-inspector-override="featureColor" aria-label="Text color role" title="Text color role"><option value="">Color: inherited</option>${roleSelectOptions()}</select></span>
-    </span>
-    <span class="studio-tb-cluster" data-toolbar-cluster="component" hidden>
-      <button type="button" class="btn btn-sm btn-outline" data-toolbar-add-choice hidden>+ Add choice</button>
-      <button type="button" class="studio-chip" data-toolbar-autoadvance hidden aria-pressed="false" title="Reflects the Section&#8217;s Continue behavior — click to toggle">Auto-advance: off</button>
-      <span data-tb-selected-role="button" hidden><select id="lg-tb-selected-button" class="form-input studio-tb-select" data-inspector-override="buttonBackground" aria-label="Selected-state style role (button background)" title="Selected-state style role"><option value="">Selected style: inherited</option>${roleSelectOptions()}</select></span>
-      <span data-tb-selected-role="icon" hidden><select id="lg-tb-selected-icon" class="form-input studio-tb-select" data-inspector-override="iconColor" aria-label="Selected-state style role (icon color)" title="Selected-state style role"><option value="">Selected style: inherited</option>${roleSelectOptions()}</select></span>
-      <span data-toolbar-searchable-wrap hidden><button type="button" class="btn btn-sm btn-outline" data-toolbar-searchable aria-pressed="false" title="Searchable dropdown — switches the component type (§5.5)">Searchable: off</button></span>
-      <span data-toolbar-card-style-wrap hidden role="group" aria-label="Card style">
-        <button type="button" class="btn btn-sm btn-outline" data-card-style="icon">Icon</button>
-        <button type="button" class="btn btn-sm btn-outline" data-card-style="image">Image</button>
-        <button type="button" class="btn btn-sm btn-outline" data-card-style="plain">Plain</button>
+    <div class="studio-tb-more-panel" data-studio-more-panel hidden style="position:absolute;right:16px;top:${STUDIO_GEOMETRY.canvasToolbarHeight}px;z-index:400;background:${STUDIO_COLOR.white};border:1px solid ${STUDIO_COLOR.lineControl};border-radius:${STUDIO_RADIUS.control}px;box-shadow:0 8px 24px rgba(16,24,40,.12);padding:8px;display:flex;flex-direction:column;gap:6px;min-width:180px">
+      <span class="studio-tb-cluster" data-toolbar-cluster="structure" hidden style="display:flex;flex-direction:column;gap:2px">
+        <button type="button" class="btn btn-sm btn-outline" data-studio-act="move-up" aria-label="Move up">&#8593; Move up</button>
+        <button type="button" class="btn btn-sm btn-outline" data-studio-act="move-down" aria-label="Move down">&#8595; Move down</button>
+        <button type="button" class="btn btn-sm btn-outline" data-studio-act="add-before" aria-pressed="false">+ Before</button>
+        <button type="button" class="btn btn-sm btn-outline" data-studio-act="add-after" aria-pressed="false">+ After</button>
+        <button type="button" class="btn btn-sm btn-outline" data-studio-act="duplicate">Duplicate</button>
+        <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-stack">Group &#8594; Stack</button>
+        <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-cardpanel">Group &#8594; Card panel</button>
+        <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-grid">Group &#8594; Grid</button>
+        <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-columns">Group &#8594; Columns</button>
+        <button type="button" class="btn btn-sm btn-outline" data-studio-act="ungroup">Ungroup</button>
+        <button type="button" class="btn btn-sm btn-danger" data-studio-act="delete">Delete</button>
       </span>
-      <span data-toolbar-slider-format-wrap hidden><button type="button" class="btn btn-sm btn-outline" data-toolbar-slider-format aria-pressed="false" title="Amount ($) format — switches the component type (§5.6)">Format $: off</button></span>
-      <span data-toolbar-accept-wrap hidden>
-        <select id="lg-tb-accept" class="form-input studio-tb-select" data-toolbar-accept aria-label="Accept" title="Accept — the concrete stored type (§5.6 Accept-swap rule)">${ACCEPT_OPTION_HTML}</select>
+      <span class="studio-tb-cluster" data-toolbar-cluster="choice" hidden style="display:flex;flex-direction:column;gap:2px">
+        <span class="studio-chip" data-choice-value-chip title="Internal value — opens its Choices row" style="align-self:flex-start">value</span>
+        <button type="button" class="btn btn-sm btn-outline" data-choice-act="image">Image / icon&#8230;</button>
+        <button type="button" class="btn btn-sm btn-outline" data-choice-act="badge" aria-pressed="false">Badge</button>
+        <button type="button" class="btn btn-sm btn-outline" data-choice-act="disabled" aria-pressed="false">Disabled</button>
+        <button type="button" class="btn btn-sm btn-outline" data-choice-act="duplicate">Duplicate choice</button>
+        <button type="button" class="btn btn-sm btn-outline" data-choice-act="left" aria-label="Move choice left">&#8592; Move left</button>
+        <button type="button" class="btn btn-sm btn-outline" data-choice-act="right" aria-label="Move choice right">&#8594; Move right</button>
+        <button type="button" class="btn btn-sm btn-danger" data-choice-act="delete">Delete choice</button>
       </span>
-      <span data-toolbar-input-quick hidden>
-        <label class="lg-check studio-tb-check"><input type="checkbox" data-inspector-field="required" aria-label="Required" /> Required</label>
-        <input id="lg-tb-placeholder" class="form-input studio-tb-select" type="text" data-inspector-field="placeholder" placeholder="Placeholder" aria-label="Placeholder" />
-        <button type="button" class="btn btn-sm btn-outline" data-toolbar-open-validation title="Open the Validation tab">Validation&#8230;</button>
-      </span>
-    </span>
-    <span class="studio-tb-cluster" data-toolbar-cluster="choice" hidden>
-      <span class="studio-chip" data-choice-value-chip title="Internal value — opens its Choices row">value</span>
-      <button type="button" class="btn btn-sm btn-outline" data-choice-act="image">Image / icon&#8230;</button>
-      <button type="button" class="btn btn-sm btn-outline" data-choice-act="label">Edit label</button>
-      <button type="button" class="btn btn-sm btn-outline" data-choice-act="badge" aria-pressed="false">Badge</button>
-      <button type="button" class="btn btn-sm btn-outline" data-choice-act="disabled" aria-pressed="false">Disabled</button>
-      <button type="button" class="btn btn-sm btn-outline" data-choice-act="duplicate">Duplicate choice</button>
-      <button type="button" class="btn btn-sm btn-outline" data-choice-act="left" aria-label="Move choice left">&#8592;</button>
-      <button type="button" class="btn btn-sm btn-outline" data-choice-act="right" aria-label="Move choice right">&#8594;</button>
-      <button type="button" class="btn btn-sm btn-danger" data-choice-act="delete">Delete choice</button>
-    </span>
-    <span class="studio-tb-cluster" data-toolbar-cluster="preset" hidden>
-      <select id="lg-tb-preset-apply" class="form-input studio-tb-select" data-preset-apply aria-label="Apply preset"><option value="">Apply preset&#8230;</option></select>
-      <button type="button" class="btn btn-sm btn-outline" data-preset-save>Save selection as preset&#8230;</button>
-    </span>
+    </div>
     <span class="studio-toolbar-problems" data-toolbar-problems role="status" aria-live="polite" hidden></span>
   </div>`;
 }
@@ -1584,7 +1584,7 @@ function renderStyleExtraControls(design: FunnelDesign): string {
     <button type="button" class="btn btn-sm btn-outline" data-override-reset="${escapeHtml(key)}" hidden>Reset to inherited</button>
   </div>
   <p class="form-help studio-role-source" data-override-source="${escapeHtml(key)}"></p>
-  <p class="form-help studio-role-legacy" data-override-legacy="${escapeHtml(key)}" hidden>Custom color (legacy) &#8212; <button type="button" class="studio-link-btn" data-override-convert="${escapeHtml(key)}">Convert to a theme color</button></p>
+  <p class="form-help studio-role-custom" data-override-custom="${escapeHtml(key)}" hidden>Custom color &#8212; not a theme role. <button type="button" class="studio-link-btn" data-override-convert="${escapeHtml(key)}">Convert to a theme color</button></p>
 </div>`;
     })
     .join("");
@@ -1967,6 +1967,16 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <select id="lg-leading-icon" class="form-input" data-inspector-field="icon"><option value="">&#8212; none &#8212;</option>${LEADING_ICON_OPTION_HTML}</select>
       </div>
 
+      <!-- R5 D3 (register S4-A3 migration): the 5-type copy-node TYPE SWAP
+           (Headline/Subheadline/Kicker/Helper/Legal), migrated here from the
+           canvas toolbar's old "text" cluster. Gated to isCopyNode(node)
+           (island). Named "Type" (not "Role" — TextBlock's OWN role picker
+           lives in the Style tab, a different axis, TEXT_BLOCK_ROLE_OPTION_HTML). -->
+      <div class="lg-inspector-field" data-content-typeswap-wrap hidden>
+        <label class="form-label" for="lg-content-type-swap">Type</label>
+        <select id="lg-content-type-swap" class="form-input" data-text-role aria-label="Type" title="Type — swaps the concrete stored type">${COPY_NODE_TYPE_SWAP_OPTION_HTML}</select>
+      </div>
+
       <!-- v3.1 R3b E1-C8: Behavior (Required/When-answered) only makes sense
            for an ANSWER-PRODUCING selection — gated to meta.produces!==null
            (island-side) so it never shows for TextBlock/CategoryLabel/
@@ -1993,6 +2003,27 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <label class="form-label" for="lg-inspector-accept">Accept</label>
         <select id="lg-inspector-accept" class="form-input" data-inspector-accept>${ACCEPT_OPTION_HTML}</select>
       </div>
+      <!-- R5 D3 (register S4-A3 migration): searchable-dropdown / card-style /
+           slider-format toggles — MIGRATED from the canvas toolbar's
+           "component" cluster (each SWITCHES the concrete stored component
+           type, the same category as Accept above). Attribute names kept
+           verbatim (data-toolbar-searchable(-wrap)/data-card-style/
+           data-toolbar-slider-format(-wrap)) — their JS wiring is
+           attribute-addressed, unaffected by this relocation. -->
+      <div class="lg-inspector-field" data-toolbar-searchable-wrap hidden>
+        <button type="button" class="btn btn-sm btn-outline" data-toolbar-searchable aria-pressed="false" title="Searchable dropdown — switches the component type">Searchable: off</button>
+      </div>
+      <div class="lg-inspector-field" data-toolbar-card-style-wrap hidden>
+        <label class="form-label">Card style</label>
+        <div class="studio-segmented" role="group" aria-label="Card style">
+          <button type="button" data-card-style="icon">Icon</button>
+          <button type="button" data-card-style="image">Image</button>
+          <button type="button" data-card-style="plain">Plain</button>
+        </div>
+      </div>
+      <div class="lg-inspector-field" data-toolbar-slider-format-wrap hidden>
+        <button type="button" class="btn btn-sm btn-outline" data-toolbar-slider-format aria-pressed="false" title="Amount ($) format — switches the component type">Format $: off</button>
+      </div>
       <div class="form-group lg-inspector-field" data-vprop="min" hidden>
         <label class="form-label" for="lg-vprop-min">Min</label>
         <input id="lg-vprop-min" class="form-input" data-inspector-vprop="min" />
@@ -2010,7 +2041,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <input id="lg-vprop-maxLen" class="form-input" data-inspector-vprop="maxLen" />
       </div>
       <div class="form-group lg-inspector-field" data-vprop="pattern" hidden>
-        <label class="form-label" for="lg-vprop-pattern">Pattern preset (§6.5)</label>
+        <label class="form-label" for="lg-vprop-pattern">Pattern preset</label>
         <select id="lg-vprop-pattern" class="form-input" data-inspector-vprop="pattern_preset">${patternOptions}</select>
         <input class="form-input" type="text" data-inspector-vprop="pattern" placeholder="custom regex (custom preset only)" hidden />
       </div>
@@ -2018,7 +2049,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <label class="form-label" for="lg-vprop-error">If it&#8217;s wrong, say</label>
         <input id="lg-vprop-error" class="form-input" type="text" data-inspector-vprop="error_text" />
       </div>
-      <p class="form-help" data-range-format-note hidden>Provider output format is set per Offer in the Offers tab (value transform) &#8212; sliders store the plain number here (§5.5).</p>
+      <p class="form-help" data-range-format-note hidden>Provider output format is set per Offer in the Offers tab (value transform) &#8212; sliders store the plain number here.</p>
 
       <div class="studio-hr"></div>
       <div class="lg-inspector-field studio-connect-offers-card" data-connect-offers-card hidden>
@@ -2030,12 +2061,12 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <!-- v3.1 R3b E1-C5 (catalog hygiene): discoverability hint for the
              3-type card-style family (Icon/Image/Plain share ONE toolbar
              switch, not 3 separate insert paths). -->
-        <p class="form-help" data-card-style-hint hidden>Card style: Icon &#183; Image &#183; Plain &#8212; switch in the toolbar.</p>
+        <p class="form-help" data-card-style-hint hidden>Card style: Icon &#183; Image &#183; Plain &#8212; switch above, in Answer format.</p>
         ${renderImageFitControl()}
         <div class="lg-choice-list" data-inspector-choices></div>
         <button type="button" class="btn btn-sm btn-secondary" id="lg-choice-add">+ Add choice</button>
         <div class="form-group lg-inspector-field studio-othergroup">
-          <label class="lg-check"><input type="checkbox" data-choicedisplay="otherGroupEnabled" /> Enable &quot;Other&quot; group (B9 §6.4)</label>
+          <label class="lg-check"><input type="checkbox" data-choicedisplay="otherGroupEnabled" /> Enable &quot;Other&quot; group</label>
           <input class="form-input" type="text" data-choicedisplay="otherGroupLabel" placeholder="Other-group label (default: Other)" />
           <label class="lg-check"><input type="checkbox" data-choicedisplay="searchableOther" /> Searchable Other panel</label>
         </div>
@@ -2048,21 +2079,21 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       </div>
 
       <div class="form-group lg-inspector-field" data-default-wrap="yesno" hidden>
-        <label class="form-label" for="lg-default-yesno">Default answer (§5.5)</label>
+        <label class="form-label" for="lg-default-yesno">Default answer</label>
         <select id="lg-default-yesno" class="form-input" data-default-control="yesno">
           <option value="">No default — the visitor picks</option>
           <option value="true">Yes (pre-selected)</option>
           <option value="false">No (pre-selected)</option>
         </select>
-        <p class="form-help">A default pre-selects the answer — the visitor must still confirm it before continuing (§5.5).</p>
+        <p class="form-help">A default pre-selects the answer — the visitor must still confirm it before continuing.</p>
       </div>
       <div class="form-group lg-inspector-field" data-default-wrap="range" hidden>
-        <label class="form-label" for="lg-default-range">Default value (§5.5)</label>
+        <label class="form-label" for="lg-default-range">Default value</label>
         <input id="lg-default-range" class="form-input" type="number" data-default-control="range" placeholder="Starts at the minimum when empty" />
         <p class="form-help">Where the slider starts. Leave empty to start at the minimum.</p>
       </div>
       <div class="form-group lg-inspector-field" data-default-wrap="dropdown" hidden>
-        <label class="form-label" for="lg-default-dropdown">Default choice (§5.5)</label>
+        <label class="form-label" for="lg-default-dropdown">Default choice</label>
         <select id="lg-default-dropdown" class="form-input" data-default-control="dropdown"><option value="">No default — the visitor picks</option></select>
         <p class="form-help">Pre-selects one of this component&#8217;s choices.</p>
       </div>
@@ -2084,6 +2115,16 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
     </div>
 
     <div data-style-field-block hidden>
+      <!-- R5 D3 (register S4-A3 migration, §6.6 named presets): MIGRATED from
+           the canvas toolbar's "preset" cluster — applying/saving a style
+           preset IS a Style-tab concern (it captures curated overrides +
+           layout props). data-preset-apply/data-preset-save keep their exact
+           attribute names — both already bind directly (presetApplyEl /
+           presetSaveEl), unaffected by this relocation. -->
+      <div data-preset-row hidden style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+        <select id="lg-style-preset-apply" class="form-input" data-preset-apply aria-label="Apply preset"><option value="">Apply preset&#8230;</option></select>
+        <button type="button" class="btn btn-sm btn-outline" data-preset-save>Save as preset&#8230;</button>
+      </div>
       <!-- v3.1 R3 (register S2-1/E1-C3/E2-NEW-7): the Width/Height/Corners/Border
            quad renders ONLY for a type whose renderer CONSUMES those overrides
            (isSizeConsumingType — the 8 text-input family + the 8 R3 choice/
@@ -2131,6 +2172,32 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       <p class="form-help studio-inline-note">Colors are theme roles, not fixed shades — change the theme once and every question updates. <a href="${manageThemeHref}" data-open-manage-theme>Manage theme &#8594;</a></p>
       </div><!-- /data-style-size-appearance -->
 
+      <!-- R5 D3 (register S4-A3 migration): "Selected-state style" (button
+           background / icon color role for the selected choice/card state)
+           and "Card layout" (columns/gap) — MIGRATED from the canvas
+           toolbar's "component"/"layout" clusters. Both gated to the choice/
+           card-grid families only (populateStyleVariant), exactly the same
+           condition the toolbar used. -->
+      <div data-style-choice-extras hidden>
+        <div class="studio-hr"></div>
+        <div class="studio-panel-eyebrow">Selected-state style</div>
+        <div class="lg-inspector-field" data-tb-selected-role="button" hidden>
+          <label class="form-label" for="lg-style-selected-button">Button background</label>
+          <select id="lg-style-selected-button" class="form-input" data-inspector-override="buttonBackground" aria-label="Selected-state style role (button background)"><option value="">Inherited</option>${roleSelectOptions()}</select>
+        </div>
+        <div class="lg-inspector-field" data-tb-selected-role="icon" hidden>
+          <label class="form-label" for="lg-style-selected-icon">Icon color</label>
+          <select id="lg-style-selected-icon" class="form-input" data-inspector-override="iconColor" aria-label="Selected-state style role (icon color)"><option value="">Inherited</option>${roleSelectOptions()}</select>
+        </div>
+        <div class="lg-inspector-field" data-toolbar-choice-layout hidden>
+          <label class="form-label">Card layout</label>
+          <div style="display:flex;gap:8px">
+            <select id="lg-style-choice-columns" class="form-input" data-inspector-override="columns" aria-label="Card columns"><option value="">Columns: inherit</option>${options([2, 3, 4, 5])}</select>
+            <select id="lg-style-choice-gap" class="form-input" data-inspector-override="gridGap" aria-label="Answer-grid gap token"><option value="">Gap: inherit</option>${(curatedTokenOptions(design)["gridGap"] ?? []).map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join("")}</select>
+          </div>
+        </div>
+      </div>
+
       <div class="studio-hr"></div>
       <div class="studio-panel-eyebrow">Layout</div>
       ${renderContainerLayoutPanel()}
@@ -2176,7 +2243,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       <span class="lg-check-label">Always show</span>
     </div>
     <fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-rules-condition-fields hidden>
-      <legend class="form-label">Show this component IF (§6.10)</legend>
+      <legend class="form-label">Show this component IF</legend>
       <p class="form-help studio-cond-sentence" data-cond-sentence aria-live="polite"></p>
       <!-- R4a S3-1: no eligible source field (self-excluded, whole-section
            empty otherwise) — plain words IN PLACE of the bare dropdown. -->
@@ -2195,7 +2262,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
 
     <div class="studio-hr"></div>
     <fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-reqcond-wrap hidden>
-      <legend class="form-label">Require this question IF (§7.3)</legend>
+      <legend class="form-label">Require this question IF</legend>
       <p class="form-help studio-cond-sentence" data-reqcond-sentence aria-live="polite"></p>
       <!-- R4a S3-1 (same dead-end, mirrored here): no eligible source field. -->
       <p class="form-help" data-reqcond-source-empty-hint hidden>Add another question to this section to condition on it.</p>
@@ -2283,11 +2350,11 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       <code class="studio-debug-id" data-studio-debug-id></code>
     </div>
     <div class="form-group lg-inspector-field">
-      <span class="form-label">Bind marker (read-only, §5.2)</span>
+      <span class="form-label">Bind marker (read-only)</span>
       <code class="studio-debug-id" data-studio-bind-marker></code>
     </div>
     <details class="studio-advanced-json">
-      <summary>Raw node JSON (Advanced — the only raw JSON surface, §6.14)</summary>
+      <summary>Raw node JSON (Advanced — the only raw JSON surface)</summary>
       <textarea id="lg-node-json" class="form-input" rows="8" data-studio-node-json aria-label="Raw component node JSON" readonly></textarea>
       <button type="button" class="btn btn-sm btn-outline" id="lg-node-json-edit" data-node-json-edit>Edit raw&#8230;</button>
       <button type="button" class="btn btn-sm btn-secondary" id="lg-node-json-apply" hidden>Apply JSON</button>
@@ -2311,6 +2378,15 @@ function designPickerOptions(): string {
 // dependency sample-answers panel + the sandboxed srcdoc iframe. Element ids
 // and data hooks are IDENTICAL to the old editor so the executed §9.2 island
 // probes and their assertions carry over unchanged.
+// R5 D4 (register S4-A5, operator decision 4): the Preview dev-console hides
+// behind an explicit "QA tools" toggle (default OFF — see the drawer bar's
+// data-qa-tools-toggle, renderStudioDrawer), NOT removed. Split into the
+// CORE always-visible "Preview in a quote" experience (golden's own stated
+// feature — pick which Quote context to preview in, Desktop/Mobile, the
+// real rendered iframe) vs. the QA-ONLY debug surfaces (state simulator,
+// dependency-JSON, events-would-fire log, alternate-design picker, the
+// events-probe iframe) — every [data-qa-tools-only] block is SSR'd hidden
+// and the island un-hides ALL of them together when the toggle is checked.
 function renderPreviewPanel(): string {
   return `<div class="lg-preview-controls" data-lg-preview-controls>
   <div class="studio-frame-preview" data-studio-frame-preview role="group" aria-label="Preview in Quote frame">
@@ -2329,41 +2405,43 @@ function renderPreviewPanel(): string {
          control now lives where its effect is seen, not tucked in this
          QA-console-shaped drawer tab. -->
     <button type="button" class="btn btn-sm btn-outline" id="lg-preview-refresh">Refresh preview</button>
+  </div>
+  <div data-qa-tools-only hidden>
     <label class="form-help" for="lg-preview-design">Design:</label>
-    <select id="lg-preview-design" class="form-input lg-preview-design" data-preview-design aria-label="Preview under a funnel design (§8.9)">
+    <select id="lg-preview-design" class="form-input lg-preview-design" data-preview-design aria-label="Preview under a funnel design">
       <option value="" selected>Default design</option>
       ${designPickerOptions()}
     </select>
-  </div>
-  <div class="lg-states-simulator" role="group" aria-label="State simulator (§14.9)">
-    <span class="form-help">Simulate state:</span>
-    <button type="button" class="btn btn-sm btn-outline active" data-sim-state="default" aria-pressed="true">Default</button>
-    <button type="button" class="btn btn-sm btn-outline" data-sim-state="selected" aria-pressed="false">Selected</button>
-    <button type="button" class="btn btn-sm btn-outline" data-sim-state="error" aria-pressed="false">Error</button>
-    <button type="button" class="btn btn-sm btn-outline" data-sim-state="dependency" aria-pressed="false">Dependency</button>
-    <button type="button" class="btn btn-sm btn-outline" data-sim-state="validation_success" aria-pressed="false">Validation success</button>
-    <button type="button" class="btn btn-sm btn-outline" data-sim-state="validation_error" aria-pressed="false">Validation error</button>
-  </div>
-  <div class="lg-dependency-panel" data-dependency-panel hidden>
-    <label class="form-label" for="lg-dependency-answers">Sample answers (JSON, keyed by internal field) — drives the dependency/selected/error/validation sims (§9.2)</label>
-    <textarea id="lg-dependency-answers" class="form-input" data-dependency-answers rows="3" aria-label="Sample answers for the state sims" placeholder='{ "currently_insured": true }'></textarea>
-    <button type="button" class="btn btn-sm btn-secondary" id="lg-dependency-apply">Apply sample answers</button>
-    <!-- R4a E3-S3: invalid JSON here previously parsed silently to {} — now
-         surfaced (still behind this future-QA-toggle surface). -->
-    <p class="alert alert-error" data-dependency-answers-error hidden role="alert"></p>
-    <p class="lg-dependency-status" data-dependency-status role="status" aria-live="polite"></p>
-  </div>
-  <div class="studio-events" data-studio-events-panel>
-    <div class="studio-events-head">
-      <span class="form-label">Events that would fire (§8.9 / §9.1)</span>
-      <button type="button" class="btn btn-sm btn-outline" data-studio-events-clear>Clear</button>
+    <div class="lg-states-simulator" role="group" aria-label="State simulator">
+      <span class="form-help">Simulate state:</span>
+      <button type="button" class="btn btn-sm btn-outline active" data-sim-state="default" aria-pressed="true">Default</button>
+      <button type="button" class="btn btn-sm btn-outline" data-sim-state="selected" aria-pressed="false">Selected</button>
+      <button type="button" class="btn btn-sm btn-outline" data-sim-state="error" aria-pressed="false">Error</button>
+      <button type="button" class="btn btn-sm btn-outline" data-sim-state="dependency" aria-pressed="false">Dependency</button>
+      <button type="button" class="btn btn-sm btn-outline" data-sim-state="validation_success" aria-pressed="false">Validation success</button>
+      <button type="button" class="btn btn-sm btn-outline" data-sim-state="validation_error" aria-pressed="false">Validation error</button>
     </div>
-    <p class="form-help" data-studio-events-note>The preview loads the REAL runtime bundle in preview mode (data-lg-preview="1"): beacons are suppressed and every would-fire event is listed here instead. Interact with the preview to see answer/continue events.</p>
-    <ol class="studio-events-list" data-studio-events-list aria-live="polite"></ol>
+    <div class="lg-dependency-panel" data-dependency-panel hidden>
+      <label class="form-label" for="lg-dependency-answers">Sample answers (JSON, keyed by internal field) — drives the dependency/selected/error/validation sims</label>
+      <textarea id="lg-dependency-answers" class="form-input" data-dependency-answers rows="3" aria-label="Sample answers for the state sims" placeholder='{ "currently_insured": true }'></textarea>
+      <button type="button" class="btn btn-sm btn-secondary" id="lg-dependency-apply">Apply sample answers</button>
+      <!-- R4a E3-S3: invalid JSON here previously parsed silently to {} — now
+           surfaced (still behind this QA-toggle surface). -->
+      <p class="alert alert-error" data-dependency-answers-error hidden role="alert"></p>
+      <p class="lg-dependency-status" data-dependency-status role="status" aria-live="polite"></p>
+    </div>
+    <div class="studio-events" data-studio-events-panel>
+      <div class="studio-events-head">
+        <span class="form-label">Events that would fire</span>
+        <button type="button" class="btn btn-sm btn-outline" data-studio-events-clear>Clear</button>
+      </div>
+      <p class="form-help" data-studio-events-note>The preview loads the REAL runtime bundle in preview mode (data-lg-preview="1"): beacons are suppressed and every would-fire event is listed here instead. Interact with the preview to see answer/continue events.</p>
+      <ol class="studio-events-list" data-studio-events-list aria-live="polite"></ol>
+    </div>
+    <iframe id="lg-events-probe-frame" class="lg-events-probe-frame" title="Events probe (runtime preview document)" sandbox="allow-scripts" aria-hidden="true" tabindex="-1"></iframe>
   </div>
   <p id="lg-preview-error" class="alert alert-error" hidden role="alert"></p>
   <iframe id="lg-preview-frame" class="lg-preview-frame" title="Section preview" sandbox="allow-scripts"></iframe>
-  <iframe id="lg-events-probe-frame" class="lg-events-probe-frame" title="Events probe (runtime preview document)" sandbox="allow-scripts" aria-hidden="true" tabindex="-1"></iframe>
 </div>`;
 }
 
@@ -2437,7 +2515,7 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
     sectionPublicId !== null ? `/admin/leadgen/themes?from=${encodeURIComponent(sectionPublicId)}` : "/admin/leadgen/themes";
   const mappingSummary = summary.publishable
     ? `<span class="badge badge-published" data-publishable="true">Publishable</span>`
-    : `<span class="badge badge-archived" data-publishable="false">Blocked from publish (§12.11)</span>`;
+    : `<span class="badge badge-archived" data-publishable="false">Blocked from publish</span>`;
   const missing =
     summary.required_missing_total > 0
       ? `<span class="lg-mapping-missing" data-required-missing="${summary.required_missing_total}">${summary.required_missing_total} required mapping${summary.required_missing_total === 1 ? "" : "s"} missing</span>`
@@ -2464,8 +2542,19 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
     <button type="button" class="studio-tab studio-drawer-tab" role="tab" data-studio-drawer-tab="mapping" aria-selected="false">Mapping <span data-studio-drawer-mapping-pill data-mapping-complete="${drawerMappingComplete}" style="font-size:10px;font-weight:800;color:${drawerMappingColor};background:${drawerMappingBg};padding:1px 6px;border-radius:10px;margin-left:4px">${summary.required_mapped_total}/${summary.required_fields_total}</span></button>
     <button type="button" class="studio-tab studio-drawer-tab" role="tab" data-studio-drawer-tab="validation" aria-selected="false">Validation</button>
     <button type="button" class="studio-tab studio-drawer-tab active" role="tab" data-studio-drawer-tab="preview" aria-selected="true">Preview in a quote</button>
-    <button type="button" class="studio-tab studio-drawer-tab-minor" role="tab" data-studio-drawer-tab="design" aria-selected="false" style="margin-left:8px;font-size:11px;color:${STUDIO_COLOR.faintSub};background:none;border:0;cursor:pointer;padding:4px 8px">Design overrides</button>
+    <!-- R5 D4 (register S4-A5/A6, operator decision 4): the "Design overrides"
+         minor tab hides behind the QA-tools toggle too (default OFF) — the
+         golden drawer bar shows exactly 3 items + theme switcher + Expand;
+         with QA tools off this bar now matches that exactly. -->
+    <span data-qa-tools-only hidden>
+      <button type="button" class="studio-tab studio-drawer-tab-minor" role="tab" data-studio-drawer-tab="design" aria-selected="false" style="margin-left:8px;font-size:11px;color:${STUDIO_COLOR.faintSub};background:none;border:0;cursor:pointer;padding:4px 8px">Design overrides</button>
+    </span>
     <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+      <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:${STUDIO_COLOR.faintSub};font-weight:600;cursor:pointer" title="Shows developer/QA-only surfaces: the state simulator, sample answers, the events-would-fire log, and the Design-overrides tab">
+        <input type="checkbox" id="lg-qa-tools-toggle" data-qa-tools-toggle style="margin:0" />
+        QA tools
+      </label>
+      <div style="width:1px;height:20px;background:${STUDIO_COLOR.linePanel}"></div>
       <span style="width:13px;height:13px;border-radius:4px;background:${STUDIO_COLOR.navy};position:relative;display:inline-block"><span style="position:absolute;right:-2px;bottom:-2px;width:7px;height:7px;border-radius:2px;background:${STUDIO_COLOR.accent};border:1px solid ${STUDIO_COLOR.white}"></span></span>
       <label style="font-size:12px;color:${STUDIO_COLOR.muted};font-weight:600" for="lg-preview-theme">Preview theme:</label>
       <select id="lg-preview-theme" class="form-input" data-studio-preview-theme style="font-size:12px;padding:3px 6px;max-width:130px"><option value="">Navy (default)</option></select>
@@ -2592,7 +2681,23 @@ ${mapsBanner}
 </div>
 ${renderStudioDrawer(summary, answerMapCount, view.public_id)}
 ${renderStudioMediaPicker(aiImageAvailable)}
-${renderStudioSeedData()}</div>`;
+${renderStudioSeedData()}
+${renderThemesOverlay()}</div>`;
+}
+
+// R5 D6 (register S4-A11, golden :627-721): the Themes manager opens as an
+// IN-PAGE OVERLAY over the studio (golden's own interaction) instead of a
+// full navigation — an <iframe> embedding the EXISTING /admin/leadgen/themes
+// route (?embed=1, chromeless — see ui-theme-manager.ts) so 100% of the real
+// theme-editing functionality is reused verbatim, just presented as a
+// layered overlay. The standalone route still works unchanged for deep
+// links. Hidden by default (SSR'd empty src — no request fires until
+// opened).
+function renderThemesOverlay(): string {
+  return `<div class="studio-themes-overlay" data-themes-overlay hidden>
+  <div class="studio-themes-overlay-backdrop" data-themes-overlay-backdrop></div>
+  <iframe id="lg-themes-overlay-frame" class="studio-themes-overlay-frame" title="Themes manager" src="about:blank"></iframe>
+</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -2609,10 +2714,24 @@ export const SECTION_STUDIO_STYLES = `
    asserts this override is a §3 value so a future shell change can't silently
    re-blue the Studio. */
 .studio-root{--c-primary:${STUDIO_COLOR.navy}}
+/* R5 D6 (register S4-A11, golden :627-721): the Themes in-page overlay.
+   [hidden] (ADMIN_STYLES' global rule) keeps this at zero layout impact
+   until opened. Sized/positioned to echo the golden mockup's floating panel
+   (1440x944, top:26px, centered) while staying responsive on real viewports
+   the golden's fixed-size demo never had to handle. */
+.studio-themes-overlay{position:fixed;inset:0;z-index:900}
+.studio-themes-overlay-backdrop{position:absolute;inset:0;background:rgba(20,28,46,.35)}
+.studio-themes-overlay-frame{position:absolute;left:50%;top:26px;transform:translateX(-50%);width:1440px;max-width:calc(100vw - 40px);height:calc(100vh - 52px);max-height:944px;border:0;border-radius:14px;box-shadow:0 24px 60px rgba(20,28,46,.30);background:#EDF0F4}
 .studio-topbar{display:flex;align-items:flex-end;gap:12px;margin-bottom:12px;flex-wrap:wrap}
 .studio-topbar .form-group{margin:0}
-.studio-name{min-width:220px}
-.studio-activity,.studio-vertical{min-width:140px}
+/* R5 D7 (register S4-B7): golden's name slot is a TIGHT grouping (golden :39
+   — the input itself is already width:132px) with no extra min-width padding
+   the flex row out further; the min-width:220px here was the divergence
+   (register B7), not the 132px input. Sized to content instead. */
+.studio-name{min-width:0}
+/* R5 D7 (register S4-A12): .studio-activity/.studio-vertical CSS was
+   ORPHANED — no markup carries either class (Activity/Vertical live in
+   .studio-pair pills, renderStudioSettings). Removed. */
 .studio-chip{font-size:12px;border-radius:999px;padding:4px 10px;border:1px solid var(--c-border);background:var(--c-surface);cursor:pointer}
 .studio-chip-validation[data-issue-count="0"]{color:${STUDIO_COLOR.muted};background:${STUDIO_COLOR.issuesChipBg};border-color:${STUDIO_COLOR.issuesChipBg}}
 .studio-chip-validation:not([data-issue-count="0"]){color:${STUDIO_COLOR.warnStrong};background:${STUDIO_COLOR.warnTint};border-color:${STUDIO_COLOR.warn}}
@@ -2620,7 +2739,8 @@ export const SECTION_STUDIO_STYLES = `
 .lg-editor-grid{display:grid;grid-template-columns:${STUDIO_GEOMETRY.leftLibraryWidth}px 1fr ${STUDIO_GEOMETRY.rightInspectorWidth}px;gap:16px;align-items:start}
 @media (max-width:1023px){.lg-editor-grid{grid-template-columns:1fr}}
 .lg-editor-spacer{flex:1}
-.lg-maps-note{color:var(--c-muted);font-size:12px}
+/* R5 D2 (register S4-A2): .lg-maps-note was the legacy Maps fieldset's OWN
+   note-line class — orphaned now that the fieldset is removed. Removed. */
 .lg-check{display:flex;align-items:center;gap:6px}
 /* library */
 .studio-library-search{margin-bottom:10px}
@@ -2904,7 +3024,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-role-line{display:flex;gap:6px;align-items:center}
 .studio-role-swatch{display:inline-block;width:16px;height:16px;border-radius:4px;border:1px solid var(--c-border);flex:0 0 16px}
 .studio-role-source{margin:2px 0 0}
-.studio-role-legacy{color:#664d03;margin:2px 0 0}
+.studio-role-custom{color:#664d03;margin:2px 0 0}
 .studio-link-btn{border:0;background:none;color:var(--c-primary);cursor:pointer;font-size:inherit;padding:0;text-decoration:underline}
 .studio-overrides-banner{color:#055160;background:#cff4fc;border:1px solid #b6effb}
 .studio-section-roles{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px 16px;margin-bottom:10px}
@@ -3312,14 +3432,14 @@ export const SECTION_STUDIO_SCRIPT = `
   // roles speak in labels; unmapped slots say "design default".
   function overrideSourceText(key, cur) {
     if (cur !== undefined && cur !== null && cur !== '') {
-      if (isHexColor(cur)) { return 'Custom color (legacy) \\u2014 not a theme role.'; }
+      if (isHexColor(cur)) { return 'Custom color \\u2014 not a theme role.'; }
       return roleLabelOf(cur) + ' \\u2014 overridden for this component.';
     }
     var backing = OVERRIDE_BACKING_ROLE[key] || null;
     if (backing !== null) {
       var repointed = (state.design_overrides && state.design_overrides.palette) ? state.design_overrides.palette[backing] : null;
       if (repointed) {
-        return 'Inherited: ' + (isHexColor(repointed) ? 'Custom color (legacy)' : roleLabelOf(repointed)) + ' \\u2014 from this Section\\u2019s Design overrides.';
+        return 'Inherited: ' + (isHexColor(repointed) ? 'Custom color' : roleLabelOf(repointed)) + ' \\u2014 from this Section\\u2019s Design overrides.';
       }
       return 'Inherited: ' + roleLabelOf(backing) + ' \\u2014 from the base design.';
     }
@@ -4850,12 +4970,12 @@ export const SECTION_STUDIO_SCRIPT = `
     keep.type = 'button';
     keep.className = 'btn btn-sm btn-outline';
     keep.setAttribute('data-frame-keep', qid);
-    keep.appendChild(document.createTextNode('Keep (legacy)'));
+    keep.appendChild(document.createTextNode('Keep as-is'));
     badge.appendChild(keep);
     // C2 consequence (§5.4): the badge NAMES the activation block.
     var note = document.createElement('span');
     note.className = 'studio-frame-badge-note';
-    note.appendChild(document.createTextNode('While a funnel using this Section has a configured frame, activation blocks on this element unless that funnel\\u2019s Advanced legacy override allows it.'));
+    note.appendChild(document.createTextNode('While a funnel using this Section has a configured frame, activation blocks on this element unless that funnel\\u2019s Advanced override allows it.'));
     badge.appendChild(note);
     return badge;
   }
@@ -5563,7 +5683,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (scopeState === 'choice') { return 'Affects: this card only.'; }
     if (scopeState === 'component' && node) {
       if (typeMeta(node.type).scope === 'frame') {
-        return 'Affects: a page-frame element kept inside this Section (legacy) \\u2014 the frame itself is edited in the Quote Builder.';
+        return 'Affects: a page-frame element kept inside this Section \\u2014 the frame itself is edited in the Quote Builder.';
       }
       return 'Affects: this question unit \\u2014 in every quote that uses this Section.';
     }
@@ -5755,6 +5875,19 @@ export const SECTION_STUDIO_SCRIPT = `
     }
   }
   // §6.5: the toolbar clusters are a PURE function of the selection.
+  // R5 D3 (register S4-A3): updateCanvasToolbar now only owns the SURVIVING
+  // toolbar chrome — undo/viewport (unconditional), the "More" popover's
+  // structure/choice clusters (relocated markup, same visibility rule), and
+  // the choice-value chip/badge/disabled pressed-state (still inside that
+  // popover). Every per-control block this function used to own for the
+  // DELETED (add-choice/autoadvance/accept/input-quick/text-color) or
+  // MIGRATED (selected-role/choice-layout/searchable/card-style/slider-
+  // format) controls is gone — the migrated ones get their OWN visibility
+  // refresh inside populateInspector/populateStyleVariant (Content/Style
+  // tabs), the deleted ones have no surviving element to toggle at all. The
+  // copy-node Type-swap select (data-text-role) is the one control whose
+  // VALUE-SYNC logic stays here unchanged — a relocated-but-attribute-
+  // addressed element, unaffected by which tab hosts it.
   function updateCanvasToolbar() {
     var node = selectedNode();
     var choiceFocused = scopeState === 'choice' && selectedChoiceValue !== null;
@@ -5765,75 +5898,23 @@ export const SECTION_STUDIO_SCRIPT = `
       key = clusters[i].getAttribute('data-toolbar-cluster');
       clusters[i].hidden = visible.indexOf(key) === -1;
     }
-    var meta = node ? typeMeta(node.type) : {};
-    var addChoice = document.querySelector('[data-toolbar-add-choice]');
-    if (addChoice) { addChoice.hidden = !node || meta.choice !== true; }
-    var auto = document.querySelector('[data-toolbar-autoadvance]');
-    if (auto) {
-      auto.hidden = !node || meta.choice !== true;
-      var on = (state.continue_mode || 'button') === 'auto_advance';
-      auto.textContent = on ? 'Auto-advance: on' : 'Auto-advance: off';
-      auto.setAttribute('aria-pressed', on ? 'true' : 'false');
+    // R5 D3: the "More" button/popover show only when the selection has
+    // structure or choice actions available; force-close the popover when it
+    // stops being relevant so a later, unrelated selection never inherits a
+    // stale open state.
+    var hasMore = visible.indexOf('structure') !== -1 || visible.indexOf('choice') !== -1;
+    var moreBtn = document.querySelector('[data-studio-more-toggle]');
+    var morePanel = document.querySelector('[data-studio-more-panel]');
+    if (moreBtn) { moreBtn.hidden = !hasMore; }
+    if (!hasMore && morePanel && !morePanel.hidden) {
+      morePanel.hidden = true;
+      if (moreBtn) { moreBtn.setAttribute('aria-expanded', 'false'); }
     }
-    var selButton = document.querySelector('[data-tb-selected-role="button"]');
-    if (selButton) { selButton.hidden = !node || (node.type !== 'ButtonAnswerGroup' && node.type !== 'TwoButtonYesNo' && node.type !== 'OtherGroupSelector'); }
-    // FIX 4b: MultiChoiceCardGroup has NO icon slot — its iconColor swatch was
-    // a dead write; the selected-icon role shows only for the two card grids.
-    var selIcon = document.querySelector('[data-tb-selected-role="icon"]');
-    if (selIcon) { selIcon.hidden = !isCardGridType(node); }
-    var inputQuick = document.querySelector('[data-toolbar-input-quick]');
-    // E1-NEW-6: also OFF for the 5 placeholder-inert types (range/Yes-No/Name).
-    if (inputQuick) { inputQuick.hidden = !node || !meta.produces || meta.choice === true || (PLACEHOLDER_INERT_TYPES[node.type] === 1); }
-    // FIX 4b: only renderCardGrid consumes columns/gridGap overrides — the
-    // quick layout cluster is gated to the two card grids (ButtonAnswerGroup /
-    // dropdowns / MultiChoiceCardGroup wrote dead keys).
-    var choiceLayout = document.querySelector('[data-toolbar-choice-layout]');
-    if (choiceLayout) { choiceLayout.hidden = !isCardGridType(node); }
-    // §5.5: the dropdown searchable toggle SWITCHES the component type.
-    var searchWrap = document.querySelector('[data-toolbar-searchable-wrap]');
-    var searchBtn = document.querySelector('[data-toolbar-searchable]');
-    var isDropdown = !!node && (node.type === 'DropdownQuestion' || node.type === 'SearchableDropdownQuestion');
-    if (searchWrap) { searchWrap.hidden = !isDropdown; }
-    if (searchBtn && isDropdown) {
-      var searchable = node.type === 'SearchableDropdownQuestion';
-      searchBtn.textContent = searchable ? 'Searchable: on' : 'Searchable: off';
-      searchBtn.setAttribute('aria-pressed', searchable ? 'true' : 'false');
-    }
-    // §5.6 "Cards" style — Icon/Image/Plain segmented, shown for the 3-type family.
-    var cardWrap = document.querySelector('[data-toolbar-card-style-wrap]');
-    var curCardStyle = cardStyleOf(node);
-    if (cardWrap) { cardWrap.hidden = curCardStyle === null; }
-    if (curCardStyle !== null) {
-      var cardBtns = document.querySelectorAll('[data-card-style]');
-      var cbi;
-      for (cbi = 0; cbi < cardBtns.length; cbi++) {
-        cardBtns[cbi].className = cardBtns[cbi].getAttribute('data-card-style') === curCardStyle ? 'btn btn-sm btn-secondary active' : 'btn btn-sm btn-outline';
-      }
-    }
-    // §5.6 "Slider" Format $ toggle — shown for the 2-type range family.
-    var sliderWrap = document.querySelector('[data-toolbar-slider-format-wrap]');
-    var sliderBtn = document.querySelector('[data-toolbar-slider-format]');
-    var isSlider = !!node && (node.type === 'NumberRangeQuestion' || node.type === 'CurrencyRangeQuestion');
-    if (sliderWrap) { sliderWrap.hidden = !isSlider; }
-    if (sliderBtn && isSlider) {
-      var isCurrency = node.type === 'CurrencyRangeQuestion';
-      sliderBtn.textContent = isCurrency ? 'Format $: on' : 'Format $: off';
-      sliderBtn.setAttribute('aria-pressed', isCurrency ? 'true' : 'false');
-    }
-    // §5.6 "The Accept-swap rule" — shown for the 8-type text-input family;
-    // the select's current value reflects the node's OWN concrete type.
-    var acceptWrap = document.querySelector('[data-toolbar-accept-wrap]');
-    var acceptSel = document.querySelector('[data-toolbar-accept]');
-    var curAccept = acceptFormatOfNode(node);
-    if (acceptWrap) { acceptWrap.hidden = curAccept === null; }
-    if (acceptSel && curAccept !== null) { acceptSel.value = curAccept; }
     var textRoleSel = document.querySelector('[data-text-role]');
     if (textRoleSel && node && TEXT_ROLE_TYPES.indexOf(node.type) !== -1) {
       textRoleSel.value = node.type;
       textRoleSel.disabled = node.bind !== undefined;
     }
-    var textColor = document.querySelector('[data-toolbar-text-color]');
-    if (textColor) { textColor.hidden = !node || node.type !== 'CategoryLabel'; }
     var chip = document.querySelector('[data-choice-value-chip]');
     var c = (node && choiceFocused) ? findChoice(node, selectedChoiceValue) : null;
     if (chip) { chip.textContent = choiceFocused ? String(selectedChoiceValue) : 'value'; }
@@ -6075,6 +6156,25 @@ export const SECTION_STUDIO_SCRIPT = `
     if (variant === 'field' && consumesSize) { populateSizeControls(node); populateCornersBorderControls(node); }
     if (variant === 'text') { populateTextRoleControls(node); }
     if (variant === 'continue') { populateContinueStyleRows(); }
+    // R5 D3 (register S4-A3 migration): "Selected-state style" (button/icon
+    // role) + "Card layout" (columns/gap) — MIGRATED from the canvas
+    // toolbar's "component"/"layout" clusters, same gating conditions.
+    var presetRow = document.querySelector('[data-preset-row]');
+    if (presetRow) { presetRow.hidden = variant !== 'field' || !node; }
+    var choiceExtras = document.querySelector('[data-style-choice-extras]');
+    var isChoiceFamily = variant === 'field' && !!node && typeMeta(node.type).choice === true;
+    if (choiceExtras) { choiceExtras.hidden = !isChoiceFamily; }
+    var selButton = document.querySelector('[data-tb-selected-role="button"]');
+    if (selButton) { selButton.hidden = !node || (node.type !== 'ButtonAnswerGroup' && node.type !== 'TwoButtonYesNo' && node.type !== 'OtherGroupSelector'); }
+    // FIX 4b: MultiChoiceCardGroup has NO icon slot — its iconColor swatch was
+    // a dead write; the selected-icon role shows only for the two card grids.
+    var selIcon = document.querySelector('[data-tb-selected-role="icon"]');
+    if (selIcon) { selIcon.hidden = !isCardGridType(node); }
+    // FIX 4b: only renderCardGrid consumes columns/gridGap overrides — gated
+    // to the two card grids (ButtonAnswerGroup/dropdowns/MultiChoiceCardGroup
+    // wrote dead keys).
+    var choiceLayout = document.querySelector('[data-toolbar-choice-layout]');
+    if (choiceLayout) { choiceLayout.hidden = !isCardGridType(node); }
   }
   // §6.2 "Selecting a node retargets the inspector and resets its active tab
   // to Content" — a NEW SELECTION (isNewSelection=true, from
@@ -6149,6 +6249,44 @@ export const SECTION_STUDIO_SCRIPT = `
     if (acceptSel && acceptFmt !== null) { acceptSel.value = acceptFmt; }
     var errWrap = document.querySelector('[data-vprop-error-wrap]');
     if (errWrap) { errWrap.hidden = !node || !meta.produces; }
+
+    // R5 D3 (register S4-A3 migration): the copy-node Type swap — MIGRATED
+    // from the canvas toolbar. Visible for the 5 TEXT_ROLE_TYPES (moot for a
+    // BOUND node: contentVariantOf already hides the whole field-block for
+    // those, so this wrap's own hidden state never matters there).
+    var typeSwapWrap = document.querySelector('[data-content-typeswap-wrap]');
+    if (typeSwapWrap) { typeSwapWrap.hidden = !node || TEXT_ROLE_TYPES.indexOf(node.type) === -1; }
+    // R5 D3: searchable-dropdown / card-style / slider-format toggles —
+    // MIGRATED from the canvas toolbar's "component" cluster (each SWITCHES
+    // the concrete stored component type, the same category as Accept).
+    var searchWrap = document.querySelector('[data-toolbar-searchable-wrap]');
+    var searchBtn = document.querySelector('[data-toolbar-searchable]');
+    var isDropdownSel = !!node && (node.type === 'DropdownQuestion' || node.type === 'SearchableDropdownQuestion');
+    if (searchWrap) { searchWrap.hidden = !isDropdownSel; }
+    if (searchBtn && isDropdownSel) {
+      var searchableNow = node.type === 'SearchableDropdownQuestion';
+      searchBtn.textContent = searchableNow ? 'Searchable: on' : 'Searchable: off';
+      searchBtn.setAttribute('aria-pressed', searchableNow ? 'true' : 'false');
+    }
+    var cardStyleWrapContent = document.querySelector('[data-toolbar-card-style-wrap]');
+    var curCardStyleContent = cardStyleOf(node);
+    if (cardStyleWrapContent) { cardStyleWrapContent.hidden = curCardStyleContent === null; }
+    if (curCardStyleContent !== null) {
+      var cardBtnsContent = document.querySelectorAll('[data-card-style]');
+      var cbic;
+      for (cbic = 0; cbic < cardBtnsContent.length; cbic++) {
+        cardBtnsContent[cbic].className = cardBtnsContent[cbic].getAttribute('data-card-style') === curCardStyleContent ? 'btn btn-sm btn-secondary active' : 'btn btn-sm btn-outline';
+      }
+    }
+    var sliderWrapContent = document.querySelector('[data-toolbar-slider-format-wrap]');
+    var sliderBtnContent = document.querySelector('[data-toolbar-slider-format]');
+    var isSliderSel = !!node && (node.type === 'NumberRangeQuestion' || node.type === 'CurrencyRangeQuestion');
+    if (sliderWrapContent) { sliderWrapContent.hidden = !isSliderSel; }
+    if (sliderBtnContent && isSliderSel) {
+      var isCurrencySel = node.type === 'CurrencyRangeQuestion';
+      sliderBtnContent.textContent = isCurrencySel ? 'Format $: on' : 'Format $: off';
+      sliderBtnContent.setAttribute('aria-pressed', isCurrencySel ? 'true' : 'false');
+    }
 
     // v3.1 R3b E1-C8: Required/When-answered only make sense for a real
     // answer-producing selection — hides for TextBlock/CategoryLabel/
@@ -7930,7 +8068,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!has) {
       var o = document.createElement('option');
       o.value = hex;
-      o.textContent = 'Custom color (legacy)';
+      o.textContent = 'Custom color';
       sel.appendChild(o);
     }
   }
@@ -7945,7 +8083,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (resetBtn) { resetBtn.hidden = !node || cur === undefined || cur === null || cur === ''; }
       srcEl = document.querySelector('[data-override-source="' + key + '"]');
       if (srcEl) { srcEl.textContent = node ? overrideSourceText(key, cur) : ''; }
-      legacyEl = document.querySelector('[data-override-legacy="' + key + '"]');
+      legacyEl = document.querySelector('[data-override-custom="' + key + '"]');
       if (legacyEl) { legacyEl.hidden = !node || !isHexColor(cur); }
       swatch = document.querySelector('[data-override-swatch="' + key + '"]');
       if (swatch && swatch.style) { swatch.style.background = node ? resolvedOverrideColor(key, cur) : ''; }
@@ -8940,7 +9078,8 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   if (toolbarEl) {
     toolbarEl.addEventListener('click', function (ev) {
-      // §6.4 choice cluster acts.
+      // §6.4 choice cluster acts (R5 D3: now inside the toolbar's "More"
+      // popover — still a descendant of toolbarEl, delegation unaffected).
       var choiceBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-act]') : null;
       if (choiceBtn) { handleChoiceAct(choiceBtn.getAttribute('data-choice-act')); return; }
       var chipBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-value-chip]') : null;
@@ -8949,50 +9088,13 @@ export const SECTION_STUDIO_SCRIPT = `
         focusChoiceRow(String(selectedChoiceValue));
         return;
       }
-      // §6.5 component-cluster quick controls.
-      var addChoiceBtn = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-add-choice]') : null;
-      if (addChoiceBtn) {
-        var acNode = selectedNode();
-        var acAdded = acNode ? addChoiceToNode(acNode) : null;
-        if (acAdded) { selectChoice(acNode.question_id, String(acAdded.value)); }
-        return;
-      }
-      var autoBtn = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-autoadvance]') : null;
-      if (autoBtn) {
-        // reflects + toggles the Section continue mode (§5.5) — writes the
-        // SAME store the strip's "On answer" segmented control owns.
-        setContinueMode((state.continue_mode || 'button') === 'auto_advance' ? 'button' : 'auto_advance');
-        return;
-      }
-      var valShortcut = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-open-validation]') : null;
-      if (valShortcut) { setInspectorTab('content'); return; }
-      var searchToggle = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-searchable]') : null;
-      if (searchToggle) {
-        var sNode = selectedNode();
-        if (sNode) { toggleSearchableDropdown(sNode); }
-        return;
-      }
-      // §5.6 "Cards" style segmented [Icon|Image|Plain]. Re-select (like the
-      // Accept-swap handler) so the inspector scope header/tab set refresh
-      // to the NEW type immediately — a type swap without a re-select would
-      // leave the scope header showing the PRE-swap label until the next
-      // unrelated selection change.
-      var cardStyleBtn = ev.target && ev.target.closest ? ev.target.closest('[data-card-style]') : null;
-      if (cardStyleBtn) {
-        var cNode = selectedNode();
-        if (cNode && setCardStyle(cNode, cardStyleBtn.getAttribute('data-card-style'))) { selectComponent(selectedQuestionId); }
-        return;
-      }
-      // §5.6 "Slider" Format $ toggle — same re-select rationale.
-      var sliderToggle = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-slider-format]') : null;
-      if (sliderToggle) {
-        var rNode = selectedNode();
-        if (rNode && toggleSliderFormat(rNode)) { selectComponent(selectedQuestionId); }
-        return;
-      }
-      // §6.6 preset menu.
-      var presetSaveBtn = ev.target && ev.target.closest ? ev.target.closest('[data-preset-save]') : null;
-      if (presetSaveBtn) { savePresetFromSelection(); return; }
+      // R5 D3 (register S4-A3): the old toolbar's add-choice / auto-advance /
+      // open-validation / searchable / card-style / slider-format / preset-
+      // save branches were REMOVED from this delegated listener — the first
+      // three controls are DELETED entirely (exact duplicates of Content-tab
+      // controls); the last four MOVED to the Content/Style tabs (outside
+      // toolbarEl's subtree) and now bind directly (see their own
+      // addEventListener calls near presetApplyEl below).
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-studio-act]') : null;
       if (!btn) { return; }
       var act = btn.getAttribute('data-studio-act');
@@ -9130,6 +9232,26 @@ export const SECTION_STUDIO_SCRIPT = `
       this.setAttribute('aria-pressed', expanded ? 'false' : 'true');
     });
   }
+  // R5 D4 (register S4-A5/A6, operator decision 4): the QA-tools toggle —
+  // default OFF (unchecked, matching the SSR'd hidden attribute on every
+  // [data-qa-tools-only] block) — un-hides ALL of them together: the Preview
+  // dev-console's design-picker/state-simulator/dependency-JSON/events-log/
+  // events-probe-iframe AND the drawer's "Design overrides" 4th tab. If the
+  // Design tab happens to be ACTIVE when the toggle is switched back off,
+  // fall back to the Preview tab so no orphaned/hidden panel stays "active".
+  var qaToggle = document.getElementById('lg-qa-tools-toggle');
+  if (qaToggle) {
+    qaToggle.addEventListener('change', function () {
+      var on = this.checked;
+      var qaEls = document.querySelectorAll('[data-qa-tools-only]');
+      var qi;
+      for (qi = 0; qi < qaEls.length; qi++) { qaEls[qi].hidden = !on; }
+      if (!on) {
+        var designTabBtn = document.querySelector('[data-studio-drawer-tab="design"]');
+        if (designTabBtn && designTabBtn.className.indexOf('active') !== -1) { setDrawerTab('preview'); }
+      }
+    });
+  }
   var drawerTabs = document.querySelectorAll('[data-studio-drawer-tab]');
   var dt;
   for (dt = 0; dt < drawerTabs.length; dt++) {
@@ -9137,6 +9259,78 @@ export const SECTION_STUDIO_SCRIPT = `
       setDrawerTab(this.getAttribute('data-studio-drawer-tab'));
     });
   }
+  // R5 D6 (register S4-A11, golden :627-721): "Manage theme ->" (Style tab +
+  // drawer bar) opens the Themes manager as an IN-PAGE OVERLAY (an <iframe>
+  // embedding the existing /admin/leadgen/themes?embed=1 route) instead of
+  // navigating away — the golden's own interaction. The standalone route
+  // still works for deep links (bare /admin/leadgen/themes).
+  function openThemesOverlay() {
+    var overlay = document.querySelector('[data-themes-overlay]');
+    var frame = document.getElementById('lg-themes-overlay-frame');
+    if (!overlay || !frame) { return; }
+    var pid = state.public_id;
+    var src = pid ? ('/admin/leadgen/themes?embed=1&from=' + encodeURIComponent(pid)) : '/admin/leadgen/themes?embed=1';
+    frame.setAttribute('src', src);
+    overlay.hidden = false;
+  }
+  function closeThemesOverlay() {
+    var overlay = document.querySelector('[data-themes-overlay]');
+    var frame = document.getElementById('lg-themes-overlay-frame');
+    if (overlay) { overlay.hidden = true; }
+    if (frame) { frame.setAttribute('src', 'about:blank'); }
+  }
+  var manageThemeLinks = document.querySelectorAll('[data-open-manage-theme], [data-studio-manage-theme-link]');
+  var mtl;
+  for (mtl = 0; mtl < manageThemeLinks.length; mtl++) {
+    manageThemeLinks[mtl].addEventListener('click', function (ev) {
+      ev.preventDefault();
+      openThemesOverlay();
+    });
+  }
+  var themesOverlayBackdrop = document.querySelector('[data-themes-overlay-backdrop]');
+  if (themesOverlayBackdrop) { themesOverlayBackdrop.addEventListener('click', closeThemesOverlay); }
+  window.addEventListener('message', function (ev) {
+    if (ev.origin !== window.location.origin) { return; }
+    if (ev.data && ev.data.source === 'lg-themes-embed' && ev.data.action === 'close') {
+      closeThemesOverlay();
+    }
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape') { return; }
+    var overlay = document.querySelector('[data-themes-overlay]');
+    if (overlay && !overlay.hidden) { closeThemesOverlay(); return; }
+    var morePanelEsc = document.querySelector('[data-studio-more-panel]');
+    if (morePanelEsc && !morePanelEsc.hidden) { closeMorePanel(); }
+  });
+  // R5 D3 (register S4-A3): the canvas toolbar's compact "More actions"
+  // popover — structure/choice clusters relocated here (see
+  // renderCanvasToolbar). Toggle on click; close on outside-click, Escape
+  // (above), or when the selection stops having anything to show
+  // (updateCanvasToolbar's hasMore check).
+  function closeMorePanel() {
+    var panel = document.querySelector('[data-studio-more-panel]');
+    var toggle = document.querySelector('[data-studio-more-toggle]');
+    if (panel) { panel.hidden = true; }
+    if (toggle) { toggle.setAttribute('aria-expanded', 'false'); }
+  }
+  var moreToggleBtn = document.querySelector('[data-studio-more-toggle]');
+  if (moreToggleBtn) {
+    moreToggleBtn.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      var panel = document.querySelector('[data-studio-more-panel]');
+      if (!panel) { return; }
+      var willOpen = panel.hidden;
+      panel.hidden = !willOpen;
+      this.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    });
+  }
+  document.addEventListener('click', function (ev) {
+    var panel = document.querySelector('[data-studio-more-panel]');
+    if (!panel || panel.hidden) { return; }
+    var withinPanel = ev.target && ev.target.closest && ev.target.closest('[data-studio-more-panel]');
+    var onToggle = ev.target && ev.target.closest && ev.target.closest('[data-studio-more-toggle]');
+    if (!withinPanel && !onToggle) { closeMorePanel(); }
+  });
   var chipEl = document.querySelector('[data-studio-validation-chip]');
   if (chipEl) { chipEl.addEventListener('click', function () { setDrawerTab('validation'); }); }
   var openMapping = document.querySelector('[data-studio-open-mapping-drawer]');
@@ -9429,6 +9623,40 @@ export const SECTION_STUDIO_SCRIPT = `
       if (preset !== null && applyPreset(node, preset)) { populateInspector(); }
     });
   }
+  // R5 D3 (register S4-A3 migration): these four controls MOVED out of the
+  // canvas toolbar's delegated click listener (toolbarEl) into the Content/
+  // Style tabs (outside the toolbar's DOM subtree) — each now gets its OWN
+  // direct binding, the same idiom presetApplyEl/inspectorAcceptEl already
+  // use, so relocation never depends on delegation scope.
+  var presetSaveEl = document.querySelector('[data-preset-save]');
+  if (presetSaveEl) { presetSaveEl.addEventListener('click', function () { savePresetFromSelection(); }); }
+  var searchableBtnEl = document.querySelector('[data-toolbar-searchable]');
+  if (searchableBtnEl) {
+    searchableBtnEl.addEventListener('click', function () {
+      var sNode = selectedNode();
+      if (sNode) { toggleSearchableDropdown(sNode); }
+    });
+  }
+  var cardStyleBtns = document.querySelectorAll('[data-card-style]');
+  var csbi;
+  for (csbi = 0; csbi < cardStyleBtns.length; csbi++) {
+    cardStyleBtns[csbi].addEventListener('click', function () {
+      // §5.6 "Cards" style segmented [Icon|Image|Plain]. Re-select (like the
+      // Accept-swap handler) so the inspector scope header/tab set refresh
+      // to the NEW type immediately — a type swap without a re-select would
+      // leave the scope header showing the PRE-swap label until the next
+      // unrelated selection change.
+      var cNode = selectedNode();
+      if (cNode && setCardStyle(cNode, this.getAttribute('data-card-style'))) { selectComponent(selectedQuestionId); }
+    });
+  }
+  var sliderFormatBtnEl = document.querySelector('[data-toolbar-slider-format]');
+  if (sliderFormatBtnEl) {
+    sliderFormatBtnEl.addEventListener('click', function () {
+      var rNode = selectedNode();
+      if (rNode && toggleSliderFormat(rNode)) { selectComponent(selectedQuestionId); }
+    });
+  }
   // §9.5 Section-overrides drawer controls.
   var sectionRoleEls = document.querySelectorAll('[data-section-role], [data-section-columns-default], [data-section-gap-default]');
   var sre;
@@ -9691,14 +9919,36 @@ export const SECTION_STUDIO_SCRIPT = `
       .then(function (j) { cb((j && j.items) || []); })
       .catch(function () { cb([]); });
   }
-  function populateOptionSelect(sel, items, current) {
+  // R5 D5 (register S4-A8/B8): the empty-state placeholder text is a
+  // parameter, not a hardcoded generic glyph-dash — matches the SSR-side
+  // savedOption() choice (renderStudioSettings) so a live client-side
+  // refresh (this function, called on every page load) never re-introduces
+  // the golden-never-depicts "— pick —" copy the R5 purge removed.
+  // R5 D5 (register S4-A8/B8): the pill wrapper's populated-vs-empty visual
+  // state (data-pair-empty + the dashed/muted vs solid/white styling,
+  // renderStudioSettings) is set ONCE at SSR time from the loaded value —
+  // this refreshes it live whenever the SELECT's value changes by ANY path
+  // (server repopulate, a user pick, or "+New…"), so the pill never goes
+  // visually stale (e.g. still showing the dashed empty-state border after
+  // the operator has actually picked an activity).
+  function refreshPairPillState(sel) {
+    if (!sel) { return; }
+    var wrap = sel.closest ? sel.closest('.studio-pair') : null;
+    if (!wrap) { return; }
+    var empty = trimStr(sel.value) === '';
+    wrap.setAttribute('data-pair-empty', empty ? 'true' : 'false');
+    wrap.style.background = empty ? '${STUDIO_COLOR.issuesChipBg}' : '${STUDIO_COLOR.white}';
+    wrap.style.borderStyle = empty ? 'dashed' : 'solid';
+    sel.style.color = empty ? '${STUDIO_COLOR.faint}' : 'inherit';
+  }
+  function populateOptionSelect(sel, items, current, placeholderLabel) {
     if (!sel) { return; }
     clearChildren(sel);
     var values = items.slice();
     if (current !== '' && values.indexOf(current) === -1) { values.unshift(current); }
     var blank = document.createElement('option');
     blank.value = '';
-    blank.textContent = '\\u2014 pick \\u2014';
+    blank.textContent = placeholderLabel;
     sel.appendChild(blank);
     var i, o;
     for (i = 0; i < values.length; i++) {
@@ -9708,13 +9958,14 @@ export const SECTION_STUDIO_SCRIPT = `
       sel.appendChild(o);
     }
     sel.value = current;
+    refreshPairPillState(sel);
   }
   var activitySel = document.getElementById('lg-section-activity');
   var verticalSel = document.getElementById('lg-section-vertical');
   function loadActivities() {
     if (!activitySel) { return; }
     fetchItems('/api/admin/leadgen/activities', function (items) {
-      populateOptionSelect(activitySel, items, activitySel.value);
+      populateOptionSelect(activitySel, items, activitySel.value, 'Choose an activity');
     });
   }
   function loadVerticals() {
@@ -9722,7 +9973,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var activity = activitySel ? trimStr(activitySel.value) : '';
     var url = '/api/admin/leadgen/verticals' + (activity === '' ? '' : '?activity=' + encodeURIComponent(activity));
     fetchItems(url, function (items) {
-      populateOptionSelect(verticalSel, items, verticalSel.value);
+      populateOptionSelect(verticalSel, items, verticalSel.value, 'Choose a vertical');
     });
   }
   // "+ New activity…" / "+ New vertical…" — allow-create ONLY behind the §8.2
@@ -9737,6 +9988,7 @@ export const SECTION_STUDIO_SCRIPT = `
     o.textContent = v;
     sel.appendChild(o);
     sel.value = v;
+    refreshPairPillState(sel);
     markDirty();
     if (after) { after(v); }
   }
@@ -9764,12 +10016,18 @@ export const SECTION_STUDIO_SCRIPT = `
     // §8.2: changing Activity RESETS Vertical (the vertical list is derived
     // from the selected activity).
     activitySel.addEventListener('change', function () {
+      refreshPairPillState(activitySel);
       if (verticalSel) { verticalSel.value = ''; }
       loadVerticals();
       renderOffersStaleNote();
     });
   }
-  if (verticalSel) { verticalSel.addEventListener('change', renderOffersStaleNote); }
+  if (verticalSel) {
+    verticalSel.addEventListener('change', function () {
+      refreshPairPillState(verticalSel);
+      renderOffersStaleNote();
+    });
+  }
 
   // --- §8.7 Offer mapping panel (E2) — model core ------------------------------
   var offersData = null;
@@ -10647,7 +10905,7 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   function loadOffers() {
     if (!state.public_id) {
-      offersNote('Save the Section first \\u2014 the Available Offers panel derives from the SAVED Activity/Vertical pair (\\u00A78.2).');
+      offersNote('Save the Section first \\u2014 the Available Offers panel derives from the SAVED Activity/Vertical pair.');
       return;
     }
     fetch('/api/admin/leadgen/sections/' + encodeURIComponent(state.public_id) + '/offers', {
@@ -11066,14 +11324,11 @@ export const SECTION_STUDIO_SCRIPT = `
     });
   }
 
-  // --- scalar controls (continue mode + Maps toggle) --------------------------------------
-  var mapsToggle = document.getElementById('lg-address-validation');
-  if (mapsToggle) {
-    mapsToggle.addEventListener('change', function () {
-      state.address_validation_enabled = this.checked;
-      markDirty();
-    });
-  }
+  // --- scalar controls (continue mode) --------------------------------------
+  // R5 D2 (register S4-A2): the legacy #lg-address-validation checkbox
+  // listener is REMOVED with its fieldset — state.address_validation_enabled
+  // now round-trips load -> save purely through the state object (see the
+  // SSR-side comment in renderStudioSettings), no DOM element involved.
   // §4.2 "On answer" segmented (golden :72-75) — replaces the old native
   // radio pair; click OR keyboard (Enter/Space, role="button" tabindex="0")
   // on either segment writes continue_mode through the single setContinueMode

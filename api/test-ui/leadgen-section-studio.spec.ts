@@ -383,6 +383,13 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
     const frame = page.frameLocator('#lg-preview-frame');
     await expect(frame.locator('#lg-funnel-root[data-lg-preview="1"]')).toBeVisible({ timeout: 15_000 });
 
+    // R5 D4 (QA-tools toggle, default OFF): the events panel (and its Clear
+    // button below) now live behind this gate — a real click enables it,
+    // the new legitimate flow to reach the panel, not a state-injection
+    // shortcut.
+    await expect(page.locator('[data-qa-tools-toggle]')).not.toBeChecked();
+    await page.locator('[data-qa-tools-toggle]').click();
+
     // the engine BOOT beacons arrive over postMessage — suppressed as real
     // requests, listed in the panel instead (§8.9 "events that would fire")
     const list = page.locator('[data-studio-events-list]');

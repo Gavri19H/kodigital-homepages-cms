@@ -194,6 +194,15 @@ export const THEME_SIZE_FACTORS: Record<ThemeSizeScale, number> = {
   l: 1.1,
 };
 
+// R5 SEAM-1 (register E.5 "Theme base_px … ZERO consumers — dead theme
+// feature"): the neutral reference for ThemeRecordTypography.base_px
+// (§10.4) — CSS's own universal default root font-size, and the only value
+// the ThemeManager "New theme" payload ever sends today (ui-theme-
+// manager.ts:730 — no input control exists yet to author a different one).
+// base_px === this default is the identity scale (factor 1) for every theme
+// record reachable through the shipped UI.
+const THEME_RECORD_BASE_PX_DEFAULT = 16;
+
 // Steps on the BASE design scales (radius sm..full, shadow none+sm..xl) that
 // button/card defaults may pick (§9.3 "radius step" / "shadow step").
 export const THEME_RADIUS_STEPS = ["sm", "md", "lg", "xl", "full"] as const;
@@ -596,6 +605,49 @@ export function resolveTokens(
     // validation record can never inject through this path either.
     applyDisplayFont(design, safeThemeRecordFontStack(record.typography.headline_font));
     applyBodyFont(design, safeThemeRecordFontStack(record.typography.body_font));
+
+    // R5 SEAM-1 (base_px consumer): record.typography.base_px was validated
+    // at write time (themes-handlers.ts: finite number, 10-24) and round-
+    // tripped through KV since the Themes-manager Phase A slice, but nothing
+    // downstream ever read it off theme_typography (below / line ~500) — a
+    // resolved theme record could carry any value and no rendered pixel
+    // would differ. base_px IS the record path's own typography-scale
+    // control: curated theme_json has typography.size (s/m/l, sizeScale
+    // above) but ThemeRecordTypography has no `size` field at all — this is
+    // that path's one and only size lever, continuously parameterized
+    // instead of 3 discrete steps. Reuses the SAME unit-agnostic
+    // scaleFontSizes the curated sizeScale above uses — every *FontSize*
+    // token (px/rem) scales by the same factor.
+    //
+    // Defense-in-depth (mirrors the P0 font-name gate above): the write-time
+    // gate is authoritative; a KV record read straight from storage only
+    // re-checks "is a number" (theme-store.ts), so a hand-edited/corrupted
+    // blob could carry an out-of-range value here. Clamping to the same
+    // validated 10-24 range (falling back to the neutral default if the
+    // stored value isn't even a finite number) keeps a malformed record's
+    // factor sane instead of ever reaching scaleCssLength with something a
+    // real record could never have produced.
+    //
+    // BLAST RADIUS (conductor/operator note): factor = base_px / 16. Every
+    // ThemeRecord reachable through the shipped UI carries base_px:16 (no
+    // input control exists to author a different one yet) and every existing
+    // fixture/test in the repo uses base_px:16 too (repo-wide grep, R5) — so
+    // this factor is 1 (scaleFontSizes short-circuited, byte-identical
+    // output) for every theme in active use today. The day an operator (or a
+    // future UI control) sets a non-16 base_px, EVERY font-size token in
+    // that theme's funnels scales by base_px/16 — the same KIND of change
+    // the s/m/l scale already makes, just continuously parameterized. No KV
+    // read access from this slice to confirm no LIVE `lg-funnel-themes`
+    // record already carries a hand-edited non-16 value — worth a spot check
+    // before this ships.
+    const rawBasePx = record.typography.base_px;
+    const safeBasePx = Number.isFinite(rawBasePx)
+      ? Math.min(24, Math.max(10, rawBasePx))
+      : THEME_RECORD_BASE_PX_DEFAULT;
+    const basePxFactor = safeBasePx / THEME_RECORD_BASE_PX_DEFAULT;
+    if (basePxFactor !== 1) {
+      scaleFontSizes(design as unknown as Record<string, unknown>, basePxFactor);
+    }
   }
 
   // --- button defaults (§9.3) — applied AFTER palette + scales so a radius

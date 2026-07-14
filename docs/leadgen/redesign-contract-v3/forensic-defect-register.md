@@ -228,6 +228,25 @@ after 2 fix rounds). Rows closed by R0: S4-B1 (headline strip at golden proporti
   consumption-honesty rule (E1-NEW-9 scoped Address only; a prefix+icon layout would be new
   design — operator's call if ever wanted).
 
+**R5 RULINGS (conductor, 2026-07-14):**
+- **Gate-1c stays 7 states / 2 themes per the CONTRACT** (§13 :618 — Navy + Bold Yellow; "Minimal"
+  is only a demo card in the golden's themes-list illustration). The roast-F4 "×3" amendment was
+  itself mistaken on this detail and is corrected here; the legitimate underlying concern
+  (Minimal-theme render coverage) lands as R6 seam test 4 instead. The implementer's
+  contract-over-instruction STOP was correct.
+- **Census reclassifications RATIFIED:** renderStudioSettings + sectionEditorHtml → golden:true
+  after their non-golden content split into independently-classified siblings
+  (renderActivityVerticalPickers/S4-A8, renderSectionEditorChrome/S4-A10), plus the Stage-A2
+  proposals (renderCanvasToolbar, renderThemesOverlay). Final census: 33 blocks / 24 golden /
+  9 documented / 0 unclassified / 0 stale — BOTH gates ARMED in verify:all.
+- **SEAM-1 base_px** wired via scaleFontSizes with defense-in-depth clamping; every repo path is
+  identity (base_px 16). Pre-deploy spot-check queued for R6: read the LIVE lg-funnel-themes KV
+  record for hand-edited non-16 values (wrangler kv read — safe).
+- **Operator sign-off items** (staging package README): the s=300/l=480 preset px, all-navy
+  handles, typography before/after, and the surfaced product question — the studio canvas is
+  THEME-NEUTRAL by construction (getFunnelDesign(null), studio:2661): it never reflects an
+  assigned theme (the drawer preview does). Plausibly intentional; operator decides.
+
 **R3 FIX-ROUND ERRATA + BLAST RADIUS (conductor, 2026-07-14):**
 - **Size presets GROUNDED** (review BLOCKER: they were inert with fake active feedback — the M4
   mechanism): width m=384px (contract §7.1's own "384 = 64% of the 600 column"), width full=100%,
@@ -284,6 +303,24 @@ the R5 re-pin captures the new chrome. "Byte-identical to R0" no longer holds pa
 Height custom_px bounds discovered: **[4,600] snap-4** (content-schema validateSizeAxis :1080-1090)
 — intentionally distinct from width's [200,600] (§7.2's own worked example stores a 56px height).
 
+R5 (golden purge + full-bleed + typography + gate arming) **SHIP** (2026-07-14; adversarial review
+SHIP first pass — 3 informational findings only; reviewer independently ran 117 R5 units, gate-1c
+7/7 ARMED, the 8/8 preserved-navigation table with real clicks, both strict gates with synthetic-
+injection proofs). Rows closed: S4-A1/A9/A10 (full-bleed standalone editor; other admin pages
+byte-identity-pinned), S4-A2 (legacy Maps fieldset + wrangler-secret sentence DEAD), S4-A3 (golden
+single-row toolbar; every migrated control has a proven home; Delete-in-popover adjudicated
+acceptable w/ R4a confirm+undo), S4-A5/A6 (QA-tools toggle, default-off pinned), S4-A7/S2-9
+(JARGON ZERO — gate ARMED in verify:all), S4-A8/B8 (golden pills), S4-A11 (themes in-page
+overlay), S4-A12/B4/B5/B6/B7 (chrome smalls; Active pill golden byte-exact), S4-B2 (typography:
+Newsreader 31px/600/#16324f + sub 15px/#63707F; A0 pins updated with typography-only word-diff
+proofs; 12 visual baselines regenerated + eyeballed; fontSizeMobile documented as
+golden-unspecified), SEAM-1 (base_px consumer w/ clamps), R3a border routing (state-safe var
+emission; hover/selected proven). Census 33/24/9/0/0 with the vanish-evasion arming proven.
+Test-cascade rounds: 6 spec files updated to the NEW UI as real user flows (popover, QA toggle,
+Content-tab accept, overlay assertions) + 12 pixel baselines regenerated with per-image eyeballs;
+conductor's tail-cropped shard read caught by count accounting (271≠276) and corrected — full
+uncropped ritual now standard. Gates: vitest 5,256/5,256 (369) · shards 93+92+91 = 276/276
+UNCROPPED · verify:all exit 0 with BOTH gates armed · jargon 0 · gate-1c ARMED ratio=0 ×7.
 R4b (Google Maps end-to-end) **SHIP** (2026-07-14; adversarial review FIX-FIRST — 1 MAJOR
 [auction facet enrichment gated on the VALIDATE job instead of the key: auction-only+key silently
 ZIP-only while the UI note promised state/city — proven no_bid→disqualified through the real POST

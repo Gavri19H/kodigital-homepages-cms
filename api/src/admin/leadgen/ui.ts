@@ -37,6 +37,7 @@ import leadgenApi, { type Paging } from "./router";
 import * as data from "../data";
 import {
   adminLayout,
+  adminStandalonePage,
   escapeHtml,
 } from "../templates/layout";
 import {
@@ -183,7 +184,32 @@ export function leadgenPageShell(options: {
   });
 }
 
-// Shared status-badge class mapping (layout.ts badge palette).
+// R5 grant 1 (register S4-A1/A9/A10): the CHROMELESS sibling of
+// leadgenPageShell — no admin sidebar/header, a self-contained full-screen
+// surface (the golden Section Studio editor; also reused by the Themes
+// manager's in-page-overlay embed, D6). Same LEADGEN_STYLES base (the
+// leadgen-tabs/lg-num/etc. rules are harmless if unused) plus adminStandalone
+// Page's ADMIN_STYLES, so every .btn/.form-input/.badge/.alert/--c-* class
+// the studio markup depends on is still available.
+export function leadgenStandalonePageShell(options: {
+  content: string;
+  styles?: string;
+  scripts?: string;
+}): string {
+  return adminStandalonePage({
+    title: "LeadGen",
+    content: options.content,
+    styles: LEADGEN_STYLES + (options.styles ?? ""),
+    scripts: options.scripts ?? "",
+  });
+}
+
+// Shared status-badge class mapping (layout.ts badge palette). Used by every
+// LeadGen list/editor EXCEPT the Section Studio topbar, which needs the
+// golden's own dot+pill treatment — see studioActivePill below (R5 D7,
+// register S4-B5) — a SEPARATE function so this shared badge (Offers/Quotes/
+// Auctions/Sections-list) and its shared `.badge-*` CSS in templates/
+// layout.ts stay completely unchanged.
 export function statusBadge(status: string): string {
   const cls =
     status === "active"
@@ -194,6 +220,26 @@ export function statusBadge(status: string): string {
           ? "badge badge-archived"
           : "badge badge-draft";
   return `<span class="${cls}">${escapeHtml(status)}</span>`;
+}
+
+// R5 D7 (register S4-B5): the Section Studio topbar's status pill, golden
+// :40 byte-exact for "active" (dot + pill, color #0E7C3A / background
+// #E4F2E9 — the SAME hex studio-tokens.ts's STUDIO_COLOR.success/
+// successTint measure from this identical golden region elsewhere in the
+// studio). The golden mockup depicts ONLY the active state; paused/archived/
+// draft reuse the SAME dot+pill SHAPE with the studio's own existing
+// warn/archive/muted tones (studio-tokens.ts STUDIO_COLOR.warnStrong+
+// warnTint / archiveText+"#FBEEEC" / muted+issuesChipBg) so every status
+// gets a consistent golden-shaped treatment instead of only "active" —
+// documented judgment call, not itself a golden-cited value.
+const STUDIO_STATUS_PILL_TONE: Record<string, { color: string; bg: string; label: string }> = {
+  active: { color: "#0E7C3A", bg: "#E4F2E9", label: "Active" },
+  paused: { color: "#8A6D00", bg: "#FDF4E3", label: "Paused" },
+  archived: { color: "#8A5050", bg: "#FBEEEC", label: "Archived" },
+};
+export function studioActivePill(status: string): string {
+  const tone = STUDIO_STATUS_PILL_TONE[status] ?? { color: "#5A6470", bg: "#F1F3F7", label: status };
+  return `<span class="studio-status-pill" data-studio-status="${escapeHtml(status)}" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:${tone.color};background:${tone.bg};padding:3px 9px;border-radius:20px"><span style="width:6px;height:6px;border-radius:50%;background:${tone.color}"></span>${escapeHtml(tone.label)}</span>`;
 }
 
 // Phase-3 list scaffolding (renderToolbar / renderListTable / leadgenTabPage +

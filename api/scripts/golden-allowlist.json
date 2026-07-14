@@ -32,9 +32,15 @@
     },
     {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderStudioSettings",
+      "golden": true,
+      "register": "S4-A2 (resolved), S4-A8 (split out), S4-B1",
+      "note": "PROPOSED reclassification (implementer, pending conductor ratification): the R5 census split this MIXED block into two. (1) S4-A2's legacy Maps/validation fieldset is REMOVED entirely (R5 D2 fieldset removal — no replacement DOM element; state.address_validation_enabled round-trips via the #lg-section-data JSON blob only, proven in-function by the inline comment + test/leadgen-r5-* coverage). (2) S4-A8's Activity/Vertical pickers are EXTRACTED to their own top-level block, renderActivityVerticalPickers (below), which keeps the golden:false classification. What remains in THIS function — the eyebrow, the On-answer segmented control, the Maps-connected chip, and the golden-legit headline/subheadline inputs (S4-B1) — has no other register citation flagging it non-golden, so the function is reclassified golden:true now that its non-golden content has moved to an independently classifiable sibling block."
+    },
+    {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderActivityVerticalPickers",
       "golden": false,
-      "register": "S4-A2, S4-A8, S4-B1",
-      "note": "MIXED block: contains the golden-legit headline/subheadline question strip (whose grid-collapse bug is S4-B1) PLUS two confirmed non-golden regions inside the same function — the legacy Maps/validation fieldset (S4-A2: 'Legacy: address / ZIP validation... wrangler secret...') and the Activity/Vertical '+New...' pickers + empty '— pick —' option (S4-A8). Marked golden:false because it contains banned-in-golden content; R3/R5 should split this function so the golden strip and the non-golden fieldset/pickers become independently classifiable blocks."
+      "register": "S4-A8",
+      "note": "R5 census split (extracted from renderStudioSettings, which used to carry this MIXED-in): the Activity/Vertical '+New...' pickers + styled-placeholder-pill empty state. No golden position exists for this group (it was moved into the question strip from the top bar in an earlier phase, unrelated to golden fidelity) — accepted, functionally necessary, non-golden extension, now its own classifiable block per the split."
     },
     {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderLibraryItem",
@@ -85,16 +91,10 @@
       "note": "Scope pills — not flagged."
     },
     {
-      "id": "src/admin/leadgen/ui-section-studio.ts::renderToolbarLayoutCluster",
-      "golden": false,
-      "register": "S4-A3",
-      "note": "One of the canvas element-toolbar's ballooning clusters (structure/text/component/choice/preset) that grows the toolbar beyond golden's single 46px row (golden :264-292)."
-    },
-    {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderCanvasToolbar",
       "golden": false,
-      "register": "S4-A3",
-      "note": "MIXED: hosts the golden-legit viewport toggle + Frame-hint control ALONGSIDE the non-golden ballooning clusters (S4-A3) it assembles (including renderToolbarLayoutCluster's output). Marked golden:false because its distinguishing content beyond the golden pair is the flagged toolbar growth; R5 should split viewport/frame-hint into their own classifiable block."
+      "register": "S4-A3 (R5 purge)",
+      "note": "PROPOSED reclassification (implementer, pending conductor ratification): R5 D3 removed EVERY ballooning cluster (renderToolbarLayoutCluster DELETED — its entry above is intentionally gone, not stale-orphaned, per the purge completion the E.5b arming enforces; layout/text/component/preset clusters removed or migrated to Content/Style tabs). The function now renders ONLY golden-legit chrome (breadcrumb/pills/undo/viewport/frame-hint/offer-mapping-toggle) PLUS one compact non-golden 'More actions' popover (structure + choice-item quick actions — the golden mockup depicts neither; documented judgment call per the dispatch's own carve-out) and the inline validation-problems slot. Kept golden:false for the More-popover addition alone — a MUCH smaller divergence than pre-R5."
     },
     {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderStudioCanvas",
@@ -176,9 +176,15 @@
     },
     {
       "id": "src/admin/leadgen/ui-sections.ts::sectionEditorHtml",
+      "golden": true,
+      "register": "S4-A1 (resolved), S4-A9 (resolved), S4-A10 (split out)",
+      "note": "PROPOSED reclassification (implementer, pending conductor ratification): the R5 full-bleed grant resolved two of the three original MIXED reasons directly — S4-A1's admin-shell wrap is gone (switched to leadgenStandalonePageShell, templates/layout.ts grant 1) and S4-A9's LeadGen sub-tabs row is dropped (renderLeadgenTabs no longer called here). The remaining reason, S4-A10 (the 'New Section' pubid span + 2 alert placeholders), is now EXTRACTED to its own top-level block, renderSectionEditorChrome (below), which keeps the golden:false classification. What remains in THIS function is pure page-assembly (isNew/view/statusPillHtml computation, the outer div wrapper, the leadgenStandalonePageShell call) plus calls to two independently classified blocks (renderSectionEditorChrome = non-golden, renderSectionStudio = golden) — no independent visual content of its own, so it is reclassified golden:true now that both its non-golden reasons are either resolved or split out. Register §D W5 [DECISION]: full-bleed studio route approved by the operator."
+    },
+    {
+      "id": "src/admin/leadgen/ui-sections.ts::renderSectionEditorChrome",
       "golden": false,
-      "register": "S4-A1, S4-A9, S4-A10",
-      "note": "MIXED: this is the studio EDITOR page's outer document assembly, so it also legitimately calls the golden renderSectionStudio. Marked golden:false because its OWN distinguishing content (outside that call) is exactly what S4-A1/A9/A10 flag: wrapping the studio in the full admin shell (sidebar+header, via templates/layout.ts + ui.ts — both OUTSIDE this gate's scanned files, so the wrap is tracked at its ui-sections.ts call site instead), the LeadGen sub-tabs row (Offers/Sections/Quotes/Auction), and the 'New Section' pub-id span + 2 alert placeholders. Golden's studio route is a self-contained full-bleed editor with none of these (register §D W5 [DECISION]: full-bleed studio route approved by the operator)."
+      "register": "S4-A10",
+      "note": "R5 census split (extracted from sectionEditorHtml, which used to carry this MIXED-in): the 'New Section' pubid label (new-section state only) + the 2 error/warning alert surfaces. Golden's static mockup depicts no new/unsaved/error state, so this has no golden position — accepted, functionally necessary, non-golden extension, now its own classifiable block per the split."
     },
     {
       "id": "src/admin/leadgen/ui-sections.ts::sectionNotFoundPage",
@@ -203,6 +209,12 @@
       "golden": false,
       "register": "S4-A4 successor (R3b)",
       "note": "Containers' REAL layout props (Stack/Grid/Columns/CardPanel/Spacer) in a clean jargon-free panel, container types only. Consumed; not a golden region — accepted extension pending R5 (conductor-classified 2026-07-14)."
+    },
+    {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderThemesOverlay",
+      "golden": true,
+      "register": "S4-A11 (R5 D6)",
+      "note": "PROPOSED classification (implementer, pending conductor ratification): the Themes-manager IN-PAGE OVERLAY container (iframe + backdrop) — this IS the golden interaction itself (golden :627-721, 'Manage theme ->' opens an overlay over the studio instead of navigating away). Classified golden:true because it directly implements the golden-specified overlay mechanism, unlike the OTHER R3b additions above which are accepted-but-non-golden extensions."
     }
   ]
 }

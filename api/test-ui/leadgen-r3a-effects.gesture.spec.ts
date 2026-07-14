@@ -202,6 +202,19 @@ test.describe("R3 effect matrix (firefox real input)", () => {
   });
 
   test("ButtonAnswerGroup: a real N/S drag sets a custom height the BUTTONS render at (min-height)", async ({ page }) => {
+    // R5 full-bleed TALLER viewport (CONFIRMED needed, not a style choice —
+    // root-caused by direct instrumentation, not a guess): at the default
+    // Playwright "Desktop Firefox" 1280×720 viewport, this group's bottom
+    // (S) resize handle measures y≈681 — only ~39px from the 720px viewport
+    // floor. The test's +90px downward drag lands the final mouseup at
+    // y≈777, PAST the viewport, where it has no element to dispatch to (the
+    // drag mechanism itself never completes). Confirmed directly: the
+    // identical drag at viewport height 1000 fires the mouseup correctly and
+    // the button's rendered height actually changes (52px→240px, a real,
+    // working resize) — the resize logic is unchanged and correct; only the
+    // page's available height matters here, so the test's aim gets more
+    // room, not the product.
+    await page.setViewportSize({ width: 1280, height: 1000 });
     const s = await createSection(page.request, `R3 HeightDrag ${uniq}`, [HEADLINE, { type: "ButtonAnswerGroup", question_id: "q_bag", internal_field: "cov", answer_type: "enum", choices: CH }, CONT]);
     await boot(page, s);
     await selectNode(page, "q_bag");

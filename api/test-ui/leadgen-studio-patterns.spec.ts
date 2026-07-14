@@ -563,7 +563,13 @@ async function addComponent(page: Page, type: string): Promise<void> {
   await page.locator(`[data-tile][data-name="${insert.dataName}"]`).first().click();
   await expect(canvasNodes).toHaveCount(before + 1, { timeout: 20_000 });
   if (insert.swap === 'accept') {
-    await page.locator('[data-toolbar-accept]').selectOption(insert.swapValue!);
+    // R5 D3 toolbar migration: the Accept-format control moved from the
+    // toolbar (data-toolbar-accept, deleted) to the Content tab's "Answer
+    // format" section (data-inspector-accept, ui-section-studio.ts:2004).
+    // A real click onto the Content tab first — the new legitimate flow —
+    // rather than assuming it is already active.
+    await openInspectorTab(page, 'content');
+    await page.locator('[data-inspector-accept]').selectOption(insert.swapValue!);
   } else if (insert.swap === 'cardStyle') {
     await page.locator(`[data-card-style="${insert.swapValue}"]`).click();
   } else if (insert.swap === 'sliderFormat') {
@@ -591,6 +597,14 @@ async function addAfterSelected(page: Page, type: string): Promise<void> {
 // own layout props. End model shape is IDENTICAL to the old
 // wrap-then-insert-into sequence (Stack node with the child in `.children`).
 async function groupSelectionIntoStack(page: Page): Promise<void> {
+  // R5 D3 toolbar migration: "Group → Stack" moved into the "More actions"
+  // popover (data-studio-more-panel) — a real click on the "⋮" toggle
+  // (data-studio-more-toggle) opens it first (the new legitimate flow;
+  // never force-clicking the hidden action directly). The toggle is shown
+  // whenever the current selection's structure cluster is available
+  // (updateCanvasToolbar's hasMore check) — true for any selected node.
+  await page.locator('[data-studio-more-toggle]').click();
+  await expect(page.locator('[data-studio-more-panel]')).toBeVisible();
   await page.locator('[data-studio-act="group-stack"]').click();
   await expect(page.locator('[data-scope-editing-name]')).toHaveText('Stack');
 }
@@ -1340,6 +1354,12 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     // dependency SIM (§9.2 server-rendered): unmet answer → the dropdown is
     // NOT in the preview markup at all (renderSectionComponentsVisible)
     await waitBootPreview(page);
+    // R5 D4 (QA-tools toggle, default OFF — pins decision 4): the state
+    // simulator lives behind this gate now. A real click enables it — the
+    // new legitimate flow to reach the simulator, not a state-injection
+    // shortcut.
+    await expect(page.locator('[data-qa-tools-toggle]')).not.toBeChecked();
+    await page.locator('[data-qa-tools-toggle]').click();
     const f = pFrame(page);
     await markPreviewStale(page);
     await page.locator('[data-sim-state="dependency"]').click();
@@ -1401,6 +1421,12 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     await attachToQuote(page.request, `Reveal Pin Quote ${uniq}`, [section.id], `${VERT}-seeded`);
     await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
     await waitBootPreview(page);
+    // R5 D4 (QA-tools toggle, default OFF — pins decision 4): the state
+    // simulator lives behind this gate now. A real click enables it — the
+    // new legitimate flow to reach the simulator, not a state-injection
+    // shortcut.
+    await expect(page.locator('[data-qa-tools-toggle]')).not.toBeChecked();
+    await page.locator('[data-qa-tools-toggle]').click();
     const f = pFrame(page);
     await markPreviewStale(page);
     await page.locator('[data-sim-state="dependency"]').click();
@@ -1438,6 +1464,12 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     await attachToQuote(page.request, `ZIP Quote ${uniq}`, [detail.id], VERT);
     await page.goto(`/admin/leadgen/sections/${publicId}/edit`, { waitUntil: 'domcontentloaded' });
     await waitBootPreview(page);
+    // R5 D4 (QA-tools toggle, default OFF — pins decision 4): the state
+    // simulator lives behind this gate now. A real click enables it — the
+    // new legitimate flow to reach the simulator, not a state-injection
+    // shortcut.
+    await expect(page.locator('[data-qa-tools-toggle]')).not.toBeChecked();
+    await page.locator('[data-qa-tools-toggle]').click();
 
     // §9.2 error sim (required-but-empty): runtime-verbatim message
     const f = pFrame(page);
@@ -1712,6 +1744,12 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
 
     await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
     await waitBootPreview(page);
+    // R5 D4 (QA-tools toggle, default OFF — pins decision 4): the state
+    // simulator lives behind this gate now. A real click enables it — the
+    // new legitimate flow to reach the simulator, not a state-injection
+    // shortcut.
+    await expect(page.locator('[data-qa-tools-toggle]')).not.toBeChecked();
+    await page.locator('[data-qa-tools-toggle]').click();
     const f = pFrame(page);
 
     // capture the SECTION markup (scripts excluded — the runtime bundle text
@@ -1872,28 +1910,44 @@ test.describe('LeadGen Studio §9.4 + §8.13 (Slice F)', () => {
     test.setTimeout(120_000);
     // The §8.9 events panel renders each would-fire event as ONE compact-JSON
     // line (~840 chars, no spaces). WITHOUT wrap opportunities its min-content
-    // width would propagate up the admin shell's flex chain and stretch the
-    // whole studio layout past the viewport the moment the boot events arrive
-    // (historically ~3034px at a 1280 viewport, proven by remove-and-measure:
-    // deleting the events <li> nodes shrank .admin-main 3034 → 1030). The
-    // §8.1/E6 layout-hygiene fix has since landed in the studio styles
+    // width would propagate up the containing layout and stretch the whole
+    // studio past the viewport the moment the boot events arrive (historically
+    // ~3034px at a 1280 viewport, proven by remove-and-measure: deleting the
+    // events <li> nodes shrank the container 3034 → 1030). The §8.1/E6
+    // layout-hygiene fix has since landed in the studio styles
     // (ui-section-studio.ts: .studio-events-list li overflow-wrap:anywhere +
-    // word-break, and .admin-main{min-width:0} so the flex item may shrink
-    // below its content's intrinsic width). This test now GUARDS that fix:
-    // once the boot events land, .admin-main must stay within the viewport.
+    // word-break). This test now GUARDS that fix: once the boot events land,
+    // the section-editor container must stay within the viewport.
+    //
+    // R5 full-bleed (register S4-A1/A9/A10): the studio editor route no
+    // longer renders inside the admin shell's .admin-main flex item — it is
+    // the standalone page's own #lg-section-editor wrapper now (layout.ts
+    // adminStandalonePage injects content directly into <body>, no
+    // .admin-main-equivalent div — confirmed by direct read; there is
+    // nothing else to point at). The layout-hygiene INTENT is identical:
+    // does the events content's width stay contained.
+    //
+    // R5 D4 (QA-tools toggle, default OFF): the events panel is now the
+    // FIRST thing behind that gate (renderPreviewPanel), so it renders with
+    // zero layout box (display:none) until an operator opts in — a real
+    // regression in THIS overflow concern cannot manifest while hidden. A
+    // real click on the toggle is the new legitimate flow to actually
+    // exercise the CSS containment fix (not a state-injection shortcut).
     await ensureFeederOffer(page.request);
     const section = await createSection(page.request, `Overflow Pin ${uniq}`, ROUNDTRIP_CONTENT);
     await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
     await waitBootPreview(page);
     await waitForStudioEvents(page);
+    await page.locator('[data-qa-tools-toggle]').click();
+    await expect(page.locator('[data-studio-events-list]')).toBeVisible();
     const widths = await page.evaluate(() => ({
-      adminMain: Math.round(document.querySelector('.admin-main')!.getBoundingClientRect().width),
+      editorWrap: Math.round(document.getElementById('lg-section-editor')!.getBoundingClientRect().width),
       iframe: Math.round(document.getElementById('lg-preview-frame')!.getBoundingClientRect().width),
       viewport: document.documentElement.clientWidth,
     }));
     expect(
-      widths.adminMain,
-      `the studio layout must stay within the viewport once events land (admin-main ${widths.adminMain}px, preview iframe ${widths.iframe}px, viewport ${widths.viewport}px)`,
+      widths.editorWrap,
+      `the studio layout must stay within the viewport once events land (editor wrap ${widths.editorWrap}px, preview iframe ${widths.iframe}px, viewport ${widths.viewport}px)`,
     ).toBeLessThanOrEqual(widths.viewport);
   });
 

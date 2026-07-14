@@ -104,9 +104,12 @@ const asSection = (body: string): string =>
 
 // --- pre-change byte pin (captured from the renderer BEFORE this change) ----
 
+// R5 D11 (register S4-B2, operator decision 1): headline typography now
+// matches the golden mockup (Newsreader/#16324f) — the only bytes this pin
+// carries forward from that ratified, live-funnel-wide change.
 const SNAPSHOT_TREE_ONE_LEGACY =
   `<h1 class="lg-headline" data-component-type="QuestionHeadline" data-question-id="h1"` +
-  ` style="font-family:&#39;Literata&#39;,serif;color:#1A1F36">Are you insured?</h1>` +
+  ` style="font-family:&#39;Newsreader&#39;,serif;color:#16324f">Are you insured?</h1>` +
   `<div class="lg-answer-group lg-yesno" role="radiogroup" data-component-type="TwoButtonYesNo"` +
   ` data-question-id="q_ins" data-internal-field="currently_insured" data-answer-type="boolean"` +
   ` data-lg-question="q_ins" data-lg-field="currently_insured" data-auto-advance="false">` +

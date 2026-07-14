@@ -331,21 +331,37 @@ test.describe.serial('LeadGen Themes manager — §10 browser flows (Phase D)', 
     await expect(styleManageLink).toHaveAttribute('href', expectedHref);
     await expect(styleManageLink).toHaveText('Manage theme →');
 
-    // click through the drawer link: the manager URL carries ?from=<id>...
+    // R5 D6 (register S4-A11, golden :627-721): "Manage theme →" now opens
+    // the Themes manager as an IN-PAGE OVERLAY (a real click — the link's
+    // own JS handler intercepts navigation and calls openThemesOverlay(),
+    // ui-section-studio.ts:9267) instead of navigating away. The hrefs
+    // asserted above are UNCHANGED (openThemesOverlay reads state.public_id
+    // independently) — only the click BEHAVIOR changed. "Returns to that
+    // section" is now trivially true: the section editor is never left.
+    const sectionEditorUrl = page.url();
     await drawerManageLink.click();
-    await page.waitForLoadState('domcontentloaded');
-    expect(page.url()).toContain(expectedHref);
-    await expect(page.getByText('Themes', { exact: true })).toBeVisible();
-    await expect(page.getByText('Your themes')).toBeVisible();
-    await expect(cardLocator(page, fx.navy.id)).toBeVisible();
+    const overlay = page.locator('[data-themes-overlay]');
+    await expect(overlay).toBeVisible();
+    const expectedEmbedSrc = `/admin/leadgen/themes?embed=1&from=${section.public_id}`;
+    await expect(page.locator('#lg-themes-overlay-frame')).toHaveAttribute('src', expectedEmbedSrc);
+    expect(page.url(), 'the overlay never navigates the top-level page away from the section editor').toBe(sectionEditorUrl);
 
-    // ...and M1's fix: "Back to section" now returns to THIS section's
-    // editor — not the sections list (the pre-fix behavior).
-    const backLink = page.getByText('Back to section');
-    await expect(backLink).toHaveAttribute('href', `/admin/leadgen/sections/${section.public_id}/edit`);
+    // Round-trip SUBSTANCE preserved: the theme list renders INSIDE the
+    // overlay, carrying the same from=<id> the pre-overlay hrefs asserted.
+    const overlayFrame = page.frameLocator('#lg-themes-overlay-frame');
+    await expect(overlayFrame.getByText('Themes', { exact: true })).toBeVisible();
+    await expect(overlayFrame.getByText('Your themes')).toBeVisible();
+    await expect(overlayFrame.locator(`a[href*="theme=${fx.navy.id}"]`).first()).toBeVisible();
+
+    // ...and M1's fix, in its new shape: "Back to section" (inside the
+    // overlay) CLOSES it via postMessage (TM_EMBED_SCRIPT, a real click —
+    // no state injection) instead of navigating — "returns to that
+    // section" because the section editor was never navigated away from.
+    const backLink = overlayFrame.getByText('Back to section');
+    await expect(backLink).toBeVisible();
     await backLink.click();
-    await page.waitForLoadState('domcontentloaded');
-    await expect(page).toHaveURL(new RegExp(`/admin/leadgen/sections/${section.public_id}/edit$`));
+    await expect(overlay).toBeHidden();
+    expect(page.url(), 'still on the section editor after closing the overlay').toBe(sectionEditorUrl);
 
     await page.screenshot({ path: `${SHOT_DIR}/d4-manage-theme-roundtrip.png` });
   });

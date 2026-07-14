@@ -248,13 +248,19 @@ function sharedRows(): StyleRow[] {
     [".lg-category", "letter-spacing", "2px", "tokens.categoryLabel.letterSpacing"],
     [".lg-category", "font-weight", "700", "tokens.categoryLabel.fontWeight"],
     [".lg-category", "font-size", "13px", "tokens.categoryLabel.fontSize 0.8125rem"],
-    // Headline — 700 / navy-ink / centered (font-size is viewport-specific).
-    [".lg-headline", "font-weight", "700", "tokens.headline.fontWeight / ref-JSON headline.fontWeight"],
-    [".lg-headline", "color", hexToRgb("#1A1F36"), "tokens.headline.color / ref-JSON headline.color #1A1F36"],
+    // Headline — R5 D11 golden-match (register S4-B2, operator decision 1
+    // "YES, match the approved design"): fontWeight 700→600, color
+    // #1A1F36→#16324f (tokens.ts). Centered / text-align unchanged.
+    [".lg-headline", "font-weight", "600", "R5 D11: tokens.headline.fontWeight 600 (golden-matched; was 700)"],
+    [".lg-headline", "color", hexToRgb("#16324f"), "R5 D11: tokens.headline.color #16324f (golden-matched; was #1A1F36)"],
     [".lg-headline", "text-align", "center", "tokens.headline.textAlign / ref-JSON headline.textAlign"],
-    // Subheadline.
-    [".lg-subheadline", "font-size", "13.2px", "tokens.subheadline.fontSize 0.825rem / ref-JSON subheadline.fontSize 13.2px"],
-    [".lg-subheadline", "color", hexToRgb("#4A5568"), "tokens.subheadline.color / ref-JSON subheadline.color #4A5568"],
+    // Subheadline — R5 D11: color token changed (#4A5568→#63707F); font-size
+    // is a SURGICAL styles.ts override (15px) layered after the shared
+    // subheadline.fontSize token (0.825rem/13.2px, UNCHANGED — it still feeds
+    // .lg-card-desc etc. via that other consumption path), so THIS selector's
+    // computed font-size is now 15px, not the shared token's 13.2px.
+    [".lg-subheadline", "font-size", "15px", "R5 D11: styles.ts surgical .lg-subheadline override (was 13.2px, the shared subheadline.fontSize token)"],
+    [".lg-subheadline", "color", hexToRgb("#63707F"), "R5 D11: tokens.subheadline.color #63707F (golden-matched; was #4A5568)"],
     // Icon card — BASE border / radius / bg / min-height / shadow.
     [".lg-card", "border-top-width", "2px", "tokens.iconCard.border 2px / ref-JSON iconCard.border 2px"],
     [".lg-card", "border-top-style", "solid", "tokens.iconCard.border solid"],
@@ -303,10 +309,14 @@ function sharedRows(): StyleRow[] {
 // checks (font-family + gradient serialise with extra tokens), asserted
 // separately from the exact-equality table.
 async function assertContainsAndGradient(page: Page): Promise<void> {
+  // R5 D11: headline.fontFamily is now Newsreader (golden-matched; was
+  // Literata). header.logoFontFamily is DELIBERATELY unchanged (still
+  // Literata) — golden's typography spec covers the question headline only,
+  // not the header logo wordmark.
   const headlineFamily = await computed(page, ".lg-headline", "font-family");
-  expect(headlineFamily, "headline is the Literata display family (tokens.headline.fontFamily)").toContain("Literata");
+  expect(headlineFamily, "headline is the Newsreader display family (R5 D11: tokens.headline.fontFamily, golden-matched)").toContain("Newsreader");
   const logoFamily = await computed(page, ".lg-logo", "font-family");
-  expect(logoFamily, "logo is Literata (tokens.header.logoFontFamily)").toContain("Literata");
+  expect(logoFamily, "logo is Literata (tokens.header.logoFontFamily, unchanged by R5 D11)").toContain("Literata");
   const rangeValueFamily = await computed(page, ".lg-range-value", "font-family");
   expect(rangeValueFamily, "range value is Literata (tokens.rangeQuestion.valueFontFamily)").toContain("Literata");
   const bodyFamily = await computed(page, '[data-funnel-design="default-funnel"]', "font-family");
@@ -329,8 +339,11 @@ test.describe("§14.10(b) computed-style EXACT assertions on the REAL /lg runtim
 
     await assertRows(page, [
       ...sharedRows(),
-      // Desktop headline size (tokens.headline.fontSizeDesktop 1.75rem = 28px).
-      [".lg-headline", "font-size", "28px", "tokens.headline.fontSizeDesktop 1.75rem / ref-JSON headline.fontSizeDesktop 28px"],
+      // R5 D11: desktop headline size is now a literal 31px (golden-matched;
+      // was tokens.headline.fontSizeDesktop 1.75rem = 28px). Deliberately NOT
+      // a rem value (tokens.ts's own comment: a rem would drift with an
+      // unknown host zone's root font-size; golden specifies an exact 31px).
+      [".lg-headline", "font-size", "31px", "R5 D11: tokens.headline.fontSizeDesktop 31px literal (golden-matched; was 1.75rem/28px)"],
     ]);
     await assertContainsAndGradient(page);
 

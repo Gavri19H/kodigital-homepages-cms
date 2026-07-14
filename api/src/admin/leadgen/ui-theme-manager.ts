@@ -53,7 +53,7 @@
 
 import type { Env } from "../../env";
 import { escapeHtml } from "../templates/layout";
-import { apiJson, leadgenPageShell, branding, type UiContext } from "./ui";
+import { apiJson, leadgenPageShell, leadgenStandalonePageShell, branding, type UiContext } from "./ui";
 import { parseJsonColumn } from "./offers-handlers";
 import {
   THEME_RECORD_BUTTON_SIZES,
@@ -330,16 +330,40 @@ function buildThemesHref(themeId: string, from: string): string {
 // TOP BAR (golden :631-636)
 // ---------------------------------------------------------------------------
 
-function renderTopBar(from: string): string {
+// R5 D6 (register S4-A11): `embed` marks the "← Back to section" link with
+// data-tm-embed-close so the ES5 embed-only script (below, gated the same
+// way) can intercept the click and postMessage the STUDIO PARENT to close
+// the overlay instead of navigating the iframe itself. The href stays a
+// real, working fallback (direct-link / no-JS / opened standalone).
+function renderTopBar(from: string, embed: boolean): string {
   const backHref = from !== "" ? `/admin/leadgen/sections/${encodeURIComponent(from)}/edit` : "/admin/leadgen/sections";
+  const backAttr = embed ? " data-tm-embed-close" : "";
   return `<div style="flex:0 0 auto;height:56px;display:flex;align-items:center;gap:14px;padding:0 18px;background:${TM_COLOR.topbarBg};border-bottom:1px solid ${TM_COLOR.topbarBorder}">
-  <a href="${escapeHtml(backHref)}" class="tm-back" style="display:flex;align-items:center;gap:7px;padding:7px 12px 7px 9px;border:1px solid ${TM_COLOR.lineControl};border-radius:8px;cursor:pointer;color:${TM_COLOR.back};font-weight:600;font-size:13px;text-decoration:none"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M14 6l-6 6 6 6" stroke="${TM_COLOR.backIcon}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Back to section</a>
+  <a href="${escapeHtml(backHref)}" class="tm-back"${backAttr} style="display:flex;align-items:center;gap:7px;padding:7px 12px 7px 9px;border:1px solid ${TM_COLOR.lineControl};border-radius:8px;cursor:pointer;color:${TM_COLOR.back};font-weight:600;font-size:13px;text-decoration:none"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M14 6l-6 6 6 6" stroke="${TM_COLOR.backIcon}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Back to section</a>
   <div style="width:1px;height:24px;background:${TM_COLOR.divider}"></div>
   <div style="display:flex;align-items:baseline;gap:9px"><span style="font-size:17px;font-weight:800;color:${TM_COLOR.title}">Themes</span><span style="font-size:12.5px;color:${TM_COLOR.subtitle}">one look &amp; feel per funnel · A/B-testable in a quote</span></div>
   <button type="button" id="tm-new-theme" class="tm-new-theme" data-from="${escapeHtml(from)}" style="margin-left:auto;display:inline-flex;align-items:center;gap:7px;padding:9px 15px;background:${TM_COLOR.navy};color:#fff;font-weight:700;font-size:13px;border-radius:8px;cursor:pointer;box-shadow:0 1px 2px rgba(27,58,92,.28);border:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="#fff" stroke-width="2.3" stroke-linecap="round"/></svg>New theme</button>
 </div>
 <div id="tm-error" role="alert" style="display:none;padding:8px 18px;background:#FBEEEC;color:${TM_COLOR.errText};font-size:12.5px" hidden></div>`;
 }
+
+// R5 D6: strict-ES5 embed-only script — posts a close request to the parent
+// window (the Section Studio) instead of letting the "Back to section" link
+// navigate the IFRAME itself. Scoped to same-origin only (this route is
+// same-origin admin-only; no cross-origin embed is ever legitimate).
+const TM_EMBED_SCRIPT = `
+(function () {
+  var backEl = document.querySelector('[data-tm-embed-close]');
+  if (backEl) {
+    backEl.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ source: 'lg-themes-embed', action: 'close' }, window.location.origin);
+      }
+    });
+  }
+}());
+`;
 
 // ---------------------------------------------------------------------------
 // LEFT — theme list (golden :641-658)
@@ -757,6 +781,12 @@ export async function leadgenThemeManagerPage(c: UiContext): Promise<Response> {
   const env: Env = c.env;
   const from = (c.req.query("from") ?? "").trim();
   const requestedTheme = (c.req.query("theme") ?? "").trim();
+  // R5 D6 (register S4-A11): ?embed=1 marks the request as the Section
+  // Studio's in-page overlay (an <iframe> the studio opens instead of
+  // navigating away). The standalone route above still works UNCHANGED for
+  // deep links (bare /admin/leadgen/themes, no embed param) — this is
+  // strictly additive gating, not a replacement of the existing route.
+  const embed = c.req.query("embed") === "1";
 
   const [listRes, usage] = await Promise.all([
     apiJson<ThemesListBody>(env, "/api/admin/leadgen/themes"),
@@ -776,7 +806,7 @@ export async function leadgenThemeManagerPage(c: UiContext): Promise<Response> {
       : `<div style="flex:0 0 320px;background:#fff;border-left:1px solid ${TM_COLOR.topbarBorder}"></div>`;
 
   const content = `<div class="tm-shell">
-  ${renderTopBar(from)}
+  ${renderTopBar(from, embed)}
   <div class="tm-body">
     ${renderLeftList(themes, usage, selected?.id ?? null, from)}
     ${centerHtml}
@@ -784,13 +814,17 @@ export async function leadgenThemeManagerPage(c: UiContext): Promise<Response> {
   </div>
 </div>`;
 
+  const scripts = THEME_MGR_SCRIPT + (embed ? TM_EMBED_SCRIPT : "");
+
   return c.html(
-    leadgenPageShell({
-      activePath: "/admin/leadgen/sections",
-      userEmail: branding(c).userEmail,
-      content,
-      styles: THEME_MGR_STYLES,
-      scripts: THEME_MGR_SCRIPT,
-    }),
+    embed
+      ? leadgenStandalonePageShell({ content, styles: THEME_MGR_STYLES, scripts })
+      : leadgenPageShell({
+          activePath: "/admin/leadgen/sections",
+          userEmail: branding(c).userEmail,
+          content,
+          styles: THEME_MGR_STYLES,
+          scripts,
+        }),
   );
 }
