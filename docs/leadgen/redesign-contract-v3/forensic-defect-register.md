@@ -284,6 +284,21 @@ the R5 re-pin captures the new chrome. "Byte-identical to R0" no longer holds pa
 Height custom_px bounds discovered: **[4,600] snap-4** (content-schema validateSizeAxis :1080-1090)
 — intentionally distinct from width's [200,600] (§7.2's own worked example stores a 56px height).
 
+R4b (Google Maps end-to-end) **SHIP** (2026-07-14; adversarial review FIX-FIRST — 1 MAJOR
+[auction facet enrichment gated on the VALIDATE job instead of the key: auction-only+key silently
+ZIP-only while the UI note promised state/city — proven no_bid→disqualified through the real POST
+with the validate toggle as the only delta] + 2 minors → fixed with the reviewer's probe as a
+permanent regression → SHIP on independent re-verification). Rows closed: S3-5 (validate job runs
+server-side on POST /lg/auction: per-field gated, KV-cached, absent-key no-op BYTE-IDENTICAL,
+invalid-drop exclusive to validate), S3-6 (facet with the ruled precedence declared>facet>CF-geo —
+collision matrix proven through the real route; enrichment for validate-OR-auction; ZIP-only
+degradation honest + surfaced in authoring copy), S3-7 (fills authoring end-to-end: minimal
+additive schema allowance shape-pinned to the REAL parseMapsConfig, picker of same-section fields,
+PATCH→GET→reload round-trip w/ screenshots), S3-8 (per-field-beats-column proven in both readers
+incl. the mixed multi-section case), E3-S2 CLOSED AS-DESIGNED (Appendix-A locked copy; §4.2 scopes
+the chip). §1.3 preserve list intact: engine diff = 2 additive hunks; no-facet byte-identity; R1
+pins green. Gates: vitest 5,226/5,226 (366) · shards 260/266 + gate-1c report-only · bundle
+40,908 · jargon 37 · census 31/21/10/0/0 · list 266.
 R4a (pipeline + UX dead-ends) **SHIP** (2026-07-14; adversarial review FIX-FIRST — 2 MINORS [prototype-key false positives in the new live checker; require-if advisory overclaiming server parity] + conductor stale-toast addition → all fixed with real-validator cross-checks → SHIP on independent re-verification). Rows closed: S3-1/2/3/9/10, S2-10, E3-NEW-1/2(10-of-32 honest mirror)/3/4/6/7(undo-toast w/ stale-invalidation)/9(+real Reactivate)/10, E3-S1/S3/S4/S5, E3-S7 MOOT (structural proof), E2-NEW-10-mirror. Surfaced: SURF-1 (server never validates requiredWhen refs — advisory shipped; server-side = R6/operator). Gates: vitest 5,186/5,186 (363) · browser 30/30 + shards 257/264 + gate-1c report-only · bundle 40,908 · jargon 37 (raw op codes humanized) · census 31/21/10/0/0 · list 265.
 R3 (inspector honesty, stages A+B) **SHIP** (2026-07-14; adversarial review FIX-FIRST — 1 BLOCKER
 [inert size presets = the M4 mechanism inside our own effect matrix] + 1 MAJOR [unproven silent
@@ -412,7 +427,7 @@ in R6.
 | E3-NEW-9 | Archive (studio:9783-9788 + sec-ui:262-267) never checks `response.ok`; confirm promises Reactivate which doesn't exist | R4a (investigate server unarchive; else truthful copy) |
 | E3-NEW-10 | Offer-mapping overlay toggle in Preview tab repaints the CANVAS (studio:2135 vs 7760-7768) | R4a (relocate) |
 | E3-S1 | Row "Usage" = native `window.alert()` (sec-ui:269-277) | R4a (inline panel) |
-| E3-S2 | "Google Maps: connected" chip = global browser-key presence only; label overclaims | R4b (accurate label) |
+| E3-S2 | "Google Maps: connected" chip = global browser-key presence only; label overclaims | **CLOSED AS-DESIGNED (R4b conductor ruling):** the string is design-locked contract Appendix-A copy, and §4.2 explicitly scopes the chip to "reports key status only and never toggles" — the design anticipated the semantics; contract fidelity outranks the audit's wording preference. No reword. |
 | E3-S3 | Preview dependency-JSON: invalid JSON silently swallowed to `{}` (studio:8049-8055) | R4a (surface error; applies behind QA toggle) |
 | E3-S4 | `renderZeroOffersWarning` uses stale pre-save `offersData` (studio:9637-9647) | R4a |
 | E3-S5 | "+New" activity/vertical skip `renderOffersStaleNote()` (studio:8281-8288) | R4a |

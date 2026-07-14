@@ -22,10 +22,10 @@
 // XOR wire-obfuscation of the backfill payload is a follow-up hardening.
 
 import type { Context } from "hono";
-import type { Env } from "../../env";
+import { readEnvSecret, type Env } from "../../env";
 import type { PublicSiteVariables } from "../middleware";
 import { readCookie } from "../listicle/experiment-pick";
-import { resolveActivatedFunnelByVariant } from "./resolver";
+import { resolveActivatedFunnelByVariant, type ResolvedActivatedFunnel } from "./resolver";
 import { leadgenNoStoreHeaders } from "./serve";
 import {
   loadAuctionBundle,
@@ -35,7 +35,16 @@ import {
 } from "./auction/engine";
 import { emitLeadgenRecords } from "../../analytics/leadgen-events";
 import type { ClickedRef } from "../../leadgen/auction-core";
-import type { LeadgenRawAnswers } from "../../leadgen/answers";
+// v3.1 §9 (S3-5 + S3-6): the server-side Maps validate leg + auction facet.
+import {
+  collectMapsAuctionFields,
+  deriveAuctionFacet,
+  normalizeAnswers,
+  type LeadgenMapsFieldEnrichment,
+  type LeadgenRawAnswers,
+} from "../../leadgen/answers";
+import { validateAddress, GOOGLE_MAPS_SERVER_KEY, type LeadgenLocationFacet } from "../../leadgen/maps";
+import type { LeadgenSectionContent } from "./components/content-schema";
 import type { LeadgenAuctionRow, LeadgenEnvironment } from "../../admin/leadgen/db-types";
 
 type PublicContext = Context<{ Bindings: Env; Variables: PublicSiteVariables }>;
@@ -123,6 +132,101 @@ async function loadClickedOffers(db: D1Database, funnelAttemptId: string): Promi
   return (rows.results ?? []).map((r) => ({ offer_public_id: r.offer_public_id, carrier_key: r.carrier_key }));
 }
 
+// Parse a section's content_json to the component list the Maps legs read
+// (dedicated try/catch — a corrupt blob yields no Maps fields, never throws;
+// the D1 JSON-parse safety rule).
+function sectionContentForMaps(contentJson: string): LeadgenSectionContent {
+  try {
+    const parsed = JSON.parse(contentJson) as unknown;
+    if (isRecord(parsed) && Array.isArray(parsed["components"])) {
+      return { components: parsed["components"] } as LeadgenSectionContent;
+    }
+  } catch {
+    /* corrupt content_json — no Maps fields */
+  }
+  return { components: [] } as LeadgenSectionContent;
+}
+
+// v3.1 §9 (S3-5 + S3-6) — the server-side Maps legs, run on the money path
+// BEFORE the auction payload build. Two effects, both fail-open and gated:
+//   * GEOCODE: for each ZIP-family field carrying EITHER job (validate OR
+//     auction — adversarial-review MAJOR F1: an auction-only field still
+//     needs the server-side geocode to enrich its facet with state/city, §9
+//     "Emits a resolved location facet (state/city/ZIP)" — gating this on
+//     validate alone left an auction-only field ZIP-only even WITH the key,
+//     contradicting the Maps-tab degradation note's own promise), run
+//     validateAddress on the NORMALIZED ZIP. Absent GOOGLE_MAPS_SERVER_KEY ⇒
+//     the whole leg is SKIPPED (no KV read, no fetch) so a keyless funnel
+//     behaves byte-identically to pre-R4b; an `ok` result records its
+//     {city,state} enrichment.
+//   * VALIDATE (S3-5) drop: an `invalid` result DROPS the answer ONLY when the
+//     field carries the validate job (the SAME "invalid answer is omitted"
+//     discipline normalizeAnswers already uses — never a new rejection
+//     channel) — validate is the only job with rejection semantics. An
+//     auction-only field never drops on a malformed ZIP: it simply derives no
+//     facet (deriveLocationFacet's own ZIP check yields null) and the answer
+//     is kept. The drop rides the RAW answers the engine re-normalizes, so it
+//     flows into BOTH the payload build (RED LINE 3) and the facet.
+//   * FACET (S3-6): deriveAuctionFacet builds the ZIP location facet for the
+//     auction-job fields (ZIP-only without the key OR on a geocode no_op;
+//     state/city-enriched with a successful geocode).
+// validateAddress is itself total (never throws), so this never throws either.
+async function applyMapsAuctionLegs(
+  env: Env,
+  resolved: ResolvedActivatedFunnel,
+  rawAnswers: LeadgenRawAnswers,
+): Promise<{ rawAnswers: LeadgenRawAnswers; locationFacet: Record<string, unknown> | null }> {
+  const hasServerKey = readEnvSecret(env, GOOGLE_MAPS_SERVER_KEY) !== undefined;
+  const working: Record<string, unknown> = { ...rawAnswers };
+  const enrichment: Record<string, LeadgenMapsFieldEnrichment> = {};
+
+  // Validate leg — gated on the server key so a keyless funnel is a pure no-op.
+  if (hasServerKey) {
+    for (const rs of resolved.sections) {
+      const content = sectionContentForMaps(rs.section.content_json);
+      const fields = collectMapsAuctionFields(content);
+      if (fields.length === 0) continue;
+      const { answers } = normalizeAnswers(content, working as LeadgenRawAnswers);
+      for (const f of fields) {
+        // collectMapsAuctionFields only returns fields with validate and/or
+        // auction true (never neither) — both jobs need the geocode; only
+        // validate has rejection semantics (MAJOR F1 fix below).
+        const zipVal = answers[f.zipField];
+        if (typeof zipVal !== "string") continue;
+        const result = await validateAddress(env, { zip: zipVal });
+        if (result.status === "invalid") {
+          // Only the VALIDATE job drops the answer on a malformed ZIP; an
+          // auction-only field keeps it (no facet derives, but nothing is
+          // rejected — auction carries no rejection semantics).
+          if (f.validate) delete working[f.zipField]; // omit the invalid answer (drop discipline)
+        } else if (result.status === "ok") {
+          const e: LeadgenMapsFieldEnrichment = {};
+          if (typeof result.city === "string" && result.city !== "") e.city = result.city;
+          if (typeof result.state === "string" && result.state !== "") e.state = result.state;
+          if (e.city !== undefined || e.state !== undefined) enrichment[f.zipField] = e;
+        }
+        // no_op ⇒ leave the answer intact (a geocode miss is not a rejection).
+      }
+    }
+  }
+
+  // Facet leg — derived from the (post-drop) answers + any server enrichment.
+  let locationFacet: LeadgenLocationFacet | null = null;
+  for (const rs of resolved.sections) {
+    const content = sectionContentForMaps(rs.section.content_json);
+    const { answers } = normalizeAnswers(content, working as LeadgenRawAnswers);
+    locationFacet = deriveAuctionFacet(content, answers, enrichment);
+    if (locationFacet !== null) break;
+  }
+  // Spread the facet into a fresh record so it merges as bare rule dims
+  // ({zip,state,city}) in the engine's eval context (the interface itself has
+  // no index signature).
+  return {
+    rawAnswers: working as LeadgenRawAnswers,
+    locationFacet: locationFacet === null ? null : { ...locationFacet },
+  };
+}
+
 // POST /lg/auction — the §19 runtime. no-store (§8.3). Non-blocking writes on
 // ctx.waitUntil (§28). Never throws into the router.
 export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
@@ -181,6 +285,13 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
   const clicked = await loadClickedOffers(c.env.DB, funnelAttemptId);
   const requestContext = buildRequestContext(c);
 
+  // v3.1 §9 (S3-5 + S3-6): run the server-side Maps validate leg (drops invalid
+  // ZIPs, gated on the server key) + derive the auction location facet, BEFORE
+  // the auction runs — the (possibly filtered) answers feed the engine's
+  // re-normalization/payload build, the facet feeds the middle tier of the eval
+  // context (declared answer > facet > CF geo).
+  const maps = await applyMapsAuctionLegs(c.env, resolved, rawAnswers);
+
   const result = await runAuction(
     c.env,
     {
@@ -189,8 +300,9 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
       environment: RUNTIME_ENVIRONMENT,
       binding,
       session_id: sessionId,
-      raw_answers: rawAnswers,
+      raw_answers: maps.rawAnswers,
       request_context: requestContext,
+      location_facet: maps.locationFacet ?? undefined,
       // 04 §4.7 site 1: the live request feeds the canonical context builder's
       // request/cf slices; the traffic slice comes from the VERIFIED token's
       // landing_url inside the engine. Overrides are NEVER accepted here (B5

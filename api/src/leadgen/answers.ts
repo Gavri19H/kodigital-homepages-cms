@@ -40,6 +40,11 @@ import type {
   LeadgenSectionContent,
 } from "../public/leadgen/components/content-schema";
 import type { LeadgenAnswerSource } from "../admin/leadgen/db-types";
+// v3.1 §9 (S3-6) auction location facet seam. mapsJobsFor is the ONE §9.3
+// per-field precedence reader (presets.ts — no import cycle: presets never
+// imports this module); deriveLocationFacet is the pure facet primitive (maps.ts).
+import { mapsJobsFor } from "../public/leadgen/components/presets";
+import { deriveLocationFacet, type LeadgenLocationFacet } from "./maps";
 
 // ---------------------------------------------------------------------------
 // small local helpers (the validation.ts private idiom)
@@ -298,6 +303,96 @@ export function normalizeAnswers(
   }
 
   return { answers, sources };
+}
+
+// ---------------------------------------------------------------------------
+// v3.1 §9 (S3-6) — the auction LOCATION FACET seam.
+//
+// The §9 "Use in auction rules" job turns a submitted ZIP into a location the
+// auction can target/exclude by state, city or ZIP. This is the PURE derivation
+// seam: it enumerates the Maps auction/validate ZIP-family fields and builds the
+// facet from the already-normalized answers (deriveLocationFacet, maps.ts, is
+// the primitive). The ASYNC server-side validate leg (S3-5 — the geocode / KV
+// enrichment + the invalid-ZIP drop) runs in serve-auction.ts and passes its
+// per-field {city,state} enrichment in here; WITHOUT the server key that
+// enrichment is absent, so the facet is ZIP-ONLY (the §9.3 documented
+// degradation). The auction ENGINE is untouched beyond the single middle-tier
+// merge (engine.ts) — this seam never evaluates or mutates a rule.
+// ---------------------------------------------------------------------------
+
+// The ZIP-family internal field a Maps-eligible node contributes its ZIP answer
+// under: ZIPInputQuestion → its own internal_field; AddressAutocompleteQuestion
+// → its `zip` sub-field (the §12.8 distinct-internal-fields default). null for
+// any other node (only ZIP/Address carry a Maps job).
+function mapsZipFieldOf(node: LeadgenComponentNode): string | null {
+  if (node.type === "ZIPInputQuestion") {
+    return isNonEmptyString(node.internal_field) ? node.internal_field : null;
+  }
+  if (node.type === "AddressAutocompleteQuestion") {
+    const subs = asStringArray(node.props?.["internal_fields"], ["street", "city", "state", "zip"]);
+    return subs.includes("zip") ? "zip" : (subs[subs.length - 1] ?? null);
+  }
+  return null;
+}
+
+// One Maps-eligible ZIP-family field carrying a validate and/or auction job.
+export interface LeadgenMapsAuctionField {
+  // The internal field holding this node's ZIP answer.
+  zipField: string;
+  // mapsJobsFor(node) — the §9.3 per-field precedence result.
+  validate: boolean;
+  auction: boolean;
+}
+
+// Enumerate the Maps auction/validate ZIP-family fields in a Section (§9 field
+// Maps tab). Pure — the caller reads the normalized ZIP value + runs the async
+// validate leg. flattenComponents so a field nested in a §8.5 container is found
+// exactly like a top-level one.
+export function collectMapsAuctionFields(content: LeadgenSectionContent): LeadgenMapsAuctionField[] {
+  const out: LeadgenMapsAuctionField[] = [];
+  const components = flattenComponents(Array.isArray(content.components) ? content.components : []);
+  for (const node of components) {
+    if (!isRecord(node)) continue;
+    const zipField = mapsZipFieldOf(node);
+    if (zipField === null) continue;
+    const jobs = mapsJobsFor(node);
+    if (!jobs.validate && !jobs.auction) continue;
+    out.push({ zipField, validate: jobs.validate, auction: jobs.auction });
+  }
+  return out;
+}
+
+// The server-side validate-leg enrichment for one field (city/state resolved by
+// a geocode / KV hit). Absent ⇒ the facet is ZIP-only (§9.3).
+export interface LeadgenMapsFieldEnrichment {
+  city?: string;
+  state?: string;
+}
+
+// Derive the §9 auction location facet from a Section's normalized answers + the
+// optional server-side validate enrichment. For each field with the auction job,
+// take its normalized ZIP answer and build the facet via deriveLocationFacet —
+// enriched with the field's state/city when the validate leg ran (else ZIP-only,
+// the documented no-key degradation). The FIRST auction field that resolves a
+// valid ZIP wins (a funnel targets one location). Pure; null when no auction
+// field resolves a ZIP (⇒ the engine merges {}, byte-identical to pre-facet).
+export function deriveAuctionFacet(
+  content: LeadgenSectionContent,
+  normalizedAnswers: Readonly<Record<string, unknown>>,
+  enrichmentByField?: Readonly<Record<string, LeadgenMapsFieldEnrichment>>,
+): LeadgenLocationFacet | null {
+  for (const f of collectMapsAuctionFields(content)) {
+    if (!f.auction) continue;
+    const zipVal = normalizedAnswers[f.zipField];
+    if (typeof zipVal !== "string") continue;
+    const enr = enrichmentByField?.[f.zipField];
+    const facet =
+      enr !== undefined
+        ? deriveLocationFacet({ street: "", city: enr.city ?? "", state: enr.state ?? "", zip: zipVal })
+        : deriveLocationFacet(zipVal);
+    if (facet !== null) return facet;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

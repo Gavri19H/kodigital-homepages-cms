@@ -543,6 +543,12 @@ export interface RunAuctionInput {
   raw_answers: LeadgenRawAnswers;
   // Request-derived rule dims (device/geo) merged into the S21.4 eval context.
   request_context?: Readonly<Record<string, unknown>>;
+  // v3.1 §9 (S3-6) — the ZIP-derived auction LOCATION FACET, derived in
+  // serve-auction.ts from the answers' auction-job Maps fields. The MIDDLE tier
+  // of the eval context: a DECLARED answer (state/city/zip) still wins; the
+  // facet beats CF-derived request geo. Absent ⇒ merged as {} (byte-identical to
+  // pre-facet). NEVER set by the admin dry-run (config exploration, no answers).
+  location_facet?: Readonly<Record<string, unknown>>;
   // 04 §4.7 site 1: the live request the canonical runtime context is built
   // from (ip/ua/referer/language/cf slices) + the client-minted page_view_id
   // (POSTed, binding-verified upstream). The TRAFFIC slice comes from the
@@ -980,7 +986,15 @@ export async function runAuction(
   // state/zip/city) drives region + answer rules, while request dims (device,
   // and any geo dim the lead did not answer) fill the gaps. Client-submitted
   // answer VALUES are never trusted raw (they were re-normalized above).
-  const ruleContext: Record<string, unknown> = { ...(input.request_context ?? {}), ...normalizedAnswers };
+  // v3.1 §9 (S3-6) precedence: request dims (CF geo/device) UNDER the ZIP-derived
+  // location facet UNDER the server-normalized DECLARED answers. So a lead's
+  // answered state/city/zip wins over the facet, the facet wins over CF geo, and
+  // an absent facet ({}) leaves the context byte-identical to pre-facet.
+  const ruleContext: Record<string, unknown> = {
+    ...(input.request_context ?? {}),
+    ...(input.location_facet ?? {}),
+    ...normalizedAnswers,
+  };
   const geo = {
     country: typeof ruleContext["country"] === "string" ? (ruleContext["country"] as string) : null,
     state: typeof ruleContext["state"] === "string" ? (ruleContext["state"] as string) : null,

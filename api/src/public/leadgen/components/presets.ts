@@ -1129,6 +1129,11 @@ export function renderOtherGroupSelector(
 export interface LeadgenNewMapsShape {
   enabled?: unknown;
   jobs?: { validate?: unknown; auction?: unknown; autocomplete?: unknown };
+  // v3.1 §9.3 (S3-7) sibling-fill targets: each slot is the internal_field the
+  // Places autofill writes into (runtime/maps.ts parseMapsConfig's nested
+  // `fills` object). Authored by the Maps-tab fills picker; mapsConfigJson
+  // serializes it into the data-lg-maps wire config the runtime consumes.
+  fills?: { street?: unknown; city?: unknown; state?: unknown; zip?: unknown };
 }
 
 export function isNewMapsShape(raw: unknown): raw is LeadgenNewMapsShape {
@@ -1146,25 +1151,33 @@ export function isNewMapsShape(raw: unknown): raw is LeadgenNewMapsShape {
 // the runtime (renderZIPInputQuestion/renderAddressAutocompleteQuestion
 // below) and serve.ts's funnelNeedsMapsKey already apply — one source of
 // truth for the jobs decision, never duplicated/drifted logic.
-export function mapsJobsFor(node: LeadgenComponentNode): { validate: boolean; autocomplete: boolean } {
+export function mapsJobsFor(node: LeadgenComponentNode): { validate: boolean; auction: boolean; autocomplete: boolean } {
   const raw = node.props?.["maps"];
   if (isNewMapsShape(raw)) {
-    if (raw.enabled !== true) return { validate: false, autocomplete: false };
-    return { validate: raw.jobs?.validate === true, autocomplete: raw.jobs?.autocomplete === true };
+    if (raw.enabled !== true) return { validate: false, auction: false, autocomplete: false };
+    return {
+      validate: raw.jobs?.validate === true,
+      auction: raw.jobs?.auction === true,
+      autocomplete: raw.jobs?.autocomplete === true,
+    };
   }
   // Legacy flat shape (props.maps already an object, pre-§9.2 authoring) —
-  // pass its OWN flags through unchanged (byte-identical to pre-v3.1).
+  // pass its OWN flags through unchanged (byte-identical to pre-v3.1). The
+  // legacy vocabulary has no `auction` concept, so the auction job is always
+  // false for pre-§9.2 content (S3-6 — only the NEW {enabled,jobs} shape can
+  // opt a field into the auction location facet).
   if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
     const flat = raw as Record<string, unknown>;
     return {
       validate: flat["validate_full_address"] === true || flat["validate_zip"] === true || flat["validate"] === true,
+      auction: false,
       autocomplete: flat["enable_autocomplete"] === true || flat["autocomplete"] === true,
     };
   }
   // No props.maps object at all — the bare legacy per-node flag (the
   // "global address_validation_enabled era", §9.3).
   const legacyValidate = propBool(node, "validate") === true;
-  return { validate: legacyValidate, autocomplete: false };
+  return { validate: legacyValidate, auction: false, autocomplete: false };
 }
 
 // Whether a node carries ANY props.maps object at all (the NEW {enabled,
@@ -1189,11 +1202,34 @@ export function hasFieldMapsConfig(node: LeadgenComponentNode): boolean {
 // compat fallback for pre-§8.8 content — where Maps-enablement rode the
 // component itself (any AddressAutocompleteQuestion; a ZIP with
 // props.validate=true) — is the empty config "{}" (runtime defaults).
+// The §9.3 (S3-7) sibling-fill targets a NEW-shape props.maps may carry: each
+// slot (street/city/state/zip) is the internal_field the Places autofill writes
+// into — the SAME nested `fills` shape runtime/maps.ts parseMapsConfig consumes.
+// Only non-empty string slots are kept; an absent/empty fills object yields
+// undefined so mapsConfigJson stays BYTE-IDENTICAL for fills-less content.
+function newShapeFills(raw: LeadgenNewMapsShape): Record<string, string> | undefined {
+  const f = raw.fills;
+  if (typeof f !== "object" || f === null || Array.isArray(f)) return undefined;
+  const out: Record<string, string> = {};
+  for (const slot of ["street", "city", "state", "zip"] as const) {
+    const v = (f as Record<string, unknown>)[slot];
+    if (typeof v === "string" && v !== "") out[slot] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function mapsConfigJson(node: LeadgenComponentNode): string {
   const raw = node.props?.["maps"];
   if (isNewMapsShape(raw)) {
     const jobs = mapsJobsFor(node);
-    return JSON.stringify({ enable_autocomplete: jobs.autocomplete, validate: jobs.validate });
+    // enable_autocomplete/validate ONLY (the runtime's browser-leg keys); the
+    // `auction` job is server-side (the §9 facet) and never rides the wire.
+    const config: Record<string, unknown> = { enable_autocomplete: jobs.autocomplete, validate: jobs.validate };
+    // S3-7: stop DISCARDING the fills — emit the nested object parseMapsConfig
+    // reads (only when authored, so fills-less content is unchanged).
+    const fills = newShapeFills(raw);
+    if (fills !== undefined) config["fills"] = fills;
+    return JSON.stringify(config);
   }
   if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
     return JSON.stringify(raw);

@@ -2227,7 +2227,19 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       <div class="alert alert-warning studio-maps-zero-job-banner" data-maps-zero-job-banner hidden role="status" aria-live="polite">Pick at least one job for Maps, or turn it off — otherwise it does nothing at runtime.</div>
       <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="validate" /><span><span class="lg-check-label">Validate the answer</span><span class="form-help" data-maps-validate-copy></span></span></label>
       <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="auction" /><span><span class="lg-check-label">Use in auction rules</span><span class="form-help">Turn the ZIP into a location the auction can target or exclude by state, city or ZIP. <a href="/admin/leadgen/auction" data-open-auction-rules>Open auction rules &#8594;</a></span></span></label>
+      <p class="form-help studio-maps-degradation" data-maps-degradation-note hidden>State and city targeting need the server key — without it, only the ZIP itself is available to auction rules.</p>
       <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="autocomplete" /><span><span class="lg-check-label">Auto-complete the address</span><span class="form-help">Fill this field and the other address fields in this section (city, state, street) from the ZIP.</span></span></label>
+      <!-- R4b (S3-7): sibling-fill picker — shown only while autocomplete is
+           on. Options are populated client-side from this Section's OTHER
+           internal_field values (self excluded); writes
+           props.maps.fills.<slot> = <target internal_field>. -->
+      <div class="studio-maps-fills-block" data-maps-fills-block hidden>
+        <p class="form-label">Also fill these fields from the resolved address</p>
+        <label class="studio-maps-fill-row">Street <select class="form-input studio-maps-fill-select" data-maps-fill-slot="street" aria-label="Fill street from"></select></label>
+        <label class="studio-maps-fill-row">City <select class="form-input studio-maps-fill-select" data-maps-fill-slot="city" aria-label="Fill city from"></select></label>
+        <label class="studio-maps-fill-row">State <select class="form-input studio-maps-fill-select" data-maps-fill-slot="state" aria-label="Fill state from"></select></label>
+        <label class="studio-maps-fill-row">ZIP <select class="form-input studio-maps-fill-select" data-maps-fill-slot="zip" aria-label="Fill ZIP from"></select></label>
+      </div>
     </div>
   </div>
 
@@ -2744,6 +2756,10 @@ export const SECTION_STUDIO_STYLES = `
 .studio-maps-job-row{display:flex;gap:9px;align-items:flex-start;padding:10px;border:1px solid var(--c-border);border-radius:8px;margin-bottom:8px;cursor:pointer}
 .studio-maps-job-row input{margin-top:2px}
 .studio-maps-zero-job-banner{font-size:11.5px;padding:8px 10px;margin-bottom:10px}
+.studio-maps-fills-block{margin:2px 0 8px;padding:10px;border:1px solid var(--c-border);border-radius:8px}
+.studio-maps-fill-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;color:var(--c-muted);margin-bottom:6px}
+.studio-maps-fill-row:last-child{margin-bottom:0}
+.studio-maps-fill-row select{flex:0 0 auto;min-width:160px}
 .studio-mono-input{font-family:var(--font-mono,monospace);font-size:11.5px}
 .studio-advanced-toggle{display:flex;align-items:center;gap:6px;padding:10px 0 4px;background:none;border:0;cursor:pointer;color:var(--c-muted);font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;width:100%;text-align:left}
 .studio-advanced-toggle svg{transition:transform .15s ease}
@@ -6359,12 +6375,25 @@ export const SECTION_STUDIO_SCRIPT = `
   // --- §9 Maps tab: populate + collect (job-based model, Phase C) -------------
   // Replaces the old flat autofill-oriented panel with the contract's
   // {enabled, jobs:{validate,auction,autocomplete}} shape (content-schema.ts
-  // §9.2). The manual per-field "autofill target" picker is RETIRED — the
-  // golden's 3 whole-row jobs are the only controls; the runtime's own
-  // cross-field autofill wiring (parseMapsConfig's fills object) has no UI producer
-  // anymore (FLAGGED contract gap — see the final report: no naming/role
-  // convention exists to auto-detect sibling city/state/street fields without
-  // reintroducing a manual picker the golden design does not show).
+  // §9.2). The golden's 3 whole-row jobs are the primary controls; R4b
+  // (S3-7) reintroduces a per-slot sibling-fill picker — shown only while the
+  // autocomplete job is on — writing props.maps.fills.<slot>, the SAME nested
+  // shape runtime/maps.ts parseMapsConfig already reads (its fills reader
+  // predates this UI producer; mapsConfigJson, presets.ts, stopped discarding
+  // the object in the same phase).
+  //
+  // NOTE on structure: populateMapsTab/collectMapsJob are exercised by
+  // leadgen-section-studio-ui.test.ts's studioProbe harness, which slices ONE
+  // named function's source text out of the SERVED island (sliceIslandFunction)
+  // and runs it in isolation against a small, explicitly-tracked function
+  // allowlist (MODEL_FUNCS) — a call to any function NOT on that list
+  // ReferenceErrors there even though it exists in the real page. So the
+  // fills-picker logic below is INLINED into populateMapsTab/collectMapsJob
+  // (never split into a separate helper those two call) — mildly more
+  // verbose, but it keeps both functions self-contained for that harness
+  // without requiring a change to a file this phase does not own. collectMapsFill
+  // is a brand-new handler (not on that list, so nothing there can slice it);
+  // it stays self-contained on its own for the same reason.
   function mapsConfigEnabledOf(node) {
     var cfg = mapsConfigOf(node);
     return !!cfg && cfg.enabled === true;
@@ -6390,9 +6419,11 @@ export const SECTION_STUDIO_SCRIPT = `
     var jobsBlock = document.querySelector('[data-maps-jobs-block]');
     var banner = document.querySelector('[data-maps-zero-job-banner]');
     var validateCopy = document.querySelector('[data-maps-validate-copy]');
+    var fillsBlock = document.querySelector('[data-maps-fills-block]');
     if (!mode) {
       if (jobsBlock) { jobsBlock.hidden = true; }
       if (toggle) { toggle.checked = false; }
+      if (fillsBlock) { fillsBlock.hidden = true; }
       return;
     }
     var enabled = mapsConfigEnabledOf(node);
@@ -6401,7 +6432,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (jobsBlock) { jobsBlock.hidden = !enabled; }
     if (validateCopy) { validateCopy.textContent = mapsValidateCopyFor(mode); }
     var jobEls = document.querySelectorAll('[data-maps-job]');
-    var i, k;
+    var i, k, j, slot, sel, opt, current;
     for (i = 0; i < jobEls.length; i++) {
       k = jobEls[i].getAttribute('data-maps-job');
       jobEls[i].checked = jobs[k] === true;
@@ -6410,6 +6441,61 @@ export const SECTION_STUDIO_SCRIPT = `
     // the save-time maps_no_job warning (content-schema.ts), computed
     // instantly from the in-memory node so the operator sees it before Save.
     if (banner) { banner.hidden = !(enabled && !mapsAnyJobOn(jobs)); }
+    // R4b (S3-6): the plain-words server-key degradation note shows only when
+    // the auction job is on — state/city targeting needs the SERVER key;
+    // without it the auction facet is ZIP-only.
+    var degrade = document.querySelector('[data-maps-degradation-note]');
+    if (degrade) { degrade.hidden = !(enabled && jobs.auction === true); }
+    // R4b (S3-7): the sibling-fill picker — shown only while autocomplete is
+    // on. Populate the 4 per-slot selects from this Section's OTHER
+    // internal_field values (self excluded, de-duplicated), pre-selecting
+    // each slot's currently stored target.
+    var showFills = enabled && jobs.autocomplete === true;
+    if (fillsBlock) {
+      fillsBlock.hidden = !showFills;
+      if (showFills) {
+        var selfField = (node && typeof node.internal_field === 'string') ? node.internal_field : '';
+        var allFields = internalFieldsOf();
+        var others = [];
+        for (i = 0; i < allFields.length; i++) {
+          if (allFields[i] !== selfField && others.indexOf(allFields[i]) === -1) { others.push(allFields[i]); }
+        }
+        var cfg = mapsConfigOf(node);
+        var fills = (cfg && cfg.fills && typeof cfg.fills === 'object') ? cfg.fills : {};
+        var selects = document.querySelectorAll('[data-maps-fill-slot]');
+        for (i = 0; i < selects.length; i++) {
+          sel = selects[i];
+          slot = sel.getAttribute('data-maps-fill-slot');
+          current = (typeof fills[slot] === 'string') ? fills[slot] : '';
+          sel.innerHTML = '';
+          opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'Don’t fill';
+          sel.appendChild(opt);
+          for (j = 0; j < others.length; j++) {
+            opt = document.createElement('option');
+            opt.value = others[j];
+            opt.textContent = others[j];
+            if (others[j] === current) { opt.selected = true; }
+            sel.appendChild(opt);
+          }
+          // A stored target no longer among this Section's fields (the field
+          // it named was deleted after being chosen) still shows AS STORED
+          // via a synthetic option — honest surfacing, never a silent drop —
+          // rather than silently falling back to "Don't fill" while the
+          // stale value stays saved underneath (content-schema.ts
+          // deliberately performs no dangling-target validation; this is the
+          // UI's own honesty check).
+          if (current !== '' && others.indexOf(current) === -1) {
+            opt = document.createElement('option');
+            opt.value = current;
+            opt.textContent = current + ' (missing)';
+            opt.selected = true;
+            sel.appendChild(opt);
+          }
+        }
+      }
+    }
   }
   function collectMapsToggle() {
     var node = selectedNode();
@@ -6421,7 +6507,9 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!on) {
       // Turning the toggle off removes the config entirely (§9.2 — no
       // "enabled:false" residue authored fresh; existing stored
-      // enabled:false content still round-trips via the generic path).
+      // enabled:false content still round-trips via the generic path). This
+      // also intentionally drops any stored fills (R4b/S3-7) — a fresh
+      // re-enable starts blank, exactly like jobs resetting to all-false.
       delete props.maps;
     } else {
       var jobs = mapsJobsOf(node);
@@ -6446,7 +6534,42 @@ export const SECTION_STUDIO_SCRIPT = `
     var props = ensureObj(node, 'props');
     var jobs = mapsJobsOf(node);
     jobs[key] = !!input.checked;
-    props.maps = { enabled: true, jobs: jobs };
+    // R4b (S3-7): preserve any already-stored fill targets — toggling
+    // validate/auction/autocomplete must never silently wipe a sibling-fill
+    // picker choice. Read INLINE off the pre-mutation 'cfg' (not a separate
+    // helper — see the NOTE above this section).
+    var existingFills = (cfg.fills && typeof cfg.fills === 'object') ? cfg.fills : {};
+    var mapsProp = { enabled: true, jobs: jobs };
+    if (Object.keys(existingFills).length > 0) { mapsProp.fills = existingFills; }
+    props.maps = mapsProp;
+    populateMapsTab(node, meta);
+    applyCanvasDecoration();
+    afterModelChange();
+  }
+  // R4b (S3-7): one fill-slot select changed — write props.maps.fills.<slot>
+  // (or remove that slot on "Don't fill"), preserving the current jobs. A
+  // brand-new handler (not referenced by the sibling studioProbe harness'
+  // MODEL_FUNCS allowlist), so it is free to be self-contained on its own
+  // terms same as every collector above.
+  function collectMapsFill(sel) {
+    var node = selectedNode();
+    var meta = node ? typeMeta(node.type) : {};
+    if (!node || !meta.maps) { return; }
+    var slot = sel.getAttribute('data-maps-fill-slot');
+    if (!slot) { return; }
+    // Same before-any-mutation guard as collectMapsJob: the fills block is
+    // only visible/interactive once Maps is already enabled.
+    var cfg = mapsConfigOf(node);
+    if (!cfg || cfg.enabled !== true) { return; }
+    var props = ensureObj(node, 'props');
+    var jobs = mapsJobsOf(node);
+    var fills = (cfg.fills && typeof cfg.fills === 'object') ? cfg.fills : {};
+    var next = {}, k;
+    for (k in fills) { if (Object.prototype.hasOwnProperty.call(fills, k)) { next[k] = fills[k]; } }
+    if (sel.value === '') { delete next[slot]; } else { next[slot] = sel.value; }
+    var mapsProp = { enabled: true, jobs: jobs };
+    if (Object.keys(next).length > 0) { mapsProp.fills = next; }
+    props.maps = mapsProp;
     populateMapsTab(node, meta);
     applyCanvasDecoration();
     afterModelChange();
@@ -9087,6 +9210,12 @@ export const SECTION_STUDIO_SCRIPT = `
   var mj;
   for (mj = 0; mj < mapsJobEls.length; mj++) {
     mapsJobEls[mj].addEventListener('change', function () { collectMapsJob(this); });
+  }
+  // R4b (S3-7): each sibling-fill select re-collects just its own slot.
+  var mapsFillEls = document.querySelectorAll('[data-maps-fill-slot]');
+  var mf;
+  for (mf = 0; mf < mapsFillEls.length; mf++) {
+    mapsFillEls[mf].addEventListener('change', function () { collectMapsFill(this); });
   }
 
   // §8.5 Style tab: Width/Height presets, Reset, Corners, Border color.

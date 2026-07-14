@@ -441,6 +441,21 @@ describe("§8.8 studio emissions — parseMapsConfig decodes the inspector's exa
     // everything off — the graceful manual-entry no-op
     expect(parseMapsConfig("{}")).toEqual({ autocomplete: false, validate: false, normalize: false, fills: {} });
   });
+
+  // R4b (S3-7) adversarial-review MINOR F2: every case above feeds parseMapsConfig
+  // the FLAT autofill_* spelling only — the NESTED `fills` object branch of this
+  // SAME pick() reader (runtime/maps.ts:42-58) was never exercised through the
+  // real function, only through a hand-copied mirror in the worker-program R4b
+  // test suites (leadgen-r4b-facet.test.ts / leadgen-r4b-maps-runtime.test.ts —
+  // runtime/maps.ts is excluded from the worker tsconfig, so those suites cannot
+  // import it directly). This closes that real-reader coverage gap for the
+  // nested branch: mapsConfigJson (presets.ts) emits fills NESTED (never the
+  // flat autofill_* spelling), so THIS is the shape the wire actually carries.
+  it("R4b S3-7: parseMapsConfig decodes the NESTED fills object (the shape mapsConfigJson actually emits)", () => {
+    const wired = parseMapsConfig(JSON.stringify({ enable_autocomplete: true, fills: { city: "city_field" } }));
+    expect(wired).not.toBeNull();
+    expect(wired!.fills.city).toBe("city_field");
+  });
 });
 
 // ---------------------------------------------------------------------------
