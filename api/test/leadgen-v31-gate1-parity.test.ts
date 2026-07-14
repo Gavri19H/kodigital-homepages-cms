@@ -543,32 +543,82 @@ describe("Gate 1a parity — canvas toolbar (Appendix D)", () => {
 // which ARE part of "the built UI" served to the browser.
 // ===========================================================================
 
+// Appendix-B erratum (recorded 2026-07-14, remediation phase R2): the golden
+// mockup's absolute handle rows (top -11 / mid +19 / bottom +49, only the mid
+// pair interactive) encoded ONE demo field's fixed box — wrong by construction
+// against any OTHER field (register S1-1/S1-2 measured dx=-6 dy=-6 dw=+12
+// dh=+16 on a real 452x54 field). The golden's INTENT — selection chrome ON
+// the element, all 8 handles usable — is what R2 delivers: every handle
+// position is now MEASURED (getBoundingClientRect) and ALL EIGHT are
+// interactive (4 corners drive width+height together with a diagonal cursor,
+// 2 N/S mid-handles drive height only, 2 E/W mid-handles drive width only —
+// the legacy pair). Proven at ±4px by the real-gesture overlay-alignment gate
+// (api/test-ui/leadgen-canvas-interactions.gesture.spec.ts test (i), 7
+// component types incl. helper-line/leading-icon fields that broke the old
+// hardcode). These two tests pin the NEW binding contract so a future
+// regression back to hardcoded/partial-interactive handles fails here.
+function sliceScriptFunctionBody(name: string): string {
+  const marker = `function ${name}(`;
+  const start = SECTION_STUDIO_SCRIPT.indexOf(marker);
+  expect(start, `${name} present in SECTION_STUDIO_SCRIPT`).toBeGreaterThan(-1);
+  const open = SECTION_STUDIO_SCRIPT.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < SECTION_STUDIO_SCRIPT.length; i += 1) {
+    if (SECTION_STUDIO_SCRIPT[i] === "{") depth += 1;
+    else if (SECTION_STUDIO_SCRIPT[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return SECTION_STUDIO_SCRIPT.slice(start, i + 1);
+    }
+  }
+  throw new Error(`unbalanced braces slicing ${name}`);
+}
+
 describe("Gate 1a parity — selection chrome + 8 handles (Appendix D, client-script level)", () => {
-  it("buildHandle is invoked exactly 8 times with the golden's exact (row, side, interactive) tuples", () => {
-    // Golden §6.2 (lines 338-345): 3 handles at top -11 (left/center/right,
-    // presentational), 2 at mid +19 (left/right ONLY, interactive/navy-
-    // filled/ew-resize), 3 at bottom +49 (left/center/right, presentational).
-    const calls = [...SECTION_STUDIO_SCRIPT.matchAll(/buildHandle\((-?\d+),\s*'(\w+)',\s*(true|false)/g)].map((m) => [
-      Number(m[1]),
-      m[2],
-      m[3] === "true",
-    ]);
+  it("buildHandle is invoked exactly 8 times with the NEW binding contract (Appendix-B erratum): 4 corners drive BOTH axes with a diagonal cursor, 2 N/S mid-handles drive height only, 2 E/W mid-handles drive width only (the legacy pair) — every position argument is a MEASURED variable, never a signed numeric literal like the golden demo's -11/19/49", () => {
+    // The regex's (\w+) position groups can ONLY match a bare identifier
+    // (leftX/rightX/midX/topY/botY/midY, etc.) — a regression back to a
+    // signed literal like "-11" would not match \w+ (no leading '-'), so a
+    // hardcode regression drops call COUNT below 8, failing the toEqual below.
+    const calls = [
+      ...SECTION_STUDIO_SCRIPT.matchAll(
+        /buildHandle\((\w+),\s*(\w+),\s*'([\w-]+)',\s*'([^']*)',\s*'([^']*)',\s*qid\)/g,
+      ),
+    ].map((m) => [m[3], m[4], m[5]]); // [cursor, wSide, hSide] per call
     expect(calls).toEqual([
-      [-11, "left", false],
-      [-11, "center", false],
-      [-11, "right", false],
-      [19, "left", true],
-      [19, "right", true],
-      [49, "left", false],
-      [49, "center", false],
-      [49, "right", false],
+      ["nwse-resize", "left", "top"], // NW corner
+      ["nesw-resize", "right", "top"], // NE corner
+      ["nesw-resize", "left", "bottom"], // SW corner
+      ["nwse-resize", "right", "bottom"], // SE corner
+      ["ns-resize", "", "top"], // N mid — height only
+      ["ns-resize", "", "bottom"], // S mid — height only
+      ["ew-resize", "left", ""], // W mid — width only (data-width-handle legacy pair)
+      ["ew-resize", "right", ""], // E mid — width only (data-width-handle legacy pair)
     ]);
+    // Interactivity is now a FUNCTION-LEVEL invariant, not a per-call boolean —
+    // the golden's true/false 3rd argument is GONE. Scoped to buildHandle's OWN
+    // body (not the whole script) so this doesn't collide with the selection
+    // OUTLINE's unrelated, always-present "pointer-events:none" elsewhere.
+    const buildHandleBody = sliceScriptFunctionBody("buildHandle");
+    expect(buildHandleBody).toContain("el.addEventListener('mousedown', onWidthHandleMouseDown)");
+    expect(buildHandleBody, "no more conditional branch on an 'interactive' flag").not.toContain("if (interactive)");
+    expect(buildHandleBody, "no presentational (non-interactive) style ships from this function").not.toContain(
+      "pointer-events:none",
+    );
+    expect(buildHandleBody).toContain("pointer-events:auto");
   });
 
-  it("handle box geometry (11x11, radius 3, 2px navy border) matches golden verbatim", () => {
+  it("handle box geometry (11x11, radius 3, 2px navy border/fill) matches the surviving golden constants verbatim; per-axis cursors ship for all 4 directions", () => {
     expect(GOLDEN_TOP_BAR.length).toBeGreaterThan(0); // sanity the import graph is intact
-    expect(SECTION_STUDIO_SCRIPT).toContain("width:11px;height:11px;border-radius:3px;");
-    expect(SECTION_STUDIO_SCRIPT).toContain(`background:${STUDIO_COLOR.navy};border:2px solid ${STUDIO_COLOR.navy};cursor:ew-resize`);
+    // The fixed-appearance literal is UNCONDITIONAL now (every handle, not just
+    // the old mid pair): 11x11/radius-3/navy fill+border/box-sizing/auto-pointer.
+    expect(SECTION_STUDIO_SCRIPT).toContain(
+      `width:11px;height:11px;border-radius:3px;background:${STUDIO_COLOR.navy};border:2px solid ${STUDIO_COLOR.navy};box-sizing:border-box;pointer-events:auto`,
+    );
+    // all 4 per-axis cursors ship as real call-site literals (ew/ns = single
+    // axis; nwse/nesw = the two diagonal corner cursors)
+    for (const cursor of ["ew-resize", "ns-resize", "nwse-resize", "nesw-resize"]) {
+      expect(SECTION_STUDIO_SCRIPT, `cursor literal '${cursor}'`).toContain(`'${cursor}'`);
+    }
   });
 });
 

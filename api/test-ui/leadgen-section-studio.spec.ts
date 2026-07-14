@@ -603,7 +603,12 @@ test.describe('LeadGen Section Studio v3.1 — golden-chrome browser flows (§5/
     // scoped to the 8-value Accept-swap family only).
     const insWrap = canvas.locator('[data-question-id="q_ins"]').locator('xpath=..');
     await canvas.locator('[data-question-id="q_ins"]').click();
-    await expect(insWrap.locator('[data-width-handle]')).toHaveCount(2);
+    // TwoButtonYesNo is not size-consuming (honest interim, R2) — resize
+    // affordance appears only where the renderer consumes design_overrides.
+    // size; the set-equality pin in test/leadgen-r2-canvas.test.ts forces
+    // this to widen in lockstep when R3 extends the renderers (at which
+    // point this flips back to 2).
+    await expect(insWrap.locator('[data-width-handle]')).toHaveCount(0);
     await expect(insWrap.locator('text=Yes / No')).toBeVisible();
     await expect(insWrap.locator('text=Short text field')).toHaveCount(0);
 
