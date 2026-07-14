@@ -27,13 +27,17 @@ const DESIGN = defaultFunnelDesign;
 // --- pre-change byte snapshots (captured from the renderer BEFORE this
 // slice's change landed; the unbound legs must reproduce them verbatim) -----
 
+// R5 D11 (register S4-B2, operator decision 1): headline typography now
+// matches the golden mockup (Newsreader/#16324f) and subheadline color is
+// golden's #63707F — the only bytes these pins carry forward from that
+// ratified, live-funnel-wide change.
 const SNAPSHOT_HEADLINE_UNBOUND =
   `<h1 class="lg-headline" data-component-type="QuestionHeadline" data-question-id="h1"` +
-  ` style="font-family:&#39;Literata&#39;,serif;color:#1A1F36">Are you insured?</h1>`;
+  ` style="font-family:&#39;Newsreader&#39;,serif;color:#16324f">Are you insured?</h1>`;
 
 const SNAPSHOT_SUBHEADLINE_UNBOUND =
   `<p class="lg-subheadline" data-component-type="Subheadline" data-question-id="s1"` +
-  ` style="color:#4A5568">Takes 2 minutes.</p>`;
+  ` style="color:#63707F">Takes 2 minutes.</p>`;
 
 // --- fixtures ---------------------------------------------------------------
 

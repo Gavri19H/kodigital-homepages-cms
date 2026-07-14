@@ -543,8 +543,12 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     await expect(badge).toBeVisible();
     await expect(badge).toContainText("Page-frame element — belongs to the Quote frame");
     await expect(badge.locator("[data-frame-move]")).toHaveText("Move to Quote frame");
-    await expect(badge.locator("[data-frame-keep]")).toHaveText("Keep (legacy)");
-    await expect(badge).toContainText("activation blocks on this element unless that funnel’s Advanced legacy override allows it");
+    // R5 jargon purge: the banned word "legacy" is gone from both normal-mode
+    // strings this badge renders (ui-section-studio.ts:4973 button text is
+    // literally "Keep as-is" now; the descriptive sentence at :4978 reads
+    // "...Advanced override..." with no "legacy" qualifier either).
+    await expect(badge.locator("[data-frame-keep]")).toHaveText("Keep as-is");
+    await expect(badge).toContainText("activation blocks on this element unless that funnel’s Advanced override allows it");
     await page.screenshot({ path: `${SHOT_DIR}/leadgen-c-09a-amber-badge.png` });
 
     // v3.1 §6.2 default selection now auto-selects the first REAL

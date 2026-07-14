@@ -56,13 +56,16 @@
 //   node scripts/golden-allowlist.mjs            -> report-only, exit 0
 //   node scripts/golden-allowlist.mjs --strict   -> exit 1 if ANY block is
 //     UNCLASSIFIED (closes M2's "never checked" gap: new code cannot ship
-//     without an explicit golden/non-golden decision). --strict does NOT
-//     (yet) fail on existing golden:false blocks — those are register
-//     S4-A's OWN remediation scope, executed in phase R5 (the golden
-//     purge); failing the build today on defects the register already
-//     tracks (rather than a NEW regression) would be exactly the kind of
-//     indiscriminate gate this mission is trying to replace. R5 should add
-//     a second flag (or extend this one) once the purge ships.
+//     without an explicit golden/non-golden decision) OR if any tracked
+//     golden:false entry is STALE (R5 arming, register E.5b — see the
+//     staleNonGolden comment in main()). --strict still does NOT fail merely
+//     on the PRESENCE of a classified golden:false block: those are register
+//     S4-A's own remediation scope (the R5 golden purge removes them AND
+//     their JSON entries together), and a block that is still correctly
+//     detected + classified is not a NEW regression. The stale-golden:false
+//     rule is what makes the purge honest: you cannot make a non-golden
+//     region "disappear" from the gate by renaming/inlining it — the entry
+//     goes stale and --strict fails until it is reconciled.
 //
 // Invocation: cd api && node scripts/golden-allowlist.mjs
 // (wired as `npm run verify:golden-regions`).
@@ -144,6 +147,17 @@ function main() {
     }
   }
   const stale = allowlist.blocks.filter((b) => !seenIds.has(b.id));
+  // R5 arming (register E.5b ⚠ R5-ARMING REQUIREMENT): a tracked golden:false
+  // block that LEAVES DETECTION (renamed/inlined) WITHOUT being purged from
+  // this JSON must FAIL --strict — a non-golden region silently leaving
+  // detection is exactly the M2 "never checked / never banned" gap re-opening
+  // (a block hidden rather than removed). golden:true stale entries stay
+  // informational (a golden region renamed is not a hidden non-golden leak).
+  // The purge workflow REMOVES a golden:false block's JSON entry when it
+  // removes the block, so a stale golden:false is always an unhandled removal
+  // to reconcile (delete the entry if truly purged; re-detect if merely
+  // renamed and still shipping non-golden content).
+  const staleNonGolden = stale.filter((b) => b.golden === false);
 
   const nonGolden = classified.filter((b) => b.golden === false);
   const golden = classified.filter((b) => b.golden === true);
@@ -171,14 +185,20 @@ function main() {
   console.log('');
 
   if (stale.length > 0) {
-    console.log(`[stale allowlist entries — no longer detected in source]  ${stale.length}`);
-    for (const b of stale) console.log(`  ${b.id}`);
+    console.log(
+      `[stale allowlist entries — no longer detected in source]  ${stale.length}  (golden:false stale = ${staleNonGolden.length}; --strict FAILS on those)`,
+    );
+    for (const b of stale) console.log(`  ${b.golden === false ? 'golden:false ✗ (must reconcile)' : 'golden:true  · (informational)'}  ${b.id}`);
     console.log('');
   }
 
-  console.log(strict ? 'mode: --strict (exit 1 if any UNCLASSIFIED block exists)' : 'mode: report-only (always exit 0)');
+  console.log(
+    strict
+      ? 'mode: --strict (exit 1 if any UNCLASSIFIED block OR any stale golden:false entry exists)'
+      : 'mode: report-only (always exit 0)',
+  );
 
-  if (strict && unclassified.length > 0) {
+  if (strict && (unclassified.length > 0 || staleNonGolden.length > 0)) {
     process.exitCode = 1;
     return;
   }

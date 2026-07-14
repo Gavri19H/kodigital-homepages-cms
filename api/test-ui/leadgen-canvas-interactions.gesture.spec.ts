@@ -125,6 +125,22 @@ test.describe("R2 canvas interactions (firefox real input)", () => {
   });
 
   test("(ii) a real E/W width drag writes a snapped, clamped custom_px + shows the Custom chip", async ({ page }) => {
+    // R5 full-bleed WIDER viewport (CONFIRMED needed, not a style choice — root-
+    // caused by direct instrumentation, not a guess): the R5 full-bleed shell
+    // (no admin sidebar) shifts the whole studio, including this ZIP field's
+    // right-edge width handle, further right on the page than the default
+    // Playwright "Desktop Firefox" 1280×720 viewport leaves room for. A +90px
+    // rightward drag from the handle's measured x≈1223 lands at x≈1313 — PAST
+    // the 1280px viewport edge, where the final mouseup has no element to
+    // dispatch to. Confirmed directly: temporary console.log instrumentation in
+    // onWidthHandleMouseDown/finishUp showed onMoveInner firing correctly (6×)
+    // but neither onUpInner nor onUpOuter ever firing at the default viewport —
+    // the exact same drag at 1600×900 fires onUpInner, runs finishUp, and the
+    // field's rendered width changes (452px→544px, a real, working resize). The
+    // drag mechanism itself is unchanged and correct; only the CANVAS'S
+    // resulting page position moved (a legitimate consequence of the ratified
+    // full-bleed rebuild), so the test's aim gets more room, not the product.
+    await page.setViewportSize({ width: 1600, height: 900 });
     const s = await createSection(page.request, `R2 Width ${uniq}`, [HEADLINE, ZIP, CONT]);
     await boot(page, s);
     await selectNode(page, "q_zip");
@@ -227,6 +243,10 @@ test.describe("R2 canvas interactions (firefox real input)", () => {
   });
 
   test("(vi) a drag that STARTS on a handle RESIZES (never moves)", async ({ page }) => {
+    // R5 full-bleed WIDER viewport — same root cause as test (ii) above (see
+    // its comment for the full instrumented diagnosis): this test's +80px
+    // rightward drag off the SAME width handle needs the same extra room.
+    await page.setViewportSize({ width: 1600, height: 900 });
     const s = await createSection(page.request, `R2 HandleVsMove ${uniq}`, [HEADLINE, ZIP, { type: "FreeTextQuestion", question_id: "q_after", internal_field: "note", answer_type: "string", props: { placeholder: "Note" } }, CONT]);
     await boot(page, s);
     const order = () => canvas(page).evaluate((root) => Array.from(root.querySelectorAll("[data-question-id]")).map((e) => e.getAttribute("data-question-id")));

@@ -1467,14 +1467,19 @@ function fieldStyleAttr(
 // E2-NEW-7). The text-input family and the dropdown <select> ARE `.lg-input`
 // elements, so they consume design_overrides through fieldStyleAttr (size +
 // appearanceStyleEntries' --lg-field-border custom property — state-safe).
-// Buttons (.lg-btn-answer) and cards (.lg-card) style their border via the
-// `border`/`border-color` CSS idiom THEIR OWN chrome uses (no --lg-field-border
-// read in designs/default-funnel/styles.ts), so on those items corners ride a
-// direct `border-radius` (no state rule collides — it has no :hover/selected
-// declaration) and border_color rides a direct `border-color`. All three values
-// flow through the SAME grounded resolvers the text family uses (never invented
-// CSS); a node WITHOUT design_overrides.size/.corners/.border_color emits ""
-// (byte-identical to pre-R3).
+// Buttons (.lg-btn-answer) and cards (.lg-card) corners ride a direct
+// `border-radius` (no state rule collides — it has no :hover/selected
+// declaration). border_color ALSO now rides the `--lg-field-border` custom
+// property (R5 state-safe-border grant, register R3a ROUTING NOTES) — the
+// SAME state-safe idiom as the text-input family, via choiceItemStyle below;
+// designs/default-funnel/styles.ts's `.lg-btn.lg-btn-answer`/`.lg-card` base
+// rules read `border-color: var(--lg-field-border, <default>)` so an
+// authored border_color no longer beats the :hover/[aria-checked="true"]/
+// [data-selected="true"] state rules by inline-style specificity (the R3a-era
+// bug this R5 change closes). All three values flow through the SAME
+// grounded resolvers the text family uses (never invented CSS); a node
+// WITHOUT design_overrides.size/.corners/.border_color emits "" (byte-
+// identical to pre-R3 for the un-authored case).
 // ---------------------------------------------------------------------------
 
 // The grounded corner radius for a node's design_overrides.corners
@@ -1493,8 +1498,20 @@ function nodeBorderColorCss(node: LeadgenComponentNode, design: DefaultFunnelDes
 }
 // Per-ITEM style for a choice button/card node: height→min-height (the group's
 // height axis is a per-item concern, unlike the text box), corners→border-radius,
-// border_color→a DIRECT border-color (the item idiom). "" when the node authors
-// none of the three.
+// border_color→the `--lg-field-border` CUSTOM PROPERTY (R5 state-safe-border
+// grant, mirroring appearanceStyleEntries above — NEVER a direct border-color).
+// A direct inline border-color would beat designs/default-funnel/styles.ts's
+// `.lg-btn.lg-btn-answer:hover`/`[aria-checked="true"]`/`.lg-card:hover`/
+// `[data-selected="true"]` rules by specificity (inline always wins over a
+// class/attribute selector without !important), silently losing hover/
+// selected feedback on any item with an authored border_color — exactly the
+// cascade bug the register's R3a routing note flagged (forensic-defect-
+// register.md R3a ROUTING NOTES). The base `.lg-btn.lg-btn-answer`/`.lg-card`
+// rules read `border-color: var(--lg-field-border, <default>)`: setting the
+// CUSTOM PROPERTY inline only supplies the value that base (lower-
+// specificity) declaration consults — :hover/[aria-checked]/[data-selected]'s
+// own higher-specificity declarations still win over it. "" when the node
+// authors none of the three (byte-identical to pre-R5 for those).
 function choiceItemStyle(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
@@ -1503,7 +1520,7 @@ function choiceItemStyle(
   return style({
     "min-height": sizeStyleEntries(node, ctx).height,
     "border-radius": nodeCornersRadius(node),
-    "border-color": nodeBorderColorCss(node, design),
+    "--lg-field-border": nodeBorderColorCss(node, design),
   });
 }
 

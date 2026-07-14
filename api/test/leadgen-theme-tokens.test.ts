@@ -207,13 +207,23 @@ describe("theme-inheritance — §9.3 typography + component defaults", () => {
     expect(eff.design.page.fontDisplay).toBe(base.page.fontDisplay); // display untouched
   });
 
+  // R5 D11 (register S4-B2): headline.fontSizeDesktop is now a literal px
+  // (golden fidelity — see tokens.ts's own comment) instead of rem; the
+  // scaleFontSizes mechanism is EXPLICITLY unit-agnostic by its own doc
+  // comment ("Multiply every *FontSize* token (px/rem) across the design",
+  // theme.ts:722) — these two literals are the ONLY typography-attributable
+  // update this test needs (31 × 1.1 = 34.1, 31 × 0.9 = 27.9); the
+  // subheadline expectation is UNCHANGED (subheadline.fontSize token itself
+  // was NOT touched by R5 — only styles.ts gained a separate, surgical
+  // question-card-only override, which this pure resolveTokens() unit test
+  // never exercises).
   it("size scale s/l multiplies every *FontSize* token (m = identity)", () => {
     const large = resolveTokens(base, { typography: { size: "l" } }).design;
-    expect(large.headline.fontSizeDesktop).toBe("1.925rem"); // 1.75 × 1.1
+    expect(large.headline.fontSizeDesktop).toBe("34.1px"); // 31 × 1.1
     expect(large.subheadline.fontSize).toBe("0.908rem"); // 0.825 × 1.1 (rounded)
 
     const small = resolveTokens(base, { typography: { size: "s" } }).design;
-    expect(small.headline.fontSizeDesktop).toBe("1.575rem"); // 1.75 × 0.9
+    expect(small.headline.fontSizeDesktop).toBe("27.9px"); // 31 × 0.9
 
     const medium = resolveTokens(base, { typography: { size: "m" } }).design;
     expect(medium.headline.fontSizeDesktop).toBe(base.headline.fontSizeDesktop);

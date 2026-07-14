@@ -235,6 +235,12 @@ test.describe('R4a E3-NEW-7 — canvas Delete gets an undo toast, never a blocki
     await canvasFrame.locator('[data-question-id="q_ins"]').click();
     await expect(page.locator('[data-studio-breadcrumb]')).toContainText('Yes / No');
 
+    // R5 D3 toolbar migration: "Delete" moved into the "More actions"
+    // popover (data-studio-more-panel) alongside the other structure-cluster
+    // actions — a real click on the "⋮" toggle opens it first (the new
+    // legitimate flow; never force-clicking the hidden action directly).
+    await page.locator('[data-studio-more-toggle]').click();
+    await expect(page.locator('[data-studio-more-panel]')).toBeVisible();
     await page.locator('[data-studio-act="delete"]').click();
 
     const toast = page.locator('[data-studio-undo-toast]');
@@ -259,6 +265,10 @@ test.describe('R4a E3-NEW-7 — canvas Delete gets an undo toast, never a blocki
 
     const canvasFrame = page.frameLocator('#lg-studio-canvas-frame');
     await canvasFrame.locator('[data-question-id="q_ins"]').click();
+    // R5 D3 toolbar migration: "Delete" moved into the "More actions"
+    // popover — a real click on the "⋮" toggle opens it first.
+    await page.locator('[data-studio-more-toggle]').click();
+    await expect(page.locator('[data-studio-more-panel]')).toBeVisible();
     await page.locator('[data-studio-act="delete"]').click();
 
     const toast = page.locator('[data-studio-undo-toast]');

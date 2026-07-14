@@ -265,7 +265,11 @@ describeDb("section studio SSR — §8.1 layout regions", () => {
     // same element ids (collectSection/dirty-watcher unaffected).
     expect(html).toContain("data-studio-topbar");
     expect(html).toContain('id="lg-section-name"');
-    expect(html).toContain('<span class="badge badge-published">active</span>');
+    // R5 D7 (register S4-B5): the studio topbar uses the golden dot+pill
+    // treatment (studioActivePill, ui.ts) — NOT the shared list-page
+    // statusBadge (which the Sections LIST page still uses unchanged).
+    expect(html).toContain('data-studio-status="active"');
+    expect(html).toMatch(/class="studio-status-pill"[^>]*>[^<]*<span[^>]*background:#0E7C3A[^>]*><\/span>Active/);
     expect(html).toContain("data-studio-mapping-badge");
     expect(html).toContain("data-studio-validation-chip");
     expect(html).toContain('id="lg-section-save"');
@@ -291,7 +295,11 @@ describeDb("section studio SSR — §8.1 layout regions", () => {
     expect(html).toContain(">Wait for Continue<");
     expect(html).toContain(">Go to next<");
     expect(html).not.toMatch(/<input[^>]*name="continue_mode"/);
-    expect(html).toContain('id="lg-address-validation"');
+    // R5 D2 (register S4-A2): the legacy global Maps/validation fieldset
+    // (id="lg-address-validation") is REMOVED — safe post-R4b (S3-8:
+    // per-field precedence proven in both readers). No replacement control;
+    // address_validation_enabled round-trips through `state` alone.
+    expect(html).not.toContain('id="lg-address-validation"');
     expect(html).toContain("The question"); // §4.2 strip eyebrow (Appendix A)
 
     // 2) left rail: searchable library
@@ -985,7 +993,19 @@ describeDb("section studio SSR — §8.6 inspector + §8.5 container props", () 
     expect(html).toContain('data-override-source="iconColor"');
     expect(html).toContain('data-override-reset="rangeColor"');
     expect(html).toContain('data-override-convert="rangeColor"');
-    expect(html).toContain("Custom color (legacy)");
+    // R5 jargon purge: "Custom color (legacy)" -> "Custom color" (the word
+    // "legacy" never renders in operator-visible copy; data-override-legacy
+    // -> data-override-custom; .studio-role-legacy -> .studio-role-custom).
+    // Scoped exact-string checks only — a bare `.not.toContain("legacy")`
+    // over-matches the unrelated internal plumbing identifier
+    // legacyHexToRole (an ES5 island function NAME, never rendered/visible
+    // copy — the jargon-scan gate's own scanned-categories doc excludes
+    // plumbing identifiers by design, only rendered text/attrs/string
+    // literals are in scope).
+    expect(html).toContain("Custom color");
+    expect(html).not.toContain("Custom color (legacy)");
+    expect(html).not.toContain('data-override-legacy=');
+    expect(html).not.toContain("studio-role-legacy");
     // structural keys keep the design-slot vocabulary (NOT color-typed)
     const gap = selectBlock(html, "lg-inspector-gridGap");
     expect(gap).toContain("0.5rem"); // spacing.sm
@@ -2937,12 +2957,14 @@ describeDb("section studio — §9 field-level Maps config (job-based model, Pha
     expect(types["AddressAutocompleteQuestion"]!["maps"]).toBe("address");
     expect(types["ZIPInputQuestion"]!["maps"]).toBe("zip");
     expect(types["TwoButtonYesNo"]!["maps"]).toBeNull();
-    // §9.3: the legacy global checkbox STAYS, with per-field-wins copy
-    expect(html).toContain('id="lg-address-validation"');
-    expect(html).toContain("data-maps-legacy-note");
-    const legacyNote = /<span class="lg-maps-note" data-maps-legacy-note>([^<]+)<\/span>/.exec(html);
-    expect(legacyNote, "legacy note present").not.toBeNull();
-    expect(legacyNote![1]).toContain("WINS");
+    // R5 D2 (register S4-A2): the legacy global Maps/validation fieldset is
+    // REMOVED — safe post-R4b (S3-8 proved per-field precedence in both
+    // readers). The field's OWN Maps tab (asserted above: data-maps-enabled-
+    // toggle / data-maps-jobs-block / the 3 data-maps-job entries) is the
+    // real, current mechanism — no legacy checkbox/note survives anywhere.
+    expect(html).not.toContain('id="lg-address-validation"');
+    expect(html).not.toContain("data-maps-legacy-note");
+    expect(html).not.toContain("data-maps-precedence-note");
   });
 
   it("SSR: the key-missing banner ships HIDDEN with the exact no-op contract copy + the key state attribute (no key in the test env)", async () => {
@@ -3749,11 +3771,11 @@ describeDb("v3.1 §4.2 SSR — the Question strip", () => {
     expect(html).toMatch(/data-bound-chip="section_subheadline"[^>]*hidden/);
     expect(html).toContain("Hidden in this question unit");
     expect(html).toMatch(/data-bound-show="section_headline"[^>]*>Show</);
-    // the legacy global Maps checkbox row stays (compat) — visually
-    // subordinate (no golden position exists for it — §9's real per-field
-    // Maps tab supersedes it), but the mechanism keeps working.
-    expect(html).toContain('id="lg-address-validation"');
-    expect(html).toContain("data-maps-legacy-note");
+    // R5 D2 (register S4-A2): the legacy global Maps checkbox row is
+    // REMOVED (safe post-R4b — §9's real per-field Maps tab is the current
+    // mechanism; S3-8 proved per-field precedence in both readers).
+    expect(html).not.toContain('id="lg-address-validation"');
+    expect(html).not.toContain("data-maps-legacy-note");
     // the legacy-link banner slot ships hidden
     expect(html).toMatch(/data-bind-banner[^>]*hidden/);
   });
@@ -4221,10 +4243,12 @@ describeDb("v3.1 §6.1/§6.3 — unit-only canvas scope", () => {
     expect(move.disabled, "the §5.4 Move action shipped — the button is enabled").not.toBe(true);
     expect(move.title).toContain("Quote frame");
     const keep = badge.children.find((c) => c.getAttribute("data-frame-keep") !== null)!;
-    expect(keep.allText()).toBe("Keep (legacy)");
+    // R5 jargon purge: "Keep (legacy)" -> "Keep as-is" (the word "legacy"
+    // never renders).
+    expect(keep.allText()).toBe("Keep as-is");
     // C2 (§5.4): the badge NAMES the activation consequence
     expect(badge.allText()).toContain(
-      "While a funnel using this Section has a configured frame, activation blocks on this element unless that funnel’s Advanced legacy override allows it.",
+      "While a funnel using this Section has a configured frame, activation blocks on this element unless that funnel’s Advanced override allows it.",
     );
     // the decoration pass gates on scope === 'frame' + the session Keep store,
     // and the canvas click handler consumes [data-frame-keep] with NO model change
@@ -4636,7 +4660,17 @@ function sliceIslandArray(script: string, name: string): string {
 }
 
 describeDb("wave 2 — §6.1 toolbar SSR anatomy (1–9)", () => {
-  it("hosts breadcrumb, scope pills (ONE implementation with the inspector), undo/redo, viewport, structure/layout/text/component/choice/preset clusters — always visible", async () => {
+  // R5 D3 (register S4-A3, golden single-row toolbar): REWRITTEN for the new
+  // toolbar model — the golden's own ONE-ROW chrome (breadcrumb/pills · undo/
+  // redo · viewport · frame hint · offer-mapping toggle) plus ONE compact
+  // "More actions" popover (structure + choice-item quick actions — the two
+  // concerns with no inspector-tab home). Every OTHER control that used to
+  // balloon this row was either an exact duplicate of an existing Content/
+  // Style-tab control (REMOVED, not migrated) or a genuine type-swap/style
+  // control MIGRATED to Content ("Answer format": searchable/card-style/
+  // slider-format/type-swap) or Style (selected-role/preset apply-save/
+  // choice-grid columns+gap — see the dedicated tests for those tabs).
+  it("hosts breadcrumb, scope pills (ONE implementation with the inspector), undo/redo, viewport, frame hint, offer-mapping toggle, and the compact More popover (structure + choice) — always visible; every migrated/removed control is gone from the toolbar", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
@@ -4657,33 +4691,56 @@ describeDb("wave 2 — §6.1 toolbar SSR anatomy (1–9)", () => {
     expect(html).toContain('data-canvas-viewport="mobile"');
     expect(html).toContain("Desktop 1280");
     expect(html).toContain("Mobile 375");
-    // 5. structure cluster incl. the NEW Group→Grid/Columns + Ungroup
+    // 5. structure cluster incl. the Group→Grid/Columns + Ungroup — now
+    // inside the toolbar's "More" popover (still a toolbar descendant).
+    expect(html).toContain("data-studio-more-toggle");
+    expect(html).toContain("data-studio-more-panel");
     for (const act of ["move-up", "move-down", "add-before", "add-after", "duplicate", "delete", "group-stack", "group-cardpanel", "group-grid", "group-columns", "ungroup"]) {
       expect(html, `structure act ${act}`).toContain(`data-studio-act="${act}"`);
     }
-    // 6. layout cluster: container groups over the SAME data-container-prop
-    // hooks (one collect/populate implementation, two hosts) + choice cols/gap
-    expect(html).toContain('id="lg-tb-Stack-direction"');
-    expect(html).toContain('id="lg-tb-CardPanel-width"');
+    // 6. the toolbar's OWN "layout" cluster is GONE (was a pure duplicate of
+    // the Style tab's renderContainerLayoutPanel, register S4-A3 removal) —
+    // the SAME container props now live ONLY at the Style tab's ids.
+    expect(html).not.toContain('id="lg-tb-Stack-direction"');
+    expect(html).not.toContain('id="lg-tb-CardPanel-width"');
+    expect(html).toContain('id="lg-container-Stack-direction"');
+    expect(html).toContain('id="lg-container-CardPanel-width"');
+    // data-toolbar-choice-layout kept its NAME (attribute-addressed, works
+    // regardless of DOM location) but now renders inside the Style tab.
     expect(html).toContain("data-toolbar-choice-layout");
-    // 7. text cluster: type role + color role swatch
+    // 7. the toolbar's OWN "text" cluster is GONE: the type-swap select
+    // MOVED to the Content tab (data-text-role, same attribute, new id) and
+    // the text-color role select was a DUPLICATE of the Style tab's own
+    // featureColor select (data-style-text-block) — DELETED, not migrated.
     expect(html).toContain("data-text-role");
-    expect(html).toContain("data-toolbar-text-color");
-    // 8. component cluster quick controls
-    expect(html).toContain("data-toolbar-add-choice");
-    expect(html).toContain("data-toolbar-autoadvance");
-    expect(html).toContain("data-toolbar-open-validation");
+    expect(html).toContain('id="lg-content-type-swap"');
+    expect(html).not.toContain("data-toolbar-text-color");
+    // 8. the toolbar's OWN "component" cluster quick controls: add-choice/
+    // autoadvance/open-validation are GONE (exact duplicates of the Content
+    // tab's own +Add-choice button, "When answered" segmented, and the
+    // Content tab itself being one click away — respectively). searchable/
+    // card-style/slider-format/accept MIGRATED to the Content tab (same
+    // attribute names, new location).
+    expect(html).not.toContain("data-toolbar-add-choice");
+    expect(html).not.toContain("data-toolbar-autoadvance");
+    expect(html).not.toContain("data-toolbar-open-validation");
     expect(html).toContain("data-toolbar-searchable");
-    // choice cluster (§6.4)
-    for (const act of ["image", "label", "badge", "disabled", "duplicate", "left", "right", "delete"]) {
+    expect(html).not.toContain("data-toolbar-accept-wrap");
+    expect(html).toContain('id="lg-inspector-accept"'); // the Content tab's own (pre-existing) Accept select
+    // choice cluster (§6.4) — now inside the "More" popover. "label" is
+    // REMOVED (the data-choice-value-chip already does the exact same
+    // "opens its Choices row" navigation — a redundant twin, not migrated).
+    for (const act of ["image", "badge", "disabled", "duplicate", "left", "right", "delete"]) {
       expect(html, `choice act ${act}`).toContain(`data-choice-act="${act}"`);
     }
+    expect(html).not.toContain('data-choice-act="label"');
     expect(html).toContain("data-choice-value-chip");
-    // 9. preset menu
+    // 9. preset menu MIGRATED to the Style tab (same attribute names).
     expect(html).toContain("data-preset-save");
     expect(html).toContain("data-preset-apply");
-    expect(html).toContain("Save selection as preset");
-    // §6.7 inline problems slot
+    expect(html).toContain("Save as preset");
+    expect(html).not.toContain('data-toolbar-cluster="preset"');
+    // §6.7 inline problems slot — stays in the toolbar.
     expect(html).toContain("data-toolbar-problems");
   });
 });
@@ -5102,9 +5159,11 @@ describeDb("wave 2 — §9.4 Design-tab role decorations (executed)", () => {
     expect(probe.run("overrideSourceText('buttonBackground', undefined)")).toBe(
       "Inherited: Accent — from this Section’s Design overrides.",
     );
-    // an overridden role names itself; a legacy hex is called out — NO hex TEXT
+    // an overridden role names itself; a stored hex is called out — NO hex TEXT
+    // (R5 jargon purge: "Custom color (legacy)" -> "Custom color" — the word
+    // "legacy" never renders).
     expect(probe.run("overrideSourceText('iconColor', 'accent')")).toBe("Accent — overridden for this component.");
-    expect(probe.run("overrideSourceText('iconColor', '#123456')")).toBe("Custom color (legacy) — not a theme role.");
+    expect(probe.run("overrideSourceText('iconColor', '#123456')")).toBe("Custom color — not a theme role.");
     expect(String(probe.run("overrideSourceText('iconColor', '#123456')"))).not.toMatch(/#[0-9a-f]{3,8}/i);
     // convert: an EXACT default-design match maps hex → role; no match → null
     const accentHex = (extractJsonBlob(html, "lg-studio-meta")["roles"] as Record<string, string>)["accent"];
@@ -5125,7 +5184,9 @@ describeDb("wave 2 — §9.4 Design-tab role decorations (executed)", () => {
     const decorations: Record<string, unknown> = {
       '[data-override-source="buttonBackground"]': srcEl,
       '[data-override-reset="buttonBackground"]': resetBtn,
-      '[data-override-legacy="buttonBackground"]': legacyEl,
+      // R5 jargon purge: data-override-legacy -> data-override-custom
+      // (.studio-role-legacy CSS class -> .studio-role-custom).
+      '[data-override-custom="buttonBackground"]': legacyEl,
       '[data-override-swatch="buttonBackground"]': swatch,
     };
     const probe = studioProbe(html, YESNO_CONTENT, {
@@ -5986,7 +6047,15 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     expect(validateSectionContent(probe.sandbox.state.content as never).errors).toEqual([]);
   });
 
-  it("v3.1 §5.6 SSR: the canvas toolbar hosts the Card-style segmented, Slider Format $ toggle, and the Accept dropdown with the exact 8-option enumeration", async () => {
+  // R5 D3 (register S4-A3 migration): Card-style / Slider-format MOVED from
+  // the canvas toolbar into the Content tab's "Answer format" section (same
+  // attribute names — data-toolbar-card-style-wrap/data-card-style/
+  // data-toolbar-slider-format-wrap/data-toolbar-slider-format are kept
+  // verbatim, only their SSR location changed); the Accept dropdown's
+  // TOOLBAR copy (data-toolbar-accept-wrap/#lg-tb-accept) was a pure
+  // duplicate of the Content tab's PRE-EXISTING #lg-inspector-accept and is
+  // REMOVED (not migrated — nothing to migrate).
+  it("v3.1 §5.6 SSR: the Content tab hosts the Card-style segmented, Slider Format $ toggle, and the Accept dropdown with the exact 8-option enumeration", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
@@ -5994,10 +6063,12 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     for (const style of ["icon", "image", "plain"]) expect(html).toContain(`data-card-style="${style}"`);
     expect(html).toContain("data-toolbar-slider-format-wrap");
     expect(html).toContain("data-toolbar-slider-format");
-    expect(html).toContain("data-toolbar-accept-wrap");
-    expect(html).toMatch(/<select id="lg-tb-accept"[^>]*data-toolbar-accept/);
+    // the toolbar's OWN accept copy is gone
+    expect(html).not.toContain("data-toolbar-accept-wrap");
+    expect(html).not.toContain('id="lg-tb-accept"');
+    expect(html).toMatch(/<select id="lg-inspector-accept"[^>]*data-inspector-accept/);
     // the exact §8.5b Accept enumeration, in order, none other
-    const acceptBlockStart = html.indexOf('id="lg-tb-accept"');
+    const acceptBlockStart = html.indexOf('id="lg-inspector-accept"');
     const acceptBlockEnd = html.indexOf("</select>", acceptBlockStart);
     const acceptBlock = html.slice(acceptBlockStart, acceptBlockEnd);
     expect(

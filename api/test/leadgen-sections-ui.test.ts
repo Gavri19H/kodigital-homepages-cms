@@ -372,9 +372,12 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
     expect(iframeTag![0]).not.toContain("data-viewport");
     expect(html).not.toContain(".lg-preview-frame[data-viewport");
     expect(html).toContain(".lg-preview-frame-mobile{max-width:375px}");
-    // §12.8 Google-Maps toggle (key is a secret — the note says so, no key embedded)
-    expect(html).toContain('id="lg-address-validation"');
-    expect(html).toContain("GOOGLE_MAPS_BROWSER_KEY");
+    // R5 D2 (register S4-A2): the legacy global Maps/validation fieldset
+    // (id="lg-address-validation", the wrangler-secret-name sentence) is
+    // REMOVED — safe post-R4b (S3-8 proved per-field precedence in both
+    // readers). No secret name renders anywhere on this surface any more.
+    expect(html).not.toContain('id="lg-address-validation"');
+    expect(html).not.toContain("GOOGLE_MAPS_BROWSER_KEY");
     expect(html).not.toContain("maps.googleapis.com"); // never embeds the Maps JS/key
     // continue-mode controls (§12.5; v3.1 §4.2 — "On answer" segmented
     // replaces the old native radio pair, same continue_mode store)
@@ -401,6 +404,39 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
     expect(html).toContain("data-studio-offers-note");
     expect(html).toContain("data-studio-offers-empty");
     expect(html).toContain("data-studio-mapping-table");
+  });
+
+  // R5 grant 1 (register S4-A1/A9/A10): the editor route is now a
+  // self-contained full-bleed page — NO admin sidebar/header/LeadGen sub-tabs
+  // (conductor-ratified pin, replacing the Stage-1 imprecise citation of
+  // this file's :413 — the only pre-existing kodigital-admin-shell assertion
+  // in this file is on the 404 fallback page below, which correctly KEEPS
+  // the admin shell since it is not part of the golden-covered surface).
+  it("the EDITOR route (both /new and /:id/edit) carries the standalone marker, NOT the admin shell — no sidebar/header/LeadGen tabs", async () => {
+    const { env } = newHarness();
+    const newHtml = await getHtml(env, "/admin/leadgen/sections/new");
+    expect(newHtml).toContain('data-marker="kodigital-admin-standalone"');
+    expect(newHtml).not.toContain('data-marker="kodigital-admin-shell"');
+    expect(newHtml).not.toContain('class="admin-sidebar"');
+    expect(newHtml).not.toContain('class="admin-header"');
+    expect(newHtml).not.toContain('class="leadgen-tabs"');
+
+    const section = await createSection(env);
+    const editHtml = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
+    expect(editHtml).toContain('data-marker="kodigital-admin-standalone"');
+    expect(editHtml).not.toContain('data-marker="kodigital-admin-shell"');
+    expect(editHtml).not.toContain('class="admin-sidebar"');
+    expect(editHtml).not.toContain('class="leadgen-tabs"');
+  });
+
+  // The Sections LIST page (a different route/page than the editor) is
+  // UNCHANGED — it keeps the admin shell (sidebar/header/tabs), matching the
+  // conductor's grant ("keep asserting the admin shell for the LIST page").
+  it("the Sections LIST page (/admin/leadgen/sections) still carries the admin shell + LeadGen tabs, unlike the editor", async () => {
+    const { env } = newHarness();
+    const html = await getHtml(env, "/admin/leadgen/sections");
+    expect(html).toContain('data-marker="kodigital-admin-shell"');
+    expect(html).toContain('class="leadgen-tabs"');
   });
 
   it("unknown / foreign-kind / malformed section ids → the in-shell 404", async () => {
@@ -753,23 +789,32 @@ describeDb("leadgen section editor — P6 dependency preview + §30.2 Maps-key s
     expect(island!).toContain("'lg-preview-frame lg-preview-frame-mobile'");
   });
 
-  it("surfaces the §30.2 Maps-key ABSENT state when no browser key is configured", async () => {
+  // R5 D2 (register S4-A2): the legacy fieldset carrying data-maps-key=
+  // "absent"/"configured" is REMOVED — its informational job is covered by
+  // the SEPARATE, already-wired data-studio-maps-banner (data-maps-key-
+  // configured="true"/"false", studio:~2591 + the island's hide-when-
+  // configured toggle at ~4535) inside the Preview drawer panel, asserted in
+  // its own "SSR: the key-missing banner ships HIDDEN..." test — no
+  // duplication needed here. The question-strip's "Google Maps: connected /
+  // not connected" chip (data-maps-strip-chip) is the remaining SURFACE-LEVEL
+  // indicator; it carries no data-maps-key attribute (informational text
+  // only — the Maps TAB per-field controls are the real mechanism).
+  it("the legacy data-maps-key note is gone; the question-strip chip reflects ABSENT/CONFIGURED via plain text only", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
-    expect(html).toContain('data-maps-key="absent"');
-    expect(html).toContain("Maps key not configured");
-    expect(html).toContain("autofill disabled");
+    expect(html).not.toContain("data-maps-key=");
+    expect(html).toMatch(/Google Maps: not connected/);
   });
 
-  it("surfaces the CONFIGURED Maps-key state when the browser-key secret is present (value never embedded)", async () => {
+  it("the question-strip chip flips to 'connected' when the browser-key secret is present (value never embedded)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const withKey = { ...env, GOOGLE_MAPS_BROWSER_KEY: "browser-abc" } as Env;
     const res = await admin.request(`/admin/leadgen/sections/${section.public_id}/edit`, {}, withKey);
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('data-maps-key="configured"');
+    expect(html).toMatch(/Google Maps: connected/);
     expect(html).not.toContain("browser-abc"); // §30.2 — the key VALUE is never embedded
   });
 });

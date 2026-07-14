@@ -211,7 +211,43 @@ export function adminLayout(options: AdminLayoutOptions): string {
 </html>`;
 }
 
-const ADMIN_STYLES = `
+// R5 grant 1 (Section Builder v3.1 remediation, register S4-A1/A9/A10): an
+// ADDITIVE chromeless render path — no sidebar/header/admin-layout wrapper —
+// for pages that need to be a self-contained full-screen surface (the golden
+// design's Section Studio editor). Reuses the SAME ADMIN_STYLES/ADMIN_SCRIPTS
+// (so .btn/.form-input/.badge/.alert/.card/--c-* vars stay available — the
+// studio depends on dozens of these) — only the sidebar/header markup and
+// the .admin-layout/.admin-main/.admin-content wrapper divs are omitted.
+// adminLayout's own output is COMPLETELY UNCHANGED (a separate function, not
+// a branch of it) — proven byte-identical by a dedicated pin (see
+// test/leadgen-r5-layout-standalone.test.ts).
+export interface AdminStandalonePageOptions {
+  title: string;
+  content: string;
+  scripts?: string;
+  styles?: string;
+}
+export function adminStandalonePage(options: AdminStandalonePageOptions): string {
+  const { title, content, scripts = "", styles = "" } = options;
+  const safeTitle = escapeHtml(title);
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex,nofollow">
+  <title>${safeTitle} | ${escapeHtml(BRAND_TEXT)}</title>
+  <style>${ADMIN_STYLES}${styles}</style>
+</head>
+<body data-area="admin-standalone">
+  <p data-marker="kodigital-admin-standalone" hidden>standalone</p>
+  ${content}
+  <script>${ADMIN_SCRIPTS}${scripts}</script>
+</body>
+</html>`;
+}
+
+export const ADMIN_STYLES = `
 *{margin:0;padding:0;box-sizing:border-box}
 [hidden]{display:none!important}
 :root{--c-primary:#2563eb;--c-primary-dark:#1d4ed8;--c-primary-light:#dbeafe;--c-bg:#fff;--c-bg-alt:#f9fafb;--c-bg-dark:#f3f4f6;--c-text:#111827;--c-muted:#6b7280;--c-border:#e5e7eb;--c-success:#10b981;--c-warning:#f59e0b;--c-error:#ef4444;--sidebar-w:250px;--header-h:60px}
@@ -303,8 +339,10 @@ html,body{height:100%;overflow-x:hidden}
 // Ported legacy admin script, converted to strict ES5: var-only bindings,
 // no arrow functions, promise-based api() instead of async/await. Toast
 // icons are fixed SVG constants parsed via DOMParser (no innerHTML); the
-// caller-supplied message goes through textContent only.
-const ADMIN_SCRIPTS = `
+// caller-supplied message goes through textContent only. Exported (R5 grant
+// 1) so adminStandalonePage can inline the SAME toast/confirmDelete/
+// generateSlug/api() helpers a chromeless page may still want.
+export const ADMIN_SCRIPTS = `
 function toggleSidebar() {
   var s = document.getElementById('sidebar');
   if (s) { s.classList.toggle('open'); }

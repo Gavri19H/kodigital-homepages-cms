@@ -618,8 +618,14 @@ describe("ButtonAnswerGroup + TwoButtonYesNo (§14.6 answer-button state)", () =
     // BASE: white bg + dark ink + 2px #D2D9E5 border (reuses color.card /
     // page.textColor / input.border) + the icon-card transition — the compound
     // .lg-btn.lg-btn-answer (2 classes) outranks the .lg-btn primary base (1 class).
+    // R5 state-safe border (register R3a ROUTING NOTES): a LATER declaration
+    // in the SAME rule overrides just the border-color channel through
+    // var(--lg-field-border, <fallback>) — the SAME idiom .lg-input already
+    // uses (see the border_color describe block below) — ONLY-INTENDED-DELTA
+    // vs. the pre-R5 pin: one appended declaration, nothing else in this rule
+    // changed.
     expect(chrome).toContain(
-      ".lg-btn.lg-btn-answer{background:#FFFFFF;color:#1A1F36;border:2px solid #D2D9E5;transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}",
+      ".lg-btn.lg-btn-answer{background:#FFFFFF;color:#1A1F36;border:2px solid #D2D9E5;border-color:var(--lg-field-border, #D2D9E5);transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}",
     );
     // SELECTED (§14.6 "selected animation"): navy #1B3A5C border + #E8EEF4 wash bg
     // + weight 700 — the SAME iconCard.selectedBorderColor / selectedBackground

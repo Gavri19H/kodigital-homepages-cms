@@ -65,12 +65,18 @@ const HELPER_TYPES = [
 
 describe("R3 S2-1/E1-C3 — button/other-group renderers consume size/corners/border", () => {
   for (const t of BUTTON_TYPES) {
-    it(`${t}: width→group width, height→button min-height, corners→radius, border→role border-color`, () => {
+    it(`${t}: width→group width, height→button min-height, corners→radius, border→role --lg-field-border (R5 state-safe)`, () => {
       const html = render(t, { design_overrides: OV });
       expect(html, "group width").toContain(`width:${CUSTOM_W}px`);
       expect(html, "button min-height").toContain(`min-height:${CUSTOM_H}px`);
       expect(html, "button radius").toContain(`border-radius:${RADIUS.pill}`);
-      expect(html, "button role border-color").toContain(`border-color:${BRAND}`);
+      // R5 state-safe border (register R3a ROUTING NOTES): border_color now
+      // rides the --lg-field-border custom property (presets.ts:1506), never
+      // a direct inline border-color — a direct value would beat the
+      // .lg-btn.lg-btn-answer:hover/[aria-checked="true"] state rules by
+      // inline-style specificity.
+      expect(html, "button role rides --lg-field-border, never a direct border-color").toContain(`--lg-field-border:${BRAND}`);
+      expect(html, "buttons are state-safe: NO direct border-color").not.toContain(`border-color:${BRAND}`);
     });
     it(`${t}: NO design_overrides ⇒ none of the R3 inline styles (byte-additive)`, () => {
       const html = render(t);
@@ -83,12 +89,16 @@ describe("R3 S2-1/E1-C3 — button/other-group renderers consume size/corners/bo
 
 describe("R3 S2-1/E1-C3 — card-grid renderers consume size/corners/border", () => {
   for (const t of CARD_TYPES) {
-    it(`${t}: width→grid max-width, height→card min-height, corners→radius, border→role border-color`, () => {
+    it(`${t}: width→grid max-width, height→card min-height, corners→radius, border→role --lg-field-border (R5 state-safe)`, () => {
       const html = render(t, { design_overrides: OV });
       expect(html, "grid max-width").toContain(`max-width:${CUSTOM_W}px`);
       expect(html, "card min-height").toContain(`min-height:${CUSTOM_H}px`);
       expect(html, "card radius").toContain(`border-radius:${RADIUS.pill}`);
-      expect(html, "card role border-color").toContain(`border-color:${BRAND}`);
+      // R5 state-safe border: same --lg-field-border idiom as the button
+      // family above (presets.ts:1506) — never a direct border-color, so
+      // .lg-card:hover/[aria-checked="true"]/[data-selected="true"] still win.
+      expect(html, "card role rides --lg-field-border, never a direct border-color").toContain(`--lg-field-border:${BRAND}`);
+      expect(html, "cards are state-safe: NO direct border-color").not.toContain(`border-color:${BRAND}`);
     });
     it(`${t}: NO design_overrides ⇒ no max-width / min-height / border-radius inline`, () => {
       const html = render(t);
@@ -135,8 +145,13 @@ describe("R3 — border_color role → the active design's own themed color", ()
     ["accent", ACCENT],
   ];
   for (const [role, hex] of cases) {
-    it(`ButtonAnswerGroup border_color=${role} ⇒ border-color:${hex}`, () => {
-      expect(render("ButtonAnswerGroup", { design_overrides: { border_color: role } })).toContain(`border-color:${hex}`);
+    // R5 state-safe border: ButtonAnswerGroup now matches DropdownQuestion's
+    // own --lg-field-border idiom (both ride the custom property, never a
+    // direct border-color) — see presets.ts choiceItemStyle.
+    it(`ButtonAnswerGroup border_color=${role} ⇒ --lg-field-border:${hex}`, () => {
+      const html = render("ButtonAnswerGroup", { design_overrides: { border_color: role } });
+      expect(html).toContain(`--lg-field-border:${hex}`);
+      expect(html, "state-safe: NO direct border-color").not.toContain(`border-color:${hex}`);
     });
     it(`DropdownQuestion border_color=${role} ⇒ --lg-field-border:${hex}`, () => {
       expect(render("DropdownQuestion", { design_overrides: { border_color: role } })).toContain(`--lg-field-border:${hex}`);

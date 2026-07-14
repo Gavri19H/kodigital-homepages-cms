@@ -239,8 +239,17 @@ describe("token fidelity — measured reference values (§14.10 computed-style c
     expect(css).toContain(".lg-input{");
   });
 
-  it("headline family = Literata serif (reference headline.fontFamily)", () => {
-    expect(defaultFunnelDesign.headline.fontFamily).toContain("Literata");
+  // R5 D11 (register S4-B2, operator decision 1 — RESOLVED "match the
+  // approved design"): the question headline now uses Newsreader (golden
+  // :312), NOT Literata — this is the deliberate, ratified typography
+  // change, live on all 100+ default-design zones. header.logoFontFamily
+  // and rangeQuestion.valueFontFamily are UNTOUCHED (out of this
+  // deliverable's scope) and still say Literata, so the string "Literata"
+  // legitimately still appears elsewhere in the generated stylesheet.
+  it("headline family = Newsreader serif (R5 D11 typography — golden :312); Literata survives elsewhere (logo/range, untouched)", () => {
+    expect(defaultFunnelDesign.headline.fontFamily).toContain("Newsreader");
+    expect(css).toContain("Newsreader");
+    expect(defaultFunnelDesign.header.logoFontFamily).toContain("Literata");
     expect(css).toContain("Literata");
   });
 

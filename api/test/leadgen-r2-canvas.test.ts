@@ -486,20 +486,19 @@ describe("R2 S2-11 — height/corners/border setters re-decorate the canvas (lik
   });
 });
 
-describe("R2 E2-NEW-9 — the Spacer toolbar layout cluster is no longer EMPTY", () => {
-  it("the layout toolbar cluster renders a Spacer group with its size control", () => {
-    // The cluster gate grants Spacer 'layout' (layout_props===true); with the
-    // TOOLBAR_LAYOUT_TYPES Spacer entry it now emits a real size select instead
-    // of an empty bordered segment.
-    const clusterStart = STUDIO_HTML.indexOf('data-toolbar-cluster="layout"');
-    expect(clusterStart, "layout toolbar cluster present").toBeGreaterThan(-1);
-    const clusterEnd = STUDIO_HTML.indexOf('data-toolbar-cluster="', clusterStart + 1);
-    const cluster = STUDIO_HTML.slice(clusterStart, clusterEnd === -1 ? undefined : clusterEnd);
-    expect(cluster).toContain('data-container-group="Spacer"');
-    // the Spacer size control (LEADGEN_GAP_TOKENS) rides the same data-container-prop hook
-    const spacerGroupStart = cluster.indexOf('data-container-group="Spacer"');
-    const spacerGroup = cluster.slice(spacerGroupStart, spacerGroupStart + 400);
+describe("R2 E2-NEW-9 — the Spacer layout controls are no longer EMPTY", () => {
+  // R5 D3 (register S4-A3 removal): the canvas toolbar's OWN "layout"
+  // cluster/TOOLBAR_LAYOUT_TYPES is DELETED — it was a pure duplicate of the
+  // Style tab's renderContainerLayoutPanel (R3b), which already renders the
+  // SAME container props over the SAME data-container-prop/data-container-
+  // group hooks. This test now asserts the SURVIVING (Style tab) location.
+  it("the Style tab's container-layout panel renders a Spacer group with its size control", () => {
+    const spacerGroupStart = STUDIO_HTML.indexOf('data-container-group="Spacer"');
+    expect(spacerGroupStart, "Spacer container-group present (Style tab)").toBeGreaterThan(-1);
+    const spacerGroup = STUDIO_HTML.slice(spacerGroupStart, spacerGroupStart + 400);
     expect(spacerGroup).toContain('data-container-prop="size"');
     expect(spacerGroup).toContain("<select");
+    // the toolbar's OWN layout cluster no longer exists at all
+    expect(STUDIO_HTML).not.toContain('data-toolbar-cluster="layout"');
   });
 });

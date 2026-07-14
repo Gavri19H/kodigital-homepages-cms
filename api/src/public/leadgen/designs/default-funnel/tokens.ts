@@ -14,8 +14,30 @@ export const defaultFunnelDesign = {
   disclosure:{color:"#718096",fontSize:"0.8rem",hoverColor:"#1B3A5C"},
   content:{maxWidth:"500px",offersMaxWidth:"420px",paddingDesktop:"1.5rem",paddingMobile:"1rem",cardPadding:"24px 20px",cardRadius:"14px"},
   progress:{height:"8px",trackColor:"#E8EEF4",fillColor:"linear-gradient(90deg,#1B3A5C,#2A5080)",borderRadius:"9999px",textColor:"#1B3A5C",marginBottom:"2rem"},
-  headline:{fontFamily:"'Literata',serif",fontSizeDesktop:"1.75rem",fontSizeMobile:"1.375rem",fontWeight:"700",lineHeight:"1.25",color:"#1A1F36",textAlign:"center",marginBottom:"6px"},
-  subheadline:{fontSize:"0.825rem",color:"#4A5568",textAlign:"center",marginBottom:"20px"},
+  // R5 D11 (register S4-B2, operator decision 1 — RESOLVED "YES, match the
+  // approved design"): headline typography now matches the golden mockup
+  // byte-for-byte (golden :312 "font-family:Newsreader,serif;font-size:31px;
+  // line-height:1.15;font-weight:600;color:#16324f"). fontSizeDesktop is a
+  // literal px (breaking this file's OWN rem convention deliberately) — a
+  // rem value would drift if a host zone's root font-size ever differs from
+  // 16px, and these funnels embed on 100+ zones outside this codebase's
+  // control; golden's OWN mockup styles use a literal px for this exact
+  // property too. fontSizeMobile is UNCHANGED (golden's mockup is desktop-
+  // only, 1440x944 — no mobile value is specified anywhere to match against;
+  // ONLY-INTENDED-DELTA discipline means this phase changes nothing golden
+  // doesn't say to). header.logoFontFamily / rangeQuestion.valueFontFamily
+  // (both also 'Literata') are UNTOUCHED — the dispatch scopes this
+  // deliverable to the question headline only.
+  headline:{fontFamily:"'Newsreader',serif",fontSizeDesktop:"31px",fontSizeMobile:"1.375rem",fontWeight:"600",lineHeight:"1.15",color:"#16324f",textAlign:"center",marginBottom:"6px"},
+  // subheadline.color matches golden :313 (#63707F). subheadline.fontSize
+  // stays THE SHARED 0.825rem token deliberately — golden's 15px applies
+  // ONLY to the question-card subheadline; this SAME token also feeds
+  // .lg-card-desc (icon-card choice descriptions, styles.ts) and other
+  // non-question-headline consumers this deliverable does not touch. The
+  // question-card-specific 15px override lives as a SURGICAL styles.ts rule
+  // instead (conductor-ratified — "the shared token feeding .lg-card-desc
+  // stays untouched — correct blast-radius discipline").
+  subheadline:{fontSize:"0.825rem",color:"#63707F",textAlign:"center",marginBottom:"20px"},
   categoryLabel:{fontSize:"0.8125rem",fontWeight:"700",letterSpacing:"2px",textTransform:"uppercase",color:"#E85D26",marginBottom:"12px"},
   rangeQuestion:{valueFontFamily:"'Literata',serif",valueFontSize:"2.25rem",valueFontWeight:"700",valueColor:"#1A1F36",trackHeight:"8px",trackRadius:"9999px",filledTrackColor:"#1B3A5C",unfilledTrackColor:"#E8EEF4",thumbSize:"28px",thumbBorder:"3px solid #FFFFFF",thumbBackground:"#1B3A5C",thumbShadow:"0 2px 8px rgba(27,58,92,.25)",minMaxLabelColor:"#718096"},
   primaryButton:{background:"#1B3A5C",color:"#FFFFFF",paddingY:"14px",paddingX:"16px",minHeight:"52px",maxWidth:"320px",widthMobile:"100%",borderRadius:"10px",hoverBackground:"#0F2440",disabledOpacity:"0.6",fontFamily:"'Sora',sans-serif",fontSize:"0.9375rem",fontWeight:"600",loadingSpinner:true},
