@@ -6538,7 +6538,7 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     expect(afterModelChangeCalls, "the section was never marked dirty").toBe(0);
   });
 
-  it("m3(b) (adversarial review): the selected field stays draggable=false while its width handles are shown, restored to true once deselected — every OTHER node keeps the ordinary reorder-drag source", async () => {
+  it("R7 U11a: EVERY canvas node is draggable=false (selected or not) — native DnD is retired for canvas moves; the delegated pointer gesture owns all node reorders", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
@@ -6591,13 +6591,17 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
       ].join("\n"),
     );
     probe.run("applyCanvasDecoration()");
-    expect(zipNode._attrs["draggable"], "selected field: handles shown, native reorder-drag suspended").toBe("false");
-    expect(insNode._attrs["draggable"], "not selected: keeps the ordinary reorder-drag source").toBe("true");
+    // R7 U11a: native HTML5 DnD is retired for canvas moves — EVERY node is
+    // draggable=false, selected or not, so a real page.mouse (not native DnD,
+    // which hangs in the srcdoc iframe under Chrome) can drive the reorder via
+    // the ONE delegated pointer gesture (onFieldMoveMouseDown).
+    expect(zipNode._attrs["draggable"], "selected field: draggable=false").toBe("false");
+    expect(insNode._attrs["draggable"], "unselected node: ALSO draggable=false now").toBe("false");
 
-    // deselect — the next decoration pass restores the ordinary drag source.
+    // deselect — still false (uniform; no per-selection native-DnD restore).
     probe.sandbox.selectedQuestionId = null;
     probe.run("applyCanvasDecoration()");
-    expect(zipNode._attrs["draggable"], "deselected: draggable restored").toBe("true");
+    expect(zipNode._attrs["draggable"], "deselected: stays draggable=false").toBe("false");
   });
 
   it("§6.2 Escape ends the inline edit WITHOUT walking the selection — onKey stops propagation before the doc-level handler", async () => {

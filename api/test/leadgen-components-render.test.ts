@@ -1678,10 +1678,14 @@ describe("§8.13 legacy compat — flat arrays validate + render byte-identicall
     for (let i = 0; i < flat.length; i++) expect(flat[i]).toBe(LEGACY_FLAT[i]);
   });
 
-  it("renderSectionComponents output is byte-identical to the flat per-node render", () => {
+  it("renderSectionComponents output equals the flat per-node render, wrapped in the R7 U12 unit-level question card (FIX 3b)", () => {
     const treeRender = renderSectionComponents(LEGACY_FLAT, DESIGN);
     const flatRender = LEGACY_FLAT.map((n) => renderComponent(n, DESIGN)).join("");
-    expect(treeRender).toBe(flatRender);
+    // renderComponent() called per-node (bypassing the top-level wrap) is the
+    // ONE place this suite can observe "what renders WITHOUT the card" — the
+    // ONLY attributable delta is the .lg-question-card wrapper (golden :308,
+    // FIX 3b); the per-node bytes underneath are still exactly equal.
+    expect(treeRender).toBe(`<div class="lg-question-card">${flatRender}</div>`);
     expect(treeRender.length).toBeGreaterThan(0);
   });
 
@@ -1914,7 +1918,7 @@ describe("layout containers — render recursion + §8.5 token mapping", () => {
     expect(emptied).not.toContain("data-question-id=\"shown\"");
   });
 
-  it("renderSectionComponentsVisible on FLAT content equals filter-then-render byte-for-byte", () => {
+  it("renderSectionComponentsVisible on FLAT content equals filter-then-render, wrapped in the R7 U12 unit-level question card (FIX 3b)", () => {
     const flat: LeadgenComponentNode[] = [
       q("q1", "f1"),
       q("q2", "f2"),
@@ -1926,7 +1930,8 @@ describe("layout containers — render recursion + §8.5 token mapping", () => {
       .filter((n) => typeof n.question_id === "string" && visible.has(n.question_id))
       .map((n) => renderComponent(n, DESIGN))
       .join("");
-    expect(viaTree).toBe(viaFilter);
+    // same attributable delta as the renderSectionComponents sibling test above.
+    expect(viaTree).toBe(`<div class="lg-question-card">${viaFilter}</div>`);
   });
 });
 

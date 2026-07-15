@@ -39,6 +39,10 @@ Rules for this register:
 | U9 | Leading icon picker | Only "Location pin" works; the other 11 options do nothing | Image10; `presets.ts` `fieldLeadingIcon` renders only `"location"` (~:1338) — comment admits the other 11 "render no icon"; shipped anyway | CLOSED — R3 (12 icons live incl. Address; probe P9 asserts render) |
 | U10 | Slider | Poorly designed, looks bad; Step=5 affects nothing; many steps change nothing | Image11; renderer/runtime step consumption TBD (S2/L5) | CLOSED — R1+R2 (records answers, live value/fill, step honored; probe P10 asserts) |
 
+| U11 | Canvas drag + alignment (POST-REMEDIATION, operator retest 2026-07-15) | Components still cannot be dragged in the operator's real browser (Chrome); no way to center elements — sized elements sit LEFT-aligned | **ROOT-CAUSED (2026-07-15):** (a) the move mechanism was SPLIT — bare inputs use the pointer path (WORKS in real Chrome, proven), everything else uses native HTML5 DnD into the sandboxed srcdoc iframe — unobservable under Chrome automation AND with ZERO real-gesture move coverage in ANY engine (every move test dragged the ZIP input; button/card/text moves were never tested). Fix delivered + adversarially reviewed SHIP (2026-07-15): ALL moves unified on the pointer path (native DnD retired for canvas moves; name-tag grab surface for covered bodies; drop semantics proven equivalent incl. into-container; empty-canvas root-end drop restored per review); sized elements auto-center (≤1px browser-measured for s/m/l after the contract-grounded content column 500→600 fix — §7.1's own 600-column math; the golden :296 column). **CLOSURE CONDITION: operator manual confirmation of canvas drag in real Chrome** — the CDP harness cannot drive drags into the srcdoc frame (reproduced before AND after the fix, so it masks nothing); the automated WORKS-proof is the firefox real-gesture lane + the mechanism fact that the Chrome-specific failure class (native DnD into a sandboxed srcdoc iframe) no longer exists in the code. | OPEN |
+| U12 | Default spacing/theme rhythm (POST-REMEDIATION, operator retest 2026-07-15) | Default spaces/gaps between components do not exist and do not match the provided default theme | **ROOT-CAUSED (2026-07-15):** the golden's rhythm was one-quarter ported — golden 9/30/7/26px gaps vs deployed 6/20/7/0 (button butts against helper), and the golden's WHITE QUESTION CARD (44/46/40 padding, radius 16, shadow — golden:308) never existed. NEVER-BUILT (predates the remediation; git-proven). Theme spacing record key is contract-forbidden to render (§10.3 reserved) — the golden's inline values are the spec. All visual gates were self-baselines; the geometry gate scoped itself to admin chrome; token pins certified the wrong values self-consistently. Fix delivered + adversarially reviewed SHIP (2026-07-15): golden rhythm ported (9/30/7/26px, browser-measured exact), input pad 18px/radius 12px, the WHITE QUESTION CARD ships unit-level (44/46/40, radius 16, white — exactly ONE card framed and frameless, proven through the real frame composition; mobile card padding is a flagged non-golden erratum for operator eyes), content column 500→600 per the contract's own spec. NEW GATE CLASS: golden-ANCHORED absolute-number assertions (the missing class that let self-baselines lie). CLOSURE: operator retest of the rendered composition. | OPEN |
+
+
 Operator bottom line: the above is a SAMPLE — estimate 100+ defects. Full-matrix sweep required.
 
 ## C. Systematic sweep findings (S1 canvas · S2 inspector · S3 rules/mapping/maps · S4 golden census · L5 live real-input probe)
@@ -304,7 +308,11 @@ the R5 re-pin captures the new chrome. "Byte-identical to R0" no longer holds pa
 Height custom_px bounds discovered: **[4,600] snap-4** (content-schema validateSizeAxis :1080-1090)
 — intentionally distinct from width's [200,600] (§7.2's own worked example stores a 56px height).
 
-**MISSION COMPLETE — FINAL AUDIT VERDICT: SHIP (2026-07-15).** All 9 mission-level acceptance
+**MISSION COMPLETE — FINAL AUDIT VERDICT: SHIP (2026-07-15).** **⚠ PARTIALLY FALSIFIED by the
+operator's post-deploy retest (2026-07-15): two first-touch failures — U11 (drag/centering in the
+operator's real Chrome) + U12 (default spacing/theme rhythm). Both map onto known verification
+compromises (firefox-only real-input lane; self-consistent-not-golden-anchored visual baselines).
+Fix cycle open.** All 9 mission-level acceptance
 items PASS on named proving tests; every register row CLOSED-with-evidence, CLOSED-AS-DESIGNED, or
 SURFACED-operator; U1–U10 flipped with per-probe citations; both-directions contract sample clean.
 R6 (live matrix + seams) **SHIP** (final audit FIX-FIRST — 1 MAJOR [the STOP-2 frame filter's

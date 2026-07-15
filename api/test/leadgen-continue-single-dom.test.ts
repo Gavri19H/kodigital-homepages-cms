@@ -107,7 +107,12 @@ const asSection = (body: string): string =>
 // R5 D11 (register S4-B2, operator decision 1): headline typography now
 // matches the golden mockup (Newsreader/#16324f) — the only bytes this pin
 // carries forward from that ratified, live-funnel-wide change.
+// R7 U12 FIX 3b (conductor-ruled 2026-07-15): the unit-level golden question
+// card (golden :308) now wraps the ENTIRE depth-1 render, unconditionally —
+// the ONE new attributable delta on this pin (the per-node bytes inside are
+// otherwise unchanged).
 const SNAPSHOT_TREE_ONE_LEGACY =
+  `<div class="lg-question-card">` +
   `<h1 class="lg-headline" data-component-type="QuestionHeadline" data-question-id="h1"` +
   ` style="font-family:&#39;Newsreader&#39;,serif;color:#16324f">Are you insured?</h1>` +
   `<div class="lg-answer-group lg-yesno" role="radiogroup" data-component-type="TwoButtonYesNo"` +
@@ -121,7 +126,8 @@ const SNAPSHOT_TREE_ONE_LEGACY =
   ` data-question-id="cont1" data-lg-continue style="color:#FFFFFF"` +
   ` data-loading-label="Working…" data-loading="false">` +
   `<span class="lg-btn-spinner" aria-hidden="true"></span>` +
-  `<span class="lg-btn-label">See my quote</span></button>`;
+  `<span class="lg-btn-label">See my quote</span></button>` +
+  `</div>`;
 
 describe("continue-single-dom — legacy no-ctx call renders today's markup (byte pin)", () => {
   it("renderSectionComponents without ctx === the pre-change snapshot", () => {

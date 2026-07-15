@@ -323,3 +323,154 @@ test.describe("R3 effect matrix (firefox real input)", () => {
     await page.screenshot({ path: `${SHOT}/choices-editor.png` });
   });
 });
+
+// ===========================================================================
+// R7 U11b — CENTERING (browser measurement): a click on width s/m/l must
+// leave the field/group's REAL rendered box horizontally centered within its
+// column, within ±1px. The deterministic vitest layer (test/leadgen-u11-
+// centering.test.ts) pins the CSS MECHANISM (margin-left/right:auto +
+// display:block); this is the browser-measured complement — the pixels
+// actually land centered, real layout engine, not just the emitted rule.
+// ===========================================================================
+test.describe("R7 U11b centering (firefox real input) — |centerOffset| ≤ 1px for width s/m/l", () => {
+  const WIDTH_PX: Record<string, number> = { s: 300, m: 384, l: 480 };
+  async function centerOffsetPx(page: Page, fieldSelector: string): Promise<number> {
+    const column = frame(page).locator(".lg-content");
+    const field = frame(page).locator(fieldSelector);
+    const [colBox, fieldBox] = await Promise.all([column.boundingBox(), field.boundingBox()]);
+    if (!colBox) throw new Error(".lg-content has no bounding box");
+    if (!fieldBox) throw new Error(`${fieldSelector} has no bounding box`);
+    const colCenter = colBox.x + colBox.width / 2;
+    const fieldCenter = fieldBox.x + fieldBox.width / 2;
+    return Math.abs(colCenter - fieldCenter);
+  }
+  // Poll the MEASURED box width (not the inline style attribute) so a run
+  // under load (many preceding tests sharing one wrangler-dev worker) can
+  // never read a boundingBox() that predates the browser's own reflow —
+  // the style attribute can be set a tick before layout settles, which
+  // produced a flaky >1px read in a full-file run (isolated re-run passed).
+  async function waitForWidthSettled(page: Page, fieldSelector: string, expectedPx: number): Promise<void> {
+    await expect
+      .poll(async () => (await frame(page).locator(fieldSelector).boundingBox())?.width, {
+        timeout: 8000,
+        message: `${fieldSelector} boundingBox().width must settle to ${expectedPx}px`,
+      })
+      .toBeCloseTo(expectedPx, 0);
+  }
+
+  test("FreeText (input) — width s/m/l centers within ±1px of the column", async ({ page }) => {
+    const s = await createSection(page.request, `R7 Centering FreeText ${uniq}`, [
+      HEADLINE,
+      { type: "FreeTextQuestion", question_id: "q_ft", internal_field: "name", answer_type: "string", props: { placeholder: "Your name" } },
+      CONT,
+    ]);
+    await boot(page, s);
+    await selectNode(page, "q_ft");
+    await openStyleTab(page);
+    for (const preset of ["s", "m", "l"] as const) {
+      await page.locator(`[data-set-width="${preset}"]`).click();
+      await waitForWidthSettled(page, '[data-question-id="q_ft"]', WIDTH_PX[preset]!);
+      const offset = await centerOffsetPx(page, '[data-question-id="q_ft"]');
+      expect(offset, `width=${preset}: |centerOffset| must be <=1px, measured ${offset.toFixed(2)}px`).toBeLessThanOrEqual(1);
+    }
+    await page.screenshot({ path: `${SHOT}/u11b-centering-freetext.png` });
+  });
+
+  test("ButtonAnswerGroup — width s/m/l centers within ±1px of the column", async ({ page }) => {
+    const s = await createSection(page.request, `R7 Centering BAG ${uniq}`, [
+      HEADLINE,
+      { type: "ButtonAnswerGroup", question_id: "q_bag", internal_field: "cov", answer_type: "enum", choices: CH },
+      CONT,
+    ]);
+    await boot(page, s);
+    await selectNode(page, "q_bag");
+    await openStyleTab(page);
+    for (const preset of ["s", "m", "l"] as const) {
+      await page.locator(`[data-set-width="${preset}"]`).click();
+      await waitForWidthSettled(page, '[data-question-id="q_bag"]', WIDTH_PX[preset]!);
+      const offset = await centerOffsetPx(page, '[data-question-id="q_bag"]');
+      expect(offset, `width=${preset}: |centerOffset| must be <=1px, measured ${offset.toFixed(2)}px`).toBeLessThanOrEqual(1);
+    }
+    await page.screenshot({ path: `${SHOT}/u11b-centering-buttonanswergroup.png` });
+  });
+
+});
+
+// ===========================================================================
+// R7 U12 — RHYTHM (browser measurement): the golden's absolute inter-
+// component gaps (9/30/7/26) as ACTUALLY RENDERED getBoundingClientRect
+// deltas in the real studio canvas — the deterministic vitest layer
+// (test/leadgen-u12-rhythm.test.ts) pins the CSS RULE bodies; this measures
+// the real layout engine's rendered pixels.
+// ===========================================================================
+test.describe("R7 U12 rhythm (firefox real input) — rendered gaps measured against the golden's absolute numbers", () => {
+  test("headline→sub 9px, sub→field 30px, field→helper 7px, helper→Continue 26px — all measured via real getBoundingClientRect", async ({ page }) => {
+    const s = await createSection(page.request, `R7 Rhythm ${uniq}`, [
+      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+      { type: "Subheadline", question_id: "q_sub", bind: "section_subheadline" },
+      {
+        type: "ZIPInputQuestion",
+        question_id: "q_zip",
+        internal_field: "zip",
+        answer_type: "string",
+        props: { placeholder: "Enter your ZIP code", helper: "We never share this" },
+      },
+      { type: "ContinueButton", question_id: "q_cont", props: { label: "View My Quote" } },
+    ]);
+    await boot(page, s);
+
+    const head = frame(page).locator('[data-question-id="q_head"]');
+    const sub = frame(page).locator('[data-question-id="q_sub"]');
+    const zipInput = frame(page).locator('[data-question-id="q_zip"]');
+    // .lg-field-help is a SIBLING of the bare <input> inside the shared
+    // .lg-field-boxed wrapper (presets.ts renderTextInput/fieldHelperLine) —
+    // exactly one exists in this fixture, so a direct canvas-scoped locator
+    // is simpler and more robust than an xpath-parent traversal.
+    const helper = frame(page).locator(".lg-field-help");
+    const cont = frame(page).locator('[data-question-id="q_cont"]');
+
+    const [headBox, subBox, zipBox, helperBox, contBox] = await Promise.all([
+      head.boundingBox(),
+      sub.boundingBox(),
+      zipInput.boundingBox(),
+      helper.boundingBox(),
+      cont.boundingBox(),
+    ]);
+    if (!headBox || !subBox || !zipBox || !helperBox || !contBox) throw new Error("one or more rhythm elements has no bounding box");
+
+    const headlineToSub = +(subBox.y - (headBox.y + headBox.height)).toFixed(1);
+    const subToField = +(zipBox.y - (subBox.y + subBox.height)).toFixed(1);
+    const fieldToHelper = +(helperBox.y - (zipBox.y + zipBox.height)).toFixed(1);
+    const helperToContinue = +(contBox.y - (helperBox.y + helperBox.height)).toFixed(1);
+
+    // eslint-disable-next-line no-console
+    console.log(`[U12 rhythm measured] headline->sub=${headlineToSub}px sub->field=${subToField}px field->helper=${fieldToHelper}px helper->continue=${helperToContinue}px`);
+
+    expect(headlineToSub, `headline->subheadline must measure 9px, got ${headlineToSub}`).toBeCloseTo(9, 0);
+    expect(subToField, `subheadline->field must measure 30px, got ${subToField}`).toBeCloseTo(30, 0);
+    expect(fieldToHelper, `field->helper must measure 7px, got ${fieldToHelper}`).toBeCloseTo(7, 0);
+    expect(helperToContinue, `helper->Continue must measure 26px, got ${helperToContinue}`).toBeCloseTo(26, 0);
+
+    await page.screenshot({ path: `${SHOT}/u12-rhythm-measured.png` });
+  });
+
+  test("the golden white question card renders with the golden's exact padding (44/46/40) and radius (16px)", async ({ page }) => {
+    const s = await createSection(page.request, `R7 Card ${uniq}`, [
+      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
+    ]);
+    await boot(page, s);
+    const card = frame(page).locator(".lg-question-card");
+    await expect(card).toHaveCount(1);
+    const computed = await card.evaluate((el: HTMLElement) => {
+      const cs = getComputedStyle(el);
+      return { padding: cs.padding, borderRadius: cs.borderRadius, backgroundColor: cs.backgroundColor };
+    });
+    // eslint-disable-next-line no-console
+    console.log(`[U12 card measured] padding=${computed.padding} borderRadius=${computed.borderRadius} background=${computed.backgroundColor}`);
+    expect(computed.padding, "golden :308 padding:44px 46px 40px").toBe("44px 46px 40px");
+    expect(computed.borderRadius, "golden :308 border-radius:16px").toBe("16px");
+    expect(computed.backgroundColor, "golden :308 background:#fff").toBe("rgb(255, 255, 255)");
+    await page.screenshot({ path: `${SHOT}/u12-card-computed.png` });
+  });
+});

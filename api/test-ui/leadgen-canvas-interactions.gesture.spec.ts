@@ -17,7 +17,7 @@
 // admin API, open its /edit studio). webServer (wrangler dev :8787,
 // DEV_BYPASS_AUTH) is launched by playwright.config.
 import { test, expect, type APIRequestContext, type Page, type FrameLocator } from "@playwright/test";
-import { realDrag } from "./utils/real-input";
+import { realDrag, type Box } from "./utils/real-input";
 import { assertOverlayAligned, computeOverlayAlignment, type RectLike } from "./utils/effect-assert";
 
 const BASE = "http://127.0.0.1:8787";
@@ -59,6 +59,17 @@ function canvas(page: Page) { return frame(page).locator("#lg-studio-canvas-rend
 async function boot(page: Page, s: Created): Promise<void> {
   await page.goto(`/admin/leadgen/sections/${s.public_id}/edit`, { waitUntil: "domcontentloaded" });
   await expect(canvas(page).locator("[data-question-id]").first()).toBeVisible({ timeout: 20_000 });
+}
+// 600-column recalibration (2026-07-15, content.maxWidth 500->600px — the
+// golden's own composition column, contract §7.1): the canvas iframe's OWN
+// page-level boundingBox, used to clamp gesture-drag targets so a hardcoded
+// delta can never overshoot the canvas when the content column widens (see
+// clampPointToBox in utils/real-input.ts for the incident this guards
+// against — proven by bisect in the sibling u11u12-move gate).
+async function canvasFrameBox(page: Page): Promise<Box> {
+  const box = await page.locator("#lg-studio-canvas-frame").boundingBox();
+  if (!box) throw new Error("canvas frame has no bounding box");
+  return box;
 }
 function box2rect(b: { x: number; y: number; width: number; height: number } | null): RectLike {
   if (!b) throw new Error("element has no bounding box (not laid out / not visible)");
@@ -151,7 +162,12 @@ test.describe("R2 canvas interactions (firefox real input)", () => {
     const hb = (await handle.boundingBox())!;
     const y = hb.y + hb.height / 2;
     const cx = hb.x + hb.width / 2;
-    await realDrag(page, { x: cx, y }, { x: cx + 90, y }, { steps: 5, settleMs: 700 });
+    // 600-column recalibration (2026-07-15, content.maxWidth 500->600): drag
+    // INWARD (-90, was +90) — every assertion below is direction-agnostic
+    // (a snapped/clamped custom_px write + a real WIDTH CHANGE, not
+    // specifically an increase); a rightward drag now overshoots the wider
+    // canvas. clampToBox is belt-and-suspenders (see real-input.ts).
+    await realDrag(page, { x: cx, y }, { x: cx - 90, y }, { steps: 5, settleMs: 700, clampToBox: await canvasFrameBox(page) });
     const px = await customBadgePx(page);
     expect(px, "width custom badge shows a real number after the drag").not.toBeNull();
     expect(px! % 4, "snapped to the 4px grid").toBe(0);
@@ -244,8 +260,8 @@ test.describe("R2 canvas interactions (firefox real input)", () => {
 
   test("(vi) a drag that STARTS on a handle RESIZES (never moves)", async ({ page }) => {
     // R5 full-bleed WIDER viewport — same root cause as test (ii) above (see
-    // its comment for the full instrumented diagnosis): this test's +80px
-    // rightward drag off the SAME width handle needs the same extra room.
+    // its comment for the full instrumented diagnosis): this test's drag off
+    // the SAME width handle needs the same extra room.
     await page.setViewportSize({ width: 1600, height: 900 });
     const s = await createSection(page.request, `R2 HandleVsMove ${uniq}`, [HEADLINE, ZIP, { type: "FreeTextQuestion", question_id: "q_after", internal_field: "note", answer_type: "string", props: { placeholder: "Note" } }, CONT]);
     await boot(page, s);
@@ -256,7 +272,11 @@ test.describe("R2 canvas interactions (firefox real input)", () => {
     const hb = (await handle.boundingBox())!;
     const y = hb.y + hb.height / 2;
     const cx = hb.x + hb.width / 2;
-    await realDrag(page, { x: cx, y }, { x: cx + 80, y }, { steps: 5, settleMs: 700 });
+    // 600-column recalibration (2026-07-15, content.maxWidth 500->600): drag
+    // INWARD (-80, was +80) — this test only asserts A resize occurred
+    // (direction-agnostic); a rightward drag now overshoots the wider
+    // canvas. clampToBox is belt-and-suspenders (see real-input.ts).
+    await realDrag(page, { x: cx, y }, { x: cx - 80, y }, { steps: 5, settleMs: 700, clampToBox: await canvasFrameBox(page) });
     // a width custom_px was committed (the resize happened)…
     expect(await customBadgePx(page)).not.toBeNull();
     // …and NO reorder occurred (the gesture resized, it did not move the node)

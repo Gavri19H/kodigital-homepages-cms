@@ -359,7 +359,7 @@ describeDb("theme_controls threading (v3.1 §7/§12, adversarial review MAJOR-1)
     const res = await app.request(`${TENANT_ORIGIN}/lg/size-runtime`, {}, fx.h.env);
     expect(res.status, await res.clone().text()).toBe(200);
     const html = await res.text();
-    expect(html).toContain('style="width:384px;height:60px"');
+    expect(html).toContain('style="width:384px;height:60px;display:block;margin-left:auto;margin-right:auto"');
   });
 
   it("PATH 2/3 — POST /sections/preview (section-in-frame) renders the SAME custom_px width", async () => {
@@ -378,7 +378,7 @@ describeDb("theme_controls threading (v3.1 §7/§12, adversarial review MAJOR-1)
     );
     expect(res.status, `preview: ${await res.clone().text()}`).toBe(200);
     const body = (await res.json()) as { preview: { desktop: string } };
-    expect(body.preview.desktop).toContain('style="width:384px;height:60px"');
+    expect(body.preview.desktop).toContain('style="width:384px;height:60px;display:block;margin-left:auto;margin-right:auto"');
   });
 
   it("PATH 3/3 — POST /variants/:id/preview (composed-variant preview) renders the SAME custom_px width", async () => {
@@ -392,7 +392,7 @@ describeDb("theme_controls threading (v3.1 §7/§12, adversarial review MAJOR-1)
     );
     expect(res.status, `composed preview: ${await res.clone().text()}`).toBe(200);
     const body = (await res.json()) as { preview: { html: string } };
-    expect(body.preview.html).toContain('style="width:384px;height:60px"');
+    expect(body.preview.html).toContain('style="width:384px;height:60px;display:block;margin-left:auto;margin-right:auto"');
   });
 
   it("REGRESSION — absent design_overrides.size renders NO style attribute on the field, on all 3 paths (byte-identical, strictly additive)", async () => {

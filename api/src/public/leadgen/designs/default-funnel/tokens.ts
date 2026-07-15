@@ -12,7 +12,42 @@ export const defaultFunnelDesign = {
   header:{backgroundColor:"#FFFFFF",paddingY:"1rem",paddingX:"1.5rem",contentMaxWidth:"600px",align:"center",boxShadow:"0 1px 3px rgba(27,58,92,.06)",position:"sticky",logoFontFamily:"'Literata',serif",logoFontSize:"1.1rem",logoFontWeight:"700",logoColor:"#1B3A5C",logoAccentColor:"#E85D26"},
   backButton:{kind:"text",color:"#718096",fontSize:"0.875rem",hoverColor:"#1B3A5C"},
   disclosure:{color:"#718096",fontSize:"0.8rem",hoverColor:"#1B3A5C"},
-  content:{maxWidth:"500px",offersMaxWidth:"420px",paddingDesktop:"1.5rem",paddingMobile:"1rem",cardPadding:"24px 20px",cardRadius:"14px"},
+  // R7 U11b/U12 FIX (conductor-ruled 2026-07-15): the live content column
+  // width 500→600, matching the golden's OWN composition column (golden-
+  // master-source.dc.html :296 `width:600px`, with the white question card
+  // :308 nested directly inside it) and contract §7.1 ("the demo value 384
+  // = 64% of the 600 column"; custom-px clamp [200,600]). The pre-golden 500
+  // was legacy: the golden-exact card padding (46px/side, negative-margin-
+  // cancelled onto the column's full border-box — styles.ts :187-198) left a
+  // 500 column with only a 408px interior, too narrow for the L width preset
+  // (480px) to center (browser-measured 37px off-center, reproducible). At
+  // 600 the interior is 508px and all of s/m/l center within ≤1px. MOBILE IS
+  // UNAFFECTED: the mobile `.lg-content` rule (styles.ts :163) overrides ONLY
+  // `padding`, never `max-width`, so any sub-600 viewport stays viewport-
+  // capped exactly as before (the max-width only ever binds above 600px).
+  // The sibling `header.contentMaxWidth` (:12) is already 600 (gate-3's unit
+  // column, leadgen-v31-gate3-geometry.test.ts) — the two now agree, as the
+  // golden's single 600 column intends.
+  content:{maxWidth:"600px",offersMaxWidth:"420px",paddingDesktop:"1.5rem",paddingMobile:"1rem",cardPadding:"24px 20px",cardRadius:"14px"},
+  // R7 U12 FIX 3b (golden :308, conductor-ruled 2026-07-15): the white
+  // question card — the section-unit's DEFAULT composition (studio canvas +
+  // live/preview, both framed and frameless — see presets.ts renderQuestionCard).
+  // Every value is the golden's OWN literal (golden :308 inline style:
+  // "background:#fff;border-radius:16px;box-shadow:0 8px 28px
+  // rgba(20,32,54,.10);border:1px solid #E9EDF3;padding:44px 46px 40px") —
+  // deliberately NOT reusing the pre-existing `content.cardPadding`/
+  // `cardRadius`/`color.card`/`shadow.*` tokens (24px 20px / 14px / a
+  // different shadow recipe): those tokens serve OTHER existing consumers
+  // (the frame's own pre-golden card look, banner cards, etc.) that this
+  // deliverable does not touch — a new, golden-exact, dedicated token group,
+  // same "literal px matching the mockup byte-for-byte" precedent as the R5
+  // D11 headline typography grant above. paddingMobile is FLAGGED, not
+  // golden-sourced: the golden mockup is DESKTOP-ONLY (1440x944, same
+  // no-mobile-spec gap as headline.fontSizeMobile above) — scaled sensibly
+  // (roughly proportional to the existing content.paddingMobile/paddingDesktop
+  // ratio) and recorded here as an explicit erratum for conductor/operator
+  // confirmation, not asserted as a contract fact.
+  questionCard:{background:"#FFFFFF",border:"1px solid #E9EDF3",borderRadius:"16px",boxShadow:"0 8px 28px rgba(20,32,54,.10)",paddingDesktop:"44px 46px 40px",paddingMobile:"28px 20px 24px"},
   progress:{height:"8px",trackColor:"#E8EEF4",fillColor:"linear-gradient(90deg,#1B3A5C,#2A5080)",borderRadius:"9999px",textColor:"#1B3A5C",marginBottom:"2rem"},
   // R5 D11 (register S4-B2, operator decision 1 — RESOLVED "YES, match the
   // approved design"): headline typography now matches the golden mockup
@@ -28,7 +63,11 @@ export const defaultFunnelDesign = {
   // doesn't say to). header.logoFontFamily / rangeQuestion.valueFontFamily
   // (both also 'Literata') are UNTOUCHED — the dispatch scopes this
   // deliverable to the question headline only.
-  headline:{fontFamily:"'Newsreader',serif",fontSizeDesktop:"31px",fontSizeMobile:"1.375rem",fontWeight:"600",lineHeight:"1.15",color:"#16324f",textAlign:"center",marginBottom:"6px"},
+  // R7 U12 (operator retest — "default gaps don't exist/match"): headline→
+  // subheadline gap = golden :313's 9px (the golden puts it on the sub's
+  // margin-top; the flat-node renderer emits the identical rendered gap via the
+  // headline's own margin-bottom — the element that precedes the subheadline).
+  headline:{fontFamily:"'Newsreader',serif",fontSizeDesktop:"31px",fontSizeMobile:"1.375rem",fontWeight:"600",lineHeight:"1.15",color:"#16324f",textAlign:"center",marginBottom:"9px"},
   // subheadline.color matches golden :313 (#63707F). subheadline.fontSize
   // stays THE SHARED 0.825rem token deliberately — golden's 15px applies
   // ONLY to the question-card subheadline; this SAME token also feeds
@@ -37,7 +76,13 @@ export const defaultFunnelDesign = {
   // question-card-specific 15px override lives as a SURGICAL styles.ts rule
   // instead (conductor-ratified — "the shared token feeding .lg-card-desc
   // stays untouched — correct blast-radius discipline").
-  subheadline:{fontSize:"0.825rem",color:"#63707F",textAlign:"center",marginBottom:"20px"},
+  // R7 U12: subheadline→field gap = golden :912-914's fieldWrapStyle
+  // margin-top:30px. The golden hangs it on the field wrapper; the flat-node
+  // renderer emits the identical rendered gap via the subheadline's own
+  // margin-bottom (the element that immediately precedes the field). margin
+  // 20→30. subheadline.fontSize stays the shared 0.825rem token (the surgical
+  // 15px card override lives in styles.ts — unchanged).
+  subheadline:{fontSize:"0.825rem",color:"#63707F",textAlign:"center",marginBottom:"30px"},
   categoryLabel:{fontSize:"0.8125rem",fontWeight:"700",letterSpacing:"2px",textTransform:"uppercase",color:"#E85D26",marginBottom:"12px"},
   rangeQuestion:{valueFontFamily:"'Literata',serif",valueFontSize:"2.25rem",valueFontWeight:"700",valueColor:"#1A1F36",trackHeight:"8px",trackRadius:"9999px",filledTrackColor:"#1B3A5C",unfilledTrackColor:"#E8EEF4",thumbSize:"28px",thumbBorder:"3px solid #FFFFFF",thumbBackground:"#1B3A5C",thumbShadow:"0 2px 8px rgba(27,58,92,.25)",minMaxLabelColor:"#718096"},
   primaryButton:{background:"#1B3A5C",color:"#FFFFFF",paddingY:"14px",paddingX:"16px",minHeight:"52px",maxWidth:"320px",widthMobile:"100%",borderRadius:"10px",hoverBackground:"#0F2440",disabledOpacity:"0.6",fontFamily:"'Sora',sans-serif",fontSize:"0.9375rem",fontWeight:"600",loadingSpinner:true},
@@ -49,7 +94,10 @@ export const defaultFunnelDesign = {
   stepIndicator:{dotSize:"10px",gap:"8px",dotColor:"#E8EEF4",activeColor:"#1B3A5C",marginBottom:"1.5rem"},
   iconCardGrid:{columnsDesktop:3,columnsTablet:2,columnsMobile:1,gap:"0.5rem",marginBottom:"1.5rem"},
   iconCard:{border:"2px solid #D2D9E5",borderRadius:"10px",background:"#FFFFFF",minHeight:"96px",padding:"1rem",titleFontSize:"1rem",titleFontWeight:"700",titleColor:"#1A1F36",iconSize:"32px",iconColor:"#1B3A5C",hoverBorderColor:"#1B3A5C",hoverBackground:"#F2F6FA",selectedBorderColor:"#1B3A5C",selectedBackground:"#E8EEF4",focusRing:"outline 2px solid #1B3A5C; outline-offset 2px",disabledOpacity:"0.5",errorBorderColor:"#D32F2F"},
-  input:{padding:"1rem",border:"2px solid #D2D9E5",borderRadius:"10px",fontSize:"1rem",focusBorderColor:"#1B3A5C",errorBorderColor:"#D32F2F",placeholderColor:"#718096"},
+  // R7 U12: field box side padding 18px + radius 12px per golden :884
+  // (fieldBoxStyle "padding:16px 18px;border-radius:12px"). padding 1rem(=16px
+  // all sides)→"16px 18px" (16 vertical / 18 horizontal); borderRadius 10→12.
+  input:{padding:"16px 18px",border:"2px solid #D2D9E5",borderRadius:"12px",fontSize:"1rem",focusBorderColor:"#1B3A5C",errorBorderColor:"#D32F2F",placeholderColor:"#718096"},
   dropdown:{inherits:"input",chevronSvgFill:"#5A6178"},
   validation:{errorTextColor:"#D32F2F",errorFontSize:"0.875rem",successColor:"#0E7C3A",helperColor:"#718096"},
   transitions:{stepFadeInMs:"300",cardHoverMs:"150",btnHoverMs:"200",btnEasing:"cubic-bezier(.34,1.56,.64,1)",progressFillMs:"400"},

@@ -667,9 +667,14 @@ function answerGroupRootStyle(
   design: DefaultFunnelDesign,
   ctx: LeadgenSectionRenderCtx | undefined,
 ): string {
+  const width = sizeStyleEntries(node, ctx).width;
   return style({
     "--lg-sel-bg": ovColor(node, "buttonBackground", design, ctx),
-    width: sizeStyleEntries(node, ctx).width,
+    width: width,
+    // R7 U11b: .lg-answer-group is a plain block <div> (no CSS rule) → auto
+    // side-margins center it once a fixed width is set (no display:block
+    // needed). {} for full/unauthored → byte-identical.
+    ...widthCenteringEntries(width),
   });
 }
 
@@ -878,7 +883,12 @@ function renderCardGrid(
     `<div class="lg-card-grid" role="radiogroup"${hydration(node)}` +
     // v3.1 R3 §7: width → the grid container's max-width (per the register's
     // "grid/container max-width for card grids"); "" when unauthored.
-    style({ "--lg-cols": String(cols), gap, "max-width": sizeStyleEntries(node, ctx).width }) +
+    ((): string => {
+      const w = sizeStyleEntries(node, ctx).width;
+      // R7 U11b: a fixed max-width grid centers via auto side-margins (the
+      // grid is already block-level display:grid); {} for full/unauthored.
+      return style({ "--lg-cols": String(cols), gap, "max-width": w, ...widthCenteringEntries(w) });
+    })() +
     `>${cards}</div>` +
     // v3.1 R3 E1-NEW-8: helper line below the grid ("" when no props.helper).
     fieldHelperLine(node)
@@ -958,7 +968,11 @@ export function renderMultiChoiceCardGroup(
     // Section gapDefault applies between them. Columns stay the structural
     // "2" (not a design default; columnsDefault does not apply). v3.1 R3 §7:
     // width → the grid container's max-width ("" when unauthored).
-    style({ "--lg-cols": "2", gap: sectionGapDefault(ctx) ?? design.iconCardGrid.gap, "max-width": sizeStyleEntries(node, ctx).width }) +
+    ((): string => {
+      const w = sizeStyleEntries(node, ctx).width;
+      // R7 U11b: fixed max-width grid centers via auto side-margins.
+      return style({ "--lg-cols": "2", gap: sectionGapDefault(ctx) ?? design.iconCardGrid.gap, "max-width": w, ...widthCenteringEntries(w) });
+    })() +
     attr("data-min", min) +
     attr("data-max", max) +
     `>${cards}</div>` +
@@ -1335,6 +1349,31 @@ function sizeStyleEntries(
   };
 }
 
+// v3.1 R7 U11b (register U11b — operator retest: "sized elements sit LEFT-
+// aligned; no way to center"). A field/group whose width resolves to a FIXED
+// (non-full) value must CENTER within its unit column, matching the golden's
+// centered field (golden :912-914 fieldWrapStyle — width:64% inside a
+// center-aligned column). margin-left/right:auto centers a BLOCK-level box on
+// a fixed width; the inline-level <input>/<select> additionally needs
+// display:block (a replaced inline element ignores auto side-margins — this is
+// the "inline-block <input> case" the fix calls out). Absent width, OR
+// width:"100%" (the `full` preset / the un-authored default), returns {} —
+// BYTE-IDENTICAL to pre-R7 output, so the A0 legacy pins and every no-size
+// node (100+ live zones) are untouched. Appended LAST at each emission site so
+// the width/height/appearance key order in the merged style() is unchanged for
+// the unaffected cases.
+function widthCenteringEntries(
+  width: string | undefined,
+  opts?: { block?: boolean },
+): Record<string, string | undefined> {
+  if (width === undefined || width === "100%") return {};
+  return {
+    display: opts?.block === true ? "block" : undefined,
+    "margin-left": "auto",
+    "margin-right": "auto",
+  };
+}
+
 // PURE-per-call inline style for a node's design_overrides.size — unchanged
 // public shape/behavior (still node,ctx -> "" | ` style="…"`), now a thin
 // wrapper over sizeStyleEntries so the ONE resolution rule lives in ONE
@@ -1344,7 +1383,11 @@ function sizeStyleEntries(
 // helper every other preset uses (so a hostile value can never escape the
 // attribute either).
 function fieldSizeStyle(node: LeadgenComponentNode, ctx: LeadgenSectionRenderCtx | undefined): string {
-  return style(sizeStyleEntries(node, ctx));
+  const sz = sizeStyleEntries(node, ctx);
+  // R7 U11b: the .lg-currency/.lg-address OUTER wrapper is a block <div> →
+  // auto side-margins center it on a fixed width; {} for full/unauthored keeps
+  // this byte-identical (the pre-R7 currency/address size pins hold).
+  return style({ ...sz, ...widthCenteringEntries(sz.width) });
 }
 
 // v3.1 §8.5b/§11.5 Style tab "Corners" (Sharp/Rounded/Pill) -> §3.3 radii
@@ -1459,7 +1502,12 @@ function fieldStyleAttr(
   design: DefaultFunnelDesign,
   ctx: LeadgenSectionRenderCtx | undefined,
 ): string {
-  return style({ ...sizeStyleEntries(node, ctx), ...appearanceStyleEntries(node, design) });
+  const sz = sizeStyleEntries(node, ctx);
+  // R7 U11b: the .lg-input <input>/<select> is inline-level → display:block +
+  // auto side-margins center it on a fixed width. {} for full/unauthored →
+  // byte-identical (order: width,height,border-radius,--lg-field-border first,
+  // then the centering keys only when a fixed width is present).
+  return style({ ...sz, ...appearanceStyleEntries(node, design), ...widthCenteringEntries(sz.width, { block: true }) });
 }
 
 // ---------------------------------------------------------------------------
@@ -1614,10 +1662,20 @@ function renderTextInput(
   // size/.corners/.border_color, so pre-v3.1 output is untouched byte for
   // byte. FIX 3a: a leading icon adds a left inset so the input text clears
   // the pin (the box wrapper positions the pin over that inset).
+  const sz = sizeStyleEntries(node, ctx);
+  // R7 U11b: with an icon AND a fixed (non-full) width, the WRAPPER
+  // (.lg-field-box, below) carries the width + centering so the absolutely-
+  // positioned leading icon tracks the narrowed field; the input then fills it
+  // at .lg-input's own width:100%. Absent/full width → width rides the input
+  // exactly as before (byte-identical). The bare (icon-less) path centers the
+  // input directly via fieldStyleAttr.
+  const iconWidthFixed = icon !== "" && sz.width !== undefined && sz.width !== "100%";
   const styleAttr =
     icon === ""
       ? fieldStyleAttr(node, design, ctx)
-      : style({ ...sizeStyleEntries(node, ctx), ...appearanceStyleEntries(node, design), "padding-left": "42px" });
+      : iconWidthFixed
+        ? style({ height: sz.height, ...appearanceStyleEntries(node, design), "padding-left": "42px" })
+        : style({ ...sz, ...appearanceStyleEntries(node, design), "padding-left": "42px" });
   const input =
     `<input class="lg-input" type="${type}"${hydration(node)} data-lg-input` +
     styleAttr +
@@ -1632,7 +1690,9 @@ function renderTextInput(
   const boxed =
     icon === ""
       ? input
-      : '<span class="lg-field-box" style="position:relative;display:block">' +
+      : '<span class="lg-field-box" style="position:relative;display:block' +
+        (iconWidthFixed ? ";width:" + sz.width + ";margin-left:auto;margin-right:auto" : "") +
+        '">' +
         // audit-round G MINOR-1 (surfaced by adding real baseline-pin
         // coverage): the Studio's own selection decoration wraps the field's
         // <input> in its OWN `position:relative` span (`[data-selection-
@@ -1930,6 +1990,34 @@ export function renderAutoAdvanceButton(
     style({ "--lg-btn-bg": bgOverride, color: fg }) +
     ` data-auto-advance="true">${esc(label)}</button>`
   );
+}
+
+// R7 U12 FIX 3b (golden :308, conductor-ruled 2026-07-15): the white question
+// card — the section-unit's DEFAULT composition. Wraps the top-level
+// (depth===1) rendered content ONLY (renderSectionComponents/Visible call
+// this once, after their own recursion, before the below_unit slot append).
+// `.lg-question-card` styling lives in the BASE (non-frameRegions-gated)
+// sheet in designs/default-funnel/styles.ts, so it reaches EVERY caller of
+// the shared renderer identically: the studio Build canvas (always
+// frameless), the admin dependency-preview simulator, AND the live funnel
+// (legacy-frameless OR frame-composed) — one mechanism, "§12 parity by
+// construction," never gated on frame presence. NO data-lg-* attribute (pure
+// visual chrome, not an engine hook) — mirrors renderContinueSlot's own
+// "no data-lg-* on the wrapper" discipline below.
+//
+// Frame coherence ("no double card", both directions proven in
+// leadgen-u12-rhythm.test.ts): a framed funnel's OWN `section_slot.card`
+// config ("card" is the FRAME_TEMPLATES default) used to ALSO paint a white
+// box via `.lg-frame-slot--card` (designs/default-funnel/styles.ts) — since
+// this unit-level card is now the SINGLE SOURCE for that look,
+// `.lg-frame-slot--card` (+ its 3 `--pad-{s,m,l}` companions) had their
+// background/border/radius/shadow/padding declarations REMOVED (styles.ts) —
+// the frame's card-mode CLASS still renders (frame.ts's own markup/config
+// plumbing is untouched — out of this file's ownership), it simply no longer
+// PAINTS a second box. Exactly one visual card exists, in "card" mode, "bare"
+// mode, and frameless, alike.
+function renderQuestionCard(inner: string): string {
+  return `<div class="lg-question-card">${inner}</div>`;
 }
 
 // 11 §11.5 below_unit — the frame-styled slot carrying the ONE continue
@@ -2906,6 +2994,17 @@ export function renderSectionComponents(
     deferredContinue: undefined,
   };
   let out = renderNodes(nodes, design, depth, state);
+  // R7 U12 FIX 3b (conductor ruling, 2026-07-15): the golden's white question
+  // card (golden :308) is the SECTION's own composition, not frame furniture —
+  // it wraps the top-level (depth===1) unit ONLY, in the ONE SHARED renderer,
+  // so the studio canvas, the /sections/preview re-render, and the live
+  // funnel (framed or frameless) all get it identically ("§12 parity by
+  // construction"). The below_unit Continue slot (below) stays OUTSIDE the
+  // card by name/design — "below_unit" is below the unit's own card, in the
+  // frame-styled slot, not part of the question's own box.
+  if (depth === 1) {
+    out = renderQuestionCard(out);
+  }
   // 11 §11.5 below_unit: emit the ONE end-of-subtree control (top-level call
   // only) — the Section's first ContinueButton provides props when present,
   // else the theme-default copy renders (a below_unit Section always shows
@@ -2953,6 +3052,13 @@ export function renderSectionComponentsVisible(
     };
   }
   let out = renderVisibleNodes(nodes, design, visibleIds, depth, state);
+  // R7 U12 FIX 3b: the SAME unit-level question card as renderSectionComponents
+  // (the admin dependency-preview simulator must show the identical default
+  // composition the Build canvas and live funnel show — same discipline as
+  // the below_unit slot two lines down).
+  if (depth === 1) {
+    out = renderQuestionCard(out);
+  }
   // 11 §11.5 below_unit (top-level call only): the ONE end-of-subtree control
   // — the Section's first VISIBLE ContinueButton provides props when present,
   // else the theme-default copy renders (same rule as renderSectionComponents).
