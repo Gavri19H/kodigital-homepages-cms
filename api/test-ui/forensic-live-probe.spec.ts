@@ -491,7 +491,11 @@ test('P4DRAG move the field body — a real drag reorders the node', async ({ pa
 // context.
 test('P10DRAG a real slider drag on the LIVE funnel moves the value + fill AND records it', async () => {
   test.setTimeout(120_000);
-  const RT_HOST = 'lg-r6p10.e2e.test';
+  // Project-unique host: this spec runs on BOTH projects (GESTURE_SPEC_PATTERNS),
+  // and a domain can attach to only ONE site — so chromium and firefox must seed
+  // distinct hosts to coexist in a single sharded invocation (the module-load
+  // `uniq` is shared across projects in one run, so it alone is insufficient).
+  const RT_HOST = `lg-r6p10-${test.info().project.name}.e2e.test`;
   const browser = await firefox.launch({ firefoxUserPrefs: { 'network.dns.localDomains': RT_HOST } });
   const context = await browser.newContext({ viewport: { width: 1800, height: 1100 }, baseURL: 'http://127.0.0.1:8787' });
   const page = await context.newPage();
@@ -516,7 +520,7 @@ test('P10DRAG a real slider drag on the LIVE funnel moves the value + fill AND r
       data: { auction_name: `R6 P10 Auction ${uniq}`, quote_id: quote.id, auction_type: 'dynamic', winner_logic: 'highest_bid', floor_type: 'percentage_of_max', floor_value: 10, multi_offer: 'enabled', banner_slots_count: 5, max_carriers_per_offer: 3, max_total_carriers: 10, timeout_ms: 2500, status: 'active' },
     }), 'p10 auction');
     await json(await page.request.put(`${LG_API}/variants/${variantId}`, { data: { auction_id: auction.id, sections: [{ section_id: section.id, position: 0 }] } }), 'p10 variant');
-    const slug = `r6-p10-${uniq}`;
+    const slug = `r6-p10-${test.info().project.name}-${uniq}`;
     const act = await page.request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug } });
     if (!act.ok()) throw new Error(`p10 activation HTTP ${act.status()}: ${await act.text()}`);
 
@@ -569,7 +573,9 @@ test('P10DRAG a real slider drag on the LIVE funnel moves the value + fill AND r
 // firefox in-process for the tenant-host DNS pref).
 test('R7 U14 — the LIVE funnel Continue pill is centered in the question card (≤1px)', async () => {
   test.setTimeout(120_000);
-  const RT_HOST = 'lg-u14ctr.e2e.test';
+  // Project-unique host (see the P10DRAG note): distinct per project so this
+  // live test coexists with itself across chromium+firefox in one invocation.
+  const RT_HOST = `lg-u14ctr-${test.info().project.name}.e2e.test`;
   const browser = await firefox.launch({ firefoxUserPrefs: { 'network.dns.localDomains': RT_HOST } });
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, baseURL: 'http://127.0.0.1:8787' });
   const page = await context.newPage();
@@ -589,7 +595,7 @@ test('R7 U14 — the LIVE funnel Continue pill is centered in the question card 
       data: { auction_name: `U14 Auction ${uniq}`, quote_id: quote.id, auction_type: 'dynamic', winner_logic: 'highest_bid', floor_type: 'percentage_of_max', floor_value: 10, multi_offer: 'enabled', banner_slots_count: 5, max_carriers_per_offer: 3, max_total_carriers: 10, timeout_ms: 2500, status: 'active' },
     }), 'u14 auction');
     await json(await page.request.put(`${LG_API}/variants/${variantId}`, { data: { auction_id: auction.id, sections: [{ section_id: section.id, position: 0 }] } }), 'u14 variant');
-    const slug = `u14-ctr-${uniq}`;
+    const slug = `u14-ctr-${test.info().project.name}-${uniq}`;
     const act = await page.request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug } });
     if (!act.ok()) throw new Error(`u14 activation HTTP ${act.status()}: ${await act.text()}`);
 
