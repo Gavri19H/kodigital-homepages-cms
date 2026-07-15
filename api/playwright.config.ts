@@ -37,25 +37,40 @@ import { defineConfig, devices } from '@playwright/test';
 // attributes and javascript: URLs — all proven non-executing in both engines),
 // so the scripting grant adds no script/XSS surface; escapeHtml on every
 // author value remains the primary defense. Net: the real page.mouse gesture
-// completes under BOTH Chromium AND Firefox, so every gesture spec runs on
-// BOTH projects (the earlier firefox-only lane, a workaround for the now-fixed
-// hang, is gone).
+// completes under BOTH Chromium AND Firefox, so the two gesture specs that PROVE
+// this — leadgen-u11u12-move.gesture.spec.ts (THE canvas-move gate) and
+// forensic-live-probe.spec.ts (the studio drag probes) — now run on BOTH
+// projects (the U13 cross-engine proof).
 //
-// GESTURE_SPEC_PATTERNS stays the SINGLE source of truth for the gesture lane:
-// firefox's testMatch pins it to gesture specs ONLY; chromium no longer
-// testIgnores them (it runs the full suite). A gesture spec therefore runs on
-// BOTH projects (intended cross-engine coverage) but never twice within one
-// project.
-const GESTURE_SPEC_PATTERNS = [
-  'r0a-drag-spike.spec.ts',
+// The OTHER gesture specs stay FIREFOX-ONLY: they were designed for Firefox
+// real-input and carry firefox-architectural dependencies UNRELATED to the U13
+// canvas-drag delivery fix, so they cannot pass on Chromium as-is —
+//   - leadgen-runtime-inputs.gesture.spec.ts drives the tenant-host LIVE funnel
+//     via the firefox-only `network.dns.localDomains` pref (a NO-OP under
+//     Chromium, so the .e2e.test host is unresolvable → every test fails);
+//   - leadgen-canvas-interactions.gesture.spec.ts uses Ctrl+A to select-all,
+//     which on Chromium/macOS is the readline move-to-line-start binding, not
+//     select-all;
+//   - leadgen-r3a-effects / leadgen-r3b-effects are likewise Firefox real-input
+//     gates, and r0a-drag-spike.spec.ts launches firefox in-process regardless.
+// These are NOT part of the U13 proof; making them Chromium-robust is a
+// separate follow-up (see the conductor report). firefox's testMatch runs the
+// FULL gesture set (single source of truth); chromium's testIgnore drops only
+// the firefox-only subset. A cross-engine gesture spec runs on BOTH projects
+// (once each, never twice within a project); a firefox-only one runs on firefox
+// alone.
+const CROSS_ENGINE_GESTURE_SPECS = [
+  'leadgen-u11u12-move.gesture.spec.ts',
   'forensic-live-probe.spec.ts',
-  // Any spec named *.gesture.spec.ts is a real page.mouse gesture spec by
-  // convention. These run on BOTH projects now (chromium via the default
-  // project's testMatch, firefox via the testMatch below) — cross-engine
-  // proof that the U13 sandbox+CSP fix delivers held-button streams under
-  // Chromium as well as Firefox.
-  '**/*.gesture.spec.ts',
 ];
+const FIREFOX_ONLY_GESTURE_SPECS = [
+  'r0a-drag-spike.spec.ts',
+  'leadgen-r3a-effects.gesture.spec.ts',
+  'leadgen-r3b-effects.gesture.spec.ts',
+  'leadgen-runtime-inputs.gesture.spec.ts',
+  'leadgen-canvas-interactions.gesture.spec.ts',
+];
+const ALL_GESTURE_SPECS = [...CROSS_ENGINE_GESTURE_SPECS, ...FIREFOX_ONLY_GESTURE_SPECS];
 
 export default defineConfig({
   testDir: './test-ui',
@@ -88,21 +103,22 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      // Runs the FULL suite, gesture specs included (the U13 sandbox+CSP fix
-      // makes held-button page.mouse streams deliver under Chromium/CDP, so
-      // the old testIgnore of GESTURE_SPEC_PATTERNS is gone). A gesture spec
-      // now runs here AND on firefox — once per project, never twice within
-      // this one.
+      // Runs the full suite INCLUDING the two cross-engine gesture specs
+      // (u11u12-move + forensic-live-probe) — the U13 sandbox+CSP fix makes
+      // their held-button page.mouse streams deliver under Chromium/CDP. Only
+      // the FIREFOX_ONLY_GESTURE_SPECS (firefox-architectural deps unrelated to
+      // U13) are excluded here; they run on firefox alone.
+      testIgnore: FIREFOX_ONLY_GESTURE_SPECS,
     },
     {
       name: 'firefox',
       use: { ...devices['Desktop Firefox'] },
-      // ONLY the real page.mouse gesture specs run here (see
-      // GESTURE_SPEC_PATTERNS above) — the SECOND engine in the cross-engine
-      // gesture proof. Firefox's Juggler protocol (no CDP) always delivered
-      // the multi-move drag; post-U13-fix Chromium does too, and both are now
-      // gated.
-      testMatch: GESTURE_SPEC_PATTERNS,
+      // Runs the FULL gesture set (ALL_GESTURE_SPECS = cross-engine +
+      // firefox-only): the SECOND engine for the U13 cross-engine proof AND the
+      // sole engine for the firefox-designed real-input gates. Firefox's Juggler
+      // protocol (no CDP) delivers the multi-move drag; post-U13-fix Chromium
+      // does too for the cross-engine pair.
+      testMatch: ALL_GESTURE_SPECS,
     },
   ],
   webServer: [

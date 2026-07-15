@@ -251,7 +251,7 @@ test.describe.serial("LeadGen v2.5 Quote Builder frame studio — §15.3 rows", 
     // …and the overridden progress renders on THIS arm's canvas (dots)
     await expect(canvas(page).locator("[data-frame-region='progress'] .lg-steps")).toBeVisible({ timeout: 20_000 });
     // the A/B tab lists the overridden group for the arm (§4.5)
-    await expect(page.locator(`[data-arm-overrides="${seed.armBVariantId}"]`)).toContainText("Frame overrides: Progress");
+    await expect(page.locator(`[data-arm-overrides="${seed.armBVariantId}"]`)).toContainText("Funnel-layout overrides: Progress");
     await page.screenshot({ path: `${SHOT_DIR}/leadgen-b-07-override-badge.png` });
   });
 
