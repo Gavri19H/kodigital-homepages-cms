@@ -88,9 +88,18 @@ describe("U12 rhythm — inter-component gaps (golden absolute numbers)", () => 
     expect(html).toContain("margin-top:7px");
   });
 
-  it("helper→Continue = 26px UNFRAMED (.lg-continue margin-top), NOT the fail-before 0", () => {
+  it("helper→Continue = 26px UNFRAMED (.lg-continue margin-top), NOT the fail-before 0; AND display:flex + auto side-margins so it centers (U14)", () => {
     const rule = ruleBody(CSS_BASE, " .lg-continue");
     expect(rule).toContain("margin-top:26px");
+    // U14 (operator's 3rd retest — "Continue renders left-aligned, cannot be
+    // centered any way"): the pill inherits display:inline-flex from the shared
+    // .lg-btn base, on which margin-left/right:auto compute to 0 (auto margins
+    // only center a BLOCK-level box). display:flex makes it block-level so the
+    // auto side-margins DO center it. This css-text pin agrees with the MEASURED
+    // ≤1px centering gate in leadgen-u11u12-move.gesture.spec.ts.
+    expect(rule, "block-level flex so margin:auto can center the pill").toContain("display:flex");
+    expect(rule).toContain("margin-left:auto");
+    expect(rule).toContain("margin-right:auto");
   });
 
   it("helper→Continue = 26px FRAMED (.lg-continue-slot) with NO double-space", () => {

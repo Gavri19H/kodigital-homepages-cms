@@ -336,4 +336,55 @@ test.describe("R7 U11a THE GATE (both engines) — unified pointer-path canvas m
       "q_nested no longer lives inside its old Stack parent",
     ).not.toContain("q_nested");
   });
+
+  // U14 (operator's 3rd retest — "Continue renders left-aligned, cannot be
+  // centered any way"): MEASURED centering gate in the studio canvas (the exact
+  // surface the operator sees). The fix is display:flex on .lg-continue so its
+  // margin-left/right:auto center it (they no-op on the inherited inline-flex).
+  // Runs on BOTH engines with the rest of this file.
+  test("R7 U14 — the Continue pill is centered in the question card (≤1px) and keeps its 26px rhythm", async ({ page, request }) => {
+    const s = await createSection(request, `u14-center-${uniq}`, [
+      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+      { type: "ZIPInputQuestion", question_id: "q_zip", internal_field: "zip", answer_type: "string", props: { placeholder: "ZIP code" } },
+      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
+    ]);
+    await boot(page, s);
+    // Await the debounced canvas re-render + decoration settle, then measure in
+    // the SAME srcdoc canvas the operator sees.
+    await expect(frame(page).locator(".lg-continue")).toBeVisible({ timeout: 10_000 });
+    const geom = await page.evaluate(() => {
+      const iframe = document.getElementById("lg-studio-canvas-frame") as HTMLIFrameElement | null;
+      const doc = iframe && iframe.contentDocument;
+      const view = doc && doc.defaultView;
+      const btn = doc && doc.querySelector(".lg-continue");
+      const card = doc && doc.querySelector(".lg-question-card");
+      if (!doc || !view || !btn || !card) return { ok: false as const, hasBtn: !!btn, hasCard: !!card };
+      const btnRect = btn.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const cardCs = view.getComputedStyle(card);
+      const btnCs = view.getComputedStyle(btn);
+      const padLeft = parseFloat(cardCs.paddingLeft) || 0;
+      const padRight = parseFloat(cardCs.paddingRight) || 0;
+      // center-x of the card's CONTENT box (inside its symmetric side padding).
+      const cardContentCenterX = cardRect.left + padLeft + (cardRect.width - padLeft - padRight) / 2;
+      const btnCenterX = btnRect.left + btnRect.width / 2;
+      return {
+        ok: true as const,
+        btnCenterX,
+        cardContentCenterX,
+        diff: Math.abs(btnCenterX - cardContentCenterX),
+        marginTop: btnCs.marginTop,
+        marginLeft: btnCs.marginLeft,
+        marginRight: btnCs.marginRight,
+        display: btnCs.display,
+      };
+    });
+    expect(geom.ok, `both .lg-continue and .lg-question-card must render in the canvas: ${JSON.stringify(geom)}`).toBe(true);
+    if (!geom.ok) return;
+    expect(
+      geom.diff,
+      `Continue center-x (${geom.btnCenterX.toFixed(1)}) vs card content center-x (${geom.cardContentCenterX.toFixed(1)}) — display=${geom.display} ml=${geom.marginLeft} mr=${geom.marginRight}`,
+    ).toBeLessThanOrEqual(1);
+    expect(geom.marginTop, "helper→Continue 26px rhythm stands").toBe("26px");
+  });
 });
