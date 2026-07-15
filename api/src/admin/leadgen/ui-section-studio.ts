@@ -963,13 +963,13 @@ export function renderStudioSettings(view: StudioSectionView, mapsKeyConfigured:
     <span style="font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:${STUDIO_COLOR.questionEyebrow}">The question</span>
     ${renderActivityVerticalPickers(view)}
     <div style="margin-left:auto;display:flex;align-items:center;gap:16px">
-      <div style="display:flex;align-items:center;gap:8px" title="The Continue button&#8217;s default style and position come from the Quote&#8217;s frame.">
+      <div style="display:flex;align-items:center;gap:8px" title="The Continue button&#8217;s default style and position are set per funnel in the Quote Builder.">
         <span style="font-size:11px;color:${STUDIO_COLOR.faint};font-weight:600">On answer</span>
         <div data-continue-mode-group style="display:inline-flex;background:${STUDIO_COLOR.segmentTrack};border-radius:${STUDIO_RADIUS.control}px;padding:2px">
           <div data-continue-mode="button" role="button" tabindex="0" aria-pressed="${waitActive}" style="${segStyle(waitActive)}">Wait for Continue</div>
           <div data-continue-mode="auto_advance" role="button" tabindex="0" aria-pressed="${!waitActive}" style="${segStyle(!waitActive)}">Go to next</div>
         </div>
-        <span class="form-help" data-continue-frame-note style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap">The Continue button&#8217;s default style and position come from the Quote&#8217;s frame.</span>
+        <span class="form-help" data-continue-frame-note style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap">The Continue button&#8217;s default style and position are set per funnel in the Quote Builder.</span>
       </div>
       <div data-maps-strip-chip style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:${STUDIO_COLOR.mutedLabel};background:${STUDIO_COLOR.mapsChipBg};border:1px solid ${STUDIO_COLOR.lineControl};padding:5px 10px;border-radius:20px">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 21s7-6.6 7-12a7 7 0 10-14 0c0 5.4 7 12 7 12z" stroke="${STUDIO_COLOR.mutedLabel}" stroke-width="1.7"/><circle cx="12" cy="9" r="2.1" stroke="${STUDIO_COLOR.mutedLabel}" stroke-width="1.7"/></svg>
@@ -1200,7 +1200,7 @@ export function studioCanvasFrameSrcdoc(
 function renderFrameHintSkeleton(edge: "top" | "bottom"): string {
   const inner =
     edge === "top"
-      ? `<div style="position:absolute;top:8px;left:0;display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:${STUDIO_COLOR.frameHintTagText};background:${STUDIO_COLOR.frameHintTagBg};padding:3px 8px;border-radius:${STUDIO_RADIUS.pill}px;pointer-events:auto"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="${STUDIO_COLOR.frameHintTagText}" stroke-width="2"/><path d="M8 11V8a4 4 0 018 0v3" stroke="${STUDIO_COLOR.frameHintTagText}" stroke-width="2"/></svg>Funnel frame</div>
+      ? `<div style="position:absolute;top:8px;left:0;display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:${STUDIO_COLOR.frameHintTagText};background:${STUDIO_COLOR.frameHintTagBg};padding:3px 8px;border-radius:${STUDIO_RADIUS.pill}px;pointer-events:auto"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="${STUDIO_COLOR.frameHintTagText}" stroke-width="2"/><path d="M8 11V8a4 4 0 018 0v3" stroke="${STUDIO_COLOR.frameHintTagText}" stroke-width="2"/></svg>Funnel layout</div>
     <div style="display:flex;justify-content:center;padding-top:18px"><div style="font-family:${STUDIO_TYPE.family.newsreader};font-size:19px;font-weight:600;color:${STUDIO_COLOR.frameCalloutText};letter-spacing:.3px">brand<span style="color:${STUDIO_COLOR.frameHintDot}">&#183;</span>logo</div></div>
     <div style="margin-top:14px;height:5px;border-radius:4px;background:${STUDIO_COLOR.frameHintProgressTrack};overflow:hidden"><div style="width:38%;height:100%;background:${STUDIO_COLOR.frameHintProgressFill}"></div></div>`
       : `<div style="font-size:11px;color:${STUDIO_COLOR.frameHintTagText};line-height:1.6">Advertising disclosure &#183; Terms &#183; Privacy<br>&#169; 2026 &#183; Trusted partner network</div>`;
@@ -1223,7 +1223,7 @@ export function renderScopePillsMarkup(): string {
   // "This element" (NOT "This Section" / "Component" — a pre-v3.1 label this
   // phase corrects; the data-scope-pill VALUES are internal keys, unchanged).
   return `<div class="studio-scope-pills" role="group" aria-label="Editing scope">
-    <button type="button" class="studio-scope-pill" data-scope-pill="frame" disabled title="Page-frame elements are edited in the Quote Builder">Funnel frame</button>
+    <button type="button" class="studio-scope-pill" data-scope-pill="frame" disabled title="The funnel layout (shared header, progress &amp; Continue) is edited in the Quote Builder">Funnel layout</button>
     <button type="button" class="studio-scope-pill active" data-scope-pill="section" aria-pressed="true">This section</button>
     <button type="button" class="studio-scope-pill" data-scope-pill="component" aria-pressed="false" disabled>This element</button>
     <button type="button" class="studio-scope-pill" data-scope-pill="choice" aria-pressed="false" disabled>Choice</button>
@@ -1398,7 +1398,7 @@ function renderCanvasToolbar(design: FunnelDesign): string {
         <button type="button" data-canvas-viewport="mobile" aria-pressed="false" style="${vpSegStyle(false)};border:0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="7" y="3" width="10" height="18" rx="2" stroke="currentColor" stroke-width="2"/><path d="M11 18h2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Mobile</button>
       </span>
       <div style="width:1px;height:22px;background:${STUDIO_COLOR.linePanel}"></div>
-      <button type="button" data-studio-frame-hint aria-pressed="true" title="Show a dimmed, generic frame skeleton for spatial context — presentation-only, edited in the Quote Builder" style="${frameBtnStyle(true)};border:0"><span style="${frameDotStyle(true)}"></span>Frame hint</button>
+      <button type="button" data-studio-frame-hint aria-pressed="true" title="Show the funnel layout around this section — the shared header, progress bar, Continue button &amp; footer. Set once per funnel in the Quote Builder." style="${frameBtnStyle(true)};border:0"><span style="${frameDotStyle(true)}"></span>Show funnel layout</button>
       <div style="width:1px;height:22px;background:${STUDIO_COLOR.linePanel}"></div>
       <!-- R4a E3-NEW-10: moved here from the Preview drawer panel — its
            handler repaints the CANVAS, so the control now lives where its
@@ -1939,7 +1939,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
          deliverable-7 migration converts it to ImageBlock ON SAVE, so this
          notice is a PRE-SAVE-only view for it. -->
     <div class="lg-inspector-field" data-content-framescope-block hidden>
-      <p class="alert studio-callout-blue" data-framescope-note>This element is part of the funnel frame — it&#8217;s edited in the Quote Builder. <button type="button" class="studio-link-btn" data-framescope-change-in-frame>Change in frame &#8594;</button></p>
+      <p class="alert studio-callout-blue" data-framescope-note>Part of the funnel layout — shared by every section in this funnel. Edit it in the Quote Builder.<button type="button" class="studio-link-btn" data-framescope-change-in-frame>Edit in Quote Builder &#8594;</button></p>
     </div>
 
     <!-- field: Basics/Behavior/Answer-format/Connect-to-Offers (§8.3) -->
@@ -2123,7 +2123,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
          Content tab (data-content-framescope-block) — no Width/Corners/Layout
          controls render for these 10 types either. -->
     <div class="lg-inspector-field" data-style-framescope-block hidden>
-      <p class="alert studio-callout-blue">This element is part of the funnel frame — it&#8217;s edited in the Quote Builder. <button type="button" class="studio-link-btn" data-framescope-change-in-frame>Change in frame &#8594;</button></p>
+      <p class="alert studio-callout-blue">Part of the funnel layout — shared by every section in this funnel. Edit it in the Quote Builder.<button type="button" class="studio-link-btn" data-framescope-change-in-frame>Edit in Quote Builder &#8594;</button></p>
     </div>
 
     <div data-style-field-block hidden>
@@ -2229,18 +2229,18 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
     </div>
 
     <div data-style-continue-block hidden>
-      <div class="studio-panel-eyebrow">Inherited from the frame</div>
+      <div class="studio-panel-eyebrow">From the funnel layout</div>
       <!-- v3.1 R3b S2-2 (reclassified, contract §8.5b: the frame owns look/
            position — no editable pickers here by design). Each row shows the
            REAL resolved value (island-populated) instead of a hardcoded
            string, plus a working deep link into the Quote Builder that
            actually owns the setting. -->
       <div class="studio-inherited-row"><span>Color</span><span><span data-continue-color-text>Button</span> <span class="studio-inherited-tag">inherited</span></span></div>
-      <button type="button" class="studio-link-btn" data-continue-change-in-frame="color">Change in frame &#8594;</button>
+      <button type="button" class="studio-link-btn" data-continue-change-in-frame="color">Edit in Quote Builder &#8594;</button>
       <div class="studio-inherited-row"><span>Position</span><span><span data-continue-position-text>Inside the question &#183; default &#8212; set per funnel in the Quote Builder</span> <span class="studio-inherited-tag">inherited</span></span></div>
-      <button type="button" class="studio-link-btn" data-continue-change-in-frame="position">Change in frame &#8594;</button>
+      <button type="button" class="studio-link-btn" data-continue-change-in-frame="position">Edit in Quote Builder &#8594;</button>
       <div class="studio-inherited-row"><span>Size</span><span>Medium (fixed) <span class="studio-inherited-tag">inherited</span></span></div>
-      <button type="button" class="studio-link-btn" data-continue-change-in-frame="size">Change in frame &#8594;</button>
+      <button type="button" class="studio-link-btn" data-continue-change-in-frame="size">Edit in Quote Builder &#8594;</button>
     </div>
   </div>
 
@@ -5672,7 +5672,7 @@ export const SECTION_STUDIO_SCRIPT = `
       tag.appendChild(document.createTextNode('Continue button'));
       var chip = frameCreate('span');
       chip.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:rgba(255,255,255,.18);padding:1px 6px;border-radius:10px;font-size:10px';
-      chip.appendChild(document.createTextNode('from frame'));
+      chip.appendChild(document.createTextNode('funnel layout'));
       tag.appendChild(chip);
     } else {
       tag.appendChild(document.createTextNode('Question · shared with header'));
@@ -5776,21 +5776,25 @@ export const SECTION_STUDIO_SCRIPT = `
     return 'Affects: used in ' + usageQuoteCount + ' quote' + (usageQuoteCount === 1 ? '' : 's') + '; changes apply everywhere it\\u2019s used.';
   }
   // v3.1 audit-round G FIX 2: the §8.1 affects line, returned as STRUCTURED
-  // PARTS so the caller builds it with SAFE DOM nodes (never innerHTML). The
-  // THREE contract-asserted selections (Appendix A §7.3, golden :422-424)
-  // return a {before,bold,after} split whose bold segment the caller paints
-  // #5C5015 (golden bold color); byte-for-byte with the golden — the em-dash
-  // rides \\u2014 and sentence 3's ampersand is a bare '&' exactly as the
-  // golden emits it. Every OTHER selection (choices/containers/frame-scope/
-  // section) returns {text:...} = the operator-true generic scopeAffectsText
-  // copy. The contract table defines only these 3.
+  // PARTS so the caller builds it with SAFE DOM nodes (never innerHTML). Each
+  // returns a {before,bold,after} split whose bold segment the caller paints
+  // #5C5015 (golden bold color). The headline + accept-format selections stay
+  // byte-for-byte with the golden (Appendix A §7.3, golden :422-424) — the
+  // em-dash rides \\u2014 and the ampersand is a bare '&' exactly as the golden
+  // emits it. The ContinueButton selection's copy is the U15 operator-ordered
+  // clarity erratum (2026-07-15): it drops the incomprehensible "funnel frame"
+  // jargon for the destination-named "shared by every section ... set in the
+  // Quote Builder" (renderScopePillsMarkup / renderStudioInspector are
+  // reclassified golden:false in golden-allowlist.json). Every OTHER selection
+  // (choices/containers/frame-scope/section) returns {text:...} = the
+  // operator-true generic scopeAffectsText copy.
   function scopeAffectsParts(node) {
     if (scopeState === 'component' && node) {
       if (node.bind !== undefined) {
         return { before: 'This is the same text as the ', bold: 'Question headline', after: ' box up top \\u2014 editing either updates both.' };
       }
       if (node.type === 'ContinueButton') {
-        return { before: 'Color, size & position come from the ', bold: 'funnel frame', after: '. Here you can override just the label.' };
+        return { before: 'Color, size & position are shared by every section in this funnel \\u2014 set in the ', bold: 'Quote Builder', after: '. Here you can change only the label.' };
       }
       if (acceptFormatOfNode(node)) {
         return { before: 'Changes here affect ', bold: 'this question only', after: ', everywhere this section is reused.' };

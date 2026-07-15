@@ -790,7 +790,7 @@ test.describe('LeadGen Section Studio v3.1 — golden-chrome browser flows (§5/
     // pre-existing default-OFF behavior)
     await expect(frameHintBtn).toHaveAttribute('aria-pressed', 'true');
     await expect(topSkeleton).toBeVisible();
-    await expect(topSkeleton).toContainText('Funnel frame');
+    await expect(topSkeleton).toContainText('Funnel layout');
 
     await frameHintBtn.click();
     await expect(frameHintBtn).toHaveAttribute('aria-pressed', 'false');

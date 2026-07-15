@@ -472,9 +472,13 @@ describeDb("Quote Builder frame studio — §4.4 region inspectors", () => {
       expect(html, `panel ${region}`).toContain(`data-region-panel="${region}"`);
     }
     // §7.1 scope-header pattern (frame-region example, verbatim shape)
-    expect(html).toContain("Editing: <strong>Funnel frame — Progress</strong>");
-    expect(html).toContain("Editing: <strong>Funnel frame — Footer</strong>");
-    expect(html).toMatch(/Editing: <strong>Funnel frame — [^<]+<\/strong>[^·]*· affects every slide of this funnel/);
+    // U15 operator-ordered clarity erratum (2026-07-15): the Quote-Builder
+    // frame-region heading "Funnel frame — X" -> "Funnel layout — X" (matching
+    // the Section Builder's renamed scope pill; the screen the studio's
+    // "Edit in Quote Builder ->" deep links land on).
+    expect(html).toContain("Editing: <strong>Funnel layout — Progress</strong>");
+    expect(html).toContain("Editing: <strong>Funnel layout — Footer</strong>");
+    expect(html).toMatch(/Editing: <strong>Funnel layout — [^<]+<\/strong>[^·]*· affects every slide of this funnel/);
   });
 
   it("Header: on/off, logo source (site/CMS fallback), size, alignment, tagline, secure badge, call CTA (label+tel+href), disclosure link, sticky + Advanced-gated manual logo w/ warning", async () => {
@@ -543,7 +547,7 @@ describeDb("Quote Builder frame studio — §4.4 region inspectors", () => {
     expect(html).toContain('data-list-field="alt"');
     expect(html).toContain("Alt text (required)");
     // C7: the trust-strip scope header carries the funnel-wide chip
-    expect(html).toMatch(/Funnel frame — Trust strip<\/strong><span class="lg-scope-chip">funnel-wide<\/span>/);
+    expect(html).toMatch(/Funnel layout — Trust strip<\/strong><span class="lg-scope-chip">funnel-wide<\/span>/);
   });
 
   it("Benefit bar (C7 'funnel-wide'): on/off, item rows (icon+text), placement", async () => {
@@ -553,7 +557,7 @@ describeDb("Quote Builder frame studio — §4.4 region inspectors", () => {
     }
     expect(html).toContain('data-frame-list="benefit_bar.items"');
     expect(html).toContain('data-list-field="icon"');
-    expect(html).toMatch(/Funnel frame — Benefit bar<\/strong><span class="lg-scope-chip">funnel-wide<\/span>/);
+    expect(html).toMatch(/Funnel layout — Benefit bar<\/strong><span class="lg-scope-chip">funnel-wide<\/span>/);
   });
 
   it("Background: role swatches, optional image, flat/brand/gradient style", async () => {
@@ -660,7 +664,7 @@ describeDb("Quote Builder frame studio — overrides, Rules mount, lint legs", (
     expect(h.html).not.toContain('data-override-switch="');
     expect(h.html).not.toContain('data-override-group="');
     expect(h.html).toContain("data-arm-overrides");
-    expect(h.html).toContain("Same frame as funnel (no overrides)");
+    expect(h.html).toContain("Same layout as funnel (no overrides)");
 
     // fork → non-control arm with stored overrides
     const fork = await admin.request(`${API}/variants/${h.variantId}/fork`, { method: "POST" }, h.env);
@@ -683,7 +687,7 @@ describeDb("Quote Builder frame studio — overrides, Rules mount, lint legs", (
     // the canvas override badge shell
     expect(html2).toContain('id="lg-override-badge"');
     // A/B tab lists the overridden group for the forked arm
-    expect(html2).toMatch(/data-arm-overrides="[^"]+">Frame overrides: Progress</);
+    expect(html2).toMatch(/data-arm-overrides="[^"]+">Funnel-layout overrides: Progress</);
   });
 
   it("Rules tab: the B3 builder mount replaces the raw conditions textarea on the normal surface (textarea only behind Advanced)", async () => {

@@ -216,8 +216,9 @@ test('P5 Continue inspector shows REAL resolved values + a working Change-in-fra
   await page.screenshot({ path: `${SHOT}/P5-after.png` });
   record({ probe: 'P5', verdict: 'WORKS', evidence: `color="${colorText.trim()}" position="${positionText.trim()}" size-row(Medium fixed)=${sizeRowVisible} change-in-frame links=${frameLinkCount} firstVisible=${firstLinkVisible} tag=${firstLinkTag}`, shots: ['P5-after.png'] });
   // WORKS (R3, register S2-2 reclassified): the three rows show REAL resolved
-  // values (NOT the old "0 Style controls" dead-end), and "Change in frame →"
-  // is a wired <button> (studio:11213 handler), not the dead href="#0".
+  // values (NOT the old "0 Style controls" dead-end), and the deep link
+  // (data-continue-change-in-frame; U15 label "Edit in Quote Builder →") is a
+  // wired <button> (studio:11213 handler), not the dead href="#0".
   expect(colorText.trim().length, 'resolved Color value present').toBeGreaterThan(0);
   expect(positionText, 'resolved Position value present').toContain('Inside the question');
   expect(sizeRowVisible, 'the Size row reads "Medium (fixed)"').toBe(true);

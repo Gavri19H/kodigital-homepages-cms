@@ -80,15 +80,15 @@
     },
     {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderFrameHintSkeleton",
-      "golden": true,
-      "register": null,
-      "note": "Frame-hint decorative skeleton — legit golden feature (contract §5.4)."
+      "golden": false,
+      "register": "U15 (operator retest erratum)",
+      "note": "U15 operator-ordered clarity erratum (2026-07-15): the golden's skeleton pill copy 'Funnel frame' is renamed to 'Funnel layout' (the operator's 3rd retest flagged 'frame' as incomprehensible). This block now intentionally diverges from the golden's Appendix-A microcopy, so it is no longer golden-verbatim."
     },
     {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderScopePillsMarkup",
-      "golden": true,
-      "register": null,
-      "note": "Scope pills — not flagged."
+      "golden": false,
+      "register": "U15 (operator retest erratum)",
+      "note": "U15 operator-ordered clarity erratum (2026-07-15): the golden's scope pill 'Funnel frame' (+ its title) is renamed to 'Funnel layout' (the operator's 3rd retest flagged 'frame' as incomprehensible). The data-scope-pill='frame' VALUE stays (internal key); only the display text + title diverge from the golden, so this block is no longer golden-verbatim."
     },
     {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderCanvasToolbar",
@@ -116,9 +116,9 @@
     },
     {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderStudioInspector",
-      "golden": true,
-      "register": null,
-      "note": "Inspector tab-shell assembly (Content/Style/Rules/Maps/Offers/Advanced). The tab SYSTEM itself is golden per contract; specific nested panels it calls (renderDesignPanel/renderLayoutPanel = S4-A4, renderPreviewPanel = S4-A5, renderSectionOverridesPanel = S4-A6) are tracked as their OWN blocks below — kept golden:true here to avoid double-counting the same defect at two nesting levels."
+      "golden": false,
+      "register": "U15 (operator retest erratum)",
+      "note": "Inspector tab-shell assembly (Content/Style/Rules/Maps/Offers/Advanced). The tab SYSTEM is golden, but U15 operator-ordered clarity erratum (2026-07-15) renames the golden-verbatim Continue eyebrow 'Inherited from the frame' -> 'From the funnel layout' and the deep-link buttons 'Change in frame ->' -> 'Edit in Quote Builder ->' (the operator's 3rd retest flagged 'frame' as incomprehensible). Because a golden-asserted string inside this block now intentionally diverges, it is reclassified golden:false. Nested panels it calls (renderPreviewPanel = S4-A5, renderSectionOverridesPanel = S4-A6) remain their OWN tracked blocks."
     },
     {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderPreviewPanel",

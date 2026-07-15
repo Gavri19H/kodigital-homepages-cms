@@ -971,7 +971,7 @@ function renderOverrideSwitch(group: string, isControl: boolean): string {
 // Funnel frame — <Region> · affects every slide of this funnel". Trust strip
 // + benefit bar additionally carry the C7 "funnel-wide" chip.
 function scopeHead(regionLabel: string, funnelWide: boolean): string {
-  return `<div class="lg-scope-head">Editing: <strong>Funnel frame — ${escapeHtml(regionLabel)}</strong>${funnelWide ? '<span class="lg-scope-chip">funnel-wide</span>' : ""} · affects every slide of this funnel</div>`;
+  return `<div class="lg-scope-head">Editing: <strong>Funnel layout — ${escapeHtml(regionLabel)}</strong>${funnelWide ? '<span class="lg-scope-chip">funnel-wide</span>' : ""} · affects every slide of this funnel</div>`;
 }
 
 // One editable list (footer links / trust logos / benefit items): the island
@@ -1304,7 +1304,7 @@ function renderTemplatePicker(templates: FrameTemplateItem[]): string {
     )
     .join("");
   return `<div class="lg-panel-card lg-hidden" id="lg-template-picker">
-  <h3>Frame template</h3>
+  <h3>Funnel layout template</h3>
   <p class="form-help">Your copy, images and colors are kept. Layout comes from the template. Nothing changes until you Save.</p>
   <div class="lg-template-grid">${cards || `<p class="form-help">No templates available.</p>`}</div>
   <div class="lg-hidden" id="lg-template-confirm">
@@ -1563,8 +1563,8 @@ function renderAbPanel(structure: StructureBody, selected: VariantNode): string 
       const groups = overriddenGroupLabels(v.frame_overrides_json);
       const overridesLine =
         groups.length > 0
-          ? `<p class="form-help" data-arm-overrides="${escapeHtml(v.public_id)}">Frame overrides: ${escapeHtml(groups.join(", "))}</p>`
-          : `<p class="form-help" data-arm-overrides="${escapeHtml(v.public_id)}">Same frame as funnel (no overrides)</p>`;
+          ? `<p class="form-help" data-arm-overrides="${escapeHtml(v.public_id)}">Funnel-layout overrides: ${escapeHtml(groups.join(", "))}</p>`
+          : `<p class="form-help" data-arm-overrides="${escapeHtml(v.public_id)}">Same layout as funnel (no overrides)</p>`;
       return `<div class="lg-alloc-row" data-variant="${escapeHtml(v.public_id)}">
     <span class="lg-alloc-label"><strong>${escapeHtml(v.variant_label)}</strong>${v.is_control ? " (control)" : ""}</span>
     <label class="lg-alloc-pct"><input type="number" class="form-input lg-alloc-input" data-alloc-input
