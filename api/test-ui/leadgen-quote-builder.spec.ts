@@ -369,7 +369,7 @@ test.describe.serial("LeadGen v2.5 Quote Builder frame studio — §15.3 rows", 
     const problemRow = page.locator(`#lg-preflight-problems [data-problem-scope="section"] [data-problem-path="section.${cq.sectionPublicId}.content"]`);
     await expect(problemRow).toBeVisible();
     await expect(problemRow.locator('.lg-problem-chip[data-severity="error"]')).toHaveText("Error");
-    await expect(problemRow).toContainText(`'${cq.sectionName}' contains page-frame elements`);
+    await expect(problemRow).toContainText(`'${cq.sectionName}' contains funnel-layout elements`); // MAJOR-1: renamed from "page-frame elements"
     await expect(problemRow).toContainText("would render twice on the live page");
     await expect(problemRow).toContainText("enable the legacy override under Advanced");
     const fixLink = problemRow.locator("a", { hasText: "Review slide" });

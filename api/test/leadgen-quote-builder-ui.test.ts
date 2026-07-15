@@ -1045,7 +1045,7 @@ describeDb("Activation tab problems[] surfacing (14 §14.2, C2 LIVE)", () => {
     expect(html).toContain('data-problem-severity="error"');
     expect(html).toContain('data-severity="error"');
     expect(html).toContain(`data-problem-path="section.${chromePublicId}.content"`);
-    expect(html).toContain("contains page-frame elements");
+    expect(html).toContain("contains funnel-layout elements"); // MAJOR-1: renamed from "page-frame elements"
     expect(html).toContain("render twice");
     // §14.1 full copy: the [Move to funnel layout] remedy SSRs in the message
     // ("slide"/"[Move to funnel layout]" are Quote-Builder activation copy —

@@ -116,9 +116,15 @@
     },
     {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderStudioInspector",
+      "golden": true,
+      "register": null,
+      "note": "Inspector tab-shell assembly (Content/Style/Rules/Maps/Offers/Advanced). MINOR-3 (adversarial review, 2026-07-15): the U15-diverged Continue eyebrow/notice/deep-links were EXTRACTED into their own top-level block, renderStyleContinueBlock (below), which now carries the golden:false classification alone. With that content moved out, renderStudioInspector itself is restored to golden:true — the tab SYSTEM it assembles is golden-verbatim; nested panels it calls (renderPreviewPanel = S4-A5, renderSectionOverridesPanel = S4-A6, renderStyleContinueBlock = U15) remain their OWN tracked blocks (double-counting avoidance, same convention as renderStudioDrawer below)."
+    },
+    {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderStyleContinueBlock",
       "golden": false,
       "register": "U15 (operator retest erratum)",
-      "note": "Inspector tab-shell assembly (Content/Style/Rules/Maps/Offers/Advanced). The tab SYSTEM is golden, but U15 operator-ordered clarity erratum (2026-07-15) renames the golden-verbatim Continue eyebrow 'Inherited from the frame' -> 'From the funnel layout' and the deep-link buttons 'Change in frame ->' -> 'Edit in Quote Builder ->' (the operator's 3rd retest flagged 'frame' as incomprehensible). Because a golden-asserted string inside this block now intentionally diverges, it is reclassified golden:false. Nested panels it calls (renderPreviewPanel = S4-A5, renderSectionOverridesPanel = S4-A6) remain their OWN tracked blocks."
+      "note": "MINOR-3 census split (extracted from renderStudioInspector, which used to carry this MIXED-in): the Continue Style-tab's 'inherited from the funnel' notice — eyebrow, Color/Position/Size rows, and the 3 deep-link buttons. U15 operator-ordered clarity erratum (2026-07-15): renames the golden-verbatim eyebrow 'Inherited from the frame' -> 'From the funnel layout' and the deep-link buttons 'Change in frame ->' -> 'Edit in Quote Builder ->' (the operator's 3rd retest flagged 'frame' as incomprehensible). This is now the ONLY block carrying that divergence."
     },
     {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderPreviewPanel",

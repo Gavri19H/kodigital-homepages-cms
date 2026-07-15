@@ -419,7 +419,7 @@ describeDb("activation-preflight-v25 (14 §14.1 rows fire with contract severiti
       "row 1 (unknown frame group)",
     );
     expect(frameUnknown.severity).toBe("error");
-    expect(frameUnknown.message).toContain("The funnel's page frame has an invalid setting");
+    expect(frameUnknown.message).toContain("The funnel's layout has an invalid setting"); // MAJOR-1: renamed from "page frame"
     const frameHref = firstMatch(
       problems,
       (p) => p.path === "frame.header.cta.href",
@@ -686,7 +686,7 @@ describeDb("C2 LIVE (Phase D) — error-severity problems block the activation P
       "C2 chrome row in the 409 body",
     );
     expect(chrome.severity).toBe("error");
-    expect(chrome.message).toContain("contains page-frame elements");
+    expect(chrome.message).toContain("contains funnel-layout elements"); // MAJOR-1: renamed from "page-frame elements"
     expect(chrome.message).toContain("render twice");
     // §14.1 full copy pattern: BOTH remedies — the Section Builder's
     // [Move to funnel layout] action and the Advanced legacy override.

@@ -1840,6 +1840,31 @@ function renderScopeHeaderShell(): string {
 </div>`;
 }
 
+// MINOR-3 (adversarial review, 2026-07-15): extracted OUT of
+// renderStudioInspector into its OWN top-level block — golden-allowlist.json
+// classifies this ONE function golden:false (U15 clarity erratum: the golden
+// mockup's Appendix-A copy reads "Inherited from the frame" / "Change in
+// frame ->"; this block ships the operator-clarity rename "From the funnel
+// layout" / "Edit in Quote Builder ->" instead), restoring
+// renderStudioInspector itself to golden:true (the tab SYSTEM it assembles is
+// still golden-verbatim; only this one panel's copy diverges).
+//
+// v3.1 R3b S2-2 (reclassified, contract §8.5b: the funnel layout owns look/
+// position — no editable pickers here by design). Each row shows the REAL
+// resolved value (island-populated) instead of a hardcoded string, plus a
+// working deep link into the Quote Builder that actually owns the setting.
+function renderStyleContinueBlock(): string {
+  return `<div data-style-continue-block hidden>
+      <div class="studio-panel-eyebrow">From the funnel layout</div>
+      <div class="studio-inherited-row"><span>Color</span><span><span data-continue-color-text>Button</span> <span class="studio-inherited-tag">inherited</span></span></div>
+      <button type="button" class="studio-link-btn" data-continue-change-in-frame="color">Edit in Quote Builder &#8594;</button>
+      <div class="studio-inherited-row"><span>Position</span><span><span data-continue-position-text>Inside the question &#183; default &#8212; set per funnel in the Quote Builder</span> <span class="studio-inherited-tag">inherited</span></span></div>
+      <button type="button" class="studio-link-btn" data-continue-change-in-frame="position">Edit in Quote Builder &#8594;</button>
+      <div class="studio-inherited-row"><span>Size</span><span>Medium (fixed) <span class="studio-inherited-tag">inherited</span></span></div>
+      <button type="button" class="studio-link-btn" data-continue-change-in-frame="size">Edit in Quote Builder &#8594;</button>
+    </div>`;
+}
+
 // The full tabbed inspector. Panels are server-rendered ONCE; the island
 // toggles tab/panel visibility per the selected node's type metadata and
 // populates/collects values (data-inspector-field / data-inspector-override /
@@ -2228,20 +2253,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       </div>
     </div>
 
-    <div data-style-continue-block hidden>
-      <div class="studio-panel-eyebrow">From the funnel layout</div>
-      <!-- v3.1 R3b S2-2 (reclassified, contract §8.5b: the frame owns look/
-           position — no editable pickers here by design). Each row shows the
-           REAL resolved value (island-populated) instead of a hardcoded
-           string, plus a working deep link into the Quote Builder that
-           actually owns the setting. -->
-      <div class="studio-inherited-row"><span>Color</span><span><span data-continue-color-text>Button</span> <span class="studio-inherited-tag">inherited</span></span></div>
-      <button type="button" class="studio-link-btn" data-continue-change-in-frame="color">Edit in Quote Builder &#8594;</button>
-      <div class="studio-inherited-row"><span>Position</span><span><span data-continue-position-text>Inside the question &#183; default &#8212; set per funnel in the Quote Builder</span> <span class="studio-inherited-tag">inherited</span></span></div>
-      <button type="button" class="studio-link-btn" data-continue-change-in-frame="position">Edit in Quote Builder &#8594;</button>
-      <div class="studio-inherited-row"><span>Size</span><span>Medium (fixed) <span class="studio-inherited-tag">inherited</span></span></div>
-      <button type="button" class="studio-link-btn" data-continue-change-in-frame="size">Edit in Quote Builder &#8594;</button>
-    </div>
+    ${renderStyleContinueBlock()}
   </div>
 
   <!-- ============================================================ -->
@@ -3782,8 +3794,8 @@ export const SECTION_STUDIO_SCRIPT = `
   // navigate straight to its Quote Builder page; many -> the SAME picker the
   // 'frame' scope pill already renders (toggled next to the clicked trigger).
   // Reused by: the Continue Content-tab "Open Quote Builder ->" link, the
-  // Continue Style-tab's 3 "Change in frame ->" row buttons, and the frame-
-  // scope read-only notice's own deep link (deliverable 8).
+  // Continue Style-tab's 3 "Edit in Quote Builder ->" row buttons, and the
+  // frame-scope read-only notice's own deep link (deliverable 8).
   function openQuoteBuilderNav(triggerEl) {
     var funnels = usageFunnelsOf();
     if (funnels.length === 0) { window.location.href = funnelQuoteUrl(null); return; }
@@ -6959,7 +6971,7 @@ export const SECTION_STUDIO_SCRIPT = `
   // (a Section may be used by 0/N funnels, each with its own frame), so a
   // per-funnel value cannot be resolved without a new cross-file dependency;
   // showing the documented default (never a fabricated string) plus the
-  // "Change in frame ->" deep link is the honest resolution. Size has no
+  // "Edit in Quote Builder ->" deep link is the honest resolution. Size has no
   // product-wide config key at all (register SEAM-5) — "Medium (fixed)" is a
   // static, accurate acknowledgment, not a resolved value.
   function populateContinueStyleRows() {
@@ -11297,7 +11309,7 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // v3.1 R3b deliverable 1 (S2-2 reclassified): the Continue Content-tab
   // "Open Quote Builder →" link (was href="#0", dead) and the Style-tab's 3
-  // "Change in frame →" row buttons all share the ONE navigation function.
+  // "Edit in Quote Builder →" row buttons all share the ONE navigation function.
   var openQuoteBuilderBtn = document.querySelector('[data-open-quote-builder]');
   if (openQuoteBuilderBtn) {
     openQuoteBuilderBtn.addEventListener('click', function () { openQuoteBuilderNav(this); });

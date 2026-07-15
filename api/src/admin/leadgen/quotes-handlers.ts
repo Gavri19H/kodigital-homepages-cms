@@ -1214,8 +1214,8 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
             severity: "error",
             message:
               funnelLevelKey === "template"
-                ? "Variant overrides can't switch the frame template — the template is a funnel-level setting (change it in the funnel's frame settings)."
-                : "Variant overrides can't carry a version field — it belongs to the funnel-level frame settings.",
+                ? "Variant overrides can't switch the funnel-layout template — the template is a funnel-level setting (change it in the funnel's layout settings)."
+                : "Variant overrides can't carry a version field — it belongs to the funnel-level layout settings.",
           });
         }
       }
@@ -2068,8 +2068,8 @@ async function composedVariantPreviewResponse(
             severity: "error",
             message:
               funnelLevelKey === "template"
-                ? "Variant overrides can't switch the frame template — the template is a funnel-level setting (change it in the funnel's frame settings)."
-                : "Variant overrides can't carry a version field — it belongs to the funnel-level frame settings.",
+                ? "Variant overrides can't switch the funnel-layout template — the template is a funnel-level setting (change it in the funnel's layout settings)."
+                : "Variant overrides can't carry a version field — it belongs to the funnel-level layout settings.",
           });
         }
       }
@@ -2940,7 +2940,7 @@ async function computeFunnelV25Problems(
         scope: "frame",
         severity: "error",
         message:
-          "The funnel's page frame has an invalid setting: the stored frame settings are not readable. Open the Quote Builder and re-save the frame.",
+          "The funnel's layout has an invalid setting: the stored funnel-layout settings are not readable. Open the Quote Builder and re-save the funnel layout.",
         fix_url: fixQuote,
       });
     } else {
@@ -2973,7 +2973,7 @@ async function computeFunnelV25Problems(
           ...p,
           message:
             p.severity === "error"
-              ? `The funnel's page frame has an invalid setting: ${p.message}`
+              ? `The funnel's layout has an invalid setting: ${p.message}`
               : p.message,
           fix_url: fixQuote,
         });
@@ -3114,8 +3114,8 @@ function countLegacyHexOverrides(
 // (content-schema.ts's validateSectionContent, wired through
 // sections-handlers.ts's validateSection). THIS is the escalation half —
 // runs UNCONDITIONALLY (unlike the frame-scope rows below, which are gated
-// on the funnel having a configured page-frame): a Maps misconfiguration is a
-// per-field content concern, not a frame concern, so it must block
+// on the funnel having a configured funnel layout): a Maps misconfiguration is
+// a per-field content concern, not a layout concern, so it must block
 // activation even for a legacy Quote with no frame_config_json at all.
 async function computeMapsNoJobProblems(
   db: D1Database,
@@ -3182,7 +3182,7 @@ async function computeVariantV25Problems(
         path: "frame",
         scope: "frame",
         severity: "error",
-        message: `Variant '${variant.variant_label}' has unreadable frame overrides — re-save its overrides in the Quote Builder.`,
+        message: `Variant '${variant.variant_label}' has unreadable funnel-layout overrides — re-save its overrides in the Quote Builder.`,
         fix_url: fixQuote,
       });
     } else {
@@ -3297,7 +3297,7 @@ async function computeVariantV25Problems(
               // to match ui-section-studio.ts's renamed "Move to funnel
               // layout" button verbatim — this message must keep pointing at
               // a button that exists.
-              message: `Slide ${slide} '${row.section_name}' contains page-frame elements (${chromeTypes.join(", ")}) that would render twice on the live page. Remove them ([Move to funnel layout] in the Section Builder) or enable the legacy override under Advanced.`,
+              message: `Slide ${slide} '${row.section_name}' contains funnel-layout elements (${chromeTypes.join(", ")}) that would render twice on the live page. Remove them ([Move to funnel layout] in the Section Builder) or enable the legacy override under Advanced.`,
               fix_url: fixSection,
             },
       );

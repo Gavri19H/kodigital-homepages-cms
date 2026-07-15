@@ -364,6 +364,68 @@ test.describe("Group 1 — validation, back-nav, dependencies (11 §11.2 / 03 §
 });
 
 // ---------------------------------------------------------------------------
+// U14 (operator's 3rd retest — "Continue renders left-aligned, cannot be
+// centered any way") — MINOR-2 (adversarial review, 2026-07-15): a MEASURED
+// centering gate on THIS suite's own real /lg render. The studio-canvas gate
+// (leadgen-u11u12-move.gesture.spec.ts) and the forensic-live-probe live gate
+// already measure centering elsewhere; the reviewer found neither one
+// exercises the live funnel THIS spec file drives end-to-end (a distinct
+// seeded funnel + component set, real hydration, real /lg/auction path) — so
+// centering there was inferred from the other two, never measured on this
+// funnel's own render. This closes that gap: real boundingBox() on the LIVE
+// page, not a computed-style inference.
+// ---------------------------------------------------------------------------
+
+test.describe("Group 1 — U14 Continue centering (live /lg render, measured)", () => {
+  test("the rendered [data-lg-continue] pill is centered in its .lg-question-card (|center-x delta| ≤ 1px)", async ({ page }) => {
+    await gotoReady(page);
+    await answerYesAndAdvance(page);
+    const continueBtn = sectionAt(page, 1).locator("[data-lg-continue]");
+    await expect(continueBtn).toBeVisible();
+    const card = sectionAt(page, 1).locator(".lg-question-card");
+    await expect(card).toBeVisible();
+
+    const geom = await page.evaluate(() => {
+      const btn = document.querySelector('[data-lg-section][data-lg-index="1"] [data-lg-continue]');
+      const cardEl = document.querySelector('[data-lg-section][data-lg-index="1"] .lg-question-card');
+      if (!btn || !cardEl) return { ok: false as const };
+      const btnRect = btn.getBoundingClientRect();
+      const cardRect = cardEl.getBoundingClientRect();
+      const cardCs = getComputedStyle(cardEl);
+      const padLeft = parseFloat(cardCs.paddingLeft) || 0;
+      const padRight = parseFloat(cardCs.paddingRight) || 0;
+      // center-x of the card's CONTENT box (inside its symmetric side padding)
+      // — the same measurement idiom as the studio-canvas + forensic-live
+      // gates, applied here to THIS suite's own real render.
+      const cardContentCenterX = cardRect.left + padLeft + (cardRect.width - padLeft - padRight) / 2;
+      const btnCenterX = btnRect.left + btnRect.width / 2;
+      return {
+        ok: true as const,
+        btnCenterX,
+        cardContentCenterX,
+        diff: Math.abs(btnCenterX - cardContentCenterX),
+        btnX: btnRect.left,
+        btnWidth: btnRect.width,
+        cardX: cardRect.left,
+        cardWidth: cardRect.width,
+      };
+    });
+    expect(geom.ok, "both [data-lg-continue] and .lg-question-card must render on the live page").toBe(true);
+    if (!geom.ok) return;
+    // eslint-disable-next-line no-console
+    console.log(
+      `[U14 live centering, leadgen-live-funnel] btnCenterX=${geom.btnCenterX.toFixed(2)} ` +
+        `cardContentCenterX=${geom.cardContentCenterX.toFixed(2)} diff=${geom.diff.toFixed(2)}px ` +
+        `(btn x=${geom.btnX.toFixed(1)} w=${geom.btnWidth.toFixed(1)}, card x=${geom.cardX.toFixed(1)} w=${geom.cardWidth.toFixed(1)})`,
+    );
+    expect(
+      geom.diff,
+      `Continue center-x (${geom.btnCenterX.toFixed(2)}) vs card content center-x (${geom.cardContentCenterX.toFixed(2)}) — diff ${geom.diff.toFixed(2)}px`,
+    ).toBeLessThanOrEqual(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 4 · Full traversal: auction binding, banners, impressions, /lg/lc macros,
 //     provider payload, GA4 untouched, desktop screenshots
 // ---------------------------------------------------------------------------

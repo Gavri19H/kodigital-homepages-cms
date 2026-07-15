@@ -320,7 +320,7 @@ export const PROBLEM_SCOPE_ORDER: ReadonlyArray<string> = [
 ];
 
 export const PROBLEM_SCOPE_LABELS: Readonly<Record<string, string>> = {
-  frame: "Page frame",
+  frame: "Funnel layout",
   theme: "Theme",
   section: "Slides",
   component: "Components",
@@ -968,7 +968,7 @@ function renderOverrideSwitch(group: string, isControl: boolean): string {
 }
 
 // §7.1 scope header — first element of every region inspector: "Editing:
-// Funnel frame — <Region> · affects every slide of this funnel". Trust strip
+// Funnel layout — <Region> · affects every slide of this funnel". Trust strip
 // + benefit bar additionally carry the C7 "funnel-wide" chip.
 function scopeHead(regionLabel: string, funnelWide: boolean): string {
   return `<div class="lg-scope-head">Editing: <strong>Funnel layout — ${escapeHtml(regionLabel)}</strong>${funnelWide ? '<span class="lg-scope-chip">funnel-wide</span>' : ""} · affects every slide of this funnel</div>`;
@@ -1358,7 +1358,7 @@ function renderCanvasPanel(templates: FrameTemplateItem[], sites: PreviewSiteOpt
     <a class="btn btn-sm btn-secondary" id="lg-slot-banner-open" href="#">Open Section</a>
   </div>
   <div class="lg-canvas-wrap" id="lg-canvas-wrap">
-    <iframe id="lg-preview-iframe" class="lg-frame-canvas" title="Funnel frame preview" sandbox="allow-same-origin"></iframe>
+    <iframe id="lg-preview-iframe" class="lg-frame-canvas" title="Funnel layout preview" sandbox="allow-same-origin"></iframe>
   </div>
   <p class="form-help" id="lg-canvas-status" role="status"></p>
 </div>`;
@@ -2579,7 +2579,7 @@ const QUOTE_EDITOR_SCRIPT = `
         ? putJson(funnelBase + '/frame', { frame_config_json: workingFrame })
         : Promise.resolve({ ok: true, body: null });
       step1.then(function (res1) {
-        if (!res1.ok) { throw new Error(saveFailureText(res1, 'Frame save')); }
+        if (!res1.ok) { throw new Error(saveFailureText(res1, 'Funnel-layout save')); }
         if (res1.body !== null) { frameDirty = false; }
         if (res1.body && res1.body.problems) { warned += res1.body.problems.length; }
         return themeDirty
