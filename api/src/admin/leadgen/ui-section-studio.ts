@@ -5349,15 +5349,46 @@ export const SECTION_STUDIO_SCRIPT = `
   // on mouseup drop before/after/into the node under the release point.
   var activeFieldMoveCleanup = null;
   function onFieldMoveMouseDown(ev) {
-    // Bound to a bare-input field element (the <input> that IS the
-    // [data-question-id] node). preventDefault stops the native caret/text-
-    // selection so a body drag can reorder instead.
-    var surface = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
+    // R7 U11a: the ONE canvas move gesture for EVERY node type. Delegated on
+    // the canvas surface (bindCanvasSurface) — a pointer press+drag on any
+    // node's BODY reorders it (before/into/after via elementFromPoint, the
+    // SAME semantics onCanvasDragOver computed). Native HTML5 DnD is retired
+    // for canvas moves (it is unobservable under Chrome automation and failed
+    // for the operator); this mouse-event path a real page.mouse can drive.
+    // preventDefault stops caret/text-selection so a body drag reorders. SKIP
+    // the affordances that own their own mousedown/click/drag so this never
+    // hijacks them: selection chrome (a drag on a resize handle must RESIZE —
+    // the R2 guard), intra-group choice cards (their own reorder — §6.2's
+    // OWN pre-existing, load-bearing click semantics: onCanvasClick routes a
+    // click on a choice card to selectChoice(), never the group — so a
+    // choice-bearing group's BODY is entirely claimed by its children and can
+    // never be this gesture's grab surface; see startFieldMove's outline-armed
+    // sibling path below for how those groups move instead), container resize
+    // handles, inline editing (caret placement), and the badge/picker click
+    // affordances onCanvasClick owns.
+    if (inlineEditing) { return; }
+    var t = ev.target;
+    if (!t || !t.closest) { return; }
+    if (t.closest('[data-selection-chrome],[data-lg-choice],[data-resize-handle],[data-field-resize-handle],[data-width-handle],[contenteditable="true"],[data-frame-keep],[data-frame-move],[data-choice-x],[data-choice-ghost],[data-funnel-picker]')) { return; }
+    var surface = t.closest('[data-question-id]');
     if (!surface) { return; }
+    startFieldMove(surface.getAttribute('data-question-id'), ev);
+  }
+  // The CORE move-arming logic, extracted from onFieldMoveMouseDown so a
+  // SECOND surface can start the SAME gesture for a qid it already knows: a
+  // CHOICE-BEARING group's body is entirely covered by its data-lg-choice
+  // children (excluded above, on purpose — §6.2 choice-card click/native-DnD
+  // reorder must keep winning there), so it has no "body" pixel left to grab.
+  // decorateFieldSelection arms this DIRECTLY on that group's own MEASURED
+  // OUTLINE instead (pointer-events:auto, mousedown -> startFieldMove(qid,
+  // ev)) — the exact same "outline doubles as the drag surface" precedent
+  // S1-5/S1-6 established for bare-input fields (whose OWN element is an
+  // <input> and so is also not its own grab surface), generalized to the
+  // OTHER type-class whose body is likewise claimed by something else.
+  function startFieldMove(qid, ev) {
     ev.preventDefault();
     if (ev.stopPropagation) { ev.stopPropagation(); }
     if (activeFieldMoveCleanup) { activeFieldMoveCleanup(); }
-    var qid = surface.getAttribute('data-question-id');
     var startX = ev.clientX, startY = ev.clientY;
     var innerDoc = canvasFrameDoc();
     var moved = false;
@@ -5388,7 +5419,27 @@ export const SECTION_STUDIO_SCRIPT = `
       dropHint = null;
       var over = doc.elementFromPoint(fx, fy);
       var host = over && over.closest ? over.closest('[data-question-id]') : null;
-      if (!host || host.getAttribute('data-question-id') === qid) { return; }
+      if (!host || host.getAttribute('data-question-id') === qid) {
+        // R7 U11a fix-cycle parity restore (conductor-ruled, post-SHIP MINOR
+        // finding): the retired native-DnD move path's else-branch moved a
+        // node released over EMPTY canvas space to the ROOT END
+        // (moveNodeTo(payload,null,null)) — mirrors onCanvasDragOver's OWN
+        // identical {qid:null,mode:'append'} fallback for the still-live
+        // palette-tile-insert gesture ('add:' drag, same file, canvasOwns
+        // guard). The local "over" value is non-null ONLY when (fx,fy) is
+        // inside the canvas iframe's OWN rendered viewport —
+        // doc.elementFromPoint's documented contract returns null for a
+        // point outside that document's viewport — so this branch fires for
+        // a genuine blank-canvas-space hover, never for a point outside the
+        // canvas entirely (that leaves dropHint null, exactly as before this
+        // fix — finishUp's own "no hint" guard still cancels, so an
+        // off-canvas release is unaffected).
+        // Hovering the DRAGGED NODE ITSELF (host resolves to its own qid) is
+        // excluded on purpose — that is unchanged pre-fix behavior, not part
+        // of this parity restore.
+        if (over && !host) { dropHint = { qid: null, mode: 'append' }; }
+        return;
+      }
       var hqid = host.getAttribute('data-question-id');
       var type = host.getAttribute('data-component-type');
       var rect = host.getBoundingClientRect();
@@ -5410,7 +5461,17 @@ export const SECTION_STUDIO_SCRIPT = `
       var hint = dropHint;
       cleanup();
       dropHint = null;
-      if (!moved || !hint || !hint.qid || hint.qid === qid) { return; }
+      if (!moved || !hint) { return; }
+      if (hint.mode === 'append') {
+        // R7 U11a fix-cycle parity restore: a release over blank canvas
+        // space (trackAt's identical-purpose comment above has the full
+        // rationale) moves the node to the ROOT END, same semantics the
+        // retired native-DnD else-branch used (moveNodeTo(payload,null,null)).
+        moveNodeTo(qid, null, null);
+        selectComponent(qid);
+        return;
+      }
+      if (!hint.qid || hint.qid === qid) { return; }
       if (hint.mode === 'into') { moveNodeTo(qid, hint.qid, null); }
       else {
         var ref = findRef(hint.qid);
@@ -5486,7 +5547,6 @@ export const SECTION_STUDIO_SCRIPT = `
     var oy = fr.top - wr.top;
     var ow = fr.width;
     var oh = fr.height;
-    var isBareInput = !!(node && isBareInputFieldType(node.type));
     // R2 adversarial-review MAJOR fix #1: whether THIS node's renderer
     // actually consumes design_overrides.size (see SIZE_CONSUMING_TYPES
     // above). Gates the resize handles + Custom badge below — the measured
@@ -5505,23 +5565,41 @@ export const SECTION_STUDIO_SCRIPT = `
     // stays directly clickable — S1-5/S1-6's move-drag is armed on the FIELD
     // element itself (below), not by covering it.
     var outlinePe = 'pointer-events:none';
-    // S1-5/S1-6: a bare-input field's [data-question-id] node is an <input>, so a
-    // native mouse drag on it arms caret/text-selection, not a move. Attach the
-    // MOUSE-EVENT move gesture (onFieldMoveMouseDown) directly to the input and
-    // preventDefault the caret so a body drag reorders it (Currency/Address div
-    // hosts reorder via ordinary native DnD; onFieldMoveMouseDown is bare-input
-    // only). cursor:move signals the affordance without intercepting clicks.
-    if (isBareInput && el.addEventListener) {
-      el.addEventListener('mousedown', onFieldMoveMouseDown);
-      el.style.cursor = 'move';
-    }
+    // R7 U11a: the move gesture is NO LONGER bound per-field here. It is
+    // DELEGATED once on the canvas surface (bindCanvasSurface → onFieldMove-
+    // MouseDown), covering EVERY node type — not just this selected bare
+    // input. The measured outline stays pointer-events:none (below) so the
+    // node body is the drag surface; the delegated handler skips this
+    // selection chrome so a drag on a handle still RESIZES.
     // The hex-bearing declaration-list literal STARTS with a property name in a
     // single .style.cssText sink statement (the §15.2 hex-lint idiom).
     outline.style.cssText = 'position:absolute;left:' + ox + 'px;top:' + oy + 'px;width:' + ow + 'px;height:' + oh + 'px;' + 'box-sizing:border-box;border-radius:12px;outline:2px solid #1B3A5C;outline-offset:3px;' + outlinePe;
     wrap.appendChild(outline);
     var tag = frameCreate('div');
     tag.setAttribute('data-selection-chrome', '1');
-    tag.style.cssText = 'position:absolute;top:' + (oy - 28) + 'px;left:' + ox + 'px;' + 'background:#1B3A5C;color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px 6px 6px 0;pointer-events:none;white-space:nowrap';
+    // R7 U11a: a CHOICE-BEARING group's body is entirely covered by its
+    // data-lg-choice children — onFieldMoveMouseDown deliberately skips
+    // them (their click/native-DnD is §6.2's own pre-existing choice-select/
+    // choice-reorder mechanism, load-bearing, untouched) — so the group has
+    // NO body pixel left to grab for a WHOLE-GROUP move. The name TAG sits
+    // ABOVE the field box (top: oy-28px), a disjoint region that never
+    // overlaps a choice card, so arming it as a grab handle (pointer-
+    // events:auto, cursor:move, mousedown -> startFieldMove) cannot ever
+    // intercept a choice click/drag — the SAME "outline/chrome doubles as
+    // the drag surface because the element's own body is claimed by
+    // something else" precedent S1-5/S1-6 established for bare-input fields
+    // (there: caret/text-selection; here: choice-card click/reorder),
+    // generalized to this OTHER not-directly-grabbable type-class. Every
+    // OTHER field-chrome type keeps the tag inert (pointer-events:none) —
+    // their body IS the grab surface via the delegated onFieldMoveMouseDown.
+    var isChoiceBearing = !!(node && typeMeta(node.type).choice === true);
+    tag.style.cssText = 'position:absolute;top:' + (oy - 28) + 'px;left:' + ox + 'px;' + 'background:#1B3A5C;color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px 6px 6px 0;white-space:nowrap;' + (isChoiceBearing ? 'pointer-events:auto;cursor:move' : 'pointer-events:none');
+    if (isChoiceBearing) {
+      // a STABLE, semantic locator for the move-arming path above (over a
+      // DOM-order-dependent one) — real-gesture specs target this directly.
+      tag.setAttribute('data-move-handle', qid);
+      tag.addEventListener('mousedown', function (tagEv) { startFieldMove(qid, tagEv); });
+    }
     // §5.6's "Short text field" tag is scoped to the 8-value Accept-swap
     // text-input family (acceptFormatOfNode returns non-null ONLY for those
     // 8 types) — every OTHER field kind reaching this 8-handle chrome
@@ -5609,24 +5687,18 @@ export const SECTION_STUDIO_SCRIPT = `
       qid = nodes[i].getAttribute('data-question-id');
       ref = findRef(qid);
       chromeKind = (qid === selectedQuestionId && ref) ? selectionChromeKind(ref.node) : null;
-      // R2 S1-5/S1-6: the blanket draggable="false" on EVERY selected field is
-      // GONE — it made choice groups / currency / address (the nodes the operator
-      // touches) un-movable, the "no component can be dragged" defect. Now only a
-      // SELECTED BARE-INPUT field keeps draggable="false", and for a real reason:
-      // its [data-question-id] node IS an <input>, so it is NOT the drag source
-      // (a native mouse drag on an input selects text, not a move) — the measured
-      // outline is its drag surface instead (onFieldMoveMouseDown, a mouse-event
-      // reorder). Every OTHER node (choice groups, currency/address div hosts,
-      // containers, the same field once deselected) is draggable="true" and
-      // reorders via ordinary native DnD. A drag starting ON a resize handle
-      // still RESIZES (the handle's mousedown preventDefaults + stopPropagations
-      // before any native drag can arm).
+      // R7 U11a: EVERY canvas node is draggable="false" now. Native HTML5 DnD
+      // is retired for canvas moves — every node type (bare inputs AND choice
+      // groups / currency / address / containers alike) reorders through the
+      // ONE delegated pointer gesture (onFieldMoveMouseDown), a real page.mouse
+      // can drive (unlike native DnD into the srcdoc iframe, which hangs in
+      // Chrome automation and failed for the operator). Native DnD survives
+      // ONLY for the parent-doc palette-tile INSERT (drag starts outside the
+      // iframe → no hang) and intra-group choice-card reorder. A drag starting
+      // ON a resize handle still RESIZES (the handle's own mousedown +
+      // onFieldMoveMouseDown's [data-selection-chrome] skip).
       nodeType = nodes[i].getAttribute('data-component-type');
-      // NOTE: this function is sliced-and-run STANDALONE by the studio-ui
-      // vm-probe, so the bare-input membership is inlined here rather than via
-      // the island-scoped isBareInputFieldType helper (undefined in a slice).
-      // Keep this list identical to BARE_INPUT_FIELD_TYPES above.
-      nodes[i].setAttribute('draggable', (chromeKind === 'field' && ',FreeTextQuestion,NumberInputQuestion,EmailInputQuestion,PhoneInputQuestion,ZIPInputQuestion,DateQuestion,'.indexOf(',' + nodeType + ',') !== -1) ? 'false' : 'true');
+      nodes[i].setAttribute('draggable', 'false');
       base = withoutClasses(nodes[i].className, [SELECT_CLASS]);
       nodes[i].className = qid === selectedQuestionId ? base + ' ' + SELECT_CLASS : base;
       // §5.4: legacy frame-scope node → amber badge (unless Keep-acknowledged
@@ -8876,18 +8948,19 @@ export const SECTION_STUDIO_SCRIPT = `
       document.addEventListener('mouseup', onUpOuter);
   }
   function onCanvasDragStart(ev) {
-      // §6.2: dragging a CHOICE card reorders choices within its component.
+      // §6.2: dragging a CHOICE card reorders choices within its component —
+      // the ONLY canvas native-DnD source that survives R7 U11a (intra-group,
+      // parent-doc palette insert aside). The node-MOVE 'move:' branch is
+      // RETIRED: every [data-question-id] node is draggable="false" now, so a
+      // native node dragstart can never fire — canvas node moves flow through
+      // the delegated pointer gesture (onFieldMoveMouseDown) instead.
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
       if (cardEl && ev.dataTransfer) {
         var cardHost = cardEl.closest ? cardEl.closest('[data-question-id]') : null;
         if (cardHost && typeMeta(cardHost.getAttribute('data-component-type')).choice === true) {
           ev.dataTransfer.setData('text/plain', 'choice:' + cardHost.getAttribute('data-question-id') + ':' + cardEl.getAttribute('data-lg-choice'));
-          return;
         }
       }
-      var el = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
-      if (!el || !ev.dataTransfer) { return; }
-      ev.dataTransfer.setData('text/plain', 'move:' + el.getAttribute('data-question-id'));
   }
   function onCanvasDragOver(ev) {
       ev.preventDefault();
@@ -8919,7 +8992,6 @@ export const SECTION_STUDIO_SCRIPT = `
       var kind = data.slice(0, data.indexOf(':'));
       var payload = data.slice(data.indexOf(':') + 1);
       var placed = null;
-      var ref;
       if (kind === 'choice') {
         // payload = qid:choiceValue → reorder BEFORE the card dropped on.
         var sepAt = payload.indexOf(':');
@@ -8952,15 +9024,11 @@ export const SECTION_STUDIO_SCRIPT = `
         else if (hint.mode === 'before' || hint.mode === 'after') { placed = insertRelative(hint.qid, hint.mode, addSpec.type, addSpec.childTypes, addSpec.defaultProps); }
         else { placed = addComponentAt(addSpec.type, null, null, addSpec.childTypes, addSpec.defaultProps); }
         if (placed) { selectComponent(placed.question_id); }
-      } else if (kind === 'move') {
-        if (payload === hint.qid) { return; }
-        if (hint.mode === 'into') { moveNodeTo(payload, hint.qid, null); }
-        else if (hint.mode === 'before' || hint.mode === 'after') {
-          ref = findRef(hint.qid);
-          if (ref) { moveNodeTo(payload, ref.parent ? ref.parent.question_id : null, ref.index + (hint.mode === 'after' ? 1 : 0)); }
-        } else { moveNodeTo(payload, null, null); }
-        selectComponent(payload);
       }
+      // R7 U11a: the 'move' kind is RETIRED here — canvas node reorders no
+      // longer ride native DnD (nodes are draggable="false"); the delegated
+      // pointer gesture (onFieldMoveMouseDown → moveNodeTo) owns node moves
+      // with the SAME before/into/after semantics this branch used to compute.
   }
   function onCanvasKeyDown(ev) {
       if (!selectedQuestionId) { return; }
@@ -8988,6 +9056,14 @@ export const SECTION_STUDIO_SCRIPT = `
     target.addEventListener('click', onCanvasClick);
     target.addEventListener('dblclick', onCanvasDblClick);
     target.addEventListener('mousedown', onCanvasMouseDown);
+    // R7 U11a: the ONE canvas move gesture, delegated on the surface for EVERY
+    // node type (after onCanvasMouseDown so a container resize-handle press is
+    // claimed first; onFieldMoveMouseDown skips [data-resize-handle] anyway).
+    target.addEventListener('mousedown', onFieldMoveMouseDown);
+    // dragstart/dragover/drop remain ONLY for (a) the parent-doc palette-tile
+    // INSERT ('add:' — drag starts outside the iframe, no hang) and (b) intra-
+    // group choice-card reorder ('choice:'). The node-MOVE branches ('move:')
+    // are retired below — every canvas node is draggable="false" now.
     target.addEventListener('dragstart', onCanvasDragStart);
     target.addEventListener('dragover', onCanvasDragOver);
     target.addEventListener('drop', onCanvasDrop);

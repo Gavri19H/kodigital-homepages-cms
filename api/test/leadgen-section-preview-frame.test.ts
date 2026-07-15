@@ -508,11 +508,11 @@ function unmapR5Typography(html: string): string {
 // rule + .lg-subheadline's color + the NEW question-card-only font-size
 // override — see designs/default-funnel/tokens.ts + styles.ts).
 const R5_OLD_HEADLINE_RULE =
-  `${DEFAULT_FUNNEL_SCOPE} .lg-headline{font-family:'Literata',serif;font-size:1.75rem;font-weight:700;line-height:1.25;color:#1A1F36;text-align:center;text-wrap:balance;margin:0 0 6px 0}`;
+  `${DEFAULT_FUNNEL_SCOPE} .lg-headline{font-family:'Literata',serif;font-size:1.75rem;font-weight:700;line-height:1.25;color:#1A1F36;text-align:center;text-wrap:balance;margin:0 0 9px 0}`;
 const R5_NEW_HEADLINE_RULE =
-  `${DEFAULT_FUNNEL_SCOPE} .lg-headline{font-family:'Newsreader',serif;font-size:31px;font-weight:600;line-height:1.15;color:#16324f;text-align:center;text-wrap:balance;margin:0 0 6px 0}`;
-const R5_OLD_SUBHEAD_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-subheadline{font-size:0.825rem;color:#4A5568;text-align:center;margin:0 0 20px 0}`;
-const R5_NEW_SUBHEAD_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-subheadline{font-size:0.825rem;color:#63707F;text-align:center;margin:0 0 20px 0}`;
+  `${DEFAULT_FUNNEL_SCOPE} .lg-headline{font-family:'Newsreader',serif;font-size:31px;font-weight:600;line-height:1.15;color:#16324f;text-align:center;text-wrap:balance;margin:0 0 9px 0}`;
+const R5_OLD_SUBHEAD_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-subheadline{font-size:0.825rem;color:#4A5568;text-align:center;margin:0 0 30px 0}`;
+const R5_NEW_SUBHEAD_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-subheadline{font-size:0.825rem;color:#63707F;text-align:center;margin:0 0 30px 0}`;
 // the surgical question-card-only 15px override is a NET-NEW appended rule
 // (array-join adds its own leading \n separator) — removed the same way
 // MOVED_CARD_RULES/MOVED_SEL_BG_RULE remove a net-new addition above.

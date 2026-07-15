@@ -280,6 +280,14 @@ describe("R2 adversarial-review MAJOR fix #1 — the SIZE-CONSUMING type predica
       "var ACCEPT_TYPE_FORMAT = {};",
       "function onFieldMoveMouseDown() {}",
       "function onWidthHandleMouseDown() {}",
+      // R7 U11a: decorateFieldSelection now calls typeMeta(node.type).choice
+      // to decide whether the name tag also arms as a move-handle (choice-
+      // bearing groups only). NameFieldsGroup is never a choice type, so a
+      // minimal stub (never consulting the real studioMeta) is sufficient —
+      // this test's own purpose (non-consuming-type handle rendering) is
+      // unaffected by the choice branch, which correctly never fires here.
+      "function typeMeta() { return {}; }",
+      "function startFieldMove() {}",
       sliceFn("buildHandle"),
       sliceFn("buildInertHandle"),
       sliceFn("decorateFieldSelection"),
@@ -430,8 +438,8 @@ describe("R2 S1-1/S1-2 — the selection overlay is MEASURED, not hardcoded", ()
   });
 });
 
-describe("R2 S1-5/S1-6 — bare-input fields drag via the outline; others via native DnD", () => {
-  it("the bare-input type set is exactly the renderTextInput family (no currency/address div hosts)", () => {
+describe("R7 U11a — EVERY node moves via the ONE delegated pointer gesture (native DnD retired for canvas moves)", () => {
+  it("the bare-input type set is still defined (renderTextInput family) for the size/inline-edit gates that consume it", () => {
     const line = sliceVarLine("var BARE_INPUT_FIELD_TYPES");
     for (const t of ["FreeTextQuestion", "NumberInputQuestion", "EmailInputQuestion", "PhoneInputQuestion", "ZIPInputQuestion", "DateQuestion"]) {
       expect(line).toContain(t);
@@ -439,11 +447,21 @@ describe("R2 S1-5/S1-6 — bare-input fields drag via the outline; others via na
     expect(line).not.toContain("CurrencyInputQuestion");
     expect(line).not.toContain("AddressAutocompleteQuestion");
   });
-  it("a bare-input field arms the mouse-event move gesture on the INPUT itself (outline stays pointer-events:none so the field is directly clickable)", () => {
+  it("the move gesture is DELEGATED on the canvas surface (bindCanvasSurface), not bound per-field", () => {
+    const bind = sliceFn("bindCanvasSurface");
+    expect(bind, "onFieldMoveMouseDown delegated on the surface").toContain(
+      "addEventListener('mousedown', onFieldMoveMouseDown)",
+    );
+    // the old per-field binding is GONE from decorateFieldSelection.
     const deco = sliceFn("decorateFieldSelection");
-    expect(deco).toContain("el.addEventListener('mousedown', onFieldMoveMouseDown)");
-    expect(deco).toContain("'pointer-events:none'");
-    expect(deco).not.toContain("data-drag-qid"); // the outline no longer covers the input
+    expect(deco).not.toContain("el.addEventListener('mousedown', onFieldMoveMouseDown)");
+    expect(deco).toContain("'pointer-events:none'"); // outline still doesn't cover the field
+  });
+  it("onFieldMoveMouseDown skips selection chrome / choice cards / handles so a drag on a handle still RESIZES", () => {
+    const mv = sliceFn("onFieldMoveMouseDown");
+    expect(mv).toContain("data-selection-chrome");
+    expect(mv).toContain("data-lg-choice");
+    expect(mv).toContain("data-question-id");
   });
 });
 

@@ -61,6 +61,47 @@ async function guard<T>(step: string, guardMs: number, op: () => Promise<T>): Pr
   }
 }
 
+export interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Clamp a point to lie within `box`, inset by `insetPx` on every side.
+ *
+ * Exists to eliminate an entire class of gesture-test fragility surfaced in
+ * the Section Builder v3.1 U11b/U12 remediation (2026-07-15): the funnel's
+ * live content column widened 500px->600px (a golden-fidelity fix — the
+ * golden's OWN composition column is 600px, golden-master-source.dc.html
+ * :296, and contract §7.1's "384 = 64% of the 600 column"). That widening
+ * pushed several fields' right resize handles closer to the studio canvas's
+ * right edge; a handful of gesture tests dragged those handles by a
+ * hardcoded rightward delta (+60/+80/+90px) calibrated against the OLD,
+ * narrower column. At 600 those same deltas landed the final mouseup PAST
+ * the canvas — into the inspector rail or off it entirely — so the drag
+ * never committed (nothing under the cursor to receive the mouseup) and a
+ * subsequent save+reload hung waiting for a "load" event that never fired.
+ * Proven by bisect: the identical drag/test passed at content.maxWidth=500
+ * and hung at 600 (same code, same test — only the column width differed).
+ *
+ * Clamping every drag target inside the canvas frame's own boundingBox (via
+ * RealDragOptions.clampToBox below) makes this overshoot class impossible
+ * for ANY future column-width value, not just today's 600 — a caller no
+ * longer needs to hand-tune a delta against a specific viewport/column size.
+ */
+export function clampPointToBox(point: Point, box: Box, insetPx = 4): Point {
+  const minX = box.x + insetPx;
+  const maxX = box.x + box.width - insetPx;
+  const minY = box.y + insetPx;
+  const maxY = box.y + box.height - insetPx;
+  return {
+    x: Math.min(Math.max(point.x, minX), maxX),
+    y: Math.min(Math.max(point.y, minY), maxY),
+  };
+}
+
 export interface RealDragOptions {
   /** Number of intermediate page.mouse.move calls between `from` and `to` (excludes the initial move-to-`from` and the final move-to-`to`). Default 5 — matches the register's P3DRAG finding that a hang can appear as early as the 2nd move, so multiple discrete steps (not one steps-internal Playwright move) are required for the hang to be observable and guardable per-step. */
   steps?: number;
@@ -68,6 +109,19 @@ export interface RealDragOptions {
   perStepGuardMs?: number;
   /** Optional settle wait (page.waitForTimeout) after mouse.up, in ms. Default 0 — callers assert their own settle/debounce window (e.g. the 300ms afterModelChange debounce documented in register §C S2). */
   settleMs?: number;
+  /**
+   * Optional bounding box — typically the canvas iframe's own
+   * `page.locator("#lg-studio-canvas-frame").boundingBox()` (page/viewport
+   * coordinates, the same space page.mouse operates in) — that the drag's
+   * TARGET is clamped inside (see clampPointToBox above for the incident
+   * this guards against: the 500->600 content-column overshoot class).
+   * Only `to` is clamped, never `from` — `from` is assumed valid because it
+   * comes from a real, actionable element's own boundingBox(); clamping it
+   * too could shift a mousedown off the element it is meant to grab.
+   */
+  clampToBox?: Box;
+  /** Inset (px) applied on all four sides of clampToBox. Default 4. */
+  clampInsetPx?: number;
 }
 
 /**
@@ -82,12 +136,17 @@ export interface RealDragOptions {
  * itself a valid, reportable finding (see register L5 P3DRAG/P4DRAG/P10DRAG:
  * "HANG (harness)" is a recorded verdict, not a bug to work around with
  * synthetic events).
+ *
+ * When `options.clampToBox` is set, `to` is clamped (clampPointToBox) BEFORE
+ * the per-step interpolation, so every intermediate move also stays between
+ * `from` and the clamped target — see RealDragOptions.clampToBox.
  */
 export async function realDrag(page: Page, from: Point, to: Point, options: RealDragOptions = {}): Promise<void> {
   const steps = options.steps ?? 5;
   const guardMs = options.perStepGuardMs ?? 5000;
-  const dx = (to.x - from.x) / steps;
-  const dy = (to.y - from.y) / steps;
+  const target = options.clampToBox ? clampPointToBox(to, options.clampToBox, options.clampInsetPx ?? 4) : to;
+  const dx = (target.x - from.x) / steps;
+  const dy = (target.y - from.y) / steps;
 
   await guard('mouse.move(from)', guardMs, () => page.mouse.move(from.x, from.y));
   await guard('mouse.down()', guardMs, () => page.mouse.down());
@@ -96,7 +155,7 @@ export async function realDrag(page: Page, from: Point, to: Point, options: Real
     const y = from.y + dy * i;
     await guard(`mouse.move(step ${i}/${steps})`, guardMs, () => page.mouse.move(x, y));
   }
-  await guard('mouse.move(to, final)', guardMs, () => page.mouse.move(to.x, to.y));
+  await guard('mouse.move(to, final)', guardMs, () => page.mouse.move(target.x, target.y));
   await guard('mouse.up()', guardMs, () => page.mouse.up());
   if (options.settleMs !== undefined && options.settleMs > 0) {
     await page.waitForTimeout(options.settleMs);

@@ -300,7 +300,10 @@ function sharedRows(): StyleRow[] {
     // (the engine autofocuses the first input; :focus border is navy #1B3A5C —
     // the base #D2D9E5 token is what applies once focus is normalised).
     ['[data-component-type="FreeTextQuestion"]', "border-top-color", hexToRgb("#D2D9E5"), "tokens.input.border #D2D9E5 / ref-JSON input.border (base state, post-blur)"],
-    ['[data-component-type="FreeTextQuestion"]', "border-radius", "10px", "tokens.input.borderRadius / ref-JSON input.borderRadius 10px"],
+    // R7 U12 FIX 3a (golden :884 fieldBoxStyle "border-radius:12px"): input
+    // radius 10px→12px, conductor-ruled 2026-07-15 — the ONE attributable
+    // delta on this row (border-top-color/font-size above are untouched).
+    ['[data-component-type="FreeTextQuestion"]', "border-radius", "12px", "tokens.input.borderRadius / ref-JSON input.borderRadius 12px"],
     ['[data-component-type="FreeTextQuestion"]', "font-size", "16px", "tokens.input.fontSize 1rem / ref-JSON input.fontSize 16px"],
   ];
 }

@@ -31,6 +31,13 @@ const DESIGN = defaultFunnelDesign;
 // matches the golden mockup (Newsreader/#16324f) and subheadline color is
 // golden's #63707F — the only bytes these pins carry forward from that
 // ratified, live-funnel-wide change.
+//
+// These two snapshots are the bare (unwrapped) per-node bytes — used AS-IS
+// against renderComponent() (the single-node path, which bypasses the
+// top-level render entirely and so never carries the card) and wrapped via
+// questionCard() below against renderSectionComponents() (which does, per
+// R7 U12 FIX 3b, golden :308, conductor-ruled 2026-07-15 — the unit-level
+// question card wraps the ENTIRE depth-1 render, unconditionally).
 const SNAPSHOT_HEADLINE_UNBOUND =
   `<h1 class="lg-headline" data-component-type="QuestionHeadline" data-question-id="h1"` +
   ` style="font-family:&#39;Newsreader&#39;,serif;color:#16324f">Are you insured?</h1>`;
@@ -38,6 +45,10 @@ const SNAPSHOT_HEADLINE_UNBOUND =
 const SNAPSHOT_SUBHEADLINE_UNBOUND =
   `<p class="lg-subheadline" data-component-type="Subheadline" data-question-id="s1"` +
   ` style="color:#63707F">Takes 2 minutes.</p>`;
+
+// The ONE attributable delta a renderSectionComponents() call carries over a
+// bare renderComponent()/snapshot comparison: the FIX 3b unit-level card.
+const questionCard = (inner: string): string => `<div class="lg-question-card">${inner}</div>`;
 
 // --- fixtures ---------------------------------------------------------------
 
@@ -83,8 +94,9 @@ describe("canonical-headline-binding — bound nodes render sectionCtx text (§3
   it("bound vs unbound differ ONLY in the text source (identical wrapper markup)", () => {
     const bound = renderSectionComponents([H_BOUND], DESIGN, ctx("Are you insured?"));
     // Same question_id + same text → byte-equal output (wrapper, attribute
-    // order, style, escaping are all shared with the props.text path).
-    expect(bound).toBe(SNAPSHOT_HEADLINE_UNBOUND);
+    // order, style, escaping are all shared with the props.text path), modulo
+    // the FIX 3b unit-level card every renderSectionComponents() call carries.
+    expect(bound).toBe(questionCard(SNAPSHOT_HEADLINE_UNBOUND));
   });
 
   it("a bound node ignores props.text absence — no props at all, never throws", () => {
@@ -109,19 +121,20 @@ describe("canonical-headline-binding — bound nodes render sectionCtx text (§3
 });
 
 describe("canonical-headline-binding — unbound legacy nodes render byte-identically (§3.4 legacy rule)", () => {
-  it("unbound QuestionHeadline without ctx === the pre-change snapshot", () => {
-    expect(renderSectionComponents([H_UNBOUND], DESIGN)).toBe(SNAPSHOT_HEADLINE_UNBOUND);
+  it("unbound QuestionHeadline without ctx === the pre-change snapshot (renderSectionComponents wraps the FIX 3b card; renderComponent bypasses it)", () => {
+    expect(renderSectionComponents([H_UNBOUND], DESIGN)).toBe(questionCard(SNAPSHOT_HEADLINE_UNBOUND));
     expect(renderComponent(H_UNBOUND, DESIGN)).toBe(SNAPSHOT_HEADLINE_UNBOUND);
   });
 
-  it("unbound Subheadline without ctx === the pre-change snapshot", () => {
-    expect(renderSectionComponents([S_UNBOUND], DESIGN)).toBe(SNAPSHOT_SUBHEADLINE_UNBOUND);
+  it("unbound Subheadline without ctx === the pre-change snapshot (renderSectionComponents wraps the FIX 3b card; renderComponent bypasses it)", () => {
+    expect(renderSectionComponents([S_UNBOUND], DESIGN)).toBe(questionCard(SNAPSHOT_SUBHEADLINE_UNBOUND));
     expect(renderComponent(S_UNBOUND, DESIGN)).toBe(SNAPSHOT_SUBHEADLINE_UNBOUND);
   });
 
   it("an unbound node IGNORES a present ctx — props.text still wins, byte-identically", () => {
     const html = renderSectionComponents([H_UNBOUND, S_UNBOUND], DESIGN, ctx("CTX H", "CTX S"));
-    expect(html).toBe(SNAPSHOT_HEADLINE_UNBOUND + SNAPSHOT_SUBHEADLINE_UNBOUND);
+    // ONE card wraps BOTH nodes (they're in the same depth-1 call/section).
+    expect(html).toBe(questionCard(SNAPSHOT_HEADLINE_UNBOUND + SNAPSHOT_SUBHEADLINE_UNBOUND));
     expect(html).not.toContain("CTX H");
     expect(html).not.toContain("CTX S");
   });
@@ -131,17 +144,19 @@ describe("canonical-headline-binding — ctx absent / null renders empty text gr
   it("bound QuestionHeadline with NO ctx renders empty text (no throw)", () => {
     const html = renderSectionComponents([H_BOUND], DESIGN);
     expect(html).toContain(`class="lg-headline"`);
-    expect(html).toMatch(/>(<\/h1>)$/);
+    // trailing </div> is the FIX 3b unit-level card close (renderSectionComponents
+    // always wraps at depth 1); the h1 itself still closes with empty text.
+    expect(html).toMatch(/>(<\/h1>)<\/div>$/);
   });
 
   it("bound Subheadline with NO ctx renders empty text (no throw)", () => {
     const html = renderSectionComponents([S_BOUND], DESIGN);
-    expect(html).toMatch(/>(<\/p>)$/);
+    expect(html).toMatch(/>(<\/p>)<\/div>$/);
   });
 
   it("subheadline_text: null (the DB column is nullable) renders empty text", () => {
     const html = renderSectionComponents([S_BOUND], DESIGN, ctx("H", null));
-    expect(html).toMatch(/>(<\/p>)$/);
+    expect(html).toMatch(/>(<\/p>)<\/div>$/);
   });
 
   it("renderComponent WITHOUT render state (single-node path) renders a bound node empty, not a throw", () => {
@@ -153,24 +168,24 @@ describe("canonical-headline-binding — ctx absent / null renders empty text gr
 describe("canonical-headline-binding — escaping equivalence (ctx text escaped exactly like props.text)", () => {
   const HOSTILE = `<script>alert(1)</script>" onmouseover="x" &amp; 'quotes'`;
 
-  it("hostile ctx headline text renders byte-identically to the same hostile props.text", () => {
+  it("hostile ctx headline text renders byte-identically to the same hostile props.text (modulo the FIX 3b card renderSectionComponents always wraps)", () => {
     const viaProps = renderComponent(
       { type: "QuestionHeadline", question_id: "h1", props: { text: HOSTILE } },
       DESIGN,
     );
     const viaCtx = renderSectionComponents([H_BOUND], DESIGN, ctx(HOSTILE));
-    expect(viaCtx).toBe(viaProps);
+    expect(viaCtx).toBe(questionCard(viaProps));
     expect(viaCtx).not.toContain("<script>");
     expect(viaCtx).toContain("&lt;script&gt;");
   });
 
-  it("hostile ctx subheadline text renders byte-identically to the same hostile props.text", () => {
+  it("hostile ctx subheadline text renders byte-identically to the same hostile props.text (modulo the FIX 3b card renderSectionComponents always wraps)", () => {
     const viaProps = renderComponent(
       { type: "Subheadline", question_id: "s1", props: { text: HOSTILE } },
       DESIGN,
     );
     const viaCtx = renderSectionComponents([S_BOUND], DESIGN, ctx("H", HOSTILE));
-    expect(viaCtx).toBe(viaProps);
+    expect(viaCtx).toBe(questionCard(viaProps));
     expect(viaCtx).not.toContain("<script>");
   });
 });

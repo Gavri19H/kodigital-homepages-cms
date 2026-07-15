@@ -69,6 +69,7 @@ export function funnelChromeCss(
     backButton,
     disclosure,
     content,
+    questionCard,
     progress,
     headline,
     subheadline,
@@ -160,6 +161,49 @@ export function funnelChromeCss(
     }),
   );
   mobile.push(rule(`${scope} .lg-content`, { padding: content.paddingMobile }));
+
+  // ---- R7 U12 FIX 3b: the question card (golden :308) ---------------------
+  // The section-unit's DEFAULT composition (presets.ts renderQuestionCard) —
+  // in the BASE sheet (never frameRegions-gated) so it reaches EVERY caller
+  // identically: studio canvas, admin preview simulator, live funnel
+  // (frameless legacy AND frame-composed alike). See the frame-coherence note
+  // at renderQuestionCard's definition + the neutralized `.lg-frame-slot--card`
+  // rule below (frameRegions block) for the "exactly one card, both
+  // directions" mechanism.
+  // R7 U11b/U12 FIX (browser-measurement finding, 2026-07-15): the golden's
+  // OWN canvas markup (golden :296-308) proves the card is the ONLY padding
+  // layer — a bare `width:600px` column directly containing the padded card,
+  // no intermediate padded wrapper. `.lg-content`'s own horizontal padding
+  // (content.paddingDesktop/Mobile — pre-existing, serves the `.lg-banners`
+  // sibling mount which is NOT card-wrapped) would otherwise DOUBLE-PAD the
+  // card (confirmed via a real browser measurement: a width:m FreeText
+  // measured a 13px off-center — .lg-content's 452px content-box minus the
+  // card's own 92px horizontal padding left only 360px, not enough for a
+  // 384px field to center, let alone fit). Canceling `.lg-content`'s
+  // padding on the card ALONE (negative margin, not a blanket removal) frees
+  // the card to use `.lg-content`'s FULL border-box width for its own
+  // golden-exact 46px/side padding, matching the golden's real structure,
+  // WITHOUT touching `.lg-banners`' own inset (a sibling, untouched).
+  out.push(
+    rule(`${scope} .lg-question-card`, {
+      background: questionCard.background,
+      border: questionCard.border,
+      "border-radius": questionCard.borderRadius,
+      "box-shadow": questionCard.boxShadow,
+      padding: questionCard.paddingDesktop,
+      "box-sizing": "border-box",
+      "margin-left": `calc(-1 * ${content.paddingDesktop})`,
+      "margin-right": `calc(-1 * ${content.paddingDesktop})`,
+    }),
+  );
+  mobile.push(
+    rule(`${scope} .lg-question-card`, {
+      padding: questionCard.paddingMobile,
+      // same padding-cancellation, using the MOBILE .lg-content padding value.
+      "margin-left": `calc(-1 * ${content.paddingMobile})`,
+      "margin-right": `calc(-1 * ${content.paddingMobile})`,
+    }),
+  );
 
   // ---- header (§14.2 header) ----------------------------------------------
   out.push(
@@ -390,6 +434,11 @@ export function funnelChromeCss(
     rule(`${scope} .lg-continue`, {
       width: "100%",
       "max-width": primaryButton.maxWidth,
+      // R7 U12: helper→Continue gap = golden :350's margin-top:26px (the
+      // fail-before was 0 — .lg-continue carried no top margin). This is the
+      // UNFRAMED inside_unit path; the framed below_unit slot owns its own 26
+      // and RESETS this to 0 (below) so the two never double-space.
+      "margin-top": "26px",
       "margin-left": "auto",
       "margin-right": "auto",
       background: `var(--lg-btn-bg, ${primaryButton.background})`,
@@ -766,11 +815,17 @@ export function funnelChromeCss(
     // searchable dropdown (08 §8.3): the search input sits above the <select>.
     rule(`${scope} .lg-dropdown-search`, { "margin-bottom": spacing.sm }),
     // currency input (08 §8.10): prefix symbol aligned inside the input box;
-    // the input clears it with token-derived left padding.
+    // the input clears it with token-derived left padding. R7 U12: input.padding
+    // is now the golden's ASYMMETRIC "16px 18px" (V H) — `left` takes ONE value,
+    // so derive the SIDE (horizontal) component (a 2-value shorthand → 2nd value,
+    // a 1-value → itself) so the `$` still aligns to the input's real left inset.
     rule(`${scope} .lg-currency`, { position: "relative" }),
     rule(`${scope} .lg-currency-prefix`, {
       position: "absolute",
-      left: input.padding,
+      left: (() => {
+        const p = input.padding.trim().split(/\s+/);
+        return p.length >= 2 ? p[1]! : p[0]!;
+      })(),
       top: "50%",
       transform: "translateY(-50%)",
       color: page.textSecondaryColor,
@@ -1149,15 +1204,26 @@ export function funnelChromeCss(
       rule(`${scope} .lg-frame-slot--w-s`, { "max-width": cardPanel.widthS }),
       rule(`${scope} .lg-frame-slot--w-m`, { "max-width": cardPanel.widthM }),
       rule(`${scope} .lg-frame-slot--w-l`, { "max-width": cardPanel.widthL }),
-      rule(`${scope} .lg-frame-slot--card`, {
-        background: color.card,
-        border: cardPanel.border,
-        "border-radius": content.cardRadius,
-        "box-shadow": shadow.md,
-      }),
-      rule(`${scope} .lg-frame-slot--card.lg-frame-slot--pad-s`, { padding: cardPanel.paddingS }),
-      rule(`${scope} .lg-frame-slot--card.lg-frame-slot--pad-m`, { padding: cardPanel.paddingM }),
-      rule(`${scope} .lg-frame-slot--card.lg-frame-slot--pad-l`, { padding: cardPanel.paddingL }),
+      // R7 U12 FIX 3b (conductor ruling, "no double card, both directions"):
+      // this class NO LONGER paints a box. The unit-level `.lg-question-card`
+      // (base sheet, above) is now the SINGLE SOURCE for the golden card look,
+      // reaching frameless AND frame-composed renders identically — so a
+      // frame whose OWN section_slot.card config is "card" (the FRAME_TEMPLATES
+      // default; frames.ts, out of this file's ownership) must NOT ALSO paint
+      // a competing background/border/shadow/padding here, or every default-
+      // template funnel would show two nested white boxes. The frame's own
+      // card/bare CONFIG PLUMBING is untouched (frame.ts still emits this
+      // class name + the 3 --pad-* modifiers unconditionally; a schema/config
+      // change is out of scope and out of this file) — only the VISUAL PAINT
+      // is removed. `box-sizing` is a harmless, non-painting placeholder that
+      // keeps the rule non-empty (styles.ts's rule() helper OMITS an
+      // empty-properties rule entirely) so `.lg-frame-slot--card` still
+      // appears in the sheet for anything keying on the class's presence
+      // (test/leadgen-frame-render.test.ts:523 asserts the string, not a
+      // property). The 3 `--pad-{s,m,l}` companions are REMOVED outright (no
+      // test references them; their only job was card-interior padding, now
+      // owned entirely by `.lg-question-card`'s own golden-exact padding).
+      rule(`${scope} .lg-frame-slot--card`, { "box-sizing": "border-box" }),
       rule(`${scope} .lg-frame-slot--off-s`, { "margin-top": spacing.xl }),
       rule(`${scope} .lg-frame-slot--off-m`, { "margin-top": spacing.xxl }),
       // ---- trust strip / benefit bar ------------------------------------------
@@ -1232,9 +1298,13 @@ export function funnelChromeCss(
       // FIX-4a `--lg-sel-bg` consumer followed under DEV-68: both style
       // frame-independent markup, unlike this slot.)
       rule(`${scope} .lg-continue-slot`, {
-        "margin-top": spacing.lg,
+        // R7 U12: the framed below_unit slot owns the golden :350 26px gap
+        // (was spacing.lg=24). The Continue inside it resets its own 26 to 0
+        // (next rule) so framed spacing == unframed == 26 with NO double.
+        "margin-top": "26px",
         "text-align": "center",
       }),
+      rule(`${scope} .lg-continue-slot .lg-continue`, { "margin-top": "0" }),
     );
     // frame mobile behaviors (§3.3 footer.hide_on_mobile + mobile.hide_footer;
     // trust_strip.mobile scroll/hide) — same single media query.
