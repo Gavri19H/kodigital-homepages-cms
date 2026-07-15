@@ -2616,10 +2616,17 @@ const QUOTE_EDITOR_SCRIPT = `
   // blob (no fetches on boot); every config change round-trips through
   // POST /variants/:id/preview with draft_frame_config/draft_theme — the
   // server render is the canvas authority (client merges only POPULATE the
-  // inspector controls). Region click-select uses the same-origin srcdoc
-  // contentDocument directly (sandbox="allow-same-origin", scripts inert):
-  // the parent attaches ONE click listener per load — no postMessage bridge,
-  // no script injected into the composed page.
+  // inspector controls). Region select here is CLICK-ONLY (the parent
+  // attaches ONE 'click' listener per load — no postMessage bridge, no script
+  // injected into the composed page). Because discrete click events DO deliver
+  // across a scripts-disabled srcdoc boundary in every engine, this iframe
+  // KEEPS sandbox="allow-same-origin" (no allow-scripts): scripts stay inert
+  // by the sandbox itself, no CSP meta needed. Contrast the Section-Builder
+  // studio canvas (ui-section-studio.ts), which drives HELD-BUTTON page.mouse
+  // drags — those DON'T deliver across a scripts-disabled boundary under
+  // Chromium, so it grants allow-scripts + a script-src 'none' CSP instead
+  // (the U13 fix). No held-button gesture is bound to THIS iframe, so it needs
+  // neither.
   // ==========================================================================
 
   function readBlob(id) {

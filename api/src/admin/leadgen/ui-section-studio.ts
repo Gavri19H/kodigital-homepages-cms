@@ -71,8 +71,12 @@
 // 375 — §6.1.4 semantics, the ui-quotes canvas idiom), the markup inside is
 // still OUR OWN preset render (parity by construction), and the island
 // re-binds the §6.2 canvas delegation onto iframe.contentDocument
-// (sandbox="allow-same-origin", scripts inert — the ui-quotes onCanvasClick
-// idiom), so every selection hit-target keeps working.
+// (sandbox="allow-same-origin allow-scripts"; script execution is killed by
+// the srcdoc's OWN first-in-head CSP meta script-src 'none' — NOT by the
+// sandbox, which now grants allow-scripts precisely so Chromium delivers
+// held-button page.mouse streams across the frame boundary, the U13 dead-drag
+// fix; the ui-quotes onCanvasClick idiom), so every selection hit-target keeps
+// working.
 //
 // Save path is UNCHANGED from the old island: POST /sections (new) or PATCH
 // /sections/:id with {section_name, activity, vertical, headline_text,
@@ -1172,7 +1176,15 @@ export function studioCanvasFrameSrcdoc(
   ctx?: { headline_text: string; subheadline_text: string | null },
 ): string {
   return (
-    `<!doctype html><html><head><meta charset="utf-8"><style>${SECTION_STUDIO_CANVAS_FRAME_CSS}</style></head>` +
+    // U13 fix (2026-07-15): the CSP meta is emitted FIRST-in-head, right after
+    // the charset meta and BEFORE the <style> — only our own fixed bytes
+    // (doctype/html/head/charset) precede it; all user-derived content lands in
+    // <body> below. script-src 'none' makes every script vector inert (inline
+    // <script>, on* handler attrs, javascript: URLs) even though the iframe's
+    // sandbox now grants allow-scripts — the scripting grant exists ONLY so
+    // Chromium delivers held-button page.mouse streams across the srcdoc
+    // boundary (the operator's dead-drag root cause), never to run page script.
+    `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'"><style>${SECTION_STUDIO_CANVAS_FRAME_CSS}</style></head>` +
     `<body><div class="studio-canvas-render" id="lg-studio-canvas-render">${studioCanvasDocument(content, design, ctx)}</div></body></html>`
   );
 }
@@ -1443,7 +1455,7 @@ export function renderStudioCanvas(
   <p class="studio-refusal alert alert-error" data-studio-drop-refusal hidden role="status" aria-live="polite"></p>
   <div class="studio-canvas-surface" id="lg-studio-canvas" tabindex="0" aria-label="Section canvas — click a component to select; arrow keys reorder; Delete removes; Escape selects the parent">
     ${renderFrameHintSkeleton("top")}
-    <iframe id="lg-studio-canvas-frame" class="studio-canvas-frame" title="Section canvas" sandbox="allow-same-origin" data-canvas-frame-viewport="desktop" srcdoc="${escapeHtml(studioCanvasFrameSrcdoc(content, design, ctx))}"></iframe>
+    <iframe id="lg-studio-canvas-frame" class="studio-canvas-frame" title="Section canvas" sandbox="allow-same-origin allow-scripts" data-canvas-frame-viewport="desktop" srcdoc="${escapeHtml(studioCanvasFrameSrcdoc(content, design, ctx))}"></iframe>
     ${renderFrameHintSkeleton("bottom")}
     <div class="studio-canvas-empty" data-studio-canvas-empty${empty ? "" : " hidden"}><p>No components yet.</p><p class="form-help">Add a component from the library on the left, or drag one in.</p></div>
   </div>
