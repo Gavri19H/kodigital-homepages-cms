@@ -166,8 +166,8 @@
 //      widened select's background/border edge is a small, low-contrast
 //      change; the multi-line wrapped TEXT downstream is far more sensitive
 //      to a few px of reflow).
-//  (B) y~2200-2249 (~2.2k changed px): the drawer's "Preview in Quote frame:"
-//      picker group (`renderPreviewPanel`, `data-studio-frame-preview`). Its
+//  (B) y~2200-2249 (~2.2k changed px): the drawer's "Preview with funnel
+//      layout:" picker group (`renderPreviewPanel`, `data-studio-frame-preview`). Its
 //      4 selects share `.lg-preview-design{width:auto}` (no max-width) and
 //      `data-frame-pick-quote` is repopulated by loadFramePickerQuotes()
 //      from the ADMIN-WIDE, UNSCOPED `/api/admin/leadgen/quotes` list.

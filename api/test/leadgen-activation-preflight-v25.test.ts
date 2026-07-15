@@ -468,8 +468,10 @@ describeDb("activation-preflight-v25 (14 §14.1 rows fire with contract severiti
     }
     expect(chrome.message).toContain("render twice");
     // §14.1 full copy pattern: the remedy names the Section Builder's
-    // [Move to Quote frame] action next to the legacy-override alternative.
-    expect(chrome.message).toContain("[Move to Quote frame] in the Section Builder");
+    // [Move to funnel layout] action next to the legacy-override alternative.
+    // U15 fix-round (2026-07-15): renamed from "[Move to Quote frame]" to
+    // match ui-section-studio.ts's renamed button verbatim.
+    expect(chrome.message).toContain("[Move to funnel layout] in the Section Builder");
 
     // Row 7 — duplicate Continue → warning.
     const dup = firstMatch(
@@ -687,8 +689,8 @@ describeDb("C2 LIVE (Phase D) — error-severity problems block the activation P
     expect(chrome.message).toContain("contains page-frame elements");
     expect(chrome.message).toContain("render twice");
     // §14.1 full copy pattern: BOTH remedies — the Section Builder's
-    // [Move to Quote frame] action and the Advanced legacy override.
-    expect(chrome.message).toContain("Remove them ([Move to Quote frame] in the Section Builder)");
+    // [Move to funnel layout] action and the Advanced legacy override.
+    expect(chrome.message).toContain("Remove them ([Move to funnel layout] in the Section Builder)");
     expect(chrome.message).toContain("legacy override under Advanced");
     // §14.2 fix link: the [Review slide] deep link the copy table names —
     // the message mention never replaces it.

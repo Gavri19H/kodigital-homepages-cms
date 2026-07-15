@@ -44,10 +44,10 @@
 // saved-presets dropdown), §6.5 context matrix (pure toolbarClustersFor),
 // §6.2 canvas interaction (dblclick inline text editing, per-choice
 // selection, inline choice ops, width-preset resize snap, Del/Esc keys),
-// §6.4 choice cluster, §5.4 Move-to-Quote-frame semantics (single-funnel
+// §6.4 choice cluster, §5.4 Move-to-funnel-layout semantics (single-funnel
 // confirm naming the funnel → real PUT /funnels/:id/frame + node removal
 // persisted on the same action; used-by-many → funnel picker), §5.3 mode 5
-// Preview-in-Quote-frame (frame picker + site selector → the landed
+// Preview-with-funnel-layout (frame picker + site selector → the landed
 // sections/preview frame_context param; exact empty-state copy), §5.5 choice
 // depth (per-choice icon/emoji/image picker cells, title/subtitle/badge/
 // disabled/aria_label, bulk paste label = value, searchable-dropdown toggle),
@@ -2401,13 +2401,13 @@ function designPickerOptions(): string {
 // and the island un-hides ALL of them together when the toggle is checked.
 function renderPreviewPanel(): string {
   return `<div class="lg-preview-controls" data-lg-preview-controls>
-  <div class="studio-frame-preview" data-studio-frame-preview role="group" aria-label="Preview in Quote frame">
-    <span class="form-help">Preview in Quote frame:</span>
-    <select class="form-input lg-preview-design" data-frame-pick-quote aria-label="Quote"><option value="">&#8212; no frame (unit only) &#8212;</option></select>
+  <div class="studio-frame-preview" data-studio-frame-preview role="group" aria-label="Preview with funnel layout">
+    <span class="form-help">Preview with funnel layout:</span>
+    <select class="form-input lg-preview-design" data-frame-pick-quote aria-label="Quote"><option value="">&#8212; no funnel layout (unit only) &#8212;</option></select>
     <select class="form-input lg-preview-design" data-frame-pick-funnel aria-label="Funnel" disabled><option value="">Funnel&#8230;</option></select>
     <select class="form-input lg-preview-design" data-frame-pick-variant aria-label="Variant" disabled><option value="">Variant&#8230;</option></select>
     <select class="form-input lg-preview-design" data-frame-pick-site aria-label="Site branding" disabled><option value="">&#8212; no site branding &#8212;</option></select>
-    <p class="form-help studio-frame-empty" data-frame-preview-empty hidden>This Section isn’t used in any Quote yet — previewing in the default frame.</p>
+    <p class="form-help studio-frame-empty" data-frame-preview-empty hidden>This Section isn’t used in any Quote yet — previewing in the default funnel layout.</p>
   </div>
   <div class="lg-viewport-toggle" role="group" aria-label="Preview viewport">
     <button type="button" class="btn btn-sm btn-secondary active" data-preview-viewport="desktop" aria-pressed="true">Desktop</button>
@@ -3604,7 +3604,7 @@ export const SECTION_STUDIO_SCRIPT = `
     return 'Provider values: ' + set + '/' + rows.length + ' Offers';
   }
 
-  // --- §5.4 Move to Quote frame: the equivalent frame_config_json group ---------
+  // --- §5.4 Move to funnel layout: the equivalent frame_config_json group -------
   // Legacy frame-scope node → the sparse §3.3 group the funnel frame PUT
   // accepts (closed enums; role colours; arrays replaced whole).
   function equivalentFrameGroup(node) {
@@ -3798,10 +3798,10 @@ export const SECTION_STUDIO_SCRIPT = `
     if (isContainerType(node.type) && node.children && node.children.length > 0) {
       contentsNote = ' Its contents stay in this Section.';
     }
-    return 'Move this ' + typeLabel(node.type) + ' into the Quote frame of funnel \\u201C' + funnelName + '\\u201D?\\nIt leaves this Section and becomes part of that funnel\\u2019s frame (edited in the Quote Builder).' + contentsNote + ' The Section change saves now.';
+    return 'Move this ' + typeLabel(node.type) + ' into the funnel layout of \\u201C' + funnelName + '\\u201D?\\nIt leaves this Section and becomes part of that funnel\\u2019s layout (edited in the Quote Builder).' + contentsNote + ' The Section change saves now.';
   }
 
-  // --- §5.3 mode 5: Preview in Quote frame --------------------------------------
+  // --- §5.3 mode 5: Preview with funnel layout ----------------------------------
   var framePick = { quote: '', funnel: '', variant: '', site: '' };
   var framePickFunnels = [];
   function frameContextBody() {
@@ -4969,14 +4969,14 @@ export const SECTION_STUDIO_SCRIPT = `
     badge.className = 'studio-frame-badge';
     badge.setAttribute('data-frame-badge', qid);
     var text = document.createElement('span');
-    text.appendChild(document.createTextNode('Page-frame element \\u2014 belongs to the Quote frame \\u00B7'));
+    text.appendChild(document.createTextNode('Part of the funnel layout \\u2014 shared across this funnel \\u00B7'));
     badge.appendChild(text);
     var move = document.createElement('button');
     move.type = 'button';
     move.className = 'btn btn-sm btn-outline';
     move.setAttribute('data-frame-move', qid);
-    move.title = 'Move this ' + typeLabel(type) + ' into the Quote frame (edited in the Quote Builder).';
-    move.appendChild(document.createTextNode('Move to Quote frame'));
+    move.title = 'Move this ' + typeLabel(type) + ' into the funnel layout (edited in the Quote Builder).';
+    move.appendChild(document.createTextNode('Move to funnel layout'));
     badge.appendChild(move);
     var keep = document.createElement('button');
     keep.type = 'button';
@@ -4987,7 +4987,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // C2 consequence (§5.4): the badge NAMES the activation block.
     var note = document.createElement('span');
     note.className = 'studio-frame-badge-note';
-    note.appendChild(document.createTextNode('While a funnel using this Section has a configured frame, activation blocks on this element unless that funnel\\u2019s Advanced override allows it.'));
+    note.appendChild(document.createTextNode('While a funnel using this Section has a configured funnel layout, activation blocks on this element unless that funnel\\u2019s Advanced override allows it.'));
     badge.appendChild(note);
     return badge;
   }
@@ -5767,7 +5767,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (scopeState === 'choice') { return 'Affects: this card only.'; }
     if (scopeState === 'component' && node) {
       if (typeMeta(node.type).scope === 'frame') {
-        return 'Affects: a page-frame element kept inside this Section \\u2014 the frame itself is edited in the Quote Builder.';
+        return 'Affects: a funnel-layout element kept inside this Section \\u2014 the funnel layout itself is edited in the Quote Builder.';
       }
       return 'Affects: this question unit \\u2014 in every quote that uses this Section.';
     }
@@ -8452,7 +8452,7 @@ export const SECTION_STUDIO_SCRIPT = `
     }).catch(function () { mediaPickerStatus('Image generation failed: network error.'); });
   }
 
-  // --- §5.4 Move to Quote frame: the LIVE action ---------------------------------
+  // --- §5.4 Move to funnel layout: the LIVE action -------------------------------
   function showMoveNote(text) {
     var note = document.querySelector('[data-studio-pending-note]');
     if (note) { note.hidden = false; note.textContent = text; }
@@ -8483,7 +8483,7 @@ export const SECTION_STUDIO_SCRIPT = `
     removeMovedFrameNode(qid);
     if (selectedQuestionId === qid) { selectComponent(null); }
     if (!state.public_id) {
-      showMoveNote('Moved into the Quote frame of “' + funnel.name + '”. Save the Section to persist the removal.');
+      showMoveNote('Moved into the funnel layout of “' + funnel.name + '”. Save the Section to persist the removal.');
       return;
     }
     fetch('/api/admin/leadgen/sections/' + encodeURIComponent(state.public_id), {
@@ -8501,7 +8501,7 @@ export const SECTION_STUDIO_SCRIPT = `
       return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
       if (!res.ok) {
-        showRefusal('The element moved into the frame, but saving its removal failed: ' + ((res.body && res.body.error) || 'error') + ' — Save the Section to persist it.');
+        showRefusal('The element moved into the funnel layout, but saving its removal failed: ' + ((res.body && res.body.error) || 'error') + ' — Save the Section to persist it.');
         return;
       }
       // R4a deliverable 20 scope note: NOT wired to renderDirtyIndicator()
@@ -8512,9 +8512,9 @@ export const SECTION_STUDIO_SCRIPT = `
       // its isolated sandbox. The indicator still catches up on the next
       // markDirty()/Save.
       if (!wasDirty) { dirty = false; }
-      showMoveNote('Moved into the Quote frame of “' + funnel.name + '” — the Section was saved without the element.');
+      showMoveNote('Moved into the funnel layout of “' + funnel.name + '” — the Section was saved without the element.');
     }).catch(function () {
-      showRefusal('The element moved into the frame, but saving its removal failed — Save the Section to persist it.');
+      showRefusal('The element moved into the funnel layout, but saving its removal failed — Save the Section to persist it.');
     });
   }
   function doMoveToFrame(qid, funnel) {
@@ -8530,7 +8530,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!confirmSaveMigrationLoss()) { return; }
     var group = equivalentFrameGroup(ref.node);
     if (group === null) {
-      showRefusal('This element has no Quote-frame equivalent — configure it in the Quote Builder instead.');
+      showRefusal('This element has no funnel-layout equivalent — configure it in the Quote Builder instead.');
       return;
     }
     var wasDirty = dirty;
@@ -8541,7 +8541,7 @@ export const SECTION_STUDIO_SCRIPT = `
       return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
       if (!res.ok) {
-        showRefusal('Could not read the funnel frame — the element stays in this Section.');
+        showRefusal('Could not read the funnel layout — the element stays in this Section.');
         return null;
       }
       var merged = mergeFrameGroups(res.body ? res.body.frame_config : null, group);
@@ -8554,13 +8554,13 @@ export const SECTION_STUDIO_SCRIPT = `
         return r2.json().then(function (j2) { return { ok: r2.ok, body: j2 }; });
       }).then(function (putRes) {
         if (!putRes.ok) {
-          showRefusal('Frame save failed: ' + ((putRes.body && putRes.body.error) || 'error') + ' — the element stays in this Section.');
+          showRefusal('Funnel-layout save failed: ' + ((putRes.body && putRes.body.error) || 'error') + ' — the element stays in this Section.');
           return;
         }
         finishMoveToFrame(qid, funnel, wasDirty);
       });
     }).catch(function () {
-      showRefusal('Frame save failed — the element stays in this Section.');
+      showRefusal('Funnel-layout save failed — the element stays in this Section.');
     });
   }
   function funnelPickBtn(qid, funnel) {
@@ -8594,7 +8594,7 @@ export const SECTION_STUDIO_SCRIPT = `
   function startMoveToFrame(qid) {
     var funnels = usageFunnelsOf();
     if (funnels.length === 0) {
-      showRefusal('This Section isn’t used by any funnel yet — there is no Quote frame to move this element into. Configure the frame in the Quote Builder.');
+      showRefusal('This Section isn’t used by any funnel yet — there is no funnel layout to move this element into. Configure it in the Quote Builder.');
       return;
     }
     if (funnels.length === 1) { doMoveToFrame(qid, funnels[0]); return; }
@@ -9868,7 +9868,7 @@ export const SECTION_STUDIO_SCRIPT = `
     };
     if (state.public_id) { requestBody.section_public_id = state.public_id; }
     if (simState !== 'default') { requestBody.sim.answers = sampleAnswers(); }
-    // §5.3 mode 5: a picked Quote frame rides the LANDED frame_context param —
+    // §5.3 mode 5: a picked funnel layout rides the LANDED frame_context param —
     // the unit renders inside that funnel's effective frame (13 §13.4).
     var frameCtx = frameContextBody();
     if (frameCtx !== null) { requestBody.frame_context = frameCtx; }

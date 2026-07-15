@@ -18,7 +18,7 @@
 //              tabbed inspector (bound headline/subheadline via the §5.2
 //              Question strip — the palette items insert BOUND nodes), then
 //          asserts the COMPOSED result through the studio's §5.3 mode-5
-//          "Preview in Quote frame" pickers (Quote → Funnel → Variant →
+//          "Preview with funnel layout" pickers (Quote → Funnel → Variant →
 //          Site): the SAME capabilities the v2.4 tests asserted — progress,
 //          branded header, trust/logo area, step dots, background, back
 //          affordance, legal footer — as rendered markup/roles, never SSR
@@ -340,7 +340,7 @@ async function waitComposedPreview(page: Page, template: string): Promise<void> 
   ).toBeAttached({ timeout: 20_000 });
 }
 
-// Drive the §5.3 mode-5 "Preview in Quote frame" pickers: Quote → Funnel →
+// Drive the §5.3 mode-5 "Preview with funnel layout" pickers: Quote → Funnel →
 // Variant (progress totals ride the variant) → Site branding. Each cascade
 // level's options load asynchronously — wait for the option, then select.
 async function pickFrameForPreview(

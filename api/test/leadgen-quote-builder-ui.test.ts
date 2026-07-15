@@ -1047,10 +1047,11 @@ describeDb("Activation tab problems[] surfacing (14 §14.2, C2 LIVE)", () => {
     expect(html).toContain(`data-problem-path="section.${chromePublicId}.content"`);
     expect(html).toContain("contains page-frame elements");
     expect(html).toContain("render twice");
-    // §14.1 full copy: the [Move to Quote frame] remedy SSRs in the message
-    // ("slide"/"[Move to Quote frame]" are Quote-Builder activation copy —
-    // legal vocabulary on this surface per the C6 glossary scope).
-    expect(html).toContain("[Move to Quote frame] in the Section Builder");
+    // §14.1 full copy: the [Move to funnel layout] remedy SSRs in the message
+    // ("slide"/"[Move to funnel layout]" are Quote-Builder activation copy —
+    // legal vocabulary on this surface per the C6 glossary scope). U15
+    // fix-round (2026-07-15): renamed from "[Move to Quote frame]".
+    expect(html).toContain("[Move to funnel layout] in the Section Builder");
     // the fix_url deep link with the derived label
     expect(html).toContain(`href="/admin/leadgen/sections/${chromePublicId}/edit"`);
     expect(html).toContain(">Review slide</a>");

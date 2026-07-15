@@ -3288,12 +3288,16 @@ async function computeVariantV25Problems(
               scope: "section",
               severity: "error",
               // §14.1 copy pattern in full — the remedy names the Section
-              // Builder's [Move to Quote frame] action (message text only;
+              // Builder's [Move to funnel layout] action (message text only;
               // fix_url stays the [Review slide] section-edit deep link).
               // "Slide" is LEGAL here: this copy renders on Quote-Builder
               // activation surfaces (preflight panel / 409 problems), never
-              // on a Section-Builder page (C6 lint scope).
-              message: `Slide ${slide} '${row.section_name}' contains page-frame elements (${chromeTypes.join(", ")}) that would render twice on the live page. Remove them ([Move to Quote frame] in the Section Builder) or enable the legacy override under Advanced.`,
+              // on a Section-Builder page (C6 lint scope). U15 fix-round
+              // (2026-07-15): the bracketed button-name reference is updated
+              // to match ui-section-studio.ts's renamed "Move to funnel
+              // layout" button verbatim — this message must keep pointing at
+              // a button that exists.
+              message: `Slide ${slide} '${row.section_name}' contains page-frame elements (${chromeTypes.join(", ")}) that would render twice on the live page. Remove them ([Move to funnel layout] in the Section Builder) or enable the legacy override under Advanced.`,
               fix_url: fixSection,
             },
       );
@@ -3305,7 +3309,7 @@ async function computeVariantV25Problems(
         path: `section.${row.public_id}.progress`,
         scope: "section",
         severity: "warning",
-        message: `Slide ${slide} '${row.section_name}' renders its own progress indicator — the Quote frame already shows progress on every slide.`,
+        message: `Slide ${slide} '${row.section_name}' renders its own progress indicator — the funnel layout already shows progress on every slide.`,
         fix_url: fixSection,
       });
     }
@@ -3314,7 +3318,7 @@ async function computeVariantV25Problems(
         path: `section.${row.public_id}.back`,
         scope: "section",
         severity: "warning",
-        message: `Slide ${slide} '${row.section_name}' renders its own back link — the Quote frame already shows back navigation.`,
+        message: `Slide ${slide} '${row.section_name}' renders its own back link — the funnel layout already shows back navigation.`,
         fix_url: fixSection,
       });
     }

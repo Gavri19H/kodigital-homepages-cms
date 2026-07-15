@@ -4248,19 +4248,21 @@ describeDb("v3.1 §6.1/§6.3 — unit-only canvas scope", () => {
     const badge = probe.run("buildFrameBadge('q_hb', 'HeaderBar')") as unknown as StubEl;
     expect(badge.className).toBe("studio-frame-badge");
     expect(badge.getAttribute("data-frame-badge")).toBe("q_hb");
-    expect(badge.allText()).toContain("Page-frame element — belongs to the Quote frame ·");
+    // U15 fix-round (2026-07-15): "Page-frame element — belongs to the Quote
+    // frame ·" -> "Part of the funnel layout — shared across this funnel ·".
+    expect(badge.allText()).toContain("Part of the funnel layout — shared across this funnel ·");
     const move = badge.children.find((c) => c.getAttribute("data-frame-move") !== null)!;
-    expect(move.allText()).toBe("Move to Quote frame");
+    expect(move.allText()).toBe("Move to funnel layout"); // U15: "Move to Quote frame" renamed
     // wave 2: the Move ACTION is LIVE — no disabled attribute anymore
     expect(move.disabled, "the §5.4 Move action shipped — the button is enabled").not.toBe(true);
-    expect(move.title).toContain("Quote frame");
+    expect(move.title).toContain("funnel layout");
     const keep = badge.children.find((c) => c.getAttribute("data-frame-keep") !== null)!;
     // R5 jargon purge: "Keep (legacy)" -> "Keep as-is" (the word "legacy"
     // never renders).
     expect(keep.allText()).toBe("Keep as-is");
     // C2 (§5.4): the badge NAMES the activation consequence
     expect(badge.allText()).toContain(
-      "While a funnel using this Section has a configured frame, activation blocks on this element unless that funnel’s Advanced override allows it.",
+      "While a funnel using this Section has a configured funnel layout, activation blocks on this element unless that funnel’s Advanced override allows it.",
     );
     // the decoration pass gates on scope === 'frame' + the session Keep store,
     // and the canvas click handler consumes [data-frame-keep] with NO model change
@@ -5256,7 +5258,7 @@ describeDb("wave 2 — §9.4 Design-tab role decorations (executed)", () => {
   });
 });
 
-describeDb("wave 2 — §5.3 mode 5: Preview in Quote frame", () => {
+describeDb("wave 2 — §5.3 mode 5: Preview with funnel layout", () => {
   it("SSR ships the frame picker + the EXACT empty-state copy; the island sends frame_context to the landed preview param", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
@@ -5265,7 +5267,7 @@ describeDb("wave 2 — §5.3 mode 5: Preview in Quote frame", () => {
       expect(html, hook).toContain(hook);
     }
     // the §5.3 empty state, verbatim
-    expect(html).toContain("This Section isn’t used in any Quote yet — previewing in the default frame.");
+    expect(html).toContain("This Section isn’t used in any Quote yet — previewing in the default funnel layout.");
     const island = studioIsland(html);
     expect(island).toContain("requestBody.frame_context = frameCtx;");
     // executed: frameContextBody builds the §13.4 param shape
@@ -5361,7 +5363,7 @@ describeDb("wave 2 — §5.3 mode 5: Preview in Quote frame", () => {
   });
 });
 
-describeDb("wave 2 — §5.4 Move to Quote frame (LIVE semantics)", () => {
+describeDb("wave 2 — §5.4 Move to funnel layout (LIVE semantics)", () => {
   const FRAME_NODE_CONTENT = {
     components: [
       { type: "TwoButtonYesNo", question_id: "q1", question_key: "insured_q", internal_field: "currently_insured", answer_type: "boolean" },
@@ -7010,7 +7012,7 @@ describeDb("review FIX 5 — save-response problems[] + inline routing", () => {
       severity: "warning",
       path: "components[1]",
     });
-    expect(String(body.problems[0]!["message"])).toContain("Quote frame");
+    expect(String(body.problems[0]!["message"])).toContain("funnel layout"); // U15: content-schema.ts:1514 renamed
     // POST leg: same shape on create (201)
     const created = await admin.request(
       `${API}/sections`,
@@ -7075,7 +7077,7 @@ describeDb("review FIX 5 — save-response problems[] + inline routing", () => {
     expect(island).toContain("routeSaveFieldErrors(res.body && res.body.fields);");
     // problems[] → the summary + one row per problem
     probe.run(
-      "renderSaveProblems([{ path: 'components[1]', scope: 'component', severity: 'warning', message: 'Header bar belongs to the Quote frame.' }]);",
+      "renderSaveProblems([{ path: 'components[1]', scope: 'component', severity: 'warning', message: 'Header bar belongs to the funnel layout.' }]);",
     );
     expect(box.hidden).toBe(false);
     const allDescendants = (el: StubEl): StubEl[] => [el, ...el.children.flatMap(allDescendants)];
@@ -7347,7 +7349,7 @@ describeDb("review minors 9 + 15 — frame-pill deep link · default-frame empty
     // usage UNKNOWN (not loaded) → unit-only, exactly as before
     expect(probe.run("frameContextBody()")).toBe(null);
     // usage loaded and ZERO → the default-frame context (the §5.3 empty-state
-    // copy promises "previewing in the default frame")
+    // copy promises "previewing in the default funnel layout")
     probe.run("var usageQuoteCount = 0;");
     expect(probe.run("frameContextBody()")).toEqual({ default: true });
     // any usage → back to unit-only until a funnel is picked
