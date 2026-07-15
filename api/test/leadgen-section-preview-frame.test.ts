@@ -518,6 +518,18 @@ const R5_NEW_SUBHEAD_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-subheadline{font-size:0
 // MOVED_CARD_RULES/MOVED_SEL_BG_RULE remove a net-new addition above.
 const R5_NEW_SUBHEAD_OVERRIDE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-subheadline{font-size:15px}`;
 
+// U14 (operator's 3rd retest — "Continue renders left-aligned, cannot be
+// centered any way"): styles.ts adds display:flex to the .lg-continue rule so
+// its margin-left/right:auto center the pill (it inherited display:inline-flex
+// from the shared .lg-btn base, on which auto margins compute to 0). That is
+// the ONLY delta on the .lg-continue rule vs the pre-change capture — reverse-
+// mapped NEW->OLD here, the same targeted full-rule-replace idiom as the R5
+// rules above (kept in lockstep with styles.ts — a drift fails here).
+const U14_OLD_CONTINUE_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-continue{width:100%;max-width:320px;margin-top:26px;margin-left:auto;margin-right:auto;background:var(--lg-btn-bg, #1B3A5C)}`;
+const U14_NEW_CONTINUE_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-continue{display:flex;width:100%;max-width:320px;margin-top:26px;margin-left:auto;margin-right:auto;background:var(--lg-btn-bg, #1B3A5C)}`;
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -604,7 +616,9 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     .split(MOVED_CARD_RULES)
     .join("")
     .split(MOVED_SEL_BG_RULE)
-    .join("");
+    .join("")
+    .split(U14_NEW_CONTINUE_RULE)
+    .join(U14_OLD_CONTINUE_RULE);
   expect(
     cssMinusMove,
     "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies",
