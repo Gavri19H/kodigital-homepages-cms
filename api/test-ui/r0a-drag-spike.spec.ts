@@ -1,27 +1,27 @@
 // R0a real-input drivability spike (register S1 · L5/P3/P4 · W6 · S4-B1).
 //
-// DECIDE-BY-EVIDENCE outcome (recorded here so the gate is self-documenting):
+// HISTORICAL NOTE + U13 UPDATE (2026-07-15): this spike was written when a real
+// page.mouse.move driven into the studio's srcdoc canvas iframe HUNG at the 2nd
+// move under Chromium/CDP, originally (mis)attributed to a "CDP + nested-iframe
+// limitation". The U13 root-cause probes proved otherwise: the hang was
+// Chromium NOT delivering a HELD-BUTTON move stream across a scripts-DISABLED
+// (sandbox="allow-same-origin") srcdoc boundary — the exact dead-drag the
+// operator hit in real Chrome. Granting the sandbox's scripting flag PLUS a
+// first-in-head script-src 'none' CSP (the U13 fix, ui-section-studio.ts) makes
+// Chromium deliver the stream while keeping every script vector inert; the
+// primary cross-engine gate (leadgen-u11u12-move.gesture.spec.ts) now completes
+// the SAME drag under BOTH chromium and firefox. The abandoned Option (i)
+// (serve the canvas from a same-origin `src` route) "did not work" for the SAME
+// reason — it kept the scripts-disabled sandbox, not a srcdoc-vs-src property —
+// so it was correctly reverted; the product keeps its `srcdoc` canvas frame.
 //
-//   Option (i) — serve the canvas frame from a same-origin `src` route instead
-//   of `srcdoc` — was implemented and driven with a REAL page.mouse drag under
-//   the default CHROMIUM/CDP engine. It DID NOT WORK: page.mouse.move still
-//   HANGS at the 2nd move call, byte-for-byte reproducing the register's
-//   documented limitation ("even a neutral, non-interactive point ... hangs the
-//   SAME way on the second page.mouse.move() call — an environment/CDP
-//   limitation with nested same-origin-iframe raw pointer injection"). The hang
-//   is inherent to CDP + a nested iframe; it is NOT a srcdoc-vs-src property, so
-//   the src-URL frame gave no benefit (and regressed the srcdoc-asserting vitest
-//   suite). Option (i) was therefore REVERTED — the product keeps its `srcdoc`
-//   canvas frame.
-//
-//   Option (ii) — prove the real gesture under a NON-CDP engine — is what this
-//   spec exercises: it launches Playwright's FIREFOX (Juggler protocol, no CDP)
-//   and drives the SAME real page.mouse width-drag into the UNCHANGED srcdoc
-//   canvas frame. Firefox completes the multi-move drag without hanging, so
-//   real-input gesture gates (R2/R6) must run on firefox. (playwright.config
-//   ships only a chromium project and is outside this slice's ownership, so this
-//   spec launches firefox in-process via `firefox.launch()`; a dedicated firefox
-//   project belongs in playwright.config — flagged for the conductor.)
+//   This spike REMAINS as focused firefox coverage of the width-drag commit
+//   path + Deliverable 2 (register S4-B1). It launches Playwright's firefox
+//   in-process (firefox.launch(), independent of the project it is scheduled
+//   under) and drives the SAME real page.mouse width-drag into the srcdoc
+//   canvas frame. playwright.config.ts now ships BOTH a chromium and a firefox
+//   project and this file is in GESTURE_SPEC_PATTERNS, so it is scheduled on
+//   both — its in-process firefox.launch() body is engine-agnostic either way.
 //
 // It also verifies Deliverable 2 (register S4-B1): the Question headline/
 // subheadline strip renders at golden width instead of collapsing to a ~90px

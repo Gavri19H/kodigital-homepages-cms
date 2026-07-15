@@ -164,7 +164,7 @@ test.describe("R3b effect matrix (firefox real input)", () => {
     await selectNode(page, "q_step");
     // Content tab: the read-only notice, not the Layout structured-prop group.
     await expect(page.locator("[data-content-framescope-block]")).toBeVisible();
-    await expect(page.locator("[data-content-framescope-block]")).toContainText("part of the funnel frame");
+    await expect(page.locator("[data-content-framescope-block]")).toContainText("Part of the funnel layout");
     // the SSR'd Layout structured-prop group for StepIndicator still EXISTS in
     // the DOM (renderContainerLayoutPanel emits it unconditionally, toggled by
     // a separate per-type loop) but its ANCESTOR (data-style-field-block) is
@@ -176,7 +176,7 @@ test.describe("R3b effect matrix (firefox real input)", () => {
     // Style tab: same notice, no Width/Corners/Layout controls either.
     await page.locator('[data-studio-inspector-tab="style"]').click();
     await expect(page.locator("[data-style-framescope-block]")).toBeVisible();
-    await expect(page.locator("[data-style-framescope-block]")).toContainText("part of the funnel frame");
+    await expect(page.locator("[data-style-framescope-block]")).toContainText("Part of the funnel layout");
     await expect(page.locator("[data-style-size-appearance]")).not.toBeVisible();
     // canvas render of the legacy node itself is UNCHANGED (still renders its dots).
     await expect(frame(page).locator('[data-question-id="q_step"] .lg-step')).toHaveCount(3);

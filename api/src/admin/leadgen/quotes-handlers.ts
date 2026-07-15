@@ -1214,8 +1214,8 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
             severity: "error",
             message:
               funnelLevelKey === "template"
-                ? "Variant overrides can't switch the frame template — the template is a funnel-level setting (change it in the funnel's frame settings)."
-                : "Variant overrides can't carry a version field — it belongs to the funnel-level frame settings.",
+                ? "Variant overrides can't switch the funnel-layout template — the template is a funnel-level setting (change it in the funnel's layout settings)."
+                : "Variant overrides can't carry a version field — it belongs to the funnel-level layout settings.",
           });
         }
       }
@@ -2068,8 +2068,8 @@ async function composedVariantPreviewResponse(
             severity: "error",
             message:
               funnelLevelKey === "template"
-                ? "Variant overrides can't switch the frame template — the template is a funnel-level setting (change it in the funnel's frame settings)."
-                : "Variant overrides can't carry a version field — it belongs to the funnel-level frame settings.",
+                ? "Variant overrides can't switch the funnel-layout template — the template is a funnel-level setting (change it in the funnel's layout settings)."
+                : "Variant overrides can't carry a version field — it belongs to the funnel-level layout settings.",
           });
         }
       }
@@ -2940,7 +2940,7 @@ async function computeFunnelV25Problems(
         scope: "frame",
         severity: "error",
         message:
-          "The funnel's page frame has an invalid setting: the stored frame settings are not readable. Open the Quote Builder and re-save the frame.",
+          "The funnel's layout has an invalid setting: the stored funnel-layout settings are not readable. Open the Quote Builder and re-save the funnel layout.",
         fix_url: fixQuote,
       });
     } else {
@@ -2973,7 +2973,7 @@ async function computeFunnelV25Problems(
           ...p,
           message:
             p.severity === "error"
-              ? `The funnel's page frame has an invalid setting: ${p.message}`
+              ? `The funnel's layout has an invalid setting: ${p.message}`
               : p.message,
           fix_url: fixQuote,
         });
@@ -3114,8 +3114,8 @@ function countLegacyHexOverrides(
 // (content-schema.ts's validateSectionContent, wired through
 // sections-handlers.ts's validateSection). THIS is the escalation half —
 // runs UNCONDITIONALLY (unlike the frame-scope rows below, which are gated
-// on the funnel having a configured page-frame): a Maps misconfiguration is a
-// per-field content concern, not a frame concern, so it must block
+// on the funnel having a configured funnel layout): a Maps misconfiguration is
+// a per-field content concern, not a layout concern, so it must block
 // activation even for a legacy Quote with no frame_config_json at all.
 async function computeMapsNoJobProblems(
   db: D1Database,
@@ -3182,7 +3182,7 @@ async function computeVariantV25Problems(
         path: "frame",
         scope: "frame",
         severity: "error",
-        message: `Variant '${variant.variant_label}' has unreadable frame overrides — re-save its overrides in the Quote Builder.`,
+        message: `Variant '${variant.variant_label}' has unreadable funnel-layout overrides — re-save its overrides in the Quote Builder.`,
         fix_url: fixQuote,
       });
     } else {
@@ -3288,12 +3288,16 @@ async function computeVariantV25Problems(
               scope: "section",
               severity: "error",
               // §14.1 copy pattern in full — the remedy names the Section
-              // Builder's [Move to Quote frame] action (message text only;
+              // Builder's [Move to funnel layout] action (message text only;
               // fix_url stays the [Review slide] section-edit deep link).
               // "Slide" is LEGAL here: this copy renders on Quote-Builder
               // activation surfaces (preflight panel / 409 problems), never
-              // on a Section-Builder page (C6 lint scope).
-              message: `Slide ${slide} '${row.section_name}' contains page-frame elements (${chromeTypes.join(", ")}) that would render twice on the live page. Remove them ([Move to Quote frame] in the Section Builder) or enable the legacy override under Advanced.`,
+              // on a Section-Builder page (C6 lint scope). U15 fix-round
+              // (2026-07-15): the bracketed button-name reference is updated
+              // to match ui-section-studio.ts's renamed "Move to funnel
+              // layout" button verbatim — this message must keep pointing at
+              // a button that exists.
+              message: `Slide ${slide} '${row.section_name}' contains funnel-layout elements (${chromeTypes.join(", ")}) that would render twice on the live page. Remove them ([Move to funnel layout] in the Section Builder) or enable the legacy override under Advanced.`,
               fix_url: fixSection,
             },
       );
@@ -3305,7 +3309,7 @@ async function computeVariantV25Problems(
         path: `section.${row.public_id}.progress`,
         scope: "section",
         severity: "warning",
-        message: `Slide ${slide} '${row.section_name}' renders its own progress indicator — the Quote frame already shows progress on every slide.`,
+        message: `Slide ${slide} '${row.section_name}' renders its own progress indicator — the funnel layout already shows progress on every slide.`,
         fix_url: fixSection,
       });
     }
@@ -3314,7 +3318,7 @@ async function computeVariantV25Problems(
         path: `section.${row.public_id}.back`,
         scope: "section",
         severity: "warning",
-        message: `Slide ${slide} '${row.section_name}' renders its own back link — the Quote frame already shows back navigation.`,
+        message: `Slide ${slide} '${row.section_name}' renders its own back link — the funnel layout already shows back navigation.`,
         fix_url: fixSection,
       });
     }

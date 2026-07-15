@@ -320,7 +320,7 @@ export const PROBLEM_SCOPE_ORDER: ReadonlyArray<string> = [
 ];
 
 export const PROBLEM_SCOPE_LABELS: Readonly<Record<string, string>> = {
-  frame: "Page frame",
+  frame: "Funnel layout",
   theme: "Theme",
   section: "Slides",
   component: "Components",
@@ -968,10 +968,10 @@ function renderOverrideSwitch(group: string, isControl: boolean): string {
 }
 
 // §7.1 scope header — first element of every region inspector: "Editing:
-// Funnel frame — <Region> · affects every slide of this funnel". Trust strip
+// Funnel layout — <Region> · affects every slide of this funnel". Trust strip
 // + benefit bar additionally carry the C7 "funnel-wide" chip.
 function scopeHead(regionLabel: string, funnelWide: boolean): string {
-  return `<div class="lg-scope-head">Editing: <strong>Funnel frame — ${escapeHtml(regionLabel)}</strong>${funnelWide ? '<span class="lg-scope-chip">funnel-wide</span>' : ""} · affects every slide of this funnel</div>`;
+  return `<div class="lg-scope-head">Editing: <strong>Funnel layout — ${escapeHtml(regionLabel)}</strong>${funnelWide ? '<span class="lg-scope-chip">funnel-wide</span>' : ""} · affects every slide of this funnel</div>`;
 }
 
 // One editable list (footer links / trust logos / benefit items): the island
@@ -1304,7 +1304,7 @@ function renderTemplatePicker(templates: FrameTemplateItem[]): string {
     )
     .join("");
   return `<div class="lg-panel-card lg-hidden" id="lg-template-picker">
-  <h3>Frame template</h3>
+  <h3>Funnel layout template</h3>
   <p class="form-help">Your copy, images and colors are kept. Layout comes from the template. Nothing changes until you Save.</p>
   <div class="lg-template-grid">${cards || `<p class="form-help">No templates available.</p>`}</div>
   <div class="lg-hidden" id="lg-template-confirm">
@@ -1358,7 +1358,7 @@ function renderCanvasPanel(templates: FrameTemplateItem[], sites: PreviewSiteOpt
     <a class="btn btn-sm btn-secondary" id="lg-slot-banner-open" href="#">Open Section</a>
   </div>
   <div class="lg-canvas-wrap" id="lg-canvas-wrap">
-    <iframe id="lg-preview-iframe" class="lg-frame-canvas" title="Funnel frame preview" sandbox="allow-same-origin"></iframe>
+    <iframe id="lg-preview-iframe" class="lg-frame-canvas" title="Funnel layout preview" sandbox="allow-same-origin"></iframe>
   </div>
   <p class="form-help" id="lg-canvas-status" role="status"></p>
 </div>`;
@@ -1563,8 +1563,8 @@ function renderAbPanel(structure: StructureBody, selected: VariantNode): string 
       const groups = overriddenGroupLabels(v.frame_overrides_json);
       const overridesLine =
         groups.length > 0
-          ? `<p class="form-help" data-arm-overrides="${escapeHtml(v.public_id)}">Frame overrides: ${escapeHtml(groups.join(", "))}</p>`
-          : `<p class="form-help" data-arm-overrides="${escapeHtml(v.public_id)}">Same frame as funnel (no overrides)</p>`;
+          ? `<p class="form-help" data-arm-overrides="${escapeHtml(v.public_id)}">Funnel-layout overrides: ${escapeHtml(groups.join(", "))}</p>`
+          : `<p class="form-help" data-arm-overrides="${escapeHtml(v.public_id)}">Same layout as funnel (no overrides)</p>`;
       return `<div class="lg-alloc-row" data-variant="${escapeHtml(v.public_id)}">
     <span class="lg-alloc-label"><strong>${escapeHtml(v.variant_label)}</strong>${v.is_control ? " (control)" : ""}</span>
     <label class="lg-alloc-pct"><input type="number" class="form-input lg-alloc-input" data-alloc-input
@@ -2579,7 +2579,7 @@ const QUOTE_EDITOR_SCRIPT = `
         ? putJson(funnelBase + '/frame', { frame_config_json: workingFrame })
         : Promise.resolve({ ok: true, body: null });
       step1.then(function (res1) {
-        if (!res1.ok) { throw new Error(saveFailureText(res1, 'Frame save')); }
+        if (!res1.ok) { throw new Error(saveFailureText(res1, 'Funnel-layout save')); }
         if (res1.body !== null) { frameDirty = false; }
         if (res1.body && res1.body.problems) { warned += res1.body.problems.length; }
         return themeDirty
@@ -2616,10 +2616,17 @@ const QUOTE_EDITOR_SCRIPT = `
   // blob (no fetches on boot); every config change round-trips through
   // POST /variants/:id/preview with draft_frame_config/draft_theme — the
   // server render is the canvas authority (client merges only POPULATE the
-  // inspector controls). Region click-select uses the same-origin srcdoc
-  // contentDocument directly (sandbox="allow-same-origin", scripts inert):
-  // the parent attaches ONE click listener per load — no postMessage bridge,
-  // no script injected into the composed page.
+  // inspector controls). Region select here is CLICK-ONLY (the parent
+  // attaches ONE 'click' listener per load — no postMessage bridge, no script
+  // injected into the composed page). Because discrete click events DO deliver
+  // across a scripts-disabled srcdoc boundary in every engine, this iframe
+  // KEEPS sandbox="allow-same-origin" (no allow-scripts): scripts stay inert
+  // by the sandbox itself, no CSP meta needed. Contrast the Section-Builder
+  // studio canvas (ui-section-studio.ts), which drives HELD-BUTTON page.mouse
+  // drags — those DON'T deliver across a scripts-disabled boundary under
+  // Chromium, so it grants allow-scripts + a script-src 'none' CSP instead
+  // (the U13 fix). No held-button gesture is bound to THIS iframe, so it needs
+  // neither.
   // ==========================================================================
 
   function readBlob(id) {

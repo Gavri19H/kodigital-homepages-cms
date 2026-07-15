@@ -7,14 +7,24 @@
 // calls el.dispatchEvent(...)) to this file — synthetic events are
 // inadmissible evidence in this mission (register root rule, line 9-10).
 //
-// Harness fact this file exists to survive (register L5 "Harness fact" +
-// P3DRAG/P4DRAG/P10DRAG): a real page.mouse.move() driven into the studio's
-// srcdoc canvas iframe can HANG indefinitely (CDP limitation moving a
-// trusted pointer across a same-origin srcdoc frame boundary). Every
-// primitive call below is wrapped in a per-step timeout guard so a hang
-// throws a typed StepTimeoutError immediately — the caller (and Playwright's
-// reporter) sees a fast, legible failure instead of the whole test wedging
-// out to the global test timeout.
+// Harness fact this file was built to survive (register L5 "Harness fact" +
+// P3DRAG/P4DRAG/P10DRAG), UPDATED by the U13 root-cause fix (2026-07-15): a
+// real page.mouse.move() driven into the studio's srcdoc canvas iframe used
+// to HANG indefinitely under Chromium — NOT a CDP limitation on trusted
+// pointer delivery across a same-origin srcdoc boundary (that theory is
+// disproven). The real cause: the iframe's sandbox="allow-same-origin"
+// (scripts disabled) suppressed Chromium's held-button page.mouse.move
+// stream delivery across the boundary — the SAME failure that showed up as
+// the operator's real-Chrome dead drag. Granting sandbox="allow-same-origin
+// allow-scripts" PLUS a first-in-head script-src 'none' CSP
+// (ui-section-studio.ts studioCanvasFrameSrcdoc) fixed delivery while keeping
+// every script vector inert, so Chromium now drives these gestures
+// correctly (leadgen-u11u12-move.gesture.spec.ts + forensic-live-probe.spec.ts
+// run this file's helpers on BOTH the chromium and firefox projects). Every
+// primitive call below stays wrapped in a per-step timeout guard as a GENERAL
+// watchdog (any future stall — a real regression, a slow render, an
+// unrelated harness fault — still throws a typed StepTimeoutError immediately
+// instead of wedging the whole test out to the global test timeout).
 import type { Locator, Page } from '@playwright/test';
 
 export interface Point {

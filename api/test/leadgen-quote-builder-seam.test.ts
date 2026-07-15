@@ -1502,7 +1502,7 @@ describeDb("quote builder EXECUTED island — Phase D C2 LIVE activation 409 →
     expect(errorRows.length).toBeGreaterThan(0);
     const chromeRow = errorRows.find((r) => r.attrs["data-problem-path"] === `section.${chrome.public_id}.content`);
     expect(chromeRow, "the C2 chrome row rendered").toBeDefined();
-    expect(textOf(chromeRow)).toContain("contains page-frame elements");
+    expect(textOf(chromeRow)).toContain("contains funnel-layout elements"); // MAJOR-1: renamed from "page-frame elements"
     // the fix_url deep link with the derived label
     const link = (chromeRow!.children as FakeNode[]).find((c) => c.tag === "a");
     expect(link, "fix link rendered").toBeDefined();

@@ -304,7 +304,7 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
     // the srcdoc attribute of the canvas iframe (escapeHtml-escaped), so the
     // hit-target pin asserts the escaped byte form inside that attribute.
     expect(html).toContain("data-studio-canvas");
-    expect(html).toMatch(/<iframe[^>]*id="lg-studio-canvas-frame"[^>]*sandbox="allow-same-origin"/);
+    expect(html).toMatch(/<iframe[^>]*id="lg-studio-canvas-frame"[^>]*sandbox="allow-same-origin allow-scripts"/); // U13: allow-scripts (scripts inert via in-frame CSP)
     expect(html).toContain("data-question-id=&quot;q1&quot;");
 
     // RIGHT: the §8.6 Style tab (renderStyleExtraControls, R3b rename of the

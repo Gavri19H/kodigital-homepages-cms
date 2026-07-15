@@ -518,9 +518,15 @@ describe("Gate 1a parity — canvas toolbar (Appendix D)", () => {
     expect(STUDIO_HTML).toContain(">Mobile<");
   });
 
-  it("Frame hint toggle label renders and the skeleton ships VISIBLE by default (§6.1: 'toggle (default ON)')", () => {
-    expect(GOLDEN_CANVAS_TOOLBAR).toContain("Frame hint");
-    expect(STUDIO_HTML).toContain("Frame hint");
+  it("the funnel-layout toggle renders (U15 erratum for golden 'Frame hint') and the skeleton ships VISIBLE by default (§6.1: 'toggle (default ON)')", () => {
+    // U15 operator-ordered clarity erratum (2026-07-15): the studio INTENTIONALLY
+    // diverges from the golden's "Frame hint"/"Funnel frame" jargon — the
+    // operator's 3rd retest flagged "frame" as incomprehensible. The golden
+    // strings are still asserted (documenting the SOURCE the erratum departs
+    // from); the studio ships the U15 copy (renderFrameHintSkeleton reclassified
+    // golden:false in golden-allowlist.json).
+    expect(GOLDEN_CANVAS_TOOLBAR).toContain("Frame hint"); // golden's original label
+    expect(STUDIO_HTML).toContain("Show funnel layout"); // U15 erratum
     // Default-ON is achieved via a DIFFERENT (but behaviorally identical)
     // mechanism than the golden's demo: the golden's client script defaults
     // a `frameHint:true` state variable; the real product instead SSRs the
@@ -531,7 +537,8 @@ describe("Gate 1a parity — canvas toolbar (Appendix D)", () => {
     // asserting the SSR-visible mechanism actually used.
     expect(STUDIO_HTML).toContain('data-studio-frame-skeleton="top"');
     expect(STUDIO_HTML).not.toMatch(/data-studio-frame-skeleton="top"[^>]*\shidden/);
-    expect(STUDIO_HTML).toContain("Funnel frame");
+    // U15 erratum: the golden's skeleton pill "Funnel frame" -> "Funnel layout".
+    expect(STUDIO_HTML).toContain("Funnel layout");
     expect(STUDIO_HTML).toContain("Advertising disclosure");
   });
 });
@@ -647,11 +654,17 @@ describe("Gate 1a parity — bottom drawer (Appendix D)", () => {
 // ===========================================================================
 
 describe("Gate 1a parity — inspector scope header shell (Appendix D)", () => {
-  it("scope pills read Funnel frame / This section / This element verbatim (golden §8.1)", () => {
-    for (const pill of ["Funnel frame", "This section", "This element"]) {
+  it("scope pills read This section / This element verbatim (golden §8.1); the first pill is the U15 'Funnel layout' erratum", () => {
+    // "This section"/"This element" stay golden-verbatim; the first pill is the
+    // U15 operator-ordered clarity erratum (2026-07-15): golden "Funnel frame"
+    // -> "Funnel layout" (renderScopePillsMarkup reclassified golden:false in
+    // golden-allowlist.json; the data-scope-pill="frame" VALUE is unchanged).
+    for (const pill of ["This section", "This element"]) {
       expect(GOLDEN_SCOPE_HEADER, pill).toContain(pill);
       expect(STUDIO_HTML, pill).toContain(pill);
     }
+    expect(GOLDEN_SCOPE_HEADER, "golden's original first pill").toContain("Funnel frame");
+    expect(STUDIO_HTML, "U15 erratum: the studio ships 'Funnel layout'").toContain("Funnel layout");
   });
 
   it("the 5 dynamic tab labels render in golden's exact order: Content, Style, Rules, Maps, Offers", () => {

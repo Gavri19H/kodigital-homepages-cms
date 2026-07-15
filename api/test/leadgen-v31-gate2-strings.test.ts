@@ -231,14 +231,20 @@ describe("Gate 2 strings — Component library (Appendix A)", () => {
 // ===========================================================================
 
 describe("Gate 2 strings — Canvas / toolbar (Appendix A)", () => {
-  it("toolbar + breadcrumb + viewport + frame-hint strings render", () => {
-    assertAllPresent(STUDIO_HTML, ["This section", "Desktop", "Mobile", "Frame hint", "Funnel frame"], "canvas toolbar");
+  it("toolbar + breadcrumb + viewport + funnel-layout strings render", () => {
+    // U15 operator-ordered clarity erratum (2026-07-15): "Frame hint" ->
+    // "Show funnel layout" and "Funnel frame" -> "Funnel layout" (the golden's
+    // "frame" jargon was incomprehensible to the operator; renderCanvasToolbar
+    // was already golden:false, renderFrameHintSkeleton is now reclassified in
+    // golden-allowlist.json).
+    assertAllPresent(STUDIO_HTML, ["This section", "Desktop", "Mobile", "Show funnel layout", "Funnel layout"], "canvas toolbar");
   });
 
-  it("frame-hint header/footer copy renders (SSR-visible by default — see Gate 1a finding on the default-ON mechanism)", () => {
+  it("funnel-layout header/footer copy renders (SSR-visible by default — see Gate 1a finding on the default-ON mechanism)", () => {
+    // U15 erratum: skeleton pill "Funnel frame" -> "Funnel layout".
     assertAllPresent(
       STUDIO_HTML,
-      ["Funnel frame", "Advertising disclosure", "Terms", "Privacy"],
+      ["Funnel layout", "Advertising disclosure", "Terms", "Privacy"],
       "frame hint skeleton",
     );
   });
@@ -265,7 +271,8 @@ describe("Gate 2 strings — Canvas / toolbar (Appendix A)", () => {
 
 describe("Gate 2 strings — Inspector (Appendix A)", () => {
   it("scope header eyebrow + pills render", () => {
-    assertAllPresent(STUDIO_HTML, ["Editing", "Funnel frame", "This section", "This element"], "scope header");
+    // U15 erratum: scope pill "Funnel frame" -> "Funnel layout".
+    assertAllPresent(STUDIO_HTML, ["Editing", "Funnel layout", "This section", "This element"], "scope header");
   });
 
   it("the 5 tab labels render", () => {
@@ -338,7 +345,7 @@ describe("Gate 2 strings — Inspector (Appendix A)", () => {
     assertAllPresent(STUDIO_HTML, ["Advanced", "Internal field", "Analytics label", "Component id"], "Advanced disclosure");
   });
 
-  it("Continue's inherited tags render verbatim (Appendix C row 13 — §8.4/§8.5 'Inherited from the frame'): Position=Inside the question, tagged 'inherited'", () => {
+  it("Continue's inherited tags render (Appendix C row 13 — §8.4/§8.5; U15 erratum: 'Inherited from the frame' -> 'From the funnel layout'): Position=Inside the question, tagged 'inherited'", () => {
     // R3b conductor erratum (S2-2 reclassified, deliverable 1): the golden
     // demo's "Bottom, full width" was ITS OWN demo funnel's placement value,
     // never a resolved fact this Studio could assert for every Section — the
@@ -351,7 +358,7 @@ describe("Gate 2 strings — Inspector (Appendix A)", () => {
     // "appears twice" pin, just the one live copy.
     assertAllPresent(
       STUDIO_HTML,
-      ["Inherited from the frame", "Inside the question", ">inherited<"],
+      ["From the funnel layout", "Inside the question", ">inherited<"],
       "Continue inherited tags",
     );
   });
@@ -867,12 +874,15 @@ describe("Gate 2 strings — audit-round G FIX 2: the 3 §7.3 affects sentences 
     // bound headline selection
     expect(SECTION_STUDIO_SCRIPT).toContain("This is the same text as the ");
     expect(SECTION_STUDIO_SCRIPT).toContain(" box up top \\u2014 editing either updates both.");
-    // continue selection (bare ampersand, byte-for-byte with the golden)
-    expect(SECTION_STUDIO_SCRIPT).toContain("Color, size & position come from the ");
-    expect(SECTION_STUDIO_SCRIPT).toContain(". Here you can override just the label.");
+    // continue selection — U15 operator-ordered clarity erratum (2026-07-15):
+    // drops the incomprehensible "funnel frame" jargon for the destination-named
+    // "shared by every section ... set in the Quote Builder" (bare ampersand +
+    // \\u2014 em-dash preserved; the bold segment is now "Quote Builder").
+    expect(SECTION_STUDIO_SCRIPT).toContain("Color, size & position are shared by every section in this funnel \\u2014 set in the ");
+    expect(SECTION_STUDIO_SCRIPT).toContain(". Here you can change only the label.");
     // the bold segments and their #5C5015 color
     expect(SECTION_STUDIO_SCRIPT).toContain("'Question headline'");
-    expect(SECTION_STUDIO_SCRIPT).toContain("'funnel frame'");
+    expect(SECTION_STUDIO_SCRIPT).toContain("'Quote Builder'");
     expect(SECTION_STUDIO_SCRIPT).toContain("#5C5015");
   });
 });

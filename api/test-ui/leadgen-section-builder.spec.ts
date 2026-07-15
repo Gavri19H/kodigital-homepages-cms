@@ -541,8 +541,10 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     // (DEV-66: the badge is a canvas decoration — it lives in the frame doc)
     const badge = canvas(page).locator("[data-frame-badge]");
     await expect(badge).toBeVisible();
-    await expect(badge).toContainText("Page-frame element — belongs to the Quote frame");
-    await expect(badge.locator("[data-frame-move]")).toHaveText("Move to Quote frame");
+    // U15 fix-round (2026-07-15): "Page-frame element — belongs to the Quote
+    // frame" -> "Part of the funnel layout — shared across this funnel".
+    await expect(badge).toContainText("Part of the funnel layout — shared across this funnel");
+    await expect(badge.locator("[data-frame-move]")).toHaveText("Move to funnel layout");
     // R5 jargon purge: the banned word "legacy" is gone from both normal-mode
     // strings this badge renders (ui-section-studio.ts:4973 button text is
     // literally "Keep as-is" now; the descriptive sentence at :4978 reads
@@ -574,9 +576,9 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     // the move completes on the SAME action: PUT frame + section PATCH
     const note = page.locator("[data-studio-pending-note]");
     await expect(note).toBeVisible({ timeout: 20_000 });
-    await expect(note).toContainText(`Moved into the Quote frame of “${seed.funnelName}”`);
+    await expect(note).toContainText(`Moved into the funnel layout of “${seed.funnelName}”`);
     await expect(note).toContainText("the Section was saved without the element");
-    expect(confirmMessage).toContain("Move this Header bar into the Quote frame of funnel");
+    expect(confirmMessage).toContain("Move this Header bar into the funnel layout of"); // U15: "Quote frame of funnel" renamed
     expect(confirmMessage, "the confirm NAMES the funnel").toContain(seed.funnelName);
 
     // the canvas no longer shows the node (and no amber badge remains)

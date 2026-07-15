@@ -251,7 +251,7 @@ test.describe.serial("LeadGen v2.5 Quote Builder frame studio — §15.3 rows", 
     // …and the overridden progress renders on THIS arm's canvas (dots)
     await expect(canvas(page).locator("[data-frame-region='progress'] .lg-steps")).toBeVisible({ timeout: 20_000 });
     // the A/B tab lists the overridden group for the arm (§4.5)
-    await expect(page.locator(`[data-arm-overrides="${seed.armBVariantId}"]`)).toContainText("Frame overrides: Progress");
+    await expect(page.locator(`[data-arm-overrides="${seed.armBVariantId}"]`)).toContainText("Funnel-layout overrides: Progress");
     await page.screenshot({ path: `${SHOT_DIR}/leadgen-b-07-override-badge.png` });
   });
 
@@ -369,7 +369,7 @@ test.describe.serial("LeadGen v2.5 Quote Builder frame studio — §15.3 rows", 
     const problemRow = page.locator(`#lg-preflight-problems [data-problem-scope="section"] [data-problem-path="section.${cq.sectionPublicId}.content"]`);
     await expect(problemRow).toBeVisible();
     await expect(problemRow.locator('.lg-problem-chip[data-severity="error"]')).toHaveText("Error");
-    await expect(problemRow).toContainText(`'${cq.sectionName}' contains page-frame elements`);
+    await expect(problemRow).toContainText(`'${cq.sectionName}' contains funnel-layout elements`); // MAJOR-1: renamed from "page-frame elements"
     await expect(problemRow).toContainText("would render twice on the live page");
     await expect(problemRow).toContainText("enable the legacy override under Advanced");
     const fixLink = problemRow.locator("a", { hasText: "Review slide" });

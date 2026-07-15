@@ -419,7 +419,7 @@ describeDb("activation-preflight-v25 (14 §14.1 rows fire with contract severiti
       "row 1 (unknown frame group)",
     );
     expect(frameUnknown.severity).toBe("error");
-    expect(frameUnknown.message).toContain("The funnel's page frame has an invalid setting");
+    expect(frameUnknown.message).toContain("The funnel's layout has an invalid setting"); // MAJOR-1: renamed from "page frame"
     const frameHref = firstMatch(
       problems,
       (p) => p.path === "frame.header.cta.href",
@@ -468,8 +468,10 @@ describeDb("activation-preflight-v25 (14 §14.1 rows fire with contract severiti
     }
     expect(chrome.message).toContain("render twice");
     // §14.1 full copy pattern: the remedy names the Section Builder's
-    // [Move to Quote frame] action next to the legacy-override alternative.
-    expect(chrome.message).toContain("[Move to Quote frame] in the Section Builder");
+    // [Move to funnel layout] action next to the legacy-override alternative.
+    // U15 fix-round (2026-07-15): renamed from "[Move to Quote frame]" to
+    // match ui-section-studio.ts's renamed button verbatim.
+    expect(chrome.message).toContain("[Move to funnel layout] in the Section Builder");
 
     // Row 7 — duplicate Continue → warning.
     const dup = firstMatch(
@@ -684,11 +686,11 @@ describeDb("C2 LIVE (Phase D) — error-severity problems block the activation P
       "C2 chrome row in the 409 body",
     );
     expect(chrome.severity).toBe("error");
-    expect(chrome.message).toContain("contains page-frame elements");
+    expect(chrome.message).toContain("contains funnel-layout elements"); // MAJOR-1: renamed from "page-frame elements"
     expect(chrome.message).toContain("render twice");
     // §14.1 full copy pattern: BOTH remedies — the Section Builder's
-    // [Move to Quote frame] action and the Advanced legacy override.
-    expect(chrome.message).toContain("Remove them ([Move to Quote frame] in the Section Builder)");
+    // [Move to funnel layout] action and the Advanced legacy override.
+    expect(chrome.message).toContain("Remove them ([Move to funnel layout] in the Section Builder)");
     expect(chrome.message).toContain("legacy override under Advanced");
     // §14.2 fix link: the [Review slide] deep link the copy table names —
     // the message mention never replaces it.

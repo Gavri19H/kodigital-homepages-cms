@@ -4,7 +4,7 @@
 // working "exit" out of (or affordance within) the studio still functions
 // with REAL trusted clicks (no dispatchEvent) against the real full-bleed
 // page: (a) "← Sections" back link, (b) "Open full mapping →", (c) "Manage
-// theme →" (the D6 in-page overlay), (d) "Change in frame →" (+ picker),
+// theme →" (the D6 in-page overlay), (d) "Edit in Quote Builder →" (+ picker),
 // (e) the offers "fills X on N Offers" connect-offers text, (f) the Maps
 // tab's "Open auction rules →" link. Screenshots at 1280 desktop + 375
 // mobile per E6 (no horizontal overflow).
@@ -136,13 +136,14 @@ test.describe('R5 full-bleed editor — PRESERVED-NAVIGATION acceptance table', 
     await expect(page.locator('[data-studio-open-mapping-drawer]')).toBeVisible();
   });
 
-  // NOTE (fixed after a real run): "Change in frame ->" for a Continue
-  // button with ZERO funnel usage is the documented "0->list" case (register
-  // R3b interpretive rulings: "0->list / 1->direct / many->picker") — it
-  // NAVIGATES to the Quotes list (the funnel/frame owner), it does not stay
+  // NOTE (fixed after a real run): the Continue inherited-style deep link
+  // (data-continue-change-in-frame; U15 label "Edit in Quote Builder ->") for a
+  // Continue button with ZERO funnel usage is the documented "0->list" case
+  // (register R3b interpretive rulings: "0->list / 1->direct / many->picker") —
+  // it NAVIGATES to the Quotes list (the funnel/frame owner), it does not stay
   // in place. That IS the correct, already-shipped (R3/R4a) behavior this
   // test now asserts, rather than assuming a no-op.
-  test('(d) "Change in frame →" — the Continue button\'s inherited-style row navigates to the Quotes list (the correct 0-usage "0→list" disambiguation)', async ({ page }) => {
+  test('(d) "Edit in Quote Builder →" — the Continue button\'s inherited-style row navigates to the Quotes list (the correct 0-usage "0→list" disambiguation)', async ({ page }) => {
     const uniq = `${Date.now()}-d`;
     const section = await createSection(page.request, uniq);
     const errors: string[] = [];

@@ -1,17 +1,18 @@
-// Section Builder v3.1 REMEDIATION — R7 U11a canvas move unification, THE GATE.
+// Section Builder v3.1 REMEDIATION — R7 U11a canvas move unification, THE GATE
+// (runs on BOTH the chromium and firefox projects).
 //
-// Conductor ruling (2026-07-15): the chromium ATTEMPT (see the sibling
-// leadgen-u11u12-move-chromium-attempt.spec.ts, a plain .spec.ts on the
-// default chromium project) reproduced the R0a class — a real page.mouse
-// sequence hangs at "mouse.move(step 1/5)" into the srcdoc canvas iframe,
-// BOTH before and after this fix (the hang is a CDP + nested-iframe
-// limitation on the MOVE PRIMITIVE itself, independent of native-DnD vs
-// pointer-events). Per the conductor's explicit fallback: this file — the
-// FIREFOX real-gesture trio — is THE automated gate. real page.mouse drags
-// (down -> stepped moves -> up, utils/real-input realDragFromLocator) are
-// genuinely hit-tested under Firefox/Juggler (no CDP) — an occluded/inert
-// handle would fail here; nothing is dispatchEvent-based (register root
-// rule / M1).
+// U13 fix (2026-07-15): the studio canvas srcdoc iframe now grants
+// sandbox="allow-same-origin allow-scripts" + a FIRST-in-head CSP meta
+// (script-src 'none'), so Chromium/CDP DELIVERS the held-button page.mouse
+// stream that used to hang at "mouse.move(step 1/N)" across the srcdoc
+// boundary. That hang was NOT a "CDP/automation-only" property — it was the
+// exact same delivery failure the operator hit as a DEAD DRAG in real Chrome,
+// and the sandbox+CSP fix resolves both. So this file — real page.mouse drags
+// (down -> stepped moves -> up, utils/real-input realDragFromLocator),
+// genuinely hit-tested (an occluded/inert handle would fail here; nothing is
+// dispatchEvent-based, register root rule / M1) — is THE automated gate on
+// BOTH projects (playwright.config.ts GESTURE_SPEC_PATTERNS). Cross-engine
+// green is the proof the U13 fix holds under Chromium as well as Firefox.
 //
 // Moves THREE previously-native-DnD-only types (now unified onto the ONE
 // delegated pointer gesture, onFieldMoveMouseDown):
@@ -24,20 +25,21 @@
 // Section's own save+refetch flow), matching the dispatch's own acceptance
 // wording ("asserting reorder in the saved model").
 //
-// FAIL-BEFORE/PASS-AFTER (ButtonAnswerGroup, the class that changed
-// mechanism from native DnD to the delegated pointer path): run once against
-// the UNFIXED code (temporarily revert FIX 1 — see the conductor dispatch
-// notes) to confirm a real RED (native DnD does not respond to a raw
-// page.mouse sequence in ANY browser — a well-known Playwright/browser
-// limitation, not a hang), then green after the fix. Recorded in the
-// conductor's report, not re-executed on every CI run (this file always
-// exercises the FIXED code going forward).
+// FAIL-BEFORE/PASS-AFTER (U13, chromium — the engine the operator uses): run
+// the first test against the PRE-U13 source (sandbox="allow-same-origin", no
+// CSP) and the held-button drag HANGS at mouse.move(step 1/5) —
+// StepTimeoutError; after the sandbox+CSP fix the SAME chromium run completes
+// and persists the reorder (recorded in the conductor's report). (The earlier
+// R7 mechanism-change fail-before — native DnD vs the delegated pointer path —
+// is a separate finding, likewise recorded there.)
 //
-// Run per-file (from api/), with the fresh-D1 preamble:
+// Run per-file (from api/), with the fresh-D1 preamble, on EITHER project:
 //   pkill -f "wrangler dev"; pkill -f workerd; pkill -f cms-panel; sleep 2; \
 //   rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local
 //   npx playwright test test-ui/leadgen-u11u12-move.gesture.spec.ts \
-//     --project=firefox --workers=1 --reporter=line --timeout=120000
+//     --project=chromium --workers=1 --reporter=line --timeout=120000
+//   npx playwright test test-ui/leadgen-u11u12-move.gesture.spec.ts \
+//     --project=firefox  --workers=1 --reporter=line --timeout=120000
 import { test, expect, type APIRequestContext, type Page, type FrameLocator } from "@playwright/test";
 import { realDragFromLocator, type Box } from "./utils/real-input";
 
@@ -151,7 +153,7 @@ async function selectAndMoveViaTag(
   return detail.content_json.components.map((c) => c.question_id);
 }
 
-test.describe("R7 U11a THE GATE (firefox) — unified pointer-path canvas move, real gestures, saved-model proof", () => {
+test.describe("R7 U11a THE GATE (both engines) — unified pointer-path canvas move, real gestures, saved-model proof", () => {
   test("ButtonAnswerGroup moves AFTER the ZIP field via a real page.mouse drag (the dispatch's named class)", async ({ page, request }) => {
     const s = await createSection(request, `u11a-btn-${uniq}`, [
       { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
@@ -333,5 +335,56 @@ test.describe("R7 U11a THE GATE (firefox) — unified pointer-path canvas move, 
       stackNode?.children?.map((c) => c.question_id) ?? [],
       "q_nested no longer lives inside its old Stack parent",
     ).not.toContain("q_nested");
+  });
+
+  // U14 (operator's 3rd retest — "Continue renders left-aligned, cannot be
+  // centered any way"): MEASURED centering gate in the studio canvas (the exact
+  // surface the operator sees). The fix is display:flex on .lg-continue so its
+  // margin-left/right:auto center it (they no-op on the inherited inline-flex).
+  // Runs on BOTH engines with the rest of this file.
+  test("R7 U14 — the Continue pill is centered in the question card (≤1px) and keeps its 26px rhythm", async ({ page, request }) => {
+    const s = await createSection(request, `u14-center-${uniq}`, [
+      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+      { type: "ZIPInputQuestion", question_id: "q_zip", internal_field: "zip", answer_type: "string", props: { placeholder: "ZIP code" } },
+      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
+    ]);
+    await boot(page, s);
+    // Await the debounced canvas re-render + decoration settle, then measure in
+    // the SAME srcdoc canvas the operator sees.
+    await expect(frame(page).locator(".lg-continue")).toBeVisible({ timeout: 10_000 });
+    const geom = await page.evaluate(() => {
+      const iframe = document.getElementById("lg-studio-canvas-frame") as HTMLIFrameElement | null;
+      const doc = iframe && iframe.contentDocument;
+      const view = doc && doc.defaultView;
+      const btn = doc && doc.querySelector(".lg-continue");
+      const card = doc && doc.querySelector(".lg-question-card");
+      if (!doc || !view || !btn || !card) return { ok: false as const, hasBtn: !!btn, hasCard: !!card };
+      const btnRect = btn.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const cardCs = view.getComputedStyle(card);
+      const btnCs = view.getComputedStyle(btn);
+      const padLeft = parseFloat(cardCs.paddingLeft) || 0;
+      const padRight = parseFloat(cardCs.paddingRight) || 0;
+      // center-x of the card's CONTENT box (inside its symmetric side padding).
+      const cardContentCenterX = cardRect.left + padLeft + (cardRect.width - padLeft - padRight) / 2;
+      const btnCenterX = btnRect.left + btnRect.width / 2;
+      return {
+        ok: true as const,
+        btnCenterX,
+        cardContentCenterX,
+        diff: Math.abs(btnCenterX - cardContentCenterX),
+        marginTop: btnCs.marginTop,
+        marginLeft: btnCs.marginLeft,
+        marginRight: btnCs.marginRight,
+        display: btnCs.display,
+      };
+    });
+    expect(geom.ok, `both .lg-continue and .lg-question-card must render in the canvas: ${JSON.stringify(geom)}`).toBe(true);
+    if (!geom.ok) return;
+    expect(
+      geom.diff,
+      `Continue center-x (${geom.btnCenterX.toFixed(1)}) vs card content center-x (${geom.cardContentCenterX.toFixed(1)}) — display=${geom.display} ml=${geom.marginLeft} mr=${geom.marginRight}`,
+    ).toBeLessThanOrEqual(1);
+    expect(geom.marginTop, "helper→Continue 26px rhythm stands").toBe("26px");
   });
 });

@@ -432,6 +432,15 @@ export function funnelChromeCss(
     // custom property (token navy fallback) at REST — kept off .lg-btn so the
     // higher-specificity .lg-btn:hover darken still wins by cascade (no !important).
     rule(`${scope} .lg-continue`, {
+      // U14 (operator's 3rd retest — "Continue renders left-aligned, cannot be
+      // centered any way"): .lg-continue inherits display:inline-flex from the
+      // shared .lg-btn base, and margin-left/right:auto compute to 0 on an
+      // INLINE-level box (auto margins only center a BLOCK-level box). Setting
+      // display:flex makes .lg-continue block-level so its auto side-margins DO
+      // center it within the question card; btnBase already sets
+      // align-items:center + justify-content:center, so the label stays centered
+      // inside the pill. This is the §14.6 "full-width centred pill".
+      display: "flex",
       width: "100%",
       "max-width": primaryButton.maxWidth,
       // R7 U12: helper→Continue gap = golden :350's margin-top:26px (the

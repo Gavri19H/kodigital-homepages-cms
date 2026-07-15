@@ -1,21 +1,26 @@
 // R6 forensic live-probe GATE — trusted browser input ONLY (locator.click(),
-// page.mouse via utils/real-input realDrag). NEVER dispatchEvent. Runs on the
-// firefox project (playwright.config GESTURE_SPEC_PATTERNS) so the real
-// page.mouse drags COMPLETE against the srcdoc canvas (the R0a decide-by-
-// evidence outcome — CDP hangs, Juggler does not).
+// page.mouse via utils/real-input realDrag). NEVER dispatchEvent. In
+// GESTURE_SPEC_PATTERNS (playwright.config), so it runs on BOTH the chromium
+// and firefox projects: after the U13 fix (studio canvas
+// sandbox="allow-same-origin allow-scripts" + a first-in-head script-src 'none'
+// CSP), Chromium DELIVERS the held-button page.mouse stream across the srcdoc
+// boundary that used to hang, so these real drags now COMPLETE under Chromium
+// as well as Firefox. (The live-funnel drag/measure probes launch their own
+// firefox in-process for the tenant-host DNS pref, independent of the project.)
 //
 // UPGRADED for R6: what the wave-1 register recorded as DEAD/MISALIGNED/HANG
 // verdicts are now the REMEDIATED contract, so every probe ASSERTS its WORKS
 // condition (fail-loud) instead of merely recording it. The mission acceptance
-// is 11/11 probes WORKS (P1..P11), realised as the 12 test bodies below (P3 and
+// is 11/11 probes WORKS (P1..P11), realised as the test bodies below (P3 and
 // P10 each carry a non-drag + a drag body). Verdicts + observations are STILL
 // appended to test-results/forensic/verdicts.jsonl as an evidence trail.
 //
 // Per-probe register lineage cited inline. P11 (zero console errors) is folded
 // into EVERY body: a per-page collector fails the body on any console.error /
-// pageerror that is NOT the one documented-benign srcdoc-sandbox script-block
-// (the canvas iframe is sandbox="allow-same-origin" — scripts inert by design,
-// so the browser logs a sandboxed-script notice; that is the ONLY allowed line).
+// pageerror that is NOT a documented-benign srcdoc-sandbox/CSP script-block
+// (the canvas iframe now grants allow-scripts, but a script-src 'none' CSP keeps
+// scripts inert, so the browser may log a sandbox and/or CSP script-block
+// notice; that class is the ONLY allowed line).
 import { test, expect, firefox, type APIRequestContext, type Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -39,9 +44,11 @@ const ZIP = { type: 'ZIPInputQuestion', question_id: 'q_zip', internal_field: 'z
 const YESNO = { type: 'TwoButtonYesNo', question_id: 'q_ins', internal_field: 'currently_insured', answer_type: 'boolean', props: { yesLabel: 'Yes', noLabel: 'No' } };
 const CONT = { type: 'ContinueButton', question_id: 'q_cont', props: { label: 'Continue' } };
 
-// The ONE documented-benign console line (register L5 P11): the srcdoc canvas
-// iframe is sandbox="allow-same-origin" (scripts inert BY DESIGN — the parent
-// doc drives all interaction), so the browser logs a sandboxed-script notice.
+// The documented-benign console lines (register L5 P11): the srcdoc canvas
+// iframe now grants allow-scripts, but a first-in-head script-src 'none' CSP
+// keeps scripts inert (the parent doc drives all interaction) — so a browser
+// may log a sandbox and/or CSP script-block notice. Those are the ONLY allowed
+// lines.
 const BENIGN_CONSOLE = /sandbox|blocked script execution|allow-scripts|content security policy/i;
 
 function record(obj: Record<string, unknown>): void {
@@ -209,8 +216,9 @@ test('P5 Continue inspector shows REAL resolved values + a working Change-in-fra
   await page.screenshot({ path: `${SHOT}/P5-after.png` });
   record({ probe: 'P5', verdict: 'WORKS', evidence: `color="${colorText.trim()}" position="${positionText.trim()}" size-row(Medium fixed)=${sizeRowVisible} change-in-frame links=${frameLinkCount} firstVisible=${firstLinkVisible} tag=${firstLinkTag}`, shots: ['P5-after.png'] });
   // WORKS (R3, register S2-2 reclassified): the three rows show REAL resolved
-  // values (NOT the old "0 Style controls" dead-end), and "Change in frame →"
-  // is a wired <button> (studio:11213 handler), not the dead href="#0".
+  // values (NOT the old "0 Style controls" dead-end), and the deep link
+  // (data-continue-change-in-frame; U15 label "Edit in Quote Builder →") is a
+  // wired <button> (studio:11213 handler), not the dead href="#0".
   expect(colorText.trim().length, 'resolved Color value present').toBeGreaterThan(0);
   expect(positionText, 'resolved Position value present').toContain('Inside the question');
   expect(sizeRowVisible, 'the Size row reads "Medium (fixed)"').toBe(true);
@@ -483,7 +491,11 @@ test('P4DRAG move the field body — a real drag reorders the node', async ({ pa
 // context.
 test('P10DRAG a real slider drag on the LIVE funnel moves the value + fill AND records it', async () => {
   test.setTimeout(120_000);
-  const RT_HOST = 'lg-r6p10.e2e.test';
+  // Project-unique host: this spec runs on BOTH projects (GESTURE_SPEC_PATTERNS),
+  // and a domain can attach to only ONE site — so chromium and firefox must seed
+  // distinct hosts to coexist in a single sharded invocation (the module-load
+  // `uniq` is shared across projects in one run, so it alone is insufficient).
+  const RT_HOST = `lg-r6p10-${test.info().project.name}.e2e.test`;
   const browser = await firefox.launch({ firefoxUserPrefs: { 'network.dns.localDomains': RT_HOST } });
   const context = await browser.newContext({ viewport: { width: 1800, height: 1100 }, baseURL: 'http://127.0.0.1:8787' });
   const page = await context.newPage();
@@ -508,7 +520,7 @@ test('P10DRAG a real slider drag on the LIVE funnel moves the value + fill AND r
       data: { auction_name: `R6 P10 Auction ${uniq}`, quote_id: quote.id, auction_type: 'dynamic', winner_logic: 'highest_bid', floor_type: 'percentage_of_max', floor_value: 10, multi_offer: 'enabled', banner_slots_count: 5, max_carriers_per_offer: 3, max_total_carriers: 10, timeout_ms: 2500, status: 'active' },
     }), 'p10 auction');
     await json(await page.request.put(`${LG_API}/variants/${variantId}`, { data: { auction_id: auction.id, sections: [{ section_id: section.id, position: 0 }] } }), 'p10 variant');
-    const slug = `r6-p10-${uniq}`;
+    const slug = `r6-p10-${test.info().project.name}-${uniq}`;
     const act = await page.request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug } });
     if (!act.ok()) throw new Error(`p10 activation HTTP ${act.status()}: ${await act.text()}`);
 
@@ -544,6 +556,74 @@ test('P10DRAG a real slider drag on the LIVE funnel moves the value + fill AND r
     expect(textAfter, 'the live value bubble text updated').not.toBe(textBefore);
     expect(fillWidth, 'the fill width updated off 0%').not.toBe('0%');
     expect(fillWidth, 'the fill width is set').not.toBe('');
+    expect(errs, `P11: no non-benign console errors — got ${JSON.stringify(errs)}`).toEqual([]);
+  } finally {
+    await context.close();
+    await browser.close();
+  }
+});
+
+// U14 (operator's 3rd retest — "Continue renders left-aligned, cannot be
+// centered any way"): LIVE-side measured centering gate. The studio-canvas
+// centering is proven in leadgen-u11u12-move.gesture.spec.ts; this asserts the
+// SAME ≤1px centering on the LIVE /lg/:slug render (the same styles.ts CSS +
+// renderSectionComponents the funnel ships — the fix is display:flex on
+// .lg-continue so its margin-left/right:auto center it). Reuses the P10DRAG
+// live-funnel fixture (seedActiveSite + quote/auction/variant/activation, own
+// firefox in-process for the tenant-host DNS pref).
+test('R7 U14 — the LIVE funnel Continue pill is centered in the question card (≤1px)', async () => {
+  test.setTimeout(120_000);
+  // Project-unique host (see the P10DRAG note): distinct per project so this
+  // live test coexists with itself across chromium+firefox in one invocation.
+  const RT_HOST = `lg-u14ctr-${test.info().project.name}.e2e.test`;
+  const browser = await firefox.launch({ firefoxUserPrefs: { 'network.dns.localDomains': RT_HOST } });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, baseURL: 'http://127.0.0.1:8787' });
+  const page = await context.newPage();
+  const errs = wireConsole(page, 'U14ctr');
+  try {
+    const siteId = await seedActiveSite(page.request, RT_HOST, `U14 ctr ${uniq}`);
+    const section = await json<Created>(await page.request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: `U14 ctr ${uniq}`, activity: ACT, vertical: VERT, headline_text: 'What is your ZIP code?', subheadline_text: 'Rates differ by ZIP code', continue_mode: 'button', status: 'active',
+        content_json: { components: [HEADLINE, ZIP, { type: 'ContinueButton', question_id: 'q_cont', props: { label: 'See my quotes' } }] },
+      },
+    }), 'u14 section');
+    const quote = await json<{ id: number; public_id: string; funnels: Array<{ variants: Array<{ public_id: string }> }> }>(
+      await page.request.post(`${LG_API}/quotes`, { data: { quote_name: `U14 Quote ${uniq}`, activity: ACT, verticals: [VERT] } }), 'u14 quote');
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    const auction = await json<{ id: number }>(await page.request.post(`${LG_API}/auctions`, {
+      data: { auction_name: `U14 Auction ${uniq}`, quote_id: quote.id, auction_type: 'dynamic', winner_logic: 'highest_bid', floor_type: 'percentage_of_max', floor_value: 10, multi_offer: 'enabled', banner_slots_count: 5, max_carriers_per_offer: 3, max_total_carriers: 10, timeout_ms: 2500, status: 'active' },
+    }), 'u14 auction');
+    await json(await page.request.put(`${LG_API}/variants/${variantId}`, { data: { auction_id: auction.id, sections: [{ section_id: section.id, position: 0 }] } }), 'u14 variant');
+    const slug = `u14-ctr-${test.info().project.name}-${uniq}`;
+    const act = await page.request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug } });
+    if (!act.ok()) throw new Error(`u14 activation HTTP ${act.status()}: ${await act.text()}`);
+
+    await page.goto(`http://${RT_HOST}:8787/lg/${slug}`, { waitUntil: 'load' });
+    await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 15_000 });
+    await expect(page.locator('.lg-continue').first(), 'the live Continue pill rendered').toBeVisible({ timeout: 8000 });
+    const geom = await page.evaluate(() => {
+      const btn = document.querySelector('.lg-continue');
+      const card = document.querySelector('.lg-question-card');
+      if (!btn || !card) return { ok: false as const, hasBtn: !!btn, hasCard: !!card };
+      const btnRect = btn.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const cardCs = getComputedStyle(card);
+      const btnCs = getComputedStyle(btn);
+      const padLeft = parseFloat(cardCs.paddingLeft) || 0;
+      const padRight = parseFloat(cardCs.paddingRight) || 0;
+      const cardContentCenterX = cardRect.left + padLeft + (cardRect.width - padLeft - padRight) / 2;
+      const btnCenterX = btnRect.left + btnRect.width / 2;
+      return { ok: true as const, btnCenterX, cardContentCenterX, diff: Math.abs(btnCenterX - cardContentCenterX), display: btnCs.display, marginLeft: btnCs.marginLeft, marginRight: btnCs.marginRight };
+    });
+    await page.screenshot({ path: `${SHOT}/U14-live-centered.png` });
+    record({ probe: 'U14-live-centering', verdict: geom.ok && geom.diff <= 1 ? 'WORKS' : 'FAIL', evidence: JSON.stringify(geom), shots: ['U14-live-centered.png'] });
+    expect(geom.ok, `live .lg-continue + .lg-question-card must render: ${JSON.stringify(geom)}`).toBe(true);
+    if (!geom.ok) return;
+    expect(
+      geom.diff,
+      `LIVE Continue center-x (${geom.btnCenterX.toFixed(1)}) vs card content center-x (${geom.cardContentCenterX.toFixed(1)}) — display=${geom.display} ml=${geom.marginLeft} mr=${geom.marginRight}`,
+    ).toBeLessThanOrEqual(1);
     expect(errs, `P11: no non-benign console errors — got ${JSON.stringify(errs)}`).toEqual([]);
   } finally {
     await context.close();

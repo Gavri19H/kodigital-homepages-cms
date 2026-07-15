@@ -1511,7 +1511,7 @@ export function validateSectionContent(content: unknown): SectionContentValidati
       warn(
         "frame_scope_component",
         base,
-        `${type} is a funnel-frame component (§8.2 scope "frame") — it belongs to the Quote frame, not a Section unit`,
+        `${type} is a funnel-layout component (§8.2 scope "frame") — it belongs to the funnel layout in the Quote Builder, not a Section unit`,
       );
     }
 
