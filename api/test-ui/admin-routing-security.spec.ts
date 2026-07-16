@@ -10,8 +10,9 @@ import { test, expect } from '@playwright/test';
 // back to the public content domain.
 //
 // Local dev sets ADMIN_HOST=localhost (api/wrangler.toml [vars]). The
-// Playwright baseURL is http://127.0.0.1:8787 so the TCP connection
-// still lands on the local wrangler dev process; we override the Host
+// Playwright baseURL is http://127.0.0.1:<PW_PORT> (default 8787;
+// playwright.config.ts) so the TCP connection still lands on the local
+// wrangler dev process; we override the Host
 // header via extraHTTPHeaders so the Worker's hostname gate sees a
 // foreign public content domain and triggers the off-admin-host
 // branch in api/src/index.ts (lines 67-82).

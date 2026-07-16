@@ -46,8 +46,9 @@ import {
   MOCK_QUOTE_REF,
   type SeededFixP1Funnel,
 } from "./leadgen-fix-p1-seed";
+import { PW_PORT } from "./utils/base-url";
 
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 const SHOT_DIR = "test-artifacts/fix-p1";
 
 // Realistic desktop Chrome UA (see DEV-GUARD NOTE above) — also the exact
@@ -70,7 +71,7 @@ test.beforeAll(async () => {
 });
 
 function shellUrl(query = ""): string {
-  return `http://${seeded.host}:8787/lg/${seeded.slug}${query}`;
+  return `http://${seeded.host}:${PW_PORT}/lg/${seeded.slug}${query}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +159,7 @@ function sectionAt(page: Page, index: number) {
 }
 
 async function readKoSid(page: Page): Promise<string> {
-  const cookies = await page.context().cookies(`http://${seeded.host}:8787/`);
+  const cookies = await page.context().cookies(`http://${seeded.host}:${PW_PORT}/`);
   return cookies.find((c) => c.name === "ko_sid")?.value ?? "";
 }
 
@@ -204,7 +205,7 @@ test.describe("Group 1 — server render without JS (11 §11.2 / 03 §3.11)", ()
     // rendered" leg, over this funnel's component set).
     const wire = await playwrightRequest.newContext();
     const res = await wire.get(`${ORIGIN}/lg/${seeded.slug}`, {
-      headers: { Host: `${seeded.host}:8787` },
+      headers: { Host: `${seeded.host}:${PW_PORT}` },
     });
     expect(res.status()).toBe(200);
     const html = await res.text();
@@ -644,7 +645,7 @@ test.describe("Group 1 — auction → banners → impressions → click (11 §1
     const location = lcRes.headers()["location"] ?? "";
     const resolved = new URL(location);
     expect(`${resolved.protocol}//${resolved.host}${resolved.pathname}`).toBe(
-      "http://offers.e2e.test:8787/health",
+      `http://offers.e2e.test:${PW_PORT}/health`,
     );
     expect(resolved.searchParams.get("sid")).toBe(koSid); // {session_id}
     expect(resolved.searchParams.get("src")).toBe("fixp1-fb"); // {utm_source}

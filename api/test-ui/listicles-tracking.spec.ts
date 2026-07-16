@@ -18,8 +18,9 @@
 //     exercises the fallback chain and exposes the payloads.
 //   * Requests that CONTINUE a redirect chain are not interceptable either,
 //     so the seeded offer template points at the worker's own any-host
-//     /health route on the mapped test domain (http://offers.e2e.test:8787)
-//     — the /lc 302 lands on a real local response, no route.fulfill needed.
+//     /health route on the mapped test domain (http://offers.e2e.test:<PW_PORT>,
+//     default 8787) — the /lc 302 lands on a real local response, no
+//     route.fulfill needed.
 //   * Captured events are deduped by event_id: a keepalive fetch the
 //     browser reports aborted is re-queued and re-sent BY DESIGN with the
 //     SAME event_id (that is §31.6's idempotency working); observation must
@@ -28,12 +29,13 @@
 import { test, expect, type Page, type Request as PwRequest } from "@playwright/test";
 import { seedPublishedListicle, type SeededListicle } from "./listicles-p6-seed";
 import { request as playwrightRequest } from "@playwright/test";
+import { PW_PORT } from "./utils/base-url";
 
 test.use({
   launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] },
 });
 
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 
 let seeded: SeededListicle;
 
@@ -43,7 +45,7 @@ test.beforeAll(async () => {
     hostPrefix: "lst-p7-track",
     slug: "p7-tracking",
     // Locally-reachable provider destination (see the observability notes).
-    offerUrlTemplate: "http://offers.e2e.test:8787/health?cid={click_id}&geo={country}",
+    offerUrlTemplate: `http://offers.e2e.test:${PW_PORT}/health?cid={click_id}&geo={country}`,
     pages: (sectionIds) => [
       {
         page_index: 0,
@@ -84,7 +86,7 @@ test.beforeAll(async () => {
 });
 
 function publicUrl(extra = ""): string {
-  return `http://${seeded.host}:8787/${seeded.slug}${extra}`;
+  return `http://${seeded.host}:${PW_PORT}/${seeded.slug}${extra}`;
 }
 
 interface TrackedEvent {
@@ -152,7 +154,7 @@ test.describe("landing: cookies + ids + page_view beacon (§16/§31.3/§31.4)", 
     await page.goto(publicUrl("?utm_source=x&fbclid=y"), { waitUntil: "load" });
 
     // ko_ctx cookie captured the landing params (+fbc derived from fbclid).
-    const cookies = await page.context().cookies(`http://${seeded.host}:8787/`);
+    const cookies = await page.context().cookies(`http://${seeded.host}:${PW_PORT}/`);
     const koCtx = cookies.find((c) => c.name === "ko_ctx");
     expect(koCtx).toBeTruthy();
     const parsedCtx = JSON.parse(decodeURIComponent(koCtx!.value)) as Record<string, string>;
@@ -312,8 +314,9 @@ test.describe("§31.5 impressions on scroll — once per (pv, entity)", () => {
 
 test.describe("§7.3/§31.9 /lc click → 302 + click_id + pv", () => {
   test("a governed click 302s through /lc with pv=; a second click mints a NEW click_id", async ({ page }) => {
-    // The seeded provider URL (http://offers.e2e.test:8787/health) resolves
-    // to the local worker, so the 302 lands on a real response — redirect-
+    // The seeded provider URL (http://offers.e2e.test:<PW_PORT>/health,
+    // default 8787) resolves to the local worker, so the 302 lands on a real
+    // response — redirect-
     // chain requests are not interceptable (observability notes above).
     const lcResponses: Array<{ url: string; location: string }> = [];
     page.on("response", (res) => {

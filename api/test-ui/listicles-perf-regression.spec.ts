@@ -14,11 +14,12 @@
 import { test, expect, request as playwrightRequest } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { seedPublishedListicle, type SeededListicle } from "./listicles-p6-seed";
+import { PW_PORT } from "./utils/base-url";
 
 test.use({ launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] } });
 
 const SHOT_DIR = "test-artifacts/listicles-perf";
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 let seeded: SeededListicle;
 
 test.beforeAll(async () => {
@@ -29,7 +30,7 @@ test.beforeAll(async () => {
 });
 
 function publicUrl(): string {
-  return `http://${seeded.host}:8787/${seeded.slug}`;
+  return `http://${seeded.host}:${PW_PORT}/${seeded.slug}`;
 }
 
 test.describe("§22 CWV on a rendered listicle", () => {
@@ -70,7 +71,7 @@ test.describe("§22 cache discipline at the wire (Phase-6 KV/Cache-API mechanism
   test("headers + byte-identical 2nd response (cache HIT) + 304 conditional GET, timing logged", async () => {
     const ctx = await playwrightRequest.newContext();
     const url = `${ORIGIN}/${seeded.slug}`;
-    const headers = { Host: `${seeded.host}:8787`, Cookie: "ko_sid=perf-probe" };
+    const headers = { Host: `${seeded.host}:${PW_PORT}`, Cookie: "ko_sid=perf-probe" };
 
     const t1 = Date.now();
     const first = await ctx.get(url, { headers });
@@ -120,7 +121,7 @@ test.describe("pillar-1 regression — homepage + /api/track untouched", () => {
   test("homepage renders (non-listicle), /api/track still 204s, homepage.events shape unchanged", async ({ page }) => {
     // /api/track always 204s (single event + {events:[...]} batch).
     const single = await page.request.post(`${ORIGIN}/api/track`, {
-      data: { event: "page_view", session_id: "perf-hp-1", url: "http://localhost:8787/" },
+      data: { event: "page_view", session_id: "perf-hp-1", url: `http://localhost:${PW_PORT}/` },
     });
     expect(single.status()).toBe(204);
     const batch = await page.request.post(`${ORIGIN}/api/track`, {
@@ -131,7 +132,7 @@ test.describe("pillar-1 regression — homepage + /api/track untouched", () => {
     const unknown = await page.request.post(`${ORIGIN}/api/track`, { data: { event: "not_a_real_event" } });
     expect(unknown.status()).toBe(204);
 
-    const home = await page.request.get("http://localhost:8787/");
+    const home = await page.request.get(`http://localhost:${PW_PORT}/`);
     expect(home.status()).toBe(200); // a hard 200, not merely "< 500"
     const html = await home.text();
     // POSITIVE homepage marker (seeded home buckets) — a blank/degraded but

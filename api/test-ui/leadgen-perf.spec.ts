@@ -23,17 +23,19 @@
 // own timeout proof; the budget therefore rides the existing unit enforcement.
 //
 // The tenant host resolves via --host-resolver-rules; Node-side wire assertions
-// send an explicit Host header to 127.0.0.1:8787.
+// send an explicit Host header to 127.0.0.1:<PW_PORT> (default 8787;
+// ./utils/base-url.ts).
 
 import { test, expect, request as playwrightRequest } from "@playwright/test";
 import { gzipSync } from "node:zlib";
 import { seedActivatedFunnel, type SeededP14Funnel } from "./leadgen-p14-seed";
+import { PW_PORT } from "./utils/base-url";
 
 test.use({
   launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] },
 });
 
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 const JS_BUDGET_BYTES = 40 * 1024; // §28 funnel runtime JS < 40 KB gzip
 
 let seeded: SeededP14Funnel;
@@ -45,7 +47,7 @@ test.beforeAll(async () => {
 });
 
 function shellUrl(): string {
-  return `http://${seeded.host}:8787/lg/${seeded.slug}`;
+  return `http://${seeded.host}:${PW_PORT}/lg/${seeded.slug}`;
 }
 
 test.describe("§28 performance budgets", () => {
@@ -101,7 +103,7 @@ test.describe("§28 performance budgets", () => {
     const ctx = await playwrightRequest.newContext();
     // Pin ko_sid so the §16.3 assignment inject is identical across requests
     // (single_control → deterministic dims; the body is then byte-stable).
-    const H = { Host: `${seeded.host}:8787`, Cookie: "ko_sid=perf-probe" };
+    const H = { Host: `${seeded.host}:${PW_PORT}`, Cookie: "ko_sid=perf-probe" };
     const url = `${ORIGIN}/lg/${seeded.slug}`;
 
     const t1 = Date.now();

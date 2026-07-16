@@ -16,7 +16,8 @@
 //   * §22.4 zero-CLS lazy hydration on an over-budget article.
 //
 // The browser resolves the tenant host via --host-resolver-rules; Node-side
-// wire assertions send an explicit Host header to 127.0.0.1:8787.
+// wire assertions send an explicit Host header to 127.0.0.1:<PW_PORT>
+// (default 8787; ./utils/base-url.ts).
 
 import { test, expect, request as playwrightRequest, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
@@ -25,13 +26,14 @@ import {
   startFiftyFiftyExperiment,
   type SeededListicle,
 } from "./listicles-p6-seed";
+import { PW_PORT } from "./utils/base-url";
 
 test.use({
   launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] },
 });
 
 const SHOT_DIR = "test-artifacts/listicles-render";
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 
 let seeded: SeededListicle;
 
@@ -43,7 +45,7 @@ test.beforeAll(async () => {
 });
 
 function publicUrl(seed: SeededListicle): string {
-  return `http://${seed.host}:8787/${seed.slug}`;
+  return `http://${seed.host}:${PW_PORT}/${seed.slug}`;
 }
 
 test.describe("published listicle renders (§7.2)", () => {
@@ -169,7 +171,7 @@ test.describe("§22 cache discipline at the wire", () => {
   test("headers + byte-identical second response + 304 conditional GET (timing logged)", async () => {
     const ctx = await playwrightRequest.newContext();
     const url = `${ORIGIN}/${seeded.slug}`;
-    const headers = { Host: `${seeded.host}:8787`, Cookie: "ko_sid=wire-probe" };
+    const headers = { Host: `${seeded.host}:${PW_PORT}`, Cookie: "ko_sid=wire-probe" };
 
     const t1 = Date.now();
     const first = await ctx.get(url, { headers });
@@ -212,7 +214,7 @@ test.describe("§22.4 zero CLS on below-fold lazy hydration", () => {
     });
     // The shell must actually be over budget: raw HTML carries lazy hooks.
     const raw = await ctx.get(`${ORIGIN}/${over.slug}`, {
-      headers: { Host: `${over.host}:8787` },
+      headers: { Host: `${over.host}:${PW_PORT}` },
     });
     const rawHtml = await raw.text();
     expect(rawHtml).toContain("data-lst-lazy");
@@ -237,7 +239,7 @@ test.describe("§22.4 zero CLS on below-fold lazy hydration", () => {
     // asserts the placeholders resolve promptly. The min-height floor +
     // aspect-ratio reservations remain the extreme-latency-tail fallback (no
     // scroll trigger exists to test — hydration never waits for the user).
-    await page.goto(`http://${over.host}:8787/${over.slug}`, { waitUntil: "load" });
+    await page.goto(`http://${over.host}:${PW_PORT}/${over.slug}`, { waitUntil: "load" });
     // Placeholders hydrate from GET /lst-cand/:id SHORTLY AFTER load — well
     // inside the hydrator's own 2s idle-timeout bound + fetch time.
     await expect(page.locator("[data-lst-lazy]")).toHaveCount(0, { timeout: 5_000 });

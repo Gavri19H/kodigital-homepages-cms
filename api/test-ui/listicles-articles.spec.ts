@@ -13,9 +13,9 @@ import { test, expect, type Page } from '@playwright/test';
 //   → the §30.6 Version preview (rule simulation, forced candidates, CTA
 //   density, desktop/mobile) → publish.
 //
-// Runs against the playwright.config.ts webServer (wrangler dev on :8787,
-// DEV_BYPASS_AUTH + ADMIN_HOST=127.0.0.1). Local D1 must be migrated once:
-// `npm run db:migrate:local`.
+// Runs against the playwright.config.ts webServer (wrangler dev on
+// :<PW_PORT>, default 8787, DEV_BYPASS_AUTH + ADMIN_HOST=127.0.0.1). Local D1
+// must be migrated once: `npm run db:migrate:local`.
 //
 // Screenshots (1280×800) land in test-artifacts/listicles-articles/.
 

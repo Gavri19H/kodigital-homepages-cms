@@ -1,6 +1,6 @@
 // LeadGen v2.5 Phase B (slice B4) — the 15 §15.3 "Quote Builder" Playwright
-// rows, driven through the REAL admin UI at :8787 (wrangler dev webServer +
-// mock provider, playwright.config.ts). Seeding rides the REAL admin HTTP
+// rows, driven through the REAL admin UI at :<PW_PORT> (default 8787;
+// wrangler dev webServer + mock provider, playwright.config.ts). Seeding rides the REAL admin HTTP
 // APIs only (leadgen-b-seed.ts). Rows covered (each test maps 1:1):
 //
 //   ① site selector lists ALL sites with Active / Activation off /
@@ -34,10 +34,11 @@
 import { test, expect, request as playwrightRequest, type Page, type FrameLocator } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { seedQuoteBuilder, type QuoteBuilderSeed } from "./leadgen-b-seed";
+import { PW_PORT } from "./utils/base-url";
 
 test.use({ viewport: { width: 1280, height: 900 } });
 
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 const LG_API = "/api/admin/leadgen";
 const SHOT_DIR = "test-artifacts";
 const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;

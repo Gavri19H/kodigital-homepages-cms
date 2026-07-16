@@ -54,6 +54,7 @@
 
 import { type APIRequestContext } from "@playwright/test";
 import { seedActiveSite } from "./listicles-p6-seed";
+import { PW_PORT } from "./utils/base-url";
 
 const LG_API = "/api/admin/leadgen";
 
@@ -68,7 +69,7 @@ export const MOCK_CARRIER_NAMES = ["Acme Life", "Zenith Shield"] as const;
 // click_url). Points at the worker's own any-host /health so a REAL banner
 // click completes navigation locally (the listicles offers.e2e.test trick).
 export const BANNER_URL_TEMPLATE =
-  "http://offers.e2e.test:8787/health?sid={session_id}&src={utm_source}&qr={response:quote_ref}";
+  `http://offers.e2e.test:${PW_PORT}/health?sid={session_id}&src={utm_source}&qr={response:quote_ref}`;
 
 export interface SeededFixP1Funnel {
   host: string;

@@ -3,7 +3,7 @@
 // hit-tested input only). Firefox lane (*.gesture.spec.ts → the firefox project;
 // page.mouse drags complete under Juggler where CDP hangs). Boots a LIVE seeded
 // funnel (the leadgen-live-funnel.spec.ts boot pattern; webServer auto-launches
-// wrangler dev :8787 + the mock provider :8788) and drives, with trusted input
+// wrangler dev :<PW_PORT> (default 8787) + the mock provider :8788) and drives, with trusted input
 // only (locator.selectOption / page.mouse / locator.click — ZERO dispatchEvent):
 //   * E1-NEW-4: a TwoButtonYesNo default paints its button SELECTED on entry.
 //   * E1-NEW-1: selecting a dropdown option RECORDS the answer (+ an
@@ -14,8 +14,9 @@
 import { test, expect, request as playwrightRequest, type APIRequestContext, type Page } from "@playwright/test";
 import { seedActiveSite } from "./listicles-p6-seed";
 import { MOCK_PROVIDER_ENDPOINT, BANNER_URL_TEMPLATE } from "./leadgen-fix-p1-seed";
+import { PW_PORT } from "./utils/base-url";
 
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 const LG_API = "/api/admin/leadgen";
 const REAL_CHROME_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
@@ -135,7 +136,7 @@ test.beforeAll(async () => {
   await ctx.dispose();
 });
 
-function shellUrl(): string { return `http://${seeded.host}:8787/lg/${seeded.slug}`; }
+function shellUrl(): string { return `http://${seeded.host}:${PW_PORT}/lg/${seeded.slug}`; }
 function sectionAt(page: Page, i: number) { return page.locator(`[data-lg-section][data-lg-index="${i}"]`); }
 
 type TrackedEvent = Record<string, unknown>;

@@ -7,8 +7,9 @@ import { test, expect } from '@playwright/test';
 // ('TheIWise', 'Phase 1 admin shell', 'Psychic Quiz').
 //
 // Screenshot evidence is written to test-results/admin-ux-parity/<route>.png.
-// Run against a local `wrangler dev` (port 8787) with DEV_BYPASS_AUTH=true,
-// which the playwright.config.ts webServer block boots automatically.
+// Run against a local `wrangler dev` (port <PW_PORT>, default 8787) with
+// DEV_BYPASS_AUTH=true, which the playwright.config.ts webServer block boots
+// automatically.
 
 const BANNED_LEGACY_STRINGS = ['TheIWise', 'Phase 1 admin shell', 'Psychic Quiz'] as const;
 const BRAND_TEXT_REGEX = /KoDigital CMS|Homepage CMS/;

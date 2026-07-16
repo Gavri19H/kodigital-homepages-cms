@@ -21,19 +21,21 @@
 //     variant → 404 (no config leak).
 //
 // The browser resolves the tenant host via --host-resolver-rules; Node-side wire
-// assertions send an explicit Host header to 127.0.0.1:8787. The local dev
+// assertions send an explicit Host header to 127.0.0.1:<PW_PORT> (default
+// 8787; ./utils/base-url.ts). The local dev
 // server auto-loads .dev.vars (LEADGEN_CONFIG_SIGNING_KEY present), so the
 // minted token is a real signed one — asserted loosely (non-empty string).
 
 import { test, expect, request as playwrightRequest, type APIRequestContext } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { seedActiveSite } from "./listicles-p6-seed";
+import { PW_PORT } from "./utils/base-url";
 
 test.use({
   launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] },
 });
 
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 const LG_API = "/api/admin/leadgen";
 const SHOT_DIR = "test-artifacts/leadgen-runtime";
 
@@ -112,7 +114,7 @@ test.beforeAll(async () => {
 });
 
 function shellUrl(): string {
-  return `http://${seeded.host}:8787/lg/${seeded.slug}`;
+  return `http://${seeded.host}:${PW_PORT}/lg/${seeded.slug}`;
 }
 
 test.describe("public funnel shell on a tenant host (§17.2 / §28 / v2.4 03 §3.2)", () => {
@@ -121,7 +123,7 @@ test.describe("public funnel shell on a tenant host (§17.2 / §28 / v2.4 03 §3
     // engine hydrates): the 03 §3.2 shell contract.
     const ctx = await playwrightRequest.newContext();
     const served = await ctx.get(`${ORIGIN}/lg/${seeded.slug}`, {
-      headers: { Host: `${seeded.host}:8787` },
+      headers: { Host: `${seeded.host}:${PW_PORT}` },
     });
     expect(served.status()).toBe(200);
     const servedHtml = await served.text();
@@ -200,7 +202,7 @@ test.describe("public funnel shell on a tenant host (§17.2 / §28 / v2.4 03 §3
 test.describe("§28 / §30.4 wire discipline (Host header)", () => {
   test("shell headers + 304; /lg/config strip + headers; /lg/attempt no-store; foreign variant 404", async () => {
     const ctx = await playwrightRequest.newContext();
-    const H = { Host: `${seeded.host}:8787` };
+    const H = { Host: `${seeded.host}:${PW_PORT}` };
 
     // shell
     const shell = await ctx.get(`${ORIGIN}/lg/${seeded.slug}`, { headers: H });

@@ -11,9 +11,9 @@ import { test, expect, type Page } from '@playwright/test';
 //   the list's "Offers used" / "Usage in Articles" dialogs reflecting the
 //   new links.
 //
-// Runs against the playwright.config.ts webServer (wrangler dev on :8787,
-// DEV_BYPASS_AUTH + ADMIN_HOST=127.0.0.1). Local D1 must be migrated once:
-// `npm run db:migrate:local`.
+// Runs against the playwright.config.ts webServer (wrangler dev on
+// :<PW_PORT>, default 8787, DEV_BYPASS_AUTH + ADMIN_HOST=127.0.0.1). Local D1
+// must be migrated once: `npm run db:migrate:local`.
 //
 // Screenshots (1280×800) land in test-artifacts/listicles-sections/.
 

@@ -14,8 +14,8 @@ import { test, expect } from '@playwright/test';
 // so the browser's HTML5 required-validation doesn't suppress the POST.
 // This keeps the spec self-contained against an empty local D1.
 //
-// Run against a local `wrangler dev` (port 8787) launched with
-// `--var ADMIN_HOST:127.0.0.1 --var DEV_BYPASS_AUTH:true`. Production
+// Run against a local `wrangler dev` (port <PW_PORT>, default 8787) launched
+// with `--var ADMIN_HOST:127.0.0.1 --var DEV_BYPASS_AUTH:true`. Production
 // form uses Host: cms.kodigital.app (wrangler.toml [env.production]);
 // chromium refuses to override Host via extraHTTPHeaders, so dev
 // substitutes 127.0.0.1 as ADMIN_HOST and the URL hostname matches.

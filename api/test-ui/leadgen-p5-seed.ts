@@ -19,9 +19,10 @@
 // renderSectionComponents + funnelChromeCss path the editor iframe uses), so
 // the seeded content_json is what the spec renders and asserts against.
 //
-// Runs against the playwright.config.ts webServer (wrangler dev on :8787 with
-// DEV_BYPASS_AUTH:true + ADMIN_HOST:127.0.0.1). Every resource is
-// unique-suffixed so parallel/local leftovers can never collide.
+// Runs against the playwright.config.ts webServer (wrangler dev on
+// :<PW_PORT>, default 8787, with DEV_BYPASS_AUTH:true + ADMIN_HOST:127.0.0.1).
+// Every resource is unique-suffixed so parallel/local leftovers can never
+// collide.
 //
 // NO banned legacy product identifiers anywhere (assert-no-legacy-prod-refs):
 // the design is named "default-funnel" / "reference funnel" only.

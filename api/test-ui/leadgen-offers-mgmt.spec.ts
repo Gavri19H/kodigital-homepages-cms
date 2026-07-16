@@ -27,9 +27,9 @@
 //
 // Seeding rides the REAL admin HTTP APIs only (the leadgen-p4-seed /
 // leadgen-fix-p1-seed convention; no direct DB writes). Runs against the
-// playwright.config.ts webServer (wrangler dev on :8787 with
-// DEV_BYPASS_AUTH:true + ADMIN_HOST:127.0.0.1) plus the :8788 mock provider.
-// Local D1 must be migrated + seeded once: `npm run db:migrate:local &&
+// playwright.config.ts webServer (wrangler dev on :<PW_PORT>, default 8787,
+// with DEV_BYPASS_AUTH:true + ADMIN_HOST:127.0.0.1) plus the :8788 mock
+// provider. Local D1 must be migrated + seeded once: `npm run db:migrate:local &&
 // npm run seed:local`.
 //
 // Screenshots (1280×800) land in test-artifacts/leadgen-offers-mgmt/.

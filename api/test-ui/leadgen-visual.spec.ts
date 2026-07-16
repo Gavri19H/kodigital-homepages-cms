@@ -6,8 +6,8 @@
 // against /lg (NOT a static-injection harness) desktop+mobile"): every
 // computed-style / screenshot / capability assertion runs against a REAL
 // activated funnel served at the tenant `/lg/:slug`, driven by `page.goto`
-// over the live worker (wrangler dev on :8787, host resolved via
-// --host-resolver-rules). The funnel is seeded through the REAL admin HTTP
+// over the live worker (wrangler dev on :<PW_PORT>, default 8787, host
+// resolved via --host-resolver-rules). The funnel is seeded through the REAL admin HTTP
 // APIs only (seedActiveSite + the quote/section/variant/activation chain, the
 // leadgen-fix-p1-seed / leadgen-p14-seed convention) with a single rich
 // Section whose content is buildVisualSectionContent() — the §14.10 component
@@ -58,9 +58,10 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { seedActiveSite } from "./listicles-p6-seed";
 import { buildVisualSectionContent } from "./leadgen-p5-seed";
+import { PW_PORT } from "./utils/base-url";
 
 const SPEC_DIR = dirname(fileURLToPath(import.meta.url));
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 const LG_API = "/api/admin/leadgen";
 const BASELINE_DIR = join(SPEC_DIR, "__screenshots__");
 const EVIDENCE_DIR = "test-artifacts/leadgen-visual";
@@ -156,7 +157,7 @@ async function seedActivatedVisualFunnel(ctx: APIRequestContext): Promise<{ host
 }
 
 function runtimeUrl(): string {
-  return `http://${host}:8787/lg/${slug}`;
+  return `http://${host}:${PW_PORT}/lg/${slug}`;
 }
 
 // Navigate to the REAL /lg runtime at a viewport, wait for the engine to mark
@@ -199,7 +200,7 @@ test.beforeAll(async () => {
   slug = seeded.slug;
   // Node-side served bytes (explicit Host header) — the palette-negative and
   // capability-checklist legs assert on the REAL server-rendered /lg output.
-  const served = await ctx.get(`${ORIGIN}/lg/${slug}`, { headers: { Host: `${host}:8787` } });
+  const served = await ctx.get(`${ORIGIN}/lg/${slug}`, { headers: { Host: `${host}:${PW_PORT}` } });
   if (!served.ok()) throw new Error(`served /lg HTTP ${served.status()}: ${await served.text()}`);
   servedHtml = await served.text();
   await ctx.dispose();

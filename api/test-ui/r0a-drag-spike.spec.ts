@@ -29,13 +29,14 @@
 //
 // Boot pattern mirrors leadgen-section-studio.spec.ts (seed a Section through
 // the real admin API, open its /edit studio). Runs against the
-// playwright.config webServer (wrangler dev on :8787, DEV_BYPASS_AUTH). Run
-// per-file only:
+// playwright.config webServer (wrangler dev on :<PW_PORT>, default 8787,
+// DEV_BYPASS_AUTH). Run per-file only:
 //   npx playwright test test-ui/r0a-drag-spike.spec.ts --workers=1 --reporter=line --timeout=120000
 
 import { test, expect, firefox, type APIRequestContext } from '@playwright/test';
+import { PW_PORT } from './utils/base-url';
 
-const BASE = 'http://127.0.0.1:8787';
+const BASE = `http://127.0.0.1:${PW_PORT}`;
 const LG_API = '/api/admin/leadgen';
 const SHOT_DIR = 'test-artifacts/r0a-drag-spike';
 const uniq = Date.now();

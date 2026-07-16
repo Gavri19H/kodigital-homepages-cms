@@ -36,10 +36,11 @@
 //     — and the provider hit lands on the :8788 mock (GET /__requests).
 //
 // Seeds (fresh unique names, REAL admin APIs only): test-ui/leadgen-fix-p2-seed.ts.
-// Runs against the playwright.config.ts webServers (wrangler dev :8787 with
-// DEV_BYPASS_AUTH + ADMIN_HOST:127.0.0.1; mock provider :8788). Local D1 must
-// be migrated + seeded once before the run (the conductor's D1 ritual).
-// Screenshots (desktop 1280) land in test-artifacts/fix-p2/.
+// Runs against the playwright.config.ts webServers (wrangler dev :<PW_PORT>,
+// default 8787, with DEV_BYPASS_AUTH + ADMIN_HOST:127.0.0.1; mock provider
+// :8788). Local D1 must be migrated + seeded once before the run (the
+// conductor's D1 ritual). Screenshots (desktop 1280) land in
+// test-artifacts/fix-p2/.
 
 import {
   test,
@@ -55,8 +56,9 @@ import {
   type SeededFixP2AuthoringOffer,
   type SeededFixP2TestOffer,
 } from "./leadgen-fix-p2-seed";
+import { PW_PORT } from "./utils/base-url";
 
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 const SHOT_DIR = "test-artifacts/fix-p2";
 const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 

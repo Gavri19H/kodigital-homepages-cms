@@ -118,6 +118,7 @@ import {
   type StudioNode,
 } from "./leadgen-e-seed";
 import { LEADGEN_FIELD_LEADING_ICONS } from "../src/public/leadgen/components/content-schema";
+import { PW_PORT } from "./utils/base-url";
 
 // Realistic desktop Chrome UA — /lg's runtimeRequestGuard bot arm must not
 // trip on the §15.4 live-page navigations (the leadgen-live-funnel DEV-GUARD
@@ -131,7 +132,7 @@ test.use({
   userAgent: REAL_CHROME_UA,
 });
 
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 const SHOT_DIR = "test-artifacts/leadgen-e1-patterns";
 const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
@@ -1248,7 +1249,7 @@ async function gotoLive(
   size: { width: number; height: number },
 ): Promise<void> {
   await page.setViewportSize(size);
-  await page.goto(`http://${entry.host}:8787/lg/${entry.slug}`, { waitUntil: "load" });
+  await page.goto(`http://${entry.host}:${PW_PORT}/lg/${entry.slug}`, { waitUntil: "load" });
   await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 15_000 });
   await page.evaluate(() => document.fonts.ready);
   // focus normalisation (the leadgen-visual idiom): the engine autofocuses

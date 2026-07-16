@@ -14,13 +14,14 @@
 //     --workers=1 --reporter=line --timeout=120000
 //
 // Boot pattern mirrors r0a-drag-spike.spec.ts (seed a Section through the real
-// admin API, open its /edit studio). webServer (wrangler dev :8787,
-// DEV_BYPASS_AUTH) is launched by playwright.config.
+// admin API, open its /edit studio). webServer (wrangler dev :<PW_PORT>,
+// default 8787, DEV_BYPASS_AUTH) is launched by playwright.config.
 import { test, expect, type APIRequestContext, type Page, type FrameLocator } from "@playwright/test";
 import { realDrag, type Box } from "./utils/real-input";
 import { assertOverlayAligned, computeOverlayAlignment, type RectLike } from "./utils/effect-assert";
+import { PW_PORT } from "./utils/base-url";
 
-const BASE = "http://127.0.0.1:8787";
+const BASE = `http://127.0.0.1:${PW_PORT}`;
 const LG_API = "/api/admin/leadgen";
 const SHOT = "test-artifacts/r2-canvas-interactions";
 const uniq = Date.now();

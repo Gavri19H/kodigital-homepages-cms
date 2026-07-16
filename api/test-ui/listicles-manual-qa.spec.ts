@@ -29,6 +29,7 @@ import {
   startFiftyFiftyExperiment,
   type SeededListicle,
 } from "./listicles-p6-seed";
+import { PW_PORT } from "./utils/base-url";
 
 test.use({
   viewport: { width: 1280, height: 800 },
@@ -36,7 +37,7 @@ test.use({
 });
 
 const SHOT_DIR = "test-artifacts/listicles-manual-qa";
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 const TODAY = new Date().toISOString().slice(0, 10);
 
 let funnel: SeededListicle;
@@ -50,7 +51,7 @@ function d1Local(command: string): void {
 }
 
 function publicUrl(seed: SeededListicle, extra = ""): string {
-  return `http://${seed.host}:8787/${seed.slug}${extra}`;
+  return `http://${seed.host}:${PW_PORT}/${seed.slug}${extra}`;
 }
 
 // ---- beacon capture (mirrors listicles-tracking.spec.ts) -------------------
@@ -122,7 +123,7 @@ test.beforeAll(async () => {
   funnel = await seedPublishedListicle(ctx, {
     hostPrefix: "lst-p10-funnel",
     slug: "p10-funnel",
-    offerUrlTemplate: "http://offers.e2e.test:8787/health?cid={click_id}&geo={country}",
+    offerUrlTemplate: `http://offers.e2e.test:${PW_PORT}/health?cid={click_id}&geo={country}`,
     pages: (sectionIds) => [
       {
         page_index: 0,
@@ -404,7 +405,7 @@ test.describe("§26 Articles + experimentation", () => {
       await ctx.post("/api/admin/listicles/articles", {
         data: {
           site_id: funnel.siteId, slug: `p10-conflict-${Date.now()}`, article_name: `Conflict ${Date.now()}`,
-          headline: "Conflict probe", intro_paragraph: "Body", hero_media_url: "http://127.0.0.1:8787/health", layout_style_id: "default",
+          headline: "Conflict probe", intro_paragraph: "Body", hero_media_url: `http://127.0.0.1:${PW_PORT}/health`, layout_style_id: "default",
         },
       })
     ).json()) as { article: { id: number }; version: { id: number } };
@@ -413,7 +414,7 @@ test.describe("§26 Articles + experimentation", () => {
     // (both state=CA) + one fallback → §15.5 equal-priority overlap.
     const put = await ctx.put(`/api/admin/listicles/versions/${article.version.id}`, {
       data: {
-        headline: "Conflict probe", intro_paragraph: "Body", hero_media_url: "http://127.0.0.1:8787/health", layout_style_id: "default",
+        headline: "Conflict probe", intro_paragraph: "Body", hero_media_url: `http://127.0.0.1:${PW_PORT}/health`, layout_style_id: "default",
         pages: [
           {
             page_index: 0, selection_mode: "rule_based",
@@ -443,7 +444,7 @@ test.describe("§26 Tracking & analytics — funnel", () => {
     const events = await collectBeacons(page);
     await page.goto(publicUrl(funnel, "?utm_source=mqa&fbclid=fbz"), { waitUntil: "load" });
 
-    const cookies = await page.context().cookies(`http://${funnel.host}:8787/`);
+    const cookies = await page.context().cookies(`http://${funnel.host}:${PW_PORT}/`);
     const koCtx = cookies.find((c) => c.name === "ko_ctx");
     const koSid = cookies.find((c) => c.name === "ko_sid");
     expect(koCtx).toBeTruthy();
@@ -543,13 +544,13 @@ test.describe("§26 pillar-1 isolation — homepage untouched", () => {
   test("homepage renders (non-listicle) and POST /api/track still 204s", async ({ page }) => {
     // /api/track is host-agnostic and must always 204 (fire-and-forget beacon).
     const track = await page.request.post(`${ORIGIN}/api/track`, {
-      data: { event: "page_view", session_id: "mqa-homepage-probe", url: "http://localhost:8787/" },
+      data: { event: "page_view", session_id: "mqa-homepage-probe", url: `http://localhost:${PW_PORT}/` },
     });
     expect(track.status()).toBe(204);
 
     // The seeded homepage (npm run seed:local maps hostname 'localhost') renders
     // via the /:slug-sibling home route and is NOT a listicle.
-    const home = await page.request.get("http://localhost:8787/");
+    const home = await page.request.get(`http://localhost:${PW_PORT}/`);
     expect(home.status()).toBe(200); // a hard 200, not merely "< 500"
     const html = await home.text();
     // POSITIVE homepage marker (seeded home buckets) — a blank/degraded but
