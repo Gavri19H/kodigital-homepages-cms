@@ -1271,6 +1271,48 @@ export function funnelChromeCss(
     );
   }
 
+  // ---- P1a terminal `[hidden]` guard (register PC — hidden-attribute vs
+  // author-display defect) --------------------------------------------------
+  // The runtime hides conditionally-shown components by TOGGLING the boolean
+  // `hidden` attribute (render.ts applyComponentVisibility / setBackVisible /
+  // updateFooterVisibility, plus the SSR-baked `hidden` on the
+  // [data-lg-banners] mount, [data-lg-other-panel] and a show_on:"final"
+  // footer). The UA sheet's `[hidden]{display:none}` is specificity (0,1,0);
+  // EVERY author rule in this sheet carries the scope attribute + at least one
+  // class = (0,2,0)+, so it OUTRANKS the UA rule — a hidden component that ALSO
+  // has a `display:` rule renders VISIBLE on a live funnel. The live-measured
+  // surface (leadgen-live-funnel dependency-HIDE assertion resolved
+  // `<div hidden class="lg-answer-group">` yet toBeHidden() saw it visible) and
+  // the full cascade audit (leadgen-hidden-visibility.test.ts) found exactly
+  // THREE force-visible-when-hidden rules, all at (0,2,0): `.lg-answer-group`
+  // (ButtonAnswerGroup / TwoButtonYesNo / OtherGroupSelector, display:grid),
+  // `.lg-card-grid` (IconCardAnswerGrid / MultiChoiceCardGroup, display:grid)
+  // and `.lg-back` (the Back affordance, display:inline-flex).
+  //
+  // ONE terminal rule restores the intent at author origin: at the SAME (0,2,0)
+  // specificity as every force-visible rule, LATER source order wins, so
+  // `hidden` beats `display:grid|inline-flex|flex|block|…` for ANY scoped
+  // descendant. The audit confirms NO force-visible display rule on a hideable
+  // element exceeds (0,2,0) — every (0,3,0)+ display rule is either
+  // `display:none` (reinforcing) or targets a non-hideable element
+  // (`.lg-frame-trust`, `.lg-btn-spinner`, the back-icon `span`) — so no
+  // higher-specificity companion guard is needed.
+  //
+  // PLACEMENT: after every base per-component rule (so it wins the source-order
+  // tie over all three force-visible rules above) but BEFORE the opt-in
+  // frame-region block below, so the frameRegions extension stays a pure APPEND
+  // — the no-frame base sheet remains a byte-stable PREFIX of the framed output
+  // (the 13 §13.1 invariant leadgen-frame-render.test.ts pins). The frame-region
+  // block adds NO force-visible display rule on any hideable class, so nothing
+  // after this rule can re-show a hidden component. It only sets `display`, so
+  // the grid-follower `margin-top` rules above keep their own last-among-margin
+  // precedence untouched. The mobile @media block that follows carries no
+  // force-visible display rule on any hideable class either (only `display:none`
+  // hides, a root-compound progress `display:flex`, and non-hideable
+  // `.lg-frame-trust` layout), so this base rule also wins inside the media
+  // query — no mobile duplicate needed (the MOBILE SAFETY case pins this).
+  out.push(rule(`${scope} [hidden]`, { display: "none" }));
+
   // ---- v2.5 frame-region rules (13 §13.1, opt-in — see FunnelChromeCssOpts).
   // Every value is a design token or a role resolved through the §9.1 mapping;
   // the only hand-written bits are structural (positioning/z-index/step sizes

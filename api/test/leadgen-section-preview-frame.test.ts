@@ -577,6 +577,15 @@ const P1A_FIX_ROUND_EXCEPTION_TABLE =
   [followerSelectorsFixRound(".lg-trustbar"), followerSelectorsFixRound(".lg-logo-strip"), followerSelectorsFixRound(".lg-columns"), followerSelectorsFixRound(".lg-field")].join(", ") +
   "{margin-top:2px}";
 
+// P1 hidden-attribute vs author-display fix (register PC): the SINGLE net-new
+// terminal guard styles.ts appends as the LAST base rule (right after the P1a
+// grid-follower table above, before the frame-region block). `[hidden]` +
+// scope = (0,2,0) ties every force-visible display rule and wins by later
+// source order, so a conditionally-hidden component actually hides. Stripped
+// here (the ONLY legal delta this fix adds) so the frozen fixture stays the
+// pre-change shape — a drift in ANY other byte still fails the pin below.
+const P1_HIDDEN_GUARD_RULE = `\n${DEFAULT_FUNNEL_SCOPE} [hidden]{display:none}`;
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -688,6 +697,10 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     // P1a FIX ROUND (register PC-3): strip the net-new grid-follower
     // collapse-emulation table (the ONLY legal delta this fix round adds).
     .split(P1A_FIX_ROUND_EXCEPTION_TABLE)
+    .join("")
+    // P1 hidden-attribute fix (register PC): strip the net-new terminal
+    // `[hidden]{display:none}` guard — the ONLY legal delta this fix adds.
+    .split(P1_HIDDEN_GUARD_RULE)
     .join("");
   expect(
     cssMinusMove,
