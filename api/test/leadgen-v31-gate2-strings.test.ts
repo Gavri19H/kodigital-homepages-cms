@@ -853,11 +853,11 @@ describe("Gate 2 strings — audit-round G FIX 3: Canvas funnel preview (REAL sh
       expect(PREVIEW_HTML, `canvas preview must render: ${s}`).toContain(s);
     }
   });
-  it("the §8.1 leading pin (Location) renders verbatim inside the field box (golden :323)", () => {
-    expect(PREVIEW_HTML).toContain(
-      '<path d="M12 21s7-6.6 7-12a7 7 0 10-14 0c0 5.4 7 12 7 12z" stroke="#8DA0B6" stroke-width="1.8"/>',
-    );
-    expect(PREVIEW_HTML).toContain('<circle cx="12" cy="9" r="2.4" stroke="#8DA0B6" stroke-width="1.8"/>');
+  it("the §8.1 leading pin (Location) renders inside the field box, sized 20px + currentColor (P1b register PC-11 — was golden :323's hand-drawn 19x19/#8DA0B6 pin, now the curated Tabler map-pin so the token/iconColor plumbing actually applies)", () => {
+    expect(PREVIEW_HTML).toContain('width="20" height="20"');
+    expect(PREVIEW_HTML).toContain('viewBox="0 0 24 24"');
+    expect(PREVIEW_HTML).toContain('stroke="currentColor"');
+    expect(PREVIEW_HTML).not.toContain("#8DA0B6");
     // the helper line carries the golden :326 style + text.
     expect(PREVIEW_HTML).toContain(
       '<div class="lg-field-help" style="font-size:12.5px;color:#96A0AF;margin-top:7px;padding-left:2px">We never share this</div>',

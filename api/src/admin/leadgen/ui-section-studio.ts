@@ -1287,11 +1287,16 @@ const COPY_NODE_TYPE_SWAP_OPTION_HTML = COPY_NODE_TYPE_SWAP.map(
   (r) => `<option value="${escapeHtml(r.value)}">${escapeHtml(r.label)}</option>`,
 ).join("");
 
-// v3.1 §8.5b "Enumerations (exact, asserted)" — the 12-value leading-icon
-// picker (Content tab, Basics). Values are LEADGEN_FIELD_LEADING_ICONS
-// (content-schema.ts, single source of truth); labels are the asserted
-// display copy (golden 452-453's worked example anchors "Location pin").
-const LEADING_ICON_LABELS: Record<(typeof LEADGEN_FIELD_LEADING_ICONS)[number], string> = {
+// v3.1 §8.5b "Enumerations (exact, asserted)" — the leading-icon picker
+// (Content tab, Basics). Values are LEADGEN_FIELD_LEADING_ICONS
+// (content-schema.ts, single source of truth — P1b register PC-11: the
+// curated Tabler subset). The pre-Tabler 12 keep their asserted display copy
+// VERBATIM (golden 452-453's worked example anchors "Location pin" for
+// "location" — test/leadgen-v31-gate2-strings.test.ts pins that literal
+// string as rendered Content-tab text); every curated Tabler name gets an
+// auto-derived sentence-case label (kebab-case -> "First rest", e.g.
+// "shield-check" -> "Shield check").
+const LEGACY_ICON_LABEL_OVERRIDES: Record<string, string> = {
   location: "Location pin",
   calendar: "Calendar",
   dollar: "Dollar",
@@ -1305,9 +1310,86 @@ const LEADING_ICON_LABELS: Record<(typeof LEADGEN_FIELD_LEADING_ICONS)[number], 
   star: "Star",
   none: "None",
 };
-const LEADING_ICON_OPTION_HTML = LEADGEN_FIELD_LEADING_ICONS.map(
-  (v) => `<option value="${v}">${escapeHtml(LEADING_ICON_LABELS[v])}</option>`,
-).join("");
+function autoIconLabel(name: string): string {
+  const words = name.split("-").filter((w) => w !== "");
+  const first = words[0];
+  if (first === undefined) return name;
+  const head = first.charAt(0).toUpperCase() + first.slice(1);
+  return [head, ...words.slice(1)].join(" ");
+}
+const LEADING_ICON_LABELS: Record<string, string> = {};
+for (const v of LEADGEN_FIELD_LEADING_ICONS) {
+  LEADING_ICON_LABELS[v] = LEGACY_ICON_LABEL_OVERRIDES[v] ?? autoIconLabel(v);
+}
+
+// ~100+ options is too many as one flat list — both this SSR <select> and the
+// per-choice picker (CHOICE_ICON_OPTIONS/buildChoiceIconSelect below) group
+// options into <optgroup>s by category. A <select>'s value/change semantics
+// are unaffected by <optgroup> nesting (Playwright's selectOption(value)
+// finds a nested <option> the same as a top-level one), so this is a pure
+// display change. iconCategory is intentionally re-derived (not imported)
+// here AND again in the ES5 SECTION_STUDIO_SCRIPT copy below — the two
+// pickers live in genuinely different execution contexts (this one runs at
+// SSR time in this file's own TS program; the other runs in the browser from
+// literal ES5 text), so there is no single importable module both can share
+// without threading category data through the studio's JSON metadata blob.
+const ICON_CATEGORY_ORDER = [
+  "Insurance & protection",
+  "Home & property",
+  "Vehicles",
+  "Health",
+  "Finance & money",
+  "Contact",
+  "People",
+  "Time & calendar",
+  "Location",
+  "Status & actions",
+  "Rewards",
+  "Tools & work",
+  "Nature & weather",
+  "Media & tech",
+  "Interface",
+  "Other",
+] as const;
+function iconCategory(name: string): (typeof ICON_CATEGORY_ORDER)[number] {
+  if (name === "building-hospital" || /^(heart|first-aid|stethoscope|pill|vaccine|wheelchair|dental|medical)/.test(name)) return "Health";
+  if (/^(shield|umbrella|lock|key|certificate)/.test(name)) return "Insurance & protection";
+  if (/^(home|building|door|bed)/.test(name)) return "Home & property";
+  if (/^(car|truck|motorbike|bike|plane)/.test(name)) return "Vehicles";
+  if (/^(currency|coin|calculator|credit-card|wallet|receipt|cash|pig|dollar)/.test(name)) return "Finance & money";
+  if (/^(phone|mail|message|send|email)/.test(name)) return "Contact";
+  if (/^(user|person)/.test(name)) return "People";
+  if (/^(calendar|clock|hourglass|alarm)/.test(name)) return "Time & calendar";
+  if (/^(map|route|compass|location)/.test(name)) return "Location";
+  if (/^(check|alert|info-circle|circle-check|star|flag)/.test(name) || name === "x") return "Status & actions";
+  if (/^(gift|trophy|award|medal|badge)/.test(name)) return "Rewards";
+  if (/^(briefcase|tool|settings|adjustments)/.test(name)) return "Tools & work";
+  if (/^(paw|leaf|tree|sun|cloud|droplet|bolt)/.test(name)) return "Nature & weather";
+  if (/^(camera|wifi|world|globe|device|printer)/.test(name)) return "Media & tech";
+  if (/^(search|filter|plus|minus|edit|trash|download|eye)/.test(name)) return "Interface";
+  return "Other";
+}
+function buildLeadingIconOptionsHtml(): string {
+  const byCategory = new Map<string, string[]>();
+  for (const v of LEADGEN_FIELD_LEADING_ICONS) {
+    const cat = iconCategory(v);
+    const list = byCategory.get(cat) ?? [];
+    list.push(v);
+    byCategory.set(cat, list);
+  }
+  let html = "";
+  for (const cat of ICON_CATEGORY_ORDER) {
+    const names = byCategory.get(cat);
+    if (names === undefined || names.length === 0) continue;
+    html += `<optgroup label="${escapeHtml(cat)}">`;
+    for (const v of names) {
+      html += `<option value="${v}">${escapeHtml(LEADING_ICON_LABELS[v] ?? v)}</option>`;
+    }
+    html += `</optgroup>`;
+  }
+  return html;
+}
+const LEADING_ICON_OPTION_HTML = buildLeadingIconOptionsHtml();
 
 // v3.1 §8.5b — the 7-value TextBlock `role` picker (Style tab, Text/bound
 // headline selection). Values are LEADGEN_TEXT_BLOCK_ROLES (content-schema.ts).
@@ -7641,8 +7723,40 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // v3.1 R3 S2-5: curated emoji palette (human choice, not a bare text input).
   var CHOICE_EMOJI_PALETTE = ['\\u2705', '\\u274C', '\\u2B50', '\\uD83D\\uDD25', '\\uD83D\\uDC4D', '\\uD83D\\uDC4E', '\\u2764\\uFE0F', '\\uD83C\\uDFE0', '\\uD83D\\uDE97', '\\uD83D\\uDCB0', '\\uD83D\\uDCC5', '\\uD83D\\uDCDE', '\\uD83D\\uDCE7', '\\uD83D\\uDD12', '\\uD83D\\uDC64', '\\uD83D\\uDEE1\\uFE0F'];
-  // v3.1 R3 S2-5/6c: the icon picker reuses the SAME 12 §8.1 leading-icon options.
+  // v3.1 R3 S2-5/6c: the icon picker reuses the SAME curated Tabler leading-
+  // icon options (P1b register PC-11 — ~100+ names, grown from the pre-Tabler
+  // 12; studioMeta.leading_icons already carries the full grown list, since
+  // it is built server-side by mapping over LEADGEN_FIELD_LEADING_ICONS,
+  // whatever that array's current length is — renderStudioSeedData needs no
+  // change).
   var CHOICE_ICON_OPTIONS = studioMeta.leading_icons || [];
+  // P1b: ~100+ options is too many as one flat list, so buildChoiceIconSelect
+  // groups them into <optgroup>s by category — a pure display change (a
+  // <select>'s value/change semantics are unaffected by <optgroup> nesting).
+  // ICON_CATEGORY_ORDER/iconCategory here are the ES5 TEXT twin of the
+  // TS-land copy near LEADING_ICON_OPTION_HTML above (this function runs in
+  // the browser from this literal script text, a different execution
+  // context — see that copy's comment for why the logic is duplicated
+  // rather than shared).
+  var ICON_CATEGORY_ORDER = ['Insurance & protection', 'Home & property', 'Vehicles', 'Health', 'Finance & money', 'Contact', 'People', 'Time & calendar', 'Location', 'Status & actions', 'Rewards', 'Tools & work', 'Nature & weather', 'Media & tech', 'Interface', 'Other'];
+  function iconCategory(name) {
+    if (name === 'building-hospital' || /^(heart|first-aid|stethoscope|pill|vaccine|wheelchair|dental|medical)/.test(name)) { return 'Health'; }
+    if (/^(shield|umbrella|lock|key|certificate)/.test(name)) { return 'Insurance & protection'; }
+    if (/^(home|building|door|bed)/.test(name)) { return 'Home & property'; }
+    if (/^(car|truck|motorbike|bike|plane)/.test(name)) { return 'Vehicles'; }
+    if (/^(currency|coin|calculator|credit-card|wallet|receipt|cash|pig|dollar)/.test(name)) { return 'Finance & money'; }
+    if (/^(phone|mail|message|send|email)/.test(name)) { return 'Contact'; }
+    if (/^(user|person)/.test(name)) { return 'People'; }
+    if (/^(calendar|clock|hourglass|alarm)/.test(name)) { return 'Time & calendar'; }
+    if (/^(map|route|compass|location)/.test(name)) { return 'Location'; }
+    if (/^(check|alert|info-circle|circle-check|star|flag)/.test(name) || name === 'x') { return 'Status & actions'; }
+    if (/^(gift|trophy|award|medal|badge)/.test(name)) { return 'Rewards'; }
+    if (/^(briefcase|tool|settings|adjustments)/.test(name)) { return 'Tools & work'; }
+    if (/^(paw|leaf|tree|sun|cloud|droplet|bolt)/.test(name)) { return 'Nature & weather'; }
+    if (/^(camera|wifi|world|globe|device|printer)/.test(name)) { return 'Media & tech'; }
+    if (/^(search|filter|plus|minus|edit|trash|download|eye)/.test(name)) { return 'Interface'; }
+    return 'Other';
+  }
   function choiceContainer() { return document.querySelector('[data-inspector-choices]'); }
   // §6.4 "internal-value chip" + §12.2 chip: one row per SELECTED Offer with
   // that Offer's provider value or "not set", deep-linking into the Offer's
@@ -7752,14 +7866,28 @@ export const SECTION_STUDIO_SCRIPT = `
     opt0.value = '';
     opt0.appendChild(document.createTextNode('\\u2014 none \\u2014'));
     sel.appendChild(opt0);
-    var i, o, known = false;
+    // P1b: group the curated options into <optgroup>s by category (see
+    // ICON_CATEGORY_ORDER/iconCategory above) instead of one flat ~100+ list.
+    var i, j, o, og, cat, byCategory = {}, known = false;
     for (i = 0; i < CHOICE_ICON_OPTIONS.length; i++) {
       if (CHOICE_ICON_OPTIONS[i].value === 'none') { continue; }
-      o = document.createElement('option');
-      o.value = CHOICE_ICON_OPTIONS[i].value;
-      o.appendChild(document.createTextNode(CHOICE_ICON_OPTIONS[i].label));
-      sel.appendChild(o);
+      cat = iconCategory(CHOICE_ICON_OPTIONS[i].value);
+      if (!byCategory[cat]) { byCategory[cat] = []; }
+      byCategory[cat].push(CHOICE_ICON_OPTIONS[i]);
       if (CHOICE_ICON_OPTIONS[i].value === cur) { known = true; }
+    }
+    for (i = 0; i < ICON_CATEGORY_ORDER.length; i++) {
+      cat = ICON_CATEGORY_ORDER[i];
+      if (!byCategory[cat] || byCategory[cat].length === 0) { continue; }
+      og = document.createElement('optgroup');
+      og.label = cat;
+      for (j = 0; j < byCategory[cat].length; j++) {
+        o = document.createElement('option');
+        o.value = byCategory[cat][j].value;
+        o.appendChild(document.createTextNode(byCategory[cat][j].label));
+        og.appendChild(o);
+      }
+      sel.appendChild(og);
     }
     var customOpt = document.createElement('option');
     customOpt.setAttribute('data-choice-icon-custom-opt', '');

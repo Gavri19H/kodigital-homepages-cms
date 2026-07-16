@@ -668,10 +668,16 @@ describeDb("theme typography stored-XSS — defense-in-depth (v3.1, adversarial 
 // + props.icon="location" instead of a size override.
 // ===========================================================================
 const HELPER_TEXT = "We never share this"; // golden :326
-const PIN_PATH = '<path d="M12 21s7-6.6 7-12a7 7 0 10-14 0c0 5.4 7 12 7 12z" stroke="#8DA0B6" stroke-width="1.8"/>'; // golden :323
+// P1b (register PC-11): the §8.1 leading pin is now the curated Tabler
+// map-pin (icons.generated.ts) — 20px + stroke="currentColor" — replacing
+// the pre-P1b hand-drawn 19x19/#8DA0B6 pin (golden :323's exact bytes).
+// PIN_MARKER is the new render's structural signature (viewBox stays
+// "0 0 24 24"; size/color are what changed, so those are what we assert).
+const PIN_MARKER = 'width="20" height="20"';
 function assertHelperAndPin(html: string, label: string): void {
   expect(html, `${label}: §8.1 helper line must render`).toContain(HELPER_TEXT);
-  expect(html, `${label}: §8.1 leading pin must render`).toContain(PIN_PATH);
+  expect(html, `${label}: §8.1 leading pin must render`).toContain(PIN_MARKER);
+  expect(html, `${label}: leading pin is a currentColor Tabler icon`).toContain('stroke="currentColor"');
 }
 
 describeDb("audit-round G FIX 3 — §8.1 helper + leading pin, all 3 §12 paths", () => {
@@ -720,6 +726,6 @@ describeDb("audit-round G FIX 3 — §8.1 helper + leading pin, all 3 §12 paths
     const runtime = await (await app.request(`${TENANT_ORIGIN}/lg/hi-absent`, {}, fx.h.env)).text();
     expect(runtime).not.toContain(HELPER_TEXT);
     expect(runtime).not.toContain("lg-field-help");
-    expect(runtime).not.toContain(PIN_PATH);
+    expect(runtime).not.toContain("lg-field-icon");
   });
 });

@@ -16,6 +16,10 @@ import { FUNNEL_TOKEN_ROLES } from "../designs/theme";
 import { COMPONENT_CATALOG } from "./registry";
 import type { ComponentType } from "./registry";
 import type { LeadgenConditionOp } from "../../../admin/leadgen/db-types";
+// P1b (register PC-11): the leading-icon enum's name vocabulary is sourced
+// from the build-time-vendored Tabler (MIT) icon map — see the
+// LEADGEN_FIELD_LEADING_ICONS comment below.
+import { LEADGEN_ICON_NAMES } from "./icons.generated";
 
 // ---------------------------------------------------------------------------
 // Node + content types
@@ -200,28 +204,29 @@ function isValidColorOverrideValue(value: unknown): boolean {
 // affected).
 // ---------------------------------------------------------------------------
 
-// §8.5b "Enumerations (exact, asserted)" — the 12-value leading-icon picker on
-// an answer/input field's Content tab (§8.3 `node.props.icon`). Ids are
-// lowercase single words matching the display label (§11.3's own worked
+// §8.5b "Enumerations (exact, asserted)" — the leading-icon picker on an
+// answer/input field's Content tab (§8.3 `node.props.icon`). Ids are
+// lowercase kebab-case names matching the display label (§11.3's own worked
 // example anchors "location" for "Location pin"); this is a NEW semantic-id
 // vocabulary — distinct from the pre-existing *raw glyph* `icon` props on
 // ReassuranceBadge/SecureFormBadge/TrustBar/choices (e.g. "✓", "🔒", "★"),
 // which stay glyphs (no repo precedent stores icons as semantic ids before
 // this contract; BENEFIT_BAR_ICONS in ui-quotes.ts is a glyph-value list too).
-export const LEADGEN_FIELD_LEADING_ICONS = [
-  "location",
-  "calendar",
-  "dollar",
-  "phone",
-  "email",
-  "lock",
-  "person",
-  "home",
-  "car",
-  "shield",
-  "star",
-  "none",
-] as const;
+//
+// P1b (register PC-11): the SOURCE of this vocabulary is now
+// icons.generated.ts's curated Tabler (MIT) subset (build-time vendored by
+// scripts/build-icons.mjs — every name here has a matching
+// LEADGEN_ICONS[name] SVG). This enum is re-exported unchanged in SHAPE (a
+// readonly string-literal tuple) so every existing consumer (validation
+// below, the studio pickers, the vitest completeness pins) keeps working —
+// only the VALUE grew from the pre-Tabler 12 to the curated ~100+aliases.
+// Back-compat: the pre-Tabler 12 (location/calendar/dollar/phone/email/lock/
+// person/home/car/shield/star/none) is a proper subset — every one of those
+// ids still resolves to a real icon (7 spell a real Tabler name directly;
+// location/dollar/email/person are aliased to map-pin/currency-dollar/mail/
+// user — see icons.generated.ts LEGACY_ALIASES) — so no existing
+// content_json needs migration.
+export const LEADGEN_FIELD_LEADING_ICONS = LEADGEN_ICON_NAMES;
 export type LeadgenFieldLeadingIcon = (typeof LEADGEN_FIELD_LEADING_ICONS)[number];
 const FIELD_LEADING_ICON_SET: ReadonlySet<string> = new Set(LEADGEN_FIELD_LEADING_ICONS);
 
