@@ -6,7 +6,18 @@ export const defaultFunnelDesign = {
   id: "default-funnel", source: "reference funnel stylesheet (measured)",
   page:{backgroundColor:"#F5F7FA",textColor:"#1A1F36",textSecondaryColor:"#4A5568",textLightColor:"#718096",fontFamily:"'Sora',system-ui,Arial,sans-serif",fontDisplay:"'Literata',Georgia,serif",minHeight:"100vh"},
   color:{primary:"#1B3A5C",primaryDark:"#0F2440",primaryLight:"#2A5080",accent:"#E85D26",accentHover:"#D14E1C",card:"#FFFFFF",border:"#D2D9E5",borderLight:"#E8ECF2",success:"#0E7C3A",error:"#D32F2F",primaryWash:"#E8EEF4",primaryGhost:"#F2F6FA",accentLight:"#FEF0EB",recommendedBg:"#FFFAF7",recommendedBorder:"#E85D26",recommendedGlow:"rgba(232,93,38,0.12)"},
-  spacing:{xs:"0.25rem",sm:"0.5rem",md:"1rem",lg:"1.5rem",xl:"2rem",xxl:"3rem"},
+  // P1a inter-component rhythm (register PC-3): `stack` is the section-unit's
+  // vertical rhythm FLOOR — the gap `.lg-question-card > * + *` puts between
+  // EVERY adjacent component (styles.ts). 18px sits deliberately between md
+  // (16) and lg (24): comfortable breathing room that is STILL ≤ the golden's
+  // own larger inter-component gaps (sub→field 30, helper→Continue 26) so
+  // margin-collapse leaves those exact, while the golden's ONE tighter gap
+  // (headline→sub 9px) is preserved by the subheadline's own margin-top:0
+  // winning the cascade over this floor (styles.ts source-order note). Literal
+  // px (not rem) so a host zone's non-16px root can never drift the rhythm —
+  // same precedent as headline.fontSizeDesktop. stackMobile scales it down for
+  // the sub-480 card interior.
+  spacing:{xs:"0.25rem",sm:"0.5rem",md:"1rem",lg:"1.5rem",xl:"2rem",xxl:"3rem",stack:"18px",stackMobile:"12px"},
   radius:{sm:"6px",md:"10px",lg:"14px",xl:"20px",full:"9999px"},
   shadow:{sm:"0 1px 3px rgba(27,58,92,.06)",md:"0 4px 8px rgba(27,58,92,.06)",lg:"0 8px 24px rgba(27,58,92,.08)",xl:"0 16px 48px rgba(27,58,92,.10)",glow:"0 8px 32px rgba(232,93,38,.12)"},
   header:{backgroundColor:"#FFFFFF",paddingY:"1rem",paddingX:"1.5rem",contentMaxWidth:"600px",align:"center",boxShadow:"0 1px 3px rgba(27,58,92,.06)",position:"sticky",logoFontFamily:"'Literata',serif",logoFontSize:"1.1rem",logoFontWeight:"700",logoColor:"#1B3A5C",logoAccentColor:"#E85D26"},
@@ -93,7 +104,26 @@ export const defaultFunnelDesign = {
   logoStrip:{gap:"1.5rem",logoMaxHeight:"32px",logoOpacity:"0.85",marginY:"1rem"},
   stepIndicator:{dotSize:"10px",gap:"8px",dotColor:"#E8EEF4",activeColor:"#1B3A5C",marginBottom:"1.5rem"},
   iconCardGrid:{columnsDesktop:3,columnsTablet:2,columnsMobile:1,gap:"0.5rem",marginBottom:"1.5rem"},
-  iconCard:{border:"2px solid #D2D9E5",borderRadius:"10px",background:"#FFFFFF",minHeight:"96px",padding:"1rem",titleFontSize:"1rem",titleFontWeight:"700",titleColor:"#1A1F36",iconSize:"32px",iconColor:"#1B3A5C",hoverBorderColor:"#1B3A5C",hoverBackground:"#F2F6FA",selectedBorderColor:"#1B3A5C",selectedBackground:"#E8EEF4",focusRing:"outline 2px solid #1B3A5C; outline-offset 2px",disabledOpacity:"0.5",errorBorderColor:"#D32F2F"},
+  // P1a answer-group layout system (register PC-1): the choice-family answer
+  // grid (`.lg-answer-group` — ButtonAnswerGroup + TwoButtonYesNo) is a real
+  // CSS grid, NOT the pre-P1a flow-packed chips (which measured 0-gap, unequal,
+  // left-stuck). `columns` = the default track count (2 = the reference's
+  // 2-col answer layout; authorable 1..4 per node). `gap` = 24px (== spacing.lg
+  // /1.5rem, reused not invented): the reference funnel shows ~28px gutters in
+  // its ~470px card column; our card interior is 508px (tokens content 600 −
+  // 2×46 card padding), so a fixed 24px gutter — the low end of the reference's
+  // ~24-28px band — leaves two equal cells of (508−24)/2 = 242px, matching the
+  // reference's ~220-240px cell width. gapMobile narrows the gutter for the
+  // sub-480 card interior (minmax(0,1fr) tracks guarantee no overflow).
+  answerGrid:{columns:2,gap:"24px",gapMobile:"12px"},
+  // P1a card cell geometry (register PC-11): minHeight 96→140 so an icon card
+  // reads as a SQUARE-LEANING tile (the reference's ~150-190px square-ish icon
+  // cards), not the pre-P1a 163×96 landscape cell. 140px comfortably seats the
+  // 48px icon (P1b leadgenIconSvg glyph,48) + title (+ optional desc) stacked
+  // and centered; at 3 cols in the 508px card interior each cell is ~164px wide
+  // × ≥140 tall = square-leaning. Image cards share this cell but keep their
+  // own aspect behavior (.lg-card-img object-fit:contain, max-height unchanged).
+  iconCard:{border:"2px solid #D2D9E5",borderRadius:"10px",background:"#FFFFFF",minHeight:"140px",padding:"1rem",titleFontSize:"1rem",titleFontWeight:"700",titleColor:"#1A1F36",iconSize:"32px",iconColor:"#1B3A5C",hoverBorderColor:"#1B3A5C",hoverBackground:"#F2F6FA",selectedBorderColor:"#1B3A5C",selectedBackground:"#E8EEF4",focusRing:"outline 2px solid #1B3A5C; outline-offset 2px",disabledOpacity:"0.5",errorBorderColor:"#D32F2F"},
   // R7 U12: field box side padding 18px + radius 12px per golden :884
   // (fieldBoxStyle "padding:16px 18px;border-radius:12px"). padding 1rem(=16px
   // all sides)→"16px 18px" (16 vertical / 18 horizontal); borderRadius 10→12.

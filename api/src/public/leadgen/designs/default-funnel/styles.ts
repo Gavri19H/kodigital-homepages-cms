@@ -83,6 +83,7 @@ export function funnelChromeCss(
     logoStrip,
     stepIndicator,
     iconCardGrid,
+    answerGrid,
     iconCard,
     input,
     dropdown,
@@ -204,6 +205,44 @@ export function funnelChromeCss(
       "margin-right": `calc(-1 * ${content.paddingMobile})`,
     }),
   );
+
+  // ---- P1a inter-component rhythm (register PC-3) -------------------------
+  // The section-unit's vertical rhythm: a stack FLOOR between EVERY adjacent
+  // pair of the unit's components. renderSectionComponents wraps the depth-1
+  // component list in ONE `.lg-question-card` (presets.ts), and the studio
+  // canvas + admin preview + live funnel (framed AND frameless) all take that
+  // SAME wrapper — so `.lg-question-card > * + *` is the ONE selector that
+  // reaches every component pair identically across all four surfaces (the
+  // `.lg-content`/`<section>` wrappers exist only on the live shell, not the
+  // studio canvas; the card exists everywhere). Pre-P1a these gaps measured 0
+  // wherever a component carried no margin-bottom of its own (button groups,
+  // yes/no, text blocks) — the operator's "default gaps don't exist" finding.
+  //
+  // MECHANISM = margin-collapse FLOOR + cascade-preserved golden overrides.
+  // This rule is emitted HERE, BEFORE the per-component margin rules below
+  // (.lg-headline :~325, .lg-subheadline :~331, .lg-continue :~458), so at EQUAL
+  // specificity (both selectors are 1 attr + 1 class = (0,2,0)) source order
+  // decides and each of those elements' OWN later margin-top declaration WINS:
+  //   • .lg-subheadline `margin:0 0 30px 0` re-states margin-top:0 → the golden
+  //     headline→sub 9px (the headline's OWN margin-bottom) survives the 18px
+  //     floor (this is the ONE golden gap below the floor; every other golden
+  //     gap is ≥18 and simply wins by margin-collapse max);
+  //   • .lg-continue `margin-top:26px` → the golden helper→Continue 26px stands
+  //     (and the U14 measured-centering gate reads marginTop=="26px").
+  // Every component WITHOUT its own margin-top (answer groups, yes/no, text
+  // blocks, range, …) inherits the 18px floor; every preceding margin-bottom
+  // ≥18 (card-grid 24, progress 32, steps 24) still wins by collapse-max. Pinned
+  // by leadgen-r3a-effects.gesture (rendered gaps) + leadgen-p1-geometry.gesture
+  // (the new rhythm gate); the CSS-body pins in leadgen-u12-rhythm read the
+  // .lg-headline/.lg-subheadline/.lg-continue rule BODIES, which are untouched.
+  out.push(rule(`${scope} .lg-question-card > * + *`, { "margin-top": spacing.stack }));
+  // Mobile: a tighter floor; re-assert the two golden overrides AFTER it (the
+  // mobile array becomes ONE media query at the end of the sheet, so these must
+  // follow the mobile stack in source to win it — keeping the desktop-golden
+  // rhythm identical on mobile, where it was already inherited from the base).
+  mobile.push(rule(`${scope} .lg-question-card > * + *`, { "margin-top": spacing.stackMobile }));
+  mobile.push(rule(`${scope} .lg-subheadline`, { "margin-top": "0" }));
+  mobile.push(rule(`${scope} .lg-continue`, { "margin-top": "26px" }));
 
   // ---- header (§14.2 header) ----------------------------------------------
   out.push(
@@ -471,6 +510,32 @@ export function funnelChromeCss(
   mobile.push(rule(`${scope} .lg-continue`, { width: primaryButton.widthMobile }));
   out.push(`@keyframes lg-spin{to{transform:rotate(360deg)}}`);
 
+  // ---- P1a answer-group layout system (register PC-1) --------------------
+  // `.lg-answer-group` (ButtonAnswerGroup + .lg-yesno TwoButtonYesNo) is a REAL
+  // CSS grid, replacing the pre-P1a flow-packed inline-flex chips that measured
+  // 0-gap, unequal, left-stuck (the operator's finding). Equal `minmax(0,1fr)`
+  // tracks give EQUAL cells (the 0-min lets a long label wrap instead of
+  // widening its track); the default 2 columns and the answerGrid.gap token
+  // come from tokens.ts (authorable per-node via --lg-cols / inline gap, emitted
+  // by presets.ts answerGroupRootStyle). width:100% fills the card column so the
+  // group is centered by construction; an authored fixed width (s/m/l) arrives
+  // inline and centers via auto side-margins (widthCenteringEntries — the U11b
+  // pin). The .lg-btn.lg-btn-answer cells are grid items → they stretch to fill
+  // their track (blockified inline-flex, justify-self:stretch) and keep min-
+  // height:52 (primaryButton.minHeight, inherited from .lg-btn). Mobile keeps
+  // the column count (buttons don't collapse like cards) and only narrows the
+  // gutter. Pinned by leadgen-u11-centering (inline centering) + the new
+  // leadgen-p1-geometry.gesture gate (equal cells, gap, centering, ≥52 height).
+  out.push(
+    rule(`${scope} .lg-answer-group`, {
+      display: "grid",
+      "grid-template-columns": `repeat(var(--lg-cols, ${answerGrid.columns}), minmax(0, 1fr))`,
+      gap: answerGrid.gap,
+      width: "100%",
+    }),
+  );
+  mobile.push(rule(`${scope} .lg-answer-group`, { gap: answerGrid.gapMobile }));
+
   // ---- answer buttons (§14.6 selected animation / §13.2 TwoButtonYesNo +
   // ButtonAnswerGroup) ------------------------------------------------------
   // An answer button is a "pick-one" affordance like the icon card — a white
@@ -720,7 +785,15 @@ export function funnelChromeCss(
     }),
     // error state (§14.4)
     rule(`${scope} .lg-card[data-error="true"]`, { "border-color": iconCard.errorBorderColor }),
+    // P1a (register PC-11): the icon slot centers its glyph without constraining
+    // it — P1b's leadgenIconSvg(id,48) emits an explicit 48×48 <svg>, so an
+    // inline-flex box sizes TO the 48px icon (never shrinks it) and centers a
+    // legacy emoji glyph (text, iconCard.iconSize) identically. line-height:1
+    // keeps the emoji strut tight.
     rule(`${scope} .lg-card-icon`, {
+      display: "inline-flex",
+      "align-items": "center",
+      "justify-content": "center",
       color: iconCard.iconColor,
       "font-size": iconCard.iconSize,
       "line-height": "1",

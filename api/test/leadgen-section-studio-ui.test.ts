@@ -6930,19 +6930,34 @@ describeDb("review FIX 4b — dead-write controls are gated per type (executed i
     probe.run(
       [
         sliceIslandFunction(island, "isCardGridType"),
+        sliceIslandFunction(island, "isAnswerLayoutType"),
         sliceIslandFunction(island, "isRangeFamilyType"),
         sliceIslandFunction(island, "overrideRowHidden"),
       ].join("\n"),
     );
-    // the toolbar clusters key off isCardGridType (selIcon + choiceLayout)
+    // selIcon (the two card grids' icon slot) still keys off isCardGridType;
+    // P1a (register PC-1) re-gates the "Card layout" (columns/gap) control onto
+    // the WIDER answer-grid layout family — the two card grids AND
+    // MultiChoiceCardGroup / ButtonAnswerGroup / TwoButtonYesNo whose renderers
+    // now consume columns/gridGap (isAnswerLayoutType).
     expect(island).toContain("selIcon.hidden = !isCardGridType(node);");
-    expect(island).toContain("choiceLayout.hidden = !isCardGridType(node);");
+    expect(island).toContain("choiceLayout.hidden = !isAnswerLayoutType(node);");
+    // P1a: the Card-layout control shows for every columns/gridGap consumer; a
+    // non-consumer (a bare input) and a null selection do not.
+    for (const t of ["IconCardAnswerGrid", "ImageCardAnswerGrid", "MultiChoiceCardGroup", "ButtonAnswerGroup", "TwoButtonYesNo"]) {
+      expect(probe.run(`isAnswerLayoutType({ type: '${t}' })`), `${t} answer-layout`).toBe(true);
+    }
+    expect(probe.run("isAnswerLayoutType({ type: 'FreeTextQuestion' })")).toBe(false);
+    expect(probe.run("isAnswerLayoutType(null)")).toBe(false);
     for (const grid of ["IconCardAnswerGrid", "ImageCardAnswerGrid"]) {
       expect(probe.run(`isCardGridType({ type: '${grid}' })`), grid).toBe(true);
       expect(probe.run(`overrideRowHidden('columns', { type: '${grid}' })`), `${grid} columns`).toBe(false);
       expect(probe.run(`overrideRowHidden('gridGap', { type: '${grid}' })`), `${grid} gridGap`).toBe(false);
     }
-    // non-grid choice types: columns/gap are dead writes → hidden
+    // The STRUCTURAL override-ROWS (data-override-row, renderStyleExtraControls)
+    // stay card-grid-gated — overrideRowHidden is UNCHANGED; P1a routes the
+    // answer groups' columns/gridGap authoring through the "Card layout" control
+    // (choiceLayout, above) instead, so these generic rows remain hidden for them.
     for (const t of ["ButtonAnswerGroup", "TwoButtonYesNo", "DropdownQuestion", "SearchableDropdownQuestion", "MultiChoiceCardGroup", "OtherGroupSelector"]) {
       expect(probe.run(`isCardGridType({ type: '${t}' })`), t).toBe(false);
       expect(probe.run(`overrideRowHidden('columns', { type: '${t}' })`), `${t} columns hidden`).toBe(true);

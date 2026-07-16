@@ -672,12 +672,22 @@ function answerGroupRootStyle(
   ctx: LeadgenSectionRenderCtx | undefined,
 ): string {
   const width = sizeStyleEntries(node, ctx).width;
+  // P1a (register PC-1): the group is a CSS grid now (.lg-answer-group,
+  // styles.ts). `columns` (per-node, authorable 1..4 via the studio Card-layout
+  // control) rides the SAME --lg-cols custom property the card grid uses; the
+  // grid's own default (answerGrid.columns) applies when unauthored, so an
+  // un-authored group emits NO --lg-cols. `gridGap` (curated token) overrides
+  // the grid gap inline. Both ADDITIVE: style() drops undefined and preserves
+  // the surviving keys' order, so no-override groups (incl. the legacy-pin
+  // yes/no) emit byte-identically to pre-P1a.
+  const authoredCols = ovNum(node, "columns") ?? propNum(node, "columns");
   return style({
     "--lg-sel-bg": ovColor(node, "buttonBackground", design, ctx),
+    "--lg-cols": authoredCols !== undefined ? String(clampInt(authoredCols, 1, 4)) : undefined,
+    gap: ov(node, "gridGap"),
     width: width,
-    // R7 U11b: .lg-answer-group is a plain block <div> (no CSS rule) → auto
-    // side-margins center it once a fixed width is set (no display:block
-    // needed). {} for full/unauthored → byte-identical.
+    // R7 U11b: a fixed-width block-level grid centers via auto side-margins (no
+    // display:block needed). {} for full/unauthored → byte-identical.
     ...widthCenteringEntries(width),
   });
 }
@@ -969,14 +979,21 @@ export function renderMultiChoiceCardGroup(
   }
   return (
     `<div class="lg-card-grid lg-multi" role="group"${hydration(node)}` +
-    // §9.5 layer 4: the multi grid's gap falls back to the design token —
-    // Section gapDefault applies between them. Columns stay the structural
-    // "2" (not a design default; columnsDefault does not apply). v3.1 R3 §7:
-    // width → the grid container's max-width ("" when unauthored).
+    // P1a (register PC-1): honor the authored `columns` (killing the pre-P1a
+    // hardcoded "2" that IGNORED the key) + `gridGap`, mirroring renderCardGrid's
+    // §9.5 layer-4 resolution — per-node override wins over Section
+    // columnsDefault/gapDefault wins over the design token; the default stays 2,
+    // so an un-authored multi renders --lg-cols:2 byte-identically to pre-P1a.
     ((): string => {
       const w = sizeStyleEntries(node, ctx).width;
+      const cols = clampInt(
+        ovNum(node, "columns") ?? propNum(node, "columns") ?? sectionColumnsDefault(ctx) ?? 2,
+        2,
+        5,
+      );
+      const gap = ov(node, "gridGap") ?? sectionGapDefault(ctx) ?? design.iconCardGrid.gap;
       // R7 U11b: fixed max-width grid centers via auto side-margins.
-      return style({ "--lg-cols": "2", gap: sectionGapDefault(ctx) ?? design.iconCardGrid.gap, "max-width": w, ...widthCenteringEntries(w) });
+      return style({ "--lg-cols": String(cols), gap, "max-width": w, ...widthCenteringEntries(w) });
     })() +
     attr("data-min", min) +
     attr("data-max", max) +

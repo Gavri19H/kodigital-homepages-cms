@@ -176,7 +176,14 @@ const THEME_ROLE_SET: ReadonlySet<string> = new Set(LEADGEN_THEME_ROLES);
 // background-color, iconColor → card icon color, buttonBackground →
 // --lg-btn-bg, buttonText → button color). The other keys (columns, gridGap,
 // mobileBehavior) are structural/spacing-typed — the §9.4 rule does NOT apply
-// to them.
+// to them. NB (P1a, register PC-1): `columns`/`gridGap` are consumed by the
+// WHOLE answer-grid family now — the two card grids (renderCardGrid), the
+// multi-choice card group (renderMultiChoiceCardGroup) AND the ButtonAnswerGroup
+// /TwoButtonYesNo choice grids (renderButtonAnswerGroup/renderTwoButtonYesNo via
+// answerGroupRootStyle). The keys are type-agnostic here (any curated key
+// validates on any node); the studio gates the authoring control to those
+// consumers (ui-section-studio isAnswerLayoutType), the renderers clamp the
+// value defensively.
 export const COLOR_TYPED_OVERRIDE_KEYS = [
   "iconColor",
   "featureColor",

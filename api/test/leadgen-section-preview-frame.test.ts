@@ -530,6 +530,26 @@ const U14_OLD_CONTINUE_RULE =
 const U14_NEW_CONTINUE_RULE =
   `${DEFAULT_FUNNEL_SCOPE} .lg-continue{display:flex;width:100%;max-width:320px;margin-top:26px;margin-left:auto;margin-right:auto;background:var(--lg-btn-bg, #1B3A5C)}`;
 
+// P1a (register PC-1/PC-3/PC-11): the layout-system deltas vs the pre-P1a
+// capture, kept in lockstep with styles.ts (a drift fails here). Two NET-NEW
+// base rules (the inter-component stack + the .lg-answer-group grid), four
+// NET-NEW mobile rules (the mobile stack + its two golden-preserving
+// re-assertions + the answer-grid mobile gap) — each carries the array-join's
+// own leading \n, removed the same MOVED_* way; PLUS two CHANGED rule bodies
+// (.lg-card-icon gains the inline-flex centering; .lg-card min-height 96->140).
+// NB: R5_OLD_CARD_RULE above interpolates the CURRENT iconCard.minHeight token
+// (now 140px), so the min-height must ALSO be reverted 140->96 to reach the
+// pre-P1a fixture's 96px.
+const P1A_STACK_BASE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-question-card > * + *{margin-top:${defaultFunnelDesign.spacing.stack}}`;
+const P1A_ANSWER_GRID_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-answer-group{display:grid;grid-template-columns:repeat(var(--lg-cols, ${defaultFunnelDesign.answerGrid.columns}), minmax(0, 1fr));gap:${defaultFunnelDesign.answerGrid.gap};width:100%}`;
+const P1A_STACK_MOBILE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-question-card > * + *{margin-top:${defaultFunnelDesign.spacing.stackMobile}}`;
+const P1A_SUBHEAD_MOBILE_RESET = `\n${DEFAULT_FUNNEL_SCOPE} .lg-subheadline{margin-top:0}`;
+const P1A_CONTINUE_MOBILE_RESET = `\n${DEFAULT_FUNNEL_SCOPE} .lg-continue{margin-top:26px}`;
+const P1A_ANSWER_GRID_MOBILE_GAP = `\n${DEFAULT_FUNNEL_SCOPE} .lg-answer-group{gap:${defaultFunnelDesign.answerGrid.gapMobile}}`;
+const P1A_NEW_CARD_ICON_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-card-icon{display:inline-flex;align-items:center;justify-content:center;color:${defaultFunnelDesign.iconCard.iconColor};font-size:${defaultFunnelDesign.iconCard.iconSize};line-height:1}`;
+const P1A_OLD_CARD_ICON_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-card-icon{color:${defaultFunnelDesign.iconCard.iconColor};font-size:${defaultFunnelDesign.iconCard.iconSize};line-height:1}`;
+const P1A_OLD_CARD_MIN_HEIGHT = "96px"; // pre-P1a iconCard.minHeight (the frozen fixture's value)
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -618,10 +638,29 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     .split(MOVED_SEL_BG_RULE)
     .join("")
     .split(U14_NEW_CONTINUE_RULE)
-    .join(U14_OLD_CONTINUE_RULE);
+    .join(U14_OLD_CONTINUE_RULE)
+    // P1a (register PC-1/PC-3/PC-11): strip the net-new stack/grid rules, revert
+    // the two changed rule bodies (.lg-card-icon centering + .lg-card min-height
+    // 140->96) back to the pre-P1a fixture shape.
+    .split(P1A_STACK_BASE_RULE)
+    .join("")
+    .split(P1A_ANSWER_GRID_RULE)
+    .join("")
+    .split(P1A_STACK_MOBILE_RULE)
+    .join("")
+    .split(P1A_SUBHEAD_MOBILE_RESET)
+    .join("")
+    .split(P1A_CONTINUE_MOBILE_RESET)
+    .join("")
+    .split(P1A_ANSWER_GRID_MOBILE_GAP)
+    .join("")
+    .split(P1A_NEW_CARD_ICON_RULE)
+    .join(P1A_OLD_CARD_ICON_RULE)
+    .split(`min-height:${defaultFunnelDesign.iconCard.minHeight}`)
+    .join(`min-height:${P1A_OLD_CARD_MIN_HEIGHT}`);
   expect(
     cssMinusMove,
-    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies",
+    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system",
   ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));

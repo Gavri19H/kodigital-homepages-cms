@@ -3379,6 +3379,15 @@ export const SECTION_STUDIO_SCRIPT = `
   function isCardGridType(node) {
     return !!node && (node.type === 'IconCardAnswerGrid' || node.type === 'ImageCardAnswerGrid');
   }
+  // P1a (register PC-1): the answer-grid LAYOUT family — every type whose
+  // renderer consumes columns/gridGap (renderCardGrid's two grids +
+  // renderMultiChoiceCardGroup + answerGroupRootStyle's ButtonAnswerGroup/
+  // TwoButtonYesNo). WIDER than isCardGridType (the ICON consumers — only the
+  // two card grids have an icon slot): the "Card layout" control gates on THIS,
+  // while iconColor stays gated to isCardGridType.
+  function isAnswerLayoutType(node) {
+    return !!node && (node.type === 'IconCardAnswerGrid' || node.type === 'ImageCardAnswerGrid' || node.type === 'MultiChoiceCardGroup' || node.type === 'ButtonAnswerGroup' || node.type === 'TwoButtonYesNo');
+  }
   function isRangeFamilyType(node) {
     return !!node && (node.type === 'RangeQuestion' || node.type === 'CurrencyRangeQuestion' || node.type === 'NumberRangeQuestion');
   }
@@ -6345,18 +6354,26 @@ export const SECTION_STUDIO_SCRIPT = `
     if (presetRow) { presetRow.hidden = variant !== 'field' || !node; }
     var choiceExtras = document.querySelector('[data-style-choice-extras]');
     var isChoiceFamily = variant === 'field' && !!node && typeMeta(node.type).choice === true;
-    if (choiceExtras) { choiceExtras.hidden = !isChoiceFamily; }
+    // P1a (register PC-1): the Card-layout control (below) also serves the answer
+    // groups, and TwoButtonYesNo is NOT a choices:true type — so its
+    // choiceExtras CONTAINER must open on the answer-layout axis too (this also
+    // un-hides its already-listed Button-background control, previously dead
+    // because the container stayed hidden for yes/no).
+    var showChoiceExtras = variant === 'field' && (isChoiceFamily || isAnswerLayoutType(node));
+    if (choiceExtras) { choiceExtras.hidden = !showChoiceExtras; }
     var selButton = document.querySelector('[data-tb-selected-role="button"]');
     if (selButton) { selButton.hidden = !node || (node.type !== 'ButtonAnswerGroup' && node.type !== 'TwoButtonYesNo' && node.type !== 'OtherGroupSelector'); }
     // FIX 4b: MultiChoiceCardGroup has NO icon slot — its iconColor swatch was
     // a dead write; the selected-icon role shows only for the two card grids.
     var selIcon = document.querySelector('[data-tb-selected-role="icon"]');
     if (selIcon) { selIcon.hidden = !isCardGridType(node); }
-    // FIX 4b: only renderCardGrid consumes columns/gridGap overrides — gated
-    // to the two card grids (ButtonAnswerGroup/dropdowns/MultiChoiceCardGroup
-    // wrote dead keys).
+    // P1a (register PC-1): the "Card layout" (columns/gap) control now shows for
+    // the whole answer-grid LAYOUT family — the two card grids AND the
+    // MultiChoiceCardGroup / ButtonAnswerGroup / TwoButtonYesNo, whose renderers
+    // consume columns/gridGap as of P1a (was card-grids-only, when those keys
+    // were dead writes for the other choice types).
     var choiceLayout = document.querySelector('[data-toolbar-choice-layout]');
-    if (choiceLayout) { choiceLayout.hidden = !isCardGridType(node); }
+    if (choiceLayout) { choiceLayout.hidden = !isAnswerLayoutType(node); }
   }
   // §6.2 "Selecting a node retargets the inspector and resets its active tab
   // to Content" — a NEW SELECTION (isNewSelection=true, from
