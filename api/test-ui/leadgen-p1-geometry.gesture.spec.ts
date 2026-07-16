@@ -26,18 +26,30 @@
 //   • mobile 375px: cards collapse to 1 track, buttons keep their multi-track
 //     count (columnsMobile behavior), and scrollWidth ≤ innerWidth (no overflow).
 //
-// This is a `.gesture.spec.ts` so playwright.config.ts's chromium project runs it
-// (testIgnore = FIREFOX_ONLY_GESTURE_SPECS; a new gesture spec is NOT in that
-// list, so chromium picks it up with NO config edit). Cross-engine (firefox)
-// inclusion would require adding this file to CROSS_ENGINE_GESTURE_SPECS in
-// playwright.config.ts (the firefox project's testMatch = ALL_GESTURE_SPECS) —
-// that file is out of this slice's ownership; see the conductor report.
+// This is a `.gesture.spec.ts` in CROSS_ENGINE_GESTURE_SPECS (playwright.config.ts,
+// wired by P1c), so it runs on BOTH the chromium and firefox projects. The
+// studio-canvas describe (real getBoundingClientRect math against the same
+// srcdoc iframe the operator edits) is fully engine-agnostic and runs on both.
+// The live-/lg describe's ONE test needs a DYNAMIC `{uniq}.e2e.test` tenant
+// host, resolved via chromium's `--host-resolver-rules=MAP *.e2e.test
+// 127.0.0.1` launch arg (file-level test.use below) — firefox's equivalent
+// mechanism, `network.dns.localDomains`, only accepts exact PRE-KNOWN
+// hostnames, not a wildcard/suffix (confirmed by P1c; the repo's other
+// live-funnel specs are chromium-only for the identical reason — see
+// leadgen-live-funnel.spec.ts / leadgen-runtime-inputs.gesture.spec.ts's own
+// fixed-hostname `network.dns.localDomains` usage). So that ONE test
+// `test.skip`s itself on firefox — see its own comment — while every OTHER
+// test in this file (the studio-canvas core assertions) runs on both engines.
 //
-// Run per-file with the fresh-D1 preamble, on the 8899 throwaway config:
+// Run per-file with the fresh-D1 preamble (PW_PORT redirects the SAME
+// playwright.config.ts webServer/baseURL to a worktree-isolated port so a
+// parallel mission's 8787 wrangler is untouched):
 //   pkill -f "wrangler dev"; pkill -f workerd; sleep 2; \
 //   rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local
-//   npx playwright test test-ui/leadgen-p1-geometry.gesture.spec.ts \
-//     --config playwright.8899.local.ts --project=chromium --workers=1 --reporter=line
+//   PW_PORT=8899 npx playwright test test-ui/leadgen-p1-geometry.gesture.spec.ts \
+//     --project=chromium --workers=1 --reporter=line
+//   PW_PORT=8899 npx playwright test test-ui/leadgen-p1-geometry.gesture.spec.ts \
+//     --project=firefox --workers=1 --reporter=line
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { defaultFunnelDesign as D } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { seedActiveSite } from "./listicles-p6-seed";
@@ -233,22 +245,30 @@ test.describe("P1a geometry gate — studio canvas (real boundingBox math)", () 
     snap = await measureCanvas(page);
   });
 
-  test("ButtonAnswerGroup + TwoButtonYesNo carry the 2-track answer grid with ≥52px cells (cell POSITIONS verified on the live funnel below)", () => {
+  test("ButtonAnswerGroup + TwoButtonYesNo carry the 2-track answer grid, SIDE BY SIDE, equal cells ≥52px, gap == token", () => {
     // eslint-disable-next-line no-console
-    console.log(`[P1a btn studio] tracks=${snap.btnTracks} cols="${snap.btnGridCols}" children=${JSON.stringify(snap.btnChildren)}`);
-    // The grid IS applied here (2 equal minmax(0,1fr) tracks) and the cells keep
-    // min-height 52. NB: the studio canvas overlays per-choice EDIT decoration
-    // (.studio-choice-x remove buttons + a .studio-choice-ghost add tile) as
-    // sibling grid children of the group, so choice cells VISUALLY stack in the
-    // editor — an editor-decoration/grid interaction in the canvas-decoration
-    // CSS (ui-section-studio.ts:1148-1150), NOT this slice's owned region and
-    // NOT a live-funnel defect: the equal-width / 24px-gap / centered positions
-    // are measured on the real /lg render in the live describe below.
+    console.log(`[P1a btn studio] tracks=${snap.btnTracks} cols="${snap.btnGridCols}" children=${JSON.stringify(snap.btnChildren)} cells=${JSON.stringify(snap.btnCells)}`);
+    // P1c fixed the studio canvas's per-choice EDIT decoration (the
+    // .studio-choice-x remove buttons no longer ride as grid siblings between
+    // the answer cells — verified live: btnChildren now shows the two
+    // .lg-btn-answer buttons ADJACENT, with only the trailing
+    // .studio-choice-ghost add-tile after them, and the measured cells sit
+    // side by side (x=387/652, gap exactly 24, identical to the live /lg
+    // measurement below) — so this test now asserts the SAME cell-geometry
+    // truth the studio canvas and the live funnel BOTH render, not just track
+    // counts/heights.
     expect(snap.btnTracks, "ButtonAnswerGroup grid has 2 tracks").toBe(2);
     expect(snap.btnCells.length, "two answer cells render").toBe(2);
-    expect(snap.btnCells[0]!.h, `answer cell height ${snap.btnCells[0]!.h} ≥ ${CELL_MIN_H}`).toBeGreaterThanOrEqual(CELL_MIN_H - 0.5);
+    const [a, b] = snap.btnCells;
+    expect(Math.abs(a!.w - b!.w), `equal cell widths (${a!.w} vs ${b!.w})`).toBeLessThanOrEqual(1);
+    expect(Math.abs(a!.y - b!.y), `side by side, same row (${a!.y} vs ${b!.y})`).toBeLessThanOrEqual(1);
+    const colGap = +(b!.x - (a!.x + a!.w)).toFixed(1);
+    expect(Math.abs(colGap - AG_GAP), `column gap ${colGap} == answerGrid.gap ${AG_GAP}`).toBeLessThanOrEqual(1.5);
+    expect(a!.h, `answer cell height ${a!.h} ≥ ${CELL_MIN_H}`).toBeGreaterThanOrEqual(CELL_MIN_H - 0.5);
     expect(snap.ynCells.length, "yes/no = two cells").toBe(2);
-    expect(snap.ynCells[0]!.h, `yes/no cell height ${snap.ynCells[0]!.h} ≥ ${CELL_MIN_H}`).toBeGreaterThanOrEqual(CELL_MIN_H - 0.5);
+    const [y, n] = snap.ynCells;
+    expect(Math.abs(y!.w - n!.w), `equal yes/no widths (${y!.w} vs ${n!.w})`).toBeLessThanOrEqual(1);
+    expect(y!.h, `yes/no cell height ${y!.h} ≥ ${CELL_MIN_H}`).toBeGreaterThanOrEqual(CELL_MIN_H - 0.5);
   });
 
   test("MultiChoiceCardGroup with columns:3 authored → 3 grid tracks", () => {
@@ -316,7 +336,18 @@ test.describe("P1a geometry gate — studio canvas (real boundingBox math)", () 
 });
 
 test.describe("P1a geometry gate — live /lg funnel (§12 parity)", () => {
-  test("live /lg: equal answer cells, gap == token, rhythm ≥ stack; mobile 375px collapses cards to 1 track, keeps buttons multi-track, no overflow", async ({ page, request }) => {
+  test("live /lg: equal answer cells, gap == token, rhythm ≥ stack; mobile 375px collapses cards to 1 track, keeps buttons multi-track, no overflow", async ({ page, request, browserName }) => {
+    // firefox's network.dns.localDomains pref needs an EXACT, pre-known
+    // hostname — it cannot resolve this test's dynamic `{uniq}.e2e.test`
+    // tenant host the way chromium's --host-resolver-rules wildcard mapping
+    // does (confirmed by P1c; mirrors how the repo's other live-funnel specs
+    // handle the same constraint — leadgen-live-funnel.spec.ts / leadgen-
+    // runtime-inputs.gesture.spec.ts are chromium-only / fixed-hostname for
+    // the identical reason). The studio-canvas describe above (the core
+    // ButtonAnswerGroup/TwoButtonYesNo/MultiChoiceCardGroup/icon-card/RHYTHM
+    // assertions) is fully engine-agnostic and runs on BOTH engines — only
+    // this ONE live-render leg is chromium-only.
+    test.skip(browserName === "firefox", "live /lg leg needs chromium --host-resolver-rules; firefox cannot resolve the dynamic e2e host — studio-canvas geometry (the core assertions) runs on BOTH engines");
     // Seed a minimal live funnel: active site (*.e2e.test host) + quote/funnel
     // /variant + our unit section + activation — no offers/auction (this gate
     // renders geometry only).
