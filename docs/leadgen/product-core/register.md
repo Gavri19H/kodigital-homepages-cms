@@ -1,0 +1,55 @@
+# Product-Core Remediation Register (program of 2026-07-16)
+
+Truth file for the Section Builder product-core remediation. Evidence base:
+`/Users/guyhaikov/a2z-workspaces/SECTION-BUILDER-PRODUCT-CORE-INVESTIGATION-2026-07-16.md`
+(six-stream investigation, adversarially roasted, all citations verified). Plan of record:
+`~/.claude/plans/use-the-claude-design-mcp-elegant-alpaca.md` (approved 2026-07-16).
+Rows are closed ONLY by the conductor after own-hand gate verification + phase review SHIP.
+Status vocabulary: OPEN · FIXED-PENDING-REVIEW · CLOSED (evidence cited) · BLOCKED-OPERATOR.
+
+## Decision log (operator, LOCKED 2026-07-16)
+- **R-A** Theme = design language BETWEEN components; freedom INSIDE (per-element size/color/position + deliberate off-theme overrides).
+- **R-B** Drag = defining custom locations (components AND elements), not slot exchange.
+- **D1** Positioning = structured placement (drag-beside→columns, alignment/size tokens/nudge; auto mobile stacking; NOT arbitrary-pixel).
+- **D2** Multi-question grid (Image9 reference) = build now (P5).
+- **D3** Enforcement = CLIENT-SIDE ("block the user continue option until valid answer is inserted"); no server mirror by operator ruling; direct-API traffic unvalidated by design.
+- **D4** Runtime cap raised to 43,008 B (42 KiB), gates re-armed at the new value (lands first commit of P4).
+- Icon set = Tabler (MIT), curated build-time subset (conductor decision per solve-don't-ask).
+
+## A. Operator items (their 12, from the 2026-07-16 message + Images 1–14)
+| Row | Item | Phase | Proving gate | Status |
+|---|---|---|---|---|
+| PC-1 | Buttons: reference 2-col grid, gutters, centered, sized (Image1 vs 2) | P1a | geometry gate: 2-col, equal ±1px, gap==token, centered (both engines, studio+live) | OPEN |
+| PC-2 | Drag = defining custom locations (R-B) | P3a+P3b | both-engine gesture: form/break element rows, alignment applied, saved-model + rendered proof | OPEN |
+| PC-3 | Yes/No reference-quality + default inter-component spacing (Image3 vs 4) | P1a | yes/no equal cells; EVERY adjacent pair gap == theme token (P10 probe inverted) | OPEN |
+| PC-4 | Contact per-field controls; When-answered conflicts; Required tested; Accept criteria (Image5) | P4a/P4b/P4d | NameFieldsGroup per-field props render; stuck-funnel unauthorable; required+format block Continue with visible message; criteria matrices | OPEN |
+| PC-5 | Date: helper, dynamic Min/Max (today/+7d/year), validated static input (Image6) | P4b | date-type gate: token bounds resolve, garbage unauthorable, range blocks with message | OPEN |
+| PC-6 | "If it's wrong, say" proven | P4b | custom message renders on failure with zero extra authoring (error-slot-by-default gate) | OPEN |
+| PC-7 | Number Step logic (502 trap; step on text fields) | P4b | step only on number, stepper/nearest-valid UX, Accept-swap cleans stale props | OPEN |
+| PC-8 | Deletion: toast-without-removal; sharpen delete UX (Image7) | P4d (+P1c toast placement) | delete==removal always; choice-delete atomic; undo works; toast anchored at canvas | OPEN |
+| PC-9 | "New Section" overlaps button (Image8) | P1c | create-flow chrome gate: no overlap at any viewport | OPEN |
+| PC-10 | Multi-question grid w/ defaults (Image9 vs 10) | P5a | component renders labels/rows/defaults per reference; per-row answers live | OPEN |
+| PC-11 | Cards: layout control, responsive, icon library, icon sizes (Image11 vs 12/13) | P1a+P1b | 48px icons, square-leaning cells, columns authorable, 375px collapse, Tabler set live | OPEN |
+| PC-12 | Rules: names not ids; show/hide; when-answered interplay; conditional continue (Image14) | P4c (+P4a) | sentence-builder w/ display names; Carrier scenario live; conditional Continue; conflict save-rules | OPEN |
+
+## B. Additional defects (found by the investigation's active hunt)
+| Row | Defect | Phase | Status |
+|---|---|---|---|
+| PC-A1 | auto_advance + ≥2 visible interactive = stuck funnel (live-proven) | P4a | OPEN |
+| PC-A2 | Errors invisible without hand-authored ValidationError node | P4b | OPEN |
+| PC-A3 | Step min-anchored rejection trap | P4b | OPEN |
+| PC-A4 | Phone = any 7–15 digits (no NANP) | P4b | OPEN |
+| PC-A5 | Garbage date bounds save silently + disable native constraint | P4b | OPEN |
+| PC-A6 | Containers unselectable on canvas | P3b | OPEN |
+| PC-A7 | Choice Backspace deletes whole group | P4d | OPEN |
+| PC-A8 | NameFieldsGroup hides field-family controls (subfields not selectable; no per-field props) | P4d | OPEN |
+| PC-A9 | Silent-failure pattern: preview fetch no-op; invalidation swallowed | P1c | OPEN |
+| PC-A10 | Three-way drift: registry vs inspector table vs renderer (Range/SearchableDropdown helper; TextBlock icon; fictional date validation claim) | P4d (+P4b date) | OPEN |
+| PC-A11 | Dead engine state: continue_blocked/blocking_question_ids computed, never read | P4a (remove or wire) | OPEN |
+| PC-A12 | MultiChoiceCardGroup ignores authored columns (hardcoded 2) | P1a | OPEN |
+
+## C. Phase log
+_(appended by the conductor per phase: branch, slices, gate outcomes with counts, review verdict, PR)_
+
+## D. Operator-owned (BLOCKED, never PASS)
+Deploy per phase/close · staging hands-on acceptance (TERMINAL definition of done) · off-theme-badge + new-copy sign-off · manual QA · P1 live-render change ships only after staging sign-off.
