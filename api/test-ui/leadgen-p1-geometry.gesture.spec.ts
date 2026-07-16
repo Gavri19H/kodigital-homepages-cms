@@ -12,9 +12,17 @@
 //   • TwoButtonYesNo: two EQUAL cells ±1px;
 //   • MultiChoiceCardGroup with columns:3 authored → 3 grid tracks;
 //   • an icon card ≥ 132px tall carrying a 48px icon;
-//   • RHYTHM (the P10 zero-gap probe INVERTED): every adjacent component pair
-//     has a vertical gap ≥ spacing.stack; == spacing.stack for pairs with no
-//     golden-specific override; the golden headline→sub stays 9px exactly;
+//   • RHYTHM (the P10 zero-gap probe INVERTED): every adjacent component pair's
+//     gap == max(the predecessor's own margin-bottom, spacing.stack) — a
+//     collapse-emulation table in styles.ts (P1a FIX ROUND, register PC-3)
+//     makes this hold even where the follower is a display:grid box (.lg-
+//     answer-group/.lg-card-grid), which does NOT margin-collapse with a
+//     sibling the way two normal blocks do (live-measured proof in styles.ts's
+//     own comment). Golden headline→sub stays 9px exactly; golden sub→(any
+//     follower, incl. a grid) now stays 30px exactly (was a fix-round finding:
+//     summed to 48 pre-fix, since the grid didn't collapse); a non-golden pair
+//     with no preceding margin gets exactly spacing.stack; a card-grid
+//     predecessor (mb 24 ≥ stack) gives exactly its own 24 to ANY follower;
 //   • mobile 375px: cards collapse to 1 track, buttons keep their multi-track
 //     count (columnsMobile behavior), and scrollWidth ≤ innerWidth (no overflow).
 //
@@ -48,7 +56,16 @@ const STACK = parseFloat(D.spacing.stack); // 18
 const AG_GAP = parseFloat(D.answerGrid.gap); // 24
 const CARD_MIN_H = parseFloat(D.iconCard.minHeight); // 140
 const HEADLINE_SUB_GOLDEN = 9; // headline.marginBottom (golden :313)
-const SUB_FIELD_GOLDEN = 30; // subheadline.marginBottom (golden :912-914)
+// P1a FIX ROUND (conductor, register PC-3): subheadline.marginBottom(30) is now
+// UNIVERSALLY the sub->follower gap, including grid followers — the new
+// styles.ts collapse-emulation table (.lg-subheadline + .lg-answer-group,
+// .lg-card-grid { margin-top:0 }) zeros the grid follower's own margin-top so
+// the total equals subheadline's own 30, matching the operator's reference
+// (~28-30px), not the pre-fix-round 48 (30 sub-mb + 18 stack, summed because
+// grid containers don't margin-collapse with a sibling — see styles.ts's
+// P1a FIX ROUND comment for the live-measured proof).
+const SUB_GROUP_GOLDEN = 30; // subheadline.marginBottom (golden :912-914), now applied to ANY follower
+const CARD_GRID_GAP = parseFloat(D.iconCardGrid.marginBottom) * 16; // 1.5rem -> 24 (16px-root)
 const CELL_MIN_H = parseFloat(D.primaryButton.minHeight); // 52
 
 // The reused unit fixture: bound headline+sub lead, then the choice families the
@@ -179,7 +196,7 @@ async function measureCanvas(page: Page): Promise<GeomSnapshot> {
       multiTracks,
       iconCard: rect(iconCard),
       iconSvg: rect(iconSvg),
-      order: ["q_head", "q_sub", "q_btn", "q_yn", "q_txt", "q_cards"].map((id) => ({ id, box: qidBox(id) })),
+      order: ["q_head", "q_sub", "q_btn", "q_yn", "q_txt", "q_cards", "q_multi", "q_cont"].map((id) => ({ id, box: qidBox(id) })),
     };
   });
   expect(snap.ok, "studio canvas iframe + .lg-question-card must render").toBe(true);
@@ -246,7 +263,7 @@ test.describe("P1a geometry gate — studio canvas (real boundingBox math)", () 
     expect(Math.abs(snap.iconSvg!.h - 48), `icon height ${snap.iconSvg!.h} == 48`).toBeLessThanOrEqual(1);
   });
 
-  test("RHYTHM: every adjacent pair spaced ≥ spacing.stack; == stack for non-golden pairs; golden headline→sub stays 9px (the P10 zero-gap probe inverted)", () => {
+  test("RHYTHM: every adjacent pair matches its collapse-emulated gap (max(predecessor mb, stack)); golden headline→sub stays 9px; sub→grid stays 30px (the P10 zero-gap probe inverted)", () => {
     const boxes = new Map(snap.order.map((o) => [o.id, o.box]));
     for (const o of snap.order) expect(o.box, `component ${o.id} renders`).not.toBeNull();
     const g = (prev: string, next: string) => gap(boxes.get(prev)!, boxes.get(next)!);
@@ -255,25 +272,44 @@ test.describe("P1a geometry gate — studio canvas (real boundingBox math)", () 
     const btnYn = g("q_btn", "q_yn");
     const ynTxt = g("q_yn", "q_txt");
     const txtCards = g("q_txt", "q_cards");
+    const cardsMulti = g("q_cards", "q_multi");
+    const multiCont = g("q_multi", "q_cont");
     // eslint-disable-next-line no-console
-    console.log(`[P1a rhythm] head->sub=${headSub} sub->btn=${subBtn} btn->yn=${btnYn} yn->txt=${ynTxt} txt->cards=${txtCards} (stack=${STACK})`);
+    console.log(
+      `[P1a rhythm] head->sub=${headSub} sub->btn=${subBtn} btn->yn=${btnYn} yn->txt=${ynTxt} txt->cards=${txtCards} cards->multi=${cardsMulti} multi->cont=${multiCont} (stack=${STACK} cardGridGap=${CARD_GRID_GAP})`,
+    );
     // golden headline→sub: block↔block, margins COLLAPSE to the golden 9px
     // (also armed exactly by leadgen-r3a-effects + leadgen-u12-rhythm).
     expect(headSub, `golden headline→sub = ${HEADLINE_SUB_GOLDEN}`).toBeCloseTo(HEADLINE_SUB_GOLDEN, 0);
-    // sub→button-group: the subheadline's golden 30px bottom-margin is PRESERVED;
-    // the answer group is display:grid (a grid container does NOT margin-collapse
-    // with a sibling), so the 18px stack ADDS on top (≈48, never subtracts). The
-    // armed r3a-effects gate owns the exact golden sub→FIELD=30 (a block field
-    // DOES collapse). Here: the golden margin survives AND is spaced ≥ its 30.
-    expect(subBtn, `sub→grid keeps the golden 30 margin (+stack, grids don't collapse): ${subBtn}`).toBeGreaterThanOrEqual(SUB_FIELD_GOLDEN - 1);
-    // non-golden grid pairs (no preceding bottom-margin): EXACTLY the stack floor
-    // (were 0px pre-P1a — the inverted zero-gap probe).
+    // P1a FIX ROUND (conductor, register PC-3): sub→button-group now matches
+    // the golden 30 EXACTLY — the new styles.ts collapse-emulation table zeros
+    // the answer-group's margin-top after a subheadline (`.lg-subheadline +
+    // .lg-answer-group, .lg-card-grid { margin-top:0 }`), so the total is just
+    // subheadline's own 30px margin-bottom, matching the operator's reference
+    // (~28-30px) instead of the pre-fix-round 48 (30+18 summed, since grid
+    // containers do not margin-collapse with a sibling — see styles.ts's
+    // P1a FIX ROUND comment for the live-measured proof of that non-collapse).
+    expect(subBtn, `sub→grid == the golden 30 (collapse-emulated): ${subBtn}`).toBeCloseTo(SUB_GROUP_GOLDEN, 0);
+    // non-golden grid pairs with NO preceding bottom-margin (.lg-answer-group
+    // itself carries none): EXACTLY the stack floor (were 0px pre-P1a — the
+    // inverted zero-gap probe).
     for (const [label, val] of [["btn→yn", btnYn], ["yn→txt", ynTxt], ["txt→cards", txtCards]] as const) {
       expect(val, `${label} gap ${val} == spacing.stack ${STACK}`).toBeGreaterThanOrEqual(STACK - 1.5);
       expect(val, `${label} gap ${val} == spacing.stack ${STACK}`).toBeLessThanOrEqual(STACK + 1.5);
     }
+    // card-grid AS PREDECESSOR (mb 24 >= stack): the collapse-emulation table's
+    // `.lg-card-grid + *` rule zeros ANY follower's margin-top, so the gap is
+    // exactly the card-grid's own 24 — for another grid (cards→multi) AND for
+    // Continue (multi→cont, overriding Continue's own golden 26 since no
+    // golden reference pins THIS specific adjacency).
+    for (const [label, val] of [["cards→multi", cardsMulti], ["multi→cont", multiCont]] as const) {
+      expect(val, `${label} gap ${val} == iconCardGrid.marginBottom ${CARD_GRID_GAP}`).toBeCloseTo(CARD_GRID_GAP, 0);
+    }
     // the inverted zero-gap probe: NO adjacent pair is the pre-P1a 0px.
-    for (const [label, val] of [["head→sub", headSub], ["sub→btn", subBtn], ["btn→yn", btnYn], ["yn→txt", ynTxt], ["txt→cards", txtCards]] as const) {
+    for (const [label, val] of [
+      ["head→sub", headSub], ["sub→btn", subBtn], ["btn→yn", btnYn], ["yn→txt", ynTxt],
+      ["txt→cards", txtCards], ["cards→multi", cardsMulti], ["multi→cont", multiCont],
+    ] as const) {
       expect(val, `${label} is spaced (not the pre-P1a 0px)`).toBeGreaterThan(4);
     }
   });
@@ -335,10 +371,14 @@ test.describe("P1a geometry gate — live /lg funnel (§12 parity)", () => {
     expect(live.ynCells.length, "live: yes/no = two cells").toBe(2);
     expect(Math.abs(live.ynCells[0]!.w - live.ynCells[1]!.w), "live: equal yes/no widths").toBeLessThanOrEqual(1);
     expect(Math.abs(live.ynCells[0]!.h - live.ynCells[1]!.h), "live: equal yes/no heights").toBeLessThanOrEqual(1);
-    // rhythm parity with the studio canvas: golden headline→sub 9, btn→yn == stack.
+    // rhythm parity with the studio canvas: golden headline→sub 9, sub→grid ==
+    // the golden 30 (collapse-emulated, P1a FIX ROUND — was 48 pre-fix-round),
+    // btn→yn == stack, on the REAL production render path (not just the editor).
     const liveHeadSub = +(live.sub!.y - (live.head!.y + live.head!.h)).toFixed(1);
+    const liveSubBtn = +(live.btn!.y - (live.sub!.y + live.sub!.h)).toFixed(1);
     const liveBtnYn = +(live.yn!.y - (live.btn!.y + live.btn!.h)).toFixed(1);
     expect(liveHeadSub, `live golden headline→sub ≈ 9`).toBeCloseTo(9, 0);
+    expect(liveSubBtn, `live sub→grid == the golden 30 (collapse-emulated): ${liveSubBtn}`).toBeCloseTo(SUB_GROUP_GOLDEN, 0);
     expect(liveBtnYn, `live btn→yn gap ${liveBtnYn} == stack ${STACK}`).toBeGreaterThanOrEqual(STACK - 1.5);
     expect(liveBtnYn, `live btn→yn gap ${liveBtnYn} == stack ${STACK}`).toBeLessThanOrEqual(STACK + 1.5);
 

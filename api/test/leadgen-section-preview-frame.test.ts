@@ -550,6 +550,33 @@ const P1A_NEW_CARD_ICON_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-card-icon{display:in
 const P1A_OLD_CARD_ICON_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-card-icon{color:${defaultFunnelDesign.iconCard.iconColor};font-size:${defaultFunnelDesign.iconCard.iconSize};line-height:1}`;
 const P1A_OLD_CARD_MIN_HEIGHT = "96px"; // pre-P1a iconCard.minHeight (the frozen fixture's value)
 
+// P1a FIX ROUND (conductor, register PC-3): the grid-follower collapse-
+// emulation table — a SINGLE net-new block (5 rules) appended right after the
+// P1a additions above, kept in lockstep with styles.ts's OWN construction (a
+// drift in either the selector list or a computed margin-top value fails
+// here). Each predecessor gets BOTH the direct-sibling selector (the live/
+// unwrapped path) AND a `:has()` companion (the studio-canvas selected/
+// wrapped path — see styles.ts's own comment for why). Values: Category A
+// (mb >= stack 18) -> 0; Category B (mb < stack) -> 18-mb (9 for headline·9,
+// 6 for category·12, 2 for trustbar/logo-strip/columns/field·16 — all four
+// share the SAME 1rem/16px value).
+function followerSelectorsFixRound(predecessor: string): string {
+  return [".lg-answer-group", ".lg-card-grid"]
+    .flatMap((f) => [`${DEFAULT_FUNNEL_SCOPE} ${predecessor} + ${f}`, `${DEFAULT_FUNNEL_SCOPE} ${predecessor} + *:has(> ${f})`])
+    .join(", ");
+}
+const P1A_FIX_ROUND_EXCEPTION_TABLE =
+  "\n" +
+  [followerSelectorsFixRound(".lg-subheadline"), followerSelectorsFixRound(".lg-progress"), followerSelectorsFixRound(".lg-steps"), followerSelectorsFixRound(".lg-grid-container")].join(", ") +
+  "{margin-top:0}\n" +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-card-grid + *, ${DEFAULT_FUNNEL_SCOPE} *:has(> .lg-card-grid) + *{margin-top:0}\n` +
+  followerSelectorsFixRound(".lg-headline") +
+  "{margin-top:9px}\n" +
+  followerSelectorsFixRound(".lg-category") +
+  "{margin-top:6px}\n" +
+  [followerSelectorsFixRound(".lg-trustbar"), followerSelectorsFixRound(".lg-logo-strip"), followerSelectorsFixRound(".lg-columns"), followerSelectorsFixRound(".lg-field")].join(", ") +
+  "{margin-top:2px}";
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -657,7 +684,11 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     .split(P1A_NEW_CARD_ICON_RULE)
     .join(P1A_OLD_CARD_ICON_RULE)
     .split(`min-height:${defaultFunnelDesign.iconCard.minHeight}`)
-    .join(`min-height:${P1A_OLD_CARD_MIN_HEIGHT}`);
+    .join(`min-height:${P1A_OLD_CARD_MIN_HEIGHT}`)
+    // P1a FIX ROUND (register PC-3): strip the net-new grid-follower
+    // collapse-emulation table (the ONLY legal delta this fix round adds).
+    .split(P1A_FIX_ROUND_EXCEPTION_TABLE)
+    .join("");
   expect(
     cssMinusMove,
     "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system",

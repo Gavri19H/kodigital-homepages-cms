@@ -1150,6 +1150,127 @@ export function funnelChromeCss(
     }),
   );
 
+  // ---- P1a FIX ROUND (conductor, register PC-3): grid-follower collapse
+  // emulation ------------------------------------------------------------
+  // LIVE-MEASURED finding: `.lg-answer-group`/`.lg-card-grid` (display:grid)
+  // do NOT margin-collapse with an adjoining sibling the way two normal block
+  // boxes do — confirmed by a real browser measurement (leadgen-p1-geometry
+  // gate): subheadline (margin-bottom 30) followed by the answer-group (the
+  // general stack rule's margin-top 18, above) rendered a 48px gap — the SUM
+  // of both margins, not max(30,18)=30 like a normal block→block pair (the
+  // SAME subheadline→field pair collapses correctly to 30, per r3a-effects —
+  // proving the non-collapse is specific to the grid box, not this codebase's
+  // margin values in general). The operator's reference shows ~28-30px here,
+  // not 48. This table EMULATES the missing collapse — gap == max(predecessor's
+  // own margin-bottom, spacing.stack) — for EVERY direct-.lg-question-card-
+  // child element that (a) carries a non-zero margin-bottom in this sheet AND
+  // (b) can plausibly sit immediately before an answer-group/card-grid, by
+  // reducing (or zeroing) the grid follower's margin-top so the SUM equals the
+  // desired max(). Enumerated from EVERY non-zero margin-bottom rule in this
+  // file, cross-checked against presets.ts's actual render output — verified
+  // NOT to include .lg-label/.lg-dropdown-search/.lg-range-value (nested-only,
+  // never a direct top-level card child) and .lg-name-group/.lg-range/.lg-input/
+  // .lg-field-boxed (real top-level field wrappers — all margin-bottom:0, so
+  // no exception is needed: 0 + stack == stack already, the same "sum happens
+  // to equal collapse" case as an unset predecessor). `.lg-field` (margin-
+  // bottom 16) is included per its LITERAL existence in this sheet even though
+  // presets.ts currently renders it ONLY nested inside NameFieldsGroup (never a
+  // direct top-level predecessor of a grid) — inert today, harmless, forward-
+  // compatible if a future field type ever promotes it to top level.
+  //
+  // STUDIO-CANVAS WRAPPING (found while verifying this fix with the real
+  // browser — leadgen-p1-geometry gate): the studio ISLAND wraps the
+  // CURRENTLY-SELECTED choice-bearing node (.lg-answer-group / .lg-card-grid)
+  // in an undecorated `<span>` (its move/drag-handle-tag decoration,
+  // ui-section-studio.ts — out of this slice's owned region), so a plain
+  // adjacent-sibling selector (`X + .lg-answer-group`) does not match: the
+  // SPAN, not the grid, is the actual DOM sibling. This ONLY affects whichever
+  // node happens to be selected (verified: an unselected card-grid renders as
+  // a normal direct child, no wrapper) — but an operator normally DOES have
+  // some field selected while editing, so a `:has()` companion selector
+  // (`X + *:has(> .lg-answer-group)`) is added alongside every direct-sibling
+  // selector below, reaching through that wrapper to give the SAME rhythm
+  // whether or not the follower happens to be the selected node. `:has()` is
+  // supported by both this repo's Playwright-bundled engines at authoring
+  // time (chromium 147 / firefox 148) and by the evergreen browsers these
+  // funnels ship to; it changes NOTHING for the (unwrapped) live funnel path,
+  // where the base "X + .lg-answer-group" selector alone already matches.
+  //
+  // Placed LAST in the base sheet (after every per-component rule above,
+  // including .lg-continue's own margin-top:26) so it wins any specificity tie
+  // for the margin-top property specifically — every OTHER property
+  // (.lg-continue's background/width/display, etc.) is untouched.
+  {
+    // rem-aware px resolver (16px-root assumption — this file's existing
+    // convention wherever a rem/px token pair must be compared numerically,
+    // e.g. the R7 U12 literal-px conversions elsewhere in this file). BUG
+    // CAUGHT BY DIRECT VERIFICATION: a bare `parseFloat("1rem")` returns 1
+    // (it stops at the first non-numeric character), NOT 16 — silently
+    // mis-scoring every rem-valued predecessor by 15px. spacing.md/trustBar.
+    // marginY/logoStrip.marginY/columns.marginBottom are ALL "1rem" tokens.
+    const toPx = (value: string): number => {
+      const n = parseFloat(value);
+      return value.trim().endsWith("rem") ? n * 16 : n;
+    };
+    const stackPx = toPx(spacing.stack); // 18
+    // stack - predecessor's own margin-bottom, floored at 0 (never negative —
+    // a predecessor whose own mb already meets/exceeds the stack contributes
+    // the WHOLE gap by itself, so the follower's share is 0, not negative).
+    const emulated = (predecessorMarginBottom: string): string =>
+      `${Math.max(0, stackPx - toPx(predecessorMarginBottom))}px`;
+    const GRID_FOLLOWERS = [".lg-answer-group", ".lg-card-grid"] as const;
+    // Direct-sibling selectors (the live/unwrapped path) PLUS the `:has()`
+    // companion (the studio-canvas selected/wrapped path) for every predecessor
+    // + grid-follower pair.
+    const followerSelectors = (predecessor: string): string =>
+      GRID_FOLLOWERS.flatMap((f) => [
+        `${scope} ${predecessor} + ${f}`,
+        `${scope} ${predecessor} + *:has(> ${f})`,
+      ]).join(", ");
+    out.push(
+      // Category A — predecessor's own margin-bottom already >= stack: zero
+      // the grid follower's margin-top (gap == predecessor's own mb).
+      rule(
+        [
+          followerSelectors(".lg-subheadline"), // mb 30 (golden; conductor part a)
+          followerSelectors(".lg-progress"), // mb 32 (2rem)
+          followerSelectors(".lg-steps"), // mb 24 (1.5rem)
+          followerSelectors(".lg-grid-container"), // mb 24 (1.5rem, GridContainer)
+        ].join(", "),
+        { "margin-top": "0" },
+      ),
+      // .lg-card-grid AS PREDECESSOR (mb 24 >= stack): its own margin-bottom
+      // already covers the floor for ANY follower type, not just grids — the
+      // conductor's part (b). Direct form targets `*` (e.g. multi(.lg-card-
+      // grid.lg-multi) -> a plain block, or -> .lg-continue — overriding
+      // .lg-continue's own margin-top:26 when it directly follows a card-grid
+      // with no field/helper between them; no golden reference pins that
+      // specific adjacency, so the card-grid's own established 24 rhythm wins
+      // uniformly rather than special-casing Continue here). The `:has()`
+      // companion covers a SELECTED card-grid (wrapped) as the predecessor.
+      rule([`${scope} .lg-card-grid + *`, `${scope} *:has(> .lg-card-grid) + *`].join(", "), {
+        "margin-top": "0",
+      }),
+      // Category B — predecessor's own margin-bottom < stack: give the grid
+      // follower just enough margin-top to reach the stack total (the max()).
+      rule(followerSelectors(".lg-headline"), {
+        "margin-top": emulated(headline.marginBottom), // 18-9=9
+      }),
+      rule(followerSelectors(".lg-category"), {
+        "margin-top": emulated(categoryLabel.marginBottom), // 18-12=6
+      }),
+      rule(
+        [
+          followerSelectors(".lg-trustbar"), // marginY 1rem(16) — TrustBar
+          followerSelectors(".lg-logo-strip"), // marginY 1rem(16) — LogoStrip
+          followerSelectors(".lg-columns"), // marginBottom 1rem(16) — Columns
+          followerSelectors(".lg-field"), // marginBottom 1rem(16) — see note above (currently inert)
+        ].join(", "),
+        { "margin-top": emulated(spacing.md) }, // 18-16=2 (all four share the SAME 1rem token value)
+      ),
+    );
+  }
+
   // ---- v2.5 frame-region rules (13 §13.1, opt-in — see FunnelChromeCssOpts).
   // Every value is a design token or a role resolved through the §9.1 mapping;
   // the only hand-written bits are structural (positioning/z-index/step sizes
