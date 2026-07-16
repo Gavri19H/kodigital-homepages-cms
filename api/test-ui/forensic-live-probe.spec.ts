@@ -31,6 +31,14 @@ test.use({ viewport: { width: 1800, height: 1100 } });
 
 const SHOT = 'test-results/forensic';
 const LG_API = '/api/admin/leadgen';
+// P1c: P10DRAG and U14 launch their OWN firefox instance + browser context
+// (the network.dns.localDomains pref needs a fresh launch, so they can't use
+// the fixture's default context/page) — a manually-created context does not
+// inherit playwright.config.ts's baseURL, so these two hardcoded
+// 'http://127.0.0.1:8787'. Every OTHER test in this file uses the default
+// `page` fixture and already honors config's PW_PORT-derived baseURL with no
+// change needed here.
+const PW_PORT = process.env.PW_PORT || '8787';
 const uniq = Date.now();
 const VERDICTS = path.join(SHOT, 'verdicts.jsonl');
 const CONSOLE_LOG = path.join(SHOT, 'console.jsonl');
@@ -497,7 +505,7 @@ test('P10DRAG a real slider drag on the LIVE funnel moves the value + fill AND r
   // `uniq` is shared across projects in one run, so it alone is insufficient).
   const RT_HOST = `lg-r6p10-${test.info().project.name}.e2e.test`;
   const browser = await firefox.launch({ firefoxUserPrefs: { 'network.dns.localDomains': RT_HOST } });
-  const context = await browser.newContext({ viewport: { width: 1800, height: 1100 }, baseURL: 'http://127.0.0.1:8787' });
+  const context = await browser.newContext({ viewport: { width: 1800, height: 1100 }, baseURL: `http://127.0.0.1:${PW_PORT}` });
   const page = await context.newPage();
   const errs = wireConsole(page, 'P10drag');
   try {
@@ -525,7 +533,7 @@ test('P10DRAG a real slider drag on the LIVE funnel moves the value + fill AND r
     if (!act.ok()) throw new Error(`p10 activation HTTP ${act.status()}: ${await act.text()}`);
 
     // Live funnel — wait for the engine to hydrate (data-lg-ready=1).
-    await page.goto(`http://${RT_HOST}:8787/lg/${slug}`, { waitUntil: 'load' });
+    await page.goto(`http://${RT_HOST}:${PW_PORT}/lg/${slug}`, { waitUntil: 'load' });
     await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 15_000 });
     const wrap = page.locator('.lg-range').first();
     const range = wrap.locator('input[type="range"]');
@@ -577,7 +585,7 @@ test('R7 U14 — the LIVE funnel Continue pill is centered in the question card 
   // live test coexists with itself across chromium+firefox in one invocation.
   const RT_HOST = `lg-u14ctr-${test.info().project.name}.e2e.test`;
   const browser = await firefox.launch({ firefoxUserPrefs: { 'network.dns.localDomains': RT_HOST } });
-  const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, baseURL: 'http://127.0.0.1:8787' });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, baseURL: `http://127.0.0.1:${PW_PORT}` });
   const page = await context.newPage();
   const errs = wireConsole(page, 'U14ctr');
   try {
@@ -599,7 +607,7 @@ test('R7 U14 — the LIVE funnel Continue pill is centered in the question card 
     const act = await page.request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug } });
     if (!act.ok()) throw new Error(`u14 activation HTTP ${act.status()}: ${await act.text()}`);
 
-    await page.goto(`http://${RT_HOST}:8787/lg/${slug}`, { waitUntil: 'load' });
+    await page.goto(`http://${RT_HOST}:${PW_PORT}/lg/${slug}`, { waitUntil: 'load' });
     await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 15_000 });
     await expect(page.locator('.lg-continue').first(), 'the live Continue pill rendered').toBeVisible({ timeout: 8000 });
     const geom = await page.evaluate(() => {

@@ -1147,7 +1147,29 @@ html,body{margin:0;padding:0;background:#fff}
 .studio-canvas-render [contenteditable="true"]{outline:2px dashed var(--c-primary);outline-offset:2px;cursor:text}
 .studio-choice-selected{outline:2px solid #e85d26 !important;outline-offset:2px}
 .studio-choice-ghost{border:1px dashed var(--c-border);background:var(--c-surface);color:var(--c-muted);border-radius:8px;min-height:44px;cursor:pointer;font-size:12px}
-.studio-choice-x{position:relative;border:0;background:#f8d7da;color:#842029;border-radius:999px;width:16px;height:16px;line-height:1;font-size:10px;cursor:pointer;margin-left:-14px;vertical-align:top}
+/* P1a HIGH concern fix (register PC-1/PC-11, this slice): .lg-answer-group
+   (styles.ts) became a real CSS grid, but decorateChoiceCards used to insert
+   .studio-choice-x as a SIBLING of the choice cell inside that SAME grid
+   container — an extra grid item per choice DOUBLES the item count, so the
+   2-col auto-placement puts every choice in column 1 and every x in column
+   2, one per row (the canvas visibly stacks choices the live render never
+   does). Fix: the remove-x is now a CHILD of its choice cell (decorateChoice-
+   Cards appends it there instead of inserting a sibling), taken out of grid
+   flow entirely via position:absolute (an out-of-flow grid child is not a
+   grid item per spec — .lg-card already relies on the identical
+   position:relative-parent/position:absolute-child pattern for its own
+   corner badge, styles.ts's .lg-card-badge). [data-lg-choice] therefore
+   needs position:relative as the x's containing block; .lg-card choices
+   already carry that from styles.ts, so this rule is a harmless no-op for
+   them and load-bearing only for the button-family choices
+   (ButtonAnswerGroup/TwoButtonYesNo, which have no such rule). The ghost
+   ("+ Add choice") tile is UNCHANGED — it stays an in-flow sibling appended
+   after every real choice, so it lands in the next open grid cell exactly
+   like a real choice would (the P1c dispatch's "reads naturally" ask). Both
+   rules are canvas-frame-scoped (this const), never the live stylesheet —
+   the live funnel has no editing decorations to fix. */
+.studio-canvas-render [data-lg-choice]{position:relative}
+.studio-choice-x{position:absolute;top:-8px;right:-8px;border:0;background:#f8d7da;color:#842029;border-radius:999px;width:16px;height:16px;line-height:16px;text-align:center;font-size:10px;cursor:pointer}
 .studio-resize-handle{position:absolute;right:-6px;top:50%;width:10px;height:32px;margin-top:-16px;border-radius:4px;background:var(--c-primary);opacity:.6;cursor:ew-resize}
 /* §12.3 mapping-overlay chips */
 .studio-mapoverlay-chip{font-size:10px;border-radius:999px;padding:2px 8px;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-muted);cursor:pointer;display:inline-block;margin:2px 0}
@@ -3186,9 +3208,30 @@ export const SECTION_STUDIO_STYLES = `
 @keyframes studioMappingPulse{0%{box-shadow:0 0 0 0 rgba(27,58,92,.35)}100%{box-shadow:0 0 0 10px rgba(27,58,92,0)}}
 .studio-mapping-pulse{animation:studioMappingPulse 1.5s ease-out 1}
 /* R4a deliverable 8 (E3-NEW-7): the Delete undo toast — reuses the existing
-   50-step history (historyUndo), never a blocking confirm(). */
-.studio-undo-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.ink};color:${STUDIO_COLOR.white};padding:10px 16px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px;z-index:60}
+   50-step history (historyUndo), never a blocking confirm().
+   PC-8 toast-placement fix (register, P1c): this used to be position:fixed
+   against the whole PAGE viewport (bottom:28px of the browser window) — on a
+   tall studio page the canvas the delete just happened on can be scrolled
+   far from the window's bottom edge, so the toast (and its Undo affordance)
+   landed nowhere near the user's focus. Re-anchored to the canvas surface
+   itself (#lg-studio-canvas, already position:relative — see
+   .studio-canvas-surface) via position:absolute, bottom-center of THAT
+   element instead of the page: showUndoToast now appends it there (falling
+   back to document.body only if the surface is ever absent). Same Undo
+   affordance, same 6s timing, same history reuse — only the anchor moved. */
+.studio-undo-toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.ink};color:${STUDIO_COLOR.white};padding:10px 16px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px;z-index:60}
 .studio-undo-toast button{background:none;border:0;color:${STUDIO_COLOR.accent};font-weight:700;cursor:pointer;font-size:12.5px;padding:0}
+/* PC-A9 (register, P1c): renderCanvasNow's preview fetch used to swallow
+   every failure (a bad response OR a network catch) with a bare return/
+   no-op — the canvas just stays frozen, indistinguishable from "my edit did
+   nothing" (the operator's own P1 experience class). This banner makes a
+   failed preview refresh visible + actionable: anchored the same way as the
+   undo toast (position:absolute over #lg-studio-canvas, its position:relative
+   canvas-surface parent) but pinned to the TOP of the surface instead of the
+   bottom, so the two can never visually collide even if a delete's re-render
+   fails right after the delete itself shows its own undo toast. */
+.studio-canvas-preview-error{position:absolute;left:50%;top:14px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.danger};color:${STUDIO_COLOR.white};padding:8px 14px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px;z-index:65;max-width:calc(100% - 28px)}
+.studio-canvas-preview-error button{background:none;border:1px solid rgba(255,255,255,.65);color:${STUDIO_COLOR.white};font-weight:700;cursor:pointer;font-size:12px;padding:3px 10px;border-radius:6px}
 `;
 
 // ---------------------------------------------------------------------------
@@ -4911,7 +4954,15 @@ export const SECTION_STUDIO_SCRIPT = `
       hideUndoToast();
     });
     el.appendChild(btn);
-    document.body.appendChild(el);
+    // PC-8 toast-placement fix (register, P1c): anchor to the canvas surface
+    // (position:relative — see .studio-canvas-surface) instead of the page
+    // body, so the toast (position:absolute, see the CSS) sits over the
+    // canvas the delete just happened on rather than the bottom of a
+    // potentially-tall, scrolled-away page. document.body is a defensive
+    // fallback only — #lg-studio-canvas is always present once the studio has
+    // rendered, which is the only time a delete (and this toast) can fire.
+    var toastHost = document.getElementById('lg-studio-canvas') || document.body;
+    toastHost.appendChild(el);
     undoToastTimer = setTimeout(hideUndoToast, 6000);
   }
   // The ONE call site both the toolbar Delete button and the Delete/
@@ -5037,11 +5088,55 @@ export const SECTION_STUDIO_SCRIPT = `
     }).then(function (r) {
       return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
-      if (!res.ok || !res.body || !res.body.preview) { return; }
+      // PC-A9 (register, P1c): a bad response used to just return here —
+      // silent no-op, canvas stays frozen on the LAST good render,
+      // indistinguishable from "my edit did nothing" (the operator's own P1
+      // experience class). typeof-guarded exactly like hideUndoToast/
+      // activeWidthDragCleanup above: this function is sliced standalone
+      // into vitest probes that never declare showCanvasPreviewError, so an
+      // unguarded call would ReferenceError there for a concern entirely
+      // outside what they test.
+      if (!res.ok || !res.body || !res.body.preview) {
+        if (typeof showCanvasPreviewError !== 'undefined') { showCanvasPreviewError(); }
+        return;
+      }
       region.innerHTML = '<style>' + res.body.preview.css + '</style>' + (res.body.preview.html || res.body.preview.desktop || '');
       applyCanvasDecoration();
       updateCanvasEmpty();
-    }).catch(function () {});
+      if (typeof hideCanvasPreviewError !== 'undefined') { hideCanvasPreviewError(); }
+    }).catch(function () {
+      if (typeof showCanvasPreviewError !== 'undefined') { showCanvasPreviewError(); }
+    });
+  }
+  // PC-A9 (register, P1c): make a preview-refresh failure VISIBLE + actionable
+  // instead of the silent frozen canvas renderCanvasNow used to leave behind.
+  // Anchored the same way as the undo toast (position:absolute over
+  // #lg-studio-canvas's position:relative surface — see the canvas-frame CSS)
+  // but pinned to the TOP of it so the two floating affordances can never
+  // collide, even if a delete's re-render fails right after that delete's own
+  // undo toast appears at the bottom. Retry re-invokes the SAME
+  // renderCanvasNow the debounced re-render already calls; the next success
+  // (or this function itself, called again) clears any prior banner first —
+  // never two stacked, never a stale one outliving its cause.
+  function hideCanvasPreviewError() {
+    var el = document.querySelector('[data-studio-canvas-preview-error]');
+    if (el && el.parentNode) { el.parentNode.removeChild(el); }
+  }
+  function showCanvasPreviewError() {
+    hideCanvasPreviewError();
+    var host = document.getElementById('lg-studio-canvas');
+    if (!host) { return; }
+    var el = document.createElement('div');
+    el.className = 'studio-canvas-preview-error';
+    el.setAttribute('data-studio-canvas-preview-error', '');
+    el.setAttribute('role', 'alert');
+    el.appendChild(document.createTextNode('Preview failed to update \\u2014 '));
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.appendChild(document.createTextNode('Retry'));
+    btn.addEventListener('click', function () { renderCanvasNow(); });
+    el.appendChild(btn);
+    host.appendChild(el);
   }
   function updateCanvasEmpty() {
     var empty = document.querySelector('[data-studio-canvas-empty]');
@@ -5111,14 +5206,27 @@ export const SECTION_STUDIO_SCRIPT = `
       if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue)) {
         card.className = card.className + ' studio-choice-selected';
       }
-      x = frameCreate('button');
-      x.type = 'button';
+      x = frameCreate('span');
       x.className = 'studio-choice-x';
       x.setAttribute('data-choice-x', card.getAttribute('data-lg-choice'));
       x.setAttribute('data-choice-x-qid', qid);
-      x.setAttribute('aria-label', 'Remove choice');
+      // P1c grid fix (register PC-1/PC-11): a real <button> nested inside
+      // the choice's OWN <button> (every choice family here — ButtonAnswer-
+      // Group/TwoButtonYesNo/.lg-card choices — renders as a <button>) would
+      // be an invalid content-model nest AND would pollute the choice's
+      // accessible name with the glyph text. aria-hidden keeps this
+      // studio-only, mouse-driven affordance out of the accessibility tree
+      // entirely (matching the .lg-card-badge precedent's plain <span>); the
+      // click still resolves via the SAME delegated data-choice-x lookup in
+      // onCanvasClick regardless of tag or focusability.
+      x.setAttribute('aria-hidden', 'true');
       x.appendChild(document.createTextNode('\\u00D7'));
-      if (card.parentNode) { card.parentNode.insertBefore(x, card.nextSibling); }
+      // Inserted as a CHILD of the choice cell now (was a grid-item SIBLING,
+      // which doubled the grid's item count and stacked choices vertically —
+      // see the canvas-frame CSS comment above decorateChoiceCards). A
+      // position:absolute child is not a grid item, so this never affects
+      // the group's column count again.
+      card.appendChild(x);
     }
     var nodes = region.querySelectorAll('[data-question-id]');
     var ghost, handle, type;
