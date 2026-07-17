@@ -17,12 +17,13 @@
 
 import { test, expect, request as playwrightRequest, type Page } from "@playwright/test";
 import { seedActivatedFunnel, type SeededP14Funnel } from "./leadgen-p14-seed";
+import { PW_PORT } from "./utils/base-url";
 
 test.use({
   launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] },
 });
 
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 
 let seeded: SeededP14Funnel;
 
@@ -37,7 +38,7 @@ test.beforeAll(async () => {
 });
 
 function shellUrl(): string {
-  return `http://${seeded.host}:8787/lg/${seeded.slug}`;
+  return `http://${seeded.host}:${PW_PORT}/lg/${seeded.slug}`;
 }
 
 // Stub the remote gtag.js so the async loader resolves offline (empty 200) — no
@@ -139,7 +140,7 @@ test.describe("§28 GA4 absence", () => {
     const noGa = await seedActivatedFunnel(ctx, { hostPrefix: "lg-p14-noga4", slug: "noga4" });
     await ctx.dispose();
 
-    await page.goto(`http://${noGa.host}:8787/lg/${noGa.slug}`, { waitUntil: "load" });
+    await page.goto(`http://${noGa.host}:${PW_PORT}/lg/${noGa.slug}`, { waitUntil: "load" });
     await expect(page.locator('script[src*="googletagmanager.com"]')).toHaveCount(0);
     const html = await page.content();
     expect(html).not.toContain("gtag(");
@@ -159,12 +160,12 @@ test.describe("§28 GA4 per-tenant isolation", () => {
 
     // The shell is cached per site_id (lg-shell:{site_id}:…), so site A's shell can
     // carry ONLY gaA and site B's ONLY gaB — never each other's id.
-    await page.goto(`http://${siteA.host}:8787/lg/${siteA.slug}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`http://${siteA.host}:${PW_PORT}/lg/${siteA.slug}`, { waitUntil: "domcontentloaded" });
     const htmlA = await page.content();
     expect(htmlA).toContain(gaA);
     expect(htmlA).not.toContain(gaB);
 
-    await page.goto(`http://${siteB.host}:8787/lg/${siteB.slug}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`http://${siteB.host}:${PW_PORT}/lg/${siteB.slug}`, { waitUntil: "domcontentloaded" });
     const htmlB = await page.content();
     expect(htmlB).toContain(gaB);
     expect(htmlB).not.toContain(gaA);

@@ -6,9 +6,10 @@ import { test, expect } from '@playwright/test';
 //   four-tab bar (Offers · Sections · Quotes · Auction) is visible; clicking
 //   each tab navigates to its path (auction is SINGULAR) and marks it active.
 //
-// Runs against the playwright.config.ts webServer (wrangler dev on :8787
-// with DEV_BYPASS_AUTH:true + ADMIN_HOST:127.0.0.1 — see that file's header
-// for why the local ADMIN_HOST substitutes the loopback hostname). Local D1
+// Runs against the playwright.config.ts webServer (wrangler dev on
+// :<PW_PORT>, default 8787, with DEV_BYPASS_AUTH:true + ADMIN_HOST:127.0.0.1
+// — see that file's header for why the local ADMIN_HOST substitutes the
+// loopback hostname). Local D1
 // must be migrated once: `npm run db:migrate:local`.
 //
 // Screenshots (1280×800) land in test-artifacts/leadgen-nav/ — the repo's

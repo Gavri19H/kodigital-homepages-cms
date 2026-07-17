@@ -6,12 +6,10 @@
 // These are effect-of-the-server-renderer proofs (the browser effect-matrix
 // lives in test-ui/leadgen-r3a-effects.gesture.spec.ts).
 import { describe, expect, it } from "vitest";
-import {
-  renderComponent,
-  FIELD_LEADING_ICON_SVGS,
-} from "../src/public/leadgen/components/presets";
+import { renderComponent } from "../src/public/leadgen/components/presets";
 import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 import { LEADGEN_FIELD_LEADING_ICONS } from "../src/public/leadgen/components/content-schema";
+import { LEADGEN_ICONS, leadgenIconSvg } from "../src/public/leadgen/components/icons.generated";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { SECTION_STUDIO_SCRIPT } from "../src/admin/leadgen/ui-section-studio";
 
@@ -202,22 +200,24 @@ describe("R3 E1-NEW-8 — the 7 advertising renderers render the shared helper l
   });
 });
 
-describe("R3 S2-8/E1-NEW-9/U9 — the leading-icon SVG map is complete", () => {
-  it("the map keys equal the §8.1 enum exactly (12 entries)", () => {
-    expect(Object.keys(FIELD_LEADING_ICON_SVGS).sort()).toEqual([...LEADGEN_FIELD_LEADING_ICONS].sort());
-    expect(Object.keys(FIELD_LEADING_ICON_SVGS).length).toBe(12);
+describe("R3 S2-8/E1-NEW-9/U9 — the leading-icon SVG map is complete (P1b: curated Tabler subset, register PC-11)", () => {
+  it("the map keys equal the §8.1 enum exactly (now the curated ~100+ Tabler set, grown from the pre-Tabler 12)", () => {
+    expect(Object.keys(LEADGEN_ICONS).sort()).toEqual([...LEADGEN_FIELD_LEADING_ICONS].sort());
+    expect(Object.keys(LEADGEN_ICONS).length).toBeGreaterThan(12);
   });
-  it("every non-'none' icon is a real 19×19 field-box SVG in the golden stroke family", () => {
+  it("every non-'none' icon is a real currentColor SVG, sized ONLY via leadgenIconSvg (no width/height baked into the map)", () => {
     for (const id of LEADGEN_FIELD_LEADING_ICONS) {
-      const svg = FIELD_LEADING_ICON_SVGS[id]!;
+      const svg = LEADGEN_ICONS[id]!;
       if (id === "none") {
         expect(svg, "none renders nothing").toBe("");
         continue;
       }
       expect(svg, `${id} present`).not.toBe("");
-      expect(svg, `${id} sized 19`).toContain('width="19" height="19"');
       expect(svg, `${id} viewBox`).toContain('viewBox="0 0 24 24"');
-      expect(svg, `${id} golden stroke`).toContain("#8DA0B6");
+      expect(svg, `${id} currentColor`).toContain('stroke="currentColor"');
+      expect(svg, `${id} carries no baked-in width/height in the raw map entry`).not.toMatch(/\swidth="|\sheight="/);
+      const sized = leadgenIconSvg(id, 48);
+      expect(sized, `${id} leadgenIconSvg(id,48) injects the requested size`).toContain('width="48" height="48"');
     }
   });
   it("a field renderer now paints a chosen icon (calendar), fixing U9's 11 dead icons", () => {
@@ -226,7 +226,8 @@ describe("R3 S2-8/E1-NEW-9/U9 — the leading-icon SVG map is complete", () => {
       DESIGN,
     );
     expect(html).toContain("lg-field-icon");
-    expect(html).toContain("#8DA0B6");
+    expect(html).toContain('stroke="currentColor"');
+    expect(html).toContain('width="20" height="20"');
   });
   it("E1-NEW-9: AddressAutocompleteQuestion now WIRES the leading icon (previously dead even for 'location')", () => {
     const html = renderComponent(
@@ -234,7 +235,8 @@ describe("R3 S2-8/E1-NEW-9/U9 — the leading-icon SVG map is complete", () => {
       DESIGN,
     );
     expect(html).toContain("lg-field-icon");
-    expect(html).toContain("#8DA0B6");
+    expect(html).toContain('stroke="currentColor"');
+    expect(html).toContain('width="20" height="20"');
   });
   it("Address WITHOUT props.icon stays byte-additive (no icon markup)", () => {
     const html = renderComponent(

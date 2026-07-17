@@ -530,6 +530,75 @@ const U14_OLD_CONTINUE_RULE =
 const U14_NEW_CONTINUE_RULE =
   `${DEFAULT_FUNNEL_SCOPE} .lg-continue{display:flex;width:100%;max-width:320px;margin-top:26px;margin-left:auto;margin-right:auto;background:var(--lg-btn-bg, #1B3A5C)}`;
 
+// P1a (register PC-1/PC-3/PC-11): the layout-system deltas vs the pre-P1a
+// capture, kept in lockstep with styles.ts (a drift fails here). Two NET-NEW
+// base rules (the inter-component stack + the .lg-answer-group grid), four
+// NET-NEW mobile rules (the mobile stack + its two golden-preserving
+// re-assertions + the answer-grid mobile gap) — each carries the array-join's
+// own leading \n, removed the same MOVED_* way; PLUS two CHANGED rule bodies
+// (.lg-card-icon gains the inline-flex centering; .lg-card min-height 96->140).
+// NB: R5_OLD_CARD_RULE above interpolates the CURRENT iconCard.minHeight token
+// (now 140px), so the min-height must ALSO be reverted 140->96 to reach the
+// pre-P1a fixture's 96px.
+const P1A_STACK_BASE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-question-card > * + *{margin-top:${defaultFunnelDesign.spacing.stack}}`;
+const P1A_ANSWER_GRID_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-answer-group{display:grid;grid-template-columns:repeat(var(--lg-cols, ${defaultFunnelDesign.answerGrid.columns}), minmax(0, 1fr));gap:${defaultFunnelDesign.answerGrid.gap};width:100%}`;
+const P1A_STACK_MOBILE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-question-card > * + *{margin-top:${defaultFunnelDesign.spacing.stackMobile}}`;
+const P1A_SUBHEAD_MOBILE_RESET = `\n${DEFAULT_FUNNEL_SCOPE} .lg-subheadline{margin-top:0}`;
+const P1A_CONTINUE_MOBILE_RESET = `\n${DEFAULT_FUNNEL_SCOPE} .lg-continue{margin-top:26px}`;
+const P1A_ANSWER_GRID_MOBILE_GAP = `\n${DEFAULT_FUNNEL_SCOPE} .lg-answer-group{gap:${defaultFunnelDesign.answerGrid.gapMobile}}`;
+const P1A_NEW_CARD_ICON_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-card-icon{display:inline-flex;align-items:center;justify-content:center;color:${defaultFunnelDesign.iconCard.iconColor};font-size:${defaultFunnelDesign.iconCard.iconSize};line-height:1}`;
+const P1A_OLD_CARD_ICON_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-card-icon{color:${defaultFunnelDesign.iconCard.iconColor};font-size:${defaultFunnelDesign.iconCard.iconSize};line-height:1}`;
+const P1A_OLD_CARD_MIN_HEIGHT = "96px"; // pre-P1a iconCard.minHeight (the frozen fixture's value)
+
+// P1a FIX ROUND (conductor, register PC-3): the grid-follower collapse-
+// emulation table — a SINGLE net-new block (5 rules) appended right after the
+// P1a additions above, kept in lockstep with styles.ts's OWN construction (a
+// drift in either the selector list or a computed margin-top value fails
+// here). Each predecessor gets BOTH the direct-sibling selector (the live/
+// unwrapped path) AND a `:has()` companion (the studio-canvas selected/
+// wrapped path — see styles.ts's own comment for why). Values: Category A
+// (mb >= stack 18) -> 0; Category B (mb < stack) -> 18-mb (9 for headline·9,
+// 6 for category·12, 2 for trustbar/logo-strip/columns/field·16 — all four
+// share the SAME 1rem/16px value).
+function followerSelectorsFixRound(predecessor: string): string {
+  return [".lg-answer-group", ".lg-card-grid"]
+    .flatMap((f) => [`${DEFAULT_FUNNEL_SCOPE} ${predecessor} + ${f}`, `${DEFAULT_FUNNEL_SCOPE} ${predecessor} + *:has(> ${f})`])
+    .join(", ");
+}
+const P1A_FIX_ROUND_EXCEPTION_TABLE =
+  "\n" +
+  [followerSelectorsFixRound(".lg-subheadline"), followerSelectorsFixRound(".lg-progress"), followerSelectorsFixRound(".lg-steps"), followerSelectorsFixRound(".lg-grid-container")].join(", ") +
+  "{margin-top:0}\n" +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-card-grid + *, ${DEFAULT_FUNNEL_SCOPE} *:has(> .lg-card-grid) + *{margin-top:0}\n` +
+  followerSelectorsFixRound(".lg-headline") +
+  "{margin-top:9px}\n" +
+  followerSelectorsFixRound(".lg-category") +
+  "{margin-top:6px}\n" +
+  [followerSelectorsFixRound(".lg-trustbar"), followerSelectorsFixRound(".lg-logo-strip"), followerSelectorsFixRound(".lg-columns"), followerSelectorsFixRound(".lg-field")].join(", ") +
+  "{margin-top:2px}";
+
+// P1 hidden-attribute vs author-display fix (register PC): the SINGLE net-new
+// terminal guard styles.ts appends as the LAST base rule (right after the P1a
+// grid-follower table above, before the frame-region block). `[hidden]` +
+// scope = (0,2,0) ties every force-visible display rule and wins by later
+// source order, so a conditionally-hidden component actually hides. Stripped
+// here (the ONLY legal delta this fix adds) so the frozen fixture stays the
+// pre-change shape — a drift in ANY other byte still fails the pin below.
+const P1_HIDDEN_GUARD_RULE = `\n${DEFAULT_FUNNEL_SCOPE} [hidden]{display:none}`;
+
+// MINOR-1 (adversarial review, register PC): CardPanel/BackgroundPanel are
+// plain-block §8.5 containers with no gap system — `.lg-question-card > * + *`
+// (a direct-child combinator) cannot reach a container's own children (its
+// grandchildren). styles.ts adds the SAME stack-floor rule scoped to
+// `.lg-card-panel > * + *` / `.lg-bg-panel-inner > * + *` (base + mobile),
+// emitted immediately after the existing `.lg-question-card > * + *` pair.
+// Stripped here (the ONLY legal delta this fix adds) so the frozen fixture
+// stays the pre-change shape.
+const MINOR1_CARD_PANEL_FLOOR_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-card-panel > * + *{margin-top:${defaultFunnelDesign.spacing.stack}}`;
+const MINOR1_BG_PANEL_FLOOR_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-bg-panel-inner > * + *{margin-top:${defaultFunnelDesign.spacing.stack}}`;
+const MINOR1_CARD_PANEL_FLOOR_MOBILE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-card-panel > * + *{margin-top:${defaultFunnelDesign.spacing.stackMobile}}`;
+const MINOR1_BG_PANEL_FLOOR_MOBILE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-bg-panel-inner > * + *{margin-top:${defaultFunnelDesign.spacing.stackMobile}}`;
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -618,10 +687,47 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     .split(MOVED_SEL_BG_RULE)
     .join("")
     .split(U14_NEW_CONTINUE_RULE)
-    .join(U14_OLD_CONTINUE_RULE);
+    .join(U14_OLD_CONTINUE_RULE)
+    // P1a (register PC-1/PC-3/PC-11): strip the net-new stack/grid rules, revert
+    // the two changed rule bodies (.lg-card-icon centering + .lg-card min-height
+    // 140->96) back to the pre-P1a fixture shape.
+    .split(P1A_STACK_BASE_RULE)
+    .join("")
+    .split(P1A_ANSWER_GRID_RULE)
+    .join("")
+    .split(P1A_STACK_MOBILE_RULE)
+    .join("")
+    .split(P1A_SUBHEAD_MOBILE_RESET)
+    .join("")
+    .split(P1A_CONTINUE_MOBILE_RESET)
+    .join("")
+    .split(P1A_ANSWER_GRID_MOBILE_GAP)
+    .join("")
+    .split(P1A_NEW_CARD_ICON_RULE)
+    .join(P1A_OLD_CARD_ICON_RULE)
+    .split(`min-height:${defaultFunnelDesign.iconCard.minHeight}`)
+    .join(`min-height:${P1A_OLD_CARD_MIN_HEIGHT}`)
+    // P1a FIX ROUND (register PC-3): strip the net-new grid-follower
+    // collapse-emulation table (the ONLY legal delta this fix round adds).
+    .split(P1A_FIX_ROUND_EXCEPTION_TABLE)
+    .join("")
+    // P1 hidden-attribute fix (register PC): strip the net-new terminal
+    // `[hidden]{display:none}` guard — the ONLY legal delta this fix adds.
+    .split(P1_HIDDEN_GUARD_RULE)
+    .join("")
+    // MINOR-1 (adversarial review, register PC): strip the net-new CardPanel/
+    // BackgroundPanel stack-floor rules — the ONLY legal delta this fix adds.
+    .split(MINOR1_CARD_PANEL_FLOOR_RULE)
+    .join("")
+    .split(MINOR1_BG_PANEL_FLOOR_RULE)
+    .join("")
+    .split(MINOR1_CARD_PANEL_FLOOR_MOBILE_RULE)
+    .join("")
+    .split(MINOR1_BG_PANEL_FLOOR_MOBILE_RULE)
+    .join("");
   expect(
     cssMinusMove,
-    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies",
+    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system",
   ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));

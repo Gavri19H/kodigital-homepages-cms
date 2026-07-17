@@ -14,13 +14,14 @@
 //     --workers=1 --reporter=line --timeout=120000
 //
 // Boot pattern mirrors r0a-drag-spike.spec.ts (seed a Section through the real
-// admin API, open its /edit studio). webServer (wrangler dev :8787,
-// DEV_BYPASS_AUTH) is launched by playwright.config.
+// admin API, open its /edit studio). webServer (wrangler dev :<PW_PORT>,
+// default 8787, DEV_BYPASS_AUTH) is launched by playwright.config.
 import { test, expect, type APIRequestContext, type Page, type FrameLocator } from "@playwright/test";
 import { realDrag, type Box } from "./utils/real-input";
 import { assertOverlayAligned, computeOverlayAlignment, type RectLike } from "./utils/effect-assert";
+import { PW_PORT } from "./utils/base-url";
 
-const BASE = "http://127.0.0.1:8787";
+const BASE = `http://127.0.0.1:${PW_PORT}`;
 const LG_API = "/api/admin/leadgen";
 const SHOT = "test-artifacts/r2-canvas-interactions";
 const uniq = Date.now();
@@ -181,6 +182,21 @@ test.describe("R2 canvas interactions (firefox real input)", () => {
   });
 
   test("(iii) a real N/S height drag writes a height custom_px + shows the height Custom chip + Reset", async ({ page }) => {
+    // Consolidated fix round (register PC-3, root-caused by direct measurement,
+    // not a guess): P1a's inter-component rhythm (spacing.stack, the U12
+    // golden gaps) pushes every element further DOWN the page than before —
+    // this test's own S-handle now measures y≈651.6 in a 720px-tall default
+    // viewport, and the drag's final target (handle-center + 70) lands at
+    // y≈727, PAST the viewport's bottom edge, where the mouseup has nowhere to
+    // land (confirmed via temporary boundingBox instrumentation). Same root
+    // cause + same remediation as tests (ii)/(vi) above (R5 full-bleed pushed
+    // the WIDTH handle out of the default viewport; this is the IDENTICAL
+    // class of bug, vertical this time, from the ratified P1a rhythm change) —
+    // the drag mechanism itself is unchanged/correct, only the page's resulting
+    // vertical position moved, so the test's aim needs more room, not the
+    // product. Reusing the SAME already-established 1600×900 viewport (not a
+    // new arbitrary size) keeps this consistent with the existing precedent.
+    await page.setViewportSize({ width: 1600, height: 900 });
     const s = await createSection(page.request, `R2 Height ${uniq}`, [HEADLINE, ZIP, CONT]);
     await boot(page, s);
     await selectNode(page, "q_zip");
@@ -208,6 +224,15 @@ test.describe("R2 canvas interactions (firefox real input)", () => {
   });
 
   test("(iv) a real corner drag changes BOTH width and height", async ({ page }) => {
+    // Consolidated fix round (register PC-3) — same root cause as (iii) above:
+    // the SE-handle's y (≈651.6 in the default 720px viewport) plus this
+    // drag's own +60 delta lands at y≈717, within 3px of the viewport's bottom
+    // edge — margin thin enough that Firefox's own layout-metric differences
+    // from the diagnostic measurement (taken on chromium) tip it over. Same
+    // remediation as (ii)/(iii)/(vi): widen to the already-established
+    // 1600×900 viewport (the drag mechanism is unchanged; only the page's
+    // resulting vertical position moved, from the ratified P1a rhythm change).
+    await page.setViewportSize({ width: 1600, height: 900 });
     const s = await createSection(page.request, `R2 Corner ${uniq}`, [HEADLINE, ZIP, CONT]);
     await boot(page, s);
     await selectNode(page, "q_zip");
@@ -234,6 +259,15 @@ test.describe("R2 canvas interactions (firefox real input)", () => {
   });
 
   test("(v) a real mouse drag on the SELECTED field BODY moves/reorders it", async ({ page }) => {
+    // Consolidated fix round (register PC-3) — same root cause as (iii)/(iv):
+    // this fixture's q_after target (headline+sub+zip ahead of it) measures
+    // afterBox.y≈675 in the default 720px viewport, and the drop point
+    // (afterBox.y + height*0.75) lands at y≈715.6 — within 5px of the bottom
+    // edge, the same thin margin that tips over under Firefox's own layout
+    // metrics. Same remediation: widen to the established 1600×900 viewport
+    // (the move/reorder mechanism is unchanged; only the page's resulting
+    // vertical position moved, from the ratified P1a rhythm change).
+    await page.setViewportSize({ width: 1600, height: 900 });
     const s = await createSection(page.request, `R2 Move ${uniq}`, [HEADLINE, ZIP, { type: "FreeTextQuestion", question_id: "q_after", internal_field: "note", answer_type: "string", props: { placeholder: "Note" } }, CONT]);
     await boot(page, s);
     const order = () => canvas(page).evaluate((root) => Array.from(root.querySelectorAll("[data-question-id]")).map((e) => e.getAttribute("data-question-id")));

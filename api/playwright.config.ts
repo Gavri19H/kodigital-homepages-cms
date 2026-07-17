@@ -59,9 +59,17 @@ import { defineConfig, devices } from '@playwright/test';
 // the firefox-only subset. A cross-engine gesture spec runs on BOTH projects
 // (once each, never twice within a project); a firefox-only one runs on firefox
 // alone.
+// P1c (register PC-1/PC-3/PC-11): leadgen-p1-geometry.gesture.spec.ts (P1a)
+// asserts the studio-canvas AND live-funnel answer-grid geometry — a
+// chromium-only gap since it was never added to either engine list, so
+// firefox's testMatch (ALL_GESTURE_SPECS below) skipped it entirely. Added
+// here (not FIREFOX_ONLY) because it carries no firefox-architectural
+// dependency (getBoundingClientRect + computed styles, not a real-input
+// drag) — the u11u12-move mechanism this comment block already documents.
 const CROSS_ENGINE_GESTURE_SPECS = [
   'leadgen-u11u12-move.gesture.spec.ts',
   'forensic-live-probe.spec.ts',
+  'leadgen-p1-geometry.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',
@@ -71,6 +79,14 @@ const FIREFOX_ONLY_GESTURE_SPECS = [
   'leadgen-canvas-interactions.gesture.spec.ts',
 ];
 const ALL_GESTURE_SPECS = [...CROSS_ENGINE_GESTURE_SPECS, ...FIREFOX_ONLY_GESTURE_SPECS];
+
+// P1c: worktree-isolated runs (a parallel mission's wrangler already owns
+// 8787) set PW_PORT=8899; CI and every other caller are unaffected (the
+// fallback is the pre-existing literal). Threaded into baseURL AND the
+// wrangler dev webServer's own --port/health-check URL so the two stay in
+// sync — a mismatched pair would either 404 the health check or serve every
+// relative-path test against the wrong origin.
+const PW_PORT = process.env.PW_PORT || '8787';
 
 export default defineConfig({
   testDir: './test-ui',
@@ -94,7 +110,7 @@ export default defineConfig({
   // not delete them. AC3 only requires test-results/index.html exists.
   outputDir: './test-artifacts',
   use: {
-    baseURL: 'http://127.0.0.1:8787',
+    baseURL: `http://127.0.0.1:${PW_PORT}`,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -123,8 +139,8 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'npx wrangler dev --port 8787 --ip 127.0.0.1 --var DEV_BYPASS_AUTH:true --var ADMIN_HOST:127.0.0.1',
-      url: 'http://127.0.0.1:8787/health',
+      command: `npx wrangler dev --port ${PW_PORT} --ip 127.0.0.1 --var DEV_BYPASS_AUTH:true --var ADMIN_HOST:127.0.0.1`,
+      url: `http://127.0.0.1:${PW_PORT}/health`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },

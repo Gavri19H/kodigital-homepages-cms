@@ -38,6 +38,12 @@ import {
   type StudioMappingSummary as MappingSummary,
   type StudioSectionView,
 } from "./ui-section-studio";
+// PC-9 (register, P1c): the "New Section" chrome badge below needs the REAL
+// topbar height so it floats clear of renderStudioTopBar's 56px bar (that
+// function lives in ui-section-studio.ts and is NOT this slice's to touch —
+// studio-tokens.ts is a separate, already-exported shared module, so reading
+// its token here carries no ownership conflict and can't drift out of sync).
+import { STUDIO_GEOMETRY } from "./studio-tokens";
 // §30.2 operator-owned browser Maps key — read ONLY to surface the absent-state
 // note in the editor (the key value is NEVER embedded; the live geocode is P7).
 import { resolveBrowserMapsKey } from "../../leadgen/maps";
@@ -149,8 +155,21 @@ const LG_SECTIONS_STYLES = `
    [hidden] (ADMIN_STYLES' global rule) keeps them at zero layout impact in
    the (overwhelmingly common) no-error case — the golden look is untouched;
    an actual error/warning appears as a floating banner ON TOP of the studio,
-   never as chrome ABOVE it. */
-.lg-editor-pubid{position:fixed;top:14px;left:14px;z-index:500;color:var(--c-muted);font-size:11px;background:#fff;border:1px solid var(--c-border);border-radius:6px;padding:3px 8px;box-shadow:0 1px 3px rgba(16,24,40,.08)}
+   never as chrome ABOVE it.
+   PC-9 fix (register, P1c): the pubid badge used to float at top:14px, which
+   sits INSIDE renderStudioTopBar's 56px bar (ui-section-studio.ts) and
+   painted directly over its "← Sections" back link — the operator's Image8
+   overlap. renderStudioTopBar belongs to a different slice's owned region;
+   its name input has no placeholder to lean on instead (verified —
+   #lg-section-name emits only a value attr, blank for a brand-new
+   Section), so dropping the badge would silently remove the "you are
+   creating, not editing" signal with nothing replacing it. The safe,
+   in-scope fix: keep the badge but clear the topbar entirely by dropping it
+   BELOW the bar (topBarHeight + the original 14px margin) instead of the
+   page's very top edge — still a floating, non-content-pushing affordance,
+   now never over topbar chrome at any viewport width (the bar's height is
+   fixed regardless of width). */
+.lg-editor-pubid{position:fixed;top:${STUDIO_GEOMETRY.topBarHeight + 14}px;left:14px;z-index:500;color:var(--c-muted);font-size:11px;background:#fff;border:1px solid var(--c-border);border-radius:6px;padding:3px 8px;box-shadow:0 1px 3px rgba(16,24,40,.08)}
 #lg-section-error,[data-studio-save-problems]{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:600;max-width:560px;width:calc(100% - 28px);box-shadow:0 4px 16px rgba(16,24,40,.12)}
 #lg-section-error{margin:0}
 [data-studio-save-problems]{margin:0}

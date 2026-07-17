@@ -12,9 +12,10 @@
 // The browser reaches the tenant host via Chromium's
 // --host-resolver-rules=MAP <host> 127.0.0.1 (see the spec files); Node-side
 // header/caching assertions use APIRequestContext with an explicit Host
-// header against 127.0.0.1:8787.
+// header against 127.0.0.1:<PW_PORT> (default 8787; ./utils/base-url.ts).
 
 import { expect, type APIRequestContext } from "@playwright/test";
+import { PW_PORT } from "./utils/base-url";
 
 export const PNG_1PX = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
@@ -235,8 +236,8 @@ export interface SeedListicleOptions {
   pages?: (sectionIds: number[]) => unknown[];
   /**
    * Phase 7: override the offer's URL template. The tracking e2e points it
-   * at a locally-REACHABLE host (`http://offers.e2e.test:8787/health?...`,
-   * the worker's own any-host route) because Playwright cannot intercept
+   * at a locally-REACHABLE host (`http://offers.e2e.test:<PW_PORT>/health?...`,
+   * default 8787, the worker's own any-host route) because Playwright cannot intercept
    * requests that continue a redirect chain — a /lc 302 to an unroutable
    * provider host would strand the navigation.
    */
@@ -266,8 +267,8 @@ export async function seedPublishedListicle(
   // fall back to src when its chosen srcset candidate 404s — bare /media/
   // keys would render broken locally. Production content stores bare keys
   // and gets the full srcset (responsive-images.test.ts pins that path).
-  const heroUrl = `http://127.0.0.1:8787/media/${hero.storage_key}`;
-  const sectionImgUrl = `http://127.0.0.1:8787/media/${sectionImg.storage_key}`;
+  const heroUrl = `http://127.0.0.1:${PW_PORT}/media/${hero.storage_key}`;
+  const sectionImgUrl = `http://127.0.0.1:${PW_PORT}/media/${sectionImg.storage_key}`;
 
   await json(
     await request.patch("/api/admin/settings", {

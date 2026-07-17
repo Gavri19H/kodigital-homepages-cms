@@ -80,10 +80,11 @@
 //
 // ROW-② HOST MECHANICS: chromium launches with
 // `--host-resolver-rules=MAP *.e2e.test 127.0.0.1`, so page.goto
-// (`http://<site-host>:8787/lg/<slug>`) carries the real tenant Host header to
-// the local wrangler dev worker (host→site public middleware). Node-side wire
-// reads (row ⑥) send an explicit `Host: <site-host>:8787` header to
-// 127.0.0.1:8787 — the leadgen-runtime/leadgen-live-funnel idioms.
+// (`http://<site-host>:<PW_PORT>/lg/<slug>`) carries the real tenant Host
+// header to the local wrangler dev worker (host→site public middleware).
+// Node-side wire reads (row ⑥) send an explicit `Host: <site-host>:<PW_PORT>`
+// header to 127.0.0.1:<PW_PORT> (default 8787; ./utils/base-url.ts) — the
+// leadgen-runtime/leadgen-live-funnel idioms.
 //
 // DEV-GUARD: every context uses a realistic Chrome UA (the /lg runtime guard's
 // bot arm must never trip — the leadgen-live-funnel DEV-GUARD note).
@@ -116,6 +117,7 @@ import {
   type PatternSite,
   type RuntimeSectionSeed,
 } from "./leadgen-e-seed";
+import { PW_PORT } from "./utils/base-url";
 
 const REAL_CHROME_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
@@ -126,7 +128,7 @@ test.use({
   userAgent: REAL_CHROME_UA,
 });
 
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
 // The b-seed vocabulary — plain strings the admin APIs accept without a feeder
@@ -233,7 +235,7 @@ test.beforeAll(async () => {
 // ---------------------------------------------------------------------------
 
 async function gotoReady(page: Page, host: string, slug: string): Promise<void> {
-  await page.goto(`http://${host}:8787/lg/${slug}`, { waitUntil: "load" });
+  await page.goto(`http://${host}:${PW_PORT}/lg/${slug}`, { waitUntil: "load" });
   await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, {
     timeout: 15_000,
   });
@@ -604,7 +606,7 @@ test.describe("LeadGen v2.5.1 §15.3 Runtime rows — live /lg fixtures (E3)", (
       extraHTTPHeaders: { "User-Agent": REAL_CHROME_UA },
     });
     const res = await wire.get(`${ORIGIN}/lg/${legacy.slug}`, {
-      headers: { Host: `${legacy.host}:8787` },
+      headers: { Host: `${legacy.host}:${PW_PORT}` },
     });
     expect(res.status(), "live legacy shell HTTP status").toBe(200);
     const live = await res.text();

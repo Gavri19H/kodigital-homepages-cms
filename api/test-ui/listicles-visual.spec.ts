@@ -35,6 +35,7 @@ import {
   FOOTER_MEASURED,
 } from "../src/public/listicle/layouts/default/measured-values";
 import { seedPublishedListicle, type SeededListicle } from "./listicles-p6-seed";
+import { PW_PORT } from "./utils/base-url";
 
 test.use({
   launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] },
@@ -42,7 +43,7 @@ test.use({
 
 const T = defaultListicleLayoutTokens;
 const D = DRIFT_OVERRIDES_2026_07_03;
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 const BASELINE_DIR = join(SPEC_DIR, "__screenshots__");
 const EVIDENCE_DIR = "test-artifacts/listicles-render";
 const REFERENCE_DIR = join(SPEC_DIR, "..", "..", "docs", "listicles");
@@ -73,7 +74,7 @@ test.beforeAll(async () => {
 });
 
 function url(): string {
-  return `http://${seeded.host}:8787/${seeded.slug}`;
+  return `http://${seeded.host}:${PW_PORT}/${seeded.slug}`;
 }
 
 // One row of the computed-style table: [selector, css property, expected,

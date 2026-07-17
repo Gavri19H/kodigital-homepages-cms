@@ -83,6 +83,7 @@ export function funnelChromeCss(
     logoStrip,
     stepIndicator,
     iconCardGrid,
+    answerGrid,
     iconCard,
     input,
     dropdown,
@@ -204,6 +205,105 @@ export function funnelChromeCss(
       "margin-right": `calc(-1 * ${content.paddingMobile})`,
     }),
   );
+
+  // ---- P1a inter-component rhythm (register PC-3) -------------------------
+  // The section-unit's vertical rhythm: a stack FLOOR between EVERY adjacent
+  // pair of the unit's components. renderSectionComponents wraps the depth-1
+  // component list in ONE `.lg-question-card` (presets.ts), and the studio
+  // canvas + admin preview + live funnel (framed AND frameless) all take that
+  // SAME wrapper — so `.lg-question-card > * + *` is the ONE selector that
+  // reaches every component pair identically across all four surfaces (the
+  // `.lg-content`/`<section>` wrappers exist only on the live shell, not the
+  // studio canvas; the card exists everywhere). Pre-P1a these gaps measured 0
+  // wherever a component carried no margin-bottom of its own (button groups,
+  // yes/no, text blocks) — the operator's "default gaps don't exist" finding.
+  //
+  // MECHANISM = margin-collapse FLOOR + cascade-preserved golden overrides.
+  // This rule is emitted HERE, BEFORE the per-component margin rules below
+  // (.lg-headline :~325, .lg-subheadline :~331, .lg-continue :~458), so at EQUAL
+  // specificity (both selectors are 1 attr + 1 class = (0,2,0)) source order
+  // decides and each of those elements' OWN later margin-top declaration WINS:
+  //   • .lg-subheadline `margin:0 0 30px 0` re-states margin-top:0 → the golden
+  //     headline→sub 9px (the headline's OWN margin-bottom) survives the 18px
+  //     floor (this is the ONE golden gap below the floor; every other golden
+  //     gap is ≥18 and simply wins by margin-collapse max);
+  //   • .lg-continue `margin-top:26px` → the golden helper→Continue 26px stands
+  //     (and the U14 measured-centering gate reads marginTop=="26px").
+  // Every component WITHOUT its own margin-top (answer groups, yes/no, text
+  // blocks, range, …) inherits the 18px floor; every preceding margin-bottom
+  // ≥18 (card-grid 24, progress 32, steps 24) still wins by collapse-max. Pinned
+  // by leadgen-r3a-effects.gesture (rendered gaps) + leadgen-p1-geometry.gesture
+  // (the new rhythm gate); the CSS-body pins in leadgen-u12-rhythm read the
+  // .lg-headline/.lg-subheadline/.lg-continue rule BODIES, which are untouched.
+  //
+  // MINOR-1 (adversarial review, register PC): `.lg-question-card > * + *` is a
+  // DIRECT-CHILD combinator — it reaches a §8.5 container's OWN position among
+  // its question-card siblings, but NOT a plain-block container's children
+  // (its grandchildren, one level deeper). The reviewer's probe found exactly
+  // this: two components nested inside a CardPanel measured 0px apart.
+  //
+  // SCOPING RULE (encoded here for every future §8.5 container): a container
+  // with EXPLICIT gap semantics owns its OWN internal spacing and must NOT get
+  // this floor —
+  //   • Stack   (renderStack)         — inline `gap` from stackGapValue, ALWAYS
+  //                                      emitted (an un-authored gap still
+  //                                      resolves to the token default).
+  //   • GridContainer (renderGridContainer) — inline `gap` from gridGapValue,
+  //                                      same always-emitted guarantee.
+  //   • Columns (`.lg-columns`, above) — `gap: columns.gap` in THIS class rule.
+  // A container with NO gap mechanism at all — a plain block — falls back to
+  // this SAME stack floor, exactly like `.lg-question-card` itself:
+  //   • CardPanel (`.lg-card-panel`, ~line 1098) — renderCardPanel emits no
+  //     gap; the class rule is width/margin/border only.
+  //   • BackgroundPanel (`.lg-bg-panel`, ~line 1110) — renderBackgroundPanel
+  //     renders children inside the INNER wrapper `.lg-bg-panel-inner`
+  //     (position:relative only, no gap); the floor targets that inner
+  //     element, not `.lg-bg-panel` itself (children are ITS direct children,
+  //     not the outer panel's — the outer panel's only other child is the
+  //     absolutely-positioned `.lg-bg-panel-img`, which this selector does not
+  //     reach: `img + *` never matches inside `.lg-bg-panel` itself, only
+  //     inside `.lg-bg-panel-inner`).
+  // Swept ALL 5 LEADGEN_CONTAINER_TYPES (content-schema.ts) against this rule:
+  // no 6th plain-block container exists today; a future one must repeat this
+  // audit (does its OWN renderX emit a gap? no → add it here).
+  //
+  // AUDITED against the grid-follower collapse-emulation table below (P1a FIX
+  // ROUND): that table's selectors (`${scope} <predecessor> + <follower>`) are
+  // ALREADY container-agnostic — a sibling-combinator selector matches an
+  // adjacent pair regardless of which element wraps them, so it governs a
+  // CardPanel-nested or BackgroundPanel-nested pair identically to a
+  // question-card-level one, with NO changes needed. Its selectors are also
+  // HIGHER specificity ((0,3,0): scope + 2 classes) than this floor's (0,2,0):
+  // scope + 1 class, `*` contributes none) — so it always wins the tie where
+  // both could apply. Every margin-bottom/margin-shorthand-bearing selector in
+  // this file was enumerated (grep audit, register PC): .lg-progress(32),
+  // .lg-category(12), .lg-steps(24), .lg-card-grid(24, predecessor case),
+  // .lg-field(16), .lg-grid-container(24), .lg-columns(16), .lg-headline(9),
+  // .lg-subheadline(30), .lg-trustbar(16), .lg-logo-strip(16) — ALL already
+  // enumerated in that table's predecessor list. The remaining margin-bearing
+  // selectors (.lg-range-value/.lg-label/.lg-dropdown-search) are nested-only
+  // (never a direct container child anywhere, panel or not — unchanged from
+  // the original P1a audit) and every frame-region `margin:` (`.lg-frame-*`)
+  // is structural chrome, never an author-authored container child.
+  out.push(
+    rule(`${scope} .lg-question-card > * + *`, { "margin-top": spacing.stack }),
+    rule(`${scope} .lg-card-panel > * + *`, { "margin-top": spacing.stack }),
+    rule(`${scope} .lg-bg-panel-inner > * + *`, { "margin-top": spacing.stack }),
+  );
+  // Mobile: a tighter floor; re-assert the two golden overrides AFTER it (the
+  // mobile array becomes ONE media query at the end of the sheet, so these must
+  // follow the mobile stack in source to win it — keeping the desktop-golden
+  // rhythm identical on mobile, where it was already inherited from the base).
+  // `.lg-subheadline`/`.lg-continue` are GLOBAL class selectors (not scoped to
+  // a specific ancestor), so the SAME two re-assertions cover a CardPanel- or
+  // BackgroundPanel-nested instance of either without duplication.
+  mobile.push(
+    rule(`${scope} .lg-question-card > * + *`, { "margin-top": spacing.stackMobile }),
+    rule(`${scope} .lg-card-panel > * + *`, { "margin-top": spacing.stackMobile }),
+    rule(`${scope} .lg-bg-panel-inner > * + *`, { "margin-top": spacing.stackMobile }),
+  );
+  mobile.push(rule(`${scope} .lg-subheadline`, { "margin-top": "0" }));
+  mobile.push(rule(`${scope} .lg-continue`, { "margin-top": "26px" }));
 
   // ---- header (§14.2 header) ----------------------------------------------
   out.push(
@@ -471,6 +571,32 @@ export function funnelChromeCss(
   mobile.push(rule(`${scope} .lg-continue`, { width: primaryButton.widthMobile }));
   out.push(`@keyframes lg-spin{to{transform:rotate(360deg)}}`);
 
+  // ---- P1a answer-group layout system (register PC-1) --------------------
+  // `.lg-answer-group` (ButtonAnswerGroup + .lg-yesno TwoButtonYesNo) is a REAL
+  // CSS grid, replacing the pre-P1a flow-packed inline-flex chips that measured
+  // 0-gap, unequal, left-stuck (the operator's finding). Equal `minmax(0,1fr)`
+  // tracks give EQUAL cells (the 0-min lets a long label wrap instead of
+  // widening its track); the default 2 columns and the answerGrid.gap token
+  // come from tokens.ts (authorable per-node via --lg-cols / inline gap, emitted
+  // by presets.ts answerGroupRootStyle). width:100% fills the card column so the
+  // group is centered by construction; an authored fixed width (s/m/l) arrives
+  // inline and centers via auto side-margins (widthCenteringEntries — the U11b
+  // pin). The .lg-btn.lg-btn-answer cells are grid items → they stretch to fill
+  // their track (blockified inline-flex, justify-self:stretch) and keep min-
+  // height:52 (primaryButton.minHeight, inherited from .lg-btn). Mobile keeps
+  // the column count (buttons don't collapse like cards) and only narrows the
+  // gutter. Pinned by leadgen-u11-centering (inline centering) + the new
+  // leadgen-p1-geometry.gesture gate (equal cells, gap, centering, ≥52 height).
+  out.push(
+    rule(`${scope} .lg-answer-group`, {
+      display: "grid",
+      "grid-template-columns": `repeat(var(--lg-cols, ${answerGrid.columns}), minmax(0, 1fr))`,
+      gap: answerGrid.gap,
+      width: "100%",
+    }),
+  );
+  mobile.push(rule(`${scope} .lg-answer-group`, { gap: answerGrid.gapMobile }));
+
   // ---- answer buttons (§14.6 selected animation / §13.2 TwoButtonYesNo +
   // ButtonAnswerGroup) ------------------------------------------------------
   // An answer button is a "pick-one" affordance like the icon card — a white
@@ -720,7 +846,15 @@ export function funnelChromeCss(
     }),
     // error state (§14.4)
     rule(`${scope} .lg-card[data-error="true"]`, { "border-color": iconCard.errorBorderColor }),
+    // P1a (register PC-11): the icon slot centers its glyph without constraining
+    // it — P1b's leadgenIconSvg(id,48) emits an explicit 48×48 <svg>, so an
+    // inline-flex box sizes TO the 48px icon (never shrinks it) and centers a
+    // legacy emoji glyph (text, iconCard.iconSize) identically. line-height:1
+    // keeps the emoji strut tight.
     rule(`${scope} .lg-card-icon`, {
+      display: "inline-flex",
+      "align-items": "center",
+      "justify-content": "center",
       color: iconCard.iconColor,
       "font-size": iconCard.iconSize,
       "line-height": "1",
@@ -1076,6 +1210,169 @@ export function funnelChromeCss(
       "line-height": "1.4",
     }),
   );
+
+  // ---- P1a FIX ROUND (conductor, register PC-3): grid-follower collapse
+  // emulation ------------------------------------------------------------
+  // LIVE-MEASURED finding: `.lg-answer-group`/`.lg-card-grid` (display:grid)
+  // do NOT margin-collapse with an adjoining sibling the way two normal block
+  // boxes do — confirmed by a real browser measurement (leadgen-p1-geometry
+  // gate): subheadline (margin-bottom 30) followed by the answer-group (the
+  // general stack rule's margin-top 18, above) rendered a 48px gap — the SUM
+  // of both margins, not max(30,18)=30 like a normal block→block pair (the
+  // SAME subheadline→field pair collapses correctly to 30, per r3a-effects —
+  // proving the non-collapse is specific to the grid box, not this codebase's
+  // margin values in general). The operator's reference shows ~28-30px here,
+  // not 48. This table EMULATES the missing collapse — gap == max(predecessor's
+  // own margin-bottom, spacing.stack) — for EVERY direct-.lg-question-card-
+  // child element that (a) carries a non-zero margin-bottom in this sheet AND
+  // (b) can plausibly sit immediately before an answer-group/card-grid, by
+  // reducing (or zeroing) the grid follower's margin-top so the SUM equals the
+  // desired max(). Enumerated from EVERY non-zero margin-bottom rule in this
+  // file, cross-checked against presets.ts's actual render output — verified
+  // NOT to include .lg-label/.lg-dropdown-search/.lg-range-value (nested-only,
+  // never a direct top-level card child) and .lg-name-group/.lg-range/.lg-input/
+  // .lg-field-boxed (real top-level field wrappers — all margin-bottom:0, so
+  // no exception is needed: 0 + stack == stack already, the same "sum happens
+  // to equal collapse" case as an unset predecessor). `.lg-field` (margin-
+  // bottom 16) is included per its LITERAL existence in this sheet even though
+  // presets.ts currently renders it ONLY nested inside NameFieldsGroup (never a
+  // direct top-level predecessor of a grid) — inert today, harmless, forward-
+  // compatible if a future field type ever promotes it to top level.
+  //
+  // STUDIO-CANVAS WRAPPING (found while verifying this fix with the real
+  // browser — leadgen-p1-geometry gate): the studio ISLAND wraps the
+  // CURRENTLY-SELECTED choice-bearing node (.lg-answer-group / .lg-card-grid)
+  // in an undecorated `<span>` (its move/drag-handle-tag decoration,
+  // ui-section-studio.ts — out of this slice's owned region), so a plain
+  // adjacent-sibling selector (`X + .lg-answer-group`) does not match: the
+  // SPAN, not the grid, is the actual DOM sibling. This ONLY affects whichever
+  // node happens to be selected (verified: an unselected card-grid renders as
+  // a normal direct child, no wrapper) — but an operator normally DOES have
+  // some field selected while editing, so a `:has()` companion selector
+  // (`X + *:has(> .lg-answer-group)`) is added alongside every direct-sibling
+  // selector below, reaching through that wrapper to give the SAME rhythm
+  // whether or not the follower happens to be the selected node. `:has()` is
+  // supported by both this repo's Playwright-bundled engines at authoring
+  // time (chromium 147 / firefox 148) and by the evergreen browsers these
+  // funnels ship to; it changes NOTHING for the (unwrapped) live funnel path,
+  // where the base "X + .lg-answer-group" selector alone already matches.
+  //
+  // Placed LAST in the base sheet (after every per-component rule above,
+  // including .lg-continue's own margin-top:26) so it wins any specificity tie
+  // for the margin-top property specifically — every OTHER property
+  // (.lg-continue's background/width/display, etc.) is untouched.
+  {
+    // rem-aware px resolver (16px-root assumption — this file's existing
+    // convention wherever a rem/px token pair must be compared numerically,
+    // e.g. the R7 U12 literal-px conversions elsewhere in this file). BUG
+    // CAUGHT BY DIRECT VERIFICATION: a bare `parseFloat("1rem")` returns 1
+    // (it stops at the first non-numeric character), NOT 16 — silently
+    // mis-scoring every rem-valued predecessor by 15px. spacing.md/trustBar.
+    // marginY/logoStrip.marginY/columns.marginBottom are ALL "1rem" tokens.
+    const toPx = (value: string): number => {
+      const n = parseFloat(value);
+      return value.trim().endsWith("rem") ? n * 16 : n;
+    };
+    const stackPx = toPx(spacing.stack); // 18
+    // stack - predecessor's own margin-bottom, floored at 0 (never negative —
+    // a predecessor whose own mb already meets/exceeds the stack contributes
+    // the WHOLE gap by itself, so the follower's share is 0, not negative).
+    const emulated = (predecessorMarginBottom: string): string =>
+      `${Math.max(0, stackPx - toPx(predecessorMarginBottom))}px`;
+    const GRID_FOLLOWERS = [".lg-answer-group", ".lg-card-grid"] as const;
+    // Direct-sibling selectors (the live/unwrapped path) PLUS the `:has()`
+    // companion (the studio-canvas selected/wrapped path) for every predecessor
+    // + grid-follower pair.
+    const followerSelectors = (predecessor: string): string =>
+      GRID_FOLLOWERS.flatMap((f) => [
+        `${scope} ${predecessor} + ${f}`,
+        `${scope} ${predecessor} + *:has(> ${f})`,
+      ]).join(", ");
+    out.push(
+      // Category A — predecessor's own margin-bottom already >= stack: zero
+      // the grid follower's margin-top (gap == predecessor's own mb).
+      rule(
+        [
+          followerSelectors(".lg-subheadline"), // mb 30 (golden; conductor part a)
+          followerSelectors(".lg-progress"), // mb 32 (2rem)
+          followerSelectors(".lg-steps"), // mb 24 (1.5rem)
+          followerSelectors(".lg-grid-container"), // mb 24 (1.5rem, GridContainer)
+        ].join(", "),
+        { "margin-top": "0" },
+      ),
+      // .lg-card-grid AS PREDECESSOR (mb 24 >= stack): its own margin-bottom
+      // already covers the floor for ANY follower type, not just grids — the
+      // conductor's part (b). Direct form targets `*` (e.g. multi(.lg-card-
+      // grid.lg-multi) -> a plain block, or -> .lg-continue — overriding
+      // .lg-continue's own margin-top:26 when it directly follows a card-grid
+      // with no field/helper between them; no golden reference pins that
+      // specific adjacency, so the card-grid's own established 24 rhythm wins
+      // uniformly rather than special-casing Continue here). The `:has()`
+      // companion covers a SELECTED card-grid (wrapped) as the predecessor.
+      rule([`${scope} .lg-card-grid + *`, `${scope} *:has(> .lg-card-grid) + *`].join(", "), {
+        "margin-top": "0",
+      }),
+      // Category B — predecessor's own margin-bottom < stack: give the grid
+      // follower just enough margin-top to reach the stack total (the max()).
+      rule(followerSelectors(".lg-headline"), {
+        "margin-top": emulated(headline.marginBottom), // 18-9=9
+      }),
+      rule(followerSelectors(".lg-category"), {
+        "margin-top": emulated(categoryLabel.marginBottom), // 18-12=6
+      }),
+      rule(
+        [
+          followerSelectors(".lg-trustbar"), // marginY 1rem(16) — TrustBar
+          followerSelectors(".lg-logo-strip"), // marginY 1rem(16) — LogoStrip
+          followerSelectors(".lg-columns"), // marginBottom 1rem(16) — Columns
+          followerSelectors(".lg-field"), // marginBottom 1rem(16) — see note above (currently inert)
+        ].join(", "),
+        { "margin-top": emulated(spacing.md) }, // 18-16=2 (all four share the SAME 1rem token value)
+      ),
+    );
+  }
+
+  // ---- P1a terminal `[hidden]` guard (register PC — hidden-attribute vs
+  // author-display defect) --------------------------------------------------
+  // The runtime hides conditionally-shown components by TOGGLING the boolean
+  // `hidden` attribute (render.ts applyComponentVisibility / setBackVisible /
+  // updateFooterVisibility, plus the SSR-baked `hidden` on the
+  // [data-lg-banners] mount, [data-lg-other-panel] and a show_on:"final"
+  // footer). The UA sheet's `[hidden]{display:none}` is specificity (0,1,0);
+  // EVERY author rule in this sheet carries the scope attribute + at least one
+  // class = (0,2,0)+, so it OUTRANKS the UA rule — a hidden component that ALSO
+  // has a `display:` rule renders VISIBLE on a live funnel. The live-measured
+  // surface (leadgen-live-funnel dependency-HIDE assertion resolved
+  // `<div hidden class="lg-answer-group">` yet toBeHidden() saw it visible) and
+  // the full cascade audit (leadgen-hidden-visibility.test.ts) found exactly
+  // THREE force-visible-when-hidden rules, all at (0,2,0): `.lg-answer-group`
+  // (ButtonAnswerGroup / TwoButtonYesNo / OtherGroupSelector, display:grid),
+  // `.lg-card-grid` (IconCardAnswerGrid / MultiChoiceCardGroup, display:grid)
+  // and `.lg-back` (the Back affordance, display:inline-flex).
+  //
+  // ONE terminal rule restores the intent at author origin: at the SAME (0,2,0)
+  // specificity as every force-visible rule, LATER source order wins, so
+  // `hidden` beats `display:grid|inline-flex|flex|block|…` for ANY scoped
+  // descendant. The audit confirms NO force-visible display rule on a hideable
+  // element exceeds (0,2,0) — every (0,3,0)+ display rule is either
+  // `display:none` (reinforcing) or targets a non-hideable element
+  // (`.lg-frame-trust`, `.lg-btn-spinner`, the back-icon `span`) — so no
+  // higher-specificity companion guard is needed.
+  //
+  // PLACEMENT: after every base per-component rule (so it wins the source-order
+  // tie over all three force-visible rules above) but BEFORE the opt-in
+  // frame-region block below, so the frameRegions extension stays a pure APPEND
+  // — the no-frame base sheet remains a byte-stable PREFIX of the framed output
+  // (the 13 §13.1 invariant leadgen-frame-render.test.ts pins). The frame-region
+  // block adds NO force-visible display rule on any hideable class, so nothing
+  // after this rule can re-show a hidden component. It only sets `display`, so
+  // the grid-follower `margin-top` rules above keep their own last-among-margin
+  // precedence untouched. The mobile @media block that follows carries no
+  // force-visible display rule on any hideable class either (only `display:none`
+  // hides, a root-compound progress `display:flex`, and non-hideable
+  // `.lg-frame-trust` layout), so this base rule also wins inside the media
+  // query — no mobile duplicate needed (the MOBILE SAFETY case pins this).
+  out.push(rule(`${scope} [hidden]`, { display: "none" }));
 
   // ---- v2.5 frame-region rules (13 §13.1, opt-in — see FunnelChromeCssOpts).
   // Every value is a design token or a role resolved through the §9.1 mapping;

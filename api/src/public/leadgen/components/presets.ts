@@ -60,6 +60,10 @@ import type {
   LeadgenNodeCorners,
   LeadgenResolvedSizeAxis,
 } from "./content-schema";
+// P1b (register PC-11): the §8.1 leading-icon / card-icon SVGs are the
+// build-time-vendored Tabler (MIT) subset (scripts/build-icons.mjs output) —
+// see fieldLeadingIcon / the renderCardGrid iconSlot below.
+import { LEADGEN_ICONS, leadgenIconSvg } from "./icons.generated";
 import { baseTokenForRole, isFunnelTokenRole } from "../designs/theme";
 import type { FunnelTokenRole, ThemeRecordControls } from "../designs/theme";
 import type { LeadgenContinueMode } from "../../../admin/leadgen/db-types";
@@ -668,12 +672,22 @@ function answerGroupRootStyle(
   ctx: LeadgenSectionRenderCtx | undefined,
 ): string {
   const width = sizeStyleEntries(node, ctx).width;
+  // P1a (register PC-1): the group is a CSS grid now (.lg-answer-group,
+  // styles.ts). `columns` (per-node, authorable 1..4 via the studio Card-layout
+  // control) rides the SAME --lg-cols custom property the card grid uses; the
+  // grid's own default (answerGrid.columns) applies when unauthored, so an
+  // un-authored group emits NO --lg-cols. `gridGap` (curated token) overrides
+  // the grid gap inline. Both ADDITIVE: style() drops undefined and preserves
+  // the surviving keys' order, so no-override groups (incl. the legacy-pin
+  // yes/no) emit byte-identically to pre-P1a.
+  const authoredCols = ovNum(node, "columns") ?? propNum(node, "columns");
   return style({
     "--lg-sel-bg": ovColor(node, "buttonBackground", design, ctx),
+    "--lg-cols": authoredCols !== undefined ? String(clampInt(authoredCols, 1, 4)) : undefined,
+    gap: ov(node, "gridGap"),
     width: width,
-    // R7 U11b: .lg-answer-group is a plain block <div> (no CSS rule) → auto
-    // side-margins center it once a fixed width is set (no display:block
-    // needed). {} for full/unauthored → byte-identical.
+    // R7 U11b: a fixed-width block-level grid centers via auto side-margins (no
+    // display:block needed). {} for full/unauthored → byte-identical.
     ...widthCenteringEntries(width),
   });
 }
@@ -790,13 +804,14 @@ function renderCardGrid(
     // an image card falls to the emoji slot only when it has no image.
     const emoji = typeof c.emoji === "string" && c.emoji !== "" ? c.emoji : undefined;
     // v3.1 R3 S2-5/6c: a choice `icon` may now be one of the §8.1 SEMANTIC ids
-    // (the "same 12-icon picker used for leading icons") → render it as the
-    // golden field-box SVG so the editor picker is HONEST. A raw glyph/emoji
-    // (every pre-R3 stored icon, and the emoji slot) is NOT a map key, so it
-    // still renders esc(glyph) byte-identically. The id "none"/"" maps to "".
+    // (the curated Tabler picker shared with leading icons, P1b register
+    // PC-11) → render it as the shared LEADGEN_ICONS SVG (48px card scale) so
+    // the editor picker is HONEST. A raw glyph/emoji (every pre-R3 stored
+    // icon, and the emoji slot) is NOT a map key, so it still renders
+    // esc(glyph) byte-identically. The id "none"/"" maps to "".
     const iconSlot = (glyph: string | undefined): string => {
-      const known = glyph !== undefined && Object.prototype.hasOwnProperty.call(FIELD_LEADING_ICON_SVGS, glyph);
-      const inner = known ? FIELD_LEADING_ICON_SVGS[glyph as string] ?? "" : esc(glyph);
+      const known = glyph !== undefined && Object.prototype.hasOwnProperty.call(LEADGEN_ICONS, glyph);
+      const inner = known ? leadgenIconSvg(glyph as string, 48) : esc(glyph);
       return `<span class="lg-card-icon"${style({ color: iconColor })} aria-hidden="true">${inner}</span>`;
     };
     const hasImage = typeof c.imageMediaId === "string" && c.imageMediaId !== "";
@@ -964,14 +979,21 @@ export function renderMultiChoiceCardGroup(
   }
   return (
     `<div class="lg-card-grid lg-multi" role="group"${hydration(node)}` +
-    // §9.5 layer 4: the multi grid's gap falls back to the design token —
-    // Section gapDefault applies between them. Columns stay the structural
-    // "2" (not a design default; columnsDefault does not apply). v3.1 R3 §7:
-    // width → the grid container's max-width ("" when unauthored).
+    // P1a (register PC-1): honor the authored `columns` (killing the pre-P1a
+    // hardcoded "2" that IGNORED the key) + `gridGap`, mirroring renderCardGrid's
+    // §9.5 layer-4 resolution — per-node override wins over Section
+    // columnsDefault/gapDefault wins over the design token; the default stays 2,
+    // so an un-authored multi renders --lg-cols:2 byte-identically to pre-P1a.
     ((): string => {
       const w = sizeStyleEntries(node, ctx).width;
+      const cols = clampInt(
+        ovNum(node, "columns") ?? propNum(node, "columns") ?? sectionColumnsDefault(ctx) ?? 2,
+        2,
+        5,
+      );
+      const gap = ov(node, "gridGap") ?? sectionGapDefault(ctx) ?? design.iconCardGrid.gap;
       // R7 U11b: fixed max-width grid centers via auto side-margins.
-      return style({ "--lg-cols": "2", gap: sectionGapDefault(ctx) ?? design.iconCardGrid.gap, "max-width": w, ...widthCenteringEntries(w) });
+      return style({ "--lg-cols": String(cols), gap, "max-width": w, ...widthCenteringEntries(w) });
     })() +
     attr("data-min", min) +
     attr("data-max", max) +
@@ -1572,53 +1594,21 @@ function choiceItemStyle(
   });
 }
 
-// v3.1 R3 S2-8/E1-NEW-9/U9 (register): §8.1 leading icons. The golden ships a
-// field-box asset for the Location PIN ONLY (golden :323 — 19×19, viewBox 0 0
-// 24 24, strokes #8DA0B6, copied VERBATIM below — never re-drawn). Pre-R3 the
-// other 11 §8.1 picker values had NO asset and rendered NOTHING (U9: the picker
-// stored the id but the field stayed byte-identical). R3 ships the 10 missing
-// glyph icons (calendar/dollar/phone/email/lock/person/home/car/shield/star) in
-// the SAME style family (19×19, viewBox 0 0 24 24, stroke #8DA0B6 width 1.8,
-// round caps/joins — a shared <g> carries the stroke so each path stays terse);
-// "none"/absent/unknown → "" (byte-identical to pre-R3 for those). The register
-// erratum covers the golden's asset gap for the 10 new glyphs.
-const FIELD_LOCATION_PIN =
-  '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto">' +
-  '<path d="M12 21s7-6.6 7-12a7 7 0 10-14 0c0 5.4 7 12 7 12z" stroke="#8DA0B6" stroke-width="1.8"/>' +
-  '<circle cx="12" cy="9" r="2.4" stroke="#8DA0B6" stroke-width="1.8"/>' +
-  "</svg>";
-// Shared wrapper for the 10 NEW glyphs — one <g> carries the golden stroke
-// family (#8DA0B6 / 1.8 / round) so each icon body is just its path data.
-function fieldIconGlyph(inner: string): string {
-  return (
-    '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto">' +
-    '<g stroke="#8DA0B6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
-    inner +
-    "</g></svg>"
-  );
-}
-// Keyed by the §8.1 semantic-id enum (content-schema LEADGEN_FIELD_LEADING_ICONS).
-// Exported so the vitest completeness pin asserts every enum value has an asset
-// and the choice-editor's icon picker + the icon-card renderer resolve the SAME
-// id → SVG (register S2-5/6c). "none" is a real entry mapping to "" (no icon).
-export const FIELD_LEADING_ICON_SVGS: Record<string, string> = {
-  location: FIELD_LOCATION_PIN,
-  calendar: fieldIconGlyph('<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"/>'),
-  dollar: fieldIconGlyph('<path d="M12 3v18"/><path d="M16 7c0-1.7-1.8-2.8-4-2.8S8 5.4 8 7.3s1.9 2.6 4 3 4 1.3 4 3.2-1.8 3-4 3-4-1.1-4-2.8"/>'),
-  phone: fieldIconGlyph('<path d="M7 3.5h3l1.5 4.5-2.2 1.4a11 11 0 004.8 4.8l1.4-2.2 4.5 1.5v3a2.5 2.5 0 01-2.7 2.5A15.5 15.5 0 014.5 6.2 2.5 2.5 0 017 3.5z"/>'),
-  email: fieldIconGlyph('<rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3.7 7.2l8.3 6 8.3-6"/>'),
-  lock: fieldIconGlyph('<rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V8a4 4 0 018 0v2.5"/>'),
-  person: fieldIconGlyph('<circle cx="12" cy="8" r="3.6"/><path d="M5.5 20a6.5 6.5 0 0113 0"/>'),
-  home: fieldIconGlyph('<path d="M4 11l8-6.5 8 6.5"/><path d="M6.2 9.6V20h11.6V9.6"/>'),
-  car: fieldIconGlyph('<path d="M4.5 14l1.6-4.8A2 2 0 018 7.8h8a2 2 0 011.9 1.4L19.5 14"/><path d="M4 14h16v4h-2.5v-1.8h-11V18H4z"/><circle cx="7.5" cy="16" r="1.1"/><circle cx="16.5" cy="16" r="1.1"/>'),
-  shield: fieldIconGlyph('<path d="M12 3.5l7 2.4v5.1c0 4.4-3 7.4-7 9.5-4-2.1-7-5.1-7-9.5V5.9z"/>'),
-  star: fieldIconGlyph('<path d="M12 4l2.5 5.3 5.7.7-4.2 3.9 1.1 5.6L12 16.8 6.9 19.5 8 13.9 3.8 10l5.7-.7z"/>'),
-  none: "",
-};
+// P1b (register PC-11) — §8.1 leading icons, Tabler pipeline. Pre-P1b, this
+// file hand-drew 11 field-box glyphs at a hardcoded 19×19/#8DA0B6 (R3 S2-8/
+// E1-NEW-9/U9 history) — a hardcoded size+color is a no-op against the
+// design's iconColor override / card-icon size token, and the operator's own
+// references use 48-64px icons the old 11-glyph library didn't have. P1b
+// replaces the hand-drawn map with icons.generated.ts's curated Tabler (MIT)
+// subset: every name in the §8.5b enum (content-schema
+// LEADGEN_FIELD_LEADING_ICONS) resolves via leadgenIconSvg(name, sizePx) —
+// currentColor + no baked-in size means the SAME source now actually responds
+// to both. Leading field icons render at 20px (§8.1 field-box scale, close to
+// the pre-P1b 19px). "none"/absent/unknown → "" (byte-identical to before).
 function fieldLeadingIcon(node: LeadgenComponentNode): string {
   const id = propStr(node, "icon");
-  if (id === undefined || !Object.prototype.hasOwnProperty.call(FIELD_LEADING_ICON_SVGS, id)) return "";
-  return FIELD_LEADING_ICON_SVGS[id] ?? "";
+  if (id === undefined || !Object.prototype.hasOwnProperty.call(LEADGEN_ICONS, id)) return "";
+  return leadgenIconSvg(id, 20);
 }
 // v3.1 audit-round G FIX 3a: §8.1 helper line below the field box. props.helper
 // is canonical (contract §8.1/§11.3); props.helper_text is the accepted legacy

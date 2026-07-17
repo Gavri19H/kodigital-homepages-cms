@@ -229,6 +229,7 @@ import { test, expect, type APIRequestContext, type Page } from "@playwright/tes
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PW_PORT } from "./utils/base-url";
 
 test.use({ viewport: { width: 1280, height: 2600 } });
 
@@ -345,7 +346,7 @@ let fx: Fixture;
 test.beforeAll(async ({ playwright }) => {
   mkdirSync(BASELINE_DIR, { recursive: true });
   mkdirSync(EVIDENCE_DIR, { recursive: true });
-  const ctx = await playwright.request.newContext({ baseURL: "http://127.0.0.1:8787" });
+  const ctx = await playwright.request.newContext({ baseURL: `http://127.0.0.1:${PW_PORT}` });
   const defaultSection = await createFixtureSection(ctx, `V31 Gate1c Default ${uniq}`);
   // 384 is the golden's own FAKE demo value (§0 fidelity-vs-function) —
   // reused here only as a plausible mid-range custom width for the

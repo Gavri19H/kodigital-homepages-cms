@@ -86,9 +86,9 @@
 // BASELINES: playwright.config.ts pins snapshotPathTemplate to
 // test-ui/__screenshots__/{arg}{ext}; the calls here name
 // ['leadgen-v25', '<name>.png']. Generation run: `--update-snapshots`
-// (writes the committed set); plain runs must be ZERO-DIFF
-// (maxDiffPixelRatio mirrors the leadgen-visual conventions: 0.002 desktop /
-// 0.0025 mobile).
+// (writes the committed set); plain runs must be ZERO-DIFF (see MAX_DIFF_PIXELS
+// below shootBaseline for the calibrated absolute-pixel budget + why it
+// replaced a ratio-based one).
 //
 // Determinism notes: the Quote Builder canvas is a server-rendered STILL
 // (sandbox="allow-same-origin", scripts inert) — every edit re-renders it
@@ -118,6 +118,7 @@ import {
   type StudioNode,
 } from "./leadgen-e-seed";
 import { LEADGEN_FIELD_LEADING_ICONS } from "../src/public/leadgen/components/content-schema";
+import { PW_PORT } from "./utils/base-url";
 
 // Realistic desktop Chrome UA — /lg's runtimeRequestGuard bot arm must not
 // trip on the §15.4 live-page navigations (the leadgen-live-funnel DEV-GUARD
@@ -131,7 +132,7 @@ test.use({
   userAgent: REAL_CHROME_UA,
 });
 
-const ORIGIN = "http://127.0.0.1:8787";
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 const SHOT_DIR = "test-artifacts/leadgen-e1-patterns";
 const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
@@ -1248,7 +1249,7 @@ async function gotoLive(
   size: { width: number; height: number },
 ): Promise<void> {
   await page.setViewportSize(size);
-  await page.goto(`http://${entry.host}:8787/lg/${entry.slug}`, { waitUntil: "load" });
+  await page.goto(`http://${entry.host}:${PW_PORT}/lg/${entry.slug}`, { waitUntil: "load" });
   await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 15_000 });
   await page.evaluate(() => document.fonts.ready);
   // focus normalisation (the leadgen-visual idiom): the engine autofocuses
@@ -1279,13 +1280,63 @@ function visualMasks(page: Page): Locator[] {
   ];
 }
 
-async function shootBaseline(page: Page, name: string, maxDiffPixelRatio: number): Promise<void> {
+// P1 gate-sensitivity calibration (register PC — hidden-attribute vs
+// author-display defect, conductor final item). REPLACES the old
+// maxDiffPixelRatio budget (0.002 desktop / 0.0025 mobile) with an ABSOLUTE
+// pixel count shared by both viewports. Ratio scales with image size — that
+// is EXACTLY how desktop got a blind spot: 0.002 of a 1280x916 (1,172,480px)
+// image is a ~2,345px budget, loose enough that a real, live defect slipped
+// through untouched by --update-snapshots' default "changed" mode (which
+// only rewrites a baseline when the render exceeds its threshold).
+//
+// THE DEFECT THIS MUST CATCH (measured via Playwright's own pixelmatch
+// comparator, maxDiffPixels:0, against the CORRECT committed baseline, with
+// the P1 [hidden] terminal rule reverted so the runtime-hidden Back
+// affordance renders visible again — exactly the regression the gate must
+// never again miss):
+//   pattern-c-desktop.png              1961 px (header-cta, back--pos-below_card)
+//   pattern-c-mobile.png               1898 px
+//   pattern-c-zip-variant-desktop.png  1230 px  <- SMALLEST real defect signal
+//   pattern-c-zip-variant-mobile.png   1204 px  <- SMALLEST real defect signal
+// (the top-position Back patterns A/B/D measured far larger — 7,259 to
+// 151,567 px — so the below_card family is the binding constraint.)
+//
+// THE NOISE FLOOR THIS MUST ABSORB (measured the same way: maxDiffPixels:0,
+// correct code, TWO independent fresh renders against the same committed
+// baseline — pure cross-run rendering/font-hinting jitter, no code change):
+//   ALL 10 files, BOTH runs: 0 differing pixels, every time.
+// This 0 is not "low" — it FULLY confirms the per-pixel `threshold` (see
+// below) already absorbs the sub-pixel/anti-aliasing jitter documented during
+// the P1 baseline re-mint (1-2 RGB-value deltas on shifted glyph/rounded-
+// corner edges) INDEPENDENTLY of any pixel-count budget: those never even
+// register as a "differing pixel" to begin with.
+//
+// BUDGET: 200px sits ~6x below the smallest real defect (1204px) and is
+// generously above the proven 0px noise floor (headroom for legitimate
+// cross-environment font/AA variance beyond this machine's 2 measured runs) —
+// tight enough to catch every measured defect with margin, loose enough that
+// it will not be the noise source itself.
+const MAX_DIFF_PIXELS = 200;
+
+// threshold: the PER-PIXEL YIQ color-difference tolerance pixelmatch applies
+// before a pixel counts toward MAX_DIFF_PIXELS at all (independent axis from
+// the count budget above). 0.2 is Playwright's own compiled-in default
+// (node_modules/playwright-core/lib/server/utils/comparators.js:
+// `threshold: options.threshold ?? 0.2`) — stated explicitly here (not left
+// implicit) because the noise-floor measurement above was taken AT this
+// value: both proof runs (0 diff pixels, twice) ran under this exact
+// threshold, so explicitly pinning it is what makes that proof still hold if
+// a future Playwright upgrade ever changes its own default.
+const SCREENSHOT_COLOR_THRESHOLD = 0.2;
+
+async function shootBaseline(page: Page, name: string): Promise<void> {
   await expect(page).toHaveScreenshot(["leadgen-v25", name], {
     fullPage: true,
     animations: "disabled",
     caret: "hide",
     mask: visualMasks(page),
-    maxDiffPixelRatio,
+    maxDiffPixels: MAX_DIFF_PIXELS,
+    threshold: SCREENSHOT_COLOR_THRESHOLD,
   });
 }
 
@@ -1293,9 +1344,9 @@ async function shootBaseline(page: Page, name: string, maxDiffPixelRatio: number
 async function visualPage(page: Page, key: "A" | "B" | "C" | "D" | "CZ", base: string): Promise<void> {
   const entry = requireLive(key);
   await gotoLive(page, entry, { width: 1280, height: 900 });
-  await shootBaseline(page, `${base}-desktop.png`, 0.002);
+  await shootBaseline(page, `${base}-desktop.png`);
   await gotoLive(page, entry, { width: 375, height: 800 });
-  await shootBaseline(page, `${base}-mobile.png`, 0.0025);
+  await shootBaseline(page, `${base}-mobile.png`);
 }
 
 test.describe("LeadGen v2.5.1 §15.4 visual regression — five composed /lg pages (committed baselines)", () => {

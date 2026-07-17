@@ -72,9 +72,9 @@ describe("v3.1 §11.3 — NEW field-content props are additive/optional", () => 
     }
   });
 
-  describe("icon — 12-value leading-icon picker (§8.5b)", () => {
-    it("reports the exact shipped enum", () => {
-      expect(LEADGEN_FIELD_LEADING_ICONS).toEqual([
+  describe("icon — curated Tabler leading-icon picker (§8.5b, P1b register PC-11)", () => {
+    it("the pre-Tabler 12-value vocabulary is a proper subset of the current (curated ~100+) enum — zero content_json migration", () => {
+      const legacy12 = [
         "location",
         "calendar",
         "dollar",
@@ -87,7 +87,12 @@ describe("v3.1 §11.3 — NEW field-content props are additive/optional", () => 
         "shield",
         "star",
         "none",
-      ]);
+      ];
+      for (const id of legacy12) {
+        expect(LEADGEN_FIELD_LEADING_ICONS, `${id} still resolves`).toContain(id);
+      }
+      expect(new Set(LEADGEN_FIELD_LEADING_ICONS).size, "no duplicate names").toBe(LEADGEN_FIELD_LEADING_ICONS.length);
+      expect(LEADGEN_FIELD_LEADING_ICONS.length, "grew well past the pre-Tabler 12 (curated ~100+ Tabler set)").toBeGreaterThan(90);
     });
 
     it("accepts every enum value", () => {
@@ -98,7 +103,11 @@ describe("v3.1 §11.3 — NEW field-content props are additive/optional", () => 
     });
 
     it("rejects a value outside the enum", () => {
-      const result = validateSectionContent(content([zipNode({ icon: "flag" })]));
+      // P1b (register PC-11): the curated Tabler set grew to ~100+ names
+      // (including "flag", a real curated icon now) — this fixture uses a
+      // deliberately-not-a-real-icon-name string so the test still proves
+      // the enum gate rejects UNKNOWN values, not just this one example.
+      const result = validateSectionContent(content([zipNode({ icon: "not-a-real-icon-xyz" })]));
       expect(codesOf(result)).toContain("invalid_field_prop");
     });
 

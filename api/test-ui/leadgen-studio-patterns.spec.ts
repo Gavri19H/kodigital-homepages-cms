@@ -48,9 +48,9 @@
 //     hydration-complete marker (data-lg-ready="1", engine.ts §3.5.1).
 //
 // Seeding rides the REAL admin HTTP APIs only. Runs against the
-// playwright.config.ts webServer (wrangler dev on :8787 with
-// DEV_BYPASS_AUTH:true + ADMIN_HOST:127.0.0.1). Local D1 must be migrated +
-// seeded once:
+// playwright.config.ts webServer (wrangler dev on :<PW_PORT>, default 8787,
+// with DEV_BYPASS_AUTH:true + ADMIN_HOST:127.0.0.1). Local D1 must be
+// migrated + seeded once:
 // `rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local`.
 //
 // Screenshots (1280×800 page viewport) land in test-artifacts/fix-p4/.

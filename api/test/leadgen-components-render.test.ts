@@ -1937,29 +1937,36 @@ describe("layout containers — render recursion + §8.5 token mapping", () => {
 
 // ===========================================================================
 // audit-round G FIX 3a — renderTextInput (exercised through renderComponent)
-// emits the §8.1 leading pin (icon="location", golden :323) + the helper line
+// emits the §8.1 leading icon (icon="location") + the helper line
 // (props.helper, golden :326), reads legacy props.helper_text as a fallback
-// (erratum 8), renders NO icon for the other 11 §8.1 picker values (contract
-// gap — only Location has a golden asset), and is byte-identical to the bare
-// input when neither is authored (strictly additive, §12 no-regression).
+// (erratum 8), and is byte-identical to the bare input when neither is
+// authored (strictly additive, §12 no-regression).
+//
+// P1b (register PC-11) update: the leading icon is now the curated Tabler
+// (MIT) subset (icons.generated.ts), sized 20px via leadgenIconSvg and
+// colored via stroke="currentColor" — replacing the pre-P1b hand-drawn
+// 19x19/#8DA0B6 glyphs (golden :323's Location pin + the R3-era 10 style-
+// matched siblings) so the .lg-card-icon/iconColor token plumbing actually
+// has an effect on these icons (a hardcoded size+color was always a no-op).
 // ===========================================================================
-describe("audit-round G FIX 3a — renderTextInput §8.1 leading pin + helper line", () => {
+describe("audit-round G FIX 3a — renderTextInput §8.1 leading icon + helper line", () => {
   const base: LeadgenComponentNode = {
     type: "ZIPInputQuestion",
     question_id: "q_zip",
     internal_field: "zip",
     answer_type: "string",
   };
-  const PIN = '<path d="M12 21s7-6.6 7-12a7 7 0 10-14 0c0 5.4 7 12 7 12z" stroke="#8DA0B6" stroke-width="1.8"/>';
   const HELPER = '<div class="lg-field-help" style="font-size:12.5px;color:#96A0AF;margin-top:7px;padding-left:2px">We never share this</div>';
 
-  it("icon='location' + props.helper: pin verbatim + helper line + input left-inset", () => {
+  it("icon='location' + props.helper: 20px currentColor icon + helper line + input left-inset", () => {
     const html = renderComponent(
       { ...base, props: { placeholder: "Enter your ZIP code", helper: "We never share this", icon: "location" } },
       DESIGN,
     );
-    expect(html).toContain(PIN);
-    expect(html).toContain('<circle cx="12" cy="9" r="2.4" stroke="#8DA0B6" stroke-width="1.8"/>');
+    expect(html).toContain('width="20" height="20"');
+    expect(html).toContain('viewBox="0 0 24 24"');
+    expect(html).toContain('stroke="currentColor"');
+    expect(html).not.toContain("#8DA0B6");
     expect(html).toContain(HELPER);
     expect(html).toContain('style="padding-left:42px"');
   });
@@ -1981,9 +1988,10 @@ describe("audit-round G FIX 3a — renderTextInput §8.1 leading pin + helper li
     );
   });
 
-  it("R3a (register erratum): the other §8.1 icon values (e.g. 'calendar') now render a style-matched SVG — golden shipped only the Location pin; R3a shipped the remaining 10 in the same #8DA0B6/19x19 family", () => {
+  it("R3a/P1b: every curated §8.1 icon value (e.g. 'calendar') renders a real currentColor SVG, sized 20px", () => {
     const html = renderComponent({ ...base, props: { icon: "calendar" } }, DESIGN);
-    expect(html).toContain('stroke="#8DA0B6"');
+    expect(html).toContain('stroke="currentColor"');
+    expect(html).toContain('width="20" height="20"');
     expect(html).toContain("lg-field-icon");
   });
 

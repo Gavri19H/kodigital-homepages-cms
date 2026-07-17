@@ -1147,7 +1147,29 @@ html,body{margin:0;padding:0;background:#fff}
 .studio-canvas-render [contenteditable="true"]{outline:2px dashed var(--c-primary);outline-offset:2px;cursor:text}
 .studio-choice-selected{outline:2px solid #e85d26 !important;outline-offset:2px}
 .studio-choice-ghost{border:1px dashed var(--c-border);background:var(--c-surface);color:var(--c-muted);border-radius:8px;min-height:44px;cursor:pointer;font-size:12px}
-.studio-choice-x{position:relative;border:0;background:#f8d7da;color:#842029;border-radius:999px;width:16px;height:16px;line-height:1;font-size:10px;cursor:pointer;margin-left:-14px;vertical-align:top}
+/* P1a HIGH concern fix (register PC-1/PC-11, this slice): .lg-answer-group
+   (styles.ts) became a real CSS grid, but decorateChoiceCards used to insert
+   .studio-choice-x as a SIBLING of the choice cell inside that SAME grid
+   container — an extra grid item per choice DOUBLES the item count, so the
+   2-col auto-placement puts every choice in column 1 and every x in column
+   2, one per row (the canvas visibly stacks choices the live render never
+   does). Fix: the remove-x is now a CHILD of its choice cell (decorateChoice-
+   Cards appends it there instead of inserting a sibling), taken out of grid
+   flow entirely via position:absolute (an out-of-flow grid child is not a
+   grid item per spec — .lg-card already relies on the identical
+   position:relative-parent/position:absolute-child pattern for its own
+   corner badge, styles.ts's .lg-card-badge). [data-lg-choice] therefore
+   needs position:relative as the x's containing block; .lg-card choices
+   already carry that from styles.ts, so this rule is a harmless no-op for
+   them and load-bearing only for the button-family choices
+   (ButtonAnswerGroup/TwoButtonYesNo, which have no such rule). The ghost
+   ("+ Add choice") tile is UNCHANGED — it stays an in-flow sibling appended
+   after every real choice, so it lands in the next open grid cell exactly
+   like a real choice would (the P1c dispatch's "reads naturally" ask). Both
+   rules are canvas-frame-scoped (this const), never the live stylesheet —
+   the live funnel has no editing decorations to fix. */
+.studio-canvas-render [data-lg-choice]{position:relative}
+.studio-choice-x{position:absolute;top:-8px;right:-8px;border:0;background:#f8d7da;color:#842029;border-radius:999px;width:16px;height:16px;line-height:16px;text-align:center;font-size:10px;cursor:pointer}
 .studio-resize-handle{position:absolute;right:-6px;top:50%;width:10px;height:32px;margin-top:-16px;border-radius:4px;background:var(--c-primary);opacity:.6;cursor:ew-resize}
 /* §12.3 mapping-overlay chips */
 .studio-mapoverlay-chip{font-size:10px;border-radius:999px;padding:2px 8px;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-muted);cursor:pointer;display:inline-block;margin:2px 0}
@@ -1287,11 +1309,16 @@ const COPY_NODE_TYPE_SWAP_OPTION_HTML = COPY_NODE_TYPE_SWAP.map(
   (r) => `<option value="${escapeHtml(r.value)}">${escapeHtml(r.label)}</option>`,
 ).join("");
 
-// v3.1 §8.5b "Enumerations (exact, asserted)" — the 12-value leading-icon
-// picker (Content tab, Basics). Values are LEADGEN_FIELD_LEADING_ICONS
-// (content-schema.ts, single source of truth); labels are the asserted
-// display copy (golden 452-453's worked example anchors "Location pin").
-const LEADING_ICON_LABELS: Record<(typeof LEADGEN_FIELD_LEADING_ICONS)[number], string> = {
+// v3.1 §8.5b "Enumerations (exact, asserted)" — the leading-icon picker
+// (Content tab, Basics). Values are LEADGEN_FIELD_LEADING_ICONS
+// (content-schema.ts, single source of truth — P1b register PC-11: the
+// curated Tabler subset). The pre-Tabler 12 keep their asserted display copy
+// VERBATIM (golden 452-453's worked example anchors "Location pin" for
+// "location" — test/leadgen-v31-gate2-strings.test.ts pins that literal
+// string as rendered Content-tab text); every curated Tabler name gets an
+// auto-derived sentence-case label (kebab-case -> "First rest", e.g.
+// "shield-check" -> "Shield check").
+const LEGACY_ICON_LABEL_OVERRIDES: Record<string, string> = {
   location: "Location pin",
   calendar: "Calendar",
   dollar: "Dollar",
@@ -1305,9 +1332,86 @@ const LEADING_ICON_LABELS: Record<(typeof LEADGEN_FIELD_LEADING_ICONS)[number], 
   star: "Star",
   none: "None",
 };
-const LEADING_ICON_OPTION_HTML = LEADGEN_FIELD_LEADING_ICONS.map(
-  (v) => `<option value="${v}">${escapeHtml(LEADING_ICON_LABELS[v])}</option>`,
-).join("");
+function autoIconLabel(name: string): string {
+  const words = name.split("-").filter((w) => w !== "");
+  const first = words[0];
+  if (first === undefined) return name;
+  const head = first.charAt(0).toUpperCase() + first.slice(1);
+  return [head, ...words.slice(1)].join(" ");
+}
+const LEADING_ICON_LABELS: Record<string, string> = {};
+for (const v of LEADGEN_FIELD_LEADING_ICONS) {
+  LEADING_ICON_LABELS[v] = LEGACY_ICON_LABEL_OVERRIDES[v] ?? autoIconLabel(v);
+}
+
+// ~100+ options is too many as one flat list — both this SSR <select> and the
+// per-choice picker (CHOICE_ICON_OPTIONS/buildChoiceIconSelect below) group
+// options into <optgroup>s by category. A <select>'s value/change semantics
+// are unaffected by <optgroup> nesting (Playwright's selectOption(value)
+// finds a nested <option> the same as a top-level one), so this is a pure
+// display change. iconCategory is intentionally re-derived (not imported)
+// here AND again in the ES5 SECTION_STUDIO_SCRIPT copy below — the two
+// pickers live in genuinely different execution contexts (this one runs at
+// SSR time in this file's own TS program; the other runs in the browser from
+// literal ES5 text), so there is no single importable module both can share
+// without threading category data through the studio's JSON metadata blob.
+const ICON_CATEGORY_ORDER = [
+  "Insurance & protection",
+  "Home & property",
+  "Vehicles",
+  "Health",
+  "Finance & money",
+  "Contact",
+  "People",
+  "Time & calendar",
+  "Location",
+  "Status & actions",
+  "Rewards",
+  "Tools & work",
+  "Nature & weather",
+  "Media & tech",
+  "Interface",
+  "Other",
+] as const;
+function iconCategory(name: string): (typeof ICON_CATEGORY_ORDER)[number] {
+  if (name === "building-hospital" || /^(heart|first-aid|stethoscope|pill|vaccine|wheelchair|dental|medical)/.test(name)) return "Health";
+  if (/^(shield|umbrella|lock|key|certificate)/.test(name)) return "Insurance & protection";
+  if (/^(home|building|door|bed)/.test(name)) return "Home & property";
+  if (/^(car|truck|motorbike|bike|plane)/.test(name)) return "Vehicles";
+  if (/^(currency|coin|calculator|credit-card|wallet|receipt|cash|pig|dollar)/.test(name)) return "Finance & money";
+  if (/^(phone|mail|message|send|email)/.test(name)) return "Contact";
+  if (/^(user|person)/.test(name)) return "People";
+  if (/^(calendar|clock|hourglass|alarm)/.test(name)) return "Time & calendar";
+  if (/^(map|route|compass|location)/.test(name)) return "Location";
+  if (/^(check|alert|info-circle|circle-check|star|flag)/.test(name) || name === "x") return "Status & actions";
+  if (/^(gift|trophy|award|medal|badge)/.test(name)) return "Rewards";
+  if (/^(briefcase|tool|settings|adjustments)/.test(name)) return "Tools & work";
+  if (/^(paw|leaf|tree|sun|cloud|droplet|bolt)/.test(name)) return "Nature & weather";
+  if (/^(camera|wifi|world|globe|device|printer)/.test(name)) return "Media & tech";
+  if (/^(search|filter|plus|minus|edit|trash|download|eye)/.test(name)) return "Interface";
+  return "Other";
+}
+function buildLeadingIconOptionsHtml(): string {
+  const byCategory = new Map<string, string[]>();
+  for (const v of LEADGEN_FIELD_LEADING_ICONS) {
+    const cat = iconCategory(v);
+    const list = byCategory.get(cat) ?? [];
+    list.push(v);
+    byCategory.set(cat, list);
+  }
+  let html = "";
+  for (const cat of ICON_CATEGORY_ORDER) {
+    const names = byCategory.get(cat);
+    if (names === undefined || names.length === 0) continue;
+    html += `<optgroup label="${escapeHtml(cat)}">`;
+    for (const v of names) {
+      html += `<option value="${v}">${escapeHtml(LEADING_ICON_LABELS[v] ?? v)}</option>`;
+    }
+    html += `</optgroup>`;
+  }
+  return html;
+}
+const LEADING_ICON_OPTION_HTML = buildLeadingIconOptionsHtml();
 
 // v3.1 §8.5b — the 7-value TextBlock `role` picker (Style tab, Text/bound
 // headline selection). Values are LEADGEN_TEXT_BLOCK_ROLES (content-schema.ts).
@@ -3104,9 +3208,30 @@ export const SECTION_STUDIO_STYLES = `
 @keyframes studioMappingPulse{0%{box-shadow:0 0 0 0 rgba(27,58,92,.35)}100%{box-shadow:0 0 0 10px rgba(27,58,92,0)}}
 .studio-mapping-pulse{animation:studioMappingPulse 1.5s ease-out 1}
 /* R4a deliverable 8 (E3-NEW-7): the Delete undo toast — reuses the existing
-   50-step history (historyUndo), never a blocking confirm(). */
-.studio-undo-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.ink};color:${STUDIO_COLOR.white};padding:10px 16px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px;z-index:60}
+   50-step history (historyUndo), never a blocking confirm().
+   PC-8 toast-placement fix (register, P1c): this used to be position:fixed
+   against the whole PAGE viewport (bottom:28px of the browser window) — on a
+   tall studio page the canvas the delete just happened on can be scrolled
+   far from the window's bottom edge, so the toast (and its Undo affordance)
+   landed nowhere near the user's focus. Re-anchored to the canvas surface
+   itself (#lg-studio-canvas, already position:relative — see
+   .studio-canvas-surface) via position:absolute, bottom-center of THAT
+   element instead of the page: showUndoToast now appends it there (falling
+   back to document.body only if the surface is ever absent). Same Undo
+   affordance, same 6s timing, same history reuse — only the anchor moved. */
+.studio-undo-toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.ink};color:${STUDIO_COLOR.white};padding:10px 16px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px;z-index:60}
 .studio-undo-toast button{background:none;border:0;color:${STUDIO_COLOR.accent};font-weight:700;cursor:pointer;font-size:12.5px;padding:0}
+/* PC-A9 (register, P1c): renderCanvasNow's preview fetch used to swallow
+   every failure (a bad response OR a network catch) with a bare return/
+   no-op — the canvas just stays frozen, indistinguishable from "my edit did
+   nothing" (the operator's own P1 experience class). This banner makes a
+   failed preview refresh visible + actionable: anchored the same way as the
+   undo toast (position:absolute over #lg-studio-canvas, its position:relative
+   canvas-surface parent) but pinned to the TOP of the surface instead of the
+   bottom, so the two can never visually collide even if a delete's re-render
+   fails right after the delete itself shows its own undo toast. */
+.studio-canvas-preview-error{position:absolute;left:50%;top:14px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.danger};color:${STUDIO_COLOR.white};padding:8px 14px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px;z-index:65;max-width:calc(100% - 28px)}
+.studio-canvas-preview-error button{background:none;border:1px solid rgba(255,255,255,.65);color:${STUDIO_COLOR.white};font-weight:700;cursor:pointer;font-size:12px;padding:3px 10px;border-radius:6px}
 `;
 
 // ---------------------------------------------------------------------------
@@ -3296,6 +3421,15 @@ export const SECTION_STUDIO_SCRIPT = `
   // write. Pure of the DOM so the gating semantics are directly executable.
   function isCardGridType(node) {
     return !!node && (node.type === 'IconCardAnswerGrid' || node.type === 'ImageCardAnswerGrid');
+  }
+  // P1a (register PC-1): the answer-grid LAYOUT family — every type whose
+  // renderer consumes columns/gridGap (renderCardGrid's two grids +
+  // renderMultiChoiceCardGroup + answerGroupRootStyle's ButtonAnswerGroup/
+  // TwoButtonYesNo). WIDER than isCardGridType (the ICON consumers — only the
+  // two card grids have an icon slot): the "Card layout" control gates on THIS,
+  // while iconColor stays gated to isCardGridType.
+  function isAnswerLayoutType(node) {
+    return !!node && (node.type === 'IconCardAnswerGrid' || node.type === 'ImageCardAnswerGrid' || node.type === 'MultiChoiceCardGroup' || node.type === 'ButtonAnswerGroup' || node.type === 'TwoButtonYesNo');
   }
   function isRangeFamilyType(node) {
     return !!node && (node.type === 'RangeQuestion' || node.type === 'CurrencyRangeQuestion' || node.type === 'NumberRangeQuestion');
@@ -4820,7 +4954,15 @@ export const SECTION_STUDIO_SCRIPT = `
       hideUndoToast();
     });
     el.appendChild(btn);
-    document.body.appendChild(el);
+    // PC-8 toast-placement fix (register, P1c): anchor to the canvas surface
+    // (position:relative — see .studio-canvas-surface) instead of the page
+    // body, so the toast (position:absolute, see the CSS) sits over the
+    // canvas the delete just happened on rather than the bottom of a
+    // potentially-tall, scrolled-away page. document.body is a defensive
+    // fallback only — #lg-studio-canvas is always present once the studio has
+    // rendered, which is the only time a delete (and this toast) can fire.
+    var toastHost = document.getElementById('lg-studio-canvas') || document.body;
+    toastHost.appendChild(el);
     undoToastTimer = setTimeout(hideUndoToast, 6000);
   }
   // The ONE call site both the toolbar Delete button and the Delete/
@@ -4946,11 +5088,55 @@ export const SECTION_STUDIO_SCRIPT = `
     }).then(function (r) {
       return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
-      if (!res.ok || !res.body || !res.body.preview) { return; }
+      // PC-A9 (register, P1c): a bad response used to just return here —
+      // silent no-op, canvas stays frozen on the LAST good render,
+      // indistinguishable from "my edit did nothing" (the operator's own P1
+      // experience class). typeof-guarded exactly like hideUndoToast/
+      // activeWidthDragCleanup above: this function is sliced standalone
+      // into vitest probes that never declare showCanvasPreviewError, so an
+      // unguarded call would ReferenceError there for a concern entirely
+      // outside what they test.
+      if (!res.ok || !res.body || !res.body.preview) {
+        if (typeof showCanvasPreviewError !== 'undefined') { showCanvasPreviewError(); }
+        return;
+      }
       region.innerHTML = '<style>' + res.body.preview.css + '</style>' + (res.body.preview.html || res.body.preview.desktop || '');
       applyCanvasDecoration();
       updateCanvasEmpty();
-    }).catch(function () {});
+      if (typeof hideCanvasPreviewError !== 'undefined') { hideCanvasPreviewError(); }
+    }).catch(function () {
+      if (typeof showCanvasPreviewError !== 'undefined') { showCanvasPreviewError(); }
+    });
+  }
+  // PC-A9 (register, P1c): make a preview-refresh failure VISIBLE + actionable
+  // instead of the silent frozen canvas renderCanvasNow used to leave behind.
+  // Anchored the same way as the undo toast (position:absolute over
+  // #lg-studio-canvas's position:relative surface — see the canvas-frame CSS)
+  // but pinned to the TOP of it so the two floating affordances can never
+  // collide, even if a delete's re-render fails right after that delete's own
+  // undo toast appears at the bottom. Retry re-invokes the SAME
+  // renderCanvasNow the debounced re-render already calls; the next success
+  // (or this function itself, called again) clears any prior banner first —
+  // never two stacked, never a stale one outliving its cause.
+  function hideCanvasPreviewError() {
+    var el = document.querySelector('[data-studio-canvas-preview-error]');
+    if (el && el.parentNode) { el.parentNode.removeChild(el); }
+  }
+  function showCanvasPreviewError() {
+    hideCanvasPreviewError();
+    var host = document.getElementById('lg-studio-canvas');
+    if (!host) { return; }
+    var el = document.createElement('div');
+    el.className = 'studio-canvas-preview-error';
+    el.setAttribute('data-studio-canvas-preview-error', '');
+    el.setAttribute('role', 'alert');
+    el.appendChild(document.createTextNode('Preview failed to update \\u2014 '));
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.appendChild(document.createTextNode('Retry'));
+    btn.addEventListener('click', function () { renderCanvasNow(); });
+    el.appendChild(btn);
+    host.appendChild(el);
   }
   function updateCanvasEmpty() {
     var empty = document.querySelector('[data-studio-canvas-empty]');
@@ -5020,14 +5206,27 @@ export const SECTION_STUDIO_SCRIPT = `
       if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue)) {
         card.className = card.className + ' studio-choice-selected';
       }
-      x = frameCreate('button');
-      x.type = 'button';
+      x = frameCreate('span');
       x.className = 'studio-choice-x';
       x.setAttribute('data-choice-x', card.getAttribute('data-lg-choice'));
       x.setAttribute('data-choice-x-qid', qid);
-      x.setAttribute('aria-label', 'Remove choice');
+      // P1c grid fix (register PC-1/PC-11): a real <button> nested inside
+      // the choice's OWN <button> (every choice family here — ButtonAnswer-
+      // Group/TwoButtonYesNo/.lg-card choices — renders as a <button>) would
+      // be an invalid content-model nest AND would pollute the choice's
+      // accessible name with the glyph text. aria-hidden keeps this
+      // studio-only, mouse-driven affordance out of the accessibility tree
+      // entirely (matching the .lg-card-badge precedent's plain <span>); the
+      // click still resolves via the SAME delegated data-choice-x lookup in
+      // onCanvasClick regardless of tag or focusability.
+      x.setAttribute('aria-hidden', 'true');
       x.appendChild(document.createTextNode('\\u00D7'));
-      if (card.parentNode) { card.parentNode.insertBefore(x, card.nextSibling); }
+      // Inserted as a CHILD of the choice cell now (was a grid-item SIBLING,
+      // which doubled the grid's item count and stacked choices vertically —
+      // see the canvas-frame CSS comment above decorateChoiceCards). A
+      // position:absolute child is not a grid item, so this never affects
+      // the group's column count again.
+      card.appendChild(x);
     }
     var nodes = region.querySelectorAll('[data-question-id]');
     var ghost, handle, type;
@@ -6263,18 +6462,26 @@ export const SECTION_STUDIO_SCRIPT = `
     if (presetRow) { presetRow.hidden = variant !== 'field' || !node; }
     var choiceExtras = document.querySelector('[data-style-choice-extras]');
     var isChoiceFamily = variant === 'field' && !!node && typeMeta(node.type).choice === true;
-    if (choiceExtras) { choiceExtras.hidden = !isChoiceFamily; }
+    // P1a (register PC-1): the Card-layout control (below) also serves the answer
+    // groups, and TwoButtonYesNo is NOT a choices:true type — so its
+    // choiceExtras CONTAINER must open on the answer-layout axis too (this also
+    // un-hides its already-listed Button-background control, previously dead
+    // because the container stayed hidden for yes/no).
+    var showChoiceExtras = variant === 'field' && (isChoiceFamily || isAnswerLayoutType(node));
+    if (choiceExtras) { choiceExtras.hidden = !showChoiceExtras; }
     var selButton = document.querySelector('[data-tb-selected-role="button"]');
     if (selButton) { selButton.hidden = !node || (node.type !== 'ButtonAnswerGroup' && node.type !== 'TwoButtonYesNo' && node.type !== 'OtherGroupSelector'); }
     // FIX 4b: MultiChoiceCardGroup has NO icon slot — its iconColor swatch was
     // a dead write; the selected-icon role shows only for the two card grids.
     var selIcon = document.querySelector('[data-tb-selected-role="icon"]');
     if (selIcon) { selIcon.hidden = !isCardGridType(node); }
-    // FIX 4b: only renderCardGrid consumes columns/gridGap overrides — gated
-    // to the two card grids (ButtonAnswerGroup/dropdowns/MultiChoiceCardGroup
-    // wrote dead keys).
+    // P1a (register PC-1): the "Card layout" (columns/gap) control now shows for
+    // the whole answer-grid LAYOUT family — the two card grids AND the
+    // MultiChoiceCardGroup / ButtonAnswerGroup / TwoButtonYesNo, whose renderers
+    // consume columns/gridGap as of P1a (was card-grids-only, when those keys
+    // were dead writes for the other choice types).
     var choiceLayout = document.querySelector('[data-toolbar-choice-layout]');
-    if (choiceLayout) { choiceLayout.hidden = !isCardGridType(node); }
+    if (choiceLayout) { choiceLayout.hidden = !isAnswerLayoutType(node); }
   }
   // §6.2 "Selecting a node retargets the inspector and resets its active tab
   // to Content" — a NEW SELECTION (isNewSelection=true, from
@@ -7641,8 +7848,40 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // v3.1 R3 S2-5: curated emoji palette (human choice, not a bare text input).
   var CHOICE_EMOJI_PALETTE = ['\\u2705', '\\u274C', '\\u2B50', '\\uD83D\\uDD25', '\\uD83D\\uDC4D', '\\uD83D\\uDC4E', '\\u2764\\uFE0F', '\\uD83C\\uDFE0', '\\uD83D\\uDE97', '\\uD83D\\uDCB0', '\\uD83D\\uDCC5', '\\uD83D\\uDCDE', '\\uD83D\\uDCE7', '\\uD83D\\uDD12', '\\uD83D\\uDC64', '\\uD83D\\uDEE1\\uFE0F'];
-  // v3.1 R3 S2-5/6c: the icon picker reuses the SAME 12 §8.1 leading-icon options.
+  // v3.1 R3 S2-5/6c: the icon picker reuses the SAME curated Tabler leading-
+  // icon options (P1b register PC-11 — ~100+ names, grown from the pre-Tabler
+  // 12; studioMeta.leading_icons already carries the full grown list, since
+  // it is built server-side by mapping over LEADGEN_FIELD_LEADING_ICONS,
+  // whatever that array's current length is — renderStudioSeedData needs no
+  // change).
   var CHOICE_ICON_OPTIONS = studioMeta.leading_icons || [];
+  // P1b: ~100+ options is too many as one flat list, so buildChoiceIconSelect
+  // groups them into <optgroup>s by category — a pure display change (a
+  // <select>'s value/change semantics are unaffected by <optgroup> nesting).
+  // ICON_CATEGORY_ORDER/iconCategory here are the ES5 TEXT twin of the
+  // TS-land copy near LEADING_ICON_OPTION_HTML above (this function runs in
+  // the browser from this literal script text, a different execution
+  // context — see that copy's comment for why the logic is duplicated
+  // rather than shared).
+  var ICON_CATEGORY_ORDER = ['Insurance & protection', 'Home & property', 'Vehicles', 'Health', 'Finance & money', 'Contact', 'People', 'Time & calendar', 'Location', 'Status & actions', 'Rewards', 'Tools & work', 'Nature & weather', 'Media & tech', 'Interface', 'Other'];
+  function iconCategory(name) {
+    if (name === 'building-hospital' || /^(heart|first-aid|stethoscope|pill|vaccine|wheelchair|dental|medical)/.test(name)) { return 'Health'; }
+    if (/^(shield|umbrella|lock|key|certificate)/.test(name)) { return 'Insurance & protection'; }
+    if (/^(home|building|door|bed)/.test(name)) { return 'Home & property'; }
+    if (/^(car|truck|motorbike|bike|plane)/.test(name)) { return 'Vehicles'; }
+    if (/^(currency|coin|calculator|credit-card|wallet|receipt|cash|pig|dollar)/.test(name)) { return 'Finance & money'; }
+    if (/^(phone|mail|message|send|email)/.test(name)) { return 'Contact'; }
+    if (/^(user|person)/.test(name)) { return 'People'; }
+    if (/^(calendar|clock|hourglass|alarm)/.test(name)) { return 'Time & calendar'; }
+    if (/^(map|route|compass|location)/.test(name)) { return 'Location'; }
+    if (/^(check|alert|info-circle|circle-check|star|flag)/.test(name) || name === 'x') { return 'Status & actions'; }
+    if (/^(gift|trophy|award|medal|badge)/.test(name)) { return 'Rewards'; }
+    if (/^(briefcase|tool|settings|adjustments)/.test(name)) { return 'Tools & work'; }
+    if (/^(paw|leaf|tree|sun|cloud|droplet|bolt)/.test(name)) { return 'Nature & weather'; }
+    if (/^(camera|wifi|world|globe|device|printer)/.test(name)) { return 'Media & tech'; }
+    if (/^(search|filter|plus|minus|edit|trash|download|eye)/.test(name)) { return 'Interface'; }
+    return 'Other';
+  }
   function choiceContainer() { return document.querySelector('[data-inspector-choices]'); }
   // §6.4 "internal-value chip" + §12.2 chip: one row per SELECTED Offer with
   // that Offer's provider value or "not set", deep-linking into the Offer's
@@ -7752,14 +7991,28 @@ export const SECTION_STUDIO_SCRIPT = `
     opt0.value = '';
     opt0.appendChild(document.createTextNode('\\u2014 none \\u2014'));
     sel.appendChild(opt0);
-    var i, o, known = false;
+    // P1b: group the curated options into <optgroup>s by category (see
+    // ICON_CATEGORY_ORDER/iconCategory above) instead of one flat ~100+ list.
+    var i, j, o, og, cat, byCategory = {}, known = false;
     for (i = 0; i < CHOICE_ICON_OPTIONS.length; i++) {
       if (CHOICE_ICON_OPTIONS[i].value === 'none') { continue; }
-      o = document.createElement('option');
-      o.value = CHOICE_ICON_OPTIONS[i].value;
-      o.appendChild(document.createTextNode(CHOICE_ICON_OPTIONS[i].label));
-      sel.appendChild(o);
+      cat = iconCategory(CHOICE_ICON_OPTIONS[i].value);
+      if (!byCategory[cat]) { byCategory[cat] = []; }
+      byCategory[cat].push(CHOICE_ICON_OPTIONS[i]);
       if (CHOICE_ICON_OPTIONS[i].value === cur) { known = true; }
+    }
+    for (i = 0; i < ICON_CATEGORY_ORDER.length; i++) {
+      cat = ICON_CATEGORY_ORDER[i];
+      if (!byCategory[cat] || byCategory[cat].length === 0) { continue; }
+      og = document.createElement('optgroup');
+      og.label = cat;
+      for (j = 0; j < byCategory[cat].length; j++) {
+        o = document.createElement('option');
+        o.value = byCategory[cat][j].value;
+        o.appendChild(document.createTextNode(byCategory[cat][j].label));
+        og.appendChild(o);
+      }
+      sel.appendChild(og);
     }
     var customOpt = document.createElement('option');
     customOpt.setAttribute('data-choice-icon-custom-opt', '');
