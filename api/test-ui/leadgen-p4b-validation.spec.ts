@@ -13,10 +13,16 @@
 //      with NO ValidationError authored (PC-6 — the previously-invisible case)
 //
 // Seeds a real ACTIVE tenant + activated funnel through the REAL admin APIs (the
-// leadgen-p4a-behavior pattern); the tenant host resolves to 127.0.0.1. Runs on
-// the chromium project (the default suite membership, exactly like the P4a
-// behavior legs). Firefox cross-engine enrollment is a one-line addition to
-// playwright.config.ts's ALL_GESTURE_SPECS (outside this slice's owned files).
+// leadgen-p4a-behavior pattern); the tenant host resolves to 127.0.0.1.
+//
+// CROSS-ENGINE (playwright.config.ts CROSS_ENGINE_GESTURE_SPECS, the p2a/p3a
+// shape): chromium runs the whole file; firefox's testMatch picks it up too.
+// The 5 legs above all drive a dynamic `{uniq}.e2e.test` host, which needs
+// chromium's `--host-resolver-rules` (test.use below) — firefox cannot resolve
+// it, so each test.skip()s on firefox with a documented reason. The combined
+// "PC-5/PC-A5 combined" describe further down splits studio-driving (no e2e.test
+// dependency — runs on BOTH engines) from the live-funnel enforcement leg
+// (chromium; firefox-skip, same reason).
 import { test, expect, request as playwrightRequest, type APIRequestContext } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { seedActiveSite } from "./listicles-p6-seed";
@@ -84,7 +90,11 @@ test.describe("PC-A4 — invalid phone blocks Continue with a visible message", 
     await ctx.dispose();
   });
 
-  test("a NANP-invalid number blocks + paints the auto slot; a valid one advances", async ({ page }) => {
+  test("a NANP-invalid number blocks + paints the auto slot; a valid one advances", async ({ page, browserName }) => {
+    test.skip(
+      browserName === "firefox",
+      "live /lg leg needs chromium --host-resolver-rules; firefox cannot resolve the dynamic e2e host — the PC-5/PC-A5 combined describe below has the both-engine studio-only leg",
+    );
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
     expect(await sectionIndex(page)).toBe(0);
@@ -117,7 +127,11 @@ test.describe("PC-6 — email error_text renders VISIBLY with NO ValidationError
     await ctx.dispose();
   });
 
-  test("the authored error_text is the visible message on a format failure", async ({ page }) => {
+  test("the authored error_text is the visible message on a format failure", async ({ page, browserName }) => {
+    test.skip(
+      browserName === "firefox",
+      "live /lg leg needs chromium --host-resolver-rules; firefox cannot resolve the dynamic e2e host — the PC-5/PC-A5 combined describe below has the both-engine studio-only leg",
+    );
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
     await page.locator('[data-lg-index="0"] [data-lg-input]').first().fill("not-an-email");
@@ -144,7 +158,11 @@ test.describe("PC-A3 — off-grid number blocks with the nearest-neighbor messag
     await ctx.dispose();
   });
 
-  test("502 (off-grid for min=1 step=5) names 501 and 506", async ({ page }) => {
+  test("502 (off-grid for min=1 step=5) names 501 and 506", async ({ page, browserName }) => {
+    test.skip(
+      browserName === "firefox",
+      "live /lg leg needs chromium --host-resolver-rules; firefox cannot resolve the dynamic e2e host — the PC-5/PC-A5 combined describe below has the both-engine studio-only leg",
+    );
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
     await page.locator('[data-lg-index="0"] [data-lg-input]').first().fill("502");
@@ -171,7 +189,11 @@ test.describe("PC-5/PC-A5 — a +7d date bound resolves and the live page enforc
     await ctx.dispose();
   });
 
-  test("today (before today+7) blocks with the resolved concrete date in the message", async ({ page }) => {
+  test("today (before today+7) blocks with the resolved concrete date in the message", async ({ page, browserName }) => {
+    test.skip(
+      browserName === "firefox",
+      "live /lg leg needs chromium --host-resolver-rules; firefox cannot resolve the dynamic e2e host — the PC-5/PC-A5 combined describe below has the both-engine studio-only leg",
+    );
     const today = new Date();
     const iso = (d: Date) => d.toISOString().slice(0, 10);
     const min = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + 7));
@@ -191,6 +213,144 @@ test.describe("PC-5/PC-A5 — a +7d date bound resolves and the live page enforc
   });
 });
 
+// ---------------------------------------------------------------------------
+// PC-5/PC-A5 combined — the REAL studio Min token dropdown -> live enforce
+// ---------------------------------------------------------------------------
+// Conductor closure: the describe above proves live enforcement from an
+// API-authored `props.min: "+7d"`. This closes the OTHER half of the loop — did
+// a HUMAN using the real studio picker ever actually reach that state? Two
+// tests, split the same way p2a/p3a split their studio-canvas vs. live-/lg
+// legs:
+//   (a) drives the REAL studio validation tab (a real click selects the
+//       DateQuestion node, a real click opens the Content tab, a real
+//       selectOption() picks "In 7 days" from the Min token dropdown, a real
+//       click on the Save button persists it) and proves the TOKEN — not a
+//       pre-resolved date — is what's stored (resolution happens at config
+//       build, never at save time). This test has NO e2e.test host dependency
+//       (a plain /admin/leadgen/sections/{id}/edit page) and runs on BOTH
+//       engines — the literal "both engines where the studio leg allows" ask.
+//   (b) reuses THAT EXACT section (module-scoped id/public_id set by (a) —
+//       workers:1 + fullyParallel:false makes the ordering safe) — attaches it
+//       to a fresh funnel/variant, activates it, and opens the LIVE funnel:
+//       below the resolved bound blocks with the concrete date in the message;
+//       on the resolved bound it passes. Needs the dynamic e2e.test host, so
+//       it test.skip()s on firefox exactly like every other live leg above.
+test.describe("PC-5/PC-A5 combined — studio Min token picker -> live enforce", () => {
+  let studioSection: { id: number; public_id: string } | undefined;
+
+  test("the real studio Min token dropdown (+7 days) persists the TOKEN onto the DateQuestion node (both engines)", async ({ page }) => {
+    const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const created = await json<{ id: number; public_id: string }>(
+      await page.request.post(`${LG_API}/sections`, {
+        data: {
+          section_name: `Date studio ${uniq}`,
+          activity: "quote_funnel",
+          vertical: "life",
+          status: "active",
+          headline_text: "Pick a date",
+          content_json: { components: [{ type: "DateQuestion", question_id: "q_date", internal_field: "d", required: true }, CONTINUE] },
+        },
+      }),
+      "date-studio section create",
+    );
+    studioSection = created;
+
+    await page.goto(`/admin/leadgen/sections/${created.public_id}/edit`, { waitUntil: "domcontentloaded" });
+    const canvasFrame = page.frameLocator("#lg-studio-canvas-frame");
+    await expect(canvasFrame.locator("[data-question-id]").first()).toBeVisible({ timeout: 20_000 });
+
+    // real click: select the DateQuestion node on the canvas.
+    await canvasFrame.locator('[data-component-type="DateQuestion"]').click({ timeout: 8_000 });
+    // real click: the Content tab (where the Validation Min/Max controls live).
+    await page.locator('[data-studio-inspector-tab="content"]').click({ timeout: 4_000 });
+    await page.waitForTimeout(200);
+
+    const minSelect = page.locator('[data-inspector-vdate="min"]');
+    await expect(minSelect, "the Min token dropdown is present + visible for a Date field").toBeVisible({ timeout: 4_000 });
+    const minInput = page.locator('[data-inspector-vprop="min"]');
+    await expect(minInput, "the native date input is hidden while in token mode").toBeHidden();
+
+    // real selectOption: pick "In 7 days" (value "+7d") from the token dropdown.
+    await minSelect.selectOption("+7d", { timeout: 4_000 });
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: `${SHOT_DIR}/date-studio-min-token.png`, fullPage: true });
+
+    // real click: Save (a full page reload, the studio's own save mechanism —
+    // the same #lg-section-save + waitForEvent("load") pairing forensic-live-
+    // probe.spec.ts's P8/P9 use).
+    await Promise.all([page.waitForEvent("load"), page.locator("#lg-section-save").click({ timeout: 5_000 })]);
+
+    const detail = await json<{ content_json: { components: Array<{ question_id: string; props?: Record<string, unknown> }> } }>(
+      await page.request.get(`${LG_API}/sections/${created.public_id}`),
+      "date-studio detail refetch",
+    );
+    const persistedMin = detail.content_json.components.find((c) => c.question_id === "q_date")?.props?.["min"] ?? null;
+    // the TOKEN persists verbatim — resolution is config-dto's job at config
+    // build, never the studio's save path.
+    expect(persistedMin, "the +7d TOKEN (not a pre-resolved date) persists on save").toBe("+7d");
+  });
+
+  test("the live funnel enforces the resolved concrete date for the studio-authored +7d bound", async ({ page, request, browserName }) => {
+    test.skip(
+      browserName === "firefox",
+      "live /lg leg needs chromium --host-resolver-rules; firefox cannot resolve the dynamic e2e host — the studio Min-token-picker test above (this same describe) runs on BOTH engines",
+    );
+    if (studioSection === undefined) {
+      throw new Error("studioSection was not set — the studio Min-token-picker test above must run first in this file (workers:1, declaration order)");
+    }
+    const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const host = `lg-p4b-date-studio-${uniq}.e2e.test`;
+    const siteId = await seedActiveSite(request, host, `P4b date-studio ${uniq}`);
+    const quote = await json<{ public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }> }>(
+      await request.post(`${LG_API}/quotes`, { data: { quote_name: `P4b date-studio ${uniq}`, activity: "quote_funnel", verticals: ["life"] } }),
+      "quote create",
+    );
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    // A SECOND section is required: with only one section in the variant,
+    // Continue on the last section triggers funnel COMPLETION (the
+    // auction/banners view), not a section_index bump — there is nowhere to
+    // "advance" to, so the sectionIndex-must-become-1 assertion below would
+    // never resolve regardless of validation outcome. Reuses the same NEXT
+    // body every other describe in this file attaches after its own section.
+    const nextCreated = await json<{ id: number }>(
+      await request.post(`${LG_API}/sections`, { data: { activity: "quote_funnel", vertical: "life", status: "active", ...NEXT.body } }),
+      "date-studio NEXT section create",
+    );
+    await json(
+      await request.put(`${LG_API}/variants/${variantId}`, {
+        data: { sections: [{ section_id: studioSection.id }, { section_id: nextCreated.id }] },
+      }),
+      "variant sections",
+    );
+    await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "datestudio" } }), "activation");
+
+    const today = new Date();
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const min = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + 7));
+
+    await page.goto(`http://${host}:${PW_PORT}/lg/datestudio`, { waitUntil: "load" });
+    await ready(page);
+    expect(await sectionIndex(page)).toBe(0);
+
+    // below the resolved bound (today) -> blocked, message names the CONCRETE
+    // resolved date (never the "+7d" token).
+    await page.locator('[data-lg-index="0"] [data-lg-input]').first().fill(iso(today));
+    await page.locator('[data-lg-index="0"] [data-lg-continue]').first().click();
+    await page.waitForTimeout(300);
+    expect(await sectionIndex(page), "a date before the resolved min must block").toBe(0);
+    const slot = page.locator('[data-lg-index="0"] [data-lg-error-for="d"]');
+    await expect(slot).toBeVisible();
+    await expect(slot).toContainText(iso(min));
+    await expect(slot).not.toContainText("+7d");
+
+    // exactly on the resolved bound -> passes (inclusive).
+    await page.locator('[data-lg-index="0"] [data-lg-input]').first().fill(iso(min));
+    await page.locator('[data-lg-index="0"] [data-lg-continue]').first().click();
+    await expect.poll(() => sectionIndex(page), { timeout: 5_000 }).toBe(1);
+    await page.screenshot({ path: `${SHOT_DIR}/date-studio-live-enforced.png`, fullPage: true });
+  });
+});
+
 test.describe("PC-A2 — a required NameFieldsGroup blocks until both sub-fields are filled", () => {
   let seeded: Seeded;
   test.beforeAll(async () => {
@@ -204,7 +364,11 @@ test.describe("PC-A2 — a required NameFieldsGroup blocks until both sub-fields
     await ctx.dispose();
   });
 
-  test("empty/partial name blocks; both filled advances (the previously-uncaught case)", async ({ page }) => {
+  test("empty/partial name blocks; both filled advances (the previously-uncaught case)", async ({ page, browserName }) => {
+    test.skip(
+      browserName === "firefox",
+      "live /lg leg needs chromium --host-resolver-rules; firefox cannot resolve the dynamic e2e host — the PC-5/PC-A5 combined describe below has the both-engine studio-only leg",
+    );
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
     // empty → blocked, group slot visible

@@ -80,6 +80,15 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // SAME cross-engine shape as p2a (studio-canvas describe is getBoundingClientRect
   // + computed styles; the live-/lg describe self-skips on firefox).
   'leadgen-p3a-placement.gesture.spec.ts',
+  // P4b (register PC-5/PC-A5 conductor closure): the DateQuestion studio Min
+  // token-picker leg — SAME cross-engine shape as p2a/p3a. Its 5 original
+  // live-/lg validation legs (phone/email/step/date/required-groups) all
+  // test.skip() on firefox (each drives a dynamic {uniq}.e2e.test host); the
+  // NEW "studio Min token dropdown persists" test carries NO e2e.test
+  // dependency (a plain /admin/leadgen/sections/{id}/edit page) and is NOT
+  // skipped — it is the both-engine studio-only leg the other tests' skip
+  // messages point to.
+  'leadgen-p4b-validation.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',
