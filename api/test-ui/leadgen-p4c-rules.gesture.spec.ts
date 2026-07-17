@@ -16,6 +16,11 @@
 //      until the trigger question is answered to match, reveals it once
 //      met, hides it again if un-met, and Continue genuinely advances once
 //      shown.
+//   4. CONDUCTOR FIX (2026-07-17): a typed-boolean Show-if authored against a
+//      TwoButtonYesNo trigger (leg 1's exact authoring shape) now reveals its
+//      dependent component on a LIVE click — the case every leg above
+//      deliberately avoided (see leg 4's own header for the fail-before
+//      citations + resolution).
 //
 // CROSS-ENGINE (playwright.config.ts CROSS_ENGINE_GESTURE_SPECS, the p2a/
 // p3a/p4b shape): the studio-authoring legs (1)/(2) carry NO dynamic
@@ -299,5 +304,109 @@ test.describe("PC-12 leg 3 — LIVE: conditional Continue hides until met, shows
     await cont.click();
     await expect.poll(() => sectionIndex(page), { timeout: 5_000 }).toBe(1);
     await page.screenshot({ path: `${SHOT_DIR}/leg3-advanced.png`, fullPage: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4 — CONDUCTOR FIX (register PC-12, 2026-07-17): the boolean/string trigger
+// case that legs 1–3 above deliberately AVOIDED now works LIVE.
+//
+// FAIL-BEFORE (both documented, cited verbatim, BEFORE this fix):
+//   * engine.ts handleChoiceActivation's own P4c investigation note (now
+//     updated to state this resolution): "a TwoButtonYesNo carries no
+//     `choices` array, so choiceConfig is always undefined for it and this
+//     fallback records the RAW STRING 'true'/'false' — never a real boolean —
+//     for a LIVE click. A conditional/requiredWhen/continue_visible_when
+//     authored through ANY typed studio picker against a boolean `when` field
+//     stores a REAL boolean (typedScalar's boolean branch), which then never
+//     matches a live click (conditionMet's eq/neq are strict ===)".
+//   * leadgen-p3a-placement.gesture.spec.ts's own fixture comment (an EARLIER
+//     phase, left unchanged — its workaround remains valid): "grounded via a
+//     live debug probe... the conditional value must match that stored shape
+//     exactly" — which is why THAT spec deliberately authors its conditional
+//     as the STRING "true" rather than proving the typed-boolean-picker case.
+//   * leg 1 above (THIS file) is the proof the studio's typed picker DOES
+//     store a REAL boolean (`{ when: "currently_insured", op: "eq", value:
+//     true }`) for a TwoButtonYesNo `when` field — so combining leg 1's
+//     authoring shape with a live click on that SAME trigger is exactly the
+//     configuration that used to never reveal.
+//
+// RESOLUTION: runtime/dependencies.ts conditionMet now treats
+// true≡"true"/false≡"false" for eq/neq/in/not_in (client-only; see that
+// file's module header for the full ruling). This section-visibility check
+// runs ENTIRELY client-side (render.applyComponentVisibility driven by
+// engine.ts's dependencyState → evaluateComponents → conditionMet), so the
+// fix is provable end-to-end without any server/auction-payload change.
+test.describe("PC-12 leg 4 — LIVE: a typed-boolean Show-if on a TwoButtonYesNo trigger now reveals on a live click", () => {
+  async function seedTriggerFunnel(request: APIRequestContext, tag: string): Promise<{ host: string; slug: string }> {
+    const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const host = `lg-p4c-${tag}-${uniq}.e2e.test`;
+    const siteId = await seedActiveSite(request, host, `P4c ${tag} ${uniq}`);
+    const quote = await json<{ public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }> }>(
+      await request.post(`${LG_API}/quotes`, { data: { quote_name: `P4c ${tag} ${uniq}`, activity: "quote_funnel", verticals: ["life"] } }),
+      "quote create",
+    );
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    // The EXACT shape leg 1 proves the studio's typed picker authors for a
+    // boolean `when` field: conditional.value is the REAL boolean `true` —
+    // never the string "true" — for a TwoButtonYesNo trigger.
+    const section = await createSection(request, {
+      section_name: `PC12 trigger ${uniq}`,
+      headline_text: "Are you currently insured?",
+      content_json: JSON.stringify({
+        components: [
+          { type: "TwoButtonYesNo", question_id: "q_trigger", internal_field: "currently_insured", props: { yesLabel: "Yes", noLabel: "No" } },
+          {
+            type: "FreeTextQuestion",
+            question_id: "q_dep",
+            internal_field: "insurer_name",
+            props: { placeholder: "Which insurer?" },
+            conditional: { when: "currently_insured", op: "eq", value: true },
+          },
+          { type: "ContinueButton", question_id: "q_cont" },
+        ],
+      }),
+    });
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: section.id }] } }), "variant sections");
+    await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: tag } }), "activation");
+    return { host, slug: tag };
+  }
+
+  const shellUrl = (s: { host: string; slug: string }) => `http://${s.host}:${PW_PORT}/lg/${s.slug}`;
+
+  test("unanswered/'No' keep the dependent hidden; a live 'Yes' click reveals it (was permanently stuck pre-fix)", async ({ page, browserName }) => {
+    test.skip(
+      browserName === "firefox",
+      "live /lg leg needs chromium --host-resolver-rules; firefox cannot resolve the dynamic e2e host — same split as leg 3",
+    );
+    const ctx = await playwrightRequest.newContext({ baseURL: ORIGIN });
+    const seeded = await seedTriggerFunnel(ctx, "trig");
+    await ctx.dispose();
+
+    await page.goto(shellUrl(seeded), { waitUntil: "load" });
+    await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 8_000 });
+
+    const dep = page.locator('[data-lg-question="q_dep"]');
+    // Fail-closed: unanswered trigger never satisfies the condition.
+    await expect(dep).toBeHidden();
+    await page.screenshot({ path: `${SHOT_DIR}/leg4-hidden.png`, fullPage: true });
+
+    // "No" records the live string "false" — does not meet {value:true}.
+    await page.locator('[data-lg-question="q_trigger"] [data-lg-choice="false"]').click();
+    await page.waitForTimeout(200);
+    await expect(dep).toBeHidden();
+
+    // THE PREVIOUSLY-BROKEN CASE: "Yes" records the live string "true" — this
+    // is the exact recording engine.ts's investigation note describes, being
+    // compared against the exact authoring shape leg 1 proves the studio
+    // writes (a real boolean). Pre-fix this NEVER revealed (fail-before,
+    // cited above); post-fix it reveals via the client evaluator alone.
+    await page.locator('[data-lg-question="q_trigger"] [data-lg-choice="true"]').click();
+    await expect(dep).toBeVisible({ timeout: 3_000 });
+    await page.screenshot({ path: `${SHOT_DIR}/leg4-revealed.png`, fullPage: true });
+
+    // Live re-evaluation, not just on entry: back to "No" hides it again.
+    await page.locator('[data-lg-question="q_trigger"] [data-lg-choice="false"]').click();
+    await expect(dep).toBeHidden({ timeout: 3_000 });
   });
 });

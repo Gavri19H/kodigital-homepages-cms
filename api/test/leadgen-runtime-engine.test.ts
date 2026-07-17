@@ -390,7 +390,103 @@ describe("dependencies: server↔client parity (09 §9.3 table)", () => {
     }
     expect(cells).toBe(CONDITIONALS.length * ANSWER_VALUES.length);
   });
+});
 
+// ---------------------------------------------------------------------------
+// CONDUCTOR FIX (register PC-12, 2026-07-17) — client-only boolean/string
+// equivalence for eq/neq/in/not_in (runtime/dependencies.ts conditionMet).
+//
+// WHY this is its OWN describe block, not folded into the strict cross-
+// product parity table above: that table asserts server===client for every
+// cell, and genuinely NEITHER the CONDITIONALS nor the ANSWER_VALUES grids
+// contain a "true"/"false" STRING literal — so the fix is a no-op over every
+// cell there (verified: this file's own full-grid test still passes
+// unmodified). The cases below are the ones that grid deliberately never
+// exercised: a LIVE TwoButtonYesNo click records the string "true"/"false"
+// (engine.ts handleChoiceActivation — no `choices` array to type-resolve),
+// while a studio typed picker (or a defaulted boolean) authors a REAL
+// boolean, so both shapes coexist. The CLIENT now normalizes; the SERVER
+// (evaluateDependencies / payload.ts conditionalMet) is DELIBERATELY
+// unchanged (see runtime/dependencies.ts's module header for the full ruling
+// + the flagged, wider-blast-radius follow-up this leaves open). Every
+// "NOW MATCHES (was broken)" case below therefore asserts client !== server
+// on purpose — that gap is the honest, documented state, not swept under a
+// forced-green assertion.
+describe("PC-12 conductor fix — boolean/string equivality (client conditionMet only)", () => {
+  it("eq: authored BOOLEAN vs a live-recorded STRING answer — client now matches (was broken)", () => {
+    const cond: LeadgenPayloadConditional = { when: "f", op: "eq", value: true };
+    const answers = { f: "true" };
+    expect(conditionMet(cond, answers), "client: true≡\"true\" now").toBe(true);
+    expect(conditionalMet(cond, answers), "server: unchanged, still strict").toBe(false);
+  });
+
+  it("eq: authored STRING vs a defaulted BOOLEAN answer — client now matches (was broken)", () => {
+    const cond: LeadgenPayloadConditional = { when: "f", op: "eq", value: "false" };
+    const answers = { f: false };
+    expect(conditionMet(cond, answers)).toBe(true);
+    expect(conditionalMet(cond, answers)).toBe(false);
+  });
+
+  it("neq: the SAME logical value in different shapes — client now reports NOT-neq (was wrongly neq)", () => {
+    const cond: LeadgenPayloadConditional = { when: "f", op: "neq", value: "true" };
+    const answers = { f: true };
+    expect(conditionMet(cond, answers), "client: true≡\"true\" so neq is false").toBe(false);
+    expect(conditionalMet(cond, answers), "server: true!==\"true\" (different types) so neq stays true").toBe(true);
+  });
+
+  it("neq: genuinely different values in different shapes — BOTH agree (not-equal was never the broken direction)", () => {
+    const cond: LeadgenPayloadConditional = { when: "f", op: "neq", value: "false" };
+    const answers = { f: true };
+    expect(conditionMet(cond, answers)).toBe(true);
+    expect(conditionalMet(cond, answers)).toBe(true);
+  });
+
+  it("in: a live-recorded STRING answer against a BOOLEAN-typed values[] — client now matches (was broken)", () => {
+    const cond: LeadgenPayloadConditional = { when: "f", op: "in", values: [true, 5] };
+    const answers = { f: "true" };
+    expect(conditionMet(cond, answers)).toBe(true);
+    expect(conditionalMet(cond, answers)).toBe(false);
+  });
+
+  it("not_in: a BOOLEAN answer against a STRING-typed values[] — client now correctly reports 'is in' (was wrongly 'not in')", () => {
+    const cond: LeadgenPayloadConditional = { when: "f", op: "not_in", values: ["false", "other"] };
+    const answers = { f: false };
+    expect(conditionMet(cond, answers), "client: false is in [\"false\",...] so not_in is false").toBe(false);
+    expect(conditionalMet(cond, answers), "server: false!==\"false\" so not_in stays (wrongly) true").toBe(true);
+  });
+
+  it("in: NaN SameValueZero membership is preserved (the normalizer must not break the pre-existing edge)", () => {
+    const cond: LeadgenPayloadConditional = { when: "f", op: "in", values: [Number.NaN] };
+    const answers = { f: Number.NaN };
+    expect(conditionMet(cond, answers)).toBe(true);
+    expect(conditionalMet(cond, answers)).toBe(true); // unaffected, both agree as before
+  });
+
+  it("REGRESSION — same-shape pairs (the 'defaults path' / choice-workaround shape) are UNCHANGED on both sides", () => {
+    // Both booleans (a pre-set default matching a typed picker) — worked before, still works.
+    expect(conditionMet({ when: "f", op: "eq", value: true }, { f: true })).toBe(true);
+    expect(conditionalMet({ when: "f", op: "eq", value: true }, { f: true })).toBe(true);
+    // Both strings (the p3a/p4c-rules documented workaround shape) — worked before, still works.
+    expect(conditionMet({ when: "f", op: "eq", value: "true" }, { f: "true" })).toBe(true);
+    expect(conditionalMet({ when: "f", op: "eq", value: "true" }, { f: "true" })).toBe(true);
+  });
+
+  it("REGRESSION — ordinary non-boolean values are completely untouched (no accidental numeric/string coercion)", () => {
+    // A numeric answer against a numeric-string conditional value: neither side is boolean-shaped.
+    expect(conditionMet({ when: "f", op: "eq", value: "5" }, { f: 5 })).toBe(false);
+    expect(conditionalMet({ when: "f", op: "eq", value: "5" }, { f: 5 })).toBe(false);
+    // A non-"true"/"false" string against a boolean value: normalizeBoolShape must not touch "maybe".
+    expect(conditionMet({ when: "f", op: "eq", value: true }, { f: "maybe" })).toBe(false);
+    expect(conditionalMet({ when: "f", op: "eq", value: true }, { f: "maybe" })).toBe(false);
+  });
+
+  it("an unanswered `when` stays fail-closed regardless of boolean-shape normalization", () => {
+    expect(conditionMet({ when: "f", op: "eq", value: true }, {})).toBe(false);
+    expect(conditionMet({ when: "f", op: "in", values: [true] }, {})).toBe(false);
+  });
+});
+
+describe("dependencies: server↔client parity (09 §9.3 table)", () => {
   it("evaluateComponents matches server evaluateDependencies (visible/required_now)", () => {
     const nodes = [
       { type: "SingleChoiceQuestion", question_id: "q1", internal_field: "home_own", required: true, props: {} },

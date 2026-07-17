@@ -6,26 +6,70 @@
 // (api/src/leadgen/dependencies.ts, whose op truth is payload.ts
 // `conditionalMet`): eq/neq/gt/lt/gte/lte/range/in/not_in. Parity is enforced
 // cell-for-cell by a generated table test (09 §9.3 / 03 §3.10) that runs BOTH
-// evaluators over the same case matrix — any drift here fails vitest.
+// evaluators over the same case matrix — any drift here fails vitest, EXCEPT
+// the ONE documented divergence below (boolean/string equality-shape), which
+// the shared table deliberately never exercises (see that test file).
 //
 // Mirrored semantics (each line corresponds 1:1 to payload.ts:645–682 /
 // dependencies.ts:63–134 — keep them byte-equivalent in behavior):
 //   * an ABSENT (undefined) `when` answer NEVER satisfies a conditional
 //     (fail-closed — a component with an unmet conditional stays HIDDEN);
 //     note null is NOT undefined and falls through to the op;
-//   * eq/neq compare STRICTLY (===/!==) with no coercion;
+//   * eq/neq/in/not_in compare STRICTLY (===/!==/Array.includes), EXCEPT the
+//     CLIENT-ONLY boolean/string-shape normalization documented below;
 //   * gt/lt/gte/lte coerce the actual via Number() unless already a number;
 //     the bound must be `typeof number` (else NaN); either non-finite → false;
 //   * range: actual coerced via Number(); from/to must both be
 //     `typeof number`; inclusive [from, to];
-//   * in/not_in: Array.includes (strict); a missing/non-array `values` yields
-//     false for BOTH (not_in does NOT default true);
+//   * in/not_in: Array.includes (SameValueZero) — a missing/non-array
+//     `values` yields false for BOTH (not_in does NOT default true);
 //   * a component with NO conditional is always visible;
 //   * required_now = visible && (required===true || props.requiredWhen met);
 //   * "answered" = not undefined/null, non-blank string, non-empty
 //     array/object; numbers (incl. 0) and booleans (incl. false) count.
 
 import type { LgComponentConfig, LgConditional, LgSectionConfig } from "./state";
+
+// CONDUCTOR FIX (register PC-12, 2026-07-17) — DOCUMENTED CLIENT/SERVER
+// DIVERGENCE, narrow + deliberate: a LIVE TwoButtonYesNo click records the
+// raw string "true"/"false" (engine.ts handleChoiceActivation has no
+// `choices` array to type-resolve it against — see its own investigation
+// comment), while the studio's typed pickers (buildConditional/typedScalar)
+// AND a defaulted answer's props.defaultValue author/apply a REAL boolean for
+// a boolean-typed `when` field. Both value shapes therefore coexist in live
+// answers, so a picker-authored Show-if/Require-if/Continue-visibility rule
+// against a boolean-typed trigger (chiefly TwoButtonYesNo) NEVER fired on a
+// live click — only a pre-set default (already boolean) ever matched.
+//
+// RULING (fix the evaluator, not the recording — no auction-payload value
+// type changes): normalizeBoolShape below makes eq/neq/in/not_in treat
+// `true`≡`"true"` / `false`≡`"false"` — applied to BOTH sides of the compare,
+// so ordinary strings/numbers are completely unaffected (a "true"/"false"
+// LITERAL string is the only input this changes). gt/lt/gte/lte/range are
+// UNCHANGED (they already coerce via Number(), where Number(true)===1 must
+// stay exact — folding the string-normalizer in there would corrupt that).
+//
+// SCOPE: this fixes CLIENT-SIDE evaluation only — every dependency check the
+// live funnel renders through (section/component visibility, Continue
+// visibility, requiredWhen) runs ENTIRELY through this file, so the
+// user-visible bug (dependent content never revealing) is fully resolved
+// here. The SERVER twin (src/leadgen/dependencies.ts) has NO independent
+// comparison logic of its own — it delegates to payload.ts's `conditionalMet`,
+// which is ALSO the function payload.ts uses to drop auction-payload nodes on
+// an unmet conditional AND auction-rules.ts uses for funnel/carrier
+// eligibility matching (`conditionsMatch`) — i.e. patching it ripples into
+// live auction/carrier-matching semantics, a materially larger blast radius
+// than this dependency evaluator. That file is outside this slice's
+// ownership and was not touched — flagged to the conductor as an open,
+// explicitly-scoped follow-up rather than silently patched or shadow-forked
+// here (a shadow wrapper in dependencies.ts would violate ITS OWN documented
+// invariant that show/hide/require and payload-build can never diverge on
+// the same op — worse than leaving the gap named). See the phase report.
+function normalizeBoolShape(value: unknown): unknown {
+  if (value === true) return "true";
+  if (value === false) return "false";
+  return value;
+}
 
 // Server-parity op evaluator — see the mirrored-semantics table above.
 export function conditionMet(
@@ -36,9 +80,9 @@ export function conditionMet(
   if (actual === undefined) return false;
   switch (conditional.op) {
     case "eq":
-      return actual === conditional.value;
+      return normalizeBoolShape(actual) === normalizeBoolShape(conditional.value);
     case "neq":
-      return actual !== conditional.value;
+      return normalizeBoolShape(actual) !== normalizeBoolShape(conditional.value);
     case "gt":
     case "lt":
     case "gte":
@@ -59,12 +103,18 @@ export function conditionMet(
       if (typeof from !== "number" || typeof to !== "number") return false;
       return n >= from && n <= to;
     }
-    case "in":
-      // Array.includes (SameValueZero) — NOT indexOf: matches the server's
-      // `values.includes(actual)` exactly (NaN-membership parity).
-      return Array.isArray(conditional.values) && conditional.values.includes(actual);
-    case "not_in":
-      return Array.isArray(conditional.values) && !conditional.values.includes(actual);
+    case "in": {
+      // Array.includes (SameValueZero, e.g. NaN-membership) over the
+      // bool-normalized values — NOT .some(===), which would break the NaN
+      // edge: matches the server's `values.includes(actual)` for every
+      // non-boolean-shaped element, plus the new true/"true" equivalence.
+      const actualNorm = normalizeBoolShape(actual);
+      return Array.isArray(conditional.values) && conditional.values.map(normalizeBoolShape).includes(actualNorm);
+    }
+    case "not_in": {
+      const actualNorm = normalizeBoolShape(actual);
+      return Array.isArray(conditional.values) && !conditional.values.map(normalizeBoolShape).includes(actualNorm);
+    }
   }
   // Unknown op (config from a newer server): fail-closed like an unmet
   // conditional. (The server switch is exhaustive over the typed union; the

@@ -716,26 +716,32 @@ export class LgEngine {
     // Typed value: the attribute is a string; the config round-trips the
     // authored type (number/boolean choices stay typed for eq-parity).
     //
-    // P4c INVESTIGATION NOTE (register PC-12 — logged, NOT changed): a
-    // TwoButtonYesNo carries no `choices` array, so choiceConfig is always
-    // undefined for it and this fallback records the RAW STRING "true"/
-    // "false" — never a real boolean — for a LIVE click. A conditional/
-    // requiredWhen/continue_visible_when authored through ANY typed studio
-    // picker against a boolean `when` field stores a REAL boolean
-    // (typedScalar's boolean branch), which then never matches a live click
-    // (conditionMet's eq/neq are strict ===) — only a pre-set default
-    // (props.defaultValue, applied verbatim) can ever satisfy it. This is a
-    // PRE-EXISTING, cross-cutting characteristic, not unique to this phase:
-    // leadgen-p3a-placement.gesture.spec.ts (an EARLIER phase) documents the
-    // identical finding verbatim ("grounded via a live debug probe... the
-    // conditional value must match that stored shape exactly") and
-    // deliberately authors its OWN fixtures with a STRING conditional value
-    // to match, rather than changing this handler. Coercing here would flip
-    // that decision and ripple through multiple already-shipped E2E
-    // fixtures (leadgen-fix-p1-seed.ts, leadgen-p3a-placement.gesture.spec.ts
-    // x2, leadgen-runtime-inputs.gesture.spec.ts) outside this slice's scope
-    // — left AS-IS; flagged to the conductor as an open cross-cutting
-    // concern (see phase report) rather than silently worked around.
+    // P4c INVESTIGATION NOTE — RESOLVED (conductor fix, register PC-12,
+    // 2026-07-17): a TwoButtonYesNo carries no `choices` array, so
+    // choiceConfig is always undefined for it and this fallback records the
+    // RAW STRING "true"/"false" — never a real boolean — for a LIVE click,
+    // while a conditional/requiredWhen/continue_visible_when authored through
+    // ANY typed studio picker against a boolean `when` field stores a REAL
+    // boolean (typedScalar's boolean branch). The RECORDING here is
+    // DELIBERATELY left unchanged (ruling: fix the evaluator, not the
+    // recording — coercing this fallback to a real boolean would change the
+    // TYPE of value flowing into the auction payload, a money-path risk, and
+    // would ripple through already-shipped E2E fixtures that assert the raw
+    // string — leadgen-fix-p1-seed.ts, leadgen-p3a-placement.gesture.spec.ts
+    // x2, leadgen-runtime-inputs.gesture.spec.ts). Instead the CLIENT
+    // dependency evaluator (runtime/dependencies.ts conditionMet) now treats
+    // true≡"true"/false≡"false" for eq/neq/in/not_in, so a picker-authored
+    // rule against this field's live-clicked string DOES fire correctly on
+    // the live funnel (Show-if/Require-if/Continue-visibility all resolve
+    // through that one evaluator) — see its module header for the full
+    // ruling + the documented, narrower-scope server-side gap this leaves
+    // open (payload.ts's conditionalMet, also consumed by auction-rules.ts
+    // carrier/offer eligibility, was NOT touched — outside this ownership).
+    // leadgen-p3a-placement.gesture.spec.ts's "grounded via a live debug
+    // probe" fixture and leadgen-p4c-rules.gesture.spec.ts's choice-based
+    // workaround remain valid (string-vs-string was never the broken case);
+    // leadgen-p4a-behavior.spec.ts / the p4c-rules spec's new leg prove the
+    // previously-stuck boolean-picker-vs-live-click case now reveals live.
     const attrValue = choiceEl.getAttribute("data-lg-choice") ?? "";
     const choiceConfig = component?.choices?.find((c) => String(c.value) === attrValue);
     let value: unknown = choiceConfig !== undefined ? choiceConfig.value : attrValue;
