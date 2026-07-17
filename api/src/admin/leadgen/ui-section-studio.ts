@@ -517,9 +517,16 @@ const CONTENT_PROP_FIELDS: Record<ComponentType, readonly string[]> = {
   CurrencyInputQuestion: ["placeholder", "currency", "helper"],
   EmailInputQuestion: ["placeholder", "helper"],
   PhoneInputQuestion: ["placeholder", "helper"],
-  // v3.1 R3b E1-NEW-7: firstLabel/lastLabel are ALREADY consumed by the
-  // renderer (renderNameFieldsGroup) but had no authoring control at all.
-  NameFieldsGroup: ["firstLabel", "lastLabel", "helper"],
+  // PC-A8 (register): EMPTIED — NameFieldsGroup now gets its OWN dedicated
+  // Basics block (two sub-groups, "First name field"/"Last name field": each
+  // a Label/Placeholder/Helper/Leading-icon set), same "dedicated block,
+  // empty generic entry" idiom as ImageBlock below (renderStudioInspector's
+  // data-content-namefieldsgroup-block; see availableTabsFor's hasContent
+  // carve-out and populateNameFieldsGroupControls). The old shared
+  // group-level `helper` prop is a DEPRECATED, render-only fallback now (no
+  // authoring control) — presets.ts renderNameFieldsGroup still renders it
+  // for legacy content when neither field has its own per-field helper.
+  NameFieldsGroup: [],
   DateQuestion: ["placeholder", "helper"],
   ZIPInputQuestion: ["placeholder", "helper"],
   AddressAutocompleteQuestion: ["placeholder", "helper"],
@@ -575,8 +582,11 @@ const CONTENT_CONTROLS: ReadonlyArray<{ key: string; label: string }> = [
   { key: "currency", label: "Currency symbol" },
   // v3.1 R3 MINOR-4: loadingLabel control removed (out-of-contract, §8.4).
   { key: "logoMediaId", label: "Logo media id" },
-  { key: "firstLabel", label: "First name label" },
-  { key: "lastLabel", label: "Last name label" },
+  // PC-A8: firstLabel/lastLabel rows REMOVED from this generic list —
+  // NameFieldsGroup (their only consumer) moved to its own dedicated Basics
+  // block (data-content-namefieldsgroup-block) alongside the 6 new per-field
+  // props; a generic row for a key no `content_props` array lists anymore is
+  // dead markup (the exact drift class this phase closes elsewhere).
 ];
 
 interface ValidationField {
@@ -2224,6 +2234,53 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
           <input id="lg-imageblock-alt" class="form-input" type="text" data-inspector-field="alt" placeholder="Describe the image for screen readers" />
         </div>
         <p class="form-help" data-imageblock-autologo-note hidden>Renders your site&#8217;s logo automatically. The Section Studio preview shows a placeholder — the live funnel fills in the real logo.</p>
+      </div>
+      <!-- PC-A8 (register): NameFieldsGroup's own dedicated per-field
+           authoring — First and Last each get their own Label/Placeholder/
+           Helper text/Leading icon (previously: a shared Label pair + ONE
+           group-level Helper, no Placeholder or Icon at all — the operator's
+           Contact scenario, typing into a per-field control that did
+           nothing). Gated to node.type==='NameFieldsGroup' only
+           (populateNameFieldsGroupControls) — CONTENT_PROP_FIELDS.
+           NameFieldsGroup is [] (see its own comment), so the generic
+           per-type copy-fields loop below never renders a visible row for
+           this type. -->
+      <div data-content-namefieldsgroup-block hidden>
+        <div class="studio-panel-eyebrow">First name field</div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-first-label">Label</label>
+          <input id="lg-nfg-first-label" class="form-input" type="text" data-inspector-field="firstLabel" />
+        </div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-first-placeholder">Placeholder</label>
+          <input id="lg-nfg-first-placeholder" class="form-input" type="text" data-inspector-field="firstPlaceholder" />
+        </div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-first-helper">Helper text</label>
+          <input id="lg-nfg-first-helper" class="form-input" type="text" data-inspector-field="firstHelper" />
+        </div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-first-icon">Leading icon</label>
+          <select id="lg-nfg-first-icon" class="form-input" data-inspector-field="firstIcon"><option value="">&#8212; none &#8212;</option>${LEADING_ICON_OPTION_HTML}</select>
+        </div>
+        <div class="studio-hr"></div>
+        <div class="studio-panel-eyebrow">Last name field</div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-last-label">Label</label>
+          <input id="lg-nfg-last-label" class="form-input" type="text" data-inspector-field="lastLabel" />
+        </div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-last-placeholder">Placeholder</label>
+          <input id="lg-nfg-last-placeholder" class="form-input" type="text" data-inspector-field="lastPlaceholder" />
+        </div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-last-helper">Helper text</label>
+          <input id="lg-nfg-last-helper" class="form-input" type="text" data-inspector-field="lastHelper" />
+        </div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-last-icon">Leading icon</label>
+          <select id="lg-nfg-last-icon" class="form-input" data-inspector-field="lastIcon"><option value="">&#8212; none &#8212;</option>${LEADING_ICON_OPTION_HTML}</select>
+        </div>
       </div>
       <div class="studio-panel-eyebrow">Basics</div>
       <div class="lg-inspector-field" data-field-label-wrap hidden>
@@ -4897,12 +4954,16 @@ export const SECTION_STUDIO_SCRIPT = `
     ref.list[to] = tmp;
     afterModelChange();
   }
+  // PC-8: returns whether a node was ACTUALLY removed (a stale/absent qid is
+  // a no-op, false) — deleteSelectedWithUndo gates its toast on this so a
+  // dead selection never claims a phantom deletion.
   function removeNode(qid) {
     var ref = findRef(qid);
-    if (!ref) { return; }
+    if (!ref) { return false; }
     ref.list.splice(ref.index, 1);
     if (selectedQuestionId === qid) { selectedQuestionId = null; }
     afterModelChange();
+    return true;
   }
   function regenerateIds(node) {
     node.question_id = newQuestionId();
@@ -5518,11 +5579,60 @@ export const SECTION_STUDIO_SCRIPT = `
   // Backspace key handler now route through (removeNode/selectComponent
   // themselves stay unchanged pure model calls — this wrapper only adds the
   // DOM-side toast).
+  // PC-8: a STALE selection (selectedQuestionId survives its own node being
+  // removed some other way, or a re-render desyncs it) used to show "Element
+  // deleted" unconditionally — findRef came back null, label fell back to
+  // the generic 'Element' string, removeNode was a no-op, but the toast fired
+  // anyway (a phantom deletion claim, the operator-facing dishonesty this
+  // register row exists to close). Now: the toast fires ONLY when removeNode
+  // reports an ACTUAL removal; a stale/absent selection instead clears
+  // (selectComponent(null) — never leaves a dead id armed) and surfaces a
+  // brief, honest refusal note via the existing showRefusal channel (the SAME
+  // one "Cannot nest containers…"/"A row holds at most…" already use) —
+  // no false claim, no silent no-op either.
+  // PC-A7: a CHOICE-scoped selection (scopeState 'choice' — a choice card
+  // focused on the canvas) deletes ONLY that choice, never the whole group —
+  // the operator's exact complaint ("a disaster"). This check lives HERE
+  // (not in the Backspace key handler) so BOTH call sites inherit it — moot
+  // for the toolbar's plain "Delete" button in practice, since
+  // updateCanvasToolbar/toolbarClustersFor hides its entire "structure"
+  // cluster whenever choiceFocused (that button is simply not clickable in
+  // choice scope), but keeping the branch here rather than duplicated at
+  // each call site is the honest single-source-of-truth shape. The GROUP
+  // stays deletable exactly as before: an explicit group (component-scope)
+  // selection, or the toolbar's own plain "Delete" control.
   function deleteSelectedWithUndo(qid) {
+    if (scopeState === 'choice' && selectedChoiceValue !== null) {
+      deleteSelectedChoiceWithUndo(qid, selectedChoiceValue);
+      return;
+    }
     var ref = findRef(qid);
     var label = ref && ref.node ? typeLabel(ref.node.type) : 'Element';
-    removeNode(qid);
+    var removed = removeNode(qid);
     selectComponent(null);
+    if (removed) { showUndoToast(label); }
+    else { showRefusal('Nothing to delete — that selection was no longer on the canvas.'); }
+  }
+  // PC-A7: the CHOICE-only delete deleteSelectedWithUndo defers to above.
+  // Mirrors the toolbar's own pre-existing "Delete choice" control
+  // (data-choice-act="delete" -> handleChoiceAct -> the SAME
+  // removeChoiceFromNode + renderChoiceEditor/setScope cleanup this function
+  // uses), plus the SAME undo-toast honesty whole-node deletes now get. Undo
+  // reuses the SAME content-tree history (removeChoiceFromNode's own
+  // afterModelChange call, which snapshots the PRE-mutation tree) — no new
+  // persistence, and it restores the choice at its original index for free
+  // (a full snapshot revert, not a piecewise re-insert).
+  function deleteSelectedChoiceWithUndo(qid, value) {
+    var ref = findRef(qid);
+    var c = ref && ref.node ? findChoice(ref.node, value) : null;
+    var label = c && c.label !== undefined && String(c.label) !== '' ? String(c.label) : 'Choice';
+    var removed = ref && ref.node ? removeChoiceFromNode(ref.node, value) : false;
+    if (!removed) {
+      showRefusal('Nothing to delete — that selection was no longer on the canvas.');
+      return;
+    }
+    renderChoiceEditor(ref.node);
+    setScope(selectedQuestionId ? 'component' : 'section');
     showUndoToast(label);
   }
 
@@ -6934,7 +7044,12 @@ export const SECTION_STUDIO_SCRIPT = `
     // v3.1 R3b deliverable 8: the 10 frame-scope types also always qualify —
     // Content shows the read-only notice (data-content-framescope-block)
     // rather than dead editing controls.
-    var hasContent = isBound || (meta.content_props || []).length > 0 || meta.choice === true || node.type === 'ImageBlock' || FRAME_SCOPE_STUDIO_TYPES[node.type] === 1;
+    // PC-A8: NameFieldsGroup ALSO always qualifies — same reason as
+    // ImageBlock: its Label/Placeholder/Helper/Icon controls live in a
+    // DEDICATED block (data-content-namefieldsgroup-block), not the generic
+    // CONTENT_PROP_FIELDS rows, so content_props is deliberately [] for it
+    // and would otherwise wrongly hide the whole Content tab.
+    var hasContent = isBound || (meta.content_props || []).length > 0 || meta.choice === true || node.type === 'ImageBlock' || node.type === 'NameFieldsGroup' || FRAME_SCOPE_STUDIO_TYPES[node.type] === 1;
     if (hasContent) { tabs.push('content'); }
     // Style: any visual selection (§8.5 "any visual selection").
     tabs.push('style');
@@ -7153,7 +7268,17 @@ export const SECTION_STUDIO_SCRIPT = `
       // v3.1 R3 E1-C4: a native <input type="date"> ignores placeholder
       // (browser no-op), so hide the Placeholder Content control for DateQuestion.
       var dateNoPlaceholder = !!node && node.type === 'DateQuestion' && k === 'placeholder';
-      var on = !!node && cp.indexOf(k) !== -1 && !(isBound && k === 'text') && !dateNoPlaceholder;
+      // PC-A10 (drift honesty): TextBlock's generic "Icon" row (the
+      // GLYPH_ICON_TYPES free-glyph convention, content-schema.ts) is
+      // consumed by exactly 2 of its 7 roles — renderTextBlockReassurance /
+      // renderTextBlockSecureBadge (presets.ts); the other 5 (heading/body/
+      // category_label/helper/legal, including the no-role default) never
+      // read props.icon at all. Hide the row there, same "never show a
+      // control its renderer ignores" idiom as the CurrencyInputQuestion
+      // leading-icon gate below.
+      var role = node && node.props ? node.props.role : undefined;
+      var textBlockIconInert = !!node && node.type === 'TextBlock' && k === 'icon' && role !== 'reassurance' && role !== 'secure_badge';
+      var on = !!node && cp.indexOf(k) !== -1 && !(isBound && k === 'text') && !dateNoPlaceholder && !textBlockIconInert;
       wraps[i].hidden = !on;
       if (on) { anyContent = true; }
     }
@@ -7295,6 +7420,7 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     populateContainerProps(node);
     populateImageBlockControls(node);
+    populateNameFieldsGroupControls(node);
     var choicesBlock = document.querySelector('[data-field-choices-block]');
     if (choicesBlock) { choicesBlock.hidden = !node || meta.choice !== true; }
     var cardStyleHint = document.querySelector('[data-card-style-hint]');
@@ -8020,6 +8146,16 @@ export const SECTION_STUDIO_SCRIPT = `
     var props = ensureObj(node, 'props');
     props.role = sel.value;
     afterModelChange();
+    // PC-A10: the generic Content-tab "Icon" row's visibility depends on the
+    // role that JUST changed (populateInspector's textBlockIconInert gate —
+    // consumed only by reassurance/secure_badge) — afterModelChange alone
+    // never re-syncs it (it does not call populateInspector; setInspectorTab
+    // does not either), so without this the row would stay stuck showing
+    // whatever it showed at SELECTION time even after switching role here.
+    // Same narrow re-sync idiom setImageBlockSource/populateImageBlockControls
+    // already uses for its own dedicated block, scoped to just this one row.
+    var iconWrap = document.querySelector('[data-content-prop="icon"]');
+    if (iconWrap) { iconWrap.hidden = props.role !== 'reassurance' && props.role !== 'secure_badge'; }
   }
   // v3.1 R3b deliverable 4: the ImageBlock source toggle — writes props.source
   // (media|auto_logo) and re-populates so the media-vs-auto_logo sub-sections
@@ -8402,6 +8538,22 @@ export const SECTION_STUDIO_SCRIPT = `
     var thumb = document.querySelector('[data-imageblock-thumb]');
     var mediaInput = document.getElementById('lg-imageblock-media');
     if (thumb && mediaInput) { setChoiceThumb(thumb, mediaInput.value); }
+  }
+  // PC-A8 (register): NameFieldsGroup's dedicated per-field Basics block
+  // (First/Last — each its own Label/Placeholder/Helper/Leading-icon). All 8
+  // controls ride the generic data-inspector-field populate/collect loop
+  // (same mechanism as any other field, already run before this call) — this
+  // function only owns the block's OWN visibility, the same narrow role
+  // populateImageBlockControls plays for its own dedicated block above.
+  function populateNameFieldsGroupControls(node) {
+    var block = document.querySelector('[data-content-namefieldsgroup-block]');
+    var isNfg = !!node && node.type === 'NameFieldsGroup';
+    if (block) { block.hidden = !isNfg; }
+    if (!isNfg) { return; }
+    // Matches populateImageBlockControls's own honesty: a dedicated block
+    // full of real controls is never "no editable copy".
+    var emptyNote = document.querySelector('[data-content-empty]');
+    if (emptyNote) { emptyNote.hidden = true; }
   }
 
   // --- dependencies (§6.10 typed IF/THEN builder) --------------------------------
@@ -10645,7 +10797,9 @@ export const SECTION_STUDIO_SCRIPT = `
       if (inlineEditing) { return; }
       if (ev.key === 'ArrowUp') { ev.preventDefault(); moveWithin(selectedQuestionId, -1); }
       else if (ev.key === 'ArrowDown') { ev.preventDefault(); moveWithin(selectedQuestionId, 1); }
-      // §6.2: Del deletes the selection; Esc walks UP the ancestry.
+      // §6.2: Del deletes the selection; Esc walks UP the ancestry. PC-A7's
+      // choice-vs-group scope split lives INSIDE deleteSelectedWithUndo now
+      // (not here) — this call site is unchanged.
       else if (ev.key === 'Delete' || ev.key === 'Backspace') {
         ev.preventDefault();
         deleteSelectedWithUndo(selectedQuestionId);

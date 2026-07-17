@@ -95,6 +95,13 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // run on BOTH engines; leg 3 (the live funnel hide/show/advance proof)
   // test.skip()s on firefox for the same dynamic-host reason p4b's legs do.
   'leadgen-p4c-rules.gesture.spec.ts',
+  // P4d (register PC-8/PC-A7/PC-A8/PC-A10): editor integrity + Contact
+  // per-field controls + drift honesty. Every leg drives the Section Studio
+  // ONLY (no e2e.test dynamic tenant host — the NameFieldsGroup/dropdown/
+  // range helper legs read the studio's OWN canvas preview, the SAME
+  // presets.ts server renderer a live funnel uses) — SAME cross-engine shape
+  // as p2a/p3a/p4b/p4c.
+  'leadgen-p4d-editor.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',

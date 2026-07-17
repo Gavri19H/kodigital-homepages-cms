@@ -106,7 +106,11 @@ export const COMPONENT_CATALOG = {
   // never consumes it, no inspector control ever wrote it). Not a schema
   // change (content-schema never enforced this prop); doc-only correction.
   PhoneInputQuestion: { category: "question", scope: "unit", produces: "string", props: ["internal_field","required"], validation: ["phone format"], events: ["answer_change","validation_error"], tokenSlots: ["input"] },
-  NameFieldsGroup:    { category: "question", scope: "unit", produces: "object", props: ["fields(first,last)","required"], validation: ["required per field"], events: ["answer_change"], tokenSlots: ["input"] },
+  // PC-A8 (register): First/Last each authorable independently now (label
+  // already was; placeholder/helper/icon added this phase) — the Studio's
+  // dedicated "First name field"/"Last name field" Basics sub-groups
+  // (ui-section-studio.ts), not the generic per-type Content projection.
+  NameFieldsGroup:    { category: "question", scope: "unit", produces: "object", props: ["fields(first,last)","firstPlaceholder","lastPlaceholder","firstHelper","lastHelper","firstIcon","lastIcon","required"], validation: ["required per field"], events: ["answer_change"], tokenSlots: ["input"] },
   DateQuestion:       { category: "question", scope: "unit", produces: "string", props: ["internal_field","min","max","required"], validation: ["date range"], events: ["answer_change","validation_error"], tokenSlots: ["input"] },
   ZIPInputQuestion:   { category: "question", scope: "unit", produces: "string", props: ["internal_field","required","validate(google?)"], validation: ["/^\\d{5}$/","google validate if enabled"], events: ["answer_change","address_validation_success","address_validation_error"], tokenSlots: ["input"] },
   AddressAutocompleteQuestion: { category: "question", scope: "unit", produces: "object", props: ["internal_fields(street,city,state,zip)","required","provider(google)"], validation: ["required","google validate"], events: ["address_autofill","address_validation_success","address_validation_error"], tokenSlots: ["input"], capabilityExample: "NET-NEW: no reference-funnel Places impl — build fresh (§27)" },

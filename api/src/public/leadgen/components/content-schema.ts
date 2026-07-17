@@ -1787,7 +1787,13 @@ function validateNewFieldProps(
   // label / helper / error_text (§8.3 Basics/Answer-format groups): plain
   // optional strings, valid on any node (the Content tab reuses them wherever
   // a field selection shows Basics/Answer-format controls).
-  for (const key of ["label", "helper", "error_text"] as const) {
+  // PC-A8: firstHelper/lastHelper are NameFieldsGroup's own PER-FIELD helper
+  // lines (presets.ts renderNameFieldsGroup) — same "plain optional string,
+  // valid on any node" looseness as the shared `helper` above (dead-but-
+  // harmless on any other type, the established convention for this family;
+  // contrast firstIcon/lastIcon below, which mirror `icon`'s type-gated shape
+  // instead — each new per-field prop mirrors its own single-field analogue).
+  for (const key of ["label", "helper", "error_text", "firstHelper", "lastHelper"] as const) {
     const value = props[key];
     if (value !== undefined && typeof value !== "string") {
       push("invalid_field_prop", `${base}.props.${key}`, `props.${key} must be a string (§8.3)`);
@@ -1912,6 +1918,28 @@ function validateNewFieldProps(
   // maps — ZIP/Address only (§9.2).
   if (props["maps"] !== undefined) {
     validateMapsProp(type, props["maps"], `${base}.props.maps`, push, warn);
+  }
+
+  // firstIcon/lastIcon (PC-A8) — NameFieldsGroup's own PER-FIELD leading icon
+  // (presets.ts renderNameFieldsGroup, fieldLeadingIcon(node, key)). Meaningful
+  // ONLY on NameFieldsGroup (mirrors the role/TextBlock and source/ImageBlock
+  // gating above); no GLYPH_ICON_TYPES exception — NameFieldsGroup was never
+  // in that legacy free-form-glyph set, so it uses the SAME strict §8.5b
+  // 12-value enum the shared `icon` prop enforces for every non-glyph type.
+  for (const key of ["firstIcon", "lastIcon"] as const) {
+    const v = props[key];
+    if (v === undefined) continue;
+    if (type !== "NameFieldsGroup") {
+      push("invalid_field_prop", `${base}.props.${key}`, `props.${key} is only valid on NameFieldsGroup (§8.5b)`);
+      continue;
+    }
+    if (typeof v !== "string" || !FIELD_LEADING_ICON_SET.has(v)) {
+      push(
+        "invalid_field_prop",
+        `${base}.props.${key}`,
+        `props.${key} must be one of ${LEADGEN_FIELD_LEADING_ICONS.join("|")} (§8.5b)`,
+      );
+    }
   }
 
   // P2a §R-A per-element freedom for TwoButtonYesNo — it is a FIXED boolean

@@ -59,6 +59,20 @@ const HELPER_TYPES = [
   "MultiChoiceCardGroup",
   "DropdownQuestion",
   "OtherGroupSelector",
+  // PC-A10 (drift honesty, register): CONTENT_PROP_FIELDS has always
+  // advertised Helper text for SearchableDropdownQuestion (it shares
+  // DropdownQuestion's own ["placeholder","helper"] row set) — the renderer
+  // just never called fieldHelperLine, an ARBITRARY exclusion this pin used
+  // to assert explicitly ("intentionally NOT in the helper set"). Wired now;
+  // folded into this set — the honest resolution was to render it, not to
+  // keep excluding it.
+  "SearchableDropdownQuestion",
+  // PC-A10: the Range family shares ONE bespoke renderer (renderRange) that
+  // also never called fieldHelperLine despite CONTENT_PROP_FIELDS
+  // advertising Helper text for all 3 — same drift class, same fix.
+  "RangeQuestion",
+  "CurrencyRangeQuestion",
+  "NumberRangeQuestion",
 ];
 
 describe("R3 S2-1/E1-C3 — button/other-group renderers consume size/corners/border", () => {
@@ -184,7 +198,16 @@ describe("R3 BLOCKER-1 — every size preset resolves to its grounded px (no ine
   });
 });
 
-describe("R3 E1-NEW-8 — the 7 advertising renderers render the shared helper line", () => {
+// PC-A10 (drift honesty): grew from "the 7 advertising renderers" to 11 —
+// SearchableDropdownQuestion (its exclusion was arbitrary, not a documented
+// design choice — the register never actually said "7 only") plus the
+// 3-member Range family (RangeQuestion/CurrencyRangeQuestion/
+// NumberRangeQuestion), whose shared renderRange never called
+// fieldHelperLine despite CONTENT_PROP_FIELDS advertising it. This pin
+// derives every member from HELPER_TYPES above (not a hand-copied list), so
+// a future CONTENT_PROP_FIELDS/renderer drift on any of these 11 goes RED
+// here rather than silently reopening the gap this phase closed.
+describe("R3/PC-A10 E1-NEW-8 — every advertised-Helper renderer actually renders the shared helper line", () => {
   for (const t of HELPER_TYPES) {
     it(`${t} renders lg-field-help when props.helper is set`, () => {
       const html = render(t, { props: { helper: "We keep this private" } });
@@ -195,9 +218,6 @@ describe("R3 E1-NEW-8 — the 7 advertising renderers render the shared helper l
       expect(render(t)).not.toContain("lg-field-help");
     });
   }
-  it("SearchableDropdownQuestion is intentionally NOT in the helper set (register lists 7)", () => {
-    expect(render("SearchableDropdownQuestion", { props: { helper: "x" } })).not.toContain("lg-field-help");
-  });
 });
 
 describe("R3 S2-8/E1-NEW-9/U9 — the leading-icon SVG map is complete (P1b: curated Tabler subset, register PC-11)", () => {

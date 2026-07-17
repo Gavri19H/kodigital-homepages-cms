@@ -686,7 +686,15 @@ function renderRange(
     attr("data-internal-field", node.internal_field) +
     `>` +
     `<div class="lg-range-minmax"><span>${esc(minLabel)}</span><span>${esc(maxLabel)}</span></div>` +
-    `</div>`
+    `</div>` +
+    // PC-A10 (drift honesty): CONTENT_PROP_FIELDS has always advertised a
+    // Helper text control for all 3 Range-family types, but none of them ever
+    // called fieldHelperLine — wire it here (the ONE shared bespoke renderer
+    // behind renderRangeQuestion/renderCurrencyRangeQuestion/
+    // renderNumberRangeQuestion), the same fieldHelperLine pattern the 8
+    // wired button/dropdown/text-input types already use ("" when unauthored
+    // — byte-additive).
+    fieldHelperLine(node)
   );
 }
 
@@ -1193,7 +1201,14 @@ export function renderSearchableDropdownQuestion(
     `<option value="" disabled${def === undefined ? " selected" : ""}>${esc(placeholder)}</option>` +
     options +
     `</select>` +
-    `</div>`
+    `</div>` +
+    // PC-A10 (drift honesty): CONTENT_PROP_FIELDS has always advertised a
+    // Helper text control for this type (it shares DropdownQuestion's own
+    // ["placeholder","helper"] row set), but this renderer never called
+    // fieldHelperLine — an arbitrary exclusion (the r3a-consumption drift
+    // pin used to assert it explicitly; now it asserts the opposite). Wired
+    // to match DropdownQuestion exactly ("" when unauthored — byte-additive).
+    fieldHelperLine(node)
   );
 }
 
@@ -1829,8 +1844,11 @@ function choiceHeightsAttr(hasHeight: boolean): string {
 // currentColor + no baked-in size means the SAME source now actually responds
 // to both. Leading field icons render at 20px (§8.1 field-box scale, close to
 // the pre-P1b 19px). "none"/absent/unknown → "" (byte-identical to before).
-function fieldLeadingIcon(node: LeadgenComponentNode): string {
-  const id = propStr(node, "icon");
+// PC-A8: `key` defaults to "icon" (every pre-existing call site passes none,
+// so behavior/output is byte-identical) — renderNameFieldsGroup is the ONE
+// caller that passes "firstIcon"/"lastIcon" for its own per-field pickers.
+function fieldLeadingIcon(node: LeadgenComponentNode, key: string = "icon"): string {
+  const id = propStr(node, key);
   if (id === undefined || !Object.prototype.hasOwnProperty.call(LEADGEN_ICONS, id)) return "";
   return leadgenIconSvg(id, 20);
 }
@@ -1840,8 +1858,13 @@ function fieldLeadingIcon(node: LeadgenComponentNode): string {
 // helper. Golden :326 verbatim inline style. Shared by the whole text-input
 // family + the currency/address wrappers, so the helper renders identically on
 // runtime + both previews (§12 parity).
-function fieldHelperLine(node: LeadgenComponentNode): string {
-  const helper = propStr(node, "helper") ?? propStr(node, "helper_text");
+// PC-A8: `key` defaults to "helper" (every pre-existing call site passes none,
+// so behavior/output is byte-identical, INCLUDING the props.helper_text legacy
+// fallback, which only ever applied to the canonical "helper" key) —
+// renderNameFieldsGroup is the ONE caller that passes "firstHelper"/
+// "lastHelper" for its own per-field lines (brand-new keys, no legacy alias).
+function fieldHelperLine(node: LeadgenComponentNode, key: string = "helper"): string {
+  const helper = key === "helper" ? (propStr(node, "helper") ?? propStr(node, "helper_text")) : propStr(node, key);
   // audit-round G MINOR-3: propStr returns "" (not undefined) for an
   // authored empty-string prop, so a legacy node migrated to helper:"" must
   // still gate out here — trimmed-non-empty, not merely !== undefined —
@@ -2058,28 +2081,64 @@ export function renderZIPInputQuestion(
   );
 }
 
+// PC-A8 (register): First/Last each get their own placeholder/helper/leading-
+// icon now (previously hardcoded bare inputs — the operator's Contact
+// scenario: typing into a per-field control did nothing because there was no
+// per-field prop for it to write). Byte-identical to pre-PC-A8 output when
+// none of the 6 new props (firstPlaceholder/lastPlaceholder/firstHelper/
+// lastHelper/firstIcon/lastIcon) are authored — every addition below is an
+// attr()/style() no-op against an absent value, the SAME "absent is empty"
+// discipline renderTextInput/renderAddressAutocompleteQuestion already use
+// for their own leading-icon box + helper line.
 export function renderNameFieldsGroup(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const first = propStr(node, "firstLabel") ?? "First name";
   const last = propStr(node, "lastLabel") ?? "Surname";
+  const firstHelper = fieldHelperLine(node, "firstHelper");
+  const lastHelper = fieldHelperLine(node, "lastHelper");
   // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
   // the :focus / [aria-invalid] state rules win by cascade (no !important).
-  const field = (label: string, name: string, autocomplete: string): string =>
-    `<label class="lg-field"><span class="lg-label">${esc(label)}</span>` +
-    // 03 §3.3: both name text inputs carry data-lg-input.
-    `<input class="lg-input" type="text" data-lg-input` +
-    ` data-name-field="${name}" autocomplete="${autocomplete}"` +
-    (node.required === true ? " required" : "") +
-    `></label>`;
+  const field = (
+    label: string,
+    name: string,
+    autocomplete: string,
+    placeholder: string | undefined,
+    icon: string,
+    helper: string,
+  ): string => {
+    // 03 §3.3: both name text inputs carry data-lg-input. Same left-inset
+    // idiom as renderTextInput/renderAddressAutocompleteQuestion: a leading
+    // icon adds padding-left so the input text clears the pin.
+    const input =
+      `<input class="lg-input" type="text" data-lg-input` +
+      ` data-name-field="${name}" autocomplete="${autocomplete}"` +
+      attr("placeholder", placeholder) +
+      (icon !== "" ? style({ "padding-left": "42px" }) : "") +
+      (node.required === true ? " required" : "") +
+      `>`;
+    const boxedInput =
+      icon === ""
+        ? input
+        : '<span class="lg-field-box" style="position:relative;display:block">' +
+          '<span class="lg-field-icon" aria-hidden="true" style="position:absolute;left:14px;top:0;bottom:0;display:flex;align-items:center;pointer-events:none;z-index:1">' +
+          icon +
+          "</span>" +
+          input +
+          "</span>";
+    return `<label class="lg-field"><span class="lg-label">${esc(label)}</span>${boxedInput}${helper}</label>`;
+  };
   return (
     `<div class="lg-name-group"${hydration(node)}>` +
-    field(first, "first", "given-name") +
-    field(last, "last", "family-name") +
+    field(first, "first", "given-name", propStr(node, "firstPlaceholder"), fieldLeadingIcon(node, "firstIcon"), firstHelper) +
+    field(last, "last", "family-name", propStr(node, "lastPlaceholder"), fieldLeadingIcon(node, "lastIcon"), lastHelper) +
     `</div>` +
-    // v3.1 R3b E1-NEW-7: the Content-tab "Helper text" control has always
-    // been advertised for this type (CONTENT_PROP_FIELDS.NameFieldsGroup)
-    // but the renderer never called fieldHelperLine — wire it (the shared
-    // golden helper styling, "" when unauthored — byte-identical otherwise).
-    fieldHelperLine(node)
+    // v3.1 R3b E1-NEW-7 / PC-A8: the group-level `helper` is now a DEPRECATED
+    // fallback — CONTENT_PROP_FIELDS no longer advertises it (the Studio's
+    // dedicated NameFieldsGroup block authors per-field helpers instead), but
+    // it still renders — exactly as before, once, below both fields — for
+    // legacy content that carries it, and ONLY when neither field has its own
+    // per-field helper authored (adopting either per-field helper drops the
+    // shared line — no doubled helper copy).
+    (firstHelper === "" && lastHelper === "" ? fieldHelperLine(node) : "")
   );
 }
 
