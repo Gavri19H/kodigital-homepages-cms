@@ -40,7 +40,7 @@ import {
   visibleSectionIndexes,
   type LgDependencyState,
 } from "./dependencies";
-import { formatKindFor, validateSection } from "./validation";
+import { formatKindFor, normalizePhoneE164, validateSection } from "./validation";
 import { LgBeaconClient, ulidLike, type LgSendFn } from "./events";
 import * as render from "./render";
 import { wireMapsFields } from "./maps";
@@ -769,6 +769,15 @@ export class LgEngine {
     // /^\d{5}$/ — validation semantics on either side stay unchanged.
     if (component !== null && typeof value === "string" && formatKindFor(component) === "zip") {
       value = value.trim();
+    }
+    // PC-A4 (P4b): a VALID phone stores its E.164 normal form ("(415) 555-1234"
+    // → "+14155551234") so the recorded/submitted answer is canonical. Only on
+    // pass — an invalid entry keeps the raw text so the visitor sees what they
+    // typed alongside the (now visible) error. Idempotent (E.164 re-normalizes
+    // to itself); prior stored answers are untouched (never re-captured).
+    if (component !== null && typeof value === "string" && formatKindFor(component) === "phone") {
+      const e164 = normalizePhoneE164(value);
+      if (e164 !== null) value = e164;
     }
 
     const meta = {

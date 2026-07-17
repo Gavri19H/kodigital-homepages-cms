@@ -281,7 +281,12 @@ describe("validation: client_validation rule matrix", () => {
     ]);
 
     const phone = component({ type: "PhoneInputQuestion" });
-    expect(validateValue(phone, "(555) 123-4567", false)).toEqual([]);
+    // PC-A4 (P4b): phone is now NANP-STRUCTURAL, not strip-count 7..15. A
+    // formatted, real-structured number still validates (area + exchange first
+    // digit 2–9). The prior fixture "(555) 123-4567" had exchange 123 (first
+    // digit 1) — invalid under NANP — so this uses a real exchange (555 → first
+    // digit 5). Full false-accept/edge matrix: leadgen-p4b-phone.test.ts.
+    expect(validateValue(phone, "(415) 555-1234", false)).toEqual([]);
     expect(validateValue(phone, "123", false).map((f) => f.code)).toEqual(["phone_format"]);
 
     const zip = component({ type: "ZIPInputQuestion" });

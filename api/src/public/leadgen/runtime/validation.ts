@@ -72,15 +72,35 @@ export function formatKindFor(component: LgComponentConfig): LgFormatKind {
   return null;
 }
 
+// PC-A4 (P4b) — NANP structural phone validation + E.164 normalization.
+//
+// Returns the E.164 form (`+1` + 10 digits) for a valid US/Canada number, or
+// null. Strips all formatting; accepts 10 significant digits, or 11 with a
+// leading country-code `1`. NANP requires BOTH the area code and the exchange
+// (central-office) code to begin 2–9 — so the old strip-and-count 7..15 check's
+// false-accepts are now correctly rejected: "1111111111" has area code 111
+// (first digit 1) → invalid, and a 14-digit blob is not 10/11 digits → invalid.
+// A valid number like "(415) 555-1234" → "+14155551234".
+export function normalizePhoneE164(value: string): string | null {
+  let digits = value.replace(/\D/g, "");
+  // strip a leading country-code 1 on an 11-digit number
+  if (digits.length === 11 && digits.charCodeAt(0) === 49 /* "1" */) digits = digits.slice(1);
+  if (digits.length !== 10) return null;
+  const area = digits.charCodeAt(0); // NANP: area code first digit 2–9
+  const exch = digits.charCodeAt(3); // NANP: exchange code first digit 2–9
+  if (area < 50 || area > 57) return null; // "2".."9"
+  if (exch < 50 || exch > 57) return null; // "2".."9"
+  return "+1" + digits;
+}
+
 function checkFormat(kind: LgFormatKind, value: unknown, out: LgValidationFailure[]): void {
   if (kind === null) return;
   if (typeof value !== "string" || value === "") return; // emptiness is `required`'s job
   if (kind === "email" && !EMAIL_RE.test(value.trim())) {
     out.push({ code: "email_format", message: "Enter a valid email address." });
   } else if (kind === "phone") {
-    const digits = value.replace(/\D/g, "");
-    if (digits.length < 7 || digits.length > 15) {
-      out.push({ code: "phone_format", message: "Enter a valid phone number." });
+    if (normalizePhoneE164(value) === null) {
+      out.push({ code: "phone_format", message: "Enter a valid US phone number." });
     }
   } else if (kind === "zip" && !ZIP_RE.test(value.trim())) {
     out.push({ code: "zip_format", message: "Enter a valid 5-digit ZIP code." });
