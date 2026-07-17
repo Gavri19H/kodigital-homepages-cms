@@ -2234,7 +2234,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <button type="button" data-set-continue-mode="button">Wait for Continue</button>
         <button type="button" data-set-continue-mode="auto_advance">Go to next</button>
       </div>
-      <p class="form-help" data-continue-lock-note hidden style="color:#8a5a00;margin-top:6px"></p>
+      <p class="form-help" data-continue-lock-note hidden style="color:#664d03;margin-top:6px"></p>
       </div><!-- /data-content-behavior-section -->
 
       <div class="studio-hr"></div>
