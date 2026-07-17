@@ -32,6 +32,18 @@
 //   events          tracking events it fires (§22)
 //   tokenSlots      which visual-design style slots it consumes (from designs/*)
 //   capabilityExample  which screenshot/reference pattern it can reproduce
+//
+// CROSS-CUTTING NODE FIELDS (not per-type props; live on the shared node in
+// content-schema.ts, validated there): `design_overrides` (§14.8 tokenized
+// style) and — P3a (register PC-2 / D1 / axiom R-B) — `layout`, the STRUCTURED
+// PLACEMENT bag. `layout` groups contiguous same-`row` siblings into a 2-3-slot
+// side-by-side row, gives each element an `align` (start|center|end) + optional
+// `width` (the SAME s/m/l/full/custom_px vocabulary as design_overrides.size)
+// + a bounded `nudge` (±48px), and stacks to a column automatically at 480px
+// (presets.ts renderNodes + designs/*/styles.ts `.lg-el`/`.lg-el-row`). It is a
+// Section-UNIT concern: valid on any `scope: "unit"|"both"` component (answer,
+// content, container), rejected on a `scope: "frame"` chrome component. Absent
+// `layout` ⇒ byte-identical pre-P3a render.
 
 // v2.5 08 §8.2 scope vocabulary (03 §3.5). The `satisfies` clause on the
 // catalog makes the scope assignment compile-time EXHAUSTIVE: an entry

@@ -305,6 +305,57 @@ export function funnelChromeCss(
   mobile.push(rule(`${scope} .lg-subheadline`, { "margin-top": "0" }));
   mobile.push(rule(`${scope} .lg-continue`, { "margin-top": "26px" }));
 
+  // ---- P3a structured placement (register PC-2 / D1 / R-B) ----------------
+  // renderNodes groups contiguous same-`row` siblings into `.lg-el-row` (a flex
+  // row of 2-3 `.lg-el` slots) and wraps a lone placed element in `.lg-el`.
+  //   • ROW: flex; the theme answer-grid gutter is reused as the inter-slot gap
+  //     (§R-B "reuse a theme gap token" — NO new design_tokens key, so the A0
+  //     serialized-config byte pin is untouched; only THIS sheet grows).
+  //   • SLOT: equal basis by default (unauthored members share the row); a
+  //     per-member fixed width rides `--lg-el-basis` (marked `data-el-basis`).
+  //     Each slot is itself a column-flex so the per-element `data-align`
+  //     positions its CONTENT (start/center/end); `min-width:0` lets a slot
+  //     shrink rather than overflow.
+  //   • WRAPPER: a bounded nudge rides `--lg-el-nudge` → `transform: translate`
+  //     (visual only — never affects flow/rhythm); a lone fixed-width box can
+  //     never exceed its column (`max-width:100%`).
+  // A row is ONE stack unit: the `.lg-question-card > * + *` floor (a DIRECT-
+  // child combinator) reaches `.lg-el-row`/lone `.lg-el` but NOT the members
+  // inside a row (grandchildren) — so members get no vertical floor; the row
+  // as a whole keeps the inter-component rhythm. `.lg-el-row` (display:flex)
+  // does NOT margin-collapse (same as `.lg-answer-group`/`.lg-card-grid`), so it
+  // is added to the grid-follower collapse-emulation table below; a lone `.lg-el`
+  // is a normal block that collapses, needing no exception.
+  out.push(
+    rule(`${scope} .lg-el-row`, { display: "flex", gap: answerGrid.gap, "align-items": "stretch" }),
+    rule(`${scope} .lg-el-row > .lg-el`, {
+      flex: "1 1 0",
+      "min-width": "0",
+      display: "flex",
+      "flex-direction": "column",
+    }),
+    rule(`${scope} .lg-el-row > .lg-el[data-el-basis]`, {
+      "flex-grow": "0",
+      "flex-basis": "var(--lg-el-basis)",
+    }),
+    rule(`${scope} .lg-el-row > .lg-el[data-align="start"]`, { "align-items": "flex-start" }),
+    rule(`${scope} .lg-el-row > .lg-el[data-align="center"]`, { "align-items": "center" }),
+    rule(`${scope} .lg-el-row > .lg-el[data-align="end"]`, { "align-items": "flex-end" }),
+    rule(`${scope} .lg-el`, { transform: "var(--lg-el-nudge, none)", "max-width": "100%" }),
+  );
+  // ≤480px (§D1 automatic mobile stacking): the row becomes a column, every
+  // member spans full width (its desktop `--lg-el-basis` is neutralized — flex
+  // reset to `1 1 auto`, so a fixed WIDTH basis never becomes a fixed HEIGHT in
+  // the column), and nudges (a desktop refinement) are dropped. This media
+  // block appends at the END of the sheet, so these rules win the source-order
+  // tie over their desktop twins at equal specificity.
+  mobile.push(
+    rule(`${scope} .lg-el-row`, { "flex-direction": "column", gap: spacing.stackMobile }),
+    rule(`${scope} .lg-el-row > .lg-el`, { flex: "1 1 auto" }),
+    rule(`${scope} .lg-el-row > .lg-el[data-el-basis]`, { flex: "1 1 auto" }),
+    rule(`${scope} .lg-el`, { transform: "none" }),
+  );
+
   // ---- header (§14.2 header) ----------------------------------------------
   out.push(
     rule(`${scope} .lg-header`, {
@@ -1347,7 +1398,11 @@ export function funnelChromeCss(
     // the WHOLE gap by itself, so the follower's share is 0, not negative).
     const emulated = (predecessorMarginBottom: string): string =>
       `${Math.max(0, stackPx - toPx(predecessorMarginBottom))}px`;
-    const GRID_FOLLOWERS = [".lg-answer-group", ".lg-card-grid"] as const;
+    // P3a (register PC-2): `.lg-el-row` (display:flex) shares the grid boxes'
+    // non-collapse — a row following a margin-bottom predecessor would SUM
+    // (not max()) its floor margin-top, so it takes the SAME emulation. A lone
+    // `.lg-el` is a normal block (collapses), so it is NOT a follower here.
+    const GRID_FOLLOWERS = [".lg-answer-group", ".lg-card-grid", ".lg-el-row"] as const;
     // Direct-sibling selectors (the live/unwrapped path) PLUS the `:has()`
     // companion (the studio-canvas selected/wrapped path) for every predecessor
     // + grid-follower pair.

@@ -630,8 +630,11 @@ const P1A_OLD_CARD_MIN_HEIGHT = "96px"; // pre-P1a iconCard.minHeight (the froze
 // (mb >= stack 18) -> 0; Category B (mb < stack) -> 18-mb (9 for headline·9,
 // 6 for category·12, 2 for trustbar/logo-strip/columns/field·16 — all four
 // share the SAME 1rem/16px value).
+// P3a (register PC-2): `.lg-el-row` (a flex box, non-collapsing) joined the
+// grid-follower set in styles.ts, so the emulation table now emits its
+// selectors too — kept in lockstep here (a drift fails the strip below).
 function followerSelectorsFixRound(predecessor: string): string {
-  return [".lg-answer-group", ".lg-card-grid"]
+  return [".lg-answer-group", ".lg-card-grid", ".lg-el-row"]
     .flatMap((f) => [`${DEFAULT_FUNNEL_SCOPE} ${predecessor} + ${f}`, `${DEFAULT_FUNNEL_SCOPE} ${predecessor} + *:has(> ${f})`])
     .join(", ");
 }
@@ -668,6 +671,28 @@ const MINOR1_CARD_PANEL_FLOOR_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-card-panel >
 const MINOR1_BG_PANEL_FLOOR_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-bg-panel-inner > * + *{margin-top:${defaultFunnelDesign.spacing.stack}}`;
 const MINOR1_CARD_PANEL_FLOOR_MOBILE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-card-panel > * + *{margin-top:${defaultFunnelDesign.spacing.stackMobile}}`;
 const MINOR1_BG_PANEL_FLOOR_MOBILE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-bg-panel-inner > * + *{margin-top:${defaultFunnelDesign.spacing.stackMobile}}`;
+
+// P3a (register PC-2 / D1 / R-B): structured placement is a NET-NEW CSS system
+// (`.lg-el` / `.lg-el-row`) — 7 base rules + 4 mobile rules. NONE match this
+// legacy/no-layout content (no node carries `layout`), so they are wholesale-
+// stripped here (the SAME "net-new rule" bucket as P1a's own additions), kept
+// in lockstep with styles.ts (a drift in either fails here). The grid-follower
+// collapse-emulation table's OWN `.lg-el-row` growth is already reconstructed
+// by followerSelectorsFixRound (above), so P1A_FIX_ROUND_EXCEPTION_TABLE still
+// strips the CURRENT (expanded) table wholesale.
+const P3A_EL_RULES = [
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row{display:flex;gap:${defaultFunnelDesign.answerGrid.gap};align-items:stretch}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row > .lg-el{flex:1 1 0;min-width:0;display:flex;flex-direction:column}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row > .lg-el[data-el-basis]{flex-grow:0;flex-basis:var(--lg-el-basis)}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row > .lg-el[data-align="start"]{align-items:flex-start}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row > .lg-el[data-align="center"]{align-items:center}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row > .lg-el[data-align="end"]{align-items:flex-end}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-el{transform:var(--lg-el-nudge, none);max-width:100%}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row{flex-direction:column;gap:${defaultFunnelDesign.spacing.stackMobile}}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row > .lg-el{flex:1 1 auto}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row > .lg-el[data-el-basis]{flex:1 1 auto}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-el{transform:none}`,
+];
 
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
@@ -827,9 +852,13 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     .join("")
     .split(MINOR1_BG_PANEL_FLOOR_MOBILE_RULE)
     .join("");
+  // P3a (register PC-2 / D1 / R-B): strip the net-new .lg-el/.lg-el-row rules
+  // (the ONLY additional legal delta this slice adds — the grid-follower table
+  // growth is already handled by followerSelectorsFixRound above).
+  const cssMinusAll = P3A_EL_RULES.reduce((s, r) => s.split(r).join(""), cssMinusMove);
   expect(
-    cssMinusMove,
-    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system",
+    cssMinusAll,
+    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules",
   ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));

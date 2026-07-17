@@ -60,6 +60,8 @@ import type {
   LeadgenDesignOverrides,
   LeadgenNodeBorderColorRole,
   LeadgenNodeCorners,
+  LeadgenPlacementAlign,
+  LeadgenPlacementLayout,
   LeadgenResolvedSizeAxis,
 } from "./content-schema";
 // P1b (register PC-11): the §8.1 leading-icon / card-icon SVGs are the
@@ -689,8 +691,9 @@ function answerGroupRootStyle(
     gap: ov(node, "gridGap"),
     width: width,
     // R7 U11b: a fixed-width block-level grid centers via auto side-margins (no
-    // display:block needed). {} for full/unauthored → byte-identical.
-    ...widthCenteringEntries(width),
+    // display:block needed). {} for full/unauthored → byte-identical. P3a: a
+    // node's authored layout.align overrides the default centering (start/end).
+    ...widthCenteringEntries(width, { align: node.layout?.align }),
   });
 }
 
@@ -911,7 +914,7 @@ function renderCardGrid(
       const w = sizeStyleEntries(node, ctx).width;
       // R7 U11b: a fixed max-width grid centers via auto side-margins (the
       // grid is already block-level display:grid); {} for full/unauthored.
-      return style({ "--lg-cols": String(cols), gap, "max-width": w, ...widthCenteringEntries(w) });
+      return style({ "--lg-cols": String(cols), gap, "max-width": w, ...widthCenteringEntries(w, { align: node.layout?.align }) });
     })() +
     `>${cards}</div>` +
     // v3.1 R3 E1-NEW-8: helper line below the grid ("" when no props.helper).
@@ -1003,7 +1006,7 @@ export function renderMultiChoiceCardGroup(
       );
       const gap = ov(node, "gridGap") ?? sectionGapDefault(ctx) ?? design.iconCardGrid.gap;
       // R7 U11b: fixed max-width grid centers via auto side-margins.
-      return style({ "--lg-cols": String(cols), gap, "max-width": w, ...widthCenteringEntries(w) });
+      return style({ "--lg-cols": String(cols), gap, "max-width": w, ...widthCenteringEntries(w, { align: node.layout?.align }) });
     })() +
     attr("data-min", min) +
     attr("data-max", max) +
@@ -1396,15 +1399,24 @@ function sizeStyleEntries(
 // node (100+ live zones) are untouched. Appended LAST at each emission site so
 // the width/height/appearance key order in the merged style() is unchanged for
 // the unaffected cases.
+// P3a (register PC-2 / D1 / R-B) GENERALIZATION: the same fixed-width block
+// that pre-P3a ALWAYS centered now honors an authored placement `align` —
+// start hugs the left, end hugs the right, center/undefined keep the
+// pre-P3a symmetric auto-centering. `align === undefined` (every legacy /
+// no-layout node) returns the EXACT pre-P3a entries in the EXACT key order, so
+// design_overrides.size centering stays byte-identical (leadgen-p3a-backcompat
+// freezes one sized node per call site). A corrupt stored align falls to the
+// center default (defensive).
 function widthCenteringEntries(
   width: string | undefined,
-  opts?: { block?: boolean },
+  opts?: { block?: boolean; align?: LeadgenPlacementAlign },
 ): Record<string, string | undefined> {
   if (width === undefined || width === "100%") return {};
+  const align = opts?.align;
   return {
     display: opts?.block === true ? "block" : undefined,
-    "margin-left": "auto",
-    "margin-right": "auto",
+    "margin-left": align === "start" ? "0" : "auto",
+    "margin-right": align === "end" ? "0" : "auto",
   };
 }
 
@@ -1421,7 +1433,7 @@ function fieldSizeStyle(node: LeadgenComponentNode, ctx: LeadgenSectionRenderCtx
   // R7 U11b: the .lg-currency/.lg-address OUTER wrapper is a block <div> →
   // auto side-margins center it on a fixed width; {} for full/unauthored keeps
   // this byte-identical (the pre-R7 currency/address size pins hold).
-  return style({ ...sz, ...widthCenteringEntries(sz.width) });
+  return style({ ...sz, ...widthCenteringEntries(sz.width, { align: node.layout?.align }) });
 }
 
 // v3.1 §8.5b/§11.5 Style tab "Corners" (Sharp/Rounded/Pill) -> §3.3 radii
@@ -1541,7 +1553,7 @@ function fieldStyleAttr(
   // auto side-margins center it on a fixed width. {} for full/unauthored →
   // byte-identical (order: width,height,border-radius,--lg-field-border first,
   // then the centering keys only when a fixed width is present).
-  return style({ ...sz, ...appearanceStyleEntries(node, design), ...widthCenteringEntries(sz.width, { block: true }) });
+  return style({ ...sz, ...appearanceStyleEntries(node, design), ...widthCenteringEntries(sz.width, { block: true, align: node.layout?.align }) });
 }
 
 // ---------------------------------------------------------------------------
@@ -3070,16 +3082,193 @@ export function renderComponent(
   }
 }
 
+// ---------------------------------------------------------------------------
+// P3a (register PC-2 / D1 / R-B) — STRUCTURED PLACEMENT render layer.
+// ---------------------------------------------------------------------------
+// A node's OPTIONAL `layout` groups contiguous same-`row` siblings into a flex
+// `.lg-el-row` (2-3 slots) and gives each element an `align`, a slot/box
+// `width` (the SAME size-width resolver), and a bounded `nudge`. A node
+// carrying NO placement renders byte-identically to pre-P3a (the fast path
+// below is the EXACT pre-P3a `nodes.map(...).join("")`).
+
+// The node's placement bag IFF it carries at least one meaningful key — an
+// absent / empty `{}` layout is `undefined` (byte-identical). Null-safe (the
+// walk may see corrupt non-object entries).
+function placementOf(node: LeadgenComponentNode): LeadgenPlacementLayout | undefined {
+  if (node === null || typeof node !== "object") return undefined;
+  const l = node.layout;
+  if (l === undefined || typeof l !== "object") return undefined;
+  if (
+    l.row === undefined &&
+    l.align === undefined &&
+    l.width === undefined &&
+    l.nudge_x === undefined &&
+    l.nudge_y === undefined
+  ) {
+    return undefined;
+  }
+  return l;
+}
+
+function hasPlacement(node: LeadgenComponentNode): boolean {
+  return placementOf(node) !== undefined;
+}
+
+// The grouping key: a non-empty string row-id (render-defensive — validation is
+// the save-time gate; the id is used only for grouping, never emitted, so no
+// escape concern).
+function placementRowId(node: LeadgenComponentNode): string | undefined {
+  const row = placementOf(node)?.row;
+  return typeof row === "string" && row !== "" ? row : undefined;
+}
+
+// Defensive re-clamp of a nudge axis (validate-time enforces [-48,48]; a
+// corrupt/legacy value is clamped here, mirroring the module's clampInt idiom).
+function placementNudge(n: number | undefined): number {
+  if (typeof n !== "number" || !Number.isFinite(n)) return 0;
+  return clampInt(n, -48, 48);
+}
+
+// The translate() for the two nudge axes, or undefined when both are zero.
+// Emitted as the `--lg-el-nudge` custom property (styles.ts reads it into
+// `transform`) so the ≤480px stack can neutralize it — nudges are a desktop
+// refinement.
+function placementNudgeVar(layout: LeadgenPlacementLayout): string | undefined {
+  const x = placementNudge(layout.nudge_x);
+  const y = placementNudge(layout.nudge_y);
+  if (x === 0 && y === 0) return undefined;
+  return `translate(${x}px, ${y}px)`;
+}
+
+// Resolve layout.width through the EXACT design_overrides.size WIDTH resolver
+// (resolveFieldSize + sizeAxisCssValue) → a concrete CSS width ("384px",
+// "100%", "320px", …) or undefined (absent / stale preset). One width
+// vocabulary, one resolver (§R-B).
+function placementWidthCss(
+  layout: LeadgenPlacementLayout,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): string | undefined {
+  if (layout.width === undefined) return undefined;
+  const controls = ctx?.theme_controls ?? DEFAULT_SIZE_THEME_CONTROLS;
+  return sizeAxisCssValue(resolveFieldSize({ width: layout.width }, controls).width, "width");
+}
+
+// Finish a LONE (not-in-a-row) node: a no-placement node renders raw
+// (byte-identical); a placed node is wrapped in `.lg-el` ONLY when it needs a
+// fixed-width box (+ align margins) or a nudge — align-only stays raw (its
+// align threads into the node's OWN size-centering via widthCenteringEntries).
+function finishLonePlacement(
+  node: LeadgenComponentNode,
+  html: string,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): string {
+  if (html === "") return "";
+  const layout = placementOf(node);
+  if (layout === undefined) return html;
+  const wCss = placementWidthCss(layout, ctx);
+  const fixedW = wCss !== undefined && wCss !== "100%" ? wCss : undefined;
+  const nudge = placementNudgeVar(layout);
+  if (fixedW === undefined && nudge === undefined) return html;
+  const styleAttr = style({
+    width: fixedW,
+    ...widthCenteringEntries(fixedW, { align: layout.align }),
+    "--lg-el-nudge": nudge,
+  });
+  return `<div class="lg-el"${styleAttr}>${html}</div>`;
+}
+
+// Wrap ONE row member in its `.lg-el` slot: the slot basis rides `--lg-el-basis`
+// (a fixed width member; unauthored/full members keep the CSS equal-basis
+// default), `data-align` positions its content, `--lg-el-nudge` carries the
+// bounded offset.
+function wrapRowMember(
+  node: LeadgenComponentNode,
+  html: string,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): string {
+  const layout = placementOf(node) ?? {};
+  const wCss = placementWidthCss(layout, ctx);
+  const fixedW = wCss !== undefined && wCss !== "100%" ? wCss : undefined;
+  const styleAttr = style({
+    "--lg-el-basis": fixedW,
+    "--lg-el-nudge": placementNudgeVar(layout),
+  });
+  return (
+    `<div class="lg-el"` +
+    attr("data-align", isPlacementAlign(layout.align) ? layout.align : undefined) +
+    attr("data-el-basis", fixedW !== undefined ? "1" : undefined) +
+    styleAttr +
+    `>${html}</div>`
+  );
+}
+
+function isPlacementAlign(v: unknown): v is LeadgenPlacementAlign {
+  return v === "start" || v === "center" || v === "end";
+}
+
+// Render a contiguous run of same-row members → one `.lg-el-row`. Members that
+// render empty (a hidden/suppressed node) drop out; a run left with a single
+// real member renders as a lone element (no `.lg-el-row` for one slot).
+function renderElementRow(
+  members: readonly LeadgenComponentNode[],
+  ctx: LeadgenSectionRenderCtx | undefined,
+  renderOne: (node: LeadgenComponentNode) => string,
+): string {
+  const rendered: Array<{ node: LeadgenComponentNode; html: string }> = [];
+  for (const m of members) {
+    const html = renderOne(m);
+    if (html !== "") rendered.push({ node: m, html });
+  }
+  if (rendered.length === 0) return "";
+  if (rendered.length === 1) {
+    const only = rendered[0] as { node: LeadgenComponentNode; html: string };
+    return finishLonePlacement(only.node, only.html, ctx);
+  }
+  const slots = rendered.map((r) => wrapRowMember(r.node, r.html, ctx)).join("");
+  return `<div class="lg-el-row" data-row-cols="${rendered.length}">${slots}</div>`;
+}
+
+// The shared sibling walk both renderNodes and renderVisibleNodes drive.
+// `renderOne` turns ONE node into its markup ("" when suppressed/hidden). When
+// no sibling carries placement this is the EXACT pre-P3a `map(...).join("")`
+// (byte-identical); otherwise it groups contiguous same-row runs into
+// `.lg-el-row` and wraps lone placed elements in `.lg-el`.
+function renderPlacedSiblings(
+  nodes: readonly LeadgenComponentNode[],
+  ctx: LeadgenSectionRenderCtx | undefined,
+  renderOne: (node: LeadgenComponentNode) => string,
+): string {
+  if (!nodes.some(hasPlacement)) return nodes.map(renderOne).join("");
+  let out = "";
+  let i = 0;
+  while (i < nodes.length) {
+    const node = nodes[i] as LeadgenComponentNode;
+    const rowId = placementRowId(node);
+    if (rowId !== undefined) {
+      let j = i + 1;
+      while (j < nodes.length && placementRowId(nodes[j] as LeadgenComponentNode) === rowId) j++;
+      out += renderElementRow(nodes.slice(i, j), ctx, renderOne);
+      i = j;
+      continue;
+    }
+    out += finishLonePlacement(node, renderOne(node), ctx);
+    i++;
+  }
+  return out;
+}
+
 // Internal ordered walk — threads the ONE per-call SectionRenderState through
 // the container recursion so the §11.5 single-control rule and the §3.4 bound
-// text resolve over the WHOLE section tree, not per nesting level.
+// text resolve over the WHOLE section tree, not per nesting level. P3a: routed
+// through renderPlacedSiblings (the no-placement fast path is byte-identical to
+// the pre-P3a `map(...).join("")`).
 function renderNodes(
   nodes: readonly LeadgenComponentNode[],
   design: DefaultFunnelDesign,
   depth: number,
   state: SectionRenderState | undefined,
 ): string {
-  return nodes.map((n) => renderComponent(n, design, depth, state)).join("");
+  return renderPlacedSiblings(nodes, state?.ctx, (n) => renderComponent(n, design, depth, state));
 }
 
 // Ordered render of a full Section: each component's preset markup, in order.
@@ -3197,11 +3386,15 @@ function renderVisibleNodes(
   state: SectionRenderState | undefined,
 ): string {
   if (depth > LEADGEN_MAX_CONTAINER_DEPTH + 1) return "";
-  let out = "";
-  for (const node of nodes) {
-    if (typeof node !== "object" || node === null) continue;
+  // P3a: route the visible-leaf walk through the SAME renderPlacedSiblings the
+  // live render uses — a row of visible members groups identically in the
+  // dependency preview; a member hidden by a conditional renders "" and drops
+  // out of its row. With NO placement this is byte-for-byte the pre-P3a loop
+  // (renderPlacedSiblings' fast path === map(renderOne).join("")).
+  const renderOne = (node: LeadgenComponentNode): string => {
+    if (typeof node !== "object" || node === null) return "";
     if (isLayoutContainerType(node.type)) {
-      if (depth > LEADGEN_MAX_CONTAINER_DEPTH) continue; // defensive (validator is the gate)
+      if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return ""; // defensive (validator is the gate)
       const inner = renderVisibleNodes(containerChildren(node), design, visibleIds, depth + 1, state);
       // Re-render the container wrapper with the FILTERED children: emit the
       // container via its own preset around the filtered inner markup by
@@ -3211,14 +3404,14 @@ function renderVisibleNodes(
       // the LAST element before its closing tag(s), so the splice point is
       // the recursion output of the empty clone. (Wrapper markup never reads
       // the render state — state feeds only the children walk above.)
-      out += renderContainerWrapper(node, design, depth, inner);
-    } else {
-      if (typeof node.question_id === "string" && visibleIds.has(node.question_id)) {
-        out += renderComponent(node, design, depth, state);
-      }
+      return renderContainerWrapper(node, design, depth, inner);
     }
-  }
-  return out;
+    if (typeof node.question_id === "string" && visibleIds.has(node.question_id)) {
+      return renderComponent(node, design, depth, state);
+    }
+    return "";
+  };
+  return renderPlacedSiblings(nodes, state?.ctx, renderOne);
 }
 
 // Render a container node's WRAPPER with pre-rendered inner HTML. Implemented

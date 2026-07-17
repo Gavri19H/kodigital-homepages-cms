@@ -14,7 +14,7 @@
 
 import { FUNNEL_TOKEN_ROLES } from "../designs/theme";
 import { COMPONENT_CATALOG } from "./registry";
-import type { ComponentType } from "./registry";
+import type { ComponentType, ComponentScope } from "./registry";
 import type { LeadgenConditionOp } from "../../../admin/leadgen/db-types";
 // P1b (register PC-11): the leading-icon enum's name vocabulary is sourced
 // from the build-time-vendored Tabler (MIT) icon map — see the
@@ -484,6 +484,80 @@ export function resolveFieldSize(
 }
 
 // ---------------------------------------------------------------------------
+// P3a (register PC-2 / decision D1, axiom R-B) — STRUCTURED PLACEMENT.
+// ---------------------------------------------------------------------------
+// The operator's "drag = defining custom locations" (R-B) is delivered as a
+// STRUCTURED model, NOT arbitrary x/y pixels: sibling elements group into a
+// ROW (2-3 slots side by side); each element carries an alignment, an optional
+// width (the SAME s/m/l/full/custom_px vocabulary + resolver as
+// design_overrides.size.width — never a new width scale), and a bounded numeric
+// nudge (±48px) as the deliberate escape hatch. Rows stack to a column
+// automatically at the 480px breakpoint (presets.ts renderNodes + styles.ts).
+//
+// The field is OPTIONAL on any node; a node carrying no `layout` (or an empty
+// `{}`) validates AND renders byte-identically to pre-P3a (the phase invariant,
+// leadgen-p3a-backcompat). It is NOT allowed on a frame-scope component
+// (ProgressBar/HeaderLogo/BackButton/… — chrome the funnel frame owns; placement
+// is a Section-unit concern) — a NEW field, so rejecting it there breaks no
+// stored content.
+//
+// P3b WRITE-SHAPE CONTRACT (the drag/canvas island that DRIVES this model):
+//   • To put element B beside element A in a row, set BOTH nodes'
+//     `layout.row` to the SAME row-id string (e.g. crypto id or "row_<n>").
+//     They MUST be CONTIGUOUS siblings at the same tree depth (adjacent in the
+//     parent's children/root list) — a non-contiguous row is a save ERROR
+//     (unrenderable). Insert/reorder so members sit next to each other.
+//   • A row holds 2-3 members (a 4th is a save ERROR). A lone element carrying
+//     a row-id is harmless (renders as a normal single element).
+//   • `align` positions content within a row slot AND positions a fixed-width
+//     lone element within its column (start/center/end).
+//   • `width` reuses the size-width vocabulary; on a row member it sets the
+//     slot's fixed basis (unauthored members share the rest equally); on a lone
+//     element it sets the box width (then `align` positions it).
+//   • `nudge_x`/`nudge_y` are integer px in [-48, 48] — a translate-only visual
+//     offset that never affects flow/rhythm (and is dropped on mobile).
+//   • row-id shape: [A-Za-z0-9_-], ≤ 64 chars (a stored token, never CSS).
+
+// The three alignment keywords (start | center | end) — the ONLY placement
+// alignment vocabulary. Maps to justify/self alignment inside a row slot and to
+// the generalized widthCenteringEntries margins for a lone fixed-width element
+// (presets.ts). NB: "stretch"/"justify" are NOT offered — an element either
+// hugs an edge or centers; filling is the un-authored default.
+export const LEADGEN_PLACEMENT_ALIGNS = ["start", "center", "end"] as const;
+export type LeadgenPlacementAlign = (typeof LEADGEN_PLACEMENT_ALIGNS)[number];
+const PLACEMENT_ALIGN_SET: ReadonlySet<string> = new Set(LEADGEN_PLACEMENT_ALIGNS);
+
+// Bounded numeric nudge (§R-B "deliberate escape hatch"): integer px clamped to
+// [-48, 48] on BOTH axes. Small enough that a translate can never move an
+// element out of its own rhythm band (the intent: a few px of visual polish,
+// not free positioning).
+const PLACEMENT_NUDGE_MIN = -48;
+const PLACEMENT_NUDGE_MAX = 48;
+
+// row-id: a stored TOKEN, never CSS. Sane shape (kebab/snake/alnum) + a length
+// cap; the looksLikeArbitraryCss guard (shared with design_overrides) is the
+// belt over the suspenders regex.
+const PLACEMENT_ROW_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+// A row holds at most 3 members (§D1 "2-3 slots side by side"). A run of 4+
+// contiguous same-row siblings is a save ERROR.
+export const LEADGEN_MAX_ROW_MEMBERS = 3;
+
+// The per-node structured-placement bag. Every field OPTIONAL; the `width`
+// field is the EXACT `LeadgenSizeOverride["width"]` union (s/m/l/full or
+// {custom_px}) — one width vocabulary, one resolver (resolveSizeAxis).
+export interface LeadgenPlacementLayout {
+  row?: string;
+  align?: LeadgenPlacementAlign;
+  width?: LeadgenSizeWidthPreset | { custom_px: number };
+  nudge_x?: number;
+  nudge_y?: number;
+}
+
+const PLACEMENT_LAYOUT_KEYS = ["row", "align", "width", "nudge_x", "nudge_y"] as const;
+const PLACEMENT_LAYOUT_KEY_SET: ReadonlySet<string> = new Set(PLACEMENT_LAYOUT_KEYS);
+
+// ---------------------------------------------------------------------------
 // P2a (register PC-11 completion / decision R-A) — per-ELEMENT theme freedom.
 // A choice's OPTIONAL `style` bag (LeadgenChoice.style above) overrides the
 // node-level "all elements" default DIFF-ONLY (Webflow-style: only the keys
@@ -576,6 +650,10 @@ export interface LeadgenComponentNode {
   bind?: LeadgenComponentBind;
   design_preset?: string;
   design_overrides?: LeadgenDesignOverrides;
+  // P3a (register PC-2 / D1 / R-B) — structured placement (row grouping,
+  // per-element align/width, bounded nudge). OPTIONAL; absent ⇒ byte-identical
+  // pre-P3a render. Not allowed on frame-scope components (validator-enforced).
+  layout?: LeadgenPlacementLayout;
   // Per-type authorable extras (min/max/step/labels/placeholder/text/html/
   // logoMediaId/columns/…). Preset-specific; presets read them defensively.
   props?: Record<string, unknown>;
@@ -699,6 +777,10 @@ export type SectionContentErrorCode =
   | "invalid_maps_prop"
   // v3.1 §7.2 design_overrides.size shape / preset-enum / custom_px range
   | "invalid_size_override"
+  // P3a (register PC-2 / D1 / R-B) structured placement — node.layout shape /
+  // enum / clamp violations, plus the sibling-level row-grouping rules
+  // (contiguity, max-3, frame-scope restriction).
+  | "invalid_placement"
   // v3.1 §9.3 WARNING code (emitted into `warnings`, never `errors`):
   // maps.enabled with zero jobs selected
   | "maps_no_job";
@@ -1088,6 +1170,10 @@ function isKnownComponentType(type: unknown): type is ComponentType {
 // v3.1 §7.2 design_overrides.size — {width?, height?} shape validator.
 // ---------------------------------------------------------------------------
 
+// `code` is the error code the caller wants for THIS axis (design_overrides.size
+// → invalid_size_override; P3a layout.width → invalid_placement) — the width
+// VOCABULARY + clamps are shared (§7.2 s/m/l/full or {custom_px} in [200,600]
+// snap-4), only the owning error family differs.
 function validateSizeAxis(
   value: unknown,
   path: string,
@@ -1095,12 +1181,13 @@ function validateSizeAxis(
   presetList: readonly string[],
   min: number,
   max: number,
+  code: SectionContentErrorCode,
   push: (code: SectionContentErrorCode, path: string, message: string) => void,
 ): void {
   if (typeof value === "string") {
     if (!presetSet.has(value)) {
       push(
-        "invalid_size_override",
+        code,
         path,
         `must be one of ${presetList.join("|")} or {custom_px:number} (§7.2)`,
       );
@@ -1110,30 +1197,30 @@ function validateSizeAxis(
   if (isRecord(value)) {
     const keys = Object.keys(value);
     if (keys.length !== 1 || keys[0] !== "custom_px") {
-      push("invalid_size_override", path, "a custom size must be exactly {custom_px:number} (§7.2)");
+      push(code, path, "a custom size must be exactly {custom_px:number} (§7.2)");
       return;
     }
     const px = value["custom_px"];
     if (typeof px !== "number" || !Number.isFinite(px) || !Number.isInteger(px)) {
-      push("invalid_size_override", `${path}.custom_px`, "custom_px must be an integer");
+      push(code, `${path}.custom_px`, "custom_px must be an integer");
       return;
     }
     if (px < min || px > max) {
       push(
-        "invalid_size_override",
+        code,
         `${path}.custom_px`,
         `custom_px must be between ${min} and ${max} (§7.1/§7.2)`,
       );
     } else if (px % SIZE_GRID_PX !== 0) {
       push(
-        "invalid_size_override",
+        code,
         `${path}.custom_px`,
         `custom_px must be snapped to a ${SIZE_GRID_PX}px grid (§7.2)`,
       );
     }
     return;
   }
-  push("invalid_size_override", path, "must be a preset string or {custom_px:number} (§7.2)");
+  push(code, path, "must be a preset string or {custom_px:number} (§7.2)");
 }
 
 function validateSizeOverride(
@@ -1158,6 +1245,7 @@ function validateSizeOverride(
       LEADGEN_SIZE_WIDTH_PRESETS,
       SIZE_WIDTH_CUSTOM_PX_MIN,
       SIZE_WIDTH_CUSTOM_PX_MAX,
+      "invalid_size_override",
       push,
     );
   }
@@ -1169,8 +1257,163 @@ function validateSizeOverride(
       LEADGEN_SIZE_HEIGHT_PRESETS,
       SIZE_HEIGHT_CUSTOM_PX_MIN,
       SIZE_HEIGHT_CUSTOM_PX_MAX,
+      "invalid_size_override",
       push,
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// P3a (register PC-2 / D1 / R-B) — node.layout structured-placement validator.
+// ---------------------------------------------------------------------------
+
+// The row-id of a node's layout IFF it is a well-shaped id string — else
+// undefined. Used by the sibling-level grouping check to group ONLY valid rows
+// (a malformed row-id is flagged per-node by validatePlacementLayout; the
+// grouping walk skips it rather than double-reporting).
+function placementRowIdIfValid(node: unknown): string | undefined {
+  if (!isRecord(node)) return undefined;
+  const layout = node["layout"];
+  if (!isRecord(layout)) return undefined;
+  const row = layout["row"];
+  return typeof row === "string" && PLACEMENT_ROW_ID_RE.test(row) ? row : undefined;
+}
+
+// Per-node shape/enum/clamp checks. `scope` is the catalog scope of the owning
+// node — placement is a Section-unit concern, so a frame-scope component may
+// not carry it (a NEW field ⇒ rejecting it there breaks no stored content).
+function validatePlacementLayout(
+  value: unknown,
+  path: string,
+  type: string,
+  scope: ComponentScope,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  if (!isRecord(value)) {
+    push("invalid_placement", path, "layout must be an object {row?, align?, width?, nudge_x?, nudge_y?} (§R-B/D1)");
+    return;
+  }
+  if (scope === "frame") {
+    push(
+      "invalid_placement",
+      path,
+      `${type} is a funnel-frame component — structured placement (layout) is a Section-unit concern and is not allowed on it (§R-B/D1)`,
+    );
+  }
+  for (const key of Object.keys(value)) {
+    if (!PLACEMENT_LAYOUT_KEY_SET.has(key)) {
+      push(
+        "invalid_placement",
+        `${path}.${key}`,
+        `unknown layout key '${key}' (allowed: ${PLACEMENT_LAYOUT_KEYS.join(", ")})`,
+      );
+    }
+  }
+  if (value["row"] !== undefined) {
+    const row = value["row"];
+    if (typeof row !== "string" || looksLikeArbitraryCss(row) || !PLACEMENT_ROW_ID_RE.test(row)) {
+      push(
+        "invalid_placement",
+        `${path}.row`,
+        "layout.row must be a short id token matching [A-Za-z0-9_-], 1-64 chars (a stored id, never CSS)",
+      );
+    }
+  }
+  if (value["align"] !== undefined) {
+    const align = value["align"];
+    if (typeof align !== "string" || !PLACEMENT_ALIGN_SET.has(align)) {
+      push(
+        "invalid_placement",
+        `${path}.align`,
+        `layout.align must be one of ${LEADGEN_PLACEMENT_ALIGNS.join("|")}`,
+      );
+    }
+  }
+  if (value["width"] !== undefined) {
+    // REUSE the §7.2 width axis (same vocabulary + [200,600] snap-4 clamp), only
+    // the error family differs (invalid_placement, not invalid_size_override).
+    validateSizeAxis(
+      value["width"],
+      `${path}.width`,
+      SIZE_WIDTH_PRESET_SET,
+      LEADGEN_SIZE_WIDTH_PRESETS,
+      SIZE_WIDTH_CUSTOM_PX_MIN,
+      SIZE_WIDTH_CUSTOM_PX_MAX,
+      "invalid_placement",
+      push,
+    );
+  }
+  for (const axis of ["nudge_x", "nudge_y"] as const) {
+    if (value[axis] !== undefined) {
+      const n = value[axis];
+      if (typeof n !== "number" || !Number.isFinite(n) || !Number.isInteger(n)) {
+        push("invalid_placement", `${path}.${axis}`, `layout.${axis} must be an integer number of pixels`);
+      } else if (n < PLACEMENT_NUDGE_MIN || n > PLACEMENT_NUDGE_MAX) {
+        push(
+          "invalid_placement",
+          `${path}.${axis}`,
+          `layout.${axis} must be between ${PLACEMENT_NUDGE_MIN} and ${PLACEMENT_NUDGE_MAX} px (§R-B bounded escape hatch)`,
+        );
+      }
+    }
+  }
+}
+
+// Sibling-level grouping rules (§D1 "2-3 slots side by side"). Called once per
+// sibling list (root + each container's children). A row-id must name ONE
+// CONTIGUOUS run of at most LEADGEN_MAX_ROW_MEMBERS siblings; a non-contiguous
+// run (the id reappears after a gap) is unrenderable, and an oversized run is
+// outside the 2-3 slot model — both save ERRORs with a clear message.
+function validateRowGrouping(
+  siblings: readonly unknown[],
+  pathAt: (index: number) => string,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  // Per row-id: how many DISTINCT contiguous runs it forms (>1 ⇒ non-contiguous),
+  // the LONGEST run (> max ⇒ oversized), and the running current-run length.
+  interface RowAcc {
+    runCount: number;
+    maxLen: number;
+    curLen: number;
+    firstPath: string;
+  }
+  const byRow = new Map<string, RowAcc>();
+  let prevRow: string | undefined;
+  for (let i = 0; i < siblings.length; i++) {
+    const row = placementRowIdIfValid(siblings[i]);
+    if (row === undefined) {
+      prevRow = undefined;
+      continue;
+    }
+    let acc = byRow.get(row);
+    if (acc === undefined) {
+      acc = { runCount: 0, maxLen: 0, curLen: 0, firstPath: `${pathAt(i)}.layout.row` };
+      byRow.set(row, acc);
+    }
+    if (row === prevRow) {
+      acc.curLen += 1;
+    } else {
+      acc.runCount += 1;
+      acc.curLen = 1;
+    }
+    if (acc.curLen > acc.maxLen) acc.maxLen = acc.curLen;
+    prevRow = row;
+  }
+  for (const [row, acc] of byRow) {
+    if (acc.runCount > 1) {
+      push(
+        "invalid_placement",
+        acc.firstPath,
+        `row '${row}' members must be contiguous siblings — found ${acc.runCount} separate groups; a non-contiguous row is unrenderable (§D1)`,
+      );
+    }
+    if (acc.maxLen > LEADGEN_MAX_ROW_MEMBERS) {
+      push(
+        "invalid_placement",
+        acc.firstPath,
+        `row '${row}' has ${acc.maxLen} members — a row holds at most ${LEADGEN_MAX_ROW_MEMBERS} slots (§D1)`,
+      );
+    }
   }
 }
 
@@ -1796,6 +2039,16 @@ export function validateSectionContent(content: unknown): SectionContentValidati
       }
     }
 
+    // P3a (register PC-2 / D1 / R-B) — structured placement. Validated for
+    // EVERY known-typed node (leaves AND containers can be row members / carry
+    // align/width/nudge); the sibling-level grouping rules (contiguity, max-3)
+    // are checked once per sibling list by validateRowGrouping. Absent layout ⇒
+    // no-op (byte-identical pre-P3a). Checked here — ahead of the container
+    // early-return below — so a container node's own layout is covered too.
+    if (raw["layout"] !== undefined) {
+      validatePlacementLayout(raw["layout"], `${base}.layout`, type, catalog.scope, push);
+    }
+
     if (isContainer) {
       // §8.5 container node: depth cap, no answer fields, token-enum props,
       // recursive children. Depth counts CONTAINER nesting levels (root = 1);
@@ -1846,6 +2099,8 @@ export function validateSectionContent(content: unknown): SectionContentValidati
           for (let j = 0; j < children.length; j++) {
             validateNode(children[j], `${base}.children[${j}]`, depth + 1);
           }
+          // P3a: row-grouping (contiguity + max-3) over THIS child sibling list.
+          validateRowGrouping(children, (j) => `${base}.children[${j}]`, push);
         }
       }
       return;
@@ -2091,6 +2346,8 @@ export function validateSectionContent(content: unknown): SectionContentValidati
   for (let i = 0; i < rawComponents.length; i++) {
     validateNode(rawComponents[i], `components[${i}]`, 1);
   }
+  // P3a: row-grouping (contiguity + max-3) over the ROOT sibling list.
+  validateRowGrouping(rawComponents, (i) => `components[${i}]`, push);
 
   // §8.6: `ok` is keyed to ERRORS only — warnings never block a save.
   return { ok: errors.length === 0, errors, warnings };

@@ -76,6 +76,10 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // real-input drag), engine-agnostic; only its live-/lg describe self-skips on
   // firefox (dynamic e2e host needs chromium --host-resolver-rules).
   'leadgen-p2a-element-freedom.gesture.spec.ts',
+  // P3a (register PC-2 / D1 / R-B): the structured-placement effect gate —
+  // SAME cross-engine shape as p2a (studio-canvas describe is getBoundingClientRect
+  // + computed styles; the live-/lg describe self-skips on firefox).
+  'leadgen-p3a-placement.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',
