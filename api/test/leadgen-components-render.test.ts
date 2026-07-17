@@ -623,9 +623,13 @@ describe("ButtonAnswerGroup + TwoButtonYesNo (§14.6 answer-button state)", () =
     // var(--lg-field-border, <fallback>) — the SAME idiom .lg-input already
     // uses (see the border_color describe block below) — ONLY-INTENDED-DELTA
     // vs. the pre-R5 pin: one appended declaration, nothing else in this rule
-    // changed.
+    // changed. P2b (register R-A completion): `background` now reads
+    // var(--lg-answer-bg, #FFFFFF) — the state-safe per-choice-color idiom
+    // (presets.ts choiceItemStyle) — falling back to the SAME #FFFFFF
+    // (color.card) an unstyled choice always painted; ONLY the background
+    // channel changed vs. the pre-P2b pin, nothing else in this rule.
     expect(chrome).toContain(
-      ".lg-btn.lg-btn-answer{background:#FFFFFF;color:#1A1F36;border:2px solid #D2D9E5;border-color:var(--lg-field-border, #D2D9E5);transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}",
+      ".lg-btn.lg-btn-answer{background:var(--lg-answer-bg, #FFFFFF);color:#1A1F36;border:2px solid #D2D9E5;border-color:var(--lg-field-border, #D2D9E5);transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}",
     );
     // SELECTED (§14.6 "selected animation"): navy #1B3A5C border + #E8EEF4 wash bg
     // + weight 700 — the SAME iconCard.selectedBorderColor / selectedBackground

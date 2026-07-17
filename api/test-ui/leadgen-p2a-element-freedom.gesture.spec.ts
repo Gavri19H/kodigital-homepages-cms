@@ -24,16 +24,20 @@
 //   • the SELECTED pipeline is intact + the resting override does NOT leak into
 //     it (click → the theme selected wash, not the per-choice resting color).
 //
-// CROSS-FILE (styles.ts, a SIBLING slice — see the P2a report): the RESTING
-// background-color PAINT (computed) equals the emitted --lg-answer-bg only once
+// CROSS-FILE (styles.ts, P2b — landed): the RESTING background-color PAINT
+// (computed) now equals the emitted --lg-answer-bg, because
 // designs/default-funnel/styles.ts's `.lg-btn.lg-btn-answer` / `.lg-card`
 // RESTING rules read `background: var(--lg-answer-bg, <token>)` (the
-// --lg-field-border idiom). Until then the var is EMITTED (asserted here) but
-// the theme default still paints (also asserted here — the additive/back-compat
-// invariant). The one computed-background PAINT assertion is documented at that
-// seam. Multi-column per-choice HEIGHT variation likewise needs the grid's
-// `align-items:start` (styles.ts) — this gate uses a single-column group where
-// the effect is visible presets-only.
+// --lg-field-border idiom). The studio-canvas describe below asserts the
+// PAINTED computed background for the styled role case, the off-theme #hex
+// case, AND the unstyled diff-only sibling (theme default, proving no leak) —
+// the additive/back-compat invariant now reads as "styled paints the override,
+// unstyled paints the theme default" rather than "nothing paints yet". P2b also
+// added `align-items:start` to `.lg-answer-group`/`.lg-card-grid` so a
+// multi-column group's per-choice HEIGHT variation is honored (grid's default
+// stretch would otherwise equalize every cell in a row to the tallest); this
+// gate's single-column group already proved the height effect presets-only, so
+// no additional geometry assertion is needed here.
 //
 // Run per-file with the fresh-D1 preamble:
 //   pkill -f "wrangler dev"; pkill -f workerd; sleep 2; \
@@ -58,6 +62,11 @@ const ACCENT_HEX = baseTokenForRole(D, "accent"); // #E85D26 (the operator's ora
 const OFF_THEME_HEX = "#D92D20"; // deliberate off-theme red (not in the palette)
 const RESTING_WHITE = "rgb(255, 255, 255)"; // color.card — the answer-button resting bg
 const CARD_TEXT = "rgb(255, 255, 255)"; // text_color_role card_background (#FFFFFF)
+// P2b: the computed-style rgb() the browser reports for each authored hex —
+// getComputedStyle().backgroundColor is always "rgb(r, g, b)", never a hex
+// string, so the paint assertions below compare against these, not the hex.
+const ACCENT_RGB = "rgb(232, 93, 38)"; // #E85D26
+const OFF_THEME_RGB = "rgb(217, 45, 32)"; // #D92D20
 
 // A single-column ButtonAnswerGroup so each button owns its own grid ROW → a
 // per-choice min-height is honored independently (no same-row stretch-equalize;
@@ -92,6 +101,14 @@ const COMPONENTS = [
       { label: "Keep", value: "keep", analytics_id: "ke" },
     ],
   },
+  // P2b studio-controls coverage (conductor-required gap close): TwoButtonYesNo
+  // is a FIXED 2-column .lg-answer-group.lg-yesno pair (side-by-side, no
+  // `choices` array) — plain/unstyled at creation; the studio-controls test
+  // below authors Yes's props.yesStyle THROUGH the real yes/no popover.
+  // Inserted AFTER q_warn (not before q_perm) so findDefaultSelectionId()'s
+  // "first real answer field" default selection stays q_perm, unchanged for
+  // every OTHER test in this file.
+  { type: "TwoButtonYesNo", question_id: "q_yn", internal_field: "yn", props: { yesLabel: "Yes", noLabel: "No" } },
   { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
 ];
 
@@ -180,13 +197,233 @@ test.describe("P2a per-element freedom — studio canvas (both engines)", () => 
     expect(allow.height).toBeGreaterThan(disallow.height);
   });
 
-  test("ADDITIVE/back-compat: emitting --lg-answer-bg does NOT change the painted resting bg (theme default until styles.ts reads the var — P2b seam)", async () => {
-    // The var is EMITTED (asserted above) but the .lg-btn-answer RESTING rule
-    // still paints color.card until styles.ts reads var(--lg-answer-bg,…). This
-    // is the additive invariant; this assertion FLIPS to `toBe(ACCENT rgb)` the
-    // moment the sibling styles.ts read lands.
+  test("P2b PAINT: the resolved role hex actually paints Allow's resting background (styles.ts reads --lg-answer-bg)", async () => {
     const allow = await readFacts(root, "allow");
-    expect(allow.backgroundColor).toBe(RESTING_WHITE);
+    expect(allow.backgroundColor).toBe(ACCENT_RGB);
+  });
+
+  test("P2b PAINT: the deliberate OFF-THEME #hex actually paints the resting background", async () => {
+    const del = await readFacts(root, "del");
+    expect(del.backgroundColor).toBe(OFF_THEME_RGB);
+  });
+
+  test("P2b PAINT diff-only: Disallow (no style authored) still paints the theme default — no leak from Allow/del's override", async () => {
+    const disallow = await readFacts(root, "disallow");
+    const keep = await readFacts(root, "keep");
+    expect(disallow.backgroundColor).toBe(RESTING_WHITE);
+    expect(keep.backgroundColor).toBe(RESTING_WHITE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P2b STUDIO CONTROLS — authoring choice.style THROUGH the real inspector
+// (both engines; the popover is plain DOM, no engine-specific gesture).
+// ---------------------------------------------------------------------------
+function hexToRgb(hex: string): string {
+  const n = hex.replace("#", "");
+  const r = parseInt(n.slice(0, 2), 16);
+  const g = parseInt(n.slice(2, 4), 16);
+  const b = parseInt(n.slice(4, 6), 16);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+// The canvas re-render is a DEBOUNCED preview POST (studio-patterns.spec.ts's
+// own documented mechanism) AND `.lg-btn.lg-btn-answer` carries a `background
+// var(--lg-transition-card)` CSS transition — so a computed-style read taken
+// the INSTANT after an authoring action or a save/reload can observe a
+// transient value (mid-debounce or mid-transition), not the settled one.
+// Every OTHER assertion in this file already wraps its color read in
+// `toPass`; this helper is the SAME retry, reused so a save/reload re-check
+// gets the identical robustness (found live: an unwrapped post-reload read
+// caught a transient value on firefox — never a chromium-only issue, just a
+// timing window chromium's own render/paint cadence happened not to hit).
+async function expectBg(read: () => Promise<string>, expected: string): Promise<void> {
+  await expect(async () => {
+    expect(await read()).toBe(expected);
+  }).toPass({ timeout: 10_000 });
+}
+
+test.describe("P2b studio controls — the choices-editor Style popover (real input, real save)", () => {
+  test("role swatch paints the canvas + no off-theme badge; custom hex paints + SHOWS the badge; both persist through save/reload", async ({ page, request }) => {
+    test.setTimeout(120_000);
+    const s = await createSection(request, `p2b-studio-${uniq}-${Math.random().toString(36).slice(2, 7)}`);
+    await page.goto(`/admin/leadgen/sections/${s.public_id}/edit`, { waitUntil: "domcontentloaded" });
+    const frame = page.frameLocator("#lg-studio-canvas-frame");
+    await expect(frame.locator('[data-value="disallow"]')).toBeVisible({ timeout: 20_000 });
+
+    // Select q_perm (clicking any of its choices selects the parent node) —
+    // its choices editor rows render [Allow, Disallow] in that order.
+    await frame.locator('[data-value="disallow"]').click();
+    const permRows = page.locator("[data-inspector-choices] [data-choice-row]");
+    await expect(permRows).toHaveCount(2);
+    const disallowRow = permRows.nth(1);
+
+    // Author Disallow's color through the REAL role swatch (a role Allow does
+    // NOT already use, so this is a genuinely independent authored choice).
+    const successHex = "#0E7C3A"; // defaultFunnelDesign.color.success (theme role)
+    await disallowRow.locator("[data-choice-style-toggle]").click();
+    const disallowPanel = disallowRow.locator("[data-choice-style-panel]");
+    await expect(disallowPanel).toBeVisible();
+    await disallowPanel.locator('[data-choice-style-axis="color"] [data-choice-role-swatch="success"]').click();
+
+    // The canvas paints it (the same emission -> paint pipeline the effect
+    // gate proves for Allow/del, now proven authored through the REAL UI).
+    await expect(async () => {
+      const bg = await frame.locator('[data-value="disallow"]').evaluate((el) => getComputedStyle(el as HTMLElement).backgroundColor);
+      expect(bg).toBe(hexToRgb(successHex));
+    }).toPass({ timeout: 10_000 });
+    // A theme ROLE is never "off theme" — the badge stays hidden.
+    await expect(disallowRow.locator("[data-choice-offtheme-badge]")).toBeHidden();
+
+    // Author Keep's color through the CUSTOM-HEX escape hatch (q_warn: [Delete, Keep]).
+    await frame.locator('[data-value="keep"]').click();
+    const warnRows = page.locator("[data-inspector-choices] [data-choice-row]");
+    await expect(warnRows).toHaveCount(2);
+    const keepRow = warnRows.nth(1);
+    const CUSTOM_HEX = "#00A86B"; // a deliberate off-theme green (not a role)
+    await keepRow.locator("[data-choice-style-toggle]").click();
+    const keepPanel = keepRow.locator("[data-choice-style-panel]");
+    await expect(keepPanel).toBeVisible();
+    await keepPanel.locator('[data-choice-style-axis="color"] [data-choice-hex-input]').fill(CUSTOM_HEX);
+    await keepPanel.locator('[data-choice-style-axis="color"] [data-choice-hex-input]').blur();
+
+    await expect(async () => {
+      const bg = await frame.locator('[data-value="keep"]').evaluate((el) => getComputedStyle(el as HTMLElement).backgroundColor);
+      expect(bg).toBe(hexToRgb(CUSTOM_HEX));
+    }).toPass({ timeout: 10_000 });
+    // A CUSTOM HEX is off theme — the badge SHOWS (diff-only vs. the role case above).
+    await expect(keepRow.locator("[data-choice-offtheme-badge]")).toBeVisible();
+    await expect(keepRow.locator("[data-choice-offtheme-badge]")).toHaveText("Off theme");
+
+    // SAVE -> full reload -> RE-OPEN -> both authored styles + the badge state persisted.
+    await Promise.all([page.waitForEvent("load"), page.locator("#lg-section-save").click()]);
+    await expect(frame.locator('[data-value="disallow"]')).toBeVisible({ timeout: 20_000 });
+
+    await frame.locator('[data-value="disallow"]').click();
+    const permRowsAfter = page.locator("[data-inspector-choices] [data-choice-row]");
+    await expect(permRowsAfter).toHaveCount(2);
+    const disallowRowAfter = permRowsAfter.nth(1);
+    await disallowRowAfter.locator("[data-choice-style-toggle]").click();
+    await expect(disallowRowAfter.locator('[data-choice-style-axis="color"] [data-choice-role-swatch="success"]')).toHaveClass(/active/);
+    await expect(disallowRowAfter.locator("[data-choice-offtheme-badge]")).toBeHidden();
+
+    await frame.locator('[data-value="keep"]').click();
+    const warnRowsAfter = page.locator("[data-inspector-choices] [data-choice-row]");
+    await expect(warnRowsAfter).toHaveCount(2);
+    const keepRowAfter = warnRowsAfter.nth(1);
+    await keepRowAfter.locator("[data-choice-style-toggle]").click();
+    await expect(keepRowAfter.locator('[data-choice-style-axis="color"] [data-choice-hex-input]')).toHaveValue(CUSTOM_HEX);
+    await expect(keepRowAfter.locator("[data-choice-offtheme-badge]")).toBeVisible();
+
+    // Server truth: choices[1].style landed exactly as authored (never a
+    // copied/rewritten value — role stays a role string, hex stays the hex).
+    const detail = await json<{ content_json: { components: Array<{ question_id: string; choices?: Array<{ value: string; style?: Record<string, unknown> }> }> } }>(
+      await request.get(`${LG_API}/sections/${s.public_id}`),
+      "section detail",
+    );
+    const perm = detail.content_json.components.find((c) => c.question_id === "q_perm")!;
+    const warn = detail.content_json.components.find((c) => c.question_id === "q_warn")!;
+    expect(perm.choices?.find((c) => c.value === "disallow")?.style).toEqual({ color_role: "success" });
+    expect(warn.choices?.find((c) => c.value === "keep")?.style).toEqual({ color_hex: CUSTOM_HEX });
+  });
+
+  // Conductor-required gap close: TwoButtonYesNo has no `choices` array, so it
+  // gets the SAME popover mounted at data-yesno-style="yes"/"no" instead
+  // (populateYesNoStyleBlock/setYesNoStyle, ui-section-studio.ts) — this is
+  // the ONLY test exercising that mount-point wiring end-to-end (the popover
+  // itself is already proven via the choice-row test above).
+  test("TwoButtonYesNo: Yes authored role+size L through the REAL yes/no popover paints + grows the cell; No stays theme-default; switching Yes to a custom hex flips the badge; both persist through save/reload", async ({ page, request }) => {
+    test.setTimeout(120_000);
+    const s = await createSection(request, `p2b-yesno-${uniq}-${Math.random().toString(36).slice(2, 7)}`);
+    await page.goto(`/admin/leadgen/sections/${s.public_id}/edit`, { waitUntil: "domcontentloaded" });
+    const frame = page.frameLocator("#lg-studio-canvas-frame");
+    await expect(frame.locator('[data-value="true"]')).toBeVisible({ timeout: 20_000 });
+
+    // Select q_yn (clicking either button selects the PARENT node — both
+    // yes/no mounts populate together, not per-button).
+    await frame.locator('[data-value="true"]').click();
+    const yesBlock = page.locator('[data-yesno-style="yes"]');
+    const noBlock = page.locator('[data-yesno-style="no"]');
+    await expect(yesBlock).toBeVisible();
+    await expect(noBlock).toBeVisible();
+
+    // Author Yes: role color (accent) + size L — through the REAL controls.
+    await yesBlock.locator("[data-choice-style-toggle]").click();
+    const yesPanel = yesBlock.locator("[data-choice-style-panel]");
+    await expect(yesPanel).toBeVisible();
+    await yesPanel.locator('[data-choice-style-axis="color"] [data-choice-role-swatch="accent"]').click();
+    await yesPanel.locator('[data-choice-size-preset="l"]').click();
+
+    // Canvas paints Yes with the resolved role hex + a taller cell (size:l
+    // floors 60px); No (never touched) stays the theme default — the SAME
+    // side-by-side .lg-answer-group.lg-yesno row align-items:start (P2b)
+    // lets Yes grow without stretching No to match.
+    const yesBg = () => frame.locator('[data-value="true"]').evaluate((el) => getComputedStyle(el as HTMLElement).backgroundColor);
+    const noBgRead = () => frame.locator('[data-value="false"]').evaluate((el) => getComputedStyle(el as HTMLElement).backgroundColor);
+    await expectBg(yesBg, ACCENT_RGB);
+    const yesHeight = await frame.locator('[data-value="true"]').evaluate((el) => el.getBoundingClientRect().height);
+    const noHeight = await frame.locator('[data-value="false"]').evaluate((el) => el.getBoundingClientRect().height);
+    expect(yesHeight).toBeGreaterThanOrEqual(60);
+    expect(yesHeight).toBeGreaterThan(noHeight);
+    await expectBg(noBgRead, RESTING_WHITE);
+
+    // A theme ROLE is never off-theme — the badge stays hidden on Yes; No was
+    // never authored at all (no controls opened), so its badge is hidden too.
+    await expect(yesBlock.locator("[data-choice-offtheme-badge]")).toBeHidden();
+    await expect(noBlock.locator("[data-choice-offtheme-badge]")).toBeHidden();
+
+    // Switch Yes's color from the role to a CUSTOM HEX (mutual exclusivity —
+    // the SAME control, not a second element) — proves the badge is REACTIVE
+    // through this mount, and exercises setYesNoStyle's hex-write path.
+    await yesPanel.locator('[data-choice-style-axis="color"] [data-choice-hex-input]').fill(OFF_THEME_HEX);
+    await yesPanel.locator('[data-choice-style-axis="color"] [data-choice-hex-input]').blur();
+    await expectBg(yesBg, OFF_THEME_RGB);
+    await expect(yesBlock.locator("[data-choice-offtheme-badge]")).toBeVisible();
+    await expect(yesBlock.locator("[data-choice-offtheme-badge]")).toHaveText("Off theme");
+    // No is STILL untouched (diff-only — Yes's authoring never leaked to No).
+    await expectBg(noBgRead, RESTING_WHITE);
+    await expect(noBlock.locator("[data-choice-offtheme-badge]")).toBeHidden();
+
+    // No's OWN panel is genuinely empty (never authored): no active role
+    // swatch, no hex, size segmented shows no active preset.
+    await noBlock.locator("[data-choice-style-toggle]").click();
+    const noPanel = noBlock.locator("[data-choice-style-panel]");
+    await expect(noPanel).toBeVisible();
+    await expect(noPanel.locator('[data-choice-style-axis="color"] .active')).toHaveCount(0);
+    await expect(noPanel.locator('[data-choice-style-axis="color"] [data-choice-hex-input]')).toHaveValue("");
+    await expect(noPanel.locator("[data-choice-size-preset].active")).toHaveCount(0);
+
+    // SAVE -> full reload -> RE-OPEN -> both the hex + size + the no-op No
+    // state persisted.
+    await Promise.all([page.waitForEvent("load"), page.locator("#lg-section-save").click()]);
+    await expect(frame.locator('[data-value="true"]')).toBeVisible({ timeout: 20_000 });
+
+    await frame.locator('[data-value="true"]').click();
+    const yesBlockAfter = page.locator('[data-yesno-style="yes"]');
+    const noBlockAfter = page.locator('[data-yesno-style="no"]');
+    await yesBlockAfter.locator("[data-choice-style-toggle]").click();
+    await expect(yesBlockAfter.locator('[data-choice-style-axis="color"] [data-choice-hex-input]')).toHaveValue(OFF_THEME_HEX);
+    await expect(yesBlockAfter.locator('[data-choice-size-preset="l"]')).toHaveClass(/active/);
+    await expect(yesBlockAfter.locator("[data-choice-offtheme-badge]")).toBeVisible();
+    await expect(noBlockAfter.locator("[data-choice-offtheme-badge]")).toBeHidden();
+
+    const yesHeightAfter = await frame.locator('[data-value="true"]').evaluate((el) => el.getBoundingClientRect().height);
+    const noHeightAfter = await frame.locator('[data-value="false"]').evaluate((el) => el.getBoundingClientRect().height);
+    expect(yesHeightAfter).toBeGreaterThanOrEqual(60);
+    expect(yesHeightAfter).toBeGreaterThan(noHeightAfter);
+    await expectBg(yesBg, OFF_THEME_RGB);
+    await expectBg(noBgRead, RESTING_WHITE);
+
+    // Server truth: props.yesStyle landed exactly as authored (role replaced
+    // by hex, diff-only — never a copied value); props.noStyle absent (No
+    // was never authored at all).
+    const detail = await json<{ content_json: { components: Array<{ question_id: string; props?: Record<string, unknown> }> } }>(
+      await request.get(`${LG_API}/sections/${s.public_id}`),
+      "section detail",
+    );
+    const yn = detail.content_json.components.find((c) => c.question_id === "q_yn")!;
+    expect(yn.props?.["yesStyle"]).toEqual({ color_hex: OFF_THEME_HEX, size: "l" });
+    expect(yn.props?.["noStyle"]).toBeUndefined();
   });
 });
 
@@ -211,10 +448,13 @@ test.describe("P2a per-element freedom — live /lg funnel (§12 parity + select
     const live = page.locator("body");
     await expect(live.locator('[data-value="allow"]')).toBeVisible({ timeout: 20_000 });
 
-    // §12 parity: the live render carries the SAME per-element emission as the
-    // studio canvas (the SAME server renderer).
+    // §12 parity: the live render carries the SAME per-element emission AND
+    // the SAME painted resting background as the studio canvas (the SAME
+    // server renderer + the SAME styles.ts chrome sheet — P2b closes the loop
+    // from emission to paint on both surfaces identically).
     const allowResting = await readFacts(live, "allow");
     expect(allowResting.answerBg).toBe(ACCENT_HEX);
+    expect(allowResting.backgroundColor).toBe(ACCENT_RGB);
     expect(allowResting.fontWeight).toBe("700");
     expect(allowResting.height).toBeGreaterThan((await readFacts(live, "disallow")).height);
 

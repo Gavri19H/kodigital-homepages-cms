@@ -593,6 +593,16 @@ export function funnelChromeCss(
       "grid-template-columns": `repeat(var(--lg-cols, ${answerGrid.columns}), minmax(0, 1fr))`,
       gap: answerGrid.gap,
       width: "100%",
+      // P2b (register R-A completion): a multi-column group whose choices
+      // carry PER-CHOICE heights (choice.style.size) must let each item show
+      // its own min-height — grid's default align-items:stretch equalizes
+      // every cell in a row to the tallest, hiding the very variation P2a's
+      // per-choice size axis exists to produce. Additive: the grid's OWN gap/
+      // columns/width are untouched, and a group with no per-choice sizing
+      // still centers/stretches its equal-min-height buttons identically
+      // (start-aligned single-row items whose min-heights already match render
+      // pixel-identical either way).
+      "align-items": "start",
     }),
   );
   mobile.push(rule(`${scope} .lg-answer-group`, { gap: answerGrid.gapMobile }));
@@ -611,7 +621,18 @@ export function funnelChromeCss(
   // uses (§14.4); focus ring = the .lg-card:focus-visible ring.
   out.push(
     rule(`${scope} .lg-btn.lg-btn-answer`, {
-      background: color.card,
+      // P2b (register R-A completion): the RESTING background now reads
+      // choiceStyleOverlayEntries' state-safe --lg-answer-bg custom property
+      // (presets.ts, P2a), falling back to the UNCHANGED color.card token —
+      // the exact --lg-field-border idiom immediately below. Unset (no
+      // per-choice color/color_hex authored, the common case) resolves
+      // byte-identically to pre-P2b. The var sits on THIS resting declaration
+      // ONLY — :hover / [aria-checked="true"] / [data-selected="true"] below
+      // set `background` DIRECTLY (higher specificity: a pseudo-class/
+      // attribute selector beats a bare compound-class declaration) and so
+      // still win while hovered/selected regardless of what --lg-answer-bg
+      // resolves to.
+      background: `var(--lg-answer-bg, ${color.card})`,
       color: page.textColor,
       border: input.border,
       // R5 state-safe border (register R3a ROUTING NOTES): a LATER
@@ -797,6 +818,10 @@ export function funnelChromeCss(
       "grid-template-columns": "repeat(var(--lg-cols, 3), minmax(0, 1fr))",
       gap: iconCardGrid.gap,
       "margin-bottom": iconCardGrid.marginBottom,
+      // P2b (register R-A completion) — the .lg-answer-group twin above: a
+      // per-choice height (choice.style.size) needs its own row instead of
+      // grid's default stretch-to-tallest equalization.
+      "align-items": "start",
     }),
   );
   // Mobile collapse (§14.4 mobile 1..2 cols): the grid falls to 1 column.
@@ -817,7 +842,13 @@ export function funnelChromeCss(
       // byte-identical.
       "border-color": `var(--lg-field-border, ${color.border})`,
       "border-radius": iconCard.borderRadius,
-      background: iconCard.background,
+      // P2b (register R-A completion): the SAME --lg-answer-bg resting-state
+      // read as .lg-btn.lg-btn-answer above — icon/image/multi-choice cards
+      // share this ONE base rule, so a per-choice color/color_hex paints here
+      // too. Fallback = the unchanged iconCard.background token; :hover /
+      // [aria-checked="true"] / [data-selected="true"] below still set
+      // `background` DIRECTLY and win over this var() by specificity.
+      background: `var(--lg-answer-bg, ${iconCard.background})`,
       "min-height": iconCard.minHeight,
       padding: iconCard.padding,
       cursor: "pointer",

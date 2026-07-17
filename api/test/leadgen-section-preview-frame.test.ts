@@ -490,6 +490,27 @@ const R5_OLD_CARD_RULE =
 const R5_NEW_CARD_RULE =
   `${DEFAULT_FUNNEL_SCOPE} .lg-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${defaultFunnelDesign.spacing.xs};border:${defaultFunnelDesign.iconCard.border};border-color:var(--lg-field-border, ${R5_BORDER_NEUTRAL});border-radius:${defaultFunnelDesign.iconCard.borderRadius};background:${defaultFunnelDesign.iconCard.background};min-height:${defaultFunnelDesign.iconCard.minHeight};padding:${defaultFunnelDesign.iconCard.padding};cursor:pointer;text-align:center;transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}`;
 
+// P2b (register R-A completion, product-core phase P2): the ONLY legal delta
+// vs. the R5 shape above is the `background` channel wrapped in
+// var(--lg-answer-bg, <same token>) — the state-safe per-choice-color idiom
+// (presets.ts choiceItemStyle's --lg-answer-bg emission, styles.ts's read).
+// Reverse-mapped FIRST in the chain below (P2b's NEW text -> the R5_NEW_*
+// shape), so the EXISTING R5 reverse-map steps then find their expected R5
+// input unchanged — kept in lockstep with styles.ts (a drift fails here).
+const P2B_NEW_BTN_ANSWER_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer{background:var(--lg-answer-bg, ${defaultFunnelDesign.color.card});color:${defaultFunnelDesign.page.textColor};border:${defaultFunnelDesign.input.border};border-color:var(--lg-field-border, ${R5_BORDER_NEUTRAL});transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}`;
+const P2B_NEW_CARD_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${defaultFunnelDesign.spacing.xs};border:${defaultFunnelDesign.iconCard.border};border-color:var(--lg-field-border, ${R5_BORDER_NEUTRAL});border-radius:${defaultFunnelDesign.iconCard.borderRadius};background:var(--lg-answer-bg, ${defaultFunnelDesign.iconCard.background});min-height:${defaultFunnelDesign.iconCard.minHeight};padding:${defaultFunnelDesign.iconCard.padding};cursor:pointer;text-align:center;transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}`;
+// .lg-card-grid predates P1a (it is NOT one of the net-new-and-stripped P1a
+// rules below — IconCardAnswerGrid's grid existed pre-P1a with its ORIGINAL
+// properties embedded directly in the frozen fixture), so P2b's
+// `align-items:start` addition here is its own fresh OLD/NEW pair, not a
+// widen of an existing net-new constant.
+const P2B_OLD_CARD_GRID_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-card-grid{display:grid;grid-template-columns:repeat(var(--lg-cols, 3), minmax(0, 1fr));gap:${defaultFunnelDesign.iconCardGrid.gap};margin-bottom:${defaultFunnelDesign.iconCardGrid.marginBottom}}`;
+const P2B_NEW_CARD_GRID_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-card-grid{display:grid;grid-template-columns:repeat(var(--lg-cols, 3), minmax(0, 1fr));gap:${defaultFunnelDesign.iconCardGrid.gap};margin-bottom:${defaultFunnelDesign.iconCardGrid.marginBottom};align-items:start}`;
+
 // The R5 D11 typography grant (register S4-B2, operator decision 1): the
 // headline PRESET inlines font-family/color directly on every rendered
 // <h1 class="lg-headline"> (in addition to the base .lg-headline CSS rule,
@@ -541,7 +562,13 @@ const U14_NEW_CONTINUE_RULE =
 // (now 140px), so the min-height must ALSO be reverted 140->96 to reach the
 // pre-P1a fixture's 96px.
 const P1A_STACK_BASE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-question-card > * + *{margin-top:${defaultFunnelDesign.spacing.stack}}`;
-const P1A_ANSWER_GRID_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-answer-group{display:grid;grid-template-columns:repeat(var(--lg-cols, ${defaultFunnelDesign.answerGrid.columns}), minmax(0, 1fr));gap:${defaultFunnelDesign.answerGrid.gap};width:100%}`;
+// P2b (register R-A completion): `.lg-answer-group` is P1a's own net-new,
+// wholesale-stripped rule (it never existed pre-P1a) — so P2b's appended
+// `align-items:start` (per-choice height variation in a multi-column group;
+// grid's default stretch would otherwise equalize every row to the tallest)
+// widens THIS SAME constant in place rather than adding a fresh OLD/NEW pair,
+// kept in lockstep with styles.ts (a drift fails here).
+const P1A_ANSWER_GRID_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-answer-group{display:grid;grid-template-columns:repeat(var(--lg-cols, ${defaultFunnelDesign.answerGrid.columns}), minmax(0, 1fr));gap:${defaultFunnelDesign.answerGrid.gap};width:100%;align-items:start}`;
 const P1A_STACK_MOBILE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-question-card > * + *{margin-top:${defaultFunnelDesign.spacing.stackMobile}}`;
 const P1A_SUBHEAD_MOBILE_RESET = `\n${DEFAULT_FUNNEL_SCOPE} .lg-subheadline{margin-top:0}`;
 const P1A_CONTINUE_MOBILE_RESET = `\n${DEFAULT_FUNNEL_SCOPE} .lg-continue{margin-top:26px}`;
@@ -672,6 +699,17 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
   // `border-color:var(--lg-field-border, ...)` text also occurs,
   // pre-existing and unrelated, inside the .lg-input rule).
   const cssMinusMove = (actualPreview["css"] as string)
+    // P2b (register R-A completion): reverse-map FIRST, back to the R5_NEW_*
+    // shape — the EXISTING R5 steps immediately below then find their
+    // expected R5 input unchanged (see the P2B_NEW_* constants' own comment).
+    .split(P2B_NEW_BTN_ANSWER_RULE)
+    .join(R5_NEW_BTN_ANSWER_RULE)
+    .split(P2B_NEW_CARD_RULE)
+    .join(R5_NEW_CARD_RULE)
+    // P2b: .lg-card-grid predates P1a — its own fresh OLD/NEW pair (not part
+    // of the R5/P1a chains below).
+    .split(P2B_NEW_CARD_GRID_RULE)
+    .join(P2B_OLD_CARD_GRID_RULE)
     .split(R5_NEW_BTN_ANSWER_RULE)
     .join(R5_OLD_BTN_ANSWER_RULE)
     .split(R5_NEW_CARD_RULE)
