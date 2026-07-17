@@ -19,17 +19,17 @@ Status vocabulary: OPEN · FIXED-PENDING-REVIEW · CLOSED (evidence cited) · BL
 ## A. Operator items (their 12, from the 2026-07-16 message + Images 1–14)
 | Row | Item | Phase | Proving gate | Status |
 |---|---|---|---|---|
-| PC-1 | Buttons: reference 2-col grid, gutters, centered, sized (Image1 vs 2) | P1a | geometry gate: 2-col, equal ±1px, gap==token, centered (both engines, studio+live) | OPEN |
+| PC-1 | Buttons: reference 2-col grid, gutters, centered, sized (Image1 vs 2) | P1a | geometry gate: 2-col, equal ±1px, gap==token, centered (both engines, studio+live) | FIXED (review SHIP; geometry gate both engines) — operator staging pending |
 | PC-2 | Drag = defining custom locations (R-B) | P3a+P3b | both-engine gesture: form/break element rows, alignment applied, saved-model + rendered proof | OPEN |
-| PC-3 | Yes/No reference-quality + default inter-component spacing (Image3 vs 4) | P1a | yes/no equal cells; EVERY adjacent pair gap == theme token (P10 probe inverted) | OPEN |
+| PC-3 | Yes/No reference-quality + default inter-component spacing (Image3 vs 4) | P1a | yes/no equal cells; EVERY adjacent pair gap == theme token (P10 probe inverted) | FIXED (review SHIP; every-pair floor incl. CardPanel/BackgroundPanel) — operator staging pending |
 | PC-4 | Contact per-field controls; When-answered conflicts; Required tested; Accept criteria (Image5) | P4a/P4b/P4d | NameFieldsGroup per-field props render; stuck-funnel unauthorable; required+format block Continue with visible message; criteria matrices | OPEN |
 | PC-5 | Date: helper, dynamic Min/Max (today/+7d/year), validated static input (Image6) | P4b | date-type gate: token bounds resolve, garbage unauthorable, range blocks with message | OPEN |
 | PC-6 | "If it's wrong, say" proven | P4b | custom message renders on failure with zero extra authoring (error-slot-by-default gate) | OPEN |
 | PC-7 | Number Step logic (502 trap; step on text fields) | P4b | step only on number, stepper/nearest-valid UX, Accept-swap cleans stale props | OPEN |
 | PC-8 | Deletion: toast-without-removal; sharpen delete UX (Image7) | P4d (+P1c toast placement) | delete==removal always; choice-delete atomic; undo works; toast anchored at canvas | OPEN |
-| PC-9 | "New Section" overlaps button (Image8) | P1c | create-flow chrome gate: no overlap at any viewport | OPEN |
+| PC-9 | "New Section" overlaps button (Image8) | P1c | create-flow chrome gate: no overlap at any viewport | FIXED (review SHIP; no-overlap gate 1280/1600) — operator staging pending |
 | PC-10 | Multi-question grid w/ defaults (Image9 vs 10) | P5a | component renders labels/rows/defaults per reference; per-row answers live | OPEN |
-| PC-11 | Cards: layout control, responsive, icon library, icon sizes (Image11 vs 12/13) | P1a+P1b | 48px icons, square-leaning cells, columns authorable, 375px collapse, Tabler set live | OPEN |
+| PC-11 | Cards: layout control, responsive, icon library, icon sizes (Image11 vs 12/13) | P1a+P1b | 48px icons, square-leaning cells, columns authorable, 375px collapse, Tabler set live | PARTIAL: icons+cells+columns+responsive FIXED (review SHIP); per-element freedom lands P2 — operator staging pending |
 | PC-12 | Rules: names not ids; show/hide; when-answered interplay; conditional continue (Image14) | P4c (+P4a) | sentence-builder w/ display names; Carrier scenario live; conditional Continue; conflict save-rules | OPEN |
 
 ## B. Additional defects (found by the investigation's active hunt)
@@ -43,13 +43,15 @@ Status vocabulary: OPEN · FIXED-PENDING-REVIEW · CLOSED (evidence cited) · BL
 | PC-A6 | Containers unselectable on canvas | P3b | OPEN |
 | PC-A7 | Choice Backspace deletes whole group | P4d | OPEN |
 | PC-A8 | NameFieldsGroup hides field-family controls (subfields not selectable; no per-field props) | P4d | OPEN |
-| PC-A9 | Silent-failure pattern: preview fetch no-op; invalidation swallowed | P1c | OPEN |
+| PC-A9 | Silent-failure pattern: preview fetch no-op; invalidation swallowed | P1c | FIXED (review SHIP; preview-failure banner+retry; server-side invalidation half stays P4) — operator staging pending |
 | PC-A10 | Three-way drift: registry vs inspector table vs renderer (Range/SearchableDropdown helper; TextBlock icon; fictional date validation claim) | P4d (+P4b date) | OPEN |
 | PC-A11 | Dead engine state: continue_blocked/blocking_question_ids computed, never read | P4a (remove or wire) | OPEN |
-| PC-A12 | MultiChoiceCardGroup ignores authored columns (hardcoded 2) | P1a | OPEN |
+| PC-A12 | MultiChoiceCardGroup ignores authored columns (hardcoded 2) | P1a | FIXED (review SHIP; authored columns honored) — operator staging pending |
 
 ## C. Phase log
 _(appended by the conductor per phase: branch, slices, gate outcomes with counts, review verdict, PR)_
+
+**P1 (2026-07-17) — layout system + rhythm + Tabler icons + editor chrome. Adversarial review: SHIP (initial SHIP w/ 1 MINOR + coverage note → both fixed in-phase → re-review FINAL SHIP).** Branch `product-core/p1-layout`, 15 commits (P1b icons 47d939b · P1a layout ef9037a/ce17564 + collapse-emulation d39946e + tidy 57b26fe · P1c chrome 781eb09 + PW_PORT sweep 2a03dfb · consolidated baselines/firefox 70c324a/61d5831/b22e9b7 · [hidden] fix 8d13ba9 · re-mint caaa18c · gate calibration a81fb92 · CardPanel floor + 9-surface coverage a543bd8). Conductor gates at final HEAD: tsc 0 · vitest 5,337/5,337 (376) · Playwright 330 listed (per-shard verified) · verify:all green (runtime BYTE-IDENTICAL 40,908 · jargon 0 · census 0 unclassified/0 stale). THREE bonus product defects found+fixed in-phase with fail-before evidence: (1) conditionally-hidden grid components rendered VISIBLE live (author display beats UA [hidden] — terminal scoped guard + 9-surface gate); (2) Back button visible on step 1 (same class; baselines had certified the bug); (3) the v25 visual gate was blind to element-sized regressions (ratio budget ≈2,345px → absolute 200px with executed fail-proof + 3× stability). Known-accepted: Stack/Grid/Columns own their internal gaps by design; live gesture legs chromium-only (documented engine constraint); patterns-v25 livePages diagnostic cascade recorded for follow-up. Operator staging acceptance = the terminal gate before deploy.
 
 ## D. Operator-owned (BLOCKED, never PASS)
 Deploy per phase/close · staging hands-on acceptance (TERMINAL definition of done) · off-theme-badge + new-copy sign-off · manual QA · P1 live-render change ships only after staging sign-off.
