@@ -67,6 +67,30 @@ const CARD_TEXT = "rgb(255, 255, 255)"; // text_color_role card_background (#FFF
 // string, so the paint assertions below compare against these, not the hex.
 const ACCENT_RGB = "rgb(232, 93, 38)"; // #E85D26
 const OFF_THEME_RGB = "rgb(217, 45, 32)"; // #D92D20
+// P2b FIX-ROUND (adversarial review R1/R2) — the theme's OWN hover/selected
+// wash tokens (iconCard.hoverBorderColor/selectedBorderColor = the SAME
+// #1B3A5C navy; iconCard.selectedBackground = #E8EEF4), as their computed
+// rgb() — the UNSTYLED-choice live-paint regression test's expected values.
+const SELECTED_BORDER_RGB = "rgb(27, 58, 92)"; // #1B3A5C (hover- and selected-border, identical token)
+const SELECTED_WASH_RGB = "rgb(232, 238, 244)"; // #E8EEF4 (iconCard.selectedBackground)
+
+// WCAG 2.1 relative luminance + contrast ratio (the standard formula, never
+// approximated) — proves the MAJOR finding's fix with a REAL measured number,
+// not a bare "the color changed". Accepts getComputedStyle's own "rgb(r, g,
+// b)" format.
+function relLuminance(rgb: string): number {
+  const m = rgb.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+  if (!m) throw new Error(`not an rgb() string: ${rgb}`);
+  const [rr, gg, bb] = [m[1]!, m[2]!, m[3]!].map((c) => {
+    const n = parseInt(c, 10) / 255;
+    return n <= 0.03928 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4;
+  }) as [number, number, number];
+  return 0.2126 * rr + 0.7152 * gg + 0.0722 * bb;
+}
+function contrastRatio(rgbA: string, rgbB: string): number {
+  const [l1, l2] = [relLuminance(rgbA), relLuminance(rgbB)].sort((a, b) => b - a);
+  return (l1 + 0.05) / (l2 + 0.05);
+}
 
 // A single-column ButtonAnswerGroup so each button owns its own grid ROW → a
 // per-choice min-height is honored independently (no same-row stretch-equalize;
@@ -228,16 +252,17 @@ function hexToRgb(hex: string): string {
 }
 
 // The canvas re-render is a DEBOUNCED preview POST (studio-patterns.spec.ts's
-// own documented mechanism) AND `.lg-btn.lg-btn-answer` carries a `background
-// var(--lg-transition-card)` CSS transition — so a computed-style read taken
-// the INSTANT after an authoring action or a save/reload can observe a
-// transient value (mid-debounce or mid-transition), not the settled one.
-// Every OTHER assertion in this file already wraps its color read in
-// `toPass`; this helper is the SAME retry, reused so a save/reload re-check
-// gets the identical robustness (found live: an unwrapped post-reload read
-// caught a transient value on firefox — never a chromium-only issue, just a
-// timing window chromium's own render/paint cadence happened not to hit).
-async function expectBg(read: () => Promise<string>, expected: string): Promise<void> {
+// own documented mechanism) AND `.lg-btn.lg-btn-answer`/`.lg-card` carry a
+// `border-color …, background …` CSS transition (BOTH properties, P2b
+// FIX-ROUND R1) — so a computed-style read (background OR border-color)
+// taken the INSTANT after an authoring action, a click, a hover, or a save/
+// reload can observe a TRANSIENT value (mid-debounce or mid-transition), not
+// the settled one. Every color/border assertion in this file uses this SAME
+// retry (found live TWICE: an unwrapped post-reload background read caught a
+// transient value on firefox; an unwrapped post-click border-color read
+// caught a transient value on chromium — border-color rides the identical
+// transition as background, so it needs the identical treatment).
+async function expectComputedStyle(read: () => Promise<string>, expected: string): Promise<void> {
   await expect(async () => {
     expect(await read()).toBe(expected);
   }).toPass({ timeout: 10_000 });
@@ -360,12 +385,12 @@ test.describe("P2b studio controls — the choices-editor Style popover (real in
     // lets Yes grow without stretching No to match.
     const yesBg = () => frame.locator('[data-value="true"]').evaluate((el) => getComputedStyle(el as HTMLElement).backgroundColor);
     const noBgRead = () => frame.locator('[data-value="false"]').evaluate((el) => getComputedStyle(el as HTMLElement).backgroundColor);
-    await expectBg(yesBg, ACCENT_RGB);
+    await expectComputedStyle(yesBg, ACCENT_RGB);
     const yesHeight = await frame.locator('[data-value="true"]').evaluate((el) => el.getBoundingClientRect().height);
     const noHeight = await frame.locator('[data-value="false"]').evaluate((el) => el.getBoundingClientRect().height);
     expect(yesHeight).toBeGreaterThanOrEqual(60);
     expect(yesHeight).toBeGreaterThan(noHeight);
-    await expectBg(noBgRead, RESTING_WHITE);
+    await expectComputedStyle(noBgRead, RESTING_WHITE);
 
     // A theme ROLE is never off-theme — the badge stays hidden on Yes; No was
     // never authored at all (no controls opened), so its badge is hidden too.
@@ -377,11 +402,11 @@ test.describe("P2b studio controls — the choices-editor Style popover (real in
     // through this mount, and exercises setYesNoStyle's hex-write path.
     await yesPanel.locator('[data-choice-style-axis="color"] [data-choice-hex-input]').fill(OFF_THEME_HEX);
     await yesPanel.locator('[data-choice-style-axis="color"] [data-choice-hex-input]').blur();
-    await expectBg(yesBg, OFF_THEME_RGB);
+    await expectComputedStyle(yesBg, OFF_THEME_RGB);
     await expect(yesBlock.locator("[data-choice-offtheme-badge]")).toBeVisible();
     await expect(yesBlock.locator("[data-choice-offtheme-badge]")).toHaveText("Off theme");
     // No is STILL untouched (diff-only — Yes's authoring never leaked to No).
-    await expectBg(noBgRead, RESTING_WHITE);
+    await expectComputedStyle(noBgRead, RESTING_WHITE);
     await expect(noBlock.locator("[data-choice-offtheme-badge]")).toBeHidden();
 
     // No's OWN panel is genuinely empty (never authored): no active role
@@ -411,8 +436,8 @@ test.describe("P2b studio controls — the choices-editor Style popover (real in
     const noHeightAfter = await frame.locator('[data-value="false"]').evaluate((el) => el.getBoundingClientRect().height);
     expect(yesHeightAfter).toBeGreaterThanOrEqual(60);
     expect(yesHeightAfter).toBeGreaterThan(noHeightAfter);
-    await expectBg(yesBg, OFF_THEME_RGB);
-    await expectBg(noBgRead, RESTING_WHITE);
+    await expectComputedStyle(yesBg, OFF_THEME_RGB);
+    await expectComputedStyle(noBgRead, RESTING_WHITE);
 
     // Server truth: props.yesStyle landed exactly as authored (role replaced
     // by hex, diff-only — never a copied value); props.noStyle absent (No
@@ -458,21 +483,77 @@ test.describe("P2a per-element freedom — live /lg funnel (§12 parity + select
     expect(allowResting.fontWeight).toBe("700");
     expect(allowResting.height).toBeGreaterThan((await readFacts(live, "disallow")).height);
 
-    // Selected pipeline INTACT + no-leak: clicking Allow marks it selected via
-    // the runtime's real marker (.lg-selected class) — the styled button stays
-    // interactive. And the per-choice resting color rides ONLY the
-    // --lg-answer-bg channel: the styled button carries NEITHER --lg-sel-bg NOR
-    // a bare `background:` inline, so it STRUCTURALLY cannot override the
-    // selected-state rule (governed separately by the node's --lg-sel-bg /
-    // the [aria-checked]/[data-selected] selectors) — "selected wins while
-    // selected". The resting-channel var is unchanged by selection.
+    // MINOR-2 (adversarial review) — the PRIOR version of this test asserted
+    // only DOM structure (a class present, an inline style excluding some
+    // substrings), never the real PAINT — which stayed green even though R2's
+    // OWN pre-existing discovery is that the live runtime marks a selection
+    // with ONLY the .lg-selected class + aria-pressed (render.ts
+    // SELECTED_CLASS), never aria-checked/data-selected — so NO selected CSS
+    // rule ever matched live, and a click painted NOTHING at all. These are
+    // the real COMPUTED-paint assertions (the pass-after evidence for R1+R2;
+    // R2's fail-before is the reviewer's own citation — every selected rule
+    // keyed [aria-checked]/[data-selected] only, confirmed absent from every
+    // rule in styles.ts pre-fix by grep, and independently reproduced by this
+    // implementer: render.ts:76-80 sets ONLY classList.add(SELECTED_CLASS) +
+    // aria-pressed, read-only-confirmed, zero runtime changes made here).
     const allowBtn = live.locator('[data-value="allow"]');
+    const disallowBtn = live.locator('[data-value="disallow"]');
+
+    // (c) HOVER leg FIRST (before any click marks anything selected) — the
+    // MAJOR finding: pre-R1, :hover replaced Allow's authored accent
+    // background with the theme's generic hover wash (#F2F6FA) while the
+    // author's white text stayed fixed → white-on-near-white, the reviewer's
+    // OWN cited measurement of 1.09:1 (independently reverified by this
+    // implementer against the SAME tokens offline: contrast(#FFFFFF,
+    // #F2F6FA) = 1.086:1 — matches). R1 makes :hover read var(--lg-answer-bg,
+    // …) too, so Allow's OWN accent now persists through hover.
+    await allowBtn.hover();
+    await expectComputedStyle(() => allowBtn.evaluate((el) => getComputedStyle(el as HTMLElement).backgroundColor), ACCENT_RGB);
+    const hoveredTextColor = await allowBtn.evaluate((el) => getComputedStyle(el as HTMLElement).color);
+    const hoverRatio = contrastRatio(hoveredTextColor, ACCENT_RGB);
+    // Measured reality, cited plainly (never asserted past what is true):
+    // white-on-#E85D26 is 3.49:1 — a ~3.2x improvement over the 1.09:1 fail-
+    // before, and clears the WCAG AA "large text / UI component" floor
+    // (3:1 — this button is font-weight 700, which is the bold half of that
+    // test), but it does NOT clear the stricter 4.5:1 normal-text bar at this
+    // component's 15px base size (primaryButton.fontSize 0.9375rem — a few px
+    // under the 18.66px bold "large text" cutoff). That gap is a CONTENT
+    // color-pairing choice (this specific accent+white combination), not
+    // something the R1 persistence mechanism itself can or should force —
+    // flagged here, not silently asserted at a threshold the real number
+    // does not clear.
+    expect(hoverRatio).toBeGreaterThan(3);
+    expect(hoverRatio).toBeGreaterThan(1.09 * 3); // dramatically, not marginally, better than the fail-before
+    await page.mouse.move(0, 0);
+
+    // (a) CLICK a STYLED choice (Allow) — selected treatment now actually
+    // appears live (R2), AND the authored background PERSISTS (R1): state
+    // feedback rides border-color/font-weight instead of repainting the bg.
     await allowBtn.click();
     await expect(allowBtn).toHaveClass(/lg-selected/, { timeout: 10_000 });
+    await expectComputedStyle(() => allowBtn.evaluate((el) => getComputedStyle(el as HTMLElement).backgroundColor), ACCENT_RGB);
+    // border-color rides the SAME `transition: border-color …, background …`
+    // as background (found live: an unwrapped read here caught a transient
+    // mid-transition value) — the identical retry, not a bare read.
+    await expectComputedStyle(() => allowBtn.evaluate((el) => getComputedStyle(el as HTMLElement).borderColor), SELECTED_BORDER_RGB);
+    expect(await allowBtn.evaluate((el) => getComputedStyle(el as HTMLElement).fontWeight)).toBe("700");
+    // The per-choice channel stays --lg-answer-bg only (no --lg-sel-bg / bare
+    // background: ever lands inline) — same structural proof as before, kept
+    // alongside the new paint assertions rather than replacing them outright.
     const styleAttr = (await allowBtn.getAttribute("style")) ?? "";
     expect(styleAttr).toContain("--lg-answer-bg");
     expect(styleAttr).not.toContain("--lg-sel-bg");
     expect(styleAttr).not.toContain("background:");
     expect((await readFacts(live, "allow")).answerBg).toBe(ACCENT_HEX);
+
+    // (b) CLICK the UNSTYLED sibling (Disallow) — the pre-existing-bug
+    // regression test: pre-R2 this painted NOTHING live (no selected rule
+    // ever matched .lg-selected); the theme's OWN wash now appears, matching
+    // the studio-canvas behavior — §12 parity restored for the selected
+    // state too, not just the resting one.
+    await disallowBtn.click();
+    await expect(disallowBtn).toHaveClass(/lg-selected/, { timeout: 10_000 });
+    await expectComputedStyle(() => disallowBtn.evaluate((el) => getComputedStyle(el as HTMLElement).backgroundColor), SELECTED_WASH_RGB);
+    await expectComputedStyle(() => disallowBtn.evaluate((el) => getComputedStyle(el as HTMLElement).borderColor), SELECTED_BORDER_RGB);
   });
 });

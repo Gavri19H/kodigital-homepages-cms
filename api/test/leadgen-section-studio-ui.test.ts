@@ -6865,9 +6865,15 @@ describeDb("review FIX 4a — answer-group selected-state override renders back"
     const base = funnelChromeCss(DESIGN);
     const framed = funnelChromeCss(DESIGN, undefined, { frameRegions: true });
     // the rule re-states the SAME selected selector THROUGH the var so the
-    // fallback keeps the §14.6 token when no override rides the group
+    // fallback keeps the §14.6 token when no override rides the group.
+    // P2b FIX-ROUND (adversarial review R1+R2): the selector grew a third
+    // alternative, .lg-selected (R2 — the live runtime's real selection
+    // marker), and the background now nests var(--lg-answer-bg, …) OUTSIDE
+    // var(--lg-sel-bg, …) (R1 — a per-choice color wins over the node-level
+    // curated override too, while an unset per-choice var still falls all the
+    // way through to the SAME #E8EEF4 token as before).
     const consumer =
-      /\.lg-btn\.lg-btn-answer\[aria-checked="true"\][^{]*\.lg-btn\.lg-btn-answer\[data-selected="true"\]\{background:var\(--lg-sel-bg, #E8EEF4\)\}/g;
+      /\.lg-btn\.lg-btn-answer\[aria-checked="true"\][^{]*\.lg-btn\.lg-btn-answer\.lg-selected\{background:var\(--lg-answer-bg, var\(--lg-sel-bg, #E8EEF4\)\)\}/g;
     // the BASE sheet (legacy funnels + unit-only previews) carries the consumer
     // exactly once — the DEV-68 coordinated re-pin carried the byte change
     expect(base.match(consumer), "exactly one base-sheet emission").toHaveLength(1);

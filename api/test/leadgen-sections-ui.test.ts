@@ -1107,7 +1107,14 @@ describeDb("§9.2 executed island — runPreview against the REAL preview handle
     expect(srcdoc).toContain('<script data-lg-runtime-version="');
     const markup = srcdoc.slice(0, srcdoc.indexOf('<script type="application/json" id="lg-config">'));
     expect(markup).toContain("lg-preview-desktop");
-    expect(markup).not.toContain("lg-selected");
+    // P2b FIX-ROUND (adversarial review R2): styles.ts now emits `.lg-selected`
+    // as a CSS SELECTOR (the live runtime's real selection marker gained a
+    // paint rule) — that literal substring is now UNCONDITIONALLY present in
+    // every page's <style> block, which `markup` still includes. The intent
+    // here has always been narrower: no rendered ELEMENT is marked selected in
+    // a DEFAULT (nothing pre-chosen) sim — a class-attribute-scoped match,
+    // never matching the unrelated CSS ruleset text.
+    expect(markup).not.toMatch(/class="[^"]*\blg-selected\b[^"]*"/);
     // …and the probe frame is PARKED (only ONE runtime document at a time)
     expect(out.probeFrame.attrs.has("srcdoc")).toBe(false);
   });

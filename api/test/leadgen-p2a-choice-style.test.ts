@@ -11,7 +11,12 @@ import {
   validateSectionContent,
   type LeadgenComponentNode,
 } from "../src/public/leadgen/components/content-schema";
-import { renderComponent } from "../src/public/leadgen/components/presets";
+import {
+  renderComponent,
+  renderSectionComponents,
+  type LeadgenSectionDesignOverrides,
+  type LeadgenSectionRenderCtx,
+} from "../src/public/leadgen/components/presets";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { baseTokenForRole } from "../src/public/leadgen/designs/theme";
 
@@ -207,5 +212,68 @@ describe("P2a choice.style — render emission (diff-only cascade)", () => {
     const no = html.slice(html.indexOf('data-value="false"') - 120, html.indexOf('data-value="false"'));
     expect(yes).toContain(`--lg-answer-bg:${ACCENT}`);
     expect(no).not.toContain("--lg-answer-bg");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ANTI-WIX REGRESSION (P2b FIX-ROUND MINOR-1, adversarial review): a
+// choice's color_role is a LIVE pointer into the Section's theme, never a
+// frozen snapshot taken at author time — "never the Wix trap where an
+// override orphans the element from theme updates" (choiceColorValue's own
+// doc comment). Proven through renderSectionComponents + a REAL §9.5 Section
+// design_overrides.palette re-point (the SAME ctxWith idiom
+// leadgen-token-priority.test.ts uses for node-level layer-4 re-pointing),
+// never a bare re-render with a hand-edited token.
+// ---------------------------------------------------------------------------
+describe("P2a choice.style — anti-Wix regression: a Section palette re-point (MINOR-1)", () => {
+  const REPOINTED = "#0011FF"; // deliberately far from ACCENT (#E85D26) — no false-positive overlap
+  const ctxWith = (design_overrides?: LeadgenSectionDesignOverrides): LeadgenSectionRenderCtx => ({
+    headline_text: "H",
+    subheadline_text: null,
+    ...(design_overrides !== undefined ? { design_overrides } : {}),
+  });
+
+  it("a role-based choice color FOLLOWS the Section's accent re-point (a live pointer, not a snapshot)", () => {
+    const node: LeadgenComponentNode = {
+      type: "ButtonAnswerGroup",
+      question_id: "q",
+      internal_field: "f",
+      choices: [{ label: "Allow", value: "allow", analytics_id: "a1", style: { color_role: "accent" } }],
+    };
+    // No re-point: the role resolves to the theme's OWN accent.
+    expect(renderSectionComponents([node], DESIGN)).toContain(`--lg-answer-bg:${ACCENT}`);
+    // Section re-points accent -> a NEW hex: the SAME role-based choice follows
+    // it exactly (never the frozen value it happened to resolve to before).
+    const repointed = renderSectionComponents([node], DESIGN, ctxWith({ palette: { accent: REPOINTED } }));
+    expect(repointed).toContain(`--lg-answer-bg:${REPOINTED}`);
+    expect(repointed).not.toContain(`--lg-answer-bg:${ACCENT}`);
+  });
+
+  it("a color_hex choice STAYS FROZEN through the SAME re-point (the deliberate off-theme escape — never a role reference)", () => {
+    const node: LeadgenComponentNode = {
+      type: "ButtonAnswerGroup",
+      question_id: "q",
+      internal_field: "f",
+      choices: [{ label: "Warn", value: "w", analytics_id: "a1", style: { color_hex: OFF_THEME_HEX } }],
+    };
+    const repointed = renderSectionComponents([node], DESIGN, ctxWith({ palette: { accent: REPOINTED } }));
+    // The re-point targets "accent"; this choice never named a role at all —
+    // an off-theme literal is IMMUNE to any theme/palette change by design.
+    expect(repointed).toContain(`--lg-answer-bg:${OFF_THEME_HEX}`);
+    expect(repointed).not.toContain(REPOINTED);
+  });
+
+  it("node-level cascade (design_overrides.corners) still reaches a color-ONLY choice under a re-pointed context", () => {
+    const node: LeadgenComponentNode = {
+      type: "ButtonAnswerGroup",
+      question_id: "q",
+      internal_field: "f",
+      design_overrides: { corners: "pill" },
+      choices: [{ label: "A", value: "a", analytics_id: "a1", style: { color_role: "accent" } }],
+    };
+    const html = renderSectionComponents([node], DESIGN, ctxWith({ palette: { accent: REPOINTED } }));
+    const [only] = buttons(html);
+    expect(only).toContain("border-radius:20px"); // node-level cascade intact under re-point
+    expect(only).toContain(`--lg-answer-bg:${REPOINTED}`); // choice color follows the re-point too
   });
 });

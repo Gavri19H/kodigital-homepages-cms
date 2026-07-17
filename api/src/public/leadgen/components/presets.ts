@@ -730,7 +730,7 @@ export function renderButtonAnswerGroup(
     body = choiceList(node).map(btn).join("");
   }
   return (
-    `<div class="lg-answer-group" role="radiogroup"${hydration(node)}${answerGroupRootStyle(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
+    `<div class="lg-answer-group" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choiceList(node)))}${answerGroupRootStyle(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
     body +
     `</div>` +
     // v3.1 R3 E1-NEW-8: helper line below the group ("" when no props.helper).
@@ -762,7 +762,7 @@ export function renderTwoButtonYesNo(
     // 03 §3.3: data-lg-choice mirrors data-value (the stored boolean).
     ` data-value="${value ? "true" : "false"}" data-lg-choice="${value ? "true" : "false"}">${esc(label)}</button>`;
   return (
-    `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)}${answerGroupRootStyle(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
+    `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)}${choiceHeightsAttr(yesStyle?.size !== undefined || noStyle?.size !== undefined)}${answerGroupRootStyle(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
     btn(yes, true, yesStyle) +
     btn(no, false, noStyle) +
     `</div>` +
@@ -904,7 +904,7 @@ function renderCardGrid(
     cards = choiceList(node).map(card).join("");
   }
   return (
-    `<div class="lg-card-grid" role="radiogroup"${hydration(node)}` +
+    `<div class="lg-card-grid" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choiceList(node)))}` +
     // v3.1 R3 §7: width → the grid container's max-width (per the register's
     // "grid/container max-width for card grids"); "" when unauthored.
     ((): string => {
@@ -988,7 +988,7 @@ export function renderMultiChoiceCardGroup(
     cards = choiceList(node).map(card).join("");
   }
   return (
-    `<div class="lg-card-grid lg-multi" role="group"${hydration(node)}` +
+    `<div class="lg-card-grid lg-multi" role="group"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choiceList(node)))}` +
     // P1a (register PC-1): honor the authored `columns` (killing the pre-P1a
     // hardcoded "2" that IGNORED the key) + `gridGap`, mirroring renderCardGrid's
     // §9.5 layer-4 resolution — per-node override wins over Section
@@ -1152,7 +1152,7 @@ export function renderOtherGroupSelector(
     body = choiceList(node).map(btn).join("");
   }
   return (
-    `<div class="lg-answer-group lg-other-group" role="radiogroup"${hydration(node)}${answerGroupRootStyle(node, design, ctx)}>` +
+    `<div class="lg-answer-group lg-other-group" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choiceList(node)))}${answerGroupRootStyle(node, design, ctx)}>` +
     body +
     `</div>` +
     // v3.1 R3 E1-NEW-8: helper line below the group ("" when no props.helper).
@@ -1654,15 +1654,20 @@ function nodeItemStyleEntries(
 }
 
 // P2a §R-A — the per-choice DIFF-ONLY overlay: ONLY the keys the choice's
-// `style` explicitly set. RESTING background rides the `--lg-answer-bg` CUSTOM
-// PROPERTY (state-safe: the resting rule reads `var(--lg-answer-bg, <theme
-// default>)` so a per-choice bg NEVER clobbers the :hover/[aria-checked]/
-// [data-selected] state rules — "selected wins while selected", EXACTLY the
-// --lg-field-border idiom). NB: that resting-rule var-read lives in
-// designs/default-funnel/styles.ts (a SIBLING slice's file, not P2a's) — until
-// it lands the var is emitted but the theme default still paints; see the P2a
-// report's styles.ts hand-off. Text color is a DIRECT inline `color` (NO state
-// rule overrides `color`, so it is resting-safe without a var). emphasis strong
+// `style` explicitly set. Background rides the `--lg-answer-bg` CUSTOM
+// PROPERTY, read by EVERY state rule in designs/default-funnel/styles.ts
+// (resting, :hover, AND [aria-checked]/[data-selected]/.lg-selected — the P2b
+// FIX-ROUND R1 correction): a styled choice keeps its AUTHORED background in
+// every state; state feedback rides the border/ring/font-weight channels
+// instead. This is what makes the per-choice TEXT COLOR safe: `color` is a
+// DIRECT inline value (no CSS rule ever overrides it, in any state) chosen to
+// pair with the choice's OWN authored background — and since R1 makes that
+// SAME background the one that paints in every state, the pairing never
+// breaks. (Pre-R1 this was NOT a safe invariant despite "no rule overrides
+// color" being equally true then: hover/selected repainted the background to
+// the theme's generic wash while the text stayed the author's fixed color —
+// the adversarial review's MAJOR finding measured exactly that gap, a white-
+// on-near-white ~1.09:1 contrast on hover, before R1 landed.) emphasis strong
 // → font-weight 700 (== the selected-state weight, so a strong item is
 // state-consistent). A choice height OVERRIDES the node min-height (same key →
 // later spread wins; the key's POSITION is preserved so unaffected keys keep
@@ -1698,6 +1703,22 @@ function choiceItemStyle(
     ...nodeItemStyleEntries(node, design, ctx),
     ...choiceStyleOverlayEntries(choiceStyle, design, ctx),
   });
+}
+
+// P2b FIX-ROUND (adversarial review MINOR-3): `.lg-answer-group`/`.lg-card-
+// grid` only need align-items:start (designs/default-funnel/styles.ts) when a
+// per-choice HEIGHT is actually authored — an unstyled group must keep
+// today's grid-default stretch-to-equal-height look (the R-A "additive"
+// invariant, now enforced at the CSS layer instead of assumed). One boolean
+// ATTRIBUTE (not the whole style bag) so styles.ts has a single, unambiguous
+// selector to key the override on; "1" when true, omitted (never "0") when
+// false — attr() drops falsy/empty values, so an unstyled group's markup
+// stays byte-identical to pre-MINOR-3.
+function anyChoiceHasHeight(choices: readonly LeadgenChoice[]): boolean {
+  return choices.some((c) => c.style?.size !== undefined);
+}
+function choiceHeightsAttr(hasHeight: boolean): string {
+  return attr("data-choice-heights", hasHeight ? "1" : undefined);
 }
 
 // P1b (register PC-11) — §8.1 leading icons, Tabler pipeline. Pre-P1b, this
