@@ -34,8 +34,8 @@
 //     afterwards the funnel frame carries the header group (API read-back) and
 //     the Section no longer has the node.
 //
-// Local D1 must be migrated + seeded once:
-// `rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local`.
+// Local state must be reset once:
+// `npm run db:reset:local`.
 // Screenshots land in test-artifacts/leadgen-c-*.png.
 
 import { test, expect, request as playwrightRequest, type FrameLocator, type Page } from "@playwright/test";

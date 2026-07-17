@@ -5,8 +5,8 @@
 // Seeding rides the REAL admin HTTP APIs only (POST /themes, /quotes,
 // /funnels/:id/variants, PUT /funnels/:id/theme, PUT /variants/:id — the
 // leadgen-offers-mgmt.spec.ts / leadgen-section-studio.spec.ts convention;
-// no direct DB writes). Local D1 must be migrated + seeded once beforehand:
-// `rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local`.
+// no direct DB writes). Local state must be reset once beforehand:
+// `npm run db:reset:local`.
 //
 // Covers: the §10.3 three fixture-shaped cards + computed LIVE·A / A/B·B /
 // DRAFT badges; selecting a card re-skins the CENTER editor; an editor edit

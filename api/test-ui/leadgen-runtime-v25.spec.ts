@@ -97,8 +97,8 @@
 // re-stamps the SSR copy per step on mounts that carry the attribute:
 // asserted live in row ③, normalized as N7 in row ①.
 //
-// Local D1 must be migrated + seeded once:
-// `rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local`.
+// Local state must be reset once:
+// `npm run db:reset:local`.
 
 import { test, expect, request as playwrightRequest, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";

@@ -96,8 +96,8 @@
 // (Playwright retry) instead of racing timers. Studio preview swaps follow
 // the DEV-67 stale-marking idiom where hydration matters.
 //
-// Local D1 must be migrated + seeded once:
-// `rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local`.
+// Local state must be reset once:
+// `npm run db:reset:local`.
 // Evidence screenshots (§15.3 "then screenshot desktop+mobile" for ALL five
 // patterns, including E which is not in the §15.4 committed set) land in
 // test-artifacts/leadgen-e1-patterns/.
