@@ -70,6 +70,12 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   'leadgen-u11u12-move.gesture.spec.ts',
   'forensic-live-probe.spec.ts',
   'leadgen-p1-geometry.gesture.spec.ts',
+  // P2a (register PC-11 completion / R-A): the per-element-freedom effect gate.
+  // Cross-engine (not FIREFOX_ONLY) for the SAME reason as p1-geometry — its
+  // studio-canvas describe is getBoundingClientRect + computed styles (no
+  // real-input drag), engine-agnostic; only its live-/lg describe self-skips on
+  // firefox (dynamic e2e host needs chromium --host-resolver-rules).
+  'leadgen-p2a-element-freedom.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',

@@ -623,21 +623,36 @@ describe("ButtonAnswerGroup + TwoButtonYesNo (§14.6 answer-button state)", () =
     // var(--lg-field-border, <fallback>) — the SAME idiom .lg-input already
     // uses (see the border_color describe block below) — ONLY-INTENDED-DELTA
     // vs. the pre-R5 pin: one appended declaration, nothing else in this rule
-    // changed.
+    // changed. P2b (register R-A completion): `background` now reads
+    // var(--lg-answer-bg, #FFFFFF) — the state-safe per-choice-color idiom
+    // (presets.ts choiceItemStyle) — falling back to the SAME #FFFFFF
+    // (color.card) an unstyled choice always painted; ONLY the background
+    // channel changed vs. the pre-P2b pin, nothing else in this rule.
     expect(chrome).toContain(
-      ".lg-btn.lg-btn-answer{background:#FFFFFF;color:#1A1F36;border:2px solid #D2D9E5;border-color:var(--lg-field-border, #D2D9E5);transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}",
+      ".lg-btn.lg-btn-answer{background:var(--lg-answer-bg, #FFFFFF);color:#1A1F36;border:2px solid #D2D9E5;border-color:var(--lg-field-border, #D2D9E5);transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}",
     );
     // SELECTED (§14.6 "selected animation"): navy #1B3A5C border + #E8EEF4 wash bg
     // + weight 700 — the SAME iconCard.selectedBorderColor / selectedBackground
     // the icon card uses (§14.4). Asserted on the [data-selected] half of the
     // selector group (a clean contiguous substring) + presence of [aria-checked].
+    // P2b FIX-ROUND R2 (adversarial review, pre-existing discovery): the
+    // selector grew a THIRD alternative, .lg-selected — the live runtime's
+    // real selection marker (render.ts SELECTED_CLASS); aria-checked/
+    // data-selected are studio/preview-only, so without this the live funnel
+    // never painted a selection at all. Asserted on the .lg-selected ending
+    // (the SAME clean-contiguous-substring idiom, now at the new tail).
     expect(chrome).toContain(
-      '.lg-btn.lg-btn-answer[data-selected="true"]{border-color:#1B3A5C;background:#E8EEF4;font-weight:700}',
+      '.lg-btn.lg-btn-answer.lg-selected{border-color:#1B3A5C;background:#E8EEF4;font-weight:700}',
     );
     expect(chrome).toContain('.lg-btn.lg-btn-answer[aria-checked="true"]');
+    expect(chrome).toContain('.lg-btn.lg-btn-answer[data-selected="true"]');
     // HOVER: navy border + #F2F6FA wash (iconCard.hover*) — the exact match proves
     // it is NOT the primary navy FILL #0F2440 the bare .lg-btn:hover imposes.
-    expect(chrome).toContain(".lg-btn.lg-btn-answer:hover{border-color:#1B3A5C;background:#F2F6FA}");
+    // P2b FIX-ROUND R1: background now reads var(--lg-answer-bg, <the SAME
+    // wash>) — a styled choice's authored color persists through hover
+    // instead of being replaced by this wash; an unstyled choice (the var
+    // unset) still paints the wash exactly as before.
+    expect(chrome).toContain(".lg-btn.lg-btn-answer:hover{border-color:#1B3A5C;background:var(--lg-answer-bg, #F2F6FA)}");
     // FOCUS: the same visible focus ring the .lg-card:focus-visible rule uses.
     expect(chrome).toContain(".lg-btn.lg-btn-answer:focus-visible{outline:2px solid #1B3A5C;outline-offset:2px}");
   });

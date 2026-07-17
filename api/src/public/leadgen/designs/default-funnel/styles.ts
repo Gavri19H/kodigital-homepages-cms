@@ -594,6 +594,20 @@ export function funnelChromeCss(
       gap: answerGrid.gap,
       width: "100%",
     }),
+    // P2b FIX-ROUND (adversarial review MINOR-3): align-items:start ONLY when
+    // a per-choice height is actually authored (presets.ts emits
+    // data-choice-heights="1" on the root — anyChoiceHasHeight/
+    // choiceHeightsAttr — the instant ANY choice/yesStyle/noStyle carries
+    // style.size) — a multi-column group whose choices carry PER-CHOICE
+    // heights must let each item show its own min-height (grid's default
+    // align-items:stretch would otherwise equalize every cell in a row to the
+    // tallest, hiding the very variation P2a's per-choice size axis exists to
+    // produce). An UNAUTHORED group (the attribute absent) keeps the grid's
+    // OWN implicit default (stretch — today's uniform-height look,
+    // byte-identical to pre-P2b): this is a NARROWER selector than the base
+    // rule above, so it is additive-only, never a behavior change for content
+    // that authors no per-choice size.
+    rule(`${scope} .lg-answer-group[data-choice-heights="1"]`, { "align-items": "start" }),
   );
   mobile.push(rule(`${scope} .lg-answer-group`, { gap: answerGrid.gapMobile }));
 
@@ -611,7 +625,18 @@ export function funnelChromeCss(
   // uses (§14.4); focus ring = the .lg-card:focus-visible ring.
   out.push(
     rule(`${scope} .lg-btn.lg-btn-answer`, {
-      background: color.card,
+      // P2b (register R-A completion): the RESTING background reads
+      // choiceStyleOverlayEntries' state-safe --lg-answer-bg custom property
+      // (presets.ts, P2a), falling back to the UNCHANGED color.card token.
+      // Unset (no per-choice color/color_hex authored, the common case)
+      // resolves byte-identically to pre-P2b. FIX-ROUND R1 (adversarial
+      // review): :hover / [aria-checked="true"] / [data-selected="true"] /
+      // .lg-selected below ALSO read var(--lg-answer-bg, <their own state-
+      // wash fallback>) — a styled choice keeps this SAME authored color in
+      // EVERY state (border-color/font-weight carry the state feedback
+      // instead); an unstyled choice is unaffected (the var stays unset, so
+      // each state's own token fallback paints exactly as before P2b).
+      background: `var(--lg-answer-bg, ${color.card})`,
       color: page.textColor,
       border: input.border,
       // R5 state-safe border (register R3a ROUTING NOTES): a LATER
@@ -619,10 +644,12 @@ export function funnelChromeCss(
       // `border` shorthand above (same specificity, source order decides).
       // presets.ts's choiceItemStyle supplies a per-node design_overrides.
       // border_color role as an inline CUSTOM PROPERTY on the RESTING state
-      // only — :hover / [aria-checked="true"] / [data-selected="true"] below
-      // set border-color/background DIRECTLY (higher specificity: a
-      // pseudo-class/attribute selector beats a bare compound-class
-      // declaration) and so still win over this var-driven default. Unset
+      // only — :hover / [aria-checked="true"] / [data-selected="true"] /
+      // .lg-selected below set border-color DIRECTLY (higher specificity: a
+      // pseudo-class/attribute/class selector beats a bare compound-class
+      // declaration) and so still win over this var-driven default — border-
+      // color is the STATE-FEEDBACK channel (R1), unlike background above,
+      // which now persists the SAME --lg-answer-bg in every state. Unset
       // (no per-item override authored, the common case) falls back to
       // color.border — the SAME token nodeBorderColorCss resolves to for
       // "neutral", so "no override" and "explicit neutral" render byte-
@@ -630,12 +657,25 @@ export function funnelChromeCss(
       "border-color": `var(--lg-field-border, ${color.border})`,
       transition: `border-color var(--lg-transition-card), background var(--lg-transition-card)`,
     }),
+    // P2b FIX-ROUND (adversarial review R1 — "per-choice paint PERSISTS
+    // across states"): background now reads var(--lg-answer-bg, <the SAME
+    // hover-wash token as before>) — a styled choice keeps its AUTHORED
+    // background on hover too (state feedback rides border-color instead);
+    // an unstyled choice is byte-identical (the var is unset, so the
+    // fallback — the unchanged token — paints exactly as before).
     rule(`${scope} .lg-btn.lg-btn-answer:hover`, {
       "border-color": iconCard.hoverBorderColor,
-      background: iconCard.hoverBackground,
+      background: `var(--lg-answer-bg, ${iconCard.hoverBackground})`,
     }),
+    // R2 (adversarial review, pre-existing discovery): the LIVE runtime marks
+    // a selected choice with the `.lg-selected` CLASS + aria-pressed
+    // (render.ts SELECTED_CLASS) — NEVER aria-checked/data-selected (those
+    // are set only by the studio canvas/preview simulator). Every selected
+    // rule below now keys on ALL THREE so the live funnel actually paints a
+    // selection, not just the studio surfaces. ZERO runtime changes — the
+    // fix is entirely selector-side.
     rule(
-      `${scope} .lg-btn.lg-btn-answer[aria-checked="true"], ${scope} .lg-btn.lg-btn-answer[data-selected="true"]`,
+      `${scope} .lg-btn.lg-btn-answer[aria-checked="true"], ${scope} .lg-btn.lg-btn-answer[data-selected="true"], ${scope} .lg-btn.lg-btn-answer.lg-selected`,
       {
         "border-color": iconCard.selectedBorderColor,
         background: iconCard.selectedBackground,
@@ -647,22 +687,26 @@ export function funnelChromeCss(
       "outline-offset": "2px",
     }),
     // ---- v2.5 answer-group selected-state override consumption (FIX 4a,
-    // DEV-68 coordinated re-pin) ---------------------------------------------
+    // DEV-68 coordinated re-pin; P2b FIX-ROUND R1+R2) -------------------------
     // The curated §14.8 `buttonBackground` override on ButtonAnswerGroup /
     // TwoButtonYesNo / OtherGroupSelector rides the GROUP root as the
     // --lg-sel-bg custom property (presets.ts answerGroupSelectedVar —
     // additive markup; absent override emits nothing). This rule re-states
-    // the §14.6 selected background THROUGH the var with the SAME iconCard
-    // token as the fallback: var unset ⇒ identical computed style; set ⇒
-    // the resolved role/hex wins (later source order at equal specificity
-    // beats the §14.6 base rule above). The --lg-sel-bg markup emission is
+    // the §14.6 selected background THROUGH a TWO-LEVEL var fallback (later
+    // source order at equal specificity beats the base rule above): the
+    // per-CHOICE --lg-answer-bg wins FIRST (R1 — an authored choice keeps its
+    // own color while selected, exactly like it does on hover/resting), else
+    // the per-NODE curated --lg-sel-bg (FIX 4a, unchanged), else the SAME
+    // iconCard token both always resolved to. All three vars unset ⇒
+    // identical computed style to pre-P2b. The --lg-sel-bg markup emission is
     // ungated and frame-independent, so the consumer belongs in the BASE
     // sheet — moved here from the frameRegions-gated block (DEV-68; the
     // coordinated legacy-pin re-pin carries the byte change; with no
-    // override the var fallback keeps legacy rendering pixel-identical).
+    // override the var fallback keeps legacy rendering pixel-identical). R2:
+    // .lg-selected added to the selector — see the base selected rule above.
     rule(
-      `${scope} .lg-btn.lg-btn-answer[aria-checked="true"], ${scope} .lg-btn.lg-btn-answer[data-selected="true"]`,
-      { background: `var(--lg-sel-bg, ${iconCard.selectedBackground})` },
+      `${scope} .lg-btn.lg-btn-answer[aria-checked="true"], ${scope} .lg-btn.lg-btn-answer[data-selected="true"], ${scope} .lg-btn.lg-btn-answer.lg-selected`,
+      { background: `var(--lg-answer-bg, var(--lg-sel-bg, ${iconCard.selectedBackground}))` },
     ),
   );
 
@@ -798,6 +842,11 @@ export function funnelChromeCss(
       gap: iconCardGrid.gap,
       "margin-bottom": iconCardGrid.marginBottom,
     }),
+    // P2b FIX-ROUND (adversarial review MINOR-3) — the .lg-answer-group twin
+    // above: align-items:start ONLY when data-choice-heights="1" (presets.ts
+    // anyChoiceHasHeight — ANY choice authors style.size); unauthored grids
+    // keep the implicit stretch-to-tallest default, byte-identical to pre-P2b.
+    rule(`${scope} .lg-card-grid[data-choice-heights="1"]`, { "align-items": "start" }),
   );
   // Mobile collapse (§14.4 mobile 1..2 cols): the grid falls to 1 column.
   mobile.push(rule(`${scope} .lg-card-grid`, { "grid-template-columns": "1fr" }));
@@ -812,28 +861,47 @@ export function funnelChromeCss(
       // R5 state-safe border (register R3a ROUTING NOTES) — same idiom as
       // .lg-btn.lg-btn-answer above: a per-node border_color rides
       // --lg-field-border so :hover/[aria-checked="true"]/[data-selected=
-      // "true"] below (higher specificity) still win. Fallback = color.border
-      // = the SAME "neutral" resolution, so the unauthored case is
-      // byte-identical.
+      // "true"]/.lg-selected below (higher specificity) still win — border-
+      // color is the state-feedback channel (P2b FIX-ROUND R1). Fallback =
+      // color.border = the SAME "neutral" resolution, so the unauthored case
+      // is byte-identical.
       "border-color": `var(--lg-field-border, ${color.border})`,
       "border-radius": iconCard.borderRadius,
-      background: iconCard.background,
+      // P2b (register R-A completion): the SAME --lg-answer-bg resting-state
+      // read as .lg-btn.lg-btn-answer above — icon/image/multi-choice cards
+      // share this ONE base rule, so a per-choice color/color_hex paints here
+      // too. Fallback = the unchanged iconCard.background token. FIX-ROUND R1
+      // (adversarial review): :hover / [aria-checked="true"] / [data-selected=
+      // "true"] / .lg-selected below ALSO read var(--lg-answer-bg, <their own
+      // state-wash fallback>) — a styled choice keeps this SAME color in
+      // every state; an unstyled choice is unaffected.
+      background: `var(--lg-answer-bg, ${iconCard.background})`,
       "min-height": iconCard.minHeight,
       padding: iconCard.padding,
       cursor: "pointer",
       "text-align": "center",
       transition: `border-color var(--lg-transition-card), background var(--lg-transition-card)`,
     }),
+    // P2b FIX-ROUND R1 — the SAME .lg-btn.lg-btn-answer:hover persistence
+    // idiom above: an authored per-choice color rides through hover too.
     rule(`${scope} .lg-card:hover`, {
       "border-color": iconCard.hoverBorderColor,
-      background: iconCard.hoverBackground,
+      background: `var(--lg-answer-bg, ${iconCard.hoverBackground})`,
     }),
-    // selected state (§14.4)
-    rule(`${scope} .lg-card[aria-checked="true"], ${scope} .lg-card[data-selected="true"]`, {
-      "border-color": iconCard.selectedBorderColor,
-      background: iconCard.selectedBackground,
-      "font-weight": "700",
-    }),
+    // selected state (§14.4). P2b FIX-ROUND R1+R2: background persists the
+    // per-choice --lg-answer-bg (R1 — no --lg-sel-bg equivalent exists for
+    // cards, so the fallback is directly the SAME iconCard token); .lg-selected
+    // added (R2 — the live runtime's SELECTED_CLASS, never aria-checked/
+    // data-selected — see the .lg-btn-answer selected rule above for the full
+    // citation).
+    rule(
+      `${scope} .lg-card[aria-checked="true"], ${scope} .lg-card[data-selected="true"], ${scope} .lg-card.lg-selected`,
+      {
+        "border-color": iconCard.selectedBorderColor,
+        background: `var(--lg-answer-bg, ${iconCard.selectedBackground})`,
+        "font-weight": "700",
+      },
+    ),
     // keyboard focus (§14.4)
     rule(`${scope} .lg-card:focus-visible`, {
       outline: `2px solid ${color.primary}`,

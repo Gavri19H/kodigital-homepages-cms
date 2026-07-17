@@ -87,8 +87,14 @@ describe("R5 state-safe border — part 2: the generated stylesheet's state rule
     expect(body, "hover sets a DIRECT border-color (not a var reference)").toContain(`border-color:${BRAND}`);
     expect(body).not.toContain("var(--lg-field-border");
   });
-  it('EFFECT-ASSERT: .lg-btn.lg-btn-answer[aria-checked="true"]/[data-selected="true"] still sets its OWN direct border-color', () => {
-    const body = ruleBodyOf(css, '.lg-btn.lg-btn-answer[aria-checked="true"], [data-funnel-design="default-funnel"] .lg-btn.lg-btn-answer[data-selected="true"]');
+  it('EFFECT-ASSERT: .lg-btn.lg-btn-answer[aria-checked="true"]/[data-selected="true"]/.lg-selected still sets its OWN direct border-color', () => {
+    // P2b FIX-ROUND R2 (adversarial review): the selector grew a third
+    // alternative, .lg-selected (the live runtime's real selection marker) —
+    // the full 3-part selector prefix is required to find the rule now.
+    const body = ruleBodyOf(
+      css,
+      '.lg-btn.lg-btn-answer[aria-checked="true"], [data-funnel-design="default-funnel"] .lg-btn.lg-btn-answer[data-selected="true"], [data-funnel-design="default-funnel"] .lg-btn.lg-btn-answer.lg-selected',
+    );
     expect(body, "selected rule exists in the generated stylesheet").not.toBeNull();
     expect(body).toContain(`border-color:${BRAND}`);
   });
@@ -98,8 +104,12 @@ describe("R5 state-safe border — part 2: the generated stylesheet's state rule
     expect(body).toContain(`border-color:${BRAND}`);
     expect(body).not.toContain("var(--lg-field-border");
   });
-  it('EFFECT-ASSERT: .lg-card[aria-checked="true"]/[data-selected="true"] still sets its OWN direct border-color', () => {
-    const body = ruleBodyOf(css, '.lg-card[aria-checked="true"], [data-funnel-design="default-funnel"] .lg-card[data-selected="true"]');
+  it('EFFECT-ASSERT: .lg-card[aria-checked="true"]/[data-selected="true"]/.lg-selected still sets its OWN direct border-color', () => {
+    // P2b FIX-ROUND R2: the SAME .lg-selected growth as the button selector above.
+    const body = ruleBodyOf(
+      css,
+      '.lg-card[aria-checked="true"], [data-funnel-design="default-funnel"] .lg-card[data-selected="true"], [data-funnel-design="default-funnel"] .lg-card.lg-selected',
+    );
     expect(body, "card selected rule exists").not.toBeNull();
     expect(body).toContain(`border-color:${BRAND}`);
   });

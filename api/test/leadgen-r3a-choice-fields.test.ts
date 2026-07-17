@@ -134,3 +134,97 @@ describe("R3 E1-NEW-2 — the per-type choice-field map is DERIVED from presets.
     expect(island.TwoButtonYesNo).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// P2b (register R-A completion) — the SAME drift-proof discipline for
+// CHOICE_STYLE_TYPES: which types' choice-editor row gets the per-choice
+// Style popover (buildChoiceStyleControl, ui-section-studio.ts). Re-derived
+// from presets.ts SOURCE — exactly which render function threads the per-
+// CHOICE `style` (c.style) through choiceItemStyle — so a future renderer
+// change that starts/stops threading c.style fails THIS test until
+// CHOICE_STYLE_TYPES widens/narrows in lockstep. Deliberately NARROWER than
+// CHOICE_TYPES/CHOICE_FIELD_CONSUMPTION above: DropdownQuestion and
+// SearchableDropdownQuestion ARE choice types (a choices editor exists) but
+// their renderer never calls choiceItemStyle at all (native <select>, no
+// per-option paint) — the popover would be a no-op there. TwoButtonYesNo is
+// the opposite asymmetry: its renderer DOES call choiceItemStyle, but with
+// `cs` (props.yesStyle/noStyle) rather than a CHOICE's `c.style` — it has no
+// `choices` array to attach a popover-bearing ROW to at all (its style
+// controls are mounted separately — see populateYesNoStyleBlock).
+// ---------------------------------------------------------------------------
+
+// A render-function body threads the per-CHOICE style when it calls
+// choiceItemStyle(...) with c.style as one of the arguments — deliberately
+// distinct from a bare c.style reference ANYWHERE in the body (there is none
+// today, but a future refactor could otherwise false-negative/false-positive
+// on incidental proximity — matching this file's own "structural, not line-
+// proximity" discipline for choiceFieldRefs above).
+function threadsChoiceStyle(body: string): boolean {
+  return /choiceItemStyle\([^)]*\bc\.style\b[^)]*\)/.test(body);
+}
+
+// Scans EVERY dispatched ComponentType (not just the pre-known CHOICE_TYPES
+// list above) so a future renderer for an as-yet-unlisted type that starts
+// threading c.style is discovered too, not just the 7 already suspected.
+function derivedChoiceStyleTypes(): string[] {
+  const src = presetsSrc();
+  const out: string[] = [];
+  for (const [type, fn] of typeToFn(src)) {
+    let body = fnBody(src, fn);
+    if (body === null) continue;
+    // The two card grids delegate to renderCardGrid — follow that ONE hop
+    // (the SAME hop derivedChoiceFields above follows).
+    if (/return renderCardGrid\(/.test(body)) {
+      body = fnBody(src, "renderCardGrid");
+    }
+    if (body !== null && threadsChoiceStyle(body)) out.push(type);
+  }
+  return out.sort();
+}
+
+// The island's CHOICE_STYLE_TYPES, evaluated from the SHIPPED island bytes —
+// a self-contained `{ Type: 1, ... }` lookup map (no external var reference,
+// so a single var-line eval suffices, unlike CHOICE_FIELD_CONSUMPTION above).
+function islandChoiceStyleTypes(): Record<string, number> {
+  const start = SECTION_STUDIO_SCRIPT.indexOf("var CHOICE_STYLE_TYPES =");
+  expect(start, 'island "var CHOICE_STYLE_TYPES =" present').toBeGreaterThan(-1);
+  const line = SECTION_STUDIO_SCRIPT.slice(start, SECTION_STUDIO_SCRIPT.indexOf(";", start) + 1);
+  const sandbox: Record<string, unknown> = {};
+  runInNewContext([line, "this.OUT = CHOICE_STYLE_TYPES;"].join("\n"), sandbox);
+  return sandbox["OUT"] as Record<string, number>;
+}
+
+describe("P2b R-A completion — CHOICE_STYLE_TYPES is DERIVED from presets.ts's choiceItemStyle(..., c.style) call sites, not assumed", () => {
+  it("the island's CHOICE_STYLE_TYPES key set equals the types whose renderer threads c.style through choiceItemStyle", () => {
+    const island = Object.keys(islandChoiceStyleTypes()).sort();
+    const derived = derivedChoiceStyleTypes();
+    expect(island).toEqual(derived);
+  });
+
+  it("the register's shape holds: exactly the 5 per-choice families; TwoButtonYesNo (yesStyle/noStyle, no choices array) and the 2 native-select dropdowns are excluded", () => {
+    expect(derivedChoiceStyleTypes()).toEqual([
+      "ButtonAnswerGroup",
+      "IconCardAnswerGrid",
+      "ImageCardAnswerGrid",
+      "MultiChoiceCardGroup",
+      "OtherGroupSelector",
+    ]);
+  });
+
+  it("every island CHOICE_STYLE_TYPES value is the literal 1 (a Set-shaped lookup map, never a falsy/truthy-ambiguous marker)", () => {
+    const island = islandChoiceStyleTypes();
+    for (const k of Object.keys(island)) {
+      expect(island[k], k).toBe(1);
+    }
+  });
+
+  it("TwoButtonYesNo's renderer DOES call choiceItemStyle, but never with c.style (props.yesStyle/noStyle instead) — confirms the exclusion is a real asymmetry, not an oversight", () => {
+    const src = presetsSrc();
+    const fn = typeToFn(src).get("TwoButtonYesNo");
+    expect(fn, "dispatch resolves TwoButtonYesNo").toBeTruthy();
+    const body = fnBody(src, fn!);
+    expect(body, `${fn} body found`).toBeTruthy();
+    expect(body).toContain("choiceItemStyle(");
+    expect(threadsChoiceStyle(body!)).toBe(false);
+  });
+});

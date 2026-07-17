@@ -490,6 +490,69 @@ const R5_OLD_CARD_RULE =
 const R5_NEW_CARD_RULE =
   `${DEFAULT_FUNNEL_SCOPE} .lg-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${defaultFunnelDesign.spacing.xs};border:${defaultFunnelDesign.iconCard.border};border-color:var(--lg-field-border, ${R5_BORDER_NEUTRAL});border-radius:${defaultFunnelDesign.iconCard.borderRadius};background:${defaultFunnelDesign.iconCard.background};min-height:${defaultFunnelDesign.iconCard.minHeight};padding:${defaultFunnelDesign.iconCard.padding};cursor:pointer;text-align:center;transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}`;
 
+// P2b (register R-A completion, product-core phase P2): the ONLY legal delta
+// vs. the R5 shape above is the RESTING `background` channel wrapped in
+// var(--lg-answer-bg, <same token>) — the state-safe per-choice-color idiom
+// (presets.ts choiceItemStyle's --lg-answer-bg emission, styles.ts's read).
+// Reverse-mapped FIRST in the chain below (P2b's NEW text -> the R5_NEW_*
+// shape), so the EXISTING R5 reverse-map steps then find their expected R5
+// input unchanged — kept in lockstep with styles.ts (a drift fails here).
+const P2B_NEW_BTN_ANSWER_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer{background:var(--lg-answer-bg, ${defaultFunnelDesign.color.card});color:${defaultFunnelDesign.page.textColor};border:${defaultFunnelDesign.input.border};border-color:var(--lg-field-border, ${R5_BORDER_NEUTRAL});transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}`;
+const P2B_NEW_CARD_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${defaultFunnelDesign.spacing.xs};border:${defaultFunnelDesign.iconCard.border};border-color:var(--lg-field-border, ${R5_BORDER_NEUTRAL});border-radius:${defaultFunnelDesign.iconCard.borderRadius};background:var(--lg-answer-bg, ${defaultFunnelDesign.iconCard.background});min-height:${defaultFunnelDesign.iconCard.minHeight};padding:${defaultFunnelDesign.iconCard.padding};cursor:pointer;text-align:center;transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}`;
+
+// P2b FIX-ROUND (adversarial review R1 — "per-choice paint PERSISTS across
+// states"): hover/selected ALSO read var(--lg-answer-bg, <the SAME token as
+// before>) — reverse-mapped the SAME "NEW -> the prior shape" way as the
+// resting rule above. R2 (pre-existing discovery, same FIX-ROUND): every
+// selected selector grows a THIRD alternative, .lg-selected (the live
+// runtime's real marker — render.ts SELECTED_CLASS; aria-checked/data-
+// selected are studio/preview-only). MINOR-3: align-items:start is no longer
+// inline on the BASE .lg-answer-group/.lg-card-grid rules at all — it moved
+// to its OWN net-new conditional rule (below, alongside the other net-new
+// rule strips), so there is NO base-rule delta for either grid anymore (the
+// base rules are byte-identical to pre-P2b again).
+const FR_HOVER_BG = defaultFunnelDesign.iconCard.hoverBackground; // #F2F6FA
+const FR_SELECTED_BG = defaultFunnelDesign.iconCard.selectedBackground; // #E8EEF4
+const FR_SELECTED_BORDER = defaultFunnelDesign.iconCard.selectedBorderColor; // #1B3A5C
+const FR_BTN_SELECTED_SELECTOR =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer[aria-checked="true"], ${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer[data-selected="true"]`;
+const FR_BTN_SELECTED_SELECTOR_WITH_CLASS =
+  `${FR_BTN_SELECTED_SELECTOR}, ${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer.lg-selected`;
+const FR_CARD_SELECTED_SELECTOR =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-card[aria-checked="true"], ${DEFAULT_FUNNEL_SCOPE} .lg-card[data-selected="true"]`;
+const FR_CARD_SELECTED_SELECTOR_WITH_CLASS =
+  `${FR_CARD_SELECTED_SELECTOR}, ${DEFAULT_FUNNEL_SCOPE} .lg-card.lg-selected`;
+
+const P2B_NEW_BTN_HOVER_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer:hover{border-color:${FR_SELECTED_BORDER};background:var(--lg-answer-bg, ${FR_HOVER_BG})}`;
+const R5_OLD_BTN_HOVER_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer:hover{border-color:${FR_SELECTED_BORDER};background:${FR_HOVER_BG}}`;
+
+const P2B_NEW_BTN_SELECTED_BASE_RULE = `${FR_BTN_SELECTED_SELECTOR_WITH_CLASS}{border-color:${FR_SELECTED_BORDER};background:${FR_SELECTED_BG};font-weight:700}`;
+const R5_OLD_BTN_SELECTED_BASE_RULE = `${FR_BTN_SELECTED_SELECTOR}{border-color:${FR_SELECTED_BORDER};background:${FR_SELECTED_BG};font-weight:700}`;
+
+const P2B_NEW_SEL_BG_CONSUMER_RULE = `${FR_BTN_SELECTED_SELECTOR_WITH_CLASS}{background:var(--lg-answer-bg, var(--lg-sel-bg, ${FR_SELECTED_BG}))}`;
+// The pre-fix-round shape (2-part selector, single-level var) — EXACTLY
+// MOVED_SEL_BG_RULE's (DEV-68, below) own rule text minus its trailing \n
+// (that constant's \n is consumed by ITS OWN later "delete wholesale" step;
+// this step only un-wraps R1's nested var + un-grows R2's selector, a REPLACE
+// not a removal, so it must not swallow a newline that belongs to the next
+// rule's separator).
+const R5_OLD_SEL_BG_CONSUMER_RULE = `${FR_BTN_SELECTED_SELECTOR}{background:var(--lg-sel-bg, ${FR_SELECTED_BG})}`;
+
+const P2B_NEW_CARD_HOVER_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-card:hover{border-color:${FR_SELECTED_BORDER};background:var(--lg-answer-bg, ${FR_HOVER_BG})}`;
+const R5_OLD_CARD_HOVER_RULE = `${DEFAULT_FUNNEL_SCOPE} .lg-card:hover{border-color:${FR_SELECTED_BORDER};background:${FR_HOVER_BG}}`;
+
+const P2B_NEW_CARD_SELECTED_RULE = `${FR_CARD_SELECTED_SELECTOR_WITH_CLASS}{border-color:${FR_SELECTED_BORDER};background:var(--lg-answer-bg, ${FR_SELECTED_BG});font-weight:700}`;
+const R5_OLD_CARD_SELECTED_RULE = `${FR_CARD_SELECTED_SELECTOR}{border-color:${FR_SELECTED_BORDER};background:${FR_SELECTED_BG};font-weight:700}`;
+
+// MINOR-3: the TWO new conditional-align-items rules — net-new, wholesale-
+// stripped (the SAME "P1a net-new .lg-answer-group rule" bucket idiom;
+// .lg-card-grid gets an equivalent net-new rule of its own, since its BASE
+// rule carries no delta at all now).
+const P2B_ANSWER_GROUP_HEIGHTS_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-answer-group[data-choice-heights="1"]{align-items:start}`;
+const P2B_CARD_GRID_HEIGHTS_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-card-grid[data-choice-heights="1"]{align-items:start}`;
+
 // The R5 D11 typography grant (register S4-B2, operator decision 1): the
 // headline PRESET inlines font-family/color directly on every rendered
 // <h1 class="lg-headline"> (in addition to the base .lg-headline CSS rule,
@@ -541,6 +604,13 @@ const U14_NEW_CONTINUE_RULE =
 // (now 140px), so the min-height must ALSO be reverted 140->96 to reach the
 // pre-P1a fixture's 96px.
 const P1A_STACK_BASE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-question-card > * + *{margin-top:${defaultFunnelDesign.spacing.stack}}`;
+// `.lg-answer-group` is P1a's own net-new, wholesale-stripped rule (it never
+// existed pre-P1a). P2b FIX-ROUND MINOR-3 (adversarial review) REVERTED this
+// constant back to its ORIGINAL P1a shape: align-items:start is no longer
+// inline on this base rule at all — it moved to its OWN net-new conditional
+// rule (P2B_ANSWER_GROUP_HEIGHTS_RULE, above), stripped separately below, so
+// an UNSTYLED group is byte-identical to pre-P2b again. Kept in lockstep with
+// styles.ts (a drift fails here).
 const P1A_ANSWER_GRID_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-answer-group{display:grid;grid-template-columns:repeat(var(--lg-cols, ${defaultFunnelDesign.answerGrid.columns}), minmax(0, 1fr));gap:${defaultFunnelDesign.answerGrid.gap};width:100%}`;
 const P1A_STACK_MOBILE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-question-card > * + *{margin-top:${defaultFunnelDesign.spacing.stackMobile}}`;
 const P1A_SUBHEAD_MOBILE_RESET = `\n${DEFAULT_FUNNEL_SCOPE} .lg-subheadline{margin-top:0}`;
@@ -672,6 +742,38 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
   // `border-color:var(--lg-field-border, ...)` text also occurs,
   // pre-existing and unrelated, inside the .lg-input rule).
   const cssMinusMove = (actualPreview["css"] as string)
+    // P2b FIX-ROUND (adversarial review MINOR-3): strip the two NET-NEW
+    // conditional align-items rules first (neither ever matches this legacy/
+    // unstyled content — anyChoiceHasHeight is false throughout — so this is
+    // a pure wholesale removal, the SAME bucket as the P1a net-new rules
+    // below).
+    .split(P2B_ANSWER_GROUP_HEIGHTS_RULE)
+    .join("")
+    .split(P2B_CARD_GRID_HEIGHTS_RULE)
+    .join("")
+    // P2b (register R-A completion): reverse-map the RESTING rules back to
+    // the R5_NEW_* shape — the EXISTING R5 steps immediately below then find
+    // their expected R5 input unchanged (see the P2B_NEW_* constants' own
+    // comment).
+    .split(P2B_NEW_BTN_ANSWER_RULE)
+    .join(R5_NEW_BTN_ANSWER_RULE)
+    .split(P2B_NEW_CARD_RULE)
+    .join(R5_NEW_CARD_RULE)
+    // P2b FIX-ROUND R1 (adversarial review — "per-choice paint PERSISTS
+    // across states"): hover/selected background reverse-mapped to their
+    // pre-fix-round shape (hover/selected text has been STABLE since P1a —
+    // no earlier round ever touched it, so this reverse-maps straight to the
+    // frozen fixture's own literal text, verified against it directly).
+    .split(P2B_NEW_BTN_HOVER_RULE)
+    .join(R5_OLD_BTN_HOVER_RULE)
+    .split(P2B_NEW_BTN_SELECTED_BASE_RULE)
+    .join(R5_OLD_BTN_SELECTED_BASE_RULE)
+    .split(P2B_NEW_SEL_BG_CONSUMER_RULE)
+    .join(R5_OLD_SEL_BG_CONSUMER_RULE)
+    .split(P2B_NEW_CARD_HOVER_RULE)
+    .join(R5_OLD_CARD_HOVER_RULE)
+    .split(P2B_NEW_CARD_SELECTED_RULE)
+    .join(R5_OLD_CARD_SELECTED_RULE)
     .split(R5_NEW_BTN_ANSWER_RULE)
     .join(R5_OLD_BTN_ANSWER_RULE)
     .split(R5_NEW_CARD_RULE)
