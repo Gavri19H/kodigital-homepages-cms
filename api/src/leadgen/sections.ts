@@ -314,7 +314,9 @@ export function validateSection(raw: unknown): LeadgenSectionValidationResult {
   if (typeof parsedContent === "string") {
     errors["content_json"] = parsedContent;
   } else {
-    const verdict = validateSectionContent(parsedContent.content);
+    // P4a (PC-A1): pass the section's continue_mode so the validator can reject
+    // an auto_advance composition the engine could never advance (stuck funnel).
+    const verdict = validateSectionContent(parsedContent.content, continueMode);
     if (!verdict.ok) {
       // Surface each content error under its field path so the editor can pin
       // it to the offending component.

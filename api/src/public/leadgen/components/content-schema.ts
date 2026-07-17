@@ -15,7 +15,7 @@
 import { FUNNEL_TOKEN_ROLES } from "../designs/theme";
 import { COMPONENT_CATALOG } from "./registry";
 import type { ComponentType, ComponentScope } from "./registry";
-import type { LeadgenConditionOp } from "../../../admin/leadgen/db-types";
+import type { LeadgenConditionOp, LeadgenContinueMode } from "../../../admin/leadgen/db-types";
 // P1b (register PC-11): the leading-icon enum's name vocabulary is sourced
 // from the build-time-vendored Tabler (MIT) icon map — see the
 // LEADGEN_FIELD_LEADING_ICONS comment below.
@@ -749,6 +749,122 @@ export function flattenComponents(
 }
 
 // ---------------------------------------------------------------------------
+// P4a (register PC-4-behavior / PC-A1) — continue_mode="auto_advance" eligibility
+// ---------------------------------------------------------------------------
+//
+// auto_advance is a SECTION-level flag (db-types.ts LeadgenContinueMode). It
+// makes the runtime advance to the next section the instant an answer is
+// recorded, with NO Continue button. But the engine (runtime/engine.ts
+// handleChoiceActivation) only ever fires that advance from a [data-lg-choice]
+// CLICK, for a NON-multi component, and ONLY when EXACTLY ONE interactive
+// component is visible; every other answer path (text/number/range/dropdown/
+// date/address inputs → handleInputEvent) NEVER advances. A section whose
+// answer cannot reach that single-click trigger is STUCK under auto_advance:
+// presets suppresses the Continue and nothing advances (PC-A1, live-proven).
+//
+// Operator rule (binding): "in this specific component there is no button to
+// click, so the only option must be continue button … if we have few different
+// components the only valid option should be Wait for continue … in multi-choice
+// components this feature must be disabled as well."
+//
+// Grounded in the engine's ACTUAL advance trigger, auto_advance is valid for a
+// section ONLY when its answer-producing components (catalog.produces !== null)
+// number EXACTLY ONE, that one is a single-select CLICK-to-answer control, and
+// it carries no `conditional` (so it is ALWAYS the one visible interactive —
+// "exactly one visible simultaneously" is provable, never merely hoped).
+
+// The click-to-answer, single-select component types: the engine's
+// handleChoiceActivation advance set (components that render clickable
+// [data-lg-choice] buttons/cards) MINUS the inherently-multi one
+// (MultiChoiceCardGroup). Dropdowns render a <select> whose selection fires
+// `change`→handleInputEvent (NOT the click delegate), so they are NOT here.
+export const AUTO_ADVANCE_CLICK_TYPES: ReadonlySet<ComponentType> = new Set<ComponentType>([
+  "ButtonAnswerGroup",
+  "TwoButtonYesNo",
+  "IconCardAnswerGrid",
+  "ImageCardAnswerGrid",
+  "OtherGroupSelector",
+]);
+
+export type AutoAdvanceIneligibleReason =
+  | "no_producers"
+  | "multiple_producers"
+  | "not_click_to_answer"
+  | "multi_select"
+  | "conditional_producer";
+
+export interface AutoAdvanceEligibility {
+  eligible: boolean;
+  // Flattened answer-producing components in render order (names the offenders).
+  producers: { type: string; question_id: string }[];
+  // Populated ONLY when !eligible.
+  reason?: AutoAdvanceIneligibleReason;
+}
+
+function isAnswerProducingNode(node: unknown): node is LeadgenComponentNode {
+  if (!isRecord(node)) return false;
+  const type = node["type"];
+  return isKnownComponentType(type) && COMPONENT_CATALOG[type].produces !== null;
+}
+
+function isMultiSelectNode(node: LeadgenComponentNode): boolean {
+  // The catalog `produces:"array"` (MultiChoiceCardGroup) is the authoritative
+  // multi signal even when the node omits an explicit answer_type; the engine's
+  // per-node signals (answer_type "array" / props.multiple) cover a
+  // single-select type CONFIGURED multi (e.g. ButtonAnswerGroup props.multiple).
+  if (isKnownComponentType(node.type) && COMPONENT_CATALOG[node.type].produces === "array") return true;
+  if (node.answer_type === "array") return true;
+  const props = node.props;
+  return isRecord(props) && props["multiple"] === true;
+}
+
+// PURE: does continue_mode="auto_advance" make sense for this section body?
+export function autoAdvanceEligibility(
+  components: readonly LeadgenComponentNode[],
+): AutoAdvanceEligibility {
+  const producers = flattenComponents(components).filter(isAnswerProducingNode);
+  const list = producers.map((p) => ({
+    type: String(p.type),
+    question_id: isNonEmptyString(p.question_id) ? p.question_id : "",
+  }));
+  if (producers.length === 0) return { eligible: false, producers: list, reason: "no_producers" };
+  if (producers.length > 1) return { eligible: false, producers: list, reason: "multiple_producers" };
+  const only = producers[0] as LeadgenComponentNode;
+  // multi FIRST: a multi-choice component (e.g. MultiChoiceCardGroup) IS
+  // click-to-answer, so "multi_select" is the honest reason, not "no click".
+  if (isMultiSelectNode(only)) return { eligible: false, producers: list, reason: "multi_select" };
+  if (!AUTO_ADVANCE_CLICK_TYPES.has(only.type)) {
+    return { eligible: false, producers: list, reason: "not_click_to_answer" };
+  }
+  if (only.conditional !== undefined) {
+    return { eligible: false, producers: list, reason: "conditional_producer" };
+  }
+  return { eligible: true, producers: list };
+}
+
+// The operator-voiced, component-naming save-error copy (PC-A1). Exported so the
+// server validator and the studio Behavior panel show IDENTICAL wording.
+export function autoAdvanceConflictMessage(result: AutoAdvanceEligibility): string {
+  const n = result.producers.length;
+  const names = result.producers.map((p) => p.type).join(", ");
+  const tail = " 'Go to next' works only for a single choice-style question (buttons or cards).";
+  switch (result.reason) {
+    case "multiple_producers":
+      return `This section has ${n} answer components (${names}) — visitors need the Continue button.` + tail;
+    case "no_producers":
+      return `This section has no answer component to advance from — visitors need the Continue button.` + tail;
+    case "not_click_to_answer":
+      return `The answer here is a ${names} — visitors type or pick a value, so there is nothing to click to advance. Use the Continue button.` + tail;
+    case "multi_select":
+      return `This is a multi-select question (${names}) — visitors choose several answers, so one tap can't advance. Use the Continue button.` + tail;
+    case "conditional_producer":
+      return `This answer component (${names}) only appears under a condition, so it can't be the section's single always-present question. Use the Continue button.` + tail;
+    default:
+      return `This section can't auto-advance — use the Continue button.` + tail;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Typed validation errors
 // ---------------------------------------------------------------------------
 
@@ -789,6 +905,10 @@ export type SectionContentErrorCode =
   | "frame_scope_component"
   // v2.5 11 §11.5 WARNING code (emitted into `warnings`, never `errors`)
   | "duplicate_continue"
+  // P4a (register PC-4-behavior / PC-A1) BLOCKING code: continue_mode
+  // "auto_advance" on a section whose composition can never reach the engine's
+  // single-click advance trigger (see autoAdvanceEligibility) — a stuck funnel.
+  | "auto_advance_conflict"
   // v3.1 §11.3 NEW field-content props (label/helper/icon/required/format/
   // error_text/role/source) — shape, enum, and type-restriction violations.
   | "invalid_field_prop"
@@ -1893,7 +2013,14 @@ export function rewriteRetiredNodeToPrimitive(node: LeadgenComponentNode): Leadg
 // question_key / internal_field) and the conditional known-field universe
 // span the WHOLE tree (containers' own question_ids included). A flat array
 // (zero containers) takes exactly the pre-§8.5 code path node-for-node.
-export function validateSectionContent(content: unknown): SectionContentValidation {
+export function validateSectionContent(
+  content: unknown,
+  // P4a (PC-A1): the section's continue_mode (SECTION-level, not in
+  // content_json). Omitted ⇒ no auto_advance check (every legacy call site that
+  // passes only `content` behaves byte-identically). Supplied "auto_advance"
+  // triggers the composition-eligibility gate below.
+  continueMode?: LeadgenContinueMode,
+): SectionContentValidation {
   const errors: SectionContentError[] = [];
   const warnings: SectionContentError[] = [];
   const push = (code: SectionContentErrorCode, path: string, message: string): void => {
@@ -2377,6 +2504,18 @@ export function validateSectionContent(content: unknown): SectionContentValidati
   }
   // P3a: row-grouping (contiguity + max-3) over the ROOT sibling list.
   validateRowGrouping(rawComponents, (i) => `components[${i}]`, push);
+
+  // P4a (PC-A1): continue_mode="auto_advance" must match a composition the
+  // engine can actually auto-advance (see autoAdvanceEligibility). A conflict
+  // is a BLOCKING error — a NEW save can never create a stuck funnel. (Stored
+  // legacy content that already violates this un-sticks at RENDER time: presets
+  // renders the Continue when the section is ineligible — no migration needed.)
+  if (continueMode === "auto_advance") {
+    const elig = autoAdvanceEligibility(rawComponents as LeadgenComponentNode[]);
+    if (!elig.eligible) {
+      push("auto_advance_conflict", "continue_mode", autoAdvanceConflictMessage(elig));
+    }
+  }
 
   // §8.6: `ok` is keyed to ERRORS only — warnings never block a save.
   return { ok: errors.length === 0, errors, warnings };
