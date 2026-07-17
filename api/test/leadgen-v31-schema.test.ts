@@ -487,3 +487,136 @@ describe("v3.1 §5.6 — LEADGEN_FIELD_ACCEPT_TYPE reverse map (Accept-swap rule
     expect(LEADGEN_FIELD_ACCEPT_TYPE["us_zip"]).toBe("ZIPInputQuestion");
   });
 });
+
+// ---------------------------------------------------------------------------
+// P4c (register PC-12) — requiredWhen server validation matrix +
+// continue_visible_when (section-level) schema/validation.
+// ---------------------------------------------------------------------------
+
+describe("P4c — props.requiredWhen server-validation matrix (mirrors node.conditional exactly)", () => {
+  const dropdownWithRequiredWhen = (requiredWhen: unknown): unknown =>
+    content([
+      { type: "TwoButtonYesNo", question_id: "q1", internal_field: "currently_insured", answer_type: "boolean" },
+      {
+        type: "DropdownQuestion",
+        question_id: "q2",
+        internal_field: "insurer",
+        answer_type: "enum",
+        choices: [{ label: "Acme", value: "acme", analytics_id: "a" }],
+        props: { requiredWhen },
+      },
+    ]);
+
+  it("a KNOWN field, eq op: clean (no errors, no warnings)", () => {
+    const result = validateSectionContent(dropdownWithRequiredWhen({ when: "currently_insured", op: "eq", value: true }));
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("an UNKNOWN field: conditional_unknown_field, path-precise at .props.requiredWhen.when", () => {
+    const result = validateSectionContent(dropdownWithRequiredWhen({ when: "ghost_field", op: "eq", value: true }));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([
+      { code: "conditional_unknown_field", path: "components[1].props.requiredWhen.when", message: expect.stringContaining("ghost_field") },
+    ]);
+  });
+
+  it("missing `when`: conditional_invalid", () => {
+    const result = validateSectionContent(dropdownWithRequiredWhen({ op: "eq", value: true }));
+    expect(codesOf(result)).toContain("conditional_invalid");
+  });
+
+  it("an invalid op: conditional_invalid", () => {
+    const result = validateSectionContent(dropdownWithRequiredWhen({ when: "currently_insured", op: "not_a_real_op", value: true }));
+    expect(codesOf(result)).toContain("conditional_invalid");
+  });
+
+  it("range op missing from/to: conditional_invalid", () => {
+    const result = validateSectionContent(dropdownWithRequiredWhen({ when: "currently_insured", op: "range" }));
+    expect(codesOf(result)).toContain("conditional_invalid");
+  });
+
+  it("in/not_in op missing a values array: conditional_invalid", () => {
+    const result = validateSectionContent(dropdownWithRequiredWhen({ when: "currently_insured", op: "in" }));
+    expect(codesOf(result)).toContain("conditional_invalid");
+  });
+
+  it("a non-object requiredWhen: conditional_invalid, never a silent pass", () => {
+    const result = validateSectionContent(dropdownWithRequiredWhen("not-an-object"));
+    expect(codesOf(result)).toContain("conditional_invalid");
+  });
+
+  it("absent requiredWhen (no props.requiredWhen key at all): unaffected, clean", () => {
+    const result = validateSectionContent(
+      content([{ type: "DropdownQuestion", question_id: "q1", internal_field: "insurer", answer_type: "enum", choices: [{ label: "Acme", value: "acme", analytics_id: "a" }] }]),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("requiredWhen on a CONTAINER node is validated too (mirrors conditional's own container branch)", () => {
+    const result = validateSectionContent(
+      content([{ type: "Stack", question_id: "s1", children: [], props: { requiredWhen: { when: "ghost", op: "eq", value: true } } }]),
+    );
+    expect(codesOf(result)).toContain("conditional_unknown_field");
+  });
+});
+
+describe("P4c — continue_visible_when (section-level) schema + validation", () => {
+  const sectionWith = (continue_visible_when: unknown, continueMode?: "button" | "auto_advance") =>
+    validateSectionContent(
+      {
+        components: [
+          { type: "TwoButtonYesNo", question_id: "q1", internal_field: "currently_insured", answer_type: "boolean" },
+          { type: "ContinueButton", question_id: "q2" },
+        ],
+        continue_visible_when,
+      },
+      continueMode,
+    );
+
+  it("a KNOWN field, button mode: clean errors, but the reachability-risk WARNING fires (never blocking)", () => {
+    const result = sectionWith({ when: "currently_insured", op: "eq", value: true }, "button");
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings).toEqual([
+      {
+        code: "continue_visibility_risk",
+        path: "continue_visible_when",
+        message: expect.stringContaining("stuck"),
+      },
+    ]);
+  });
+
+  it("an UNKNOWN field: conditional_unknown_field, path-precise at 'continue_visible_when.when' (a BLOCKING error)", () => {
+    const result = sectionWith({ when: "ghost_field", op: "eq", value: true }, "button");
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([
+      { code: "conditional_unknown_field", path: "continue_visible_when.when", message: expect.stringContaining("ghost_field") },
+    ]);
+  });
+
+  it("absent continue_visible_when: no error, no warning, regardless of continue_mode (byte-identical pre-P4c)", () => {
+    const withoutRule = validateSectionContent(
+      { components: [{ type: "TwoButtonYesNo", question_id: "q1", internal_field: "currently_insured", answer_type: "boolean" }, { type: "ContinueButton", question_id: "q2" }] },
+      "button",
+    );
+    expect(withoutRule.ok).toBe(true);
+    expect(withoutRule.warnings).toEqual([]);
+  });
+
+  it("omitted continueMode param: the reachability-risk warning does NOT fire (mirrors the auto_advance_conflict precedent — 'omitted ⇒ no check')", () => {
+    const result = sectionWith({ when: "currently_insured", op: "eq", value: true }); // no 3rd arg
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("auto_advance mode + a continue_visible_when set: no reachability warning (Continue isn't rendered at all in that mode, so the rule is inert, not risky)", () => {
+    const result = sectionWith({ when: "currently_insured", op: "eq", value: true }, "auto_advance");
+    expect(result.warnings.some((w) => w.code === "continue_visibility_risk")).toBe(false);
+  });
+
+  it("an invalid shape (missing when): conditional_invalid, not silently accepted", () => {
+    const result = sectionWith({ op: "eq", value: true }, "button");
+    expect(codesOf(result)).toContain("conditional_invalid");
+  });
+});

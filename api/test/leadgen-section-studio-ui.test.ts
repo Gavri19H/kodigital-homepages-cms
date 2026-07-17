@@ -1191,6 +1191,13 @@ const MODEL_FUNCS = [
   "uniqueFieldName",
   "internalFieldsOf",
   "refFieldInfo",
+  // PC-12 (register PC-12): the rules-picker/sentence human-naming core —
+  // sectionFieldLabels/conditionValueLabel are pure; currentHeadlineText is
+  // the one DOM read they need (degrades to '' under the shared docStub,
+  // same as populateMapsTab et al. above already do).
+  "sectionFieldLabels",
+  "currentHeadlineText",
+  "conditionValueLabel",
   "findConditionalRefs",
   "slugify",
   "sampleChoice",
@@ -7264,12 +7271,16 @@ describeDb("review FIX 7 — Require-this-component-IF (props.requiredWhen) + se
       op: "eq",
       value: true,
     });
-    // the §7.3 sentence pattern renders the readable text
-    expect(reqSentence.textContent).toBe("Require this question when currently_insured is true");
+    // the §7.3 sentence pattern renders the readable text — PC-12: the field
+    // speaks its human name (this fixture's docStub returns no headline
+    // input, so "currently_insured" — TwoButtonYesNo, no props.yesLabel
+    // authored — falls back to its typeLabel "Yes / No"; the boolean VALUE
+    // speaks its own yes/no wording ("Yes"), not the raw "true").
+    expect(reqSentence.textContent).toBe("Require this question when Yes / No is Yes");
     // the show-if sentence renders the pattern too
     probe.run("selectedNode().conditional = { when: 'currently_insured', op: 'eq', value: true };");
     probe.run("renderConditionSentences(selectedNode());");
-    expect(showSentence.textContent).toBe("Show this question when currently_insured is true");
+    expect(showSentence.textContent).toBe("Show this question when Yes / No is Yes");
     // clearing the picker deletes the key (no empty-object residue)
     reqEls["when"]!.value = "";
     probe.run("collectRequiredWhen();");

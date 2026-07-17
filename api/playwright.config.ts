@@ -89,6 +89,12 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // skipped — it is the both-engine studio-only leg the other tests' skip
   // messages point to.
   'leadgen-p4b-validation.spec.ts',
+  // P4c (register PC-12): rules UX naming + conditional-Continue authoring —
+  // SAME cross-engine shape as p4b. Legs 1/2 (Show-if picker naming; Continue-
+  // visibility authored on the real panel) carry NO e2e.test dependency and
+  // run on BOTH engines; leg 3 (the live funnel hide/show/advance proof)
+  // test.skip()s on firefox for the same dynamic-host reason p4b's legs do.
+  'leadgen-p4c-rules.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',

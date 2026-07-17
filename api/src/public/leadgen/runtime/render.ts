@@ -187,6 +187,23 @@ export function setBackVisible(sectionEl: Element, visible: boolean): void {
   }
 }
 
+// P4c (register PC-12): section-level Continue visibility. Scoped to
+// sectionEl (every section keeps its own [data-lg-continue] mount; sections
+// server-render simultaneously, only one shown at a time via
+// showOnlySection), so a rule on one section's Continue never touches
+// another's. Hidden ⇒ unreachable by the click delegate below (a hidden
+// element cannot receive a real click), so "cannot advance via it while
+// unmet" holds with no extra engine guard.
+export function setContinueVisible(sectionEl: Element, visible: boolean): void {
+  const conts = sectionEl.querySelectorAll("[data-lg-continue]");
+  for (let i = 0; i < conts.length; i++) {
+    const el = conts[i];
+    if (el === undefined) continue;
+    if (visible) el.removeAttribute("hidden");
+    else el.setAttribute("hidden", "");
+  }
+}
+
 // Inline field errors (§3.5.4): fill [data-lg-error-for="{internal_field}"],
 // mark the owning question block, set aria-invalid on its input. Error copy
 // goes through textContent (never markup).

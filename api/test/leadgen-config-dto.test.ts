@@ -6,7 +6,7 @@
 // appear — even when the source section nodes carry forbidden keys.
 
 import { describe, expect, it } from "vitest";
-import { buildPublicConfig, computeSectionOrderHash } from "../src/public/leadgen/config-dto";
+import { buildPublicConfig, computeSectionOrderHash, parseSectionContinueVisibleWhen } from "../src/public/leadgen/config-dto";
 import type {
   ResolvedActivatedFunnel,
   ResolvedFunnelSection,
@@ -580,5 +580,71 @@ describe("buildPublicConfig — §8.5 nested content projects the flattened ques
     // the CLIENT_SAFE_SECTION_JSON fixture is flat: one TwoButtonYesNo per section
     expect(flatConfig.sections[0]?.components.map((c) => c.type)).toEqual(["TwoButtonYesNo"]);
     expect(flatConfig.sections[0]?.components[0]?.question_id).toBe("q_homeowner");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P4c (register PC-12) — section-level continue_visible_when projection
+// ---------------------------------------------------------------------------
+
+describe("parseSectionContinueVisibleWhen (defensive parser, D1 JSON-parse safety idiom)", () => {
+  it("a valid {when,op,...} shape parses verbatim", () => {
+    const json = JSON.stringify({ components: [], continue_visible_when: { when: "insured", op: "eq", value: true } });
+    expect(parseSectionContinueVisibleWhen(json)).toEqual({ when: "insured", op: "eq", value: true });
+  });
+
+  it("absent key -> undefined (no continue_visible_when at all)", () => {
+    expect(parseSectionContinueVisibleWhen(JSON.stringify({ components: [] }))).toBeUndefined();
+  });
+
+  it("corrupt JSON -> undefined, never throws", () => {
+    expect(() => parseSectionContinueVisibleWhen("{not json")).not.toThrow();
+    expect(parseSectionContinueVisibleWhen("{not json")).toBeUndefined();
+  });
+
+  it("a non-object / array / missing-when / missing-op value -> undefined (dropped defensively, not passed through as garbage)", () => {
+    expect(parseSectionContinueVisibleWhen(JSON.stringify({ continue_visible_when: "nope" }))).toBeUndefined();
+    expect(parseSectionContinueVisibleWhen(JSON.stringify({ continue_visible_when: [] }))).toBeUndefined();
+    expect(parseSectionContinueVisibleWhen(JSON.stringify({ continue_visible_when: { op: "eq" } }))).toBeUndefined();
+    expect(parseSectionContinueVisibleWhen(JSON.stringify({ continue_visible_when: { when: "x" } }))).toBeUndefined();
+  });
+});
+
+describe("buildPublicConfig — P4c continue_visible_when projects onto PublicSectionConfig", () => {
+  function withContentJson(resolved: ResolvedActivatedFunnel, index: number, contentJson: string): ResolvedActivatedFunnel {
+    return {
+      ...resolved,
+      sections: resolved.sections.map((s, i) => (i === index ? { ...s, section: { ...s.section, content_json: contentJson } } : s)),
+    };
+  }
+  const baseComponents = (JSON.parse(CLIENT_SAFE_SECTION_JSON) as { components: unknown[] }).components;
+
+  it("a section whose content_json carries continue_visible_when projects it verbatim, siblings unaffected", () => {
+    const resolved = buildResolved();
+    const withRule = withContentJson(
+      resolved,
+      0,
+      JSON.stringify({ components: baseComponents, continue_visible_when: { when: "homeowner", op: "eq", value: true } }),
+    );
+    const config = buildPublicConfig(withRule, getFunnelDesign(withRule.variant.funnel_design_id));
+    expect(config.sections[0]?.continue_visible_when).toEqual({ when: "homeowner", op: "eq", value: true });
+    // the untouched sibling section carries no such key AT ALL (absent, not
+    // an undefined-valued key — an explicit hasOwnProperty check, not a
+    // loose `=== undefined`, so a future accidental `continue_visible_when:
+    // undefined` assignment would also be caught).
+    expect(Object.prototype.hasOwnProperty.call(config.sections[1] ?? {}, "continue_visible_when")).toBe(false);
+  });
+
+  it("a malformed continue_visible_when in content_json is dropped defensively — never reaches the runtime as garbage", () => {
+    const resolved = buildResolved();
+    const malformed = withContentJson(resolved, 0, JSON.stringify({ components: baseComponents, continue_visible_when: { op: "eq" } }));
+    const config = buildPublicConfig(malformed, getFunnelDesign(malformed.variant.funnel_design_id));
+    expect(config.sections[0]?.continue_visible_when).toBeUndefined();
+  });
+
+  it("absent continue_visible_when (the default CLIENT_SAFE_SECTION_JSON fixture): the projected field is absent, not null/undefined-valued", () => {
+    const resolved = buildResolved();
+    const config = buildPublicConfig(resolved, getFunnelDesign(resolved.variant.funnel_design_id));
+    expect(Object.prototype.hasOwnProperty.call(config.sections[0] ?? {}, "continue_visible_when")).toBe(false);
   });
 });

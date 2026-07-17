@@ -102,6 +102,11 @@ export interface PublicSectionConfig {
   // mapping generation ("0" = nothing mapped yet). "" ONLY when the caller
   // supplied no versions (the admin quote-preview path) — never a faked value.
   answer_mapping_version: string;
+  // P4c (register PC-12): the section-level Continue-visibility rule —
+  // present only when content_json authors one. The runtime engine
+  // (conditionMet) hides/shows [data-lg-continue] when this is set; absent
+  // ⇒ byte-identical pre-P4c behavior (Continue always shown).
+  continue_visible_when?: LeadgenComponentConditional;
   components: PublicSectionComponent[];
 }
 
@@ -160,6 +165,32 @@ export function parseSectionComponents(contentJson: string): LeadgenComponentNod
   if (typeof parsed !== "object" || parsed === null) return [];
   const components = (parsed as { components?: unknown }).components;
   return Array.isArray(components) ? (components as LeadgenComponentNode[]) : [];
+}
+
+// P4c (register PC-12): parse a section's `content_json` string for its
+// OPTIONAL section-level continue_visible_when. Dedicated try/catch (D1
+// JSON-parse safety rule) — a corrupt blob yields undefined (never throws),
+// same defensive shape as parseSectionComponents. A malformed (non-object)
+// value is dropped rather than passed through, since the runtime's
+// conditionMet expects a real {when, op, ...} shape — content-schema.ts is
+// the authoritative save-time gate; this is a defensive read, not a second
+// validator.
+export function parseSectionContinueVisibleWhen(
+  contentJson: string,
+): LeadgenComponentConditional | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contentJson);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null) return undefined;
+  const cvw = (parsed as { continue_visible_when?: unknown }).continue_visible_when;
+  if (typeof cvw !== "object" || cvw === null || Array.isArray(cvw)) return undefined;
+  const when = (cvw as { when?: unknown }).when;
+  const op = (cvw as { op?: unknown }).op;
+  if (typeof when !== "string" || when === "" || typeof op !== "string") return undefined;
+  return cvw as LeadgenComponentConditional;
 }
 
 // v2.5 09 §9.5 / 03 §3.4: parse a section row's `design_overrides_json` into
@@ -413,6 +444,10 @@ export function buildPublicConfig(
     };
     if (rs.section.subheadline_text !== null && rs.section.subheadline_text !== undefined) {
       config.subheadline = rs.section.subheadline_text;
+    }
+    const continueVisibleWhen = parseSectionContinueVisibleWhen(rs.section.content_json);
+    if (continueVisibleWhen !== undefined) {
+      config.continue_visible_when = continueVisibleWhen;
     }
     return config;
   });

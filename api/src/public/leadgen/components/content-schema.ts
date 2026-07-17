@@ -756,6 +756,13 @@ export interface LeadgenComponentNode {
 
 export interface LeadgenSectionContent {
   components: LeadgenComponentNode[];
+  // P4c (register PC-12): section-level Continue-button visibility rule —
+  // SAME LeadgenComponentConditional shape as a node's `conditional`, but
+  // keyed at the Section (not any one node) because a Section may carry
+  // zero-or-many ContinueButton nodes (auto_advance mode renders none at
+  // all). Authored via the studio's CONTINUE inspector panel; consumed by
+  // the runtime engine (conditionMet) to hide/show [data-lg-continue].
+  continue_visible_when?: LeadgenComponentConditional;
 }
 
 // ---------------------------------------------------------------------------
@@ -994,7 +1001,12 @@ export type SectionContentErrorCode =
   | "invalid_placement"
   // v3.1 §9.3 WARNING code (emitted into `warnings`, never `errors`):
   // maps.enabled with zero jobs selected
-  | "maps_no_job";
+  | "maps_no_job"
+  // P4c (register PC-12) WARNING code (emitted into `warnings`, never
+  // `errors`): continue_mode "button" + a continue_visible_when set — the
+  // condition's reachability is not statically provable, so this names the
+  // stuck-funnel RISK rather than blocking the save.
+  | "continue_visibility_risk";
 
 export interface SectionContentError {
   code: SectionContentErrorCode;
@@ -2232,6 +2244,18 @@ export function validateSectionContent(
 
     const props = isRecord(raw["props"]) ? raw["props"] : {};
 
+    // P4c (register PC-12): props.requiredWhen — mirrors node.conditional's
+    // validateConditional call EXACTLY (same shape check + same known-field
+    // universe), closing the gap the studio's own client-side advisory
+    // already flagged (a require-if pointing at a field that no longer
+    // exists previously saved silently — the server now names it a typed
+    // 400, `conditional_unknown_field`, same code as the show-if mirror).
+    // Runs for every node (container or leaf) — harmless on a container,
+    // exactly like conditional above.
+    if (props["requiredWhen"] !== undefined) {
+      validateConditional(props["requiredWhen"], `${base}.props.requiredWhen`, knownFields, push);
+    }
+
     // §3.5/§8.2 frame-scope component inside a Section: legal in stored
     // content (legacy renders unchanged) — path-precise save-time WARNING,
     // never a blocking error here. Applies at every tree level (HeaderBar /
@@ -2624,6 +2648,33 @@ export function validateSectionContent(
     if (!elig.eligible) {
       push("auto_advance_conflict", "continue_mode", autoAdvanceConflictMessage(elig));
     }
+  }
+
+  // P4c (register PC-12): continue_visible_when — SECTION-level (not any one
+  // node), so it is validated once here against the SAME whole-tree
+  // knownFields universe conditional/requiredWhen use (mirrors
+  // validateConditional exactly — shape + conditional_unknown_field).
+  const continueVisibleWhen = content["continue_visible_when"];
+  if (continueVisibleWhen !== undefined) {
+    validateConditional(continueVisibleWhen, "continue_visible_when", knownFields, push);
+  }
+  // Interplay guard (adversarial-review-anticipated ruling, documented per
+  // the mission's own instruction): whether continueVisibleWhen can EVER be
+  // met is not statically provable for arbitrary conditions (an operator
+  // could reference a field only reachable via an unrelated branch, etc.).
+  // So this is a save-time WARNING naming the risk — never a blocking 400 —
+  // fired only when the Continue button is the section's SOLE advance
+  // affordance (continue_mode "button"; auto_advance never renders it, so a
+  // stray continue_visible_when there is inert, not risky). Omitted
+  // continueMode ⇒ no check, matching the auto_advance_conflict precedent
+  // above (every legacy `validateSectionContent(content)` call site behaves
+  // byte-identically).
+  if (continueMode === "button" && continueVisibleWhen !== undefined) {
+    warn(
+      "continue_visibility_risk",
+      "continue_visible_when",
+      "The Continue button is this section's only way to advance, and it is now conditional — if the condition can never be met, visitors will be stuck here. Double-check the condition is reachable.",
+    );
   }
 
   // §8.6: `ok` is keyed to ERRORS only — warnings never block a save.

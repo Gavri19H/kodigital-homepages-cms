@@ -1333,8 +1333,9 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="DropdownQuestion"]').click();
     await expect(page.locator('[data-scope-editing-name]')).toHaveText('Dropdown');
     await openInspectorTab(page, 'rules');
-    // v3.1 §8.6: the condition fieldset is hidden behind "Always show" until
-    // "+ Add a condition" reveals it (the golden's IF/THEN builder).
+    // v3.1 §8.6 (PC-12 rename): the condition fieldset is collapsed behind
+    // the always-visible "Always shown" summary until "+ Add a show/hide
+    // rule" reveals it (the golden's IF/THEN builder).
     await expect(page.locator('[data-rules-always-row]')).toBeVisible();
     await page.locator('[data-rules-add-condition]').click();
     await page.locator('[data-inspector-cond="when"]').selectOption('currently_insured');

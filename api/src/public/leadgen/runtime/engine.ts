@@ -30,11 +30,13 @@ import {
   type LgAnswerSource,
   type LgBindingTuple,
   type LgComponentConfig,
+  type LgConditional,
   type LgPublicConfig,
   type LgSectionConfig,
   type LgStorageAdapter,
 } from "./state";
 import {
+  conditionMet,
   evaluateComponents,
   hiddenAnswerFields,
   visibleSectionIndexes,
@@ -680,10 +682,24 @@ export class LgEngine {
       const sectionEl = this.currentSectionEl();
       if (sectionEl !== null) {
         render.applyComponentVisibility(sectionEl, this.dependencyState(section).components);
+        this.applyContinueVisibility(section, sectionEl);
       }
     }
     this.updateProgressUi();
     this.persist();
+  }
+
+  // P4c (register PC-12): section-level Continue visibility. `continue_
+  // visible_when` is not part of the declared LgSectionConfig shape (kept a
+  // hand-maintained LOCAL mirror per the state.ts module header) — it is
+  // read here via a narrow, defensive cast, exactly like an untyped JSON
+  // field the config legitimately carries. Absent ⇒ no-op (byte-identical
+  // pre-P4c: Continue stays unconditionally visible).
+  private applyContinueVisibility(section: LgSectionConfig, sectionEl: Element): void {
+    const cond = (section as unknown as { continue_visible_when?: LgConditional })
+      .continue_visible_when;
+    if (cond === undefined) return;
+    render.setContinueVisible(sectionEl, conditionMet(cond, this.store.answerValues()));
   }
 
   private handleChoiceActivation(choiceEl: Element): void {
@@ -699,6 +715,27 @@ export class LgEngine {
 
     // Typed value: the attribute is a string; the config round-trips the
     // authored type (number/boolean choices stay typed for eq-parity).
+    //
+    // P4c INVESTIGATION NOTE (register PC-12 — logged, NOT changed): a
+    // TwoButtonYesNo carries no `choices` array, so choiceConfig is always
+    // undefined for it and this fallback records the RAW STRING "true"/
+    // "false" — never a real boolean — for a LIVE click. A conditional/
+    // requiredWhen/continue_visible_when authored through ANY typed studio
+    // picker against a boolean `when` field stores a REAL boolean
+    // (typedScalar's boolean branch), which then never matches a live click
+    // (conditionMet's eq/neq are strict ===) — only a pre-set default
+    // (props.defaultValue, applied verbatim) can ever satisfy it. This is a
+    // PRE-EXISTING, cross-cutting characteristic, not unique to this phase:
+    // leadgen-p3a-placement.gesture.spec.ts (an EARLIER phase) documents the
+    // identical finding verbatim ("grounded via a live debug probe... the
+    // conditional value must match that stored shape exactly") and
+    // deliberately authors its OWN fixtures with a STRING conditional value
+    // to match, rather than changing this handler. Coercing here would flip
+    // that decision and ripple through multiple already-shipped E2E
+    // fixtures (leadgen-fix-p1-seed.ts, leadgen-p3a-placement.gesture.spec.ts
+    // x2, leadgen-runtime-inputs.gesture.spec.ts) outside this slice's scope
+    // — left AS-IS; flagged to the conductor as an open cross-cutting
+    // concern (see phase report) rather than silently worked around.
     const attrValue = choiceEl.getAttribute("data-lg-choice") ?? "";
     const choiceConfig = component?.choices?.find((c) => String(c.value) === attrValue);
     let value: unknown = choiceConfig !== undefined ? choiceConfig.value : attrValue;
@@ -929,6 +966,7 @@ export class LgEngine {
     const sectionEl = render.showOnlySection(this.root, index);
     if (section !== null && sectionEl !== null) {
       render.applyComponentVisibility(sectionEl, this.dependencyState(section).components);
+      this.applyContinueVisibility(section, sectionEl);
       // Restore selection classes for restored/default answers.
       for (const component of section.components) {
         const field = component.internal_field;
