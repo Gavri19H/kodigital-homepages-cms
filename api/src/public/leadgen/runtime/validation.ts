@@ -189,7 +189,23 @@ export function validateValue(
           const base = min !== null ? min : 0;
           const ratio = (n - base) / step;
           if (Math.abs(ratio - Math.round(ratio)) > 1e-9) {
-            out.push({ code: "step", message: `Use steps of ${step}.` });
+            // PC-A3/PC-7 (P4b): the old "Use steps of 5." told the visitor
+            // NOTHING actionable (the operator's "terrible" — e.g. 502 with
+            // min=1,step=5). Compute the two nearest ON-GRID neighbors, clamped
+            // to any authored min/max, and name them.
+            const fix = (v: number): number => Math.round(v * 1e6) / 1e6;
+            const low = fix(base + Math.floor((n - base) / step) * step);
+            const high = fix(low + step);
+            const ok = (v: number): boolean =>
+              (min === null || v >= min) && (max === null || v <= max);
+            const opts = [low, high].filter(ok);
+            out.push({
+              code: "step",
+              message:
+                opts.length > 0
+                  ? `Nearest valid ${opts.length > 1 ? "values" : "value"}: ${opts.join(" and ")}.`
+                  : `Use steps of ${step}.`,
+            });
           }
         }
       } else if (typeof value === "string" || typeof value === "number") {

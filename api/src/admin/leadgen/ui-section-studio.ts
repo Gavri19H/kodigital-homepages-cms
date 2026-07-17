@@ -2275,6 +2275,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       <div class="form-group lg-inspector-field" data-vprop="step" hidden>
         <label class="form-label" for="lg-vprop-step">Step</label>
         <input id="lg-vprop-step" class="form-input" data-inspector-vprop="step" />
+        <p class="form-help">Values count up from Min (Min 5, Step 5 &#8594; 5, 10, 15&#8230;). Number and Amount fields only.</p>
       </div>
       <div class="form-group lg-inspector-field" data-vprop="maxLen" hidden>
         <label class="form-label" for="lg-vprop-maxLen">Max length</label>
@@ -4302,6 +4303,15 @@ export const SECTION_STUDIO_SCRIPT = `
     node.type = target;
     if (!node.props) { node.props = {}; }
     node.props.format = format;
+    // PC-7/PC-A3 (P4b): the type-specific validation props do NOT carry across an
+    // Accept swap. Before this, a Number -> Any-text swap hid the Step/Min/Max
+    // controls but LEFT the props on the node, so a stale step still validated on
+    // the text field (the operator's "terrible" bug), and a numeric min could
+    // land on a date field. Clear them so the NEW type's validation starts clean;
+    // the shared props (internal_field/label/helper/icon/required) are preserved.
+    var vkeys = ['min', 'max', 'step', 'maxLen', 'pattern', 'pattern_preset'];
+    var vi;
+    for (vi = 0; vi < vkeys.length; vi++) { delete node.props[vkeys[vi]]; }
     afterModelChange();
     return true;
   }

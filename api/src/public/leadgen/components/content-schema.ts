@@ -1760,6 +1760,25 @@ function validateNewFieldProps(
     }
   }
 
+  // PC-7/PC-A3 (P4b): props.step is meaningful ONLY on the numeric Accept-swap
+  // tiles (Number / Amount). The Accept-swap bug let a stale `step` SURVIVE onto
+  // a text/email/phone/ZIP/date/address field when the type changed (the studio
+  // now cleans it on swap — setAcceptFormat); this rule is the authoring gate
+  // that rejects it for API authors too. Scoped to the Accept-swap family via
+  // acceptFormatOfType so it never touches ProgressBar's own props.step
+  // (progress-count) or the Range families (which legitimately carry step).
+  if (props["step"] !== undefined) {
+    const acceptFmt = acceptFormatOfType(type);
+    const isNumericField = type === "NumberInputQuestion" || type === "CurrencyInputQuestion";
+    if (acceptFmt !== undefined && !isNumericField) {
+      push(
+        "invalid_field_prop",
+        `${base}.props.step`,
+        `props.step is only valid on Number/Amount fields (§5.6/§8.6) — a ${acceptFmt} field has no step; remove it (the Accept-swap cleans this automatically)`,
+      );
+    }
+  }
+
   // role — TextBlock only (§5.3/§8.5b).
   if (props["role"] !== undefined) {
     if (type !== "TextBlock") {
