@@ -23,6 +23,8 @@
 import { test, expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { defaultFunnelDesign as D } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { seedActiveSite } from "./listicles-p6-seed";
+import { realDragFromLocator } from "./utils/real-input";
+import { assertOverlayAligned } from "./utils/effect-assert";
 
 const LG_API = "/api/admin/leadgen";
 const uniq = Date.now();
@@ -240,5 +242,317 @@ test.describe("P3a structured placement — live /lg funnel (§12 parity + mobil
     expect(rowRect.width, "no horizontal overflow at 375px").toBeLessThanOrEqual(viewport.width);
     // The fixed 384px "m" member is now clamped to the column (max-width:100%).
     expect(m2.width, "the width:m member is full-width when stacked, not a fixed 384px").toBeLessThan(M_WIDTH);
+  });
+});
+
+// ===========================================================================
+// P3b — drag-beside ROW FORMATION (the R-B deliverable), inspector PLACEMENT
+// controls, and the PC-A6 container-select affordance. REAL page.mouse gestures
+// (never dispatchEvent) into the sandbox+CSP srcdoc canvas the U13 fix made
+// deliverable on BOTH engines — so the studio-canvas legs run chromium+firefox
+// (like leadgen-u11u12-move); the live-/lg parity leg self-skips on firefox
+// (the dynamic e2e host needs chromium --host-resolver-rules).
+// ===========================================================================
+
+interface Layout {
+  row?: string;
+  align?: string;
+  width?: unknown;
+  nudge_x?: number;
+  nudge_y?: number;
+}
+interface SavedNode {
+  type: string;
+  question_id: string;
+  layout?: Layout;
+}
+async function createSectionComps(request: APIRequestContext, name: string, components: unknown[]): Promise<Created> {
+  return json<Created>(
+    await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: name,
+        activity: "quote_funnel",
+        vertical: "life",
+        headline_text: "Where should each element sit?",
+        continue_mode: "button",
+        status: "active",
+        content_json: { components },
+      },
+    }),
+    `section create (${name})`,
+  );
+}
+function frameOf(page: Page) {
+  return page.frameLocator("#lg-studio-canvas-frame");
+}
+function canvasRoot(page: Page): Locator {
+  return frameOf(page).locator("#lg-studio-canvas-render");
+}
+async function bootCanvas(page: Page, s: Created): Promise<void> {
+  await page.goto(`/admin/leadgen/sections/${s.public_id}/edit`, { waitUntil: "domcontentloaded" });
+  await expect(frameOf(page).locator("[data-question-id]").first()).toBeVisible({ timeout: 20_000 });
+}
+async function savedComps(request: APIRequestContext, publicId: string): Promise<SavedNode[]> {
+  const detail = await json<{ content_json: { components: SavedNode[] } }>(
+    await request.get(`${LG_API}/sections/${publicId}`),
+    "refetch after save",
+  );
+  return detail.content_json.components;
+}
+async function saveAndReload(page: Page): Promise<void> {
+  await Promise.all([page.waitForEvent("load"), page.locator("#lg-section-save").click()]);
+}
+// A guarded raw press+move that LEAVES the button down (so a mid-drag assertion
+// can observe the drop guideline before release). Same trusted page.mouse
+// pipeline as utils/real-input (NO dispatchEvent); the per-move steps mirror
+// realDrag so the U13 srcdoc delivery stays observable.
+async function pressDragTo(page: Page, fromLoc: Locator, to: { x: number; y: number }, steps = 6): Promise<void> {
+  const fb = await fromLoc.boundingBox();
+  if (!fb) throw new Error("pressDragTo: source has no bounding box");
+  const from = { x: fb.x + fb.width / 2, y: fb.y + fb.height / 2 };
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  const dx = (to.x - from.x) / steps;
+  const dy = (to.y - from.y) / steps;
+  for (let i = 1; i <= steps; i++) await page.mouse.move(from.x + dx * i, from.y + dy * i);
+  await page.mouse.move(to.x, to.y);
+}
+// The LEFT / RIGHT third drop point on a canvas node (page coords).
+async function thirdPoint(loc: Locator, side: "left" | "right"): Promise<{ x: number; y: number }> {
+  const b = await loc.boundingBox();
+  if (!b) throw new Error("thirdPoint: target has no bounding box");
+  return { x: b.x + b.width * (side === "left" ? 0.15 : 0.85), y: b.y + b.height * 0.5 };
+}
+function rowOf(node: SavedNode | undefined): string | undefined {
+  return node && node.layout && typeof node.layout.row === "string" ? node.layout.row : undefined;
+}
+
+const P3B_ROW = [
+  { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+  { type: "TextBlock", question_id: "a", props: { role: "body", text: "Alpha" } },
+  { type: "FreeTextQuestion", question_id: "b", internal_field: "b", answer_type: "string", props: { placeholder: "Beta" } },
+  { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
+];
+
+// ---------------------------------------------------------------------------
+// STUDIO CANVAS + inspector — both engines
+// ---------------------------------------------------------------------------
+test.describe("P3b drag-beside + inspector placement + container select (both engines)", () => {
+  // (a) drag B onto A's RIGHT third -> vertical guideline -> release -> both
+  // carry the SAME layout.row (saved model proves it), and the canvas shows the
+  // two members side by side (same y-band, A left of B).
+  test("(a) drag-beside forms a row: guideline appears, shared layout.row saved, canvas shows side-by-side", async ({ page, request }) => {
+    const s = await createSectionComps(request, `p3b-a-${uniq}-${Math.random().toString(36).slice(2, 7)}`, P3B_ROW);
+    await bootCanvas(page, s);
+    const root = canvasRoot(page);
+    const A = frameOf(page).locator('[data-question-id="a"]');
+    const B = frameOf(page).locator('[data-question-id="b"]');
+    await expect(A).toBeVisible();
+    await expect(B).toBeVisible();
+
+    // press-drag B onto A's RIGHT third, holding the button down to observe the
+    // vertical beside guideline BEFORE release.
+    await pressDragTo(page, B, await thirdPoint(A, "right"));
+    await expect(frameOf(page).locator(".studio-drop-beside-right"), "the vertical beside guideline shows on the host").toHaveCount(1);
+    await page.mouse.up();
+
+    // the canvas re-renders (debounced) with a real .lg-el-row: A left of B,
+    // same y-band — WYSIWYG, exactly like the live render.
+    await expect(root.locator(".lg-el-row")).toBeVisible({ timeout: 10_000 });
+    const members = root.locator(".lg-el-row > .lg-el");
+    await expect(members).toHaveCount(2);
+    const m1 = await rectOf(members.nth(0));
+    const m2 = await rectOf(members.nth(1));
+    expect(Math.abs(m1.top - m2.top), "row members share a y-band on the canvas").toBeLessThanOrEqual(2);
+    expect(m1.right, "member 1 is left of member 2").toBeLessThanOrEqual(m2.left + 0.5);
+
+    // WYSIWYG measured-overlay gate class: B is the just-dropped selection — its
+    // measured selection overlay must track the ROW MEMBER's box within 4px
+    // (the P1c/R2 measured-overlay contract, now on a flex-slot member).
+    const bOutline = frameOf(page)
+      .locator('[data-question-id="b"]')
+      .locator("xpath=..")
+      .locator("div[data-selection-chrome]")
+      .first();
+    await expect(bOutline, "the selected row member shows its measured overlay").toBeVisible({ timeout: 8000 });
+    const bBox = await frameOf(page).locator('[data-question-id="b"]').boundingBox();
+    const outlineBox = await bOutline.boundingBox();
+    if (!bBox || !outlineBox) throw new Error("row member / overlay has no bounding box");
+    assertOverlayAligned(bBox, outlineBox, 4);
+
+    await saveAndReload(page);
+    const comps = await savedComps(request, s.public_id);
+    const a = comps.find((c) => c.question_id === "a");
+    const b = comps.find((c) => c.question_id === "b");
+    expect(rowOf(a), "A carries a saved layout.row").toBeTruthy();
+    expect(rowOf(b), "B carries a saved layout.row").toBeTruthy();
+    expect(rowOf(a), "A and B share the SAME saved row id").toBe(rowOf(b));
+    const ai = comps.findIndex((c) => c.question_id === "a");
+    const bi = comps.findIndex((c) => c.question_id === "b");
+    expect(bi, "the row members are contiguous (B immediately after A)").toBe(ai + 1);
+  });
+
+  // (b) drag a row member OUT (drop after a sibling in the middle band) -> its
+  // layout.row is cleared and the 1-member remainder row DISSOLVES.
+  test("(b) drag a member out clears its row and dissolves the 1-member remainder", async ({ page, request }) => {
+    const s = await createSectionComps(request, `p3b-b-${uniq}-${Math.random().toString(36).slice(2, 7)}`, [
+      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+      { type: "TextBlock", question_id: "a", props: { role: "body", text: "Alpha" }, layout: { row: "rowAB" } },
+      { type: "FreeTextQuestion", question_id: "b", internal_field: "b", answer_type: "string", props: { placeholder: "Beta" }, layout: { row: "rowAB" } },
+      { type: "FreeTextQuestion", question_id: "c", internal_field: "c", answer_type: "string", props: { placeholder: "Gamma" } },
+      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
+    ]);
+    await bootCanvas(page, s);
+    await expect(canvasRoot(page).locator(".lg-el-row")).toBeVisible({ timeout: 10_000 });
+    const B = frameOf(page).locator('[data-question-id="b"]');
+    const C = frameOf(page).locator('[data-question-id="c"]');
+    // drop B in the LOWER half of C (middle band -> 'after'): B LEAVES the row.
+    const cBox = (await C.boundingBox())!;
+    await realDragFromLocator(page, B, { x: cBox.x + cBox.width / 2, y: cBox.y + cBox.height * 0.85 }, { steps: 5, perStepGuardMs: 8000, settleMs: 500 });
+
+    await saveAndReload(page);
+    const comps = await savedComps(request, s.public_id);
+    expect(rowOf(comps.find((c) => c.question_id === "b")), "B left the row (no layout.row)").toBeUndefined();
+    expect(rowOf(comps.find((c) => c.question_id === "a")), "A's 1-member remainder row dissolved").toBeUndefined();
+    const bi = comps.findIndex((c) => c.question_id === "b");
+    const ci = comps.findIndex((c) => c.question_id === "c");
+    expect(bi, "B now sits after C (the vertical reorder still happened)").toBeGreaterThan(ci);
+  });
+
+  // (c) join-refusal at 3 members: dropping a 4th beside a full row surfaces the
+  // inline note and leaves the model UNCHANGED (no corruption).
+  test("(c) join-refusal at 3 members shows the note and does not corrupt the model", async ({ page, request }) => {
+    const s = await createSectionComps(request, `p3b-c-${uniq}-${Math.random().toString(36).slice(2, 7)}`, [
+      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+      { type: "TextBlock", question_id: "a", props: { role: "body", text: "A" }, layout: { row: "r3" } },
+      { type: "TextBlock", question_id: "b", props: { role: "body", text: "B" }, layout: { row: "r3" } },
+      { type: "TextBlock", question_id: "c", props: { role: "body", text: "C" }, layout: { row: "r3" } },
+      { type: "FreeTextQuestion", question_id: "d", internal_field: "d", answer_type: "string", props: { placeholder: "D" } },
+      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
+    ]);
+    await bootCanvas(page, s);
+    await expect(canvasRoot(page).locator('.lg-el-row[data-row-cols="3"]')).toBeVisible({ timeout: 10_000 });
+    const A = frameOf(page).locator('[data-question-id="a"]');
+    const Dnode = frameOf(page).locator('[data-question-id="d"]');
+    // drag D onto A's LEFT third -> beside -> joinRowBeside refuses (row full).
+    await realDragFromLocator(page, Dnode, await thirdPoint(A, "left"), { steps: 6, perStepGuardMs: 8000, settleMs: 400 });
+    // the inline refusal note (main admin doc, NOT the frame) is shown.
+    const refusal = page.locator("[data-studio-drop-refusal]");
+    await expect(refusal).toBeVisible({ timeout: 5000 });
+    await expect(refusal).toContainText("at most 3");
+
+    await saveAndReload(page);
+    const comps = await savedComps(request, s.public_id);
+    expect(rowOf(comps.find((c) => c.question_id === "d")), "D did NOT join (still lone)").toBeUndefined();
+    const rows = ["a", "b", "c"].map((q) => rowOf(comps.find((c) => c.question_id === q)));
+    expect(rows[0], "the 3-member row is intact").toBe("r3");
+    expect(rows[1]).toBe("r3");
+    expect(rows[2]).toBe("r3");
+  });
+
+  // (d) inspector align + nudge produce EXACT rendered geometry on the canvas.
+  test("(d) inspector align:start hugs left and a nudge writes an exact translate (saved + rendered)", async ({ page, request }) => {
+    const s = await createSectionComps(request, `p3b-d-${uniq}-${Math.random().toString(36).slice(2, 7)}`, [
+      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+      { type: "FreeTextQuestion", question_id: "a", internal_field: "a", answer_type: "string", props: { placeholder: "Solo" }, layout: { width: "m" } },
+      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
+    ]);
+    await bootCanvas(page, s);
+    // select A, open the Style tab, drive the placement controls.
+    await frameOf(page).locator('[data-question-id="a"]').click();
+    await page.locator('[data-studio-inspector-tab="style"]').click();
+    await expect(page.locator("[data-style-placement-block]")).toBeVisible({ timeout: 8000 });
+    const lone = canvasRoot(page).locator('.lg-el:has([data-question-id="a"])');
+    await expect(lone).toBeVisible({ timeout: 8000 });
+
+    // align:start -> a fixed-width (m) lone box hugs the LEFT; align:end pushes
+    // it RIGHT. A RELATIVE start-vs-end comparison is robust to the card's own
+    // padding (an absolute "left == 0" would depend on that padding).
+    await page.locator('[data-set-placement-align="start"]').click();
+    await page.waitForTimeout(400);
+    const startLeft = (await rectOf(lone)).left;
+    await page.locator('[data-set-placement-align="end"]').click();
+    await page.waitForTimeout(400);
+    const endLeft = (await rectOf(lone)).left;
+    expect(endLeft, "align:end renders the box to the RIGHT of align:start").toBeGreaterThan(startLeft + 20);
+
+    // nudge x: +4 four times = +16px -> an EXACT translate transform.
+    for (let i = 0; i < 4; i++) await page.locator('[data-nudge-step="x:4"]').click();
+    await page.waitForTimeout(400);
+    expect(await transformOf(lone), "nudge_x 16 -> exact translate").toBe("matrix(1, 0, 0, 1, 16, 0)");
+
+    await saveAndReload(page);
+    const a = (await savedComps(request, s.public_id)).find((c) => c.question_id === "a");
+    expect(a && a.layout && a.layout.align, "layout.align saved (last set = end)").toBe("end");
+    expect(a && a.layout && a.layout.nudge_x, "layout.nudge_x saved").toBe(16);
+  });
+
+  // (e) PC-A6 container select + delete: the container-select chip selects the
+  // container by canvas click; Backspace deletes it with the undo toast.
+  test("(e) a container is selectable via its chip and deletable with Backspace (+ undo toast)", async ({ page, request }) => {
+    const s = await createSectionComps(request, `p3b-e-${uniq}-${Math.random().toString(36).slice(2, 7)}`, [
+      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+      {
+        type: "CardPanel",
+        question_id: "panel",
+        props: { width: "full", padding: "m" },
+        children: [{ type: "FreeTextQuestion", question_id: "kid", internal_field: "kid", answer_type: "string", props: { placeholder: "inside" } }],
+      },
+      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
+    ]);
+    await bootCanvas(page, s);
+    const chip = frameOf(page).locator('[data-container-chip="panel"]');
+    await expect(chip, "the container-select chip is present").toBeVisible({ timeout: 8000 });
+    await chip.click();
+    // selection reflects on the container node (studio-selected-node).
+    await expect(frameOf(page).locator('[data-question-id="panel"].studio-selected-node'), "the container is selected").toHaveCount(1, { timeout: 8000 });
+    // delete via Backspace -> the undo toast appears, the container is gone.
+    await page.keyboard.press("Backspace");
+    await expect(page.locator("[data-studio-undo-toast]"), "the standard undo toast shows").toBeVisible({ timeout: 8000 });
+
+    await saveAndReload(page);
+    const comps = await savedComps(request, s.public_id);
+    expect(comps.find((c) => c.question_id === "panel"), "the container was deleted from the saved model").toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LIVE /lg FUNNEL — the R-B drag→save→live parity leg (chromium; firefox-skip)
+// ---------------------------------------------------------------------------
+test.describe("P3b drag-formed row -> live /lg parity (chromium; firefox-skip)", () => {
+  test("a row FORMED BY DRAG persists and renders side-by-side on the live funnel", async ({ page, request, browserName }) => {
+    test.skip(
+      browserName === "firefox",
+      "live /lg leg needs chromium --host-resolver-rules; the studio-canvas drag legs above run on BOTH engines",
+    );
+    const host = `p3b-${uniq}.e2e.test`;
+    const siteId = await seedActiveSite(request, host, `P3b Placement ${uniq}`);
+    const s = await createSectionComps(request, `p3b-live-${uniq}`, P3B_ROW);
+    await bootCanvas(page, s);
+    // form the row via a REAL drag (B beside A), then save.
+    const A = frameOf(page).locator('[data-question-id="a"]');
+    const B = frameOf(page).locator('[data-question-id="b"]');
+    await realDragFromLocator(page, B, await thirdPoint(A, "right"), { steps: 6, perStepGuardMs: 8000, settleMs: 500 });
+    await expect(canvasRoot(page).locator(".lg-el-row")).toBeVisible({ timeout: 10_000 });
+    await saveAndReload(page);
+
+    // activate the section on a funnel + load the live /lg render.
+    const quote = await json<{ public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }> }>(
+      await request.post(`${LG_API}/quotes`, { data: { quote_name: `P3b Live ${uniq}`, activity: "quote_funnel", verticals: ["life"] } }),
+      "quote create",
+    );
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: s.id }] } }), "variant sections");
+    await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p3b" } }), "activation");
+
+    await page.goto(`http://${host}:${PORT}/lg/p3b`, { waitUntil: "load" });
+    const live = page.locator("body");
+    await expect(live.locator(".lg-el-row")).toBeVisible({ timeout: 20_000 });
+    const members = live.locator(".lg-el-row > .lg-el");
+    await expect(members).toHaveCount(2);
+    const m1 = await rectOf(members.nth(0));
+    const m2 = await rectOf(members.nth(1));
+    expect(Math.abs(m1.top - m2.top), "the drag-formed row renders side-by-side (same y-band) on the LIVE funnel").toBeLessThanOrEqual(2);
+    expect(m1.right, "member 1 is left of member 2 live").toBeLessThanOrEqual(m2.left + 0.5);
   });
 });

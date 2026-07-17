@@ -1136,6 +1136,16 @@ html,body{margin:0;padding:0;background:#fff}
 .studio-canvas-render .studio-drop-before{box-shadow:0 -3px 0 0 var(--c-primary)}
 .studio-canvas-render .studio-drop-after{box-shadow:0 3px 0 0 var(--c-primary)}
 .studio-canvas-render .studio-drop-into{outline:2px dashed var(--c-primary);outline-offset:-2px}
+/* P3b (register PC-2 / axiom R-B) drag-beside: a VERTICAL guideline at the
+   host's left/right edge (distinct from the horizontal before/after bars) that
+   invites forming a side-by-side row — the Notion drop affordance. */
+.studio-canvas-render .studio-drop-beside-left{box-shadow:-3px 0 0 0 var(--c-primary)}
+.studio-canvas-render .studio-drop-beside-right{box-shadow:3px 0 0 0 var(--c-primary)}
+/* PC-A6 container-select affordance: a small click-to-select label chip
+   anchored (position:absolute, so it is NEVER a flex/grid item — the P1c
+   decoration lesson) at a container's top-left; faint until hover/selection. */
+.studio-canvas-render .studio-container-chip{position:absolute;top:0;left:0;z-index:6;font-size:10px;font-weight:600;line-height:1;padding:3px 7px;border-radius:5px 0 5px 0;background:var(--c-primary);color:#fff;cursor:pointer;pointer-events:auto;opacity:.5;white-space:nowrap;user-select:none}
+.studio-canvas-render .studio-container-chip:hover,.studio-canvas-render .studio-container-chip-selected{opacity:1}
 /* §5.4 amber page-frame badge on legacy frame-scope canvas nodes */
 .studio-frame-badge{font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:4px 8px;margin:4px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .studio-frame-badge .btn{pointer-events:auto}
@@ -2374,6 +2384,53 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
     </div>
 
     ${renderStyleContinueBlock()}
+
+    <!-- P3b (register PC-2 / decision D1 / axiom R-B): STRUCTURED PLACEMENT
+         controls. Shown for any placement-eligible selection (catalog scope
+         != frame), INDEPENDENT of the field/text/continue variant blocks above
+         — populateStyleVariant toggles data-style-placement-block by
+         placementEligible(node). Inlined here (NOT a top-level render* fn) so
+         it folds into renderStudioInspector's already-classified region rather
+         than introducing a new golden-allowlist block. Alignment writes
+         layout.align, Width writes layout.width (the SAME s/m/l/full/custom_px
+         vocabulary as design_overrides.size, different owning key — the note
+         below stays honest about which one governs when both are set), the
+         steppers write the bounded (+/-48) layout.nudge_x / nudge_y. -->
+    <div data-style-placement-block hidden>
+      <div class="studio-hr"></div>
+      <div class="studio-panel-eyebrow">Placement</div>
+      <p class="studio-inline-note" data-placement-row-indicator role="status" aria-live="polite" hidden style="margin:0 0 6px"></p>
+      <button type="button" class="studio-link-btn" data-placement-remove-row hidden style="margin-bottom:8px">Remove from row</button>
+      <label class="form-label">Align</label>
+      <div class="studio-segmented" role="group" aria-label="Align" data-placement-align-group>
+        <button type="button" data-set-placement-align="start">Align left</button>
+        <button type="button" data-set-placement-align="center">Align center</button>
+        <button type="button" data-set-placement-align="end">Align right</button>
+      </div>
+      <label class="form-label">Width</label>
+      <div class="studio-segmented" role="group" aria-label="Placement width" data-placement-width-group>
+        <button type="button" data-set-placement-width="">Auto</button>
+        <button type="button" data-set-placement-width="s">S</button>
+        <button type="button" data-set-placement-width="m">M</button>
+        <button type="button" data-set-placement-width="l">L</button>
+        <button type="button" data-set-placement-width="full">Full</button>
+      </div>
+      <p class="form-help studio-inline-note" data-placement-width-note hidden></p>
+      <label class="form-label">Fine-tune position</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span class="studio-muted-note" style="min-width:84px">Left / right</span>
+        <button type="button" class="btn btn-sm btn-outline" data-nudge-step="x:-4" aria-label="Nudge left">&#8722;</button>
+        <span data-nudge-x-val style="min-width:46px;text-align:center;font-size:12px">0 px</span>
+        <button type="button" class="btn btn-sm btn-outline" data-nudge-step="x:4" aria-label="Nudge right">+</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="studio-muted-note" style="min-width:84px">Up / down</span>
+        <button type="button" class="btn btn-sm btn-outline" data-nudge-step="y:-4" aria-label="Nudge up">&#8722;</button>
+        <span data-nudge-y-val style="min-width:46px;text-align:center;font-size:12px">0 px</span>
+        <button type="button" class="btn btn-sm btn-outline" data-nudge-step="y:4" aria-label="Nudge down">+</button>
+      </div>
+      <p class="form-help studio-inline-note">A small visual offset (up to 48px) to fine-tune position. It never changes the layout flow, and drops away on mobile.</p>
+    </div>
   </div>
 
   <!-- ============================================================ -->
@@ -3344,7 +3401,14 @@ export const SECTION_STUDIO_SCRIPT = `
   var lastSnapshot = JSON.stringify(state.content);
   // §7.3 Advanced raw JSON: read-only until the explicit "Edit raw…" confirm.
   var rawEditArmed = false;
-  var DROP_CLASSES = ['studio-drop-before', 'studio-drop-after', 'studio-drop-into'];
+  var DROP_CLASSES = ['studio-drop-before', 'studio-drop-after', 'studio-drop-into', 'studio-drop-beside-left', 'studio-drop-beside-right'];
+  // P3b (register PC-2 / D1 / R-B): a row holds at most 3 elements side by side
+  // — the ES5-island mirror of content-schema.ts LEADGEN_MAX_ROW_MEMBERS (the
+  // save-time authority). Kept a bare literal here (no import into the island).
+  var MAX_ROW_MEMBERS = 3;
+  // The LEFT/RIGHT third of a host node forms a beside-row drop zone; the
+  // middle third keeps the pre-P3b vertical reorder + container 'into' zones.
+  var BESIDE_ZONE_FRAC = 1 / 3;
   var SELECT_CLASS = 'studio-selected-node';
 
   // R4a deliverable 20: the top-bar "Unsaved changes" dot mirrors the
@@ -4647,6 +4711,145 @@ export const SECTION_STUDIO_SCRIPT = `
     return wrapper;
   }
 
+  // --- P3b (register PC-2 / decision D1 / axiom R-B): STRUCTURED PLACEMENT ----
+  // The drag/canvas island that DRIVES the node.layout model P3a validates +
+  // renders. A row = contiguous same-depth siblings sharing ONE layout.row id
+  // (2-3 slots side by side). These helpers are the WRITE side of the same
+  // contract content-schema.ts documents; the server validator stays the save-
+  // time authority (a malformed write is refused there, never silently kept).
+
+  // A node may carry placement IFF it is NOT a funnel-frame component — the
+  // EXACT rule the save-time validator uses (catalog scope 'frame' → refused).
+  // NB: this is the REGISTRY scope (typeMeta().scope === COMPONENT_CATALOG
+  // scope), NOT the studio-only FRAME_SCOPE_STUDIO_TYPES map (TrustBar/LogoStrip
+  // are catalog scope 'both' — legitimately placeable — so they ARE eligible).
+  function placementEligible(node) {
+    return !!node && typeMeta(node.type).scope !== 'frame';
+  }
+  // row-id shape [A-Za-z0-9_-] ≤64 (content-schema.ts PLACEMENT_ROW_ID_RE) — a
+  // stored token, never CSS. base36 time + random keeps it short + collision-safe.
+  function newRowId() {
+    return 'row_' + Date.now().toString(36) + '_' + Math.floor(Math.random() * 1e6).toString(36);
+  }
+  function nodeRowId(node) {
+    return (node && node.layout && typeof node.layout.row === 'string' && node.layout.row !== '') ? node.layout.row : null;
+  }
+  function ensureLayout(node) {
+    if (!node.layout || typeof node.layout !== 'object') { node.layout = {}; }
+    return node.layout;
+  }
+  // An EMPTY layout {} must be removed so a placement-cleared node renders
+  // byte-identically to a never-placed one (P3a's back-compat invariant).
+  function cleanupLayout(node) {
+    var l = node && node.layout;
+    if (l && typeof l === 'object') {
+      var k, has = false;
+      for (k in l) { if (Object.prototype.hasOwnProperty.call(l, k)) { has = true; break; } }
+      if (!has) { delete node.layout; }
+    }
+  }
+  function clearNodeRow(node) {
+    if (node && node.layout && node.layout.row !== undefined) { delete node.layout.row; cleanupLayout(node); }
+  }
+  function countRowMembersInList(list, rowId) {
+    var i, n = 0;
+    if (!list) { return 0; }
+    for (i = 0; i < list.length; i++) { if (nodeRowId(list[i]) === rowId) { n++; } }
+    return n;
+  }
+  // A row-id worn by exactly ONE sibling is a dissolved-remainder (a lone
+  // element renders as a normal single element anyway — this keeps the model
+  // tidy, matching the dispatch's "dissolve a 1-member remainder row").
+  function dissolveIfRemainder(list, rowId) {
+    if (!rowId || countRowMembersInList(list, rowId) !== 1) { return; }
+    var i;
+    for (i = 0; i < list.length; i++) { if (nodeRowId(list[i]) === rowId) { clearNodeRow(list[i]); } }
+  }
+  // A node LEAVES its row on any OUT-of-row drop (before/after/into/append).
+  // NO-OP (byte-identical to pre-P3b) for a node that never had a row — so the
+  // U11/U12 no-layout move suite is entirely unaffected by this path. Mutates
+  // the model WITHOUT afterModelChange (the caller's moveNodeTo owns the single
+  // re-render + history push).
+  function leaveRow(qid) {
+    var ref = findRef(qid);
+    if (!ref) { return; }
+    var oldRow = nodeRowId(ref.node);
+    if (!oldRow) { return; }
+    clearNodeRow(ref.node);
+    dissolveIfRemainder(ref.list, oldRow);
+  }
+  // Guideline gate for trackAt (side-effect-free): show the vertical beside
+  // guideline only when the dragged node CAN legally become a same-depth
+  // sibling of the host (both placement-eligible, the relocation fits under
+  // MAX_DEPTH, and the host is not inside the dragged node's own subtree).
+  // Capacity (≤3) is checked at RELEASE (joinRowBeside) so a full-row attempt
+  // still surfaces the inline note rather than silently offering nothing.
+  function besideZoneActive(draggedQid, hostQid) {
+    if (draggedQid === hostQid) { return false; }
+    var d = findRef(draggedQid), h = findRef(hostQid);
+    if (!d || !h) { return false; }
+    if (!placementEligible(d.node) || !placementEligible(h.node)) { return false; }
+    if (subtreeMaxContainerDepth(d.node, h.depth) > MAX_DEPTH) { return false; }
+    var hostParentQid = h.parent ? h.parent.question_id : null;
+    if (hostParentQid && isInSubtree(d.node, hostParentQid)) { return false; }
+    return true;
+  }
+  // The R-B deliverable's WRITE: form/join a side-by-side row. Both members
+  // gain the SAME layout.row id; the dragged node is relocated contiguous with
+  // the host (moveNodeTo — the proven reorder machinery — owns the ONE
+  // afterModelChange). A full row (>3) is refused with a brief inline note and
+  // ZERO model change. All feasibility (eligibility, depth, own-subtree,
+  // capacity) is pre-flighted BEFORE any mutation, so a refusal never leaves a
+  // half-written / non-contiguous model the validator would reject on save.
+  function joinRowBeside(draggedQid, hostQid, side) {
+    var d = findRef(draggedQid), h = findRef(hostQid);
+    if (!d || !h || draggedQid === hostQid) { return; }
+    if (!placementEligible(d.node) || !placementEligible(h.node)) {
+      showRefusal('Side-by-side rows are a Section-element layout \\u2014 funnel-layout items are placed in the Quote Builder.');
+      return;
+    }
+    var hostRow = nodeRowId(h.node);
+    var rowId = hostRow || newRowId();
+    var sameRowAlready = !!hostRow && (d.list === h.list) && nodeRowId(d.node) === hostRow;
+    var current = hostRow ? countRowMembersInList(h.list, hostRow) : 1;
+    var prospective = sameRowAlready ? current : current + 1;
+    if (prospective > MAX_ROW_MEMBERS) {
+      showRefusal('A row holds at most ' + MAX_ROW_MEMBERS + ' elements side by side \\u2014 this row is full.');
+      return;
+    }
+    var parentQid = h.parent ? h.parent.question_id : null;
+    if (parentQid && isInSubtree(d.node, parentQid)) { showRefusal('Cannot move a container into its own children.'); return; }
+    if (subtreeMaxContainerDepth(d.node, h.depth) > MAX_DEPTH) { showRefusal('Cannot nest containers deeper than ' + MAX_DEPTH + ' levels \\u2014 drop refused.'); return; }
+    // Feasible: assign the shared row-id to BOTH members, dissolve any remainder
+    // the dragged node leaves in its OLD row (its row-id has already changed, so
+    // the count now excludes it), then relocate it contiguous with the host.
+    var oldRow = nodeRowId(d.node);
+    ensureLayout(h.node).row = rowId;
+    ensureLayout(d.node).row = rowId;
+    if (oldRow && oldRow !== rowId) { dissolveIfRemainder(d.list, oldRow); }
+    var hostIndex = h.index;
+    var targetIndex = side === 'left' ? hostIndex : hostIndex + 1;
+    moveNodeTo(draggedQid, parentQid, targetIndex);
+    selectComponent(draggedQid);
+  }
+  // The inspector "Remove from row" affordance (a standalone mutation — no
+  // relocation, so it owns its OWN afterModelChange). The element stays in
+  // place and re-renders as a lone single element; a 1-member remainder
+  // dissolves.
+  function removeSelectedFromRow() {
+    var node = selectedNode();
+    if (!node) { return; }
+    var ref = findRef(node.question_id);
+    if (!ref) { return; }
+    var oldRow = nodeRowId(node);
+    if (!oldRow) { return; }
+    clearNodeRow(node);
+    dissolveIfRemainder(ref.list, oldRow);
+    populateInspector();
+    applyCanvasDecoration();
+    afterModelChange();
+  }
+
   // --- live structural validation (REQUIRED_FIELDS projection; the server
   // validator stays authoritative on save) ------------------------------------
   // R4a E3-NEW-2/E2-NEW-10: extends the mirror beyond the original 4 classes
@@ -5628,7 +5831,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (inlineEditing) { return; }
     var t = ev.target;
     if (!t || !t.closest) { return; }
-    if (t.closest('[data-selection-chrome],[data-lg-choice],[data-resize-handle],[data-field-resize-handle],[data-width-handle],[contenteditable="true"],[data-frame-keep],[data-frame-move],[data-choice-x],[data-choice-ghost],[data-funnel-picker]')) { return; }
+    if (t.closest('[data-selection-chrome],[data-lg-choice],[data-resize-handle],[data-field-resize-handle],[data-width-handle],[contenteditable="true"],[data-frame-keep],[data-frame-move],[data-choice-x],[data-choice-ghost],[data-funnel-picker],[data-container-chip]')) { return; }
     var surface = t.closest('[data-question-id]');
     if (!surface) { return; }
     startFieldMove(surface.getAttribute('data-question-id'), ev);
@@ -5702,8 +5905,20 @@ export const SECTION_STUDIO_SCRIPT = `
       var hqid = host.getAttribute('data-question-id');
       var type = host.getAttribute('data-component-type');
       var rect = host.getBoundingClientRect();
+      var x = fx - rect.left;
       var y = fy - rect.top;
-      if (isContainerType(type) && y > rect.height * 0.25 && y < rect.height * 0.75) {
+      // P3b (register PC-2 / axiom R-B): the host's LEFT / RIGHT third forms a
+      // side-by-side ROW when the dragged node can legally join — a VERTICAL
+      // guideline at the host's edge (studio-drop-beside-*), distinct from the
+      // before/after horizontal bars. The middle third keeps the pre-P3b
+      // vertical reorder + container 'into' semantics EXACTLY as they were.
+      if (x < rect.width * BESIDE_ZONE_FRAC && besideZoneActive(qid, hqid)) {
+        dropHint = { qid: hqid, mode: 'beside-left' };
+        host.className = withoutClasses(host.className, DROP_CLASSES) + ' studio-drop-beside-left';
+      } else if (x > rect.width * (1 - BESIDE_ZONE_FRAC) && besideZoneActive(qid, hqid)) {
+        dropHint = { qid: hqid, mode: 'beside-right' };
+        host.className = withoutClasses(host.className, DROP_CLASSES) + ' studio-drop-beside-right';
+      } else if (isContainerType(type) && y > rect.height * 0.25 && y < rect.height * 0.75) {
         dropHint = { qid: hqid, mode: 'into' };
         host.className = withoutClasses(host.className, DROP_CLASSES) + ' studio-drop-into';
       } else if (y < rect.height / 2) {
@@ -5721,16 +5936,31 @@ export const SECTION_STUDIO_SCRIPT = `
       cleanup();
       dropHint = null;
       if (!moved || !hint) { return; }
+      // P3b (register PC-2 / R-B): a beside-drop FORMS/JOINS a side-by-side row
+      // (shared layout.row + contiguous relocation; joinRowBeside owns the
+      // capacity refusal + the single afterModelChange via moveNodeTo).
+      if (hint.mode === 'beside-left' || hint.mode === 'beside-right') {
+        joinRowBeside(qid, hint.qid, hint.mode === 'beside-left' ? 'left' : 'right');
+        return;
+      }
       if (hint.mode === 'append') {
         // R7 U11a fix-cycle parity restore: a release over blank canvas
         // space (trackAt's identical-purpose comment above has the full
         // rationale) moves the node to the ROOT END, same semantics the
         // retired native-DnD else-branch used (moveNodeTo(payload,null,null)).
+        // P3b: a release OUT to blank canvas takes the node out of any row.
+        leaveRow(qid);
         moveNodeTo(qid, null, null);
         selectComponent(qid);
         return;
       }
       if (!hint.qid || hint.qid === qid) { return; }
+      // P3b: before/into/after are OUT-of-row vertical/nest reorders — a row
+      // member dropped this way LEAVES its row (a 1-member remainder dissolves).
+      // leaveRow is a byte-identical no-op for a node that never had a row, so
+      // the pre-P3b vertical-reorder semantics (and the U11/U12 suite) are
+      // entirely unchanged; moveNodeTo still owns the single afterModelChange.
+      leaveRow(qid);
       if (hint.mode === 'into') { moveNodeTo(qid, hint.qid, null); }
       else {
         var ref = findRef(hint.qid);
@@ -5933,7 +6163,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // §8.8 linked-field chips + §5.4 frame badges REBUILD per pass (the region
     // is server HTML — every re-render wipes them, so decoration re-derives
     // from the model).
-    var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge, .studio-choice-ghost, .studio-choice-x, .studio-resize-handle, .studio-mapoverlay-chip');
+    var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge, .studio-choice-ghost, .studio-choice-x, .studio-resize-handle, .studio-mapoverlay-chip, .studio-container-chip');
     var i;
     for (i = 0; i < stale.length; i++) {
       if (stale[i].parentNode) { stale[i].parentNode.removeChild(stale[i]); }
@@ -5991,12 +6221,43 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     decorateChoiceCards(region);
     decorateMappingOverlay(region);
+    // PC-A6: a click-to-select label chip on every container (containers get no
+    // field 8-handle chrome — selectionChromeKind returns null for them — and
+    // their body is usually fully covered by children, so a canvas click lands
+    // on a child; this chip is the reliable select affordance).
+    decorateContainerChips(region);
     // §6.2 measured selection chrome LAST — after the ghost/choice-X inserts, so
     // getBoundingClientRect reflects the node's final laid-out box.
     if (selKind === 'field') { decorateFieldSelection(selEl, selQid, selNode); }
     else if (selKind === 'headline' || selKind === 'continue') { decorateSimpleSelection(selEl, selKind); }
     // badges/chips/handles change the document height — keep the frame sized.
     updateCanvasFrameHeight();
+  }
+  // PC-A6 container-select affordance: a small click-to-select label chip
+  // anchored at each container's top-left. position:absolute (CSS) → it is
+  // NEVER a flex/grid ITEM (the P1c decoration lesson — a decoration that
+  // became a row/flex item once broke the canvas grid), so it can never alter
+  // the container's own child layout. Rebuilt every pass (stale-cleared above),
+  // click routed by onCanvasClick's [data-container-chip] branch.
+  function decorateContainerChips(region) {
+    var nodes = region.querySelectorAll('[data-question-id]');
+    var i, node, type, qid, chip;
+    for (i = 0; i < nodes.length; i++) {
+      node = nodes[i];
+      type = node.getAttribute('data-component-type');
+      if (!isContainerType(type)) { continue; }
+      qid = node.getAttribute('data-question-id');
+      // The chip's containing block: the container itself. Set position:relative
+      // ONLY when it is static (never override an author/preset position) — the
+      // SAME idiom decorateChoiceCards uses for the CardPanel resize handle.
+      if (node.style && (!node.style.position || node.style.position === 'static')) { node.style.position = 'relative'; }
+      chip = frameCreate('span');
+      chip.className = 'studio-container-chip' + (qid === selectedQuestionId ? ' studio-container-chip-selected' : '');
+      chip.setAttribute('data-container-chip', qid);
+      chip.setAttribute('title', 'Select this ' + typeLabel(type));
+      chip.appendChild(document.createTextNode(typeLabel(type)));
+      node.insertBefore(chip, node.firstChild);
+    }
   }
   function clearDropClasses() {
     var region = canvasRegion();
@@ -6518,6 +6779,14 @@ export const SECTION_STUDIO_SCRIPT = `
     // were dead writes for the other choice types).
     var choiceLayout = document.querySelector('[data-toolbar-choice-layout]');
     if (choiceLayout) { choiceLayout.hidden = !isAnswerLayoutType(node); }
+    // P3b (register PC-2 / D1 / R-B): the Placement block shows for any
+    // placement-eligible selection (catalog scope != frame — the EXACT rule the
+    // save-time validator enforces), INDEPENDENT of the field/text/continue
+    // variant above (a placed TextBlock, field, or container all get it).
+    var placementBlock = document.querySelector('[data-style-placement-block]');
+    var showPlacement = !!node && placementEligible(node);
+    if (placementBlock) { placementBlock.hidden = !showPlacement; }
+    if (showPlacement) { populatePlacementControls(node); }
   }
   // §6.2 "Selecting a node retargets the inspector and resets its active tab
   // to Content" — a NEW SELECTION (isNewSelection=true, from
@@ -7243,6 +7512,126 @@ export const SECTION_STUDIO_SCRIPT = `
     var props = ensureObj(node, 'props');
     props.source = value;
     populateImageBlockControls(node);
+    afterModelChange();
+  }
+
+  // --- P3b (register PC-2 / D1 / R-B) Style-tab PLACEMENT controls -------------
+  // The inspector counterpart to the drag-beside gesture: align / width / nudge
+  // + a row indicator and "Remove from row" — all writing the SAME node.layout
+  // the drag path writes and presets.ts renders. Shown for placement-eligible
+  // selections (populateStyleVariant). Each setter clears an empty layout back
+  // to absent (byte-identical pre-P3a render — P3a's back-compat invariant).
+  var PLACEMENT_ALIGNS = { start: 1, center: 1, end: 1 };
+  function nodeOwnWidth(node) {
+    return (node && node.design_overrides && node.design_overrides.size && node.design_overrides.size.width !== undefined)
+      ? node.design_overrides.size.width : undefined;
+  }
+  // A short human label for a row-mate in the "In a row with …" indicator: a
+  // bound/typeless node shows its operator type label; an authored text
+  // primitive shows a trimmed snippet of its own copy.
+  function rowMemberLabel(node) {
+    if (node.bind === undefined && node.props && typeof node.props.text === 'string' && trimStr(node.props.text) !== '') {
+      var t = trimStr(node.props.text).replace(/\\s+/g, ' ');
+      return '\\u201C' + (t.length > 24 ? t.slice(0, 24) + '\\u2026' : t) + '\\u201D';
+    }
+    return typeLabel(node.type);
+  }
+  function rowMemberNames(node, rowId) {
+    var ref = findRef(node.question_id);
+    if (!ref) { return []; }
+    var names = [], i, sib;
+    for (i = 0; i < ref.list.length; i++) {
+      sib = ref.list[i];
+      if (sib === node) { continue; }
+      if (nodeRowId(sib) === rowId) { names.push(rowMemberLabel(sib)); }
+    }
+    return names;
+  }
+  function populatePlacementControls(node) {
+    var layout = (node && node.layout && typeof node.layout === 'object') ? node.layout : {};
+    var i;
+    // Align segmented (active reflects layout.align; none active = unaligned).
+    var align = (typeof layout.align === 'string') ? layout.align : '';
+    var alignBtns = document.querySelectorAll('[data-set-placement-align]');
+    for (i = 0; i < alignBtns.length; i++) {
+      alignBtns[i].className = (align !== '' && alignBtns[i].getAttribute('data-set-placement-align') === align) ? 'active' : '';
+    }
+    // Width segmented — active for a PRESET string; absent selects Auto (''); a
+    // custom_px object (only reachable via API, never this inspector) selects none.
+    var w = layout.width;
+    var wSel = (typeof w === 'string') ? w : (w === undefined ? '' : null);
+    var widthBtns = document.querySelectorAll('[data-set-placement-width]');
+    for (i = 0; i < widthBtns.length; i++) {
+      widthBtns[i].className = (wSel !== null && widthBtns[i].getAttribute('data-set-placement-width') === wSel) ? 'active' : '';
+    }
+    // Nudge readouts.
+    var nx = (typeof layout.nudge_x === 'number') ? layout.nudge_x : 0;
+    var ny = (typeof layout.nudge_y === 'number') ? layout.nudge_y : 0;
+    var nxEl = document.querySelector('[data-nudge-x-val]');
+    var nyEl = document.querySelector('[data-nudge-y-val]');
+    if (nxEl) { nxEl.textContent = nx + ' px'; }
+    if (nyEl) { nyEl.textContent = ny + ' px'; }
+    // Row indicator + Remove-from-row (only when this node is one of >=2 members).
+    var rowId = nodeRowId(node);
+    var members = rowId ? rowMemberNames(node, rowId) : [];
+    var inRow = members.length > 0;
+    var indicator = document.querySelector('[data-placement-row-indicator]');
+    var removeBtn = document.querySelector('[data-placement-remove-row]');
+    if (indicator) {
+      indicator.hidden = !inRow;
+      if (inRow) { indicator.textContent = 'In a row with ' + members.join(', ') + '.'; }
+    }
+    if (removeBtn) { removeBtn.hidden = !inRow; }
+    // Honest governance note when BOTH a placement width and the element's own
+    // width (Size & width) are set — they NEST (P3a render), neither silently
+    // wins: the placement width sizes the slot/box, the own width sizes the
+    // element inside it.
+    var note = document.querySelector('[data-placement-width-note]');
+    if (note) {
+      var both = nodeOwnWidth(node) !== undefined && layout.width !== undefined;
+      note.hidden = !both;
+      note.textContent = both
+        ? (rowId
+            ? 'This element also has its own width in Size & width above. Here, Width sizes its slot in the row; the element sits inside it.'
+            : 'This element also has its own width in Size & width above. Here, Width sizes the box; the element sits inside it.')
+        : '';
+    }
+  }
+  function setPlacementAlign(align) {
+    var node = selectedNode();
+    if (!node || !PLACEMENT_ALIGNS[align]) { return; }
+    var layout = ensureLayout(node);
+    // Toggle off when re-picking the active value (the only way back to
+    // unaligned/fill, since there is no separate 'auto' align segment).
+    if (layout.align === align) { delete layout.align; cleanupLayout(node); }
+    else { layout.align = align; }
+    populatePlacementControls(node);
+    applyCanvasDecoration();
+    afterModelChange();
+  }
+  function setPlacementWidth(preset) {
+    var node = selectedNode();
+    if (!node) { return; }
+    if (preset === '' || preset === null) {
+      if (node.layout) { delete node.layout.width; cleanupLayout(node); }
+    } else {
+      ensureLayout(node).width = preset;
+    }
+    populatePlacementControls(node);
+    applyCanvasDecoration();
+    afterModelChange();
+  }
+  function stepPlacementNudge(axis, delta) {
+    var node = selectedNode();
+    if (!node) { return; }
+    var key = axis === 'x' ? 'nudge_x' : 'nudge_y';
+    var layout = ensureLayout(node);
+    var cur = (typeof layout[key] === 'number') ? layout[key] : 0;
+    var next = Math.max(-48, Math.min(48, cur + delta));
+    if (next === 0) { delete layout[key]; cleanupLayout(node); }
+    else { layout[key] = next; }
+    populatePlacementControls(node);
+    applyCanvasDecoration();
     afterModelChange();
   }
 
@@ -9484,6 +9873,18 @@ export const SECTION_STUDIO_SCRIPT = `
       }
       // funnel-picker buttons wire their own handlers; don't fall through.
       if (ev.target && ev.target.closest && ev.target.closest('[data-funnel-picker]')) { return; }
+      // PC-A6: the container-select label chip. Routed BEFORE the generic
+      // node-select below because the chip lives INSIDE the container it names,
+      // so closest('[data-question-id]') would resolve to that container anyway
+      // — but this explicit branch keeps the intent unambiguous and matches the
+      // R2 S1-7 same-node-reselect skip (re-selecting re-runs decoration).
+      var containerChip = ev.target && ev.target.closest ? ev.target.closest('[data-container-chip]') : null;
+      if (containerChip) {
+        ev.preventDefault();
+        var chipQid = containerChip.getAttribute('data-container-chip');
+        if (chipQid !== selectedQuestionId) { selectComponent(chipQid); }
+        return;
+      }
       // §6.2 inline choice ops: per-choice ✕ + the "+ Add choice" ghost tile.
       var xBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-x]') : null;
       if (xBtn) {
@@ -10161,6 +10562,31 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   var textBlockRoleEl = document.querySelector('[data-text-block-role]');
   if (textBlockRoleEl) { textBlockRoleEl.addEventListener('change', collectTextBlockRole); }
+
+  // P3b (register PC-2 / D1 / R-B) Style-tab PLACEMENT controls: align / width
+  // segmenteds, the +/- nudge steppers, and "Remove from row".
+  var placementAlignEls = document.querySelectorAll('[data-set-placement-align]');
+  var pai;
+  for (pai = 0; pai < placementAlignEls.length; pai++) {
+    placementAlignEls[pai].addEventListener('click', function () { setPlacementAlign(this.getAttribute('data-set-placement-align')); });
+  }
+  var placementWidthEls = document.querySelectorAll('[data-set-placement-width]');
+  var pwj;
+  for (pwj = 0; pwj < placementWidthEls.length; pwj++) {
+    placementWidthEls[pwj].addEventListener('click', function () { setPlacementWidth(this.getAttribute('data-set-placement-width')); });
+  }
+  var nudgeStepEls = document.querySelectorAll('[data-nudge-step]');
+  var nsi;
+  for (nsi = 0; nsi < nudgeStepEls.length; nsi++) {
+    nudgeStepEls[nsi].addEventListener('click', function () {
+      var spec = this.getAttribute('data-nudge-step');
+      var at = spec.indexOf(':');
+      if (at === -1) { return; }
+      stepPlacementNudge(spec.slice(0, at), parseInt(spec.slice(at + 1), 10));
+    });
+  }
+  var removeRowEl = document.querySelector('[data-placement-remove-row]');
+  if (removeRowEl) { removeRowEl.addEventListener('click', removeSelectedFromRow); }
 
   // v3.1 R3b deliverable 4: ImageBlock's source toggle + media picker/thumb.
   var imageBlockSourceEls = document.querySelectorAll('[data-set-imageblock-source]');

@@ -6590,6 +6590,10 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     probe.sandbox["mapsFillLabels"] = () => [];
     probe.sandbox["decorateChoiceCards"] = () => {};
     probe.sandbox["decorateMappingOverlay"] = () => {};
+    // P3b (register PC-2): applyCanvasDecoration now also decorates container
+    // select-chips — stub it out here like its sibling decorators (this probe
+    // isolates the draggable=false loop, not the chip pass).
+    probe.sandbox["decorateContainerChips"] = () => {};
     probe.sandbox["updateCanvasFrameHeight"] = () => {};
     probe.sandbox["decorateFieldSelection"] = () => {};
     probe.sandbox["decorateSimpleSelection"] = () => {};
