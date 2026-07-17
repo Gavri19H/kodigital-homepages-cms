@@ -586,6 +586,19 @@ const P1A_FIX_ROUND_EXCEPTION_TABLE =
 // pre-change shape — a drift in ANY other byte still fails the pin below.
 const P1_HIDDEN_GUARD_RULE = `\n${DEFAULT_FUNNEL_SCOPE} [hidden]{display:none}`;
 
+// MINOR-1 (adversarial review, register PC): CardPanel/BackgroundPanel are
+// plain-block §8.5 containers with no gap system — `.lg-question-card > * + *`
+// (a direct-child combinator) cannot reach a container's own children (its
+// grandchildren). styles.ts adds the SAME stack-floor rule scoped to
+// `.lg-card-panel > * + *` / `.lg-bg-panel-inner > * + *` (base + mobile),
+// emitted immediately after the existing `.lg-question-card > * + *` pair.
+// Stripped here (the ONLY legal delta this fix adds) so the frozen fixture
+// stays the pre-change shape.
+const MINOR1_CARD_PANEL_FLOOR_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-card-panel > * + *{margin-top:${defaultFunnelDesign.spacing.stack}}`;
+const MINOR1_BG_PANEL_FLOOR_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-bg-panel-inner > * + *{margin-top:${defaultFunnelDesign.spacing.stack}}`;
+const MINOR1_CARD_PANEL_FLOOR_MOBILE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-card-panel > * + *{margin-top:${defaultFunnelDesign.spacing.stackMobile}}`;
+const MINOR1_BG_PANEL_FLOOR_MOBILE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-bg-panel-inner > * + *{margin-top:${defaultFunnelDesign.spacing.stackMobile}}`;
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -701,6 +714,16 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     // P1 hidden-attribute fix (register PC): strip the net-new terminal
     // `[hidden]{display:none}` guard — the ONLY legal delta this fix adds.
     .split(P1_HIDDEN_GUARD_RULE)
+    .join("")
+    // MINOR-1 (adversarial review, register PC): strip the net-new CardPanel/
+    // BackgroundPanel stack-floor rules — the ONLY legal delta this fix adds.
+    .split(MINOR1_CARD_PANEL_FLOOR_RULE)
+    .join("")
+    .split(MINOR1_BG_PANEL_FLOOR_RULE)
+    .join("")
+    .split(MINOR1_CARD_PANEL_FLOOR_MOBILE_RULE)
+    .join("")
+    .split(MINOR1_BG_PANEL_FLOOR_MOBILE_RULE)
     .join("");
   expect(
     cssMinusMove,

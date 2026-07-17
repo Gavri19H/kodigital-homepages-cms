@@ -131,6 +131,41 @@ const COMPONENTS = [
   { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
 ];
 
+// MINOR-1 (adversarial review, register PC): the reviewer's probe — a
+// §8.5 CardPanel is a PLAIN BLOCK (no gap system); `.lg-question-card > * + *`
+// is a direct-child combinator, so it reaches the CardPanel's own position
+// among ITS siblings but NOT the CardPanel's own children (its grandchildren,
+// one level deeper) — two components nested inside a CardPanel measured 0px
+// apart. ONE CardPanel wrapping two answer components (ButtonAnswerGroup +
+// TwoButtonYesNo — the SAME pair the top-level RHYTHM test already measures
+// at the .lg-question-card level) is the minimal fixture that pins the
+// styles.ts fix (`.lg-card-panel > * + *`) permanently.
+const NESTED_COMPONENTS = [
+  {
+    type: "CardPanel",
+    question_id: "q_panel",
+    props: { width: "full" },
+    children: [
+      {
+        type: "ButtonAnswerGroup",
+        question_id: "q_panel_btn",
+        internal_field: "panel_coverage",
+        answer_type: "enum",
+        choices: [
+          { label: "Basic plan", value: "basic", analytics_id: "pb" },
+          { label: "Full plan", value: "full", analytics_id: "pf" },
+        ],
+      },
+      {
+        type: "TwoButtonYesNo",
+        question_id: "q_panel_yn",
+        internal_field: "panel_insured",
+        answer_type: "boolean",
+      },
+    ],
+  },
+];
+
 async function json<T>(res: { ok(): boolean; status(): number; json(): Promise<unknown>; text(): Promise<string> }, label: string): Promise<T> {
   if (!res.ok()) throw new Error(`${label} HTTP ${res.status()}: ${await res.text()}`);
   return (await res.json()) as T;
@@ -138,7 +173,14 @@ async function json<T>(res: { ok(): boolean; status(): number; json(): Promise<u
 
 interface Created { id: number; public_id: string; }
 
-async function createSection(request: APIRequestContext, name: string): Promise<Created> {
+// `components` defaults to the shared flat COMPONENTS fixture (every existing
+// call site is unaffected); the CardPanel-nesting case below (MINOR-1) passes
+// NESTED_COMPONENTS instead.
+async function createSection(
+  request: APIRequestContext,
+  name: string,
+  components: unknown[] = COMPONENTS,
+): Promise<Created> {
   return json<Created>(
     await request.post(`${LG_API}/sections`, {
       data: {
@@ -151,7 +193,7 @@ async function createSection(request: APIRequestContext, name: string): Promise<
         subheadline_text: "Pick the option that fits you best",
         continue_mode: "button",
         status: "active",
-        content_json: { components: COMPONENTS },
+        content_json: { components },
       },
     }),
     `section create (${name})`,
@@ -435,5 +477,79 @@ test.describe("P1a geometry gate — live /lg funnel (§12 parity)", () => {
     expect(mobile.cardTracks, "mobile: card grid collapses to 1 track").toBe(1);
     expect(mobile.btnTracks, "mobile: buttons keep their multi-track (columnsMobile) count").toBe(2);
     expect(mobile.scrollWidth, `mobile: scrollWidth ${mobile.scrollWidth} ≤ innerWidth ${mobile.innerWidth}`).toBeLessThanOrEqual(mobile.innerWidth + 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MINOR-1 (adversarial review, register PC): CardPanel-nesting case. Pins the
+// styles.ts fix (`.lg-card-panel > * + *`) permanently, on BOTH the studio
+// canvas (engine-agnostic, runs chromium+firefox — the SAME both-engine
+// pattern the describe blocks above already use) AND the live /lg funnel
+// (§12 parity, chromium-only for the identical dynamic-hostname reason the
+// live describe above documents). Self-contained: its own section/fixture,
+// its own inline measurement (not the shared measureCanvas/GeomSnapshot,
+// whose `order` id list is fixed to the top-level COMPONENTS fixture above)
+// so it cannot perturb any existing assertion in this file.
+// ---------------------------------------------------------------------------
+test.describe("P1a geometry gate — CardPanel nesting (MINOR-1, adversarial review)", () => {
+  test("studio canvas: two answer components nested inside a CardPanel gap by spacing.stack, not 0px", async ({ page, request }) => {
+    const s = await createSection(request, `p1geo-panel-${uniq}`, NESTED_COMPONENTS);
+    await page.goto(`/admin/leadgen/sections/${s.public_id}/edit`, { waitUntil: "domcontentloaded" });
+    await expect(
+      page.frameLocator("#lg-studio-canvas-frame").locator('[data-question-id="q_panel_yn"]'),
+    ).toBeVisible({ timeout: 20_000 });
+    const measured = await page.evaluate(() => {
+      const iframe = document.getElementById("lg-studio-canvas-frame") as HTMLIFrameElement | null;
+      const doc = iframe && iframe.contentDocument;
+      if (!doc) return null;
+      const a = doc.querySelector('[data-question-id="q_panel_btn"]');
+      const b = doc.querySelector('[data-question-id="q_panel_yn"]');
+      if (!a || !b) return null;
+      const ra = a.getBoundingClientRect();
+      const rb = b.getBoundingClientRect();
+      return { gap: +(rb.top - (ra.top + ra.height)).toFixed(1) };
+    });
+    // eslint-disable-next-line no-console
+    console.log(`[P1a panel-nesting studio] ${JSON.stringify(measured)} (stack=${STACK})`);
+    expect(measured, "studio: both CardPanel-nested components render").not.toBeNull();
+    expect(measured!.gap, `studio: CardPanel-nested gap ${measured!.gap} == spacing.stack ${STACK}`).toBeGreaterThanOrEqual(STACK - 1.5);
+    expect(measured!.gap, `studio: CardPanel-nested gap ${measured!.gap} == spacing.stack ${STACK}`).toBeLessThanOrEqual(STACK + 1.5);
+    // the inverted zero-gap probe (the reviewer's exact finding): NOT 0px.
+    expect(measured!.gap, "studio: CardPanel-nested gap is spaced (not the MINOR-1 0px)").toBeGreaterThan(4);
+  });
+
+  test("live /lg: two answer components nested inside a CardPanel gap by spacing.stack, not 0px", async ({ page, request, browserName }) => {
+    // Same dynamic-hostname constraint as the live /lg funnel describe above —
+    // firefox's network.dns.localDomains cannot resolve this test's dynamic
+    // `{uniq}.e2e.test` host; studio-canvas (above) already proves both engines.
+    test.skip(browserName === "firefox", "live /lg leg needs chromium --host-resolver-rules; firefox cannot resolve the dynamic e2e host — the studio-canvas leg above runs on BOTH engines");
+    const host = `p1geo-panel-${uniq}.e2e.test`;
+    const siteId = await seedActiveSite(request, host, `P1a Geometry Panel ${uniq}`);
+    const s = await createSection(request, `p1geo-panel-live-${uniq}`, NESTED_COMPONENTS);
+    const quote = await json<{ public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }> }>(
+      await request.post(`${LG_API}/quotes`, { data: { quote_name: `P1a Geo Panel ${uniq}`, activity: "quote_funnel", verticals: ["life"] } }),
+      "quote create (panel)",
+    );
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: s.id }] } }), "variant sections (panel)");
+    await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p1geo-panel" } }), "activation (panel)");
+
+    await page.setViewportSize({ width: 1280, height: 1400 });
+    await page.goto(`http://${host}:8899/lg/p1geo-panel`, { waitUntil: "load" });
+    await expect(page.locator('[data-question-id="q_panel_yn"]').first()).toBeVisible({ timeout: 15_000 });
+    const measured = await page.evaluate(() => {
+      const a = document.querySelector('[data-question-id="q_panel_btn"]');
+      const b = document.querySelector('[data-question-id="q_panel_yn"]');
+      if (!a || !b) return null;
+      const ra = a.getBoundingClientRect();
+      const rb = b.getBoundingClientRect();
+      return { gap: +(rb.top - (ra.top + ra.height)).toFixed(1) };
+    });
+    // eslint-disable-next-line no-console
+    console.log(`[P1a panel-nesting live] ${JSON.stringify(measured)} (stack=${STACK})`);
+    expect(measured, "live: both CardPanel-nested components render").not.toBeNull();
+    expect(measured!.gap, `live: CardPanel-nested gap ${measured!.gap} == spacing.stack ${STACK}`).toBeGreaterThanOrEqual(STACK - 1.5);
+    expect(measured!.gap, `live: CardPanel-nested gap ${measured!.gap} == spacing.stack ${STACK}`).toBeLessThanOrEqual(STACK + 1.5);
+    expect(measured!.gap, "live: CardPanel-nested gap is spaced (not the MINOR-1 0px)").toBeGreaterThan(4);
   });
 });

@@ -235,12 +235,73 @@ export function funnelChromeCss(
   // by leadgen-r3a-effects.gesture (rendered gaps) + leadgen-p1-geometry.gesture
   // (the new rhythm gate); the CSS-body pins in leadgen-u12-rhythm read the
   // .lg-headline/.lg-subheadline/.lg-continue rule BODIES, which are untouched.
-  out.push(rule(`${scope} .lg-question-card > * + *`, { "margin-top": spacing.stack }));
+  //
+  // MINOR-1 (adversarial review, register PC): `.lg-question-card > * + *` is a
+  // DIRECT-CHILD combinator — it reaches a §8.5 container's OWN position among
+  // its question-card siblings, but NOT a plain-block container's children
+  // (its grandchildren, one level deeper). The reviewer's probe found exactly
+  // this: two components nested inside a CardPanel measured 0px apart.
+  //
+  // SCOPING RULE (encoded here for every future §8.5 container): a container
+  // with EXPLICIT gap semantics owns its OWN internal spacing and must NOT get
+  // this floor —
+  //   • Stack   (renderStack)         — inline `gap` from stackGapValue, ALWAYS
+  //                                      emitted (an un-authored gap still
+  //                                      resolves to the token default).
+  //   • GridContainer (renderGridContainer) — inline `gap` from gridGapValue,
+  //                                      same always-emitted guarantee.
+  //   • Columns (`.lg-columns`, above) — `gap: columns.gap` in THIS class rule.
+  // A container with NO gap mechanism at all — a plain block — falls back to
+  // this SAME stack floor, exactly like `.lg-question-card` itself:
+  //   • CardPanel (`.lg-card-panel`, ~line 1098) — renderCardPanel emits no
+  //     gap; the class rule is width/margin/border only.
+  //   • BackgroundPanel (`.lg-bg-panel`, ~line 1110) — renderBackgroundPanel
+  //     renders children inside the INNER wrapper `.lg-bg-panel-inner`
+  //     (position:relative only, no gap); the floor targets that inner
+  //     element, not `.lg-bg-panel` itself (children are ITS direct children,
+  //     not the outer panel's — the outer panel's only other child is the
+  //     absolutely-positioned `.lg-bg-panel-img`, which this selector does not
+  //     reach: `img + *` never matches inside `.lg-bg-panel` itself, only
+  //     inside `.lg-bg-panel-inner`).
+  // Swept ALL 5 LEADGEN_CONTAINER_TYPES (content-schema.ts) against this rule:
+  // no 6th plain-block container exists today; a future one must repeat this
+  // audit (does its OWN renderX emit a gap? no → add it here).
+  //
+  // AUDITED against the grid-follower collapse-emulation table below (P1a FIX
+  // ROUND): that table's selectors (`${scope} <predecessor> + <follower>`) are
+  // ALREADY container-agnostic — a sibling-combinator selector matches an
+  // adjacent pair regardless of which element wraps them, so it governs a
+  // CardPanel-nested or BackgroundPanel-nested pair identically to a
+  // question-card-level one, with NO changes needed. Its selectors are also
+  // HIGHER specificity ((0,3,0): scope + 2 classes) than this floor's (0,2,0):
+  // scope + 1 class, `*` contributes none) — so it always wins the tie where
+  // both could apply. Every margin-bottom/margin-shorthand-bearing selector in
+  // this file was enumerated (grep audit, register PC): .lg-progress(32),
+  // .lg-category(12), .lg-steps(24), .lg-card-grid(24, predecessor case),
+  // .lg-field(16), .lg-grid-container(24), .lg-columns(16), .lg-headline(9),
+  // .lg-subheadline(30), .lg-trustbar(16), .lg-logo-strip(16) — ALL already
+  // enumerated in that table's predecessor list. The remaining margin-bearing
+  // selectors (.lg-range-value/.lg-label/.lg-dropdown-search) are nested-only
+  // (never a direct container child anywhere, panel or not — unchanged from
+  // the original P1a audit) and every frame-region `margin:` (`.lg-frame-*`)
+  // is structural chrome, never an author-authored container child.
+  out.push(
+    rule(`${scope} .lg-question-card > * + *`, { "margin-top": spacing.stack }),
+    rule(`${scope} .lg-card-panel > * + *`, { "margin-top": spacing.stack }),
+    rule(`${scope} .lg-bg-panel-inner > * + *`, { "margin-top": spacing.stack }),
+  );
   // Mobile: a tighter floor; re-assert the two golden overrides AFTER it (the
   // mobile array becomes ONE media query at the end of the sheet, so these must
   // follow the mobile stack in source to win it — keeping the desktop-golden
   // rhythm identical on mobile, where it was already inherited from the base).
-  mobile.push(rule(`${scope} .lg-question-card > * + *`, { "margin-top": spacing.stackMobile }));
+  // `.lg-subheadline`/`.lg-continue` are GLOBAL class selectors (not scoped to
+  // a specific ancestor), so the SAME two re-assertions cover a CardPanel- or
+  // BackgroundPanel-nested instance of either without duplication.
+  mobile.push(
+    rule(`${scope} .lg-question-card > * + *`, { "margin-top": spacing.stackMobile }),
+    rule(`${scope} .lg-card-panel > * + *`, { "margin-top": spacing.stackMobile }),
+    rule(`${scope} .lg-bg-panel-inner > * + *`, { "margin-top": spacing.stackMobile }),
+  );
   mobile.push(rule(`${scope} .lg-subheadline`, { "margin-top": "0" }));
   mobile.push(rule(`${scope} .lg-continue`, { "margin-top": "26px" }));
 

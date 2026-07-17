@@ -19,6 +19,25 @@
 // force-visible rule, LATER source order wins, so `hidden` beats
 // `display:grid|inline-flex|…` for any scoped descendant.
 //
+// COVERAGE NOTE (adversarial review, register PC): the cascade-resolution
+// check below widens from the 3 originally-buggy surfaces to ALL 9 hideable
+// surfaces the reviewer enumerated — every element render.ts's runtime EVER
+// sets the `hidden` attribute on. `[hidden]` is an ATTRIBUTE selector, so the
+// terminal rule already covers all 9 structurally; this test makes that
+// coverage an EXPLICIT, PERMANENT assertion per surface, so a future
+// force-visible rule added for ANY of them (not just the 3 that were
+// historically buggy) fails here automatically, without needing its own bug
+// first:
+//   1. section        [data-lg-section]        showOnlySection/showCompletionState
+//   2. question        [data-lg-question]        applyComponentVisibility
+//   3. show-on footer  [data-show-on]             updateFooterVisibility
+//   4. back            [data-lg-back]             setBackVisible
+//   5. error-slot      [data-lg-error-for]        setFieldError/clearFieldErrors
+//   6. other-panel     [data-lg-other-panel]      openOtherPanel (SSR-baked hidden)
+//   7. banners mount   [data-lg-banners]          injectBanners (SSR-baked hidden)
+//   8. runtime-notice  .lg-runtime-notice         showRuntimeNotice/hideRuntimeNotice
+//   9. disclosure-panel .lg-disclosure-panel      SSR-baked hidden (presets.ts)
+//
 // WHY A HAND CASCADE RESOLVER (not getComputedStyle): the vitest environment
 // is "node" (vitest.config.ts) and jsdom/happy-dom/linkedom are NOT installed
 // (supply-chain: no new deps). Per the slice's stated fallback, the computed
@@ -41,6 +60,7 @@ import {
   funnelChromeCss,
   DEFAULT_FUNNEL_SCOPE,
 } from "../src/public/leadgen/designs/default-funnel/styles";
+import { LG_BANNERS_MOUNT_HTML } from "../src/public/leadgen/designs/frame";
 import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 
 const DESIGN = defaultFunnelDesign;
@@ -150,12 +170,19 @@ function winningDisplay(lines: string[], el: El): string | undefined {
   return best === null ? undefined : (best as { display: string }).display;
 }
 
-// Parse the ROOT element (tag + classes + attrs) of a rendered component, then
-// stamp `hidden` exactly as the runtime's setAttribute("hidden","") would.
-function renderedHiddenRoot(node: LeadgenComponentNode): El {
-  const html = renderComponent(node, DESIGN).trim();
-  const m = html.match(/^<([a-zA-Z][\w-]*)\s*([^>]*)>/);
-  if (m === null) throw new Error(`no root tag in render: ${html.slice(0, 120)}`);
+// ---------------------------------------------------------------------------
+// Element extraction: parse an OPEN TAG substring (tag + classes + attrs).
+// Shared by the root-of-render case (the 5 renderComponent-reachable
+// surfaces) and the nested-in-render case (other-panel / disclosure-panel,
+// whose hideable element is a CHILD of its preset's root, not the root
+// itself) and the literal-shape case (section / show-on footer /
+// runtime-notice, which are not renderComponent-reachable at all — their
+// exact production shape is cited at each fixture instead).
+// ---------------------------------------------------------------------------
+
+function parseOpenTag(openTag: string): El {
+  const m = openTag.match(/^<([a-zA-Z][\w-]*)\s*([^>]*)>$/);
+  if (m === null) throw new Error(`not a valid open tag: ${openTag.slice(0, 160)}`);
   const classes = new Set<string>();
   const attrs = new Map<string, string | null>();
   for (const a of m[2]!.matchAll(/([a-zA-Z_:][\w:.-]*)(?:="([^"]*)")?/g)) {
@@ -167,8 +194,46 @@ function renderedHiddenRoot(node: LeadgenComponentNode): El {
       attrs.set(name, val);
     }
   }
-  attrs.set("hidden", ""); // runtime: applyComponentVisibility / setBackVisible
   return { tag: m[1]!, classes, attrs };
+}
+
+// Runtime: every hide mechanism (applyComponentVisibility / setBackVisible /
+// updateFooterVisibility / setFieldError / clearFieldErrors) calls
+// setAttribute("hidden", "") — the SSR-baked cases (other-panel / banners /
+// disclosure-panel) already carry it verbatim in their producer markup, so
+// re-stamping here is idempotent for them and load-bearing for the rest.
+function stampHidden(el: El): El {
+  el.attrs.set("hidden", "");
+  return el;
+}
+
+// The root element of a renderComponent() call IS the hideable target
+// (ButtonAnswerGroup/MultiChoiceCardGroup/BackButton/ValidationError).
+function renderedHiddenRoot(node: LeadgenComponentNode): El {
+  const html = renderComponent(node, DESIGN).trim();
+  const m = html.match(/^<[a-zA-Z][\w-]*\s*[^>]*>/);
+  if (m === null) throw new Error(`no root tag in render: ${html.slice(0, 120)}`);
+  return stampHidden(parseOpenTag(m[0]));
+}
+
+// The hideable target is NESTED inside the renderComponent() root
+// (OtherGroupSelector's `.lg-other-panel`, DisclosureLink's
+// `.lg-disclosure-panel`) — find the first open tag anywhere in the rendered
+// HTML whose class list contains `className`.
+function renderedHiddenNested(html: string, className: string): El {
+  for (const m of html.matchAll(/<[a-zA-Z][\w-]*\s*[^>]*>/g)) {
+    const classAttr = m[0].match(/class="([^"]*)"/);
+    const classes = classAttr ? classAttr[1]!.split(/\s+/) : [];
+    if (classes.includes(className)) return stampHidden(parseOpenTag(m[0]));
+  }
+  throw new Error(`no element with class "${className}" found in: ${html.slice(0, 300)}`);
+}
+
+// A precisely-cited LITERAL open-tag string for a surface with no lightweight
+// renderComponent path (section / show-on footer / runtime-notice — see each
+// fixture's own citation for the exact source producing this shape).
+function literalHidden(openTag: string): El {
+  return stampHidden(parseOpenTag(openTag));
 }
 
 const buttonAnswerGroup: LeadgenComponentNode = {
@@ -201,12 +266,97 @@ const backButton: LeadgenComponentNode = {
   props: { label: "Back" },
 } as unknown as LeadgenComponentNode;
 
+// #5 error-slot: renderValidationError's ROOT IS `.lg-error` itself
+// (presets.ts ~2172-2181: `<p class="lg-error" ... data-lg-error-for="...">`).
+const errorSlot: LeadgenComponentNode = {
+  type: "ValidationError",
+  question_id: "q_err",
+  internal_field: "zip",
+  props: { text: "This field is required" },
+} as unknown as LeadgenComponentNode;
+
+// #6 other-panel: renderOtherGroupSelector's root is `.lg-answer-group
+// .lg-other-group`; `.lg-other-panel` is a CHILD emitted by
+// renderOtherGroupTail (presets.ts ~367-385) whenever choiceDisplay.
+// otherGroupEnabled is true — unconditionally, regardless of how the choices
+// split main/secondary.
+const otherGroupSelector: LeadgenComponentNode = {
+  type: "OtherGroupSelector",
+  question_id: "q_other",
+  internal_field: "source",
+  answer_type: "enum",
+  choiceDisplay: {
+    mainValues: ["a", "b"],
+    otherGroupEnabled: true,
+    otherGroupLabel: "Other",
+    searchableOther: false,
+  },
+  choices: [
+    { value: "a", label: "A" },
+    { value: "b", label: "B" },
+    { value: "c", label: "C" },
+  ],
+} as unknown as LeadgenComponentNode;
+
+// #9 disclosure-panel: renderDisclosureLink's root is `.lg-disclosure-wrap`;
+// `.lg-disclosure-panel` is a CHILD, SSR-baked `hidden` verbatim (presets.ts
+// ~458-469: `<div class="lg-disclosure-panel" hidden>`).
+const disclosureLink: LeadgenComponentNode = {
+  type: "DisclosureLink",
+  question_id: "q_disc",
+  props: { label: "Why we ask", panelHtml: "We ask for verification purposes." },
+} as unknown as LeadgenComponentNode;
+
+// #1 section: serve.ts ~581-582's literal SSR template for every
+// non-first `<section data-lg-section>` — no CSS class at all, just data
+// attributes (showOnlySection/showCompletionState toggle `hidden` on these).
+const SECTION_OPEN_TAG =
+  '<section data-lg-section data-lg-section-id="lgs_TEST00000000000000000001" data-lg-index="1" data-screen-label="02 · Q2">';
+
+// #3 show-on footer: frame.ts's region() + renderFooterRegion (~467-490)
+// compose `<div class="lg-frame-region lg-frame-footer lg-frame-footer--show-{show_on}" data-frame-region="footer" data-show-on="{show_on}">`
+// (updateFooterVisibility targets [data-show-on] generically — "all" here,
+// any show_on value carries the identical class+attribute shape).
+const FOOTER_OPEN_TAG =
+  '<div class="lg-frame-region lg-frame-footer lg-frame-footer--show-all" data-frame-region="footer" data-show-on="all">';
+
+// #8 runtime-notice: render.ts NOTICE_CLASS = "lg-runtime-notice";
+// showRuntimeNotice creates `ownerDocument.createElement("div")`, sets
+// className to NOTICE_CLASS and role="alert" (~271-281).
+const RUNTIME_NOTICE_OPEN_TAG = '<div class="lg-runtime-notice" role="alert">';
+
 // ===========================================================================
 
 describe("P1 hidden-attribute visibility (author `display` must not beat `hidden`)", () => {
   const css = funnelChromeCss(DESIGN);
   const { baseLines, mediaLines } = splitSheet(css);
   const TERMINAL = `${SCOPE} [hidden]{display:none}`;
+
+  // The 9 hideable surfaces the adversarial review enumerated (register PC
+  // coverage note). "question" keeps its original 2 concrete examples;
+  // banners mount reads the SAME exported constant the runtime injects into
+  // — LG_BANNERS_MOUNT_HTML, real producer output, not a re-typed guess.
+  const SURFACES: Array<{ label: string; el: El }> = [
+    { label: "1. section [data-lg-section]", el: literalHidden(SECTION_OPEN_TAG) },
+    { label: "2. question — ButtonAnswerGroup [data-lg-question]", el: renderedHiddenRoot(buttonAnswerGroup) },
+    { label: "2. question — MultiChoiceCardGroup [data-lg-question]", el: renderedHiddenRoot(multiChoiceCardGroup) },
+    { label: "3. show-on footer [data-show-on]", el: literalHidden(FOOTER_OPEN_TAG) },
+    { label: "4. back [data-lg-back]", el: renderedHiddenRoot(backButton) },
+    { label: "5. error-slot [data-lg-error-for]", el: renderedHiddenRoot(errorSlot) },
+    {
+      label: "6. other-panel [data-lg-other-panel]",
+      el: renderedHiddenNested(renderComponent(otherGroupSelector, DESIGN), "lg-other-panel"),
+    },
+    {
+      label: "7. banners mount [data-lg-banners]",
+      el: stampHidden(parseOpenTag(LG_BANNERS_MOUNT_HTML.match(/^<[a-zA-Z][\w-]*\s*[^>]*>/)![0])),
+    },
+    { label: "8. runtime-notice .lg-runtime-notice", el: literalHidden(RUNTIME_NOTICE_OPEN_TAG) },
+    {
+      label: "9. disclosure-panel .lg-disclosure-panel",
+      el: renderedHiddenNested(renderComponent(disclosureLink, DESIGN), "lg-disclosure-panel"),
+    },
+  ];
 
   it("meta: the rendered roots are the hideable component classes (real producer output)", () => {
     // Guards the fixtures: if a preset ever wrapped these in an outer element,
@@ -216,6 +366,28 @@ describe("P1 hidden-attribute visibility (author `display` must not beat `hidden
     expect(card.classes.has("lg-card-grid")).toBe(true);
     expect(card.classes.has("lg-multi")).toBe(true);
     expect(renderedHiddenRoot(backButton).classes.has("lg-back")).toBe(true);
+    expect(renderedHiddenRoot(errorSlot).classes.has("lg-error")).toBe(true);
+    expect(
+      renderedHiddenNested(renderComponent(otherGroupSelector, DESIGN), "lg-other-panel").classes.has(
+        "lg-other-panel",
+      ),
+    ).toBe(true);
+    expect(
+      renderedHiddenNested(renderComponent(disclosureLink, DESIGN), "lg-disclosure-panel").classes.has(
+        "lg-disclosure-panel",
+      ),
+    ).toBe(true);
+    // the literal fixtures parse to the classes/attrs their citation claims.
+    expect(literalHidden(SECTION_OPEN_TAG).attrs.has("data-lg-section")).toBe(true);
+    expect(literalHidden(FOOTER_OPEN_TAG).classes.has("lg-frame-footer")).toBe(true);
+    expect(literalHidden(FOOTER_OPEN_TAG).attrs.has("data-show-on")).toBe(true);
+    expect(literalHidden(RUNTIME_NOTICE_OPEN_TAG).classes.has("lg-runtime-notice")).toBe(true);
+    // LG_BANNERS_MOUNT_HTML is the SAME exported constant frame.ts composes
+    // into the shell and render.ts's injectBanners() re-reveals — real output.
+    expect(LG_BANNERS_MOUNT_HTML).toContain('class="lg-banners"');
+    expect(LG_BANNERS_MOUNT_HTML).toContain("data-lg-banners");
+    // every SURFACES entry actually carries `hidden` (the fixture contract).
+    for (const s of SURFACES) expect(s.el.attrs.has("hidden"), s.label).toBe(true);
   });
 
   it("RULE PIN: the terminal `[hidden]{display:none}` guard is emitted in the base sheet", () => {
@@ -241,25 +413,20 @@ describe("P1 hidden-attribute visibility (author `display` must not beat `hidden
     }
   });
 
-  it("COMPUTED (base sheet): a hidden ButtonAnswerGroup resolves display:none", () => {
-    expect(winningDisplay(baseLines, renderedHiddenRoot(buttonAnswerGroup))).toBe("none");
+  // Named per-surface (it.each, the codebase's own idiom — e.g.
+  // leadgen-r1-answers.test.ts) rather than one loop-based test: the vitest
+  // "verbose" reporter (vitest.config.ts) prints one line PER TEST so a
+  // future force-visible rule on ANY ONE surface fails with that surface's
+  // OWN named line, not a generic loop failure.
+  it.each(SURFACES)("COMPUTED (base sheet): $label resolves display:none", ({ el }) => {
+    expect(winningDisplay(baseLines, el)).toBe("none");
   });
 
-  it("COMPUTED (base sheet): a hidden MultiChoiceCardGroup resolves display:none", () => {
-    expect(winningDisplay(baseLines, renderedHiddenRoot(multiChoiceCardGroup))).toBe("none");
-  });
-
-  it("COMPUTED (base sheet): a hidden Back affordance resolves display:none", () => {
-    expect(winningDisplay(baseLines, renderedHiddenRoot(backButton))).toBe("none");
-  });
-
-  it("MOBILE SAFETY: no @media rule re-shows any hidden hideable class", () => {
+  it.each(SURFACES)("MOBILE SAFETY: $label is not re-shown by any @media rule", ({ el }) => {
     // Over the mobile block ALONE, no display rule may force a hidden hideable
     // element visible — so the base terminal display:none holds at every width.
-    for (const node of [buttonAnswerGroup, multiChoiceCardGroup, backButton]) {
-      const d = winningDisplay(mediaLines, renderedHiddenRoot(node));
-      expect([undefined, "none"]).toContain(d);
-    }
+    const d = winningDisplay(mediaLines, el);
+    expect([undefined, "none"]).toContain(d);
   });
 
   it("resolver self-check: WITHOUT the terminal rule a hidden answer-group resolves display:grid", () => {
