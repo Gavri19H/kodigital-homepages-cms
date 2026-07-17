@@ -386,7 +386,7 @@ describe("dependencies: server↔client parity (09 §9.3 table)", () => {
     expect(cells).toBe(CONDITIONALS.length * ANSWER_VALUES.length);
   });
 
-  it("evaluateComponents matches server evaluateDependencies (visible/required_now/continue_blocked)", () => {
+  it("evaluateComponents matches server evaluateDependencies (visible/required_now)", () => {
     const nodes = [
       { type: "SingleChoiceQuestion", question_id: "q1", internal_field: "home_own", required: true, props: {} },
       {
@@ -422,16 +422,20 @@ describe("dependencies: server↔client parity (09 §9.3 table)", () => {
     for (const answers of answerSets) {
       const server = evaluateDependencies(nodes as unknown as LeadgenComponentNode[], answers);
       const client = evaluateComponents(nodes as unknown as LgComponentConfig[], answers);
+      // The client mirrors the server on the per-component axes it USES (visible
+      // → reveal, required_now → validateSection). PC-A11 (P4a): the server's
+      // continue_blocked/blocking_question_ids roll-up is no longer mirrored on
+      // the client (it was dead — see runtime/dependencies.ts), so parity is on
+      // .components only. The server still exposes it (studio preview reads it).
       expect(client.components).toEqual(server.components);
-      expect(client.continue_blocked).toBe(server.continue_blocked);
-      expect(client.blocking_question_ids).toEqual(server.blocking_question_ids);
     }
   });
 
-  it("m11 parity: an EMPTY internal_field on a required component blocks on BOTH sides even when answers[''] exists", () => {
-    // Server (leadgen/dependencies.ts `field ? answers[field] : undefined`)
-    // treats "" as field-less → blocked. The client must NOT read a stray
-    // answers[""] key and unblock (the pre-fix `field !== undefined` did).
+  it("m11 parity: an EMPTY internal_field required component agrees on visible/required_now even with a stray answers[''] key", () => {
+    // The empty-internal_field node's visibility/required_now must match the
+    // server on both evaluators. (The runtime's required-field GATE lives in
+    // validation.ts validateSection, which SKIPS an empty internal_field — the
+    // dependency roll-up that once diverged here was removed in P4a/PC-A11.)
     const nodes = [
       { type: "SingleChoiceQuestion", question_id: "q_empty", internal_field: "", required: true, props: {} },
     ];
@@ -443,9 +447,7 @@ describe("dependencies: server↔client parity (09 §9.3 table)", () => {
       const server = evaluateDependencies(nodes as unknown as LeadgenComponentNode[], answers);
       const client = evaluateComponents(nodes as unknown as LgComponentConfig[], answers);
       expect(client.components).toEqual(server.components);
-      expect(client.continue_blocked).toBe(server.continue_blocked);
-      expect(client.blocking_question_ids).toEqual(server.blocking_question_ids);
-      expect(client.continue_blocked, "an empty-internal_field required component always blocks").toBe(true);
+      expect(client.components[0]?.required_now, "a visible required component is required_now").toBe(true);
     }
   });
 

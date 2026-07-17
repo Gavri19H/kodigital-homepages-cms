@@ -46,6 +46,7 @@ import type {
   LeadgenIconCardDepthSlots,
 } from "../designs/default-funnel/tokens";
 import {
+  autoAdvanceEligibility,
   isLayoutContainerType,
   LEADGEN_MAX_CONTAINER_DEPTH,
   LEADGEN_NODE_BORDER_COLOR_ROLES,
@@ -148,7 +149,14 @@ function hydration(node: LeadgenComponentNode): string {
     attr("data-internal-field", node.internal_field) +
     attr("data-answer-type", answerType) +
     (produces === null
-      ? ""
+      ? // PC-A13 (P4a): a NON-producing node carrying a `conditional` gets a
+        // dedicated hideable hook so the runtime's applyComponentVisibility can
+        // toggle it live — it IS in the flattened dependency config (config-dto
+        // keeps leaf conditionals) but has no [data-lg-question], so today it
+        // never hid live while the SSR dependency-preview did (divergence). A
+        // separate attr keeps the §11.6 [data-lg-question] question count pure
+        // (that probe must see answer-PRODUCING nodes only, never chrome).
+        (node.conditional !== undefined ? attr("data-lg-node", node.question_id) : "")
       : attr("data-lg-question", node.question_id) + attr("data-lg-field", node.internal_field)) +
     (node.required === true ? ` data-required="true"` : "")
   );
@@ -3032,7 +3040,10 @@ export function renderComponent(
     case "AutoAdvanceButton":
       // 11 §11.5: an auto_advance Section renders NO [data-lg-continue]
       // control in either placement — the manual-fallback button included.
-      return state !== undefined && state.suppressContinue
+      // PC-A1 (P4a): under deferContinue (below_unit OR the ineligible-
+      // auto_advance forced slot) the ONE control renders at the end slot, so
+      // this inline node is suppressed to avoid a double Continue.
+      return state !== undefined && (state.suppressContinue || state.deferContinue)
         ? ""
         : renderAutoAdvanceButton(node, design, state?.ctx);
     case "ReassuranceBadge":
@@ -3301,17 +3312,50 @@ function renderNodes(
 // ctx.continue_placement="below_unit" the single control renders at the END
 // of the subtree in the frame-styled slot; ctx.continue_mode="auto_advance"
 // renders ZERO continue controls.
+interface ContinueRenderPlan {
+  // Suppress EVERY [data-lg-continue] control (the auto_advance default).
+  suppressContinue: boolean;
+  // Force the single end-of-subtree Continue slot even under an inside_unit
+  // frame — the ineligible-auto_advance un-stick.
+  forceSlot: boolean;
+}
+
+// 11 §11.5 / PC-A1 (P4a): how continue_mode drives Continue rendering for THIS
+// section body. auto_advance suppresses the Continue ONLY when the section is
+// auto-advance-ELIGIBLE (autoAdvanceEligibility) — a composition the engine can
+// actually advance (handleChoiceActivation fires on a single visible click).
+// For a legacy/ineligible auto_advance section (2+ producers, an input-only
+// answer, multi-select, a conditional sole producer) suppressing the Continue
+// would STRAND the visitor (PC-A1); instead we force the single end-of-subtree
+// Continue slot (a default "Continue" when the section authored no continue
+// node, else its captured ContinueButton) so the stored content un-sticks at
+// RENDER time — no migration — while the engine's own guard (exactly ONE visible
+// interactive) already declines to auto-advance it, so the two halves agree. A
+// NEW save of such a section is blocked upstream (auto_advance_conflict), so
+// this fallback only ever fires for pre-existing rows.
+function planContinueRender(
+  continueMode: LeadgenContinueMode | undefined,
+  nodes: readonly LeadgenComponentNode[],
+): ContinueRenderPlan {
+  if (continueMode !== "auto_advance") return { suppressContinue: false, forceSlot: false };
+  return autoAdvanceEligibility(nodes).eligible
+    ? { suppressContinue: true, forceSlot: false }
+    : { suppressContinue: false, forceSlot: true };
+}
+
 export function renderSectionComponents(
   nodes: readonly LeadgenComponentNode[],
   design: DefaultFunnelDesign,
   sectionCtx?: LeadgenSectionRenderCtx,
   depth = 1,
 ): string {
-  const suppressContinue = sectionCtx?.continue_mode === "auto_advance";
+  const plan = planContinueRender(sectionCtx?.continue_mode, nodes);
+  const suppressContinue = plan.suppressContinue;
   const state: SectionRenderState = {
     ctx: sectionCtx,
     suppressContinue,
-    deferContinue: !suppressContinue && sectionCtx?.continue_placement === "below_unit",
+    deferContinue:
+      !suppressContinue && (sectionCtx?.continue_placement === "below_unit" || plan.forceSlot),
     continueSeen: false,
     deferredContinue: undefined,
   };
@@ -3364,11 +3408,13 @@ export function renderSectionComponentsVisible(
   let state: SectionRenderState | undefined;
   if (sectionCtx !== undefined) {
     // Mirror renderSectionComponents' per-call state construction 1:1.
-    const suppressContinue = sectionCtx.continue_mode === "auto_advance";
+    const plan = planContinueRender(sectionCtx.continue_mode, nodes);
+    const suppressContinue = plan.suppressContinue;
     state = {
       ctx: sectionCtx,
       suppressContinue,
-      deferContinue: !suppressContinue && sectionCtx.continue_placement === "below_unit",
+      deferContinue:
+        !suppressContinue && (sectionCtx.continue_placement === "below_unit" || plan.forceSlot),
       continueSeen: false,
       deferredContinue: undefined,
     };

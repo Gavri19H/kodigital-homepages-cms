@@ -48,14 +48,19 @@ export function showOnlySection(root: Element, index: number): HTMLElement | nul
   return shown;
 }
 
-// Dependency-driven reveal WITHIN a section (§3.5.3): toggle each
-// [data-lg-question="{question_id}"] block.
+// Dependency-driven reveal WITHIN a section (§3.5.3): toggle each component's
+// block. Answer-PRODUCING nodes carry [data-lg-question]; PC-A13 (P4a): a
+// conditional NON-producing node (TextBlock/TrustBar/…) carries [data-lg-node]
+// instead (presets hydration emits it) — BOTH are hideable here, so a
+// conditional on a non-answer component now hides/reveals live exactly as the
+// SSR dependency-preview already does (they had diverged).
 export function applyComponentVisibility(
   sectionEl: Element,
   visibility: readonly { question_id: string; visible: boolean }[],
 ): void {
   for (const vis of visibility) {
-    const el = sectionEl.querySelector(`[data-lg-question="${cssEscape(vis.question_id)}"]`);
+    const q = cssEscape(vis.question_id);
+    const el = sectionEl.querySelector(`[data-lg-question="${q}"],[data-lg-node="${q}"]`);
     if (el === null) continue;
     if (vis.visible) el.removeAttribute("hidden");
     else el.setAttribute("hidden", "");

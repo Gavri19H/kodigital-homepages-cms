@@ -112,38 +112,29 @@ export interface LgComponentVisibility {
 
 export interface LgDependencyState {
   components: LgComponentVisibility[];
-  continue_blocked: boolean;
-  blocking_question_ids: string[];
 }
 
-// Structural mirror of the server's evaluateDependencies (same output shape,
-// same rules) over the PUBLIC component config the client holds.
+// Structural mirror of the server's evaluateDependencies over the PUBLIC
+// component config the client holds — the client uses ONLY the per-component
+// { visible, required_now } axes: `visible` drives render.applyComponentVisibility
+// (§3.5.3 reveal) and `required_now` feeds validation.ts validateSection (the
+// engine's real required-field gate via sectionPasses). PC-A11 (P4a): the
+// server's `continue_blocked`/`blocking_question_ids` roll-up is DELIBERATELY
+// NOT mirrored here — nothing in the runtime ever read it (the engine gates
+// through validateSection, which skips non-visible + empty-internal_field
+// components and enforces required via validateValue), so computing it was
+// dead. The SERVER twin keeps it (the studio's dependency-preview consumes it).
 export function evaluateComponents(
   components: readonly LgComponentConfig[],
   answers: Readonly<Record<string, unknown>>,
 ): LgDependencyState {
   const visibility: LgComponentVisibility[] = [];
-  const blocking: string[] = [];
-
   for (const component of components) {
     const visible = isConditionMetOn(component.conditional, answers);
     const required = visible && requiredNow(component, answers);
     visibility.push({ question_id: component.question_id, visible, required_now: required });
-    if (required) {
-      const field = component.internal_field;
-      // m11 parity: an EMPTY internal_field reads NO answer — the server twin
-      // (leadgen/dependencies.ts `field ? answers[field] : undefined`) treats
-      // "" as field-less, so a stray answers[""] key must not unblock here.
-      const answer = field !== undefined && field !== "" ? answers[field] : undefined;
-      if (!isAnswered(answer)) blocking.push(component.question_id);
-    }
   }
-
-  return {
-    components: visibility,
-    continue_blocked: blocking.length > 0,
-    blocking_question_ids: blocking,
-  };
+  return { components: visibility };
 }
 
 // The internal_fields whose owning component is currently dependency-HIDDEN —
