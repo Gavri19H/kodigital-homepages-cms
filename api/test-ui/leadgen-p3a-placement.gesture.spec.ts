@@ -514,6 +514,43 @@ test.describe("P3b drag-beside + inspector placement + container select (both en
     const comps = await savedComps(request, s.public_id);
     expect(comps.find((c) => c.question_id === "panel"), "the container was deleted from the saved model").toBeUndefined();
   });
+
+  // (f) CONDUCTOR FIX: ContinueButton/AutoAdvanceButton are catalog scope
+  // "unit" (otherwise placement-eligible) but content-schema.ts's
+  // LEADGEN_PLACEMENT_EXCLUDED_TYPES rejects layout() on both — the Style tab
+  // must show the honest ownership note INSTEAD OF the placement controls,
+  // never both, never neither.
+  test("(f) ContinueButton shows the placement ownership note, not the placement controls (the CONDUCTOR FIX exclusion)", async ({ page, request }) => {
+    const s = await createSectionComps(request, `p3b-f-${uniq}-${Math.random().toString(36).slice(2, 7)}`, [
+      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+      { type: "FreeTextQuestion", question_id: "a", internal_field: "a", answer_type: "string", props: { placeholder: "Solo" } },
+      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
+    ]);
+    await bootCanvas(page, s);
+
+    // an ORDINARY placement-eligible selection shows the controls, not the note.
+    await frameOf(page).locator('[data-question-id="a"]').click();
+    await page.locator('[data-studio-inspector-tab="style"]').click();
+    await expect(page.locator("[data-placement-controls]"), "an ordinary field shows the placement controls").toBeVisible({ timeout: 8000 });
+    await expect(page.locator("[data-placement-excluded-note]"), "an ordinary field hides the excluded note").toBeHidden();
+
+    // ContinueButton: a NEW selection resets the active tab to Content
+    // (populateInspector's isNewSelection rule) — re-open Style before
+    // checking visibility, same as every other selection-then-Style-tab leg.
+    await frameOf(page).locator('[data-question-id="q_cont"]').click();
+    await page.locator('[data-studio-inspector-tab="style"]').click();
+    await expect(page.locator("[data-style-placement-block]"), "the Placement block itself still shows (non-frame-scope)").toBeVisible({ timeout: 8000 });
+    await expect(page.locator("[data-placement-excluded-note]"), "ContinueButton shows the ownership note").toBeVisible();
+    await expect(page.locator("[data-placement-controls]"), "ContinueButton hides the placement controls").toBeHidden();
+    await expect(page.locator("[data-placement-excluded-note]")).toContainText("funnel layout");
+    await expect(page.locator("[data-placement-excluded-note]")).toContainText("Quote Builder");
+
+    // the deep link is wired to the SAME shared Quote Builder navigation
+    // (openQuoteBuilderNav; zero usage funnels -> funnelQuoteUrl(null) ->
+    // the quotes list, the documented empty-state fallback).
+    await page.locator("[data-placement-excluded-change-in-frame]").click();
+    await expect(page).toHaveURL(/\/admin\/leadgen\/quotes(\?|$)/, { timeout: 8000 });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -554,5 +591,74 @@ test.describe("P3b drag-formed row -> live /lg parity (chromium; firefox-skip)",
     const m2 = await rectOf(members.nth(1));
     expect(Math.abs(m1.top - m2.top), "the drag-formed row renders side-by-side (same y-band) on the LIVE funnel").toBeLessThanOrEqual(2);
     expect(m1.right, "member 1 is left of member 2 live").toBeLessThanOrEqual(m2.left + 0.5);
+  });
+
+  // JOIN-TO-3 (conductor fix round): dragging a THIRD element beside an
+  // EXISTING 2-member row joins it (not just formation-from-scratch, (a)'s
+  // case, nor the full-row refusal, (c)'s case) — the saved model shows all
+  // 3 sharing the row id, and BOTH the studio canvas and the live funnel
+  // render the resulting 3-slot row.
+  test("join-to-3: dragging a third element beside an existing 2-member row joins it — 3 share the saved row id, canvas AND live render 3 slots", async ({
+    page,
+    request,
+    browserName,
+  }) => {
+    test.skip(
+      browserName === "firefox",
+      "live /lg leg needs chromium --host-resolver-rules; the studio-canvas join-to-3 mechanics are already proven both-engines by (a)'s identical drag path",
+    );
+    const s = await createSectionComps(request, `p3b-join3-${uniq}`, [
+      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+      { type: "TextBlock", question_id: "a", props: { role: "body", text: "Alpha" }, layout: { row: "rowAB" } },
+      { type: "FreeTextQuestion", question_id: "b", internal_field: "b", answer_type: "string", props: { placeholder: "Beta" }, layout: { row: "rowAB" } },
+      { type: "FreeTextQuestion", question_id: "c", internal_field: "c", answer_type: "string", props: { placeholder: "Gamma" } },
+      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
+    ]);
+    await bootCanvas(page, s);
+    await expect(canvasRoot(page).locator('.lg-el-row[data-row-cols="2"]')).toBeVisible({ timeout: 10_000 });
+    const B = frameOf(page).locator('[data-question-id="b"]');
+    const Cnode = frameOf(page).locator('[data-question-id="c"]');
+    // drag C onto B's RIGHT third -> beside-right on an EXISTING 2-member row
+    // -> joinRowBeside sees hostRow="rowAB", count=2, prospective=3 (<=3) ->
+    // joins (C gets layout.row="rowAB", relocated contiguous after B).
+    await realDragFromLocator(page, Cnode, await thirdPoint(B, "right"), { steps: 6, perStepGuardMs: 8000, settleMs: 500 });
+
+    // canvas: the row is now a real 3-slot .lg-el-row, all 3 in one y-band.
+    const row3 = canvasRoot(page).locator('.lg-el-row[data-row-cols="3"]');
+    await expect(row3, "the row grew to 3 slots on the canvas").toBeVisible({ timeout: 10_000 });
+    const slots = row3.locator(".lg-el");
+    await expect(slots).toHaveCount(3);
+    const r0 = await rectOf(slots.nth(0));
+    const r1 = await rectOf(slots.nth(1));
+    const r2 = await rectOf(slots.nth(2));
+    expect(Math.abs(r0.top - r1.top), "slot 1/2 share a y-band").toBeLessThanOrEqual(2);
+    expect(Math.abs(r1.top - r2.top), "slot 2/3 share a y-band").toBeLessThanOrEqual(2);
+
+    await saveAndReload(page);
+    const comps = await savedComps(request, s.public_id);
+    const rowIds = ["a", "b", "c"].map((q) => rowOf(comps.find((c) => c.question_id === q)));
+    expect(rowIds[0], "A carries a saved layout.row").toBeTruthy();
+    expect(rowIds[1], "B and A share the SAME saved row id").toBe(rowIds[0]);
+    expect(rowIds[2], "C JOINED — shares the SAME saved row id as A/B").toBe(rowIds[0]);
+    const idx = ["a", "b", "c"].map((q) => comps.findIndex((c) => c.question_id === q));
+    const sortedIdx = [...idx].sort((x, y) => x - y);
+    expect(idx.slice().sort((x, y) => x - y), "the 3 row members are contiguous").toEqual(sortedIdx);
+    expect(sortedIdx[2] - sortedIdx[0], "no gap between the first and last row member").toBe(2);
+
+    // live /lg parity: the SAME 3-member row renders 3 slots on the live funnel.
+    const host = `p3b-join3-${uniq}.e2e.test`;
+    const siteId = await seedActiveSite(request, host, `P3b Join3 ${uniq}`);
+    const quote = await json<{ public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }> }>(
+      await request.post(`${LG_API}/quotes`, { data: { quote_name: `P3b Join3 ${uniq}`, activity: "quote_funnel", verticals: ["life"] } }),
+      "quote create",
+    );
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: s.id }] } }), "variant sections");
+    await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p3b-join3" } }), "activation");
+
+    await page.goto(`http://${host}:${PORT}/lg/p3b-join3`, { waitUntil: "load" });
+    const liveRow3 = page.locator('.lg-el-row[data-row-cols="3"]');
+    await expect(liveRow3, "the live funnel renders the SAME 3-slot row").toBeVisible({ timeout: 20_000 });
+    await expect(liveRow3.locator(".lg-el")).toHaveCount(3);
   });
 });

@@ -103,6 +103,7 @@ import {
   LEADGEN_PANEL_RADII,
   LEADGEN_PANEL_SHADOWS,
   LEADGEN_PANEL_WIDTHS,
+  LEADGEN_PLACEMENT_EXCLUDED_TYPES,
   LEADGEN_SIZE_HEIGHT_PRESETS,
   LEADGEN_SIZE_WIDTH_PRESETS,
   LEADGEN_SPACER_VARIANTS,
@@ -649,6 +650,15 @@ export interface StudioTypeMetaBlob {
   // v2.5 08 §8.2 scope (frame|unit|both) — drives the §5.4 amber page-frame
   // badge on legacy canvas nodes + the frame-node inspector tab gating.
   scope: "frame" | "unit" | "both";
+  // CONDUCTOR FIX (post-P3b-dispatch, register PC-2): true for
+  // content-schema.ts's LEADGEN_PLACEMENT_EXCLUDED_TYPES (ContinueButton /
+  // AutoAdvanceButton) — catalog scope "unit" (otherwise placement-eligible),
+  // but their POSITION is Quote-Builder-owned (the continue-placement model),
+  // so `layout` is rejected on them at save time regardless of scope. Threaded
+  // here (a direct pass-through of the SAME exported const, never a hand-
+  // duplicated list) so the island's placementEligible mirrors the EXACT
+  // exclusion — see the P3b lockstep test asserting this cannot silently drift.
+  placement_excluded: boolean;
   produces: string | null;
   choice: boolean;
   maps: "address" | "zip" | null;
@@ -664,6 +674,12 @@ export interface StudioTypeMetaBlob {
   validation: readonly ValidationField[];
 }
 
+// CONDUCTOR FIX (register PC-2): the ONE place LEADGEN_PLACEMENT_EXCLUDED_TYPES
+// (content-schema.ts) is consumed on the island side — studioTypeMeta reads
+// this set, never a re-typed literal, so the island cannot drift from the
+// save-time validator's exclusion list.
+const PLACEMENT_EXCLUDED_TYPE_SET: ReadonlySet<string> = new Set(LEADGEN_PLACEMENT_EXCLUDED_TYPES);
+
 export function studioTypeMeta(): Record<string, StudioTypeMetaBlob> {
   const out: Record<string, StudioTypeMetaBlob> = {};
   for (const type of Object.keys(COMPONENT_CATALOG) as ComponentType[]) {
@@ -675,6 +691,7 @@ export function studioTypeMeta(): Record<string, StudioTypeMetaBlob> {
       layout: COMPONENT_CATALOG[type].category === "layout",
       layout_props: STRUCTURED_PROP_TYPES.has(type),
       scope: COMPONENT_CATALOG[type].scope,
+      placement_excluded: PLACEMENT_EXCLUDED_TYPE_SET.has(type),
       produces: COMPONENT_CATALOG[type].produces,
       choice: spec.choices === true,
       maps: type === "AddressAutocompleteQuestion" ? "address" : type === "ZIPInputQuestion" ? "zip" : null,
@@ -1979,6 +1996,69 @@ function renderStyleContinueBlock(): string {
     </div>`;
 }
 
+// P3b (register PC-2 / decision D1 / axiom R-B) — STRUCTURED PLACEMENT panel.
+// EXTRACTED as its OWN top-level block (conductor ruling, post-P3b-dispatch
+// fix round): a post-golden feature must not dilute an already-classified
+// golden region (renderStudioInspector) — classified golden:false in
+// golden-allowlist.json ("P3b placement panel — post-golden feature"), the
+// SAME P1-granularity discipline renderStyleExtraControls /
+// renderContainerLayoutPanel / renderImageFitControl already follow.
+//
+// Shown (populateStyleVariant) for any node whose catalog scope != frame —
+// i.e. every 'unit'/'both' type. Inside, EXACTLY ONE of two children is
+// visible:
+//   - data-placement-controls: the align/width/nudge/row-indicator controls,
+//     for a placementEligible(node) selection.
+//   - data-placement-excluded-note: the CONDUCTOR FIX — ContinueButton /
+//     AutoAdvanceButton are catalog scope:"unit" (otherwise placement-
+//     eligible) but their position is Quote-Builder-owned
+//     (LEADGEN_PLACEMENT_EXCLUDED_TYPES, content-schema.ts); layout() is
+//     REJECTED on both at save time, so the studio must not offer controls
+//     the validator would 400 on. Reuses the SAME "Edit in Quote Builder ->"
+//     deep link (openQuoteBuilderNav) the Continue Style block above wires.
+function renderStylePlacementBlock(): string {
+  return `<div data-style-placement-block hidden>
+      <div class="studio-hr"></div>
+      <div class="studio-panel-eyebrow">Placement</div>
+      <div data-placement-excluded-note hidden>
+        <p class="alert studio-callout-blue">Position comes from the funnel layout &#8212; edit in the Quote Builder.<button type="button" class="studio-link-btn" data-placement-excluded-change-in-frame>Edit in Quote Builder &#8594;</button></p>
+      </div>
+      <div data-placement-controls>
+      <p class="studio-inline-note" data-placement-row-indicator role="status" aria-live="polite" hidden style="margin:0 0 6px"></p>
+      <button type="button" class="studio-link-btn" data-placement-remove-row hidden style="margin-bottom:8px">Remove from row</button>
+      <label class="form-label">Align</label>
+      <div class="studio-segmented" role="group" aria-label="Align" data-placement-align-group>
+        <button type="button" data-set-placement-align="start">Align left</button>
+        <button type="button" data-set-placement-align="center">Align center</button>
+        <button type="button" data-set-placement-align="end">Align right</button>
+      </div>
+      <label class="form-label">Width</label>
+      <div class="studio-segmented" role="group" aria-label="Placement width" data-placement-width-group>
+        <button type="button" data-set-placement-width="">Auto</button>
+        <button type="button" data-set-placement-width="s">S</button>
+        <button type="button" data-set-placement-width="m">M</button>
+        <button type="button" data-set-placement-width="l">L</button>
+        <button type="button" data-set-placement-width="full">Full</button>
+      </div>
+      <p class="form-help studio-inline-note" data-placement-width-note hidden></p>
+      <label class="form-label">Fine-tune position</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span class="studio-muted-note" style="min-width:84px">Left / right</span>
+        <button type="button" class="btn btn-sm btn-outline" data-nudge-step="x:-4" aria-label="Nudge left">&#8722;</button>
+        <span data-nudge-x-val style="min-width:46px;text-align:center;font-size:12px">0 px</span>
+        <button type="button" class="btn btn-sm btn-outline" data-nudge-step="x:4" aria-label="Nudge right">+</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="studio-muted-note" style="min-width:84px">Up / down</span>
+        <button type="button" class="btn btn-sm btn-outline" data-nudge-step="y:-4" aria-label="Nudge up">&#8722;</button>
+        <span data-nudge-y-val style="min-width:46px;text-align:center;font-size:12px">0 px</span>
+        <button type="button" class="btn btn-sm btn-outline" data-nudge-step="y:4" aria-label="Nudge down">+</button>
+      </div>
+      <p class="form-help studio-inline-note">A small visual offset (up to 48px) to fine-tune position. It never changes the layout flow, and drops away on mobile.</p>
+      </div><!-- /data-placement-controls -->
+    </div>`;
+}
+
 // The full tabbed inspector. Panels are server-rendered ONCE; the island
 // toggles tab/panel visibility per the selected node's type metadata and
 // populates/collects values (data-inspector-field / data-inspector-override /
@@ -2385,52 +2465,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
 
     ${renderStyleContinueBlock()}
 
-    <!-- P3b (register PC-2 / decision D1 / axiom R-B): STRUCTURED PLACEMENT
-         controls. Shown for any placement-eligible selection (catalog scope
-         != frame), INDEPENDENT of the field/text/continue variant blocks above
-         — populateStyleVariant toggles data-style-placement-block by
-         placementEligible(node). Inlined here (NOT a top-level render* fn) so
-         it folds into renderStudioInspector's already-classified region rather
-         than introducing a new golden-allowlist block. Alignment writes
-         layout.align, Width writes layout.width (the SAME s/m/l/full/custom_px
-         vocabulary as design_overrides.size, different owning key — the note
-         below stays honest about which one governs when both are set), the
-         steppers write the bounded (+/-48) layout.nudge_x / nudge_y. -->
-    <div data-style-placement-block hidden>
-      <div class="studio-hr"></div>
-      <div class="studio-panel-eyebrow">Placement</div>
-      <p class="studio-inline-note" data-placement-row-indicator role="status" aria-live="polite" hidden style="margin:0 0 6px"></p>
-      <button type="button" class="studio-link-btn" data-placement-remove-row hidden style="margin-bottom:8px">Remove from row</button>
-      <label class="form-label">Align</label>
-      <div class="studio-segmented" role="group" aria-label="Align" data-placement-align-group>
-        <button type="button" data-set-placement-align="start">Align left</button>
-        <button type="button" data-set-placement-align="center">Align center</button>
-        <button type="button" data-set-placement-align="end">Align right</button>
-      </div>
-      <label class="form-label">Width</label>
-      <div class="studio-segmented" role="group" aria-label="Placement width" data-placement-width-group>
-        <button type="button" data-set-placement-width="">Auto</button>
-        <button type="button" data-set-placement-width="s">S</button>
-        <button type="button" data-set-placement-width="m">M</button>
-        <button type="button" data-set-placement-width="l">L</button>
-        <button type="button" data-set-placement-width="full">Full</button>
-      </div>
-      <p class="form-help studio-inline-note" data-placement-width-note hidden></p>
-      <label class="form-label">Fine-tune position</label>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span class="studio-muted-note" style="min-width:84px">Left / right</span>
-        <button type="button" class="btn btn-sm btn-outline" data-nudge-step="x:-4" aria-label="Nudge left">&#8722;</button>
-        <span data-nudge-x-val style="min-width:46px;text-align:center;font-size:12px">0 px</span>
-        <button type="button" class="btn btn-sm btn-outline" data-nudge-step="x:4" aria-label="Nudge right">+</button>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="studio-muted-note" style="min-width:84px">Up / down</span>
-        <button type="button" class="btn btn-sm btn-outline" data-nudge-step="y:-4" aria-label="Nudge up">&#8722;</button>
-        <span data-nudge-y-val style="min-width:46px;text-align:center;font-size:12px">0 px</span>
-        <button type="button" class="btn btn-sm btn-outline" data-nudge-step="y:4" aria-label="Nudge down">+</button>
-      </div>
-      <p class="form-help studio-inline-note">A small visual offset (up to 48px) to fine-tune position. It never changes the layout flow, and drops away on mobile.</p>
-    </div>
+    ${renderStylePlacementBlock()}
   </div>
 
   <!-- ============================================================ -->
@@ -4723,8 +4758,15 @@ export const SECTION_STUDIO_SCRIPT = `
   // NB: this is the REGISTRY scope (typeMeta().scope === COMPONENT_CATALOG
   // scope), NOT the studio-only FRAME_SCOPE_STUDIO_TYPES map (TrustBar/LogoStrip
   // are catalog scope 'both' — legitimately placeable — so they ARE eligible).
+  // CONDUCTOR FIX (register PC-2): ALSO excludes content-schema.ts's
+  // LEADGEN_PLACEMENT_EXCLUDED_TYPES (ContinueButton/AutoAdvanceButton) — catalog
+  // scope "unit" (otherwise eligible), but their position is Quote-Builder-owned;
+  // layout() is rejected on both at save time regardless of scope. Read from
+  // typeMeta().placement_excluded (studioTypeMeta, ui-section-studio.ts server
+  // side — a direct pass-through of the SAME exported set) so this can never
+  // hand-drift from the validator's list; see the P3b lockstep test.
   function placementEligible(node) {
-    return !!node && typeMeta(node.type).scope !== 'frame';
+    return !!node && typeMeta(node.type).scope !== 'frame' && typeMeta(node.type).placement_excluded !== true;
   }
   // row-id shape [A-Za-z0-9_-] ≤64 (content-schema.ts PLACEMENT_ROW_ID_RE) — a
   // stored token, never CSS. base36 time + random keeps it short + collision-safe.
@@ -6779,14 +6821,25 @@ export const SECTION_STUDIO_SCRIPT = `
     // were dead writes for the other choice types).
     var choiceLayout = document.querySelector('[data-toolbar-choice-layout]');
     if (choiceLayout) { choiceLayout.hidden = !isAnswerLayoutType(node); }
-    // P3b (register PC-2 / D1 / R-B): the Placement block shows for any
-    // placement-eligible selection (catalog scope != frame — the EXACT rule the
-    // save-time validator enforces), INDEPENDENT of the field/text/continue
-    // variant above (a placed TextBlock, field, or container all get it).
+    // P3b (register PC-2 / D1 / R-B) + CONDUCTOR FIX: the Placement block
+    // shows for any NON-frame-scope selection (catalog scope != frame —
+    // INDEPENDENT of the field/text/continue variant above, so a placed
+    // TextBlock, field, or container all get it). INSIDE it, exactly ONE of
+    // the controls / the excluded-ownership-note is visible:
+    // placementEligible ALSO excludes LEADGEN_PLACEMENT_EXCLUDED_TYPES
+    // (ContinueButton/AutoAdvanceButton) — those show the ownership note
+    // instead of controls the save-time validator would reject.
     var placementBlock = document.querySelector('[data-style-placement-block]');
-    var showPlacement = !!node && placementEligible(node);
-    if (placementBlock) { placementBlock.hidden = !showPlacement; }
-    if (showPlacement) { populatePlacementControls(node); }
+    var placementScopeOk = !!node && typeMeta(node.type).scope !== 'frame';
+    if (placementBlock) { placementBlock.hidden = !placementScopeOk; }
+    if (placementScopeOk) {
+      var placementIsEligible = placementEligible(node);
+      var placementExcludedNote = document.querySelector('[data-placement-excluded-note]');
+      var placementControlsWrap = document.querySelector('[data-placement-controls]');
+      if (placementExcludedNote) { placementExcludedNote.hidden = placementIsEligible; }
+      if (placementControlsWrap) { placementControlsWrap.hidden = !placementIsEligible; }
+      if (placementIsEligible) { populatePlacementControls(node); }
+    }
   }
   // §6.2 "Selecting a node retargets the inspector and resets its active tab
   // to Content" — a NEW SELECTION (isNewSelection=true, from
@@ -12369,6 +12422,14 @@ export const SECTION_STUDIO_SCRIPT = `
   var fsc;
   for (fsc = 0; fsc < frameScopeChangeBtns.length; fsc++) {
     frameScopeChangeBtns[fsc].addEventListener('click', function () { openQuoteBuilderNav(this); });
+  }
+  // CONDUCTOR FIX (register PC-2): the Placement panel's excluded-ownership
+  // note deep link (ContinueButton/AutoAdvanceButton) — the SAME shared
+  // navigation the Continue Style block + frame-scope notice already use.
+  var placementExcludedChangeBtns = document.querySelectorAll('[data-placement-excluded-change-in-frame]');
+  var pecfb;
+  for (pecfb = 0; pecfb < placementExcludedChangeBtns.length; pecfb++) {
+    placementExcludedChangeBtns[pecfb].addEventListener('click', function () { openQuoteBuilderNav(this); });
   }
   // §7.5: focusing a choice row retargets the scope header to that choice
   // (synchronous — well inside the 100 ms probe budget).
