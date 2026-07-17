@@ -44,6 +44,11 @@ export type LeadgenAnswerType =
 // (which stays as a read alias — no migration). Validator rules (§8.4):
 // `image_alt` REQUIRED when `imageMediaId` is present on ImageCardAnswerGrid
 // (reuses `invalid_choice`); `emoji` and `icon` are mutually exclusive.
+//
+// P2a (register PC-11 completion / decision R-A) ADDITIVE extension: an
+// OPTIONAL per-element `style` bag (see LeadgenChoiceStyle below) — DIFF-ONLY
+// overrides of the node-level "all elements" default (theme ← node ← choice).
+// A choice carrying no `style` renders byte-identically to pre-P2a.
 export interface LeadgenChoice {
   label: string;
   value: string | number | boolean;
@@ -59,6 +64,9 @@ export interface LeadgenChoice {
   image_alt?: string;
   disabled?: boolean;
   aria_label?: string;
+  // P2a §R-A per-element theme freedom (optional; diff-only). See
+  // LeadgenChoiceStyle + validateChoiceStyle below.
+  style?: LeadgenChoiceStyle;
 }
 
 // B9 Other-group display metadata MIRROR (fix-contract v2.4 06 §6.4) — the
@@ -475,6 +483,67 @@ export function resolveFieldSize(
   };
 }
 
+// ---------------------------------------------------------------------------
+// P2a (register PC-11 completion / decision R-A) — per-ELEMENT theme freedom.
+// A choice's OPTIONAL `style` bag (LeadgenChoice.style above) overrides the
+// node-level "all elements" default DIFF-ONLY (Webflow-style: only the keys
+// the author explicitly set override; the theme/node defaults keep cascading
+// to every OTHER property — never the Wix trap where an override orphans the
+// element from theme updates). Every field is optional; a choice carrying no
+// `style` (or `{}`) is byte-identical to pre-P2a. Save-time validation MIRRORS
+// the node-level rules: `size` reuses the node HEIGHT axis' custom_px
+// clamp/snap ([4,600], 4px grid); `color_role`/`text_color_role` reuse the
+// SAME 14-role funnel vocabulary the node-level color pipeline (§9.4 ovColor)
+// accepts; `color_hex`/`text_color_hex` are the deliberate OFF-THEME escape,
+// validated by the SAME legacy-#hex rule + the arbitrary-CSS guard. Setting
+// BOTH color_role AND color_hex (or both text_color_*) is an explicit
+// precedence ERROR (`invalid_choice_style`) — never silently resolved.
+// ---------------------------------------------------------------------------
+
+// The per-choice SIZE vocabulary is the theme "button size" scale
+// (LeadgenSizeThemeControls.button_size — "s"|"m"|"l"), applied as the item's
+// HEIGHT (min-height) exactly like the node-level size.height axis. A choice
+// has NO width axis (grid cells stay equal-width — §R-A "per-element sizes"
+// vary HEIGHT only; the node owns group/grid width) so this is deliberately
+// the 3-value button scale, not the node WIDTH presets (s/m/l/full).
+export const LEADGEN_CHOICE_SIZE_PRESETS = ["s", "m", "l"] as const;
+export type LeadgenChoiceSizePreset = (typeof LEADGEN_CHOICE_SIZE_PRESETS)[number];
+const CHOICE_SIZE_PRESET_SET: ReadonlySet<string> = new Set(LEADGEN_CHOICE_SIZE_PRESETS);
+
+// The font-weight step (normal → the theme default weight; strong → a bold
+// step). A resting-state distinction (like the color); the renderer resolves
+// it to a concrete weight.
+export const LEADGEN_CHOICE_EMPHASES = ["normal", "strong"] as const;
+export type LeadgenChoiceEmphasis = (typeof LEADGEN_CHOICE_EMPHASES)[number];
+const CHOICE_EMPHASIS_SET: ReadonlySet<string> = new Set(LEADGEN_CHOICE_EMPHASES);
+
+export interface LeadgenChoiceStyle {
+  // HEIGHT (min-height): a button-size preset OR a custom px on the SAME
+  // [SIZE_HEIGHT_CUSTOM_PX_MIN, SIZE_HEIGHT_CUSTOM_PX_MAX] snap-4 grid the
+  // node-level size.height custom_px uses.
+  size?: LeadgenChoiceSizePreset | { custom_px: number };
+  // RESTING background — a theme color role (the 14-role funnel vocabulary,
+  // §9.1) …
+  color_role?: LeadgenThemeRole;
+  // … OR a deliberate OFF-THEME #hex escape (mutually exclusive with color_role).
+  color_hex?: string;
+  // Label color (legibility against a custom background) — role or off-theme #hex.
+  text_color_role?: LeadgenThemeRole;
+  text_color_hex?: string;
+  // Font-weight step.
+  emphasis?: LeadgenChoiceEmphasis;
+}
+
+const CHOICE_STYLE_KEYS = [
+  "size",
+  "color_role",
+  "color_hex",
+  "text_color_role",
+  "text_color_hex",
+  "emphasis",
+] as const;
+const CHOICE_STYLE_KEY_SET: ReadonlySet<string> = new Set(CHOICE_STYLE_KEYS);
+
 // One component node in a Section's `content_json`.
 //
 // LAYOUT CONTAINERS (fix-contract v2.4 08 §8.5, issue E4): a node whose type
@@ -598,6 +667,9 @@ export type SectionContentErrorCode =
   | "duplicate_internal_field"
   | "missing_required_field"
   | "invalid_choice"
+  // P2a §R-A per-element theme freedom — choice.style shape / vocabulary /
+  // color-precedence violations (+ TwoButtonYesNo props.yesStyle/noStyle).
+  | "invalid_choice_style"
   | "invalid_valid_values"
   | "answer_type_mismatch"
   | "conditional_invalid"
@@ -1103,6 +1175,127 @@ function validateSizeOverride(
 }
 
 // ---------------------------------------------------------------------------
+// P2a §R-A — choice.style bag validator (save-time; mirrors the node-level
+// rules exactly). Every field optional; unknown keys rejected; each present
+// field checked against the SAME vocabulary/clamps the node-level path uses.
+// Reused by the choices loop (per choice) AND TwoButtonYesNo's per-button
+// props.yesStyle/noStyle (validateNewFieldProps) — one shape, one gate.
+// ---------------------------------------------------------------------------
+function validateChoiceStyle(
+  value: unknown,
+  path: string,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  if (!isRecord(value)) {
+    push("invalid_choice_style", path, "choice.style must be an object (§R-A per-element freedom)");
+    return;
+  }
+  for (const key of Object.keys(value)) {
+    if (!CHOICE_STYLE_KEY_SET.has(key)) {
+      push(
+        "invalid_choice_style",
+        `${path}.${key}`,
+        `unknown choice.style key '${key}' (allowed: ${CHOICE_STYLE_KEYS.join(", ")})`,
+      );
+    }
+  }
+  if (value["size"] !== undefined) {
+    validateChoiceSize(value["size"], `${path}.size`, push);
+  }
+  // color_role / color_hex — theme role OR off-theme #hex; never BOTH.
+  validateChoiceColorPair(value["color_role"], value["color_hex"], path, "color", push);
+  // text_color_role / text_color_hex — same rules for the label color.
+  validateChoiceColorPair(value["text_color_role"], value["text_color_hex"], path, "text_color", push);
+  if (value["emphasis"] !== undefined) {
+    if (typeof value["emphasis"] !== "string" || !CHOICE_EMPHASIS_SET.has(value["emphasis"])) {
+      push(
+        "invalid_choice_style",
+        `${path}.emphasis`,
+        `choice.style.emphasis must be one of ${LEADGEN_CHOICE_EMPHASES.join("|")}`,
+      );
+    }
+  }
+}
+
+// size axis: a button-size preset (s/m/l) OR {custom_px:int} on the SAME
+// [SIZE_HEIGHT_CUSTOM_PX_MIN, SIZE_HEIGHT_CUSTOM_PX_MAX] snap-4 grid the
+// node-level HEIGHT axis (validateSizeAxis) enforces. The looksLikeArbitraryCss
+// guard fires first on any string-y value (no-op for a real preset name).
+function validateChoiceSize(
+  value: unknown,
+  path: string,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  if (typeof value === "string") {
+    if (looksLikeArbitraryCss(value) || !CHOICE_SIZE_PRESET_SET.has(value)) {
+      push(
+        "invalid_choice_style",
+        path,
+        `choice.style.size must be one of ${LEADGEN_CHOICE_SIZE_PRESETS.join("|")} or {custom_px:number}`,
+      );
+    }
+    return;
+  }
+  if (isRecord(value)) {
+    const keys = Object.keys(value);
+    if (keys.length !== 1 || keys[0] !== "custom_px") {
+      push("invalid_choice_style", path, "a custom choice size must be exactly {custom_px:number}");
+      return;
+    }
+    const px = value["custom_px"];
+    if (typeof px !== "number" || !Number.isFinite(px) || !Number.isInteger(px)) {
+      push("invalid_choice_style", `${path}.custom_px`, "custom_px must be an integer");
+    } else if (px < SIZE_HEIGHT_CUSTOM_PX_MIN || px > SIZE_HEIGHT_CUSTOM_PX_MAX) {
+      push(
+        "invalid_choice_style",
+        `${path}.custom_px`,
+        `custom_px must be between ${SIZE_HEIGHT_CUSTOM_PX_MIN} and ${SIZE_HEIGHT_CUSTOM_PX_MAX}`,
+      );
+    } else if (px % SIZE_GRID_PX !== 0) {
+      push(
+        "invalid_choice_style",
+        `${path}.custom_px`,
+        `custom_px must be snapped to a ${SIZE_GRID_PX}px grid`,
+      );
+    }
+    return;
+  }
+  push("invalid_choice_style", path, "choice.style.size must be a preset string or {custom_px:number}");
+}
+
+// A color pair (role, hex): role ∈ the 14 theme roles; hex a legacy #hex
+// literal (the SAME LEGACY_HEX_RE the node-level color path tolerates) with
+// the arbitrary-CSS guard. Setting BOTH is an explicit precedence error — each
+// is still shape-checked so the author sees every problem in one save.
+function validateChoiceColorPair(
+  role: unknown,
+  hex: unknown,
+  base: string,
+  kind: "color" | "text_color",
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  const roleKey = kind === "color" ? "color_role" : "text_color_role";
+  const hexKey = kind === "color" ? "color_hex" : "text_color_hex";
+  if (role !== undefined && hex !== undefined) {
+    push(
+      "invalid_choice_style",
+      `${base}.${hexKey}`,
+      `choice.style.${roleKey} and ${hexKey} are mutually exclusive — set exactly one (explicit precedence, never silent)`,
+    );
+  }
+  if (role !== undefined && (typeof role !== "string" || !THEME_ROLE_SET.has(role))) {
+    push(
+      "invalid_choice_style",
+      `${base}.${roleKey}`,
+      `choice.style.${roleKey} must be a theme color role (${LEADGEN_THEME_ROLES.join(", ")})`,
+    );
+  }
+  if (hex !== undefined && (typeof hex !== "string" || looksLikeArbitraryCss(hex) || !LEGACY_HEX_RE.test(hex))) {
+    push("invalid_choice_style", `${base}.${hexKey}`, `choice.style.${hexKey} must be a #rrggbb hex color`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // v3.1 §11.3 NEW field-content props + §9.2 Maps config — all OPTIONAL, all
 // additive. `type` is the node's already-known-good ComponentType (the caller
 // only reaches here past `isKnownComponentType`).
@@ -1206,6 +1399,22 @@ function validateNewFieldProps(
   // maps — ZIP/Address only (§9.2).
   if (props["maps"] !== undefined) {
     validateMapsProp(type, props["maps"], `${base}.props.maps`, push, warn);
+  }
+
+  // P2a §R-A per-element freedom for TwoButtonYesNo — it is a FIXED boolean
+  // pair (produces "boolean"; yesLabel/noLabel props; NO `choices` array), so
+  // its two buttons cannot carry `choice.style`. Optional props.yesStyle /
+  // props.noStyle (each a LeadgenChoiceStyle) give the pair the SAME
+  // per-element freedom via the SAME validator/renderer. Valid ONLY on
+  // TwoButtonYesNo (a misplaced one is an invalid_field_prop, matching the
+  // role/source precedent above); absent ⇒ byte-identical.
+  for (const key of ["yesStyle", "noStyle"] as const) {
+    if (props[key] === undefined) continue;
+    if (type === "TwoButtonYesNo") {
+      validateChoiceStyle(props[key], `${base}.props.${key}`, push);
+    } else {
+      push("invalid_field_prop", `${base}.props.${key}`, `props.${key} is only valid on TwoButtonYesNo (§R-A)`);
+    }
   }
 }
 
@@ -1759,6 +1968,14 @@ export function validateSectionContent(content: unknown): SectionContentValidati
               `${cp}.image_alt`,
               "image_alt is required when imageMediaId is present (§8.4)",
             );
+          }
+          // P2a §R-A per-element theme freedom — the OPTIONAL per-choice style
+          // bag (additive; absent ⇒ pre-P2a). Consumed by the 5 button/card
+          // families (presets.ts choiceItemStyle); a dropdown choice may carry
+          // a valid shape too (validated here) — the <option> renderer simply
+          // does not consume it.
+          if (choice["style"] !== undefined) {
+            validateChoiceStyle(choice["style"], `${cp}.style`, push);
           }
         }
       }

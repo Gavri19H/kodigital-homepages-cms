@@ -54,6 +54,8 @@ import {
 } from "./content-schema";
 import type {
   LeadgenChoice,
+  LeadgenChoiceSizePreset,
+  LeadgenChoiceStyle,
   LeadgenComponentNode,
   LeadgenDesignOverrides,
   LeadgenNodeBorderColorRole,
@@ -698,12 +700,13 @@ export function renderButtonAnswerGroup(
   ctx?: LeadgenSectionRenderCtx,
 ): string {
   const autoAdvance = propBool(node, "auto_advance");
-  // v3.1 R3 §7/§8.5b: each answer button carries the node's per-item
+  // v3.1 R3 §7/§8.5b + P2a §R-A: each answer button carries the node's per-item
   // design_overrides (height→min-height, corners→radius, border_color→role
-  // border); "" when the node authors none (byte-identical to pre-R3).
-  const itemStyle = choiceItemStyle(node, design, ctx);
+  // border) MERGED with the choice's OWN diff-only `style` overlay (per-element
+  // height / resting bg / text color / emphasis). "" when neither the node nor
+  // the choice authors any (byte-identical to pre-R3/pre-P2a).
   const btn = (c: LeadgenChoice): string =>
-    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${itemStyle}` +
+    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style)}` +
     attr("data-value", c.value) +
     // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
     attr("data-lg-choice", c.value) +
@@ -748,15 +751,20 @@ export function renderTwoButtonYesNo(
   // FIX 4a: the curated buttonBackground override rides the group root as
   // --lg-sel-bg. v3.1 R3: per-item height/corners/border ride choiceItemStyle,
   // group width rides answerGroupRootStyle (both "" when unauthored).
-  const itemStyle = choiceItemStyle(node, design, ctx);
-  const btn = (label: string, value: boolean): string =>
-    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${itemStyle}` +
+  // P2a §R-A: TwoButtonYesNo is a FIXED boolean pair (no `choices` array), so
+  // its two buttons take per-element freedom from OPTIONAL props.yesStyle /
+  // props.noStyle (each a LeadgenChoiceStyle, save-validated) — passed as the
+  // per-item overlay. Absent ⇒ node-level-only ⇒ byte-identical to pre-P2a.
+  const yesStyle = node.props?.["yesStyle"] as LeadgenChoiceStyle | undefined;
+  const noStyle = node.props?.["noStyle"] as LeadgenChoiceStyle | undefined;
+  const btn = (label: string, value: boolean, cs: LeadgenChoiceStyle | undefined): string =>
+    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, cs)}` +
     // 03 §3.3: data-lg-choice mirrors data-value (the stored boolean).
     ` data-value="${value ? "true" : "false"}" data-lg-choice="${value ? "true" : "false"}">${esc(label)}</button>`;
   return (
     `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)}${answerGroupRootStyle(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
-    btn(yes, true) +
-    btn(no, false) +
+    btn(yes, true, yesStyle) +
+    btn(no, false, noStyle) +
     `</div>` +
     // v3.1 R3 E1-NEW-8: helper line below the group ("" when no props.helper).
     fieldHelperLine(node)
@@ -785,10 +793,11 @@ function renderCardGrid(
   // re-pointed) role; legacy `#hex` renders as-is.
   const iconColor = ovColor(node, "iconColor", design, ctx) ?? design.iconCard.iconColor;
   const ic = iconCardDepthSlots(design);
-  // v3.1 R3 §7/§8.5b: each card carries the node's per-item design_overrides
-  // (height→min-height, corners→radius, border_color→role border); "" when the
-  // node authors none (byte-identical to pre-R3).
-  const itemStyle = choiceItemStyle(node, design, ctx);
+  // v3.1 R3 §7/§8.5b + P2a §R-A: each card carries the node's per-item
+  // design_overrides (height/corners/border) MERGED with the choice's OWN
+  // diff-only `style` overlay (per-card height / resting bg / text color /
+  // emphasis) — computed per-card in the closure below. "" when neither
+  // authors any (byte-identical to pre-R3/pre-P2a).
   // A6 (05 §5.5): `image_fit` is a COMPONENT prop on the image grid — the
   // canonical authoring surface (content-schema optional enum + the studio
   // Design-tab control). Resolved once for the whole grid; the per-choice
@@ -866,7 +875,7 @@ function renderCardGrid(
     // §8.4 disabled rides the native attribute + aria-disabled (the §14.4
     // .lg-card:disabled/[aria-disabled] chrome rules style it).
     return (
-      `<button type="button" class="lg-card" role="radio" aria-checked="false"${itemStyle}` +
+      `<button type="button" class="lg-card" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style)}` +
       (c.disabled === true ? ` disabled aria-disabled="true"` : "") +
       attr("data-value", c.value) +
       // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
@@ -938,9 +947,10 @@ export function renderMultiChoiceCardGroup(
   // renders the same iconCard.subtitle* token slots. A choice carrying
   // neither renders byte-identically to the pre-depth markup.
   const ic = iconCardDepthSlots(design);
-  // v3.1 R3 §7/§8.5b: per-card design_overrides (height/corners/border); "" when
-  // unauthored (byte-identical to pre-R3).
-  const itemStyle = choiceItemStyle(node, design, ctx);
+  // v3.1 R3 §7/§8.5b + P2a §R-A: per-card node design_overrides (height/corners/
+  // border) MERGED with the choice's OWN diff-only `style` overlay — computed
+  // per-card in the closure below. "" when neither authors any (byte-identical
+  // to pre-R3/pre-P2a).
   const card = (c: LeadgenChoice): string => {
     const titleText = typeof c.title === "string" && c.title !== "" ? c.title : c.label;
     const desc =
@@ -953,7 +963,7 @@ export function renderMultiChoiceCardGroup(
     // Base border/background live in the scoped chrome CSS (.lg-card) — not
     // inline — so the §14.4 selected/hover/focus state rules apply.
     return (
-      `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"${itemStyle}` +
+      `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style)}` +
       attr("data-value", c.value) +
       // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
       attr("data-lg-choice", c.value) +
@@ -1115,11 +1125,13 @@ export function renderOtherGroupSelector(
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
 ): string {
-  // v3.1 R3 §7/§8.5b: per-button design_overrides (height/corners/border); "" when
-  // unauthored (byte-identical to pre-R3).
-  const itemStyle = choiceItemStyle(node, design, ctx);
+  // v3.1 R3 §7/§8.5b + P2a §R-A: per-button node design_overrides (height/
+  // corners/border) MERGED with the choice's OWN diff-only `style` overlay
+  // (OtherGroupSelector shares ButtonAnswerGroup's choice-button idiom, so it
+  // gets the same per-choice freedom — main AND Other-panel secondary choices).
+  // "" when neither authors any (byte-identical to pre-R3/pre-P2a).
   const btn = (c: LeadgenChoice): string =>
-    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${itemStyle}` +
+    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style)}` +
     attr("data-value", c.value) +
     attr("data-lg-choice", c.value) +
     attr("data-analytics-id", c.analytics_id) +
@@ -1582,15 +1594,109 @@ function nodeBorderColorCss(node: LeadgenComponentNode, design: DefaultFunnelDes
 // specificity) declaration consults — :hover/[aria-checked]/[data-selected]'s
 // own higher-specificity declarations still win over it. "" when the node
 // authors none of the three (byte-identical to pre-R5 for those).
+// P2a §R-A — per-CHOICE HEIGHT scale (button-size scale, §10.4): s/m/l →
+// 44/52/60px, the SAME grounded values as HEIGHT_PRESET_CSS small/medium/large
+// (base .lg-input min-height / theme Button-size M / L). Applied as the item's
+// min-height (a choice varies HEIGHT only — grid cells stay equal-width).
+const CHOICE_SIZE_MIN_HEIGHT: Record<LeadgenChoiceSizePreset, string> = {
+  s: "44px",
+  m: "52px",
+  l: "60px",
+};
+// custom_px clamp/grid — MIRRORS content-schema.ts's SIZE_HEIGHT_CUSTOM_PX_MIN/
+// MAX + SIZE_GRID_PX (the node-level HEIGHT axis), applied here as a defensive
+// re-snap/re-clamp over the save-time gate (the clampInt-at-render idiom).
+const CHOICE_SIZE_GRID_PX = 4;
+const CHOICE_HEIGHT_PX_MIN = 4;
+const CHOICE_HEIGHT_PX_MAX = 600;
+
+function choiceSizeMinHeight(size: LeadgenChoiceStyle["size"]): string | undefined {
+  if (size === undefined) return undefined;
+  if (typeof size === "string") return CHOICE_SIZE_MIN_HEIGHT[size];
+  const px = size.custom_px;
+  if (typeof px !== "number" || !Number.isFinite(px)) return undefined;
+  return `${clampInt(Math.round(px / CHOICE_SIZE_GRID_PX) * CHOICE_SIZE_GRID_PX, CHOICE_HEIGHT_PX_MIN, CHOICE_HEIGHT_PX_MAX)}px`;
+}
+
+// P2a §R-A — resolve a per-choice color (role OR off-theme #hex) through the
+// SAME §9.4 pipeline node-level ovColor uses: a #hex is a literal (the
+// deliberate off-theme escape); a role consults the Section palette re-point
+// (layer 4) then the effective design's base token (layers 1-3). undefined
+// when neither authored (diff-only). Defensive precedence: #hex first
+// (validation rejects role+hex both-set upstream, invalid_choice_style).
+function choiceColorValue(
+  role: string | undefined,
+  hex: string | undefined,
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): string | undefined {
+  if (typeof hex === "string" && hex.startsWith("#")) return hex;
+  if (typeof role === "string" && isFunnelTokenRole(role)) {
+    return sectionRoleValue(design, ctx, role) ?? baseTokenForRole(design, role);
+  }
+  return undefined;
+}
+
+// The node-level "all elements" default entries (UNCHANGED from pre-P2a): the
+// node's own design_overrides.size.height / .corners / .border_color, applied
+// to EVERY item. Split out so the per-choice overlay merges on top in ONE
+// style() call (two style="…" attributes on one tag is invalid HTML).
+function nodeItemStyleEntries(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): Record<string, string | undefined> {
+  return {
+    "min-height": sizeStyleEntries(node, ctx).height,
+    "border-radius": nodeCornersRadius(node),
+    "--lg-field-border": nodeBorderColorCss(node, design),
+  };
+}
+
+// P2a §R-A — the per-choice DIFF-ONLY overlay: ONLY the keys the choice's
+// `style` explicitly set. RESTING background rides the `--lg-answer-bg` CUSTOM
+// PROPERTY (state-safe: the resting rule reads `var(--lg-answer-bg, <theme
+// default>)` so a per-choice bg NEVER clobbers the :hover/[aria-checked]/
+// [data-selected] state rules — "selected wins while selected", EXACTLY the
+// --lg-field-border idiom). NB: that resting-rule var-read lives in
+// designs/default-funnel/styles.ts (a SIBLING slice's file, not P2a's) — until
+// it lands the var is emitted but the theme default still paints; see the P2a
+// report's styles.ts hand-off. Text color is a DIRECT inline `color` (NO state
+// rule overrides `color`, so it is resting-safe without a var). emphasis strong
+// → font-weight 700 (== the selected-state weight, so a strong item is
+// state-consistent). A choice height OVERRIDES the node min-height (same key →
+// later spread wins; the key's POSITION is preserved so unaffected keys keep
+// their byte order). Undefined contributions are dropped by style().
+function choiceStyleOverlayEntries(
+  choiceStyle: LeadgenChoiceStyle | undefined,
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): Record<string, string | undefined> {
+  if (choiceStyle === undefined || choiceStyle === null || typeof choiceStyle !== "object") return {};
+  const out: Record<string, string | undefined> = {};
+  const h = choiceSizeMinHeight(choiceStyle.size);
+  if (h !== undefined) out["min-height"] = h;
+  const bg = choiceColorValue(choiceStyle.color_role, choiceStyle.color_hex, design, ctx);
+  if (bg !== undefined) out["--lg-answer-bg"] = bg;
+  const tc = choiceColorValue(choiceStyle.text_color_role, choiceStyle.text_color_hex, design, ctx);
+  if (tc !== undefined) out["color"] = tc;
+  if (choiceStyle.emphasis === "strong") out["font-weight"] = "700";
+  return out;
+}
+
+// Per-ITEM style: the node-level default layer with the OPTIONAL per-choice
+// overlay merged on top (diff-only). `choiceStyle` omitted (the pre-P2a call
+// shape) AND a node WITHOUT per-item design_overrides → "" — byte-identical to
+// pre-P2a for every un-styled item.
 function choiceItemStyle(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx: LeadgenSectionRenderCtx | undefined,
+  choiceStyle?: LeadgenChoiceStyle,
 ): string {
   return style({
-    "min-height": sizeStyleEntries(node, ctx).height,
-    "border-radius": nodeCornersRadius(node),
-    "--lg-field-border": nodeBorderColorCss(node, design),
+    ...nodeItemStyleEntries(node, design, ctx),
+    ...choiceStyleOverlayEntries(choiceStyle, design, ctx),
   });
 }
 
