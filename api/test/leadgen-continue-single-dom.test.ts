@@ -121,11 +121,16 @@ const SNAPSHOT_TREE_ONE_LEGACY =
   `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
   ` data-value="true" data-lg-choice="true">Yes</button>` +
   `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
-  ` data-value="false" data-lg-choice="false">No</button></div>` +
+  ` data-value="false" data-lg-choice="false">No</button>` +
   // PC-A2 (P4b): every answer-producing leaf now emits its own hidden auto
-  // error slot adjacent to the field (zero authoring) — the runtime fills it
-  // on a validation failure so the message is VISIBLE, not an invisible border.
+  // error slot in its OWN field/group box (CONDUCTOR FIX: nested as the box's
+  // LAST CHILD, never a card-level sibling — a sibling slot silently broke
+  // sibling-combinator CSS like `.lg-card-grid + *`, since a `hidden`
+  // (display:none) element still counts as a real DOM node for selector
+  // matching). The runtime fills it on a validation failure so the message is
+  // VISIBLE, not an invisible border.
   `<p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="currently_insured" style="color:#D32F2F"></p>` +
+  `</div>` +
   `<button type="submit" class="lg-btn lg-continue" data-component-type="ContinueButton"` +
   ` data-question-id="cont1" data-lg-continue style="color:#FFFFFF"` +
   ` data-loading-label="Working…" data-loading="false">` +
