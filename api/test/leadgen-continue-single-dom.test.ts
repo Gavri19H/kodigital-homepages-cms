@@ -122,6 +122,10 @@ const SNAPSHOT_TREE_ONE_LEGACY =
   ` data-value="true" data-lg-choice="true">Yes</button>` +
   `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
   ` data-value="false" data-lg-choice="false">No</button></div>` +
+  // PC-A2 (P4b): every answer-producing leaf now emits its own hidden auto
+  // error slot adjacent to the field (zero authoring) — the runtime fills it
+  // on a validation failure so the message is VISIBLE, not an invisible border.
+  `<p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="currently_insured" style="color:#D32F2F"></p>` +
   `<button type="submit" class="lg-btn lg-continue" data-component-type="ContinueButton"` +
   ` data-question-id="cont1" data-lg-continue style="color:#FFFFFF"` +
   ` data-loading-label="Working…" data-loading="false">` +

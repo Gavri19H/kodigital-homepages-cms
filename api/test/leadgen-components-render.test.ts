@@ -1698,10 +1698,15 @@ describe("§8.13 legacy compat — flat arrays validate + render byte-identicall
     const flatRender = LEGACY_FLAT.map((n) => renderComponent(n, DESIGN)).join("");
     // renderComponent() called per-node (bypassing the top-level wrap) is the
     // ONE place this suite can observe "what renders WITHOUT the card" — the
-    // ONLY attributable delta is the .lg-question-card wrapper (golden :308,
-    // FIX 3b); the per-node bytes underneath are still exactly equal.
-    expect(treeRender).toBe(`<div class="lg-question-card">${flatRender}</div>`);
+    // ONLY attributable deltas are the .lg-question-card wrapper (golden :308,
+    // FIX 3b) and, P4b (PC-A2), the per-field hidden auto error slot each
+    // answer-producing leaf now emits. Strip those slots to prove the per-node
+    // bytes UNDERNEATH are still exactly equal.
+    const AUTO_SLOT_RE = /<p class="lg-error lg-error-auto"[^>]*><\/p>/g;
+    expect(treeRender.replace(AUTO_SLOT_RE, "")).toBe(`<div class="lg-question-card">${flatRender}</div>`);
     expect(treeRender.length).toBeGreaterThan(0);
+    // The slot really is present in the tree render (not stripped to nothing).
+    expect(treeRender).toContain('class="lg-error lg-error-auto"');
   });
 
   it("serialization round-trip preserves a container tree (parse → validate → stringify → parse)", () => {

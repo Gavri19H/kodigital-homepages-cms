@@ -47,6 +47,7 @@ import type {
 } from "../designs/default-funnel/tokens";
 import {
   autoAdvanceEligibility,
+  flattenComponents,
   isLayoutContainerType,
   LEADGEN_MAX_CONTAINER_DEPTH,
   LEADGEN_NODE_BORDER_COLOR_ROLES,
@@ -240,6 +241,74 @@ interface SectionRenderState {
   deferContinue: boolean;
   continueSeen: boolean;
   deferredContinue: LeadgenComponentNode | undefined;
+  // PC-A2/PC-6 (P4b): the internal_fields a hand-authored ValidationError node
+  // ALREADY reports on (its data-lg-error-for binding). An answer-producing
+  // leaf whose field is in this set does NOT get an auto error slot — the
+  // authored component is the deliberate override, so there is never a double
+  // slot for one field. Computed ONCE per section render from the whole tree.
+  errorBoundFields: ReadonlySet<string>;
+}
+
+// ---------------------------------------------------------------------------
+// PC-A2 / PC-6 (P4b) — error visibility by DEFAULT (zero extra authoring)
+// ---------------------------------------------------------------------------
+// Before P4b a validation failure painted only an invisible red border unless
+// the author hand-placed a ValidationError node bound to the field
+// (data-lg-error-for) — the operator's "was it tested?" gap. Now every
+// answer-PRODUCING leaf emits its own empty, hidden error slot in the SSR
+// markup, adjacent to the field; the runtime's setFieldError/clearFieldErrors
+// (render.ts) fill/clear it exactly as they already did for authored slots, so
+// error_text ("If it's wrong, say …") and every format/required message now
+// render VISIBLY with no authoring. SSR-only (zero runtime bundle bytes). An
+// authored ValidationError for the same field stays the deliberate override
+// (collectErrorBoundFields → no auto slot for that field ⇒ never a double).
+
+// The single answer-field an auto error slot would report on, or undefined:
+// answer-PRODUCING (catalog.produces !== null) leaves carrying a non-empty
+// internal_field. Excludes chrome/controls/affordances/containers (produces
+// null), ValidationError (produces null), and the multi-subfield groups
+// (NameFieldsGroup / AddressAutocomplete carry no single internal_field).
+function autoErrorFieldFor(node: LeadgenComponentNode): string | undefined {
+  if (node === null || typeof node !== "object") return undefined;
+  const catalog = COMPONENT_CATALOG[node.type];
+  if (catalog === undefined || catalog.produces === null) return undefined;
+  const field = node.internal_field;
+  return typeof field === "string" && field !== "" ? field : undefined;
+}
+
+// The internal_fields already owned by a hand-authored ValidationError node
+// anywhere in the section tree (its data-lg-error-for binding). Those fields
+// suppress their auto slot so an authored override is honored 1:1.
+function collectErrorBoundFields(nodes: readonly LeadgenComponentNode[]): ReadonlySet<string> {
+  const set = new Set<string>();
+  for (const leaf of flattenComponents(nodes)) {
+    if (leaf.type === "ValidationError") {
+      const field = leaf.internal_field;
+      if (typeof field === "string" && field !== "") set.add(field);
+    }
+  }
+  return set;
+}
+
+// The auto error slot HTML for ONE node (or "" when it needs none): a hidden,
+// empty, theme-styled [data-lg-error-for] element the runtime fills on failure.
+// Emitted ONLY inside a section render (state present) and ONLY when no
+// authored ValidationError already binds the field.
+function autoErrorSlot(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  state: SectionRenderState | undefined,
+): string {
+  if (state === undefined) return "";
+  const field = autoErrorFieldFor(node);
+  if (field === undefined) return "";
+  if (state.errorBoundFields.has(field)) return "";
+  return (
+    `<p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden` +
+    attr("data-lg-error-for", field) +
+    style({ color: design.validation.errorTextColor }) +
+    `></p>`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -3295,7 +3364,11 @@ function renderNodes(
   depth: number,
   state: SectionRenderState | undefined,
 ): string {
-  return renderPlacedSiblings(nodes, state?.ctx, (n) => renderComponent(n, design, depth, state));
+  return renderPlacedSiblings(
+    nodes,
+    state?.ctx,
+    (n) => renderComponent(n, design, depth, state) + autoErrorSlot(n, design, state),
+  );
 }
 
 // Ordered render of a full Section: each component's preset markup, in order.
@@ -3358,6 +3431,7 @@ export function renderSectionComponents(
       !suppressContinue && (sectionCtx?.continue_placement === "below_unit" || plan.forceSlot),
     continueSeen: false,
     deferredContinue: undefined,
+    errorBoundFields: collectErrorBoundFields(nodes),
   };
   let out = renderNodes(nodes, design, depth, state);
   // R7 U12 FIX 3b (conductor ruling, 2026-07-15): the golden's white question
@@ -3417,6 +3491,7 @@ export function renderSectionComponentsVisible(
         !suppressContinue && (sectionCtx.continue_placement === "below_unit" || plan.forceSlot),
       continueSeen: false,
       deferredContinue: undefined,
+      errorBoundFields: collectErrorBoundFields(nodes),
     };
   }
   let out = renderVisibleNodes(nodes, design, visibleIds, depth, state);
@@ -3469,7 +3544,7 @@ function renderVisibleNodes(
       return renderContainerWrapper(node, design, depth, inner);
     }
     if (typeof node.question_id === "string" && visibleIds.has(node.question_id)) {
-      return renderComponent(node, design, depth, state);
+      return renderComponent(node, design, depth, state) + autoErrorSlot(node, design, state);
     }
     return "";
   };
