@@ -111,6 +111,7 @@ import {
   LEADGEN_STACK_DIRECTIONS,
   LEADGEN_TEXT_BLOCK_ROLES,
   REQUIRED_FIELDS,
+  AUTO_ADVANCE_CLICK_TYPES,
   isLayoutContainerType,
   validateSectionContent,
   type LeadgenComponentNode,
@@ -661,6 +662,10 @@ export interface StudioTypeMetaBlob {
   placement_excluded: boolean;
   produces: string | null;
   choice: boolean;
+  // P4a (PC-A1): this type is a single-select CLICK-to-answer control (the
+  // engine's handleChoiceActivation advance set) — the island projects the SAME
+  // AUTO_ADVANCE_CLICK_TYPES the save-time validator uses, never a re-typed list.
+  auto_advance_click: boolean;
   maps: "address" | "zip" | null;
   required: {
     internal_field: boolean;
@@ -694,6 +699,7 @@ export function studioTypeMeta(): Record<string, StudioTypeMetaBlob> {
       placement_excluded: PLACEMENT_EXCLUDED_TYPE_SET.has(type),
       produces: COMPONENT_CATALOG[type].produces,
       choice: spec.choices === true,
+      auto_advance_click: AUTO_ADVANCE_CLICK_TYPES.has(type),
       maps: type === "AddressAutocompleteQuestion" ? "address" : type === "ZIPInputQuestion" ? "zip" : null,
       required: {
         internal_field: spec.internalField === true,
@@ -2223,10 +2229,12 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       </div>
       <p class="form-help">Visitors must answer before they can continue.</p>
       <div class="form-label">When answered</div>
+      <p class="form-help">How answering advances the whole section &#8212; one setting per section, not per component. &#8220;Go to next&#8221; needs a single choice-style question.</p>
       <div class="studio-segmented" role="group" aria-label="When answered" data-continue-mode-group>
         <button type="button" data-set-continue-mode="button">Wait for Continue</button>
         <button type="button" data-set-continue-mode="auto_advance">Go to next</button>
       </div>
+      <p class="form-help" data-continue-lock-note hidden style="color:#8a5a00;margin-top:6px"></p>
       </div><!-- /data-content-behavior-section -->
 
       <div class="studio-hr"></div>
@@ -3471,6 +3479,11 @@ export const SECTION_STUDIO_SCRIPT = `
   // control and the canvas toolbar's quick auto-advance chip write the SAME
   // store through this one function, so the two views never drift.
   function setContinueMode(mode) {
+    // PC-A1 (P4a): "Go to next" (auto_advance) is a SECTION-level setting and is
+    // valid ONLY when the composition can actually auto-advance — the same rule
+    // the save-time validator enforces. Refuse it otherwise (the operator's "the
+    // other choice must be disabled"): a stuck funnel can never be authored here.
+    if (mode === 'auto_advance' && !sectionAutoAdvanceEligibility().eligible) { mode = 'button'; }
     state.continue_mode = mode === 'auto_advance' ? 'auto_advance' : 'button';
     var waitOn = state.continue_mode !== 'auto_advance';
     var waitEl = document.querySelector('[data-continue-mode="button"]');
@@ -3479,6 +3492,59 @@ export const SECTION_STUDIO_SCRIPT = `
     if (goEl) { goEl.setAttribute('style', segStyle(!waitOn)); goEl.setAttribute('aria-pressed', waitOn ? 'false' : 'true'); }
     markDirty();
     updateCanvasToolbar();
+  }
+  // PC-A1 (P4a): mirror content-schema.autoAdvanceEligibility CLIENT-SIDE so the
+  // Behavior control never offers a "Go to next" the engine cannot honor. The
+  // truth is the SAME as the save-time gate — typeMeta().produces and
+  // .auto_advance_click are projected from the server's COMPONENT_CATALOG +
+  // AUTO_ADVANCE_CLICK_TYPES — so island and validator can never drift.
+  function sectionAutoAdvanceEligibility() {
+    var producers = [];
+    walkTree(state.content.components, 1, function (n) {
+      if (n && typeMeta(n.type).produces) { producers.push(n); }
+    });
+    if (producers.length === 0) { return { eligible: false, reason: 'no_producers', producers: producers }; }
+    if (producers.length > 1) { return { eligible: false, reason: 'multiple_producers', producers: producers }; }
+    var only = producers[0];
+    var m = typeMeta(only.type);
+    var multi = m.produces === 'array' || only.answer_type === 'array' || !!(only.props && only.props.multiple === true);
+    if (multi) { return { eligible: false, reason: 'multi_select', producers: producers }; }
+    if (!m.auto_advance_click) { return { eligible: false, reason: 'not_click_to_answer', producers: producers }; }
+    if (only.conditional !== undefined && only.conditional !== null) { return { eligible: false, reason: 'conditional_producer', producers: producers }; }
+    return { eligible: true, reason: '', producers: producers };
+  }
+  function autoAdvanceLockReason(elig) {
+    var tail = ' Use the Continue button; "Go to next" works only for a single choice-style question.';
+    if (elig.reason === 'multiple_producers') { return 'This section has ' + elig.producers.length + ' answer components, so visitors need the Continue button.' + tail; }
+    if (elig.reason === 'no_producers') { return 'Add one choice-style question to use auto-advance.' + tail; }
+    if (elig.reason === 'multi_select') { return 'This is a multi-select question, so one tap cannot advance.' + tail; }
+    if (elig.reason === 'not_click_to_answer') { return 'Visitors type or pick this answer, so there is nothing to click to advance.' + tail; }
+    if (elig.reason === 'conditional_producer') { return 'This question only appears under a condition, so it is not the section single always-present question.' + tail; }
+    return 'This section cannot auto-advance.' + tail;
+  }
+  // Enforce the operator rule across BOTH continue-mode controls (question strip
+  // + Behavior panel): lock "Go to next" when ineligible, surface the reason, and
+  // force Wait-for-Continue if a now-ineligible section still holds auto_advance.
+  // Idempotent; safe to call after any model change / inspector sync / at init.
+  function applyContinueModeEligibility() {
+    var elig = sectionAutoAdvanceEligibility();
+    var goEls = document.querySelectorAll('[data-continue-mode="auto_advance"],[data-set-continue-mode="auto_advance"]');
+    var i, el, reason = elig.eligible ? '' : autoAdvanceLockReason(elig);
+    for (i = 0; i < goEls.length; i++) {
+      el = goEls[i];
+      if (elig.eligible) {
+        el.removeAttribute('aria-disabled'); el.style.opacity = ''; el.style.cursor = ''; el.removeAttribute('title');
+      } else {
+        el.setAttribute('aria-disabled', 'true'); el.style.opacity = '0.4'; el.style.cursor = 'not-allowed'; el.setAttribute('title', reason);
+      }
+    }
+    var note = document.querySelector('[data-continue-lock-note]');
+    if (note) {
+      if (elig.eligible) { note.hidden = true; note.textContent = ''; }
+      else { note.hidden = false; note.textContent = reason; }
+    }
+    if (!elig.eligible && state.continue_mode === 'auto_advance') { setContinueMode('button'); }
+    return elig;
   }
   function cloneJson(v) { try { return JSON.parse(JSON.stringify(v)); } catch (e) { return {}; } }
   function trimStr(s) { if (s === undefined || s === null) { return ''; } return String(s).trim(); }
@@ -5276,6 +5342,13 @@ export const SECTION_STUDIO_SCRIPT = `
     // pick — same tick, never deferred to a re-selection.
     renderOverrideDecorations(selectedNode());
     updateCanvasToolbar();
+    // PC-A1 (P4a): the auto_advance composition may have changed (a producer
+    // added/removed/retyped/made-conditional) — re-lock "Go to next" and force
+    // Wait-for-Continue if the section no longer qualifies. typeof-guarded like
+    // the two calls above: afterModelChange is sliced standalone into vitest
+    // probes that never declare applyContinueModeEligibility (a bare reference
+    // would throw ReferenceError there, for a concern outside what they test).
+    if (typeof applyContinueModeEligibility !== 'undefined') { applyContinueModeEligibility(); }
     scheduleCanvasRender();
   }
 
@@ -7052,6 +7125,9 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < modeBtns.length; i++) {
       modeBtns[i].className = modeBtns[i].getAttribute('data-set-continue-mode') === mode ? 'active' : '';
     }
+    // PC-A1 (P4a): re-lock "Go to next" + refresh the reason note whenever the
+    // Behavior panel syncs (a component was selected / the panel became visible).
+    applyContinueModeEligibility();
 
     // A6: the image-fit Design control shows ONLY for the image answer grid.
     var fitWrap = document.querySelector('[data-image-fit-wrap]');
@@ -13066,6 +13142,9 @@ export const SECTION_STUDIO_SCRIPT = `
   updatePaletteBindItems();
   renderBindBanner();
   updateCanvasEmpty();
+  // PC-A1 (P4a) first paint: lock "Go to next" + force Wait-for-Continue if a
+  // loaded section already holds an ineligible auto_advance (pre-existing rows).
+  applyContinueModeEligibility();
   // §6.2 default selection on open (contract: "the ZIP field" — generalized
   // to the first real answer node); selectComponent() already covers
   // decoration/breadcrumb/inspector-population/scope-header/toolbar in one call.
