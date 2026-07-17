@@ -2898,7 +2898,30 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
       <div style="width:1px;height:20px;background:${STUDIO_COLOR.linePanel}"></div>
       <span style="width:13px;height:13px;border-radius:4px;background:${STUDIO_COLOR.navy};position:relative;display:inline-block"><span style="position:absolute;right:-2px;bottom:-2px;width:7px;height:7px;border-radius:2px;background:${STUDIO_COLOR.accent};border:1px solid ${STUDIO_COLOR.white}"></span></span>
       <label style="font-size:12px;color:${STUDIO_COLOR.muted};font-weight:600" for="lg-preview-theme">Preview theme:</label>
-      <select id="lg-preview-theme" class="form-input" data-studio-preview-theme style="font-size:12px;padding:3px 6px;max-width:130px"><option value="">Navy (default)</option></select>
+      <!-- Conductor ruling (gate1c THIRD FINDING correction, missed by the
+           original v3.1 Phase E product fix below): this select is content-
+           populated (KV theme list, grows from ~3 to 36+ options as the
+           catalog grows). Two DISTINCT levers made its flex footprint
+           state-dependent even though the select's OWN rendered box stayed a
+           stable 130x24 in isolation: (1) option-count-driven min-content
+           feeding the flex-basis/shrink distribution as the KV catalog
+           grows, and (2) confirmed live (A/B tested) -- an explicit width
+           alone is NOT sufficient: the item's default min-width:auto keeps
+           an automatic, content-based minimum in play for the shrink
+           algorithm regardless of a specified width, so the sibling "QA
+           tools"/"Preview theme:" flex items still squeezed into a
+           different label wrap (measured: a 451x29px toolbar-row diff,
+           ratio 0.001125 > the gate1c 0.001 budget) even with width pinned.
+           flex:0 0 130px fixes the flex-basis directly and sets flex-
+           shrink:0 (this item never shrinks); min-width:0 disables the
+           automatic minimum that survived the width-only attempt --
+           together making the footprint truly state-invariant (verified:
+           byte-equal toolbar-row screenshot at 3 options vs 36 options).
+           width/max-width kept redundantly for the same fixed-width
+           discipline as the sibling .studio-pair select / .lg-preview-design
+           (THIRD FINDING/PRODUCT FIX below) -- this select was missed by
+           that pass; now closes the same gap. -->
+      <select id="lg-preview-theme" class="form-input" data-studio-preview-theme style="font-size:12px;padding:3px 6px;flex:0 0 130px;min-width:0;width:130px;max-width:130px"><option value="">Navy (default)</option></select>
       <a href="${manageThemeHref}" data-studio-manage-theme-link style="font-size:12px;color:${STUDIO_COLOR.muted};font-weight:600;text-decoration:none">Manage theme &#8594;</a>
       <div style="width:1px;height:20px;background:${STUDIO_COLOR.linePanel}"></div>
       <button type="button" data-studio-drawer-expand aria-pressed="false" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:${STUDIO_COLOR.faintSub};cursor:pointer;background:none;border:0;padding:0">Expand<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="${STUDIO_COLOR.faintSub}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -3299,13 +3322,21 @@ export const SECTION_STUDIO_STYLES = `
    (loadFramePickerQuotes() reads every Quote ever created, any operator,
    any funnel) -- with no width discipline a native select auto-sizes to
    its WIDEST option, so the box visibly grows as the Quote catalog grows.
-   #lg-preview-theme (below) already closes this exact gap for the sibling
-   theme picker; a max-width alone still lets the box shrink on sparse
-   content (narrower on a fresh catalog than a grown one -- still content-
-   dependent, still "drift"), so width is pinned too, removing the
-   dependency entirely -- same fixed-width discipline this file's own gate1c
-   baseline spec had to reach for as a TEST-side workaround before this
-   product fix existed (leadgen-v31-gate1c-baselines.spec.ts).  */
+   #lg-preview-theme (below) has the SAME KV-populated-option-count shape but
+   was MISSED by this exact pass -- it kept max-width alone (its rendered box
+   stayed a stable 130px regardless of option count, so this pass's own
+   direct-measurement check called it safe, but that measurement covered
+   only the select's OWN box, not its flex-layout CONTRIBUTION -- an
+   unconstrained max-width and the item's default automatic minimum still
+   let it squeeze sibling flex items as option count grew; the gate1c THIRD
+   FINDING later isolated exactly this and it was closed at the source with
+   a fixed flex-basis + min-width:0, not width/max-width alone -- see the
+   comment above that select). So a max-width alone still lets the box
+   shrink on sparse content (narrower on a fresh catalog than a grown one --
+   still content-dependent, still "drift"), so width is pinned too here,
+   removing the dependency entirely -- same fixed-width discipline this
+   file's own gate1c baseline spec had to reach for as a TEST-side workaround
+   before this product fix existed (leadgen-v31-gate1c-baselines.spec.ts).  */
 .lg-preview-design{width:220px;max-width:220px;font-size:12px;padding:4px 6px}
 .lg-dependency-panel{border:1px dashed var(--c-border);border-radius:6px;padding:8px;margin-bottom:8px}
 .lg-dependency-panel textarea{width:100%;font-family:var(--font-mono,monospace);font-size:12px;margin-bottom:6px}
