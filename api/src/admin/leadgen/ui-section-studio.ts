@@ -2087,6 +2087,15 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
     CONDITION_OP_OPTIONS.map((c) => CONDITION_OP_LABELS[c] ?? c),
   );
   const patternOptions = options(PATTERN_PRESETS);
+  // PC-5/PC-A5 (P4b): the DateQuestion Min/Max bound picker — a dynamic-token
+  // dropdown (resolved to a concrete date server-side at config build) plus a
+  // "Custom date…" choice that reveals the native date input. Shown for Date
+  // fields only (populateDateBound in the island). Values are the stored token
+  // strings; labels are plain operator English.
+  const dateBoundOptions = options(
+    ["", "today", "+7d", "+2w", "+1m", "year_end", "__custom__"],
+    ["No date limit", "Today", "In 7 days", "In 2 weeks", "In 1 month", "End of this year", "Custom date…"],
+  );
   // The generic per-type copy fields (CONTENT_PROP_FIELDS projection) — still
   // used by many non-field types (ContinueButton/TextBlock/containers/etc);
   // the 8 Accept-swappable text-input types get their OWN dedicated "Field
@@ -2266,10 +2275,12 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       </div>
       <div class="form-group lg-inspector-field" data-vprop="min" hidden>
         <label class="form-label" for="lg-vprop-min">Min</label>
+        <select class="form-input" data-inspector-vdate="min" hidden>${dateBoundOptions}</select>
         <input id="lg-vprop-min" class="form-input" data-inspector-vprop="min" />
       </div>
       <div class="form-group lg-inspector-field" data-vprop="max" hidden>
         <label class="form-label" for="lg-vprop-max">Max</label>
+        <select class="form-input" data-inspector-vdate="max" hidden>${dateBoundOptions}</select>
         <input id="lg-vprop-max" class="form-input" data-inspector-vprop="max" />
       </div>
       <div class="form-group lg-inspector-field" data-vprop="step" hidden>
@@ -7322,6 +7333,10 @@ export const SECTION_STUDIO_SCRIPT = `
         input.value = (v === undefined || v === null) ? '' : String(v);
       }
     }
+    // PC-5/PC-A5 (P4b): a DateQuestion's Min/Max become the token+picker editor
+    // (overrides the generic input.type set above for this type only).
+    populateDateBound(node, 'min');
+    populateDateBound(node, 'max');
     // §5.5: the range provider-format note shows for the slider family only.
     var rangeNote = document.querySelector('[data-range-format-note]');
     if (rangeNote) {
@@ -7336,6 +7351,58 @@ export const SECTION_STUDIO_SCRIPT = `
       patternIn.value = (node && node.props && node.props.pattern) ? String(node.props.pattern) : '';
     }
     if (errIn) { errIn.value = (node && node.props && node.props.error_text) ? String(node.props.error_text) : ''; }
+  }
+
+  // PC-5/PC-A5 (P4b): the DateQuestion Min/Max bound editor. A token dropdown
+  // (today/+7d/+2w/+1m/year_end) resolved to a concrete date server-side, plus a
+  // "Custom date…" choice that reveals the native <input type=date>. Stored as a
+  // token string or a literal ISO date. Self-gates on node.type — for any
+  // non-Date field it hides the token dropdown and leaves the generic
+  // number/text input exactly as populateValidation set it.
+  function populateDateBound(node, key) {
+    var wrap = document.querySelector('[data-vprop="' + key + '"]');
+    if (!wrap) { return; }
+    var sel = wrap.querySelector('[data-inspector-vdate="' + key + '"]');
+    var input = wrap.querySelector('[data-inspector-vprop="' + key + '"]');
+    var isDate = !!node && node.type === 'DateQuestion';
+    if (sel) { sel.hidden = !isDate; }
+    if (!isDate) { return; }
+    var v = (node && node.props) ? node.props[key] : undefined;
+    var isIso = typeof v === 'string' && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(v);
+    if (input) { input.type = 'date'; }
+    if (isIso) {
+      if (sel) { sel.value = '__custom__'; }
+      if (input) { input.hidden = false; input.value = v; }
+    } else if (typeof v === 'string' && v) {
+      if (sel) { sel.value = v; }
+      if (input) { input.hidden = true; input.value = ''; }
+    } else {
+      if (sel) { sel.value = ''; }
+      if (input) { input.hidden = true; input.value = ''; }
+    }
+  }
+
+  // Write a Date bound from the token dropdown: a token/'' is stored (or cleared)
+  // here; '__custom__' just reveals the native date input, which writes its ISO
+  // value through collectValidationProp's string branch.
+  function collectDateBound(sel) {
+    var node = selectedNode();
+    if (!node) { return; }
+    var key = sel.getAttribute('data-inspector-vdate');
+    if (!key) { return; }
+    var props = ensureObj(node, 'props');
+    var input = document.querySelector('[data-inspector-vprop="' + key + '"]');
+    if (sel.value === '__custom__') {
+      if (input) { input.hidden = false; }
+    } else if (sel.value === '') {
+      delete props[key];
+      if (input) { input.hidden = true; input.value = ''; }
+    } else {
+      props[key] = sel.value;
+      if (input) { input.hidden = true; input.value = ''; }
+    }
+    cleanupEmpty(node, 'props');
+    afterModelChange();
   }
 
   // --- §9 Maps tab: populate + collect (job-based model, Phase C) -------------
@@ -10748,6 +10815,12 @@ export const SECTION_STUDIO_SCRIPT = `
   for (ve = 0; ve < vpropEls.length; ve++) {
     vpropEls[ve].addEventListener('input', function () { collectValidationProp(this); });
     vpropEls[ve].addEventListener('change', function () { collectValidationProp(this); });
+  }
+  // PC-5/PC-A5 (P4b): the DateQuestion Min/Max token dropdowns.
+  var vdateEls = document.querySelectorAll('[data-inspector-vdate]');
+  var vde;
+  for (vde = 0; vde < vdateEls.length; vde++) {
+    vdateEls[vde].addEventListener('change', function () { collectDateBound(this); });
   }
   // §9 Maps tab controls: the enabled toggle re-collects the whole {enabled,
   // jobs} object (turning ON seeds all-false jobs — triggers the zero-job

@@ -919,6 +919,13 @@ describeDb("section studio SSR — §8.6 inspector + §8.5 container props", () 
     const pattern = selectBlock(html, "lg-vprop-pattern");
     for (const preset of ["none", "letters", "digits", "custom"]) expect(pattern).toContain(`<option value="${preset}">`);
     expect(html).toContain('data-inspector-vprop="error_text"');
+    // PC-5/PC-A5 (P4b): the DateQuestion Min/Max token+picker — a token dropdown
+    // per bound with the dynamic-token options (shown for Date fields via the
+    // island's populateDateBound; hidden otherwise).
+    for (const key of ["min", "max"]) expect(html).toContain(`data-inspector-vdate="${key}"`);
+    for (const tok of ["today", "+7d", "+2w", "+1m", "year_end", "__custom__"]) {
+      expect(html, `date token ${tok}`).toContain(`<option value="${tok}">`);
+    }
     // §8.6 Dependencies: typed IF builder (ops + typed value inputs)
     for (const op of ["eq", "neq", "gt", "lt", "gte", "lte", "range", "in", "not_in"]) {
       expect(html, `op ${op}`).toContain(`<option value="${op}">`);

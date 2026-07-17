@@ -48,6 +48,7 @@ import type {
 import {
   autoAdvanceEligibility,
   flattenComponents,
+  isIsoDate,
   isLayoutContainerType,
   LEADGEN_MAX_CONTAINER_DEPTH,
   LEADGEN_NODE_BORDER_COLOR_ROLES,
@@ -2003,9 +2004,19 @@ export function renderDateQuestion(
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
 ): string {
+  // PC-5/PC-A5 (P4b): the native <input type=date> min/max attrs get ONLY a
+  // literal ISO bound (a "Custom date" pick). A DYNAMIC TOKEN (+7d/today/…) is
+  // NOT emitted natively — it would be an invalid attr the browser silently
+  // ignores (the old bug: garbage disabled the constraint), and this renderer
+  // must stay pure/deterministic (no request-time clock → no golden drift). The
+  // resolved bound is enforced by the client validate (validation.ts) via the
+  // config's RESOLVED client_validation.min/max — which is also the documented
+  // iOS-gap compensation, so a date input is gated on every platform.
   const min = propStr(node, "min");
   const max = propStr(node, "max");
-  return renderTextInput(node, design, "date", attr("min", min) + attr("max", max), ctx);
+  const nativeMin = isIsoDate(min) ? min : undefined;
+  const nativeMax = isIsoDate(max) ? max : undefined;
+  return renderTextInput(node, design, "date", attr("min", nativeMin) + attr("max", nativeMax), ctx);
 }
 export function renderZIPInputQuestion(
   node: LeadgenComponentNode,

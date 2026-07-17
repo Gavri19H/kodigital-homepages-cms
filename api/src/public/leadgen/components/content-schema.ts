@@ -313,6 +313,78 @@ export function acceptFormatOfType(type: ComponentType): LeadgenFieldAcceptForma
   return ACCEPT_FORMAT_BY_TYPE[type];
 }
 
+// ---------------------------------------------------------------------------
+// PC-5 / PC-A5 (P4b) — DateQuestion bounds: real type + dynamic token grammar
+// ---------------------------------------------------------------------------
+// The investigation ground: DateQuestion had ZERO app-level validation — the
+// registry's "date range" claim was fictional (Number(ISO)=NaN dead path), so
+// garbage min/max saved silently AND silently disabled the native constraint.
+// P4b makes min/max real date BOUNDS, each either an ISO date (YYYY-MM-DD) or a
+// dynamic token resolved SERVER-side into concrete ISO at config build
+// (config-dto.buildClientValidation) so the runtime stays a pure lexical ISO
+// compare (validation.ts) with NO token grammar in the bundle.
+//
+// TOKEN GRAMMAR (studio picker -> stored string):
+//   today            -> today's date
+//   year_end         -> Dec 31 of the current year ("This year end")
+//   +Nd / -Nd        -> today +/- N days      (e.g. +7d = "in 7 days")
+//   +Nw / -Nw        -> today +/- N weeks
+//   +Nm / -Nm        -> today +/- N months    (day clamped to the target month end)
+// A "Custom date" pick stores a literal ISO date (not a token).
+const DATE_TOKEN_RE = /^([+-])(\d{1,4})([dwm])$/;
+
+// A strict ISO calendar date (YYYY-MM-DD, real month/day).
+export function isIsoDate(raw: unknown): raw is string {
+  if (typeof raw !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const y = Number(raw.slice(0, 4));
+  const m = Number(raw.slice(5, 7));
+  const d = Number(raw.slice(8, 10));
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+// Whether a raw min/max value is an authorable date bound (ISO date or token).
+export function isDateBound(raw: unknown): boolean {
+  return (
+    isIsoDate(raw) ||
+    raw === "today" ||
+    raw === "year_end" ||
+    (typeof raw === "string" && DATE_TOKEN_RE.test(raw))
+  );
+}
+
+// Resolve a date bound (ISO literal OR token) to a concrete ISO date relative to
+// `todayIso` (itself an ISO date). Returns null for anything unresolvable — the
+// content-schema authoring gate (isDateBound) already rejects garbage upstream,
+// so a null here only ever means "no bound".
+export function resolveDateBound(raw: unknown, todayIso: string): string | null {
+  if (isIsoDate(raw)) return raw;
+  if (typeof raw !== "string" || raw === "" || !isIsoDate(todayIso)) return null;
+  const ty = Number(todayIso.slice(0, 4));
+  const tm = Number(todayIso.slice(5, 7));
+  const td = Number(todayIso.slice(8, 10));
+  const base = new Date(Date.UTC(ty, tm - 1, td));
+  if (raw === "today") return base.toISOString().slice(0, 10);
+  if (raw === "year_end") return `${ty}-12-31`;
+  const parts = raw.match(DATE_TOKEN_RE);
+  if (parts === null) return null;
+  const n = (parts[1] === "-" ? -1 : 1) * Number(parts[2]);
+  const unit = parts[3];
+  if (unit === "d") base.setUTCDate(base.getUTCDate() + n);
+  else if (unit === "w") base.setUTCDate(base.getUTCDate() + n * 7);
+  else {
+    // months: pin to the 1st before shifting, then clamp the day to the target
+    // month's last day (so today=Jan 31, +1m -> Feb 28/29, never a Mar rollover).
+    const day = base.getUTCDate();
+    base.setUTCDate(1);
+    base.setUTCMonth(base.getUTCMonth() + n);
+    const lastDay = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 0)).getUTCDate();
+    base.setUTCDate(Math.min(day, lastDay));
+  }
+  return base.toISOString().slice(0, 10);
+}
+
 // §5.3/§8.5b — the TextBlock `role` enum (TextBlock only).
 export const LEADGEN_TEXT_BLOCK_ROLES = [
   "heading",
@@ -1776,6 +1848,24 @@ function validateNewFieldProps(
         `${base}.props.step`,
         `props.step is only valid on Number/Amount fields (§5.6/§8.6) — a ${acceptFmt} field has no step; remove it (the Accept-swap cleans this automatically)`,
       );
+    }
+  }
+
+  // PC-5/PC-A5 (P4b): a DateQuestion's min/max are real date BOUNDS — each an
+  // ISO date (YYYY-MM-DD) or a dynamic token (today | year_end | +7d | +2w |
+  // +1m …). Garbage was saved silently before (and silently disabled the native
+  // constraint); now it is rejected with a plain author message. The concrete
+  // ISO is resolved server-side at config build (config-dto.resolveDateBound).
+  if (type === "DateQuestion") {
+    for (const key of ["min", "max"] as const) {
+      const v = props[key];
+      if (v !== undefined && v !== null && !isDateBound(v)) {
+        push(
+          "invalid_field_prop",
+          `${base}.props.${key}`,
+          `props.${key} on a Date field must be a date (YYYY-MM-DD) or a token (today, year_end, +7d, +2w, +1m) — got ${JSON.stringify(v)}`,
+        );
+      }
     }
   }
 

@@ -45,7 +45,7 @@ import {
 // appear in /lg/config (the client engine keeps consuming a flat list; the
 // server-rendered shell HTML carries the nested DOM and the engine toggles
 // [data-question-id] leaves wherever they sit).
-import { flattenComponents } from "./components/content-schema";
+import { flattenComponents, resolveDateBound } from "./components/content-schema";
 import type {
   LeadgenComponentNode,
   LeadgenComponentConditional,
@@ -216,7 +216,10 @@ const PATTERN_PRESET_REGEX: Readonly<Record<string, string>> = {
   digits: "^[0-9]+$",
 };
 
-function buildClientValidation(node: LeadgenComponentNode): Record<string, unknown> | undefined {
+function buildClientValidation(
+  node: LeadgenComponentNode,
+  todayIso: string,
+): Record<string, unknown> | undefined {
   const cv: Record<string, unknown> = {};
   if (node.required === true) cv["required"] = true;
   if (Array.isArray(node.valid_values) && node.valid_values.length > 0) {
@@ -226,6 +229,22 @@ function buildClientValidation(node: LeadgenComponentNode): Record<string, unkno
   for (const key of ["min", "max", "step", "minLength", "maxLength", "pattern"] as const) {
     const v = props[key];
     if (v !== undefined && v !== null) cv[key] = v;
+  }
+  // PC-5/PC-A5 (P4b): a DateQuestion's min/max are date BOUNDS (ISO or dynamic
+  // token). Resolve them to concrete ISO HERE, at config build, relative to
+  // `todayIso` — so the runtime's validateValue date branch is a pure lexical
+  // ISO compare with NO token grammar in the bundle, and the native <input
+  // type=date> min/max (presets, literal-ISO case) agree with the client gate.
+  // An unresolvable bound is dropped (content-schema's isDateBound already
+  // rejected garbage at authoring time).
+  if (node.type === "DateQuestion") {
+    for (const key of ["min", "max"] as const) {
+      const raw = props[key];
+      if (raw === undefined || raw === null) continue;
+      const resolved = resolveDateBound(raw, todayIso);
+      if (resolved !== null) cv[key] = resolved;
+      else delete cv[key];
+    }
   }
   // E1-C2: a letters/digits pattern_preset with no authored regex becomes the
   // grounded preset regex (a custom preset already supplied props.pattern above
@@ -255,6 +274,15 @@ function buildClientValidation(node: LeadgenComponentNode): Record<string, unkno
 // runtime-hydrated events document builds its #lg-config section through THIS
 // projection — one component-config producer, preview and live can never
 // disagree on the client component shape.
+// ISO date (YYYY-MM-DD) date tokens resolve against. Computed at projection
+// time = the request-time day for the live/preview config build. Kept internal
+// (NOT a toPublicComponent param) so every existing bare `.map(toPublicComponent)`
+// call site stays valid — only DateQuestion token bounds read it; literal ISO
+// bounds and all non-date fields are fully deterministic.
+function isoToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComponent {
   const component: PublicSectionComponent = {
     type: node.type,
@@ -276,7 +304,7 @@ export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComp
   const choiceDisplay = readChoiceDisplay(node);
   if (choiceDisplay !== undefined) component.choiceDisplay = choiceDisplay;
 
-  const clientValidation = buildClientValidation(node);
+  const clientValidation = buildClientValidation(node, isoToday());
   if (clientValidation !== undefined) component.client_validation = clientValidation;
 
   // §12.6 node-authored default → { value, answer_source: "default_applied" }.

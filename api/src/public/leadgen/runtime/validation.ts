@@ -72,6 +72,13 @@ export function formatKindFor(component: LgComponentConfig): LgFormatKind {
   return null;
 }
 
+// PC-5/PC-A5 (P4b): a date-input component. Its config carries RESOLVED ISO
+// min/max (config-dto resolved any dynamic token server-side), so the client
+// gate is a pure lexical ISO compare — no token grammar ships in the bundle.
+function isDateComponent(component: LgComponentConfig): boolean {
+  return `${component.type} ${component.answer_type ?? ""}`.toLowerCase().indexOf("date") !== -1;
+}
+
 // PC-A4 (P4b) — NANP structural phone validation + E.164 normalization.
 //
 // Returns the E.164 form (`+1` + 10 digits) for a valid US/Canada number, or
@@ -235,6 +242,22 @@ export function validateValue(
       } catch {
         /* invalid authored regex → rule skipped */
       }
+    }
+  }
+
+  // PC-5/PC-A5 date range: a lexical ISO compare (YYYY-MM-DD sorts
+  // chronologically). cv.min/max are the RESOLVED ISO bounds (config-dto). The
+  // numeric block above never fires for these (Number("2026-08-01") is NaN), so
+  // this is the ONLY min/max leg for a date field. Clear "on or after/before"
+  // copy naming the concrete resolved date.
+  if (isDateComponent(component) && typeof value === "string" && value !== "") {
+    const dmin = typeof cv["min"] === "string" ? (cv["min"] as string) : null;
+    const dmax = typeof cv["max"] === "string" ? (cv["max"] as string) : null;
+    if (dmin !== null && value < dmin) {
+      out.push({ code: "min", message: `Pick a date on or after ${dmin}.` });
+    }
+    if (dmax !== null && value > dmax) {
+      out.push({ code: "max", message: `Pick a date on or before ${dmax}.` });
     }
   }
 
