@@ -2032,6 +2032,7 @@ function renderStylePlacementBlock(): string {
         <button type="button" data-set-placement-align="center">Align center</button>
         <button type="button" data-set-placement-align="end">Align right</button>
       </div>
+      <p class="form-help studio-inline-note" data-placement-align-note hidden></p>
       <label class="form-label">Width</label>
       <div class="studio-segmented" role="group" aria-label="Placement width" data-placement-width-group>
         <button type="button" data-set-placement-width="">Auto</button>
@@ -3696,10 +3697,28 @@ export const SECTION_STUDIO_SCRIPT = `
       return null;
     }
     var children = ref.node.children;
-    var args = [ref.index, 1];
+    // CONDUCTOR FIX (P3 review MINOR-1 sweep — "a contrived ungroup
+    // sequence"): a container's OWN layout.row (it may itself be a row
+    // member) is scoped to its PARENT's sibling list; a CHILD's layout.row (if
+    // any) is scoped to the CONTAINER's OWN children list — a wholly separate
+    // contiguity domain. Ungroup splices the children INTO the parent list, so
+    // any child row-id would otherwise land in a scope it was never validated
+    // against — silently joining/extending a DIFFERENT row (possibly past
+    // MAX_ROW_MEMBERS with no cap check at render time, the same class as
+    // MINOR-1) or producing an orphaned non-contiguous row-id. Clear it on
+    // every spliced child — a row concept never survives a scope change (the
+    // SAME rule leaveRow already applies when a node structurally exits a row
+    // via drag).
+    var containerRowId = nodeRowId(ref.node);
     var i;
+    for (i = 0; i < children.length; i++) { clearNodeRow(children[i]); }
+    var args = [ref.index, 1];
     for (i = 0; i < children.length; i++) { args.push(children[i]); }
     Array.prototype.splice.apply(ref.list, args);
+    // The container itself is now GONE — if it was a row member, its row-mate
+    // may be left a stale 1-member remainder (the same cleanup a drag-out
+    // already performs).
+    if (containerRowId) { dissolveIfRemainder(ref.list, containerRowId); }
     selectedQuestionId = children[0].question_id;
     afterModelChange();
     return children;
@@ -4727,8 +4746,42 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     var clone = cloneJson(ref.node);
     regenerateIds(clone);
-    ref.list.splice(ref.index + 1, 0, clone);
+    // CONDUCTOR FIX (P3 review MINOR-1): duplicateNode used to preserve
+    // layout.row on the clone AND insert it immediately after the original
+    // (ref.index + 1) — for a member of an ALREADY-FULL row (MAX_ROW_MEMBERS),
+    // that silently builds a 4-member contiguous run: renderPlacedSiblings /
+    // renderElementRow (presets.ts) has NO cap check of its own — the
+    // save-time validator is the only gate — so the canvas happily renders
+    // the 4-up row and it only 400s at Save. Mirror the drag guard
+    // (joinRowBeside): capacity-check BEFORE inserting. If the row is already
+    // at cap, clear the CLONE's row (never the original or its row-mates) and
+    // insert it AFTER THE WHOLE RUN (rowRunBounds), not merely after the
+    // duplicated node — inserting mid-run with a row-cleared clone would
+    // otherwise SPLIT the existing valid run into two non-contiguous groups
+    // (a NEW invalid_placement the fix must not introduce).
+    var rowId = nodeRowId(ref.node);
+    var insertAt = ref.index + 1;
+    var capBumped = false;
+    if (rowId) {
+      var run = rowRunBounds(ref.list, ref.index, rowId);
+      if (run.end - run.start + 1 >= MAX_ROW_MEMBERS) {
+        clearNodeRow(clone);
+        insertAt = run.end + 1;
+        capBumped = true;
+      }
+    }
+    ref.list.splice(insertAt, 0, clone);
     afterModelChange();
+    // showRefusal AFTER afterModelChange (which unconditionally clearRefusal()s
+    // as part of its own reset pass) — same ordering the deferred move-to-frame
+    // refusals already use — so the note survives to be seen, not immediately
+    // wiped by the mutation it is reporting on. A dedicated flag (not "did
+    // clone.layout end up undefined") — the clone may carry OTHER layout keys
+    // (align/width/nudge) that survive clearNodeRow, so clone.layout staying
+    // defined must not suppress the note.
+    if (capBumped) {
+      showRefusal('A row holds at most ' + MAX_ROW_MEMBERS + ' elements side by side \\u2014 the duplicate was added as a separate element.');
+    }
     return clone;
   }
   function wrapSelection(qid, containerType) {
@@ -4739,8 +4792,20 @@ export const SECTION_STUDIO_SCRIPT = `
       showRefusal('Grouping here would exceed the max container depth of ' + MAX_DEPTH + '.');
       return null;
     }
+    // CONDUCTOR FIX (P3 review MINOR-1 sweep — the ungroup mirror): if
+    // ref.node is a row member, wrapping REPLACES it in the parent list with
+    // wrapper (un-rowed) while ref.node itself moves DOWN into
+    // wrapper.children — a NEW, separate contiguity scope. Left alone, the
+    // node's row-id would become dead/orphaned cruft inside a 1-element list
+    // (harmless to validate, but semantically stale) and any row-mate left
+    // behind in the parent list would never get its 1-member-remainder
+    // cleanup — the SAME "a row concept never survives a scope change" rule
+    // ungroupSelection/leaveRow already apply.
+    var rowId = nodeRowId(ref.node);
+    if (rowId) { clearNodeRow(ref.node); }
     var wrapper = { type: containerType, question_id: newQuestionId(), children: [ref.node] };
     ref.list[ref.index] = wrapper;
+    if (rowId) { dissolveIfRemainder(ref.list, rowId); }
     selectedQuestionId = wrapper.question_id;
     afterModelChange();
     return wrapper;
@@ -4798,6 +4863,17 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!list) { return 0; }
     for (i = 0; i < list.length; i++) { if (nodeRowId(list[i]) === rowId) { n++; } }
     return n;
+  }
+  // CONDUCTOR FIX (P3 review MINOR-1): the CONTIGUOUS run of rowId that
+  // contains index — walking outward from a known member so a caller (e.g.
+  // duplicateNode) can insert AFTER the whole run rather than merely after one
+  // member of it (inserting mid-run would otherwise split an existing valid
+  // run into two non-contiguous groups the very next save would reject).
+  function rowRunBounds(list, index, rowId) {
+    var start = index, end = index;
+    while (start > 0 && nodeRowId(list[start - 1]) === rowId) { start -= 1; }
+    while (end < list.length - 1 && nodeRowId(list[end + 1]) === rowId) { end += 1; }
+    return { start: start, end: end };
   }
   // A row-id worn by exactly ONE sibling is a dissolved-remainder (a lone
   // element renders as a normal single element anyway — this keeps the model
@@ -7635,6 +7711,22 @@ export const SECTION_STUDIO_SCRIPT = `
       if (inRow) { indicator.textContent = 'In a row with ' + members.join(', ') + '.'; }
     }
     if (removeBtn) { removeBtn.hidden = !inRow; }
+    // CONDUCTOR FIX (P3 review NIT): align on a LONE element (not a real row
+    // member) is INERT without a placement Width — presets.ts finishLonePlacement
+    // only wraps a lone node in .lg-el (the ONLY element widthCenteringEntries'
+    // align margins can apply to) when it has a fixed placement width OR a
+    // nudge; align ALONE writes to the model but renders byte-identically to no
+    // layout at all. A ROW MEMBER is unaffected (its slot's data-align always
+    // takes effect via the .lg-el-row CSS, regardless of the member's own
+    // width) — the note is scoped to the lone case only.
+    var alignNote = document.querySelector('[data-placement-align-note]');
+    if (alignNote) {
+      var alignInert = !inRow && align !== '' && layout.width === undefined;
+      alignNote.hidden = !alignInert;
+      alignNote.textContent = alignInert
+        ? 'Align takes effect once this element has a fixed Width (below) \\u2014 without one, it already fills the full width.'
+        : '';
+    }
     // Honest governance note when BOTH a placement width and the element's own
     // width (Size & width) are set — they NEST (P3a render), neither silently
     // wins: the placement width sizes the slot/box, the own width sizes the

@@ -1195,6 +1195,16 @@ const MODEL_FUNCS = [
   "moveWithin",
   "removeNode",
   "regenerateIds",
+  // CONDUCTOR FIX (P3 review MINOR-1): the row-cap-aware mutation guards
+  // duplicateNode/wrapSelection now call — sliced alongside them so the probe
+  // exercises the REAL cap-check/clear/dissolve logic, not a stub.
+  "nodeRowId",
+  "ensureLayout",
+  "cleanupLayout",
+  "clearNodeRow",
+  "countRowMembersInList",
+  "rowRunBounds",
+  "dissolveIfRemainder",
   "duplicateNode",
   "wrapSelection",
   "computeIssues",
@@ -1274,6 +1284,11 @@ function studioProbe(html: string, content: unknown, docStub?: Record<string, un
     "function showRefusal(m) { refusals.push(m); }",
     "function clearRefusal() {}",
     "function applyCanvasDecoration() {}",
+    // CONDUCTOR FIX (P3 review MINOR-1): duplicateNode/wrapSelection now
+    // reference the bare MAX_ROW_MEMBERS literal (a free var, not a function)
+    // — sliced alongside MODEL_FUNCS so the vm-probe runs the REAL served
+    // value, never a hand-typed re-guess of the cap.
+    sliceIslandLine(island, "var MAX_ROW_MEMBERS ="),
     ...MODEL_FUNCS.map((n) => sliceIslandFunction(island, n)),
   ].join("\n");
   runInNewContext(source, sandbox);
@@ -1679,7 +1694,12 @@ describeDb("section studio EXECUTED island — live server seams", () => {
     const source = [
       "function afterModelChange() {}",
       "function showRefusal(m) { refusals.push(m); }",
-      ...MODEL_FUNCS.map((n) => sliceIslandFunction(island, n)),
+      // CONDUCTOR FIX (P3 review MINOR-1): duplicateNode/wrapSelection now
+    // reference the bare MAX_ROW_MEMBERS literal (a free var, not a function)
+    // — sliced alongside MODEL_FUNCS so the vm-probe runs the REAL served
+    // value, never a hand-typed re-guess of the cap.
+    sliceIslandLine(island, "var MAX_ROW_MEMBERS ="),
+    ...MODEL_FUNCS.map((n) => sliceIslandFunction(island, n)),
       // author through the REAL island model: wrap the seeded question in a
       // Stack and add a helper line inside it
       "var wrapper = wrapSelection('q1', 'Stack');",
@@ -1879,6 +1899,11 @@ function mappingProbe(html: string, content: unknown, offersData: unknown, answe
     "function showRefusal(m) { refusals.push(m); }",
     "function clearRefusal() {}",
     "function markDirty() {}",
+    // CONDUCTOR FIX (P3 review MINOR-1): duplicateNode/wrapSelection now
+    // reference the bare MAX_ROW_MEMBERS literal (a free var, not a function)
+    // — sliced alongside MODEL_FUNCS so the vm-probe runs the REAL served
+    // value, never a hand-typed re-guess of the cap.
+    sliceIslandLine(island, "var MAX_ROW_MEMBERS ="),
     ...MODEL_FUNCS.map((n) => sliceIslandFunction(island, n)),
     ...MAPPING_FUNCS.map((n) => sliceIslandFunction(island, n)),
   ].join("\n");

@@ -342,6 +342,31 @@ export function funnelChromeCss(
     rule(`${scope} .lg-el-row > .lg-el[data-align="center"]`, { "align-items": "center" }),
     rule(`${scope} .lg-el-row > .lg-el[data-align="end"]`, { "align-items": "flex-end" }),
     rule(`${scope} .lg-el`, { transform: "var(--lg-el-nudge, none)", "max-width": "100%" }),
+    // CONDUCTOR FIX (P3 review MINOR-2): a row member that carries a Rules
+    // condition can be hidden at RUNTIME by the live funnel (render.ts
+    // applyComponentVisibility sets the `hidden` attribute directly on the
+    // component's own hydration anchor, `[data-lg-question="{qid}"]` — the
+    // SAME element hydration() stamps on every answer-producing renderer,
+    // confirmed against presets.ts: a bare `renderTextInput` puts it on the
+    // `<input>` itself, a DIRECT CHILD of `.lg-el`; the icon/helper-boxed path
+    // and `renderButtonAnswerGroup`'s `.lg-answer-group` root put it at
+    // varying depths — so the selector below is a plain DESCENDANT `:has()`
+    // (no `>` combinator), matching the hydration anchor at ANY nesting depth
+    // inside its OWN `.lg-el`, never a sibling's). Without this rule, the
+    // LIVE funnel's static server-rendered HTML keeps the hidden member's now-
+    // empty `.lg-el` SLOT in the flex row (a visible empty column) — the SSR
+    // dependency-preview simulator never has this problem (renderVisibleNodes
+    // drops a hidden node from the markup entirely before renderPlacedSiblings
+    // groups the row, so a 2-member row with one hidden member never even
+    // reaches the DOM as a row — it degrades straight to the single survivor,
+    // full width). Collapsing the hidden slot to `display:none` here makes the
+    // LIVE funnel degrade the SAME way: flexbox excludes a `display:none` item
+    // from layout entirely, so an unauthored-width (`flex:1 1 0`) survivor
+    // naturally expands to fill the row — matching the SSR preview's degrade
+    // semantics without a JS-side layout patch. `:has()` is in the support
+    // baseline already relied on elsewhere in this sheet (the P1 selection-
+    // chrome grid-follower companion selectors below).
+    rule(`${scope} .lg-el:has([data-lg-question][hidden])`, { display: "none" }),
   );
   // ≤480px (§D1 automatic mobile stacking): the row becomes a column, every
   // member spans full width (its desktop `--lg-el-basis` is neutralized — flex

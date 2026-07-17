@@ -239,7 +239,21 @@ test.describe("P3a structured placement — live /lg funnel (§12 parity + mobil
     expect(Math.abs(m1.width - m2.width), "stacked members are equal (full) width").toBeLessThanOrEqual(2);
     const rowRect = await rectOf(L.row);
     const viewport = page.viewportSize()!;
-    expect(rowRect.width, "no horizontal overflow at 375px").toBeLessThanOrEqual(viewport.width);
+    expect(rowRect.width, "the row itself has no horizontal overflow at 375px").toBeLessThanOrEqual(viewport.width);
+    // NIT (P3 review): the ROW-width check above only proves the row's OWN box
+    // fits — the E6 evidence shape (evidence-standards.md) is the PAGE-level
+    // guarantee (document.documentElement.scrollWidth <= window.innerWidth),
+    // the SAME check leadgen-patterns-v25.spec.ts's gotoLive already asserts.
+    // A row could fit while some OTHER element on the page overflows; only the
+    // page-level measurement proves "no horizontal overflow" in the E6 sense.
+    const overflow = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+    }));
+    expect(
+      overflow.scrollWidth,
+      `E6 no horizontal overflow at 375px (scrollWidth ${overflow.scrollWidth} <= innerWidth ${overflow.innerWidth})`,
+    ).toBeLessThanOrEqual(overflow.innerWidth);
     // The fixed 384px "m" member is now clamped to the column (max-width:100%).
     expect(m2.width, "the width:m member is full-width when stacked, not a fixed 384px").toBeLessThan(M_WIDTH);
   });
@@ -660,5 +674,183 @@ test.describe("P3b drag-formed row -> live /lg parity (chromium; firefox-skip)",
     const liveRow3 = page.locator('.lg-el-row[data-row-cols="3"]');
     await expect(liveRow3, "the live funnel renders the SAME 3-slot row").toBeVisible({ timeout: 20_000 });
     await expect(liveRow3.locator(".lg-el")).toHaveCount(3);
+  });
+});
+
+// ===========================================================================
+// P3 REVIEW fix round — MINOR-1 (duplicate bypasses the row cap) + MINOR-2
+// (hidden row member leaves an empty live column) + NITS.
+// ===========================================================================
+
+// Open the canvas toolbar's "More actions" popover (leadgen-studio-patterns
+// idiom — a real click on the visible "⋮" toggle, never force-clicking
+// the hidden popover action directly) then click a data-studio-act button.
+async function studioAct(page: Page, act: string): Promise<void> {
+  await page.locator("[data-studio-more-toggle]").click();
+  await expect(page.locator("[data-studio-more-panel]")).toBeVisible();
+  await page.locator(`[data-studio-act="${act}"]`).click();
+}
+
+test.describe("P3 review MINOR-1 — duplicate/ungroup/wrap respect the row cap (both engines)", () => {
+  // Regression: duplicating a MIDDLE member of an already-FULL (3) row used to
+  // preserve layout.row on the clone AND insert it contiguously — a silent
+  // 4-member run the canvas rendered but only the SAVE 400'd on. The clone
+  // must now land LONE right after the row, with the row itself untouched.
+  test("duplicating a member of a full 3-member row: clone lands lone (not a 4th slot), the row is untouched, the model saves clean", async ({ page, request }) => {
+    const s = await createSectionComps(request, `p3rev-dup-${uniq}-${Math.random().toString(36).slice(2, 7)}`, [
+      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+      { type: "TextBlock", question_id: "a", props: { role: "body", text: "A" }, layout: { row: "r3" } },
+      { type: "TextBlock", question_id: "b", props: { role: "body", text: "B" }, layout: { row: "r3" } },
+      { type: "TextBlock", question_id: "c", props: { role: "body", text: "C" }, layout: { row: "r3" } },
+      { type: "FreeTextQuestion", question_id: "d", internal_field: "d", answer_type: "string", props: { placeholder: "D" } },
+      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
+    ]);
+    await bootCanvas(page, s);
+    await expect(canvasRoot(page).locator('.lg-el-row[data-row-cols="3"]')).toBeVisible({ timeout: 10_000 });
+
+    // select the MIDDLE member (b) — the harder case: a naive "insert right
+    // after the duplicated node" would land the clone BETWEEN b and c,
+    // splitting the run into two non-contiguous groups if its row were kept.
+    await frameOf(page).locator('[data-question-id="b"]').click();
+    await studioAct(page, "duplicate");
+
+    // the inline note (join-refusal copy style) explains the accommodation.
+    const note = page.locator("[data-studio-drop-refusal]");
+    await expect(note, "the row-cap note shows").toBeVisible({ timeout: 8000 });
+    await expect(note).toContainText("at most 3");
+
+    // canvas: the row is STILL exactly 3 members (a,b,c unaffected) — the
+    // clone rendered as a SEPARATE lone element, never a 4th row slot.
+    const row3 = canvasRoot(page).locator('.lg-el-row[data-row-cols="3"]');
+    await expect(row3, "the row stays at 3 slots (no 4th slot)").toBeVisible({ timeout: 8000 });
+    await expect(row3.locator(".lg-el")).toHaveCount(3);
+
+    await saveAndReload(page);
+    const comps = await savedComps(request, s.public_id);
+    const known = new Set(["q_head", "a", "b", "c", "d", "q_cont"]);
+    const clone = comps.find((c) => !known.has(c.question_id));
+    expect(clone, "the duplicate persisted as a NEW node").toBeTruthy();
+    expect(rowOf(clone), "the clone carries NO layout.row (lands lone)").toBeUndefined();
+    const rowIds = ["a", "b", "c"].map((q) => rowOf(comps.find((cc) => cc.question_id === q)));
+    expect(rowIds[0], "a still carries its row").toBeTruthy();
+    expect(rowIds[1], "the row is UNCHANGED — b still shares it").toBe(rowIds[0]);
+    expect(rowIds[2], "the row is UNCHANGED — c still shares it").toBe(rowIds[0]);
+    const ci = comps.findIndex((cc) => cc.question_id === "c");
+    const cloneIdx = comps.findIndex((cc) => cc === clone);
+    expect(cloneIdx, "the clone lands immediately after the WHOLE row (after c), never mid-run").toBe(ci + 1);
+  });
+});
+
+test.describe("P3 review MINOR-2 — a hidden row member collapses its slot on the live funnel (chromium; firefox-skip)", () => {
+  // Grounded in the REAL emitted markup: render.ts applyComponentVisibility
+  // toggles `hidden` DIRECTLY on `[data-lg-question="{qid}"]` (the hydration()
+  // anchor every answer-producing renderer stamps — presets.ts confirms it
+  // lands as a DIRECT child of .lg-el for a bare input, but NESTED for the
+  // icon/helper-boxed path and inside .lg-answer-group's own root) — the fix
+  // (styles.ts `.lg-el:has([data-lg-question][hidden]){display:none}`) uses a
+  // plain descendant :has() (no `>`) so it collapses the slot regardless of
+  // which shape the member's renderer produces. A conditional's answer is
+  // fail-closed (an unanswered trigger ALWAYS reads as unmet — dependencies.ts
+  // "an ABSENT answer NEVER satisfies a conditional"), so the row member
+  // starts HIDDEN at page load with zero interaction; clicking the trigger
+  // reveals it, and clicking the OTHER trigger value hides it again — the
+  // "live-toggle it" moment the dispatch names.
+  test("row member B starts hidden (row collapses to A full-row); clicking Yes reveals it (2 slots); clicking No hides it again (collapses back)", async ({
+    page,
+    request,
+    browserName,
+  }) => {
+    test.skip(browserName === "firefox", "live /lg leg needs chromium --host-resolver-rules; the studio-canvas drag legs run on BOTH engines elsewhere in this file");
+    const host = `p3rev-min2-${uniq}.e2e.test`;
+    const siteId = await seedActiveSite(request, host, `P3 review MINOR-2 ${uniq}`);
+    const s = await createSectionComps(request, `p3rev-min2-${uniq}`, [
+      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+      { type: "TwoButtonYesNo", question_id: "trigger", internal_field: "trigger", answer_type: "boolean", props: { yesLabel: "Yes", noLabel: "No" } },
+      { type: "TextBlock", question_id: "a", props: { role: "body", text: "Alpha" }, layout: { row: "r2" } },
+      {
+        type: "FreeTextQuestion",
+        question_id: "b",
+        internal_field: "beta",
+        answer_type: "string",
+        props: { placeholder: "Beta" },
+        layout: { row: "r2" },
+        // NOTE (grounded via a live debug probe): TwoButtonYesNo's stored
+        // answer is the STRING "true"/"false" (mirroring its data-value), not
+        // a JS boolean — conditionMet's eq/neq are STRICT (===), so the
+        // conditional value must match that stored shape exactly.
+        conditional: { when: "trigger", op: "eq", value: "true" },
+      },
+      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
+    ]);
+    const quote = await json<{ public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }> }>(
+      await request.post(`${LG_API}/quotes`, { data: { quote_name: `P3 review MINOR-2 ${uniq}`, activity: "quote_funnel", verticals: ["life"] } }),
+      "quote create",
+    );
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: s.id }] } }), "variant sections");
+    await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p3rev-min2" } }), "activation");
+
+    await page.goto(`http://${host}:${PORT}/lg/p3rev-min2`, { waitUntil: "load" });
+    const row = page.locator(".lg-el-row");
+    await expect(row, "the row renders (both members physically in the DOM)").toBeVisible({ timeout: 20_000 });
+    const slotA = page.locator('.lg-el:has([data-question-id="a"])');
+    const slotB = page.locator('.lg-el:has([data-lg-field="beta"])');
+
+    // (1) page load, ZERO interaction: trigger is unanswered -> B's conditional
+    // is unmet (fail-closed) -> B starts HIDDEN -> its SLOT collapses, A takes
+    // the full row width (matching the SSR preview's degrade semantics).
+    await expect(slotB, "B's slot is hidden at page load (unanswered trigger)").toBeHidden();
+    const aFull = await rectOf(slotA);
+    const rowFull = await rectOf(row);
+    expect(Math.abs(aFull.width - rowFull.width), "A fills the WHOLE row width while B is collapsed").toBeLessThanOrEqual(2);
+
+    // (2) click Yes -> trigger becomes true -> B's conditional is now met ->
+    // the row expands to 2 real slots, side by side.
+    await page.locator('[data-lg-question="trigger"] [data-lg-choice="true"]').click();
+    await expect(slotB, "B reveals once the conditional is met").toBeVisible({ timeout: 8000 });
+    const aRect = await rectOf(slotA);
+    const bRect = await rectOf(slotB);
+    expect(Math.abs(aRect.top - bRect.top), "A and B share a y-band once both are visible").toBeLessThanOrEqual(2);
+    expect(aRect.right, "A is left of B").toBeLessThanOrEqual(bRect.left + 0.5);
+
+    // (3) the LIVE TOGGLE moment: click No -> trigger becomes false -> B's
+    // conditional is unmet again -> its slot COLLAPSES back, measured live —
+    // not merely "starts hidden," but observed transitioning DURING the run.
+    await page.locator('[data-lg-question="trigger"] [data-lg-choice="false"]').click();
+    await expect(slotB, "B's slot collapses again after the live toggle").toBeHidden({ timeout: 8000 });
+    const aAfterToggle = await rectOf(slotA);
+    const rowAfterToggle = await rectOf(row);
+    expect(Math.abs(aAfterToggle.width - rowAfterToggle.width), "A re-fills the row after B collapses").toBeLessThanOrEqual(2);
+  });
+});
+
+test.describe("P3 review NIT — Align inspector honesty on a lone, width-less element (both engines)", () => {
+  // NIT: Align on a LONE (non-row) element with no placement Width is a
+  // COMPLETE no-op at render time (presets.ts finishLonePlacement only wraps
+  // a lone node in .lg-el — the ONLY element align's margins can apply to —
+  // when it has a fixed width or a nudge; align alone changes nothing). The
+  // Style tab must say so instead of silently letting the operator pick a
+  // dead control.
+  test("the align governance note shows for a lone width-less element and hides once Width or row membership makes it meaningful", async ({ page, request }) => {
+    const s = await createSectionComps(request, `p3rev-nit-${uniq}-${Math.random().toString(36).slice(2, 7)}`, [
+      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+      { type: "FreeTextQuestion", question_id: "a", internal_field: "a", answer_type: "string", props: { placeholder: "Solo" } },
+      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
+    ]);
+    await bootCanvas(page, s);
+    await frameOf(page).locator('[data-question-id="a"]').click();
+    await page.locator('[data-studio-inspector-tab="style"]').click();
+    await expect(page.locator("[data-placement-controls]")).toBeVisible({ timeout: 8000 });
+    const note = page.locator("[data-placement-align-note]");
+    await expect(note, "no align set yet -> note hidden").toBeHidden();
+
+    // set Align with NO width authored -> the note explains it is inert.
+    await page.locator('[data-set-placement-align="center"]').click();
+    await expect(note, "align set, no width, lone element -> governance note shows").toBeVisible({ timeout: 8000 });
+    await expect(note).toContainText("fixed Width");
+
+    // author a Width -> align now has a real effect -> the note hides.
+    await page.locator('[data-set-placement-width="m"]').click();
+    await expect(note, "a fixed width makes align meaningful -> note hides").toBeHidden({ timeout: 8000 });
   });
 });

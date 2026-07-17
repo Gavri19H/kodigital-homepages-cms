@@ -673,13 +673,20 @@ const MINOR1_CARD_PANEL_FLOOR_MOBILE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-card-
 const MINOR1_BG_PANEL_FLOOR_MOBILE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-bg-panel-inner > * + *{margin-top:${defaultFunnelDesign.spacing.stackMobile}}`;
 
 // P3a (register PC-2 / D1 / R-B): structured placement is a NET-NEW CSS system
-// (`.lg-el` / `.lg-el-row`) — 7 base rules + 4 mobile rules. NONE match this
+// (`.lg-el` / `.lg-el-row`) — 8 base rules + 4 mobile rules. NONE match this
 // legacy/no-layout content (no node carries `layout`), so they are wholesale-
 // stripped here (the SAME "net-new rule" bucket as P1a's own additions), kept
 // in lockstep with styles.ts (a drift in either fails here). The grid-follower
 // collapse-emulation table's OWN `.lg-el-row` growth is already reconstructed
 // by followerSelectorsFixRound (above), so P1A_FIX_ROUND_EXCEPTION_TABLE still
 // strips the CURRENT (expanded) table wholesale.
+//
+// CONDUCTOR FIX (P3 review MINOR-2, delta classified — the ONLY new rule this
+// fix adds): the 8th base rule, `.lg-el:has([data-lg-question][hidden])
+// {display:none}` — the live-funnel hidden-row-member slot collapse. No
+// EXISTING rule above changed; this entry is purely additive, appended right
+// after the .lg-el transform/nudge rule (matching styles.ts's own emission
+// order) and BEFORE the 4 mobile entries.
 const P3A_EL_RULES = [
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row{display:flex;gap:${defaultFunnelDesign.answerGrid.gap};align-items:stretch}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row > .lg-el{flex:1 1 0;min-width:0;display:flex;flex-direction:column}`,
@@ -688,6 +695,7 @@ const P3A_EL_RULES = [
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row > .lg-el[data-align="center"]{align-items:center}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row > .lg-el[data-align="end"]{align-items:flex-end}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-el{transform:var(--lg-el-nudge, none);max-width:100%}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-el:has([data-lg-question][hidden]){display:none}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row{flex-direction:column;gap:${defaultFunnelDesign.spacing.stackMobile}}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row > .lg-el{flex:1 1 auto}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-el-row > .lg-el[data-el-basis]{flex:1 1 auto}`,
