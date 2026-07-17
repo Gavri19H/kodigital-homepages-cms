@@ -6,9 +6,9 @@
 // (api/src/leadgen/dependencies.ts, whose op truth is payload.ts
 // `conditionalMet`): eq/neq/gt/lt/gte/lte/range/in/not_in. Parity is enforced
 // cell-for-cell by a generated table test (09 §9.3 / 03 §3.10) that runs BOTH
-// evaluators over the same case matrix — any drift here fails vitest, EXCEPT
-// the ONE documented divergence below (boolean/string equality-shape), which
-// the shared table deliberately never exercises (see that test file).
+// evaluators over the same case matrix, PLUS a dedicated boolean/string
+// cross-product (test/leadgen-runtime-engine.test.ts "PC-12 conductor fix" —
+// see below) — full parity holds, no known drift.
 //
 // Mirrored semantics (each line corresponds 1:1 to payload.ts:645–682 /
 // dependencies.ts:63–134 — keep them byte-equivalent in behavior):
@@ -16,7 +16,8 @@
 //     (fail-closed — a component with an unmet conditional stays HIDDEN);
 //     note null is NOT undefined and falls through to the op;
 //   * eq/neq/in/not_in compare STRICTLY (===/!==/Array.includes), EXCEPT the
-//     CLIENT-ONLY boolean/string-shape normalization documented below;
+//     boolean/string-shape normalization documented below (mirrored on BOTH
+//     sides, client and server — see the CONDUCTOR FIX note);
 //   * gt/lt/gte/lte coerce the actual via Number() unless already a number;
 //     the bound must be `typeof number` (else NaN); either non-finite → false;
 //   * range: actual coerced via Number(); from/to must both be
@@ -30,10 +31,9 @@
 
 import type { LgComponentConfig, LgConditional, LgSectionConfig } from "./state";
 
-// CONDUCTOR FIX (register PC-12, 2026-07-17) — DOCUMENTED CLIENT/SERVER
-// DIVERGENCE, narrow + deliberate: a LIVE TwoButtonYesNo click records the
-// raw string "true"/"false" (engine.ts handleChoiceActivation has no
-// `choices` array to type-resolve it against — see its own investigation
+// CONDUCTOR FIX (register PC-12, 2026-07-17): a LIVE TwoButtonYesNo click
+// records the raw string "true"/"false" (engine.ts handleChoiceActivation has
+// no `choices` array to type-resolve it against — see its own investigation
 // comment), while the studio's typed pickers (buildConditional/typedScalar)
 // AND a defaulted answer's props.defaultValue author/apply a REAL boolean for
 // a boolean-typed `when` field. Both value shapes therefore coexist in live
@@ -49,22 +49,24 @@ import type { LgComponentConfig, LgConditional, LgSectionConfig } from "./state"
 // UNCHANGED (they already coerce via Number(), where Number(true)===1 must
 // stay exact — folding the string-normalizer in there would corrupt that).
 //
-// SCOPE: this fixes CLIENT-SIDE evaluation only — every dependency check the
-// live funnel renders through (section/component visibility, Continue
-// visibility, requiredWhen) runs ENTIRELY through this file, so the
-// user-visible bug (dependent content never revealing) is fully resolved
-// here. The SERVER twin (src/leadgen/dependencies.ts) has NO independent
-// comparison logic of its own — it delegates to payload.ts's `conditionalMet`,
-// which is ALSO the function payload.ts uses to drop auction-payload nodes on
-// an unmet conditional AND auction-rules.ts uses for funnel/carrier
-// eligibility matching (`conditionsMatch`) — i.e. patching it ripples into
-// live auction/carrier-matching semantics, a materially larger blast radius
-// than this dependency evaluator. That file is outside this slice's
-// ownership and was not touched — flagged to the conductor as an open,
-// explicitly-scoped follow-up rather than silently patched or shadow-forked
-// here (a shadow wrapper in dependencies.ts would violate ITS OWN documented
-// invariant that show/hide/require and payload-build can never diverge on
-// the same op — worse than leaving the gap named). See the phase report.
+// FULL PARITY (same-day follow-up, explicitly scoped + authorized): the FIRST
+// round of this fix landed CLIENT-ONLY, deliberately leaving the server twin
+// (src/leadgen/dependencies.ts — a pure delegator with no logic of its own —
+// to payload.ts's `conditionalMet`) untouched, since that function is ALSO
+// used by payload.ts to drop auction-payload nodes on an unmet conditional
+// AND by auction-rules.ts's `conditionsMatch` for funnel/carrier eligibility —
+// a materially larger blast radius than this dependency evaluator, requiring
+// explicit sign-off. That sign-off was given: leaving the shared evaluator
+// strict while THIS file normalized would have created a NEW divergence class
+// (a component correctly SHOWN client-side silently DROPPED from the auction
+// payload — a money-path bug, since payload.ts's own header documents
+// "payload-build and show/hide/require can never diverge on the same op").
+// payload.ts's `conditionalMet` now carries the IDENTICAL normalizeBoolShape
+// treatment, so client and server are back in full, provable parity (see the
+// dedicated boolean/string cross-product test) — the SCOPE note that used to
+// live here (declining to touch payload.ts) is stale; it was resolved, not
+// abandoned. See the phase report for the money-path behavior note this
+// server-side change carries (operator staging-review flag).
 function normalizeBoolShape(value: unknown): unknown {
   if (value === true) return "true";
   if (value === false) return "false";

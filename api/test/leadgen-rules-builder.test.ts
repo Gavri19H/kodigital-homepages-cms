@@ -483,10 +483,17 @@ describe("rules builder — serialization round-trip against the real evaluator"
     const empty = roundTrip({ groups: [] });
     expect(conditionsMatch(empty, {})).toBe(true);
 
-    // Boolean identity preserved as a REAL boolean (eq is strict ===).
+    // Boolean identity preserved as a REAL boolean through the round-trip.
+    // CONDUCTOR FIX (register PC-12, 2026-07-17): conditionsMatch (via
+    // payload.ts conditionalMet) now treats true≡"true"/false≡"false" for
+    // eq/neq/in/not_in — a boolean-authored eq now ALSO matches a live-
+    // recorded STRING answer (a TwoButtonYesNo's live click records the raw
+    // string "true"/"false", not a real boolean — see conditionalMet's own
+    // module comment). This assertion used to pin the pre-fix strict-===
+    // behavior as correct; it now pins the fixed, intent-restoring behavior.
     const boolCond = roundTrip({ groups: [{ field: "homeowner", op: "eq", value: true }] });
     expect(conditionsMatch(boolCond, { homeowner: true })).toBe(true);
-    expect(conditionsMatch(boolCond, { homeowner: "true" })).toBe(false);
+    expect(conditionsMatch(boolCond, { homeowner: "true" })).toBe(true);
   });
 
   it("the SSR hidden output itself is the round-tripped JSON the evaluator accepts", () => {

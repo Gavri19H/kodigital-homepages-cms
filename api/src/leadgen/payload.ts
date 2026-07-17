@@ -1067,6 +1067,31 @@ export interface LeadgenPayloadBuildContext {
   token?: LeadgenPayloadTokenContext;
 }
 
+// CONDUCTOR FIX (register PC-12, 2026-07-17) — boolean/string equality-shape
+// equivalence, mirrored byte-for-byte from the client evaluator
+// (public/leadgen/runtime/dependencies.ts conditionMet's own normalizeBoolShape):
+// a LIVE TwoButtonYesNo click records the raw string "true"/"false" (no
+// `choices` array to type-resolve against — engine.ts handleChoiceActivation),
+// while the studio's typed pickers (buildConditional/typedScalar) AND a
+// defaulted answer's props.defaultValue author/apply a REAL boolean for a
+// boolean-typed `when` field — so both shapes coexist in live answers. This
+// function is the SINGLE evaluator payload-build (node-drop, below),
+// dependencies.ts (show/hide/require — the public funnel's client evaluator
+// mirrors it), and auction-rules.ts conditionsMatch (offer/carrier
+// eligibility) all share — leaving it strict here while the client
+// normalized would have created a NEW divergence class: a component
+// correctly SHOWN client-side silently DROPPED from the auction payload
+// (show-but-don't-submit, a money-path bug), and an auction/carrier rule
+// authored against a boolean field that could never match a live answer.
+// Scoped to EXACTLY eq/neq/in/not_in (equality family); gt/lt/gte/lte/range
+// are UNCHANGED — they already coerce via Number(), where Number(true)===1
+// must stay exact.
+function normalizeBoolShape(value: unknown): unknown {
+  if (value === true) return "true";
+  if (value === false) return "false";
+  return value;
+}
+
 // 07 §21.4 semantics scoped to one field: OR within `values`, numeric
 // comparisons only over finite numbers. An ABSENT answer never satisfies a
 // conditional (deterministic: unmet ⇒ node dropped). Exported as the single
@@ -1080,9 +1105,9 @@ export function conditionalMet(
   if (actual === undefined) return false;
   switch (conditional.op) {
     case "eq":
-      return actual === conditional.value;
+      return normalizeBoolShape(actual) === normalizeBoolShape(conditional.value);
     case "neq":
-      return actual !== conditional.value;
+      return normalizeBoolShape(actual) !== normalizeBoolShape(conditional.value);
     case "gt":
     case "lt":
     case "gte":
@@ -1104,10 +1129,17 @@ export function conditionalMet(
       // Inclusive bounds — "age 25–64" reads as [25, 64].
       return n >= from && n <= to;
     }
-    case "in":
-      return Array.isArray(conditional.values) && conditional.values.includes(actual);
-    case "not_in":
-      return Array.isArray(conditional.values) && !conditional.values.includes(actual);
+    case "in": {
+      // Array.includes (SameValueZero, e.g. NaN-membership) over the
+      // bool-normalized values — matches the pre-fix behavior for every
+      // non-boolean-shaped element, plus the new true/"true" equivalence.
+      const actualNorm = normalizeBoolShape(actual);
+      return Array.isArray(conditional.values) && conditional.values.map(normalizeBoolShape).includes(actualNorm);
+    }
+    case "not_in": {
+      const actualNorm = normalizeBoolShape(actual);
+      return Array.isArray(conditional.values) && !conditional.values.map(normalizeBoolShape).includes(actualNorm);
+    }
   }
 }
 
