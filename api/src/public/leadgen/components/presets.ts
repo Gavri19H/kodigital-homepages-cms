@@ -3181,6 +3181,21 @@ function finishLonePlacement(
 // (a fixed width member; unauthored/full members keep the CSS equal-basis
 // default), `data-align` positions its content, `--lg-el-nudge` carries the
 // bounded offset.
+//
+// CONDUCTOR FIX (P3 re-review, fresh regression from the MINOR-2 fix): the
+// live hidden-slot-collapse CSS rule (styles.ts) must ONLY ever collapse a
+// LEAF member's slot — a CONTAINER row member (e.g. CardPanel) can carry its
+// OWN mix of always-visible + conditionally-hidden CHILDREN; collapsing the
+// whole slot because ONE descendant happens to be hidden would also hide the
+// container's OTHER, still-visible content (a live-proven regression: a
+// [leaf + CardPanel{visible TextBlock, conditional FreeTextQuestion}] row —
+// hiding the inner FreeTextQuestion collapsed the ENTIRE CardPanel slot,
+// including its always-visible TextBlock, to 0×0). `data-el-leaf` marks a
+// slot as a single answer-producing/content LEAF (never a container) — the
+// CSS selector below can then require it, so a container's slot NEVER
+// collapses from an inner descendant's `hidden`, only a leaf's OWN single
+// `[data-lg-question]` doing so (a leaf has exactly one, and its own
+// visibility state IS the slot's — there is no "partially visible" leaf).
 function wrapRowMember(
   node: LeadgenComponentNode,
   html: string,
@@ -3197,6 +3212,7 @@ function wrapRowMember(
     `<div class="lg-el"` +
     attr("data-align", isPlacementAlign(layout.align) ? layout.align : undefined) +
     attr("data-el-basis", fixedW !== undefined ? "1" : undefined) +
+    attr("data-el-leaf", isLayoutContainerType(node.type) ? undefined : "1") +
     styleAttr +
     `>${html}</div>`
   );

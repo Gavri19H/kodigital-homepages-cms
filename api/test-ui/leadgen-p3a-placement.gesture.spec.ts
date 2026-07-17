@@ -118,6 +118,13 @@ function rectOf(loc: Locator): Promise<Rect> {
 function transformOf(loc: Locator): Promise<string> {
   return loc.evaluate((el: Element) => getComputedStyle(el as HTMLElement).transform);
 }
+// The reviewer's exact citation shape for the MINOR-2 re-review regression:
+// a slot's COMPUTED display (not just Playwright's toBeVisible, which also
+// factors in ancestor visibility/size) — "slotDisplay: none" was the fail-
+// before evidence for the container-collapse bug.
+function displayOf(loc: Locator): Promise<string> {
+  return loc.evaluate((el: Element) => getComputedStyle(el as HTMLElement).display);
+}
 
 // Named locators inside a render root (studio canvas OR live body).
 function locators(root: Locator) {
@@ -746,15 +753,25 @@ test.describe("P3 review MINOR-2 — a hidden row member collapses its slot on t
   // toggles `hidden` DIRECTLY on `[data-lg-question="{qid}"]` (the hydration()
   // anchor every answer-producing renderer stamps — presets.ts confirms it
   // lands as a DIRECT child of .lg-el for a bare input, but NESTED for the
-  // icon/helper-boxed path and inside .lg-answer-group's own root) — the fix
-  // (styles.ts `.lg-el:has([data-lg-question][hidden]){display:none}`) uses a
-  // plain descendant :has() (no `>`) so it collapses the slot regardless of
-  // which shape the member's renderer produces. A conditional's answer is
-  // fail-closed (an unanswered trigger ALWAYS reads as unmet — dependencies.ts
-  // "an ABSENT answer NEVER satisfies a conditional"), so the row member
-  // starts HIDDEN at page load with zero interaction; clicking the trigger
-  // reveals it, and clicking the OTHER trigger value hides it again — the
-  // "live-toggle it" moment the dispatch names.
+  // icon/helper-boxed path and inside .lg-answer-group's own root).
+  //
+  // RE-REVIEW FIX (fresh regression from the first cut of this rule, proven
+  // live by the conductor's reviewer): a plain descendant :has() (no `>`)
+  // matches ANY hidden question ANYWHERE inside the slot — including one
+  // buried inside a CONTAINER row member's OWN children, wrongly collapsing
+  // the WHOLE container (and its OTHER, still-visible content) whenever just
+  // ONE descendant happened to be hidden. The corrected CSS
+  // (`.lg-el[data-el-leaf]:has([data-lg-question][hidden])`) requires
+  // presets.ts wrapRowMember's new `data-el-leaf` marker — stamped ONLY on a
+  // non-container slot — so a container's slot can NEVER match this rule; a
+  // container's own conditional children keep hiding INSIDE it (the second
+  // test below is the permanent regression gate for that exact case). A
+  // conditional's answer is fail-closed (an unanswered trigger ALWAYS reads
+  // as unmet — dependencies.ts "an ABSENT answer NEVER satisfies a
+  // conditional"), so a hidden row member starts HIDDEN at page load with
+  // zero interaction; clicking the trigger reveals it, and clicking the
+  // OTHER trigger value hides it again — the "live-toggle it" moment the
+  // dispatch names.
   test("row member B starts hidden (row collapses to A full-row); clicking Yes reveals it (2 slots); clicking No hides it again (collapses back)", async ({
     page,
     request,
@@ -821,6 +838,92 @@ test.describe("P3 review MINOR-2 — a hidden row member collapses its slot on t
     const aAfterToggle = await rectOf(slotA);
     const rowAfterToggle = await rectOf(row);
     expect(Math.abs(aAfterToggle.width - rowAfterToggle.width), "A re-fills the row after B collapses").toBeLessThanOrEqual(2);
+  });
+
+  // THE PERMANENT REGRESSION GATE for the re-review's fresh finding: a row
+  // [leaf A + CardPanel{always-visible TextBlock, conditionally-hidden
+  // FreeTextQuestion}] — the reviewer's exact probe. Cited fail-before (the
+  // FIRST cut of the CSS rule, a plain descendant :has()): the CardPanel
+  // slot's computed display went "none" and its always-visible TextBlock
+  // child measured 0×0 (collapsed along with the slot) — even though the
+  // CardPanel itself was NOT empty. Pass-after (the data-el-leaf-scoped
+  // rule): the CardPanel slot never collapses (leaf-only rule), its
+  // always-visible child stays visible with a real box, AND the inner
+  // conditional child still hides correctly (the runtime's own per-
+  // descendant applyComponentVisibility, unaffected by this CSS fix either
+  // way) — toggling the trigger reveals it in place, still inside the SAME
+  // non-collapsed container slot.
+  test("a CONTAINER row member never collapses from an inner hidden descendant — its always-visible content stays visible; the inner conditional child still hides/reveals correctly", async ({
+    page,
+    request,
+    browserName,
+  }) => {
+    test.skip(browserName === "firefox", "live /lg leg needs chromium --host-resolver-rules; the studio-canvas drag legs run on BOTH engines elsewhere in this file");
+    const host = `p3rev-min2c-${uniq}.e2e.test`;
+    const siteId = await seedActiveSite(request, host, `P3 review MINOR-2 container ${uniq}`);
+    const s = await createSectionComps(request, `p3rev-min2c-${uniq}`, [
+      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+      { type: "TwoButtonYesNo", question_id: "trigger", internal_field: "trigger", answer_type: "boolean", props: { yesLabel: "Yes", noLabel: "No" } },
+      { type: "TextBlock", question_id: "leafA", props: { role: "body", text: "Leaf A" }, layout: { row: "rCard" } },
+      {
+        type: "CardPanel",
+        question_id: "panel",
+        props: { width: "full", padding: "m" },
+        layout: { row: "rCard" },
+        children: [
+          { type: "TextBlock", question_id: "alwaysVisible", props: { role: "body", text: "Always visible inside the card" } },
+          {
+            type: "FreeTextQuestion",
+            question_id: "innerConditional",
+            internal_field: "innerConditional",
+            answer_type: "string",
+            props: { placeholder: "Conditional inside the card" },
+            conditional: { when: "trigger", op: "eq", value: "true" },
+          },
+        ],
+      },
+      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
+    ]);
+    const quote = await json<{ public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }> }>(
+      await request.post(`${LG_API}/quotes`, { data: { quote_name: `P3 review MINOR-2 container ${uniq}`, activity: "quote_funnel", verticals: ["life"] } }),
+      "quote create",
+    );
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: s.id }] } }), "variant sections");
+    await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p3rev-min2c" } }), "activation");
+
+    await page.goto(`http://${host}:${PORT}/lg/p3rev-min2c`, { waitUntil: "load" });
+    const row = page.locator(".lg-el-row");
+    await expect(row, "the row renders (leaf + container, both physically in the DOM)").toBeVisible({ timeout: 20_000 });
+    const slotPanel = page.locator('.lg-el:has([data-question-id="panel"])');
+    const alwaysVisible = page.locator('[data-question-id="alwaysVisible"]');
+    const innerConditional = page.locator('[data-question-id="innerConditional"]');
+
+    // Page load, ZERO interaction: trigger unanswered -> innerConditional's
+    // OWN conditional is unmet (fail-closed) -> IT hides — but the CardPanel
+    // it lives in is NOT empty (alwaysVisible has no conditional at all), so
+    // the container's SLOT must stay laid out (never display:none).
+    await expect(innerConditional, "the inner conditional child hides correctly (fail-closed, unanswered trigger)").toBeHidden({ timeout: 8000 });
+    const slotDisplay = await displayOf(slotPanel);
+    expect(slotDisplay, `the container slot's computed display must NOT be "none" — pass-after measurement (fail-before citation: the first CSS cut measured slotDisplay: "none" here)`).not.toBe("none");
+    await expect(slotPanel, "the container slot itself is visible").toBeVisible();
+    const slotBox = await rectOf(slotPanel);
+    expect(slotBox.width, "the container slot has a real (non-zero) width").toBeGreaterThan(0);
+    expect(slotBox.height, "the container slot has a real (non-zero) height").toBeGreaterThan(0);
+    await expect(alwaysVisible, "the always-visible child inside the container stays visible").toBeVisible();
+    const alwaysVisibleBox = await rectOf(alwaysVisible);
+    expect(alwaysVisibleBox.width, `the always-visible child has a real (non-zero) width — pass-after measurement (fail-before citation: the first CSS cut measured this child's box as 0×0, collapsed along with its container)`).toBeGreaterThan(0);
+    expect(alwaysVisibleBox.height, "the always-visible child has a real (non-zero) height").toBeGreaterThan(0);
+
+    // Verify the OTHER direction too: toggling the trigger reveals the inner
+    // conditional child IN PLACE, inside the SAME (never-collapsed) slot —
+    // confirming the runtime's own per-descendant applyComponentVisibility
+    // still works correctly for a container's children, independent of this
+    // CSS fix either way.
+    await page.locator('[data-lg-question="trigger"] [data-lg-choice="true"]').click();
+    await expect(innerConditional, "the inner conditional child reveals once its OWN condition is met").toBeVisible({ timeout: 8000 });
+    await expect(slotPanel, "the container slot is still visible (unaffected either way)").toBeVisible();
+    await expect(alwaysVisible, "the always-visible child is still visible").toBeVisible();
   });
 });
 

@@ -342,31 +342,47 @@ export function funnelChromeCss(
     rule(`${scope} .lg-el-row > .lg-el[data-align="center"]`, { "align-items": "center" }),
     rule(`${scope} .lg-el-row > .lg-el[data-align="end"]`, { "align-items": "flex-end" }),
     rule(`${scope} .lg-el`, { transform: "var(--lg-el-nudge, none)", "max-width": "100%" }),
-    // CONDUCTOR FIX (P3 review MINOR-2): a row member that carries a Rules
-    // condition can be hidden at RUNTIME by the live funnel (render.ts
-    // applyComponentVisibility sets the `hidden` attribute directly on the
-    // component's own hydration anchor, `[data-lg-question="{qid}"]` — the
-    // SAME element hydration() stamps on every answer-producing renderer,
-    // confirmed against presets.ts: a bare `renderTextInput` puts it on the
-    // `<input>` itself, a DIRECT CHILD of `.lg-el`; the icon/helper-boxed path
-    // and `renderButtonAnswerGroup`'s `.lg-answer-group` root put it at
-    // varying depths — so the selector below is a plain DESCENDANT `:has()`
-    // (no `>` combinator), matching the hydration anchor at ANY nesting depth
-    // inside its OWN `.lg-el`, never a sibling's). Without this rule, the
-    // LIVE funnel's static server-rendered HTML keeps the hidden member's now-
-    // empty `.lg-el` SLOT in the flex row (a visible empty column) — the SSR
-    // dependency-preview simulator never has this problem (renderVisibleNodes
-    // drops a hidden node from the markup entirely before renderPlacedSiblings
-    // groups the row, so a 2-member row with one hidden member never even
-    // reaches the DOM as a row — it degrades straight to the single survivor,
-    // full width). Collapsing the hidden slot to `display:none` here makes the
-    // LIVE funnel degrade the SAME way: flexbox excludes a `display:none` item
+    // CONDUCTOR FIX (P3 review MINOR-2, corrected on re-review): a row member
+    // that carries a Rules condition can be hidden at RUNTIME by the live
+    // funnel (render.ts applyComponentVisibility sets the `hidden` attribute
+    // directly on the component's own hydration anchor,
+    // `[data-lg-question="{qid}"]` — the SAME element hydration() stamps on
+    // every answer-producing renderer, confirmed against presets.ts: a bare
+    // `renderTextInput` puts it on the `<input>` itself, a DIRECT CHILD of
+    // `.lg-el`; the icon/helper-boxed path and `renderButtonAnswerGroup`'s
+    // `.lg-answer-group` root put it at varying depths). Without a rule here,
+    // the LIVE funnel's static server-rendered HTML keeps the hidden member's
+    // now-empty `.lg-el` SLOT in the flex row (a visible empty column) — the
+    // SSR dependency-preview simulator never has this problem
+    // (renderVisibleNodes drops a hidden node from the markup entirely before
+    // renderPlacedSiblings groups the row, so a 2-member row with one hidden
+    // member never even reaches the DOM as a row).
+    //
+    // RE-REVIEW FIX (fresh regression from the first cut of this rule): a
+    // plain descendant `:has([data-lg-question][hidden])` matches ANY hidden
+    // question ANYWHERE inside the slot — including one buried arbitrarily
+    // deep inside a CONTAINER row member's OWN children (e.g. a CardPanel
+    // holding an always-visible TextBlock PLUS a conditionally-hidden
+    // FreeTextQuestion). A container is not "empty" merely because ONE of its
+    // several children is hidden — the runtime's own applyComponentVisibility
+    // already hides that ONE descendant in place (the container's *inner*
+    // layout handles it); collapsing the WHOLE container slot because of it
+    // wrongly hides the container's OTHER, still-visible content too (live-
+    // proven: the entire CardPanel — including its visible TextBlock — went
+    // 0×0). `data-el-leaf` (presets.ts wrapRowMember) marks a slot as a
+    // single answer-producing/content LEAF, never a container — requiring it
+    // here means a leaf's OWN single `[data-lg-question]` hiding IS its
+    // slot's whole story (collapse correctly), while a container's slot,
+    // lacking the marker, can never match this rule at all — its inner
+    // conditional children keep hiding INSIDE it, exactly as the runtime
+    // already handles, with the slot itself staying laid out. Collapsing the
+    // hidden LEAF slot to `display:none` makes the LIVE funnel degrade the
+    // SAME way the SSR preview does: flexbox excludes a `display:none` item
     // from layout entirely, so an unauthored-width (`flex:1 1 0`) survivor
-    // naturally expands to fill the row — matching the SSR preview's degrade
-    // semantics without a JS-side layout patch. `:has()` is in the support
-    // baseline already relied on elsewhere in this sheet (the P1 selection-
-    // chrome grid-follower companion selectors below).
-    rule(`${scope} .lg-el:has([data-lg-question][hidden])`, { display: "none" }),
+    // naturally expands to fill the row. `:has()` is in the support baseline
+    // already relied on elsewhere in this sheet (the P1 selection-chrome
+    // grid-follower companion selectors below).
+    rule(`${scope} .lg-el[data-el-leaf]:has([data-lg-question][hidden])`, { display: "none" }),
   );
   // ≤480px (§D1 automatic mobile stacking): the row becomes a column, every
   // member spans full width (its desktop `--lg-el-basis` is neutralized — flex
