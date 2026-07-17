@@ -217,6 +217,12 @@
       "note": "Containers' REAL layout props (Stack/Grid/Columns/CardPanel/Spacer) in a clean jargon-free panel, container types only. Consumed; not a golden region — accepted extension pending R5 (conductor-classified 2026-07-14)."
     },
     {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderStylePlacementBlock",
+      "golden": false,
+      "register": "PC-2 / decision D1 / axiom R-B",
+      "note": "P3b placement panel — post-golden feature. Structured-placement Style-tab controls (align/width/nudge/row-indicator) plus the CONDUCTOR-FIX excluded-ownership note for ContinueButton/AutoAdvanceButton (position is Quote-Builder-owned). Extracted out of renderStudioInspector on conductor ruling so this post-golden addition does not dilute that already-classified golden:true region — the same P1-granularity discipline renderStyleExtraControls/renderContainerLayoutPanel/renderImageFitControl already follow. Not a golden region — accepted extension (conductor-classified 2026-07-17)."
+    },
+    {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderThemesOverlay",
       "golden": true,
       "register": "S4-A11 (R5 D6)",

@@ -305,6 +305,98 @@ export function funnelChromeCss(
   mobile.push(rule(`${scope} .lg-subheadline`, { "margin-top": "0" }));
   mobile.push(rule(`${scope} .lg-continue`, { "margin-top": "26px" }));
 
+  // ---- P3a structured placement (register PC-2 / D1 / R-B) ----------------
+  // renderNodes groups contiguous same-`row` siblings into `.lg-el-row` (a flex
+  // row of 2-3 `.lg-el` slots) and wraps a lone placed element in `.lg-el`.
+  //   • ROW: flex; the theme answer-grid gutter is reused as the inter-slot gap
+  //     (§R-B "reuse a theme gap token" — NO new design_tokens key, so the A0
+  //     serialized-config byte pin is untouched; only THIS sheet grows).
+  //   • SLOT: equal basis by default (unauthored members share the row); a
+  //     per-member fixed width rides `--lg-el-basis` (marked `data-el-basis`).
+  //     Each slot is itself a column-flex so the per-element `data-align`
+  //     positions its CONTENT (start/center/end); `min-width:0` lets a slot
+  //     shrink rather than overflow.
+  //   • WRAPPER: a bounded nudge rides `--lg-el-nudge` → `transform: translate`
+  //     (visual only — never affects flow/rhythm); a lone fixed-width box can
+  //     never exceed its column (`max-width:100%`).
+  // A row is ONE stack unit: the `.lg-question-card > * + *` floor (a DIRECT-
+  // child combinator) reaches `.lg-el-row`/lone `.lg-el` but NOT the members
+  // inside a row (grandchildren) — so members get no vertical floor; the row
+  // as a whole keeps the inter-component rhythm. `.lg-el-row` (display:flex)
+  // does NOT margin-collapse (same as `.lg-answer-group`/`.lg-card-grid`), so it
+  // is added to the grid-follower collapse-emulation table below; a lone `.lg-el`
+  // is a normal block that collapses, needing no exception.
+  out.push(
+    rule(`${scope} .lg-el-row`, { display: "flex", gap: answerGrid.gap, "align-items": "stretch" }),
+    rule(`${scope} .lg-el-row > .lg-el`, {
+      flex: "1 1 0",
+      "min-width": "0",
+      display: "flex",
+      "flex-direction": "column",
+    }),
+    rule(`${scope} .lg-el-row > .lg-el[data-el-basis]`, {
+      "flex-grow": "0",
+      "flex-basis": "var(--lg-el-basis)",
+    }),
+    rule(`${scope} .lg-el-row > .lg-el[data-align="start"]`, { "align-items": "flex-start" }),
+    rule(`${scope} .lg-el-row > .lg-el[data-align="center"]`, { "align-items": "center" }),
+    rule(`${scope} .lg-el-row > .lg-el[data-align="end"]`, { "align-items": "flex-end" }),
+    rule(`${scope} .lg-el`, { transform: "var(--lg-el-nudge, none)", "max-width": "100%" }),
+    // CONDUCTOR FIX (P3 review MINOR-2, corrected on re-review): a row member
+    // that carries a Rules condition can be hidden at RUNTIME by the live
+    // funnel (render.ts applyComponentVisibility sets the `hidden` attribute
+    // directly on the component's own hydration anchor,
+    // `[data-lg-question="{qid}"]` — the SAME element hydration() stamps on
+    // every answer-producing renderer, confirmed against presets.ts: a bare
+    // `renderTextInput` puts it on the `<input>` itself, a DIRECT CHILD of
+    // `.lg-el`; the icon/helper-boxed path and `renderButtonAnswerGroup`'s
+    // `.lg-answer-group` root put it at varying depths). Without a rule here,
+    // the LIVE funnel's static server-rendered HTML keeps the hidden member's
+    // now-empty `.lg-el` SLOT in the flex row (a visible empty column) — the
+    // SSR dependency-preview simulator never has this problem
+    // (renderVisibleNodes drops a hidden node from the markup entirely before
+    // renderPlacedSiblings groups the row, so a 2-member row with one hidden
+    // member never even reaches the DOM as a row).
+    //
+    // RE-REVIEW FIX (fresh regression from the first cut of this rule): a
+    // plain descendant `:has([data-lg-question][hidden])` matches ANY hidden
+    // question ANYWHERE inside the slot — including one buried arbitrarily
+    // deep inside a CONTAINER row member's OWN children (e.g. a CardPanel
+    // holding an always-visible TextBlock PLUS a conditionally-hidden
+    // FreeTextQuestion). A container is not "empty" merely because ONE of its
+    // several children is hidden — the runtime's own applyComponentVisibility
+    // already hides that ONE descendant in place (the container's *inner*
+    // layout handles it); collapsing the WHOLE container slot because of it
+    // wrongly hides the container's OTHER, still-visible content too (live-
+    // proven: the entire CardPanel — including its visible TextBlock — went
+    // 0×0). `data-el-leaf` (presets.ts wrapRowMember) marks a slot as a
+    // single answer-producing/content LEAF, never a container — requiring it
+    // here means a leaf's OWN single `[data-lg-question]` hiding IS its
+    // slot's whole story (collapse correctly), while a container's slot,
+    // lacking the marker, can never match this rule at all — its inner
+    // conditional children keep hiding INSIDE it, exactly as the runtime
+    // already handles, with the slot itself staying laid out. Collapsing the
+    // hidden LEAF slot to `display:none` makes the LIVE funnel degrade the
+    // SAME way the SSR preview does: flexbox excludes a `display:none` item
+    // from layout entirely, so an unauthored-width (`flex:1 1 0`) survivor
+    // naturally expands to fill the row. `:has()` is in the support baseline
+    // already relied on elsewhere in this sheet (the P1 selection-chrome
+    // grid-follower companion selectors below).
+    rule(`${scope} .lg-el[data-el-leaf]:has([data-lg-question][hidden])`, { display: "none" }),
+  );
+  // ≤480px (§D1 automatic mobile stacking): the row becomes a column, every
+  // member spans full width (its desktop `--lg-el-basis` is neutralized — flex
+  // reset to `1 1 auto`, so a fixed WIDTH basis never becomes a fixed HEIGHT in
+  // the column), and nudges (a desktop refinement) are dropped. This media
+  // block appends at the END of the sheet, so these rules win the source-order
+  // tie over their desktop twins at equal specificity.
+  mobile.push(
+    rule(`${scope} .lg-el-row`, { "flex-direction": "column", gap: spacing.stackMobile }),
+    rule(`${scope} .lg-el-row > .lg-el`, { flex: "1 1 auto" }),
+    rule(`${scope} .lg-el-row > .lg-el[data-el-basis]`, { flex: "1 1 auto" }),
+    rule(`${scope} .lg-el`, { transform: "none" }),
+  );
+
   // ---- header (§14.2 header) ----------------------------------------------
   out.push(
     rule(`${scope} .lg-header`, {
@@ -1347,7 +1439,11 @@ export function funnelChromeCss(
     // the WHOLE gap by itself, so the follower's share is 0, not negative).
     const emulated = (predecessorMarginBottom: string): string =>
       `${Math.max(0, stackPx - toPx(predecessorMarginBottom))}px`;
-    const GRID_FOLLOWERS = [".lg-answer-group", ".lg-card-grid"] as const;
+    // P3a (register PC-2): `.lg-el-row` (display:flex) shares the grid boxes'
+    // non-collapse — a row following a margin-bottom predecessor would SUM
+    // (not max()) its floor margin-top, so it takes the SAME emulation. A lone
+    // `.lg-el` is a normal block (collapses), so it is NOT a follower here.
+    const GRID_FOLLOWERS = [".lg-answer-group", ".lg-card-grid", ".lg-el-row"] as const;
     // Direct-sibling selectors (the live/unwrapped path) PLUS the `:has()`
     // companion (the studio-canvas selected/wrapped path) for every predecessor
     // + grid-follower pair.
