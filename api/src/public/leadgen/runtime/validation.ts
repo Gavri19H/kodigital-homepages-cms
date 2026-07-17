@@ -79,6 +79,25 @@ function isDateComponent(component: LgComponentConfig): boolean {
   return `${component.type} ${component.answer_type ?? ""}`.toLowerCase().indexOf("date") !== -1;
 }
 
+// PC-A2 (P4b): the sub-field internal_fields a multi-subfield group contributes
+// to the answer space (mirrors the server's answers.ts fieldsOf) — or null for
+// a normal single-field component. NameFieldsGroup + AddressAutocomplete carry
+// NO single internal_field; each expands to its configured sub-fields (defaults
+// first/last and street/city/state/zip). Read from `props` (config-dto copies
+// it through). P4d adds per-sub-field props; this reads the CURRENT shape only.
+export function groupSubfields(component: LgComponentConfig): string[] | null {
+  const props = (component.props ?? {}) as Record<string, unknown>;
+  if (component.type === "NameFieldsGroup") {
+    const f = props["fields"];
+    return Array.isArray(f) && f.length > 0 ? f.map(String) : ["first", "last"];
+  }
+  if (component.type === "AddressAutocompleteQuestion") {
+    const f = props["internal_fields"];
+    return Array.isArray(f) && f.length > 0 ? f.map(String) : ["street", "city", "state", "zip"];
+  }
+  return null;
+}
+
 // PC-A4 (P4b) — NANP structural phone validation + E.164 normalization.
 //
 // Returns the E.164 form (`+1` + 10 digits) for a valid US/Canada number, or
@@ -287,7 +306,30 @@ export function validateSection(
     if (component === undefined || vis === undefined) continue;
     if (!vis.visible) continue;
     const field = component.internal_field;
-    if (field === undefined || field === "") continue;
+    if (field === undefined || field === "") {
+      // PC-A2 (P4b): a multi-subfield group (NameFieldsGroup/Address) has no
+      // single internal_field, so validateValue can't see it — it was skipped
+      // entirely before. Enforce `required` across its sub-fields here: the
+      // group is answered iff EVERY sub-field value is present. The failure is
+      // keyed to the group's question_id (its error slot's data-lg-error-for),
+      // so setFieldError paints the group-level message.
+      const subs = groupSubfields(component);
+      if (subs !== null) {
+        const required =
+          vis.required_now ||
+          (component.client_validation as Record<string, unknown> | undefined)?.["required"] === true ||
+          component.required === true;
+        if (required && subs.some((f) => !isAnswered(answers[f]))) {
+          out.push({
+            code: "required",
+            message: "This field is required.",
+            question_id: component.question_id,
+            internal_field: component.question_id,
+          });
+        }
+      }
+      continue;
+    }
     const failures = validateValue(component, answers[field], vis.required_now);
     for (const failure of failures) {
       out.push({ ...failure, question_id: component.question_id, internal_field: field });

@@ -274,7 +274,14 @@ function autoErrorFieldFor(node: LeadgenComponentNode): string | undefined {
   const catalog = COMPONENT_CATALOG[node.type];
   if (catalog === undefined || catalog.produces === null) return undefined;
   const field = node.internal_field;
-  return typeof field === "string" && field !== "" ? field : undefined;
+  if (typeof field === "string" && field !== "") return field;
+  // PC-A2 (P4b): the multi-subfield groups carry no single internal_field —
+  // key their error slot on the question_id so the runtime's group-level
+  // required failure (validation.ts groupSubfields) has somewhere to paint.
+  if (node.type === "NameFieldsGroup" || node.type === "AddressAutocompleteQuestion") {
+    return typeof node.question_id === "string" && node.question_id !== "" ? node.question_id : undefined;
+  }
+  return undefined;
 }
 
 // The internal_fields already owned by a hand-authored ValidationError node

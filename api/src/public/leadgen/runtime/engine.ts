@@ -753,8 +753,25 @@ export class LgEngine {
     const questionId = questionEl?.getAttribute("data-lg-question") ?? "";
     const section = this.sectionConfigFor(input);
     const component = this.componentByQuestionId(section, questionId);
-    const internalField =
+    let internalField =
       fieldEl?.getAttribute("data-lg-field") ?? component?.internal_field ?? "";
+    // PC-A2 (P4b): NameFieldsGroup carries no single internal_field, so its two
+    // sub-inputs (data-name-field="first"/"last") were captured NOWHERE — the
+    // group's answers were silently lost and its `required` never enforceable.
+    // Map the sub-input's slot to the group's configured field (props.fields,
+    // default first/last), so each sub-answer is recorded under its real field
+    // (matching the server's answers.ts fieldsOf) and validateSection's
+    // group-required check can see it. Address parts are filled via the Places
+    // path (maps.ts setAnswer), so only the name slots need this capture bridge.
+    if (internalField === "") {
+      const slot = input.getAttribute("data-name-field");
+      if ((slot === "first" || slot === "last") && component?.type === "NameFieldsGroup") {
+        const fields = component.props?.["fields"];
+        const idx = slot === "first" ? 0 : 1;
+        const mapped = Array.isArray(fields) && typeof fields[idx] === "string" ? (fields[idx] as string) : slot;
+        internalField = mapped;
+      }
+    }
     if (internalField === "") return;
 
     let value: unknown = "";
