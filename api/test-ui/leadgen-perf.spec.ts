@@ -84,7 +84,7 @@ test.describe("§28 performance budgets", () => {
     // Every INLINE <script> (external src'd scripts — the Maps SDK and the
     // versioned /lg/runtime/{v}.js engine bundle — are excluded by
     // :not([src]); the BUNDLE budget has its own dedicated gate,
-    // verify:leadgen-runtime ≤ 40960 bytes, 11 §11.1). Inline here = the
+    // verify:leadgen-runtime ≤ 43008 bytes, 11 §11.1). Inline here = the
     // pre-hydration stub + the §16.3 assignment inject + the #lg-config JSON;
     // drop any GA4 snippet (3rd-party analytics — this funnel has none anyway).
     const scripts = await page.$$eval("script:not([src])", (els) =>

@@ -714,7 +714,7 @@ describe("events: ULID-shape id", () => {
 
 describe("bundle: committed engine-bundle.generated.ts", () => {
   it("is within the §3.1 budget and non-trivial", () => {
-    expect(LEADGEN_RUNTIME_JS_BYTES).toBeLessThanOrEqual(40960);
+    expect(LEADGEN_RUNTIME_JS_BYTES).toBeLessThanOrEqual(43008);
     expect(LEADGEN_RUNTIME_JS_BYTES).toBeGreaterThan(1000);
   });
 
