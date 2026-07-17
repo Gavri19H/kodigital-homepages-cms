@@ -543,6 +543,25 @@ const PLACEMENT_ROW_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 // contiguous same-row siblings is a save ERROR.
 export const LEADGEN_MAX_ROW_MEMBERS = 3;
 
+// CONDUCTOR FIX (post-P3a-dispatch, surfaced by P3b): ContinueButton and
+// AutoAdvanceButton are catalog `scope: "unit"` (Section-palette placeable),
+// but their POSITION is FUNNEL-LAYOUT-owned — the §8.5b/§11.5 continue-
+// placement model (continue_placement "below_unit" deferral, the single
+// end-of-subtree slot, ctx.continue_style_role; presets.ts SectionRenderState.
+// deferContinue/deferredContinue). The Quote Builder — not free per-node
+// placement — already decides WHERE the section's one continue control lands.
+// Letting either type join a row / carry an align/width/nudge would contradict
+// that ownership: `layout` is REJECTED on both, the SAME "a NEW field breaks no
+// stored content" reasoning as the frame-scope rejection below. Exported so the
+// P3b studio island can mirror this EXACT exclusion in its own UI gating
+// (disable/hide the placement controls for these two types) without
+// duplicating — or drifting from — the list.
+export const LEADGEN_PLACEMENT_EXCLUDED_TYPES = [
+  "ContinueButton",
+  "AutoAdvanceButton",
+] as const satisfies readonly ComponentType[];
+const PLACEMENT_EXCLUDED_TYPE_SET: ReadonlySet<string> = new Set(LEADGEN_PLACEMENT_EXCLUDED_TYPES);
+
 // The per-node structured-placement bag. Every field OPTIONAL; the `width`
 // field is the EXACT `LeadgenSizeOverride["width"]` union (s/m/l/full or
 // {custom_px}) — one width vocabulary, one resolver (resolveSizeAxis).
@@ -1282,10 +1301,13 @@ function placementRowIdIfValid(node: unknown): string | undefined {
 // Per-node shape/enum/clamp checks. `scope` is the catalog scope of the owning
 // node — placement is a Section-unit concern, so a frame-scope component may
 // not carry it (a NEW field ⇒ rejecting it there breaks no stored content).
+// `type` additionally gates LEADGEN_PLACEMENT_EXCLUDED_TYPES (ContinueButton /
+// AutoAdvanceButton — their position is Quote-Builder-owned, not free per-node
+// placement, regardless of their catalog scope being "unit").
 function validatePlacementLayout(
   value: unknown,
   path: string,
-  type: string,
+  type: ComponentType,
   scope: ComponentScope,
   push: (code: SectionContentErrorCode, path: string, message: string) => void,
 ): void {
@@ -1298,6 +1320,13 @@ function validatePlacementLayout(
       "invalid_placement",
       path,
       `${type} is a funnel-frame component — structured placement (layout) is a Section-unit concern and is not allowed on it (§R-B/D1)`,
+    );
+  }
+  if (PLACEMENT_EXCLUDED_TYPE_SET.has(type)) {
+    push(
+      "invalid_placement",
+      path,
+      `${type}'s position is owned by the Quote Builder's continue-placement model (§8.5b/§11.5), not by free per-node placement — structured placement (layout) is not allowed on it`,
     );
   }
   for (const key of Object.keys(value)) {

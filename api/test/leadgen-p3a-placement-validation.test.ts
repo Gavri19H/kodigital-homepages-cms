@@ -5,7 +5,7 @@
 // `invalid_placement` code with a path (a save endpoint turns any error into a
 // 400 — this is that gate's evidence).
 import { describe, expect, it } from "vitest";
-import { validateSectionContent } from "../src/public/leadgen/components/content-schema";
+import { LEADGEN_PLACEMENT_EXCLUDED_TYPES, validateSectionContent } from "../src/public/leadgen/components/content-schema";
 import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 
 const codesOf = (r: ReturnType<typeof validateSectionContent>): string[] => r.errors.map((e) => e.code);
@@ -52,6 +52,13 @@ describe("P3a placement validation — accept", () => {
     const r = validateSectionContent(content([stack, text("t2", { row: "r1" })]));
     expect(r.errors).toEqual([]);
   });
+
+  it("CONDUCTOR FIX regression: ContinueButton/AutoAdvanceButton WITHOUT layout still validate clean", () => {
+    const cont = { type: "ContinueButton", question_id: "cont", props: { label: "Continue" } };
+    const auto = { type: "AutoAdvanceButton", question_id: "auto" };
+    expect(validateSectionContent(content([text("a"), cont])).errors).toEqual([]);
+    expect(validateSectionContent(content([text("b"), auto])).errors).toEqual([]);
+  });
 });
 
 describe("P3a placement validation — reject (invalid_placement)", () => {
@@ -96,5 +103,37 @@ describe("P3a placement validation — reject (invalid_placement)", () => {
       children: [text("c1", { row: "r1" }), text("c2"), text("c3", { row: "r1" })], // non-contiguous inside children
     };
     expect(codesOf(validateSectionContent(content([stack])))).toContain("invalid_placement");
+  });
+
+  // -------------------------------------------------------------------------
+  // CONDUCTOR FIX (post-P3a-dispatch, surfaced by P3b): ContinueButton /
+  // AutoAdvanceButton are catalog scope:"unit" (would otherwise be placement-
+  // eligible) but their POSITION is Quote-Builder-owned (§8.5b/§11.5 continue-
+  // placement model) — layout is rejected on both regardless of shape.
+  // -------------------------------------------------------------------------
+  it("layout on ContinueButton is rejected — named ownership message, not the generic frame-scope one", () => {
+    const cont = { type: "ContinueButton", question_id: "cont", props: { label: "Continue" }, layout: { align: "center" } };
+    const r = validateSectionContent(content([text("a"), cont]));
+    expect(codesOf(r)).toContain("invalid_placement");
+    const msg = r.errors.find((e) => e.code === "invalid_placement" && e.path.endsWith(".layout"))?.message ?? "";
+    expect(msg, "message names Quote Builder ownership, not the frame-scope wording").toMatch(/Quote Builder/);
+    expect(msg).not.toMatch(/funnel-frame component/);
+  });
+
+  it("layout on AutoAdvanceButton is rejected — same ownership message", () => {
+    const auto = { type: "AutoAdvanceButton", question_id: "auto", layout: { row: "r1", nudge_x: 10 } };
+    const r = validateSectionContent(content([text("a", { row: "r1" }), auto]));
+    expect(codesOf(r)).toContain("invalid_placement");
+    const msg = r.errors.find((e) => e.code === "invalid_placement" && e.path.endsWith(".layout"))?.message ?? "";
+    expect(msg).toMatch(/Quote Builder/);
+  });
+
+  it("even a bare empty layout ({}) is rejected on an excluded type (presence alone is the violation)", () => {
+    const cont = { type: "ContinueButton", question_id: "cont", props: { label: "Continue" }, layout: {} };
+    expect(codesOf(validateSectionContent(content([text("a"), cont])))).toContain("invalid_placement");
+  });
+
+  it("lockstep guard: the exported exclusion set is EXACTLY {ContinueButton, AutoAdvanceButton} — a silent list change must fail this test, since P3b mirrors it verbatim", () => {
+    expect([...LEADGEN_PLACEMENT_EXCLUDED_TYPES].sort()).toEqual(["AutoAdvanceButton", "ContinueButton"]);
   });
 });
