@@ -48,9 +48,17 @@
 //
 // Seeding rides the REAL admin HTTP APIs only (repo convention — see
 // leadgen-section-studio.spec.ts's createStudioSection /
-// leadgen-theme-manager.spec.ts's seedThemesFixture). Local D1 must be
-// migrated + seeded once beforehand:
-// `rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local`.
+// leadgen-theme-manager.spec.ts's seedThemesFixture). Local state must be
+// FULLY reset beforehand (`npm run db:reset:local` — wipes the WHOLE
+// `.wrangler/state/v3` tree: d1+kv+cache+r2+workflows, then migrates +
+// seeds). CONDUCTOR FIX (gate1c state 6/7 root cause): the OLD d1-only
+// reset (`rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm
+// run seed:local`) left the KV/cache namespaces untouched across runs —
+// this page's "YOUR THEMES" left list reads a cache-backed record set, so
+// theme names from OTHER spec files' earlier runs accumulated there FOREVER
+// and leaked into this baseline's capture. `db:reset:local` is the ONLY
+// preamble that actually isolates this file's states 6/7 (states 1-5 show
+// one specific Section by public_id and were never affected).
 //
 // PLAYWRIGHT HARD LESSON (dispatch instruction): run THIS FILE ONLY —
 // `npx playwright test test-ui/leadgen-v31-gate1c-baselines.spec.ts --workers=1 --reporter=line`
@@ -180,6 +188,22 @@
 // in both environments despite 689 accumulated theme records -- proof the
 // missing constraint, not some unavoidable randomness, is what makes (A)/(B)
 // unstable.
+//
+// FOURTH FINDING (conductor round, `db:reset:local` full-state preamble):
+// the ABOVE result covers `#lg-preview-theme`'s WIDTH only (unaffected, as
+// shown). Its DISPLAYED VALUE is a separate axis and IS KV-populated
+// (ui-section-studio.ts's own comment on this element: "populated
+// client-side from the live KV") -- states 1-5 (this same drawer chrome)
+// measured a small but real, byte-REPRODUCIBLE delta (ratio
+// 0.00121270...  -- identical across 2 independent `db:reset:local` runs, a
+// deterministic content difference, not the timing race above) once the
+// preamble started wiping KV/cache too: the SSR placeholder "Navy
+// (default)" versus whatever theme the client-side KV population had
+// auto-selected under a polluted cache from earlier spec runs. All 7
+// baselines were re-minted together under a verified fully-reset
+// environment and proved stable across 2 further independent full resets
+// (7/7, ratio=0 every state, both times) -- see this file's header preamble
+// note.
 //
 // PRODUCT FIX (v3.1 Phase E -- fixed AT THE SOURCE, not pinned in this
 // file): an earlier round of this file masked/pinned (A)/(B) here as a
@@ -459,12 +483,13 @@ async function captureBaseline(page: Page, name: string): Promise<void> {
   // fits with no scrolling anywhere, so a plain viewport screenshot captures
   // it correctly and completely.
   //
-  // Residual risk (documented, not fully engineered around): if local D1
-  // accumulates enough LEFT-LIST theme cards across many un-reset suite runs
-  // to push total page content past 2600px, body would need to scroll again
-  // and this screenshot would silently crop the bottom — the repo's own
-  // convention already treats periodic `db:migrate:local`+`seed:local`
-  // resets as a normal operator step (see this file's header), which keeps
+  // Residual risk (documented, not fully engineered around): if the KV/cache
+  // namespace this LEFT LIST reads (not D1 — see the state-6 test body's own
+  // CONDUCTOR FIX comment) accumulates enough theme cards across many
+  // un-reset suite runs to push total page content past 2600px, body would
+  // need to scroll again and this screenshot would silently crop the bottom
+  // — `npm run db:reset:local` (see this file's header) wipes the WHOLE
+  // `.wrangler/state/v3` tree, including that KV/cache namespace, keeping
   // this bounded in practice.
   // mask: [data-studio-events-list] — the ONE genuinely dynamic region (a
   // per-page-load random session_id inside a debug event-log line; see
@@ -553,17 +578,23 @@ test.describe.serial("Gate 1c — 7 frozen baseline states", () => {
   test("6. Themes — Navy", async ({ page }) => {
     // CONFIRMED NEEDED (not speculative — visually inspected a real captured
     // baseline): the Themes-manager LEFT LIST shows EVERY theme record in
-    // the system, not just this fixture's — across this phase's own many
-    // debugging runs (plus any other spec/session that ever created a
-    // theme), the local D1 has accumulated dozens of records, and the list
-    // has no bound forcing it to clip/scroll internally (same class of issue
-    // as the earlier-diagnosed accumulation problem, now actually observed
-    // at scale). A SMALL, fixed viewport bounds the capture regardless of
-    // how many theme records exist — accumulated growth falls outside the
-    // frame by construction, rather than needing D1 to be pristine. The
-    // studio states (1-5) show ONE specific Section by public_id and have
-    // no equivalent "list of everything" surface, so they keep the taller,
-    // full-editor 2600px viewport set at file level.
+    // the system, not just this fixture's, and has no bound forcing it to
+    // clip/scroll internally. A SMALL, fixed viewport bounds the capture
+    // regardless of how many rows render — belt-and-suspenders even after the
+    // fix below. The studio states (1-5) show ONE specific Section by
+    // public_id and have no equivalent "list of everything" surface, so they
+    // keep the taller, full-editor 2600px viewport set at file level.
+    //
+    // CONDUCTOR FIX (root-caused, NOT D1): this list is CACHE-BACKED — it was
+    // NOT reading stale D1 rows (D1 truly was empty after the old
+    // `db:migrate:local`-only reset, confirmed by direct sqlite query). The
+    // KV/cache namespace under `.wrangler/state/v3/kv/` persisted across that
+    // reset (it only ever wiped `state/v3/d1`), so theme records from EVERY
+    // OTHER spec file's earlier run (leadgen-r5-staging-signoff.spec.ts,
+    // leadgen-section-studio.spec.ts, …) accumulated there forever and leaked
+    // into this list. `npm run db:reset:local` (wipes the WHOLE
+    // `.wrangler/state/v3` tree — d1+kv+cache+r2+workflows) is the ONLY
+    // preamble that isolates this test; see this file's own header comment.
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/admin/leadgen/themes?theme=${fx.navyThemeId}`, { waitUntil: "domcontentloaded" });
     await waitForStudioSettled(page);
