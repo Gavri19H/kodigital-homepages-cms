@@ -56,7 +56,7 @@ import { test, expect, request as playwrightRequest, type Page, type APIRequestC
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { seedActiveSite } from "./listicles-p6-seed";
+import { seedActiveSite, retryingRequest } from "./listicles-p6-seed";
 import { buildVisualSectionContent } from "./leadgen-p5-seed";
 import { PW_PORT } from "./utils/base-url";
 // P1a FIX ROUND (register PC-11): read iconCard.minHeight from the token
@@ -117,13 +117,23 @@ async function seedActivatedVisualFunnel(ctx: APIRequestContext): Promise<{ host
   const uniq = `${Date.now()}${Math.floor(Math.random() * 1_000_000)}`;
   const h = `lg-visual-${uniq}.e2e.test`;
   const s = "visual";
+  // Conductor investigation (product-core P5b): a long single-process shard
+  // occasionally exhausts the OS ephemeral-port pool mid-run, surfacing as a
+  // transient connect error (EADDRNOTAVAIL, alongside ECONNRESET/ECONNREFUSED)
+  // on the NEXT seed call to fire — a transport-layer connection-
+  // establishment failure, never a data/identity issue. seedActiveSite
+  // already wraps ITS OWN request in retryingRequest internally; wrap this
+  // function's OWN remaining raw calls (quote/section/variant/activation)
+  // the SAME way so every seed step in this chain gets the identical
+  // transient-retry coverage, not just the first.
+  const request = retryingRequest(ctx);
   const siteId = await seedActiveSite(ctx, h, `LG Visual ${uniq}`);
 
   const quote = await jsonOk<{
     public_id: string;
     funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
   }>(
-    await ctx.post(`${LG_API}/quotes`, {
+    await request.post(`${LG_API}/quotes`, {
       data: { quote_name: `Visual Quote ${uniq}`, activity: "quote_funnel", verticals: ["business_loan"] },
     }),
     "quote create",
@@ -131,7 +141,7 @@ async function seedActivatedVisualFunnel(ctx: APIRequestContext): Promise<{ host
   const variantId = quote.funnels[0]!.variants[0]!.public_id;
 
   const section = await jsonOk<{ id: number; public_id: string }>(
-    await ctx.post(`${LG_API}/sections`, {
+    await request.post(`${LG_API}/sections`, {
       data: {
         section_name: `Visual Section ${uniq}`,
         activity: "quote_funnel",
@@ -147,11 +157,11 @@ async function seedActivatedVisualFunnel(ctx: APIRequestContext): Promise<{ host
   );
 
   await jsonOk(
-    await ctx.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: section.id }] } }),
+    await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: section.id }] } }),
     "variant sections",
   );
 
-  const activation = await ctx.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, {
+  const activation = await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, {
     data: { enabled: true, slug: s },
   });
   if (!activation.ok()) {

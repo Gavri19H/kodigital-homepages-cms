@@ -74,7 +74,11 @@ async function withTransientRetry<T>(label: string, run: () => Promise<T>): Prom
 
 // Wrap an APIRequestContext so get/post/patch/put self-retry transient
 // socket errors (seed-time only; specs keep using their own raw contexts).
-function retryingRequest(request: APIRequestContext): APIRequestContext {
+// Exported so OTHER seed helpers outside this file (the seed util family —
+// e.g. leadgen-visual.spec.ts's seedActivatedVisualFunnel) can wrap their own
+// context once and get the same transient-retry coverage on every verb,
+// instead of re-implementing this proxy per file.
+export function retryingRequest(request: APIRequestContext): APIRequestContext {
   const verbs = new Set(["get", "post", "patch", "put", "delete"]);
   return new Proxy(request, {
     get(target, prop, receiver) {
