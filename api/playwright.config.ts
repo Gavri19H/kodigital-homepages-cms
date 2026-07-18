@@ -102,6 +102,13 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // presets.ts server renderer a live funnel uses) — SAME cross-engine shape
   // as p2a/p3a/p4b/p4c.
   'leadgen-p4d-editor.gesture.spec.ts',
+  // P5 (register PC-10 / decision D2 — Image9 MultiQuestionGrid): studio-only
+  // authoring + canvas-parity + default pre-selection — SAME cross-engine shape
+  // as p2a/p3a/p4c/p4d (the studio's OWN canvas preview, the SAME presets.ts
+  // server renderer a live funnel uses; no e2e.test dynamic tenant host). The
+  // runtime seeding/recording + auction round-trip ride the deterministic
+  // server-pipeline gate test/leadgen-p5-multi-question-grid.test.ts.
+  'leadgen-p5-multi-question-grid.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',
