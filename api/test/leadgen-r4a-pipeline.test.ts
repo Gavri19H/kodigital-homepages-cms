@@ -350,7 +350,17 @@ describeDb("R4a E3-NEW-2/E2-NEW-10 — computeIssues mirrors more server codes",
     expect(issues.some((i) => /show-if condition references an unknown field: ghost_field/.test(i.message))).toBe(true);
   });
 
-  it("require-if advisory (adversarial-review ruling — DELIBERATELY beyond-server): props.requiredWhen.when is NEVER validated server-side (content-schema.ts validateConditional runs only for node.conditional, not requiredWhen) — the client-only check still fires (a real dangling-reference authoring bug) but is worded as an honest Advisory, never implying the server would reject it", async () => {
+  // P4c (register PC-12): props.requiredWhen NOW gets the SAME server-side
+  // conditional_unknown_field gate node.conditional always had (content-
+  // schema.ts validateConditional is called for props.requiredWhen too) —
+  // this test USED TO prove requiredWhen was "deliberately beyond-server"
+  // (its own comment predicted exactly this obsolescence: "If this ever
+  // starts returning an error/warning, requiredWhen gained real server
+  // validation and this advisory's wording is stale"). Rewritten to prove
+  // the NEW reality: the client-side advisory still fires as an early
+  // heads-up (worded to match — no longer claims the server accepts it),
+  // AND the real validator now rejects the same content.
+  it("require-if is now server-validated: an unknown props.requiredWhen.when is a REAL conditional_unknown_field error (fail-before: this used to be accepted); the studio's own pre-save advisory is worded to match, no longer claiming the server accepts it", async () => {
     const content = {
       components: [
         {
@@ -365,18 +375,66 @@ describeDb("R4a E3-NEW-2/E2-NEW-10 — computeIssues mirrors more server codes",
     };
     const issues = await issuesFor(content);
     const advisory = issues.find((i) => /require when.*points at a field that no longer exists/.test(i.message));
-    expect(advisory, "the advisory still fires").toBeDefined();
+    expect(advisory, "the client-side advisory still fires (an early heads-up ahead of the round trip)").toBeDefined();
     expect(advisory!.message).toMatch(/^Advisory: /);
-    expect(advisory!.message).toContain("the server accepts this, but the rule will never trigger");
-    // PROOF this is genuinely beyond-server (not just distinctly worded):
-    // the real validator does not reject OR warn on this content at all —
-    // requiredWhen sits entirely outside validateSectionContent's checked
-    // surface. If this ever starts returning an error/warning, requiredWhen
-    // gained real server validation and this advisory's wording is stale.
+    expect(advisory!.message).toContain("save will be rejected");
+    // The real validator: requiredWhen is validated EXACTLY like conditional
+    // now (same code, same knownFields universe).
     const result = validateSectionContent(content);
-    expect(result.ok).toBe(true);
-    expect(result.errors).toEqual([]);
-    expect(result.warnings).toEqual([]);
+    expect(result.ok).toBe(false);
+    expect(
+      result.errors.some((e) => e.code === "conditional_unknown_field" && e.path === "components[0].props.requiredWhen.when"),
+    ).toBe(true);
+  });
+
+  it("require-if server validation cross-checked against the REAL PATCH endpoint: an unknown requiredWhen.when 400s, field-path-keyed", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const content = {
+      components: [
+        {
+          type: "DropdownQuestion",
+          question_id: "q1",
+          internal_field: "insurer",
+          answer_type: "enum",
+          choices: [{ label: "Acme", value: "acme", analytics_id: "a" }],
+          props: { requiredWhen: { when: "ghost_field", op: "eq", value: true } },
+        },
+      ],
+    };
+    const patch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { content_json: JSON.stringify(content) }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(400);
+    // Real response shape (sections.ts): { fields: { "content.<path>": message } }.
+    const body = (await patch.json()) as { fields: Record<string, string> };
+    const key = Object.keys(body.fields).find((k) => k.includes("requiredWhen"));
+    expect(key, JSON.stringify(body.fields)).toBeTruthy();
+    expect(key).toBe("content.components[0].props.requiredWhen.when");
+    expect(body.fields[key as string]).toContain("references a field not present in this Section");
+    // A KNOWN field passes clean (fail-before regression guard: this must
+    // never become a false positive).
+    const validContent = {
+      components: [
+        { type: "TwoButtonYesNo", question_id: "q0", internal_field: "currently_insured", answer_type: "boolean" },
+        {
+          type: "DropdownQuestion",
+          question_id: "q1",
+          internal_field: "insurer",
+          answer_type: "enum",
+          choices: [{ label: "Acme", value: "acme", analytics_id: "a" }],
+          props: { requiredWhen: { when: "currently_insured", op: "eq", value: true } },
+        },
+      ],
+    };
+    const okPatch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { content_json: JSON.stringify(validContent) }),
+      env,
+    );
+    expect(okPatch.status, await okPatch.clone().text()).toBe(200);
   });
 
   it("conditional_unknown_field mirror: a field that DOES exist elsewhere in the tree is NOT flagged (self-inclusive whole-tree universe, unlike internalFieldsOf's self-exclusion)", async () => {
@@ -460,9 +518,12 @@ describeDb("R4a E3-NEW-2/E2-NEW-10 — computeIssues mirrors more server codes",
 
   // Adversarial-review ruling: this universal cross-check runs ONLY over
   // fixtures the mirror ITSELF claims are server-mirrored (computeIssues'
-  // own doc comment / the honest-enumeration list below) — props.
-  // requiredWhen is DELIBERATELY excluded (see the dedicated advisory test
-  // above, which proves the opposite: the real validator does NOT flag it).
+  // own doc comment / the honest-enumeration list below). P4c (register
+  // PC-12): props.requiredWhen is NOW server-validated too (see the
+  // dedicated test above) — its own fixture stays a SEPARATE, dedicated
+  // test rather than folding into this table, since its path shape
+  // (`.props.requiredWhen.when`) differs from every `conditional_unknown_
+  // field` case below (`.conditional.when`).
   // Pure function, no D1 needed.
   it("cross-check against the REAL server validator, SERVER-MIRRORED FIXTURES ONLY: every one of these client mirror hits is ALSO a real validateSectionContent error (never a client false-positive the server disagrees with)", () => {
     const cases: ReadonlyArray<{ code: string; content: Record<string, unknown> }> = [
@@ -606,11 +667,18 @@ describeDb("R4a S3-1 — rules empty-state hint (no eligible source field)", () 
       "function clearChildren(el) { el.children = []; }",
       sliceIslandFunction(island, "trimStr"),
       sliceIslandFunction(island, "typeMeta"),
+      sliceIslandFunction(island, "typeLabel"),
       sliceIslandFunction(island, "isContainerType"),
       sliceIslandFunction(island, "walkTree"),
       sliceIslandFunction(island, "internalFieldsOf"),
       sliceIslandFunction(island, "updateCondValueInputs"),
       sliceIslandFunction(island, "refFieldInfo"),
+      // PC-12: populateConditional now resolves human field labels through
+      // these two (sectionFieldLabels is pure; currentHeadlineText is the
+      // ONE DOM read it needs — the stub document above degrades it to '',
+      // matching this fixture's headline-less section).
+      sliceIslandFunction(island, "sectionFieldLabels"),
+      sliceIslandFunction(island, "currentHeadlineText"),
       "function readCond(){ return ''; }",
       "var studioMeta = " + JSON.stringify(extractJsonBlob(html, "lg-studio-meta")) + ";",
       sliceIslandFunction(island, "populateConditional"),
@@ -1080,5 +1148,186 @@ describeDb("R4a E3-S7 — FooterBar links authoring: confirmed MOOT for the stud
     // asserts the STRUCTURAL gate is intact, i.e. still genuinely moot.
     expect(island).toContain("if (FRAME_SCOPE_STUDIO_TYPES[node.type] === 1) { return 'frame_scope'; }");
     expect(island).toContain("if (fieldBlock) { fieldBlock.hidden = variant !== 'field'; }");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P4c (register PC-12): human field names in the rules pickers — the
+// sectionFieldLabels/conditionValueLabel naming core, run as PURE vm-probes
+// of the REAL served functions (never a test re-implementation).
+// ---------------------------------------------------------------------------
+
+describeDb("P4c — sectionFieldLabels: names, never ids (headline-for-first-field + duplicate-suffix numbering)", () => {
+  async function labelsFor(fields: string[], components: unknown[], headlineText: string): Promise<Record<string, string>> {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const sandbox: Record<string, unknown> = { state: { content: { components } } };
+    const source = [
+      "var studioMeta = " + JSON.stringify(extractJsonBlob(html, "lg-studio-meta")) + ";",
+      sliceIslandFunction(island, "trimStr"),
+      sliceIslandFunction(island, "typeMeta"),
+      sliceIslandFunction(island, "typeLabel"),
+      sliceIslandFunction(island, "isContainerType"),
+      sliceIslandFunction(island, "walkTree"),
+      sliceIslandFunction(island, "sectionFieldLabels"),
+    ].join("\n");
+    runInNewContext(source, sandbox);
+    return runInNewContext(`sectionFieldLabels(${JSON.stringify(fields)}, ${JSON.stringify(headlineText)})`, sandbox) as Record<
+      string,
+      string
+    >;
+  }
+
+  it("a single field takes the section's headline text over its bare type name (the common one-question-per-section case)", async () => {
+    const labels = await labelsFor(
+      ["currently_insured"],
+      [{ type: "TwoButtonYesNo", question_id: "q1", internal_field: "currently_insured", answer_type: "boolean" }],
+      "Are you currently insured?",
+    );
+    expect(labels).toEqual({ currently_insured: "Are you currently insured?" });
+  });
+
+  it("a single field with NO headline authored falls back to its type name — never the raw internal_field", async () => {
+    const labels = await labelsFor(
+      ["currently_insured"],
+      [{ type: "TwoButtonYesNo", question_id: "q1", internal_field: "currently_insured", answer_type: "boolean" }],
+      "",
+    );
+    expect(labels).toEqual({ currently_insured: "Yes / No" });
+  });
+
+  it("a compound section: the FIRST field takes the headline; every OTHER field falls back to its own type name (typeLabel already disambiguates most pairs)", async () => {
+    const labels = await labelsFor(
+      ["currently_insured", "zip"],
+      [
+        { type: "TwoButtonYesNo", question_id: "q1", internal_field: "currently_insured", answer_type: "boolean" },
+        { type: "ZIPInputQuestion", question_id: "q2", internal_field: "zip" },
+      ],
+      "Are you currently insured?",
+    );
+    expect(labels).toEqual({ currently_insured: "Are you currently insured?", zip: "ZIP" });
+  });
+
+  it("two SAME-type fields (typeLabel collides): first stays bare, the second+ get a short ' (2)'/' (3)' numbered suffix — never two identical option rows for two different fields", async () => {
+    const labels = await labelsFor(
+      ["state", "city", "insurer"],
+      [
+        { type: "DropdownQuestion", question_id: "q1", internal_field: "state", choices: [] },
+        { type: "DropdownQuestion", question_id: "q2", internal_field: "city", choices: [] },
+        { type: "DropdownQuestion", question_id: "q3", internal_field: "insurer", choices: [] },
+      ],
+      "", // no headline -> even the first field falls back to typeLabel too, so ALL THREE collide
+    );
+    expect(labels).toEqual({ state: "Dropdown", city: "Dropdown (2)", insurer: "Dropdown (3)" });
+  });
+
+  it("a dangling field name (no matching node — e.g. a stale reference) degrades to the raw field string, never throws or renders blank", async () => {
+    const labels = await labelsFor(["ghost_field"], [], "");
+    expect(labels).toEqual({ ghost_field: "ghost_field" });
+  });
+});
+
+describeDb("P4c — conditionSentence speaks human: field names + choice/boolean value labels (never raw ids/values)", () => {
+  async function sentenceFor(cond: Record<string, unknown>, components: unknown[], fieldLabel: string, refField: string): Promise<string> {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const sandbox: Record<string, unknown> = { state: { content: { components } } };
+    const source = [
+      "var studioMeta = " + JSON.stringify(extractJsonBlob(html, "lg-studio-meta")) + ";",
+      sliceIslandFunction(island, "trimStr"),
+      sliceIslandFunction(island, "typeMeta"),
+      sliceIslandFunction(island, "isContainerType"),
+      sliceIslandFunction(island, "walkTree"),
+      sliceIslandFunction(island, "refFieldInfo"),
+      sliceIslandFunction(island, "conditionValueLabel"),
+      sliceIslandFunction(island, "conditionSentence"),
+    ].join("\n");
+    runInNewContext(source, sandbox);
+    return runInNewContext(
+      `conditionSentence('Show this question', ${JSON.stringify(cond)}, ${JSON.stringify(fieldLabel)}, refFieldInfo(${JSON.stringify(refField)}))`,
+      sandbox,
+    ) as string;
+  }
+
+  it("a CHOICE-bearing field: the value speaks its choice.label, not the raw stored value (e.g. never 'option_2')", async () => {
+    const sentence = await sentenceFor(
+      { when: "insurer", op: "eq", value: "acme" },
+      [
+        {
+          type: "DropdownQuestion",
+          question_id: "q1",
+          internal_field: "insurer",
+          choices: [
+            { label: "Acme Mutual", value: "acme", analytics_id: "a" },
+            { label: "Globex", value: "globex", analytics_id: "g" },
+          ],
+        },
+      ],
+      "Which insurer?",
+      "insurer",
+    );
+    expect(sentence).toBe("Show this question when Which insurer? is Acme Mutual");
+  });
+
+  it("a boolean field with a CUSTOM yesLabel/noLabel: the value speaks the authored wording, not the raw true/false", async () => {
+    const sentence = await sentenceFor(
+      { when: "currently_insured", op: "eq", value: false },
+      [
+        {
+          type: "TwoButtonYesNo",
+          question_id: "q1",
+          internal_field: "currently_insured",
+          answer_type: "boolean",
+          props: { yesLabel: "Yep, insured", noLabel: "Nope, not yet" },
+        },
+      ],
+      "Are you currently insured?",
+      "currently_insured",
+    );
+    expect(sentence).toBe("Show this question when Are you currently insured? is Nope, not yet");
+  });
+
+  it("an IN op over a choice-bearing field: every listed value speaks its own choice.label", async () => {
+    const sentence = await sentenceFor(
+      { when: "state", op: "in", values: ["ca", "ny"] },
+      [
+        {
+          type: "DropdownQuestion",
+          question_id: "q1",
+          internal_field: "state",
+          choices: [
+            { label: "California", value: "ca", analytics_id: "c" },
+            { label: "New York", value: "ny", analytics_id: "n" },
+            { label: "Texas", value: "tx", analytics_id: "t" },
+          ],
+        },
+      ],
+      "State",
+      "state",
+    );
+    expect(sentence).toBe("Show this question when State is one of: California, New York");
+  });
+
+  it("a NON-choice, NON-boolean field (e.g. a number): the value renders as-is (nothing to humanize)", async () => {
+    const sentence = await sentenceFor({ when: "age", op: "gt", value: 18 }, [{ type: "NumberInputQuestion", question_id: "q1", internal_field: "age", answer_type: "number" }], "Age", "age");
+    expect(sentence).toBe("Show this question when Age is greater than 18");
+  });
+
+  it("omitted fieldLabel/valueInfo (the isolated standalone slice, e.g. R4a S3-2's own test): falls back to the raw cond.when / raw value — byte-identical pre-PC-12 text", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const sandbox: Record<string, unknown> = {};
+    runInNewContext(sliceIslandFunction(island, "conditionSentence"), sandbox);
+    const sentence = runInNewContext(
+      "conditionSentence('Show this question', { when: 'raw_field', op: 'eq', value: 'raw_value' })",
+      sandbox,
+    ) as string;
+    expect(sentence).toBe("Show this question when raw_field is raw_value");
   });
 });

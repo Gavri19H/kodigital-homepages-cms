@@ -6,9 +6,9 @@
 // operator-label single source, theme rename, SSR markup) lives in
 // test/leadgen-r4a-pipeline.test.ts.
 //
-// Seeding rides the REAL admin HTTP API only (repo convention). Local D1
-// must be migrated + seeded once:
-// rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local
+// Seeding rides the REAL admin HTTP API only (repo convention). Local state
+// must be reset once:
+// npm run db:reset:local
 
 import { test, expect, type APIRequestContext } from '@playwright/test';
 

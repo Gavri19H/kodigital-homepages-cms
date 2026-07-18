@@ -15,7 +15,7 @@
 import { FUNNEL_TOKEN_ROLES } from "../designs/theme";
 import { COMPONENT_CATALOG } from "./registry";
 import type { ComponentType, ComponentScope } from "./registry";
-import type { LeadgenConditionOp } from "../../../admin/leadgen/db-types";
+import type { LeadgenConditionOp, LeadgenContinueMode } from "../../../admin/leadgen/db-types";
 // P1b (register PC-11): the leading-icon enum's name vocabulary is sourced
 // from the build-time-vendored Tabler (MIT) icon map — see the
 // LEADGEN_FIELD_LEADING_ICONS comment below.
@@ -311,6 +311,78 @@ const ACCEPT_FORMAT_BY_TYPE: Partial<Record<ComponentType, LeadgenFieldAcceptFor
 // the type isn't one of the 8 Accept-swappable text-input types.
 export function acceptFormatOfType(type: ComponentType): LeadgenFieldAcceptFormat | undefined {
   return ACCEPT_FORMAT_BY_TYPE[type];
+}
+
+// ---------------------------------------------------------------------------
+// PC-5 / PC-A5 (P4b) — DateQuestion bounds: real type + dynamic token grammar
+// ---------------------------------------------------------------------------
+// The investigation ground: DateQuestion had ZERO app-level validation — the
+// registry's "date range" claim was fictional (Number(ISO)=NaN dead path), so
+// garbage min/max saved silently AND silently disabled the native constraint.
+// P4b makes min/max real date BOUNDS, each either an ISO date (YYYY-MM-DD) or a
+// dynamic token resolved SERVER-side into concrete ISO at config build
+// (config-dto.buildClientValidation) so the runtime stays a pure lexical ISO
+// compare (validation.ts) with NO token grammar in the bundle.
+//
+// TOKEN GRAMMAR (studio picker -> stored string):
+//   today            -> today's date
+//   year_end         -> Dec 31 of the current year ("This year end")
+//   +Nd / -Nd        -> today +/- N days      (e.g. +7d = "in 7 days")
+//   +Nw / -Nw        -> today +/- N weeks
+//   +Nm / -Nm        -> today +/- N months    (day clamped to the target month end)
+// A "Custom date" pick stores a literal ISO date (not a token).
+const DATE_TOKEN_RE = /^([+-])(\d{1,4})([dwm])$/;
+
+// A strict ISO calendar date (YYYY-MM-DD, real month/day).
+export function isIsoDate(raw: unknown): raw is string {
+  if (typeof raw !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const y = Number(raw.slice(0, 4));
+  const m = Number(raw.slice(5, 7));
+  const d = Number(raw.slice(8, 10));
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+// Whether a raw min/max value is an authorable date bound (ISO date or token).
+export function isDateBound(raw: unknown): boolean {
+  return (
+    isIsoDate(raw) ||
+    raw === "today" ||
+    raw === "year_end" ||
+    (typeof raw === "string" && DATE_TOKEN_RE.test(raw))
+  );
+}
+
+// Resolve a date bound (ISO literal OR token) to a concrete ISO date relative to
+// `todayIso` (itself an ISO date). Returns null for anything unresolvable — the
+// content-schema authoring gate (isDateBound) already rejects garbage upstream,
+// so a null here only ever means "no bound".
+export function resolveDateBound(raw: unknown, todayIso: string): string | null {
+  if (isIsoDate(raw)) return raw;
+  if (typeof raw !== "string" || raw === "" || !isIsoDate(todayIso)) return null;
+  const ty = Number(todayIso.slice(0, 4));
+  const tm = Number(todayIso.slice(5, 7));
+  const td = Number(todayIso.slice(8, 10));
+  const base = new Date(Date.UTC(ty, tm - 1, td));
+  if (raw === "today") return base.toISOString().slice(0, 10);
+  if (raw === "year_end") return `${ty}-12-31`;
+  const parts = raw.match(DATE_TOKEN_RE);
+  if (parts === null) return null;
+  const n = (parts[1] === "-" ? -1 : 1) * Number(parts[2]);
+  const unit = parts[3];
+  if (unit === "d") base.setUTCDate(base.getUTCDate() + n);
+  else if (unit === "w") base.setUTCDate(base.getUTCDate() + n * 7);
+  else {
+    // months: pin to the 1st before shifting, then clamp the day to the target
+    // month's last day (so today=Jan 31, +1m -> Feb 28/29, never a Mar rollover).
+    const day = base.getUTCDate();
+    base.setUTCDate(1);
+    base.setUTCMonth(base.getUTCMonth() + n);
+    const lastDay = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 0)).getUTCDate();
+    base.setUTCDate(Math.min(day, lastDay));
+  }
+  return base.toISOString().slice(0, 10);
 }
 
 // §5.3/§8.5b — the TextBlock `role` enum (TextBlock only).
@@ -684,6 +756,13 @@ export interface LeadgenComponentNode {
 
 export interface LeadgenSectionContent {
   components: LeadgenComponentNode[];
+  // P4c (register PC-12): section-level Continue-button visibility rule —
+  // SAME LeadgenComponentConditional shape as a node's `conditional`, but
+  // keyed at the Section (not any one node) because a Section may carry
+  // zero-or-many ContinueButton nodes (auto_advance mode renders none at
+  // all). Authored via the studio's CONTINUE inspector panel; consumed by
+  // the runtime engine (conditionMet) to hide/show [data-lg-continue].
+  continue_visible_when?: LeadgenComponentConditional;
 }
 
 // ---------------------------------------------------------------------------
@@ -749,6 +828,122 @@ export function flattenComponents(
 }
 
 // ---------------------------------------------------------------------------
+// P4a (register PC-4-behavior / PC-A1) — continue_mode="auto_advance" eligibility
+// ---------------------------------------------------------------------------
+//
+// auto_advance is a SECTION-level flag (db-types.ts LeadgenContinueMode). It
+// makes the runtime advance to the next section the instant an answer is
+// recorded, with NO Continue button. But the engine (runtime/engine.ts
+// handleChoiceActivation) only ever fires that advance from a [data-lg-choice]
+// CLICK, for a NON-multi component, and ONLY when EXACTLY ONE interactive
+// component is visible; every other answer path (text/number/range/dropdown/
+// date/address inputs → handleInputEvent) NEVER advances. A section whose
+// answer cannot reach that single-click trigger is STUCK under auto_advance:
+// presets suppresses the Continue and nothing advances (PC-A1, live-proven).
+//
+// Operator rule (binding): "in this specific component there is no button to
+// click, so the only option must be continue button … if we have few different
+// components the only valid option should be Wait for continue … in multi-choice
+// components this feature must be disabled as well."
+//
+// Grounded in the engine's ACTUAL advance trigger, auto_advance is valid for a
+// section ONLY when its answer-producing components (catalog.produces !== null)
+// number EXACTLY ONE, that one is a single-select CLICK-to-answer control, and
+// it carries no `conditional` (so it is ALWAYS the one visible interactive —
+// "exactly one visible simultaneously" is provable, never merely hoped).
+
+// The click-to-answer, single-select component types: the engine's
+// handleChoiceActivation advance set (components that render clickable
+// [data-lg-choice] buttons/cards) MINUS the inherently-multi one
+// (MultiChoiceCardGroup). Dropdowns render a <select> whose selection fires
+// `change`→handleInputEvent (NOT the click delegate), so they are NOT here.
+export const AUTO_ADVANCE_CLICK_TYPES: ReadonlySet<ComponentType> = new Set<ComponentType>([
+  "ButtonAnswerGroup",
+  "TwoButtonYesNo",
+  "IconCardAnswerGrid",
+  "ImageCardAnswerGrid",
+  "OtherGroupSelector",
+]);
+
+export type AutoAdvanceIneligibleReason =
+  | "no_producers"
+  | "multiple_producers"
+  | "not_click_to_answer"
+  | "multi_select"
+  | "conditional_producer";
+
+export interface AutoAdvanceEligibility {
+  eligible: boolean;
+  // Flattened answer-producing components in render order (names the offenders).
+  producers: { type: string; question_id: string }[];
+  // Populated ONLY when !eligible.
+  reason?: AutoAdvanceIneligibleReason;
+}
+
+function isAnswerProducingNode(node: unknown): node is LeadgenComponentNode {
+  if (!isRecord(node)) return false;
+  const type = node["type"];
+  return isKnownComponentType(type) && COMPONENT_CATALOG[type].produces !== null;
+}
+
+function isMultiSelectNode(node: LeadgenComponentNode): boolean {
+  // The catalog `produces:"array"` (MultiChoiceCardGroup) is the authoritative
+  // multi signal even when the node omits an explicit answer_type; the engine's
+  // per-node signals (answer_type "array" / props.multiple) cover a
+  // single-select type CONFIGURED multi (e.g. ButtonAnswerGroup props.multiple).
+  if (isKnownComponentType(node.type) && COMPONENT_CATALOG[node.type].produces === "array") return true;
+  if (node.answer_type === "array") return true;
+  const props = node.props;
+  return isRecord(props) && props["multiple"] === true;
+}
+
+// PURE: does continue_mode="auto_advance" make sense for this section body?
+export function autoAdvanceEligibility(
+  components: readonly LeadgenComponentNode[],
+): AutoAdvanceEligibility {
+  const producers = flattenComponents(components).filter(isAnswerProducingNode);
+  const list = producers.map((p) => ({
+    type: String(p.type),
+    question_id: isNonEmptyString(p.question_id) ? p.question_id : "",
+  }));
+  if (producers.length === 0) return { eligible: false, producers: list, reason: "no_producers" };
+  if (producers.length > 1) return { eligible: false, producers: list, reason: "multiple_producers" };
+  const only = producers[0] as LeadgenComponentNode;
+  // multi FIRST: a multi-choice component (e.g. MultiChoiceCardGroup) IS
+  // click-to-answer, so "multi_select" is the honest reason, not "no click".
+  if (isMultiSelectNode(only)) return { eligible: false, producers: list, reason: "multi_select" };
+  if (!AUTO_ADVANCE_CLICK_TYPES.has(only.type)) {
+    return { eligible: false, producers: list, reason: "not_click_to_answer" };
+  }
+  if (only.conditional !== undefined) {
+    return { eligible: false, producers: list, reason: "conditional_producer" };
+  }
+  return { eligible: true, producers: list };
+}
+
+// The operator-voiced, component-naming save-error copy (PC-A1). Exported so the
+// server validator and the studio Behavior panel show IDENTICAL wording.
+export function autoAdvanceConflictMessage(result: AutoAdvanceEligibility): string {
+  const n = result.producers.length;
+  const names = result.producers.map((p) => p.type).join(", ");
+  const tail = " 'Go to next' works only for a single choice-style question (buttons or cards).";
+  switch (result.reason) {
+    case "multiple_producers":
+      return `This section has ${n} answer components (${names}) — visitors need the Continue button.` + tail;
+    case "no_producers":
+      return `This section has no answer component to advance from — visitors need the Continue button.` + tail;
+    case "not_click_to_answer":
+      return `The answer here is a ${names} — visitors type or pick a value, so there is nothing to click to advance. Use the Continue button.` + tail;
+    case "multi_select":
+      return `This is a multi-select question (${names}) — visitors choose several answers, so one tap can't advance. Use the Continue button.` + tail;
+    case "conditional_producer":
+      return `This answer component (${names}) only appears under a condition, so it can't be the section's single always-present question. Use the Continue button.` + tail;
+    default:
+      return `This section can't auto-advance — use the Continue button.` + tail;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Typed validation errors
 // ---------------------------------------------------------------------------
 
@@ -789,6 +984,10 @@ export type SectionContentErrorCode =
   | "frame_scope_component"
   // v2.5 11 §11.5 WARNING code (emitted into `warnings`, never `errors`)
   | "duplicate_continue"
+  // P4a (register PC-4-behavior / PC-A1) BLOCKING code: continue_mode
+  // "auto_advance" on a section whose composition can never reach the engine's
+  // single-click advance trigger (see autoAdvanceEligibility) — a stuck funnel.
+  | "auto_advance_conflict"
   // v3.1 §11.3 NEW field-content props (label/helper/icon/required/format/
   // error_text/role/source) — shape, enum, and type-restriction violations.
   | "invalid_field_prop"
@@ -802,7 +1001,12 @@ export type SectionContentErrorCode =
   | "invalid_placement"
   // v3.1 §9.3 WARNING code (emitted into `warnings`, never `errors`):
   // maps.enabled with zero jobs selected
-  | "maps_no_job";
+  | "maps_no_job"
+  // P4c (register PC-12) WARNING code (emitted into `warnings`, never
+  // `errors`): continue_mode "button" + a continue_visible_when set — the
+  // condition's reachability is not statically provable, so this names the
+  // stuck-funnel RISK rather than blocking the save.
+  | "continue_visibility_risk";
 
 export interface SectionContentError {
   code: SectionContentErrorCode;
@@ -1583,7 +1787,13 @@ function validateNewFieldProps(
   // label / helper / error_text (§8.3 Basics/Answer-format groups): plain
   // optional strings, valid on any node (the Content tab reuses them wherever
   // a field selection shows Basics/Answer-format controls).
-  for (const key of ["label", "helper", "error_text"] as const) {
+  // PC-A8: firstHelper/lastHelper are NameFieldsGroup's own PER-FIELD helper
+  // lines (presets.ts renderNameFieldsGroup) — same "plain optional string,
+  // valid on any node" looseness as the shared `helper` above (dead-but-
+  // harmless on any other type, the established convention for this family;
+  // contrast firstIcon/lastIcon below, which mirror `icon`'s type-gated shape
+  // instead — each new per-field prop mirrors its own single-field analogue).
+  for (const key of ["label", "helper", "error_text", "firstHelper", "lastHelper"] as const) {
     const value = props[key];
     if (value !== undefined && typeof value !== "string") {
       push("invalid_field_prop", `${base}.props.${key}`, `props.${key} must be a string (§8.3)`);
@@ -1640,6 +1850,43 @@ function validateNewFieldProps(
     }
   }
 
+  // PC-7/PC-A3 (P4b): props.step is meaningful ONLY on the numeric Accept-swap
+  // tiles (Number / Amount). The Accept-swap bug let a stale `step` SURVIVE onto
+  // a text/email/phone/ZIP/date/address field when the type changed (the studio
+  // now cleans it on swap — setAcceptFormat); this rule is the authoring gate
+  // that rejects it for API authors too. Scoped to the Accept-swap family via
+  // acceptFormatOfType so it never touches ProgressBar's own props.step
+  // (progress-count) or the Range families (which legitimately carry step).
+  if (props["step"] !== undefined) {
+    const acceptFmt = acceptFormatOfType(type);
+    const isNumericField = type === "NumberInputQuestion" || type === "CurrencyInputQuestion";
+    if (acceptFmt !== undefined && !isNumericField) {
+      push(
+        "invalid_field_prop",
+        `${base}.props.step`,
+        `props.step is only valid on Number/Amount fields (§5.6/§8.6) — a ${acceptFmt} field has no step; remove it (the Accept-swap cleans this automatically)`,
+      );
+    }
+  }
+
+  // PC-5/PC-A5 (P4b): a DateQuestion's min/max are real date BOUNDS — each an
+  // ISO date (YYYY-MM-DD) or a dynamic token (today | year_end | +7d | +2w |
+  // +1m …). Garbage was saved silently before (and silently disabled the native
+  // constraint); now it is rejected with a plain author message. The concrete
+  // ISO is resolved server-side at config build (config-dto.resolveDateBound).
+  if (type === "DateQuestion") {
+    for (const key of ["min", "max"] as const) {
+      const v = props[key];
+      if (v !== undefined && v !== null && !isDateBound(v)) {
+        push(
+          "invalid_field_prop",
+          `${base}.props.${key}`,
+          `props.${key} on a Date field must be a date (YYYY-MM-DD) or a token (today, year_end, +7d, +2w, +1m) — got ${JSON.stringify(v)}`,
+        );
+      }
+    }
+  }
+
   // role — TextBlock only (§5.3/§8.5b).
   if (props["role"] !== undefined) {
     if (type !== "TextBlock") {
@@ -1671,6 +1918,28 @@ function validateNewFieldProps(
   // maps — ZIP/Address only (§9.2).
   if (props["maps"] !== undefined) {
     validateMapsProp(type, props["maps"], `${base}.props.maps`, push, warn);
+  }
+
+  // firstIcon/lastIcon (PC-A8) — NameFieldsGroup's own PER-FIELD leading icon
+  // (presets.ts renderNameFieldsGroup, fieldLeadingIcon(node, key)). Meaningful
+  // ONLY on NameFieldsGroup (mirrors the role/TextBlock and source/ImageBlock
+  // gating above); no GLYPH_ICON_TYPES exception — NameFieldsGroup was never
+  // in that legacy free-form-glyph set, so it uses the SAME strict §8.5b
+  // 12-value enum the shared `icon` prop enforces for every non-glyph type.
+  for (const key of ["firstIcon", "lastIcon"] as const) {
+    const v = props[key];
+    if (v === undefined) continue;
+    if (type !== "NameFieldsGroup") {
+      push("invalid_field_prop", `${base}.props.${key}`, `props.${key} is only valid on NameFieldsGroup (§8.5b)`);
+      continue;
+    }
+    if (typeof v !== "string" || !FIELD_LEADING_ICON_SET.has(v)) {
+      push(
+        "invalid_field_prop",
+        `${base}.props.${key}`,
+        `props.${key} must be one of ${LEADGEN_FIELD_LEADING_ICONS.join("|")} (§8.5b)`,
+      );
+    }
   }
 
   // P2a §R-A per-element freedom for TwoButtonYesNo — it is a FIXED boolean
@@ -1893,7 +2162,14 @@ export function rewriteRetiredNodeToPrimitive(node: LeadgenComponentNode): Leadg
 // question_key / internal_field) and the conditional known-field universe
 // span the WHOLE tree (containers' own question_ids included). A flat array
 // (zero containers) takes exactly the pre-§8.5 code path node-for-node.
-export function validateSectionContent(content: unknown): SectionContentValidation {
+export function validateSectionContent(
+  content: unknown,
+  // P4a (PC-A1): the section's continue_mode (SECTION-level, not in
+  // content_json). Omitted ⇒ no auto_advance check (every legacy call site that
+  // passes only `content` behaves byte-identically). Supplied "auto_advance"
+  // triggers the composition-eligibility gate below.
+  continueMode?: LeadgenContinueMode,
+): SectionContentValidation {
   const errors: SectionContentError[] = [];
   const warnings: SectionContentError[] = [];
   const push = (code: SectionContentErrorCode, path: string, message: string): void => {
@@ -1995,6 +2271,18 @@ export function validateSectionContent(content: unknown): SectionContentValidati
     }
 
     const props = isRecord(raw["props"]) ? raw["props"] : {};
+
+    // P4c (register PC-12): props.requiredWhen — mirrors node.conditional's
+    // validateConditional call EXACTLY (same shape check + same known-field
+    // universe), closing the gap the studio's own client-side advisory
+    // already flagged (a require-if pointing at a field that no longer
+    // exists previously saved silently — the server now names it a typed
+    // 400, `conditional_unknown_field`, same code as the show-if mirror).
+    // Runs for every node (container or leaf) — harmless on a container,
+    // exactly like conditional above.
+    if (props["requiredWhen"] !== undefined) {
+      validateConditional(props["requiredWhen"], `${base}.props.requiredWhen`, knownFields, push);
+    }
 
     // §3.5/§8.2 frame-scope component inside a Section: legal in stored
     // content (legacy renders unchanged) — path-precise save-time WARNING,
@@ -2377,6 +2665,45 @@ export function validateSectionContent(content: unknown): SectionContentValidati
   }
   // P3a: row-grouping (contiguity + max-3) over the ROOT sibling list.
   validateRowGrouping(rawComponents, (i) => `components[${i}]`, push);
+
+  // P4a (PC-A1): continue_mode="auto_advance" must match a composition the
+  // engine can actually auto-advance (see autoAdvanceEligibility). A conflict
+  // is a BLOCKING error — a NEW save can never create a stuck funnel. (Stored
+  // legacy content that already violates this un-sticks at RENDER time: presets
+  // renders the Continue when the section is ineligible — no migration needed.)
+  if (continueMode === "auto_advance") {
+    const elig = autoAdvanceEligibility(rawComponents as LeadgenComponentNode[]);
+    if (!elig.eligible) {
+      push("auto_advance_conflict", "continue_mode", autoAdvanceConflictMessage(elig));
+    }
+  }
+
+  // P4c (register PC-12): continue_visible_when — SECTION-level (not any one
+  // node), so it is validated once here against the SAME whole-tree
+  // knownFields universe conditional/requiredWhen use (mirrors
+  // validateConditional exactly — shape + conditional_unknown_field).
+  const continueVisibleWhen = content["continue_visible_when"];
+  if (continueVisibleWhen !== undefined) {
+    validateConditional(continueVisibleWhen, "continue_visible_when", knownFields, push);
+  }
+  // Interplay guard (adversarial-review-anticipated ruling, documented per
+  // the mission's own instruction): whether continueVisibleWhen can EVER be
+  // met is not statically provable for arbitrary conditions (an operator
+  // could reference a field only reachable via an unrelated branch, etc.).
+  // So this is a save-time WARNING naming the risk — never a blocking 400 —
+  // fired only when the Continue button is the section's SOLE advance
+  // affordance (continue_mode "button"; auto_advance never renders it, so a
+  // stray continue_visible_when there is inert, not risky). Omitted
+  // continueMode ⇒ no check, matching the auto_advance_conflict precedent
+  // above (every legacy `validateSectionContent(content)` call site behaves
+  // byte-identically).
+  if (continueMode === "button" && continueVisibleWhen !== undefined) {
+    warn(
+      "continue_visibility_risk",
+      "continue_visible_when",
+      "The Continue button is this section's only way to advance, and it is now conditional — if the condition can never be met, visitors will be stuck here. Double-check the condition is reachable.",
+    );
+  }
 
   // §8.6: `ok` is keyed to ERRORS only — warnings never block a save.
   return { ok: errors.length === 0, errors, warnings };

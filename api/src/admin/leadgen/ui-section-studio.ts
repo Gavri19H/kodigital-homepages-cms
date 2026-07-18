@@ -111,6 +111,7 @@ import {
   LEADGEN_STACK_DIRECTIONS,
   LEADGEN_TEXT_BLOCK_ROLES,
   REQUIRED_FIELDS,
+  AUTO_ADVANCE_CLICK_TYPES,
   isLayoutContainerType,
   validateSectionContent,
   type LeadgenComponentNode,
@@ -516,9 +517,16 @@ const CONTENT_PROP_FIELDS: Record<ComponentType, readonly string[]> = {
   CurrencyInputQuestion: ["placeholder", "currency", "helper"],
   EmailInputQuestion: ["placeholder", "helper"],
   PhoneInputQuestion: ["placeholder", "helper"],
-  // v3.1 R3b E1-NEW-7: firstLabel/lastLabel are ALREADY consumed by the
-  // renderer (renderNameFieldsGroup) but had no authoring control at all.
-  NameFieldsGroup: ["firstLabel", "lastLabel", "helper"],
+  // PC-A8 (register): EMPTIED — NameFieldsGroup now gets its OWN dedicated
+  // Basics block (two sub-groups, "First name field"/"Last name field": each
+  // a Label/Placeholder/Helper/Leading-icon set), same "dedicated block,
+  // empty generic entry" idiom as ImageBlock below (renderStudioInspector's
+  // data-content-namefieldsgroup-block; see availableTabsFor's hasContent
+  // carve-out and populateNameFieldsGroupControls). The old shared
+  // group-level `helper` prop is a DEPRECATED, render-only fallback now (no
+  // authoring control) — presets.ts renderNameFieldsGroup still renders it
+  // for legacy content when neither field has its own per-field helper.
+  NameFieldsGroup: [],
   DateQuestion: ["placeholder", "helper"],
   ZIPInputQuestion: ["placeholder", "helper"],
   AddressAutocompleteQuestion: ["placeholder", "helper"],
@@ -574,8 +582,11 @@ const CONTENT_CONTROLS: ReadonlyArray<{ key: string; label: string }> = [
   { key: "currency", label: "Currency symbol" },
   // v3.1 R3 MINOR-4: loadingLabel control removed (out-of-contract, §8.4).
   { key: "logoMediaId", label: "Logo media id" },
-  { key: "firstLabel", label: "First name label" },
-  { key: "lastLabel", label: "Last name label" },
+  // PC-A8: firstLabel/lastLabel rows REMOVED from this generic list —
+  // NameFieldsGroup (their only consumer) moved to its own dedicated Basics
+  // block (data-content-namefieldsgroup-block) alongside the 6 new per-field
+  // props; a generic row for a key no `content_props` array lists anymore is
+  // dead markup (the exact drift class this phase closes elsewhere).
 ];
 
 interface ValidationField {
@@ -661,6 +672,10 @@ export interface StudioTypeMetaBlob {
   placement_excluded: boolean;
   produces: string | null;
   choice: boolean;
+  // P4a (PC-A1): this type is a single-select CLICK-to-answer control (the
+  // engine's handleChoiceActivation advance set) — the island projects the SAME
+  // AUTO_ADVANCE_CLICK_TYPES the save-time validator uses, never a re-typed list.
+  auto_advance_click: boolean;
   maps: "address" | "zip" | null;
   required: {
     internal_field: boolean;
@@ -694,6 +709,7 @@ export function studioTypeMeta(): Record<string, StudioTypeMetaBlob> {
       placement_excluded: PLACEMENT_EXCLUDED_TYPE_SET.has(type),
       produces: COMPONENT_CATALOG[type].produces,
       choice: spec.choices === true,
+      auto_advance_click: AUTO_ADVANCE_CLICK_TYPES.has(type),
       maps: type === "AddressAutocompleteQuestion" ? "address" : type === "ZIPInputQuestion" ? "zip" : null,
       required: {
         internal_field: spec.internalField === true,
@@ -1984,7 +2000,7 @@ function renderScopeHeaderShell(): string {
 // position — no editable pickers here by design). Each row shows the REAL
 // resolved value (island-populated) instead of a hardcoded string, plus a
 // working deep link into the Quote Builder that actually owns the setting.
-function renderStyleContinueBlock(): string {
+function renderStyleContinueBlock(opOptions: string): string {
   return `<div data-style-continue-block hidden>
       <div class="studio-panel-eyebrow">From the funnel layout</div>
       <div class="studio-inherited-row"><span>Color</span><span><span data-continue-color-text>Button</span> <span class="studio-inherited-tag">inherited</span></span></div>
@@ -1993,6 +2009,28 @@ function renderStyleContinueBlock(): string {
       <button type="button" class="studio-link-btn" data-continue-change-in-frame="position">Edit in Quote Builder &#8594;</button>
       <div class="studio-inherited-row"><span>Size</span><span>Medium (fixed) <span class="studio-inherited-tag">inherited</span></span></div>
       <button type="button" class="studio-link-btn" data-continue-change-in-frame="size">Edit in Quote Builder &#8594;</button>
+
+      <div class="studio-hr"></div>
+      <div class="studio-panel-eyebrow">Continue visibility</div>
+      <div class="studio-rules-always-row" data-continuecond-always-row>
+        <span class="studio-dot-green" data-continuecond-summary-dot></span>
+        <span class="lg-check-label studio-cond-sentence" data-continuecond-sentence aria-live="polite">Always shown</span>
+        <button type="button" class="studio-add-condition-btn" data-continuecond-add>+ Add a show/hide rule</button>
+        <button type="button" class="studio-link-btn studio-danger-link" data-continuecond-remove hidden>Remove rule</button>
+      </div>
+      <fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-continuecond-fields hidden>
+        <legend class="form-label">Show Continue IF</legend>
+        <p class="form-help" data-continuecond-source-empty-hint hidden>Add a question to this section to condition on it.</p>
+        <select class="form-input" data-inspector-continuecond="when" aria-label="Continue depends on field"><option value="">— always visible —</option></select>
+        <select class="form-input" data-inspector-continuecond="op" aria-label="Continue condition operator">${opOptions}</select>
+        <select class="form-input" data-inspector-continuecond="value-bool" aria-label="Continue boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
+        <select class="form-input" data-inspector-continuecond="value-enum" aria-label="Continue choice value" hidden></select>
+        <input class="form-input" type="text" data-inspector-continuecond="value" placeholder="value" aria-label="Continue condition value" />
+        <input class="form-input" type="number" data-inspector-continuecond="from" placeholder="from" aria-label="Continue range from" hidden />
+        <input class="form-input" type="number" data-inspector-continuecond="to" placeholder="to" aria-label="Continue range to" hidden />
+        <input class="form-input" type="text" data-inspector-continuecond="values" placeholder="values, comma-separated" aria-label="Continue condition values" hidden />
+        <p class="form-help">If this condition can never be met, visitors relying only on this button could get stuck — the section still saves, with a warning.</p>
+      </fieldset>
     </div>`;
 }
 
@@ -2081,6 +2119,15 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
     CONDITION_OP_OPTIONS.map((c) => CONDITION_OP_LABELS[c] ?? c),
   );
   const patternOptions = options(PATTERN_PRESETS);
+  // PC-5/PC-A5 (P4b): the DateQuestion Min/Max bound picker — a dynamic-token
+  // dropdown (resolved to a concrete date server-side at config build) plus a
+  // "Custom date…" choice that reveals the native date input. Shown for Date
+  // fields only (populateDateBound in the island). Values are the stored token
+  // strings; labels are plain operator English.
+  const dateBoundOptions = options(
+    ["", "today", "+7d", "+2w", "+1m", "year_end", "__custom__"],
+    ["No date limit", "Today", "In 7 days", "In 2 weeks", "In 1 month", "End of this year", "Custom date…"],
+  );
   // The generic per-type copy fields (CONTENT_PROP_FIELDS projection) — still
   // used by many non-field types (ContinueButton/TextBlock/containers/etc);
   // the 8 Accept-swappable text-input types get their OWN dedicated "Field
@@ -2188,6 +2235,53 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         </div>
         <p class="form-help" data-imageblock-autologo-note hidden>Renders your site&#8217;s logo automatically. The Section Studio preview shows a placeholder — the live funnel fills in the real logo.</p>
       </div>
+      <!-- PC-A8 (register): NameFieldsGroup's own dedicated per-field
+           authoring — First and Last each get their own Label/Placeholder/
+           Helper text/Leading icon (previously: a shared Label pair + ONE
+           group-level Helper, no Placeholder or Icon at all — the operator's
+           Contact scenario, typing into a per-field control that did
+           nothing). Gated to node.type==='NameFieldsGroup' only
+           (populateNameFieldsGroupControls) — CONTENT_PROP_FIELDS.
+           NameFieldsGroup is [] (see its own comment), so the generic
+           per-type copy-fields loop below never renders a visible row for
+           this type. -->
+      <div data-content-namefieldsgroup-block hidden>
+        <div class="studio-panel-eyebrow">First name field</div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-first-label">Label</label>
+          <input id="lg-nfg-first-label" class="form-input" type="text" data-inspector-field="firstLabel" />
+        </div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-first-placeholder">Placeholder</label>
+          <input id="lg-nfg-first-placeholder" class="form-input" type="text" data-inspector-field="firstPlaceholder" />
+        </div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-first-helper">Helper text</label>
+          <input id="lg-nfg-first-helper" class="form-input" type="text" data-inspector-field="firstHelper" />
+        </div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-first-icon">Leading icon</label>
+          <select id="lg-nfg-first-icon" class="form-input" data-inspector-field="firstIcon"><option value="">&#8212; none &#8212;</option>${LEADING_ICON_OPTION_HTML}</select>
+        </div>
+        <div class="studio-hr"></div>
+        <div class="studio-panel-eyebrow">Last name field</div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-last-label">Label</label>
+          <input id="lg-nfg-last-label" class="form-input" type="text" data-inspector-field="lastLabel" />
+        </div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-last-placeholder">Placeholder</label>
+          <input id="lg-nfg-last-placeholder" class="form-input" type="text" data-inspector-field="lastPlaceholder" />
+        </div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-last-helper">Helper text</label>
+          <input id="lg-nfg-last-helper" class="form-input" type="text" data-inspector-field="lastHelper" />
+        </div>
+        <div class="lg-inspector-field">
+          <label class="form-label" for="lg-nfg-last-icon">Leading icon</label>
+          <select id="lg-nfg-last-icon" class="form-input" data-inspector-field="lastIcon"><option value="">&#8212; none &#8212;</option>${LEADING_ICON_OPTION_HTML}</select>
+        </div>
+      </div>
       <div class="studio-panel-eyebrow">Basics</div>
       <div class="lg-inspector-field" data-field-label-wrap hidden>
         <label class="form-label" for="lg-field-label">Field label <span class="studio-muted-note">&#183; only you see this</span></label>
@@ -2223,10 +2317,12 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       </div>
       <p class="form-help">Visitors must answer before they can continue.</p>
       <div class="form-label">When answered</div>
+      <p class="form-help">How answering advances the whole section &#8212; one setting per section, not per component. &#8220;Go to next&#8221; needs a single choice-style question.</p>
       <div class="studio-segmented" role="group" aria-label="When answered" data-continue-mode-group>
         <button type="button" data-set-continue-mode="button">Wait for Continue</button>
         <button type="button" data-set-continue-mode="auto_advance">Go to next</button>
       </div>
+      <p class="form-help" data-continue-lock-note hidden style="color:#664d03;margin-top:6px"></p>
       </div><!-- /data-content-behavior-section -->
 
       <div class="studio-hr"></div>
@@ -2258,15 +2354,18 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       </div>
       <div class="form-group lg-inspector-field" data-vprop="min" hidden>
         <label class="form-label" for="lg-vprop-min">Min</label>
+        <select class="form-input" data-inspector-vdate="min" hidden>${dateBoundOptions}</select>
         <input id="lg-vprop-min" class="form-input" data-inspector-vprop="min" />
       </div>
       <div class="form-group lg-inspector-field" data-vprop="max" hidden>
         <label class="form-label" for="lg-vprop-max">Max</label>
+        <select class="form-input" data-inspector-vdate="max" hidden>${dateBoundOptions}</select>
         <input id="lg-vprop-max" class="form-input" data-inspector-vprop="max" />
       </div>
       <div class="form-group lg-inspector-field" data-vprop="step" hidden>
         <label class="form-label" for="lg-vprop-step">Step</label>
         <input id="lg-vprop-step" class="form-input" data-inspector-vprop="step" />
+        <p class="form-help">Values count up from Min (Min 5, Step 5 &#8594; 5, 10, 15&#8230;). Number and Amount fields only.</p>
       </div>
       <div class="form-group lg-inspector-field" data-vprop="maxLen" hidden>
         <label class="form-label" for="lg-vprop-maxLen">Max length</label>
@@ -2464,24 +2563,31 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       </div>
     </div>
 
-    ${renderStyleContinueBlock()}
+    ${renderStyleContinueBlock(opOptions)}
 
     ${renderStylePlacementBlock()}
   </div>
 
   <!-- ============================================================ -->
   <!-- RULES tab (§8.6): visual IF/THEN over the existing dependency
-       evaluator — "Always show" default, sentence-rendered condition,
-       "Add a condition" reveals the (existing) picker fieldset. -->
+       evaluator. PC-12 discoverability fix: the sentence is now the FIRST
+       thing on the tab, ALWAYS visible (never hidden behind the picker
+       fieldset) — an explicit rules summary ("Always shown · + Add a
+       show/hide rule" when unset; the live sentence when a rule exists),
+       equal billing with Require-if (which was always fully visible). The
+       picker fieldset stays a collapsed edit affordance, revealed by
+       "+ Add a show/hide rule" or auto-revealed when a rule is already
+       stored (populateRulesAlwaysRow). -->
   <div class="studio-panel" data-studio-panel="rules" role="tabpanel" hidden>
     <div class="studio-panel-eyebrow">When to show this</div>
     <div class="studio-rules-always-row" data-rules-always-row>
-      <span class="studio-dot-green"></span>
-      <span class="lg-check-label">Always show</span>
+      <span class="studio-dot-green" data-rules-summary-dot></span>
+      <span class="lg-check-label studio-cond-sentence" data-cond-sentence aria-live="polite">Always shown</span>
+      <button type="button" class="studio-add-condition-btn" data-rules-add-condition>+ Add a show/hide rule</button>
+      <button type="button" class="studio-link-btn studio-danger-link" data-rules-remove-condition hidden>Remove rule</button>
     </div>
     <fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-rules-condition-fields hidden>
       <legend class="form-label">Show this component IF</legend>
-      <p class="form-help studio-cond-sentence" data-cond-sentence aria-live="polite"></p>
       <!-- R4a S3-1: no eligible source field (self-excluded, whole-section
            empty otherwise) — plain words IN PLACE of the bare dropdown. -->
       <p class="form-help" data-rules-source-empty-hint hidden>Add another question to this section to condition on it.</p>
@@ -2494,8 +2600,6 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       <input class="form-input" type="number" data-inspector-cond="to" placeholder="to" aria-label="Range to" hidden />
       <input class="form-input" type="text" data-inspector-cond="values" placeholder="values, comma-separated" aria-label="Condition values" hidden />
     </fieldset>
-    <button type="button" class="studio-add-condition-btn" data-rules-add-condition>+ Add a condition</button>
-    <button type="button" class="studio-link-btn studio-danger-link" data-rules-remove-condition hidden>Remove condition &#8212; always show</button>
 
     <div class="studio-hr"></div>
     <fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-reqcond-wrap hidden>
@@ -2794,7 +2898,30 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
       <div style="width:1px;height:20px;background:${STUDIO_COLOR.linePanel}"></div>
       <span style="width:13px;height:13px;border-radius:4px;background:${STUDIO_COLOR.navy};position:relative;display:inline-block"><span style="position:absolute;right:-2px;bottom:-2px;width:7px;height:7px;border-radius:2px;background:${STUDIO_COLOR.accent};border:1px solid ${STUDIO_COLOR.white}"></span></span>
       <label style="font-size:12px;color:${STUDIO_COLOR.muted};font-weight:600" for="lg-preview-theme">Preview theme:</label>
-      <select id="lg-preview-theme" class="form-input" data-studio-preview-theme style="font-size:12px;padding:3px 6px;max-width:130px"><option value="">Navy (default)</option></select>
+      <!-- Conductor ruling (gate1c THIRD FINDING correction, missed by the
+           original v3.1 Phase E product fix below): this select is content-
+           populated (KV theme list, grows from ~3 to 36+ options as the
+           catalog grows). Two DISTINCT levers made its flex footprint
+           state-dependent even though the select's OWN rendered box stayed a
+           stable 130x24 in isolation: (1) option-count-driven min-content
+           feeding the flex-basis/shrink distribution as the KV catalog
+           grows, and (2) confirmed live (A/B tested) -- an explicit width
+           alone is NOT sufficient: the item's default min-width:auto keeps
+           an automatic, content-based minimum in play for the shrink
+           algorithm regardless of a specified width, so the sibling "QA
+           tools"/"Preview theme:" flex items still squeezed into a
+           different label wrap (measured: a 451x29px toolbar-row diff,
+           ratio 0.001125 > the gate1c 0.001 budget) even with width pinned.
+           flex:0 0 130px fixes the flex-basis directly and sets flex-
+           shrink:0 (this item never shrinks); min-width:0 disables the
+           automatic minimum that survived the width-only attempt --
+           together making the footprint truly state-invariant (verified:
+           byte-equal toolbar-row screenshot at 3 options vs 36 options).
+           width/max-width kept redundantly for the same fixed-width
+           discipline as the sibling .studio-pair select / .lg-preview-design
+           (THIRD FINDING/PRODUCT FIX below) -- this select was missed by
+           that pass; now closes the same gap. -->
+      <select id="lg-preview-theme" class="form-input" data-studio-preview-theme style="font-size:12px;padding:3px 6px;flex:0 0 130px;min-width:0;width:130px;max-width:130px"><option value="">Navy (default)</option></select>
       <a href="${manageThemeHref}" data-studio-manage-theme-link style="font-size:12px;color:${STUDIO_COLOR.muted};font-weight:600;text-decoration:none">Manage theme &#8594;</a>
       <div style="width:1px;height:20px;background:${STUDIO_COLOR.linePanel}"></div>
       <button type="button" data-studio-drawer-expand aria-pressed="false" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:${STUDIO_COLOR.faintSub};cursor:pointer;background:none;border:0;padding:0">Expand<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="${STUDIO_COLOR.faintSub}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -3195,13 +3322,21 @@ export const SECTION_STUDIO_STYLES = `
    (loadFramePickerQuotes() reads every Quote ever created, any operator,
    any funnel) -- with no width discipline a native select auto-sizes to
    its WIDEST option, so the box visibly grows as the Quote catalog grows.
-   #lg-preview-theme (below) already closes this exact gap for the sibling
-   theme picker; a max-width alone still lets the box shrink on sparse
-   content (narrower on a fresh catalog than a grown one -- still content-
-   dependent, still "drift"), so width is pinned too, removing the
-   dependency entirely -- same fixed-width discipline this file's own gate1c
-   baseline spec had to reach for as a TEST-side workaround before this
-   product fix existed (leadgen-v31-gate1c-baselines.spec.ts).  */
+   #lg-preview-theme (below) has the SAME KV-populated-option-count shape but
+   was MISSED by this exact pass -- it kept max-width alone (its rendered box
+   stayed a stable 130px regardless of option count, so this pass's own
+   direct-measurement check called it safe, but that measurement covered
+   only the select's OWN box, not its flex-layout CONTRIBUTION -- an
+   unconstrained max-width and the item's default automatic minimum still
+   let it squeeze sibling flex items as option count grew; the gate1c THIRD
+   FINDING later isolated exactly this and it was closed at the source with
+   a fixed flex-basis + min-width:0, not width/max-width alone -- see the
+   comment above that select). So a max-width alone still lets the box
+   shrink on sparse content (narrower on a fresh catalog than a grown one --
+   still content-dependent, still "drift"), so width is pinned too here,
+   removing the dependency entirely -- same fixed-width discipline this
+   file's own gate1c baseline spec had to reach for as a TEST-side workaround
+   before this product fix existed (leadgen-v31-gate1c-baselines.spec.ts).  */
 .lg-preview-design{width:220px;max-width:220px;font-size:12px;padding:4px 6px}
 .lg-dependency-panel{border:1px dashed var(--c-border);border-radius:6px;padding:8px;margin-bottom:8px}
 .lg-dependency-panel textarea{width:100%;font-family:var(--font-mono,monospace);font-size:12px;margin-bottom:6px}
@@ -3471,6 +3606,11 @@ export const SECTION_STUDIO_SCRIPT = `
   // control and the canvas toolbar's quick auto-advance chip write the SAME
   // store through this one function, so the two views never drift.
   function setContinueMode(mode) {
+    // PC-A1 (P4a): "Go to next" (auto_advance) is a SECTION-level setting and is
+    // valid ONLY when the composition can actually auto-advance — the same rule
+    // the save-time validator enforces. Refuse it otherwise (the operator's "the
+    // other choice must be disabled"): a stuck funnel can never be authored here.
+    if (mode === 'auto_advance' && !sectionAutoAdvanceEligibility().eligible) { mode = 'button'; }
     state.continue_mode = mode === 'auto_advance' ? 'auto_advance' : 'button';
     var waitOn = state.continue_mode !== 'auto_advance';
     var waitEl = document.querySelector('[data-continue-mode="button"]');
@@ -3479,6 +3619,59 @@ export const SECTION_STUDIO_SCRIPT = `
     if (goEl) { goEl.setAttribute('style', segStyle(!waitOn)); goEl.setAttribute('aria-pressed', waitOn ? 'false' : 'true'); }
     markDirty();
     updateCanvasToolbar();
+  }
+  // PC-A1 (P4a): mirror content-schema.autoAdvanceEligibility CLIENT-SIDE so the
+  // Behavior control never offers a "Go to next" the engine cannot honor. The
+  // truth is the SAME as the save-time gate — typeMeta().produces and
+  // .auto_advance_click are projected from the server's COMPONENT_CATALOG +
+  // AUTO_ADVANCE_CLICK_TYPES — so island and validator can never drift.
+  function sectionAutoAdvanceEligibility() {
+    var producers = [];
+    walkTree(state.content.components, 1, function (n) {
+      if (n && typeMeta(n.type).produces) { producers.push(n); }
+    });
+    if (producers.length === 0) { return { eligible: false, reason: 'no_producers', producers: producers }; }
+    if (producers.length > 1) { return { eligible: false, reason: 'multiple_producers', producers: producers }; }
+    var only = producers[0];
+    var m = typeMeta(only.type);
+    var multi = m.produces === 'array' || only.answer_type === 'array' || !!(only.props && only.props.multiple === true);
+    if (multi) { return { eligible: false, reason: 'multi_select', producers: producers }; }
+    if (!m.auto_advance_click) { return { eligible: false, reason: 'not_click_to_answer', producers: producers }; }
+    if (only.conditional !== undefined && only.conditional !== null) { return { eligible: false, reason: 'conditional_producer', producers: producers }; }
+    return { eligible: true, reason: '', producers: producers };
+  }
+  function autoAdvanceLockReason(elig) {
+    var tail = ' Use the Continue button; "Go to next" works only for a single choice-style question.';
+    if (elig.reason === 'multiple_producers') { return 'This section has ' + elig.producers.length + ' answer components, so visitors need the Continue button.' + tail; }
+    if (elig.reason === 'no_producers') { return 'Add one choice-style question to use auto-advance.' + tail; }
+    if (elig.reason === 'multi_select') { return 'This is a multi-select question, so one tap cannot advance.' + tail; }
+    if (elig.reason === 'not_click_to_answer') { return 'Visitors type or pick this answer, so there is nothing to click to advance.' + tail; }
+    if (elig.reason === 'conditional_producer') { return 'This question only appears under a condition, so it is not the section single always-present question.' + tail; }
+    return 'This section cannot auto-advance.' + tail;
+  }
+  // Enforce the operator rule across BOTH continue-mode controls (question strip
+  // + Behavior panel): lock "Go to next" when ineligible, surface the reason, and
+  // force Wait-for-Continue if a now-ineligible section still holds auto_advance.
+  // Idempotent; safe to call after any model change / inspector sync / at init.
+  function applyContinueModeEligibility() {
+    var elig = sectionAutoAdvanceEligibility();
+    var goEls = document.querySelectorAll('[data-continue-mode="auto_advance"],[data-set-continue-mode="auto_advance"]');
+    var i, el, reason = elig.eligible ? '' : autoAdvanceLockReason(elig);
+    for (i = 0; i < goEls.length; i++) {
+      el = goEls[i];
+      if (elig.eligible) {
+        el.removeAttribute('aria-disabled'); el.style.opacity = ''; el.style.cursor = ''; el.removeAttribute('title');
+      } else {
+        el.setAttribute('aria-disabled', 'true'); el.style.opacity = '0.4'; el.style.cursor = 'not-allowed'; el.setAttribute('title', reason);
+      }
+    }
+    var note = document.querySelector('[data-continue-lock-note]');
+    if (note) {
+      if (elig.eligible) { note.hidden = true; note.textContent = ''; }
+      else { note.hidden = false; note.textContent = reason; }
+    }
+    if (!elig.eligible && state.continue_mode === 'auto_advance') { setContinueMode('button'); }
+    return elig;
   }
   function cloneJson(v) { try { return JSON.parse(JSON.stringify(v)); } catch (e) { return {}; } }
   function trimStr(s) { if (s === undefined || s === null) { return ''; } return String(s).trim(); }
@@ -4236,6 +4429,15 @@ export const SECTION_STUDIO_SCRIPT = `
     node.type = target;
     if (!node.props) { node.props = {}; }
     node.props.format = format;
+    // PC-7/PC-A3 (P4b): the type-specific validation props do NOT carry across an
+    // Accept swap. Before this, a Number -> Any-text swap hid the Step/Min/Max
+    // controls but LEFT the props on the node, so a stale step still validated on
+    // the text field (the operator's "terrible" bug), and a numeric min could
+    // land on a date field. Clear them so the NEW type's validation starts clean;
+    // the shared props (internal_field/label/helper/icon/required) are preserved.
+    var vkeys = ['min', 'max', 'step', 'maxLen', 'pattern', 'pattern_preset'];
+    var vi;
+    for (vi = 0; vi < vkeys.length; vi++) { delete node.props[vkeys[vi]]; }
     afterModelChange();
     return true;
   }
@@ -4488,15 +4690,88 @@ export const SECTION_STUDIO_SCRIPT = `
     return fields;
   }
   function refFieldInfo(fieldName) {
-    var info = { type: 'string', choices: null };
+    var info = { type: 'string', choices: null, yesLabel: 'Yes', noLabel: 'No' };
     walkTree(state.content.components, 1, function (n) {
       if (n.internal_field === fieldName) {
         var m = typeMeta(n.type);
         info.type = n.answer_type || m.produces || 'string';
         if (n.choices && n.choices.length) { info.choices = n.choices; }
+        // PC-12: a boolean field's OWN yes/no wording (props.yesLabel/
+        // noLabel, TwoButtonYesNo's authorable copy) — read here so the
+        // rules sentence can speak "is Yes" instead of the raw "is true".
+        if (n.props && typeof n.props.yesLabel === 'string' && trimStr(n.props.yesLabel) !== '') { info.yesLabel = n.props.yesLabel; }
+        if (n.props && typeof n.props.noLabel === 'string' && trimStr(n.props.noLabel) !== '') { info.noLabel = n.props.noLabel; }
       }
     });
     return info;
+  }
+  // PC-12: the human display label for ONE Section field — the SAME base
+  // word the canvas name tag / inspector header show for that component
+  // (typeLabel) so a field is never called two different names on two
+  // surfaces. 'fields' is the section's FULL field list (tree order,
+  // self-inclusive — internalFieldsOf()'s own order) so "first field" and
+  // duplicate-suffix numbering are computed consistently regardless of which
+  // ONE picker (self-excluded or not) ends up rendering the result.
+  //
+  // "the question's headline text where present": a Section's single
+  // headline/subheadline strip (§4.2 "The question") describes ITS FIRST
+  // answer field in the common case (one question per section) — far more
+  // recognizable than a bare type name ("Are you currently insured?" vs.
+  // "Yes / No") — so the first field prefers it when authored. Every OTHER
+  // field in a compound section (a conditionally-revealed follow-up, a
+  // second address part, …) falls back to its own type name; typeLabel
+  // already disambiguates MOST such pairs (different component types), and
+  // any remaining same-type collision gets a short " (2)"/" (3)" suffix (the
+  // SAME numbering idiom uniqueFieldName already uses for a de-collided
+  // internal_field, first occurrence bare).
+  function sectionFieldLabels(fields, headlineText) {
+    var headline = trimStr(headlineText);
+    var bases = [];
+    var counts = Object.create(null);
+    var i, node, base;
+    for (i = 0; i < fields.length; i++) {
+      node = null;
+      walkTree(state.content.components, 1, function (n) { if (node === null && n.internal_field === fields[i]) { node = n; } });
+      base = (i === 0 && headline !== '') ? headline : (node ? typeLabel(node.type) : fields[i]);
+      bases.push(base);
+      counts[base] = (counts[base] || 0) + 1;
+    }
+    var seen = Object.create(null);
+    var labels = {};
+    for (i = 0; i < fields.length; i++) {
+      base = bases[i];
+      if (counts[base] > 1) {
+        seen[base] = (seen[base] || 0) + 1;
+        labels[fields[i]] = seen[base] === 1 ? base : (base + ' (' + seen[base] + ')');
+      } else {
+        labels[fields[i]] = base;
+      }
+    }
+    return labels;
+  }
+  // PC-12: the LIVE headline copy (the §4.2 strip input IS the store — see
+  // this file's own "ONE store, two views" note; state.headline_text is only
+  // the page-load snapshot). DOM-touching (unlike sectionFieldLabels above),
+  // so it stays a separate, tiny reader — callers that already have DOM
+  // access (populateConditional et al.) call it directly; a missing/absent
+  // input degrades to '' (no headline preference), never a throw.
+  function currentHeadlineText() {
+    var el = document.querySelector('#lg-section-headline');
+    return el ? trimStr(el.value) : '';
+  }
+  // PC-12: humanize a condition VALUE through the referenced field's own
+  // vocabulary — a boolean's yesLabel/noLabel, or a choice-bearing field's
+  // matching choice.label — falling back to the raw value for every other
+  // type (numbers/plain strings have no humanization to offer).
+  function conditionValueLabel(info, value) {
+    if (info.type === 'boolean') { return value === false ? info.noLabel : (value === true ? info.yesLabel : String(value)); }
+    if (info.choices) {
+      var i;
+      for (i = 0; i < info.choices.length; i++) {
+        if (String(info.choices[i].value) === String(value)) { return String(info.choices[i].label || info.choices[i].value); }
+      }
+    }
+    return String(value);
   }
   function findConditionalRefs(fieldName) {
     var refs = [];
@@ -4710,12 +4985,16 @@ export const SECTION_STUDIO_SCRIPT = `
     ref.list[to] = tmp;
     afterModelChange();
   }
+  // PC-8: returns whether a node was ACTUALLY removed (a stale/absent qid is
+  // a no-op, false) — deleteSelectedWithUndo gates its toast on this so a
+  // dead selection never claims a phantom deletion.
   function removeNode(qid) {
     var ref = findRef(qid);
-    if (!ref) { return; }
+    if (!ref) { return false; }
     ref.list.splice(ref.index, 1);
     if (selectedQuestionId === qid) { selectedQuestionId = null; }
     afterModelChange();
+    return true;
   }
   function regenerateIds(node) {
     node.question_id = newQuestionId();
@@ -5046,18 +5325,16 @@ export const SECTION_STUDIO_SCRIPT = `
       }
       // conditional_unknown_field mirror — the show-if condition reference
       // is server-mirrored (content-schema.ts validateConditional runs on
-      // node.conditional). Adversarial-review ruling: props.requiredWhen is
-      // NEVER validated server-side (validateConditional only runs for the
-      // conditional field) — the require-if check below is HONEST about that:
-      // an ADVISORY, worded and (were there severity styling on this list)
-      // styled distinctly from the server-mirrored error above, not a
-      // same-class duplicate claim. Kept because it catches a real
-      // dangling-reference authoring bug the server will silently accept.
+      // node.conditional). PC-12: props.requiredWhen is NOW ALSO validated
+      // server-side (validateConditional runs for it too, same typed 400) —
+      // this client-side copy stays a pre-save ADVISORY (catches the
+      // dangling-reference authoring mistake immediately, before a round
+      // trip), worded to match what the server will actually do on save.
       if (node.conditional && node.conditional.when && !knownFields[node.conditional.when]) {
         issues.push({ qid: node.question_id, message: label + '’s show-if condition references an unknown field: ' + node.conditional.when });
       }
       if (node.props && node.props.requiredWhen && node.props.requiredWhen.when && !knownFields[node.props.requiredWhen.when]) {
-        issues.push({ qid: node.question_id, message: 'Advisory: ' + label + '’s “require when” points at a field that no longer exists (' + node.props.requiredWhen.when + ') — the server accepts this, but the rule will never trigger.' });
+        issues.push({ qid: node.question_id, message: 'Advisory: ' + label + '’s “require when” points at a field that no longer exists (' + node.props.requiredWhen.when + ') — save will be rejected until this is fixed.' });
       }
       // bind_type_mismatch / duplicate_bind mirror — the canonical headline/
       // subheadline binding is normally system-managed; the Advanced raw-JSON
@@ -5276,6 +5553,13 @@ export const SECTION_STUDIO_SCRIPT = `
     // pick — same tick, never deferred to a re-selection.
     renderOverrideDecorations(selectedNode());
     updateCanvasToolbar();
+    // PC-A1 (P4a): the auto_advance composition may have changed (a producer
+    // added/removed/retyped/made-conditional) — re-lock "Go to next" and force
+    // Wait-for-Continue if the section no longer qualifies. typeof-guarded like
+    // the two calls above: afterModelChange is sliced standalone into vitest
+    // probes that never declare applyContinueModeEligibility (a bare reference
+    // would throw ReferenceError there, for a concern outside what they test).
+    if (typeof applyContinueModeEligibility !== 'undefined') { applyContinueModeEligibility(); }
     scheduleCanvasRender();
   }
 
@@ -5326,11 +5610,60 @@ export const SECTION_STUDIO_SCRIPT = `
   // Backspace key handler now route through (removeNode/selectComponent
   // themselves stay unchanged pure model calls — this wrapper only adds the
   // DOM-side toast).
+  // PC-8: a STALE selection (selectedQuestionId survives its own node being
+  // removed some other way, or a re-render desyncs it) used to show "Element
+  // deleted" unconditionally — findRef came back null, label fell back to
+  // the generic 'Element' string, removeNode was a no-op, but the toast fired
+  // anyway (a phantom deletion claim, the operator-facing dishonesty this
+  // register row exists to close). Now: the toast fires ONLY when removeNode
+  // reports an ACTUAL removal; a stale/absent selection instead clears
+  // (selectComponent(null) — never leaves a dead id armed) and surfaces a
+  // brief, honest refusal note via the existing showRefusal channel (the SAME
+  // one "Cannot nest containers…"/"A row holds at most…" already use) —
+  // no false claim, no silent no-op either.
+  // PC-A7: a CHOICE-scoped selection (scopeState 'choice' — a choice card
+  // focused on the canvas) deletes ONLY that choice, never the whole group —
+  // the operator's exact complaint ("a disaster"). This check lives HERE
+  // (not in the Backspace key handler) so BOTH call sites inherit it — moot
+  // for the toolbar's plain "Delete" button in practice, since
+  // updateCanvasToolbar/toolbarClustersFor hides its entire "structure"
+  // cluster whenever choiceFocused (that button is simply not clickable in
+  // choice scope), but keeping the branch here rather than duplicated at
+  // each call site is the honest single-source-of-truth shape. The GROUP
+  // stays deletable exactly as before: an explicit group (component-scope)
+  // selection, or the toolbar's own plain "Delete" control.
   function deleteSelectedWithUndo(qid) {
+    if (scopeState === 'choice' && selectedChoiceValue !== null) {
+      deleteSelectedChoiceWithUndo(qid, selectedChoiceValue);
+      return;
+    }
     var ref = findRef(qid);
     var label = ref && ref.node ? typeLabel(ref.node.type) : 'Element';
-    removeNode(qid);
+    var removed = removeNode(qid);
     selectComponent(null);
+    if (removed) { showUndoToast(label); }
+    else { showRefusal('Nothing to delete — that selection was no longer on the canvas.'); }
+  }
+  // PC-A7: the CHOICE-only delete deleteSelectedWithUndo defers to above.
+  // Mirrors the toolbar's own pre-existing "Delete choice" control
+  // (data-choice-act="delete" -> handleChoiceAct -> the SAME
+  // removeChoiceFromNode + renderChoiceEditor/setScope cleanup this function
+  // uses), plus the SAME undo-toast honesty whole-node deletes now get. Undo
+  // reuses the SAME content-tree history (removeChoiceFromNode's own
+  // afterModelChange call, which snapshots the PRE-mutation tree) — no new
+  // persistence, and it restores the choice at its original index for free
+  // (a full snapshot revert, not a piecewise re-insert).
+  function deleteSelectedChoiceWithUndo(qid, value) {
+    var ref = findRef(qid);
+    var c = ref && ref.node ? findChoice(ref.node, value) : null;
+    var label = c && c.label !== undefined && String(c.label) !== '' ? String(c.label) : 'Choice';
+    var removed = ref && ref.node ? removeChoiceFromNode(ref.node, value) : false;
+    if (!removed) {
+      showRefusal('Nothing to delete — that selection was no longer on the canvas.');
+      return;
+    }
+    renderChoiceEditor(ref.node);
+    setScope(selectedQuestionId ? 'component' : 'section');
     showUndoToast(label);
   }
 
@@ -6742,7 +7075,12 @@ export const SECTION_STUDIO_SCRIPT = `
     // v3.1 R3b deliverable 8: the 10 frame-scope types also always qualify —
     // Content shows the read-only notice (data-content-framescope-block)
     // rather than dead editing controls.
-    var hasContent = isBound || (meta.content_props || []).length > 0 || meta.choice === true || node.type === 'ImageBlock' || FRAME_SCOPE_STUDIO_TYPES[node.type] === 1;
+    // PC-A8: NameFieldsGroup ALSO always qualifies — same reason as
+    // ImageBlock: its Label/Placeholder/Helper/Icon controls live in a
+    // DEDICATED block (data-content-namefieldsgroup-block), not the generic
+    // CONTENT_PROP_FIELDS rows, so content_props is deliberately [] for it
+    // and would otherwise wrongly hide the whole Content tab.
+    var hasContent = isBound || (meta.content_props || []).length > 0 || meta.choice === true || node.type === 'ImageBlock' || node.type === 'NameFieldsGroup' || FRAME_SCOPE_STUDIO_TYPES[node.type] === 1;
     if (hasContent) { tabs.push('content'); }
     // Style: any visual selection (§8.5 "any visual selection").
     tabs.push('style');
@@ -6869,7 +7207,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (sizeAppear) { sizeAppear.hidden = variant !== 'field' || !consumesSize; }
     if (variant === 'field' && consumesSize) { populateSizeControls(node); populateCornersBorderControls(node); }
     if (variant === 'text') { populateTextRoleControls(node); }
-    if (variant === 'continue') { populateContinueStyleRows(); }
+    if (variant === 'continue') { populateContinueStyleRows(); populateContinueVisibility(); }
     // R5 D3 (register S4-A3 migration): "Selected-state style" (button/icon
     // role) + "Card layout" (columns/gap) — MIGRATED from the canvas
     // toolbar's "component"/"layout" clusters, same gating conditions.
@@ -6961,7 +7299,17 @@ export const SECTION_STUDIO_SCRIPT = `
       // v3.1 R3 E1-C4: a native <input type="date"> ignores placeholder
       // (browser no-op), so hide the Placeholder Content control for DateQuestion.
       var dateNoPlaceholder = !!node && node.type === 'DateQuestion' && k === 'placeholder';
-      var on = !!node && cp.indexOf(k) !== -1 && !(isBound && k === 'text') && !dateNoPlaceholder;
+      // PC-A10 (drift honesty): TextBlock's generic "Icon" row (the
+      // GLYPH_ICON_TYPES free-glyph convention, content-schema.ts) is
+      // consumed by exactly 2 of its 7 roles — renderTextBlockReassurance /
+      // renderTextBlockSecureBadge (presets.ts); the other 5 (heading/body/
+      // category_label/helper/legal, including the no-role default) never
+      // read props.icon at all. Hide the row there, same "never show a
+      // control its renderer ignores" idiom as the CurrencyInputQuestion
+      // leading-icon gate below.
+      var role = node && node.props ? node.props.role : undefined;
+      var textBlockIconInert = !!node && node.type === 'TextBlock' && k === 'icon' && role !== 'reassurance' && role !== 'secure_badge';
+      var on = !!node && cp.indexOf(k) !== -1 && !(isBound && k === 'text') && !dateNoPlaceholder && !textBlockIconInert;
       wraps[i].hidden = !on;
       if (on) { anyContent = true; }
     }
@@ -7052,6 +7400,9 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < modeBtns.length; i++) {
       modeBtns[i].className = modeBtns[i].getAttribute('data-set-continue-mode') === mode ? 'active' : '';
     }
+    // PC-A1 (P4a): re-lock "Go to next" + refresh the reason note whenever the
+    // Behavior panel syncs (a component was selected / the panel became visible).
+    applyContinueModeEligibility();
 
     // A6: the image-fit Design control shows ONLY for the image answer grid.
     var fitWrap = document.querySelector('[data-image-fit-wrap]');
@@ -7100,6 +7451,7 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     populateContainerProps(node);
     populateImageBlockControls(node);
+    populateNameFieldsGroupControls(node);
     var choicesBlock = document.querySelector('[data-field-choices-block]');
     if (choicesBlock) { choicesBlock.hidden = !node || meta.choice !== true; }
     var cardStyleHint = document.querySelector('[data-card-style-hint]');
@@ -7236,6 +7588,10 @@ export const SECTION_STUDIO_SCRIPT = `
         input.value = (v === undefined || v === null) ? '' : String(v);
       }
     }
+    // PC-5/PC-A5 (P4b): a DateQuestion's Min/Max become the token+picker editor
+    // (overrides the generic input.type set above for this type only).
+    populateDateBound(node, 'min');
+    populateDateBound(node, 'max');
     // §5.5: the range provider-format note shows for the slider family only.
     var rangeNote = document.querySelector('[data-range-format-note]');
     if (rangeNote) {
@@ -7250,6 +7606,58 @@ export const SECTION_STUDIO_SCRIPT = `
       patternIn.value = (node && node.props && node.props.pattern) ? String(node.props.pattern) : '';
     }
     if (errIn) { errIn.value = (node && node.props && node.props.error_text) ? String(node.props.error_text) : ''; }
+  }
+
+  // PC-5/PC-A5 (P4b): the DateQuestion Min/Max bound editor. A token dropdown
+  // (today/+7d/+2w/+1m/year_end) resolved to a concrete date server-side, plus a
+  // "Custom date…" choice that reveals the native <input type=date>. Stored as a
+  // token string or a literal ISO date. Self-gates on node.type — for any
+  // non-Date field it hides the token dropdown and leaves the generic
+  // number/text input exactly as populateValidation set it.
+  function populateDateBound(node, key) {
+    var wrap = document.querySelector('[data-vprop="' + key + '"]');
+    if (!wrap) { return; }
+    var sel = wrap.querySelector('[data-inspector-vdate="' + key + '"]');
+    var input = wrap.querySelector('[data-inspector-vprop="' + key + '"]');
+    var isDate = !!node && node.type === 'DateQuestion';
+    if (sel) { sel.hidden = !isDate; }
+    if (!isDate) { return; }
+    var v = (node && node.props) ? node.props[key] : undefined;
+    var isIso = typeof v === 'string' && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(v);
+    if (input) { input.type = 'date'; }
+    if (isIso) {
+      if (sel) { sel.value = '__custom__'; }
+      if (input) { input.hidden = false; input.value = v; }
+    } else if (typeof v === 'string' && v) {
+      if (sel) { sel.value = v; }
+      if (input) { input.hidden = true; input.value = ''; }
+    } else {
+      if (sel) { sel.value = ''; }
+      if (input) { input.hidden = true; input.value = ''; }
+    }
+  }
+
+  // Write a Date bound from the token dropdown: a token/'' is stored (or cleared)
+  // here; '__custom__' just reveals the native date input, which writes its ISO
+  // value through collectValidationProp's string branch.
+  function collectDateBound(sel) {
+    var node = selectedNode();
+    if (!node) { return; }
+    var key = sel.getAttribute('data-inspector-vdate');
+    if (!key) { return; }
+    var props = ensureObj(node, 'props');
+    var input = document.querySelector('[data-inspector-vprop="' + key + '"]');
+    if (sel.value === '__custom__') {
+      if (input) { input.hidden = false; }
+    } else if (sel.value === '') {
+      delete props[key];
+      if (input) { input.hidden = true; input.value = ''; }
+    } else {
+      props[key] = sel.value;
+      if (input) { input.hidden = true; input.value = ''; }
+    }
+    cleanupEmpty(node, 'props');
+    afterModelChange();
   }
 
   // --- §9 Maps tab: populate + collect (job-based model, Phase C) -------------
@@ -7623,6 +8031,144 @@ export const SECTION_STUDIO_SCRIPT = `
       colorText.textContent = (typeof hex === 'string' && hex !== '') ? 'Button (' + hex + ')' : 'Button';
     }
   }
+
+  // --- PC-12: Continue visibility (section-level continue_visible_when) ------
+  // Same LeadgenComponentConditional shape + the SAME typed-IF builder
+  // (buildConditional/typedScalar/splitTypedList — already generic) as
+  // Show-if/Require-if, but keyed on state.content.continue_visible_when — a
+  // SECTION-level field, not any one node's, because a Section may carry
+  // zero-or-many ContinueButton nodes (auto_advance renders none at all). A
+  // parallel (not shared) picker/sentence pair from Show-if/Require-if,
+  // matching this file's own established per-row-type duplication idiom
+  // (cond vs. reqcond) — self-contained for the vm-probe slicing contract.
+  function continueVisibleWhen() {
+    var cvw = state.content ? state.content.continue_visible_when : null;
+    return (cvw && typeof cvw === 'object' && cvw.when) ? cvw : null;
+  }
+  function readContinueCond(key) {
+    var el = document.querySelector('[data-inspector-continuecond="' + key + '"]');
+    return el ? el.value : '';
+  }
+  function continueCondPartValue(info, op) {
+    if (op === 'range' || op === 'in' || op === 'not_in') { return ''; }
+    if (info.type === 'boolean') { return readContinueCond('value-bool'); }
+    if (info.choices && (op === 'eq' || op === 'neq')) { return readContinueCond('value-enum'); }
+    return readContinueCond('value');
+  }
+  function updateContinueCondValueInputs() {
+    var whenSel = document.querySelector('[data-inspector-continuecond="when"]');
+    var opSel = document.querySelector('[data-inspector-continuecond="op"]');
+    var boolSel = document.querySelector('[data-inspector-continuecond="value-bool"]');
+    var enumSel = document.querySelector('[data-inspector-continuecond="value-enum"]');
+    var valIn = document.querySelector('[data-inspector-continuecond="value"]');
+    var fromIn = document.querySelector('[data-inspector-continuecond="from"]');
+    var toIn = document.querySelector('[data-inspector-continuecond="to"]');
+    var valuesIn = document.querySelector('[data-inspector-continuecond="values"]');
+    if (!whenSel || !opSel) { return; }
+    var op = opSel.value || 'eq';
+    var info = refFieldInfo(whenSel.value);
+    var cond = continueVisibleWhen() || {};
+    var isRange = op === 'range';
+    var isList = op === 'in' || op === 'not_in';
+    var scalarKind = 'text';
+    if (!isRange && !isList) {
+      if (info.type === 'boolean') { scalarKind = 'bool'; }
+      else if (info.choices && (op === 'eq' || op === 'neq')) { scalarKind = 'enum'; }
+    }
+    if (boolSel) {
+      boolSel.hidden = scalarKind !== 'bool';
+      boolSel.value = cond.value === false ? 'false' : 'true';
+    }
+    if (enumSel) {
+      enumSel.hidden = scalarKind !== 'enum';
+      clearChildren(enumSel);
+      var i, o;
+      if (info.choices) {
+        for (i = 0; i < info.choices.length; i++) {
+          o = document.createElement('option');
+          o.value = String(info.choices[i].value);
+          o.textContent = String(info.choices[i].label || info.choices[i].value);
+          enumSel.appendChild(o);
+        }
+      }
+      if (scalarKind === 'enum' && cond.value !== undefined && cond.value !== null) { enumSel.value = String(cond.value); }
+    }
+    if (valIn) {
+      valIn.hidden = isRange || isList || scalarKind !== 'text';
+      valIn.value = (cond.value === undefined || cond.value === null) ? '' : String(cond.value);
+    }
+    if (fromIn) { fromIn.hidden = !isRange; fromIn.value = (cond.from === undefined) ? '' : String(cond.from); }
+    if (toIn) { toIn.hidden = !isRange; toIn.value = (cond.to === undefined) ? '' : String(cond.to); }
+    if (valuesIn) {
+      valuesIn.hidden = !isList;
+      valuesIn.value = (cond.values && cond.values.length) ? cond.values.join(', ') : '';
+    }
+  }
+  var continueRulesRevealed = false;
+  function renderContinueRulesVisibility(show) {
+    var fields = document.querySelector('[data-continuecond-fields]');
+    var addBtn = document.querySelector('[data-continuecond-add]');
+    var removeBtn = document.querySelector('[data-continuecond-remove]');
+    if (fields) { fields.hidden = !show; }
+    if (addBtn) { addBtn.hidden = show; }
+    if (removeBtn) { removeBtn.hidden = !show; }
+  }
+  function renderContinueSentence() {
+    var el = document.querySelector('[data-continuecond-sentence]');
+    if (!el) { return; }
+    var cond = continueVisibleWhen();
+    if (!cond) { el.textContent = 'Always shown.'; return; }
+    var labels = sectionFieldLabels(internalFieldsOf(), currentHeadlineText());
+    el.textContent = conditionSentence('Show Continue', cond, labels[cond.when], refFieldInfo(cond.when));
+  }
+  function populateContinueVisibility() {
+    var whenSel = document.querySelector('[data-inspector-continuecond="when"]');
+    var opSel = document.querySelector('[data-inspector-continuecond="op"]');
+    if (!whenSel || !opSel) { return; }
+    clearChildren(whenSel);
+    var opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '\\u2014 always visible \\u2014';
+    whenSel.appendChild(opt);
+    var fields = internalFieldsOf();
+    var labels = sectionFieldLabels(fields, currentHeadlineText());
+    var i;
+    for (i = 0; i < fields.length; i++) {
+      opt = document.createElement('option');
+      opt.value = fields[i];
+      opt.textContent = labels[fields[i]] || fields[i];
+      whenSel.appendChild(opt);
+    }
+    var emptyHint = document.querySelector('[data-continuecond-source-empty-hint]');
+    if (emptyHint) { emptyHint.hidden = fields.length > 0; }
+    whenSel.hidden = fields.length === 0;
+    var cond = continueVisibleWhen();
+    whenSel.value = cond ? cond.when : '';
+    opSel.value = cond ? (cond.op || 'eq') : 'eq';
+    updateContinueCondValueInputs();
+    continueRulesRevealed = !!cond;
+    renderContinueRulesVisibility(continueRulesRevealed);
+    renderContinueSentence();
+  }
+  function collectContinueVisibility() {
+    var whenSel = document.querySelector('[data-inspector-continuecond="when"]');
+    var opSel = document.querySelector('[data-inspector-continuecond="op"]');
+    if (!whenSel || !opSel) { return; }
+    var whenVal = trimStr(whenSel.value);
+    var op = opSel.value || 'eq';
+    var info = refFieldInfo(whenVal);
+    var parts = {
+      value: continueCondPartValue(info, op),
+      values: readContinueCond('values'),
+      from: readContinueCond('from'),
+      to: readContinueCond('to')
+    };
+    var cond = buildConditional(whenVal, op, parts, info.type);
+    if (cond === null) { delete state.content.continue_visible_when; } else { state.content.continue_visible_when = cond; }
+    updateContinueCondValueInputs();
+    renderContinueSentence();
+    afterModelChange();
+  }
   function collectTextBlockRole() {
     var node = selectedNode();
     if (!node || node.type !== 'TextBlock') { return; }
@@ -7631,6 +8177,16 @@ export const SECTION_STUDIO_SCRIPT = `
     var props = ensureObj(node, 'props');
     props.role = sel.value;
     afterModelChange();
+    // PC-A10: the generic Content-tab "Icon" row's visibility depends on the
+    // role that JUST changed (populateInspector's textBlockIconInert gate —
+    // consumed only by reassurance/secure_badge) — afterModelChange alone
+    // never re-syncs it (it does not call populateInspector; setInspectorTab
+    // does not either), so without this the row would stay stuck showing
+    // whatever it showed at SELECTION time even after switching role here.
+    // Same narrow re-sync idiom setImageBlockSource/populateImageBlockControls
+    // already uses for its own dedicated block, scoped to just this one row.
+    var iconWrap = document.querySelector('[data-content-prop="icon"]');
+    if (iconWrap) { iconWrap.hidden = props.role !== 'reassurance' && props.role !== 'secure_badge'; }
   }
   // v3.1 R3b deliverable 4: the ImageBlock source toggle — writes props.source
   // (media|auto_logo) and re-populates so the media-vs-auto_logo sub-sections
@@ -7782,17 +8338,21 @@ export const SECTION_STUDIO_SCRIPT = `
 
   // --- §8.6 Rules tab: "Always show" default / revealed condition builder -----
   // rulesFieldsRevealed is a UI-ONLY toggle (independent of the stored
-  // conditional) so "+ Add a condition" can open the picker fieldset BEFORE
-  // any field is chosen; it re-locks to the stored state on every new
+  // conditional) so "+ Add a show/hide rule" can open the picker fieldset
+  // BEFORE any field is chosen; it re-locks to the stored state on every new
   // selection ("collapsed/always-show by default" — matching the Advanced
   // disclosure's per-selection re-lock doctrine).
+  //
+  // PC-12 (discoverability): the summary row (dot + sentence + add/remove
+  // actions) is now ALWAYS visible — it is the rules SUMMARY, not a
+  // collapsed placeholder that disappears once a rule exists — only the
+  // FIELDSET (the picker controls) and which of the add/remove actions show
+  // toggle with 'show'.
   var rulesFieldsRevealed = false;
   function renderRulesFieldsVisibility(show) {
-    var row = document.querySelector('[data-rules-always-row]');
     var fields = document.querySelector('[data-rules-condition-fields]');
     var addBtn = document.querySelector('[data-rules-add-condition]');
     var removeBtn = document.querySelector('[data-rules-remove-condition]');
-    if (row) { row.hidden = show; }
     if (fields) { fields.hidden = !show; }
     if (addBtn) { addBtn.hidden = show; }
     if (removeBtn) { removeBtn.hidden = !show; }
@@ -8010,6 +8570,22 @@ export const SECTION_STUDIO_SCRIPT = `
     var mediaInput = document.getElementById('lg-imageblock-media');
     if (thumb && mediaInput) { setChoiceThumb(thumb, mediaInput.value); }
   }
+  // PC-A8 (register): NameFieldsGroup's dedicated per-field Basics block
+  // (First/Last — each its own Label/Placeholder/Helper/Leading-icon). All 8
+  // controls ride the generic data-inspector-field populate/collect loop
+  // (same mechanism as any other field, already run before this call) — this
+  // function only owns the block's OWN visibility, the same narrow role
+  // populateImageBlockControls plays for its own dedicated block above.
+  function populateNameFieldsGroupControls(node) {
+    var block = document.querySelector('[data-content-namefieldsgroup-block]');
+    var isNfg = !!node && node.type === 'NameFieldsGroup';
+    if (block) { block.hidden = !isNfg; }
+    if (!isNfg) { return; }
+    // Matches populateImageBlockControls's own honesty: a dedicated block
+    // full of real controls is never "no editable copy".
+    var emptyNote = document.querySelector('[data-content-empty]');
+    if (emptyNote) { emptyNote.hidden = true; }
+  }
 
   // --- dependencies (§6.10 typed IF/THEN builder) --------------------------------
   function typedScalar(raw, refType) {
@@ -8106,12 +8682,15 @@ export const SECTION_STUDIO_SCRIPT = `
     opt.textContent = '\\u2014 always visible \\u2014';
     whenSel.appendChild(opt);
     var fields = internalFieldsOf();
+    // PC-12: display names, never raw internal_field ids — the option VALUE
+    // (the stored contract) is untouched; only the visible TEXT changes.
+    var fieldLabels = sectionFieldLabels(fields, currentHeadlineText());
     var i, eligible = 0;
     for (i = 0; i < fields.length; i++) {
       if (node && node.internal_field && fields[i] === node.internal_field) { continue; }
       opt = document.createElement('option');
       opt.value = fields[i];
-      opt.textContent = fields[i];
+      opt.textContent = fieldLabels[fields[i]] || fields[i];
       whenSel.appendChild(opt);
       eligible += 1;
     }
@@ -8229,12 +8808,15 @@ export const SECTION_STUDIO_SCRIPT = `
     opt.textContent = '\\u2014 only when marked Required \\u2014';
     whenSel.appendChild(opt);
     var fields = internalFieldsOf();
+    // PC-12: display names, never raw internal_field ids (mirrors
+    // populateConditional exactly — same map, same option VALUE contract).
+    var fieldLabels = sectionFieldLabels(fields, currentHeadlineText());
     var i, eligible = 0;
     for (i = 0; i < fields.length; i++) {
       if (node && node.internal_field && fields[i] === node.internal_field) { continue; }
       opt = document.createElement('option');
       opt.value = fields[i];
-      opt.textContent = fields[i];
+      opt.textContent = fieldLabels[fields[i]] || fields[i];
       whenSel.appendChild(opt);
       eligible += 1;
     }
@@ -8274,8 +8856,14 @@ export const SECTION_STUDIO_SCRIPT = `
 
   // §7.3 sentence pattern: the row's READABLE text — "Show this question when
   // <field> is <value>" — rendered from the stored conditional; the pickers
-  // stay the controls.
-  function conditionSentence(prefix, cond) {
+  // stay the controls. PC-12: 'fieldLabel'/'valueInfo' are OPTIONAL — a
+  // caller with no DOM/state access (the isolated vm-probe that slices this
+  // function standalone) omits them and gets the pre-PC-12 raw-field/raw-
+  // value text back, byte-for-byte; a real populate/render call site (which
+  // has state.content available) passes the resolved human label + the
+  // referenced field's refFieldInfo so the sentence speaks names, not ids,
+  // and choice/boolean values speak their own labels, not raw values.
+  function conditionSentence(prefix, cond, fieldLabel, valueInfo) {
     // R4a S3-2: the SAME human-word table the SSR operator <select> renders
     // (CONDITION_OP_LABELS, TS-side, ui-section-studio.ts) — interpolated
     // here as data so the dropdown and this sentence never drift apart.
@@ -8284,24 +8872,32 @@ export const SECTION_STUDIO_SCRIPT = `
     // name) stays fully self-contained — a module-level var would not
     // travel with a function-only slice.
     var CONDITION_OP_LABELS = ${JSON.stringify(CONDITION_OP_LABELS)};
-    var field = cond.when;
+    var field = fieldLabel || cond.when;
     var op = cond.op || 'eq';
     var label = CONDITION_OP_LABELS[op] || op;
+    function fmt(v) { return valueInfo ? conditionValueLabel(valueInfo, v) : String(v); }
     if (op === 'range') { return prefix + ' when ' + field + ' is ' + label + ' ' + String(cond.from) + ' and ' + String(cond.to); }
-    if (op === 'in' || op === 'not_in') { return prefix + ' when ' + field + ' is ' + label + ': ' + (cond.values || []).join(', '); }
+    if (op === 'in' || op === 'not_in') {
+      var vs = [], vi;
+      for (vi = 0; vi < (cond.values || []).length; vi++) { vs.push(fmt(cond.values[vi])); }
+      return prefix + ' when ' + field + ' is ' + label + ': ' + vs.join(', ');
+    }
     var rel = (op === 'eq' || op === 'neq') ? label : ('is ' + label);
-    return prefix + ' when ' + field + ' ' + rel + ' ' + String(cond.value);
+    return prefix + ' when ' + field + ' ' + rel + ' ' + fmt(cond.value);
   }
   function renderConditionSentences(node) {
     var showEl = document.querySelector('[data-cond-sentence]');
     var reqEl = document.querySelector('[data-reqcond-sentence]');
     var cond = (node && node.conditional) ? node.conditional : null;
     var rw = nodeRequiredWhen(node);
+    // PC-12: the SAME human-name map every "when" picker option uses, so the
+    // rendered sentence never disagrees with the dropdown that authored it.
+    var fieldLabels = sectionFieldLabels(internalFieldsOf(), currentHeadlineText());
     if (showEl) {
-      showEl.textContent = (cond && cond.when) ? conditionSentence('Show this question', cond) : 'This question is always shown.';
+      showEl.textContent = (cond && cond.when) ? conditionSentence('Show this question', cond, fieldLabels[cond.when], refFieldInfo(cond.when)) : 'Always shown.';
     }
     if (reqEl) {
-      if (rw && rw.when) { reqEl.textContent = conditionSentence('Require this question', rw); }
+      if (rw && rw.when) { reqEl.textContent = conditionSentence('Require this question', rw, fieldLabels[rw.when], refFieldInfo(rw.when)); }
       else if (node && node.required === true) { reqEl.textContent = 'This question is always required (Validation tab).'; }
       else { reqEl.textContent = 'No requirement condition \\u2014 add one below.'; }
     }
@@ -10232,7 +10828,9 @@ export const SECTION_STUDIO_SCRIPT = `
       if (inlineEditing) { return; }
       if (ev.key === 'ArrowUp') { ev.preventDefault(); moveWithin(selectedQuestionId, -1); }
       else if (ev.key === 'ArrowDown') { ev.preventDefault(); moveWithin(selectedQuestionId, 1); }
-      // §6.2: Del deletes the selection; Esc walks UP the ancestry.
+      // §6.2: Del deletes the selection; Esc walks UP the ancestry. PC-A7's
+      // choice-vs-group scope split lives INSIDE deleteSelectedWithUndo now
+      // (not here) — this call site is unchanged.
       else if (ev.key === 'Delete' || ev.key === 'Backspace') {
         ev.preventDefault();
         deleteSelectedWithUndo(selectedQuestionId);
@@ -10663,6 +11261,12 @@ export const SECTION_STUDIO_SCRIPT = `
     vpropEls[ve].addEventListener('input', function () { collectValidationProp(this); });
     vpropEls[ve].addEventListener('change', function () { collectValidationProp(this); });
   }
+  // PC-5/PC-A5 (P4b): the DateQuestion Min/Max token dropdowns.
+  var vdateEls = document.querySelectorAll('[data-inspector-vdate]');
+  var vde;
+  for (vde = 0; vde < vdateEls.length; vde++) {
+    vdateEls[vde].addEventListener('change', function () { collectDateBound(this); });
+  }
   // §9 Maps tab controls: the enabled toggle re-collects the whole {enabled,
   // jobs} object (turning ON seeds all-false jobs — triggers the zero-job
   // banner immediately per §9.3); each job checkbox re-collects just itself.
@@ -10791,9 +11395,9 @@ export const SECTION_STUDIO_SCRIPT = `
   var connectOffersReviewEl = document.querySelector('[data-connect-offers-review]');
   if (connectOffersReviewEl) { connectOffersReviewEl.addEventListener('click', function () { setInspectorTab('offers'); }); }
 
-  // §8.6 Rules: "+ Add a condition" reveals the picker (UI-only, until a
-  // field is actually chosen); "Remove condition" clears the stored
-  // conditional and returns to "Always show".
+  // §8.6 Rules (PC-12 rename): "+ Add a show/hide rule" reveals the picker
+  // (UI-only, until a field is actually chosen); "Remove rule" clears the
+  // stored conditional and returns to "Always shown".
   var rulesAddBtn = document.querySelector('[data-rules-add-condition]');
   if (rulesAddBtn) {
     rulesAddBtn.addEventListener('click', function () { rulesFieldsRevealed = true; renderRulesFieldsVisibility(true); });
@@ -10828,6 +11432,30 @@ export const SECTION_STUDIO_SCRIPT = `
   for (rce = 0; rce < reqCondEls.length; rce++) {
     reqCondEls[rce].addEventListener('input', collectRequiredWhen);
     reqCondEls[rce].addEventListener('change', collectRequiredWhen);
+  }
+  // PC-12: Continue visibility — "+ Add a show/hide rule" reveals the
+  // picker; "Remove rule" clears state.content.continue_visible_when and
+  // returns to "Always shown" (mirrors the Rules-tab Show-if add/remove
+  // pair exactly, keyed at the section instead of a node).
+  var continueAddBtn = document.querySelector('[data-continuecond-add]');
+  if (continueAddBtn) {
+    continueAddBtn.addEventListener('click', function () { continueRulesRevealed = true; renderContinueRulesVisibility(true); });
+  }
+  var continueRemoveBtn = document.querySelector('[data-continuecond-remove]');
+  if (continueRemoveBtn) {
+    continueRemoveBtn.addEventListener('click', function () {
+      delete state.content.continue_visible_when;
+      continueRulesRevealed = false;
+      populateContinueVisibility();
+      renderContinueRulesVisibility(false);
+      afterModelChange();
+    });
+  }
+  var continueCondEls = document.querySelectorAll('[data-inspector-continuecond]');
+  var cce;
+  for (cce = 0; cce < continueCondEls.length; cce++) {
+    continueCondEls[cce].addEventListener('input', collectContinueVisibility);
+    continueCondEls[cce].addEventListener('change', collectContinueVisibility);
   }
   // §5.5 (FIX 8a/8b): the typed default controls.
   var defaultEls = document.querySelectorAll('[data-default-control]');
@@ -13066,6 +13694,9 @@ export const SECTION_STUDIO_SCRIPT = `
   updatePaletteBindItems();
   renderBindBanner();
   updateCanvasEmpty();
+  // PC-A1 (P4a) first paint: lock "Go to next" + force Wait-for-Continue if a
+  // loaded section already holds an ineligible auto_advance (pre-existing rows).
+  applyContinueModeEligibility();
   // §6.2 default selection on open (contract: "the ZIP field" — generalized
   // to the first real answer node); selectComponent() already covers
   // decoration/breadcrumb/inspector-population/scope-header/toolbar in one call.

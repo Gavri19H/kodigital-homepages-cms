@@ -46,6 +46,9 @@ import type {
   LeadgenIconCardDepthSlots,
 } from "../designs/default-funnel/tokens";
 import {
+  autoAdvanceEligibility,
+  flattenComponents,
+  isIsoDate,
   isLayoutContainerType,
   LEADGEN_MAX_CONTAINER_DEPTH,
   LEADGEN_NODE_BORDER_COLOR_ROLES,
@@ -148,7 +151,14 @@ function hydration(node: LeadgenComponentNode): string {
     attr("data-internal-field", node.internal_field) +
     attr("data-answer-type", answerType) +
     (produces === null
-      ? ""
+      ? // PC-A13 (P4a): a NON-producing node carrying a `conditional` gets a
+        // dedicated hideable hook so the runtime's applyComponentVisibility can
+        // toggle it live — it IS in the flattened dependency config (config-dto
+        // keeps leaf conditionals) but has no [data-lg-question], so today it
+        // never hid live while the SSR dependency-preview did (divergence). A
+        // separate attr keeps the §11.6 [data-lg-question] question count pure
+        // (that probe must see answer-PRODUCING nodes only, never chrome).
+        (node.conditional !== undefined ? attr("data-lg-node", node.question_id) : "")
       : attr("data-lg-question", node.question_id) + attr("data-lg-field", node.internal_field)) +
     (node.required === true ? ` data-required="true"` : "")
   );
@@ -232,6 +242,81 @@ interface SectionRenderState {
   deferContinue: boolean;
   continueSeen: boolean;
   deferredContinue: LeadgenComponentNode | undefined;
+  // PC-A2/PC-6 (P4b): the internal_fields a hand-authored ValidationError node
+  // ALREADY reports on (its data-lg-error-for binding). An answer-producing
+  // leaf whose field is in this set does NOT get an auto error slot — the
+  // authored component is the deliberate override, so there is never a double
+  // slot for one field. Computed ONCE per section render from the whole tree.
+  errorBoundFields: ReadonlySet<string>;
+}
+
+// ---------------------------------------------------------------------------
+// PC-A2 / PC-6 (P4b) — error visibility by DEFAULT (zero extra authoring)
+// ---------------------------------------------------------------------------
+// Before P4b a validation failure painted only an invisible red border unless
+// the author hand-placed a ValidationError node bound to the field
+// (data-lg-error-for) — the operator's "was it tested?" gap. Now every
+// answer-PRODUCING leaf emits its own empty, hidden error slot in the SSR
+// markup, adjacent to the field; the runtime's setFieldError/clearFieldErrors
+// (render.ts) fill/clear it exactly as they already did for authored slots, so
+// error_text ("If it's wrong, say …") and every format/required message now
+// render VISIBLY with no authoring. SSR-only (zero runtime bundle bytes). An
+// authored ValidationError for the same field stays the deliberate override
+// (collectErrorBoundFields → no auto slot for that field ⇒ never a double).
+
+// The single answer-field an auto error slot would report on, or undefined:
+// answer-PRODUCING (catalog.produces !== null) leaves carrying a non-empty
+// internal_field. Excludes chrome/controls/affordances/containers (produces
+// null), ValidationError (produces null), and the multi-subfield groups
+// (NameFieldsGroup / AddressAutocomplete carry no single internal_field).
+function autoErrorFieldFor(node: LeadgenComponentNode): string | undefined {
+  if (node === null || typeof node !== "object") return undefined;
+  const catalog = COMPONENT_CATALOG[node.type];
+  if (catalog === undefined || catalog.produces === null) return undefined;
+  const field = node.internal_field;
+  if (typeof field === "string" && field !== "") return field;
+  // PC-A2 (P4b): the multi-subfield groups carry no single internal_field —
+  // key their error slot on the question_id so the runtime's group-level
+  // required failure (validation.ts groupSubfields) has somewhere to paint.
+  if (node.type === "NameFieldsGroup" || node.type === "AddressAutocompleteQuestion") {
+    return typeof node.question_id === "string" && node.question_id !== "" ? node.question_id : undefined;
+  }
+  return undefined;
+}
+
+// The internal_fields already owned by a hand-authored ValidationError node
+// anywhere in the section tree (its data-lg-error-for binding). Those fields
+// suppress their auto slot so an authored override is honored 1:1.
+function collectErrorBoundFields(nodes: readonly LeadgenComponentNode[]): ReadonlySet<string> {
+  const set = new Set<string>();
+  for (const leaf of flattenComponents(nodes)) {
+    if (leaf.type === "ValidationError") {
+      const field = leaf.internal_field;
+      if (typeof field === "string" && field !== "") set.add(field);
+    }
+  }
+  return set;
+}
+
+// The auto error slot HTML for ONE node (or "" when it needs none): a hidden,
+// empty, theme-styled [data-lg-error-for] element the runtime fills on failure.
+// Emitted ONLY inside a section render (state present) and ONLY when no
+// authored ValidationError already binds the field.
+function autoErrorSlot(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  state: SectionRenderState | undefined,
+): string {
+  if (state === undefined) return "";
+  const field = autoErrorFieldFor(node);
+  if (field === undefined) return "";
+  if (state.errorBoundFields.has(field)) return "";
+  return (
+    `<p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden` +
+    attr("data-lg-error-for", field) +
+    style({ color: design.validation.errorTextColor }) +
+    `></p>`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -564,6 +649,7 @@ function renderRange(
   design: DefaultFunnelDesign,
   format: "number" | "currency",
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
   const rq = design.rangeQuestion;
   const min = propNum(node, "min") ?? 0;
@@ -601,7 +687,19 @@ function renderRange(
     attr("data-internal-field", node.internal_field) +
     `>` +
     `<div class="lg-range-minmax"><span>${esc(minLabel)}</span><span>${esc(maxLabel)}</span></div>` +
-    `</div>`
+    // CONDUCTOR FIX (P4b regression): the auto error slot is the LAST CHILD of
+    // the field box (`.lg-range`), never a card-level sibling — "" (no slot)
+    // is a no-op concatenation, byte-identical to pre-fix.
+    slot +
+    `</div>` +
+    // PC-A10 (drift honesty): CONTENT_PROP_FIELDS has always advertised a
+    // Helper text control for all 3 Range-family types, but none of them ever
+    // called fieldHelperLine — wire it here (the ONE shared bespoke renderer
+    // behind renderRangeQuestion/renderCurrencyRangeQuestion/
+    // renderNumberRangeQuestion), the same fieldHelperLine pattern the 8
+    // wired button/dropdown/text-input types already use ("" when unauthored
+    // — byte-additive).
+    fieldHelperLine(node)
   );
 }
 
@@ -609,22 +707,25 @@ export function renderRangeQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
-  return renderRange(node, design, propStr(node, "format") === "currency" ? "currency" : "number", ctx);
+  return renderRange(node, design, propStr(node, "format") === "currency" ? "currency" : "number", ctx, slot);
 }
 export function renderCurrencyRangeQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
-  return renderRange(node, design, "currency", ctx);
+  return renderRange(node, design, "currency", ctx, slot);
 }
 export function renderNumberRangeQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
-  return renderRange(node, design, "number", ctx);
+  return renderRange(node, design, "number", ctx, slot);
 }
 
 // ---------------------------------------------------------------------------
@@ -701,6 +802,7 @@ export function renderButtonAnswerGroup(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
   const autoAdvance = propBool(node, "auto_advance");
   // v3.1 R3 §7/§8.5b + P2a §R-A: each answer button carries the node's per-item
@@ -735,6 +837,9 @@ export function renderButtonAnswerGroup(
   return (
     `<div class="lg-answer-group" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choiceList(node)))}${answerGroupRootStyle(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
     body +
+    // CONDUCTOR FIX (P4b regression): the auto error slot nests as the LAST
+    // CHILD of the group box, never a card-level sibling — "" is a no-op.
+    slot +
     `</div>` +
     // v3.1 R3 E1-NEW-8: helper line below the group ("" when no props.helper).
     fieldHelperLine(node)
@@ -745,6 +850,7 @@ export function renderTwoButtonYesNo(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
   const yes = propStr(node, "yesLabel") ?? "Yes";
   const no = propStr(node, "noLabel") ?? "No";
@@ -768,6 +874,9 @@ export function renderTwoButtonYesNo(
     `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)}${choiceHeightsAttr(yesStyle?.size !== undefined || noStyle?.size !== undefined)}${answerGroupRootStyle(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
     btn(yes, true, yesStyle) +
     btn(no, false, noStyle) +
+    // CONDUCTOR FIX (P4b regression): the auto error slot nests as the LAST
+    // CHILD of the group box, never a card-level sibling — "" is a no-op.
+    slot +
     `</div>` +
     // v3.1 R3 E1-NEW-8: helper line below the group ("" when no props.helper).
     fieldHelperLine(node)
@@ -779,6 +888,7 @@ function renderCardGrid(
   design: DefaultFunnelDesign,
   kind: "icon" | "image",
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
   // §9.5 layer 4: Section columnsDefault/gapDefault fill the slots the node
   // left unset — per-node (design_overrides/props) wins over Section wins
@@ -916,7 +1026,9 @@ function renderCardGrid(
       // grid is already block-level display:grid); {} for full/unauthored.
       return style({ "--lg-cols": String(cols), gap, "max-width": w, ...widthCenteringEntries(w, { align: node.layout?.align }) });
     })() +
-    `>${cards}</div>` +
+    // CONDUCTOR FIX (P4b regression): the auto error slot nests as the LAST
+    // CHILD of the grid box, never a card-level sibling — "" is a no-op.
+    `>${cards}${slot}</div>` +
     // v3.1 R3 E1-NEW-8: helper line below the grid ("" when no props.helper).
     fieldHelperLine(node)
   );
@@ -926,21 +1038,24 @@ export function renderIconCardAnswerGrid(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
-  return renderCardGrid(node, design, "icon", ctx);
+  return renderCardGrid(node, design, "icon", ctx, slot);
 }
 export function renderImageCardAnswerGrid(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
-  return renderCardGrid(node, design, "image", ctx);
+  return renderCardGrid(node, design, "image", ctx, slot);
 }
 
 export function renderMultiChoiceCardGroup(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
   const min = propNum(node, "min");
   const max = propNum(node, "max");
@@ -1010,7 +1125,9 @@ export function renderMultiChoiceCardGroup(
     })() +
     attr("data-min", min) +
     attr("data-max", max) +
-    `>${cards}</div>` +
+    // CONDUCTOR FIX (P4b regression): the auto error slot nests as the LAST
+    // CHILD of the grid box, never a card-level sibling — "" is a no-op.
+    `>${cards}${slot}</div>` +
     // v3.1 R3 E1-NEW-8: helper line below the grid ("" when no props.helper).
     fieldHelperLine(node)
   );
@@ -1031,6 +1148,7 @@ export function renderDropdownQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
   const placeholder = propStr(node, "placeholder") ?? "Select…";
   const def = dropdownDefaultValue(node);
@@ -1060,15 +1178,22 @@ export function renderDropdownQuestion(
   // merge (width/height + border-radius + the --lg-field-border custom property)
   // the text-input family uses — fully state-safe (:focus/[aria-invalid] retain
   // precedence). "" when the node authors none (byte-identical to pre-R3).
-  return (
+  const select =
     `<select class="lg-input lg-dropdown"${hydration(node)} data-lg-input${fieldStyleAttr(node, design, ctx)}` +
     `>` +
     `<option value="" disabled${def === undefined ? " selected" : ""}>${esc(placeholder)}</option>` +
     options +
-    `</select>` +
-    // v3.1 R3 E1-NEW-8: helper line below the dropdown ("" when no props.helper).
-    fieldHelperLine(node)
-  );
+    `</select>`;
+  // CONDUCTOR FIX (P4b regression): a `<select>` cannot validly CONTAIN a `<p>`
+  // error slot (option/optgroup only) — unlike every other field renderer,
+  // this one has NO wrapping element to nest the slot inside. No slot (every
+  // non-section-render call site, and a ValidationError-bound field) → the
+  // bare `<select>` renders byte-identically to pre-fix (no new wrapper). A
+  // slot present → wrap in the SAME `.lg-field-boxed` box renderTextInput
+  // already uses for its own icon/helper cases (one established "field box"
+  // class, not a new one) so the slot has a valid, semantically-correct home.
+  if (slot === "") return select + fieldHelperLine(node);
+  return `<span class="lg-field-boxed" style="display:block">${select}${slot}</span>` + fieldHelperLine(node);
 }
 
 // 08 §8.3/§8.10 SearchableDropdownQuestion: DropdownQuestion + a search input
@@ -1082,6 +1207,7 @@ export function renderSearchableDropdownQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
   const placeholder = propStr(node, "placeholder") ?? "Select…";
   // §5.5 (FIX 8b): the SAME props.default semantics as DropdownQuestion — the
@@ -1108,7 +1234,18 @@ export function renderSearchableDropdownQuestion(
     `<option value="" disabled${def === undefined ? " selected" : ""}>${esc(placeholder)}</option>` +
     options +
     `</select>` +
-    `</div>`
+    // CONDUCTOR FIX (P4b regression): the auto error slot nests as the LAST
+    // CHILD of the `.lg-searchable-dropdown` box, never a card-level sibling
+    // — "" is a no-op.
+    slot +
+    `</div>` +
+    // PC-A10 (drift honesty): CONTENT_PROP_FIELDS has always advertised a
+    // Helper text control for this type (it shares DropdownQuestion's own
+    // ["placeholder","helper"] row set), but this renderer never called
+    // fieldHelperLine — an arbitrary exclusion (the r3a-consumption drift
+    // pin used to assert it explicitly; now it asserts the opposite). Wired
+    // to match DropdownQuestion exactly ("" when unauthored — byte-additive).
+    fieldHelperLine(node)
   );
 }
 
@@ -1127,6 +1264,7 @@ export function renderOtherGroupSelector(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
   // v3.1 R3 §7/§8.5b + P2a §R-A: per-button node design_overrides (height/
   // corners/border) MERGED with the choice's OWN diff-only `style` overlay
@@ -1157,6 +1295,9 @@ export function renderOtherGroupSelector(
   return (
     `<div class="lg-answer-group lg-other-group" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choiceList(node)))}${answerGroupRootStyle(node, design, ctx)}>` +
     body +
+    // CONDUCTOR FIX (P4b regression): the auto error slot nests as the LAST
+    // CHILD of the group box, never a card-level sibling — "" is a no-op.
+    slot +
     `</div>` +
     // v3.1 R3 E1-NEW-8: helper line below the group ("" when no props.helper).
     fieldHelperLine(node)
@@ -1744,8 +1885,11 @@ function choiceHeightsAttr(hasHeight: boolean): string {
 // currentColor + no baked-in size means the SAME source now actually responds
 // to both. Leading field icons render at 20px (§8.1 field-box scale, close to
 // the pre-P1b 19px). "none"/absent/unknown → "" (byte-identical to before).
-function fieldLeadingIcon(node: LeadgenComponentNode): string {
-  const id = propStr(node, "icon");
+// PC-A8: `key` defaults to "icon" (every pre-existing call site passes none,
+// so behavior/output is byte-identical) — renderNameFieldsGroup is the ONE
+// caller that passes "firstIcon"/"lastIcon" for its own per-field pickers.
+function fieldLeadingIcon(node: LeadgenComponentNode, key: string = "icon"): string {
+  const id = propStr(node, key);
   if (id === undefined || !Object.prototype.hasOwnProperty.call(LEADGEN_ICONS, id)) return "";
   return leadgenIconSvg(id, 20);
 }
@@ -1755,8 +1899,13 @@ function fieldLeadingIcon(node: LeadgenComponentNode): string {
 // helper. Golden :326 verbatim inline style. Shared by the whole text-input
 // family + the currency/address wrappers, so the helper renders identically on
 // runtime + both previews (§12 parity).
-function fieldHelperLine(node: LeadgenComponentNode): string {
-  const helper = propStr(node, "helper") ?? propStr(node, "helper_text");
+// PC-A8: `key` defaults to "helper" (every pre-existing call site passes none,
+// so behavior/output is byte-identical, INCLUDING the props.helper_text legacy
+// fallback, which only ever applied to the canonical "helper" key) —
+// renderNameFieldsGroup is the ONE caller that passes "firstHelper"/
+// "lastHelper" for its own per-field lines (brand-new keys, no legacy alias).
+function fieldHelperLine(node: LeadgenComponentNode, key: string = "helper"): string {
+  const helper = key === "helper" ? (propStr(node, "helper") ?? propStr(node, "helper_text")) : propStr(node, key);
   // audit-round G MINOR-3: propStr returns "" (not undefined) for an
   // authored empty-string prop, so a legacy node migrated to helper:"" must
   // still gate out here — trimmed-non-empty, not merely !== undefined —
@@ -1771,6 +1920,7 @@ function renderTextInput(
   type: string,
   extra: string,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
   const placeholder = propStr(node, "placeholder");
   const maxLen = propNum(node, "maxLen");
@@ -1813,9 +1963,13 @@ function renderTextInput(
     (node.required === true ? " required" : "") +
     extra +
     `>`;
-  // §12 no-regression: absent icon AND helper -> the bare input, byte-for-byte
-  // with pre-FIX-3a output (fieldStyleAttr unchanged in that branch).
-  if (icon === "" && helper === "") return input;
+  // §12 no-regression: absent icon AND helper AND slot -> the bare input,
+  // byte-for-byte with pre-FIX-3a output (fieldStyleAttr unchanged in that
+  // branch). CONDUCTOR FIX (P4b regression): an <input> is a void element — it
+  // cannot CONTAIN a slot, so a slot's presence now ALSO forces the wrapping
+  // box (below), exactly like an authored icon/helper already did; the slot
+  // becomes the box's LAST CHILD instead of a card-level sibling.
+  if (icon === "" && helper === "" && slot === "") return input;
   const boxed =
     icon === ""
       ? input
@@ -1841,15 +1995,19 @@ function renderTextInput(
         "</span>" +
         input +
         "</span>";
-  return '<span class="lg-field-boxed" style="display:block">' + boxed + helper + "</span>";
+  // CONDUCTOR FIX (P4b regression): the auto error slot is the LAST CHILD of
+  // the field box (`.lg-field-boxed`) — nested INSIDE, after the helper line,
+  // never a card-level sibling. "" (no slot) is a no-op concatenation.
+  return '<span class="lg-field-boxed" style="display:block">' + boxed + helper + slot + "</span>";
 }
 
 export function renderFreeTextQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
-  return renderTextInput(node, design, "text", "", ctx);
+  return renderTextInput(node, design, "text", "", ctx, slot);
 }
 // 08 §8.3/§8.10 NumberInputQuestion: a PLAIN numeric text input (NOT a
 // slider/range) — the renderTextInput discipline (class-driven .lg-input base
@@ -1859,6 +2017,7 @@ export function renderNumberInputQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
   return renderTextInput(
     node,
@@ -1870,6 +2029,7 @@ export function renderNumberInputQuestion(
       attr("data-step", propNum(node, "step")) +
       attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field),
     ctx,
+    slot,
   );
 }
 // 08 §8.10 CurrencyInputQuestion: currency-prefixed plain numeric input (NOT a
@@ -1883,6 +2043,7 @@ export function renderCurrencyInputQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
   const currency = propStr(node, "currency") ?? "$";
   return (
@@ -1901,6 +2062,9 @@ export function renderCurrencyInputQuestion(
     attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field) +
     (node.required === true ? " required" : "") +
     `>` +
+    // CONDUCTOR FIX (P4b regression): the auto error slot nests as the LAST
+    // CHILD of the currency box, never a card-level sibling — "" is a no-op.
+    slot +
     `</div>` +
     // v3.1 audit-round G FIX 3a: helper line below the currency box (this
     // wrapper bypasses renderTextInput). "" when no props.helper/helper_text.
@@ -1911,29 +2075,43 @@ export function renderEmailInputQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
-  return renderTextInput(node, design, "email", ` inputmode="email" autocomplete="email"`, ctx);
+  return renderTextInput(node, design, "email", ` inputmode="email" autocomplete="email"`, ctx, slot);
 }
 export function renderPhoneInputQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
-  return renderTextInput(node, design, "tel", ` inputmode="tel" autocomplete="tel"`, ctx);
+  return renderTextInput(node, design, "tel", ` inputmode="tel" autocomplete="tel"`, ctx, slot);
 }
 export function renderDateQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
+  // PC-5/PC-A5 (P4b): the native <input type=date> min/max attrs get ONLY a
+  // literal ISO bound (a "Custom date" pick). A DYNAMIC TOKEN (+7d/today/…) is
+  // NOT emitted natively — it would be an invalid attr the browser silently
+  // ignores (the old bug: garbage disabled the constraint), and this renderer
+  // must stay pure/deterministic (no request-time clock → no golden drift). The
+  // resolved bound is enforced by the client validate (validation.ts) via the
+  // config's RESOLVED client_validation.min/max — which is also the documented
+  // iOS-gap compensation, so a date input is gated on every platform.
   const min = propStr(node, "min");
   const max = propStr(node, "max");
-  return renderTextInput(node, design, "date", attr("min", min) + attr("max", max), ctx);
+  const nativeMin = isIsoDate(min) ? min : undefined;
+  const nativeMax = isIsoDate(max) ? max : undefined;
+  return renderTextInput(node, design, "date", attr("min", nativeMin) + attr("max", nativeMax), ctx, slot);
 }
 export function renderZIPInputQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
   const mapsRaw = node.props?.["maps"];
   // v3.1 §9.3 per-field precedence: a NEW-shape config's jobs.validate is
@@ -1960,31 +2138,72 @@ export function renderZIPInputQuestion(
       (googleValidate ? ` data-validate="google"` : "") +
       (mapsEnabled ? attr("data-lg-maps", mapsConfigJson(node)) : ""),
     ctx,
+    slot,
   );
 }
 
-export function renderNameFieldsGroup(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+// PC-A8 (register): First/Last each get their own placeholder/helper/leading-
+// icon now (previously hardcoded bare inputs — the operator's Contact
+// scenario: typing into a per-field control did nothing because there was no
+// per-field prop for it to write). Byte-identical to pre-PC-A8 output when
+// none of the 6 new props (firstPlaceholder/lastPlaceholder/firstHelper/
+// lastHelper/firstIcon/lastIcon) are authored — every addition below is an
+// attr()/style() no-op against an absent value, the SAME "absent is empty"
+// discipline renderTextInput/renderAddressAutocompleteQuestion already use
+// for their own leading-icon box + helper line.
+export function renderNameFieldsGroup(node: LeadgenComponentNode, design: DefaultFunnelDesign, slot = ""): string {
   const first = propStr(node, "firstLabel") ?? "First name";
   const last = propStr(node, "lastLabel") ?? "Surname";
+  const firstHelper = fieldHelperLine(node, "firstHelper");
+  const lastHelper = fieldHelperLine(node, "lastHelper");
   // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
   // the :focus / [aria-invalid] state rules win by cascade (no !important).
-  const field = (label: string, name: string, autocomplete: string): string =>
-    `<label class="lg-field"><span class="lg-label">${esc(label)}</span>` +
-    // 03 §3.3: both name text inputs carry data-lg-input.
-    `<input class="lg-input" type="text" data-lg-input` +
-    ` data-name-field="${name}" autocomplete="${autocomplete}"` +
-    (node.required === true ? " required" : "") +
-    `></label>`;
+  const field = (
+    label: string,
+    name: string,
+    autocomplete: string,
+    placeholder: string | undefined,
+    icon: string,
+    helper: string,
+  ): string => {
+    // 03 §3.3: both name text inputs carry data-lg-input. Same left-inset
+    // idiom as renderTextInput/renderAddressAutocompleteQuestion: a leading
+    // icon adds padding-left so the input text clears the pin.
+    const input =
+      `<input class="lg-input" type="text" data-lg-input` +
+      ` data-name-field="${name}" autocomplete="${autocomplete}"` +
+      attr("placeholder", placeholder) +
+      (icon !== "" ? style({ "padding-left": "42px" }) : "") +
+      (node.required === true ? " required" : "") +
+      `>`;
+    const boxedInput =
+      icon === ""
+        ? input
+        : '<span class="lg-field-box" style="position:relative;display:block">' +
+          '<span class="lg-field-icon" aria-hidden="true" style="position:absolute;left:14px;top:0;bottom:0;display:flex;align-items:center;pointer-events:none;z-index:1">' +
+          icon +
+          "</span>" +
+          input +
+          "</span>";
+    return `<label class="lg-field"><span class="lg-label">${esc(label)}</span>${boxedInput}${helper}</label>`;
+  };
   return (
     `<div class="lg-name-group"${hydration(node)}>` +
-    field(first, "first", "given-name") +
-    field(last, "last", "family-name") +
+    field(first, "first", "given-name", propStr(node, "firstPlaceholder"), fieldLeadingIcon(node, "firstIcon"), firstHelper) +
+    field(last, "last", "family-name", propStr(node, "lastPlaceholder"), fieldLeadingIcon(node, "lastIcon"), lastHelper) +
+    // CONDUCTOR FIX (P4b regression): the auto error slot (keyed on the
+    // group's question_id, PC-A2) nests as the LAST CHILD of the group box,
+    // never a card-level sibling — "" is a no-op.
+    slot +
     `</div>` +
-    // v3.1 R3b E1-NEW-7: the Content-tab "Helper text" control has always
-    // been advertised for this type (CONTENT_PROP_FIELDS.NameFieldsGroup)
-    // but the renderer never called fieldHelperLine — wire it (the shared
-    // golden helper styling, "" when unauthored — byte-identical otherwise).
-    fieldHelperLine(node)
+    // v3.1 R3b E1-NEW-7 / PC-A8: the group-level `helper` is now a DEPRECATED
+    // fallback — CONTENT_PROP_FIELDS no longer advertises it (the Studio's
+    // dedicated NameFieldsGroup block authors per-field helpers instead), but
+    // it still renders — exactly as before, once, below both fields — for
+    // legacy content that carries it, and ONLY when neither field has its own
+    // per-field helper authored (adopting either per-field helper drops the
+    // shared line — no doubled helper copy).
+    (firstHelper === "" && lastHelper === "" ? fieldHelperLine(node) : "")
   );
 }
 
@@ -1992,6 +2211,7 @@ export function renderAddressAutocompleteQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
+  slot = "",
 ): string {
   const provider = propStr(node, "provider") ?? "google";
   const placeholder = propStr(node, "placeholder") ?? "Start typing your address…";
@@ -2047,6 +2267,10 @@ export function renderAddressAutocompleteQuestion(
     // Distinct normalized sub-fields for payload mapping (§12.8).
     `<input type="hidden" data-address-part="street"><input type="hidden" data-address-part="city">` +
     `<input type="hidden" data-address-part="state"><input type="hidden" data-address-part="zip">` +
+    // CONDUCTOR FIX (P4b regression): the auto error slot (keyed on the
+    // group's question_id, PC-A2) nests as the LAST CHILD of the address box,
+    // never a card-level sibling — "" is a no-op.
+    slot +
     `</div>` +
     // v3.1 audit-round G FIX 3a: helper line below the address box (this
     // wrapper bypasses renderTextInput). "" when no props.helper/helper_text.
@@ -2950,6 +3174,24 @@ export function renderComponent(
   depth = 1,
   state?: SectionRenderState,
 ): string {
+  // CONDUCTOR FIX (P4b regression — leadgen-p1-geometry RHYTHM / gate1c /
+  // leadgen-visual): the auto error slot was appended AFTER renderComponent's
+  // own return value as a NEW CARD-LEVEL SIBLING (renderNodes/renderVisibleNodes
+  // used to do `renderComponent(...) + autoErrorSlot(...)`). A sibling-combinator
+  // CSS selector (`.lg-card-grid + *`, the followerSelectors() collapse-emulation
+  // table) matches on LITERAL DOM ADJACENCY regardless of the interposed
+  // element's `hidden`/display:none state, so the auto slot silently broke the
+  // TRUE next sibling's targeted match, falling through to the wrong margin-top
+  // (confirmed live: MultiChoiceCardGroup->ContinueButton measured 26px instead
+  // of the intended 24px). FIX: compute the slot ONCE here and thread it INTO
+  // each answer-producing renderer as its OWN LAST CHILD (the field/group box
+  // the message semantically belongs to) — every renderer accepts it as an
+  // OPTIONAL trailing `slot: string = ""` param, so a call site that omits it
+  // (every non-section-render path: tests, single-node previews, the empty-
+  // clone container trick) renders BYTE-IDENTICALLY to before this fix. Card-
+  // level sibling adjacency is restored to EXACTLY the pre-P4b shape (the
+  // slot never appears as a NEW top-level child again).
+  const slot = autoErrorSlot(node, design, state);
   switch (node.type) {
     case "ProgressBar":
       return renderProgressBar(node, design);
@@ -2970,47 +3212,47 @@ export function renderComponent(
     case "Subheadline":
       return renderSubheadline(node, design, state?.ctx);
     case "RangeQuestion":
-      return renderRangeQuestion(node, design, state?.ctx);
+      return renderRangeQuestion(node, design, state?.ctx, slot);
     case "CurrencyRangeQuestion":
-      return renderCurrencyRangeQuestion(node, design, state?.ctx);
+      return renderCurrencyRangeQuestion(node, design, state?.ctx, slot);
     case "NumberRangeQuestion":
-      return renderNumberRangeQuestion(node, design, state?.ctx);
+      return renderNumberRangeQuestion(node, design, state?.ctx, slot);
     case "ButtonAnswerGroup":
-      return renderButtonAnswerGroup(node, design, state?.ctx);
+      return renderButtonAnswerGroup(node, design, state?.ctx, slot);
     case "IconCardAnswerGrid":
-      return renderIconCardAnswerGrid(node, design, state?.ctx);
+      return renderIconCardAnswerGrid(node, design, state?.ctx, slot);
     case "ImageCardAnswerGrid":
-      return renderImageCardAnswerGrid(node, design, state?.ctx);
+      return renderImageCardAnswerGrid(node, design, state?.ctx, slot);
     case "TwoButtonYesNo":
-      return renderTwoButtonYesNo(node, design, state?.ctx);
+      return renderTwoButtonYesNo(node, design, state?.ctx, slot);
     case "MultiChoiceCardGroup":
-      return renderMultiChoiceCardGroup(node, design, state?.ctx);
+      return renderMultiChoiceCardGroup(node, design, state?.ctx, slot);
     case "DropdownQuestion":
-      return renderDropdownQuestion(node, design, state?.ctx);
+      return renderDropdownQuestion(node, design, state?.ctx, slot);
     case "SearchableDropdownQuestion":
-      return renderSearchableDropdownQuestion(node, design, state?.ctx);
+      return renderSearchableDropdownQuestion(node, design, state?.ctx, slot);
     case "OtherGroupSelector":
-      return renderOtherGroupSelector(node, design, state?.ctx);
+      return renderOtherGroupSelector(node, design, state?.ctx, slot);
     case "FreeTextQuestion":
-      return renderFreeTextQuestion(node, design, state?.ctx);
+      return renderFreeTextQuestion(node, design, state?.ctx, slot);
     case "NumberInputQuestion":
-      return renderNumberInputQuestion(node, design, state?.ctx);
+      return renderNumberInputQuestion(node, design, state?.ctx, slot);
     case "CurrencyInputQuestion":
-      return renderCurrencyInputQuestion(node, design, state?.ctx);
+      return renderCurrencyInputQuestion(node, design, state?.ctx, slot);
     case "EmailInputQuestion":
-      return renderEmailInputQuestion(node, design, state?.ctx);
+      return renderEmailInputQuestion(node, design, state?.ctx, slot);
     case "PhoneInputQuestion":
-      return renderPhoneInputQuestion(node, design, state?.ctx);
+      return renderPhoneInputQuestion(node, design, state?.ctx, slot);
     case "AddressAutocompleteQuestion":
-      return renderAddressAutocompleteQuestion(node, design, state?.ctx);
+      return renderAddressAutocompleteQuestion(node, design, state?.ctx, slot);
     case "ZIPInputQuestion":
-      return renderZIPInputQuestion(node, design, state?.ctx);
+      return renderZIPInputQuestion(node, design, state?.ctx, slot);
     case "NameFieldsGroup":
       // NameFieldsGroup has no internal_field / single input box — §7 field
       // sizing is not wired here (two labeled sub-inputs, not one field box).
-      return renderNameFieldsGroup(node, design);
+      return renderNameFieldsGroup(node, design, slot);
     case "DateQuestion":
-      return renderDateQuestion(node, design, state?.ctx);
+      return renderDateQuestion(node, design, state?.ctx, slot);
     case "ContinueButton": {
       // 11 §11.5 single-control rule (C3) — active only inside a
       // renderSectionComponents call (state present):
@@ -3032,7 +3274,10 @@ export function renderComponent(
     case "AutoAdvanceButton":
       // 11 §11.5: an auto_advance Section renders NO [data-lg-continue]
       // control in either placement — the manual-fallback button included.
-      return state !== undefined && state.suppressContinue
+      // PC-A1 (P4a): under deferContinue (below_unit OR the ineligible-
+      // auto_advance forced slot) the ONE control renders at the end slot, so
+      // this inline node is suppressed to avoid a double Continue.
+      return state !== undefined && (state.suppressContinue || state.deferContinue)
         ? ""
         : renderAutoAdvanceButton(node, design, state?.ctx);
     case "ReassuranceBadge":
@@ -3284,6 +3529,9 @@ function renderNodes(
   depth: number,
   state: SectionRenderState | undefined,
 ): string {
+  // CONDUCTOR FIX (P4b regression): the auto error slot is now threaded INSIDE
+  // renderComponent's own producer-renderer calls (its own last child) —
+  // renderComponent(...) alone is byte-complete; no external append.
   return renderPlacedSiblings(nodes, state?.ctx, (n) => renderComponent(n, design, depth, state));
 }
 
@@ -3301,19 +3549,53 @@ function renderNodes(
 // ctx.continue_placement="below_unit" the single control renders at the END
 // of the subtree in the frame-styled slot; ctx.continue_mode="auto_advance"
 // renders ZERO continue controls.
+interface ContinueRenderPlan {
+  // Suppress EVERY [data-lg-continue] control (the auto_advance default).
+  suppressContinue: boolean;
+  // Force the single end-of-subtree Continue slot even under an inside_unit
+  // frame — the ineligible-auto_advance un-stick.
+  forceSlot: boolean;
+}
+
+// 11 §11.5 / PC-A1 (P4a): how continue_mode drives Continue rendering for THIS
+// section body. auto_advance suppresses the Continue ONLY when the section is
+// auto-advance-ELIGIBLE (autoAdvanceEligibility) — a composition the engine can
+// actually advance (handleChoiceActivation fires on a single visible click).
+// For a legacy/ineligible auto_advance section (2+ producers, an input-only
+// answer, multi-select, a conditional sole producer) suppressing the Continue
+// would STRAND the visitor (PC-A1); instead we force the single end-of-subtree
+// Continue slot (a default "Continue" when the section authored no continue
+// node, else its captured ContinueButton) so the stored content un-sticks at
+// RENDER time — no migration — while the engine's own guard (exactly ONE visible
+// interactive) already declines to auto-advance it, so the two halves agree. A
+// NEW save of such a section is blocked upstream (auto_advance_conflict), so
+// this fallback only ever fires for pre-existing rows.
+function planContinueRender(
+  continueMode: LeadgenContinueMode | undefined,
+  nodes: readonly LeadgenComponentNode[],
+): ContinueRenderPlan {
+  if (continueMode !== "auto_advance") return { suppressContinue: false, forceSlot: false };
+  return autoAdvanceEligibility(nodes).eligible
+    ? { suppressContinue: true, forceSlot: false }
+    : { suppressContinue: false, forceSlot: true };
+}
+
 export function renderSectionComponents(
   nodes: readonly LeadgenComponentNode[],
   design: DefaultFunnelDesign,
   sectionCtx?: LeadgenSectionRenderCtx,
   depth = 1,
 ): string {
-  const suppressContinue = sectionCtx?.continue_mode === "auto_advance";
+  const plan = planContinueRender(sectionCtx?.continue_mode, nodes);
+  const suppressContinue = plan.suppressContinue;
   const state: SectionRenderState = {
     ctx: sectionCtx,
     suppressContinue,
-    deferContinue: !suppressContinue && sectionCtx?.continue_placement === "below_unit",
+    deferContinue:
+      !suppressContinue && (sectionCtx?.continue_placement === "below_unit" || plan.forceSlot),
     continueSeen: false,
     deferredContinue: undefined,
+    errorBoundFields: collectErrorBoundFields(nodes),
   };
   let out = renderNodes(nodes, design, depth, state);
   // R7 U12 FIX 3b (conductor ruling, 2026-07-15): the golden's white question
@@ -3364,13 +3646,16 @@ export function renderSectionComponentsVisible(
   let state: SectionRenderState | undefined;
   if (sectionCtx !== undefined) {
     // Mirror renderSectionComponents' per-call state construction 1:1.
-    const suppressContinue = sectionCtx.continue_mode === "auto_advance";
+    const plan = planContinueRender(sectionCtx.continue_mode, nodes);
+    const suppressContinue = plan.suppressContinue;
     state = {
       ctx: sectionCtx,
       suppressContinue,
-      deferContinue: !suppressContinue && sectionCtx.continue_placement === "below_unit",
+      deferContinue:
+        !suppressContinue && (sectionCtx.continue_placement === "below_unit" || plan.forceSlot),
       continueSeen: false,
       deferredContinue: undefined,
+      errorBoundFields: collectErrorBoundFields(nodes),
     };
   }
   let out = renderVisibleNodes(nodes, design, visibleIds, depth, state);
@@ -3423,6 +3708,8 @@ function renderVisibleNodes(
       return renderContainerWrapper(node, design, depth, inner);
     }
     if (typeof node.question_id === "string" && visibleIds.has(node.question_id)) {
+      // CONDUCTOR FIX (P4b regression): same as renderNodes above — the slot
+      // is now INSIDE renderComponent's own return, no external append.
       return renderComponent(node, design, depth, state);
     }
     return "";

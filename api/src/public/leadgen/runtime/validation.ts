@@ -72,15 +72,61 @@ export function formatKindFor(component: LgComponentConfig): LgFormatKind {
   return null;
 }
 
+// PC-5/PC-A5 (P4b): a date-input component. Its config carries RESOLVED ISO
+// min/max (config-dto resolved any dynamic token server-side), so the client
+// gate is a pure lexical ISO compare — no token grammar ships in the bundle.
+function isDateComponent(component: LgComponentConfig): boolean {
+  return `${component.type} ${component.answer_type ?? ""}`.toLowerCase().indexOf("date") !== -1;
+}
+
+// PC-A2 (P4b): the sub-field internal_fields a multi-subfield group contributes
+// to the answer space (mirrors the server's answers.ts fieldsOf) — or null for
+// a normal single-field component. NameFieldsGroup + AddressAutocomplete carry
+// NO single internal_field; each expands to its configured sub-fields (defaults
+// first/last and street/city/state/zip). Read from `props` (config-dto copies
+// it through). P4d adds per-sub-field props; this reads the CURRENT shape only.
+export function groupSubfields(component: LgComponentConfig): string[] | null {
+  const props = (component.props ?? {}) as Record<string, unknown>;
+  if (component.type === "NameFieldsGroup") {
+    const f = props["fields"];
+    return Array.isArray(f) && f.length > 0 ? f.map(String) : ["first", "last"];
+  }
+  if (component.type === "AddressAutocompleteQuestion") {
+    const f = props["internal_fields"];
+    return Array.isArray(f) && f.length > 0 ? f.map(String) : ["street", "city", "state", "zip"];
+  }
+  return null;
+}
+
+// PC-A4 (P4b) — NANP structural phone validation + E.164 normalization.
+//
+// Returns the E.164 form (`+1` + 10 digits) for a valid US/Canada number, or
+// null. Strips all formatting; accepts 10 significant digits, or 11 with a
+// leading country-code `1`. NANP requires BOTH the area code and the exchange
+// (central-office) code to begin 2–9 — so the old strip-and-count 7..15 check's
+// false-accepts are now correctly rejected: "1111111111" has area code 111
+// (first digit 1) → invalid, and a 14-digit blob is not 10/11 digits → invalid.
+// A valid number like "(415) 555-1234" → "+14155551234".
+export function normalizePhoneE164(value: string): string | null {
+  let digits = value.replace(/\D/g, "");
+  // strip a leading country-code 1 on an 11-digit number
+  if (digits.length === 11 && digits.charCodeAt(0) === 49 /* "1" */) digits = digits.slice(1);
+  if (digits.length !== 10) return null;
+  const area = digits.charCodeAt(0); // NANP: area code first digit 2–9
+  const exch = digits.charCodeAt(3); // NANP: exchange code first digit 2–9
+  if (area < 50 || area > 57) return null; // "2".."9"
+  if (exch < 50 || exch > 57) return null; // "2".."9"
+  return "+1" + digits;
+}
+
 function checkFormat(kind: LgFormatKind, value: unknown, out: LgValidationFailure[]): void {
   if (kind === null) return;
   if (typeof value !== "string" || value === "") return; // emptiness is `required`'s job
   if (kind === "email" && !EMAIL_RE.test(value.trim())) {
     out.push({ code: "email_format", message: "Enter a valid email address." });
   } else if (kind === "phone") {
-    const digits = value.replace(/\D/g, "");
-    if (digits.length < 7 || digits.length > 15) {
-      out.push({ code: "phone_format", message: "Enter a valid phone number." });
+    if (normalizePhoneE164(value) === null) {
+      out.push({ code: "phone_format", message: "Enter a valid US phone number." });
     }
   } else if (kind === "zip" && !ZIP_RE.test(value.trim())) {
     out.push({ code: "zip_format", message: "Enter a valid 5-digit ZIP code." });
@@ -169,7 +215,23 @@ export function validateValue(
           const base = min !== null ? min : 0;
           const ratio = (n - base) / step;
           if (Math.abs(ratio - Math.round(ratio)) > 1e-9) {
-            out.push({ code: "step", message: `Use steps of ${step}.` });
+            // PC-A3/PC-7 (P4b): the old "Use steps of 5." told the visitor
+            // NOTHING actionable (the operator's "terrible" — e.g. 502 with
+            // min=1,step=5). Compute the two nearest ON-GRID neighbors, clamped
+            // to any authored min/max, and name them.
+            const fix = (v: number): number => Math.round(v * 1e6) / 1e6;
+            const low = fix(base + Math.floor((n - base) / step) * step);
+            const high = fix(low + step);
+            const ok = (v: number): boolean =>
+              (min === null || v >= min) && (max === null || v <= max);
+            const opts = [low, high].filter(ok);
+            out.push({
+              code: "step",
+              message:
+                opts.length > 0
+                  ? `Nearest valid ${opts.length > 1 ? "values" : "value"}: ${opts.join(" and ")}.`
+                  : `Use steps of ${step}.`,
+            });
           }
         }
       } else if (typeof value === "string" || typeof value === "number") {
@@ -202,6 +264,22 @@ export function validateValue(
     }
   }
 
+  // PC-5/PC-A5 date range: a lexical ISO compare (YYYY-MM-DD sorts
+  // chronologically). cv.min/max are the RESOLVED ISO bounds (config-dto). The
+  // numeric block above never fires for these (Number("2026-08-01") is NaN), so
+  // this is the ONLY min/max leg for a date field. Clear "on or after/before"
+  // copy naming the concrete resolved date.
+  if (isDateComponent(component) && typeof value === "string" && value !== "") {
+    const dmin = typeof cv["min"] === "string" ? (cv["min"] as string) : null;
+    const dmax = typeof cv["max"] === "string" ? (cv["max"] as string) : null;
+    if (dmin !== null && value < dmin) {
+      out.push({ code: "min", message: `Pick a date on or after ${dmin}.` });
+    }
+    if (dmax !== null && value > dmax) {
+      out.push({ code: "max", message: `Pick a date on or before ${dmax}.` });
+    }
+  }
+
   checkFormat(formatKindFor(component), value, out);
   // E1-C1: swap in the authored copy for every value-wrong failure collected
   // above (required already returned; only "wrong value" codes remain here).
@@ -228,7 +306,30 @@ export function validateSection(
     if (component === undefined || vis === undefined) continue;
     if (!vis.visible) continue;
     const field = component.internal_field;
-    if (field === undefined || field === "") continue;
+    if (field === undefined || field === "") {
+      // PC-A2 (P4b): a multi-subfield group (NameFieldsGroup/Address) has no
+      // single internal_field, so validateValue can't see it — it was skipped
+      // entirely before. Enforce `required` across its sub-fields here: the
+      // group is answered iff EVERY sub-field value is present. The failure is
+      // keyed to the group's question_id (its error slot's data-lg-error-for),
+      // so setFieldError paints the group-level message.
+      const subs = groupSubfields(component);
+      if (subs !== null) {
+        const required =
+          vis.required_now ||
+          (component.client_validation as Record<string, unknown> | undefined)?.["required"] === true ||
+          component.required === true;
+        if (required && subs.some((f) => !isAnswered(answers[f]))) {
+          out.push({
+            code: "required",
+            message: "This field is required.",
+            question_id: component.question_id,
+            internal_field: component.question_id,
+          });
+        }
+      }
+      continue;
+    }
     const failures = validateValue(component, answers[field], vis.required_now);
     for (const failure of failures) {
       out.push({ ...failure, question_id: component.question_id, internal_field: field });

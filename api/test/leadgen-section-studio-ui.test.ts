@@ -919,6 +919,13 @@ describeDb("section studio SSR — §8.6 inspector + §8.5 container props", () 
     const pattern = selectBlock(html, "lg-vprop-pattern");
     for (const preset of ["none", "letters", "digits", "custom"]) expect(pattern).toContain(`<option value="${preset}">`);
     expect(html).toContain('data-inspector-vprop="error_text"');
+    // PC-5/PC-A5 (P4b): the DateQuestion Min/Max token+picker — a token dropdown
+    // per bound with the dynamic-token options (shown for Date fields via the
+    // island's populateDateBound; hidden otherwise).
+    for (const key of ["min", "max"]) expect(html).toContain(`data-inspector-vdate="${key}"`);
+    for (const tok of ["today", "+7d", "+2w", "+1m", "year_end", "__custom__"]) {
+      expect(html, `date token ${tok}`).toContain(`<option value="${tok}">`);
+    }
     // §8.6 Dependencies: typed IF builder (ops + typed value inputs)
     for (const op of ["eq", "neq", "gt", "lt", "gte", "lte", "range", "in", "not_in"]) {
       expect(html, `op ${op}`).toContain(`<option value="${op}">`);
@@ -1184,6 +1191,13 @@ const MODEL_FUNCS = [
   "uniqueFieldName",
   "internalFieldsOf",
   "refFieldInfo",
+  // PC-12 (register PC-12): the rules-picker/sentence human-naming core —
+  // sectionFieldLabels/conditionValueLabel are pure; currentHeadlineText is
+  // the one DOM read they need (degrades to '' under the shared docStub,
+  // same as populateMapsTab et al. above already do).
+  "sectionFieldLabels",
+  "currentHeadlineText",
+  "conditionValueLabel",
   "findConditionalRefs",
   "slugify",
   "sampleChoice",
@@ -7257,12 +7271,16 @@ describeDb("review FIX 7 — Require-this-component-IF (props.requiredWhen) + se
       op: "eq",
       value: true,
     });
-    // the §7.3 sentence pattern renders the readable text
-    expect(reqSentence.textContent).toBe("Require this question when currently_insured is true");
+    // the §7.3 sentence pattern renders the readable text — PC-12: the field
+    // speaks its human name (this fixture's docStub returns no headline
+    // input, so "currently_insured" — TwoButtonYesNo, no props.yesLabel
+    // authored — falls back to its typeLabel "Yes / No"; the boolean VALUE
+    // speaks its own yes/no wording ("Yes"), not the raw "true").
+    expect(reqSentence.textContent).toBe("Require this question when Yes / No is Yes");
     // the show-if sentence renders the pattern too
     probe.run("selectedNode().conditional = { when: 'currently_insured', op: 'eq', value: true };");
     probe.run("renderConditionSentences(selectedNode());");
-    expect(showSentence.textContent).toBe("Show this question when currently_insured is true");
+    expect(showSentence.textContent).toBe("Show this question when Yes / No is Yes");
     // clearing the picker deletes the key (no empty-object residue)
     reqEls["when"]!.value = "";
     probe.run("collectRequiredWhen();");

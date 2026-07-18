@@ -48,9 +48,17 @@
 //
 // Seeding rides the REAL admin HTTP APIs only (repo convention — see
 // leadgen-section-studio.spec.ts's createStudioSection /
-// leadgen-theme-manager.spec.ts's seedThemesFixture). Local D1 must be
-// migrated + seeded once beforehand:
-// `rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local`.
+// leadgen-theme-manager.spec.ts's seedThemesFixture). Local state must be
+// FULLY reset beforehand (`npm run db:reset:local` — wipes the WHOLE
+// `.wrangler/state/v3` tree: d1+kv+cache+r2+workflows, then migrates +
+// seeds). CONDUCTOR FIX (gate1c state 6/7 root cause): the OLD d1-only
+// reset (`rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm
+// run seed:local`) left the KV/cache namespaces untouched across runs —
+// this page's "YOUR THEMES" left list reads a cache-backed record set, so
+// theme names from OTHER spec files' earlier runs accumulated there FOREVER
+// and leaked into this baseline's capture. `db:reset:local` is the ONLY
+// preamble that actually isolates this file's states 6/7 (states 1-5 show
+// one specific Section by public_id and were never affected).
 //
 // PLAYWRIGHT HARD LESSON (dispatch instruction): run THIS FILE ONLY —
 // `npx playwright test test-ui/leadgen-v31-gate1c-baselines.spec.ts --workers=1 --reporter=line`
@@ -181,6 +189,22 @@
 // missing constraint, not some unavoidable randomness, is what makes (A)/(B)
 // unstable.
 //
+// FOURTH FINDING (conductor round, `db:reset:local` full-state preamble):
+// the ABOVE result covers `#lg-preview-theme`'s WIDTH only (unaffected, as
+// shown). Its DISPLAYED VALUE is a separate axis and IS KV-populated
+// (ui-section-studio.ts's own comment on this element: "populated
+// client-side from the live KV") -- states 1-5 (this same drawer chrome)
+// measured a small but real, byte-REPRODUCIBLE delta (ratio
+// 0.00121270...  -- identical across 2 independent `db:reset:local` runs, a
+// deterministic content difference, not the timing race above) once the
+// preamble started wiping KV/cache too: the SSR placeholder "Navy
+// (default)" versus whatever theme the client-side KV population had
+// auto-selected under a polluted cache from earlier spec runs. All 7
+// baselines were re-minted together under a verified fully-reset
+// environment and proved stable across 2 further independent full resets
+// (7/7, ratio=0 every state, both times) -- see this file's header preamble
+// note.
+//
 // PRODUCT FIX (v3.1 Phase E -- fixed AT THE SOURCE, not pinned in this
 // file): an earlier round of this file masked/pinned (A)/(B) here as a
 // TEST-side workaround (see git history, not present in the current file)
@@ -224,6 +248,44 @@
 // toggle, and the Maps-connected chip -- stays fully UNMASKED and
 // pixel-enforced throughout. [data-studio-events-list] (SECOND FINDING)
 // remains the only mask in this file.
+//
+// FIFTH FINDING (conductor composition proof -- states 6/7 are SOLO-ONLY BY
+// DESIGN): the THIRD/FOURTH findings fixed #lg-preview-theme's footprint and
+// the "YOUR THEMES" list's unbounded growth. A further conductor-mandated
+// composition proof (this file's states run immediately after
+// leadgen-theme-manager.spec.ts, same D1/KV session, exactly as the real
+// `--shard=2/3 --workers=1` gate schedules them -- confirmed by direct log
+// inspection, not assumed) still failed state 6 at changed-pixel ratio
+// 0.0187 -- ~19x the 0.1% budget. Root-caused via the actual failure
+// screenshot (not guessed): Navy's badge read "LIVE · A" instead of "DRAFT",
+// its "Not assigned to a funnel yet" line read "Assigned to TM Fixture Auto
+// Insurance · Variant A", and the whole right column additionally rendered a
+// live "In this quote" 75/25 A/B-split panel + "Other funnels using this
+// theme: TM Fixture Home Insurance · Variant A" that solo capture never
+// shows. Mechanism: theme ASSIGNMENT lives on the FUNNEL/VARIANT record (a
+// theme_id it points at), not on the theme record itself -- this file's own
+// ensureTheme (just above) only ever PATCHes a theme's own colour/typography
+// fields, by design, and structurally has no way to also force every
+// funnel/variant in the system back to "points at nothing" without reaching
+// into another spec file's fixture data. leadgen-theme-manager.spec.ts's own
+// ensureThemesFixture explicitly assigns Navy -> Auto Insurance·Variant A
+// and Bold Yellow -> Auto Insurance·Variant B (that IS what its own tests
+// verify) -- so once both files share the same theme IDs (FOURTH FINDING,
+// needed so the LIST content itself converges), Navy/Bold Yellow
+// unavoidably inherit whatever assignment exists at capture time: unassigned
+// solo, assigned after theme-manager. No fixture-naming convention closes
+// this -- it is a full-page pixel baseline of a page that renders GLOBAL,
+// cross-referenced state, which is structurally solo-only (conductor
+// ruling). Resolution: states 6/7 self-detect a non-solo environment and
+// `test.skip()` LOUDLY (skipIfThemesPageNotSolo below) rather than either
+// (a) reporting a false red for something no test-side fixture fix can
+// prevent, or (b) silently passing a wrong baseline. Per-file solo (the
+// conductor ritual's own way of running this file) always gets the full
+// 7/7 gate; any shard/composition context that leaves stray theme records or
+// assignment state behind produces a documented skip, never an unexplained
+// red. (M2's "+ New theme" click in leadgen-theme-manager.spec.ts, the
+// OTHER historical source of stray theme records, is now page.route-mocked
+// for the same reason -- see that file's own header.)
 
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -318,7 +380,20 @@ function themeBody(name: string, brand: string, accent: string, pageBg: string, 
   };
 }
 
-async function createTheme(
+// CONDUCTOR ROUND (gate1c-unmasked defect): a straight POST here — even with
+// a fixed, contract-literal name — is EXACTLY what let the "YOUR THEMES"
+// list grow without bound every time this file ran (themes have no
+// uniqueness constraint and no delete endpoint, so a plain create-every-run
+// only ever adds records, never converges). Now idempotent, and using the
+// IDENTICAL 3 names leadgen-theme-manager.spec.ts's own ensureTheme uses
+// ("Navy"/"Bold Yellow"/"Minimal" — see that file's matching comment): finds
+// an existing theme by exact name and resets it via PATCH; only POSTs the
+// very first time it has never existed. Whichever of the two files runs
+// first creates the shared trio; the other one just reuses it — the
+// themes-list CONTENT converges to the same superset regardless of
+// composition order, which is what makes THIS file's own baselines
+// state-invariant too (not just #lg-preview-theme's flex footprint).
+async function ensureTheme(
   request: APIRequestContext,
   name: string,
   brand: string,
@@ -327,11 +402,13 @@ async function createTheme(
   card: string,
   text: string,
 ): Promise<string> {
-  const created = await json<ThemeCreated>(
-    await request.post(`${LG_API}/themes`, { data: themeBody(name, brand, accent, pageBg, card, text) }),
-    `create theme (${name})`,
-  );
-  return created.item.id;
+  const list = await json<{ items: Array<{ id: string; name: string }> }>(await request.get(`${LG_API}/themes`), `list themes (finding ${name})`);
+  const existing = list.items.find((t) => t.name === name);
+  const body = themeBody(name, brand, accent, pageBg, card, text);
+  if (existing) {
+    return (await json<ThemeCreated>(await request.patch(`${LG_API}/themes/${existing.id}`, { data: body }), `reset existing theme (${name})`)).item.id;
+  }
+  return (await json<ThemeCreated>(await request.post(`${LG_API}/themes`, { data: body }), `create theme (${name})`)).item.id;
 }
 
 interface Fixture {
@@ -354,18 +431,26 @@ test.beforeAll(async ({ playwright }) => {
   // baseline is a PIXEL artifact; Gate 3/4's own tests assert the resolution
   // math, never this file).
   const customSection = await createFixtureSection(ctx, `V31 Gate1c Custom ${uniq}`, 384);
-  // NOT uniq-suffixed (unlike the sections below): the theme name renders as
+  // NOT uniq-suffixed (unlike the sections above): the theme name renders as
   // an UNTRUNCATED 21px title in the CENTER editor (no fixed-width/overflow
   // clip like the studio's 132px section-name INPUT has) — a run-varying
   // suffix here changes real, visible pixels. CONFIRMED (not speculative):
   // an earlier live run of this file with `Navy ${uniq}` measured a stable
   // changed-pixel ratio of ~0.00103 between two separate CLI invocations —
-  // just over the 0.1% budget — traced to exactly this. Theme names have no
-  // uniqueness constraint at the API level (multiple "Navy" records may
-  // coexist across repeated local runs; each is selected by its OWN fresh
-  // id, never by name), so a fixed, contract-literal name is safe here.
-  const navyThemeId = await createTheme(ctx, "Navy", "#1B3A5C", "#F5C518", "#F4F6F9", "#FFFFFF", "#1A1F36");
-  const boldThemeId = await createTheme(ctx, "Bold Yellow", "#13233B", "#F5C518", "#FFF7DE", "#FFFFFF", "#14181F");
+  // just over the 0.1% budget — traced to exactly this.
+  //
+  // CONDUCTOR ROUND: ensureTheme (idempotent, above) also seeds "Minimal" —
+  // the SAME fixed 3-theme superset leadgen-theme-manager.spec.ts's own
+  // ensureThemesFixture uses — even though this file's own states only ever
+  // select Navy/Bold Yellow by id. This is deliberate: state 6/7's "YOUR
+  // THEMES" list renders the union of every theme that exists, so the
+  // superset itself (not just the 2 this file happens to look at) has to be
+  // identical across compositions for those two baselines to be
+  // state-invariant. Discarded (not returned in Fixture) since nothing here
+  // selects it directly — its existence alone is the point.
+  const navyThemeId = await ensureTheme(ctx, "Navy", "#1B3A5C", "#F5C518", "#F4F6F9", "#FFFFFF", "#1A1F36");
+  const boldThemeId = await ensureTheme(ctx, "Bold Yellow", "#13233B", "#F5C518", "#FFF7DE", "#FFFFFF", "#14181F");
+  await ensureTheme(ctx, "Minimal", "#232A34", "#6B7486", "#FFFFFF", "#F6F8FA", "#14181F");
   await ctx.dispose();
   fx = { defaultSection, customSection, navyThemeId, boldThemeId };
 });
@@ -459,12 +544,13 @@ async function captureBaseline(page: Page, name: string): Promise<void> {
   // fits with no scrolling anywhere, so a plain viewport screenshot captures
   // it correctly and completely.
   //
-  // Residual risk (documented, not fully engineered around): if local D1
-  // accumulates enough LEFT-LIST theme cards across many un-reset suite runs
-  // to push total page content past 2600px, body would need to scroll again
-  // and this screenshot would silently crop the bottom — the repo's own
-  // convention already treats periodic `db:migrate:local`+`seed:local`
-  // resets as a normal operator step (see this file's header), which keeps
+  // Residual risk (documented, not fully engineered around): if the KV/cache
+  // namespace this LEFT LIST reads (not D1 — see the state-6 test body's own
+  // CONDUCTOR FIX comment) accumulates enough theme cards across many
+  // un-reset suite runs to push total page content past 2600px, body would
+  // need to scroll again and this screenshot would silently crop the bottom
+  // — `npm run db:reset:local` (see this file's header) wipes the WHOLE
+  // `.wrangler/state/v3` tree, including that KV/cache namespace, keeping
   // this bounded in practice.
   // mask: [data-studio-events-list] — the ONE genuinely dynamic region (a
   // per-page-load random session_id inside a debug event-log line; see
@@ -487,6 +573,57 @@ async function captureBaseline(page: Page, name: string): Promise<void> {
   const ratio = await pixelDiffRatio(page, baseline, shot);
   console.log(`[gate1c-baseline] ${name}: changed-pixel ratio=${ratio}`);
   expect(ratio, `${name} changed-pixel ratio ${ratio} exceeds ${MAX_RATIO} (Gate 1c: <=0.1%)`).toBeLessThanOrEqual(MAX_RATIO);
+}
+
+// FIFTH-FINDING guard (file header has the full diagnosis): states 6/7
+// pixel-baseline a page that renders GLOBAL theme records + their
+// cross-referenced funnel/variant assignment state -- neither axis can be
+// made composition-invariant by any per-file fixture convention, so these
+// two tests are solo-only BY DESIGN. Two independent checks, run right
+// before capture, both via the same mechanism the real page itself uses
+// (the themes list API + the rendered card badge -- not a guess about what
+// "solo" means):
+//   (1) record-count: exactly the 3 seeded names (Navy/Bold Yellow/Minimal)
+//       must exist -- any other name means some other spec's fixture (or a
+//       real "+ New theme" click) left a theme record behind.
+//   (2) assignment-state: the target card's own badge must still read
+//       DRAFT -- LIVE·A/A/B·B means some other spec's fixture (most
+//       concretely leadgen-theme-manager.spec.ts's own ensureThemesFixture)
+//       has pointed a real funnel/variant at this theme_id.
+// Either condition skips LOUDLY (never silently, never a false red) with a
+// message naming the exact mechanism and the per-file command that always
+// gets the full 7/7 gate.
+async function skipIfThemesPageNotSolo(page: Page, themeId: string, themeName: string): Promise<void> {
+  const RERUN_HINT = "npm run db:reset:local && npx playwright test test-ui/leadgen-v31-gate1c-baselines.spec.ts --workers=1 --reporter=line";
+  const list = await json<{ items: Array<{ id: string; name: string }> }>(
+    await page.request.get(`${LG_API}/themes`),
+    `list themes (gate1c solo-only precheck for ${themeName})`,
+  );
+  const expectedNames = new Set(["Navy", "Bold Yellow", "Minimal"]);
+  const extras = list.items.filter((t) => !expectedNames.has(t.name)).map((t) => t.name);
+  test.skip(
+    list.items.length !== 3 || extras.length > 0,
+    `gate1c states 6/7 are SOLO-ONLY BY DESIGN (see file header, FIFTH FINDING): ` +
+      `the Themes manager renders every GLOBAL theme record, and no per-file fixture ` +
+      `can bound that. Expected exactly 3 (Navy/Bold Yellow/Minimal), found ` +
+      `${list.items.length}${extras.length ? ` (extra: ${extras.join(", ")})` : ""} -- ` +
+      `some other spec's fixture (or a real "+ New theme" click) is sharing this KV ` +
+      `state. Run per-file for the full gate: ${RERUN_HINT}`,
+  );
+
+  const card = page.locator(`a[href*="theme=${themeId}"]`).first();
+  const badgeText = await card.innerText();
+  test.skip(
+    !badgeText.includes("DRAFT"),
+    `gate1c states 6/7 are SOLO-ONLY BY DESIGN (see file header, FIFTH FINDING): ` +
+      `${themeName}'s card no longer reads DRAFT (saw: ${JSON.stringify(badgeText)}) -- some ` +
+      `other spec's fixture (most concretely leadgen-theme-manager.spec.ts's own ` +
+      `ensureThemesFixture) has assigned this theme_id to a real funnel/variant, which ` +
+      `changes the left-list badge AND the whole right-hand detail panel. Theme ` +
+      `ASSIGNMENT lives on the funnel/variant record, not the theme record, so no ` +
+      `per-file theme-fixture reset can undo it without reaching into another file's ` +
+      `fixture data. Run per-file for the full gate: ${RERUN_HINT}`,
+  );
 }
 
 // ===========================================================================
@@ -553,21 +690,31 @@ test.describe.serial("Gate 1c — 7 frozen baseline states", () => {
   test("6. Themes — Navy", async ({ page }) => {
     // CONFIRMED NEEDED (not speculative — visually inspected a real captured
     // baseline): the Themes-manager LEFT LIST shows EVERY theme record in
-    // the system, not just this fixture's — across this phase's own many
-    // debugging runs (plus any other spec/session that ever created a
-    // theme), the local D1 has accumulated dozens of records, and the list
-    // has no bound forcing it to clip/scroll internally (same class of issue
-    // as the earlier-diagnosed accumulation problem, now actually observed
-    // at scale). A SMALL, fixed viewport bounds the capture regardless of
-    // how many theme records exist — accumulated growth falls outside the
-    // frame by construction, rather than needing D1 to be pristine. The
-    // studio states (1-5) show ONE specific Section by public_id and have
-    // no equivalent "list of everything" surface, so they keep the taller,
-    // full-editor 2600px viewport set at file level.
+    // the system, not just this fixture's, and has no bound forcing it to
+    // clip/scroll internally. A SMALL, fixed viewport bounds the capture
+    // regardless of how many rows render — belt-and-suspenders even after the
+    // fix below. The studio states (1-5) show ONE specific Section by
+    // public_id and have no equivalent "list of everything" surface, so they
+    // keep the taller, full-editor 2600px viewport set at file level.
+    //
+    // CONDUCTOR FIX (root-caused, NOT D1): this list is CACHE-BACKED — it was
+    // NOT reading stale D1 rows (D1 truly was empty after the old
+    // `db:migrate:local`-only reset, confirmed by direct sqlite query). The
+    // KV/cache namespace under `.wrangler/state/v3/kv/` persisted across that
+    // reset (it only ever wiped `state/v3/d1`), so theme records from EVERY
+    // OTHER spec file's earlier run (leadgen-r5-staging-signoff.spec.ts,
+    // leadgen-section-studio.spec.ts, …) accumulated there forever and leaked
+    // into this list. `npm run db:reset:local` (wipes the WHOLE
+    // `.wrangler/state/v3` tree — d1+kv+cache+r2+workflows) is the ONLY
+    // preamble that isolates this test; see this file's own header comment.
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/admin/leadgen/themes?theme=${fx.navyThemeId}`, { waitUntil: "domcontentloaded" });
     await waitForStudioSettled(page);
     await expect(page.locator(".tm-shell")).toBeVisible();
+    // FIFTH FINDING (file header) — solo-only by design: skip loudly rather
+    // than pixel-diff a page whose global record set / assignment state some
+    // OTHER spec's fixture may have changed.
+    await skipIfThemesPageNotSolo(page, fx.navyThemeId, "Navy");
     await captureBaseline(page, "06-themes-navy");
   });
 
@@ -576,6 +723,8 @@ test.describe.serial("Gate 1c — 7 frozen baseline states", () => {
     await page.goto(`/admin/leadgen/themes?theme=${fx.boldThemeId}`, { waitUntil: "domcontentloaded" });
     await waitForStudioSettled(page);
     await expect(page.locator(".tm-shell")).toBeVisible();
+    // FIFTH FINDING (file header) — same solo-only guard as state 6.
+    await skipIfThemesPageNotSolo(page, fx.boldThemeId, "Bold Yellow");
     await captureBaseline(page, "07-themes-bold-yellow");
   });
 });

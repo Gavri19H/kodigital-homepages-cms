@@ -27,8 +27,8 @@
 //     it to a warning and the SAME activation succeeds. Real UI driving;
 //     API read-backs at every step.
 //
-// Local D1 must be migrated + seeded once:
-// `rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local`.
+// Local state must be reset once:
+// `npm run db:reset:local`.
 // Screenshots (desktop 1280) land in test-artifacts/leadgen-b-*.png.
 
 import { test, expect, request as playwrightRequest, type Page, type FrameLocator } from "@playwright/test";

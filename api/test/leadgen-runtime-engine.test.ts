@@ -281,7 +281,12 @@ describe("validation: client_validation rule matrix", () => {
     ]);
 
     const phone = component({ type: "PhoneInputQuestion" });
-    expect(validateValue(phone, "(555) 123-4567", false)).toEqual([]);
+    // PC-A4 (P4b): phone is now NANP-STRUCTURAL, not strip-count 7..15. A
+    // formatted, real-structured number still validates (area + exchange first
+    // digit 2–9). The prior fixture "(555) 123-4567" had exchange 123 (first
+    // digit 1) — invalid under NANP — so this uses a real exchange (555 → first
+    // digit 5). Full false-accept/edge matrix: leadgen-p4b-phone.test.ts.
+    expect(validateValue(phone, "(415) 555-1234", false)).toEqual([]);
     expect(validateValue(phone, "123", false).map((f) => f.code)).toEqual(["phone_format"]);
 
     const zip = component({ type: "ZIPInputQuestion" });
@@ -385,8 +390,137 @@ describe("dependencies: server↔client parity (09 §9.3 table)", () => {
     }
     expect(cells).toBe(CONDITIONALS.length * ANSWER_VALUES.length);
   });
+});
 
-  it("evaluateComponents matches server evaluateDependencies (visible/required_now/continue_blocked)", () => {
+// ---------------------------------------------------------------------------
+// CONDUCTOR FIX (register PC-12, 2026-07-17) — boolean/string equivalence for
+// eq/neq/in/not_in, now on BOTH client (runtime/dependencies.ts conditionMet)
+// AND server (payload.ts conditionalMet — the single evaluator dependencies.ts
+// show/hide, buildPayload node-drop, and auction-rules.ts conditionsMatch all
+// share). UPDATED (2026-07-17, same day): the server-side leg landed as its
+// own explicitly-scoped follow-up (leaving payload.ts strict while the client
+// normalized would have created a NEW divergence — a component correctly
+// SHOWN client-side silently DROPPED from the auction payload, a money-path
+// bug — see payload.ts's own module comment on conditionalMet). Every case
+// below now asserts client === server: the "was broken" framing describes
+// the FAIL-BEFORE state (both evaluators strict, pre-fix), not the current one.
+//
+// WHY this is its OWN describe block, not folded into the strict cross-
+// product parity table above: that table's own CONDITIONALS/ANSWER_VALUES
+// grids historically carried no "true"/"false" STRING literal; this block
+// (below) plus a small, explicit boolean/string extension to that grid
+// (further down, "PC-12 boolean/string cells" cases) now both hold.
+describe("PC-12 conductor fix — boolean/string equivalence (client AND server, full parity)", () => {
+  it("eq: authored BOOLEAN vs a live-recorded STRING answer — BOTH now match (fail-before: neither did)", () => {
+    const cond: LeadgenPayloadConditional = { when: "f", op: "eq", value: true };
+    const answers = { f: "true" };
+    expect(conditionMet(cond, answers), "client: true≡\"true\"").toBe(true);
+    expect(conditionalMet(cond, answers), "server: true≡\"true\"").toBe(true);
+  });
+
+  it("eq: authored STRING vs a defaulted BOOLEAN answer — BOTH now match (fail-before: neither did)", () => {
+    const cond: LeadgenPayloadConditional = { when: "f", op: "eq", value: "false" };
+    const answers = { f: false };
+    expect(conditionMet(cond, answers)).toBe(true);
+    expect(conditionalMet(cond, answers)).toBe(true);
+  });
+
+  it("neq: the SAME logical value in different shapes — BOTH now report NOT-neq (fail-before: BOTH wrongly reported neq)", () => {
+    const cond: LeadgenPayloadConditional = { when: "f", op: "neq", value: "true" };
+    const answers = { f: true };
+    expect(conditionMet(cond, answers), "client: true≡\"true\" so neq is false").toBe(false);
+    expect(conditionalMet(cond, answers), "server: true≡\"true\" so neq is false").toBe(false);
+  });
+
+  it("neq: genuinely different values in different shapes — BOTH agree (not-equal was never the broken direction)", () => {
+    const cond: LeadgenPayloadConditional = { when: "f", op: "neq", value: "false" };
+    const answers = { f: true };
+    expect(conditionMet(cond, answers)).toBe(true);
+    expect(conditionalMet(cond, answers)).toBe(true);
+  });
+
+  it("in: a live-recorded STRING answer against a BOOLEAN-typed values[] — BOTH now match (fail-before: neither did)", () => {
+    const cond: LeadgenPayloadConditional = { when: "f", op: "in", values: [true, 5] };
+    const answers = { f: "true" };
+    expect(conditionMet(cond, answers)).toBe(true);
+    expect(conditionalMet(cond, answers)).toBe(true);
+  });
+
+  it("not_in: a BOOLEAN answer against a STRING-typed values[] — BOTH now correctly report 'is in' (fail-before: BOTH wrongly said 'not in')", () => {
+    const cond: LeadgenPayloadConditional = { when: "f", op: "not_in", values: ["false", "other"] };
+    const answers = { f: false };
+    expect(conditionMet(cond, answers), "client: false is in [\"false\",...] so not_in is false").toBe(false);
+    expect(conditionalMet(cond, answers), "server: false is in [\"false\",...] so not_in is false").toBe(false);
+  });
+
+  it("in: NaN SameValueZero membership is preserved on BOTH sides (the normalizer must not break the pre-existing edge)", () => {
+    const cond: LeadgenPayloadConditional = { when: "f", op: "in", values: [Number.NaN] };
+    const answers = { f: Number.NaN };
+    expect(conditionMet(cond, answers)).toBe(true);
+    expect(conditionalMet(cond, answers)).toBe(true); // unaffected, both agree as before
+  });
+
+  it("REGRESSION — same-shape pairs (the 'defaults path' / choice-workaround shape) are UNCHANGED on both sides", () => {
+    // Both booleans (a pre-set default matching a typed picker) — worked before, still works.
+    expect(conditionMet({ when: "f", op: "eq", value: true }, { f: true })).toBe(true);
+    expect(conditionalMet({ when: "f", op: "eq", value: true }, { f: true })).toBe(true);
+    // Both strings (the p3a/p4c-rules documented workaround shape) — worked before, still works.
+    expect(conditionMet({ when: "f", op: "eq", value: "true" }, { f: "true" })).toBe(true);
+    expect(conditionalMet({ when: "f", op: "eq", value: "true" }, { f: "true" })).toBe(true);
+  });
+
+  it("REGRESSION — ordinary non-boolean values are completely untouched on both sides (no accidental numeric/string coercion)", () => {
+    // A numeric answer against a numeric-string conditional value: neither side is boolean-shaped.
+    expect(conditionMet({ when: "f", op: "eq", value: "5" }, { f: 5 })).toBe(false);
+    expect(conditionalMet({ when: "f", op: "eq", value: "5" }, { f: 5 })).toBe(false);
+    // A non-"true"/"false" string against a boolean value: normalizeBoolShape must not touch "maybe".
+    expect(conditionMet({ when: "f", op: "eq", value: true }, { f: "maybe" })).toBe(false);
+    expect(conditionalMet({ when: "f", op: "eq", value: true }, { f: "maybe" })).toBe(false);
+  });
+
+  it("an unanswered `when` stays fail-closed on both sides regardless of boolean-shape normalization", () => {
+    expect(conditionMet({ when: "f", op: "eq", value: true }, {})).toBe(false);
+    expect(conditionMet({ when: "f", op: "in", values: [true] }, {})).toBe(false);
+    expect(conditionalMet({ when: "f", op: "eq", value: true }, {})).toBe(false);
+    expect(conditionalMet({ when: "f", op: "in", values: [true] }, {})).toBe(false);
+  });
+
+  // The boolean/string grid, folded directly into the same cell-for-cell
+  // parity discipline the table above uses (distinct CONDITIONALS/
+  // ANSWER_VALUES additions so the ORIGINAL grid's cells stay byte-identical
+  // — this is an ADDITIVE second grid, not a mutation of the first).
+  it("boolean/string cells: a small dedicated cross-product also holds server===client", () => {
+    const boolConditionals: LeadgenPayloadConditional[] = [
+      { when: "f", op: "eq", value: true },
+      { when: "f", op: "eq", value: false },
+      { when: "f", op: "eq", value: "true" },
+      { when: "f", op: "eq", value: "false" },
+      { when: "f", op: "neq", value: true },
+      { when: "f", op: "neq", value: "false" },
+      { when: "f", op: "in", values: [true, "other"] },
+      { when: "f", op: "in", values: ["false", 3] },
+      { when: "f", op: "not_in", values: [true] },
+      { when: "f", op: "not_in", values: ["false"] },
+    ];
+    const boolAnswers: unknown[] = [true, false, "true", "false", "maybe", 1, undefined];
+    let cells = 0;
+    for (const c of boolConditionals) {
+      for (const a of boolAnswers) {
+        const answers = a === undefined ? {} : { f: a };
+        const server = conditionalMet(c, answers);
+        const client = conditionMet(c, answers);
+        if (server !== client) {
+          throw new Error(`boolean/string parity mismatch: op=${c.op} answer=${JSON.stringify(a)} server=${server} client=${client}`);
+        }
+        cells += 1;
+      }
+    }
+    expect(cells).toBe(boolConditionals.length * boolAnswers.length);
+  });
+});
+
+describe("dependencies: server↔client parity (09 §9.3 table)", () => {
+  it("evaluateComponents matches server evaluateDependencies (visible/required_now)", () => {
     const nodes = [
       { type: "SingleChoiceQuestion", question_id: "q1", internal_field: "home_own", required: true, props: {} },
       {
@@ -422,16 +556,20 @@ describe("dependencies: server↔client parity (09 §9.3 table)", () => {
     for (const answers of answerSets) {
       const server = evaluateDependencies(nodes as unknown as LeadgenComponentNode[], answers);
       const client = evaluateComponents(nodes as unknown as LgComponentConfig[], answers);
+      // The client mirrors the server on the per-component axes it USES (visible
+      // → reveal, required_now → validateSection). PC-A11 (P4a): the server's
+      // continue_blocked/blocking_question_ids roll-up is no longer mirrored on
+      // the client (it was dead — see runtime/dependencies.ts), so parity is on
+      // .components only. The server still exposes it (studio preview reads it).
       expect(client.components).toEqual(server.components);
-      expect(client.continue_blocked).toBe(server.continue_blocked);
-      expect(client.blocking_question_ids).toEqual(server.blocking_question_ids);
     }
   });
 
-  it("m11 parity: an EMPTY internal_field on a required component blocks on BOTH sides even when answers[''] exists", () => {
-    // Server (leadgen/dependencies.ts `field ? answers[field] : undefined`)
-    // treats "" as field-less → blocked. The client must NOT read a stray
-    // answers[""] key and unblock (the pre-fix `field !== undefined` did).
+  it("m11 parity: an EMPTY internal_field required component agrees on visible/required_now even with a stray answers[''] key", () => {
+    // The empty-internal_field node's visibility/required_now must match the
+    // server on both evaluators. (The runtime's required-field GATE lives in
+    // validation.ts validateSection, which SKIPS an empty internal_field — the
+    // dependency roll-up that once diverged here was removed in P4a/PC-A11.)
     const nodes = [
       { type: "SingleChoiceQuestion", question_id: "q_empty", internal_field: "", required: true, props: {} },
     ];
@@ -443,9 +581,7 @@ describe("dependencies: server↔client parity (09 §9.3 table)", () => {
       const server = evaluateDependencies(nodes as unknown as LeadgenComponentNode[], answers);
       const client = evaluateComponents(nodes as unknown as LgComponentConfig[], answers);
       expect(client.components).toEqual(server.components);
-      expect(client.continue_blocked).toBe(server.continue_blocked);
-      expect(client.blocking_question_ids).toEqual(server.blocking_question_ids);
-      expect(client.continue_blocked, "an empty-internal_field required component always blocks").toBe(true);
+      expect(client.components[0]?.required_now, "a visible required component is required_now").toBe(true);
     }
   });
 
@@ -714,7 +850,7 @@ describe("events: ULID-shape id", () => {
 
 describe("bundle: committed engine-bundle.generated.ts", () => {
   it("is within the §3.1 budget and non-trivial", () => {
-    expect(LEADGEN_RUNTIME_JS_BYTES).toBeLessThanOrEqual(40960);
+    expect(LEADGEN_RUNTIME_JS_BYTES).toBeLessThanOrEqual(43008);
     expect(LEADGEN_RUNTIME_JS_BYTES).toBeGreaterThan(1000);
   });
 

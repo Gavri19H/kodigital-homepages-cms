@@ -6,26 +6,72 @@
 // (api/src/leadgen/dependencies.ts, whose op truth is payload.ts
 // `conditionalMet`): eq/neq/gt/lt/gte/lte/range/in/not_in. Parity is enforced
 // cell-for-cell by a generated table test (09 §9.3 / 03 §3.10) that runs BOTH
-// evaluators over the same case matrix — any drift here fails vitest.
+// evaluators over the same case matrix, PLUS a dedicated boolean/string
+// cross-product (test/leadgen-runtime-engine.test.ts "PC-12 conductor fix" —
+// see below) — full parity holds, no known drift.
 //
 // Mirrored semantics (each line corresponds 1:1 to payload.ts:645–682 /
 // dependencies.ts:63–134 — keep them byte-equivalent in behavior):
 //   * an ABSENT (undefined) `when` answer NEVER satisfies a conditional
 //     (fail-closed — a component with an unmet conditional stays HIDDEN);
 //     note null is NOT undefined and falls through to the op;
-//   * eq/neq compare STRICTLY (===/!==) with no coercion;
+//   * eq/neq/in/not_in compare STRICTLY (===/!==/Array.includes), EXCEPT the
+//     boolean/string-shape normalization documented below (mirrored on BOTH
+//     sides, client and server — see the CONDUCTOR FIX note);
 //   * gt/lt/gte/lte coerce the actual via Number() unless already a number;
 //     the bound must be `typeof number` (else NaN); either non-finite → false;
 //   * range: actual coerced via Number(); from/to must both be
 //     `typeof number`; inclusive [from, to];
-//   * in/not_in: Array.includes (strict); a missing/non-array `values` yields
-//     false for BOTH (not_in does NOT default true);
+//   * in/not_in: Array.includes (SameValueZero) — a missing/non-array
+//     `values` yields false for BOTH (not_in does NOT default true);
 //   * a component with NO conditional is always visible;
 //   * required_now = visible && (required===true || props.requiredWhen met);
 //   * "answered" = not undefined/null, non-blank string, non-empty
 //     array/object; numbers (incl. 0) and booleans (incl. false) count.
 
 import type { LgComponentConfig, LgConditional, LgSectionConfig } from "./state";
+
+// CONDUCTOR FIX (register PC-12, 2026-07-17): a LIVE TwoButtonYesNo click
+// records the raw string "true"/"false" (engine.ts handleChoiceActivation has
+// no `choices` array to type-resolve it against — see its own investigation
+// comment), while the studio's typed pickers (buildConditional/typedScalar)
+// AND a defaulted answer's props.defaultValue author/apply a REAL boolean for
+// a boolean-typed `when` field. Both value shapes therefore coexist in live
+// answers, so a picker-authored Show-if/Require-if/Continue-visibility rule
+// against a boolean-typed trigger (chiefly TwoButtonYesNo) NEVER fired on a
+// live click — only a pre-set default (already boolean) ever matched.
+//
+// RULING (fix the evaluator, not the recording — no auction-payload value
+// type changes): normalizeBoolShape below makes eq/neq/in/not_in treat
+// `true`≡`"true"` / `false`≡`"false"` — applied to BOTH sides of the compare,
+// so ordinary strings/numbers are completely unaffected (a "true"/"false"
+// LITERAL string is the only input this changes). gt/lt/gte/lte/range are
+// UNCHANGED (they already coerce via Number(), where Number(true)===1 must
+// stay exact — folding the string-normalizer in there would corrupt that).
+//
+// FULL PARITY (same-day follow-up, explicitly scoped + authorized): the FIRST
+// round of this fix landed CLIENT-ONLY, deliberately leaving the server twin
+// (src/leadgen/dependencies.ts — a pure delegator with no logic of its own —
+// to payload.ts's `conditionalMet`) untouched, since that function is ALSO
+// used by payload.ts to drop auction-payload nodes on an unmet conditional
+// AND by auction-rules.ts's `conditionsMatch` for funnel/carrier eligibility —
+// a materially larger blast radius than this dependency evaluator, requiring
+// explicit sign-off. That sign-off was given: leaving the shared evaluator
+// strict while THIS file normalized would have created a NEW divergence class
+// (a component correctly SHOWN client-side silently DROPPED from the auction
+// payload — a money-path bug, since payload.ts's own header documents
+// "payload-build and show/hide/require can never diverge on the same op").
+// payload.ts's `conditionalMet` now carries the IDENTICAL normalizeBoolShape
+// treatment, so client and server are back in full, provable parity (see the
+// dedicated boolean/string cross-product test) — the SCOPE note that used to
+// live here (declining to touch payload.ts) is stale; it was resolved, not
+// abandoned. See the phase report for the money-path behavior note this
+// server-side change carries (operator staging-review flag).
+function normalizeBoolShape(value: unknown): unknown {
+  if (value === true) return "true";
+  if (value === false) return "false";
+  return value;
+}
 
 // Server-parity op evaluator — see the mirrored-semantics table above.
 export function conditionMet(
@@ -36,9 +82,9 @@ export function conditionMet(
   if (actual === undefined) return false;
   switch (conditional.op) {
     case "eq":
-      return actual === conditional.value;
+      return normalizeBoolShape(actual) === normalizeBoolShape(conditional.value);
     case "neq":
-      return actual !== conditional.value;
+      return normalizeBoolShape(actual) !== normalizeBoolShape(conditional.value);
     case "gt":
     case "lt":
     case "gte":
@@ -59,12 +105,18 @@ export function conditionMet(
       if (typeof from !== "number" || typeof to !== "number") return false;
       return n >= from && n <= to;
     }
-    case "in":
-      // Array.includes (SameValueZero) — NOT indexOf: matches the server's
-      // `values.includes(actual)` exactly (NaN-membership parity).
-      return Array.isArray(conditional.values) && conditional.values.includes(actual);
-    case "not_in":
-      return Array.isArray(conditional.values) && !conditional.values.includes(actual);
+    case "in": {
+      // Array.includes (SameValueZero, e.g. NaN-membership) over the
+      // bool-normalized values — NOT .some(===), which would break the NaN
+      // edge: matches the server's `values.includes(actual)` for every
+      // non-boolean-shaped element, plus the new true/"true" equivalence.
+      const actualNorm = normalizeBoolShape(actual);
+      return Array.isArray(conditional.values) && conditional.values.map(normalizeBoolShape).includes(actualNorm);
+    }
+    case "not_in": {
+      const actualNorm = normalizeBoolShape(actual);
+      return Array.isArray(conditional.values) && !conditional.values.map(normalizeBoolShape).includes(actualNorm);
+    }
   }
   // Unknown op (config from a newer server): fail-closed like an unmet
   // conditional. (The server switch is exhaustive over the typed union; the
@@ -112,38 +164,29 @@ export interface LgComponentVisibility {
 
 export interface LgDependencyState {
   components: LgComponentVisibility[];
-  continue_blocked: boolean;
-  blocking_question_ids: string[];
 }
 
-// Structural mirror of the server's evaluateDependencies (same output shape,
-// same rules) over the PUBLIC component config the client holds.
+// Structural mirror of the server's evaluateDependencies over the PUBLIC
+// component config the client holds — the client uses ONLY the per-component
+// { visible, required_now } axes: `visible` drives render.applyComponentVisibility
+// (§3.5.3 reveal) and `required_now` feeds validation.ts validateSection (the
+// engine's real required-field gate via sectionPasses). PC-A11 (P4a): the
+// server's `continue_blocked`/`blocking_question_ids` roll-up is DELIBERATELY
+// NOT mirrored here — nothing in the runtime ever read it (the engine gates
+// through validateSection, which skips non-visible + empty-internal_field
+// components and enforces required via validateValue), so computing it was
+// dead. The SERVER twin keeps it (the studio's dependency-preview consumes it).
 export function evaluateComponents(
   components: readonly LgComponentConfig[],
   answers: Readonly<Record<string, unknown>>,
 ): LgDependencyState {
   const visibility: LgComponentVisibility[] = [];
-  const blocking: string[] = [];
-
   for (const component of components) {
     const visible = isConditionMetOn(component.conditional, answers);
     const required = visible && requiredNow(component, answers);
     visibility.push({ question_id: component.question_id, visible, required_now: required });
-    if (required) {
-      const field = component.internal_field;
-      // m11 parity: an EMPTY internal_field reads NO answer — the server twin
-      // (leadgen/dependencies.ts `field ? answers[field] : undefined`) treats
-      // "" as field-less, so a stray answers[""] key must not unblock here.
-      const answer = field !== undefined && field !== "" ? answers[field] : undefined;
-      if (!isAnswered(answer)) blocking.push(component.question_id);
-    }
   }
-
-  return {
-    components: visibility,
-    continue_blocked: blocking.length > 0,
-    blocking_question_ids: blocking,
-  };
+  return { components: visibility };
 }
 
 // The internal_fields whose owning component is currently dependency-HIDDEN —

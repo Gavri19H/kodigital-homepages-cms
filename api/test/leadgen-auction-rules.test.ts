@@ -32,6 +32,33 @@ describe("conditionsMatch — every §21.4 op", () => {
     expect(conditionsMatch(cond([{ field: "homeowner", op: "neq", value: true }]), { homeowner: false })).toBe(true);
   });
 
+  // CONDUCTOR FIX (register PC-12, 2026-07-17): conditionsMatch delegates to
+  // payload.ts conditionalMet — the SAME shared evaluator dependencies.ts and
+  // buildPayload use — so this rule (offer/carrier §21 eligibility) inherits
+  // the identical boolean/string equality-shape normalization. FAIL-BEFORE: a
+  // rule authored with a boolean against a yes/no answer field never matched
+  // a live TwoButtonYesNo-recorded string answer (or vice versa), so
+  // carrier/offer eligibility silently diverged from the visible funnel
+  // state. Now matches as authored, both directions; non-boolean matching
+  // (the tests above/below) is untouched.
+  it("eq / neq — a rule authored BOOLEAN now matches a live-recorded STRING answer, and vice versa", () => {
+    expect(conditionsMatch(cond([{ field: "homeowner", op: "eq", value: true }]), { homeowner: "true" })).toBe(true);
+    expect(conditionsMatch(cond([{ field: "homeowner", op: "eq", value: "false" }]), { homeowner: false })).toBe(true);
+    // neq: the same logical value in different shapes must NOT satisfy neq.
+    expect(conditionsMatch(cond([{ field: "homeowner", op: "neq", value: "true" }]), { homeowner: true })).toBe(false);
+  });
+
+  it("in / not_in — boolean-shaped values[] entries cross-match a string answer", () => {
+    expect(conditionsMatch(cond([{ field: "homeowner", op: "in", values: [true, "other"] }]), { homeowner: "true" })).toBe(true);
+    expect(conditionsMatch(cond([{ field: "homeowner", op: "not_in", values: ["false"] }]), { homeowner: false })).toBe(false);
+  });
+
+  it("REGRESSION — several pre-existing non-boolean cases stay byte-identical", () => {
+    expect(conditionsMatch(cond([{ field: "state", op: "eq", value: "CA" }]), { state: "CA" })).toBe(true);
+    expect(conditionsMatch(cond([{ field: "age", op: "eq", value: 30 }]), { age: "30" })).toBe(false);
+    expect(conditionsMatch(cond([{ field: "state", op: "in", values: ["CA", "NY"] }]), { state: "TX" })).toBe(false);
+  });
+
   it("gt / lt / gte / lte", () => {
     expect(conditionsMatch(cond([{ field: "age", op: "gt", value: 25 }]), { age: 26 })).toBe(true);
     expect(conditionsMatch(cond([{ field: "age", op: "gt", value: 25 }]), { age: 25 })).toBe(false);

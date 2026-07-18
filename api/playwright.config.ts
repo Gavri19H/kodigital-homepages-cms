@@ -80,6 +80,28 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // SAME cross-engine shape as p2a (studio-canvas describe is getBoundingClientRect
   // + computed styles; the live-/lg describe self-skips on firefox).
   'leadgen-p3a-placement.gesture.spec.ts',
+  // P4b (register PC-5/PC-A5 conductor closure): the DateQuestion studio Min
+  // token-picker leg — SAME cross-engine shape as p2a/p3a. Its 5 original
+  // live-/lg validation legs (phone/email/step/date/required-groups) all
+  // test.skip() on firefox (each drives a dynamic {uniq}.e2e.test host); the
+  // NEW "studio Min token dropdown persists" test carries NO e2e.test
+  // dependency (a plain /admin/leadgen/sections/{id}/edit page) and is NOT
+  // skipped — it is the both-engine studio-only leg the other tests' skip
+  // messages point to.
+  'leadgen-p4b-validation.spec.ts',
+  // P4c (register PC-12): rules UX naming + conditional-Continue authoring —
+  // SAME cross-engine shape as p4b. Legs 1/2 (Show-if picker naming; Continue-
+  // visibility authored on the real panel) carry NO e2e.test dependency and
+  // run on BOTH engines; leg 3 (the live funnel hide/show/advance proof)
+  // test.skip()s on firefox for the same dynamic-host reason p4b's legs do.
+  'leadgen-p4c-rules.gesture.spec.ts',
+  // P4d (register PC-8/PC-A7/PC-A8/PC-A10): editor integrity + Contact
+  // per-field controls + drift honesty. Every leg drives the Section Studio
+  // ONLY (no e2e.test dynamic tenant host — the NameFieldsGroup/dropdown/
+  // range helper legs read the studio's OWN canvas preview, the SAME
+  // presets.ts server renderer a live funnel uses) — SAME cross-engine shape
+  // as p2a/p3a/p4b/p4c.
+  'leadgen-p4d-editor.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',

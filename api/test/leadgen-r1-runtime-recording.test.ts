@@ -397,3 +397,100 @@ describe("R1 E1-NEW-4 — a TwoButtonYesNo default paints its button selected on
     expect(dom.ynNo.classSet.has(render.SELECTED_CLASS)).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// P4c (register PC-12) — section-level continue_visible_when: the engine
+// hides/shows [data-lg-continue] through the REAL LgEngine (enterSection +
+// afterAnswerMutation), driven over the same fake-DOM harness. Own small
+// fixture (not the shared COMPONENTS/engineConfig/buildDom above, which
+// carry no ContinueButton) — a TwoButtonYesNo(insured) + a ContinueButton,
+// gated on insured===true. `continue_visible_when` is NOT part of the
+// declared LgSectionConfig/LgPublicConfig shape (state.ts is a hand-
+// maintained local mirror per its own module header) — plain object
+// literals here carry the extra key structurally; the engine reads it back
+// via its own narrow cast (engine.ts applyContinueVisibility).
+//
+// VALUE SHAPE (investigation note, register PC-12): the conditional's value
+// is the STRING "true", not the boolean `true` — a LIVE click on a
+// TwoButtonYesNo button records `data-lg-choice`'s raw string (handler-
+// activation.ts has no `choices` array to type-resolve against for this
+// component; see the engine.ts handleChoiceActivation comment this phase
+// added, and leadgen-p3a-placement.gesture.spec.ts's identical prior-phase
+// finding). This test proves the ENGINE MECHANISM (conditionMet +
+// setContinueVisible wiring) against the value shape a live click actually
+// produces — the SEPARATE, pre-existing studio-authoring-vs-live-value
+// mismatch (the typed picker stores a real boolean) is a cross-cutting
+// concern flagged in the phase report, not fixed here.
+// ---------------------------------------------------------------------------
+
+describe("P4c — conditional Continue: continue_visible_when hides/shows [data-lg-continue]", () => {
+  function pc12Config(withRule: boolean) {
+    const section = {
+      section_public_id: "lgs_pc12",
+      section_index: 0,
+      headline: "H",
+      continue_mode: "button",
+      address_validation_enabled: false,
+      section_mapping_version: 0,
+      answer_mapping_version: "0",
+      components: [
+        { type: "TwoButtonYesNo", question_id: "q_yn", question_key: "k_yn", internal_field: "insured", answer_type: "boolean", props: {} },
+        { type: "ContinueButton", question_id: "q_cont", props: {} },
+      ] as LgComponentConfig[],
+      ...(withRule ? { continue_visible_when: { when: "insured", op: "eq", value: "true" } } : {}),
+    };
+    return {
+      quote_id: "lgq_1", funnel_id: "lgf_1", funnel_variant_id: "lgn_1", funnel_name: "F",
+      content_version: 1, funnel_design_id: "default", design_tokens: {},
+      section_order_hash: "hash_pc12", ga4_measurement_id: null,
+      funnel_ab_test_id: "", funnel_ab_test_revision: 0, variant_label: "",
+      traffic_allocation_bp: 10000, assignment_reason: "single_control",
+      sections: [section],
+    };
+  }
+
+  function pc12Dom(doc: FakeDocument): { root: FakeElement; ynYes: FakeElement; ynNo: FakeElement; continueBtn: FakeElement } {
+    const mk = (el: FakeElement): FakeElement => { el.ownerDocument = doc; return el; };
+    const root = mk(new FakeElement("div", { id: "lg-funnel-root" })) as FakeElement;
+    const mount = mk(new FakeElement("main", { "data-lg-mount": "" }));
+    const section = mk(new FakeElement("section", { "data-lg-section": "", "data-lg-section-id": "lgs_pc12", "data-lg-index": "0" }));
+    const ynGroup = mk(new FakeElement("div", { "data-lg-question": "q_yn", "data-lg-field": "insured" }));
+    const ynYes = mk(new FakeElement("button", { "data-lg-choice": "true" }));
+    const ynNo = mk(new FakeElement("button", { "data-lg-choice": "false" }));
+    ynGroup.appendChild(ynYes);
+    ynGroup.appendChild(ynNo);
+    const continueBtn = mk(new FakeElement("button", { "data-lg-continue": "" }));
+    section.appendChild(ynGroup);
+    section.appendChild(continueBtn);
+    mount.appendChild(section);
+    root.appendChild(mount);
+    return { root, ynYes, ynNo, continueBtn };
+  }
+
+  async function bootPc12(withRule: boolean): Promise<{ dom: ReturnType<typeof pc12Dom> }> {
+    const doc = fakeDocument();
+    const win: Record<string, unknown> = { sessionStorage: fakeSessionStorage(), parent: { postMessage: () => undefined } };
+    const dom = pc12Dom(doc);
+    stubBrowserGlobals(win, doc);
+    vi.stubGlobal("fetch", async (): Promise<Response> => new Response(null, { status: 204 }));
+    const engine = new LgEngine(dom.root as unknown as HTMLElement, pc12Config(withRule) as unknown as LgPublicConfig, true);
+    await engine.init();
+    return { dom };
+  }
+
+  it("unanswered on entry → hidden (fail-closed, mirrors conditionMet's own absent-answer rule); answering 'Yes' shows it; 'No' hides it again", async () => {
+    const { dom } = await bootPc12(true);
+    expect(dom.continueBtn.hidden).toBe(true);
+    dom.root.dispatch("click", dom.ynYes);
+    expect(dom.continueBtn.hidden).toBe(false);
+    dom.root.dispatch("click", dom.ynNo);
+    expect(dom.continueBtn.hidden).toBe(true);
+    dom.root.dispatch("click", dom.ynYes);
+    expect(dom.continueBtn.hidden).toBe(false);
+  });
+
+  it("a section with NO continue_visible_when stays visible on entry despite the SAME field being unanswered (byte-identical pre-P4c behavior — absent ⇒ no-op)", async () => {
+    const { dom } = await bootPc12(false);
+    expect(dom.continueBtn.hidden).toBe(false);
+  });
+});

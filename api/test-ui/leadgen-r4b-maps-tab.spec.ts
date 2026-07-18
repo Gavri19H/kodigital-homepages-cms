@@ -17,8 +17,7 @@
 // self-contained here since this phase's slice owns only NEW test files.
 //
 // D1 preamble (api/): pkill -f "wrangler dev"; pkill -f workerd;
-// pkill -f cms-panel; sleep 2; rm -rf .wrangler/state/v3/d1 &&
-// npm run db:migrate:local && npm run seed:local
+// pkill -f cms-panel; sleep 2; npm run db:reset:local
 //
 // Screenshots (1280×800) land in test-artifacts/leadgen-r4b-maps-tab/.
 

@@ -45,7 +45,7 @@ import {
 // appear in /lg/config (the client engine keeps consuming a flat list; the
 // server-rendered shell HTML carries the nested DOM and the engine toggles
 // [data-question-id] leaves wherever they sit).
-import { flattenComponents } from "./components/content-schema";
+import { flattenComponents, resolveDateBound } from "./components/content-schema";
 import type {
   LeadgenComponentNode,
   LeadgenComponentConditional,
@@ -102,6 +102,11 @@ export interface PublicSectionConfig {
   // mapping generation ("0" = nothing mapped yet). "" ONLY when the caller
   // supplied no versions (the admin quote-preview path) — never a faked value.
   answer_mapping_version: string;
+  // P4c (register PC-12): the section-level Continue-visibility rule —
+  // present only when content_json authors one. The runtime engine
+  // (conditionMet) hides/shows [data-lg-continue] when this is set; absent
+  // ⇒ byte-identical pre-P4c behavior (Continue always shown).
+  continue_visible_when?: LeadgenComponentConditional;
   components: PublicSectionComponent[];
 }
 
@@ -162,6 +167,32 @@ export function parseSectionComponents(contentJson: string): LeadgenComponentNod
   return Array.isArray(components) ? (components as LeadgenComponentNode[]) : [];
 }
 
+// P4c (register PC-12): parse a section's `content_json` string for its
+// OPTIONAL section-level continue_visible_when. Dedicated try/catch (D1
+// JSON-parse safety rule) — a corrupt blob yields undefined (never throws),
+// same defensive shape as parseSectionComponents. A malformed (non-object)
+// value is dropped rather than passed through, since the runtime's
+// conditionMet expects a real {when, op, ...} shape — content-schema.ts is
+// the authoritative save-time gate; this is a defensive read, not a second
+// validator.
+export function parseSectionContinueVisibleWhen(
+  contentJson: string,
+): LeadgenComponentConditional | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contentJson);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null) return undefined;
+  const cvw = (parsed as { continue_visible_when?: unknown }).continue_visible_when;
+  if (typeof cvw !== "object" || cvw === null || Array.isArray(cvw)) return undefined;
+  const when = (cvw as { when?: unknown }).when;
+  const op = (cvw as { op?: unknown }).op;
+  if (typeof when !== "string" || when === "" || typeof op !== "string") return undefined;
+  return cvw as LeadgenComponentConditional;
+}
+
 // v2.5 09 §9.5 / 03 §3.4: parse a section row's `design_overrides_json` into
 // the LeadgenSectionRenderCtx.design_overrides shape. Dedicated try/catch → a
 // corrupt/non-object blob yields null (never throws; D1 JSON-parse rule), and
@@ -216,7 +247,10 @@ const PATTERN_PRESET_REGEX: Readonly<Record<string, string>> = {
   digits: "^[0-9]+$",
 };
 
-function buildClientValidation(node: LeadgenComponentNode): Record<string, unknown> | undefined {
+function buildClientValidation(
+  node: LeadgenComponentNode,
+  todayIso: string,
+): Record<string, unknown> | undefined {
   const cv: Record<string, unknown> = {};
   if (node.required === true) cv["required"] = true;
   if (Array.isArray(node.valid_values) && node.valid_values.length > 0) {
@@ -226,6 +260,22 @@ function buildClientValidation(node: LeadgenComponentNode): Record<string, unkno
   for (const key of ["min", "max", "step", "minLength", "maxLength", "pattern"] as const) {
     const v = props[key];
     if (v !== undefined && v !== null) cv[key] = v;
+  }
+  // PC-5/PC-A5 (P4b): a DateQuestion's min/max are date BOUNDS (ISO or dynamic
+  // token). Resolve them to concrete ISO HERE, at config build, relative to
+  // `todayIso` — so the runtime's validateValue date branch is a pure lexical
+  // ISO compare with NO token grammar in the bundle, and the native <input
+  // type=date> min/max (presets, literal-ISO case) agree with the client gate.
+  // An unresolvable bound is dropped (content-schema's isDateBound already
+  // rejected garbage at authoring time).
+  if (node.type === "DateQuestion") {
+    for (const key of ["min", "max"] as const) {
+      const raw = props[key];
+      if (raw === undefined || raw === null) continue;
+      const resolved = resolveDateBound(raw, todayIso);
+      if (resolved !== null) cv[key] = resolved;
+      else delete cv[key];
+    }
   }
   // E1-C2: a letters/digits pattern_preset with no authored regex becomes the
   // grounded preset regex (a custom preset already supplied props.pattern above
@@ -255,6 +305,15 @@ function buildClientValidation(node: LeadgenComponentNode): Record<string, unkno
 // runtime-hydrated events document builds its #lg-config section through THIS
 // projection — one component-config producer, preview and live can never
 // disagree on the client component shape.
+// ISO date (YYYY-MM-DD) date tokens resolve against. Computed at projection
+// time = the request-time day for the live/preview config build. Kept internal
+// (NOT a toPublicComponent param) so every existing bare `.map(toPublicComponent)`
+// call site stays valid — only DateQuestion token bounds read it; literal ISO
+// bounds and all non-date fields are fully deterministic.
+function isoToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComponent {
   const component: PublicSectionComponent = {
     type: node.type,
@@ -276,7 +335,7 @@ export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComp
   const choiceDisplay = readChoiceDisplay(node);
   if (choiceDisplay !== undefined) component.choiceDisplay = choiceDisplay;
 
-  const clientValidation = buildClientValidation(node);
+  const clientValidation = buildClientValidation(node, isoToday());
   if (clientValidation !== undefined) component.client_validation = clientValidation;
 
   // §12.6 node-authored default → { value, answer_source: "default_applied" }.
@@ -385,6 +444,10 @@ export function buildPublicConfig(
     };
     if (rs.section.subheadline_text !== null && rs.section.subheadline_text !== undefined) {
       config.subheadline = rs.section.subheadline_text;
+    }
+    const continueVisibleWhen = parseSectionContinueVisibleWhen(rs.section.content_json);
+    if (continueVisibleWhen !== undefined) {
+      config.continue_visible_when = continueVisibleWhen;
     }
     return config;
   });

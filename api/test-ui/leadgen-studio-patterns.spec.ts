@@ -49,9 +49,9 @@
 //
 // Seeding rides the REAL admin HTTP APIs only. Runs against the
 // playwright.config.ts webServer (wrangler dev on :<PW_PORT>, default 8787,
-// with DEV_BYPASS_AUTH:true + ADMIN_HOST:127.0.0.1). Local D1 must be
-// migrated + seeded once:
-// `rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local`.
+// with DEV_BYPASS_AUTH:true + ADMIN_HOST:127.0.0.1). Local state must be
+// reset once:
+// `npm run db:reset:local`.
 //
 // Screenshots (1280×800 page viewport) land in test-artifacts/fix-p4/.
 
@@ -1333,8 +1333,9 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="DropdownQuestion"]').click();
     await expect(page.locator('[data-scope-editing-name]')).toHaveText('Dropdown');
     await openInspectorTab(page, 'rules');
-    // v3.1 §8.6: the condition fieldset is hidden behind "Always show" until
-    // "+ Add a condition" reveals it (the golden's IF/THEN builder).
+    // v3.1 §8.6 (PC-12 rename): the condition fieldset is collapsed behind
+    // the always-visible "Always shown" summary until "+ Add a show/hide
+    // rule" reveals it (the golden's IF/THEN builder).
     await expect(page.locator('[data-rules-always-row]')).toBeVisible();
     await page.locator('[data-rules-add-condition]').click();
     await page.locator('[data-inspector-cond="when"]').selectOption('currently_insured');

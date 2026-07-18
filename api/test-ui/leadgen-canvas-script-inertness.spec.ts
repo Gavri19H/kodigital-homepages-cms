@@ -24,7 +24,7 @@
 //
 // Run per-file (from api/), with the fresh-D1 preamble:
 //   pkill -f "wrangler dev"; pkill -f workerd; pkill -f cms-panel; sleep 2; \
-//   rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local
+//   npm run db:reset:local
 //   npx playwright test test-ui/leadgen-canvas-script-inertness.spec.ts \
 //     --project=chromium --workers=1 --reporter=line --timeout=60000
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";

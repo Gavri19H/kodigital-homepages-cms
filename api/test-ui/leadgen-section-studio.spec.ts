@@ -31,9 +31,9 @@
 // Seeding rides the REAL admin HTTP APIs only (leadgen-offers-mgmt.spec.ts
 // convention; no direct DB writes). Runs against the playwright.config.ts
 // webServer (wrangler dev on :<PW_PORT>, default 8787, with
-// DEV_BYPASS_AUTH:true + ADMIN_HOST:127.0.0.1). Local D1 must be migrated +
-// seeded once:
-// `rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local`.
+// DEV_BYPASS_AUTH:true + ADMIN_HOST:127.0.0.1). Local state must be reset
+// once:
+// `npm run db:reset:local`.
 //
 // Screenshots (1280×800) land in test-artifacts/leadgen-section-studio/.
 
@@ -1059,7 +1059,7 @@ test.describe.serial('LeadGen Section Studio v3.1 Phase C — the golden 5-tab i
     await expect.poll(() => canvasInput.evaluate((el) => getComputedStyle(el).borderColor)).toBe('rgb(232, 93, 38)');
   });
 
-  test('§8.6 Rules tab: "Always show" by default; "Add a condition" reveals the picker and renders the sentence "Show this question when X is Y"', async ({ page }) => {
+  test('§8.6/PC-12 Rules tab: "Always shown" summary by default (never hidden); "+ Add a show/hide rule" reveals the picker and the ALWAYS-VISIBLE summary renders a human sentence — never the raw internal_field id', async ({ page }) => {
     const vert = `c-rules-${uniq}`;
     const section = await createStudioSection(page.request, `C1 Rules ${uniq}`, ACT_A, vert);
     await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
@@ -1068,24 +1068,39 @@ test.describe.serial('LeadGen Section Studio v3.1 Phase C — the golden 5-tab i
     await page.locator('[data-studio-inspector-tab="rules"]').click();
 
     const alwaysRow = page.locator('[data-rules-always-row]');
+    const sentence = page.locator('[data-cond-sentence]');
     await expect(alwaysRow).toBeVisible();
-    await expect(alwaysRow).toContainText('Always show');
+    await expect(alwaysRow).toContainText('Always shown');
     await expect(page.locator('[data-rules-condition-fields]')).toBeHidden();
 
     await page.locator('[data-rules-add-condition]').click();
-    await expect(alwaysRow).toBeHidden();
+    // PC-12 discoverability fix: the summary row (dot + sentence + actions)
+    // stays visible — it no longer disappears once a rule exists.
+    await expect(alwaysRow).toBeVisible();
     const fields = page.locator('[data-rules-condition-fields]');
     await expect(fields).toBeVisible();
-    await fields.locator('[data-inspector-cond="when"]').selectOption('currently_insured');
+    // PC-12: the picker lists HUMAN names — never raw ids — while the option
+    // VALUE stays the internal_field (the stored contract is unchanged).
+    const whenSel = fields.locator('[data-inspector-cond="when"]');
+    const whenOptText = await whenSel.locator('option[value="currently_insured"]').textContent();
+    expect(whenOptText, 'the "when" option text is a human name, not the raw internal_field').not.toBe('currently_insured');
+    await whenSel.selectOption('currently_insured');
     const boolValue = fields.locator('[data-inspector-cond="value-bool"]');
     await expect(boolValue).toBeVisible();
     await boolValue.selectOption('true');
-    await expect(fields.locator('[data-cond-sentence]')).toHaveText('Show this question when currently_insured is true');
+    // The sentence is now the FIRST thing on the tab (moved out of the
+    // fieldset into the always-visible summary row) and speaks names: this
+    // fixture's headline_text ("Are you currently insured?") names its
+    // FIRST field (currently_insured), and the boolean value speaks its own
+    // yesLabel ("Yes"), never the raw "true".
+    await expect(sentence).toHaveText('Show this question when Are you currently insured? is Yes');
     await page.screenshot({ path: `${SHOT_DIR}/c1-03-rules-sentence.png` });
 
-    // "Remove condition" returns to Always show
+    // "Remove rule" returns to "Always shown" — the row itself was visible
+    // the whole time.
     await page.locator('[data-rules-remove-condition]').click();
     await expect(alwaysRow).toBeVisible();
+    await expect(alwaysRow).toContainText('Always shown');
     await expect(fields).toBeHidden();
 
     await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);

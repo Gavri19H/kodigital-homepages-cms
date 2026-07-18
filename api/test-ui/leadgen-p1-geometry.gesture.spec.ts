@@ -45,7 +45,7 @@
 // playwright.config.ts webServer/baseURL to a worktree-isolated port so a
 // parallel mission's 8787 wrangler is untouched):
 //   pkill -f "wrangler dev"; pkill -f workerd; sleep 2; \
-//   rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local
+//   npm run db:reset:local
 //   PW_PORT=8899 npx playwright test test-ui/leadgen-p1-geometry.gesture.spec.ts \
 //     --project=chromium --workers=1 --reporter=line
 //   PW_PORT=8899 npx playwright test test-ui/leadgen-p1-geometry.gesture.spec.ts \

@@ -326,6 +326,48 @@ describeDb("POST /sections — create + §12.1 derived rebuild", () => {
     expect(((await res.json()) as { fields: Record<string, string> }).fields["headline_text"]).toBeTruthy();
   });
 
+  // P4a (PC-A1): the operator's auto_advance conflict rule, end-to-end over the
+  // REAL admin router. YESNO_CONTENT is one single-select click producer = the
+  // ELIGIBLE case; the stuck compositions are rejected 400 at save.
+  const twoProducers = JSON.stringify({
+    components: [
+      { type: "TwoButtonYesNo", question_id: "q1", internal_field: "a" },
+      { type: "ButtonAnswerGroup", question_id: "q2", internal_field: "b", choices: [{ label: "X", value: "x", analytics_id: "x" }] },
+    ],
+  });
+
+  it("PC-A1: accepts auto_advance for an ELIGIBLE single-choice section (201)", async () => {
+    const { env } = newHarness();
+    const res = await admin.request(`${API}/sections`, jsonInit("POST", sectionBody({ continue_mode: "auto_advance" })), env);
+    expect(res.status, await res.clone().text()).toBe(201);
+  });
+
+  it("PC-A1: rejects auto_advance on a MULTI-component section (400, names the Continue rule)", async () => {
+    const { env } = newHarness();
+    const res = await admin.request(`${API}/sections`, jsonInit("POST", sectionBody({ continue_mode: "auto_advance", content_json: twoProducers })), env);
+    expect(res.status).toBe(400);
+    const fields = ((await res.json()) as { fields: Record<string, string> }).fields;
+    const key = Object.keys(fields).find((k) => k.includes("continue_mode"));
+    expect(key, JSON.stringify(fields)).toBeTruthy();
+    expect(fields[key as string]).toContain("Continue button");
+  });
+
+  it("PC-A1: rejects auto_advance on a dropdown-only (no-click) section (400)", async () => {
+    const { env } = newHarness();
+    const content = JSON.stringify({
+      components: [{ type: "DropdownQuestion", question_id: "q1", internal_field: "a", choices: [{ label: "X", value: "x", analytics_id: "x" }] }],
+    });
+    const res = await admin.request(`${API}/sections`, jsonInit("POST", sectionBody({ continue_mode: "auto_advance", content_json: content })), env);
+    expect(res.status).toBe(400);
+  });
+
+  it("PC-A1: PATCH switching a button section to auto_advance with 2 producers is rejected (400)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, sectionBody({ content_json: twoProducers }));
+    const res = await admin.request(`${API}/sections/${section.public_id}`, jsonInit("PATCH", { continue_mode: "auto_advance" }), env);
+    expect(res.status, await res.clone().text()).toBe(400);
+  });
+
   it("PATCH replaces the derived index set (add then swap the mapped Offer)", async () => {
     const { sdb, env } = newHarness();
     const offerA = await createMappableOffer(env, { offer_name: "A" });

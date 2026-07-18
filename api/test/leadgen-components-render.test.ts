@@ -1696,12 +1696,26 @@ describe("§8.13 legacy compat — flat arrays validate + render byte-identicall
   it("renderSectionComponents output equals the flat per-node render, wrapped in the R7 U12 unit-level question card (FIX 3b)", () => {
     const treeRender = renderSectionComponents(LEGACY_FLAT, DESIGN);
     const flatRender = LEGACY_FLAT.map((n) => renderComponent(n, DESIGN)).join("");
-    // renderComponent() called per-node (bypassing the top-level wrap) is the
-    // ONE place this suite can observe "what renders WITHOUT the card" — the
-    // ONLY attributable delta is the .lg-question-card wrapper (golden :308,
-    // FIX 3b); the per-node bytes underneath are still exactly equal.
-    expect(treeRender).toBe(`<div class="lg-question-card">${flatRender}</div>`);
+    // renderComponent() called per-node (bypassing the top-level wrap, no
+    // section state -> slot="" for every renderer) is the ONE place this suite
+    // can observe "what renders WITHOUT the card AND without a slot" — the
+    // ONLY attributable deltas are the .lg-question-card wrapper (golden :308,
+    // FIX 3b) and, P4b (PC-A2), the per-field hidden auto error slot each
+    // answer-producing leaf now emits NESTED inside its own field/group box
+    // (CONDUCTOR FIX: never a card-level sibling — see presets.ts renderComponent).
+    // Strip the slot tag itself, THEN unwrap the `.lg-field-boxed` box a
+    // bare-select/bare-input renderer ONLY grows to host a slot (DropdownQuestion
+    // here) — this fixture authors no icon/helper anywhere, so every such
+    // wrapper found is attributable ENTIRELY to the slot, making the unwrap
+    // unambiguous. Together these prove the per-node bytes UNDERNEATH are still
+    // exactly equal.
+    const AUTO_SLOT_RE = /<p class="lg-error lg-error-auto"[^>]*><\/p>/g;
+    const FIELD_BOXED_UNWRAP_RE = /<span class="lg-field-boxed" style="display:block">([\s\S]*?)<\/span>/g;
+    const stripped = treeRender.replace(AUTO_SLOT_RE, "").replace(FIELD_BOXED_UNWRAP_RE, "$1");
+    expect(stripped).toBe(`<div class="lg-question-card">${flatRender}</div>`);
     expect(treeRender.length).toBeGreaterThan(0);
+    // The slot really is present in the tree render (not stripped to nothing).
+    expect(treeRender).toContain('class="lg-error lg-error-auto"');
   });
 
   it("serialization round-trip preserves a container tree (parse → validate → stringify → parse)", () => {

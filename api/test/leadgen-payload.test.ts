@@ -996,6 +996,40 @@ describe("buildPayload — default / fallback / conditional / coercion", () => {
       expect(buildPayload(node({ when: "homeowner", op: "neq", value: true }), ctx({ answers: { homeowner: true } }))).toEqual({});
     });
 
+    // CONDUCTOR FIX (register PC-12, 2026-07-17): a TwoButtonYesNo's LIVE
+    // answer is the raw string "true"/"false" (engine.ts
+    // handleChoiceActivation has no `choices` array to type-resolve), while a
+    // conditional authored through the studio's typed picker against a
+    // boolean `when` field stores a REAL boolean. FAIL-BEFORE: this node was
+    // silently DROPPED from the built payload even though the client showed
+    // its dependent component — a show-but-don't-submit divergence. Now
+    // INCLUDED, both directions, plus in/not_in mixed-shape arrays.
+    it("eq / neq — boolean-authored conditional vs a STRING-recorded answer (was silently dropped, now included)", () => {
+      // authored boolean, recorded string.
+      expect(buildPayload(node({ when: "homeowner", op: "eq", value: true }), ctx({ answers: { homeowner: "true" } }))).toEqual({ x: "v" });
+      expect(buildPayload(node({ when: "homeowner", op: "eq", value: false }), ctx({ answers: { homeowner: "false" } }))).toEqual({ x: "v" });
+      // authored string, recorded boolean (the reverse shape mismatch).
+      expect(buildPayload(node({ when: "homeowner", op: "eq", value: "true" }), ctx({ answers: { homeowner: true } }))).toEqual({ x: "v" });
+      // neq: the SAME logical value in different shapes must NOT satisfy neq.
+      expect(buildPayload(node({ when: "homeowner", op: "neq", value: "true" }), ctx({ answers: { homeowner: true } }))).toEqual({});
+      // neq: genuinely different values in different shapes still satisfy neq (unaffected direction).
+      expect(buildPayload(node({ when: "homeowner", op: "neq", value: "false" }), ctx({ answers: { homeowner: true } }))).toEqual({ x: "v" });
+    });
+
+    it("in / not_in — a boolean-shaped answer/values[] entry now cross-matches", () => {
+      expect(buildPayload(node({ when: "homeowner", op: "in", values: [true, "other"] }), ctx({ answers: { homeowner: "true" } }))).toEqual({ x: "v" });
+      expect(buildPayload(node({ when: "homeowner", op: "not_in", values: ["false"] }), ctx({ answers: { homeowner: false } }))).toEqual({});
+    });
+
+    it("REGRESSION — non-boolean values are byte-identical to pre-fix (no accidental numeric/string coercion)", () => {
+      // A numeric-string conditional value against a numeric answer: unaffected.
+      expect(buildPayload(node({ when: "age", op: "eq", value: "30" }), ctx({ answers: { age: 30 } }))).toEqual({});
+      // An ordinary string vs string match: unaffected.
+      expect(buildPayload(node({ when: "state", op: "eq", value: "CA" }), ctx({ answers: { state: "CA" } }))).toEqual({ x: "v" });
+      // A non-"true"/"false" string against a boolean value: normalizeBoolShape must not touch it.
+      expect(buildPayload(node({ when: "homeowner", op: "eq", value: true }), ctx({ answers: { homeowner: "maybe" } }))).toEqual({});
+    });
+
     it("gt / lt / gte / lte", () => {
       expect(buildPayload(node({ when: "age", op: "gt", value: 21 }), ctx({ answers: { age: 22 } }))).toEqual({ x: "v" });
       expect(buildPayload(node({ when: "age", op: "gt", value: 21 }), ctx({ answers: { age: 21 } }))).toEqual({});

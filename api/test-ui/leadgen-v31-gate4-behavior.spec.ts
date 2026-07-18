@@ -23,8 +23,8 @@
 //     proves the preflight ESCALATION-to-blocking keyed to that exact cause.
 //
 // Seeding rides the REAL admin HTTP APIs only (repo convention — see
-// leadgen-section-studio.spec.ts). Local D1 must be migrated + seeded once:
-// `rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local`.
+// leadgen-section-studio.spec.ts). Local state must be reset once:
+// `npm run db:reset:local`.
 //
 // PLAYWRIGHT HARD LESSON (dispatch instruction): run THIS FILE ONLY —
 // `npx playwright test test-ui/leadgen-v31-gate4-behavior.spec.ts --workers=1 --reporter=line`

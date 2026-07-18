@@ -318,7 +318,12 @@ describe("Gate 2 strings — Inspector (Appendix A)", () => {
   });
 
   it("Rules-tab strings render", () => {
-    assertAllPresent(STUDIO_HTML, ["When to show this", "Always show", "Add a condition"], "Rules tab");
+    // P4c (register PC-12) discoverability rename: "+ Add a condition" ->
+    // "+ Add a show/hide rule" (the summary row's action, now always
+    // visible alongside the sentence — never a bare "Add a condition" with
+    // no rule-kind named). "Always show" stays a true PREFIX of the new
+    // "Always shown" default text, so this substring check is unaffected.
+    assertAllPresent(STUDIO_HTML, ["When to show this", "Always show", "Add a show/hide rule"], "Rules tab");
     // "Show this when Currently insured is Yes" is a WORKED EXAMPLE the
     // golden hardcodes for illustration (contract's own Appendix A groups it
     // under "Rules & Offers tabs (added in v3.1)") — the real Rules tab's

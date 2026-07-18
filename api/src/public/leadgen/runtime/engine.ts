@@ -30,17 +30,19 @@ import {
   type LgAnswerSource,
   type LgBindingTuple,
   type LgComponentConfig,
+  type LgConditional,
   type LgPublicConfig,
   type LgSectionConfig,
   type LgStorageAdapter,
 } from "./state";
 import {
+  conditionMet,
   evaluateComponents,
   hiddenAnswerFields,
   visibleSectionIndexes,
   type LgDependencyState,
 } from "./dependencies";
-import { formatKindFor, validateSection } from "./validation";
+import { formatKindFor, normalizePhoneE164, validateSection } from "./validation";
 import { LgBeaconClient, ulidLike, type LgSendFn } from "./events";
 import * as render from "./render";
 import { wireMapsFields } from "./maps";
@@ -680,10 +682,24 @@ export class LgEngine {
       const sectionEl = this.currentSectionEl();
       if (sectionEl !== null) {
         render.applyComponentVisibility(sectionEl, this.dependencyState(section).components);
+        this.applyContinueVisibility(section, sectionEl);
       }
     }
     this.updateProgressUi();
     this.persist();
+  }
+
+  // P4c (register PC-12): section-level Continue visibility. `continue_
+  // visible_when` is not part of the declared LgSectionConfig shape (kept a
+  // hand-maintained LOCAL mirror per the state.ts module header) — it is
+  // read here via a narrow, defensive cast, exactly like an untyped JSON
+  // field the config legitimately carries. Absent ⇒ no-op (byte-identical
+  // pre-P4c: Continue stays unconditionally visible).
+  private applyContinueVisibility(section: LgSectionConfig, sectionEl: Element): void {
+    const cond = (section as unknown as { continue_visible_when?: LgConditional })
+      .continue_visible_when;
+    if (cond === undefined) return;
+    render.setContinueVisible(sectionEl, conditionMet(cond, this.store.answerValues()));
   }
 
   private handleChoiceActivation(choiceEl: Element): void {
@@ -699,6 +715,36 @@ export class LgEngine {
 
     // Typed value: the attribute is a string; the config round-trips the
     // authored type (number/boolean choices stay typed for eq-parity).
+    //
+    // P4c INVESTIGATION NOTE — RESOLVED (conductor fix, register PC-12,
+    // 2026-07-17): a TwoButtonYesNo carries no `choices` array, so
+    // choiceConfig is always undefined for it and this fallback records the
+    // RAW STRING "true"/"false" — never a real boolean — for a LIVE click,
+    // while a conditional/requiredWhen/continue_visible_when authored through
+    // ANY typed studio picker against a boolean `when` field stores a REAL
+    // boolean (typedScalar's boolean branch). The RECORDING here is
+    // DELIBERATELY left unchanged (ruling: fix the evaluator, not the
+    // recording — coercing this fallback to a real boolean would change the
+    // TYPE of value flowing into the auction payload, a money-path risk, and
+    // would ripple through already-shipped E2E fixtures that assert the raw
+    // string — leadgen-fix-p1-seed.ts, leadgen-p3a-placement.gesture.spec.ts
+    // x2, leadgen-runtime-inputs.gesture.spec.ts). Instead the DEPENDENCY
+    // EVALUATOR treats true≡"true"/false≡"false" for eq/neq/in/not_in, so a
+    // picker-authored rule against this field's live-clicked string DOES fire
+    // correctly (Show-if/Require-if/Continue-visibility all resolve through
+    // it) — see runtime/dependencies.ts's module header for the full ruling.
+    // FULL PARITY (same-day follow-up, commit eb06ddd): the identical
+    // normalizeBoolShape treatment also landed in payload.ts's conditionalMet
+    // (payload.ts:1089) — the SAME evaluator payload-build's node-drop and
+    // auction-rules.ts's conditionsMatch (offer/carrier eligibility) share —
+    // so client and server now agree on the full boolean/string equivalence
+    // grid (see leadgen-runtime-engine.test.ts's dedicated cross-product).
+    // There is no remaining server-side gap. leadgen-p3a-placement.gesture.
+    // spec.ts's "grounded via a live debug probe" fixture and leadgen-p4c-
+    // rules.gesture.spec.ts's choice-based workaround remain valid (string-
+    // vs-string was never the broken case); leadgen-p4a-behavior.spec.ts /
+    // the p4c-rules spec's leg 4 prove the previously-stuck boolean-picker-
+    // vs-live-click case now reveals live.
     const attrValue = choiceEl.getAttribute("data-lg-choice") ?? "";
     const choiceConfig = component?.choices?.find((c) => String(c.value) === attrValue);
     let value: unknown = choiceConfig !== undefined ? choiceConfig.value : attrValue;
@@ -753,8 +799,25 @@ export class LgEngine {
     const questionId = questionEl?.getAttribute("data-lg-question") ?? "";
     const section = this.sectionConfigFor(input);
     const component = this.componentByQuestionId(section, questionId);
-    const internalField =
+    let internalField =
       fieldEl?.getAttribute("data-lg-field") ?? component?.internal_field ?? "";
+    // PC-A2 (P4b): NameFieldsGroup carries no single internal_field, so its two
+    // sub-inputs (data-name-field="first"/"last") were captured NOWHERE — the
+    // group's answers were silently lost and its `required` never enforceable.
+    // Map the sub-input's slot to the group's configured field (props.fields,
+    // default first/last), so each sub-answer is recorded under its real field
+    // (matching the server's answers.ts fieldsOf) and validateSection's
+    // group-required check can see it. Address parts are filled via the Places
+    // path (maps.ts setAnswer), so only the name slots need this capture bridge.
+    if (internalField === "") {
+      const slot = input.getAttribute("data-name-field");
+      if ((slot === "first" || slot === "last") && component?.type === "NameFieldsGroup") {
+        const fields = component.props?.["fields"];
+        const idx = slot === "first" ? 0 : 1;
+        const mapped = Array.isArray(fields) && typeof fields[idx] === "string" ? (fields[idx] as string) : slot;
+        internalField = mapped;
+      }
+    }
     if (internalField === "") return;
 
     let value: unknown = "";
@@ -769,6 +832,15 @@ export class LgEngine {
     // /^\d{5}$/ — validation semantics on either side stay unchanged.
     if (component !== null && typeof value === "string" && formatKindFor(component) === "zip") {
       value = value.trim();
+    }
+    // PC-A4 (P4b): a VALID phone stores its E.164 normal form ("(415) 555-1234"
+    // → "+14155551234") so the recorded/submitted answer is canonical. Only on
+    // pass — an invalid entry keeps the raw text so the visitor sees what they
+    // typed alongside the (now visible) error. Idempotent (E.164 re-normalizes
+    // to itself); prior stored answers are untouched (never re-captured).
+    if (component !== null && typeof value === "string" && formatKindFor(component) === "phone") {
+      const e164 = normalizePhoneE164(value);
+      if (e164 !== null) value = e164;
     }
 
     const meta = {
@@ -903,6 +975,7 @@ export class LgEngine {
     const sectionEl = render.showOnlySection(this.root, index);
     if (section !== null && sectionEl !== null) {
       render.applyComponentVisibility(sectionEl, this.dependencyState(section).components);
+      this.applyContinueVisibility(section, sectionEl);
       // Restore selection classes for restored/default answers.
       for (const component of section.components) {
         const field = component.internal_field;

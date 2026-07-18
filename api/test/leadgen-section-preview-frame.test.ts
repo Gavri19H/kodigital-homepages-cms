@@ -567,6 +567,15 @@ const R5_NEW_HEADLINE_INLINE = `style="font-family:&#39;Newsreader&#39;,serif;co
 function unmapR5Typography(html: string): string {
   return html.split(R5_NEW_HEADLINE_INLINE).join(R5_OLD_HEADLINE_INLINE);
 }
+// P4b (PC-A2): every answer-producing leaf now emits a hidden auto error slot
+// adjacent to its field. That is a NET-NEW additive delta to the composed
+// body (the runtime fills it on a validation failure) — strip it before the
+// byte-pin comparison, exactly like every other net-new rule/chunk this pin
+// reverse-maps away, so the frozen pre-change capture stays the "nothing ELSE
+// changed" reference.
+function stripAutoErrorSlots(html: string): string {
+  return html.replace(/<p class="lg-error lg-error-auto"[^>]*><\/p>/g, "");
+}
 // The SAME R5 D11 typography grant, at the CSS-rule level (.lg-headline base
 // rule + .lg-subheadline's color + the NEW question-card-only font-size
 // override — see designs/default-funnel/tokens.ts + styles.ts).
@@ -773,7 +782,7 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     // R5 D11: desktop/mobile HTML carries the SAME headline typography
     // delta inline (per-node) — reverse-map before comparing, exactly the
     // css modulo idiom below, so this stays a true "nothing ELSE changed" pin.
-    const actualVal = typeof actualPreview[key] === "string" ? unmapR5Typography(actualPreview[key] as string) : actualPreview[key];
+    const actualVal = typeof actualPreview[key] === "string" ? stripAutoErrorSlots(unmapR5Typography(actualPreview[key] as string)) : actualPreview[key];
     expect(actualVal, `preview.${key}`).toEqual(expectedPreview[key]);
   }
   // css: the ONLY legal deltas are the moved base-sheet chunks (byte-exact):
