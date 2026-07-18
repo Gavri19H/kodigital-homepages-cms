@@ -728,20 +728,23 @@ export class LgEngine {
     // TYPE of value flowing into the auction payload, a money-path risk, and
     // would ripple through already-shipped E2E fixtures that assert the raw
     // string — leadgen-fix-p1-seed.ts, leadgen-p3a-placement.gesture.spec.ts
-    // x2, leadgen-runtime-inputs.gesture.spec.ts). Instead the CLIENT
-    // dependency evaluator (runtime/dependencies.ts conditionMet) now treats
-    // true≡"true"/false≡"false" for eq/neq/in/not_in, so a picker-authored
-    // rule against this field's live-clicked string DOES fire correctly on
-    // the live funnel (Show-if/Require-if/Continue-visibility all resolve
-    // through that one evaluator) — see its module header for the full
-    // ruling + the documented, narrower-scope server-side gap this leaves
-    // open (payload.ts's conditionalMet, also consumed by auction-rules.ts
-    // carrier/offer eligibility, was NOT touched — outside this ownership).
-    // leadgen-p3a-placement.gesture.spec.ts's "grounded via a live debug
-    // probe" fixture and leadgen-p4c-rules.gesture.spec.ts's choice-based
-    // workaround remain valid (string-vs-string was never the broken case);
-    // leadgen-p4a-behavior.spec.ts / the p4c-rules spec's new leg prove the
-    // previously-stuck boolean-picker-vs-live-click case now reveals live.
+    // x2, leadgen-runtime-inputs.gesture.spec.ts). Instead the DEPENDENCY
+    // EVALUATOR treats true≡"true"/false≡"false" for eq/neq/in/not_in, so a
+    // picker-authored rule against this field's live-clicked string DOES fire
+    // correctly (Show-if/Require-if/Continue-visibility all resolve through
+    // it) — see runtime/dependencies.ts's module header for the full ruling.
+    // FULL PARITY (same-day follow-up, commit eb06ddd): the identical
+    // normalizeBoolShape treatment also landed in payload.ts's conditionalMet
+    // (payload.ts:1089) — the SAME evaluator payload-build's node-drop and
+    // auction-rules.ts's conditionsMatch (offer/carrier eligibility) share —
+    // so client and server now agree on the full boolean/string equivalence
+    // grid (see leadgen-runtime-engine.test.ts's dedicated cross-product).
+    // There is no remaining server-side gap. leadgen-p3a-placement.gesture.
+    // spec.ts's "grounded via a live debug probe" fixture and leadgen-p4c-
+    // rules.gesture.spec.ts's choice-based workaround remain valid (string-
+    // vs-string was never the broken case); leadgen-p4a-behavior.spec.ts /
+    // the p4c-rules spec's leg 4 prove the previously-stuck boolean-picker-
+    // vs-live-click case now reveals live.
     const attrValue = choiceEl.getAttribute("data-lg-choice") ?? "";
     const choiceConfig = component?.choices?.find((c) => String(c.value) === attrValue);
     let value: unknown = choiceConfig !== undefined ? choiceConfig.value : attrValue;
