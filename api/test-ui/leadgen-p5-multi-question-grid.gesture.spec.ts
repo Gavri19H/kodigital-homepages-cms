@@ -204,3 +204,106 @@ test.describe("P5 MultiQuestionGrid — real studio authoring + save/reload (cro
     );
   });
 });
+
+// P5 fix-round (conductor-flagged residual, register PC-10): the studio rows
+// editor's collectMqgRows silently DROPPED any per-row `choices` override on
+// save (it rebuilt each row from only label/internal_field/default/required),
+// so Image9's Gender=Male/Female override — authorable/seedable per the schema
+// — was NOT preserved through the real editor: editing any OTHER row's field
+// re-collected every row and erased Gender's override, orphaning its "male"
+// default (no longer a member of the reverted shared Yes/No set) and 400ing on
+// save. Fixed: the rows editor now (a) HONESTLY DISPLAYS an existing per-row
+// override as a checked "Custom answers for this row" toggle + live, editable
+// label/value entries (never hidden), and (b) round-trips it through
+// collectMqgRows regardless of what else on the page changed.
+test.describe("P5 fix-round (PC-10) — a per-row custom-choices override survives editing an adjacent row (cross-engine)", () => {
+  test("Gender's seeded Male/Female override displays honestly (checked toggle + entries), and SURVIVES a save that only edits the Homeowner row", async ({
+    page,
+  }) => {
+    const section = await createSection(page.request, `P5 row-choices ${uniq}`, { components: [DRIVER_GRID] });
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: "domcontentloaded" });
+    const canvas = canvasRender(page);
+    await expect(canvas.locator(".lg-mqg-row")).toHaveCount(4);
+
+    // Select the grid → open the rows editor.
+    await canvas.locator(".lg-mqg .lg-label").first().click();
+    const rowsBlock = page.locator("[data-mqg-rows-block]");
+    await expect(rowsBlock).toBeVisible();
+    const genderRow = rowsBlock.locator("[data-mqg-row]").nth(2);
+    await expect(genderRow.locator('input[data-mqg-field="label"]')).toHaveValue("Gender");
+
+    // HONEST DISPLAY: the override is CHECKED and its entries show the real
+    // Male/Female pair — never a hidden/silent state.
+    const customToggle = genderRow.locator("[data-mqg-custom-choices]");
+    await expect(customToggle).toBeChecked();
+    const entries = genderRow.locator("[data-mqg-choice-entry]");
+    await expect(entries).toHaveCount(2);
+    await expect(entries.nth(0).locator('[data-mqg-choice-field="label"]')).toHaveValue("Male");
+    await expect(entries.nth(1).locator('[data-mqg-choice-field="label"]')).toHaveValue("Female");
+    await expect(genderRow.locator('select[data-mqg-field="default"]')).toHaveValue("male");
+
+    // Edit an ADJACENT row (Homeowner, index 0) — the exact regression shape:
+    // any other row's collect must never erase Gender's override.
+    const homeownerRow = rowsBlock.locator("[data-mqg-row]").nth(0);
+    await homeownerRow.locator('input[data-mqg-field="label"]').fill("Owns home");
+    await saveStudio(page);
+
+    const detail = await fetchSection(page.request, section.public_id);
+    const grid = detail.content_json.components[0] as {
+      props: {
+        rows: Array<{
+          label: string;
+          internal_field: string;
+          default?: string;
+          choices?: Array<{ label: string; value: string; analytics_id: string }>;
+        }>;
+      };
+    };
+    expect(grid.props.rows[0]).toMatchObject({ label: "Owns home", internal_field: "homeowner" });
+    // The override SURVIVED — byte-identical to what was seeded.
+    expect(grid.props.rows[2]).toMatchObject({
+      label: "Gender",
+      internal_field: "gender",
+      default: "male",
+      choices: [
+        { label: "Male", value: "male", analytics_id: "male" },
+        { label: "Female", value: "female", analytics_id: "female" },
+      ],
+    });
+
+    // Reload → canvas renders the override (Male/Female labels, Male selected).
+    // containText (not exact) — the studio canvas OVERLAYS a quick-remove "×"
+    // on every choice pill (decorateChoiceCards, pre-existing, unrelated to
+    // this fix); the label text is a substring of the decorated node.
+    await page.reload({ waitUntil: "domcontentloaded" });
+    const reloaded = canvasRender(page);
+    const genderCanvasRow = reloaded.locator('[data-lg-question="q_driver::gender"]');
+    await expect(genderCanvasRow.locator('[data-lg-choice="male"]')).toContainText("Male");
+    await expect(genderCanvasRow.locator('[data-lg-choice="female"]')).toContainText("Female");
+    await expect(genderCanvasRow.locator('[data-lg-choice="male"]')).toHaveClass(/lg-selected/);
+  });
+
+  test("turning OFF the custom toggle reverts the row to the shared set on save (an explicit operator choice, not a silent drop)", async ({
+    page,
+  }) => {
+    const section = await createSection(page.request, `P5 row-choices-off ${uniq}`, { components: [DRIVER_GRID] });
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: "domcontentloaded" });
+    const canvas = canvasRender(page);
+    await canvas.locator(".lg-mqg .lg-label").first().click();
+    const rowsBlock = page.locator("[data-mqg-rows-block]");
+    const genderRow = rowsBlock.locator("[data-mqg-row]").nth(2);
+    await genderRow.locator("[data-mqg-custom-choices]").uncheck();
+    // Unchecking hides the entries and reverts the default-picker to the
+    // shared Yes/No set — the row's default ("male") is no longer a member,
+    // so it resets to none rather than carrying an invalid value forward.
+    await expect(genderRow.locator("[data-mqg-row-choices-list]")).toBeHidden();
+    await saveStudio(page);
+
+    const detail = await fetchSection(page.request, section.public_id);
+    const grid = detail.content_json.components[0] as {
+      props: { rows: Array<{ label: string; choices?: unknown }> };
+    };
+    expect(grid.props.rows[2]).toMatchObject({ label: "Gender" });
+    expect("choices" in grid.props.rows[2]!).toBe(false);
+  });
+});

@@ -962,16 +962,21 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     request,
     browserName,
   }) => {
-    // Author (both engines): start from a 3-row grid, add the 4th sub-question
-    // (Military) through the REAL rows editor, save → 4 rows persist, the canvas
-    // renders 4 stacked labeled pill rows with defaults pre-selected. NOTE: the
-    // studio rows editor (ui-section-studio.ts collectMqgRows) authors label /
-    // internal_field / default / required over the grid's SHARED pill set — it
-    // does not author (nor preserve) a per-row `choices` override. So the
-    // studio-authored rows use the shared Yes/No pills; Image9's Gender=Male/
-    // Female per-row override is proven on the LIVE + AUCTION legs below via the
-    // component's supported config path (the P5a canvas gate + the .test.ts
-    // pipeline pin the override end to end). See the conductor report finding.
+    // Author (both engines): start from a 3-row grid — Gender ALREADY carrying
+    // its own Male/Female per-row override (the Image9 composition; seeded here,
+    // per the conductor's "author-or-seed" allowance) — add the 4th
+    // sub-question (Military) through the REAL rows editor, save → 4 rows
+    // persist, the canvas renders 4 stacked labeled pill rows with defaults
+    // pre-selected. CONDUCTOR FIX (residual, register PC-10): the studio rows
+    // editor's collectMqgRows used to silently DROP any per-row `choices`
+    // override on save (it rebuilt every row from only label/internal_field/
+    // default/required) — editing/adding an ADJACENT row re-collected every row
+    // and erased Gender's override. Fixed: the rows editor now HONESTLY
+    // DISPLAYS an existing override as a checked "Custom answers for this row"
+    // toggle + live, editable Male/Female entries (asserted below, before any
+    // edit) and round-trips it through a save that only touches OTHER rows.
+    // leadgen-p5-multi-question-grid.gesture.spec.ts pins the same mechanism in
+    // isolation (both engines) + an explicit toggle-off reverts-to-shared leg.
     const s = await createStudioSection(request, `Op10 grid ${uniq}`, [
       {
         type: "MultiQuestionGrid",
@@ -981,7 +986,15 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
           rows: [
             { label: "Homeowner", internal_field: "homeowner", default: "yes", required: true },
             { label: "Married", internal_field: "married", default: "no" },
-            { label: "Gender", internal_field: "gender", default: "no" },
+            {
+              label: "Gender",
+              internal_field: "gender",
+              default: "male",
+              choices: [
+                { label: "Male", value: "male", analytics_id: "male" },
+                { label: "Female", value: "female", analytics_id: "female" },
+              ],
+            },
           ],
         },
       },
@@ -991,10 +1004,24 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     const canvas = canvasRender(page);
     await expect(canvas.locator(".lg-mqg-row")).toHaveCount(3);
 
-    // REAL rows editor: select the grid (its non-pill label), add the 4th row.
+    // REAL rows editor: select the grid (its non-pill label).
     await canvas.locator(".lg-mqg .lg-label").first().click();
     const rowsBlock = page.locator("[data-mqg-rows-block]");
     await expect(rowsBlock).toBeVisible();
+
+    // HONEST DISPLAY (before any edit): Gender's seeded override is CHECKED
+    // and shows its real Male/Female entries — never hidden or silently
+    // dropped from view.
+    const genderRow = rowsBlock.locator("[data-mqg-row]").nth(2);
+    await expect(genderRow.locator('input[data-mqg-field="label"]')).toHaveValue("Gender");
+    await expect(genderRow.locator("[data-mqg-custom-choices]")).toBeChecked();
+    const genderEntries = genderRow.locator("[data-mqg-choice-entry]");
+    await expect(genderEntries).toHaveCount(2);
+    await expect(genderEntries.nth(0).locator('[data-mqg-choice-field="label"]')).toHaveValue("Male");
+    await expect(genderEntries.nth(1).locator('[data-mqg-choice-field="label"]')).toHaveValue("Female");
+
+    // Add the 4th row (Military) — an ADJACENT edit relative to Gender: this
+    // triggers collectMqgRows across EVERY row, exactly the regression shape.
     await page.locator("[data-mqg-add-row]").click();
     const newRow = rowsBlock.locator("[data-mqg-row]").nth(3);
     await newRow.locator('input[data-mqg-field="label"]').fill("Military Affiliation");
@@ -1003,19 +1030,44 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     await saveStudioAwaitOk(page, s.public_id);
     await bootStudio(page, s);
     const gridNode = (await fetchSection(request, s.public_id)).content_json.components[0] as {
-      props: { rows: Array<{ label: string; internal_field: string; default?: string }> };
+      props: {
+        rows: Array<{
+          label: string;
+          internal_field: string;
+          default?: string;
+          choices?: Array<{ label: string; value: string; analytics_id: string }>;
+        }>;
+      };
     };
     expect(gridNode.props.rows).toHaveLength(4);
     expect(gridNode.props.rows[3]).toMatchObject({ label: "Military Affiliation", internal_field: "military", default: "no" });
+    // Gender's override SURVIVED the save that only added/edited the Military
+    // row — byte-identical to what was seeded (the conductor-flagged fix).
+    expect(gridNode.props.rows[2]).toMatchObject({
+      label: "Gender",
+      internal_field: "gender",
+      default: "male",
+      choices: [
+        { label: "Male", value: "male", analytics_id: "male" },
+        { label: "Female", value: "female", analytics_id: "female" },
+      ],
+    });
 
     // Canvas parity + composition (both engines): 4 stacked labeled rows, each
-    // default pill pre-selected server-side.
+    // default pill pre-selected server-side — Gender rendering its OWN Male/
+    // Female pills (not the shared Yes/No set).
     const reloaded = canvasRender(page);
     await expect(reloaded.locator(".lg-mqg-row")).toHaveCount(4);
     for (const label of ["Homeowner", "Married", "Gender", "Military Affiliation"])
       await expect(reloaded.locator(".lg-mqg .lg-label", { hasText: label })).toBeVisible();
     await expect(reloaded.locator('[data-lg-question="q_driver::homeowner"] [data-lg-choice="yes"]')).toHaveClass(/lg-selected/);
     await expect(reloaded.locator('[data-lg-question="q_driver::married"] [data-lg-choice="no"]')).toHaveClass(/lg-selected/);
+    // containText (not exact) — the studio canvas overlays a quick-remove "×"
+    // on every choice pill (decorateChoiceCards, pre-existing), so the label is
+    // a substring of the decorated node.
+    await expect(reloaded.locator('[data-lg-question="q_driver::gender"] [data-lg-choice="male"]')).toContainText("Male");
+    await expect(reloaded.locator('[data-lg-question="q_driver::gender"] [data-lg-choice="female"]')).toContainText("Female");
+    await expect(reloaded.locator('[data-lg-question="q_driver::gender"] [data-lg-choice="male"]')).toHaveClass(/lg-selected/);
     const rowTops = await reloaded.locator(".lg-mqg-row").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
     for (let i = 1; i < rowTops.length; i++)
       expect(rowTops[i], `row ${i} stacks below row ${i - 1}`).toBeGreaterThan(rowTops[i - 1]!);

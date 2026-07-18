@@ -10007,6 +10007,105 @@ export const SECTION_STUDIO_SCRIPT = `
     lab.appendChild(document.createTextNode(labelText)); cell.appendChild(lab);
     return cell;
   }
+  // P5 fix-round (conductor-flagged residual, register PC-10): per-row CUSTOM
+  // ANSWERS — a compact, row-scoped pill-set override (Image9's Gender=Male/
+  // Female is the reference case). Deliberately NOT the shared choices-editor
+  // machinery (buildChoiceRow / collectChoices / choiceContainer are hard-
+  // wired to the ONE [data-inspector-choices] singleton + node.choices —
+  // every icon/emoji/image/style call site inside buildChoiceRow calls the
+  // GLOBAL collectChoices() directly; retrofitting a target parameter through
+  // all of them would be a disproportionate risk to a heavily-tested shared
+  // subsystem for a rarely-used per-row override). Mirrors its VISUAL idiom
+  // (.lg-choice-row / .lg-choice-cell classes — zero new CSS) at a much
+  // smaller surface: label + value only (analytics_id auto = value, the same
+  // convention parseBulkChoices already uses) — no icon/emoji/image/style,
+  // which stay shared-set-only concerns.
+
+  // Every [data-mqg-choice-entry] currently in a row's (possibly still-hidden)
+  // entries list, read straight from the DOM — the live-typed state, not the
+  // last-committed model.
+  function readMqgRowChoiceEntries(rowEl) {
+    var out = [];
+    var entries = rowEl.querySelectorAll('[data-mqg-choice-entry]');
+    var j, labelEl, valueEl, lbl, val;
+    for (j = 0; j < entries.length; j++) {
+      labelEl = entries[j].querySelector('[data-mqg-choice-field="label"]');
+      valueEl = entries[j].querySelector('[data-mqg-choice-field="value"]');
+      lbl = labelEl ? trimStr(labelEl.value) : '';
+      val = valueEl ? trimStr(valueEl.value) : '';
+      if (lbl !== '' || val !== '') { out.push({ label: lbl, value: val, analytics_id: val }); }
+    }
+    return out;
+  }
+  // The row's LIVE effective choices (custom entries if the toggle is on,
+  // else the shared node-level set) — used to keep the Default picker's
+  // options in sync WHILE the operator is mid-edit (before any collect).
+  function mqgRowLiveEffectiveChoices(rowEl, node) {
+    var cb = rowEl.querySelector('[data-mqg-custom-choices]');
+    if (cb && cb.checked) { return readMqgRowChoiceEntries(rowEl); }
+    return (node && node.choices && node.choices.length) ? node.choices : [];
+  }
+  function refreshMqgRowDefaultSelect(rowEl, choices) {
+    var sel = rowEl.querySelector('select[data-mqg-field="default"]');
+    if (!sel) { return; }
+    var prev = sel.value;
+    clearChildren(sel);
+    var noneOpt = document.createElement('option'); noneOpt.value = ''; noneOpt.textContent = '\\u2014 none \\u2014'; sel.appendChild(noneOpt);
+    var i, opt, hasPrev = false;
+    for (i = 0; i < choices.length; i++) {
+      opt = document.createElement('option'); opt.value = String(choices[i].value);
+      opt.textContent = String(choices[i].label || choices[i].value); sel.appendChild(opt);
+      if (String(choices[i].value) === prev) { hasPrev = true; }
+    }
+    sel.value = hasPrev ? prev : '';
+  }
+  // One compact label+value entry (a MINIMAL mirror of buildChoiceRow's cell
+  // idiom — value auto-suggested from the label while un-edited, the SAME
+  // §7.3 convention). 'onChange' is invoked on every edit/add/remove.
+  function buildMqgRowChoiceEntry(choice, onChange) {
+    var entry = document.createElement('div');
+    entry.className = 'lg-choice-row'; entry.setAttribute('data-mqg-choice-entry', '');
+    var labelCell = mqgCell('Answer label');
+    var labelInp = document.createElement('input'); labelInp.className = 'form-input';
+    labelInp.setAttribute('data-mqg-choice-field', 'label'); labelInp.setAttribute('aria-label', 'Answer label');
+    labelInp.value = (choice && choice.label) ? String(choice.label) : '';
+    labelCell.appendChild(labelInp); entry.appendChild(labelCell);
+    var valueCell = mqgCell('Answer value');
+    var valueInp = document.createElement('input'); valueInp.className = 'form-input';
+    valueInp.setAttribute('data-mqg-choice-field', 'value'); valueInp.setAttribute('aria-label', 'Answer value');
+    valueInp.value = (choice && choice.value !== undefined && choice.value !== null) ? String(choice.value) : '';
+    valueInp.setAttribute('data-auto', valueInp.value === '' ? 'true' : 'false');
+    valueInp.addEventListener('input', function () { valueInp.setAttribute('data-auto', 'false'); });
+    valueCell.appendChild(valueInp); entry.appendChild(valueCell);
+    labelInp.addEventListener('input', function () {
+      if (valueInp.getAttribute('data-auto') === 'true') { valueInp.value = slugify(labelInp.value); }
+      onChange();
+    });
+    labelInp.addEventListener('change', onChange);
+    valueInp.addEventListener('input', onChange);
+    valueInp.addEventListener('change', onChange);
+    var rm = document.createElement('button'); rm.type = 'button'; rm.className = 'btn btn-sm btn-outline';
+    rm.setAttribute('data-mqg-choice-remove', ''); rm.setAttribute('aria-label', 'Remove answer'); rm.textContent = '\\u2715';
+    rm.addEventListener('click', function () { entry.parentNode.removeChild(entry); onChange(); });
+    entry.appendChild(rm);
+    return entry;
+  }
+  // Fires after ANY per-row choice-entry add/remove/edit: re-derives the
+  // add/remove disabled bounds (2-4, the schema's own pill-set range), keeps
+  // the Default picker's options current, and persists.
+  function mqgRowChoicesChanged(rowEl, node) {
+    var list = rowEl.querySelector('[data-mqg-row-choices-list]');
+    var addBtn = rowEl.querySelector('[data-mqg-row-choice-add]');
+    var entries = list ? list.querySelectorAll('[data-mqg-choice-entry]') : [];
+    var i, rm;
+    for (i = 0; i < entries.length; i++) {
+      rm = entries[i].querySelector('[data-mqg-choice-remove]');
+      if (rm) { rm.disabled = entries.length <= 2; }
+    }
+    if (addBtn) { addBtn.disabled = entries.length >= 4; }
+    refreshMqgRowDefaultSelect(rowEl, mqgRowLiveEffectiveChoices(rowEl, node));
+    collectMqgRows();
+  }
   function buildMqgRowEditor(node, row, index, total) {
     var wrap = document.createElement('div');
     wrap.className = 'lg-choice-row'; wrap.setAttribute('data-mqg-row', '');
@@ -10051,6 +10150,50 @@ export const SECTION_STUDIO_SCRIPT = `
     rm.setAttribute('data-mqg-remove', String(index)); rm.setAttribute('aria-label', 'Remove sub-question'); rm.textContent = '\\u2715';
     rm.addEventListener('click', function () { removeMqgRow(index); });
     controls.appendChild(rm); wrap.appendChild(controls);
+    // P5 fix-round (PC-10) — per-row CUSTOM ANSWERS: a toggle + compact
+    // label/value entry list, checked/seeded from the row's OWN 'choices'
+    // when present (HONEST display: an existing override is never hidden —
+    // it renders as live, editable entries, not just a passive summary line).
+    var hasOverride = !!(row && Array.isArray(row.choices) && row.choices.length > 0);
+    var customWrap = document.createElement('div');
+    customWrap.className = 'lg-mqg-row-custom';
+    var customLabel = document.createElement('label'); customLabel.className = 'lg-check';
+    var customCb = document.createElement('input'); customCb.type = 'checkbox';
+    customCb.setAttribute('data-mqg-custom-choices', ''); customCb.checked = hasOverride;
+    customLabel.appendChild(customCb);
+    customLabel.appendChild(document.createTextNode(' Custom answers for this row'));
+    customWrap.appendChild(customLabel);
+    var list = document.createElement('div');
+    list.className = 'lg-mqg-row-choices-list'; list.setAttribute('data-mqg-row-choices-list', '');
+    list.hidden = !hasOverride;
+    var seedChoices = hasOverride ? row.choices : [];
+    var sci, onEntryChange = function () { mqgRowChoicesChanged(wrap, node); };
+    for (sci = 0; sci < seedChoices.length; sci++) { list.appendChild(buildMqgRowChoiceEntry(seedChoices[sci], onEntryChange)); }
+    customWrap.appendChild(list);
+    var addChoiceBtn = document.createElement('button'); addChoiceBtn.type = 'button';
+    addChoiceBtn.className = 'btn btn-sm btn-secondary'; addChoiceBtn.setAttribute('data-mqg-row-choice-add', '');
+    addChoiceBtn.textContent = '+ Add answer'; addChoiceBtn.hidden = !hasOverride;
+    addChoiceBtn.disabled = seedChoices.length >= 4;
+    addChoiceBtn.addEventListener('click', function () {
+      if (list.querySelectorAll('[data-mqg-choice-entry]').length >= 4) { return; }
+      list.appendChild(buildMqgRowChoiceEntry({}, onEntryChange));
+      mqgRowChoicesChanged(wrap, node);
+    });
+    customWrap.appendChild(addChoiceBtn);
+    customCb.addEventListener('change', function () {
+      var checked = customCb.checked;
+      list.hidden = !checked; addChoiceBtn.hidden = !checked;
+      if (checked && list.querySelectorAll('[data-mqg-choice-entry]').length === 0) {
+        // Re-enabling with nothing yet entered: seed from whatever is
+        // CURRENTLY the shared set, so "override" starts from a real, valid
+        // pill pair rather than an empty (immediately-invalid) list.
+        var seed = (node && node.choices && node.choices.length) ? node.choices : [];
+        var i2;
+        for (i2 = 0; i2 < seed.length && i2 < 4; i2++) { list.appendChild(buildMqgRowChoiceEntry(seed[i2], onEntryChange)); }
+      }
+      mqgRowChoicesChanged(wrap, node);
+    });
+    wrap.appendChild(customWrap);
     return wrap;
   }
   function populateMqgRows(node) {
@@ -10070,7 +10213,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var cont = mqgRowsContainer();
     if (!cont) { return; }
     var rowEls = cont.querySelectorAll('[data-mqg-row]');
-    var rows = [], i, el, labelEl, fieldEl, defEl, reqEl, row;
+    var rows = [], i, el, labelEl, fieldEl, defEl, reqEl, row, customCb, choices;
     for (i = 0; i < rowEls.length; i++) {
       el = rowEls[i];
       labelEl = el.querySelector('[data-mqg-field="label"]');
@@ -10080,6 +10223,15 @@ export const SECTION_STUDIO_SCRIPT = `
       row = { label: labelEl ? trimStr(labelEl.value) : '', internal_field: fieldEl ? trimStr(fieldEl.value) : '' };
       if (defEl && trimStr(defEl.value) !== '') { row['default'] = defEl.value; }
       if (reqEl && reqEl.checked) { row.required = true; }
+      // P5 fix-round (conductor-flagged residual, PC-10): PRESERVE a per-row
+      // choices override — read THIS row's OWN toggle + entries every time
+      // (never dropped just because an ADJACENT row's field changed and
+      // re-triggered this same collect across every row).
+      customCb = el.querySelector('[data-mqg-custom-choices]');
+      if (customCb && customCb.checked) {
+        choices = readMqgRowChoiceEntries(el);
+        if (choices.length > 0) { row.choices = choices; }
+      }
       rows.push(row);
     }
     if (!node.props) { node.props = {}; }
