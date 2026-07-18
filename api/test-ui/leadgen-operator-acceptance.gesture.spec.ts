@@ -169,12 +169,19 @@ async function seedLiveFunnel(
   tag: string,
   sectionIds: number[],
 ): Promise<{ host: string; slug: string }> {
+  // ALL identity here is namespaced to THIS suite: host/site-name/quote-name
+  // carry the "acc-"/"ACC " suite prefix (Acceptance) + the per-item tag
+  // (e.g. "item1") + a fresh Date.now()+random suffix — disjoint by
+  // construction from every other spec's fixtures (see the conductor-audited
+  // identity table in the phase report; grep "acc-" / "ACC " to verify no
+  // other test-ui/*.spec.ts file emits this prefix).
   const u = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
-  const host = `lg-op-${tag}-${u}.e2e.test`;
-  const siteId = await seedActiveSite(request, host, `Op ${tag} ${u}`);
+  const host = `acc-${tag}-${u}.e2e.test`;
+  const slug = `acc-${tag}`;
+  const siteId = await seedActiveSite(request, host, `ACC ${tag} ${u}`);
   const quote = await json<{ public_id: string; funnels: Array<{ variants: Array<{ public_id: string }> }> }>(
     await request.post(`${LG_API}/quotes`, {
-      data: { quote_name: `Op ${tag} ${u}`, activity: "quote_funnel", verticals: ["life"] },
+      data: { quote_name: `ACC ${tag} ${u}`, activity: "quote_funnel", verticals: ["life"] },
     }),
     "quote create",
   );
@@ -187,11 +194,11 @@ async function seedLiveFunnel(
   );
   await json(
     await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, {
-      data: { enabled: true, slug: tag },
+      data: { enabled: true, slug },
     }),
     "activation",
   );
-  return { host, slug: tag };
+  return { host, slug };
 }
 
 const shellUrl = (s: { host: string; slug: string }) => `http://${s.host}:${PORT}/lg/${s.slug}`;
@@ -199,7 +206,7 @@ const shellUrl = (s: { host: string; slug: string }) => `http://${s.host}:${PORT
 // A trivial trailing Section so an "advance" leg has somewhere to land (the p4b
 // NEXT pattern — section_index only increments when a next section exists).
 async function createNextSection(request: APIRequestContext): Promise<Created> {
-  return createStudioSection(request, `Op next ${uniq}-${Math.random().toString(36).slice(2, 7)}`, [
+  return createStudioSection(request, `ACC Next ${uniq}-${Math.random().toString(36).slice(2, 7)}`, [
     { type: "QuestionHeadline", question_id: "q_next_head", bind: "section_headline" },
     { type: "TwoButtonYesNo", question_id: "q_next", internal_field: "next_ok", props: { yesLabel: "Yes", noLabel: "No" } },
   ]);
@@ -334,7 +341,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     browserName,
   }) => {
     // Start from a headline-only Section, then BUILD the buttons in the studio.
-    const s = await createStudioSection(request, `Op1 buttons ${uniq}`, [
+    const s = await createStudioSection(request, `ACC Item1 buttons ${uniq}`, [
       { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
     ]);
     await bootStudio(page, s);
@@ -402,7 +409,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
 
     // LIVE: the SAME authored Section, attached to a funnel, renders the same
     // reference grid — centered in the card column (width:100% by construction).
-    const seeded = await seedLiveFunnel(request, "btn", [s.id]);
+    const seeded = await seedLiveFunnel(request, "item1", [s.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await expect(page.locator(`[data-question-id="${qid}"]`).first()).toBeVisible({ timeout: 15_000 });
     const liveM = await measureAnswerGrid(page, qid!, false);
@@ -426,7 +433,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     request,
     browserName,
   }) => {
-    const s = await createStudioSection(request, `Op2 drag ${uniq}`, [
+    const s = await createStudioSection(request, `ACC Item2 drag ${uniq}`, [
       { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
       { type: "TextBlock", question_id: "a", props: { role: "body", text: "Alpha" } },
       { type: "FreeTextQuestion", question_id: "b", internal_field: "b2", answer_type: "string", props: { placeholder: "Beta" } },
@@ -494,7 +501,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
 
     // LIVE PARITY: the drag-formed row renders side-by-side on the real funnel
     // (the same layout.row the studio saved).
-    const seeded = await seedLiveFunnel(request, "drag", [s.id]);
+    const seeded = await seedLiveFunnel(request, "item2", [s.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await expect(page.locator(".lg-el-row").first()).toBeVisible({ timeout: 15_000 });
     const liveMembers = await page.evaluate(() => {
@@ -520,7 +527,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     page,
     request,
   }) => {
-    const s = await createStudioSection(request, `Op3 spacing ${uniq}`, [
+    const s = await createStudioSection(request, `ACC Item3 spacing ${uniq}`, [
       { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
       { type: "TwoButtonYesNo", question_id: "q_yn", internal_field: "insured3", answer_type: "boolean" },
       {
@@ -580,7 +587,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
   }) => {
     // 3 components, 2 producers (NameFieldsGroup + ButtonAnswerGroup) → the
     // section can never auto-advance.
-    const s = await createStudioSection(request, `Op4 contact ${uniq}`, [
+    const s = await createStudioSection(request, `ACC Item4 contact ${uniq}`, [
       { type: "NameFieldsGroup", question_id: "q_name", required: true, props: {} },
       {
         type: "ButtonAnswerGroup",
@@ -632,7 +639,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
 
     // LIVE: the authored placeholders render, and the empty required name blocks
     // Continue with a VISIBLE, non-empty message.
-    const seeded = await seedLiveFunnel(request, "contact", [s.id]);
+    const seeded = await seedLiveFunnel(request, "item4", [s.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
     await expect(liveSection(page, 0).locator('input[data-name-field="first"]')).toHaveAttribute("placeholder", "Jane");
@@ -656,7 +663,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     request,
     browserName,
   }) => {
-    const s = await createStudioSection(request, `Op5 date ${uniq}`, [
+    const s = await createStudioSection(request, `ACC Item5 date ${uniq}`, [
       { type: "DateQuestion", question_id: "q_date", internal_field: "d", required: true, props: {} },
       { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
     ]);
@@ -679,7 +686,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     // is rejected 400 — never saved silently (the PC-A5 defect inverted).
     const garbage = await request.post(`${LG_API}/sections`, {
       data: {
-        section_name: `Op5 garbage ${uniq}`,
+        section_name: `ACC Item5 garbage ${uniq}`,
         activity: "quote_funnel",
         vertical: "life",
         headline_text: "Garbage date",
@@ -703,7 +710,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     // LIVE: the funnel enforces the CONCRETE resolved date (today+7) with the
     // exact message — never the literal "+7d" — and admits a date on/after it.
     const dateNext = await createNextSection(request);
-    const seeded = await seedLiveFunnel(request, "date", [s.id, dateNext.id]);
+    const seeded = await seedLiveFunnel(request, "item5", [s.id, dateNext.id]);
     const today = new Date();
     const iso = (dt: Date) => dt.toISOString().slice(0, 10);
     const min = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + 7));
@@ -738,7 +745,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     request,
     browserName,
   }) => {
-    const s = await createStudioSection(request, `Op6 email ${uniq}`, [
+    const s = await createStudioSection(request, `ACC Item6 email ${uniq}`, [
       {
         type: "EmailInputQuestion",
         question_id: "q_email",
@@ -763,7 +770,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
       return;
 
     // LIVE: a format failure surfaces the operator's OWN words in that slot.
-    const seeded = await seedLiveFunnel(request, "email", [s.id]);
+    const seeded = await seedLiveFunnel(request, "item6", [s.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
     await liveSection(page, 0).locator("[data-lg-input]").first().fill("not-an-email");
@@ -791,7 +798,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     // props.step is rejected 400 — a text field has no step (swap cleans it).
     const badStep = await request.post(`${LG_API}/sections`, {
       data: {
-        section_name: `Op7 badstep ${uniq}`,
+        section_name: `ACC Item7 badstep ${uniq}`,
         activity: "quote_funnel",
         vertical: "life",
         headline_text: "Step on text",
@@ -814,11 +821,11 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
 
     // LIVE: min:1 step:5 max:1000 → 502 is off-grid → blocked with the exact
     // nearest-valid message.
-    const num = await createStudioSection(request, `Op7 number ${uniq}`, [
+    const num = await createStudioSection(request, `ACC Item7 number ${uniq}`, [
       { type: "NumberInputQuestion", question_id: "q_n", internal_field: "n", required: true, props: { min: 1, max: 1000, step: 5 } },
       { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
     ]);
-    const seeded = await seedLiveFunnel(request, "step", [num.id]);
+    const seeded = await seedLiveFunnel(request, "item7", [num.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
     await liveSection(page, 0).locator("[data-lg-input]").first().fill("502");
@@ -841,7 +848,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     page,
     request,
   }) => {
-    const s = await createStudioSection(request, `Op8 delete ${uniq}`, [
+    const s = await createStudioSection(request, `ACC Item8 delete ${uniq}`, [
       { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
       {
         type: "ButtonAnswerGroup",
@@ -900,7 +907,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     expect(afterDelete.some((c) => c.type === "TwoButtonYesNo"), "the sibling survives in the persisted model").toBe(true);
 
     // NO PHANTOM TOAST: with nothing selected, Backspace is a silent no-op.
-    const s2 = await createStudioSection(request, `Op8 noop ${uniq}`, [
+    const s2 = await createStudioSection(request, `ACC Item8 noop ${uniq}`, [
       { type: "TwoButtonYesNo", question_id: "q1", internal_field: "a18", props: { yesLabel: "Yes", noLabel: "No" } },
     ]);
     await page.goto(`/admin/leadgen/sections/${s2.public_id}/edit`, { waitUntil: "domcontentloaded" });
@@ -977,7 +984,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     // edit) and round-trips it through a save that only touches OTHER rows.
     // leadgen-p5-multi-question-grid.gesture.spec.ts pins the same mechanism in
     // isolation (both engines) + an explicit toggle-off reverts-to-shared leg.
-    const s = await createStudioSection(request, `Op10 grid ${uniq}`, [
+    const s = await createStudioSection(request, `ACC Item10 grid ${uniq}`, [
       {
         type: "MultiQuestionGrid",
         question_id: "q_driver",
@@ -1084,7 +1091,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     // included via the component's config path) with Homeowner REQUIRED but
     // UN-defaulted → defaults pre-select (incl. Gender male), per-row required
     // blocks, a different pill updates, and answering the required row advances.
-    const liveGrid = await createStudioSection(request, `Op10 live grid ${uniq}`, [
+    const liveGrid = await createStudioSection(request, `ACC Item10 live grid ${uniq}`, [
       {
         type: "MultiQuestionGrid",
         question_id: "q_g",
@@ -1109,7 +1116,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
       { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
     ]);
     const gridNext = await createNextSection(request);
-    const seededLive = await seedLiveFunnel(request, "grid", [liveGrid.id, gridNext.id]);
+    const seededLive = await seedLiveFunnel(request, "item10", [liveGrid.id, gridNext.id]);
     await page.goto(shellUrl(seededLive), { waitUntil: "load" });
     await ready(page);
     // Defaults pre-selected live for the defaulted rows — incl. Gender's Male/
@@ -1137,8 +1144,8 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     // /lg/auction request context — a ZERO-CLICK advance past the grid (defaults
     // satisfy the required row) fires the auction.
     const auctCtx = await playwrightRequest.newContext({ baseURL: `http://127.0.0.1:${PORT}`, extraHTTPHeaders: {} });
-    const seededAuct = await seedFixP1Funnel(auctCtx, { hostPrefix: "lg-op-auct", slug: "opauct" });
-    const mqgAuct = await createStudioSection(auctCtx, `Op10 auction grid ${uniq}`, [
+    const seededAuct = await seedFixP1Funnel(auctCtx, { hostPrefix: "acc-item10-auct", slug: "acc-item10-auct" });
+    const mqgAuct = await createStudioSection(auctCtx, `ACC Item10 auction grid ${uniq}`, [
       {
         type: "MultiQuestionGrid",
         question_id: "q_grid",
@@ -1224,7 +1231,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     request,
     browserName,
   }) => {
-    const s = await createStudioSection(request, `Op11 cards ${uniq}`, [
+    const s = await createStudioSection(request, `ACC Item11 cards ${uniq}`, [
       { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
       {
         type: "IconCardAnswerGrid",
@@ -1296,7 +1303,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
       return;
 
     // LIVE: the authored orange renders EXACTLY, columns:3 holds, 48px icons.
-    const seeded = await seedLiveFunnel(request, "cards", [s.id]);
+    const seeded = await seedLiveFunnel(request, "item11", [s.id]);
     await page.setViewportSize({ width: 1280, height: 1400 });
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await expect(page.locator('[data-question-id="q_cards"] .lg-card').first()).toBeVisible({ timeout: 15_000 });
@@ -1344,7 +1351,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     request,
     browserName,
   }) => {
-    const s = await createStudioSection(request, `Op12 rules ${uniq}`, [
+    const s = await createStudioSection(request, `ACC Item12 rules ${uniq}`, [
       { type: "TwoButtonYesNo", question_id: "q_ins", internal_field: "currently_insured", answer_type: "boolean", props: { yesLabel: "Yes", noLabel: "No" } },
       { type: "FreeTextQuestion", question_id: "q_carrier", internal_field: "carrier", answer_type: "string", props: { placeholder: "Which carrier?" } },
       { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
@@ -1405,7 +1412,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     // LIVE (the previously-never-firing boolean-picker class): Carrier + Continue
     // hidden until "Are you insured?" is answered Yes with a REAL click.
     const rulesNext = await createNextSection(request);
-    const seeded = await seedLiveFunnel(request, "rules", [s.id, rulesNext.id]);
+    const seeded = await seedLiveFunnel(request, "item12", [s.id, rulesNext.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
     const carrierEl = page.locator('[data-lg-question="q_carrier"]');
