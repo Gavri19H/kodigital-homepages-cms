@@ -26,15 +26,83 @@
 //   M2 — "New theme" click -> POST -> redirect -> selected glue.
 //   M3 — the 3 previously-rendered-but-unasserted Appendix-A strings.
 //
-// Screenshots (1280x800) land in test-artifacts/leadgen-theme-manager/.
+// CONDUCTOR ROUND (gate1c-unmasked defect; register note: themes have
+// CREATE/UPDATE but NO DELETE endpoint — contract §10.1 explicitly excluded
+// it, an open product gap, see the mission report): this file used to mint
+// a FRESH `Date.now()`-suffixed theme/quote/funnel trio on EVERY ONE of its
+// own 11 tests (seedThemesFixture called per-test, not once) — with no
+// delete endpoint to clean any of it up, 11 tests x however many file-runs
+// meant the "YOUR THEMES" list only ever grew, across the whole program's
+// lifetime, never shrank. Converted to a SINGLE, file-level, FIXED-NAME
+// idempotent fixture (ensureThemesFixture, called once in beforeAll):
+// "Navy"/"Bold Yellow"/"Minimal" are found-by-exact-name and RESET (PATCH)
+// if they already exist, created fresh only the very first time — the SAME
+// 3 records are reused forever after, in any composition, on any machine.
+// The quote/funnel/variant tree is idempotent the same way (found by exact
+// quote_name, its funnels detail re-fetched, re-PATCHed/re-PUT to the exact
+// desired split/theme state every time) so repeated runs never accumulate
+// duplicates. leadgen-v31-gate1c-baselines.spec.ts's own beforeAll seeds the
+// IDENTICAL "Navy"/"Bold Yellow"/"Minimal" names (see its own matching
+// comment) so whichever file runs first creates them and the second one
+// just reuses them — the themes-list CONTENT (name/colours/typography/
+// controls) converges to the same superset regardless of composition order.
+//
+// That convergence is necessary but turned out NOT sufficient for gate1c's
+// own state-6/7 screenshots to be composition-invariant: a SEPARATE axis —
+// which funnel/variant currently references a theme_id, hence its
+// DRAFT/LIVE·A/A/B·B badge and the whole right-hand detail panel — lives on
+// the funnel/variant records THIS file's own ensureThemesFixture assigns
+// (Navy -> Auto Insurance·Variant A + Home Insurance·Variant A; Bold Yellow
+// -> Auto Insurance·Variant B), and no per-file theme-naming convention can
+// make that assignment state invariant too without one file reaching into
+// another's fixture data. Measured directly (conductor composition proof:
+// this file's tests, then gate1c-baselines, same D1/KV session): the Navy
+// state's pixel delta was 1.87% — ~19x the 0.1% gate budget — root-caused to
+// exactly this (Navy showing "Assigned to Auto Insurance · Variant A" +
+// a live "In this quote" A/B panel instead of "Not assigned to a funnel
+// yet" / "No others yet."). Full diagnosis + the resolution (gate1c's
+// states 6/7 are now solo-only BY DESIGN, self-detecting and skipping
+// loudly rather than reporting a false red) lives in
+// leadgen-v31-gate1c-baselines.spec.ts's own file header — this file's
+// fixture (assigning Navy/Bold Yellow to real funnels) is exactly the
+// trigger those two tests detect and skip on.
+//
+// M2's "+ New theme" click below used to mint a genuinely NEW, permanently-
+// growing theme record on every run of this file (no name to de-dup on —
+// the product always calls it literally "New theme" — and no DELETE
+// endpoint to clean any of them up; see the register note above). Converted
+// (conductor ruling) to a page.route-MOCKED POST: the click -> fetch ->
+// parse-response -> redirect GLUE the ES5 island (wireNewTheme) owns is
+// still exercised for real — a genuine click fires a genuine fetch, which
+// the route handler intercepts and fulfils with a canned body — but no
+// record is ever actually written to KV, so this test now creates zero
+// persistent state. Honesty boundary: the REAL POST /themes create path
+// (body validation, id-minting, KV write) is exercised for real, without
+// mocking, elsewhere — themes-handlers.ts's own unit suite, and this very
+// file's ensureTheme (a real POST the very first time each fixture theme is
+// created, a real PATCH on every run thereafter).
 
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 
-test.use({ viewport: { width: 1280, height: 800 } });
-
 const SHOT_DIR = 'test-artifacts/leadgen-theme-manager';
 const LG_API = '/api/admin/leadgen';
-const uniq = Date.now();
+
+// Fixed, idempotent fixture identity. The 3 THEME names MUST MATCH
+// leadgen-v31-gate1c-baselines.spec.ts's own copy of these exact same
+// strings (see that file's matching comment) — that is the whole point:
+// both files' "ensure this theme exists" converges on the SAME 3 records
+// regardless of which one runs first. The quote/funnel names are private to
+// this file (gate1c never creates a quote), so they only need to be
+// internally consistent.
+const NAVY_NAME = 'Navy';
+const BOLD_NAME = 'Bold Yellow';
+const MINIMAL_NAME = 'Minimal';
+const QUOTE_NAME = 'TM Fixture Quote';
+const ACTIVITY = 'tm-fixture';
+const AUTO_FUNNEL_NAME = 'TM Fixture Auto Insurance';
+const HOME_FUNNEL_NAME = 'TM Fixture Home Insurance';
+const BACK_NAV_SECTION_NAME = 'TM Back Nav Fixture';
+const MANAGE_RT_SECTION_NAME = 'TM Manage RT Fixture';
 
 async function json<T>(
   res: { ok(): boolean; status(): number; json(): Promise<unknown>; text(): Promise<string> },
@@ -54,16 +122,23 @@ interface ThemeRecordApi {
 interface ThemeCreated {
   item: ThemeRecordApi;
 }
-interface FunnelVariant {
+interface FunnelVariantApi {
   public_id: string;
+  variant_label: string;
 }
-interface QuoteCreated {
+interface QuoteFunnelApi {
   public_id: string;
-  funnels: Array<{ public_id: string; variants: FunnelVariant[] }>;
+  funnel_name: string;
+  variants: FunnelVariantApi[];
 }
-interface FunnelCreated {
+interface QuoteDetailApi {
   public_id: string;
-  variants: FunnelVariant[];
+  quote_name: string;
+  funnels: QuoteFunnelApi[];
+}
+interface QuoteListItemApi {
+  public_id: string;
+  quote_name: string;
 }
 
 function themeBody(name: string, brand: string, accent: string, pageBg: string, card: string, text: string): Record<string, unknown> {
@@ -77,11 +152,38 @@ function themeBody(name: string, brand: string, accent: string, pageBg: string, 
   };
 }
 
+// Idempotent: find an EXISTING theme by exact name (themes have no unique
+// index or delete endpoint, so a name match is the only handle available —
+// see the file header's register note) and reset it via PATCH to the
+// desired shape; only POSTs a new record the very first time it has never
+// existed at all.
+async function ensureTheme(
+  request: APIRequestContext,
+  name: string,
+  brand: string,
+  accent: string,
+  pageBg: string,
+  card: string,
+  text: string,
+): Promise<ThemeRecordApi> {
+  const list = await json<{ items: ThemeRecordApi[] }>(await request.get(`${LG_API}/themes`), `list themes (finding ${name})`);
+  const existing = list.items.find((t) => t.name === name);
+  const body = themeBody(name, brand, accent, pageBg, card, text);
+  if (existing) {
+    return (await json<ThemeCreated>(await request.patch(`${LG_API}/themes/${existing.id}`, { data: body }), `reset existing theme (${name})`)).item;
+  }
+  return (await json<ThemeCreated>(await request.post(`${LG_API}/themes`, { data: body }), `create theme (${name})`)).item;
+}
+
 // §10.3 fixture: Navy -> Auto Insurance/Variant A (control, 60%) AND Home
 // Insurance/Variant A; Bold Yellow -> Auto Insurance/Variant B (A/B, 40%);
 // Minimal -> unused (DRAFT). Ground truth: golden lines 646/650/654 + §10.4's
-// thm_navy example.
-async function seedThemesFixture(request: APIRequestContext): Promise<{
+// thm_navy example. Fully idempotent (file header) — safe to call any
+// number of times, in any composition with any other spec file: finds and
+// reuses existing records by exact name, always re-applies the theme/split
+// PUTs so a prior run's mutation (e.g. the fixture-value-rule test's 75/25
+// re-point) never leaks into a later one.
+async function ensureThemesFixture(request: APIRequestContext): Promise<{
   navy: ThemeRecordApi;
   bold: ThemeRecordApi;
   minimal: ThemeRecordApi;
@@ -90,27 +192,61 @@ async function seedThemesFixture(request: APIRequestContext): Promise<{
   variantAId: string;
   variantBId: string;
 }> {
-  const navy = (
-    await json<ThemeCreated>(await request.post(`${LG_API}/themes`, { data: themeBody(`Navy ${uniq}`, '#1B3A5C', '#F5C518', '#F4F6F9', '#FFFFFF', '#1A1F36') }), 'create navy')
-  ).item;
-  const bold = (
-    await json<ThemeCreated>(await request.post(`${LG_API}/themes`, { data: themeBody(`Bold Yellow ${uniq}`, '#13233B', '#F5C518', '#FFF7DE', '#FFFFFF', '#14181F') }), 'create bold')
-  ).item;
-  const minimal = (
-    await json<ThemeCreated>(await request.post(`${LG_API}/themes`, { data: themeBody(`Minimal ${uniq}`, '#232A34', '#6B7486', '#FFFFFF', '#F6F8FA', '#14181F') }), 'create minimal')
-  ).item;
+  const navy = await ensureTheme(request, NAVY_NAME, '#1B3A5C', '#F5C518', '#F4F6F9', '#FFFFFF', '#1A1F36');
+  const bold = await ensureTheme(request, BOLD_NAME, '#13233B', '#F5C518', '#FFF7DE', '#FFFFFF', '#14181F');
+  const minimal = await ensureTheme(request, MINIMAL_NAME, '#232A34', '#6B7486', '#FFFFFF', '#F6F8FA', '#14181F');
 
-  const quote = await json<QuoteCreated>(
-    await request.post(`${LG_API}/quotes`, {
-      data: { quote_name: `Themes Manager Fixture ${uniq}`, activity: `tm-quote-${uniq}`, verticals: ['auto'], funnel_name: `Auto Insurance ${uniq}` },
-    }),
-    'create quote',
+  const quoteList = await json<{ items: QuoteListItemApi[] }>(
+    await request.get(`${LG_API}/quotes?search=${encodeURIComponent(QUOTE_NAME)}`),
+    'list quotes (finding fixture)',
   );
-  const autoFunnelId = quote.funnels[0]!.public_id;
-  const variantAId = quote.funnels[0]!.variants[0]!.public_id;
+  const existingQuote = quoteList.items.find((q) => q.quote_name === QUOTE_NAME);
 
-  const variantB = await json<FunnelVariant>(await request.post(`${LG_API}/funnels/${autoFunnelId}/variants`, { data: {} }), 'create variant B');
-  const variantBId = variantB.public_id;
+  let quotePublicId: string;
+  let autoFunnelId: string;
+  let variantAId: string;
+  let variantBId: string | undefined;
+  let homeFunnelId: string | undefined;
+
+  if (existingQuote) {
+    quotePublicId = existingQuote.public_id;
+    const detail = await json<QuoteDetailApi>(await request.get(`${LG_API}/quotes/${quotePublicId}`), 'get existing fixture quote detail');
+    const autoFunnel = detail.funnels.find((f) => f.funnel_name === AUTO_FUNNEL_NAME);
+    if (!autoFunnel) {
+      throw new Error(`fixture quote "${QUOTE_NAME}" exists but its "${AUTO_FUNNEL_NAME}" funnel is missing — inspect local state`);
+    }
+    autoFunnelId = autoFunnel.public_id;
+    const variantA = autoFunnel.variants.find((v) => v.variant_label === 'A');
+    if (!variantA) {
+      throw new Error(`fixture funnel "${AUTO_FUNNEL_NAME}" exists but its control variant A is missing`);
+    }
+    variantAId = variantA.public_id;
+    variantBId = autoFunnel.variants.find((v) => v.variant_label !== 'A')?.public_id;
+    homeFunnelId = detail.funnels.find((f) => f.funnel_name === HOME_FUNNEL_NAME)?.public_id;
+  } else {
+    const quote = await json<QuoteDetailApi>(
+      await request.post(`${LG_API}/quotes`, {
+        data: { quote_name: QUOTE_NAME, activity: ACTIVITY, verticals: ['auto'], funnel_name: AUTO_FUNNEL_NAME },
+      }),
+      'create fixture quote',
+    );
+    quotePublicId = quote.public_id;
+    autoFunnelId = quote.funnels[0]!.public_id;
+    variantAId = quote.funnels[0]!.variants[0]!.public_id;
+  }
+
+  if (variantBId === undefined) {
+    variantBId = (await json<FunnelVariantApi>(await request.post(`${LG_API}/funnels/${autoFunnelId}/variants`, { data: {} }), 'create variant B'))
+      .public_id;
+  }
+  if (homeFunnelId === undefined) {
+    homeFunnelId = (
+      await json<{ public_id: string }>(
+        await request.post(`${LG_API}/quotes/${quotePublicId}/funnels`, { data: { funnel_name: HOME_FUNNEL_NAME } }),
+        'create home insurance funnel',
+      )
+    ).public_id;
+  }
 
   await json(await request.put(`${LG_API}/funnels/${autoFunnelId}/theme`, { data: { theme_json: { theme_id: navy.id } } }), 'set funnel theme');
   await json(await request.put(`${LG_API}/variants/${variantAId}`, { data: { traffic_allocation_bp: 6000 } }), 'set variant A split');
@@ -118,14 +254,9 @@ async function seedThemesFixture(request: APIRequestContext): Promise<{
     await request.put(`${LG_API}/variants/${variantBId}`, { data: { traffic_allocation_bp: 4000, frame_overrides_json: { theme_id: bold.id } } }),
     'set variant B split+theme',
   );
+  await json(await request.put(`${LG_API}/funnels/${homeFunnelId}/theme`, { data: { theme_json: { theme_id: navy.id } } }), 'set home funnel theme');
 
-  const homeFunnel = await json<FunnelCreated>(
-    await request.post(`${LG_API}/quotes/${quote.public_id}/funnels`, { data: { funnel_name: `Home Insurance ${uniq}` } }),
-    'create home insurance funnel',
-  );
-  await json(await request.put(`${LG_API}/funnels/${homeFunnel.public_id}/theme`, { data: { theme_json: { theme_id: navy.id } } }), 'set home funnel theme');
-
-  return { navy, bold, minimal, autoFunnelId, homeFunnelId: homeFunnel.public_id, variantAId, variantBId };
+  return { navy, bold, minimal, autoFunnelId, homeFunnelId, variantAId, variantBId };
 }
 
 function cardLocator(page: Page, themeId: string) {
@@ -133,9 +264,14 @@ function cardLocator(page: Page, themeId: string) {
 }
 
 test.describe.serial('LeadGen Themes manager — §10 browser flows (Phase D)', () => {
-  test('LEFT list: one card per theme with computed LIVE·A / A/B·B / DRAFT badges (§10.3, Appendix A)', async ({ page }) => {
-    const fx = await seedThemesFixture(page.request);
+  let fx: Awaited<ReturnType<typeof ensureThemesFixture>>;
+  test.beforeAll(async ({ playwright }) => {
+    const ctx = await playwright.request.newContext();
+    fx = await ensureThemesFixture(ctx);
+    await ctx.dispose();
+  });
 
+  test('LEFT list: one card per theme with computed LIVE·A / A/B·B / DRAFT badges (§10.3, Appendix A)', async ({ page }) => {
     await page.goto(`/admin/leadgen/themes?theme=${fx.navy.id}`, { waitUntil: 'domcontentloaded' });
     await expect(page.getByText('Themes', { exact: true })).toBeVisible();
     await expect(page.getByText('one look & feel per funnel · A/B-testable in a quote')).toBeVisible();
@@ -157,10 +293,9 @@ test.describe.serial('LeadGen Themes manager — §10 browser flows (Phase D)', 
   });
 
   test('selecting a card re-skins the CENTER editor (themeUse line + Colors/Typography/Controls) and the RIGHT A/B panel', async ({ page }) => {
-    const fx = await seedThemesFixture(page.request);
     await page.goto(`/admin/leadgen/themes?theme=${fx.navy.id}`, { waitUntil: 'domcontentloaded' });
 
-    await expect(page.getByText(`Assigned to Auto Insurance ${uniq} · Variant A`, { exact: false })).toBeVisible();
+    await expect(page.getByText(`Assigned to ${AUTO_FUNNEL_NAME} · Variant A`, { exact: false })).toBeVisible();
     await expect(page.getByText('Colors — semantic roles')).toBeVisible();
     await expect(page.getByText('Buttons & inputs — the shared size language')).toBeVisible();
     await expect(page.locator('#tm-headline-font')).toHaveValue('Newsreader');
@@ -168,31 +303,30 @@ test.describe.serial('LeadGen Themes manager — §10 browser flows (Phase D)', 
     // §10.5: "In this quote" A/B box shows BOTH sibling variants (the SAME
     // funnel's full variant set), live 60%/40%, before any card click.
     await expect(page.getByText('In this quote')).toBeVisible();
-    await expect(page.getByText(`Auto Insurance ${uniq}`, { exact: true })).toBeVisible();
+    await expect(page.getByText(AUTO_FUNNEL_NAME, { exact: true })).toBeVisible();
     await expect(page.getByText('A/B test · Theme')).toBeVisible();
     await expect(page.getByText('60%')).toBeVisible();
     await expect(page.getByText('40%')).toBeVisible();
     await expect(page.getByText('Other funnels using this theme')).toBeVisible();
-    await expect(page.getByText(`Home Insurance ${uniq} · Variant A`)).toBeVisible();
+    await expect(page.getByText(`${HOME_FUNNEL_NAME} · Variant A`)).toBeVisible();
 
     // click the Bold Yellow card (full navigation, per the ES5-guardrail
     // "plain fetch without a complex island" steer) -> CENTER + RIGHT re-skin
     const boldCard = cardLocator(page, fx.bold.id);
     await boldCard.click();
     await page.waitForLoadState('domcontentloaded');
-    await expect(page.getByText(`Assigned to Auto Insurance ${uniq} · Variant B · A/B test`)).toBeVisible();
+    await expect(page.getByText(`Assigned to ${AUTO_FUNNEL_NAME} · Variant B · A/B test`)).toBeVisible();
     // same funnel's A/B box still shows both variants...
     await expect(page.getByText('60%')).toBeVisible();
     await expect(page.getByText('40%')).toBeVisible();
     // ...but Bold Yellow has no OTHER funnel usage -> "No others yet."
     await expect(page.getByText('No others yet.')).toBeVisible();
-    await expect(page.getByText(`Home Insurance ${uniq} · Variant A`)).toHaveCount(0);
+    await expect(page.getByText(`${HOME_FUNNEL_NAME} · Variant A`)).toHaveCount(0);
 
     await page.screenshot({ path: `${SHOT_DIR}/d2-center-right-reskin.png` });
   });
 
   test('an editor edit PATCHes the theme and PERSISTS across reload (§10.4 Buttons & inputs)', async ({ page }) => {
-    const fx = await seedThemesFixture(page.request);
     await page.goto(`/admin/leadgen/themes?theme=${fx.navy.id}`, { waitUntil: 'domcontentloaded' });
 
     const large = page.locator('[data-tm-seg][data-group="button_size"][data-value="l"]');
@@ -220,7 +354,6 @@ test.describe.serial('LeadGen Themes manager — §10 browser flows (Phase D)', 
   });
 
   test('editing a hex value under Advanced round-trips (the ONLY place hex appears, §10.4)', async ({ page }) => {
-    const fx = await seedThemesFixture(page.request);
     await page.goto(`/admin/leadgen/themes?theme=${fx.minimal.id}`, { waitUntil: 'domcontentloaded' });
 
     await expect(page.locator('#tm-adv-body')).toBeHidden();
@@ -243,7 +376,6 @@ test.describe.serial('LeadGen Themes manager — §10 browser flows (Phase D)', 
   });
 
   test('fixture-value rule: re-pointing the split away from 60/40 changes the rendered percentages (proves LIVE, not hardcoded)', async ({ page }) => {
-    const fx = await seedThemesFixture(page.request);
     await page.request.put(`${LG_API}/variants/${fx.variantAId}`, { data: { traffic_allocation_bp: 7500 } });
     await page.request.put(`${LG_API}/variants/${fx.variantBId}`, { data: { traffic_allocation_bp: 2500 } });
 
@@ -255,7 +387,6 @@ test.describe.serial('LeadGen Themes manager — §10 browser flows (Phase D)', 
   });
 
   test('an unused theme shows DRAFT + "Not assigned to a funnel yet" + "No others yet." (no crash)', async ({ page }) => {
-    const fx = await seedThemesFixture(page.request);
     await page.goto(`/admin/leadgen/themes?theme=${fx.minimal.id}`, { waitUntil: 'domcontentloaded' });
     await expect(page.getByText('Not assigned to a funnel yet')).toBeVisible();
     await expect(page.getByText('No others yet.')).toBeVisible();
@@ -263,13 +394,12 @@ test.describe.serial('LeadGen Themes manager — §10 browser flows (Phase D)', 
   });
 
   test('"Back to section" nav: ?from=<sectionPublicId> targets that section\'s editor', async ({ page }) => {
-    const fx = await seedThemesFixture(page.request);
     const section = await json<{ public_id: string }>(
       await page.request.post(`${LG_API}/sections`, {
         data: {
-          section_name: `TM Back Nav ${uniq}`,
-          activity: `tm-back-${uniq}`,
-          vertical: `tm-back-v-${uniq}`,
+          section_name: BACK_NAV_SECTION_NAME,
+          activity: 'tm-back-fixture',
+          vertical: 'tm-back-v-fixture',
           headline_text: 'Back nav fixture',
           continue_mode: 'button',
           status: 'active',
@@ -292,13 +422,12 @@ test.describe.serial('LeadGen Themes manager — §10 browser flows (Phase D)', 
   });
 
   test('M1: "Manage theme →" round-trip from a REAL section now RETURNS to that section (both fixed hrefs)', async ({ page }) => {
-    const fx = await seedThemesFixture(page.request);
     const section = await json<{ public_id: string }>(
       await page.request.post(`${LG_API}/sections`, {
         data: {
-          section_name: `TM Manage RT ${uniq}`,
-          activity: `tm-rt-${uniq}`,
-          vertical: `tm-rt-v-${uniq}`,
+          section_name: MANAGE_RT_SECTION_NAME,
+          activity: 'tm-rt-fixture',
+          vertical: 'tm-rt-v-fixture',
           headline_text: 'Manage theme round trip',
           continue_mode: 'button',
           status: 'active',
@@ -366,43 +495,68 @@ test.describe.serial('LeadGen Themes manager — §10 browser flows (Phase D)', 
     await page.screenshot({ path: `${SHOT_DIR}/d4-manage-theme-roundtrip.png` });
   });
 
-  test('M2: "New theme" click -> POST -> redirect to ?theme=<newId> -> the new theme renders selected', async ({ page }) => {
-    // The POST API + payload shape are already proven (unit tests +
-    // themes-handlers.ts's own suite) — this covers the click->redirect glue
-    // the ES5 island (wireNewTheme) owns. The new theme's id is read back
-    // from the POST-redirect URL (NOT the POST response body): the island's
-    // `window.location.href = ...` reassignment fires immediately inside the
-    // same fetch .then(), which tears down the response's CDP resource
-    // before Playwright can reliably read its body — a known race, not a
-    // product bug. Reading the id from the LANDED url sidesteps it and is
-    // exactly the same signal the coordinator asked to prove either way.
+  test('M2: "New theme" click -> POST (mocked, see file header) -> redirect to ?theme=<id> -> the glue fired', async ({ page }) => {
+    // The POST API + payload shape are already proven FOR REAL, without
+    // mocking, elsewhere (themes-handlers.ts's own unit suite, and this
+    // file's own ensureTheme's real create-on-first-use calls above) — this
+    // test covers ONLY the click->redirect GLUE the ES5 island
+    // (wireNewTheme) owns. Mocked (page.route) per conductor ruling: this
+    // was the one place in the whole program that clicked "+ New theme" for
+    // real, and a real click here mints a theme record the product can
+    // never delete (no DELETE endpoint — see the register note above) — 11
+    // tests x every file-run meant the "YOUR THEMES" list only ever grew.
+    // The mock removes that growth vector entirely: the button click, the
+    // fetch it fires, and the client's handling of the response are all
+    // still exercised for real; only the SERVER's create is replaced with a
+    // canned 201 so no KV write ever happens.
+    const MOCK_ID = 'thm_mock_m2_new_theme';
+    await page.route('**/api/admin/leadgen/themes', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          item: {
+            id: MOCK_ID,
+            name: 'New theme',
+            roles: { brand_primary: '#1B3A5C', accent: '#2E6BB0', page_bg: '#FFFFFF', card: '#FFFFFF', text: '#1A1F36', success: '#0E7C3A', error: '#B23A2C' },
+          },
+        }),
+      });
+    });
+
     await page.goto('/admin/leadgen/themes', { waitUntil: 'domcontentloaded' });
 
     const [postRes] = await Promise.all([
       page.waitForResponse((res) => res.url().endsWith('/api/admin/leadgen/themes') && res.request().method() === 'POST'),
       page.locator('#tm-new-theme').click(),
     ]);
-    expect(postRes.status(), 'POST create New theme').toBe(201);
+    expect(postRes.status(), 'POST create New theme (mocked)').toBe(201);
 
-    await page.waitForURL(/[?&]theme=/, { waitUntil: 'domcontentloaded' }); // the click -> POST -> redirect glue under test
+    // wireNewTheme reads data.item.id from the (mocked) response body and
+    // navigates to /admin/leadgen/themes?theme=<that id> — the redirect
+    // landing on the MOCKED id is exactly the glue under test.
+    await page.waitForURL(/[?&]theme=/, { waitUntil: 'domcontentloaded' });
     const newId = new URL(page.url()).searchParams.get('theme');
-    expect(newId, 'redirects to ?theme=<newId>').toBeTruthy();
+    expect(newId, "redirects using the mocked response's item.id").toBe(MOCK_ID);
 
-    const newCard = cardLocator(page, newId as string);
-    await expect(newCard).toBeVisible();
-    await expect(newCard).toContainText('New theme');
-    await expect(newCard).toContainText('DRAFT'); // brand new, unused by any funnel/variant
-    const style = await newCard.getAttribute('style');
-    expect(style, 'the new theme lands SELECTED (active card border)').toContain('#1B3A5C');
-
-    await expect(page.locator('#tm-headline-font')).toHaveValue('Newsreader'); // the seeded default persisted
-
-    const record = await json<{ item: { name: string } }>(await page.request.get(`${LG_API}/themes/${newId}`), 'get new theme');
-    expect(record.item.name).toBe('New theme');
+    // Honesty boundary (not asserted past this point): no real "New theme"
+    // record was ever written to KV, so the landed page necessarily falls
+    // back to SOME real selection for this unrecognised id — precisely the
+    // already-covered "an unknown ?theme= id degrades gracefully" behaviour
+    // below, not a new claim. Re-asserting "New theme"/DRAFT/selected-style/
+    // persisted-font here would be asserting against a record that was
+    // deliberately never created; that create-then-render path is proven
+    // for real by ensureTheme's own POST + this describe's OTHER tests
+    // (which select fx.navy/fx.bold/fx.minimal — all real, PATCH-reset
+    // records — and assert their rendered content).
+    await expect(page.getByText('Your themes')).toBeVisible();
   });
 
   test('M3: Appendix-A strings rendered but previously unasserted (footer note, "for developers", Advanced intro)', async ({ page }) => {
-    const fx = await seedThemesFixture(page.request);
     await page.goto(`/admin/leadgen/themes?theme=${fx.navy.id}`, { waitUntil: 'domcontentloaded' });
 
     // LEFT list footer note (full sentence, spans a <b> boundary).
@@ -423,14 +577,13 @@ test.describe.serial('LeadGen Themes manager — §10 browser flows (Phase D)', 
   test('an unknown ?theme= id degrades gracefully to SOME real selection, never a crash', async ({ page }) => {
     // NOTE: this spec's tests share one wrangler-dev instance (and thus one
     // KV store) across the whole .serial run, so "falls back to the FIRST
-    // theme" is not independently provable here (several earlier tests have
-    // already appended their own fixture themes ahead of this one) — that
+    // theme" is not independently provable here (the fixture trio plus M2's
+    // own "New theme" have already appended ahead of this one) — that
     // precise, order-sensitive claim is covered in isolation by
     // test/leadgen-theme-manager-ui.test.ts's fresh-per-test harness. This
     // browser-level check proves the weaker, still load-bearing claim: an
     // unrecognised ?theme= id never 500s and still lands on a real,
     // structurally-complete manager page with SOME theme selected.
-    await seedThemesFixture(page.request);
     const res = await page.request.get('/admin/leadgen/themes?theme=thm_does_not_exist_at_all');
     expect(res.status()).toBe(200);
     const body = await res.text();

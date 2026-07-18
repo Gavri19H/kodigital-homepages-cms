@@ -608,7 +608,21 @@ export const THEME_MGR_STYLES = `
 /* R4a E3-NEW-6: the theme-name input reads as plain text until touched. */
 .tm-name-input:hover,.tm-name-input:focus{border-color:${TM_COLOR.backHoverBorder};background:#fff}
 .tm-name-input:focus-visible{outline:2px solid ${TM_COLOR.navy};outline-offset:1px}
-.tm-shell{position:relative;display:flex;flex-direction:column;min-height:0;border-radius:14px;overflow:hidden;border:1px solid #C4CCD9;background:${TM_COLOR.appBg}}
+/* Conductor ruling (gate1c-unmasked defect): this shell had NO height bound
+   at all (only min-height:0, a flex-shrink enabler, not a ceiling) while its
+   3 columns (LEFT list / CENTER editor / RIGHT panel, below) each already
+   carry their OWN overflow-y:auto -- inert without a bounded ancestor to
+   scroll WITHIN, so the "YOUR THEMES" list (and, structurally, every other
+   column) just grew the whole page taller with every accumulated theme
+   record instead of scrolling internally. Grounded in the page's own layout
+   system (templates/layout.ts): --header-h is 60px (.admin-header, sticky)
+   and .admin-content carries a 24px top padding before this shell starts --
+   104px consumed above it, plus a matching 24px breathing gap below (the
+   same value as the top padding, for visual symmetry) = 108px. overflow:
+   hidden (already set below) clips anything that still doesn't fit within
+   that bound; the per-column overflow-y:auto is what actually makes the
+   list (and the other 2 columns) scroll internally instead.  */
+.tm-shell{position:relative;display:flex;flex-direction:column;min-height:0;height:calc(100vh - 108px);border-radius:14px;overflow:hidden;border:1px solid #C4CCD9;background:${TM_COLOR.appBg}}
 .tm-body{flex:1 1 auto;display:flex;min-height:640px}
 `;
 
