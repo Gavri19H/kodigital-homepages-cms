@@ -464,13 +464,20 @@ describe("Gate 1a parity — question strip (Appendix D)", () => {
 // ===========================================================================
 
 describe("Gate 1a parity — component library tile SVGs (Appendix D, source-constant level)", () => {
-  it("STUDIO_LIBRARY_GROUPS carries every one of the 20 unique §5.5 data-names, and each tile's svg is byte-identical to the golden", () => {
+  it("STUDIO_LIBRARY_GROUPS carries every one of the 20 unique §5.5 data-names, and each golden tile's svg is byte-identical to the golden", () => {
     const allTiles = STUDIO_LIBRARY_GROUPS.flatMap((g) => g.tiles);
     const builtDataNames = new Set(allTiles.map((t) => t.dataName));
     for (const dataName of GOLDEN_TILE_DATA_NAMES) {
       expect(builtDataNames.has(dataName), `missing tile data-name=${dataName}`).toBe(true);
     }
+    // P5 (PC-10): the v3.1 golden master captures the v3.1 palette; a POST-golden
+    // tile (the "question grid…" MultiQuestionGrid asset, register golden:false)
+    // has no v3.1 golden SVG to byte-match, so the SVG-parity check is scoped to
+    // the golden tiles — its presence/label/order are proven by the enumeration
+    // legs (leadgen-section-studio-ui / gate4) instead.
+    const goldenNames = new Set<string>(GOLDEN_TILE_DATA_NAMES);
     for (const tile of allTiles) {
+      if (!goldenNames.has(tile.dataName)) continue;
       const goldenSvgs = goldenTileSvgs(tile.dataName as (typeof GOLDEN_TILE_DATA_NAMES)[number]);
       expect(goldenSvgs, `tile "${tile.dataName}" svg not byte-identical to golden`).toContain(tile.svg);
     }
@@ -485,7 +492,7 @@ describe("Gate 1a parity — component library tile SVGs (Appendix D, source-con
     }
   });
 
-  it("§5.6 Answer-fields group holds exactly the 12 contract tiles, in order", () => {
+  it("§5.6 Answer-fields group holds the 12 v3.1 contract tiles + P5 Question grid, in order", () => {
     const group = STUDIO_LIBRARY_GROUPS.find((g) => g.key === "answer-fields")!;
     expect(group.tiles.map((t) => t.label)).toEqual([
       "Buttons",
@@ -493,6 +500,7 @@ describe("Gate 1a parity — component library tile SVGs (Appendix D, source-con
       "Yes / No",
       "Dropdown",
       "Multi-select",
+      "Question grid",
       "Short text",
       "Number",
       "Amount",

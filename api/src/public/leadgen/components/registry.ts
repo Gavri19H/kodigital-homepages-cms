@@ -88,6 +88,18 @@ export const COMPONENT_CATALOG = {
   IconCardAnswerGrid: { category: "question", scope: "unit", produces: "enum", props: ["internal_field","columns(2..5)","choices[{icon,label,description?,value,analytics_id,style?}]","required"], validation: ["one selected if required"], events: ["answer_click"], tokenSlots: ["iconCardGrid","iconCard"], capabilityExample: "screenshot: 'What type of business?' Sole Proprietor/Partnership/LLC/C-Corp/S-Corp icon cards" },
   ImageCardAnswerGrid:{ category: "question", scope: "unit", produces: "enum", props: ["internal_field","columns","choices[{imageMediaId,label,value,style?}]","searchable?","required"], validation: ["one selected if required"], events: ["answer_click"], tokenSlots: ["iconCardGrid","iconCard"], capabilityExample: "reference-funnel: brand-logo make/carrier grid + card-search" },
   MultiChoiceCardGroup:{ category: "question", scope: "unit", produces: "array", props: ["internal_field","choices[]","min","max"], validation: ["min<=count<=max"], events: ["answer_click"], tokenSlots: ["iconCard","multiChoice"] },
+  // P5 (register PC-10, operator decision D2 — Image9 "a good explanation for
+  // multi-choice including default answers"): the STACKED multi-QUESTION grid.
+  // One node renders SEVERAL labeled sub-questions, each a shared (or per-row-
+  // overridden) pill pair with an optional pre-selected DEFAULT. Unlike
+  // MultiChoiceCardGroup (multi-SELECT of one field's options → produces
+  // "array"), each ROW is its OWN answer field: `produces: "object"` + a
+  // per-row `internal_field`, following the NameFieldsGroup/Address multi-
+  // subfield pattern (answers.ts fieldsOf, config-dto row projection) so
+  // flatten/answers/rules/mapping/auction see the rows as ordinary fields with
+  // ZERO new runtime-engine logic. Always Continue (never auto-advance — it
+  // records several answers; see AUTO_ADVANCE_CLICK_TYPES / isMultiSelectNode).
+  MultiQuestionGrid:{ category: "question", scope: "unit", produces: "object", props: ["choices[{label,value,analytics_id,style?}]","rows[{label,internal_field,default?,required?,choices?}]","required"], validation: ["1-8 rows","unique internal_field per row","2-4 shared choices","row default in effective choices"], events: ["answer_click","answer_default_applied"], tokenSlots: ["primaryButton","input"], capabilityExample: "Image9: 'Tell us about the driver' — stacked labeled sub-questions (Homeowner/Married/Gender/Military Affiliation), each a default-selected pill pair, one Continue" },
   DropdownQuestion:   { category: "question", scope: "unit", produces: "enum", props: ["internal_field","choices[]","placeholder","required","conditional?"], validation: ["value in choices"], events: ["answer_click"], tokenSlots: ["dropdown"], capabilityExample: "spec: insurer dropdown shown when 'insured=yes'" },
   SearchableDropdownQuestion: { category: "question", scope: "unit", produces: "enum", props: ["internal_field","choices[]","placeholder?","required?"], validation: ["value in choices"], events: ["answer_click"], tokenSlots: ["dropdown","input"], capabilityExample: "08 §8.3/§8.10: DropdownQuestion plus a search input above the options (runtime filters client-side)" },
   // v3.1 R3b E1-C7 (catalog hygiene): fully rendered + labeled, but has no

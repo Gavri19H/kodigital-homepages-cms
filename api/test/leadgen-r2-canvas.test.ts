@@ -158,7 +158,7 @@ describe("R2 adversarial-review MAJOR fix #1 — the SIZE-CONSUMING type predica
     expect(fromIsland).toEqual(fromPresets);
   });
 
-  it("the derived/pinned set is exactly the 16 types R3 expects (the 8 text-input/Currency/Address family + the 8 R3 choice/button/card/dropdown renderers)", () => {
+  it("the derived/pinned set is exactly the 17 types expected (the 8 text-input/Currency/Address family + the 8 R3 choice/button/card/dropdown renderers + P5 MultiQuestionGrid)", () => {
     expect(islandSizeConsumingTypes()).toEqual(
       [
         // R2 baseline — the .lg-input family
@@ -180,6 +180,8 @@ describe("R2 adversarial-review MAJOR fix #1 — the SIZE-CONSUMING type predica
         "OtherGroupSelector",
         "SearchableDropdownQuestion",
         "TwoButtonYesNo",
+        // P5 (PC-10) — MultiQuestionGrid's pills thread choiceItemStyle(.
+        "MultiQuestionGrid",
       ].sort(),
     );
   });

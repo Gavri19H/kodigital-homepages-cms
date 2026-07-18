@@ -698,6 +698,7 @@ const EXPECTED_TILES: ReadonlyArray<[group: string, dataName: string, label: str
   ["answer-fields", "yes no", "Yes / No"],
   ["answer-fields", "dropdown", "Dropdown"],
   ["answer-fields", "multi-select", "Multi-select"],
+  ["answer-fields", "question grid multi driver", "Question grid"],
   ["answer-fields", "short text", "Short text"],
   ["answer-fields", "number", "Number"],
   ["answer-fields", "amount money", "Amount"],
@@ -736,7 +737,7 @@ describeDb("section studio SSR — §5 component library (v3.1)", () => {
     expect(html).not.toMatch(/data-library-items="content"[^>]* hidden/);
   });
 
-  it("§5.5 the EXACT 20 data-name synonym tiles ride the palette, in §5.2 order, each inside its correct group", async () => {
+  it("§5.5 the EXACT data-name synonym tiles ride the palette (20 v3.1 + P5 MultiQuestionGrid = 21 unique), in §5.2 order, each inside its correct group", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
@@ -753,8 +754,9 @@ describeDb("section studio SSR — §5 component library (v3.1)", () => {
       expect(block, `tile "${dataName}" label`).toContain(`>${label}<`);
       expect(block, `tile "${dataName}" is a data-tile`).toContain("data-tile");
     }
-    // exactly 23 tile instances total (20 unique names; Buttons/Cards/Short
-    // text repeat once each across Suggested + Answer fields = 3 duplicates).
+    // 24 tile instances total (21 unique names incl. P5 Question grid;
+    // Buttons/Cards/Short text repeat once each across Suggested + Answer
+    // fields = 3 duplicates).
     expect((html.match(/data-tile /g) ?? []).length).toBe(EXPECTED_TILES.length);
   });
 

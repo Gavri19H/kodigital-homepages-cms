@@ -53,6 +53,9 @@ import {
   LEADGEN_MAX_CONTAINER_DEPTH,
   LEADGEN_NODE_BORDER_COLOR_ROLES,
   LEADGEN_NODE_CORNERS,
+  multiQuestionRowChoices,
+  multiQuestionRowQuestionId,
+  readMultiQuestionRows,
   resolveFieldSize,
 } from "./content-schema";
 import type {
@@ -66,6 +69,7 @@ import type {
   LeadgenPlacementAlign,
   LeadgenPlacementLayout,
   LeadgenResolvedSizeAxis,
+  MultiQuestionRow,
 } from "./content-schema";
 // P1b (register PC-11): the §8.1 leading-icon / card-icon SVGs are the
 // build-time-vendored Tabler (MIT) subset (scripts/build-icons.mjs output) —
@@ -1129,6 +1133,80 @@ export function renderMultiChoiceCardGroup(
     // CHILD of the grid box, never a card-level sibling — "" is a no-op.
     `>${cards}${slot}</div>` +
     // v3.1 R3 E1-NEW-8: helper line below the grid ("" when no props.helper).
+    fieldHelperLine(node)
+  );
+}
+
+// P5 (register PC-10, operator Image9) — the STACKED multi-question grid. Each
+// ROW is a self-contained, standard single-field CHOICE question: its own
+// [data-lg-question]/[data-lg-field] wrapper (so the runtime's enterSection
+// paint / handleChoiceActivation / validateSection / applyComponentVisibility
+// treat it exactly like a scalar question — ZERO new engine logic), a label
+// above a shared/overridable pill pair (the P1 answer-grid), and its own hidden
+// error slot. A row's `default` pill is pre-selected SERVER-SIDE (aria-checked +
+// the .lg-selected paint); config-dto ALSO seeds it as the row component's
+// default_answer, so the runtime records it without a click. The per-row
+// question_id is the SHARED multiQuestionRowQuestionId, byte-identical to the
+// config-dto row projection, so #lg-config and this DOM always agree.
+export function renderMultiQuestionGrid(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+  _slot = "",
+): string {
+  // A MultiQuestionGrid has no single internal_field, so autoErrorFieldFor
+  // returns undefined and the threaded node-level `slot` is always "" — each
+  // ROW renders its OWN error slot below.
+  void _slot;
+  const rows = readMultiQuestionRows(node);
+  const pill = (c: LeadgenChoice, isDefault: boolean): string =>
+    `<button type="button" class="lg-btn lg-btn-answer${isDefault ? " lg-selected" : ""}" role="radio" aria-checked="${isDefault ? "true" : "false"}"${choiceItemStyle(node, design, ctx, c.style)}` +
+    attr("data-value", c.value) +
+    // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
+    attr("data-lg-choice", c.value) +
+    attr("data-analytics-id", c.analytics_id) +
+    `>${esc(c.label)}</button>`;
+  const rowHtml = (row: MultiQuestionRow): string => {
+    const choices = multiQuestionRowChoices(node, row);
+    const rowQid = multiQuestionRowQuestionId(node.question_id, row.internal_field);
+    // A safe, section-unique id for the label↔radiogroup aria binding (the row
+    // internal_field is section-unique; strip anything not id-legal).
+    const labelId = `mqg-${row.internal_field}-label`.replace(/[^A-Za-z0-9_-]/g, "-");
+    const hasDefault = row.default !== undefined;
+    const pills = choices
+      .map((c) => pill(c, hasDefault && String(c.value) === String(row.default)))
+      .join("");
+    // Pill pair → the pills sit side-by-side; --lg-cols = the pill count (1-4).
+    const cols = clampInt(choices.length > 0 ? choices.length : 2, 1, 4);
+    // The row carries ONLY the runtime hooks — data-lg-question/-field/
+    // -answer-type — never the studio-IDENTITY attrs (data-question-id /
+    // data-component-type). Those live on the wrapper alone, so a canvas click's
+    // closest("[data-question-id]") resolves to the ONE real MQG node (never a
+    // row), keeping studio selection intact. The row wrapper (label + pills +
+    // error) is the hideable [data-lg-question] unit, so a whole-grid
+    // conditional hides each row cleanly (runtime toggles `hidden` on it).
+    const rowHydration =
+      attr("data-answer-type", "enum") +
+      attr("data-lg-question", rowQid) +
+      attr("data-lg-field", row.internal_field);
+    return (
+      `<div class="lg-field lg-mqg-row"${rowHydration}>` +
+      `<span class="lg-label"${attr("id", labelId)}>${esc(row.label)}</span>` +
+      `<div class="lg-answer-group" role="radiogroup"${attr("aria-labelledby", labelId)}${choiceHeightsAttr(anyChoiceHasHeight(choices))}${style({ "--lg-cols": String(cols) })}>` +
+      pills +
+      `</div>` +
+      `<p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden${attr("data-lg-error-for", row.internal_field)}${style({ color: design.validation.errorTextColor })}></p>` +
+      `</div>`
+    );
+  };
+  // The parent wrapper carries the node IDENTITY (studio selection) but NO
+  // [data-lg-question] — the rows own those. flatten/config never project the
+  // parent as an answer; each row IS the answer.
+  return (
+    `<div class="lg-mqg"${attr("data-component-type", node.type)}${attr("data-question-id", node.question_id)}>` +
+    rows.map(rowHtml).join("") +
+    `</div>` +
+    // node-level helper below the grid ("" when no props.helper).
     fieldHelperLine(node)
   );
 }
@@ -3227,6 +3305,10 @@ export function renderComponent(
       return renderTwoButtonYesNo(node, design, state?.ctx, slot);
     case "MultiChoiceCardGroup":
       return renderMultiChoiceCardGroup(node, design, state?.ctx, slot);
+    case "MultiQuestionGrid":
+      // P5 (PC-10): renders its OWN per-row error slots (the node has no single
+      // field), so the threaded card-level `slot` is intentionally unused.
+      return renderMultiQuestionGrid(node, design, state?.ctx, slot);
     case "DropdownQuestion":
       return renderDropdownQuestion(node, design, state?.ctx, slot);
     case "SearchableDropdownQuestion":

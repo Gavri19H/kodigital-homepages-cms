@@ -83,7 +83,7 @@ import { applyPreviewSimMarkup, parsePreviewSim } from "./preview-sim";
 // INLINED because the admin host has no tenant site context: every /lg/*
 // path (including the bundle URL) rides publicSiteContextMiddleware and 404s
 // on ADMIN_HOST, so a script-src from the studio srcdoc cannot load there.
-import { parseSectionDesignOverrides, toPublicComponent } from "../../public/leadgen/config-dto";
+import { parseSectionDesignOverrides, expandPublicComponents } from "../../public/leadgen/config-dto";
 import { LEADGEN_RUNTIME_JS } from "../../public/leadgen/runtime/engine-bundle.generated";
 import { LEADGEN_TEMPLATE_VERSION } from "../../cache/cache-keys";
 import { escapeHtml } from "../templates/layout";
@@ -1742,8 +1742,10 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
           section_mapping_version: 0,
           answer_mapping_version: "",
           // The FULL flattened component list (the engine applies dependency
-          // visibility itself, exactly as on the live shell).
-          components: flattenComponents(nodes).map(toPublicComponent),
+          // visibility itself, exactly as on the live shell). P5 (PC-10):
+          // flatMap so a MultiQuestionGrid row-expands identically to the live
+          // config (expandPublicComponents) — preview and live never disagree.
+          components: flattenComponents(nodes).flatMap(expandPublicComponents),
         },
       ],
     };

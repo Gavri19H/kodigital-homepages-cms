@@ -33,7 +33,7 @@ import {
   type LeadgenTransformStep,
 } from "./payload";
 import { COMPONENT_CATALOG } from "../public/leadgen/components/registry";
-import { flattenComponents } from "../public/leadgen/components/content-schema";
+import { flattenComponents, readMultiQuestionRows } from "../public/leadgen/components/content-schema";
 import type {
   LeadgenAnswerType,
   LeadgenComponentNode,
@@ -220,6 +220,19 @@ function fieldsOf(node: LeadgenComponentNode): FieldSpec[] {
   if (node.type === "AddressAutocompleteQuestion") {
     const names = asStringArray(node.props?.["internal_fields"], ["street", "city", "state", "zip"]);
     return names.map((field) => ({ field, answerType: "string", hasDefault: false, defaultValue: undefined }));
+  }
+  if (node.type === "MultiQuestionGrid") {
+    // P5 (PC-10): each ROW is its own enum answer field (over the row's pill
+    // set) with an OPTIONAL default — the SAME 1→N expansion NameFieldsGroup/
+    // Address use, so normalizeAnswers / the payload build / the auction facet
+    // all see the rows as ordinary fields. The default seeds default_applied
+    // exactly like any scalar `default` above.
+    return readMultiQuestionRows(node).map((row) => ({
+      field: row.internal_field,
+      answerType: "enum" as LeadgenAnswerType,
+      hasDefault: row.default !== undefined,
+      defaultValue: row.default,
+    }));
   }
   return [];
 }
