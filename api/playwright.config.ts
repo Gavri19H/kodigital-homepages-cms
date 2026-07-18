@@ -109,6 +109,15 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // runtime seeding/recording + auction round-trip ride the deterministic
   // server-pipeline gate test/leadgen-p5-multi-question-grid.test.ts.
   'leadgen-p5-multi-question-grid.gesture.spec.ts',
+  // P5b (register §A PC-1..12): the OPERATOR ACCEPTANCE suite — the operator's
+  // 12 items re-scripted as live journeys (the P5 close's terminal artifact).
+  // SAME cross-engine shape as p2a/p3a/p4b/p4c/p4d/p5: every studio / canvas /
+  // admin-UI / API-authoring assertion runs on BOTH engines; each item's live
+  // /lg leg (a dynamic {uniq}.e2e.test tenant host) is guarded by the file's own
+  // liveLegChromiumOnly() — it records a documented live-leg-skip annotation on
+  // firefox and returns after the both-engine assertions, so the suite is green
+  // on firefox (both-engine portions + documented skips) and full on chromium.
+  'leadgen-operator-acceptance.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',
