@@ -489,18 +489,48 @@ test.describe("P3b drag-beside + inspector placement + container select (both en
     // align:start -> a fixed-width (m) lone box hugs the LEFT; align:end pushes
     // it RIGHT. A RELATIVE start-vs-end comparison is robust to the card's own
     // padding (an absolute "left == 0" would depend on that padding).
+    //
+    // FIX-ROUND (conductor, firefox shard-3 flake — passed 5/5 isolated, failed
+    // 1-in-3 under full-shard load): the canvas re-render after any placement
+    // click is a DEBOUNCED preview POST (the SAME mechanism leadgen-p2a-
+    // element-freedom.gesture.spec.ts's expectComputedStyle documents) — a
+    // fixed page.waitForTimeout raced it, so a rect/transform read could land
+    // mid-debounce. Replaced every fixed wait below with a toPass poll (the
+    // p2a idiom) on the ACTUAL property the debounced render writes, so each
+    // downstream read is guaranteed to happen only once that render settled:
+    // for align, the lone `.lg-el` wrapper's own inline margin-left/margin-
+    // right (widthCenteringEntries, presets.ts) — "0"/"auto" for align:start,
+    // "auto"/"0" for align:end; for nudge, transformOf's exact matrix string
+    // (unchanged target, now polled instead of timed).
+    // NOTE: the browser normalizes the raw inline "0" to "0px" when read back
+    // via el.style (confirmed live, chromium) — the CSSOM re-serializes a
+    // dimensionless zero length to a canonical px value; "auto" is a keyword
+    // and stays verbatim on both engines.
     await page.locator('[data-set-placement-align="start"]').click();
-    await page.waitForTimeout(400);
+    await expect(async () => {
+      const m = await lone.evaluate((el) => ({
+        left: (el as HTMLElement).style.marginLeft,
+        right: (el as HTMLElement).style.marginRight,
+      }));
+      expect(m, "align:start settled (margin-left:0px, margin-right:auto)").toEqual({ left: "0px", right: "auto" });
+    }).toPass({ timeout: 8_000 });
     const startLeft = (await rectOf(lone)).left;
     await page.locator('[data-set-placement-align="end"]').click();
-    await page.waitForTimeout(400);
+    await expect(async () => {
+      const m = await lone.evaluate((el) => ({
+        left: (el as HTMLElement).style.marginLeft,
+        right: (el as HTMLElement).style.marginRight,
+      }));
+      expect(m, "align:end settled (margin-left:auto, margin-right:0px)").toEqual({ left: "auto", right: "0px" });
+    }).toPass({ timeout: 8_000 });
     const endLeft = (await rectOf(lone)).left;
     expect(endLeft, "align:end renders the box to the RIGHT of align:start").toBeGreaterThan(startLeft + 20);
 
     // nudge x: +4 four times = +16px -> an EXACT translate transform.
     for (let i = 0; i < 4; i++) await page.locator('[data-nudge-step="x:4"]').click();
-    await page.waitForTimeout(400);
-    expect(await transformOf(lone), "nudge_x 16 -> exact translate").toBe("matrix(1, 0, 0, 1, 16, 0)");
+    await expect(async () => {
+      expect(await transformOf(lone), "nudge_x 16 -> exact translate").toBe("matrix(1, 0, 0, 1, 16, 0)");
+    }).toPass({ timeout: 8_000 });
 
     await saveAndReload(page);
     const a = (await savedComps(request, s.public_id)).find((c) => c.question_id === "a");
