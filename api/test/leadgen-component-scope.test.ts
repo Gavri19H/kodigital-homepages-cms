@@ -57,6 +57,7 @@ const UNIT_TYPES = [
   "IconCardAnswerGrid",
   "ImageCardAnswerGrid",
   "MultiChoiceCardGroup",
+  "MultiQuestionGrid",
   "DropdownQuestion",
   "SearchableDropdownQuestion",
   "OtherGroupSelector",

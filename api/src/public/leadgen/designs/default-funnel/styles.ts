@@ -1138,6 +1138,16 @@ export function funnelChromeCss(
     rule(`${scope} .lg-currency-input`, { "padding-left": spacing.xl }),
   );
 
+  // P5 (register PC-10, operator Image9) — MultiQuestionGrid needs NO new CSS:
+  // each row REUSES `.lg-field` (block + inter-row margin), `.lg-label` (the
+  // sub-question label above the pills), `.lg-answer-group` (the P1 equal-cell
+  // pill grid, --lg-cols = the pill count), `.lg-btn.lg-btn-answer`/`.lg-selected`
+  // (the default-selected pill paint) and `.lg-error` (the per-row slot). The
+  // `.lg-mqg` wrapper is a plain block (div default); the last row's `.lg-field`
+  // bottom margin collapses through it into the next card element's `> * + *`
+  // stack, so no wrapper rule is needed — the shared chrome sheet stays
+  // byte-identical (the §13.1 legacy byte-pins hold unchanged).
+
   // ---- validation: error / helper / legal (§14.2 validation) --------------
   out.push(
     rule(`${scope} .lg-error`, {

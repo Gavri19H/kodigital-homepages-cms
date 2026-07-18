@@ -29,12 +29,20 @@ const slotFor = (html: string, field: string): boolean =>
 // Every catalog type that PRODUCES an answer and carries a single internal_field
 // must get an auto slot. NameFieldsGroup/AddressAutocomplete produce "object"
 // with NO single internal_field (their subfields are handled separately) — they
-// are the deliberate exception here.
+// are the deliberate exception here. P5 MultiQuestionGrid is the same shape
+// (produces "object", no single internal_field): it renders its OWN PER-ROW
+// error slot (keyed to each row's internal_field, proven in the R1/Playwright
+// legs), never a single node-level slot — so it joins the exception.
 const SINGLE_FIELD_PRODUCERS: ComponentType[] = (
   Object.keys(COMPONENT_CATALOG) as ComponentType[]
 ).filter((t) => {
   const p = COMPONENT_CATALOG[t].produces;
-  return p !== null && t !== "NameFieldsGroup" && t !== "AddressAutocompleteQuestion";
+  return (
+    p !== null &&
+    t !== "NameFieldsGroup" &&
+    t !== "AddressAutocompleteQuestion" &&
+    t !== "MultiQuestionGrid"
+  );
 });
 
 function leaf(type: ComponentType, field: string, extra: Partial<LeadgenComponentNode> = {}): LeadgenComponentNode {

@@ -893,6 +893,12 @@ function isMultiSelectNode(node: LeadgenComponentNode): boolean {
   // single-select type CONFIGURED multi (e.g. ButtonAnswerGroup props.multiple).
   if (isKnownComponentType(node.type) && COMPONENT_CATALOG[node.type].produces === "array") return true;
   if (node.answer_type === "array") return true;
+  // P5 (PC-10): a MultiQuestionGrid records SEVERAL answers (one per row), so —
+  // exactly like a multi-select — a single tap can never advance the section.
+  // This routes auto_advance to the HONEST "multi_select" reason ("choose
+  // several answers, so one tap can't advance") rather than the false
+  // "not_click_to_answer" (its rows ARE click-to-answer). Always Continue.
+  if (node.type === "MultiQuestionGrid") return true;
   const props = node.props;
   return isRecord(props) && props["multiple"] === true;
 }
@@ -941,6 +947,83 @@ export function autoAdvanceConflictMessage(result: AutoAdvanceEligibility): stri
     default:
       return `This section can't auto-advance — use the Continue button.` + tail;
   }
+}
+
+// ---------------------------------------------------------------------------
+// P5 (register PC-10 / operator decision D2 — Image9) — MultiQuestionGrid rows
+// ---------------------------------------------------------------------------
+//
+// A MultiQuestionGrid node renders SEVERAL labeled sub-questions ("rows"), each
+// its OWN answer field. Like NameFieldsGroup/Address (catalog produces
+// "object"), the node carries NO single internal_field; each row's
+// `internal_field` is a real field the whole answer space sees (answers.ts
+// fieldsOf, config-dto row projection, rules pickers). The SHARED pill set is
+// the node's top-level `choices`; a row MAY override it with its own `choices`.
+// A row's optional `default` (∈ its effective choices) pre-selects a pill AND
+// seeds the row's initial answer — config-dto projects each row as a synthetic
+// single-field component with a `default_answer`, so the runtime's EXISTING
+// TwoButtonYesNo default-seed path (applySectionDefaults) records it with ZERO
+// new engine logic.
+
+export interface MultiQuestionRow {
+  label: string;
+  internal_field: string;
+  default?: string | number | boolean;
+  required?: boolean;
+  // Optional per-row override of the node-level shared `choices` (LeadgenChoice[]).
+  choices?: LeadgenChoice[];
+}
+
+// Authoring bounds (the catalog `validation` column). 1..8 rows; each pill set
+// 2..4 (pill pairs → small sets, per the reference).
+export const MULTI_QUESTION_MAX_ROWS = 8;
+export const MULTI_QUESTION_MIN_CHOICES = 2;
+export const MULTI_QUESTION_MAX_CHOICES = 4;
+
+// THE one normalizing reader for a node's rows — shared by the presets
+// renderer, the config-dto row projection, answers.ts fieldsOf, and the studio
+// field enumeration, so no two consumers can disagree on the row set. Defensive
+// (validation is the save-time gate): a malformed / field-less entry is skipped
+// so a render/projection over stored junk never throws or emits a nameless row.
+export function readMultiQuestionRows(node: LeadgenComponentNode): MultiQuestionRow[] {
+  const raw = node.props?.["rows"];
+  if (!Array.isArray(raw)) return [];
+  const out: MultiQuestionRow[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue;
+    const internalField = entry["internal_field"];
+    if (!isNonEmptyString(internalField)) continue;
+    const row: MultiQuestionRow = {
+      label: typeof entry["label"] === "string" ? entry["label"] : "",
+      internal_field: internalField,
+    };
+    if (isChoicePrimitive(entry["default"])) row.default = entry["default"];
+    if (typeof entry["required"] === "boolean") row.required = entry["required"];
+    if (Array.isArray(entry["choices"])) row.choices = entry["choices"] as LeadgenChoice[];
+    out.push(row);
+  }
+  return out;
+}
+
+// A row's EFFECTIVE choices: its own `choices` override, else the node's shared
+// `choices` (the common case — every row the same pill pair). Empty when
+// neither is authored (a save-time invalid_choice).
+export function multiQuestionRowChoices(
+  node: LeadgenComponentNode,
+  row: MultiQuestionRow,
+): LeadgenChoice[] {
+  if (Array.isArray(row.choices) && row.choices.length > 0) return row.choices;
+  return Array.isArray(node.choices) ? node.choices : [];
+}
+
+// The synthetic per-row question_id — the stable id config-dto assigns each
+// row's projected single-field component AND presets stamps on each row's
+// [data-lg-question] wrapper, so the runtime's enterSection paint /
+// handleChoiceActivation / componentByQuestionId resolve a row exactly like any
+// scalar question. MUST be byte-identical on both sides: derived purely from
+// the node's question_id + the row's (section-unique) internal_field.
+export function multiQuestionRowQuestionId(nodeQuestionId: string, internalField: string): string {
+  return `${nodeQuestionId}::${internalField}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1068,6 +1151,12 @@ export const REQUIRED_FIELDS: Record<ComponentType, RequiredSpec> = {
   IconCardAnswerGrid: { internalField: true, choices: true, choiceIcon: true },
   ImageCardAnswerGrid: { internalField: true, choices: true, choiceImage: true },
   MultiChoiceCardGroup: { internalField: true, choices: true },
+  // P5 (PC-10): NO single internal_field (each ROW carries its own — like
+  // NameFieldsGroup/Address). `choices: true` gates the SHARED pill set through
+  // the generic per-choice validation + the studio's existing choices editor;
+  // the row structure (1-8 rows, unique/defaulted fields, 2-4 per pill set) is
+  // enforced by the dedicated MultiQuestionGrid block in validateNode.
+  MultiQuestionGrid: { choices: true },
   DropdownQuestion: { internalField: true, choices: true },
   SearchableDropdownQuestion: { internalField: true, choices: true },
   OtherGroupSelector: { internalField: true, choices: true },
@@ -2207,6 +2296,14 @@ export function validateSectionContent(
         const v = raw[key];
         if (isNonEmptyString(v)) knownFields.add(v);
       }
+      // P5 (PC-10): a MultiQuestionGrid carries no single internal_field — its
+      // rows' internal_fields are the real answer names, so register each so a
+      // conditional (this section or a sibling) may reference a row by field.
+      if (raw["type"] === "MultiQuestionGrid") {
+        for (const row of readMultiQuestionRows(raw as unknown as LeadgenComponentNode)) {
+          knownFields.add(row.internal_field);
+        }
+      }
       if (
         isLayoutContainerType(raw["type"]) &&
         depth <= LEADGEN_MAX_CONTAINER_DEPTH &&
@@ -2548,6 +2645,132 @@ export function validateSectionContent(
           // does not consume it.
           if (choice["style"] !== undefined) {
             validateChoiceStyle(choice["style"], `${cp}.style`, push);
+          }
+        }
+      }
+    }
+
+    // P5 (PC-10) — MultiQuestionGrid rows. The SHARED pill set (node.choices) is
+    // already shape-checked by the generic `spec.choices` block above; here we
+    // BOUND it (2-4) and validate the ROW structure: 1-8 rows, each a labeled,
+    // uniquely-named field with an optional default (∈ its effective choices)
+    // and optional per-row pill override. Each row's internal_field JOINS the
+    // Section-wide uniqueness universe (duplicate_internal_field), so a row can
+    // never shadow another question's answer name.
+    if (type === "MultiQuestionGrid") {
+      const sharedChoices: unknown[] = Array.isArray(raw["choices"]) ? raw["choices"] : [];
+      if (
+        sharedChoices.length > 0 &&
+        (sharedChoices.length < MULTI_QUESTION_MIN_CHOICES ||
+          sharedChoices.length > MULTI_QUESTION_MAX_CHOICES)
+      ) {
+        push(
+          "invalid_choice",
+          `${base}.choices`,
+          `MultiQuestionGrid shared choices must number ${MULTI_QUESTION_MIN_CHOICES}-${MULTI_QUESTION_MAX_CHOICES} (a pill set)`,
+        );
+      }
+      const sharedValues = new Set<string>(
+        sharedChoices
+          .filter(isRecord)
+          .map((c) => c["value"])
+          .filter(isChoicePrimitive)
+          .map((v) => String(v)),
+      );
+      const rows = props["rows"];
+      if (!Array.isArray(rows) || rows.length === 0) {
+        push("invalid_field_prop", `${base}.props.rows`, "MultiQuestionGrid requires a non-empty rows array");
+      } else if (rows.length > MULTI_QUESTION_MAX_ROWS) {
+        push(
+          "invalid_field_prop",
+          `${base}.props.rows`,
+          `MultiQuestionGrid allows at most ${MULTI_QUESTION_MAX_ROWS} rows`,
+        );
+      }
+      if (Array.isArray(rows)) {
+        const seenRowFields = new Set<string>();
+        for (let r = 0; r < rows.length; r++) {
+          const rp = `${base}.props.rows[${r}]`;
+          const row = rows[r];
+          if (!isRecord(row)) {
+            push("invalid_field_prop", rp, "each row must be an object");
+            continue;
+          }
+          if (!isNonEmptyString(row["label"])) {
+            push("invalid_field_prop", `${rp}.label`, "row.label is required");
+          }
+          const rowField = row["internal_field"];
+          if (!isNonEmptyString(rowField)) {
+            push(
+              "invalid_field_prop",
+              `${rp}.internal_field`,
+              "row.internal_field is required (the row's answer name)",
+            );
+          } else if (seenRowFields.has(rowField) || seenInternalFields.has(rowField)) {
+            push(
+              "duplicate_internal_field",
+              `${rp}.internal_field`,
+              `duplicate internal_field '${rowField}' (§8.5 unique across the Section)`,
+            );
+          } else {
+            seenRowFields.add(rowField);
+            seenInternalFields.add(rowField);
+          }
+          if (row["required"] !== undefined && typeof row["required"] !== "boolean") {
+            push("invalid_field_prop", `${rp}.required`, "row.required must be a boolean");
+          }
+          // The row's EFFECTIVE choice-value domain (its own override, else the
+          // shared set) — the domain a `default` must belong to.
+          let rowValues = sharedValues;
+          const rowChoices = row["choices"];
+          if (rowChoices !== undefined) {
+            if (
+              !Array.isArray(rowChoices) ||
+              rowChoices.length < MULTI_QUESTION_MIN_CHOICES ||
+              rowChoices.length > MULTI_QUESTION_MAX_CHOICES
+            ) {
+              push(
+                "invalid_choice",
+                `${rp}.choices`,
+                `a row choices override must number ${MULTI_QUESTION_MIN_CHOICES}-${MULTI_QUESTION_MAX_CHOICES}`,
+              );
+              rowValues = new Set<string>();
+            } else {
+              rowValues = new Set<string>();
+              for (let c = 0; c < rowChoices.length; c++) {
+                const cp = `${rp}.choices[${c}]`;
+                const choice = rowChoices[c];
+                if (!isRecord(choice)) {
+                  push("invalid_choice", cp, "each choice must be an object");
+                  continue;
+                }
+                if (!isNonEmptyString(choice["label"])) {
+                  push("invalid_choice", `${cp}.label`, "choice.label is required");
+                }
+                if (!isChoicePrimitive(choice["value"])) {
+                  push("invalid_choice", `${cp}.value`, "choice.value must be a string, number, or boolean");
+                } else {
+                  rowValues.add(String(choice["value"]));
+                }
+                if (!isNonEmptyString(choice["analytics_id"])) {
+                  push("invalid_choice", `${cp}.analytics_id`, "choice.analytics_id is required (§22 tracking)");
+                }
+                if (choice["style"] !== undefined) {
+                  validateChoiceStyle(choice["style"], `${cp}.style`, push);
+                }
+              }
+            }
+          }
+          if (row["default"] !== undefined) {
+            if (!isChoicePrimitive(row["default"])) {
+              push("invalid_choice", `${rp}.default`, "row.default must be a string, number, or boolean");
+            } else if (!rowValues.has(String(row["default"]))) {
+              push(
+                "invalid_choice",
+                `${rp}.default`,
+                `row.default '${String(row["default"])}' is not one of this row's choices`,
+              );
+            }
           }
         }
       }

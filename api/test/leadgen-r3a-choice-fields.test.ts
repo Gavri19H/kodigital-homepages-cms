@@ -201,12 +201,13 @@ describe("P2b R-A completion — CHOICE_STYLE_TYPES is DERIVED from presets.ts's
     expect(island).toEqual(derived);
   });
 
-  it("the register's shape holds: exactly the 5 per-choice families; TwoButtonYesNo (yesStyle/noStyle, no choices array) and the 2 native-select dropdowns are excluded", () => {
+  it("the register's shape holds: exactly the 6 per-choice families (incl. P5 MultiQuestionGrid, whose shared pills thread c.style); TwoButtonYesNo (yesStyle/noStyle, no choices array) and the 2 native-select dropdowns are excluded", () => {
     expect(derivedChoiceStyleTypes()).toEqual([
       "ButtonAnswerGroup",
       "IconCardAnswerGrid",
       "ImageCardAnswerGrid",
       "MultiChoiceCardGroup",
+      "MultiQuestionGrid",
       "OtherGroupSelector",
     ]);
   });

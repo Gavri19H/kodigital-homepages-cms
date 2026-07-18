@@ -15,6 +15,8 @@ import {
   CURATED_DESIGN_OVERRIDE_KEYS,
   flattenComponents,
   LEADGEN_CONTAINER_TYPES,
+  readMultiQuestionRows,
+  multiQuestionRowQuestionId,
 } from "../src/public/leadgen/components/content-schema";
 import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 import {
@@ -317,6 +319,7 @@ const NODE_SPECS: Record<ComponentType, LeadgenComponentNode> = {
   IconCardAnswerGrid: { type: "IconCardAnswerGrid", question_id: "q", internal_field: "biz", choices: ICON_CHOICES, props: { columns: 3 } },
   ImageCardAnswerGrid: { type: "ImageCardAnswerGrid", question_id: "q", internal_field: "carrier", choices: IMAGE_CHOICES, props: { columns: 4 } },
   MultiChoiceCardGroup: { type: "MultiChoiceCardGroup", question_id: "q", internal_field: "features", choices: CHOICES, props: { min: 1, max: 2 } },
+  MultiQuestionGrid: { type: "MultiQuestionGrid", question_id: "q", choices: CHOICES, props: { rows: [{ label: "Homeowner", internal_field: "mqg_home", default: "sole_prop" }, { label: "Married", internal_field: "mqg_married" }] } },
   DropdownQuestion: { type: "DropdownQuestion", question_id: "q", internal_field: "insurer", choices: CHOICES, props: { placeholder: "Pick one" } },
   SearchableDropdownQuestion: { type: "SearchableDropdownQuestion", question_id: "q", internal_field: "make", choices: CHOICES, props: { placeholder: "Pick one" } },
   OtherGroupSelector: { type: "OtherGroupSelector", question_id: "q", internal_field: "carrier", choices: CHOICES, choiceDisplay: { mainValues: ["sole_prop"], otherGroupEnabled: true, otherGroupLabel: "Other", searchableOther: false } },
@@ -791,8 +794,22 @@ describe("v2.4 03 §3.3 — data-lg-* hydration hooks", () => {
 
   it("every answer-PRODUCING type carries data-lg-question={question_id}", () => {
     for (const type of QUESTION_TYPES) {
-      const html = renderComponent(NODE_SPECS[type], DESIGN);
-      expect(html, type).toContain(`data-lg-question="${NODE_SPECS[type].question_id}"`);
+      const spec = NODE_SPECS[type];
+      const html = renderComponent(spec, DESIGN);
+      if (type === "MultiQuestionGrid") {
+        // P5 (PC-10): a MultiQuestionGrid is a MULTI-question node — each ROW is
+        // the answer-producing unit, so its [data-lg-question] hooks are the
+        // per-row synthetic ids (the SAME ids config-dto's expandPublicComponents
+        // projects as the row components — preview/live/runtime agree by
+        // construction), NOT a single node-level hook. Assert every row is hooked.
+        for (const row of readMultiQuestionRows(spec)) {
+          expect(html, `${type} row ${row.internal_field}`).toContain(
+            `data-lg-question="${multiQuestionRowQuestionId(spec.question_id, row.internal_field)}"`,
+          );
+        }
+        continue;
+      }
+      expect(html, type).toContain(`data-lg-question="${spec.question_id}"`);
     }
   });
 

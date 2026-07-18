@@ -50,6 +50,7 @@ const ANSWER_NODE_SPECS: Partial<Record<ComponentType, LeadgenComponentNode>> = 
   IconCardAnswerGrid: { type: "IconCardAnswerGrid", question_id: "q", internal_field: "biz", choices: ICON_CHOICES, props: { columns: 3 } },
   ImageCardAnswerGrid: { type: "ImageCardAnswerGrid", question_id: "q", internal_field: "carrier", choices: IMAGE_CHOICES, props: { columns: 4 } },
   MultiChoiceCardGroup: { type: "MultiChoiceCardGroup", question_id: "q", internal_field: "features", choices: CHOICES, props: { min: 1, max: 2 } },
+  MultiQuestionGrid: { type: "MultiQuestionGrid", question_id: "q", choices: CHOICES, props: { rows: [{ label: "Homeowner", internal_field: "mqg_home", default: "sole_prop" }, { label: "Married", internal_field: "mqg_married" }] } },
   DropdownQuestion: { type: "DropdownQuestion", question_id: "q", internal_field: "insurer", choices: CHOICES, props: { placeholder: "Pick one" } },
   SearchableDropdownQuestion: { type: "SearchableDropdownQuestion", question_id: "q", internal_field: "make", choices: CHOICES, props: { placeholder: "Pick one" } },
   OtherGroupSelector: { type: "OtherGroupSelector", question_id: "q", internal_field: "carrier2", choices: CHOICES, choiceDisplay: { mainValues: ["sole_prop"], otherGroupEnabled: true, otherGroupLabel: "Other", searchableOther: false } },
@@ -79,6 +80,10 @@ const INPUT_MECHANISM = new Set<ComponentType>([
 const CHOICE_MECHANISM = new Set<ComponentType>([
   "ButtonAnswerGroup", "TwoButtonYesNo", "IconCardAnswerGrid",
   "ImageCardAnswerGrid", "MultiChoiceCardGroup", "OtherGroupSelector",
+  // P5 (PC-10): each row is a click-to-answer pill pair — records via
+  // data-lg-choice (per-row [data-lg-question] wrapper), like the other choice
+  // families.
+  "MultiQuestionGrid",
 ]);
 
 const ANSWER_TYPES = (Object.keys(COMPONENT_CATALOG) as ComponentType[]).filter(
