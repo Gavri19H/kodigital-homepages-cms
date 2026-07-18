@@ -969,21 +969,23 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     request,
     browserName,
   }) => {
-    // Author (both engines): start from a 3-row grid — Gender ALREADY carrying
-    // its own Male/Female per-row override (the Image9 composition; seeded here,
-    // per the conductor's "author-or-seed" allowance) — add the 4th
-    // sub-question (Military) through the REAL rows editor, save → 4 rows
-    // persist, the canvas renders 4 stacked labeled pill rows with defaults
-    // pre-selected. CONDUCTOR FIX (residual, register PC-10): the studio rows
-    // editor's collectMqgRows used to silently DROP any per-row `choices`
+    // Author (both engines): start from a 3-row grid — Gender on the SHARED
+    // Yes/No set (no override yet) — AUTHOR its Male/Female override through
+    // the REAL "Custom answers for this row" toggle (the conductor-fixed
+    // affordance, register PC-10 residual — replaces the earlier config-path
+    // seed workaround), add the 4th sub-question (Military) through the REAL
+    // rows editor, save → 4 rows persist, the canvas renders 4 stacked labeled
+    // pill rows with defaults pre-selected, Gender showing its OWN AUTHORED
+    // Male/Female pair. CONDUCTOR FIX (residual, register PC-10): the studio
+    // rows editor's collectMqgRows used to silently DROP any per-row `choices`
     // override on save (it rebuilt every row from only label/internal_field/
-    // default/required) — editing/adding an ADJACENT row re-collected every row
-    // and erased Gender's override. Fixed: the rows editor now HONESTLY
-    // DISPLAYS an existing override as a checked "Custom answers for this row"
-    // toggle + live, editable Male/Female entries (asserted below, before any
-    // edit) and round-trips it through a save that only touches OTHER rows.
-    // leadgen-p5-multi-question-grid.gesture.spec.ts pins the same mechanism in
-    // isolation (both engines) + an explicit toggle-off reverts-to-shared leg.
+    // default/required) — editing/adding an ADJACENT row re-collected every
+    // row and erased Gender's override. Fixed: a genuine "Custom answers for
+    // this row" toggle + compact label/value entry editor now AUTHORS and
+    // preserves the override end to end. leadgen-p5-multi-question-grid
+    // .gesture.spec.ts pins the same mechanism in isolation (both engines,
+    // over a pre-seeded override) + an explicit toggle-off reverts-to-shared
+    // leg; this test proves the FRESH-AUTHORING path.
     const s = await createStudioSection(request, `ACC Item10 grid ${uniq}`, [
       {
         type: "MultiQuestionGrid",
@@ -993,15 +995,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
           rows: [
             { label: "Homeowner", internal_field: "homeowner", default: "yes", required: true },
             { label: "Married", internal_field: "married", default: "no" },
-            {
-              label: "Gender",
-              internal_field: "gender",
-              default: "male",
-              choices: [
-                { label: "Male", value: "male", analytics_id: "male" },
-                { label: "Female", value: "female", analytics_id: "female" },
-              ],
-            },
+            { label: "Gender", internal_field: "gender" },
           ],
         },
       },
@@ -1016,16 +1010,30 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     const rowsBlock = page.locator("[data-mqg-rows-block]");
     await expect(rowsBlock).toBeVisible();
 
-    // HONEST DISPLAY (before any edit): Gender's seeded override is CHECKED
-    // and shows its real Male/Female entries — never hidden or silently
-    // dropped from view.
+    // AUTHOR the Gender override through the REAL toggle: unchecked (Gender
+    // starts on the shared Yes/No set) → a real click auto-seeds 2 entries
+    // FROM that shared set (Yes/No, the fix's own re-enable convention: "start
+    // from a real, valid pill pair rather than an empty list") → overwrite
+    // both entries to Male/Female → set the row's OWN default to "male".
     const genderRow = rowsBlock.locator("[data-mqg-row]").nth(2);
     await expect(genderRow.locator('input[data-mqg-field="label"]')).toHaveValue("Gender");
-    await expect(genderRow.locator("[data-mqg-custom-choices]")).toBeChecked();
+    const customToggle = genderRow.locator("[data-mqg-custom-choices]");
+    await expect(customToggle).not.toBeChecked();
+    await customToggle.check();
     const genderEntries = genderRow.locator("[data-mqg-choice-entry]");
-    await expect(genderEntries).toHaveCount(2);
+    await expect(genderEntries, "checking the toggle auto-seeds 2 entries from the shared set").toHaveCount(2);
+    await genderEntries.nth(0).locator('[data-mqg-choice-field="label"]').fill("Male");
+    await genderEntries.nth(0).locator('[data-mqg-choice-field="value"]').fill("male");
+    await genderEntries.nth(1).locator('[data-mqg-choice-field="label"]').fill("Female");
+    await genderEntries.nth(1).locator('[data-mqg-choice-field="value"]').fill("female");
+    await genderRow.locator('select[data-mqg-field="default"]').selectOption("male");
+
+    // HONEST DISPLAY: the just-AUTHORED override is CHECKED and shows the
+    // real Male/Female entries — never hidden or silently reverted.
+    await expect(customToggle).toBeChecked();
     await expect(genderEntries.nth(0).locator('[data-mqg-choice-field="label"]')).toHaveValue("Male");
     await expect(genderEntries.nth(1).locator('[data-mqg-choice-field="label"]')).toHaveValue("Female");
+    await expect(genderRow.locator('select[data-mqg-field="default"]')).toHaveValue("male");
 
     // Add the 4th row (Military) — an ADJACENT edit relative to Gender: this
     // triggers collectMqgRows across EVERY row, exactly the regression shape.
@@ -1048,8 +1056,8 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     };
     expect(gridNode.props.rows).toHaveLength(4);
     expect(gridNode.props.rows[3]).toMatchObject({ label: "Military Affiliation", internal_field: "military", default: "no" });
-    // Gender's override SURVIVED the save that only added/edited the Military
-    // row — byte-identical to what was seeded (the conductor-flagged fix).
+    // Gender's AUTHORED override SURVIVED the save that only added the
+    // Military row — the exact regression collectMqgRows used to erase.
     expect(gridNode.props.rows[2]).toMatchObject({
       label: "Gender",
       internal_field: "gender",

@@ -47,12 +47,25 @@ async function json<T>(res: { ok(): boolean; status(): number; json(): Promise<u
 // (read ECONNRESET on an otherwise-healthy server). One bounded retry after
 // a short pause absorbs it; every seeded resource is unique-suffixed, so a
 // rare double-apply cannot collide with another test's data.
+//
+// EADDRNOTAVAIL (conductor investigation, product-core P5b): a long
+// single-process shard (149 tests across BOTH engines sharing one wrangler
+// dev + one OS ephemeral-port pool) occasionally exhausts local outbound
+// ports under the cumulative connection churn, surfacing as
+// "apiRequestContext.apply: connect EADDRNOTAVAIL 127.0.0.1:<port> - Local
+// (0.0.0.0:0)" on the NEXT seed call to fire — a pure transport-layer
+// connection-establishment failure (thrown before any request body is even
+// sent), never a data/identity collision. Reproduced 3 times across 2 fresh
+// full-shard runs, always on this exact call site (POST /api/admin/sites
+// inside seedActiveSite below), at non-deterministic positions 100+ tests
+// apart — the SAME transient-and-retriable shape ECONNRESET/ECONNREFUSED
+// already cover, so it belongs in the same allowlist.
 async function withTransientRetry<T>(label: string, run: () => Promise<T>): Promise<T> {
   try {
     return await run();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (!/ECONNRESET|ECONNREFUSED|socket hang up/i.test(message)) throw err;
+    if (!/ECONNRESET|ECONNREFUSED|EADDRNOTAVAIL|socket hang up/i.test(message)) throw err;
     await new Promise((resolve) => setTimeout(resolve, 500));
     console.log(`[seed-retry] ${label}: transient socket error, retrying once`);
     return run();
