@@ -424,6 +424,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
   test('Item 2 — "let me drag one field beside another to place it where I want" (custom locations)', async ({
     page,
     request,
+    browserName,
   }) => {
     const s = await createStudioSection(request, `Op2 drag ${uniq}`, [
       { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
@@ -482,6 +483,30 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     expect(a.layout?.row, "A carries a saved layout.row").toBeTruthy();
     expect(b.layout?.row, "A and B share the SAME saved row id").toBe(a.layout?.row);
     expect(c.layout?.align, "the authored align persists (last set = end)").toBe("end");
+
+    if (
+      !liveLegChromiumOnly(
+        browserName,
+        "Item 2 live-parity render needs chromium --host-resolver-rules; leadgen-p3a-placement.gesture.spec.ts pins the drag on BOTH engines and the dynamic-host live parity on chromium. The drag + saved-model assertions above run on BOTH engines.",
+      )
+    )
+      return;
+
+    // LIVE PARITY: the drag-formed row renders side-by-side on the real funnel
+    // (the same layout.row the studio saved).
+    const seeded = await seedLiveFunnel(request, "drag", [s.id]);
+    await page.goto(shellUrl(seeded), { waitUntil: "load" });
+    await expect(page.locator(".lg-el-row").first()).toBeVisible({ timeout: 15_000 });
+    const liveMembers = await page.evaluate(() => {
+      const members = [...document.querySelectorAll(".lg-el-row > .lg-el")].map((el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.left, y: r.top, right: r.right };
+      });
+      return members;
+    });
+    expect(liveMembers.length, "live: the row renders 2 members side by side").toBe(2);
+    expect(Math.abs(liveMembers[0]!.y - liveMembers[1]!.y), "live: row members share a y-band").toBeLessThanOrEqual(2);
+    expect(liveMembers[0]!.right, "live: member 1 is left of member 2").toBeLessThanOrEqual(liveMembers[1]!.x + 0.5);
   });
 
   // =========================================================================
@@ -817,6 +842,7 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     request,
   }) => {
     const s = await createStudioSection(request, `Op8 delete ${uniq}`, [
+      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
       {
         type: "ButtonAnswerGroup",
         question_id: "q_make",
@@ -827,6 +853,8 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
           { label: "Honda", value: "honda", analytics_id: "honda" },
         ],
       },
+      // A sibling answer field so the Section stays valid after the group delete.
+      { type: "TwoButtonYesNo", question_id: "q_keep", internal_field: "keep8", props: { yesLabel: "Yes", noLabel: "No" } },
     ]);
     await page.goto(`/admin/leadgen/sections/${s.public_id}/edit`, { waitUntil: "domcontentloaded" });
     // A choice/group delete must NEVER prompt a confirm (p4d contract); a
@@ -863,6 +891,13 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     await page.keyboard.press("Backspace");
     await expect(canvasRender(page).locator('[data-component-type="ButtonAnswerGroup"]')).toHaveCount(0);
     await expect(page.locator("[data-studio-undo-toast]")).toContainText("deleted");
+
+    // MODEL removal (not just the canvas): save + refetch → the group is gone
+    // from the persisted content; the headline + sibling survive.
+    await saveStudioAwaitOk(page, s.public_id);
+    const afterDelete = (await fetchSection(request, s.public_id)).content_json.components;
+    expect(afterDelete.some((c) => c.type === "ButtonAnswerGroup"), "the deleted group is gone from the persisted model").toBe(false);
+    expect(afterDelete.some((c) => c.type === "TwoButtonYesNo"), "the sibling survives in the persisted model").toBe(true);
 
     // NO PHANTOM TOAST: with nothing selected, Backspace is a silent no-op.
     const s2 = await createStudioSection(request, `Op8 noop ${uniq}`, [
