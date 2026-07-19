@@ -643,12 +643,43 @@ function seedTemplateForType(type: ComponentType): Record<string, unknown> {
   const props = entry.props as readonly string[];
   const seed: Record<string, unknown> = {};
   let hasChoices = false;
+  let hasRows = false;
   for (const prop of props) {
     if (prop === "internal_field") seed["internal_field"] = "";
     else if (prop === "required") seed["required"] = false;
     else if (prop.indexOf("choices") === 0) hasChoices = true;
+    else if (prop.indexOf("rows") === 0) hasRows = true;
   }
   if (hasChoices) seed["choices"] = [];
+  // Round-4 A-3 (P1a): a picker-inserted MultiQuestionGrid used to land with NO
+  // props.rows — the catalog's `rows[...]` prop matched none of the special
+  // cases above and was silently dropped, so a fresh grid rendered an EMPTY
+  // shell (renderMultiQuestionGrid maps over zero rows). Seed 2 starter
+  // sub-questions sharing a Yes/No pill pair (Image5-shaped defaults) so the
+  // grid renders its rows immediately AND saves valid (validateNode: 2-4 shared
+  // choices, 1-8 labeled/uniquely-named rows). Rows nest under `props` (node
+  // shape: node.props.rows, readMultiQuestionRows / the studio rows editor);
+  // the shared pill set is the node-level `choices`.
+  if (hasRows && type === "MultiQuestionGrid") {
+    seed["choices"] = [
+      { label: "Yes", value: "yes", analytics_id: "yes" },
+      { label: "No", value: "no", analytics_id: "no" },
+    ];
+    seed["props"] = {
+      rows: [
+        { label: "Question 1", internal_field: "answer1" },
+        { label: "Question 2", internal_field: "answer2" },
+      ],
+    };
+  }
+  // Round-4 A-6 (P1a, deliverable 9b): an AddressAutocompleteQuestion inserted
+  // with NO internal_field is invisible to the rules picker until named
+  // (operator #6, Part C P-6). Seed a default whole-address field so the
+  // component is a rule source the moment it lands (its street/city/state/zip
+  // role sub-fields are enumerated separately by internalFieldsOf).
+  if (type === "AddressAutocompleteQuestion" && (seed["internal_field"] === undefined || seed["internal_field"] === "")) {
+    seed["internal_field"] = "address";
+  }
   if (entry.produces !== null) seed["answer_type"] = entry.produces;
   return seed;
 }
@@ -907,9 +938,16 @@ export function renderStudioTopBar(
   </a>
   <div style="width:1px;height:24px;background:${STUDIO_COLOR.linePanel}"></div>
   <div class="form-group studio-name" style="display:flex;flex-direction:column;gap:1px;margin:0">
-    <label class="form-label" for="lg-section-name" style="font-size:10px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:${STUDIO_COLOR.sectionEyebrow}">Section</label>
+    <label class="form-label" for="lg-section-name" style="font-size:10px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:${STUDIO_COLOR.sectionEyebrow}">Section<span aria-hidden="true" style="color:${STUDIO_COLOR.archiveText};margin-left:2px;font-weight:800">*</span></label>
     <div style="display:flex;align-items:center;gap:9px">
-      <input id="lg-section-name" name="section_name" required aria-required="true" value="${escapeHtml(view.section_name)}" style="width:132px;font-size:17px;font-weight:700;color:${STUDIO_COLOR.inkStrong};border:none;border-bottom:1.5px solid transparent;padding:1px 2px;outline:none;background:transparent" />
+      <!-- Round-4 A-8 (P1a, deliverable 6): a FIRST-CLASS name field, obviously
+           an editable input BEFORE any save (operator #8, Image33: the old
+           borderless transparent field read as static text until a save failed).
+           Visible border + placeholder + a required "*" marker; the id / name /
+           required attrs are unchanged so collectSection + the dirty watcher +
+           the save-error router keep targeting it. The eyebrow stays "Section"
+           (golden §4.1). -->
+      <input id="lg-section-name" name="section_name" required aria-required="true" placeholder="Name this section" value="${escapeHtml(view.section_name)}" style="width:158px;font-size:16px;font-weight:700;color:${STUDIO_COLOR.inkStrong};border:1px solid ${STUDIO_COLOR.lineControl};border-radius:${STUDIO_RADIUS.control}px;padding:6px 10px;outline:none;background:${STUDIO_COLOR.white}" />
       ${isNew ? "" : statusPillHtml}
     </div>
   </div>
@@ -1020,9 +1058,15 @@ export function renderStudioSettings(view: StudioSectionView, mapsKeyConfigured:
     <div style="margin-left:auto;display:flex;align-items:center;gap:16px">
       <div style="display:flex;align-items:center;gap:8px" title="The Continue button&#8217;s default style and position are set per funnel in the Quote Builder.">
         <span style="font-size:11px;color:${STUDIO_COLOR.faint};font-weight:600">On answer</span>
-        <div data-continue-mode-group style="display:inline-flex;background:${STUDIO_COLOR.segmentTrack};border-radius:${STUDIO_RADIUS.control}px;padding:2px">
-          <div data-continue-mode="button" role="button" tabindex="0" aria-pressed="${waitActive}" style="${segStyle(waitActive)}">Wait for Continue</div>
-          <div data-continue-mode="auto_advance" role="button" tabindex="0" aria-pressed="${!waitActive}" style="${segStyle(!waitActive)}">Go to next</div>
+        <!-- Round-4 A-5 (P1a, deliverable 5): this topbar segmented is a
+             READ-ONLY status of the section-level continue_mode — the inspector
+             Behavior panel ([data-set-continue-mode]) is the SINGLE writer.
+             setContinueMode keeps this display in sync; clicking it opens that
+             panel (never writes here). The data-continue-mode attrs stay so the
+             sync + eligibility grey-out still target these segments. -->
+        <div data-continue-mode-group data-continue-mode-readonly role="group" aria-readonly="true" aria-label="On answer status (read-only)" title="Read-only status &#8212; set &#8220;When answered&#8221; in the question&#8217;s Behavior panel" style="display:inline-flex;background:${STUDIO_COLOR.segmentTrack};border-radius:${STUDIO_RADIUS.control}px;padding:2px;cursor:pointer">
+          <div data-continue-mode="button" role="button" tabindex="0" aria-pressed="${waitActive}" title="Read-only &#8212; set in the Behavior panel" style="${segStyle(waitActive)}">Wait for Continue</div>
+          <div data-continue-mode="auto_advance" role="button" tabindex="0" aria-pressed="${!waitActive}" title="Read-only &#8212; set in the Behavior panel" style="${segStyle(!waitActive)}">Go to next</div>
         </div>
         <span class="form-help" data-continue-frame-note style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap">The Continue button&#8217;s default style and position are set per funnel in the Quote Builder.</span>
       </div>
@@ -1212,6 +1256,13 @@ html,body{margin:0;padding:0;background:#fff}
 .studio-canvas-render [contenteditable="true"]{outline:2px dashed var(--c-primary);outline-offset:2px;cursor:text}
 .studio-choice-selected{outline:2px solid #e85d26 !important;outline-offset:2px}
 .studio-choice-ghost{border:1px dashed var(--c-border);background:var(--c-surface);color:var(--c-muted);border-radius:8px;min-height:44px;cursor:pointer;font-size:12px}
+/* Round-4 A-3 (P1a): MultiQuestionGrid canvas affordances — the "Add a
+   sub-question" strip (a studio-choice-ghost, no in-grid layout impact) and the
+   zero-row legacy empty-state box (never a blank shell). */
+.studio-mqg-add{display:block;width:100%;margin-top:8px;text-align:center}
+.studio-mqg-empty{border:1px dashed var(--c-border);background:var(--c-surface);border-radius:8px;padding:14px;text-align:center}
+.studio-mqg-empty-msg{font-size:12.5px;color:var(--c-muted);margin-bottom:6px}
+.studio-mqg-empty .studio-mqg-add{margin-top:0}
 /* P1a HIGH concern fix (register PC-1/PC-11, this slice): .lg-answer-group
    (styles.ts) became a real CSS grid, but decorateChoiceCards used to insert
    .studio-choice-x as a SIBLING of the choice cell inside that SAME grid
@@ -2353,6 +2404,10 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <label class="form-label" for="lg-inspector-accept">Accept</label>
         <select id="lg-inspector-accept" class="form-input" data-inspector-accept>${ACCEPT_OPTION_HTML}</select>
       </div>
+      <!-- Round-4 A-6 (P1a, deliverable 9a): an Address is a fixed type — the
+           Accept type-swap is LOCKED (hidden) for it and this line explains why
+           (its map lookup would not apply to another answer format). -->
+      <p class="form-help" data-accept-address-lock hidden>Address is a fixed type &#8212; it can&#8217;t be switched to another answer format (its map lookup wouldn&#8217;t apply).</p>
       <!-- R5 D3 (register S4-A3 migration): searchable-dropdown / card-style /
            slider-format toggles — MIGRATED from the canvas toolbar's
            "component" cluster (each SWITCHES the concrete stored component
@@ -2679,6 +2734,10 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
            props.maps.fills.<slot> = <target internal_field>. -->
       <div class="studio-maps-fills-block" data-maps-fills-block hidden>
         <p class="form-label">Also fill these fields from the resolved address</p>
+        <!-- Round-4 A-6 (P1a, deliverable 9c): explain the role fills + offer
+             create-with-default names (the selects gain a "Create …" option per
+             unset slot, populateMapsTab). -->
+        <p class="form-help" data-maps-fills-explainer>When the visitor picks a suggestion, these fields fill automatically. Pick an existing field or create the default one.</p>
         <label class="studio-maps-fill-row">Street <select class="form-input studio-maps-fill-select" data-maps-fill-slot="street" aria-label="Fill street from"></select></label>
         <label class="studio-maps-fill-row">City <select class="form-input studio-maps-fill-select" data-maps-fill-slot="city" aria-label="Fill city from"></select></label>
         <label class="studio-maps-fill-row">State <select class="form-input studio-maps-fill-select" data-maps-fill-slot="state" aria-label="Fill state from"></select></label>
@@ -3655,6 +3714,26 @@ export const SECTION_STUDIO_SCRIPT = `
     if (goEl) { goEl.setAttribute('style', segStyle(!waitOn)); goEl.setAttribute('aria-pressed', waitOn ? 'false' : 'true'); }
     markDirty();
     updateCanvasToolbar();
+  }
+  // Round-4 A-5 (P1a, deliverable 5): the topbar "On answer" status is read-only
+  // — clicking it OPENS the single writer (the inspector Behavior panel). The
+  // setting is section-level, so a lone answer producer owns it: select that
+  // producer, show the Content tab (where the Behavior panel lives), reveal it
+  // and focus its first writer segment. With zero or many producers there is no
+  // single Behavior panel to open — say so rather than change anything.
+  function openBehaviorPanel() {
+    var elig = sectionAutoAdvanceEligibility();
+    if (elig.producers && elig.producers.length === 1) {
+      var only = elig.producers[0];
+      if (only.question_id !== selectedQuestionId) { selectComponent(only.question_id); }
+      setInspectorTab('content');
+      var beh = document.querySelector('[data-content-behavior-section]');
+      if (beh && beh.scrollIntoView) { beh.scrollIntoView(); }
+      var writer = document.querySelector('[data-set-continue-mode]');
+      if (writer && writer.focus) { writer.focus(); }
+    } else {
+      showRefusal('Open a question\\u2019s Behavior panel to set When answered \\u2014 select the section\\u2019s question first.');
+    }
   }
   // PC-A1 (P4a): mirror content-schema.autoAdvanceEligibility CLIENT-SIDE so the
   // Behavior control never offers a "Go to next" the engine cannot honor. The
@@ -4745,6 +4824,37 @@ export const SECTION_STUDIO_SCRIPT = `
           if (rf && trimStr(rf) !== '') { fields.push(rf); }
         }
       }
+      // Round-4 A-4 (P1a): AddressAutocompleteQuestion role sub-fields — its
+      // Maps fill-target internal fields (street/city/state/zip), or a
+      // node-namespaced default when unconfigured, so an Address part can drive
+      // a rule (the operator-predicted second unmapped-source class). Namespaced
+      // to the node so a default never collides with a real sibling field (a
+      // 'zip' question, etc.). Inlined (no shared helper, no mapsConfigOf call):
+      // this reader is vm-probe-sliced STANDALONE in harnesses that don't slice
+      // those collaborators — refFieldInfo/sectionFieldLabels repeat the SAME
+      // derivation for the same reason (the label leg names each "<Address> —
+      // City" style).
+      if (n.type === 'AddressAutocompleteQuestion') {
+        var arRoles = ['street', 'city', 'state', 'zip'];
+        var arMaps = n.props && n.props.maps;
+        var arFills = (arMaps && typeof arMaps === 'object' && arMaps.fills && typeof arMaps.fills === 'object') ? arMaps.fills : {};
+        var arBase = (n.internal_field && trimStr(n.internal_field) !== '') ? trimStr(n.internal_field) : (n.question_id || 'address');
+        var ari, arName;
+        for (ari = 0; ari < arRoles.length; ari++) {
+          arName = (typeof arFills[arRoles[ari]] === 'string' && trimStr(arFills[arRoles[ari]]) !== '') ? trimStr(arFills[arRoles[ari]]) : (arBase + '_' + arRoles[ari]);
+          if (arName && fields.indexOf(arName) === -1) { fields.push(arName); }
+        }
+      }
+      // Round-4 A-4 (P1a): NameFieldsGroup per-field names (first/last) — each
+      // sub-input records a real answer field (engine data-name-field capture),
+      // so each is a rule source.
+      if (n.type === 'NameFieldsGroup') {
+        var ngF = (n.props && Array.isArray(n.props.fields)) ? n.props.fields : [];
+        var ngFirst = (typeof ngF[0] === 'string' && trimStr(ngF[0]) !== '') ? trimStr(ngF[0]) : 'first';
+        var ngLast = (typeof ngF[1] === 'string' && trimStr(ngF[1]) !== '') ? trimStr(ngF[1]) : 'last';
+        if (fields.indexOf(ngFirst) === -1) { fields.push(ngFirst); }
+        if (fields.indexOf(ngLast) === -1) { fields.push(ngLast); }
+      }
     });
     return fields;
   }
@@ -4775,6 +4885,27 @@ export const SECTION_STUDIO_SCRIPT = `
           }
         }
       }
+      // Round-4 A-4 (P1a): an Address role sub-field is a plain string value
+      // (street/city/state/zip text). Same inline derivation as internalFieldsOf
+      // (no mapsConfigOf — this reader is vm-probe-sliced standalone too).
+      if (n.type === 'AddressAutocompleteQuestion') {
+        var riRoles = ['street', 'city', 'state', 'zip'];
+        var riMaps = n.props && n.props.maps;
+        var riFills = (riMaps && typeof riMaps === 'object' && riMaps.fills && typeof riMaps.fills === 'object') ? riMaps.fills : {};
+        var riBase = (n.internal_field && trimStr(n.internal_field) !== '') ? trimStr(n.internal_field) : (n.question_id || 'address');
+        var rii, riName;
+        for (rii = 0; rii < riRoles.length; rii++) {
+          riName = (typeof riFills[riRoles[rii]] === 'string' && trimStr(riFills[riRoles[rii]]) !== '') ? trimStr(riFills[riRoles[rii]]) : (riBase + '_' + riRoles[rii]);
+          if (riName === fieldName) { info.type = 'string'; }
+        }
+      }
+      // Round-4 A-4 (P1a): a NameFieldsGroup per-field name is a plain string.
+      if (n.type === 'NameFieldsGroup') {
+        var riF = (n.props && Array.isArray(n.props.fields)) ? n.props.fields : [];
+        var riFirst = (typeof riF[0] === 'string' && trimStr(riF[0]) !== '') ? trimStr(riF[0]) : 'first';
+        var riLast = (typeof riF[1] === 'string' && trimStr(riF[1]) !== '') ? trimStr(riF[1]) : 'last';
+        if (fieldName === riFirst || fieldName === riLast) { info.type = 'string'; }
+      }
     });
     return info;
   }
@@ -4804,23 +4935,50 @@ export const SECTION_STUDIO_SCRIPT = `
     var i, node, base;
     for (i = 0; i < fields.length; i++) {
       node = null;
-      // P5 (PC-10): a MultiQuestionGrid row has no owning node with a matching
-      // internal_field — its human label is the ROW's own label ("each row
-      // appears in rule pickers by its label"), captured here alongside the
-      // normal node lookup.
-      var mqgRowLabel = null;
+      // A STRUCTURED sub-field (a MultiQuestionGrid row, an Address role, a
+      // NameFieldsGroup part) has no owning node with a matching internal_field
+      // — its human label is its OWN row/role label, and it must NEVER inherit
+      // the section headline. Round-4 A-4/P-4 (P1a): the i===0 headline
+      // preference below MISFIRED on such a sub-field when it was first in tree
+      // order (the operator's row-1 = section-headline mislabel bug) — capturing
+      // structuredLabel here and giving it precedence over the headline kills
+      // that class for every structured sub-field at once.
+      var structuredLabel = null;
       walkTree(state.content.components, 1, function (n) {
         if (node === null && n.internal_field === fields[i]) { node = n; }
-        if (mqgRowLabel === null && n.type === 'MultiQuestionGrid' && n.props && Array.isArray(n.props.rows)) {
+        // MultiQuestionGrid row → the row's own label.
+        if (structuredLabel === null && n.type === 'MultiQuestionGrid' && n.props && Array.isArray(n.props.rows)) {
           var k, row;
           for (k = 0; k < n.props.rows.length; k++) {
             row = n.props.rows[k];
-            if (row && row.internal_field === fields[i] && trimStr(row.label) !== '') { mqgRowLabel = row.label; }
+            if (row && row.internal_field === fields[i] && trimStr(row.label) !== '') { structuredLabel = row.label; }
           }
         }
+        // Address role → "<Address> — City" style (same inline field-name
+        // derivation as internalFieldsOf/refFieldInfo; no mapsConfigOf call).
+        if (structuredLabel === null && n.type === 'AddressAutocompleteQuestion') {
+          var slRoles = [['street', 'Street'], ['city', 'City'], ['state', 'State'], ['zip', 'ZIP']];
+          var slMaps = n.props && n.props.maps;
+          var slFills = (slMaps && typeof slMaps === 'object' && slMaps.fills && typeof slMaps.fills === 'object') ? slMaps.fills : {};
+          var slBase = (n.internal_field && trimStr(n.internal_field) !== '') ? trimStr(n.internal_field) : (n.question_id || 'address');
+          var sli, slName;
+          for (sli = 0; sli < slRoles.length; sli++) {
+            slName = (typeof slFills[slRoles[sli][0]] === 'string' && trimStr(slFills[slRoles[sli][0]]) !== '') ? trimStr(slFills[slRoles[sli][0]]) : (slBase + '_' + slRoles[sli][0]);
+            if (slName === fields[i]) { structuredLabel = typeLabel(n.type) + ' \\u2014 ' + slRoles[sli][1]; }
+          }
+        }
+        // NameFieldsGroup part → "<Name> — First"/"— Last".
+        if (structuredLabel === null && n.type === 'NameFieldsGroup') {
+          var slF = (n.props && Array.isArray(n.props.fields)) ? n.props.fields : [];
+          var slFirst = (typeof slF[0] === 'string' && trimStr(slF[0]) !== '') ? trimStr(slF[0]) : 'first';
+          var slLast = (typeof slF[1] === 'string' && trimStr(slF[1]) !== '') ? trimStr(slF[1]) : 'last';
+          if (fields[i] === slFirst) { structuredLabel = typeLabel(n.type) + ' \\u2014 First'; }
+          else if (fields[i] === slLast) { structuredLabel = typeLabel(n.type) + ' \\u2014 Last'; }
+        }
       });
-      base = (i === 0 && headline !== '') ? headline
-        : (mqgRowLabel !== null ? mqgRowLabel : (node ? typeLabel(node.type) : fields[i]));
+      base = (structuredLabel !== null) ? structuredLabel
+        : ((i === 0 && headline !== '') ? headline
+          : (node ? typeLabel(node.type) : fields[i]));
       bases.push(base);
       counts[base] = (counts[base] || 0) + 1;
     }
@@ -4948,7 +5106,14 @@ export const SECTION_STUDIO_SCRIPT = `
     node.type = type;
     node.question_id = newQuestionId();
     if (req.internal_field) { node.internal_field = 'field_' + node.question_id.slice(2); }
-    if (req.choices) { node.choices = [sampleChoice(req, 1), sampleChoice(req, 2)]; }
+    if (req.choices) {
+      // Round-4 A-3 (P1a): preserve a seed-provided pill set (the
+      // MultiQuestionGrid Yes/No starter pair) rather than overwriting it with
+      // generic Option 1/2 samples — only synthesize samples when the seed
+      // carries no usable (>=2) set. Non-grid choice seeds are still [] here, so
+      // they seed samples exactly as before.
+      if (!(node.choices && node.choices.length >= 2)) { node.choices = [sampleChoice(req, 1), sampleChoice(req, 2)]; }
+    }
     else if (node.choices && node.choices.length === 0) { delete node.choices; }
     var i, k, list;
     list = req.text_props || [];
@@ -5980,6 +6145,15 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!host) { continue; }
       qid = host.getAttribute('data-question-id');
       if (typeMeta(host.getAttribute('data-component-type')).choice !== true) { continue; }
+      // Round-4 A-3 (P1a, deliverable 3): a MultiQuestionGrid renders the SHARED
+      // pill set per row — a canvas ×-remove here would splice node.choices
+      // (the set behind EVERY row), a silent, surprising mutation the operator
+      // never asked for (and, ghost-added, the exact 2-4-bound save-400 trap).
+      // The shared pills are edited in the Content tab's choices block, and each
+      // row's own override in the rows editor — so NO per-pill ×-remove /
+      // draggable / choice-select decoration on a grid pill; the "Add a
+      // sub-question" affordance below points at that editor.
+      if (host.getAttribute('data-component-type') === 'MultiQuestionGrid') { continue; }
       card.setAttribute('draggable', 'true');
       if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue)) {
         card.className = card.className + ' studio-choice-selected';
@@ -6011,7 +6185,34 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < nodes.length; i++) {
       qid = nodes[i].getAttribute('data-question-id');
       type = nodes[i].getAttribute('data-component-type');
-      if (typeMeta(type).choice === true) {
+      if (type === 'MultiQuestionGrid') {
+        // Round-4 A-3 (P1a, deliverables 2+10): a grid gets NO generic "+ Add
+        // choice" ghost (that pushes into the shared node.choices and 400s the
+        // save). Its canvas affordance opens the Content-tab rows editor and
+        // adds a sub-question. A zero-row legacy grid shows a studio-only
+        // empty-state box ("No sub-questions yet") wired to the same editor —
+        // never a blank shell.
+        var mqgRef = findRef(qid);
+        var mqgRowCount = (mqgRef && mqgRef.node.props && Array.isArray(mqgRef.node.props.rows)) ? mqgRef.node.props.rows.length : 0;
+        var addSub = frameCreate('button');
+        addSub.type = 'button';
+        addSub.className = 'lg-card studio-choice-ghost studio-mqg-add';
+        addSub.setAttribute('data-mqg-add-canvas', qid);
+        addSub.appendChild(document.createTextNode('+ Add a sub-question'));
+        if (mqgRowCount === 0) {
+          var emptyBox = frameCreate('div');
+          emptyBox.className = 'studio-mqg-empty';
+          emptyBox.setAttribute('data-mqg-empty', qid);
+          var emptyMsg = frameCreate('div');
+          emptyMsg.className = 'studio-mqg-empty-msg';
+          emptyMsg.appendChild(document.createTextNode('No sub-questions yet'));
+          emptyBox.appendChild(emptyMsg);
+          emptyBox.appendChild(addSub);
+          nodes[i].appendChild(emptyBox);
+        } else {
+          nodes[i].appendChild(addSub);
+        }
+      } else if (typeMeta(type).choice === true) {
         ghost = frameCreate('button');
         ghost.type = 'button';
         ghost.className = 'lg-card studio-choice-ghost';
@@ -6370,7 +6571,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (inlineEditing) { return; }
     var t = ev.target;
     if (!t || !t.closest) { return; }
-    if (t.closest('[data-selection-chrome],[data-lg-choice],[data-resize-handle],[data-field-resize-handle],[data-width-handle],[contenteditable="true"],[data-frame-keep],[data-frame-move],[data-choice-x],[data-choice-ghost],[data-funnel-picker],[data-container-chip]')) { return; }
+    if (t.closest('[data-selection-chrome],[data-lg-choice],[data-resize-handle],[data-field-resize-handle],[data-width-handle],[contenteditable="true"],[data-frame-keep],[data-frame-move],[data-choice-x],[data-choice-ghost],[data-mqg-add-canvas],[data-mqg-empty],[data-funnel-picker],[data-container-chip]')) { return; }
     var surface = t.closest('[data-question-id]');
     if (!surface) { return; }
     startFieldMove(surface.getAttribute('data-question-id'), ev);
@@ -6702,7 +6903,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // §8.8 linked-field chips + §5.4 frame badges REBUILD per pass (the region
     // is server HTML — every re-render wipes them, so decoration re-derives
     // from the model).
-    var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge, .studio-choice-ghost, .studio-choice-x, .studio-resize-handle, .studio-mapoverlay-chip, .studio-container-chip');
+    var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge, .studio-choice-ghost, .studio-choice-x, .studio-resize-handle, .studio-mapoverlay-chip, .studio-container-chip, .studio-mqg-empty');
     var i;
     for (i = 0; i < stale.length; i++) {
       if (stale[i].parentNode) { stale[i].parentNode.removeChild(stale[i]); }
@@ -7422,8 +7623,14 @@ export const SECTION_STUDIO_SCRIPT = `
     if (emptyNote && acceptFmt !== null) { emptyNote.hidden = true; }
     var acceptWrap = document.querySelector('[data-accept-wrap]');
     var acceptSel = document.querySelector('[data-inspector-accept]');
-    if (acceptWrap) { acceptWrap.hidden = acceptFmt === null; }
-    if (acceptSel && acceptFmt !== null) { acceptSel.value = acceptFmt; }
+    // Round-4 A-6 (P1a, deliverable 9a): LOCK the Accept type-swap for an
+    // Address — swapping it to phone/email/etc. is meaningless (its Places/Maps
+    // wiring would not apply). Hide the dropdown, show a one-line explanation.
+    var isAddressNode = !!node && node.type === 'AddressAutocompleteQuestion';
+    var acceptAddrLock = document.querySelector('[data-accept-address-lock]');
+    if (acceptWrap) { acceptWrap.hidden = acceptFmt === null || isAddressNode; }
+    if (acceptAddrLock) { acceptAddrLock.hidden = !isAddressNode; }
+    if (acceptSel && acceptFmt !== null && !isAddressNode) { acceptSel.value = acceptFmt; }
     var errWrap = document.querySelector('[data-vprop-error-wrap]');
     if (errWrap) { errWrap.hidden = !node || !meta.produces; }
 
@@ -7832,10 +8039,17 @@ export const SECTION_STUDIO_SCRIPT = `
       fillsBlock.hidden = !showFills;
       if (showFills) {
         var selfField = (node && typeof node.internal_field === 'string') ? node.internal_field : '';
+        // Round-4 A-6 (P1a, deliverable 9c): this Address's OWN role sub-fields
+        // (the node-namespaced defaults internalFieldsOf lists) are NOT
+        // fill-FROM sources for itself — exclude them so the picker offers only
+        // real sibling input fields.
+        var arBase = (node && node.internal_field && trimStr(node.internal_field) !== '') ? trimStr(node.internal_field) : ((node && node.question_id) ? node.question_id : 'address');
+        var ownRoleNames = {}, orSlots = ['street', 'city', 'state', 'zip'], ors;
+        for (ors = 0; ors < orSlots.length; ors++) { ownRoleNames[arBase + '_' + orSlots[ors]] = true; }
         var allFields = internalFieldsOf();
         var others = [];
         for (i = 0; i < allFields.length; i++) {
-          if (allFields[i] !== selfField && others.indexOf(allFields[i]) === -1) { others.push(allFields[i]); }
+          if (allFields[i] !== selfField && !ownRoleNames[allFields[i]] && others.indexOf(allFields[i]) === -1) { others.push(allFields[i]); }
         }
         var cfg = mapsConfigOf(node);
         var fills = (cfg && cfg.fills && typeof cfg.fills === 'object') ? cfg.fills : {};
@@ -7849,6 +8063,17 @@ export const SECTION_STUDIO_SCRIPT = `
           opt.value = '';
           opt.textContent = 'Don’t fill';
           sel.appendChild(opt);
+          // Round-4 A-6 (P1a, deliverable 9c): when this slot is unset, offer a
+          // one-click "create the default field" — its value is the SAME
+          // node-namespaced name internalFieldsOf already lists as a rule source,
+          // so choosing it makes the role a real, mapped, rule-visible field with
+          // zero naming decisions.
+          if (current === '') {
+            opt = document.createElement('option');
+            opt.value = arBase + '_' + slot;
+            opt.textContent = 'Create "' + (arBase + '_' + slot) + '"';
+            sel.appendChild(opt);
+          }
           for (j = 0; j < others.length; j++) {
             opt = document.createElement('option');
             opt.value = others[j];
@@ -11028,20 +11253,48 @@ export const SECTION_STUDIO_SCRIPT = `
         if (chipQid !== selectedQuestionId) { selectComponent(chipQid); }
         return;
       }
+      // Round-4 A-3 (P1a, deliverables 2+10): the grid's canvas "Add a
+      // sub-question" affordance (and its zero-row empty-state CTA) — select the
+      // grid, open the Content-tab rows editor, and append a starter row (the
+      // SAME addMqgRow the inspector "+ Add sub-question" button calls).
+      var mqgAddCanvas = ev.target && ev.target.closest ? ev.target.closest('[data-mqg-add-canvas]') : null;
+      if (mqgAddCanvas) {
+        ev.preventDefault();
+        var mqgAddQid = mqgAddCanvas.getAttribute('data-mqg-add-canvas');
+        var mqgAddRef = findRef(mqgAddQid);
+        if (mqgAddRef && mqgAddRef.node.type === 'MultiQuestionGrid') {
+          if (mqgAddQid !== selectedQuestionId) { selectComponent(mqgAddQid); }
+          setInspectorTab('content');
+          addMqgRow();
+        }
+        return;
+      }
       // §6.2 inline choice ops: per-choice ✕ + the "+ Add choice" ghost tile.
       var xBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-x]') : null;
       if (xBtn) {
         var xRef = findRef(xBtn.getAttribute('data-choice-x-qid'));
         if (xRef) {
-          removeChoiceFromNode(xRef.node, xBtn.getAttribute('data-choice-x'));
-          if (selectedQuestionId === xRef.node.question_id) { renderChoiceEditor(xRef.node); }
+          // Round-4 A-3 (P1a, deliverable 3): a grid pill's × must NEVER splice
+          // the shared node.choices — point the operator at the rows/choices
+          // editor instead (defensive: decorateChoiceCards omits the × on grid
+          // pills, so this branch is a belt-and-suspenders guard).
+          if (xRef.node.type === 'MultiQuestionGrid') {
+            if (xRef.node.question_id !== selectedQuestionId) { selectComponent(xRef.node.question_id); }
+            setInspectorTab('content');
+            showRefusal('Edit grid answers in the Sub-questions editor below \\u2014 the pills are shared across every row.');
+          } else {
+            removeChoiceFromNode(xRef.node, xBtn.getAttribute('data-choice-x'));
+            if (selectedQuestionId === xRef.node.question_id) { renderChoiceEditor(xRef.node); }
+          }
         }
         return;
       }
       var ghostBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-ghost]') : null;
       if (ghostBtn) {
         var gRef = findRef(ghostBtn.getAttribute('data-choice-ghost'));
-        if (gRef) {
+        // Round-4 A-3 (P1a): NO push into node.choices from the canvas for a
+        // grid (the shared-set save-400 trap) — the grid uses its own affordance.
+        if (gRef && gRef.node.type !== 'MultiQuestionGrid') {
           var added = addChoiceToNode(gRef.node);
           if (added) { selectChoice(gRef.node.question_id, String(added.value)); }
         }
@@ -13663,17 +13916,20 @@ export const SECTION_STUDIO_SCRIPT = `
   // listener is REMOVED with its fieldset — state.address_validation_enabled
   // now round-trips load -> save purely through the state object (see the
   // SSR-side comment in renderStudioSettings), no DOM element involved.
-  // §4.2 "On answer" segmented (golden :72-75) — replaces the old native
-  // radio pair; click OR keyboard (Enter/Space, role="button" tabindex="0")
-  // on either segment writes continue_mode through the single setContinueMode
-  // writer shared with the canvas-toolbar auto-advance chip.
+  // Round-4 A-5 (P1a, deliverable 5): the topbar "On answer" segmented is a
+  // READ-ONLY STATUS of the section continue_mode, NOT a second writer — two
+  // visible authorities were the operator's confusion (operator #5, Image8).
+  // The inspector Behavior panel ([data-set-continue-mode]) is now the SINGLE
+  // writer; setContinueMode still repaints THIS display (its
+  // [data-continue-mode] segments) so the status stays live. Click/Enter here
+  // OPENS the Behavior panel (openBehaviorPanel) instead of writing the mode.
   var continueSegEls = document.querySelectorAll('[data-continue-mode]');
   var csi;
-  function onContinueSegActivate() { setContinueMode(this.getAttribute('data-continue-mode')); }
+  function onContinueSegActivate() { openBehaviorPanel(); }
   function onContinueSegKey(ev) {
     if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
       ev.preventDefault();
-      setContinueMode(this.getAttribute('data-continue-mode'));
+      openBehaviorPanel();
     }
   }
   for (csi = 0; csi < continueSegEls.length; csi++) {
@@ -13898,8 +14154,33 @@ export const SECTION_STUDIO_SCRIPT = `
     head.setAttribute('data-save-problems-summary', '');
     head.appendChild(document.createTextNode('Save failed \\u2014 ' + fieldProblems.length + ' field' + (fieldProblems.length === 1 ? '' : 's') + ' need attention:'));
     box.appendChild(head);
+    // Round-4 A-8 (P1a, deliverable 7): map raw field ids to operator words at
+    // PAINT time — a display map with a snake_case to Title Case fallback, plus
+    // substitution of any raw id embedded inside the server message string, so a
+    // problem reads "Section name is required", never the raw "section_name is
+    // required" (operator #8, Part C P-9). Kept LOCAL because this function is
+    // vm-probe-sliced standalone. Server leg lands in P1c; this paints clean copy
+    // from whatever raw ids the server currently sends.
+    var SAVE_FIELD_DISPLAY = { section_name: 'Section name', headline_text: 'Headline', subheadline_text: 'Subheadline', activity: 'Activity', vertical: 'Vertical' };
+    function fieldDisplayName(id) {
+      var s = String(id);
+      if (SAVE_FIELD_DISPLAY[s]) { return SAVE_FIELD_DISPLAY[s]; }
+      var parts = s.split('_'), out = [], ti, tp;
+      for (ti = 0; ti < parts.length; ti++) { tp = parts[ti]; if (tp === '') { continue; } out.push(tp.charAt(0).toUpperCase() + tp.slice(1)); }
+      return out.length ? out.join(' ') : s;
+    }
+    function humanizeFieldMessage(msg, ownKey) {
+      var s = String(msg);
+      // Whole-word replace the specific field id first (covers single-word ids
+      // like "activity" the multi-part snake pass below would not catch)…
+      if (ownKey && /^[a-z][a-z0-9_]*$/.test(ownKey)) {
+        s = s.replace(new RegExp('(^|[^A-Za-z0-9_])' + ownKey + '(?![A-Za-z0-9_])', 'g'), function (m, a) { return a + fieldDisplayName(ownKey); });
+      }
+      // …then any remaining multi-part snake_case id embedded in the message.
+      return s.replace(/[a-z][a-z0-9]*(?:_[a-z0-9]+)+/g, function (tok) { return fieldDisplayName(tok); });
+    }
     var list = document.createElement('ul');
-    var i, li, btn;
+    var i, li, btn, msgKey;
     for (i = 0; i < fieldProblems.length; i++) {
       if (!fieldProblems[i]) { continue; }
       li = document.createElement('li');
@@ -13907,7 +14188,8 @@ export const SECTION_STUDIO_SCRIPT = `
       btn.type = 'button';
       btn.className = 'studio-link-btn';
       btn.setAttribute('data-save-problem-path', String(fieldProblems[i].path || ''));
-      btn.appendChild(document.createTextNode(String(fieldProblems[i].message || '')));
+      msgKey = String(fieldProblems[i].path || '').replace(/^.*\\./, '');
+      btn.appendChild(document.createTextNode(humanizeFieldMessage(String(fieldProblems[i].message || ''), msgKey)));
       btn.addEventListener('click', saveProblemFocusHandler(fieldProblems[i].path));
       li.appendChild(btn);
       list.appendChild(li);
@@ -13954,6 +14236,10 @@ export const SECTION_STUDIO_SCRIPT = `
     var k, focused = false, node, key;
     // R4a E3-NEW-3: collect the message TEXT alongside the outline — a
     // failed save gets readable field messages, not just a bare red border.
+    // Round-4 A-8 (P1a, deliverable 7): the RAW server message + path ride
+    // through here unchanged; renderSaveFieldErrors maps the raw ids to operator
+    // words at paint time (keeping this collector's shape byte-stable for the
+    // vm-probes that slice it).
     var fieldProblems = [];
     for (k in fields) {
       if (!Object.prototype.hasOwnProperty.call(fields, k)) { continue; }
