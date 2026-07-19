@@ -167,8 +167,18 @@ export const listFilterScript = `
 // KEBAB_CLOSE. Toggle/outside-click/Escape/one-open-at-a-time behavior is
 // kebabMenuScript below — generic `data-kebab*` attributes, so it can never
 // collide with offers' `data-offer-kebab-*` listener either.
+//
+// `data-kebab-target` links the toggle to its menu by a per-render-call
+// unique id (kebabSeq below) — kebabMenuScript reparents the menu to <body>
+// on open (see its own doc comment), so an ancestor-relative lookup
+// (host.querySelector) stops finding it after the first open; the id-link
+// survives the move (getElementById/attribute-selector query the whole
+// document, not a subtree).
+let kebabSeq = 0;
 export function renderKebabOpen(name: string): string {
-  return `<div class="lg-kebab" data-kebab><button type="button" class="btn btn-sm btn-outline lg-kebab-btn" data-kebab-toggle aria-haspopup="true" aria-expanded="false" aria-label="More actions for ${escapeHtml(name)}">&#8942;</button><div class="lg-kebab-menu" data-kebab-menu hidden role="menu">`;
+  kebabSeq += 1;
+  const menuId = `lg-kebab-menu-${kebabSeq}`;
+  return `<div class="lg-kebab" data-kebab><button type="button" class="btn btn-sm btn-outline lg-kebab-btn" data-kebab-toggle data-kebab-target="${menuId}" aria-haspopup="true" aria-expanded="false" aria-label="More actions for ${escapeHtml(name)}">&#8942;</button><div class="lg-kebab-menu" id="${menuId}" data-kebab-menu hidden role="menu">`;
 }
 export const KEBAB_CLOSE = `</div></div>`;
 
@@ -178,36 +188,84 @@ export const KEBAB_CLOSE = `</div></div>`;
 // so a page's OWN action script can collapse the menu right after handling
 // an item click (Duplicate/Archive/Delete/etc.) without re-implementing the
 // open/close bookkeeping itself.
+//
+// Fix-round finding (P1d): a kebab menu left nested inside .table-wrapper
+// loses BOTH ways: (1) CSS Overflow's "mixed overflow" rule computes
+// overflow-y to auto the moment overflow-x is set to anything but visible
+// (.table-wrapper{overflow-x:auto} — the A-1 fix itself), so a
+// position:absolute menu extending past the wrapper's own box gets CLIPPED;
+// (2) switching the menu to position:fixed escapes that clip, but NOT the
+// STACKING context .admin-main{isolation:isolate} establishes — inside that
+// context a later row's own table--sticky-edges last-column cell (the A-1
+// sticky-actions-column fix) can still win the paint order against a
+// same-context z-index, so the menu visually loses to a LOWER row's cell
+// (reproduced live: Playwright's hit-test resolved a menu item's click
+// coordinate to the NEXT row's <td>, not the menu). Fix: on open, reparent
+// the menu DOM node itself to <body> (a "portal") — this removes it from
+// every ancestor's overflow-clip AND stacking context in one step, not just
+// from the clip. position:fixed + a live getBoundingClientRect() of the
+// toggle then places it correctly regardless of where it re-renders or
+// which row it belongs to. Closes on scroll (capture phase, since
+// .table-wrapper's own scroll does not bubble to document) so a fixed,
+// reparented menu never floats away, stale, from a toggle its wrapper has
+// since scrolled out from under it.
 export const kebabMenuScript = `
 (function () {
+  function resetMenuPosition(menu) {
+    menu.style.position = '';
+    menu.style.top = '';
+    menu.style.right = '';
+    menu.style.left = '';
+  }
+  function toggleForMenu(menu) {
+    return document.querySelector('[data-kebab-target="' + menu.id + '"]');
+  }
   function closeAllKebabMenus() {
     var open = document.querySelectorAll('[data-kebab-menu]:not([hidden])');
-    var i, host, btn;
+    var i, toggle;
     for (i = 0; i < open.length; i++) {
       open[i].hidden = true;
-      host = open[i].parentNode;
-      btn = host ? host.querySelector('[data-kebab-toggle]') : null;
-      if (btn) { btn.setAttribute('aria-expanded', 'false'); }
+      resetMenuPosition(open[i]);
+      toggle = toggleForMenu(open[i]);
+      if (toggle) { toggle.setAttribute('aria-expanded', 'false'); }
     }
   }
   window.lgCloseKebabs = closeAllKebabMenus;
+  function menuForToggle(toggle) {
+    var id = toggle.getAttribute('data-kebab-target');
+    return id ? document.getElementById(id) : null;
+  }
+  function openKebab(toggle, menu) {
+    if (menu.parentNode !== document.body) { document.body.appendChild(menu); }
+    var r = toggle.getBoundingClientRect();
+    menu.style.position = 'fixed';
+    menu.style.top = r.bottom + 'px';
+    menu.style.right = (window.innerWidth - r.right) + 'px';
+    menu.style.left = 'auto';
+    menu.hidden = false;
+    toggle.setAttribute('aria-expanded', 'true');
+  }
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (!t || !t.closest) { return; }
     var toggle = t.closest('[data-kebab-toggle]');
     if (toggle) {
-      var host = toggle.closest('[data-kebab]');
-      var menu = host ? host.querySelector('[data-kebab-menu]') : null;
+      var menu = menuForToggle(toggle);
       var wasHidden = menu ? menu.hidden : true;
       closeAllKebabMenus();
-      if (menu && wasHidden) { menu.hidden = false; toggle.setAttribute('aria-expanded', 'true'); }
+      if (menu && wasHidden) { openKebab(toggle, menu); }
       return;
     }
+    // A click inside an (already reparented-to-<body>) open menu is never
+    // an "outside click" even though it is no longer a descendant of
+    // [data-kebab] — data-kebab-menu itself still identifies it.
+    if (t.closest('[data-kebab-menu]')) { return; }
     if (!t.closest('[data-kebab]')) { closeAllKebabMenus(); }
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' || e.keyCode === 27) { closeAllKebabMenus(); }
   });
+  document.addEventListener('scroll', function () { closeAllKebabMenus(); }, true);
 }());
 `;
 
@@ -382,7 +440,7 @@ html,body{height:100%;overflow-x:hidden}
    against via renderKebabOpen/KEBAB_CLOSE + kebabMenuScript below). */
 .lg-kebab{position:relative;display:inline-block}
 .lg-kebab-btn{line-height:1;font-weight:700}
-.lg-kebab-menu{position:absolute;right:0;top:100%;z-index:20;min-width:180px;background:#fff;border:1px solid var(--c-border);border-radius:6px;box-shadow:0 8px 20px rgba(0,0,0,0.14);padding:4px;display:flex;flex-direction:column}
+.lg-kebab-menu{position:absolute;right:0;top:100%;z-index:100;min-width:180px;background:#fff;border:1px solid var(--c-border);border-radius:6px;box-shadow:0 8px 20px rgba(0,0,0,0.14);padding:4px;display:flex;flex-direction:column}
 .lg-kebab-menu[hidden]{display:none}
 .lg-kebab-item{display:block;width:100%;text-align:left;padding:8px 12px;border:0;background:none;font-size:13px;color:var(--c-text);text-decoration:none;cursor:pointer;border-radius:4px}
 .lg-kebab-item:hover{background:var(--c-bg-alt)}

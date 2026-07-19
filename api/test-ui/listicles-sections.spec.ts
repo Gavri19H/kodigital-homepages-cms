@@ -302,7 +302,18 @@ test.describe.serial('Listicles Sections — §26 behaviors', () => {
   test('"Offers used" / "Usage in Articles" reflect the section links (§10/§26)', async ({ page }) => {
     await page.goto('/admin/listicles/sections', { waitUntil: 'domcontentloaded' });
     const row = page.locator('tr', { hasText: sectionName }).first();
-    await row.locator('[data-section-offers]').click();
+    // Round-4 P1d: these two actions now live inside the shared kebab
+    // (layout.ts renderKebabOpen/kebabMenuScript) instead of flat row
+    // buttons. Opening the kebab REPARENTS its menu to <body> (a portal —
+    // escapes .table-wrapper's forced overflow-y clip and .admin-main's
+    // isolated stacking context), so once open its items are document-level,
+    // not row-scoped — read the row's OWN numeric id (data-entity-id, which
+    // data-section-offers/-usage are keyed on) and locate via page.locator
+    // from here on; the toggle button and row stay put, only the menu's
+    // contents move.
+    const sectionId = await row.getAttribute('data-entity-id');
+    await row.getByRole('button', { name: /More actions/i }).click();
+    await page.locator(`[data-section-offers="${sectionId}"]`).click();
     const dialog = page.locator('#lst-dialog');
     await expect(dialog).toBeVisible();
     // The saved section's roles are attributed per offer (§5.4 rollup).
@@ -313,7 +324,8 @@ test.describe.serial('Listicles Sections — §26 behaviors', () => {
     await page.screenshot({ path: `${SHOT_DIR}/06-offers-used.png` });
     await dialog.locator('[data-dialog-close]').click();
 
-    await row.locator('[data-section-usage]').click();
+    await row.getByRole('button', { name: /More actions/i }).click();
+    await page.locator(`[data-section-usage="${sectionId}"]`).click();
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText('No articles use this section yet.');
     await dialog.locator('[data-dialog-close]').click();

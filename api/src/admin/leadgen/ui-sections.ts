@@ -231,15 +231,25 @@ function renderSectionListRow(s: SectionListItem): string {
       : `<button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-section-archive="${escapeHtml(s.public_id)}" data-entity-name="${name}">Archive</button>`;
   // Round-4 A-2 (row R4-02/R4-38): Edit stays a direct link; Duplicate/Usage/
   // Archive-or-Reactivate/Delete move into the shared kebab (renderKebabOpen/
-  // KEBAB_CLOSE, layout.ts). Duplicate + Delete are NEW this round (P1c wired
-  // POST /sections/:id/duplicate; Delete reuses the EXISTING DELETE
-  // /sections/:id — an unconditional archive-flip, see deleteSectionHandler,
-  // sections-handlers.ts — there is no usage-guard/409 on that endpoint today,
-  // so Delete and Archive currently produce the identical end state; flagged
-  // as an open seam, not fixed here since sections-handlers.ts is outside
-  // this slice). Usage keeps its EXISTING inline-panel toggle (data-section-
-  // usage + the sibling .lg-usage-row below) untouched — only its button now
-  // lives inside the kebab.
+  // KEBAB_CLOSE, layout.ts). Duplicate -> POST /sections/:id/duplicate.
+  // Fix-round correction: P1c (commit 3943892/4bc4600) gave DELETE
+  // /sections/:id a REAL contract — it guards on variant references
+  // (leadgen_funnel_variant_sections, already checked before) AND rule
+  // references (leadgen_funnel_rules.target_section_id, added in 3943892) ->
+  // 409 "This section is used by quotes — archive it instead"; unreferenced
+  // -> HARD DELETE (the row + its own answer-map/available-offer children are
+  // permanently removed — no more archive-flip on that path). Archive/
+  // Reactivate are therefore the SEPARATE, unconditional PATCH {status} leg
+  // (patchSectionHandler already accepts "status", SECTION_LIST_SCRIPT below)
+  // — Archive can never be refused and never destroys data; Delete is the
+  // guarded, permanent one — matching the label the button already carried.
+  // Usage keeps its EXISTING inline-panel toggle (data-section-usage + the
+  // sibling .lg-usage-row below) untouched — only its button now lives inside
+  // the kebab; note the panel itself still renders only body.usage.variants
+  // (sectionUsageHandler's response shape), not the newer usage.rules the
+  // same P1c commit added — a section blocked ONLY by a rule reference would
+  // show "Not used by any funnel variant" in Usage while Delete still 409s, a
+  // real but pre-existing display gap outside this deliverable's scope.
   return `<tr data-entity-id="${s.id}" data-entity-name="${name}">
   <td>${name}</td>
   <td>${escapeHtml(s.activity)} / ${escapeHtml(s.vertical)}</td>
@@ -367,8 +377,16 @@ const SECTION_LIST_SCRIPT = `
     if (archiveId) {
       if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
       if (!window.confirm('Archive this Section? It can be reactivated later from this list.')) { return; }
+      // Fix-round correction: DELETE now HARD-deletes an unreferenced section
+      // (P1c commit 3943892/4bc4600) — Archive must use the SEPARATE,
+      // unconditional PATCH {status} leg (matching Reactivate just below and
+      // the quotes/auctions kebabs) so this button's own confirm text
+      // ("can be reactivated later") stays true instead of silently
+      // performing an irreversible delete.
       fetch('/api/admin/leadgen/sections/' + encodeURIComponent(archiveId), {
-        method: 'DELETE', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ status: 'archived' })
       }).then(function (r) {
         return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, body: j }; });
       }).then(function (res) {

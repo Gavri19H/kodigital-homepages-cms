@@ -193,12 +193,19 @@ test.describe("P1d AC-2 — sections kebab + Duplicate; quotes kebab + Archive/R
     const row = page.locator(`tr[data-entity-id="${section.id}"]`);
     await expect(row.getByRole("link", { name: "Edit" })).toBeVisible();
     await row.getByRole("button", { name: /More actions/i }).click();
-    await expect(row.locator("[data-section-duplicate]")).toBeVisible();
-    await expect(row.locator("[data-section-usage]")).toBeVisible();
-    await expect(row.locator("[data-section-archive]")).toBeVisible();
-    await expect(row.locator("[data-section-delete]")).toBeVisible();
+    // Opening the kebab REPARENTS its menu to <body> (a portal — escapes
+    // .table-wrapper's forced overflow-y clip and .admin-main's isolated
+    // stacking context; see layout.ts kebabMenuScript's own doc comment), so
+    // once open its items are document-level, not row-scoped — locate them
+    // via page.locator(the exact public-id value) from here on; the toggle
+    // button and Edit link stay in the row untouched.
+    const duplicateBtn = page.locator(`[data-section-duplicate="${section.public_id}"]`);
+    await expect(duplicateBtn).toBeVisible();
+    await expect(page.locator(`[data-section-usage="${section.public_id}"]`)).toBeVisible();
+    await expect(page.locator(`[data-section-archive="${section.public_id}"]`)).toBeVisible();
+    await expect(page.locator(`[data-section-delete="${section.public_id}"]`)).toBeVisible();
 
-    await row.locator("[data-section-duplicate]").click();
+    await duplicateBtn.click();
     await expect(
       page.locator(`tr[data-entity-name="${name} (copy)"]`),
       "a '(copy)' row appears in the list after reload",
@@ -214,10 +221,17 @@ test.describe("P1d AC-2 — sections kebab + Duplicate; quotes kebab + Archive/R
     const row = page.locator(`tr[data-entity-id="${quote.public_id}"]`);
     await expect(row.getByRole("link", { name: "Edit" })).toBeVisible();
     await row.getByRole("button", { name: /More actions/i }).click();
-    await expect(row.locator("[data-quote-duplicate]")).toBeVisible();
-    await expect(row.locator("[data-quote-usage]")).toBeVisible();
-    await expect(row.locator("[data-quote-archive]")).toBeVisible();
-    await expect(row.locator("[data-quote-delete]")).toBeVisible();
+    // Opening the kebab REPARENTS its menu to <body> (a portal — escapes
+    // .table-wrapper's forced overflow-y clip and .admin-main's isolated
+    // stacking context; see layout.ts kebabMenuScript's own doc comment), so
+    // once open its items are document-level, not row-scoped — locate them
+    // via page.locator(the exact public-id value) from here on; the toggle
+    // button and Edit link stay in the row untouched.
+    const archiveBtn = page.locator(`[data-quote-archive="${quote.public_id}"]`);
+    await expect(page.locator(`[data-quote-duplicate="${quote.public_id}"]`)).toBeVisible();
+    await expect(page.locator(`[data-quote-usage="${quote.public_id}"]`)).toBeVisible();
+    await expect(archiveBtn).toBeVisible();
+    await expect(page.locator(`[data-quote-delete="${quote.public_id}"]`)).toBeVisible();
 
     // The quotes list renders NO status badge cell (QUOTE_LIST_COLUMNS has no
     // "Status" column — "A/B status" is a different field, ab_status). The
@@ -226,17 +240,15 @@ test.describe("P1d AC-2 — sections kebab + Duplicate; quotes kebab + Archive/R
     // the actual server status — the same two-part proof
     // leadgen-r4a-pipeline.spec.ts already uses for sections' reactivate.
     page.once("dialog", (d) => void d.accept());
-    await row.locator("[data-quote-archive]").click();
+    await archiveBtn.click();
     // window.location.reload() fires after the PATCH resolves — the reload
     // closes any open kebab, so re-open it before checking the flipped item.
     const rowAfterArchive = page.locator(`tr[data-entity-id="${quote.public_id}"]`);
     await expect(rowAfterArchive.getByRole("button", { name: /More actions/i })).toBeVisible({ timeout: 10_000 });
     await rowAfterArchive.getByRole("button", { name: /More actions/i }).click();
-    await expect(
-      rowAfterArchive.locator("[data-quote-reactivate]"),
-      "Archive flips to a Reactivate item after reload",
-    ).toBeVisible();
-    await expect(rowAfterArchive.locator("[data-quote-archive]")).toHaveCount(0);
+    const reactivateBtn = page.locator(`[data-quote-reactivate="${quote.public_id}"]`);
+    await expect(reactivateBtn, "Archive flips to a Reactivate item after reload").toBeVisible();
+    await expect(page.locator(`[data-quote-archive="${quote.public_id}"]`)).toHaveCount(0);
     const archivedReadBack = await json<{ status: string }>(
       await page.request.get(`${LG_API}/quotes/${quote.public_id}`),
       "p1d quote read-back after archive",
@@ -244,15 +256,15 @@ test.describe("P1d AC-2 — sections kebab + Duplicate; quotes kebab + Archive/R
     expect(archivedReadBack.status, "server status is archived").toBe("archived");
 
     page.once("dialog", (d) => void d.accept());
-    await rowAfterArchive.locator("[data-quote-reactivate]").click();
+    await reactivateBtn.click();
     const rowAfterReactivate = page.locator(`tr[data-entity-id="${quote.public_id}"]`);
     await expect(rowAfterReactivate.getByRole("button", { name: /More actions/i })).toBeVisible({ timeout: 10_000 });
     await rowAfterReactivate.getByRole("button", { name: /More actions/i }).click();
     await expect(
-      rowAfterReactivate.locator("[data-quote-archive]"),
+      page.locator(`[data-quote-archive="${quote.public_id}"]`),
       "Reactivate flips back to an Archive item after reload",
     ).toBeVisible();
-    await expect(rowAfterReactivate.locator("[data-quote-reactivate]")).toHaveCount(0);
+    await expect(page.locator(`[data-quote-reactivate="${quote.public_id}"]`)).toHaveCount(0);
     const reactivatedReadBack = await json<{ status: string }>(
       await page.request.get(`${LG_API}/quotes/${quote.public_id}`),
       "p1d quote read-back after reactivate",
@@ -288,7 +300,10 @@ test.describe("P1d AC-3 — guarded quote Delete surfaces the plain-language 409
       void d.accept();
     });
     await row.getByRole("button", { name: /More actions/i }).click();
-    await row.locator("[data-quote-delete]").click();
+    // Opening the kebab reparents its menu to <body> (a portal — see
+    // layout.ts kebabMenuScript's doc comment) — locate the item via
+    // page.locator(the exact public-id value), not row-scoped.
+    await page.locator(`[data-quote-delete="${quote.public_id}"]`).click();
 
     await expect
       .poll(() => alertMessage, { timeout: 10_000, message: "the 409 alert must have fired" })
