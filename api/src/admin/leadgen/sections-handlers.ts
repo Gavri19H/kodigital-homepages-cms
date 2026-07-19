@@ -1128,26 +1128,36 @@ async function storedAnswerMapsAsInput(db: D1Database, sectionId: number): Promi
 
 // ---------------------------------------------------------------------------
 // DELETE /sections/:id (Round-4 P1d gap, A-2) — guarded hard delete, in line
-// with the quote/auction pattern: a section referenced by ANY funnel variant
-// (leadgen_funnel_variant_sections) is REFUSED (409), fail closed to Archive
-// (PATCH {status:'archived'} stays reachable regardless of usage — the guard
-// applies to DELETE only, and status has NO bearing on the guard: an
-// ALREADY-archived-but-still-referenced section is refused exactly like an
-// active one). An UNREFERENCED section gets a TRUE hard delete: the section
-// row + its OWN leadgen_section_answer_maps / leadgen_section_available_
-// offers rows (its only owned children), all in one atomic batch.
+// with the quote/auction pattern. Fix-round-3 migration sweep (every FK in
+// migrations/*.sql that REFERENCES leadgen_sections(id), so the guard covers
+// every non-cascading reference): leadgen_section_available_offers.
+// section_id and leadgen_section_answer_maps.section_id are ON DELETE
+// CASCADE (own children — deleted explicitly below anyway, D1 does not rely
+// on cascade enforcement); leadgen_funnel_variant_sections.section_id and
+// leadgen_funnel_rules.target_section_id are BOTH plain (non-cascading)
+// REFERENCES — those are the two the guard checks. A section referenced by
+// EITHER (a funnel variant orders it, OR a show_section/skip_section-style
+// rule targets it — the second can exist without the first) is REFUSED
+// (409), fail closed to Archive (PATCH {status:'archived'} stays reachable
+// regardless of usage — the guard applies to DELETE only, and status has NO
+// bearing on it: an ALREADY-archived-but-still-referenced section is
+// refused exactly like an active one). An UNREFERENCED section gets a TRUE
+// hard delete: the section row + its OWN leadgen_section_answer_maps /
+// leadgen_section_available_offers rows (its only owned children), all in
+// one atomic batch.
 // ---------------------------------------------------------------------------
 
 export async function deleteSectionHandler(c: AdminContext): Promise<Response> {
   const row = await resolveSectionRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
 
-  const referencing = await readSectionUsageRows(c.env.DB, row.id);
-  if (referencing.length > 0) {
+  const referencingVariants = await readSectionUsageRows(c.env.DB, row.id);
+  const referencingRules = await readSectionRuleReferences(c.env.DB, row.id);
+  if (referencingVariants.length > 0 || referencingRules.length > 0) {
     return c.json(
       {
         error: "This section is used by quotes — archive it instead",
-        usage: { variants: referencing },
+        usage: { variants: referencingVariants, rules: referencingRules },
       },
       409,
     );
@@ -2014,11 +2024,44 @@ async function readSectionUsageRows(db: D1Database, sectionId: number): Promise<
   return usage.results ?? [];
 }
 
+// Round-4 P1c fix-round-3 (guard-expansion ruling): a funnel RULE (e.g.
+// show_section/skip_section) can target a Section via target_section_id
+// WITHOUT that section ever being placed in a variant's ordered list — a
+// second, independent, non-cascading reference the migration-sweep below
+// found. Same shared-query discipline: this is the ONE query both
+// sectionUsageHandler AND deleteSectionHandler's guard read for the "rules"
+// leg, so they can never disagree.
+interface SectionRuleReference {
+  id: number;
+  public_id: string;
+  name: string;
+  link: string;
+}
+
+async function readSectionRuleReferences(db: D1Database, sectionId: number): Promise<SectionRuleReference[]> {
+  const result = await db
+    .prepare(
+      `SELECT DISTINCT r.id AS id, r.public_id AS public_id,
+              q.quote_name || ' — ' || f.funnel_name || ' (' || v.variant_label || ') rule ' || r.rule_type AS name,
+              '/admin/leadgen/quotes/' || q.public_id || '/edit' AS link
+       FROM leadgen_funnel_rules r
+       JOIN leadgen_funnel_variants v ON v.id = r.variant_id
+       JOIN leadgen_funnels f ON f.id = v.funnel_id
+       JOIN leadgen_quotes q ON q.id = f.quote_id
+       WHERE r.target_section_id = ?
+       ORDER BY q.quote_name ASC, v.variant_label ASC, r.id ASC`,
+    )
+    .bind(sectionId)
+    .all<SectionRuleReference>();
+  return result.results ?? [];
+}
+
 export async function sectionUsageHandler(c: AdminContext): Promise<Response> {
   const row = await resolveSectionRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
   const usage = await readSectionUsageRows(c.env.DB, row.id);
-  return c.json({ usage: { variants: usage } });
+  const rules = await readSectionRuleReferences(c.env.DB, row.id);
+  return c.json({ usage: { variants: usage, rules } });
 }
 
 // ---------------------------------------------------------------------------

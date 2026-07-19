@@ -1017,21 +1017,37 @@ describeDb("R4a E3-NEW-9 — Archive checks response.ok on both entry points; Re
     expect(archiveBlock).toContain("Archive failed");
   });
 
-  it("the server ALREADY supports reactivating via the general PATCH {status} (patchSectionHandler) — archiving then PATCHing status back to active round-trips", async () => {
+  // Round-4 P1c re-pin (deliberate — operator item #2/A-2 overrode the
+  // pre-round-4 "DELETE always archives" semantics; sections-handlers.ts
+  // deleteSectionHandler is now a GUARDED hard delete). Archiving a section
+  // now happens via PATCH {status:'archived'} — the same round-trip intent,
+  // over the new contract's archive entry point.
+  it("Round-4 re-pin: reactivating via the general PATCH {status} round-trips (archive via PATCH, not the now-hard-deleting DELETE)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
-    const archived = await admin.request(`${API}/sections/${section.public_id}`, { method: "DELETE", headers: { Accept: "application/json" } }, env);
-    expect(archived.status).toBe(200);
+    const archived = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { status: "archived" }),
+      env,
+    );
+    expect(archived.status, await archived.clone().text()).toBe(200);
     const reactivated = await admin.request(`${API}/sections/${section.public_id}`, jsonInit("PATCH", { status: "active" }), env);
     expect(reactivated.status, await reactivated.clone().text()).toBe(200);
     const readBack = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as { status: string };
     expect(readBack.status).toBe("active");
   });
 
-  it("the sections LIST page renders Reactivate (not a disabled Archive) for an archived row, and the row action checks response.ok too", async () => {
+  // Round-4 P1c re-pin: the archived state is created via PATCH (the row
+  // persists — DELETE would now hard-delete an unreferenced section, per
+  // deleteSectionHandler). The Reactivate-rendering assertion is unchanged:
+  // Reactivate already lives INSIDE the row's kebab menu markup
+  // (ui-sections.ts renderSectionListRow's archiveOrReactivate — the ONE
+  // conditional button server-rendered for the row's CURRENT status; there
+  // is no separate hidden-vs-visible toggle to additionally assert).
+  it("Round-4 re-pin: the sections LIST page renders Reactivate inside the row's kebab menu for an archived row (archived via PATCH), and the row action checks response.ok too", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
-    await admin.request(`${API}/sections/${section.public_id}`, { method: "DELETE", headers: { Accept: "application/json" } }, env);
+    await admin.request(`${API}/sections/${section.public_id}`, jsonInit("PATCH", { status: "archived" }), env);
     const html = await getHtml(env, "/admin/leadgen/sections");
     expect(html).toContain(`data-section-reactivate="${section.public_id}"`);
     expect(html).not.toContain(`data-section-archive="${section.public_id}"`);

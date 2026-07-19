@@ -15,10 +15,12 @@
 //      PLUS (fix-round ruling) its own answer_maps/available_offers rows
 //      re-keyed to the new section id; the source rows stay untouched.
 //   4b. DELETE /sections/:id — guarded hard delete (fix-round-2 ruling, a
-//      P1d-discovered gap): unreferenced -> true hard delete (row + owned
-//      answer_maps/available_offers rows GONE); referenced by a funnel
-//      variant -> 409 plain-language; PATCH-to-archived stays reachable
-//      regardless of usage (the guard is DELETE-only, status-independent).
+//      P1d-discovered gap; fix-round-3 expanded the guard): unreferenced ->
+//      true hard delete (row + owned answer_maps/available_offers rows
+//      GONE); referenced by a funnel variant OR a rule's target_section_id
+//      -> 409 plain-language with usage.{variants,rules}; PATCH-to-archived
+//      stays reachable regardless of usage (the guard is DELETE-only,
+//      status-independent).
 //   5. duplicateQuoteHandler — deep copy funnels/variants/sections/rules;
 //      site activations/analytics/ab-tests NOT copied.
 //   6. Quote archive->reactivate (PATCH status flip, already unrestricted)
@@ -637,13 +639,54 @@ describeDb("DELETE /sections/:id — guarded hard delete (P1d gap fix)", () => {
 
     const del = await admin.request(`${API}/sections/${section.public_id}`, { method: "DELETE" }, env);
     expect(del.status).toBe(409);
-    const body = (await del.json()) as { error: string; usage: { variants: Array<{ quote_name: string }> } };
+    const body = (await del.json()) as {
+      error: string;
+      usage: { variants: Array<{ quote_name: string }>; rules: unknown[] };
+    };
     expect(body.error).toBe("This section is used by quotes — archive it instead");
     expect(body.usage.variants).toHaveLength(1);
     expect(body.usage.variants[0]!.quote_name).toBe("Life Quote");
+    expect(body.usage.rules).toHaveLength(0);
 
     const stillThere = await admin.request(`${API}/sections/${section.public_id}`, {}, env);
     expect(stillThere.status).toBe(200);
+  });
+
+  it("referenced ONLY by a funnel rule's target_section_id (fix-round-3 guard expansion, NOT placed in any variant order): 409; detaching the rule allows DELETE 200", async () => {
+    const { env } = newHarness();
+    const quote = await createQuote(env);
+    const section = await createSection(env, { section_name: "Rule target only" });
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+
+    // A rule targeting the section WITHOUT the section ever being placed in
+    // the variant's ordered `sections` list — the two references
+    // (leadgen_funnel_variant_sections vs leadgen_funnel_rules.
+    // target_section_id) are independent.
+    const putRes = await admin.request(
+      `${API}/variants/${variantId}`,
+      jsonInit("PUT", { rules: [{ rule_type: "skip_section", target_section_id: section.id }] }),
+      env,
+    );
+    expect(putRes.status, await putRes.clone().text()).toBe(200);
+
+    const del = await admin.request(`${API}/sections/${section.public_id}`, { method: "DELETE" }, env);
+    expect(del.status, await del.clone().text()).toBe(409);
+    const body = (await del.json()) as {
+      error: string;
+      usage: { variants: unknown[]; rules: Array<{ id: number; name: string; link: string }> };
+    };
+    expect(body.error).toBe("This section is used by quotes — archive it instead");
+    expect(body.usage.variants).toHaveLength(0); // NOT in any variant's section order
+    expect(body.usage.rules).toHaveLength(1);
+    expect(body.usage.rules[0]!.name).toContain("Life Quote");
+    expect(body.usage.rules[0]!.link).toContain(quote.public_id);
+
+    // detach: replace the variant's rules with an empty set.
+    const detach = await admin.request(`${API}/variants/${variantId}`, jsonInit("PUT", { rules: [] }), env);
+    expect(detach.status, await detach.clone().text()).toBe(200);
+
+    const del2 = await admin.request(`${API}/sections/${section.public_id}`, { method: "DELETE" }, env);
+    expect(del2.status, await del2.clone().text()).toBe(200);
   });
 
   it("archive stays available for the referenced section (PATCH status archived -> 200); the guard is unaffected by status", async () => {

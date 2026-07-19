@@ -467,14 +467,33 @@ describeDb("POST /sections — create + §12.1 derived rebuild", () => {
     expect(JSON.parse(dbRow.transform_json ?? "null")).toEqual([{ kind: "toString" }]);
   });
 
-  it("DELETE archives (status flip, never a hard delete)", async () => {
+  // Round-4 P1c re-pin (deliberate — operator item #2/A-2 overrode the
+  // pre-round-4 "DELETE always archives" semantics): DELETE is now a
+  // GUARDED hard delete (sections-handlers.ts deleteSectionHandler) —
+  // unreferenced sections are truly removed; archiving moves to the general
+  // PATCH {status} surface (already unrestricted, patchSectionHandler). The
+  // guarded-409 leg (a section referenced by a variant/rule) lives in
+  // test/leadgen-p1c-lifecycle.test.ts, not duplicated here.
+  it("Round-4 re-pin: DELETE hard-deletes an unreferenced section (row gone); archiving moves to PATCH {status:'archived'} (row stays)", async () => {
     const { sdb, env } = newHarness();
-    const section = await createSection(env, sectionBody());
-    const res = await admin.request(`${API}/sections/${section.public_id}`, { method: "DELETE" }, env);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, id: section.id, public_id: section.public_id, status: "archived" });
-    const row = sdb.prepare("SELECT status FROM leadgen_sections WHERE id = ?").get(section.id) as { status: string };
-    expect(row.status).toBe("archived");
+
+    const toDelete = await createSection(env, sectionBody());
+    const del = await admin.request(`${API}/sections/${toDelete.public_id}`, { method: "DELETE" }, env);
+    expect(del.status, await del.clone().text()).toBe(200);
+    expect(await del.json()).toEqual({ ok: true, id: toDelete.id, public_id: toDelete.public_id, deleted: "hard" });
+    expect(sdb.prepare("SELECT id FROM leadgen_sections WHERE id = ?").get(toDelete.id)).toBeUndefined();
+
+    const toArchive = await createSection(env, sectionBody());
+    const patch = await admin.request(
+      `${API}/sections/${toArchive.public_id}`,
+      jsonInit("PATCH", { status: "archived" }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(200);
+    const archivedRow = sdb
+      .prepare("SELECT status FROM leadgen_sections WHERE id = ?")
+      .get(toArchive.id) as { status: string };
+    expect(archivedRow.status).toBe("archived");
   });
 });
 
