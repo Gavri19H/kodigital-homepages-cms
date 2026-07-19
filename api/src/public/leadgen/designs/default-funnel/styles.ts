@@ -1548,6 +1548,91 @@ export function funnelChromeCss(
   // query — no mobile duplicate needed (the MOBILE SAFETY case pins this).
   out.push(rule(`${scope} [hidden]`, { display: "none" }));
 
+  // ---- Round-4 P1b studio/preview affordances (A-9 ghost · A-6 Address
+  // composite · A-3 MQG empty-state) -----------------------------------------
+  // Placed in the BASE sheet BEFORE the opt-in frame-region block below, so the
+  // frameRegions extension stays a pure APPEND (the 13 §13.1 byte-stable-prefix
+  // invariant leadgen-frame-render.test.ts pins). These ride the SHARED chrome
+  // sheet the studio canvas + admin preview srcdoc already embed — NOT a new
+  // global. Everything is scoped so the LIVE funnel is visually untouched:
+  // `.studio-choice-ghost` is studio-injected only (never in a live DOM), and
+  // the composite / empty-state markup is present in every context but
+  // DISPLAYED only under a `.lg-preview` wrapper. The studio canvas + admin
+  // preview carry `.lg-preview` on the SAME element as the design-scope attr;
+  // the live #lg-funnel-root carries the attr but NOT `.lg-preview`, so
+  // `${scope}.lg-preview …` never matches on live. None of these classes is a
+  // hideable answer component, so the `[hidden]` force-visible tie above holds.
+  out.push(
+    // A-9 (P-8): the "+ Add choice" ghost the studio appends into an answer
+    // group / card grid must NOT consume an equal-fraction track (which made it
+    // read as a peer card). grid-column 1/-1 spans the whole row as a slim
+    // strip BELOW the real cells (a fresh implicit row), so the real cells'
+    // widths stay IDENTICAL to the live, ghost-free render (the P1b gate).
+    // BOTH grid families; overrides P1a's base min-height:44 for the slim look.
+    rule(`${scope} .lg-answer-group .studio-choice-ghost, ${scope} .lg-card-grid .studio-choice-ghost`, {
+      "grid-column": "1 / -1",
+      "min-height": "0",
+      height: "40px",
+      display: "flex",
+      "align-items": "center",
+      "justify-content": "center",
+      border: `1px dashed ${page.textSecondaryColor}`,
+      color: page.textSecondaryColor,
+      "border-radius": radius.md,
+      "margin-top": spacing.xs,
+    }),
+    // A-6/P-6: the Address composite preview (Street/City/State/ZIP chips marked
+    // "auto-filled"). display:none by default keeps the LIVE render a single
+    // autocomplete input (behavior unchanged); shown only under `.lg-preview`.
+    rule(`${scope} .lg-address-composite`, { display: "none" }),
+    rule(`${scope}.lg-preview .lg-address-composite`, {
+      display: "block",
+      "margin-top": spacing.sm,
+      padding: spacing.sm,
+      border: `1px dashed ${page.textSecondaryColor}`,
+      "border-radius": radius.md,
+    }),
+    rule(`${scope}.lg-preview .lg-address-composite-note`, {
+      display: "block",
+      "font-size": "12px",
+      color: page.textSecondaryColor,
+      "margin-bottom": spacing.xs,
+    }),
+    rule(`${scope}.lg-preview .lg-address-composite-fields`, {
+      display: "flex",
+      "flex-wrap": "wrap",
+      gap: spacing.xs,
+    }),
+    rule(`${scope}.lg-preview .lg-address-chip`, {
+      display: "inline-flex",
+      "flex-direction": "column",
+      gap: "1px",
+      padding: "4px 9px",
+      border: `1px solid ${page.textLightColor}`,
+      "border-radius": radius.sm,
+      "font-size": "11px",
+    }),
+    rule(`${scope}.lg-preview .lg-address-chip-role`, { "font-weight": "700", color: page.textColor }),
+    rule(`${scope}.lg-preview .lg-address-chip-field`, { color: page.textSecondaryColor, "font-family": "monospace" }),
+    // A-3 (renderer leg): a zero-row grid's SSR placeholder. Hidden by default
+    // (LIVE renders nothing, as today); shown under `.lg-preview` — EXCEPT when
+    // P1a's client-side canvas decoration has already injected its own
+    // `.studio-mqg-empty` into this `.lg-mqg` (a :has() de-dup, so the studio
+    // canvas never doubles; the admin preview drawer, which runs the engine not
+    // the decoration, shows this SSR one).
+    rule(`${scope} .lg-mqg-empty`, { display: "none" }),
+    rule(`${scope}.lg-preview .lg-mqg-empty`, {
+      display: "block",
+      padding: spacing.md,
+      border: `1px dashed ${page.textSecondaryColor}`,
+      "border-radius": radius.md,
+      "text-align": "center",
+      color: page.textSecondaryColor,
+      "font-size": "13px",
+    }),
+    rule(`${scope}.lg-preview .lg-mqg:has(.studio-mqg-empty) .lg-mqg-empty`, { display: "none" }),
+  );
+
   // ---- v2.5 frame-region rules (13 §13.1, opt-in — see FunnelChromeCssOpts).
   // Every value is a design token or a role resolved through the §9.1 mapping;
   // the only hand-written bits are structural (positioning/z-index/step sizes

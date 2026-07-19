@@ -720,6 +720,28 @@ const P3A_EL_RULES = [
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-el{transform:none}`,
 ];
 
+// Round-4 P1b (register R4-14/R4-09/R4-03): strip the NET-NEW studio/preview
+// affordance rules this slice adds to the BASE sheet (A-9 ghost out of the grid
+// track · A-6 Address composite preview · A-3 MQG zero-row placeholder) — the
+// ONLY additional legal css delta P1b introduces. They ride the shared chrome
+// sheet but are inert on the live funnel (studio-injected ghost class + the
+// `.lg-preview`-scoped composite/empty rules), so reverse-mapping them out
+// leaves the frozen pre-change fixture byte-identical. Same idiom + token
+// interpolation as the P1a/P3a rule constants above.
+const ROUND4_P1B_RULES = [
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-answer-group .studio-choice-ghost, ${DEFAULT_FUNNEL_SCOPE} .lg-card-grid .studio-choice-ghost{grid-column:1 / -1;min-height:0;height:40px;display:flex;align-items:center;justify-content:center;border:1px dashed ${defaultFunnelDesign.page.textSecondaryColor};color:${defaultFunnelDesign.page.textSecondaryColor};border-radius:${defaultFunnelDesign.radius.md};margin-top:${defaultFunnelDesign.spacing.xs}}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-address-composite{display:none}`,
+  `\n${DEFAULT_FUNNEL_SCOPE}.lg-preview .lg-address-composite{display:block;margin-top:${defaultFunnelDesign.spacing.sm};padding:${defaultFunnelDesign.spacing.sm};border:1px dashed ${defaultFunnelDesign.page.textSecondaryColor};border-radius:${defaultFunnelDesign.radius.md}}`,
+  `\n${DEFAULT_FUNNEL_SCOPE}.lg-preview .lg-address-composite-note{display:block;font-size:12px;color:${defaultFunnelDesign.page.textSecondaryColor};margin-bottom:${defaultFunnelDesign.spacing.xs}}`,
+  `\n${DEFAULT_FUNNEL_SCOPE}.lg-preview .lg-address-composite-fields{display:flex;flex-wrap:wrap;gap:${defaultFunnelDesign.spacing.xs}}`,
+  `\n${DEFAULT_FUNNEL_SCOPE}.lg-preview .lg-address-chip{display:inline-flex;flex-direction:column;gap:1px;padding:4px 9px;border:1px solid ${defaultFunnelDesign.page.textLightColor};border-radius:${defaultFunnelDesign.radius.sm};font-size:11px}`,
+  `\n${DEFAULT_FUNNEL_SCOPE}.lg-preview .lg-address-chip-role{font-weight:700;color:${defaultFunnelDesign.page.textColor}}`,
+  `\n${DEFAULT_FUNNEL_SCOPE}.lg-preview .lg-address-chip-field{color:${defaultFunnelDesign.page.textSecondaryColor};font-family:monospace}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-mqg-empty{display:none}`,
+  `\n${DEFAULT_FUNNEL_SCOPE}.lg-preview .lg-mqg-empty{display:block;padding:${defaultFunnelDesign.spacing.md};border:1px dashed ${defaultFunnelDesign.page.textSecondaryColor};border-radius:${defaultFunnelDesign.radius.md};text-align:center;color:${defaultFunnelDesign.page.textSecondaryColor};font-size:13px}`,
+  `\n${DEFAULT_FUNNEL_SCOPE}.lg-preview .lg-mqg:has(.studio-mqg-empty) .lg-mqg-empty{display:none}`,
+];
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -881,10 +903,11 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
   // P3a (register PC-2 / D1 / R-B): strip the net-new .lg-el/.lg-el-row rules
   // (the ONLY additional legal delta this slice adds — the grid-follower table
   // growth is already handled by followerSelectorsFixRound above).
-  const cssMinusAll = P3A_EL_RULES.reduce((s, r) => s.split(r).join(""), cssMinusMove);
+  const cssMinusEl = P3A_EL_RULES.reduce((s, r) => s.split(r).join(""), cssMinusMove);
+  const cssMinusAll = ROUND4_P1B_RULES.reduce((s, r) => s.split(r).join(""), cssMinusEl);
   expect(
     cssMinusAll,
-    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules",
+    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty)",
   ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));

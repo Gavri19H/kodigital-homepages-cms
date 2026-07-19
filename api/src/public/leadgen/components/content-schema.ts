@@ -5,8 +5,11 @@
 // optional inline dependency (`conditional`), a design-preset selection, and
 // a curated (never free-CSS) `design_overrides` bag.
 //
-// `validateSectionContent` is PURE (no I/O) and returns FIELD-PATH-keyed typed
-// errors, mirroring the Offer-validator idiom (leadgen/validation.ts). The
+// `validateSectionContent` is I/O-free and returns FIELD-PATH-keyed typed
+// errors, mirroring the Offer-validator idiom (leadgen/validation.ts). It
+// performs exactly ONE normalization on its input — pruning orphan
+// MultiQuestionGrid shared choices beyond the pill bound (Round-4 R4-34) so a
+// legacy/corrupted grid stays saveable — and is otherwise non-mutating. The
 // server runs it on save (client validation is never trusted, §12.3); the
 // same shape is what the runtime engine + preview consume. Referential checks
 // against Offers (answer→payload mapping) are a Stage-B/handler concern —
@@ -1905,6 +1908,21 @@ function validateNewFieldProps(
     );
   }
 
+  // Round-4 A-7 (P1b): props.columns — the per-node layout column count for the
+  // grid / button-group answer layouts (IconCardAnswerGrid/ImageCardAnswerGrid/
+  // ButtonAnswerGroup). A bounded WHOLE number 1..5 — UNIFIED with the renderer
+  // clamps AND design_overrides.columns above (one range, both axes). Optional
+  // (absent ⇒ the grid's own default); like the other loose props here it is
+  // dead-but-harmless on a non-layout node. Before P1b there was NO server
+  // range check on props.columns at all, so a stored 0/6/7 was silent
+  // stored-vs-rendered drift (the clamp repaired it on render).
+  if (props["columns"] !== undefined) {
+    const c = props["columns"];
+    if (typeof c !== "number" || !Number.isInteger(c) || c < 1 || c > 5) {
+      push("invalid_field_prop", `${base}.props.columns`, "Columns must be a whole number from 1 to 5");
+    }
+  }
+
   // icon (§8.3/§8.5b leading-icon picker, 12-value enum) — EXCEPT
   // ReassuranceBadge/SecureFormBadge/SuccessState (pre-existing free-form
   // glyph convention, GLYPH_ICON_TYPES above) and the two TextBlock badge
@@ -2242,8 +2260,10 @@ export function rewriteRetiredNodeToPrimitive(node: LeadgenComponentNode): Leadg
 // validateSectionContent
 // ---------------------------------------------------------------------------
 
-// Validate a Section's parsed `content_json`. Pure; returns every problem
-// found (never throws). `ok` is true iff `errors` is empty.
+// Validate a Section's parsed `content_json`. I/O-free; returns every problem
+// found (never throws). `ok` is true iff `errors` is empty. The ONE input
+// mutation it makes is the Round-4 R4-34 orphan-MQG-shared-choice prune (see
+// the MultiQuestionGrid block below) — a no-op for every well-formed grid.
 //
 // §8.5 tree shape: the walk is RECURSIVE over container children with the
 // SAME per-node checks at every level; nested paths follow the
@@ -2303,6 +2323,40 @@ export function validateSectionContent(
         for (const row of readMultiQuestionRows(raw as unknown as LeadgenComponentNode)) {
           knownFields.add(row.internal_field);
         }
+      }
+      // Round-4 A-4 (P1b — P1a seam #1): the two MULTI-SUBFIELD question types
+      // carry NO single internal_field, yet each sub-field IS a real answer a
+      // rule can reference. Register them so a saved conditional whose `when`
+      // names an Address role or a Name field passes validateConditional (no
+      // conditional_unknown_field 400). The derivation MATCHES P1a's studio-side
+      // internalFieldsOf/refFieldInfo EXACTLY (ui-section-studio.ts, commit
+      // ababbe9): a configured props.maps.fills.<slot> wins, else the node is
+      // namespaced `${internal_field || question_id || 'address'}_<slot>` — P1a
+      // default-seeds an Address's internal_field to 'address', so its four roles
+      // default to address_street/_city/_state/_zip.
+      if (raw["type"] === "AddressAutocompleteQuestion") {
+        const ifRaw = raw["internal_field"];
+        const base =
+          typeof ifRaw === "string" && ifRaw.trim() !== ""
+            ? ifRaw.trim()
+            : isNonEmptyString(raw["question_id"])
+              ? raw["question_id"]
+              : "address";
+        const aProps = isRecord(raw["props"]) ? raw["props"] : {};
+        const aMaps = isRecord(aProps["maps"]) ? aProps["maps"] : {};
+        const aFills = isRecord(aMaps["fills"]) ? aMaps["fills"] : {};
+        for (const slot of ["street", "city", "state", "zip"] as const) {
+          const f = aFills[slot];
+          knownFields.add(typeof f === "string" && f.trim() !== "" ? f.trim() : `${base}_${slot}`);
+        }
+      }
+      if (raw["type"] === "NameFieldsGroup") {
+        const nProps = isRecord(raw["props"]) ? raw["props"] : {};
+        const nFields = Array.isArray(nProps["fields"]) ? nProps["fields"] : [];
+        const first = typeof nFields[0] === "string" && nFields[0].trim() !== "" ? nFields[0].trim() : "first";
+        const last = typeof nFields[1] === "string" && nFields[1].trim() !== "" ? nFields[1].trim() : "last";
+        knownFields.add(first);
+        knownFields.add(last);
       }
       if (
         isLayoutContainerType(raw["type"]) &&
@@ -2658,7 +2712,51 @@ export function validateSectionContent(
     // Section-wide uniqueness universe (duplicate_internal_field), so a row can
     // never shadow another question's answer name.
     if (type === "MultiQuestionGrid") {
-      const sharedChoices: unknown[] = Array.isArray(raw["choices"]) ? raw["choices"] : [];
+      let sharedChoices: unknown[] = Array.isArray(raw["choices"]) ? raw["choices"] : [];
+      // Round-4 A-3 / B-4.1 (P1b, register R4-34) — KILL the MQG save trap. The
+      // legacy "+ Add choice" ghost pushed blank options into the SHARED pill
+      // set past its 2-4 bound, so a corrupted grid 400'd on save and NEVER
+      // persisted (the operator's unexplained error). P1a stopped the studio
+      // from growing them; this leg makes ALREADY-corrupted content saveable by
+      // pruning ORPHAN shared choices — those beyond the pill bound that no row
+      // references — IN PLACE. The save handler stringifies THIS validated
+      // object (leadgen/sections.ts persists parsedContent.content post-verdict),
+      // so the prune persists: the corruption is cleaned, not merely tolerated.
+      // A no-op for every valid grid (fires ONLY when the shared set already
+      // exceeds MAX), so no well-formed content ever changes.
+      if (sharedChoices.length > MULTI_QUESTION_MAX_CHOICES) {
+        // A shared pill is REFERENCED when a row that draws on the shared set
+        // (no per-row `choices` override) pre-selects it via `default`; a
+        // referenced pill is never pruned (that would invalidate the row's
+        // default). Order is preserved; only unreferenced excess is dropped.
+        const referenced = new Set<string>();
+        for (const row of readMultiQuestionRows(raw as unknown as LeadgenComponentNode)) {
+          if (!(Array.isArray(row.choices) && row.choices.length > 0) && row.default !== undefined) {
+            referenced.add(String(row.default));
+          }
+        }
+        const isRef = (c: unknown): boolean =>
+          isRecord(c) && isChoicePrimitive(c["value"]) && referenced.has(String(c["value"]));
+        const unrefBudget = Math.max(0, MULTI_QUESTION_MAX_CHOICES - sharedChoices.filter(isRef).length);
+        let unrefUsed = 0;
+        const kept: unknown[] = [];
+        for (const c of sharedChoices) {
+          if (isRef(c)) {
+            kept.push(c);
+          } else if (unrefUsed < unrefBudget) {
+            kept.push(c);
+            unrefUsed++;
+          }
+        }
+        if (kept.length < sharedChoices.length) {
+          raw["choices"] = kept;
+          sharedChoices = kept;
+        }
+      }
+      // The bound still guards the pruned set: a grid with too FEW pills (or the
+      // pathological "more referenced defaults than the bound" case) still
+      // fails — but with a PLAIN-language message an author can act on, never
+      // the raw pill-set jargon.
       if (
         sharedChoices.length > 0 &&
         (sharedChoices.length < MULTI_QUESTION_MIN_CHOICES ||
@@ -2667,7 +2765,7 @@ export function validateSectionContent(
         push(
           "invalid_choice",
           `${base}.choices`,
-          `MultiQuestionGrid shared choices must number ${MULTI_QUESTION_MIN_CHOICES}-${MULTI_QUESTION_MAX_CHOICES} (a pill set)`,
+          `A question grid's shared answers must be ${MULTI_QUESTION_MIN_CHOICES}-${MULTI_QUESTION_MAX_CHOICES} — remove extras in the rows editor`,
         );
       }
       const sharedValues = new Set<string>(
@@ -2847,6 +2945,20 @@ export function validateSectionContent(
                 "invalid_override_value",
                 `${base}.design_overrides.border_color`,
                 `design_overrides.border_color must be one of: ${LEADGEN_NODE_BORDER_COLOR_ROLES.join(", ")} (§8.5b)`,
+              );
+            }
+          } else if (key === "columns") {
+            // Round-4 A-7 (P1b): the layout column count is a bounded WHOLE
+            // number 1..5 — UNIFIED with both renderers' clamps (button group
+            // answerGroupRootStyle + renderCardGrid, presets.ts). Before P1b no
+            // server range check existed at all, so a stored 0/6/7 sat as
+            // stored-vs-rendered drift (the clamp silently repaired it on
+            // render). Reject it plainly at save instead.
+            if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 5) {
+              push(
+                "invalid_override_value",
+                `${base}.design_overrides.columns`,
+                "Columns must be a whole number from 1 to 5",
               );
             }
           } else if (looksLikeArbitraryCss(value)) {
