@@ -76,6 +76,27 @@ async function createQuote(request: APIRequestContext, name: string): Promise<Cr
   );
 }
 
+// createQuoteHandler's own response (quoteDetailJson) nests the auto-created
+// funnel + control variant — needed only by the rules-usage test below, so a
+// separate helper rather than widening createQuote's shape for every caller.
+interface QuoteWithVariant extends Created {
+  status: string;
+  funnels: Array<{ variants: Array<{ public_id: string }> }>;
+}
+async function createQuoteWithVariant(request: APIRequestContext, name: string): Promise<QuoteWithVariant> {
+  return json<QuoteWithVariant>(
+    await request.post(`${LG_API}/quotes`, {
+      data: {
+        quote_name: name,
+        activity: `p1d-act-${uniq}`,
+        verticals: [`p1d-vert-${uniq}`],
+        status: "active",
+      },
+    }),
+    `p1d quote+variant create (${name})`,
+  );
+}
+
 // Module-level counter: this file creates more than one site (AC-1's
 // Listicles-Articles gate + AC-3's activation seed), and `domain` carries a
 // UNIQUE constraint server-side — `uniq` alone (one Date.now() per file load)
@@ -270,6 +291,55 @@ test.describe("P1d AC-2 — sections kebab + Duplicate; quotes kebab + Archive/R
       "p1d quote read-back after reactivate",
     );
     expect(reactivatedReadBack.status, "server status round-trips back to active").toBe("active");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix-round: Usage-panel coherence (P1c's sectionUsageHandler shape carries
+// TWO independent, non-cascading references — variants AND rules; the SAME
+// two legs deleteSectionHandler's guard checks) — a section blocked ONLY by
+// a funnel rule's target_section_id must show it in Usage, not the
+// variants-only "not used" copy the pre-fix-round panel rendered.
+// ---------------------------------------------------------------------------
+
+test.describe("P1d fix-round — sections Usage panel shows the rules leg (usage coherence)", () => {
+  test("a section referenced ONLY by a rule's target_section_id (never placed in a variant's own section order) shows 'Used by 1 funnel rule(s)' in Usage", async ({
+    page,
+  }) => {
+    const quote = await createQuoteWithVariant(page.request, `P1d rule-usage quote ${uniq}`);
+    const section = await createSection(page.request, `P1d rule-usage sec ${uniq}`);
+    const variantPublicId = quote.funnels[0]?.variants[0]?.public_id;
+    expect(variantPublicId, "quote create seeded a control variant").toBeTruthy();
+
+    // Mirrors test/leadgen-p1c-lifecycle.test.ts's "referenced ONLY by a
+    // funnel rule's target_section_id" seed via HTTP: attach a rule
+    // targeting the section WITHOUT ever placing it in the variant's own
+    // `sections` order — the two references are independent.
+    const ruleRes = await page.request.put(`${LG_API}/variants/${variantPublicId}`, {
+      data: { rules: [{ rule_type: "skip_section", target_section_id: section.id }] },
+    });
+    expect(ruleRes.ok(), `rule attach HTTP ${ruleRes.status()}`).toBeTruthy();
+
+    // Server truth first (the same guard Usage must agree with): DELETE
+    // 409s with usage.rules populated and usage.variants empty.
+    const guarded = await page.request.delete(`${LG_API}/sections/${section.public_id}`);
+    expect(guarded.status(), "DELETE is guarded by the rule reference").toBe(409);
+    const guardedBody = await guarded.json();
+    expect(guardedBody.usage.variants).toHaveLength(0);
+    expect(guardedBody.usage.rules).toHaveLength(1);
+
+    // The list's Usage panel must show the SAME fact, not "not used".
+    await page.goto(`/admin/leadgen/sections?search=${uniq}`, { waitUntil: "domcontentloaded" });
+    const row = page.locator(`tr[data-entity-id="${section.id}"]`);
+    await row.getByRole("button", { name: /More actions/i }).click();
+    await page.locator(`[data-section-usage="${section.public_id}"]`).click();
+    const panel = page.locator(`[data-section-usage-row="${section.public_id}"] [data-section-usage-panel]`);
+    await expect(panel).toContainText("Used by 1 funnel rule(s)");
+    // the pre-formatted rule name (readSectionRuleReferences, sections-
+    // handlers.ts) embeds the owning Quote's name — proves the panel is
+    // rendering the REAL row.name text, not just a bare count.
+    await expect(panel).toContainText(`P1d rule-usage quote ${uniq}`);
+    await expect(panel).not.toContainText("Not used by any funnel variant or rule.");
   });
 });
 

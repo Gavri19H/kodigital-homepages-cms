@@ -432,27 +432,51 @@ const SECTION_LIST_SCRIPT = `
       fetch('/api/admin/leadgen/sections/' + encodeURIComponent(usageId) + '/usage', {
         credentials: 'same-origin', headers: { 'Accept': 'application/json' }
       }).then(function (r) { return r.json(); }).then(function (body) {
+        // Fix-round (P1c commit 3943892 sectionUsageHandler shape): usage
+        // carries TWO independent, non-cascading references — variants
+        // (a funnel variant orders this section) AND rules (a funnel rule's
+        // target_section_id points at it, e.g. show_section/skip_section,
+        // WITHOUT the section ever being placed in a variant's order) — the
+        // SAME two legs deleteSectionHandler's guard checks, so Usage must
+        // show both or an operator sees "not used" here while Delete still
+        // 409s. Empty-state fires only when BOTH are empty.
         var variants = (body && body.usage && body.usage.variants) ? body.usage.variants : [];
+        var rules = (body && body.usage && body.usage.rules) ? body.usage.rules : [];
         clearChildren(panel);
         panel.setAttribute('data-loaded', 'true');
-        if (variants.length === 0) {
-          panel.appendChild(document.createTextNode('Not used by any funnel variant.'));
+        if (variants.length === 0 && rules.length === 0) {
+          panel.appendChild(document.createTextNode('Not used by any funnel variant or rule.'));
           return;
         }
-        var head = document.createElement('p');
-        head.appendChild(document.createTextNode('Used by ' + variants.length + ' funnel variant(s):'));
-        panel.appendChild(head);
-        var list = document.createElement('ul');
-        var i, v, li;
-        for (i = 0; i < variants.length; i++) {
-          v = variants[i];
-          li = document.createElement('li');
-          li.appendChild(document.createTextNode(
-            (v.quote_name || 'Quote') + ' \\u203A ' + (v.funnel_name || v.funnel_public_id || 'Funnel') + ' \\u203A Variant ' + (v.variant_label || '?')
-          ));
-          list.appendChild(li);
+        var i, v, r, li;
+        if (variants.length > 0) {
+          var vhead = document.createElement('p');
+          vhead.appendChild(document.createTextNode('Used by ' + variants.length + ' funnel variant(s):'));
+          panel.appendChild(vhead);
+          var vlist = document.createElement('ul');
+          for (i = 0; i < variants.length; i++) {
+            v = variants[i];
+            li = document.createElement('li');
+            li.appendChild(document.createTextNode(
+              (v.quote_name || 'Quote') + ' \\u203A ' + (v.funnel_name || v.funnel_public_id || 'Funnel') + ' \\u203A Variant ' + (v.variant_label || '?')
+            ));
+            vlist.appendChild(li);
+          }
+          panel.appendChild(vlist);
         }
-        panel.appendChild(list);
+        if (rules.length > 0) {
+          var rhead = document.createElement('p');
+          rhead.appendChild(document.createTextNode('Used by ' + rules.length + ' funnel rule(s):'));
+          panel.appendChild(rhead);
+          var rlist = document.createElement('ul');
+          for (i = 0; i < rules.length; i++) {
+            r = rules[i];
+            li = document.createElement('li');
+            li.appendChild(document.createTextNode(r.name || r.public_id || String(r.id)));
+            rlist.appendChild(li);
+          }
+          panel.appendChild(rlist);
+        }
       }).catch(function () {
         clearChildren(panel);
         panel.appendChild(document.createTextNode('Failed to load usage.'));

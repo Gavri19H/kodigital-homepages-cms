@@ -161,10 +161,19 @@ test.describe('R4a E3-NEW-3 — save failure shows per-field message text', () =
 
     // the control gets the invalid outline…
     await expect(nameInput).toHaveClass(/studio-control-invalid/, { timeout: 10_000 });
-    // …AND readable message text (the actual E3-NEW-3 fix — not just the class)
+    // …AND readable message text (the actual E3-NEW-3 fix — not just the
+    // class). Re-pin (operator item #8 humanization, pre-round-4 raw-id
+    // pin): the original assertion here (`toContainText(/section_name/i)`)
+    // predates the server-side jargon-humanization pass (validateSection now
+    // maps the raw field id to "Section name is required" before it ever
+    // reaches this box) — the test's INTENT (a readable inline message
+    // appears, not just a red outline) is preserved and strengthened: assert
+    // the humanized text is present AND the raw id is gone, matching the
+    // same discipline test-ui/__p1a-studio.spec.ts AC-4 already pins.
     const problemsBox = page.locator('[data-studio-save-problems]');
     await expect(problemsBox).toBeVisible();
-    await expect(problemsBox).toContainText(/section_name/i);
+    await expect(problemsBox).toContainText('Section name is required');
+    await expect(problemsBox).not.toContainText('section_name');
     await page.screenshot({ path: `${SHOT_DIR}/03-save-failure-field-message.png` });
   });
 });
@@ -335,7 +344,11 @@ test.describe('R4a E3-S1 — sections list Usage is an inline expandable panel, 
     await row.getByRole('button', { name: /More actions/i }).click();
     await usageBtn.click();
     await expect(panelRow).toBeVisible();
-    await expect(panelRow).toContainText('Not used by any funnel variant.');
+    // Fix-round (usage-panel coherence): the empty-state copy now covers
+    // BOTH legs sectionUsageHandler returns (variants AND rules, P1c commit
+    // 3943892) — "Not used by any funnel variant." alone would be untrue
+    // whenever a rule-only reference exists; this section has neither.
+    await expect(panelRow).toContainText('Not used by any funnel variant or rule.');
     await expect(usageBtn).toHaveAttribute('aria-expanded', 'true');
     await page.screenshot({ path: `${SHOT_DIR}/07-usage-panel-expanded.png` });
 
