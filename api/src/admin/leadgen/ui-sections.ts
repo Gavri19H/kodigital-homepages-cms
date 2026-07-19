@@ -9,7 +9,14 @@
 // via ui.ts's apiJson. Inline scripts are strict ES5 (layout.ts constraint,
 // asserted by the ES5 parse test). Every author value is escapeHtml-escaped.
 
-import { escapeHtml, renderListPager, listFilterScript } from "../templates/layout";
+import {
+  escapeHtml,
+  renderListPager,
+  listFilterScript,
+  renderKebabOpen,
+  KEBAB_CLOSE,
+  kebabMenuScript,
+} from "../templates/layout";
 import { resolveTimeframe, renderTimeframeSelect, type Timeframe } from "../listicles/ui-shared";
 import {
   apiJson,
@@ -212,6 +219,7 @@ function completenessBadge(c: SectionListItem["completeness"]): string {
 }
 
 function renderSectionListRow(s: SectionListItem): string {
+  const name = escapeHtml(s.section_name);
   // R4a E3-NEW-9: the server supports reactivating via the same general
   // PATCH {status} the editor's Advanced surfaces already use
   // (sections-handlers.ts patchSectionHandler; "status" rides
@@ -219,10 +227,21 @@ function renderSectionListRow(s: SectionListItem): string {
   // instead of a disabled Archive button promising nothing.
   const archiveOrReactivate =
     s.status === "archived"
-      ? `<button type="button" class="btn btn-sm btn-secondary" data-section-reactivate="${escapeHtml(s.public_id)}">Reactivate</button>`
-      : `<button type="button" class="btn btn-sm btn-danger" data-section-archive="${escapeHtml(s.public_id)}">Archive</button>`;
-  return `<tr data-entity-id="${s.id}" data-entity-name="${escapeHtml(s.section_name)}">
-  <td>${escapeHtml(s.section_name)}</td>
+      ? `<button type="button" class="lg-kebab-item" role="menuitem" data-section-reactivate="${escapeHtml(s.public_id)}" data-entity-name="${name}">Reactivate</button>`
+      : `<button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-section-archive="${escapeHtml(s.public_id)}" data-entity-name="${name}">Archive</button>`;
+  // Round-4 A-2 (row R4-02/R4-38): Edit stays a direct link; Duplicate/Usage/
+  // Archive-or-Reactivate/Delete move into the shared kebab (renderKebabOpen/
+  // KEBAB_CLOSE, layout.ts). Duplicate + Delete are NEW this round (P1c wired
+  // POST /sections/:id/duplicate; Delete reuses the EXISTING DELETE
+  // /sections/:id — an unconditional archive-flip, see deleteSectionHandler,
+  // sections-handlers.ts — there is no usage-guard/409 on that endpoint today,
+  // so Delete and Archive currently produce the identical end state; flagged
+  // as an open seam, not fixed here since sections-handlers.ts is outside
+  // this slice). Usage keeps its EXISTING inline-panel toggle (data-section-
+  // usage + the sibling .lg-usage-row below) untouched — only its button now
+  // lives inside the kebab.
+  return `<tr data-entity-id="${s.id}" data-entity-name="${name}">
+  <td>${name}</td>
   <td>${escapeHtml(s.activity)} / ${escapeHtml(s.vertical)}</td>
   <td class="lg-num">${s.question_count}</td>
   <td class="lg-num">${s.mapped_offer_count}</td>
@@ -231,11 +250,13 @@ function renderSectionListRow(s: SectionListItem): string {
   <td class="lg-num" data-metric="views"><span class="skel" aria-hidden="true"></span></td>
   <td class="lg-num" data-metric="continue_rate"><span class="skel" aria-hidden="true"></span></td>
   <td class="lg-num" data-metric="validation_error_rate"><span class="skel" aria-hidden="true"></span></td>
-  <td>
+  <td><div class="table-actions">
     <a href="/admin/leadgen/sections/${escapeHtml(s.public_id)}/edit" class="btn btn-sm btn-secondary">Edit</a>
-    <button type="button" class="btn btn-sm btn-outline" data-section-usage="${escapeHtml(s.public_id)}" aria-expanded="false">Usage</button>
+    ${renderKebabOpen(name)}<button type="button" class="lg-kebab-item" role="menuitem" data-section-duplicate="${escapeHtml(s.public_id)}" data-entity-name="${name}">Duplicate</button>
+    <button type="button" class="lg-kebab-item" role="menuitem" data-section-usage="${escapeHtml(s.public_id)}" aria-expanded="false">Usage</button>
     ${archiveOrReactivate}
-  </td>
+    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-section-delete="${escapeHtml(s.public_id)}" data-entity-name="${name}">Delete</button>${KEBAB_CLOSE}
+  </div></td>
 </tr>
 <tr class="lg-usage-row" data-section-usage-row="${escapeHtml(s.public_id)}" hidden>
   <td colspan="${SECTION_LIST_COLUMNS.length}"><div class="lg-usage-panel" data-section-usage-panel role="status" aria-live="polite"></div></td>
@@ -307,12 +328,44 @@ const SECTION_LIST_SCRIPT = `
   }
 
   // row actions: archive/reactivate (confirm + response.ok-checked PATCH/
-  // DELETE), usage (inline expandable panel — R4a E3-S1, replaces alert())
+  // DELETE), usage (inline expandable panel — R4a E3-S1, replaces alert()),
+  // duplicate + delete (Round-4 A-2 kebab rollout, row R4-02/R4-38).
   document.addEventListener('click', function (ev) {
     var el = ev.target;
     if (!el || !el.getAttribute) { return; }
+    var dupId = el.getAttribute('data-section-duplicate');
+    if (dupId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
+      fetch('/api/admin/leadgen/sections/' + encodeURIComponent(dupId) + '/duplicate', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({})
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) { window.alert((res.body && res.body.error) || 'Duplicate failed'); return; }
+        window.location.reload();
+      }).catch(function () { window.alert('Duplicate request failed'); });
+      return;
+    }
+    var deleteId = el.getAttribute('data-section-delete');
+    if (deleteId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
+      var deleteName = el.getAttribute('data-entity-name') || 'this section';
+      if (!window.confirm('Delete ' + deleteName + '?')) { return; }
+      fetch('/api/admin/leadgen/sections/' + encodeURIComponent(deleteId), {
+        method: 'DELETE', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) { window.alert((res.body && res.body.error) || ('Delete failed (' + res.status + ')')); return; }
+        window.location.reload();
+      }).catch(function () { window.alert('Delete request failed'); });
+      return;
+    }
     var archiveId = el.getAttribute('data-section-archive');
     if (archiveId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
       if (!window.confirm('Archive this Section? It can be reactivated later from this list.')) { return; }
       fetch('/api/admin/leadgen/sections/' + encodeURIComponent(archiveId), {
         method: 'DELETE', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
@@ -331,6 +384,7 @@ const SECTION_LIST_SCRIPT = `
     // this is the ONLY new client action, no new server work needed.
     var reactivateId = el.getAttribute('data-section-reactivate');
     if (reactivateId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
       if (!window.confirm('Reactivate this Section?')) { return; }
       fetch('/api/admin/leadgen/sections/' + encodeURIComponent(reactivateId), {
         method: 'PATCH', credentials: 'same-origin',
@@ -346,6 +400,7 @@ const SECTION_LIST_SCRIPT = `
     }
     var usageId = el.getAttribute('data-section-usage');
     if (usageId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
       var panelRow = document.querySelector('[data-section-usage-row="' + usageId + '"]');
       if (!panelRow) { return; }
       var wasHidden = panelRow.hidden;
@@ -433,7 +488,7 @@ ${loadErrorHtml}
 ${renderSectionsToolbar({ search, activity, vertical, status }, verticalsRes.ok ? verticalsRes.body.items : [], activitiesRes.ok ? activitiesRes.body.items : [], timeframe)}
 <div class="card">
   <div class="table-wrapper">
-    <table class="table leadgen-sections-list" aria-label="Sections list" data-lg-analytics data-analytics-url-prefix="/api/admin/leadgen/sections/" data-analytics-from="${escapeHtml(timeframe.from)}" data-analytics-to="${escapeHtml(timeframe.to)}">
+    <table class="table table--sticky-edges leadgen-sections-list" aria-label="Sections list" data-lg-analytics data-analytics-url-prefix="/api/admin/leadgen/sections/" data-analytics-from="${escapeHtml(timeframe.from)}" data-analytics-to="${escapeHtml(timeframe.to)}">
       <thead><tr>${headerCells}</tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -447,7 +502,7 @@ ${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging
       userEmail: branding(c).userEmail,
       content,
       styles: LG_SECTIONS_STYLES,
-      scripts: SECTION_LIST_SCRIPT + listFilterScript,
+      scripts: kebabMenuScript + SECTION_LIST_SCRIPT + listFilterScript,
     }),
   );
 }

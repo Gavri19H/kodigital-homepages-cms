@@ -481,7 +481,7 @@ function renderOffersTable(props: OffersPageProps): string {
   ).join("");
   return `<div class="card">
   <div class="table-wrapper">
-    <table class="table leadgen-offers-list" aria-label="Offers list"
+    <table class="table table--sticky-edges leadgen-offers-list" aria-label="Offers list"
       data-lg-analytics
       data-analytics-url-prefix="/api/admin/leadgen/offers/"
       data-analytics-from="${escapeHtml(props.timeframe.from)}"

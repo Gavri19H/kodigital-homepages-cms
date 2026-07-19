@@ -266,9 +266,17 @@ function logoNodeProps(
 // mirrors renderHeaderBar's CTA leg (tel: prefixed when the raw tel lacks it);
 // the anchor itself is frame chrome (no standalone CTA preset exists) styled
 // by the token-driven .lg-frame-header-cta rule.
-function renderHeaderCta(cta: FrameHeaderCtaConfig): string {
+// Round-4 P-10d (row R4-36): a phone-only config (tel set, label left blank)
+// used to render NOTHING — the empty label silently canceled the whole CTA
+// even though a valid tel: href existed. Default the label to "Call now"
+// whenever a tel is present and the author left it blank; an href-only CTA
+// with neither label nor tel still renders nothing (no sensible default text
+// exists for an arbitrary link) — that leg is unchanged. Exported (only this
+// function's visibility changed) so test-ui/__p1d-lists.spec.ts AC-4 can
+// exercise it directly as a unit, without constructing a full
+// EffectiveFrameConfig/EffectiveTokens tree just to reach one region renderer.
+export function renderHeaderCta(cta: FrameHeaderCtaConfig): string {
   if (!cta.enabled) return "";
-  const label = cta.label.trim();
   const tel = cta.tel !== null && cta.tel.trim() !== "" ? cta.tel.trim() : null;
   const href =
     cta.href !== null && cta.href.trim() !== ""
@@ -278,7 +286,9 @@ function renderHeaderCta(cta: FrameHeaderCtaConfig): string {
           ? tel
           : `tel:${tel}`
         : null;
-  if (label === "" || href === null) return "";
+  if (href === null) return "";
+  const label = cta.label.trim() !== "" ? cta.label.trim() : tel !== null ? "Call now" : "";
+  if (label === "") return "";
   return `<a class="lg-frame-header-cta" href="${escapeHtml(href)}">${escapeHtml(label)}</a>`;
 }
 

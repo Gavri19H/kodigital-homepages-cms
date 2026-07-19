@@ -16,6 +16,9 @@ import {
   escapeHtml,
   renderListPager,
   listFilterScript,
+  renderKebabOpen,
+  KEBAB_CLOSE,
+  kebabMenuScript,
 } from "../templates/layout";
 import { SECTION_STATUSES } from "../../listicles/validation";
 import type { Paging } from "./shared";
@@ -95,9 +98,9 @@ function renderSectionRow(s: SectionListRow): string {
   ${renderAnalyticsSkeletonCells(ENTITY_ANALYTICS_COLUMNS)}
   <td><div class="table-actions">
     <a class="btn btn-sm btn-secondary" href="/admin/listicles/sections/${s.id}/edit">Edit</a>
-    <button type="button" class="btn btn-sm btn-outline" data-section-offers="${s.id}" data-section-name="${name}" title="View Offers used">Offers used</button>
-    <button type="button" class="btn btn-sm btn-outline" data-section-usage="${s.id}" data-section-name="${name}" title="View usage in Articles">Usage in Articles</button>
-    <button type="button" class="btn btn-sm btn-outline" data-lst-analytics-action>Analytics</button>
+    ${renderKebabOpen(name)}<button type="button" class="lg-kebab-item" role="menuitem" data-section-offers="${s.id}" data-section-name="${name}" title="View Offers used">Offers used</button>
+    <button type="button" class="lg-kebab-item" role="menuitem" data-section-usage="${s.id}" data-section-name="${name}" title="View usage in Articles">Usage in Articles</button>
+    <button type="button" class="lg-kebab-item" role="menuitem" data-lst-analytics-action>Analytics</button>${KEBAB_CLOSE}
   </div></td>
 </tr>`;
 }
@@ -114,7 +117,7 @@ function renderSectionsTable(props: SectionsPageProps): string {
       : props.sections.map(renderSectionRow).join("");
   return `<div class="card">
   <div class="table-wrapper">
-    <table class="table sections-list" aria-label="Sections list"
+    <table class="table table--sticky-edges sections-list" aria-label="Sections list"
       data-lst-analytics
       data-analytics-url-prefix="/api/admin/listicles/sections/"
       data-analytics-from="${escapeHtml(props.timeframe.from)}"
@@ -252,7 +255,7 @@ ${renderDialogShell()}`;
     userEmail: branding.userEmail,
     content,
     styles: LISTICLES_STYLES,
-    scripts: LST_SHARED_SCRIPT + SECTIONS_PAGE_SCRIPT + listFilterScript,
+    scripts: kebabMenuScript + LST_SHARED_SCRIPT + SECTIONS_PAGE_SCRIPT + listFilterScript,
   });
 }
 
@@ -327,7 +330,7 @@ function renderArticleRow(a: ArticleListRow): string {
   ${renderAnalyticsSkeletonCells(ARTICLE_ANALYTICS_COLUMNS)}
   <td><div class="table-actions">
     <a class="btn btn-sm btn-secondary" href="/admin/listicles/articles/${escapeHtml(a.public_id)}/edit">Edit</a>
-    <button type="button" class="btn btn-sm btn-outline" data-lst-analytics-action>Analytics</button>
+    ${renderKebabOpen(name)}<button type="button" class="lg-kebab-item" role="menuitem" data-lst-analytics-action>Analytics</button>${KEBAB_CLOSE}
   </div></td>
 </tr>`;
 }
@@ -343,7 +346,7 @@ function renderArticlesTable(props: ArticlesPageProps): string {
       : props.articles.map(renderArticleRow).join("");
   return `<div class="card">
   <div class="table-wrapper">
-    <table class="table articles-list" aria-label="Listicle articles list"
+    <table class="table table--sticky-edges articles-list" aria-label="Listicle articles list"
       data-lst-analytics
       data-analytics-url-prefix="/api/admin/listicles/articles/"
       data-analytics-pick="total"
@@ -717,6 +720,7 @@ ${renderDialogShell()}`;
     content,
     styles: LISTICLES_STYLES,
     scripts:
+      kebabMenuScript +
       LST_SHARED_SCRIPT +
       ARTICLES_DRILLDOWN_SCRIPT +
       ARTICLES_REBUILD_SCRIPT +
