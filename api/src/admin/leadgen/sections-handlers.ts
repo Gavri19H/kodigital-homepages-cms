@@ -345,7 +345,7 @@ interface ParsedAnswerMaps {
 function parseTransformSteps(raw: unknown, key: string, errors: FieldErrors): LeadgenTransformStep[] | null {
   if (raw === undefined || raw === null) return null;
   if (!Array.isArray(raw)) {
-    errors[key] = "value_transform must be an array of steps";
+    errors[key] = "Value transform must be an array of steps";
     return null;
   }
   const steps: LeadgenTransformStep[] = [];
@@ -412,22 +412,22 @@ async function parseAnswerMaps(
 
   const edges: LeadgenAnswerMapEdge[] = [];
   if (rawMaps !== undefined && !Array.isArray(rawMaps)) {
-    errors["answer_maps"] = "answer_maps must be an array";
+    errors["answer_maps"] = "Answer maps must be an array";
   }
   rawList.forEach((item, index) => {
     const base = `answer_maps[${index}]`;
     if (!isRecord(item)) {
-      errors[base] = "answer_map must be an object";
+      errors[base] = "Each answer map must be an object";
       return;
     }
     const questionId = trimmedString(item["question_id"]);
     if (questionId === null) {
-      errors[`${base}.question_id`] = "question_id is required";
+      errors[`${base}.question_id`] = "Question ID is required";
       return;
     }
     const node = nodesByQuestionId.get(questionId);
     if (node === undefined) {
-      errors[`${base}.question_id`] = `question_id '${questionId}' is not a component in content_json`;
+      errors[`${base}.question_id`] = `Question ID '${questionId}' is not a component in the Section content`;
       return;
     }
 
@@ -437,19 +437,19 @@ async function parseAnswerMaps(
     if (typeof ref === "number" && Number.isInteger(ref)) offerId = ref;
     else if (typeof ref === "string" && isPublicId("offer", ref)) offerId = offerIdByPublicId.get(ref) ?? null;
     if (offerId === null) {
-      errors[`${base}.offer_id`] = "offer_id must be a numeric id or an lgo_ public id for an existing Offer";
+      errors[`${base}.offer_id`] = "Offer ID must be a numeric id or an lgo_ public id for an existing Offer";
       return;
     }
 
     const fieldPath = trimmedString(item["offer_payload_field_path"]);
     if (fieldPath === null) {
-      errors[`${base}.offer_payload_field_path`] = "offer_payload_field_path is required";
+      errors[`${base}.offer_payload_field_path`] = "Offer payload field path is required";
       return;
     }
     const providerType = trimmedString(item["provider_expected_type"]);
     if (providerType === null || !PAYLOAD_NODE_TYPES.has(providerType)) {
       errors[`${base}.provider_expected_type`] =
-        "provider_expected_type must be one of string|number|boolean|enum|object|array";
+        "Provider expected type must be one of string|number|boolean|enum|object|array";
       return;
     }
 
@@ -461,7 +461,7 @@ async function parseAnswerMaps(
     let outputValueMap: Record<string, unknown> | null = null;
     if (rawOutputValueMap !== undefined && rawOutputValueMap !== null) {
       if (!isRecord(rawOutputValueMap)) {
-        errors[`${base}.output_value_map`] = "output_value_map must be an object";
+        errors[`${base}.output_value_map`] = "Output value map must be an object";
         return;
       }
       outputValueMap = rawOutputValueMap;
@@ -1139,6 +1139,69 @@ export async function deleteSectionHandler(c: AdminContext): Promise<Response> {
     .bind(row.id)
     .run();
   return c.json({ ok: true, id: row.id, public_id: row.public_id, status: "archived" });
+}
+
+// ---------------------------------------------------------------------------
+// POST /sections/:id/duplicate (Round-4 A-2, row R4-02) — mirrors the offers
+// duplicate idiom (offers-handlers.ts duplicateOfferHandler): a fresh public
+// id, name + " (copy)", every authored column copied verbatim (activity/
+// vertical/headline/subheadline/image/content/content_html/continue_mode/
+// design_overrides/address_validation) so the clone renders byte-identically
+// to its source. NOTE: the dispatch text asked for "status draft" — Sections
+// has NO draft state (LeadgenSectionStatus is CHECK-constrained to
+// active|archived only, migration 0036:97); the clone lands 'active', the
+// same resting state createSectionHandler's own default produces. The
+// derived leadgen_section_available_offers / leadgen_section_answer_maps
+// indexes are NOT copied — they are rebuilt FROM content_json + an
+// answer_maps[] input on save (§12.1); an unmapped duplicate is the same
+// valid resting state as a freshly created Section with no Offer selected.
+// ---------------------------------------------------------------------------
+
+export async function duplicateSectionHandler(c: AdminContext): Promise<Response> {
+  const src = await resolveSectionRow(c.env.DB, c.req.param("id") ?? "");
+  if (src === null) return c.json({ error: "Not Found" }, 404);
+
+  const body = (await readJsonBody(c)) ?? {};
+  const rawName = trimmedString(body["section_name"] ?? body["name"]);
+  const name = rawName ?? `${src.section_name} (copy)`;
+
+  const publicId = mintPublicId("section");
+  await c.env.DB.prepare(
+    `INSERT INTO leadgen_sections
+       (public_id, section_name, activity, vertical, headline_text, subheadline_text, image_json,
+        content_json, content_html, continue_mode, design_overrides_json, address_validation_enabled,
+        status, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+  )
+    .bind(
+      publicId,
+      name,
+      src.activity,
+      src.vertical,
+      src.headline_text,
+      src.subheadline_text,
+      src.image_json,
+      src.content_json,
+      src.content_html,
+      src.continue_mode,
+      src.design_overrides_json,
+      src.address_validation_enabled,
+      null,
+    )
+    .run();
+
+  const dup = await c.env.DB.prepare("SELECT * FROM leadgen_sections WHERE public_id = ? LIMIT 1")
+    .bind(publicId)
+    .first<LeadgenSectionRow>();
+  if (!dup) return c.json({ error: "Duplicate failed" }, 500);
+  return c.json(
+    {
+      ...(await sectionDetailJson(c.env.DB, dup)),
+      duplicated_from: { id: src.id, public_id: src.public_id, name: src.section_name },
+      not_copied: ["available_offers", "answer_maps"],
+    },
+    201,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -2451,7 +2514,7 @@ export async function createComponentPresetHandler(c: AdminContext): Promise<Res
   else if (name.length > 64) errors["name"] = "name must be 64 characters or fewer";
   const componentType = trimmedString(body["component_type"]);
   if (componentType === null || !(componentType in COMPONENT_CATALOG)) {
-    errors["component_type"] = "component_type must be a known component type";
+    errors["component_type"] = "Component type must be a known component type";
   }
   const overrides = parsePresetScalarMap(body["overrides"], "overrides", PRESET_OVERRIDE_KEY_SET, errors);
   const propsSubset = parsePresetScalarMap(body["props_subset"], "props_subset", PRESET_PROP_KEY_SET, errors);

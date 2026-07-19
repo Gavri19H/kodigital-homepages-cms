@@ -760,13 +760,225 @@ export async function patchQuoteHandler(c: AdminContext): Promise<Response> {
   return c.json(await quoteDetailJson(c.env.DB, updated));
 }
 
+// Round-4 D-8 (lifecycle parity, row R4-38): "live history" for a Quote — any
+// site activation row (leadgen_site_quotes) OR any row in the quote-level
+// analytics mirror (leadgen_analytics_quote, 0037 — keyed by quote_public_id).
+// ONE check feeds both the DELETE guard below and quoteUsageHandler's
+// delete_eligibility, so the two can never disagree about "in use."
+interface QuoteLiveHistory {
+  site_activations: number;
+  analytics_rows: number;
+}
+
+async function quoteLiveHistory(db: D1Database, quote: LeadgenQuoteRow): Promise<QuoteLiveHistory> {
+  const row = await db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM leadgen_site_quotes WHERE quote_id = ?) AS site_activations,
+         (SELECT COUNT(*) FROM leadgen_analytics_quote WHERE quote_public_id = ?) AS analytics_rows`,
+    )
+    .bind(quote.id, quote.public_id)
+    .first<{ site_activations: number; analytics_rows: number }>();
+  return {
+    // ?? not || (D1 rule) — a true 0 must survive.
+    site_activations: Number(row?.site_activations ?? 0),
+    analytics_rows: Number(row?.analytics_rows ?? 0),
+  };
+}
+
 export async function deleteQuoteHandler(c: AdminContext): Promise<Response> {
   const row = await resolveQuoteRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
+  // Round-4 D-8: DELETE stays archive-semantics (status flip), but a Quote
+  // carrying live history is REFUSED outright — fail closed to Archive
+  // (PATCH {status:'archived'} is already reachable + unrestricted, see
+  // patchQuoteHandler's generic status merge) rather than silently
+  // "deleting" a quote that real sites/traffic still reference.
+  const history = await quoteLiveHistory(c.env.DB, row);
+  if (history.site_activations > 0 || history.analytics_rows > 0) {
+    return c.json(
+      { error: "This quote has live history — archive it instead", usage: history },
+      409,
+    );
+  }
   await c.env.DB.prepare("UPDATE leadgen_quotes SET status = 'archived', updated_at = unixepoch() WHERE id = ?")
     .bind(row.id)
     .run();
   return c.json({ ok: true, id: row.id, public_id: row.public_id, status: "archived" });
+}
+
+// ---------------------------------------------------------------------------
+// GET /quotes/:id/usage (Round-4 A-2, row R4-38) — where-used, matching the
+// offers usage response shape (offers-handlers.ts buildOfferUsageReport):
+// {kinds:[{kind,count,items,warning_only}], delete_eligibility}. Both kinds
+// are blocking (never warning_only) so `eligible` mirrors EXACTLY the
+// condition deleteQuoteHandler enforces above.
+// ---------------------------------------------------------------------------
+
+interface QuoteUsageItem {
+  id: string | number;
+  public_id: string;
+  name: string;
+  link: string;
+}
+interface QuoteUsageKind {
+  kind: string;
+  count: number;
+  items: QuoteUsageItem[];
+  warning_only: boolean;
+}
+
+export async function quoteUsageHandler(c: AdminContext): Promise<Response> {
+  const row = await resolveQuoteRow(c.env.DB, c.req.param("id") ?? "");
+  if (row === null) return c.json({ error: "Not Found" }, 404);
+
+  const sites = await c.env.DB.prepare(
+    `SELECT s.id AS id, s.id AS public_id, s.name AS name,
+            '/admin/leadgen/quotes/' || ? || '/edit#activation' AS link
+     FROM leadgen_site_quotes sq JOIN sites s ON s.id = sq.site_id
+     WHERE sq.quote_id = ? ORDER BY s.name`,
+  )
+    .bind(row.public_id, row.id)
+    .all<QuoteUsageItem>();
+  const siteItems = sites.results ?? [];
+
+  const history = await quoteLiveHistory(c.env.DB, row);
+  const kinds: QuoteUsageKind[] = [
+    { kind: "site_activations", count: siteItems.length, items: siteItems, warning_only: false },
+    {
+      kind: "analytics_history",
+      count: history.analytics_rows,
+      items:
+        history.analytics_rows > 0
+          ? [{ id: 1, public_id: "", name: `${history.analytics_rows} analytics rows`, link: "" }]
+          : [],
+      warning_only: false,
+    },
+  ];
+  const blocking = kinds.filter((k) => !k.warning_only && k.count > 0).map((k) => k.kind);
+  return c.json({
+    quote: { id: row.id, public_id: row.public_id, name: row.quote_name },
+    usage: { kinds, delete_eligibility: { eligible: blocking.length === 0, blocking_kinds: blocking } },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// POST /quotes/:id/duplicate (Round-4 A-2, row R4-02) — deep-copy the quote +
+// every funnel + every variant's ordered sections/rules (the SAME clone shape
+// forkVariantHandler already uses for one variant, looped over the whole
+// quote tree, plus the funnel's own frame_config_json/theme_json — a
+// "coherent, publishable draft quote" needs its visual template, not just
+// section order). NEVER copied: site activations, analytics/attempt history,
+// A/B tests (the clone starts as a fresh, un-bucketed draft — the SAME
+// "never copied" discipline offers' duplicateOfferHandler documents for
+// analytics/cap-counters/test-results).
+// ---------------------------------------------------------------------------
+
+interface QuoteDuplicateCounts {
+  funnels: number;
+  variants: number;
+  sections: number;
+  rules: number;
+}
+
+export async function duplicateQuoteHandler(c: AdminContext): Promise<Response> {
+  const src = await resolveQuoteRow(c.env.DB, c.req.param("id") ?? "");
+  if (src === null) return c.json({ error: "Not Found" }, 404);
+
+  const body = (await readJsonBody(c)) ?? {};
+  const rawName = trimmedString(body["quote_name"] ?? body["name"]);
+  const name = rawName ?? `${src.quote_name} (copy)`;
+
+  const funnels = await readQuoteFunnels(c.env.DB, src.id);
+  const newQuotePublicId = mintPublicId("quote");
+  // §7.3-style one transaction (offers duplicate idiom): the quote AND every
+  // funnel/variant/section/rule land in ONE batch via public_id subqueries —
+  // a mid-batch failure rolls the WHOLE clone back, never a half-cloned quote.
+  const statements: D1PreparedStatement[] = [
+    c.env.DB.prepare(
+      `INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json, status)
+       VALUES (?, ?, ?, ?, 'draft')`,
+    ).bind(newQuotePublicId, name, src.activity, src.verticals_json),
+  ];
+
+  const counts: QuoteDuplicateCounts = { funnels: 0, variants: 0, sections: 0, rules: 0 };
+  for (const funnel of funnels) {
+    const newFunnelPublicId = mintPublicId("funnel");
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name, status, frame_config_json, theme_json)
+         VALUES (?, (SELECT id FROM leadgen_quotes WHERE public_id = ?), ?, 'active', ?, ?)`,
+      ).bind(newFunnelPublicId, newQuotePublicId, funnel.funnel_name, funnel.frame_config_json, funnel.theme_json),
+    );
+    counts.funnels += 1;
+
+    const variants = await readFunnelVariants(c.env.DB, funnel.id);
+    for (const variant of variants) {
+      const newVariantPublicId = mintPublicId("funnel_variant");
+      statements.push(
+        c.env.DB.prepare(
+          `INSERT INTO leadgen_funnel_variants
+             (public_id, funnel_id, ab_test_id, variant_label, is_control, traffic_allocation_bp, funnel_design_id,
+              auction_id, lander_enabled, lander_headline, lander_subheadline, lander_body_json,
+              lander_hero_media_id, lander_hero_media_url, lander_cta_json, content_version, status,
+              frame_overrides_json)
+           VALUES (?, (SELECT id FROM leadgen_funnels WHERE public_id = ?), NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                   ?, ?, ?, 1, 'active', ?)`,
+        ).bind(
+          newVariantPublicId, newFunnelPublicId, variant.variant_label, variant.is_control,
+          variant.traffic_allocation_bp, variant.funnel_design_id, variant.auction_id, variant.lander_enabled,
+          variant.lander_headline, variant.lander_subheadline, variant.lander_body_json,
+          variant.lander_hero_media_id, variant.lander_hero_media_url, variant.lander_cta_json,
+          variant.frame_overrides_json,
+        ),
+      );
+      counts.variants += 1;
+
+      const sections = await readVariantSections(c.env.DB, variant.id);
+      for (const s of sections) {
+        statements.push(
+          c.env.DB.prepare(
+            `INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position)
+             VALUES ((SELECT id FROM leadgen_funnel_variants WHERE public_id = ?), ?, ?)`,
+          ).bind(newVariantPublicId, s.section_id, s.position),
+        );
+        counts.sections += 1;
+      }
+
+      const rules = await readVariantRules(c.env.DB, variant.id);
+      for (const r of rules) {
+        statements.push(
+          c.env.DB.prepare(
+            `INSERT INTO leadgen_funnel_rules
+               (public_id, variant_id, rule_type, conditions_json, conditions_hash, target_offer_id,
+                target_section_id, redirect_url, redirect_url_allowlisted, priority, enabled)
+             VALUES (?, (SELECT id FROM leadgen_funnel_variants WHERE public_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ).bind(
+            mintPublicId("funnel_rule"), newVariantPublicId, r.rule_type, r.conditions_json, r.conditions_hash,
+            r.target_offer_id, r.target_section_id, r.redirect_url, r.redirect_url_allowlisted, r.priority,
+            r.enabled,
+          ),
+        );
+        counts.rules += 1;
+      }
+    }
+  }
+
+  await c.env.DB.batch(statements);
+
+  const dup = await c.env.DB.prepare("SELECT * FROM leadgen_quotes WHERE public_id = ? LIMIT 1")
+    .bind(newQuotePublicId)
+    .first<LeadgenQuoteRow>();
+  if (!dup) return c.json({ error: "Duplicate failed" }, 500);
+  return c.json(
+    {
+      ...(await quoteDetailJson(c.env.DB, dup)),
+      duplicated_from: { id: src.id, public_id: src.public_id, name: src.quote_name },
+      copied: counts,
+      not_copied: ["site_activations", "analytics", "ab_tests"],
+    },
+    201,
+  );
 }
 
 // ---------------------------------------------------------------------------
