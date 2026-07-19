@@ -1150,11 +1150,19 @@ export async function deleteSectionHandler(c: AdminContext): Promise<Response> {
 // to its source. NOTE: the dispatch text asked for "status draft" — Sections
 // has NO draft state (LeadgenSectionStatus is CHECK-constrained to
 // active|archived only, migration 0036:97); the clone lands 'active', the
-// same resting state createSectionHandler's own default produces. The
-// derived leadgen_section_available_offers / leadgen_section_answer_maps
-// indexes are NOT copied — they are rebuilt FROM content_json + an
-// answer_maps[] input on save (§12.1); an unmapped duplicate is the same
-// valid resting state as a freshly created Section with no Offer selected.
+// same resting state createSectionHandler's own default produces.
+//
+// Fix-round ruling: leadgen_section_answer_maps + leadgen_section_available_
+// offers ARE copied (re-keyed to the new section id) — they are the
+// section's OWN authored offer-mapping config (like offers' duplicate
+// cloning its own active payload schema), not a cross-entity USAGE
+// reference, and the operator's "Duplicate" must produce a fully-usable
+// copy. Answer-map rows mint a FRESH public_id each (their own identity
+// column); available-offer rows have no public_id (composite PK). Copied
+// verbatim (including mapping_status/validation_status) — nothing about the
+// mapping facts has changed, so nothing needs recomputing. Only the
+// section's own analytics history (leadgen_analytics_section, keyed by the
+// OLD public_id) is never copied.
 // ---------------------------------------------------------------------------
 
 export async function duplicateSectionHandler(c: AdminContext): Promise<Response> {
@@ -1165,15 +1173,29 @@ export async function duplicateSectionHandler(c: AdminContext): Promise<Response
   const rawName = trimmedString(body["section_name"] ?? body["name"]);
   const name = rawName ?? `${src.section_name} (copy)`;
 
-  const publicId = mintPublicId("section");
-  await c.env.DB.prepare(
-    `INSERT INTO leadgen_sections
-       (public_id, section_name, activity, vertical, headline_text, subheadline_text, image_json,
-        content_json, content_html, continue_mode, design_overrides_json, address_validation_enabled,
-        status, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+  // Read the source's own offer-mapping config BEFORE any write (the §7.3
+  // "one transaction" idiom) — RAW rows, copied byte-verbatim (no JSON
+  // parse/re-stringify round-trip that could reformat the stored text).
+  const srcAvailableOffers = await c.env.DB.prepare(
+    "SELECT * FROM leadgen_section_available_offers WHERE section_id = ? ORDER BY offer_id ASC",
   )
-    .bind(
+    .bind(src.id)
+    .all<LeadgenSectionAvailableOfferRow>();
+  const srcAnswerMaps = await c.env.DB.prepare(
+    "SELECT * FROM leadgen_section_answer_maps WHERE section_id = ? ORDER BY id ASC",
+  )
+    .bind(src.id)
+    .all<LeadgenSectionAnswerMapRow>();
+
+  const publicId = mintPublicId("section");
+  const statements: D1PreparedStatement[] = [
+    c.env.DB.prepare(
+      `INSERT INTO leadgen_sections
+         (public_id, section_name, activity, vertical, headline_text, subheadline_text, image_json,
+          content_json, content_html, continue_mode, design_overrides_json, address_validation_enabled,
+          status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+    ).bind(
       publicId,
       name,
       src.activity,
@@ -1187,8 +1209,64 @@ export async function duplicateSectionHandler(c: AdminContext): Promise<Response
       src.design_overrides_json,
       src.address_validation_enabled,
       null,
-    )
-    .run();
+    ),
+  ];
+
+  const availableOfferRows = srcAvailableOffers.results ?? [];
+  for (const offer of availableOfferRows) {
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO leadgen_section_available_offers
+           (section_id, offer_id, selected, mapping_state, required_fields_total, required_fields_mapped)
+         VALUES ((SELECT id FROM leadgen_sections WHERE public_id = ?), ?, ?, ?, ?, ?)`,
+      ).bind(
+        publicId,
+        offer.offer_id,
+        offer.selected,
+        offer.mapping_state,
+        offer.required_fields_total,
+        offer.required_fields_mapped,
+      ),
+    );
+  }
+
+  const answerMapRows = srcAnswerMaps.results ?? [];
+  for (const map of answerMapRows) {
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO leadgen_section_answer_maps
+           (public_id, section_id, question_id, question_key, internal_field, answer_type, offer_id,
+            payload_schema_id, payload_schema_public_id, offer_payload_field_path, provider_expected_type,
+            output_value_map_json, transform_json, required_for_offer, default_value, fallback_value,
+            mapping_status, validation_status)
+         VALUES (?, (SELECT id FROM leadgen_sections WHERE public_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        mintPublicId("answer_field_map"),
+        publicId,
+        map.question_id,
+        map.question_key,
+        map.internal_field,
+        map.answer_type,
+        map.offer_id,
+        map.payload_schema_id,
+        map.payload_schema_public_id,
+        map.offer_payload_field_path,
+        map.provider_expected_type,
+        map.output_value_map_json,
+        map.transform_json,
+        map.required_for_offer,
+        map.default_value,
+        map.fallback_value,
+        map.mapping_status,
+        map.validation_status,
+      ),
+    );
+  }
+
+  // §7.3-style one transaction: the section + every available-offer/
+  // answer-map row land in ONE batch via a public_id subquery — a mid-batch
+  // failure rolls the WHOLE clone back, never a section with a partial copy.
+  await c.env.DB.batch(statements);
 
   const dup = await c.env.DB.prepare("SELECT * FROM leadgen_sections WHERE public_id = ? LIMIT 1")
     .bind(publicId)
@@ -1198,7 +1276,8 @@ export async function duplicateSectionHandler(c: AdminContext): Promise<Response
     {
       ...(await sectionDetailJson(c.env.DB, dup)),
       duplicated_from: { id: src.id, public_id: src.public_id, name: src.section_name },
-      not_copied: ["available_offers", "answer_maps"],
+      copied: { available_offers: availableOfferRows.length, answer_maps: answerMapRows.length },
+      not_copied: ["analytics"],
     },
     201,
   );

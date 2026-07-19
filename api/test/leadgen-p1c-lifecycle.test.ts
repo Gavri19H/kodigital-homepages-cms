@@ -11,7 +11,9 @@
 //      clamp seam — P1b widened the render/content-schema clamps to 1..5,
 //      this Section-level default was the P1c leg).
 //   3. sections-handlers.ts answer_maps[] sweep messages humanized.
-//   4. duplicateSectionHandler — coherent content copy, fresh id, "(copy)".
+//   4. duplicateSectionHandler — coherent content copy, fresh id, "(copy)",
+//      PLUS (fix-round ruling) its own answer_maps/available_offers rows
+//      re-keyed to the new section id; the source rows stay untouched.
 //   5. duplicateQuoteHandler — deep copy funnels/variants/sections/rules;
 //      site activations/analytics/ab-tests NOT copied.
 //   6. Quote archive->reactivate (PATCH status flip, already unrestricted)
@@ -28,7 +30,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
-import { isPublicId } from "../src/leadgen/ids";
+import { isPublicId, mintPublicId } from "../src/leadgen/ids";
 import { validateSection } from "../src/leadgen/sections";
 
 // --- node:sqlite harness (repo pattern, leadgen-quotes-api.test.ts) ----------
@@ -220,12 +222,84 @@ interface SectionJson {
   section_name: string;
   content_json: unknown;
   status: string;
+  available_offers: Array<{ offer_id: number; selected: boolean }>;
+  answer_maps: Array<{ public_id: string; offer_id: number; offer_payload_field_path: string }>;
 }
 
 async function createSection(env: Env, overrides: Record<string, unknown> = {}): Promise<SectionJson> {
   const res = await admin.request(`${API}/sections`, jsonInit("POST", sectionBody(overrides)), env);
   expect(res.status, `create section: ${await res.clone().text()}`).toBe(201);
   return (await res.json()) as SectionJson;
+}
+
+// --- fixtures for a MAPPED section (leadgen-sections-api.test.ts pattern) ----
+// A boolean-required schema the Section maps into: data.insured (required).
+const OFFER_SCHEMA = {
+  version: 1,
+  root: {
+    type: "object",
+    children: [
+      { path: "data.insured", name: "insured", type: "boolean", required: true, source: "answer", internal_field: "insured" },
+    ],
+  },
+};
+
+interface OfferDetail {
+  id: number;
+  public_id: string;
+  [key: string]: unknown;
+}
+
+async function createOffer(env: Env, overrides: Record<string, unknown> = {}): Promise<OfferDetail> {
+  const res = await admin.request(
+    `${API}/offers`,
+    jsonInit("POST", {
+      offer_name: "Life Offer",
+      activity: "quote_funnel",
+      vertical: "life",
+      conversion_tracking_method: "s2s_postback",
+      offer_type: "cpl",
+      placements: [`pl-${mintPublicId("offer").slice(-8)}`],
+      calls_provider_api: true,
+      bid_source: "static",
+      cap_enabled: false,
+      ...overrides,
+    }),
+    env,
+  );
+  expect(res.status, `create offer: ${await res.clone().text()}`).toBe(201);
+  return (await res.json()) as OfferDetail;
+}
+
+// Create an Offer + give it an ACTIVE boolean-required payload schema (so a
+// Section can map into it — payload_schema_id is a NOT NULL FK).
+async function createMappableOffer(env: Env, overrides: Record<string, unknown> = {}): Promise<OfferDetail> {
+  const offer = await createOffer(env, overrides);
+  const res = await admin.request(
+    `${API}/offers/${offer.id}/payload-schemas`,
+    jsonInit("POST", { schema_json: OFFER_SCHEMA }),
+    env,
+  );
+  expect(res.status, `post schema: ${await res.clone().text()}`).toBe(201);
+  return offer;
+}
+
+const YESNO_CONTENT = {
+  components: [
+    { type: "TwoButtonYesNo", question_id: "q1", question_key: "insured_q", internal_field: "currently_insured", answer_type: "boolean" },
+  ],
+};
+
+function mapEdge(offerId: number, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    question_id: "q1",
+    offer_id: offerId,
+    offer_payload_field_path: "data.insured",
+    provider_expected_type: "boolean",
+    required_for_offer: true,
+    output_value_map: { true: true, false: false },
+    ...overrides,
+  };
 }
 
 interface VariantJson {
@@ -475,6 +549,41 @@ describeDb("POST /sections/:id/duplicate (A-2, row R4-02)", () => {
       env,
     );
     expect((await res.json() as SectionJson).section_name).toBe("Custom Name");
+  });
+
+  it("also copies the section's own answer_maps + available_offers, re-keyed to the new section id — the source rows are untouched (fix-round ruling)", async () => {
+    const { env } = newHarness();
+    const offer = await createMappableOffer(env);
+    const src = await createSection(env, {
+      section_name: "Mapped",
+      headline_text: "Are you insured?",
+      content_json: JSON.stringify(YESNO_CONTENT),
+      answer_maps: [mapEdge(offer.id)],
+    });
+    expect(src.answer_maps).toHaveLength(1);
+    expect(src.available_offers).toHaveLength(1);
+    expect(src.available_offers[0]!.offer_id).toBe(offer.id);
+
+    const res = await admin.request(`${API}/sections/${src.public_id}/duplicate`, jsonInit("POST", {}), env);
+    expect(res.status, await res.clone().text()).toBe(201);
+    const dup = (await res.json()) as SectionJson & { copied: { available_offers: number; answer_maps: number } };
+
+    expect(dup.copied).toEqual({ available_offers: 1, answer_maps: 1 });
+    expect(dup.available_offers).toHaveLength(1);
+    expect(dup.available_offers[0]!.offer_id).toBe(offer.id);
+    expect(dup.answer_maps).toHaveLength(1);
+    expect(dup.answer_maps[0]!.offer_id).toBe(offer.id);
+    expect(dup.answer_maps[0]!.offer_payload_field_path).toBe("data.insured");
+    // re-keyed: the copy's answer-map row mints its OWN fresh public_id.
+    expect(dup.answer_maps[0]!.public_id).not.toBe(src.answer_maps[0]!.public_id);
+    expect(isPublicId("answer_field_map", dup.answer_maps[0]!.public_id)).toBe(true);
+
+    // the ORIGINAL section's rows are untouched (equal counts, same identity).
+    const reread = await admin.request(`${API}/sections/${src.public_id}`, {}, env);
+    const rereadBody = (await reread.json()) as SectionJson;
+    expect(rereadBody.available_offers).toHaveLength(1);
+    expect(rereadBody.answer_maps).toHaveLength(1);
+    expect(rereadBody.answer_maps[0]!.public_id).toBe(src.answer_maps[0]!.public_id);
   });
 
   it("404 on an unknown section id", async () => {

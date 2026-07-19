@@ -247,11 +247,14 @@ describe("validateSection — §9.5 section-level design_overrides shapes", () =
     expect(validate({ palette: "accent" })["design_overrides.palette"]).toContain("must be an object");
   });
 
-  it("clamps columnsDefault to the renderer range (integer 2..5)", () => {
-    for (const bad of [1, 6, 3.5, "3", true, null]) {
+  it("clamps columnsDefault to the renderer range (integer 1..5)", () => {
+    // Round-4 P1c re-pin: the bound widened 2..5 -> 1..5 (A-7 row R4-41 — a
+    // 1-column card grid is now the Image26 "stack" preset) and the message
+    // is plain-language now ("Columns must be..."), not "integer between...".
+    for (const bad of [0, 6, 3.5, "3", true, null]) {
       const errors = validate({ columnsDefault: bad });
       expect(errors["design_overrides.columnsDefault"], `columnsDefault=${String(bad)}`).toContain(
-        "integer between 2 and 5",
+        "Columns must be between 1 and 5",
       );
     }
   });

@@ -649,9 +649,9 @@ function validateQuoteCreate(body: Record<string, unknown>): {
   const quoteName = trimmedString(body["quote_name"]);
   if (quoteName === null) errors["quote_name"] = "quote_name is required";
   const activity = trimmedString(body["activity"]);
-  if (activity === null) errors["activity"] = "activity is required";
+  if (activity === null) errors["activity"] = "Activity is required";
   const verticals = parseStringArray(body["verticals"] ?? body["verticals_json"]);
-  if (verticals.length === 0) errors["verticals"] = "at least one vertical is required";
+  if (verticals.length === 0) errors["verticals"] = "At least one vertical is required";
   const statusRaw = body["status"];
   let status: LeadgenQuoteStatus = "draft";
   if (statusRaw !== undefined && statusRaw !== null) {
@@ -735,7 +735,7 @@ export async function patchQuoteHandler(c: AdminContext): Promise<Response> {
   }
   if (body["verticals"] !== undefined || body["verticals_json"] !== undefined) {
     const v = parseStringArray(body["verticals"] ?? body["verticals_json"]);
-    if (v.length === 0) errors["verticals"] = "at least one vertical is required";
+    if (v.length === 0) errors["verticals"] = "At least one vertical is required";
     else { verticalsJson = JSON.stringify(v); touched = true; }
   }
   if (body["status"] !== undefined) {
