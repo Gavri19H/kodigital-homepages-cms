@@ -14,6 +14,11 @@
 //   4. duplicateSectionHandler — coherent content copy, fresh id, "(copy)",
 //      PLUS (fix-round ruling) its own answer_maps/available_offers rows
 //      re-keyed to the new section id; the source rows stay untouched.
+//   4b. DELETE /sections/:id — guarded hard delete (fix-round-2 ruling, a
+//      P1d-discovered gap): unreferenced -> true hard delete (row + owned
+//      answer_maps/available_offers rows GONE); referenced by a funnel
+//      variant -> 409 plain-language; PATCH-to-archived stays reachable
+//      regardless of usage (the guard is DELETE-only, status-independent).
 //   5. duplicateQuoteHandler — deep copy funnels/variants/sections/rules;
 //      site activations/analytics/ab-tests NOT copied.
 //   6. Quote archive->reactivate (PATCH status flip, already unrestricted)
@@ -589,6 +594,85 @@ describeDb("POST /sections/:id/duplicate (A-2, row R4-02)", () => {
   it("404 on an unknown section id", async () => {
     const { env } = newHarness();
     const res = await admin.request(`${API}/sections/lgs_00000000000000000000000000/duplicate`, jsonInit("POST", {}), env);
+    expect(res.status).toBe(404);
+  });
+});
+
+// ===========================================================================
+// 4b. DELETE /sections/:id — guarded hard delete (Round-4 P1d-discovered
+//     gap, A-2): in line with the quote/auction lifecycle pattern above.
+// ===========================================================================
+
+describeDb("DELETE /sections/:id — guarded hard delete (P1d gap fix)", () => {
+  it("unreferenced section: 200, the row + its answer_maps/available_offers are GONE on re-read", async () => {
+    const { env } = newHarness();
+    const offer = await createMappableOffer(env);
+    const section = await createSection(env, {
+      section_name: "Unreferenced",
+      headline_text: "Are you insured?",
+      content_json: JSON.stringify(YESNO_CONTENT),
+      answer_maps: [mapEdge(offer.id)],
+    });
+    expect(section.answer_maps).toHaveLength(1);
+    expect(section.available_offers).toHaveLength(1);
+
+    const del = await admin.request(`${API}/sections/${section.public_id}`, { method: "DELETE" }, env);
+    expect(del.status, await del.clone().text()).toBe(200);
+    expect(await del.json()).toEqual({ ok: true, id: section.id, public_id: section.public_id, deleted: "hard" });
+
+    const reread = await admin.request(`${API}/sections/${section.public_id}`, {}, env);
+    expect(reread.status).toBe(404);
+  });
+
+  it("referenced by a quote variant: 409 plain-language, section stays present", async () => {
+    const { env } = newHarness();
+    const quote = await createQuote(env);
+    const section = await createSection(env, { section_name: "In use" });
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    await admin.request(
+      `${API}/variants/${variantId}`,
+      jsonInit("PUT", { sections: [{ section_id: section.id }] }),
+      env,
+    );
+
+    const del = await admin.request(`${API}/sections/${section.public_id}`, { method: "DELETE" }, env);
+    expect(del.status).toBe(409);
+    const body = (await del.json()) as { error: string; usage: { variants: Array<{ quote_name: string }> } };
+    expect(body.error).toBe("This section is used by quotes — archive it instead");
+    expect(body.usage.variants).toHaveLength(1);
+    expect(body.usage.variants[0]!.quote_name).toBe("Life Quote");
+
+    const stillThere = await admin.request(`${API}/sections/${section.public_id}`, {}, env);
+    expect(stillThere.status).toBe(200);
+  });
+
+  it("archive stays available for the referenced section (PATCH status archived -> 200); the guard is unaffected by status", async () => {
+    const { env } = newHarness();
+    const quote = await createQuote(env);
+    const section = await createSection(env, { section_name: "Archivable" });
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    await admin.request(
+      `${API}/variants/${variantId}`,
+      jsonInit("PUT", { sections: [{ section_id: section.id }] }),
+      env,
+    );
+
+    const archive = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { status: "archived" }),
+      env,
+    );
+    expect(archive.status, await archive.clone().text()).toBe(200);
+    expect(((await archive.json()) as SectionJson).status).toBe("archived");
+
+    // still referenced -> DELETE is STILL refused (status has no bearing on the guard).
+    const del = await admin.request(`${API}/sections/${section.public_id}`, { method: "DELETE" }, env);
+    expect(del.status).toBe(409);
+  });
+
+  it("404 on an unknown section id", async () => {
+    const { env } = newHarness();
+    const res = await admin.request(`${API}/sections/lgs_00000000000000000000000000`, { method: "DELETE" }, env);
     expect(res.status).toBe(404);
   });
 });

@@ -1127,18 +1127,38 @@ async function storedAnswerMapsAsInput(db: D1Database, sectionId: number): Promi
 }
 
 // ---------------------------------------------------------------------------
-// DELETE /sections/:id — archive (03 §9.6: status flip, never a hard delete)
+// DELETE /sections/:id (Round-4 P1d gap, A-2) — guarded hard delete, in line
+// with the quote/auction pattern: a section referenced by ANY funnel variant
+// (leadgen_funnel_variant_sections) is REFUSED (409), fail closed to Archive
+// (PATCH {status:'archived'} stays reachable regardless of usage — the guard
+// applies to DELETE only, and status has NO bearing on the guard: an
+// ALREADY-archived-but-still-referenced section is refused exactly like an
+// active one). An UNREFERENCED section gets a TRUE hard delete: the section
+// row + its OWN leadgen_section_answer_maps / leadgen_section_available_
+// offers rows (its only owned children), all in one atomic batch.
 // ---------------------------------------------------------------------------
 
 export async function deleteSectionHandler(c: AdminContext): Promise<Response> {
   const row = await resolveSectionRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
-  await c.env.DB.prepare(
-    "UPDATE leadgen_sections SET status = 'archived', updated_at = unixepoch() WHERE id = ?",
-  )
-    .bind(row.id)
-    .run();
-  return c.json({ ok: true, id: row.id, public_id: row.public_id, status: "archived" });
+
+  const referencing = await readSectionUsageRows(c.env.DB, row.id);
+  if (referencing.length > 0) {
+    return c.json(
+      {
+        error: "This section is used by quotes — archive it instead",
+        usage: { variants: referencing },
+      },
+      409,
+    );
+  }
+
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM leadgen_section_answer_maps WHERE section_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM leadgen_section_available_offers WHERE section_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM leadgen_sections WHERE id = ?").bind(row.id),
+  ]);
+  return c.json({ ok: true, id: row.id, public_id: row.public_id, deleted: "hard" });
 }
 
 // ---------------------------------------------------------------------------
@@ -1959,25 +1979,46 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
 
 // The §7.3 P7 tables (leadgen_funnel_variant_sections → variants → funnels →
 // quotes) exist in migration 0036, so this is a real join (not a derivable
-// approximation). A Section is "used" when a funnel variant orders it.
+// approximation). A Section is "used" when a funnel variant orders it. This
+// is the ONE query both sectionUsageHandler AND deleteSectionHandler's usage
+// guard read — they can never disagree about "in use" (Round-4 P1d gap fix).
+interface SectionUsageRow {
+  quote_id: number;
+  quote_public_id: string;
+  quote_name: string;
+  quote_status: string;
+  funnel_public_id: string;
+  funnel_name: string;
+  variant_public_id: string;
+  variant_label: string;
+  variant_status: string;
+  position: number;
+}
+
+async function readSectionUsageRows(db: D1Database, sectionId: number): Promise<SectionUsageRow[]> {
+  const usage = await db
+    .prepare(
+      `SELECT DISTINCT q.id AS quote_id, q.public_id AS quote_public_id, q.quote_name, q.status AS quote_status,
+              f.public_id AS funnel_public_id, f.funnel_name,
+              v.public_id AS variant_public_id, v.variant_label, v.status AS variant_status,
+              fvs.position
+       FROM leadgen_funnel_variant_sections fvs
+       JOIN leadgen_funnel_variants v ON v.id = fvs.variant_id
+       JOIN leadgen_funnels f ON f.id = v.funnel_id
+       JOIN leadgen_quotes q ON q.id = f.quote_id
+       WHERE fvs.section_id = ?
+       ORDER BY q.quote_name ASC, v.variant_label ASC, fvs.position ASC`,
+    )
+    .bind(sectionId)
+    .all<SectionUsageRow>();
+  return usage.results ?? [];
+}
+
 export async function sectionUsageHandler(c: AdminContext): Promise<Response> {
   const row = await resolveSectionRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
-  const usage = await c.env.DB.prepare(
-    `SELECT DISTINCT q.id AS quote_id, q.public_id AS quote_public_id, q.quote_name, q.status AS quote_status,
-            f.public_id AS funnel_public_id, f.funnel_name,
-            v.public_id AS variant_public_id, v.variant_label, v.status AS variant_status,
-            fvs.position
-     FROM leadgen_funnel_variant_sections fvs
-     JOIN leadgen_funnel_variants v ON v.id = fvs.variant_id
-     JOIN leadgen_funnels f ON f.id = v.funnel_id
-     JOIN leadgen_quotes q ON q.id = f.quote_id
-     WHERE fvs.section_id = ?
-     ORDER BY q.quote_name ASC, v.variant_label ASC, fvs.position ASC`,
-  )
-    .bind(row.id)
-    .all();
-  return c.json({ usage: { variants: usage.results ?? [] } });
+  const usage = await readSectionUsageRows(c.env.DB, row.id);
+  return c.json({ usage: { variants: usage } });
 }
 
 // ---------------------------------------------------------------------------
