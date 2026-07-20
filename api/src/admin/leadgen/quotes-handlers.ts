@@ -499,7 +499,10 @@ function pageToApi(page: ResolvedFunnelPage): Record<string, unknown> {
   };
 }
 
-async function readVariantPagesApi(db: D1Database, variantId: number): Promise<Record<string, unknown>[]> {
+// EXPORTED (Round-4 P3a item 5, P3b request): the structure panel's builder
+// SSR reads this directly instead of re-deriving its own projection of
+// loadVariantPages — one source of the page/slot API shape.
+export async function readVariantPagesApi(db: D1Database, variantId: number): Promise<Record<string, unknown>[]> {
   const pages = await loadVariantPages(db, variantId);
   return pages.map(pageToApi);
 }
@@ -1613,6 +1616,60 @@ async function preparePages(
   return { pages, errors };
 }
 
+// Round-4 P3a item 4 (P3b-found coherence gap): the legacy `sections`
+// replace-set used to leave a page-bearing variant's leadgen_funnel_pages /
+// _page_slots rows ORPHANED — nothing re-links them once their
+// variant_sections rows are replaced, so loadVariantPages kept resolving a
+// STALE page/slot tree alongside the freshly-saved flat section list. This
+// wraps the fresh, already-ordered section list into one page + one fixed
+// slot per section — the SAME shape 0042's migration backfills a legacy row
+// into — so a `sections` save never goes stale, whether or not the variant
+// previously had a REAL page/slot structure (a variant that has never used
+// `pages` simply gets one minted fresh, every save; harmless and idempotent).
+//
+// Statement shape mirrors forkVariantHandler's clone batch (below): every
+// page/slot is pre-minted a public_id app-side, then linked via a
+// `(SELECT id FROM ... WHERE public_id = ?)` subquery — no `.meta.last_row_id`
+// forwarding, so this joins the SAME atomic `statements` array/batch as the
+// variant_sections delete+reinsert the caller just pushed (must be called
+// AFTER that, so the UPDATE below finds live rows to attach to).
+function pushSectionPageWrapStatements(
+  db: D1Database,
+  statements: D1PreparedStatement[],
+  variantId: number,
+  sectionItems: readonly SectionOrderItem[],
+): void {
+  statements.push(db.prepare("DELETE FROM leadgen_funnel_pages WHERE variant_id = ?").bind(variantId));
+  for (const item of sectionItems) {
+    const pagePublicId = mintPublicId("funnel_page");
+    statements.push(
+      db
+        .prepare("INSERT INTO leadgen_funnel_pages (public_id, variant_id, position, name) VALUES (?, ?, ?, NULL)")
+        .bind(pagePublicId, variantId, item.position),
+    );
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO leadgen_funnel_page_slots (page_id, position, slot_revision, rules_json, ab_allocations_json)
+           VALUES ((SELECT id FROM leadgen_funnel_pages WHERE public_id = ?), 0, 0, NULL, NULL)`,
+        )
+        .bind(pagePublicId),
+    );
+    statements.push(
+      db
+        .prepare(
+          `UPDATE leadgen_funnel_variant_sections
+             SET page_id = (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?),
+                 slot_id = (SELECT s.id FROM leadgen_funnel_page_slots s
+                              JOIN leadgen_funnel_pages p ON p.id = s.page_id
+                             WHERE p.public_id = ?)
+           WHERE variant_id = ? AND section_id = ? AND position = ?`,
+        )
+        .bind(pagePublicId, pagePublicId, variantId, item.section_id, item.position),
+    );
+  }
+}
+
 export async function putVariantHandler(c: AdminContext): Promise<Response> {
   const variant = await resolveVariantRow(c.env.DB, c.req.param("id") ?? "");
   if (variant === null) return c.json({ error: "Not Found" }, 404);
@@ -1898,6 +1955,13 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
         ).bind(variant.id, s.section_id, s.position),
       );
     }
+    // Round-4 P3a item 4 (P3b-found coherence gap) — see
+    // pushSectionPageWrapStatements' doc comment: a `sections` save always
+    // wraps the fresh list into pages/slots too, so page rows never go
+    // orphaned/stale relative to the section list actually being saved.
+    // Must run AFTER the delete+reinsert above (its UPDATE targets the rows
+    // just inserted); same statements array => same atomic batch.
+    pushSectionPageWrapStatements(c.env.DB, statements, variant.id, sectionItems);
   }
   if (rulesProvided) {
     statements.push(c.env.DB.prepare("DELETE FROM leadgen_funnel_rules WHERE variant_id = ?").bind(variant.id));
@@ -1915,49 +1979,56 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
       );
     }
   }
-  await c.env.DB.batch(statements);
-
-  // Round-4 P3a (D-3): pages/slots/candidates CANNOT join the atomic
-  // `statements` batch above — D1's batch() has no way to feed an earlier
-  // statement's auto-generated id into a later statement's bind params
-  // within the SAME batch, and a page->slot->candidate insert chain is
-  // exactly that (a slot needs its page's id; a variant-section candidate
-  // row needs its slot's id). This runs sequentially right after the atomic
-  // batch (which already bumped content_version). OPEN CONCERN (reported,
-  // not hidden): a failure partway through this sequence is a genuine
-  // partial-write risk (the variant-level fields already committed) — no
-  // worse than the pre-P3a `sections`/`rules` legs' OWN atomicity boundary
-  // relative to the variant-row update (they share one batch with it, but a
-  // multi-table FK-dependent rebuild cannot).
+  // Round-4 P3a item 3 (was an OPEN CONCERN in the prior round): pages/
+  // slots/candidates now join the SAME atomic `statements` batch instead of
+  // running as a separate sequential-`.run()` pass after it. D1's batch()
+  // can't forward an earlier statement's auto-generated id into a later
+  // statement's bind params — so instead of reading back `.meta.last_row_id`,
+  // every page (and, transitively, its slots) is pre-minted a public_id
+  // app-side and linked via a `(SELECT id FROM ... WHERE public_id = ?)`
+  // subquery, exactly the idiom forkVariantHandler already uses below to
+  // link its cloned sections/rules to the not-yet-committed new variant row.
+  // The whole pages+slots+candidates write now commits or rolls back with
+  // the rest of the save — no partial-write window.
   if (pagesProvided) {
-    await c.env.DB.prepare("DELETE FROM leadgen_funnel_pages WHERE variant_id = ?").bind(variant.id).run();
+    statements.push(c.env.DB.prepare("DELETE FROM leadgen_funnel_pages WHERE variant_id = ?").bind(variant.id));
     let sectionRowPosition = 0;
     for (let pi = 0; pi < preparedPages.length; pi++) {
       const page = preparedPages[pi];
       if (page === undefined) continue;
-      const pageResult = await c.env.DB.prepare(
-        "INSERT INTO leadgen_funnel_pages (public_id, variant_id, position, name) VALUES (?, ?, ?, ?)",
-      ).bind(mintPublicId("funnel_page"), variant.id, pi, page.name).run();
-      const pageId = pageResult.meta.last_row_id;
+      const pagePublicId = mintPublicId("funnel_page");
+      statements.push(
+        c.env.DB.prepare(
+          "INSERT INTO leadgen_funnel_pages (public_id, variant_id, position, name) VALUES (?, ?, ?, ?)",
+        ).bind(pagePublicId, variant.id, pi, page.name),
+      );
       for (let si = 0; si < page.slots.length; si++) {
         const slot = page.slots[si];
         if (slot === undefined) continue;
-        const slotResult = await c.env.DB.prepare(
-          `INSERT INTO leadgen_funnel_page_slots
-             (page_id, position, slot_revision, rules_json, ab_allocations_json)
-           VALUES (?, ?, ?, ?, ?)`,
-        ).bind(pageId, si, slot.slotRevision, slot.rulesJson, slot.abAllocationsJson).run();
-        const slotId = slotResult.meta.last_row_id;
+        statements.push(
+          c.env.DB.prepare(
+            `INSERT INTO leadgen_funnel_page_slots
+               (page_id, position, slot_revision, rules_json, ab_allocations_json)
+             VALUES ((SELECT id FROM leadgen_funnel_pages WHERE public_id = ?), ?, ?, ?, ?)`,
+          ).bind(pagePublicId, si, slot.slotRevision, slot.rulesJson, slot.abAllocationsJson),
+        );
         for (const sectionId of slot.candidateSectionIds) {
-          await c.env.DB.prepare(
-            `INSERT INTO leadgen_funnel_variant_sections
-               (variant_id, section_id, position, page_id, slot_id)
-             VALUES (?, ?, ?, ?, ?)`,
-          ).bind(variant.id, sectionId, sectionRowPosition++, pageId, slotId).run();
+          statements.push(
+            c.env.DB.prepare(
+              `INSERT INTO leadgen_funnel_variant_sections
+                 (variant_id, section_id, position, page_id, slot_id)
+               VALUES (?, ?, ?,
+                 (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?),
+                 (SELECT s.id FROM leadgen_funnel_page_slots s
+                    JOIN leadgen_funnel_pages p ON p.id = s.page_id
+                   WHERE p.public_id = ? AND s.position = ?))`,
+            ).bind(variant.id, sectionId, sectionRowPosition++, pagePublicId, pagePublicId, si),
+          );
         }
       }
     }
   }
+  await c.env.DB.batch(statements);
 
   const updated = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_variants WHERE id = ? LIMIT 1")
     .bind(variant.id)

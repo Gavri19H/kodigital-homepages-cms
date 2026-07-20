@@ -832,6 +832,68 @@ describeDb("quotes-handlers pages PUT contract + end-to-end plan resolution", ()
     const detail3 = (await put3.json()) as { pages: Array<{ slots: Array<{ slot_revision: number }> }> };
     expect(detail3.pages[1]!.slots[0]!.slot_revision).toBe(1);
   });
+
+  // Round-4 P3a item 4 (P3b-found coherence gap): the legacy `sections`
+  // replace-set used to leave a page-bearing variant's page/slot rows
+  // ORPHANED (nothing re-linked once variant_sections rows were replaced).
+  it("posting `sections` to a page-bearing variant rebuilds pages as wraps -- no orphaned page/slot rows survive", async () => {
+    const { sdb, env } = newHarness();
+    const { variantId } = await seedQuote(env);
+    const abA = seedSection(sdb, "wrapAbA");
+    const abB = seedSection(sdb, "wrapAbB");
+    const flat1 = seedSection(sdb, "wrapFlat1");
+    const flat2 = seedSection(sdb, "wrapFlat2");
+
+    // Give the variant a REAL page-bearing structure first -- an A/B slot,
+    // something the flat `sections` contract could never itself produce.
+    const pagesPut = await admin.request(
+      `${API}/variants/${variantId}`,
+      jsonInit("PUT", {
+        pages: [{ name: "P1", slots: [{ kind: "ab", allocations: [{ section_id: abA.public_id, bp: 5000 }, { section_id: abB.public_id, bp: 5000 }] }] }],
+      }),
+      env,
+    );
+    expect(pagesPut.status, `put pages: ${await pagesPut.clone().text()}`).toBe(200);
+
+    const variantRow = sdb.prepare("SELECT id FROM leadgen_funnel_variants WHERE public_id = ?").get(variantId) as { id: number };
+    const beforePages = sdb.prepare("SELECT COUNT(*) as n FROM leadgen_funnel_pages WHERE variant_id = ?").get(variantRow.id) as { n: number };
+    expect(beforePages.n).toBe(1); // the one A/B page
+
+    // Now save via the LEGACY flat `sections` contract -- a caller that has
+    // never heard of `pages` editing a variant that already has real ones.
+    const sectionsPut = await admin.request(
+      `${API}/variants/${variantId}`,
+      jsonInit("PUT", { sections: [{ section_id: flat1.id }, { section_id: flat2.id }] }),
+      env,
+    );
+    expect(sectionsPut.status, `put sections: ${await sectionsPut.clone().text()}`).toBe(200);
+    const detail = (await sectionsPut.json()) as {
+      pages: Array<{ slots: Array<{ kind: string; candidates: Array<{ section_id: string }> }> }>;
+    };
+
+    // Rebuilt as ONE page + one fixed slot PER section -- the same shape a
+    // fresh migration backfill produces -- never the stale A/B structure.
+    expect(detail.pages).toHaveLength(2);
+    for (const page of detail.pages) {
+      expect(page.slots).toHaveLength(1);
+      expect(page.slots[0]!.kind).toBe("fixed");
+      expect(page.slots[0]!.candidates).toHaveLength(1);
+    }
+    const wrappedSectionIds = new Set(detail.pages.flatMap((p) => p.slots[0]!.candidates.map((c) => c.section_id)));
+    expect(wrappedSectionIds).toEqual(new Set([flat1.public_id, flat2.public_id]));
+
+    // NO ORPHANS at the DB level: exactly 2 page rows / 2 slot rows survive
+    // (one per section) -- 1 (stale AB) + 2 (new) = 3 would mean the DELETE
+    // never ran and the rebuild was merely additive.
+    const afterPages = sdb.prepare("SELECT COUNT(*) as n FROM leadgen_funnel_pages WHERE variant_id = ?").get(variantRow.id) as { n: number };
+    expect(afterPages.n).toBe(2);
+    const afterSlots = sdb
+      .prepare(
+        "SELECT COUNT(*) as n FROM leadgen_funnel_page_slots s JOIN leadgen_funnel_pages p ON p.id = s.page_id WHERE p.variant_id = ?",
+      )
+      .get(variantRow.id) as { n: number };
+    expect(afterSlots.n).toBe(2);
+  });
 });
 
 // ===========================================================================
