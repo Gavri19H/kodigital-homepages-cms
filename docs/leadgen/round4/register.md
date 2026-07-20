@@ -2,7 +2,7 @@
 
 Program truth: investigation report `LEADGEN-ROUND4-INVESTIGATION-2026-07-19.md` (workspace root, outside repo) +
 the approved plan (7 phases). Conductor-only writes. Status ∈ {OPEN, PASS (executed evidence cited), BLOCKED (operator-owned)}.
-Round-4 decision log (operator, 2026-07-19): D-1 cap 44,032 · D-2 routing rules reference-faithful (checkpoint, ≤1 hop,
+Round-4 decision log (operator, 2026-07-19): D-1 cap 44,032 [AMENDED 2026-07-20: cap 45,056 — operator-approved after measured costs ran ~5x projections; funds same-screen page display + P4 checkpoint leg] · D-2 routing rules reference-faithful (checkpoint, ≤1 hop,
 route_funnel_variant + value_multiplier + redirect) · D-3 FULL pages model · D-6 listicles scrolling-class only ·
 D-4/5/7 footer/AI-image/theme-v2 in full · flow-decided: phone presets, CTA slots, free-text floor, SVG sanitizer,
 lifecycle parity.
