@@ -1,0 +1,561 @@
+// Round-4 P5a — authorable frame elements v2 (investigation B-2 10C/10E/10F/
+// 10G/10H + 10H-adjacent + B-4.7). SERVER-SIDE legs over the pure frames.ts
+// schema + frame.ts renderer + styles.ts CSS. Proves, per shape:
+//   * schema validation (valid → zero problems; invalid → path-precise §3.6);
+//   * BACK-COMPAT byte-parity — an empty/absent new key is a no-op, and a
+//     legacy config emits NO P5a-only markup (old configs render identically);
+//   * the free-text sanitizer rejects script/onclick/javascript:;
+//   * every progress style renders VISUALLY DISTINCT (distinct markup/classes +
+//     distinct chrome-CSS rules — the browser computed-style leg is the
+//     Playwright spec __p5a-frame.spec.ts).
+// Live per-page/per-condition TOGGLING is a runtime engine leg (documented
+// seam) — this file proves the SERVER markup + the hooks it stamps.
+
+import { describe, expect, it } from "vitest";
+
+import { LG_BANNERS_MOUNT_HTML, renderQuoteFrame } from "../src/public/leadgen/designs/frame";
+import type { RenderQuoteFrameInput } from "../src/public/leadgen/designs/frame";
+import { effectiveFrame, validateFrameConfig } from "../src/public/leadgen/designs/frames";
+import type { FrameConfig, FrameTemplateId } from "../src/public/leadgen/designs/frames";
+import { resolveTokens } from "../src/public/leadgen/designs/theme";
+import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
+import { funnelChromeCss, DEFAULT_FUNNEL_SCOPE } from "../src/public/leadgen/designs/default-funnel/styles";
+import type { SiteBranding } from "../src/leadgen/branding";
+
+const TOKENS = resolveTokens(defaultFunnelDesign);
+
+const BRANDING: SiteBranding = {
+  site_name: "Acme Insure",
+  logo_url: "/media/site-logo.png",
+  tagline: null,
+  legal_links: [
+    { label: "Privacy policy", href: "/privacy-policy" },
+    { label: "Terms of use", href: "/terms" },
+  ],
+  trust_logos: null,
+};
+const BRANDING_NO_LOGO: SiteBranding = { ...BRANDING, logo_url: null };
+
+const ROOT = {
+  funnelId: "lgf_0000000000000000000FRAME01",
+  funnelVariantId: "lgn_0000000000000000000FRAME02",
+  quoteId: "lgq_0000000000000000000FRAME03",
+  contentVersion: 1,
+};
+
+function composed(
+  patch: FrameConfig,
+  sectionCount = 2,
+  opts: { template?: FrameTemplateId; branding?: SiteBranding | null; adminPreview?: boolean } = {},
+): string {
+  const { frame, problems } = effectiveFrame(opts.template ?? "centered", patch);
+  expect(problems).toEqual([]);
+  const input: RenderQuoteFrameInput = {
+    effectiveTokens: TOKENS,
+    frame,
+    siteBranding: opts.branding === undefined ? BRANDING : opts.branding,
+    sectionsHtml: "",
+    bannersMountHtml: LG_BANNERS_MOUNT_HTML,
+    sectionCount,
+    root: ROOT,
+    adminPreview: opts.adminPreview,
+  };
+  return renderQuoteFrame(input);
+}
+
+const FRAME_CSS = funnelChromeCss(defaultFunnelDesign, DEFAULT_FUNNEL_SCOPE, { frameRegions: true });
+
+// ---------------------------------------------------------------------------
+// BACK-COMPAT byte-parity — the empty/absent new key is a NO-OP, and a legacy
+// config emits NO P5a-only markup (per evolved shape).
+// ---------------------------------------------------------------------------
+
+const P5A_MARKERS = [
+  "lg-frame-freetext",
+  "lg-frame-brand-logos",
+  "lg-frame-cta",
+  "lg-frame-trustrow",
+  "lg-frame-disc2",
+  "lg-frame-footer2",
+  "lg-frame-logo-hint",
+  "lg-steps--numbered",
+  "lg-frame-progress--icon_on_track",
+];
+
+describe("P5a back-compat — old configs render byte-identical (no P5a markup leaks)", () => {
+  it("a legacy frame (no P5a keys) emits ZERO P5a-only markup", () => {
+    const html = composed({
+      header: { cta: { enabled: true, label: "Call", href: null, tel: "+15551234567" } },
+      disclosure: { enabled: true, location: "footer", text: "Legacy disclosure" },
+      progress: { style: "bar", show_label: true },
+      footer: { enabled: true, links_source: "manual", links: [{ label: "Privacy", href: "/p" }] },
+    });
+    for (const marker of P5A_MARKERS) expect(html, marker).not.toContain(marker);
+    // the legacy header CTA + footer disclosure DO still render.
+    expect(html).toContain("lg-frame-header-cta");
+    expect(html).toContain("lg-frame-footer-disclosure");
+  });
+
+  it("empty new keys are a NO-OP (byte-identical to omitting them), per shape", () => {
+    const base = composed({}, 3);
+    expect(composed({ free_text: [] }, 3)).toBe(base);
+    expect(composed({ cta_slots: [] }, 3)).toBe(base);
+    expect(composed({ trust_rows: [] }, 3)).toBe(base);
+    expect(composed({ brand_logos: { enabled: false, items: [], layout: "row" } }, 3)).toBe(base);
+    expect(composed({ disclosure: { entries: [] } }, 3)).toBe(base);
+    expect(composed({ footer: { blocks: [] } }, 3)).toBe(base);
+  });
+
+  it("a legacy footer (no blocks) renders the FooterBar, never footer2", () => {
+    const html = composed({ footer: { enabled: true, trust_text: "Trusted" } });
+    expect(html).toContain("lg-frame-footer");
+    expect(html).not.toContain("lg-frame-footer2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10E free text — schema + sanitized render + typography + page targeting.
+// ---------------------------------------------------------------------------
+
+describe("P5a 10E free text", () => {
+  const freeText = (over: Record<string, unknown> = {}) => ({
+    free_text: [
+      {
+        id: "ft1",
+        slot: "above_section",
+        blocks: [
+          { type: "paragraph", html: "<strong>Bold</strong> and <em>italic</em>" },
+          { type: "list", style: "check", items: ["First point", "Second point"] },
+        ],
+        ...over,
+      },
+    ],
+  });
+
+  it("valid free text validates with zero problems and renders sanitized inline markup", () => {
+    const { problems } = validateFrameConfig({ version: 1, template: "centered", ...freeText() });
+    expect(problems).toEqual([]);
+    const html = composed(freeText() as FrameConfig);
+    expect(html).toContain('data-frame-region="free_text"');
+    expect(html).toContain("<strong>Bold</strong>");
+    expect(html).toContain("<em>italic</em>");
+    expect(html).toContain("lg-frame-freetext-list--check");
+    expect(html).toContain("<li>First point</li>");
+  });
+
+  it("REJECTS an unknown slot / bad block type with a path-precise message", () => {
+    const bad = validateFrameConfig({
+      version: 1,
+      template: "centered",
+      free_text: [{ id: "x", slot: "nowhere", blocks: [{ type: "video" }] }],
+    });
+    expect(bad.config).toBeNull();
+    expect(bad.problems.some((p) => p.path === "frame.free_text[0].slot")).toBe(true);
+    expect(bad.problems.some((p) => p.path === "frame.free_text[0].blocks[0].type")).toBe(true);
+  });
+
+  it("SANITIZES script/onclick/javascript: out of author html (never raw)", () => {
+    const html = composed({
+      free_text: [
+        {
+          id: "ft-xss",
+          slot: "below_section",
+          blocks: [
+            { type: "paragraph", html: '<script>alert(1)</script><strong>ok</strong>' },
+            { type: "paragraph", html: '<a href="javascript:alert(2)">link</a>' },
+            { type: "paragraph", html: '<b onclick="steal()">click</b>' },
+            { type: "list", items: ['<a href="javascript:x">bad</a>', "clean"] },
+          ],
+        },
+      ],
+    } as FrameConfig);
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("javascript:");
+    expect(html).not.toContain("onclick");
+    // the safe formatting survives.
+    expect(html).toContain("<strong>ok</strong>");
+  });
+
+  it("typography overrides map to token classes; text is escaped", () => {
+    const html = composed({
+      free_text: [
+        {
+          id: "ft2",
+          slot: "above_header",
+          align: "left",
+          typography: { size: "l", color: "brand_primary", align: "right" },
+          blocks: [{ type: "paragraph", text: "<b>not markup</b> & escaped" }],
+        },
+      ],
+    } as FrameConfig);
+    // typography.align wins over element align.
+    expect(html).toContain("lg-frame-el--align-right");
+    expect(html).toContain("lg-frame-el--size-l");
+    expect(html).toContain("lg-frame-el--color-brand_primary");
+    expect(html).toContain("&lt;b&gt;not markup&lt;/b&gt; &amp; escaped");
+  });
+
+  it("page targeting: all=no gate, first=data-show-on, range/list bake page-1 + stamp data-frame-pages", () => {
+    // Scope every assertion to the free-text REGION's own opening tag (the
+    // footer legitimately carries its own data-show-on="all").
+    const ftTag = (html: string, id: string): string => {
+      const m = html.match(new RegExp(`<div[^>]*data-free-text-id="${id}"[^>]*>`));
+      expect(m, `free_text region ${id}`).not.toBeNull();
+      return (m as RegExpMatchArray)[0];
+    };
+
+    const all = ftTag(composed({ free_text: [{ id: "a", slot: "above_section", blocks: [{ type: "paragraph", text: "x" }], pages: { mode: "all" } }] } as FrameConfig), "a");
+    expect(all).not.toContain("data-show-on");
+    expect(all).not.toContain("data-frame-pages");
+    expect(all).not.toContain("hidden");
+
+    const first = ftTag(composed({ free_text: [{ id: "b", slot: "above_section", blocks: [{ type: "paragraph", text: "x" }], pages: { mode: "first" } }] } as FrameConfig), "b");
+    expect(first).toContain('data-show-on="first"');
+    expect(first).not.toContain("hidden");
+
+    const rangeExcl = ftTag(composed({ free_text: [{ id: "c", slot: "above_section", blocks: [{ type: "paragraph", text: "x" }], pages: { mode: "range", from: 2, to: 3 } }] } as FrameConfig), "c");
+    expect(rangeExcl).toContain('data-frame-pages="range:2-3"');
+    // excludes page 1 → baked hidden (safe default on the cached shell).
+    expect(rangeExcl).toContain("hidden");
+
+    const listFirstOnly = ftTag(composed({ free_text: [{ id: "d", slot: "above_section", blocks: [{ type: "paragraph", text: "x" }], pages: { mode: "list", pages: [1] } }] } as FrameConfig), "d");
+    expect(listFirstOnly).toContain('data-frame-pages="list:1"');
+    expect(listFirstOnly).toContain('data-show-on="first"');
+    expect(listFirstOnly).not.toContain("hidden"); // includes page 1 → visible
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10F brand logos.
+// ---------------------------------------------------------------------------
+
+describe("P5a 10F brand logos", () => {
+  it("valid strip validates + renders via the LogoStrip preset with layout/align classes", () => {
+    const cfg = {
+      brand_logos: {
+        enabled: true,
+        layout: "row",
+        align: "center",
+        items: [
+          { url: "/media/a.svg", alt: "Partner A" },
+          { media_id: "med_b", alt: "Partner B" },
+        ],
+      },
+    };
+    expect(validateFrameConfig({ version: 1, template: "centered", ...cfg }).problems).toEqual([]);
+    const html = composed(cfg as FrameConfig);
+    expect(html).toContain('data-frame-region="brand_logos"');
+    expect(html).toContain("lg-frame-brand-logos--row");
+    expect(html).toContain("lg-logo-strip");
+    expect(html).toContain('alt="Partner A"');
+  });
+
+  it("REJECTS a logo with neither media_id nor a safe url, and a bad layout", () => {
+    const bad = validateFrameConfig({
+      version: 1,
+      template: "centered",
+      brand_logos: { enabled: true, layout: "diagonal", items: [{ alt: "x" }] },
+    });
+    expect(bad.config).toBeNull();
+    expect(bad.problems.some((p) => p.path === "frame.brand_logos.layout")).toBe(true);
+    expect(bad.problems.some((p) => p.path === "frame.brand_logos.items[0]")).toBe(true);
+  });
+
+  it("row/grid layout classes drive the desktop-row / mobile-grid CSS presets", () => {
+    expect(FRAME_CSS).toContain(".lg-frame-brand-logos--grid .lg-logo-strip");
+    // mobile reflow: a row strip becomes a grid inside the media query.
+    expect(FRAME_CSS).toContain(".lg-frame-brand-logos--row .lg-logo-strip");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10C CTA / phone slots (four slots, alignment, tel:, conditional hidden hook).
+// ---------------------------------------------------------------------------
+
+describe("P5a 10C CTA/phone slots", () => {
+  it("renders a slot in EACH of the four placements with a tel: link", () => {
+    const slots = ["header_right", "under_header", "section_bottom", "footer"] as const;
+    const html = composed({
+      cta_slots: slots.map((slot) => ({ slot, label: "", tel: "+1 555 111 2222" })),
+    } as FrameConfig);
+    for (const slot of slots) expect(html, slot).toContain(`lg-frame-cta--${slot}`);
+    // phone-only slot defaults the label to "Call now"; tel gets a tel: href.
+    expect(html).toContain('href="tel:+1 555 111 2222"');
+    expect(html).toContain(">Call now</a>");
+  });
+
+  it("header_right rides its own right container + adds the header --has-right modifier", () => {
+    const html = composed({ cta_slots: [{ slot: "header_right", label: "Call us", tel: "+15550000000" }] } as FrameConfig);
+    expect(html).toContain("lg-frame-header-right");
+    expect(html).toContain("lg-frame-header--has-right");
+    // the header-right CTA respects logo_align (kills hard-center): CSS proof.
+    expect(FRAME_CSS).toContain(".lg-frame-header--left .lg-frame-header-extras");
+    expect(FRAME_CSS).toContain(".lg-frame-header--has-right .lg-header-inner");
+  });
+
+  it("a CONDITIONAL slot server-renders HIDDEN with the evaluator hook + the compiled group", () => {
+    const html = composed({
+      cta_slots: [
+        {
+          id: "cta_state",
+          slot: "under_header",
+          label: "CA line",
+          tel: "+15551110000",
+          condition: { match: "all", conditions: [{ when: "__state", op: "eq", value: "CA" }] },
+        },
+      ],
+    } as FrameConfig);
+    // hidden markup + the EXISTING evaluator hook (data-lg-node) + compiled group.
+    expect(html).toMatch(/data-frame-region="cta"[^>]*hidden/);
+    expect(html).toContain('data-lg-node="cta_state"');
+    expect(html).toContain("data-lg-cta-condition=");
+    expect(html).toContain("__state");
+  });
+
+  it("a NON-conditional slot is visible (no hidden, no hook)", () => {
+    const html = composed({ cta_slots: [{ slot: "footer", label: "Call", tel: "+15551110000" }] } as FrameConfig);
+    expect(html).not.toMatch(/data-frame-region="cta"[^>]*hidden/);
+    expect(html).not.toContain("data-lg-node=");
+  });
+
+  it("REJECTS a slot with neither tel nor href, and a bad slot name", () => {
+    const bad = validateFrameConfig({
+      version: 1,
+      template: "centered",
+      cta_slots: [{ slot: "sidebar", label: "x" }],
+    });
+    expect(bad.config).toBeNull();
+    expect(bad.problems.some((p) => p.path === "frame.cta_slots[0].slot")).toBe(true);
+    expect(bad.problems.some((p) => p.path === "frame.cta_slots[0]")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10H-adjacent disclosure v2 — per-location entries, full|hover, top+bottom.
+// ---------------------------------------------------------------------------
+
+describe("P5a disclosure v2", () => {
+  it("top + bottom entries render simultaneously; full=inline, hover=CSS tooltip", () => {
+    const html = composed({
+      disclosure: {
+        enabled: true,
+        entries: [
+          { location: "top", text: "Top full disclosure", mode: "full", align: "center" },
+          { location: "bottom", text: "Bottom hover disclosure", mode: "hover", link_label: "Details" },
+        ],
+      },
+    } as FrameConfig);
+    expect(html).toContain("lg-frame-disc2-region--top");
+    expect(html).toContain("lg-frame-disc2-region--bottom");
+    expect(html).toContain("lg-frame-disc2--full");
+    expect(html).toContain("lg-frame-disc2--hover");
+    // hover mode = focusable trigger + role=tooltip (a11y, CSS-only).
+    expect(html).toContain('role="tooltip"');
+    expect(html).toContain('tabindex="0"');
+    expect(html).toContain(">Details</span>");
+  });
+
+  it("REJECTS a bad location / mode", () => {
+    const bad = validateFrameConfig({
+      version: 1,
+      template: "centered",
+      disclosure: { enabled: true, entries: [{ location: "middle", text: "x", mode: "flash" }] },
+    });
+    expect(bad.config).toBeNull();
+    expect(bad.problems.some((p) => p.path === "frame.disclosure.entries[0].location")).toBe(true);
+    expect(bad.problems.some((p) => p.path === "frame.disclosure.entries[0].mode")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10H footer v2 — block model + own palette/typography scope.
+// ---------------------------------------------------------------------------
+
+describe("P5a footer v2", () => {
+  const footerBlocks: FrameConfig = {
+    footer: {
+      enabled: true,
+      palette_scope: { background: "brand_primary", text: "card_background", link: "accent" },
+      typography_scope: { size: "s" },
+      blocks: [
+        { type: "about_paragraph", text: "Operated by Acme Inc." },
+        { type: "link_row", links_source: "site" },
+        { type: "link_row", links_source: "manual", links: [{ label: "Careers", href: "/careers" }] },
+        { type: "logo" },
+        { type: "address", text: "1 Main St" },
+        { type: "socials", socials: [{ platform: "X", url: "https://x.com/acme" }] },
+        { type: "disclosure", text: "Compensation disclosure." },
+      ],
+    },
+  };
+
+  it("valid blocks validate + render each type; scope emits footer custom properties", () => {
+    expect(validateFrameConfig({ version: 1, template: "centered", ...footerBlocks }).problems).toEqual([]);
+    const html = composed(footerBlocks);
+    expect(html).toContain("lg-frame-footer2");
+    expect(html).toContain("lg-frame-footer2-about");
+    expect(html).toContain("lg-frame-footer2-links");
+    expect(html).toContain("lg-frame-footer2-logo");
+    expect(html).toContain("lg-frame-footer2-address");
+    expect(html).toContain("lg-frame-footer2-social");
+    expect(html).toContain("lg-frame-footer2-disclosure");
+    // site link_row sources SiteBranding.legal_links.
+    expect(html).toContain(">Privacy policy</a>");
+    expect(html).toContain(">Careers</a>");
+    // own palette/typography scope → inline custom properties on the footer.
+    expect(html).toContain("--lg-footer-bg:var(--lg-role-brand_primary)");
+    expect(html).toContain("--lg-footer-size:var(--lg-footer-size-s)");
+  });
+
+  it("REJECTS a bad block type and an unsafe manual link href", () => {
+    const bad = validateFrameConfig({
+      version: 1,
+      template: "centered",
+      footer: {
+        enabled: true,
+        blocks: [
+          { type: "carousel" },
+          { type: "link_row", links_source: "manual", links: [{ label: "Evil", href: "javascript:alert(1)" }] },
+        ],
+      },
+    });
+    expect(bad.config).toBeNull();
+    expect(bad.problems.some((p) => p.path === "frame.footer.blocks[0].type")).toBe(true);
+    expect(bad.problems.some((p) => p.path === "frame.footer.blocks[1].links[0].href")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10G trust / benefit rows — icon + text + CSS-only tooltip.
+// ---------------------------------------------------------------------------
+
+describe("P5a 10G trust rows", () => {
+  it("renders Tabler icon svg + text + a CSS-only hover tooltip", () => {
+    const html = composed({
+      trust_rows: [
+        {
+          items: [
+            { icon: "shield-check", text: "Secure", tooltip: "256-bit encryption" },
+            { icon: "star", text: "Rated 4.9" },
+          ],
+        },
+      ],
+    } as FrameConfig);
+    expect(html).toContain('data-frame-region="trust_row"');
+    expect(html).toContain("lg-frame-trustrow-icon");
+    expect(html).toContain("<svg"); // a real icon resolved from LEADGEN_ICONS
+    expect(html).toContain("lg-frame-trustrow-text");
+    // tooltip a11y: role=tooltip + title + focusable.
+    expect(html).toContain('role="tooltip"');
+    expect(html).toContain('title="256-bit encryption"');
+    expect(FRAME_CSS).toContain(".lg-frame-trustrow-item:hover .lg-frame-trustrow-tip");
+  });
+
+  it("REJECTS a row with no items / an item missing icon or text", () => {
+    const bad = validateFrameConfig({
+      version: 1,
+      template: "centered",
+      trust_rows: [{ items: [{ text: "no icon" }] }],
+    });
+    expect(bad.config).toBeNull();
+    expect(bad.problems.some((p) => p.path === "frame.trust_rows[0].items[0].icon")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10D / B-4.7 progress v2 — every style renders VISUALLY DISTINCT.
+// ---------------------------------------------------------------------------
+
+describe("P5a progress v2 — distinct styles (markup + chrome CSS)", () => {
+  const render = (style: string) => composed({ progress: { style: style as never, show_label: true } }, 4);
+
+  it("each style stamps a distinct region class", () => {
+    for (const style of ["bar", "dots", "numbered", "percent", "icon_on_track"]) {
+      expect(render(style)).toContain(`lg-frame-progress--${style}`);
+    }
+  });
+
+  it("numbered is NO LONGER a bar-alias — real numbered circles (with numbers), engine-advanced", () => {
+    const numbered = render("numbered");
+    const bar = render("bar");
+    expect(numbered).toContain("lg-steps--numbered");
+    expect(numbered).toMatch(/<span class="lg-step"[^>]*>1<\/span>/); // the number IS in the circle
+    expect(bar).not.toContain("lg-steps--numbered");
+    // the pinned engine contract (leadgen-frame-progress-back) still holds:
+    expect(numbered).toContain('data-mode="step"');
+    expect(numbered).toContain('aria-valuetext="Step 1 of 4"');
+    expect(numbered).toContain("data-lg-progress-label>Step 1 of 4</div>");
+    // distinct MARKUP shape: bar has a linear track, numbered has step circles.
+    expect(bar).toContain("lg-progress-track");
+    expect(numbered).not.toContain("lg-progress-track");
+  });
+
+  it("dots vs numbered: dots keep EMPTY circles, numbered carry numbers", () => {
+    const dots = render("dots");
+    expect(dots).toContain("lg-steps");
+    expect(dots).not.toContain("lg-steps--numbered");
+    // dots circles are empty (no digit content).
+    expect(dots).toMatch(/<span class="lg-step"[^>]*><\/span>/);
+  });
+
+  it("icon_on_track rides a bar track with a thumb pseudo-element (distinct CSS)", () => {
+    const icon = render("icon_on_track");
+    expect(icon).toContain("lg-progress-track");
+    expect(FRAME_CSS).toContain(".lg-frame-progress--icon_on_track .lg-progress-fill::after");
+  });
+
+  it("percent puts the label INSIDE the fill (absolute over the track — distinct CSS)", () => {
+    expect(FRAME_CSS).toContain(".lg-frame-progress--percent .lg-progress-text");
+    // distinct positioning rule vs the bar's separate label line.
+    expect(FRAME_CSS).toMatch(/\.lg-frame-progress--percent \.lg-progress-text\{[^}]*position:absolute/);
+  });
+
+  it("label honesty: dots stop force-hiding the label when show_label is on", () => {
+    const dotsNoLabel = composed({ progress: { style: "dots", show_label: false } }, 3);
+    const dotsLabel = composed({ progress: { style: "dots", show_label: true } }, 3);
+    expect(dotsNoLabel).toContain("data-lg-progress-label hidden></span>");
+    expect(dotsLabel).toContain("data-lg-progress-label></span>");
+    expect(dotsLabel).not.toContain("data-lg-progress-label hidden");
+  });
+
+  it("progress alignment is authorable + CSS-backed", () => {
+    expect(composed({ progress: { style: "bar", align: "left" } }, 3)).toContain("lg-frame-progress--align-left");
+    expect(FRAME_CSS).toContain(".lg-frame-progress--align-left");
+  });
+
+  it("icon_on_track + align validate with zero problems", () => {
+    expect(
+      validateFrameConfig({
+        version: 1,
+        template: "centered",
+        progress: { style: "icon_on_track", position: "above_unit", thickness: "m", width: "full", color_role: "accent", show_label: true, align: "center" },
+      }).problems,
+    ).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10B real site logo in preview — admin-preview-only "no logo set" hint.
+// ---------------------------------------------------------------------------
+
+describe("P5a 10B site-logo preview hint", () => {
+  it("adminPreview + a site WITH a logo → real logo, no hint", () => {
+    const html = composed({}, 2, { adminPreview: true, branding: BRANDING });
+    expect(html).toContain('src="/media/site-logo.png"'); // the REAL resolved logo
+    expect(html).not.toContain("lg-frame-logo-hint");
+  });
+
+  it("adminPreview + a site with NO logo → the 'no logo set' hint appears", () => {
+    const html = composed({}, 2, { adminPreview: true, branding: BRANDING_NO_LOGO });
+    expect(html).toContain("lg-frame-logo-hint");
+    expect(html).toContain("No logo set for this site");
+    expect(html).toContain('data-admin-preview-hint="1"');
+  });
+
+  it("LIVE serve (adminPreview absent) NEVER emits the hint — byte-identical shell", () => {
+    const live = composed({}, 2, { branding: BRANDING_NO_LOGO });
+    const liveExplicitFalse = composed({}, 2, { adminPreview: false, branding: BRANDING_NO_LOGO });
+    expect(live).not.toContain("lg-frame-logo-hint");
+    expect(live).toBe(liveExplicitFalse);
+  });
+});
