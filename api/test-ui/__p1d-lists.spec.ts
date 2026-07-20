@@ -11,7 +11,11 @@
 //   AC-2  sections + quotes rows expose the shared kebab with the specified
 //         items; Duplicate on a section creates a "(copy)" row after
 //         reload; a quote's Archive -> Reactivate round-trips its status
-//         badge (A-2/P-2, rows R4-02/R4-38).
+//         badge (A-2/P-2, rows R4-02/R4-38). Review-round addition: the same
+//         Archive -> Reactivate round-trip for auctions, PLUS Usage
+//         rendering the referencing leg and a guarded Delete's 409 — the
+//         auction kebab lifecycle previously had API-level coverage only,
+//         no UI click-through proof.
 //   AC-3  a guarded Delete (a quote carrying a live site activation) surfaces
 //         the server's plain-language 409 message verbatim, not a raw error.
 //   AC-4  renderHeaderCta with {enabled, tel, no label} defaults the label to
@@ -94,6 +98,15 @@ async function createQuoteWithVariant(request: APIRequestContext, name: string):
       },
     }),
     `p1d quote+variant create (${name})`,
+  );
+}
+
+async function createAuction(request: APIRequestContext, name: string, quoteId: number): Promise<Created & { status: string }> {
+  return json<Created & { status: string }>(
+    await request.post(`${LG_API}/auctions`, {
+      data: { auction_name: name, quote_id: quoteId, auction_type: "static" },
+    }),
+    `p1d auction create (${name})`,
   );
 }
 
@@ -291,6 +304,100 @@ test.describe("P1d AC-2 — sections kebab + Duplicate; quotes kebab + Archive/R
       "p1d quote read-back after reactivate",
     );
     expect(reactivatedReadBack.status, "server status round-trips back to active").toBe("active");
+  });
+
+  // Review-round finding: the auction kebab lifecycle (Archive/Reactivate/
+  // Usage/guarded Delete) had API-level coverage (test/leadgen-p1c-lifecycle
+  // .test.ts) but no UI click-through proof — a typo in AUCTION_LIST_SCRIPT's
+  // handlers would pass every gate. Mirrors the quotes case above, plus
+  // exercises the non-empty Usage leg and the Delete guard on the SAME
+  // referenced auction (seeding a referencing variant is cheap: one PUT).
+  test("auction list row: Edit + kebab(Usage/Archive/Delete, no Duplicate); Archive -> Reactivate round-trips status; Usage shows the referencing leg; guarded Delete surfaces the 409 verbatim", async ({
+    page,
+  }) => {
+    const quote = await createQuoteWithVariant(page.request, `P1d auction quote ${uniq}`);
+    const variantPublicId = quote.funnels[0]?.variants[0]?.public_id;
+    expect(variantPublicId, "quote create seeded a control variant").toBeTruthy();
+    const auction = await createAuction(page.request, `P1d auction ${uniq}`, quote.id);
+
+    // Reference the auction from the quote's own control variant
+    // (leadgen_funnel_variants.auction_id) — the SAME field
+    // auctionReferencingVariants (auctions-handlers.ts) checks for both the
+    // DELETE guard and the Usage "variants_referencing" kind.
+    const refRes = await page.request.put(`${LG_API}/variants/${variantPublicId}`, {
+      data: { auction_id: auction.id },
+    });
+    expect(refRes.ok(), `auction reference attach HTTP ${refRes.status()}`).toBeTruthy();
+
+    await page.goto(`/admin/leadgen/auction?search=${uniq}`, { waitUntil: "domcontentloaded" });
+    const row = page.locator(`tr[data-entity-id="${auction.public_id}"]`);
+    await expect(row.getByRole("link", { name: "Edit" })).toBeVisible();
+    await row.getByRole("button", { name: /More actions/i }).click();
+    // Opening the kebab REPARENTS its menu to <body> (a portal — see
+    // layout.ts kebabMenuScript's own doc comment) — locate items via
+    // page.locator(the exact public-id value) from here on. No Duplicate —
+    // auctions have no duplicate endpoint (router.ts).
+    const archiveBtn = page.locator(`[data-auction-archive="${auction.public_id}"]`);
+    await expect(page.locator(`[data-auction-usage="${auction.public_id}"]`)).toBeVisible();
+    await expect(archiveBtn).toBeVisible();
+    await expect(page.locator(`[data-auction-delete="${auction.public_id}"]`)).toBeVisible();
+    await expect(page.locator(`[data-auction-duplicate="${auction.public_id}"]`)).toHaveCount(0);
+
+    // Archive -> Reactivate round-trips status. Both are the unconditional
+    // PATCH {status} leg — they succeed regardless of the reference just
+    // established; only Delete guards.
+    page.once("dialog", (d) => void d.accept());
+    await archiveBtn.click();
+    const rowAfterArchive = page.locator(`tr[data-entity-id="${auction.public_id}"]`);
+    await expect(rowAfterArchive.getByRole("button", { name: /More actions/i })).toBeVisible({ timeout: 10_000 });
+    await rowAfterArchive.getByRole("button", { name: /More actions/i }).click();
+    const reactivateBtn = page.locator(`[data-auction-reactivate="${auction.public_id}"]`);
+    await expect(reactivateBtn, "Archive flips to a Reactivate item after reload").toBeVisible();
+    await expect(page.locator(`[data-auction-archive="${auction.public_id}"]`)).toHaveCount(0);
+    const archivedReadBack = await json<{ status: string }>(
+      await page.request.get(`${LG_API}/auctions/${auction.public_id}`),
+      "p1d auction read-back after archive",
+    );
+    expect(archivedReadBack.status, "server status is archived").toBe("archived");
+
+    page.once("dialog", (d) => void d.accept());
+    await reactivateBtn.click();
+    const rowAfterReactivate = page.locator(`tr[data-entity-id="${auction.public_id}"]`);
+    await expect(rowAfterReactivate.getByRole("button", { name: /More actions/i })).toBeVisible({ timeout: 10_000 });
+    await rowAfterReactivate.getByRole("button", { name: /More actions/i }).click();
+    await expect(
+      page.locator(`[data-auction-archive="${auction.public_id}"]`),
+      "Reactivate flips back to an Archive item after reload",
+    ).toBeVisible();
+    await expect(page.locator(`[data-auction-reactivate="${auction.public_id}"]`)).toHaveCount(0);
+    const reactivatedReadBack = await json<{ status: string }>(
+      await page.request.get(`${LG_API}/auctions/${auction.public_id}`),
+      "p1d auction read-back after reactivate",
+    );
+    expect(reactivatedReadBack.status, "server status round-trips back to active").toBe("active");
+
+    // Usage: the auction IS referenced (the variant's own auction_id, set
+    // above) — the panel must render the non-empty "referencing" leg, not
+    // the empty-state copy. The kebab is ALREADY open here (the archive-flip
+    // check above opened it and nothing since has closed it) — the toggle
+    // button toggles, so clicking it again would close it, not re-open it.
+    await page.locator(`[data-auction-usage="${auction.public_id}"]`).click();
+    const usagePanel = page.locator(`[data-auction-usage-row="${auction.public_id}"] [data-auction-usage-panel]`);
+    await expect(usagePanel).toContainText("Funnel variants referencing this auction: 1");
+    await expect(usagePanel).not.toContainText("Not referenced by any live funnel variant");
+
+    // Delete on a referenced auction is guarded — the server's
+    // plain-language 409 message surfaces verbatim, not a raw error.
+    let alertMessage = "";
+    page.on("dialog", (d) => {
+      if (d.type() === "alert") alertMessage = d.message();
+      void d.accept();
+    });
+    await rowAfterReactivate.getByRole("button", { name: /More actions/i }).click();
+    await page.locator(`[data-auction-delete="${auction.public_id}"]`).click();
+    await expect
+      .poll(() => alertMessage, { timeout: 10_000, message: "the 409 alert must have fired" })
+      .toBe("This auction is used by a live funnel variant — archive it instead");
   });
 });
 
