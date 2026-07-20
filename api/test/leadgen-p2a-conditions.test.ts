@@ -13,12 +13,16 @@ import {
   conditionMet,
   isConditionGroup,
   buildCtxFields,
+  evaluateComponents,
 } from "../src/public/leadgen/runtime/dependencies";
 import {
   LgStateStore,
   type LgStateAdapters,
   type LgStorageAdapter,
+  type LgComponentConfig,
 } from "../src/public/leadgen/runtime/state";
+import { evaluateDependencies } from "../src/leadgen/dependencies";
+import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 import {
   conditionalMet,
   isPayloadConditionGroup,
@@ -273,5 +277,129 @@ describe("P2a 10C GUARD: ctx keys never enter the auction/S2S projection or pers
 
     // Merging ctx never mutated the store (the structural guarantee).
     expect(Object.keys(store.answerValues()).some((k) => k.startsWith("__"))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix round — seam #2: server requiredNow group parity
+// (api/src/leadgen/dependencies.ts:99, pre-fix). The server's `requiredNow`
+// gated `props.requiredWhen` on a hand-rolled `"when" in rw && "op" in rw`
+// probe that only recognized the BARE conditional shape — a composed
+// requiredWhen silently fell through to `return false`, so a component
+// authored "required when GROUP is met" was NEVER required_now server-side
+// (continue_blocked / the studio dependency preview), while the client's
+// requiredNow (runtime/dependencies.ts, unaffected by this bug) correctly
+// evaluated the SAME group — a client/server divergence on the money path.
+// THE FIX: the guard now also accepts the composed shape via the SAME
+// structural detector payload.ts and the client evaluator use
+// (isPayloadConditionGroup) — no second, divergent detector — and routes it
+// through the identical `conditionalMet` dispatch.
+// ---------------------------------------------------------------------------
+
+describe("P2a fix — server requiredNow group parity (seam #2)", () => {
+  it("FAIL-BEFORE / PASS-AFTER: the pre-fix bare-only guard would reject a composed requiredWhen; the real server path now honors it", () => {
+    const composedRequiredWhen: LeadgenPayloadConditionGroup = {
+      match: "all",
+      conditions: [
+        { when: "home_own", op: "eq", value: "yes" },
+        { when: "home_value", op: "gte", value: 500000 },
+      ],
+    };
+
+    // BEFORE: the exact pre-fix guard predicate (api/src/leadgen/dependencies.ts
+    // :99, reproduced verbatim — it no longer exists in production, since this
+    // fix replaced it). It recognizes ONLY a bare {when,op} shape directly on
+    // requiredWhen, so it rejects any composed group outright.
+    const preFixGuardShape = (rw: unknown): boolean =>
+      rw !== null && rw !== undefined && typeof rw === "object" && "when" in rw && "op" in rw;
+    expect(preFixGuardShape(composedRequiredWhen), "pre-fix guard never even recognizes the group shape").toBe(
+      false,
+    );
+
+    const nodes = [
+      {
+        type: "FreeTextQuestion",
+        question_id: "q_notes",
+        internal_field: "notes",
+        props: { requiredWhen: composedRequiredWhen },
+      },
+    ];
+    const met = { home_own: "yes", home_value: 750000 };
+    const unmet = { home_own: "yes", home_value: 100000 };
+    const missing = {};
+
+    // AFTER: the REAL production path (evaluateDependencies -> requiredNow ->
+    // isConditionalSlotShape -> isConditionMet -> conditionalMet) now agrees
+    // with the group semantics on every leg.
+    expect(evaluateDependencies(nodes as unknown as LeadgenComponentNode[], met).components[0]?.required_now).toBe(
+      true,
+    );
+    expect(
+      evaluateDependencies(nodes as unknown as LeadgenComponentNode[], unmet).components[0]?.required_now,
+    ).toBe(false);
+    expect(
+      evaluateDependencies(nodes as unknown as LeadgenComponentNode[], missing).components[0]?.required_now,
+    ).toBe(false);
+  });
+
+  it("evaluateDependencies (server) required_now agrees with evaluateComponents (client) required_now for a composed requiredWhen, over all/any x met/unmet/missing-answer", () => {
+    const REQUIRED_WHEN_CONDITIONS: LeadgenPayloadConditional[] = [
+      { when: "a", op: "eq", value: 1 },
+      { when: "b", op: "gte", value: 10 },
+    ];
+    const MATCHES: Array<"all" | "any"> = ["all", "any"];
+    const ANSWER_LEGS: Array<{ label: string; answers: Record<string, unknown> }> = [
+      { label: "both met", answers: { a: 1, b: 10 } },
+      { label: "one met (a only)", answers: { a: 1, b: 0 } },
+      { label: "one met (b only)", answers: { a: 0, b: 25 } },
+      { label: "none met", answers: { a: 0, b: 0 } },
+      { label: "all answers missing", answers: {} },
+    ];
+
+    let cells = 0;
+    for (const match of MATCHES) {
+      const requiredWhen: LeadgenPayloadConditionGroup = { match, conditions: REQUIRED_WHEN_CONDITIONS };
+      const nodes = [
+        {
+          type: "FreeTextQuestion",
+          question_id: "q_rw",
+          internal_field: "rw_field",
+          props: { requiredWhen },
+        },
+      ];
+      for (const leg of ANSWER_LEGS) {
+        const server = evaluateDependencies(nodes as unknown as LeadgenComponentNode[], leg.answers);
+        const client = evaluateComponents(nodes as unknown as LgComponentConfig[], leg.answers);
+        const serverRN = server.components[0]?.required_now;
+        const clientRN = client.components[0]?.required_now;
+        const expected =
+          match === "any"
+            ? REQUIRED_WHEN_CONDITIONS.some((c) => conditionalMet(c, leg.answers))
+            : REQUIRED_WHEN_CONDITIONS.every((c) => conditionalMet(c, leg.answers));
+        if (serverRN !== clientRN || serverRN !== expected) {
+          throw new Error(
+            `required_now mismatch: match=${match} leg=${leg.label} ` +
+              `server=${String(serverRN)} client=${String(clientRN)} expected=${String(expected)}`,
+          );
+        }
+        cells += 1;
+      }
+    }
+    expect(cells).toBe(MATCHES.length * ANSWER_LEGS.length);
+  });
+
+  it("an unconditionally required: true node stays required_now regardless of requiredWhen shape (guard order unaffected)", () => {
+    const nodes = [
+      {
+        type: "FreeTextQuestion",
+        question_id: "q_hard",
+        internal_field: "hard_field",
+        required: true,
+        props: { requiredWhen: { match: "all", conditions: [{ when: "never", op: "eq", value: 1 }] } },
+      },
+    ];
+    expect(evaluateDependencies(nodes as unknown as LeadgenComponentNode[], {}).components[0]?.required_now).toBe(
+      true,
+    );
   });
 });
