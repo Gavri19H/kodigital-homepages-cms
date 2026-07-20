@@ -82,4 +82,4 @@ lifecycle parity.
 - Conductor gates (own hand): tsc 0 · vitest 398/5,791 pass==total · 46+ phase/guard specs green · operator acceptance 24/24 both engines · verify:all green · deploy.yml 0042 anchor verified · drift 0.
 - Adversarial review: FIX-FIRST (MAJOR-1 auction-side plan re-resolution FALSE-REJECTED legit conversions at hour boundaries — repro'd, removed as redundant-with-HMAC, no-false-reject regression pinned fail-before/pass-after; MAJOR-2 missing auction-side page-model matrix — added; fork flattening + ruled-UI leg minors) → delta re-verify **SHIP**, no new conflict.
 - Verified-clean by review: wrap migration, byte-identical serve gate, slot-rule field-scope un-bypassable, signed binding evolution (v1-downgrade blocked), .bind() discipline, admin auth on new CRUD.
-- PR: {{P3_PR}} · merge: {{P3_SHA}}
+- PR: https://github.com/Gavri19H/kodigital-homepages-cms/pull/126 · merge: b1b01a6
