@@ -118,6 +118,12 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // firefox and returns after the both-engine assertions, so the suite is green
   // on firefox (both-engine portions + documented skips) and full on chromium.
   'leadgen-operator-acceptance.gesture.spec.ts',
+  // P1a (Round-4 remediation, register review-round leg 3): the Section Studio
+  // MQG/rules/address/name/save probe — SAME cross-engine shape as the entries
+  // above: every action is a plain click/fill/selectOption (no gesture/drag
+  // machinery, no e2e.test dynamic tenant host), so it is expected to pass
+  // unmodified on chromium AND firefox.
+  '__p1a-studio.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',
