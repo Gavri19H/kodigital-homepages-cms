@@ -90,4 +90,4 @@ lifecycle parity.
 - Conductor gates (own hand): tsc both configs 0 · vitest 399/5,864 pass==total (zero failures) · 34/34 phase+guard specs (P3a sticky spec root-caused: session-restore feature vs wrong test assumption — no product race) · acceptance 24/24 both engines · bundle 46,079/46,080 byte-identical freshness · deploy.yml 0043+0044 anchored · drift 0.
 - Adversarial review: FIX-FIRST (MAJOR: value_multiplier dead in production behind a hand-injected green test — the exact producer→consumer false-green class; + completion-ownership, fallback-widening, answer-injection, migration-coverage minors; cap provenance clarified) → all fixed with fail-before/pass-after each → delta re-verify **SHIP**, no new conflict.
 - Pre-deploy note: 0044 was authored+extended pre-merge on this branch only (never applied to any shared D1) — single-apply integrity holds.
-- PR: {{P4_PR}} · merge: {{P4_SHA}}
+- PR: https://github.com/Gavri19H/kodigital-homepages-cms/pull/127 · merge: 5dd0f11
