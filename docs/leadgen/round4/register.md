@@ -74,4 +74,4 @@ lifecycle parity.
 - Byte ledger: 42,874 → +178 groups → +663 ctx → +269 phone → +21 ReDoS cap = 44,005 (27 spare). P2 consumed ~2× projections → **P3a MUST open with a measured ≥450B dead-code trim commit or STOP for a D-1 re-decision** (reviewer-acknowledged process gate).
 - Adversarial review: FIX-FIRST (2 MAJOR: client-side ReDoS on custom phone regex; ledger exhaustion) + 4 minor → ReDoS closed save+runtime (fail-before proven), __ prefix reserved (3 surfaces), formatPhone×preset incoherence warning (existing Problems mechanism), ledger owned as the P3a trim gate → delta re-verify **SHIP**, no new conflict.
 - Notes for P5a dispatch: ctx conditions must be scoped display-only OR the section-gating consequence explicitly accepted (reviewer minor-5). Non-NANP answers store the typed validated string (downstream normalization rides per-offer transforms; ties to the operator's open E.164 residue).
-- PR: {{P2_PR}} · merge: {{P2_SHA}}
+- PR: https://github.com/Gavri19H/kodigital-homepages-cms/pull/125 · merge: 11d78c5
