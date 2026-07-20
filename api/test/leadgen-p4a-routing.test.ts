@@ -32,6 +32,7 @@ import app from "../src/index";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
+import { redirectPctBucket, shouldRedirectForSession } from "../src/leadgen/funnel";
 import {
   ROUTING_ENTRY_KNOWN_FIELDS,
   parseRoutingRule,
@@ -178,6 +179,7 @@ const LEADGEN_MIGRATIONS = [
   "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
   "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
 ] as const;
 
 const TENANT_HOST = "p4a.example.com";
@@ -309,6 +311,7 @@ function seedRoutingRule(
     multiplier?: number | null;
     status?: string;
     name?: string;
+    matchMode?: string | null;
   },
 ): string {
   const publicId = mintPublicId("funnel_rule");
@@ -317,8 +320,8 @@ function seedRoutingRule(
     .prepare(
       `INSERT INTO leadgen_funnel_rules
          (public_id, variant_id, rule_type, conditions_json, conditions_hash, priority, status,
-          target_funnel_variant_id, value_multiplier, rule_name, enabled)
-       VALUES (?, ?, 'route_funnel_variant', ?, ?, ?, ?, ?, ?, ?, 1)`,
+          target_funnel_variant_id, value_multiplier, rule_name, match_mode, enabled)
+       VALUES (?, ?, 'route_funnel_variant', ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     )
     .run(
       publicId,
@@ -330,6 +333,7 @@ function seedRoutingRule(
       opts.targetVariantId,
       opts.multiplier ?? null,
       opts.name ?? null,
+      opts.matchMode ?? null,
     );
   return publicId;
 }
@@ -457,6 +461,38 @@ describe("P4a evaluateEntryRouting (pure)", () => {
     });
     expect(evaluateEntryRouting([onCampaign], { ...BASE_CTX, utm_content: "spring" })?.target_funnel_variant_id).toBe(10);
   });
+
+  // match_mode ANY/ALL (fix round: P4b persists match_mode but nothing read
+  // it — an operator's ANY choice silently behaved as ALL on the money path).
+  // TWO distinct-field groups (state, device); a context satisfying only ONE.
+  it("match_mode='all' (default/unset): a context satisfying only ONE of TWO field groups does NOT match (AND across fields, unchanged)", () => {
+    const twoFieldRule = parseRoutingRule({
+      public_id: "r1", variant_id: 1,
+      conditions_json: JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }, { field: "device", op: "eq", value: "mobile" }] }),
+      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
+      // match_mode omitted entirely — the RoutingRuleRow shape a bare INSERT
+      // without the column produces (or a corrupt/legacy value) must behave
+      // EXACTLY like "all", never silently becoming ANY.
+    });
+    expect(evaluateEntryRouting([twoFieldRule], { ...BASE_CTX, state: "CA", device: "desktop" })).toBeNull();
+    expect(evaluateEntryRouting([twoFieldRule], { ...BASE_CTX, state: "NY", device: "mobile" })).toBeNull();
+    expect(evaluateEntryRouting([twoFieldRule], { ...BASE_CTX, state: "CA", device: "mobile" })?.target_funnel_variant_id).toBe(10);
+  });
+
+  it("match_mode='any': a context satisfying EITHER ONE of TWO field groups matches (OR across fields) — routes ONLY because of the fix", () => {
+    const anyRule = parseRoutingRule({
+      public_id: "r1", variant_id: 1,
+      conditions_json: JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }, { field: "device", op: "eq", value: "mobile" }] }),
+      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active", match_mode: "any",
+    });
+    // state matches, device does not — under match_mode='all' this would be
+    // null (proved above); under 'any' it routes.
+    expect(evaluateEntryRouting([anyRule], { ...BASE_CTX, state: "CA", device: "desktop" })?.target_funnel_variant_id).toBe(10);
+    // device matches, state does not — the OTHER field alone is sufficient.
+    expect(evaluateEntryRouting([anyRule], { ...BASE_CTX, state: "NY", device: "mobile" })?.target_funnel_variant_id).toBe(10);
+    // NEITHER matches — ANY still requires at least one.
+    expect(evaluateEntryRouting([anyRule], { ...BASE_CTX, state: "NY", device: "desktop" })).toBeNull();
+  });
 });
 
 describe("P4a evaluateCheckpointRouting (pure)", () => {
@@ -485,6 +521,33 @@ describe("P4a evaluateCheckpointRouting (pure)", () => {
       conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: 3, priority: 1, status: "active",
     });
     expect(evaluateCheckpointRouting([rule], BASE_CTX, { age: 70 })?.value_multiplier).toBe(3);
+  });
+
+  // match_mode ANY/ALL at the CHECKPOINT plane (an entry field UNION an
+  // answer field — proves the fix applies across BOTH planes, not just entry).
+  it("match_mode='all' (default/unset) at checkpoint: satisfying only ONE of {state, age} does NOT match", () => {
+    const rule = parseRoutingRule({
+      public_id: "r1", variant_id: 1,
+      conditions_json: JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }, { field: "age", op: "gte", value: 65 }] }),
+      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
+    });
+    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "CA" }, { age: 10 })).toBeNull();
+    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "NY" }, { age: 70 })).toBeNull();
+    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "CA" }, { age: 70 })?.target_funnel_variant_id).toBe(10);
+  });
+
+  it("match_mode='any' at checkpoint: satisfying EITHER ONE of {state, age} matches — routes ONLY because of the fix", () => {
+    const rule = parseRoutingRule({
+      public_id: "r1", variant_id: 1,
+      conditions_json: JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }, { field: "age", op: "gte", value: 65 }] }),
+      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active", match_mode: "any",
+    });
+    // state matches, age does not (proved null under 'all' above).
+    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "CA" }, { age: 10 })?.target_funnel_variant_id).toBe(10);
+    // age matches, state does not.
+    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "NY" }, { age: 70 })?.target_funnel_variant_id).toBe(10);
+    // neither matches.
+    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "NY" }, { age: 10 })).toBeNull();
   });
 });
 
@@ -631,6 +694,75 @@ describe("P4a computeResumeSection (pure, prefix-rule resume)", () => {
   });
 });
 
+// §15.5 redirect_pct — session-sticky percentage gate (fix round: 0044 makes
+// the column real; funnel.ts's shouldRedirectForSession/redirectPctBucket are
+// the reusable, pure bucketing primitives — see the phase report for the
+// runtime-wiring seam this does NOT cover, api/src/public/leadgen/auction/
+// engine.ts, which is outside this slice's ownership).
+describe("P4a redirect_pct (pure, funnel.ts shouldRedirectForSession/redirectPctBucket)", () => {
+  it("pct=0 NEVER redirects — across many distinct sessions", () => {
+    for (let i = 0; i < 50; i++) {
+      expect(shouldRedirectForSession(0, "rule-a", `sess-${i}`)).toBe(false);
+    }
+  });
+
+  it("unset column (null/undefined) NEVER redirects — §15.5 `redirect_pct ?? 0`", () => {
+    expect(shouldRedirectForSession(null, "rule-a", "sess-1")).toBe(false);
+    expect(shouldRedirectForSession(undefined, "rule-a", "sess-1")).toBe(false);
+  });
+
+  it("a negative pct (defensive — validation should reject it upstream, but the gate itself must still fail-safe) NEVER redirects", () => {
+    expect(shouldRedirectForSession(-5, "rule-a", "sess-1")).toBe(false);
+  });
+
+  it("pct=100 ALWAYS redirects — across many distinct sessions", () => {
+    for (let i = 0; i < 50; i++) {
+      expect(shouldRedirectForSession(100, "rule-a", `sess-${i}`)).toBe(true);
+    }
+  });
+
+  it("pct=50 is SESSION-STICKY: the SAME session + rule always gets the SAME verdict across repeated calls", () => {
+    const first = shouldRedirectForSession(50, "rule-a", "sess-sticky-1");
+    for (let i = 0; i < 10; i++) {
+      expect(shouldRedirectForSession(50, "rule-a", "sess-sticky-1")).toBe(first);
+    }
+  });
+
+  it("pct=50 approximates a roughly-even split across MANY distinct sessions (statistical, not exact)", () => {
+    let redirected = 0;
+    const total = 2000;
+    for (let i = 0; i < total; i++) {
+      if (shouldRedirectForSession(50, "rule-a", `sess-bulk-${i}`)) redirected++;
+    }
+    // Generous tolerance band (a uniform-hash split, not a coin-flip RNG) —
+    // this asserts "roughly half", not a precise ratio.
+    expect(redirected).toBeGreaterThan(total * 0.35);
+    expect(redirected).toBeLessThan(total * 0.65);
+  });
+
+  it("DIFFERENT rule keys draw INDEPENDENT buckets for the SAME session (no forced correlation between two redirect rules, or with an A/B test)", () => {
+    let sameVerdictCount = 0;
+    const total = 200;
+    for (let i = 0; i < total; i++) {
+      const sessionId = `sess-indep-${i}`;
+      const a = shouldRedirectForSession(50, "rule-a", sessionId);
+      const b = shouldRedirectForSession(50, "rule-b", sessionId);
+      if (a === b) sameVerdictCount++;
+    }
+    // Independent 50/50 buckets agree ~half the time; a broken implementation
+    // that ignores ruleKey would agree 100% of the time (identical digest).
+    expect(sameVerdictCount).toBeLessThan(total); // not IDENTICAL for every session
+  });
+
+  it("redirectPctBucket is a pure function of exactly (ruleKey, sessionId): identical inputs -> identical bucket, in 0..9999", () => {
+    const b1 = redirectPctBucket("rule-x", "sess-1");
+    const b2 = redirectPctBucket("rule-x", "sess-1");
+    expect(b1).toBe(b2);
+    expect(b1).toBeGreaterThanOrEqual(0);
+    expect(b1).toBeLessThan(10000);
+  });
+});
+
 // ===========================================================================
 // DB integration — entry routing precedence over §16 A/B
 // ===========================================================================
@@ -709,6 +841,32 @@ describeDb("P4a entry routing — DB integration (precedence over A/B)", () => {
 
     const resolved = await resolveActivatedFunnel(env, { site_id: "site-1", session_id: "s1" }); // no entry_ctx
     expect(resolved!.variant.public_id).toBe(variantId);
+  });
+
+  // match_mode ROUND-TRIPS through the REAL SQL SELECT (loadRoutingRules),
+  // not just the pure parseRoutingRule unit tests above. A 2-field ANY rule
+  // where the request satisfies only ONE field must still route end-to-end.
+  it("match_mode='any' persisted + read via the REAL DB query routes on a partial (one-of-two) field match", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId, funnelId } = await seedQuote(env);
+    const controlRowId = variantRowId(sdb, variantId);
+    const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(funnelId) as { id: number }).id;
+    const target = seedSiblingVariant(sdb, funnelRowId, "B", false);
+    seedRoutingRule(sdb, controlRowId, {
+      conditions: { groups: [{ field: "utm_source", op: "eq", value: "facebook" }, { field: "state", op: "eq", value: "CA" }] },
+      targetVariantId: variantRowId(sdb, target),
+      priority: 1,
+      matchMode: "any",
+    });
+    await activate(env, quotePublicId);
+
+    // utm_source matches, state does not — 'all' would reject this; 'any' routes.
+    const resolved = await resolveActivatedFunnel(env, {
+      site_id: "site-1",
+      session_id: "s1",
+      entry_ctx: { ...BASE_CTX, utm_source: "facebook", state: "NY" },
+    });
+    expect(resolved!.variant.public_id).toBe(target);
   });
 });
 

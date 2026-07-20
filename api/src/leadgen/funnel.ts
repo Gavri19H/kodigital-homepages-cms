@@ -19,6 +19,7 @@ import type {
   LeadgenConditionOp,
 } from "../admin/leadgen/db-types";
 import { isPublicId } from "./ids";
+import { sha256Hex } from "../public/leadgen/auction/parse";
 
 // ---------------------------------------------------------------------------
 // §15.1 Quote / Funnel / Variant identity — nominal branded ids (G4)
@@ -216,8 +217,9 @@ const CONDITION_OPS: ReadonlySet<string> = new Set<LeadgenConditionOp>([
 
 // Structural view of a funnel rule under validation (leadgen_funnel_rules).
 // `redirect_url_allowlisted` accepts the DB INTEGER (0/1) or a bool; `redirect_
-// pct` is an authored rule field (not a DDL column) whose §15.5 semantics use
-// `?? 0` — an explicit 0 means "no redirect", absent means "no redirect" too.
+// pct` is `leadgen_funnel_rules.redirect_pct` (0044, REAL NULL) whose §15.5
+// semantics use `?? 0` — an explicit 0 means "no redirect", absent (NULL)
+// means "no redirect" too.
 export interface FunnelRuleInput {
   rule_type: string;
   target_offer_id?: number | null;
@@ -253,6 +255,53 @@ export interface FunnelRuleValidation {
 // MUST use `??` not `||` so a legitimate 0 is not conflated with absent.
 export function resolveRedirectPct(rule: Pick<FunnelRuleInput, "redirect_pct">): number {
   return rule.redirect_pct ?? 0;
+}
+
+// ---------------------------------------------------------------------------
+// §15.5 redirect_pct — session-sticky percentage gate
+// ---------------------------------------------------------------------------
+//
+// Same bucketing idiom as ab-hash.ts's abBucket (07 §16.2): SHA-256 over a
+// colon-joined key, the first 4 digest bytes read big-endian as a uint32,
+// `% 10000` -> a bucket in 0..9999. `sha256Hex` renders the digest as 8
+// uint32 words each hex-padded to 8 chars, so the first 8 hex chars ARE the
+// first digest word (see ab-hash.ts's own comment for the full derivation).
+//
+// Salted with a REDIRECT-SPECIFIC prefix + the rule's own identity (its
+// conditions_hash or public_id — caller's choice via `ruleKey`) rather than
+// reusing abBucket() directly: abBucket's signature (abTestPublicId,
+// revision, sessionId) returns a VARIANT PICK over an allocation table, a
+// different shape than the plain 0..100 threshold check a redirect rule
+// needs. Keying on the rule's own identity (not e.g. the funnel/variant id)
+// keeps a redirect rule's bucket space independent of any OTHER redirect
+// rule's or A/B test's bucket space for the SAME session — no forced
+// correlation between unrelated percentage gates.
+export function redirectPctBucket(ruleKey: string, sessionId: string): number {
+  const digest = sha256Hex(`redirect_pct:${ruleKey}:${sessionId}`);
+  return parseInt(digest.slice(0, 8), 16) % 10000;
+}
+
+// §15.5 `redirect_pct ?? 0` gate for ONE matched redirect_direct_offer rule:
+// does THIS session fall inside the redirect bucket? pct is authored 0..100.
+//   • pct <= 0 (explicit 0, negative, absent/null/undefined) -> NEVER redirect
+//     (resolveRedirectPct's `?? 0`, short-circuits before hashing).
+//   • pct >= 100 -> ALWAYS redirect (short-circuits before hashing).
+//   • otherwise -> a session-sticky, deterministic split: the SAME session
+//     always gets the SAME verdict for the SAME rule (pure function of
+//     exactly ruleKey + sessionId, no I/O, no clock, no randomness), and
+//     across many sessions the split approximates pct% redirected.
+// NOT YET WIRED into the runtime auction pipeline (api/src/public/leadgen/
+// auction/engine.ts's redirect_direct_offer handling) — that file is outside
+// this slice's ownership; see the phase report for the precise seam.
+export function shouldRedirectForSession(
+  pct: number | null | undefined,
+  ruleKey: string,
+  sessionId: string,
+): boolean {
+  const p = resolveRedirectPct({ redirect_pct: pct });
+  if (p <= 0) return false;
+  if (p >= 100) return true;
+  return redirectPctBucket(ruleKey, sessionId) < p * 100;
 }
 
 function isTruthyFlag(v: number | boolean | null | undefined): boolean {

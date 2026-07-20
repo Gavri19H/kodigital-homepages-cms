@@ -1,0 +1,20 @@
+-- 0044_leadgen_redirect_pct.sql
+-- LeadGen Round-4 P4a fix round (§15.5 `redirect_pct` made real).
+--
+-- The operator's reference (Image42) shows a "Redirect %: 100" field on a
+-- redirect_direct_offer funnel rule; contract §15.5 mandates `redirect_pct ??
+-- 0` semantics (an explicit 0 or an absent value both mean "no redirect").
+-- Grepping the codebase before this migration proved the field existed ONLY
+-- as an authored, non-persisted TypeScript shape (funnel.ts's
+-- `FunnelRuleInput.redirect_pct` + the pure `resolveRedirectPct` helper, zero
+-- real callers) -- no DDL column existed anywhere. This migration adds it.
+--
+-- A plain `ALTER TABLE ... ADD COLUMN` (no CHECK constraint is touched, so
+-- .claude/rules/d1-database-safety.md's full-table-recreation ritual does NOT
+-- apply here -- that ritual is reserved for CHECK constraint changes, e.g.
+-- 0043's rule_type CHECK extension). `REAL` (not INTEGER) so a future
+-- fractional percent (e.g. 33.3) is representable without a further
+-- migration; `NULL` default so every pre-existing row reads as "unset" ->
+-- `redirect_pct ?? 0` -> no redirect, preserving 100% of current behavior for
+-- every existing redirect_direct_offer rule the moment this column appears.
+ALTER TABLE leadgen_funnel_rules ADD COLUMN redirect_pct REAL NULL;

@@ -50,12 +50,20 @@ function toConditional(group: LeadgenRuleConditionGroup): LeadgenPayloadConditio
 }
 
 // 07 §21.4 (NORMATIVE): entries sharing a `field` are OR'd; distinct fields are
-// AND'd. Empty/absent groups = an UNCONDITIONAL rule (always matches). Each
-// entry is evaluated by the shared `conditionalMet` (an ABSENT context value
-// never satisfies a conditional — deterministic).
+// AND'd (matchMode="all", the DEFAULT — byte/behavior-identical to every
+// EXISTING caller, which never passes a 3rd argument). Empty/absent groups =
+// an UNCONDITIONAL rule (always matches, regardless of matchMode). Each entry
+// is evaluated by the shared `conditionalMet` (an ABSENT context value never
+// satisfies a conditional — deterministic).
+//
+// matchMode="any" (P4a routing-rule ANY/ALL, additive): the within-field OR
+// is unchanged, but the ACROSS-FIELDS combinator flips from AND to OR — the
+// rule matches when AT LEAST ONE field's group is satisfied. This is the ONLY
+// caller-visible behavior change, and only when a caller explicitly opts in.
 export function conditionsMatch(
   conditions: LeadgenRuleConditions | null | undefined,
   context: Readonly<Record<string, unknown>>,
+  matchMode: "any" | "all" = "all",
 ): boolean {
   const groups = conditions?.groups;
   if (!Array.isArray(groups) || groups.length === 0) return true;
@@ -65,6 +73,13 @@ export function conditionsMatch(
     const list = byField.get(group.field) ?? [];
     list.push(group);
     byField.set(group.field, list);
+  }
+  if (matchMode === "any") {
+    for (const entries of byField.values()) {
+      const fieldMet = entries.some((entry) => conditionalMet(toConditional(entry), context));
+      if (fieldMet) return true; // OR across fields — first satisfied field wins
+    }
+    return false;
   }
   for (const entries of byField.values()) {
     const fieldMet = entries.some((entry) => conditionalMet(toConditional(entry), context));

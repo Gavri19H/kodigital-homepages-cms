@@ -833,6 +833,11 @@ export interface RoutingRuleRow {
   value_multiplier: number | null;
   priority: number;
   status: string;
+  // Optional (not just nullable): loadRoutingRules' SELECT always returns it,
+  // but OTHER in-repo callers construct a RoutingRuleRow-shaped literal by
+  // hand (e.g. admin save-time validation, pre-INSERT) without a column value
+  // yet to hand — parseRoutingRule treats absent exactly like null ("all").
+  match_mode?: string | null;
 }
 
 export interface ParsedRoutingRule {
@@ -844,6 +849,14 @@ export interface ParsedRoutingRule {
   // true iff EVERY condition field is entry-known (=> ENTRY plane); false iff
   // any condition field is an answer field (=> CHECKPOINT plane).
   entry_only: boolean;
+  // P4b persists 'any'|NULL on the row; NULL/absent/anything else normalizes
+  // to "all" here (§21.4's existing AND-across-fields default) so a rule
+  // saved before this column meant anything, or with a corrupt value,
+  // evaluates exactly as it always has. Optional so a caller building this
+  // shape by hand for a match_mode-irrelevant purpose (e.g. admin save-time
+  // checkpoint-page derivation, which only reads `conditions`) need not name
+  // it; parseRoutingRule (the only DB-row constructor) always sets it.
+  match_mode?: "any" | "all";
 }
 
 // D1 JSON-parse safety: a corrupt/absent blob degrades to "no conditions"
@@ -879,6 +892,7 @@ export function parseRoutingRule(row: RoutingRuleRow): ParsedRoutingRule {
     target_funnel_variant_id: row.target_funnel_variant_id,
     value_multiplier: row.value_multiplier,
     entry_only: isEntryOnly(conditions),
+    match_mode: row.match_mode === "any" ? "any" : "all",
   };
 }
 
@@ -896,7 +910,7 @@ export async function loadRoutingRules(db: D1Database, variantId: number): Promi
     const res = await db
       .prepare(
         `SELECT public_id, variant_id, conditions_json, conditions_hash,
-                target_funnel_variant_id, value_multiplier, priority, status
+                target_funnel_variant_id, value_multiplier, priority, status, match_mode
          FROM leadgen_funnel_rules
          WHERE variant_id = ? AND rule_type = 'route_funnel_variant' AND status = 'active'
          ORDER BY priority ASC, id ASC`,
@@ -952,7 +966,7 @@ export function evaluateEntryRouting(
   const flat = entryFlatCtx(ctx);
   for (const r of byPriorityAsc(rules)) {
     if (!r.entry_only || r.target_funnel_variant_id === null) continue;
-    if (conditionsMatch(r.conditions, flat)) {
+    if (conditionsMatch(r.conditions, flat, r.match_mode)) {
       return {
         target_funnel_variant_id: r.target_funnel_variant_id,
         hash: r.hash,
@@ -974,7 +988,7 @@ export function evaluateCheckpointRouting(
   const flat = { ...entryFlatCtx(ctx), ...answers };
   for (const r of byPriorityAsc(rules)) {
     if (r.entry_only || r.target_funnel_variant_id === null) continue;
-    if (conditionsMatch(r.conditions, flat)) {
+    if (conditionsMatch(r.conditions, flat, r.match_mode)) {
       return {
         target_funnel_variant_id: r.target_funnel_variant_id,
         hash: r.hash,
