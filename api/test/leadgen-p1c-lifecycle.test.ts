@@ -15,14 +15,20 @@
 //      PLUS (fix-round ruling) its own answer_maps/available_offers rows
 //      re-keyed to the new section id; the source rows stay untouched.
 //   4b. DELETE /sections/:id — guarded hard delete (fix-round-2 ruling, a
-//      P1d-discovered gap; fix-round-3 expanded the guard): unreferenced ->
-//      true hard delete (row + owned answer_maps/available_offers rows
-//      GONE); referenced by a funnel variant OR a rule's target_section_id
-//      -> 409 plain-language with usage.{variants,rules}; PATCH-to-archived
-//      stays reachable regardless of usage (the guard is DELETE-only,
-//      status-independent).
+//      P1d-discovered gap; fix-round-3 expanded the guard; adversarial-
+//      review finding 5 made the guard+delete ONE atomic conditional SQL
+//      statement, race-free): unreferenced -> true hard delete (row + owned
+//      answer_maps/available_offers rows GONE, proven to survive intact
+//      when the delete is instead BLOCKED — not just the section row);
+//      referenced by a funnel variant OR a rule's target_section_id -> 409
+//      plain-language with usage.{variants,rules}; PATCH-to-archived stays
+//      reachable regardless of usage (the guard is DELETE-only, status-
+//      independent).
 //   5. duplicateQuoteHandler — deep copy funnels/variants/sections/rules;
-//      site activations/analytics/ab-tests NOT copied.
+//      site activations/analytics/ab-tests/non-control ("ab_variants")
+//      variants NOT copied — a duplicate copies ONLY each funnel's control
+//      variant, forced to is_control=1/traffic_allocation_bp=10000
+//      regardless of the source's own split (adversarial-review finding 4).
 //   6. Quote archive->reactivate (PATCH status flip, already unrestricted)
 //      + guarded DELETE (409 plain-language with live history; 200 archived
 //      without).
@@ -314,6 +320,7 @@ interface VariantJson {
   public_id: string;
   funnel_variant_id: string;
   is_control: boolean;
+  traffic_allocation_bp: number;
   auction_id: number | null;
   [key: string]: unknown;
 }
@@ -718,6 +725,64 @@ describeDb("DELETE /sections/:id — guarded hard delete (P1d gap fix)", () => {
     const res = await admin.request(`${API}/sections/lgs_00000000000000000000000000`, { method: "DELETE" }, env);
     expect(res.status).toBe(404);
   });
+
+  it("adversarial-review finding 5: the atomic conditional DELETE touches NOTHING when referenced (not just the section row — its own answer_maps/available_offers survive too), then hard-deletes cleanly once detached", async () => {
+    const { env } = newHarness();
+    const offer = await createMappableOffer(env);
+    const quote = await createQuote(env);
+    const section = await createSection(env, {
+      section_name: "Referenced + mapped",
+      headline_text: "Are you insured?",
+      content_json: JSON.stringify(YESNO_CONTENT),
+      answer_maps: [mapEdge(offer.id)],
+    });
+    expect(section.answer_maps).toHaveLength(1);
+    expect(section.available_offers).toHaveLength(1);
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    await admin.request(`${API}/variants/${variantId}`, jsonInit("PUT", { sections: [{ section_id: section.id }] }), env);
+
+    // blocked: the conditional DELETE's WHERE clause fails (meta.changes===0)
+    // -> the SAME 409 message+usage shape the plain reference test already
+    // asserts, PLUS proof that the children-cleanup batch never ran (a bug
+    // that ran it unconditionally, instead of gated on the parent delete's
+    // own success, would silently wipe these two rows even though the
+    // section row itself survived).
+    const del = await admin.request(`${API}/sections/${section.public_id}`, { method: "DELETE" }, env);
+    expect(del.status).toBe(409);
+    const body = (await del.json()) as {
+      error: string;
+      usage: { variants: Array<{ quote_name: string }>; rules: unknown[] };
+    };
+    expect(body.error).toBe("This section is used by quotes — archive it instead");
+    expect(body.usage.variants).toHaveLength(1);
+    expect(body.usage.rules).toHaveLength(0);
+
+    const reread = await admin.request(`${API}/sections/${section.public_id}`, {}, env);
+    expect(reread.status).toBe(200);
+    const rereadBody = (await reread.json()) as SectionJson;
+    expect(rereadBody.answer_maps).toHaveLength(1);
+    expect(rereadBody.available_offers).toHaveLength(1);
+
+    // detach: a variant PUT can't drop to sections:[] (validateFunnelBuilder
+    // requires >=1 section to publish) — swap the variant's ordered list to
+    // a DIFFERENT filler section instead, which just as validly removes the
+    // reference to the section under test.
+    const filler = await createSection(env, { section_name: "Filler" });
+    const swap = await admin.request(
+      `${API}/variants/${variantId}`,
+      jsonInit("PUT", { sections: [{ section_id: filler.id }] }),
+      env,
+    );
+    expect(swap.status, await swap.clone().text()).toBe(200);
+
+    // the SAME atomic conditional DELETE now succeeds (meta.changes===1):
+    // the row AND its children are all gone.
+    const del2 = await admin.request(`${API}/sections/${section.public_id}`, { method: "DELETE" }, env);
+    expect(del2.status, await del2.clone().text()).toBe(200);
+    expect(await del2.json()).toEqual({ ok: true, id: section.id, public_id: section.public_id, deleted: "hard" });
+    const reread2 = await admin.request(`${API}/sections/${section.public_id}`, {}, env);
+    expect(reread2.status).toBe(404);
+  });
 });
 
 // ===========================================================================
@@ -799,6 +864,56 @@ describeDb("POST /quotes/:id/duplicate (A-2, row R4-02) — deep copy funnels/va
     const { env } = newHarness();
     const res = await admin.request(`${API}/quotes/lgq_00000000000000000000000000/duplicate`, jsonInit("POST", {}), env);
     expect(res.status).toBe(404);
+  });
+
+  it("adversarial-review finding 4: a funnel with a 2-arm A/B copies ONLY the control variant, forced to is_control=1/bp=10000; the source stays untouched", async () => {
+    const { env } = newHarness();
+    const quote = await createQuote(env);
+    const funnelId = quote.funnels[0]!.public_id;
+    const control = quote.funnels[0]!.variants[0]!;
+    expect(control.is_control).toBe(true);
+
+    // build a REAL 2-arm 50/50 split: rebalance the control to 5000, then add
+    // a non-control "B" arm at the remaining 5000 (funnelHasRunningTest is
+    // false here — no leadgen_funnel_ab_tests row exists — so the PUT is
+    // unrestricted, matching the plain "two variants under one funnel"
+    // shape createVariantUnderFunnel produces before an A/B test object ever
+    // gets created over them).
+    const rebalance = await admin.request(
+      `${API}/variants/${control.public_id}`,
+      jsonInit("PUT", { traffic_allocation_bp: 5000 }),
+      env,
+    );
+    expect(rebalance.status, await rebalance.clone().text()).toBe(200);
+    const bRes = await admin.request(`${API}/funnels/${funnelId}/variants`, jsonInit("POST", { variant_label: "B" }), env);
+    expect(bRes.status, await bRes.clone().text()).toBe(201);
+    const variantB = (await bRes.json()) as VariantJson;
+    expect(variantB.is_control).toBe(false);
+    await admin.request(`${API}/variants/${variantB.public_id}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env);
+
+    const res = await admin.request(`${API}/quotes/${quote.public_id}/duplicate`, jsonInit("POST", {}), env);
+    expect(res.status, await res.clone().text()).toBe(201);
+    const dup = (await res.json()) as QuoteJson & {
+      copied: { funnels: number; variants: number };
+      not_copied: string[];
+    };
+    expect(dup.copied.funnels).toBe(1);
+    expect(dup.copied.variants).toBe(1); // ONLY the control — never the "B" arm
+    expect(dup.not_copied).toContain("ab_variants");
+
+    const dupFunnel = dup.funnels[0]!;
+    expect(dupFunnel.variants).toHaveLength(1);
+    const dupVariant = dupFunnel.variants[0]!;
+    expect(dupVariant.is_control).toBe(true);
+    // forced to the full-traffic control shape, NOT the source's 5000 split.
+    expect(dupVariant.traffic_allocation_bp).toBe(10000);
+
+    // the SOURCE funnel is untouched: still 2 variants, still the 5000/5000 split.
+    const sourceFunnels = await admin.request(`${API}/quotes/${quote.public_id}/funnels`, {}, env);
+    const sourceFunnelsBody = (await sourceFunnels.json()) as { items: FunnelJson[] };
+    expect(sourceFunnelsBody.items[0]!.variants).toHaveLength(2);
+    const sourceControl = sourceFunnelsBody.items[0]!.variants.find((v) => v.is_control === true)!;
+    expect(sourceControl.traffic_allocation_bp).toBe(5000);
   });
 });
 

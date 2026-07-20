@@ -864,14 +864,22 @@ export async function quoteUsageHandler(c: AdminContext): Promise<Response> {
 
 // ---------------------------------------------------------------------------
 // POST /quotes/:id/duplicate (Round-4 A-2, row R4-02) — deep-copy the quote +
-// every funnel + every variant's ordered sections/rules (the SAME clone shape
-// forkVariantHandler already uses for one variant, looped over the whole
-// quote tree, plus the funnel's own frame_config_json/theme_json — a
+// every funnel's CONTROL variant's ordered sections/rules (the SAME clone
+// shape forkVariantHandler already uses for one variant, looped over the
+// whole quote tree, plus the funnel's own frame_config_json/theme_json — a
 // "coherent, publishable draft quote" needs its visual template, not just
 // section order). NEVER copied: site activations, analytics/attempt history,
-// A/B tests (the clone starts as a fresh, un-bucketed draft — the SAME
-// "never copied" discipline offers' duplicateOfferHandler documents for
-// analytics/cap-counters/test-results).
+// A/B tests, and (adversarial-review finding 4) any NON-control variant —
+// a duplicate is the funnel's CONTROL experience only. Copying every arm of
+// a running A/B test verbatim (ab_test_id forced NULL, but is_control/
+// traffic_allocation_bp left as-is) produced an INCOHERENT detached state: a
+// "B" variant at bp=5000 with no owning ab_test row and is_control=0 — two
+// variants that look like a live split but aren't wired to anything. The
+// clone's one variant is always is_control=1 at traffic_allocation_bp=10000
+// (the full-traffic control), regardless of what the source control
+// variant's own bp was (source A/B tests are re-created intentionally on
+// the copy, never copied — the SAME "never copied" discipline offers'
+// duplicateOfferHandler documents for analytics/cap-counters/test-results).
 // ---------------------------------------------------------------------------
 
 interface QuoteDuplicateCounts {
@@ -912,8 +920,14 @@ export async function duplicateQuoteHandler(c: AdminContext): Promise<Response> 
     );
     counts.funnels += 1;
 
+    // Adversarial-review finding 4: copy ONLY the funnel's CONTROL variant
+    // (is_control=1) — never the other arms of a running/stopped A/B test.
+    // readFunnelVariants orders is_control DESC first, but a funnel could in
+    // principle carry more than one is_control=1 row (nothing in the schema
+    // enforces exactly one) — filter explicitly rather than index [0].
     const variants = await readFunnelVariants(c.env.DB, funnel.id);
-    for (const variant of variants) {
+    const controlVariants = variants.filter((v) => v.is_control !== 0);
+    for (const variant of controlVariants) {
       const newVariantPublicId = mintPublicId("funnel_variant");
       statements.push(
         c.env.DB.prepare(
@@ -922,11 +936,11 @@ export async function duplicateQuoteHandler(c: AdminContext): Promise<Response> 
               auction_id, lander_enabled, lander_headline, lander_subheadline, lander_body_json,
               lander_hero_media_id, lander_hero_media_url, lander_cta_json, content_version, status,
               frame_overrides_json)
-           VALUES (?, (SELECT id FROM leadgen_funnels WHERE public_id = ?), NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+           VALUES (?, (SELECT id FROM leadgen_funnels WHERE public_id = ?), NULL, ?, 1, 10000, ?, ?, ?, ?, ?, ?,
                    ?, ?, ?, 1, 'active', ?)`,
         ).bind(
-          newVariantPublicId, newFunnelPublicId, variant.variant_label, variant.is_control,
-          variant.traffic_allocation_bp, variant.funnel_design_id, variant.auction_id, variant.lander_enabled,
+          newVariantPublicId, newFunnelPublicId, variant.variant_label,
+          variant.funnel_design_id, variant.auction_id, variant.lander_enabled,
           variant.lander_headline, variant.lander_subheadline, variant.lander_body_json,
           variant.lander_hero_media_id, variant.lander_hero_media_url, variant.lander_cta_json,
           variant.frame_overrides_json,
@@ -975,7 +989,7 @@ export async function duplicateQuoteHandler(c: AdminContext): Promise<Response> 
       ...(await quoteDetailJson(c.env.DB, dup)),
       duplicated_from: { id: src.id, public_id: src.public_id, name: src.quote_name },
       copied: counts,
-      not_copied: ["site_activations", "analytics", "ab_tests"],
+      not_copied: ["site_activations", "analytics", "ab_tests", "ab_variants"],
     },
     201,
   );

@@ -1132,8 +1132,7 @@ async function storedAnswerMapsAsInput(db: D1Database, sectionId: number): Promi
 // migrations/*.sql that REFERENCES leadgen_sections(id), so the guard covers
 // every non-cascading reference): leadgen_section_available_offers.
 // section_id and leadgen_section_answer_maps.section_id are ON DELETE
-// CASCADE (own children — deleted explicitly below anyway, D1 does not rely
-// on cascade enforcement); leadgen_funnel_variant_sections.section_id and
+// CASCADE (own children); leadgen_funnel_variant_sections.section_id and
 // leadgen_funnel_rules.target_section_id are BOTH plain (non-cascading)
 // REFERENCES — those are the two the guard checks. A section referenced by
 // EITHER (a funnel variant orders it, OR a show_section/skip_section-style
@@ -1141,19 +1140,51 @@ async function storedAnswerMapsAsInput(db: D1Database, sectionId: number): Promi
 // (409), fail closed to Archive (PATCH {status:'archived'} stays reachable
 // regardless of usage — the guard applies to DELETE only, and status has NO
 // bearing on it: an ALREADY-archived-but-still-referenced section is
-// refused exactly like an active one). An UNREFERENCED section gets a TRUE
-// hard delete: the section row + its OWN leadgen_section_answer_maps /
-// leadgen_section_available_offers rows (its only owned children), all in
-// one atomic batch.
+// refused exactly like an active one).
+//
+// Adversarial-review finding 5 (race-free): the guard check and the delete
+// are now ONE atomic SQL statement — the two NOT EXISTS subqueries and the
+// DELETE run together, so there is no separate read-then-act window a
+// concurrent variant-attach or rule-retarget could land in between. `meta.
+// changes` (the SAME idiom leadgen/retention.ts's pruneTable already uses)
+// tells us definitively whether the row was actually removed:
+//   changes === 0 → the row exists (resolved above) but the conditional
+//     failed — a reference appeared. Build the informative 409 ONLY here
+//     (read-only-on-failure, never pre-read on the happy path); the guard
+//     message + usage payload shape is unchanged for the caller.
+//   changes === 1 → the parent is confirmed gone, atomically. Its own
+//     children are declared ON DELETE CASCADE, but NOT relied upon: D1/
+//     SQLite only cascades when `PRAGMA foreign_keys=ON`, and this
+//     codebase's own documented understanding (offers-handlers.ts's
+//     hard-delete comment "D1 FKs are not enforced"; migrations 0007/0008's
+//     "D1 migrations run with PRAGMA foreign_keys=OFF by default") is that
+//     production D1 does NOT cascade. VERIFIED directly against this repo's
+//     own node:sqlite harness: it defaults foreign_keys=ON and DOES cascade
+//     — the OPPOSITE of documented production behavior — so relying on
+//     cascade here would pass in tests while silently orphaning rows in
+//     production. Deleted explicitly instead, now that the parent's absence
+//     is confirmed (a plain follow-up statement, not part of the atomic
+//     conditional delete — safe because nothing else references these two
+//     child tables by FK).
 // ---------------------------------------------------------------------------
 
 export async function deleteSectionHandler(c: AdminContext): Promise<Response> {
   const row = await resolveSectionRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
 
-  const referencingVariants = await readSectionUsageRows(c.env.DB, row.id);
-  const referencingRules = await readSectionRuleReferences(c.env.DB, row.id);
-  if (referencingVariants.length > 0 || referencingRules.length > 0) {
+  const attempt = await c.env.DB
+    .prepare(
+      `DELETE FROM leadgen_sections
+       WHERE id = ?1
+         AND NOT EXISTS (SELECT 1 FROM leadgen_funnel_variant_sections WHERE section_id = ?1)
+         AND NOT EXISTS (SELECT 1 FROM leadgen_funnel_rules WHERE target_section_id = ?1)`,
+    )
+    .bind(row.id)
+    .run();
+
+  if (Number(attempt.meta?.changes ?? 0) === 0) {
+    const referencingVariants = await readSectionUsageRows(c.env.DB, row.id);
+    const referencingRules = await readSectionRuleReferences(c.env.DB, row.id);
     return c.json(
       {
         error: "This section is used by quotes — archive it instead",
@@ -1166,7 +1197,6 @@ export async function deleteSectionHandler(c: AdminContext): Promise<Response> {
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM leadgen_section_answer_maps WHERE section_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM leadgen_section_available_offers WHERE section_id = ?").bind(row.id),
-    c.env.DB.prepare("DELETE FROM leadgen_sections WHERE id = ?").bind(row.id),
   ]);
   return c.json({ ok: true, id: row.id, public_id: row.public_id, deleted: "hard" });
 }
