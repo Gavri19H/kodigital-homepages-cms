@@ -73,7 +73,7 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
 }
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
-const LEADGEN_MIGRATIONS = ["0036_leadgen_core.sql", "0037_leadgen_analytics_mirror.sql", "0038_leadgen_revenue_infra.sql", "0039_leadgen_conversion_dedupe.sql"] as const;
+const LEADGEN_MIGRATIONS = ["0036_leadgen_core.sql", "0037_leadgen_analytics_mirror.sql", "0038_leadgen_revenue_infra.sql", "0039_leadgen_conversion_dedupe.sql", "0042_leadgen_pages.sql"] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
   const sdb = new DatabaseSync(":memory:");

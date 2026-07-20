@@ -128,6 +128,7 @@ const LEADGEN_MIGRATIONS = [
   // read/write the 0040/0041 funnel frame/theme columns.
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql",
+  "0042_leadgen_pages.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
