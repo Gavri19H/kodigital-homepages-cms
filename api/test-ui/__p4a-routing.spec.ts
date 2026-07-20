@@ -89,6 +89,14 @@ interface EntrySeed {
 }
 
 const CONT = { type: "ContinueButton", question_id: "cont", props: { label: "Continue" } };
+// QuestionHeadline is UNBOUND (props.text) here — a bare `headline_text`
+// column on the section does NOT itself render as visible text; it only
+// surfaces via a bound {bind:"section_headline"} component (presets.ts
+// renderQuestionHeadline). An explicit unbound headline is the simplest way
+// to get distinctive, assertable visible text per section.
+function headline(text: string): { type: string; question_id: string; props: { text: string } } {
+  return { type: "QuestionHeadline", question_id: `h_${text.replace(/\W+/g, "_")}`, props: { text } };
+}
 
 test.describe("P4a — ENTRY routing rule (D-2): UTM-conditioned route to variant B, live", () => {
   let seeded: EntrySeed;
@@ -111,7 +119,7 @@ test.describe("P4a — ENTRY routing rule (D-2): UTM-conditioned route to varian
         data: {
           activity: "quote_funnel", vertical: "life", status: "active",
           section_name: "DefaultFlow", headline_text: "Default Flow Headline",
-          content_json: JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q_a", question_key: "a", internal_field: "f_a", answer_type: "boolean" }, CONT] }),
+          content_json: JSON.stringify({ components: [headline("Default Flow Headline"), { type: "TwoButtonYesNo", question_id: "q_a", question_key: "a", internal_field: "f_a", answer_type: "boolean" }, CONT] }),
         },
       }),
       "section A create",
@@ -121,7 +129,7 @@ test.describe("P4a — ENTRY routing rule (D-2): UTM-conditioned route to varian
         data: {
           activity: "quote_funnel", vertical: "life", status: "active",
           section_name: "FacebookFlow", headline_text: "Facebook Flow Headline",
-          content_json: JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q_b", question_key: "b", internal_field: "f_b", answer_type: "boolean" }, CONT] }),
+          content_json: JSON.stringify({ components: [headline("Facebook Flow Headline"), { type: "TwoButtonYesNo", question_id: "q_b", question_key: "b", internal_field: "f_b", answer_type: "boolean" }, CONT] }),
         },
       }),
       "section B create",
@@ -195,14 +203,23 @@ test.describe("P4a — CHECKPOINT routing rule (D-2): age-answer switch mid-funn
       await ctx.post(`${LG_API}/quotes`, { data: { quote_name: `P4a Ckpt Core ${uniq}`, activity: "quote_funnel", verticals: ["life"] } }),
       "quote create",
     );
+    const funnelId = quote.funnels[0]!.public_id;
     const variantA = quote.funnels[0]!.variants[0]!.public_id;
+
+    // Minimal frame so a [data-lg-progress] mount renders (baseFrameDefaults'
+    // progress.style:"bar" default) — the frameless legacy shell has none
+    // (the __p3a-pages.spec.ts precedent).
+    await json(
+      await ctx.put(`${LG_API}/funnels/${funnelId}/frame`, { data: { frame_config_json: { version: 1, template: "centered" } } }),
+      "funnel frame",
+    );
 
     const secAge = await json<{ public_id: string }>(
       await ctx.post(`${LG_API}/sections`, {
         data: {
           activity: "quote_funnel", vertical: "life", status: "active",
           section_name: "AgeQuestion", headline_text: "How old are you?",
-          content_json: JSON.stringify({ components: [{ type: "NumberInputQuestion", question_id: "q_age", question_key: "age", internal_field: "age", required: true }, CONT] }),
+          content_json: JSON.stringify({ components: [headline("How old are you"), { type: "NumberInputQuestion", question_id: "q_age", question_key: "age", internal_field: "age", required: true }, CONT] }),
         },
       }),
       "section age create",
@@ -212,7 +229,7 @@ test.describe("P4a — CHECKPOINT routing rule (D-2): age-answer switch mid-funn
         data: {
           activity: "quote_funnel", vertical: "life", status: "active",
           section_name: "MiddleSection", headline_text: "Middle Section Marker",
-          content_json: JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q_mid", question_key: "mid", internal_field: "mid_field", answer_type: "boolean", required: true }, CONT] }),
+          content_json: JSON.stringify({ components: [headline("Middle Section Marker"), { type: "TwoButtonYesNo", question_id: "q_mid", question_key: "mid", internal_field: "mid_field", answer_type: "boolean", required: true }, CONT] }),
         },
       }),
       "section mid create",
@@ -222,7 +239,11 @@ test.describe("P4a — CHECKPOINT routing rule (D-2): age-answer switch mid-funn
         data: {
           activity: "quote_funnel", vertical: "life", status: "active",
           section_name: "FinalSection", headline_text: "Final Section Marker",
-          content_json: JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q_fin", question_key: "fin", internal_field: "fin_field", answer_type: "boolean" }, CONT] }),
+          // required:true so the prefix-rule resume LANDS here (not "all-
+          // satisfied -> straight to auction") -- a visible proof that the
+          // switch renders the target's OWN remaining page, not just that it
+          // eventually completes.
+          content_json: JSON.stringify({ components: [headline("Final Section Marker"), { type: "TwoButtonYesNo", question_id: "q_fin", question_key: "fin", internal_field: "fin_field", answer_type: "boolean", required: true }, CONT] }),
         },
       }),
       "section fin create",
@@ -278,11 +299,22 @@ test.describe("P4a — CHECKPOINT routing rule (D-2): age-answer switch mid-funn
     seeded = { host };
   });
 
+  // The server renders EVERY candidate section up front (hidden), per the
+  // "visitor-invariant cacheable shell" design — a bare body-text check would
+  // find ALL sections' headlines regardless of visibility. Scope to the
+  // VISIBLE section(s) only (P3a's own proven pattern), matching what a real
+  // visitor actually sees.
+  function visibleText(page: Page): Promise<string> {
+    return page.locator("[data-lg-section]:not([hidden])").evaluateAll((els) => els.map((el) => el.textContent ?? "").join(" "));
+  }
+
   test("age >= 65 switches mid-funnel: `mid` never renders, `fin` renders, progress re-baselines to 2 of 2", async ({ page }) => {
     await page.goto(`http://${seeded.host}:${PW_PORT}/lg`, { waitUntil: "load" });
     await ready(page);
 
-    // Page 1 (age): fill 70, capture the /lg/checkpoint response live.
+    // Page 1 (age): fill 70, capture the /lg/checkpoint response live (ANY
+    // continue-click on this page posts to /lg/checkpoint since it's the
+    // derived checkpoint anchor — match or not — so both journeys wait on it).
     await page.locator("[data-lg-section]:not([hidden]) [data-lg-input]").first().fill("70");
     const [ckptResponse] = await Promise.all([
       page.waitForResponse((r) => r.url().includes("/lg/checkpoint")),
@@ -294,8 +326,9 @@ test.describe("P4a — CHECKPOINT routing rule (D-2): age-answer switch mid-funn
     await page.waitForTimeout(300); // let the engine apply the switch + enterPage
 
     // `mid`'s marker text NEVER appears (skipped by the switch); `fin`'s does.
-    await expect(page.locator("body")).not.toContainText("Middle Section Marker");
-    await expect(page.locator("body")).toContainText("Final Section Marker");
+    const shown = await visibleText(page);
+    expect(shown).not.toContain("Middle Section Marker");
+    expect(shown).toContain("Final Section Marker");
 
     // Progress re-baselined to the TARGET's OWN plan (2 pages), not the
     // entry variant's original 3.
@@ -311,9 +344,15 @@ test.describe("P4a — CHECKPOINT routing rule (D-2): age-answer switch mid-funn
     await page.goto(`http://${seeded.host}:${PW_PORT}/lg`, { waitUntil: "load" });
     await ready(page);
     await page.locator("[data-lg-section]:not([hidden]) [data-lg-input]").first().fill("20");
-    await page.locator("[data-lg-continue]:visible").click();
+    const [ckptResponse] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/lg/checkpoint")),
+      page.locator("[data-lg-continue]:visible").click(),
+    ]);
+    const ckptBody = (await ckptResponse.json()) as { sw: boolean };
+    expect(ckptBody.sw, "age=20 does not satisfy age>=65 -> no switch").toBe(false);
     await page.waitForTimeout(300);
-    await expect(page.locator("body")).toContainText("Middle Section Marker");
+    const shown = await visibleText(page);
+    expect(shown).toContain("Middle Section Marker");
     const progress = page.locator("[data-lg-progress]").first();
     await expect(progress).toHaveAttribute("data-lg-progress-total", "3"); // unrouted -> A's own 3 pages
   });
