@@ -44,9 +44,20 @@ import {
   FRAME_BACKGROUND_STYLES,
   FRAME_BACK_POSITIONS,
   FRAME_BACK_STYLES,
+  FRAME_BRAND_LOGO_LAYOUTS,
+  FRAME_CTA_SLOTS,
   FRAME_DISCLOSURE_LOCATIONS,
+  FRAME_DISCLOSURE_MODES,
+  FRAME_DISCLOSURE_V2_LOCATIONS,
+  FRAME_ELEMENT_ALIGNS,
+  FRAME_FOOTER_BLOCK_TYPES,
   FRAME_FOOTER_SHOW_ON,
+  FRAME_FREE_TEXT_BLOCK_TYPES,
+  FRAME_FREE_TEXT_LIST_STYLES,
+  FRAME_FREE_TEXT_SLOTS,
   FRAME_LOGO_ALIGNS,
+  FRAME_PAGE_TARGET_MODES,
+  FRAME_PROGRESS_ALIGNS,
   FRAME_PROGRESS_POSITIONS,
   FRAME_PROGRESS_STYLES,
   FRAME_PROGRESS_WIDTHS,
@@ -56,6 +67,7 @@ import {
   FRAME_SLOT_TRANSITIONS,
   FRAME_TRUST_MOBILE_MODES,
   FRAME_TRUST_PLACEMENTS,
+  FRAME_TYPO_SIZES,
 } from "../../public/leadgen/designs/frames";
 import {
   FUNNEL_TOKEN_ROLES,
@@ -670,6 +682,16 @@ const LG_QUOTES_STYLES = `
 .lg-inspector-panel.active{display:block}
 .lg-inspector-panel .form-group{margin-bottom:10px}
 .lg-region-note{color:var(--c-muted);font-size:12px;margin:6px 0 0}
+/* Round-4 P5b (Image15 ruling): aligned rows, the mark RIGHT of the label —
+   see renderProgressInspector's doc comment. Flexbox lays out EVERY direct
+   child (incl. a block-level .lg-tpl-band thumbnail span) in a single row
+   regardless of the child's own display type, which is what kills the old
+   orphaned-circle-above-bar wrap. */
+.lg-progress-style-radios{display:flex;flex-direction:column;gap:6px;margin:4px 0}
+.lg-progress-style-opt{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--c-border);border-radius:6px;cursor:pointer}
+.lg-progress-style-main{display:flex;align-items:center;gap:8px;min-width:0}
+.lg-progress-style-label{white-space:nowrap}
+.lg-progress-thumb{width:34px;flex:none}
 .lg-advanced{border:1px dashed var(--c-border);border-radius:6px;padding:6px 10px;margin-top:10px}
 .lg-advanced summary{cursor:pointer;color:var(--c-muted);font-size:12px}
 .lg-role-strip{display:flex;flex-wrap:wrap;gap:4px}
@@ -757,6 +779,18 @@ const LG_QUOTES_STYLES = `
 .lg-step-controls{display:inline-flex;align-items:center;gap:6px}
 .lg-panel-card{border:1px solid var(--c-border);border-radius:8px;padding:12px;background:var(--c-card,#fff)}
 .lg-panel-card h3{margin:0 0 8px;font-size:14px}
+.lg-panel-card h4{margin:14px 0 8px;font-size:13px}
+/* --- Round-4 P5b: Templates-tab seven box pickers -------------------------- */
+.lg-tplbox-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-bottom:12px}
+.lg-tplbox-card{display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid var(--c-border);border-radius:8px;padding:10px 8px;cursor:pointer;background:none;text-align:center}
+.lg-tplbox-card.selected{border-color:var(--c-primary)}
+.lg-tplbox-card-letter{width:26px;height:26px;border-radius:50%;background:var(--c-bg,#f6f7f9);border:1px solid var(--c-border);display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+.lg-tplbox-editor{border-top:1px solid var(--c-border);padding-top:12px}
+.lg-tplbox-row{border:1px solid var(--c-border);border-radius:6px;padding:8px;margin-bottom:8px}
+.lg-tplbox-cond{border-top:1px dashed var(--c-border);margin-top:8px;padding-top:8px}
+.lg-tplbox-block{border:1px dashed var(--c-border);border-radius:6px;padding:8px;margin:6px 0}
+.lg-tplbox-toolbar{display:flex;gap:4px;margin-bottom:6px}
+.lg-tplbox-pagetarget{border-top:1px dashed var(--c-border);margin-top:8px;padding-top:8px}
 .lg-hidden{display:none}
 `;
 
@@ -1095,20 +1129,66 @@ ${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging
 // New-quote page (§10.1-style create → then editor)
 // ---------------------------------------------------------------------------
 
+// Round-4 P5b (10A): Activity becomes a select fed by the existing
+// GET /activities; an inline "+ Add a new activity…" sentinel reveals a
+// free-text escape hatch (the ONLY way to author a brand-new activity, since
+// the select is otherwise a closed list of what already exists). Verticals
+// becomes a multi-select fed by GET /verticals, with its OWN "+ Add" affordance
+// that appends (and selects) a new <option> — never destroying the existing
+// selection. The WIRE payload is UNCHANGED: `verticals` still sends a plain
+// array of the selected/added strings (parseStringArray, quotes-handlers.ts,
+// accepts exactly that shape) — only the AUTHORING affordance changes.
 const QUOTE_NEW_SCRIPT = `
 (function () {
   var form = document.getElementById('lg-quote-new-form');
   if (!form) { return; }
   var errBox = document.getElementById('lg-quote-new-error');
+  var activitySel = document.getElementById('lg-q-activity');
+  var activityNew = document.getElementById('lg-q-activity-new');
+  if (activitySel && activityNew) {
+    activitySel.addEventListener('change', function () {
+      var isNew = activitySel.value === '__new__';
+      // the SSR default is class="form-input lg-hidden" (display:none) — the
+      // native .hidden property does not override that CSS class, so the
+      // class itself must flip here (the file's established idiom, e.g.
+      // togglePanel/showRegionPanel above).
+      activityNew.className = isNew ? 'form-input' : 'form-input lg-hidden';
+      if (isNew) { activityNew.focus(); }
+    });
+  }
+  var verticalsSel = document.getElementById('lg-q-verticals');
+  var vNewInput = document.getElementById('lg-q-verticals-new');
+  var vAddBtn = document.getElementById('lg-q-verticals-add');
+  function addVerticalOption(value) {
+    var v = (value || '').replace(/^\\s+|\\s+$/g, '');
+    if (!v || !verticalsSel) { return; }
+    var opts = verticalsSel.options;
+    var i;
+    for (i = 0; i < opts.length; i++) { if (opts[i].value === v) { opts[i].selected = true; return; } }
+    var opt = document.createElement('option');
+    opt.value = v;
+    opt.appendChild(document.createTextNode(v));
+    opt.selected = true;
+    verticalsSel.appendChild(opt);
+  }
+  if (vAddBtn && vNewInput) {
+    vAddBtn.addEventListener('click', function () {
+      addVerticalOption(vNewInput.value);
+      vNewInput.value = '';
+      vNewInput.focus();
+    });
+  }
   form.addEventListener('submit', function (ev) {
     ev.preventDefault();
     var name = (document.getElementById('lg-q-name').value || '').trim();
-    var activity = (document.getElementById('lg-q-activity').value || '').trim();
-    var vraw = (document.getElementById('lg-q-verticals').value || '').trim();
+    var activity = activitySel ? activitySel.value : '';
+    if (activity === '__new__') { activity = ((activityNew && activityNew.value) || '').trim(); }
     var verticals = [];
-    var parts = vraw.split(',');
-    var i;
-    for (i = 0; i < parts.length; i++) { var p = parts[i].trim(); if (p) { verticals.push(p); } }
+    if (verticalsSel) {
+      var vOpts = verticalsSel.options;
+      var j;
+      for (j = 0; j < vOpts.length; j++) { if (vOpts[j].selected) { verticals.push(vOpts[j].value); } }
+    }
     var payload = { quote_name: name, activity: activity, verticals: verticals };
     var btn = document.getElementById('lg-quote-new-save');
     if (btn) { btn.disabled = true; }
@@ -1137,7 +1217,15 @@ const QUOTE_NEW_SCRIPT = `
 }());
 `;
 
-export function leadgenQuotesNewPage(c: UiContext): Response {
+export async function leadgenQuotesNewPage(c: UiContext): Promise<Response> {
+  const [activitiesRes, verticalsRes] = await Promise.all([
+    apiJson<{ items: string[] }>(c.env, "/api/admin/leadgen/activities"),
+    apiJson<{ items: string[] }>(c.env, "/api/admin/leadgen/verticals"),
+  ]);
+  const activities = activitiesRes.ok ? activitiesRes.body.items : [];
+  const verticals = verticalsRes.ok ? verticalsRes.body.items : [];
+  const activityOptions = activities.map((a) => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join("");
+  const verticalOptions = verticals.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
   const content = `${renderLeadgenTabs("quotes")}
 <div class="lg-editor-head">
   <a href="/admin/leadgen/quotes" class="btn btn-outline">&#8592; Quotes</a>
@@ -1153,12 +1241,22 @@ export function leadgenQuotesNewPage(c: UiContext): Response {
       </div>
       <div class="form-group">
         <label class="form-label" for="lg-q-activity">Activity *</label>
-        <input id="lg-q-activity" name="activity" class="form-input" required aria-required="true" />
+        <select id="lg-q-activity" name="activity" class="form-select" required aria-required="true">
+          <option value="">Choose an activity&#8230;</option>
+          ${activityOptions}
+          <option value="__new__">+ Add a new activity&#8230;</option>
+        </select>
+        <input id="lg-q-activity-new" class="form-input lg-hidden" placeholder="New activity name" aria-label="New activity name" />
       </div>
     </div>
     <div class="form-group">
-      <label class="form-label" for="lg-q-verticals">Verticals * (comma-separated)</label>
-      <input id="lg-q-verticals" name="verticals" class="form-input" required aria-required="true" placeholder="life, health" />
+      <label class="form-label" for="lg-q-verticals">Verticals * (select one or more)</label>
+      <select id="lg-q-verticals" name="verticals" class="form-select" multiple size="5" required aria-required="true">${verticalOptions}</select>
+      <div class="lg-list-row">
+        <input id="lg-q-verticals-new" class="form-input" placeholder="Add a new vertical&#8230;" aria-label="New vertical name" />
+        <button type="button" id="lg-q-verticals-add" class="btn btn-sm btn-secondary">+ Add</button>
+      </div>
+      <span class="form-help">Hold Ctrl/Cmd to select more than one, or type a new one and "+ Add".</span>
     </div>
     <button type="submit" id="lg-quote-new-save" class="btn btn-primary">Create Quote</button>
     <span class="form-help">A funnel + control variant are created automatically (§15.1: every Quote has ≥1 variant).</span>
@@ -1345,11 +1443,39 @@ function renderHeaderInspector(isControl: boolean): string {
 </div>`;
 }
 
+// Round-4 P5b (Image15 ruling): every FRAME_PROGRESS_STYLES value gets its own
+// operator label — the previous nested-ternary chain silently mislabeled the
+// P5a-added `icon_on_track` style as "Percent" (it fell through the ternary's
+// final else). A lookup map makes every style's label explicit and keeps a
+// future style addition a one-line diff instead of another ternary link.
+const PROGRESS_STYLE_LABELS: Readonly<Record<string, string>> = {
+  hidden: "Hidden",
+  bar: "Bar",
+  dots: "Dots",
+  numbered: "Numbered",
+  percent: "Percent",
+  icon_on_track: "Icon on track",
+};
+
 function renderProgressInspector(isControl: boolean): string {
-  const styleRadios = FRAME_PROGRESS_STYLES.map(
-    (s) =>
-      `<label class="lg-check lg-progress-style-opt"><input type="radio" name="lg-progress-style" value="${escapeHtml(s)}" data-frame-key="progress.style" data-frame-radio="1" /> <span class="lg-tpl-band lg-progress-thumb lg-progress-thumb--${escapeHtml(s)}" aria-hidden="true"></span> ${escapeHtml(s === "hidden" ? "Hidden" : s === "bar" ? "Bar" : s === "dots" ? "Dots" : s === "numbered" ? "Numbered" : "Percent")}</label>`,
-  ).join("");
+  // Image15 ruling: aligned rows, the selection mark RIGHT of the label (kills
+  // the previous orphaned-circle-above-bar layout — `.lg-tpl-band` is
+  // `display:block`, so the radio + thumbnail + text used to wrap onto their
+  // own lines inside the inline <label>). The main content (thumbnail + text)
+  // renders FIRST, the radio LAST, inside a flex row (`.lg-progress-style-opt`,
+  // `justify-content:space-between`) so the mark's x is always to the right of
+  // the label's x and every option is one aligned row in a vertical stack
+  // (`.lg-progress-style-radios{flex-direction:column}`).
+  const styleRadios = FRAME_PROGRESS_STYLES.map((s) => {
+    const label = PROGRESS_STYLE_LABELS[s] ?? s;
+    return `<label class="lg-check lg-progress-style-opt">
+      <span class="lg-progress-style-main">
+        <span class="lg-tpl-band lg-progress-thumb lg-progress-thumb--${escapeHtml(s)}" aria-hidden="true"></span>
+        <span class="lg-progress-style-label">${escapeHtml(label)}</span>
+      </span>
+      <input type="radio" name="lg-progress-style" value="${escapeHtml(s)}" data-frame-key="progress.style" data-frame-radio="1" />
+    </label>`;
+  }).join("");
   return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="progress">
   ${scopeHead("Progress", false)}
   ${renderOverrideSwitch("progress", isControl)}
@@ -1359,6 +1485,7 @@ function renderProgressInspector(isControl: boolean): string {
   ${frameSelect("Width", "progress.width", FRAME_PROGRESS_WIDTHS, { content: "Content width", full: "Full width" })}
   ${frameControl("Color", renderRoleStrip("progress.color_role"))}
   ${frameCheck("Show a label", "progress.show_label")}
+  ${frameSelect("Alignment", "progress.align", ["center", ...FRAME_PROGRESS_ALIGNS.filter((a) => a !== "center")], { left: "Left", center: "Center", right: "Right" }, "Round-4 P5a: aligns the progress unit within its width band (defaults to Center).")}
   <p class="lg-region-note">Progress counts the slides of this funnel variant automatically.</p>
 </div>`;
 }
@@ -1865,6 +1992,15 @@ function renderTemplatePicker(templates: FrameTemplateItem[]): string {
   </button>`,
     )
     .join("");
+  // Round-4 P5b DELIBERATE NON-MOVE (reported conflict — see the phase
+  // report): the operator restructure spec's "Templates tab" is defined
+  // (deliverable 2) as the SEVEN box pickers only. Moving THIS pre-existing
+  // 6-arrangement picker out of the canvas toolbar breaks the PROVEN
+  // "preview-before-apply shows on the SAME visible canvas" contract two
+  // rows of test-ui/leadgen-quote-builder.spec.ts depend on (② and ⑥ —
+  // verified failing when this card is hidden behind an inactive tab). It
+  // stays canvas-embedded, `#lg-template-btn` keeps its EXISTING inline
+  // toggle (unchanged) — only the SEVEN NEW boxes live in the Templates tab.
   return `<div class="lg-panel-card lg-hidden" id="lg-template-picker">
   <h3>Funnel layout template</h3>
   <p class="form-help">Your copy, images and colors are kept. Layout comes from the template. Nothing changes until you Save.</p>
@@ -1913,7 +2049,6 @@ function renderCanvasPanel(templates: FrameTemplateItem[], sites: PreviewSiteOpt
     <select id="lg-canvas-variant-select" class="form-select" aria-label="Preview variant">${variantOptions.join("")}</select>
   </div>
   ${renderTemplatePicker(templates)}
-  ${renderThemeEditorPanel(selected.is_control)}
   <div class="lg-chip lg-override-badge lg-hidden" id="lg-override-badge">Variant overrides: <strong id="lg-override-badge-list"></strong></div>
   <div class="lg-slot-banner lg-hidden" id="lg-slot-banner" role="status">
     <span>This area is the Section&#8217;s question unit &#8212; edit it in the Section Builder</span>
@@ -1968,7 +2103,9 @@ function renderThemeEditorPanel(isControl: boolean): string {
   const themeSelect = (label: string, key: string, values: readonly string[], labels?: Readonly<Record<string, string>>): string =>
     `<div class="form-group"><label class="form-label">${escapeHtml(label)}</label><select class="form-select" data-theme-key="${escapeHtml(key)}"><option value="">Inherit from base design</option>${enumOptions(values, labels)}</select></div>`;
 
-  return `<div class="lg-panel-card lg-hidden" id="lg-theme-editor">
+  // Round-4 P5b: lives inside the new "Themes" top tab now (moved out of the
+  // canvas toolbar) — the tab panel wrapper owns visibility.
+  return `<div class="lg-panel-card" id="lg-theme-editor">
   <h3>Funnel theme</h3>
   <div class="lg-scope-head">Editing: <strong>Funnel theme</strong> · affects every slide and every component default of this funnel</div>
   ${renderOverrideSwitch("theme", isControl)}
@@ -2014,6 +2151,364 @@ function renderThemeEditorPanel(isControl: boolean): string {
       <button type="button" class="btn btn-sm btn-secondary" id="lg-theme-hex-apply">Apply</button>
     </div>
   </details>
+</div>`;
+}
+
+function renderThemesTabPanel(isControl: boolean): string {
+  // Round-4 P5b deliverable 1: a CLEAN mount point — P6b replaces the panel
+  // BODY (renderThemeEditorPanel's internals) without touching this tab's
+  // chrome (the tab button + this wrapper div stay byte-stable across P6b).
+  return `<div class="lg-qpanel" data-panel="themes">
+  <div id="lg-themes-panel-mount">${renderThemeEditorPanel(isControl)}</div>
+</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Round-4 P5b — TEMPLATES TAB: the seven box pickers (operator restructure
+// spec B-3). Each box is a card that opens its OWN right-side editor, reusing
+// the EXISTING inspector-panel idioms (frameControl/frameCheck/frameSelect/
+// mediaPickerControl/renderRoleStrip/renderFrameList) and the SAME
+// `.lg-inspector-panel`-style mutually-exclusive show/hide (a dedicated
+// `data-tplbox-panel` attribute + `showTplBoxPanel` in the island, kept
+// independent of the canvas's `data-region-panel`/`showRegionPanel` so the
+// two navigation surfaces (canvas click-select vs. box-card click) never
+// cross-wire). Boxes A (Background) and B (Logo) edit the SAME
+// `background.*` / `header.logo_*` keys the canvas-click Background/Header
+// inspectors already own — the SAME `data-frame-key` names are reused
+// (harmless duplicates: `populateAllControls` targets EVERY matching element
+// and `activate()` repaints on every tab switch, so both copies always agree)
+// rather than moving those inspectors (moving them would strand the
+// canvas-click-to-select mechanism those two groups share with the other
+// eight region inspectors). Boxes C–G are Round-4 P5a's NEW authorable
+// elements (cta_slots / disclosure.entries / free_text / brand_logos /
+// footer.blocks) — this is their FIRST authoring surface.
+// ---------------------------------------------------------------------------
+
+function renderTplBoxBackground(): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="background">
+  <h3>A &middot; Background</h3>
+  <p class="form-help">The funnel's page background &mdash; color and an optional image.</p>
+  ${frameControl("Color", renderRoleStrip("background.role"))}
+  ${mediaPickerControl("Background image (optional, from the Media library)", "background.image_media_id")}
+  ${frameSelect("Style", "background.style", FRAME_BACKGROUND_STYLES, { flat: "Flat", brand: "Brand", brand_gradient: "Brand gradient" })}
+</div>`;
+}
+
+function renderTplBoxLogo(): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="logo">
+  <h3>B &middot; Logo</h3>
+  <p class="form-help">The header logo &mdash; sourced from the selected preview site's branding by default (10 &sect;10.1).</p>
+  ${frameSelect("Logo source", "header.logo_source", ["site", "cms_fallback"], { site: "Site logo (auto)", cms_fallback: "CMS fallback" })}
+  ${frameSelect("Logo size", "header.logo_size", FRAME_SIZES, { s: "Small", m: "Medium", l: "Large" })}
+  ${frameSelect("Alignment", "header.logo_align", FRAME_LOGO_ALIGNS, { left: "Left", center: "Center" })}
+  <p class="form-help">For a manual logo override, open the Header region on the canvas (Funnel builder tab) &rarr; Advanced.</p>
+</div>`;
+}
+
+// 10C CTA/phone slots — the P2c-style plain-language condition builder over
+// the __ctx synthetic keys PLUS every known answer field (the SAME `fields`
+// list the routing-rules condition builder already offers, ui-rules-
+// builder.ts). `when`/`op` mirror the FrameCtaCondition grammar exactly
+// (frames.ts validateFrameCondition). The __-PREFIXED wire names are load-
+// bearing — they must match resolver.ts buildFrameCtaCtx's ctx keys
+// (__page/__hour/__weekday always present; __state/__device when known)
+// byte for byte, or an authored condition never actually evaluates true.
+// Plain answer fields (no prefix) use their real internal_field name.
+const CTA_CONDITION_CTX_FIELDS: ReadonlyArray<readonly [string, string]> = [
+  ["__state", "State"],
+  ["__device", "Device"],
+  ["__hour", "Hour (UTC 0–23)"],
+  ["__weekday", "Weekday (UTC 0–6)"],
+  ["__page", "Page number"],
+];
+const CTA_CONDITION_OPS: ReadonlyArray<readonly [string, string]> = [
+  ["eq", "is"],
+  ["neq", "is not"],
+];
+function ctaConditionFieldOptions(answerFields: RoutingBuilderData["fields"], selected: string): string {
+  const ctx = CTA_CONDITION_CTX_FIELDS.map(
+    ([v, label]) => `<option value="${escapeHtml(v)}"${v === selected ? " selected" : ""}>${escapeHtml(label)}</option>`,
+  ).join("");
+  const answers = answerFields
+    .map(
+      (f) =>
+        `<option value="${escapeHtml(f.internal_field)}"${f.internal_field === selected ? " selected" : ""}>${escapeHtml(f.label)}</option>`,
+    )
+    .join("");
+  return `<optgroup label="Visitor info">${ctx}</optgroup>${answerFields.length > 0 ? `<optgroup label="Answers">${answers}</optgroup>` : ""}`;
+}
+function ctaConditionOpOptions(selected: string): string {
+  return CTA_CONDITION_OPS.map(
+    ([v, label]) => `<option value="${escapeHtml(v)}"${v === selected ? " selected" : ""}>${escapeHtml(label)}</option>`,
+  ).join("");
+}
+// One condition row (rendered as the client-side template's content — the
+// island clones it for "+ Add condition"; SSR never emits an initial row, the
+// island fills from the loaded config exactly like the pre-existing
+// footer.links/trust_strip.logos/benefit_bar.items lists).
+function renderCtaConditionRowTemplate(answerFields: RoutingBuilderData["fields"]): string {
+  return `<div class="lg-list-row" data-cta-cond-row>
+    <select class="form-select form-select-sm" data-cta-cond-field aria-label="Condition field">${ctaConditionFieldOptions(answerFields, "__state")}</select>
+    <select class="form-select form-select-sm" data-cta-cond-op aria-label="Condition comparison">${ctaConditionOpOptions("eq")}</select>
+    <input class="form-input" data-cta-cond-value placeholder="value" aria-label="Condition value" />
+    <button type="button" class="btn btn-sm btn-outline" data-cta-cond-row-remove aria-label="Remove condition">&#10005;</button>
+  </div>`;
+}
+function renderCtaSlotRowTemplate(answerFields: RoutingBuilderData["fields"]): string {
+  return `<div class="lg-tplbox-row" data-cta-row>
+    <div class="lg-list-row">
+      <select class="form-select form-select-sm" data-cta-slot aria-label="CTA slot">${enumOptions(FRAME_CTA_SLOTS, { header_right: "Header (right)", under_header: "Under the header", section_bottom: "Bottom of the section", footer: "Footer" })}</select>
+      <input class="form-input" data-cta-label placeholder="Label (e.g. Call now)" aria-label="CTA label" />
+      <input class="form-input" data-cta-tel placeholder="Phone, e.g. +1 555 123 4567" aria-label="CTA phone number" />
+      <input class="form-input" data-cta-href placeholder="Or a link (https://…)" aria-label="CTA link" />
+      <select class="form-select form-select-sm" data-cta-align aria-label="CTA alignment">${enumOptions(FRAME_ELEMENT_ALIGNS, { left: "Left", center: "Center", right: "Right" })}</select>
+      <button type="button" class="btn btn-sm btn-outline" data-cta-remove aria-label="Remove CTA slot">&#10005;</button>
+    </div>
+    <button type="button" class="btn btn-sm btn-secondary" data-cta-cond-toggle aria-expanded="false">+ Add a condition</button>
+    <div class="lg-tplbox-cond lg-hidden" data-cta-cond-box>
+      <p class="form-help">Shown only when this holds (a compiled condition &mdash; toggling isn't wired live yet, but the config authors and round-trips today).</p>
+      <div class="form-group"><label class="form-label">Match</label>
+        <select class="form-select form-select-sm" data-cta-cond-match aria-label="Match all or any of these">
+          <option value="all">All of these</option>
+          <option value="any">Any of these</option>
+        </select>
+      </div>
+      <div data-cta-cond-rows></div>
+      <button type="button" class="btn btn-sm btn-secondary" data-cta-cond-add>+ Add condition</button>
+    </div>
+  </div>`;
+}
+function renderTplBoxCta(answerFields: RoutingBuilderData["fields"]): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="cta">
+  <h3>C &middot; Phone / URL</h3>
+  <p class="form-help">Placeable call/link buttons (header, under the header, bottom of the section, or the footer).</p>
+  <div data-tplbox-list="cta_slots"></div>
+  <template data-tplbox-tpl="cta_slots">${renderCtaSlotRowTemplate(answerFields)}</template>
+  <template data-tplbox-tpl="cta_cond_row">${renderCtaConditionRowTemplate(answerFields)}</template>
+  <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="cta_slots">+ Add a CTA slot</button>
+</div>`;
+}
+
+// 10H-adjacent disclosure v2 — per-location entries (top/bottom), full/hover.
+function renderDisclosureEntryRowTemplate(): string {
+  // ONE root element (the island clones templates via firstElementChild) —
+  // the row + its textarea are both children of `data-disc-entry-row`.
+  return `<div class="lg-tplbox-row" data-disc-entry-row>
+    <div class="lg-list-row">
+      <select class="form-select form-select-sm" data-disc-location aria-label="Disclosure location">${enumOptions(FRAME_DISCLOSURE_V2_LOCATIONS, { top: "Top", bottom: "Bottom" })}</select>
+      <select class="form-select form-select-sm" data-disc-mode aria-label="Disclosure mode">${enumOptions(FRAME_DISCLOSURE_MODES, { full: "Always shown", hover: "Hover / focus trigger" })}</select>
+      <input class="form-input" data-disc-link-label placeholder="Trigger label (hover mode)" aria-label="Disclosure trigger label" />
+      <select class="form-select form-select-sm" data-disc-align aria-label="Disclosure alignment">${enumOptions(FRAME_ELEMENT_ALIGNS, { left: "Left", center: "Center", right: "Right" })}</select>
+      <button type="button" class="btn btn-sm btn-outline" data-disc-entry-remove aria-label="Remove disclosure entry">&#10005;</button>
+    </div>
+    <textarea class="form-input" rows="2" data-disc-text placeholder="Disclosure copy for this entry" aria-label="Disclosure entry text"></textarea>
+  </div>`;
+}
+function renderTplBoxDisclosure(): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="disclosure">
+  <h3>D &middot; Disclosure</h3>
+  <p class="form-help">Per-location advertising-disclosure entries (top and bottom can coexist).</p>
+  <div data-tplbox-list="disclosure.entries"></div>
+  <template data-tplbox-tpl="disclosure.entries">${renderDisclosureEntryRowTemplate()}</template>
+  <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="disclosure.entries">+ Add a disclosure entry</button>
+</div>`;
+}
+
+// Shared page-targeting mini-control (10E/10F) — scoped to its own row via
+// ancestor lookup in the island (no shared ids), so every free-text /
+// brand-logos owner gets its own independent mode/from/to/list inputs.
+function renderPageTargetControl(): string {
+  return `<div class="lg-tplbox-pagetarget">
+    <div class="form-group"><label class="form-label">Show on</label>
+      <select class="form-select form-select-sm" data-pt-mode aria-label="Page targeting mode">${enumOptions(FRAME_PAGE_TARGET_MODES, { all: "Every page", first: "First page only", range: "A page range", list: "Specific pages" })}</select>
+    </div>
+    <div class="lg-list-row">
+      <input class="form-input form-input-sm" type="number" min="1" data-pt-from placeholder="From page" aria-label="Page range start" />
+      <input class="form-input form-input-sm" type="number" min="1" data-pt-to placeholder="To page" aria-label="Page range end" />
+      <input class="form-input" data-pt-list placeholder="Pages, comma-separated (e.g. 1, 3)" aria-label="Specific pages" />
+    </div>
+  </div>`;
+}
+
+// 10E free text — an entry is N inline blocks at a slot, with alignment/
+// typography + page targeting. `id` is REQUIRED by validateFreeText and is
+// never operator-authored — the island stamps one at add-time (hidden input).
+function renderFreeTextBlockRowTemplate(): string {
+  return `<div class="lg-tplbox-block" data-ft-block-row>
+    <div class="lg-list-row">
+      <select class="form-select form-select-sm" data-ft-block-type aria-label="Text block type">${enumOptions(FRAME_FREE_TEXT_BLOCK_TYPES, { paragraph: "Paragraph", heading: "Heading", list: "List" })}</select>
+      <select class="form-select form-select-sm lg-hidden" data-ft-block-liststyle aria-label="List style">${enumOptions(FRAME_FREE_TEXT_LIST_STYLES, { unordered: "Bulleted", ordered: "Numbered", check: "Checklist" })}</select>
+      <button type="button" class="btn btn-sm btn-outline" data-ft-block-remove aria-label="Remove text block">&#10005;</button>
+    </div>
+    <div class="lg-tplbox-toolbar" data-ft-block-toolbar>
+      <button type="button" class="btn btn-sm btn-outline" data-ft-fmt="bold" aria-label="Bold" title="Bold"><strong>B</strong></button>
+      <button type="button" class="btn btn-sm btn-outline" data-ft-fmt="italic" aria-label="Italic" title="Italic"><em>I</em></button>
+      <button type="button" class="btn btn-sm btn-outline" data-ft-fmt="link" aria-label="Link" title="Link">Link</button>
+    </div>
+    <textarea class="form-input" rows="3" data-ft-block-text placeholder="Text for this block" aria-label="Text block content"></textarea>
+    <textarea class="form-input lg-hidden" rows="3" data-ft-block-items placeholder="One list item per line" aria-label="List items, one per line"></textarea>
+  </div>`;
+}
+function renderFreeTextEntryRowTemplate(): string {
+  return `<div class="lg-tplbox-row" data-ft-entry-row>
+    <input type="hidden" data-ft-entry-id />
+    <div class="lg-list-row">
+      <select class="form-select form-select-sm" data-ft-slot aria-label="Free-text slot">${enumOptions(FRAME_FREE_TEXT_SLOTS, { above_section: "Above the section", below_section: "Below the section", above_header: "Above the header", below_footer: "Below the footer" })}</select>
+      <select class="form-select form-select-sm" data-ft-align aria-label="Free-text alignment">${enumOptions(FRAME_ELEMENT_ALIGNS, { left: "Left", center: "Center", right: "Right" })}</select>
+      <button type="button" class="btn btn-sm btn-outline" data-ft-entry-remove aria-label="Remove free-text element">&#10005;</button>
+    </div>
+    <div class="lg-scalars">
+      <div class="form-group"><label class="form-label">Text size</label><select class="form-select form-select-sm" data-ft-typo-size aria-label="Text size"><option value="">Theme default</option>${enumOptions(FRAME_TYPO_SIZES, { s: "Small", m: "Medium", l: "Large", xl: "Extra large" })}</select></div>
+      <div class="form-group"><label class="form-label">Text color</label><select class="form-select form-select-sm" data-ft-typo-color aria-label="Text color role"><option value="">Theme default</option>${FUNNEL_TOKEN_ROLES.map((r) => `<option value="${escapeHtml(r)}">${escapeHtml(roleLabel(r))}</option>`).join("")}</select></div>
+    </div>
+    ${renderPageTargetControl()}
+    <div data-ft-blocks></div>
+    <button type="button" class="btn btn-sm btn-secondary" data-ft-block-add>+ Add a text block</button>
+  </div>`;
+}
+function renderTplBoxFreeText(): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="free_text">
+  <h3>E &middot; Free text</h3>
+  <p class="form-help">Author paragraph / heading / checklist blocks anywhere in the funnel chrome.</p>
+  <div data-tplbox-list="free_text"></div>
+  <template data-tplbox-tpl="free_text">${renderFreeTextEntryRowTemplate()}</template>
+  <template data-tplbox-tpl="free_text_block">${renderFreeTextBlockRowTemplate()}</template>
+  <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="free_text">+ Add a free-text element</button>
+</div>`;
+}
+
+// 10F brand logos strip — media-id or URL refs (SVG upload arrives in P5c —
+// the "Upload SVG" button below is a marked, disabled mount for it).
+function renderBrandLogoItemRowTemplate(): string {
+  return `<div class="lg-list-row" data-bl-item-row>
+    ${mediaFieldMarkup("data-list-field", "media_id", "Logo image (from the Media library)")}
+    <input class="form-input" data-bl-item-url placeholder="Or a direct image URL (https://…)" aria-label="Logo image URL" />
+    <input class="form-input" data-bl-item-alt placeholder="Alt text (required)" aria-label="Logo alt text" />
+    <select class="form-select form-select-sm" data-bl-item-size aria-label="Logo size">${enumOptions(FRAME_SIZES, { s: "Small", m: "Medium", l: "Large" })}</select>
+    <span class="lg-row-rail">
+      <button type="button" class="btn btn-sm btn-outline" data-bl-item-up aria-label="Move logo up">&#8593;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-bl-item-down aria-label="Move logo down">&#8595;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-bl-item-remove aria-label="Remove logo">&#10005;</button>
+    </span>
+  </div>`;
+}
+function renderTplBoxBrandLogos(): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="brand_logos">
+  <h3>F &middot; Brand logos</h3>
+  <p class="form-help">A row or grid of partner/trust logos, placed at a slot.</p>
+  <label class="lg-check"><input type="checkbox" data-bl-enabled /> Show the brand-logos strip</label>
+  <div class="lg-scalars">
+    <div class="form-group"><label class="form-label">Layout</label><select class="form-select form-select-sm" data-bl-layout aria-label="Brand logos layout">${enumOptions(FRAME_BRAND_LOGO_LAYOUTS, { row: "Row", grid: "Grid" })}</select></div>
+    <div class="form-group"><label class="form-label">Slot</label><select class="form-select form-select-sm" data-bl-slot aria-label="Brand logos slot">${enumOptions(FRAME_FREE_TEXT_SLOTS, { above_section: "Above the section", below_section: "Below the section", above_header: "Above the header", below_footer: "Below the footer" })}</select></div>
+    <div class="form-group"><label class="form-label">Alignment</label><select class="form-select form-select-sm" data-bl-align aria-label="Brand logos alignment">${enumOptions(FRAME_ELEMENT_ALIGNS, { left: "Left", center: "Center", right: "Right" })}</select></div>
+  </div>
+  ${renderPageTargetControl()}
+  <div data-tplbox-list="brand_logos.items"></div>
+  <template data-tplbox-tpl="brand_logos.items">${renderBrandLogoItemRowTemplate()}</template>
+  <div class="toolbar">
+    <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="brand_logos.items">+ Add a logo</button>
+    <button type="button" class="btn btn-sm btn-outline" disabled title="Arrives in P5c">Upload SVG (coming soon)</button>
+  </div>
+</div>`;
+}
+
+// 10H footer v2 — add/remove/reorder blocks + the footer's OWN palette/
+// typography scope (10H "different color, font and sizes than the main
+// template"). Type-conditional fields per FRAME_FOOTER_BLOCK_TYPES.
+function renderFooterLinkRowTemplate(): string {
+  return `<div class="lg-list-row" data-footer-link-row>
+    <input class="form-input" data-footer-link-label placeholder="Label" aria-label="Footer link label" />
+    <input class="form-input" data-footer-link-href placeholder="https://… or /page" aria-label="Footer link address" />
+    <button type="button" class="btn btn-sm btn-outline" data-footer-link-remove aria-label="Remove link">&#10005;</button>
+  </div>`;
+}
+function renderFooterBlockRowTemplate(): string {
+  return `<div class="lg-tplbox-row" data-footer-block-row>
+    <div class="lg-list-row">
+      <select class="form-select form-select-sm" data-footer-block-type aria-label="Footer block type">${enumOptions(FRAME_FOOTER_BLOCK_TYPES, { about_paragraph: "About paragraph", link_row: "Link row", disclosure: "Disclosure", logo: "Logo", address: "Address", socials: "Social links" })}</select>
+      <select class="form-select form-select-sm" data-footer-block-align aria-label="Footer block alignment">${enumOptions(FRAME_ELEMENT_ALIGNS, { left: "Left", center: "Center", right: "Right" })}</select>
+      <span class="lg-row-rail">
+        <button type="button" class="btn btn-sm btn-outline" data-footer-block-up aria-label="Move block up">&#8593;</button>
+        <button type="button" class="btn btn-sm btn-outline" data-footer-block-down aria-label="Move block down">&#8595;</button>
+        <button type="button" class="btn btn-sm btn-outline" data-footer-block-remove aria-label="Remove block">&#10005;</button>
+      </span>
+    </div>
+    <textarea class="form-input" rows="2" data-footer-block-text placeholder="About / disclosure / address copy" aria-label="Footer block text"></textarea>
+    <div class="lg-hidden" data-footer-block-linkrow>
+      <div class="form-group"><label class="form-label">Links source</label>
+        <select class="form-select form-select-sm" data-footer-block-linksource aria-label="Footer link row source">
+          <option value="site">From site settings (legal links)</option>
+          <option value="manual">Manual list</option>
+        </select>
+      </div>
+      <div data-footer-block-links></div>
+      <button type="button" class="btn btn-sm btn-secondary" data-footer-block-link-add>+ Add link</button>
+    </div>
+  </div>`;
+}
+function renderTplBoxFooter(): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="footer">
+  <h3>G &middot; Footer</h3>
+  <p class="form-help">Bottom-of-page blocks (about / links / disclosure / logo / address / socials), with their own palette and typography.</p>
+  <h4>Palette &amp; typography scope</h4>
+  <div class="lg-scalars">
+    ${frameControl("Background", renderRoleStrip("footer.palette_scope.background"))}
+    ${frameControl("Text", renderRoleStrip("footer.palette_scope.text"))}
+    ${frameControl("Links", renderRoleStrip("footer.palette_scope.link"))}
+  </div>
+  ${frameSelect("Text size", "footer.typography_scope.size", FRAME_TYPO_SIZES, { s: "Small", m: "Medium", l: "Large", xl: "Extra large" })}
+  <h4>Blocks</h4>
+  <div data-tplbox-list="footer.blocks"></div>
+  <template data-tplbox-tpl="footer.blocks">${renderFooterBlockRowTemplate()}</template>
+  <template data-tplbox-tpl="footer_link_row">${renderFooterLinkRowTemplate()}</template>
+  <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="footer.blocks">+ Add a footer block</button>
+</div>`;
+}
+
+const TPLBOX_CARDS: ReadonlyArray<{ key: string; letter: string; label: string }> = [
+  { key: "background", letter: "A", label: "Background" },
+  { key: "logo", letter: "B", label: "Logo" },
+  { key: "cta", letter: "C", label: "Phone / URL" },
+  { key: "disclosure", letter: "D", label: "Disclosure" },
+  { key: "free_text", letter: "E", label: "Free text" },
+  { key: "brand_logos", letter: "F", label: "Brand logos" },
+  { key: "footer", letter: "G", label: "Footer" },
+];
+
+function renderTemplateBoxPickers(answerFields: RoutingBuilderData["fields"]): string {
+  const cards = TPLBOX_CARDS.map(
+    (c) =>
+      `<button type="button" class="lg-tplbox-card" data-tplbox-pick="${escapeHtml(c.key)}">
+    <span class="lg-tplbox-card-letter">${escapeHtml(c.letter)}</span>
+    <span>${escapeHtml(c.label)}</span>
+  </button>`,
+  ).join("");
+  return `<div class="lg-panel-card">
+  <h3>Funnel-layout elements</h3>
+  <p class="form-help">Choose a box to open its editor.</p>
+  <div class="lg-tplbox-grid" id="lg-tplbox-grid">${cards}</div>
+  <div class="lg-tplbox-editor" id="lg-tplbox-editor">
+    <p class="form-help" id="lg-tplbox-hint">Choose a box above to edit it.</p>
+    ${renderTplBoxBackground()}
+    ${renderTplBoxLogo()}
+    ${renderTplBoxCta(answerFields)}
+    ${renderTplBoxDisclosure()}
+    ${renderTplBoxFreeText()}
+    ${renderTplBoxBrandLogos()}
+    ${renderTplBoxFooter()}
+  </div>
+</div>`;
+}
+
+// Round-4 P5b: the Templates tab is EXACTLY the seven box pickers (operator
+// restructure spec deliverable 2). The pre-existing 6-arrangement frame-
+// template picker stays canvas-embedded (see renderTemplatePicker's doc
+// comment for the reported conflict this resolves) — `#lg-template-btn`
+// keeps its own, unchanged inline toggle into that canvas-embedded card.
+function renderTemplatesTabPanel(isControl: boolean, answerFields: RoutingBuilderData["fields"]): string {
+  void isControl; // reserved: no per-arm override switch on the P5a element groups (funnel-wide only) — see the section header doc comment.
+  return `<div class="lg-qpanel" data-panel="templates">
+  ${renderTemplateBoxPickers(answerFields)}
 </div>`;
 }
 
@@ -2492,9 +2987,19 @@ function quoteEditorHtml(
   // Round-4 P4b (operator restructure spec): the standalone "Rules" top tab
   // is REMOVED — routing rules now live INSIDE the Funnel builder tab's
   // right-hand column (renderInspectorColumn -> renderRulesPanel). Four tabs,
-  // not five.
+  // not five. Round-4 P5b (operator restructure spec): "Templates" (the
+  // seven box pickers) and "Themes" (the moved theme editor) are promoted to
+  // TOP tabs beside Funnel builder/A/B/Activation/Analytics — inserted right
+  // after Funnel builder. The canvas toolbar's "Theme" quick-access button
+  // JUMPS to the Themes tab (deliverable 1's explicit instruction); "Template"
+  // keeps its EXISTING inline toggle — the 6-arrangement picker stays
+  // canvas-embedded (a REPORTED, deliberate deviation: see
+  // renderTemplatePicker's doc comment for the VERIFIED test-ui/leadgen-
+  // quote-builder.spec.ts regression this avoids).
   const subtabs = `<nav class="lg-qtabs" aria-label="Quote editor tabs">
   <button type="button" class="lg-qtab active" data-tab="builder">Funnel builder</button>
+  <button type="button" class="lg-qtab" data-tab="templates">Templates</button>
+  <button type="button" class="lg-qtab" data-tab="themes">Themes</button>
   <button type="button" class="lg-qtab" data-tab="ab">A/B</button>
   <button type="button" class="lg-qtab" data-tab="activation">Activation</button>
   <button type="button" class="lg-qtab" data-tab="analytics">Analytics</button>
@@ -2513,6 +3018,8 @@ function quoteEditorHtml(
   ${variantBar}
   ${subtabs}
   ${renderBuilderPanel(structure, selected, designs, auctions, available, templates, sites, routingData)}
+  ${renderTemplatesTabPanel(selected.is_control, routingData.fields)}
+  ${renderThemesTabPanel(selected.is_control)}
   ${renderAbPanel(structure, selected)}
   ${renderActivationPanel(activation)}
   ${renderAnalyticsPanel()}
@@ -3013,6 +3520,12 @@ const QUOTE_EDITOR_SCRIPT = `
       if (panels[i].getAttribute('data-panel') === name) { panels[i].className = 'lg-qpanel active'; } else { panels[i].className = 'lg-qpanel'; }
     }
     if (name === 'analytics') { loadAnalytics(); }
+    // Round-4 P5b: repaint on every switch into 'templates'/'themes' so the
+    // box-picker controls (A/B share data-frame-key with the canvas-click
+    // Header/Background inspectors) and the moved theme editor never show a
+    // stale value.
+    if (name === 'templates' || name === 'themes') { populateAllControls(); }
+    if (name === 'themes') { themeMiniOpen = true; scheduleMiniPreview(); }
   }
   var ti;
   for (ti = 0; ti < tabs.length; ti++) {
@@ -3964,11 +4477,21 @@ const QUOTE_EDITOR_SCRIPT = `
     if (frameKey !== null) {
       writeConfigValue(frameKey, value === '' ? null : value);
     } else {
+      // Round-4 P5b: a tplbox media field (F brand-logo items) has NEITHER a
+      // data-frame-key NOR a data-frame-list ancestor — it lives inside a
+      // data-tplbox-list container instead; writeTplboxList (defined below)
+      // recollects and writes that group's FULL shape.
       var box = input;
-      while (box && box.getAttribute && box.getAttribute('data-frame-list') === null) { box = box.parentNode; }
-      if (box && box.getAttribute) {
+      while (
+        box && box.getAttribute &&
+        box.getAttribute('data-frame-list') === null &&
+        box.getAttribute('data-tplbox-list') === null
+      ) { box = box.parentNode; }
+      if (box && box.getAttribute && box.getAttribute('data-frame-list') !== null) {
         var listKey = box.getAttribute('data-frame-list');
         writeConfigValue(listKey, collectList(listKey));
+      } else if (box && box.getAttribute && box.getAttribute('data-tplbox-list') !== null) {
+        writeTplboxList(box.getAttribute('data-tplbox-list'));
       }
     }
     syncMediaField(span);
@@ -4336,6 +4859,12 @@ const QUOTE_EDITOR_SCRIPT = `
     fillList('footer.links', eff.footer ? eff.footer.links : []);
     fillList('trust_strip.logos', eff.trust_strip ? eff.trust_strip.logos : []);
     fillList('benefit_bar.items', eff.benefit_bar ? eff.benefit_bar.items : []);
+    // Round-4 P5b — the Templates-tab seven box pickers' dynamic lists.
+    fillCtaSlots(eff.cta_slots || []);
+    fillDisclosureEntries((eff.disclosure && eff.disclosure.entries) || []);
+    fillFreeText(eff.free_text || []);
+    fillBrandLogos(eff.brand_logos || null);
+    fillFooterBlocks((eff.footer && eff.footer.blocks) || []);
     var themeControls = root.querySelectorAll('[data-theme-key]');
     for (i = 0; i < themeControls.length; i++) {
       var tval = getPath(workingTheme, themeControls[i].getAttribute('data-theme-key'));
@@ -4345,6 +4874,718 @@ const QUOTE_EDITOR_SCRIPT = `
     paintSwatches();
     markStripSelection();
   }
+
+  // ==========================================================================
+  // Round-4 P5b — Templates-tab seven box pickers. Each dynamic list follows
+  // the SAME <template> clone + querySelectorAll collect idiom the pre-
+  // existing footer.links/trust_strip.logos/benefit_bar.items lists use
+  // (renderFrameList/fillList/collectList above), generalized for richer row
+  // shapes (selects, nested condition/block sub-lists) those flat helpers
+  // can't express. A row is INCLUDED in its group's collected array only when
+  // it carries real content (mirrors collectList's 'if (any)' guard) — an
+  // added-then-abandoned blank row never reaches Save.
+  // ==========================================================================
+
+  function tplList(key) { return root.querySelector('[data-tplbox-list="' + key + '"]'); }
+  function tplTemplate(key) { return root.querySelector('template[data-tplbox-tpl="' + key + '"]'); }
+  function cloneTplRow(key) {
+    var tpl = tplTemplate(key);
+    if (!tpl || !tpl.content) { return null; }
+    var frag = document.importNode(tpl.content, true);
+    return frag.firstElementChild;
+  }
+  // Walk up from 'el' to the nearest ancestor carrying 'attr', or null.
+  function closestAttr(el, attr) {
+    var node = el;
+    while (node && node.getAttribute) {
+      if (node.getAttribute(attr) !== null) { return node; }
+      node = node.parentNode;
+    }
+    return null;
+  }
+  function enclosingTplboxPanel(el) {
+    var node = closestAttr(el, 'data-tplbox-panel');
+    return node ? node.getAttribute('data-tplbox-panel') : null;
+  }
+  // Swap a row with its previous/next sibling (F brand-logo items, G footer
+  // blocks "order (up/down)") — the same adjacent-swap idiom movePage/moveSlot
+  // use elsewhere in this island, generalized to any row element.
+  function moveRowSibling(row, dir) {
+    if (!row || !row.parentNode) { return; }
+    if (dir < 0) {
+      var prev = row.previousElementSibling;
+      if (prev) { row.parentNode.insertBefore(row, prev); }
+    } else {
+      var next = row.nextElementSibling;
+      if (next) { row.parentNode.insertBefore(next, row); }
+    }
+  }
+  // A minimal bold/italic/link toolbar over a <textarea>'s current selection
+  // (E free-text blocks) — wraps with the SAME inline tags frame.ts's
+  // sanitizeHtml allow-list accepts (strong/em/a), written into the block's
+  // 'html' field. No rich-text editor dependency; plain selectionStart/End.
+  function wrapSelection(ta, fmt) {
+    var start = ta.selectionStart || 0;
+    var end = ta.selectionEnd || 0;
+    var value = ta.value || '';
+    var selected = value.slice(start, end);
+    var openTag = '';
+    var closeTag = '';
+    if (fmt === 'bold') { openTag = '<strong>'; closeTag = '</strong>'; }
+    else if (fmt === 'italic') { openTag = '<em>'; closeTag = '</em>'; }
+    else if (fmt === 'link') {
+      var url = window.prompt('Link address (https://…)', 'https://');
+      if (!url) { return; }
+      openTag = '<a href="' + url.replace(/"/g, '&quot;') + '">';
+      closeTag = '</a>';
+    } else { return; }
+    ta.value = value.slice(0, start) + openTag + selected + closeTag + value.slice(end);
+    ta.focus();
+    var pos = start + openTag.length + selected.length + closeTag.length;
+    if (ta.setSelectionRange) { ta.setSelectionRange(pos, pos); }
+  }
+  // Shared page-targeting mini-control (10E/10F) — 'all' (the default) is
+  // OMITTED entirely (both 'pages' fields are optional), keeping a
+  // byte-minimal patch when the operator never restricts pages.
+  function collectPageTarget(scopeEl) {
+    var modeEl = scopeEl.querySelector('[data-pt-mode]');
+    var mode = modeEl ? modeEl.value : 'all';
+    if (!mode || mode === 'all') { return null; }
+    var pt = { mode: mode };
+    if (mode === 'range') {
+      var fromEl = scopeEl.querySelector('[data-pt-from]');
+      var toEl = scopeEl.querySelector('[data-pt-to]');
+      pt.from = fromEl && fromEl.value !== '' ? Number(fromEl.value) : 1;
+      pt.to = toEl && toEl.value !== '' ? Number(toEl.value) : pt.from;
+    } else if (mode === 'list') {
+      var listEl = scopeEl.querySelector('[data-pt-list]');
+      var raw = listEl ? listEl.value : '';
+      var parts = raw.split(',');
+      var pages = [];
+      var i;
+      for (i = 0; i < parts.length; i++) {
+        var n = Number(parts[i].replace(/^\\s+|\\s+$/g, ''));
+        if (parts[i].replace(/^\\s+|\\s+$/g, '') !== '' && isFinite(n)) { pages.push(n); }
+      }
+      pt.pages = pages;
+    }
+    return pt;
+  }
+  function fillPageTarget(scopeEl, pt) {
+    var modeEl = scopeEl.querySelector('[data-pt-mode]');
+    if (!modeEl) { return; }
+    setListFieldValue(modeEl, (pt && pt.mode) || 'all');
+    var fromEl = scopeEl.querySelector('[data-pt-from]');
+    var toEl = scopeEl.querySelector('[data-pt-to]');
+    var listEl = scopeEl.querySelector('[data-pt-list]');
+    if (fromEl) { fromEl.value = pt && pt.from !== undefined ? String(pt.from) : ''; }
+    if (toEl) { toEl.value = pt && pt.to !== undefined ? String(pt.to) : ''; }
+    if (listEl) { listEl.value = pt && Object.prototype.toString.call(pt.pages) === '[object Array]' ? pt.pages.join(', ') : ''; }
+  }
+
+  // --- C: cta_slots — top-level array; 'when'/'op'/'value' mirror the
+  // FrameCtaCondition grammar exactly (frames.ts validateFrameCondition). ----
+  function ctaConditionRowValues(row) {
+    return {
+      when: row.querySelector('[data-cta-cond-field]').value,
+      op: row.querySelector('[data-cta-cond-op]').value,
+      value: row.querySelector('[data-cta-cond-value]').value
+    };
+  }
+  function addCtaConditionRow(ctaRow, values) {
+    var rowsBox = ctaRow.querySelector('[data-cta-cond-rows]');
+    var row = cloneTplRow('cta_cond_row');
+    if (!rowsBox || !row) { return; }
+    if (values) {
+      var fEl = row.querySelector('[data-cta-cond-field]');
+      var oEl = row.querySelector('[data-cta-cond-op]');
+      var vEl = row.querySelector('[data-cta-cond-value]');
+      if (fEl && values.when !== undefined) { setListFieldValue(fEl, String(values.when)); }
+      if (oEl && values.op !== undefined) { setListFieldValue(oEl, String(values.op)); }
+      if (vEl && values.value !== undefined && values.value !== null) { vEl.value = String(values.value); }
+    }
+    rowsBox.appendChild(row);
+  }
+  function openCtaCondition(ctaRow) {
+    var box = ctaRow.querySelector('[data-cta-cond-box]');
+    var toggle = ctaRow.querySelector('[data-cta-cond-toggle]');
+    if (box) { box.className = 'lg-tplbox-cond'; }
+    if (toggle) { toggle.setAttribute('aria-expanded', 'true'); }
+  }
+  function collectCtaCondition(ctaRow) {
+    var box = ctaRow.querySelector('[data-cta-cond-box]');
+    if (!box || String(box.className).indexOf('lg-hidden') >= 0) { return null; }
+    var condRows = box.querySelectorAll('[data-cta-cond-row]');
+    var conds = [];
+    var i;
+    for (i = 0; i < condRows.length; i++) {
+      var v = ctaConditionRowValues(condRows[i]);
+      if (v.when === '' && v.value === '') { continue; }
+      conds.push({ when: v.when, op: v.op, value: v.value });
+    }
+    if (conds.length === 0) { return null; }
+    if (conds.length === 1) { return conds[0]; }
+    var matchSel = box.querySelector('[data-cta-cond-match]');
+    return { match: matchSel ? matchSel.value : 'all', conditions: conds };
+  }
+  function collectCtaSlots() {
+    var list = tplList('cta_slots');
+    if (!list) { return []; }
+    var rows = list.querySelectorAll('[data-cta-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var tel = r.querySelector('[data-cta-tel]').value;
+      var href = r.querySelector('[data-cta-href]').value;
+      if (tel === '' && href === '') { continue; } // frame.ts ctaHref -> null either way — nothing to persist
+      var entry = {
+        slot: r.querySelector('[data-cta-slot]').value,
+        label: r.querySelector('[data-cta-label]').value,
+        align: r.querySelector('[data-cta-align]').value
+      };
+      if (tel !== '') { entry.tel = tel; }
+      if (href !== '') { entry.href = href; }
+      var cond = collectCtaCondition(r);
+      if (cond) { entry.condition = cond; }
+      out.push(entry);
+    }
+    return out;
+  }
+  function fillCtaSlots(items) {
+    var list = tplList('cta_slots');
+    if (!list) { return; }
+    clearChildren(list);
+    var i;
+    for (i = 0; i < items.length; i++) {
+      var row = cloneTplRow('cta_slots');
+      if (!row) { continue; }
+      var it = items[i] || {};
+      setListFieldValue(row.querySelector('[data-cta-slot]'), it.slot || 'header_right');
+      var labelEl = row.querySelector('[data-cta-label]'); if (labelEl) { labelEl.value = it.label || ''; }
+      var telEl = row.querySelector('[data-cta-tel]'); if (telEl) { telEl.value = it.tel || ''; }
+      var hrefEl = row.querySelector('[data-cta-href]'); if (hrefEl) { hrefEl.value = it.href || ''; }
+      setListFieldValue(row.querySelector('[data-cta-align]'), it.align || 'left');
+      if (it.condition) {
+        openCtaCondition(row);
+        if (it.condition.conditions) {
+          var matchSel = row.querySelector('[data-cta-cond-match]');
+          if (matchSel) { setListFieldValue(matchSel, it.condition.match || 'all'); }
+          var c;
+          for (c = 0; c < it.condition.conditions.length; c++) { addCtaConditionRow(row, it.condition.conditions[c]); }
+        } else {
+          addCtaConditionRow(row, it.condition);
+        }
+      }
+      list.appendChild(row);
+    }
+  }
+
+  // --- D: disclosure.entries — nested under the existing 'disclosure' group. -
+  function collectDisclosureEntries() {
+    var list = tplList('disclosure.entries');
+    if (!list) { return []; }
+    var rows = list.querySelectorAll('[data-disc-entry-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var text = r.querySelector('[data-disc-text]').value;
+      var linkLabel = r.querySelector('[data-disc-link-label]').value;
+      if (text === '' && linkLabel === '') { continue; }
+      var entry = {
+        location: r.querySelector('[data-disc-location]').value,
+        mode: r.querySelector('[data-disc-mode]').value,
+        text: text,
+        align: r.querySelector('[data-disc-align]').value
+      };
+      if (linkLabel !== '') { entry.link_label = linkLabel; }
+      out.push(entry);
+    }
+    return out;
+  }
+  function fillDisclosureEntries(entries) {
+    var list = tplList('disclosure.entries');
+    if (!list) { return; }
+    clearChildren(list);
+    var i;
+    for (i = 0; i < entries.length; i++) {
+      var row = cloneTplRow('disclosure.entries');
+      if (!row) { continue; }
+      var e = entries[i] || {};
+      setListFieldValue(row.querySelector('[data-disc-location]'), e.location || 'bottom');
+      setListFieldValue(row.querySelector('[data-disc-mode]'), e.mode || 'full');
+      var llEl = row.querySelector('[data-disc-link-label]'); if (llEl) { llEl.value = e.link_label || ''; }
+      setListFieldValue(row.querySelector('[data-disc-align]'), e.align || 'left');
+      var textEl = row.querySelector('[data-disc-text]'); if (textEl) { textEl.value = e.text || ''; }
+      list.appendChild(row);
+    }
+  }
+
+  // --- E: free_text — top-level array; each entry owns a 'blocks' sub-list. -
+  function ftGenId() { return 'ft_' + Date.now() + '_' + Math.floor(Math.random() * 100000); }
+  function ftBlockTypeChanged(blockRow) {
+    var type = blockRow.querySelector('[data-ft-block-type]').value;
+    var itemsEl = blockRow.querySelector('[data-ft-block-items]');
+    var textEl = blockRow.querySelector('[data-ft-block-text]');
+    var styleEl = blockRow.querySelector('[data-ft-block-liststyle]');
+    var toolbar = blockRow.querySelector('[data-ft-block-toolbar]');
+    var isList = type === 'list';
+    if (itemsEl) { itemsEl.className = isList ? 'form-input' : 'form-input lg-hidden'; }
+    if (textEl) { textEl.className = isList ? 'form-input lg-hidden' : 'form-input'; }
+    if (styleEl) { styleEl.className = isList ? 'form-select form-select-sm' : 'form-select form-select-sm lg-hidden'; }
+    if (toolbar) { toolbar.className = isList ? 'lg-tplbox-toolbar lg-hidden' : 'lg-tplbox-toolbar'; }
+  }
+  function addFreeTextBlockRow(entryRow, values) {
+    var box = entryRow.querySelector('[data-ft-blocks]');
+    var row = cloneTplRow('free_text_block');
+    if (!box || !row) { return; }
+    if (values) {
+      setListFieldValue(row.querySelector('[data-ft-block-type]'), values.type || 'paragraph');
+      if (values.type === 'list') {
+        var itemsEl = row.querySelector('[data-ft-block-items]');
+        if (itemsEl) { itemsEl.value = Object.prototype.toString.call(values.items) === '[object Array]' ? values.items.join('\\n') : ''; }
+        setListFieldValue(row.querySelector('[data-ft-block-liststyle]'), values.style || 'unordered');
+      } else {
+        var textEl = row.querySelector('[data-ft-block-text]');
+        if (textEl) { textEl.value = values.html || values.text || ''; }
+      }
+    }
+    box.appendChild(row);
+    ftBlockTypeChanged(row);
+  }
+  function ftBlockValues(blockRow) {
+    var type = blockRow.querySelector('[data-ft-block-type]').value;
+    if (type === 'list') {
+      var itemsRaw = blockRow.querySelector('[data-ft-block-items]').value;
+      var lines = itemsRaw.split('\\n');
+      var items = [];
+      var i;
+      for (i = 0; i < lines.length; i++) {
+        var t = lines[i].replace(/^\\s+|\\s+$/g, '');
+        if (t !== '') { items.push(t); }
+      }
+      if (items.length === 0) { return null; }
+      var styleEl = blockRow.querySelector('[data-ft-block-liststyle]');
+      return { type: 'list', items: items, style: styleEl ? styleEl.value : 'unordered' };
+    }
+    var text = blockRow.querySelector('[data-ft-block-text]').value;
+    if (text === '') { return null; }
+    return { type: type, html: text };
+  }
+  function collectFreeTextBlocks(entryRow) {
+    var box = entryRow.querySelector('[data-ft-blocks]');
+    if (!box) { return []; }
+    var rows = box.querySelectorAll('[data-ft-block-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var b = ftBlockValues(rows[i]);
+      if (b) { out.push(b); }
+    }
+    return out;
+  }
+  function collectFreeText() {
+    var list = tplList('free_text');
+    if (!list) { return []; }
+    var rows = list.querySelectorAll('[data-ft-entry-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var blocks = collectFreeTextBlocks(r);
+      if (blocks.length === 0) { continue; }
+      var idEl = r.querySelector('[data-ft-entry-id]');
+      if (idEl && !idEl.value) { idEl.value = ftGenId(); }
+      var entry = {
+        id: idEl ? idEl.value : ftGenId(),
+        slot: r.querySelector('[data-ft-slot]').value,
+        blocks: blocks,
+        align: r.querySelector('[data-ft-align]').value
+      };
+      var sizeEl = r.querySelector('[data-ft-typo-size]');
+      var colorEl = r.querySelector('[data-ft-typo-color]');
+      var typo = {};
+      var hasTypo = false;
+      if (sizeEl && sizeEl.value !== '') { typo.size = sizeEl.value; hasTypo = true; }
+      if (colorEl && colorEl.value !== '') { typo.color = colorEl.value; hasTypo = true; }
+      if (hasTypo) { entry.typography = typo; }
+      var pt = collectPageTarget(r);
+      if (pt) { entry.pages = pt; }
+      out.push(entry);
+    }
+    return out;
+  }
+  function fillFreeText(entries) {
+    var list = tplList('free_text');
+    if (!list) { return; }
+    clearChildren(list);
+    var i;
+    for (i = 0; i < entries.length; i++) {
+      var row = cloneTplRow('free_text');
+      if (!row) { continue; }
+      var e = entries[i] || {};
+      var idEl = row.querySelector('[data-ft-entry-id]'); if (idEl) { idEl.value = e.id || ftGenId(); }
+      setListFieldValue(row.querySelector('[data-ft-slot]'), e.slot || 'above_section');
+      setListFieldValue(row.querySelector('[data-ft-align]'), e.align || 'left');
+      var sizeEl = row.querySelector('[data-ft-typo-size]');
+      var colorEl = row.querySelector('[data-ft-typo-color]');
+      if (sizeEl) { sizeEl.value = (e.typography && e.typography.size) || ''; }
+      if (colorEl) { colorEl.value = (e.typography && e.typography.color) || ''; }
+      fillPageTarget(row, e.pages);
+      var blocks = Object.prototype.toString.call(e.blocks) === '[object Array]' ? e.blocks : [];
+      var b;
+      for (b = 0; b < blocks.length; b++) { addFreeTextBlockRow(row, blocks[b]); }
+      list.appendChild(row);
+    }
+  }
+
+  // --- F: brand_logos — one wrapper object + an 'items' sub-list. -----------
+  function collectBrandLogoItems() {
+    var list = tplList('brand_logos.items');
+    if (!list) { return []; }
+    var rows = list.querySelectorAll('[data-bl-item-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var mediaInput = r.querySelector('[data-list-field="media_id"]');
+      var mediaId = mediaInput ? mediaInput.value : '';
+      var url = r.querySelector('[data-bl-item-url]').value;
+      var alt = r.querySelector('[data-bl-item-alt]').value;
+      if (mediaId === '' && url === '' && alt === '') { continue; }
+      var item = { alt: alt };
+      if (mediaId !== '') { item.media_id = mediaId; }
+      if (url !== '') { item.url = url; }
+      var sizeEl = r.querySelector('[data-bl-item-size]');
+      item.size = sizeEl ? sizeEl.value : 'm';
+      out.push(item);
+    }
+    return out;
+  }
+  function collectBrandLogos() {
+    var panel = root.querySelector('[data-tplbox-panel="brand_logos"]');
+    if (!panel) { return { enabled: false, items: [], layout: 'row' }; }
+    var enabledEl = panel.querySelector('[data-bl-enabled]');
+    var layoutEl = panel.querySelector('[data-bl-layout]');
+    var slotEl = panel.querySelector('[data-bl-slot]');
+    var alignEl = panel.querySelector('[data-bl-align]');
+    var cfg = {
+      enabled: enabledEl ? enabledEl.checked : false,
+      layout: layoutEl ? layoutEl.value : 'row',
+      items: collectBrandLogoItems(),
+      slot: slotEl ? slotEl.value : 'below_section',
+      align: alignEl ? alignEl.value : 'left'
+    };
+    var pt = collectPageTarget(panel);
+    if (pt) { cfg.pages = pt; }
+    return cfg;
+  }
+  function fillBrandLogoItemRow(row, it) {
+    var mediaInput = row.querySelector('[data-list-field="media_id"]');
+    if (mediaInput) { mediaInput.value = it.media_id || ''; }
+    var span = row.querySelector('[data-media-field]');
+    if (span) { syncMediaField(span); }
+    var urlEl = row.querySelector('[data-bl-item-url]'); if (urlEl) { urlEl.value = it.url || ''; }
+    var altEl = row.querySelector('[data-bl-item-alt]'); if (altEl) { altEl.value = it.alt || ''; }
+    setListFieldValue(row.querySelector('[data-bl-item-size]'), it.size || 'm');
+  }
+  function fillBrandLogos(cfg) {
+    var panel = root.querySelector('[data-tplbox-panel="brand_logos"]');
+    if (!panel) { return; }
+    var enabledEl = panel.querySelector('[data-bl-enabled]');
+    if (enabledEl) { enabledEl.checked = !!(cfg && cfg.enabled); }
+    setListFieldValue(panel.querySelector('[data-bl-layout]'), (cfg && cfg.layout) || 'row');
+    setListFieldValue(panel.querySelector('[data-bl-slot]'), (cfg && cfg.slot) || 'below_section');
+    setListFieldValue(panel.querySelector('[data-bl-align]'), (cfg && cfg.align) || 'left');
+    fillPageTarget(panel, cfg ? cfg.pages : undefined);
+    var list = tplList('brand_logos.items');
+    if (list) {
+      clearChildren(list);
+      var items = (cfg && cfg.items) || [];
+      var i;
+      for (i = 0; i < items.length; i++) {
+        var row = cloneTplRow('brand_logos.items');
+        if (!row) { continue; }
+        fillBrandLogoItemRow(row, items[i] || {});
+        list.appendChild(row);
+      }
+    }
+  }
+
+  // --- G: footer.blocks — nested under the existing 'footer' group. ---------
+  function footerBlockTypeChanged(blockRow) {
+    var type = blockRow.querySelector('[data-footer-block-type]').value;
+    var textEl = blockRow.querySelector('[data-footer-block-text]');
+    var linkrowEl = blockRow.querySelector('[data-footer-block-linkrow]');
+    var showText = type === 'about_paragraph' || type === 'disclosure' || type === 'address';
+    var showLinks = type === 'link_row';
+    if (textEl) { textEl.className = showText ? 'form-input' : 'form-input lg-hidden'; }
+    if (linkrowEl) { linkrowEl.className = showLinks ? '' : 'lg-hidden'; }
+  }
+  function addFooterLinkRow(linkrowEl, values) {
+    var box = linkrowEl.querySelector('[data-footer-block-links]');
+    var row = cloneTplRow('footer_link_row');
+    if (!box || !row) { return; }
+    if (values) {
+      var labelEl = row.querySelector('[data-footer-link-label]'); if (labelEl) { labelEl.value = values.label || ''; }
+      var hrefEl = row.querySelector('[data-footer-link-href]'); if (hrefEl) { hrefEl.value = values.href || ''; }
+    }
+    box.appendChild(row);
+  }
+  function collectFooterLinkRows(linkrowEl) {
+    var box = linkrowEl.querySelector('[data-footer-block-links]');
+    if (!box) { return []; }
+    var rows = box.querySelectorAll('[data-footer-link-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var label = rows[i].querySelector('[data-footer-link-label]').value;
+      var href = rows[i].querySelector('[data-footer-link-href]').value;
+      if (label === '' && href === '') { continue; }
+      out.push({ label: label, href: href });
+    }
+    return out;
+  }
+  function collectFooterBlocks() {
+    var list = tplList('footer.blocks');
+    if (!list) { return []; }
+    var rows = list.querySelectorAll('[data-footer-block-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var type = r.querySelector('[data-footer-block-type]').value;
+      var text = r.querySelector('[data-footer-block-text]').value;
+      var align = r.querySelector('[data-footer-block-align]').value;
+      var showText = type === 'about_paragraph' || type === 'disclosure' || type === 'address';
+      if (showText && text === '') { continue; } // an empty text-typed block renders nothing — skip it
+      var block = { type: type, align: align };
+      if (showText) { block.text = text; }
+      if (type === 'link_row') {
+        var linkrowEl = r.querySelector('[data-footer-block-linkrow]');
+        var linksSourceEl = r.querySelector('[data-footer-block-linksource]');
+        block.links_source = linksSourceEl ? linksSourceEl.value : 'site';
+        if (block.links_source === 'manual') {
+          var links = linkrowEl ? collectFooterLinkRows(linkrowEl) : [];
+          if (links.length === 0) { continue; } // nothing typed — a manual link row would render nothing
+          block.links = links;
+        }
+      }
+      out.push(block);
+    }
+    return out;
+  }
+  function fillFooterBlocks(blocks) {
+    var list = tplList('footer.blocks');
+    if (!list) { return; }
+    clearChildren(list);
+    var i;
+    for (i = 0; i < blocks.length; i++) {
+      var row = cloneTplRow('footer.blocks');
+      if (!row) { continue; }
+      var b = blocks[i] || {};
+      setListFieldValue(row.querySelector('[data-footer-block-type]'), b.type || 'about_paragraph');
+      setListFieldValue(row.querySelector('[data-footer-block-align]'), b.align || 'left');
+      var textEl = row.querySelector('[data-footer-block-text]'); if (textEl) { textEl.value = b.text || ''; }
+      if (b.type === 'link_row') {
+        var linkrowEl = row.querySelector('[data-footer-block-linkrow]');
+        var linksSourceEl = row.querySelector('[data-footer-block-linksource]');
+        setListFieldValue(linksSourceEl, b.links_source || 'site');
+        var links = Object.prototype.toString.call(b.links) === '[object Array]' ? b.links : [];
+        var l;
+        for (l = 0; l < links.length; l++) { addFooterLinkRow(linkrowEl, links[l]); }
+      }
+      list.appendChild(row);
+      footerBlockTypeChanged(row);
+    }
+  }
+
+  // A media pick (the shared #lg-media-picker modal) sets a hidden input
+  // directly (no native 'change' event) — writeMediaFieldValue's fallback
+  // (below, near the media-picker section) recognizes a 'data-tplbox-list'
+  // ancestor and calls this SAME dispatcher so a picked brand-logo image
+  // persists exactly like every other tplbox edit.
+  var TPLBOX_LIST_WRITERS = {
+    'cta_slots': function () { writeConfigValue('cta_slots', collectCtaSlots()); },
+    'disclosure.entries': function () { writeConfigValue('disclosure.entries', collectDisclosureEntries()); },
+    'free_text': function () { writeConfigValue('free_text', collectFreeText()); },
+    'brand_logos.items': function () { writeConfigValue('brand_logos', collectBrandLogos()); },
+    'footer.blocks': function () { writeConfigValue('footer.blocks', collectFooterBlocks()); }
+  };
+  function writeTplboxList(key) {
+    var writer = TPLBOX_LIST_WRITERS[key];
+    if (writer) { writer(); }
+  }
+  var TPLBOX_PANEL_LIST_KEY = { cta: 'cta_slots', disclosure: 'disclosure.entries', free_text: 'free_text', brand_logos: 'brand_logos.items', footer: 'footer.blocks' };
+
+  // ONE 'change' dispatcher for every box C–G field (selects/inputs/
+  // textareas) — determines the owning box from the nearest
+  // [data-tplbox-panel] ancestor and recollects+writes THAT group only.
+  // Boxes A/B (background/logo) use the pre-existing generic [data-frame-key]
+  // change listener instead (no entry here — TPLBOX_PANEL_LIST_KEY omits
+  // them on purpose).
+  root.addEventListener('change', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute) { return; }
+    var panel = enclosingTplboxPanel(el);
+    if (panel === null) { return; }
+    var listKey = TPLBOX_PANEL_LIST_KEY[panel];
+    if (listKey === undefined) { return; }
+    if (panel === 'free_text' && el.getAttribute('data-ft-block-type') !== null) {
+      var ftBlockRow = closestAttr(el, 'data-ft-block-row');
+      if (ftBlockRow) { ftBlockTypeChanged(ftBlockRow); }
+    }
+    if (panel === 'footer' && el.getAttribute('data-footer-block-type') !== null) {
+      var footerBlockRow = closestAttr(el, 'data-footer-block-row');
+      if (footerBlockRow) { footerBlockTypeChanged(footerBlockRow); }
+    }
+    writeTplboxList(listKey);
+  });
+
+  // Box-card picker → its right-side editor (independent of the canvas's
+  // data-region-panel/showRegionPanel — see the section header doc comment).
+  function showTplBoxPanel(name) {
+    var panels = root.querySelectorAll('[data-tplbox-panel]');
+    var i;
+    for (i = 0; i < panels.length; i++) {
+      panels[i].className = panels[i].getAttribute('data-tplbox-panel') === name ? 'lg-inspector-panel lg-panel-card active' : 'lg-inspector-panel lg-panel-card';
+    }
+    var cards = root.querySelectorAll('[data-tplbox-pick]');
+    for (i = 0; i < cards.length; i++) {
+      cards[i].className = cards[i].getAttribute('data-tplbox-pick') === name ? 'lg-tplbox-card selected' : 'lg-tplbox-card';
+    }
+    var hint = byId('lg-tplbox-hint');
+    if (hint) { hint.hidden = true; }
+  }
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    while (el && el.getAttribute && el.getAttribute('data-tplbox-pick') === null) { el = el.parentNode; }
+    if (!el || !el.getAttribute) { return; }
+    var name = el.getAttribute('data-tplbox-pick');
+    if (name) { showTplBoxPanel(name); }
+  });
+
+  // "+ Add …" — one dispatcher for every box's add button (data-tplbox-add).
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute) { return; }
+    var addKey = el.getAttribute('data-tplbox-add');
+    if (addKey === null) { return; }
+    var list = tplList(addKey);
+    if (!list) { return; }
+    if (addKey === 'free_text') {
+      var row = cloneTplRow('free_text');
+      if (row) { addFreeTextBlockRow(row, { type: 'paragraph' }); list.appendChild(row); }
+      return;
+    }
+    if (addKey === 'footer.blocks') {
+      var frow = cloneTplRow('footer.blocks');
+      if (frow) { list.appendChild(frow); footerBlockTypeChanged(frow); }
+      return;
+    }
+    var plain = cloneTplRow(addKey);
+    if (plain) { list.appendChild(plain); }
+  });
+
+  // C: CTA slot row remove + the condition sub-editor (toggle/add/remove).
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute || !el.hasAttribute) { return; }
+    if (el.hasAttribute('data-cta-remove')) {
+      var row = closestAttr(el, 'data-cta-row');
+      if (row && row.parentNode) { row.parentNode.removeChild(row); writeConfigValue('cta_slots', collectCtaSlots()); }
+      return;
+    }
+    if (el.hasAttribute('data-cta-cond-toggle')) {
+      var ctaRow = closestAttr(el, 'data-cta-row');
+      if (!ctaRow) { return; }
+      var box = ctaRow.querySelector('[data-cta-cond-box]');
+      if (!box) { return; }
+      var open = String(box.className).indexOf('lg-hidden') >= 0;
+      box.className = open ? 'lg-tplbox-cond' : 'lg-tplbox-cond lg-hidden';
+      el.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open && box.querySelectorAll('[data-cta-cond-row]').length === 0) { addCtaConditionRow(ctaRow, null); }
+      return;
+    }
+    if (el.hasAttribute('data-cta-cond-add')) {
+      var ctaRow2 = closestAttr(el, 'data-cta-row');
+      if (ctaRow2) { addCtaConditionRow(ctaRow2, null); }
+      return;
+    }
+    if (el.hasAttribute('data-cta-cond-row-remove')) {
+      var condRow = closestAttr(el, 'data-cta-cond-row');
+      if (condRow && condRow.parentNode) { condRow.parentNode.removeChild(condRow); writeConfigValue('cta_slots', collectCtaSlots()); }
+    }
+  });
+
+  // D: disclosure entry remove.
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute || !el.hasAttribute || !el.hasAttribute('data-disc-entry-remove')) { return; }
+    var row = closestAttr(el, 'data-disc-entry-row');
+    if (row && row.parentNode) { row.parentNode.removeChild(row); writeConfigValue('disclosure.entries', collectDisclosureEntries()); }
+  });
+
+  // E: free-text entry/block remove + "add a text block" + the toolbar.
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute || !el.hasAttribute) { return; }
+    if (el.hasAttribute('data-ft-entry-remove')) {
+      var eRow = closestAttr(el, 'data-ft-entry-row');
+      if (eRow && eRow.parentNode) { eRow.parentNode.removeChild(eRow); writeConfigValue('free_text', collectFreeText()); }
+      return;
+    }
+    if (el.hasAttribute('data-ft-block-add')) {
+      var entryRow = closestAttr(el, 'data-ft-entry-row');
+      if (entryRow) { addFreeTextBlockRow(entryRow, { type: 'paragraph' }); }
+      return;
+    }
+    if (el.hasAttribute('data-ft-block-remove')) {
+      var blockRow = closestAttr(el, 'data-ft-block-row');
+      var owner = blockRow ? closestAttr(blockRow.parentNode, 'data-ft-entry-row') : null;
+      if (blockRow && blockRow.parentNode) { blockRow.parentNode.removeChild(blockRow); }
+      if (owner) { writeConfigValue('free_text', collectFreeText()); }
+      return;
+    }
+    var fmt = el.getAttribute('data-ft-fmt');
+    if (fmt) {
+      var toolbarBlock = closestAttr(el, 'data-ft-block-row');
+      var ta = toolbarBlock ? toolbarBlock.querySelector('[data-ft-block-text]') : null;
+      if (ta) { wrapSelection(ta, fmt); writeConfigValue('free_text', collectFreeText()); }
+    }
+  });
+
+  // F: brand-logo item remove/reorder.
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute || !el.hasAttribute) { return; }
+    var itemRow = closestAttr(el, 'data-bl-item-row');
+    if (!itemRow) { return; }
+    if (el.hasAttribute('data-bl-item-remove')) { if (itemRow.parentNode) { itemRow.parentNode.removeChild(itemRow); } writeConfigValue('brand_logos', collectBrandLogos()); return; }
+    if (el.hasAttribute('data-bl-item-up')) { moveRowSibling(itemRow, -1); writeConfigValue('brand_logos', collectBrandLogos()); return; }
+    if (el.hasAttribute('data-bl-item-down')) { moveRowSibling(itemRow, 1); writeConfigValue('brand_logos', collectBrandLogos()); }
+  });
+
+  // G: footer block remove/reorder + its manual link-row sub-list.
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute || !el.hasAttribute) { return; }
+    if (el.hasAttribute('data-footer-link-remove')) {
+      var linkRow = closestAttr(el, 'data-footer-link-row');
+      if (linkRow && linkRow.parentNode) { linkRow.parentNode.removeChild(linkRow); writeConfigValue('footer.blocks', collectFooterBlocks()); }
+      return;
+    }
+    var blockRow = closestAttr(el, 'data-footer-block-row');
+    if (!blockRow) { return; }
+    if (el.hasAttribute('data-footer-block-remove')) { if (blockRow.parentNode) { blockRow.parentNode.removeChild(blockRow); } writeConfigValue('footer.blocks', collectFooterBlocks()); return; }
+    if (el.hasAttribute('data-footer-block-up')) { moveRowSibling(blockRow, -1); writeConfigValue('footer.blocks', collectFooterBlocks()); return; }
+    if (el.hasAttribute('data-footer-block-down')) { moveRowSibling(blockRow, 1); writeConfigValue('footer.blocks', collectFooterBlocks()); return; }
+    if (el.hasAttribute('data-footer-block-link-add')) {
+      var linkrowEl = blockRow.querySelector('[data-footer-block-linkrow]');
+      if (linkrowEl) { addFooterLinkRow(linkrowEl, null); }
+    }
+  });
 
   // --- the canvas (server-rendered composed page in a srcdoc iframe) ---------
   var canvas = byId('lg-preview-iframe');
@@ -4672,28 +5913,26 @@ const QUOTE_EDITOR_SCRIPT = `
   });
 
   // --- template picker (§4.3, C5 preview-before-apply) -----------------------
-  function togglePanel(id, otherId) {
+  // Round-4 P5b: #lg-template-btn keeps its ORIGINAL inline toggle — the
+  // 6-arrangement picker stays canvas-embedded (reported conflict: moving it
+  // behind the Templates tab hides the canvas mid preview-before-apply,
+  // breaking test-ui/leadgen-quote-builder.spec.ts rows (2) and (6), VERIFIED
+  // failing — see renderTemplatePicker's doc comment + the P5b report).
+  // #lg-theme-btn DOES jump to the new "Themes" tab per the operator
+  // restructure spec's explicit, unambiguous instruction for that surface
+  // (deliverable 1) — activate() does the mini-preview kick for 'themes'.
+  function togglePanel(id) {
     var panel = byId(id);
-    var other = byId(otherId);
-    if (other) { other.className = 'lg-panel-card lg-hidden'; }
-    if (panel) {
-      var open = String(panel.className).indexOf('lg-hidden') >= 0;
-      panel.className = open ? 'lg-panel-card' : 'lg-panel-card lg-hidden';
-      return open;
-    }
-    return false;
+    if (!panel) { return false; }
+    var open = String(panel.className).indexOf('lg-hidden') >= 0;
+    panel.className = open ? 'lg-panel-card' : 'lg-panel-card lg-hidden';
+    return open;
   }
   (function () {
     var btn = byId('lg-template-btn');
-    if (btn) { btn.addEventListener('click', function () { togglePanel('lg-template-picker', 'lg-theme-editor'); themeMiniOpen = false; }); }
+    if (btn) { btn.addEventListener('click', function () { togglePanel('lg-template-picker'); }); }
     var themeBtn = byId('lg-theme-btn');
-    if (themeBtn) {
-      themeBtn.addEventListener('click', function () {
-        var open = togglePanel('lg-theme-editor', 'lg-template-picker');
-        themeMiniOpen = open;
-        if (open) { scheduleMiniPreview(); }
-      });
-    }
+    if (themeBtn) { themeBtn.addEventListener('click', function () { activate('themes'); }); }
   }());
   function showTemplateConfirm(confirmations) {
     var box = byId('lg-template-confirm');
