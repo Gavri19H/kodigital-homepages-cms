@@ -73,11 +73,43 @@ function normalizeBoolShape(value: unknown): unknown {
   return value;
 }
 
-// Server-parity op evaluator — see the mirrored-semantics table above.
+// A-4 (Round-4) composed condition group — the §21.4 AND/OR model applied at
+// the SECTION level (industry-standard ANY/ALL groups, Form.io/Tally/Formidable).
+// `match:"any"` = OR (at least one condition true); anything else (incl. "all"
+// or absent) = AND (every condition true). Empty `conditions` follows the
+// Array.every/some identities: all ⇒ true (vacuous), any ⇒ false. A group is
+// detected STRUCTURALLY by an array `conditions` (a bare LgConditional never
+// carries one), so both shapes coexist in the same conditional /
+// props.requiredWhen / continue_visible_when slot with no discriminator field.
+// Total + fail-closed: every leg bottoms out in the bare evaluator, whose
+// absent-answer rule makes an unknown field false — a group never throws and
+// never blocks on missing data. The server twin (payload.ts conditionalMet)
+// carries the byte-identical dispatch so client show/hide and money-path
+// node-drop can never diverge on a composed rule.
+export interface LgConditionGroup {
+  match?: "all" | "any";
+  conditions: LgConditional[];
+}
+
+export function isConditionGroup(v: unknown): v is LgConditionGroup {
+  return (
+    v !== null &&
+    typeof v === "object" &&
+    Array.isArray((v as { conditions?: unknown }).conditions)
+  );
+}
+
+// Server-parity op evaluator — accepts BOTH the bare {when,op,...} conditional
+// (legacy — evaluated exactly as before) and the composed group above.
 export function conditionMet(
-  conditional: LgConditional,
+  conditional: LgConditional | LgConditionGroup,
   answers: Readonly<Record<string, unknown>>,
 ): boolean {
+  if (isConditionGroup(conditional)) {
+    return conditional.match === "any"
+      ? conditional.conditions.some((c) => conditionMet(c, answers))
+      : conditional.conditions.every((c) => conditionMet(c, answers));
+  }
   const actual = answers[conditional.when];
   if (actual === undefined) return false;
   switch (conditional.op) {
@@ -125,7 +157,7 @@ export function conditionMet(
 }
 
 function isConditionMetOn(
-  conditional: LgConditional | undefined,
+  conditional: LgConditional | LgConditionGroup | undefined,
   answers: Readonly<Record<string, unknown>>,
 ): boolean {
   if (!conditional) return true;
@@ -152,7 +184,9 @@ function requiredNow(
 ): boolean {
   if (component.required === true) return true;
   const rw = component.props ? component.props["requiredWhen"] : undefined;
+  // requiredWhen may be a bare conditional OR a composed group (A-4).
   if (isConditionalShape(rw)) return isConditionMetOn(rw, answers);
+  if (isConditionGroup(rw)) return isConditionMetOn(rw, answers);
   return false;
 }
 

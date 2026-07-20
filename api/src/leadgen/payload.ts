@@ -93,6 +93,20 @@ export interface LeadgenPayloadConditional {
   to?: number;
 }
 
+// A-4 (Round-4) composed condition group — the §21.4 AND/OR model at the
+// SECTION level (ANY/ALL groups). `match:"any"` = OR (some), anything else
+// (incl. "all"/absent) = AND (every); empty `conditions` follows every/some
+// (all ⇒ true, any ⇒ false). Detected STRUCTURALLY by an array `conditions`
+// (a bare conditional never carries one). The SINGLE money-path evaluator
+// `conditionalMet` (below) dispatches on it, byte-identically to the client
+// twin (public/leadgen/runtime/dependencies.ts conditionMet), so payload-build
+// node-drop, the §12.3 dependency show/hide/require (dependencies.ts delegates
+// here), and auction-rules eligibility can never diverge on a composed rule.
+export interface LeadgenPayloadConditionGroup {
+  match?: "all" | "any";
+  conditions: LeadgenPayloadConditional[];
+}
+
 // The normative transform pipeline steps (05 §12, `value_transform`).
 export type LeadgenTransformStep =
   | { kind: "mapBoolean" }
@@ -1092,15 +1106,35 @@ function normalizeBoolShape(value: unknown): unknown {
   return value;
 }
 
+// A composed group is detected structurally by an array `conditions` (a bare
+// conditional never carries one) — the client twin uses the identical guard.
+export function isPayloadConditionGroup(v: unknown): v is LeadgenPayloadConditionGroup {
+  return (
+    v !== null &&
+    typeof v === "object" &&
+    Array.isArray((v as { conditions?: unknown }).conditions)
+  );
+}
+
 // 07 §21.4 semantics scoped to one field: OR within `values`, numeric
 // comparisons only over finite numbers. An ABSENT answer never satisfies a
 // conditional (deterministic: unmet ⇒ node dropped). Exported as the single
 // source of condition-op truth: the §12.3 dependency engine (dependencies.ts)
 // reuses THIS evaluator so payload-build and show/hide/require never diverge.
+// A-4: also accepts the composed {match,conditions} group — match:"any" = OR
+// (some), anything else (incl. "all"/absent) = AND (every); empty conditions
+// follows every/some (all ⇒ true, any ⇒ false). This mirrors the client
+// conditionMet leg-for-leg so a composed rule evaluates identically on both
+// sides (the parity table covers every op × shape × match).
 export function conditionalMet(
-  conditional: LeadgenPayloadConditional,
+  conditional: LeadgenPayloadConditional | LeadgenPayloadConditionGroup,
   answers: Readonly<Record<string, unknown>>,
 ): boolean {
+  if (isPayloadConditionGroup(conditional)) {
+    return conditional.match === "any"
+      ? conditional.conditions.some((c) => conditionalMet(c, answers))
+      : conditional.conditions.every((c) => conditionalMet(c, answers));
+  }
   const actual = answers[conditional.when];
   if (actual === undefined) return false;
   switch (conditional.op) {
