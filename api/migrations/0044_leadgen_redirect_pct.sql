@@ -14,7 +14,19 @@
 -- apply here -- that ritual is reserved for CHECK constraint changes, e.g.
 -- 0043's rule_type CHECK extension). `REAL` (not INTEGER) so a future
 -- fractional percent (e.g. 33.3) is representable without a further
--- migration; `NULL` default so every pre-existing row reads as "unset" ->
--- `redirect_pct ?? 0` -> no redirect, preserving 100% of current behavior for
--- every existing redirect_direct_offer rule the moment this column appears.
+-- migration; `NULL` default so the ADD COLUMN itself is a no-op for every
+-- existing row.
+--
+-- BEHAVIOR-PRESERVING BACKFILL (deployment-discipline micro-round): the
+-- runtime gate this column feeds (auction/engine.ts step 4) treats
+-- `redirect_pct ?? 0` as "never redirect" -- correct for a rule authored
+-- AFTER this ships, but it would silently STOP every EXISTING, live
+-- redirect_direct_offer rule from ever redirecting again (today, with no
+-- pct concept at all, a match ALWAYS redirects). Backfilling existing rows
+-- to 100 keeps them redirecting exactly as they do today; only a NEWLY
+-- authored rule (INSERTed after this migration, so it starts genuinely NULL)
+-- gets the contract's NULL -> 0 default. This is a schema-migration
+-- behavior-preservation step, not a live operator data mutation -- NOT
+-- backfilling is what would change production behavior.
 ALTER TABLE leadgen_funnel_rules ADD COLUMN redirect_pct REAL NULL;
+UPDATE leadgen_funnel_rules SET redirect_pct = 100 WHERE rule_type = 'redirect_direct_offer' AND redirect_pct IS NULL;
