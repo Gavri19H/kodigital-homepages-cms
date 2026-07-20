@@ -47,7 +47,7 @@ import type { Env } from "../../env";
 // resolveTokens the runtime/composed-preview path already calls (theme.ts);
 // getThemeRecord is the KV `lg-funnel-themes` lookup (themes-handlers.ts owns
 // the store — this handler only reads it, never writes).
-import { resolveTokens, winningThemeId, type EffectiveTokens } from "../../public/leadgen/designs/theme";
+import { resolveTokens, winningThemeId, type EffectiveTokens, type Problem } from "../../public/leadgen/designs/theme";
 import { getThemeRecord } from "../../public/leadgen/designs/theme-store";
 // §8.5 layout containers: question/mapping/ZIP walks consume the canonical
 // flattened projection; ONLY the renderer receives the full tree (it recurses).
@@ -340,6 +340,33 @@ interface ParsedAnswerMaps {
   edges: LeadgenAnswerMapEdge[];
   selectedOfferIds: Set<number>;
   errors: FieldErrors;
+  // P2 review-round: non-blocking §3.6 Problem-shaped warnings (currently
+  // just the formatPhone x phone_format incoherence check below) — rides
+  // the SAME problems[] the section save response already carries (FIX 5,
+  // 03 §3.6), never a new response key.
+  warnings: Problem[];
+}
+
+// P2 adversarial review: props.phone_format (content-schema.ts, Round-4
+// A-6b) lets an author accept e164_intl/il/custom phone shapes, but the
+// answer-map value_transform step `formatPhone` (payload.ts
+// transformFormatPhone) hard-requires exactly 10 NANP digits and silently
+// drops (returns undefined for) anything else — a lead's phone answer
+// validated under a non-NANP format vanishes from the dispatched payload
+// with NO signal to the author. absent/'nanp' is the coherent pairing;
+// anything else (a preset string OR a {custom:{...}} object) warns, never
+// blocks (the combination exists in shipped content already).
+function phoneFormatIncoherenceWarning(node: Record<string, unknown>, path: string): Problem | null {
+  const props = isRecord(node["props"]) ? node["props"] : {};
+  const phoneFormat = props["phone_format"];
+  if (phoneFormat === undefined || phoneFormat === null || phoneFormat === "nanp") return null;
+  return {
+    path,
+    scope: "mapping",
+    severity: "warning",
+    message:
+      "This field uses an international phone format, but the offer mapping applies a US-only phone transform — the phone may be dropped from the lead. Align the format or the transform.",
+  };
 }
 
 function parseTransformSteps(raw: unknown, key: string, errors: FieldErrors): LeadgenTransformStep[] | null {
@@ -377,6 +404,7 @@ async function parseAnswerMaps(
   content: LeadgenSectionContent,
 ): Promise<ParsedAnswerMaps> {
   const errors: FieldErrors = {};
+  const warnings: Problem[] = [];
   const rawMaps = body["answer_maps"];
   const nodesByQuestionId = new Map<string, Record<string, unknown>>();
   // §8.5: mappable questions come from the flattened projection — an edge may
@@ -473,6 +501,14 @@ async function parseAnswerMaps(
     );
     if (errors[`${base}.value_transform`] !== undefined) return;
 
+    // P2 review-round: formatPhone x a non-NANP phone_format is a silent
+    // lead-drop, never a save-blocker (the combination exists in shipped
+    // content already) — warn, don't reject.
+    if (transform !== null && transform.some((step) => step.kind === "formatPhone")) {
+      const warning = phoneFormatIncoherenceWarning(node, `${base}.value_transform`);
+      if (warning !== null) warnings.push(warning);
+    }
+
     // Defaults from the content node fill omitted fields.
     const questionKey =
       trimmedString(item["question_key"]) ??
@@ -515,7 +551,7 @@ async function parseAnswerMaps(
   // Every mapped offer is implicitly selected.
   for (const edge of edges) selectedOfferIds.add(edge.offer_id);
 
-  return { edges, selectedOfferIds, errors };
+  return { edges, selectedOfferIds, errors, warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -769,7 +805,10 @@ async function prepareSave(c: AdminContext, body: Record<string, unknown>): Prom
     offerSchemas,
     selectedOfferIds: parsed.selectedOfferIds,
   });
-  return { errors: null, rebuild, value, contentHtml: renderContentHtml(value), problems };
+  // P2 review-round: the answer-map warnings (formatPhone x phone_format
+  // incoherence) ride the SAME problems[] the content-validator warnings
+  // already use — one non-blocking-warning surface, never a second key.
+  return { errors: null, rebuild, value, contentHtml: renderContentHtml(value), problems: [...problems, ...parsed.warnings] };
 }
 
 // ---------------------------------------------------------------------------
