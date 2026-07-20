@@ -33,11 +33,11 @@ lifecycle parity.
 | R4-22 | #10H footer v2 full builder (blocks, own palette/typography, per-site vars) | P5a | OPEN |
 | R4-23 | #10H-adj disclosure v2 (multi-location, per-location text/mode/align) | P5a | OPEN |
 | R4-24 | #10I theme v2: fonts (self-hosted), display-XXL, button ranges (Img38-40), presets+DELETE, theme A/B | P6a+P6b | OPEN |
-| R4-25 | #10J funnel structure panel broken layout | P3b | OPEN |
+| R4-25 | #10J funnel structure panel broken layout | P3b | PASS (P3, evidence: phase log P3) |
 | R4-26 | Restructure: Templates+Themes top tabs + 7 box pickers | P5b | OPEN |
 | R4-27 | Restructure: rules UNIFIED into funnel-builder (standalone tab removed) | P4b | OPEN |
-| R4-28 | Funnel delta A: page order changeable per funnel name | P3a+P3b | OPEN |
-| R4-29 | Funnel delta B: FULL pages model (multi-section pages, in-page A/B, in-page slot rules) | P3a+P3b | OPEN |
+| R4-28 | Funnel delta A: page order changeable per funnel name | P3a+P3b | PASS (P3, evidence: phase log P3) |
+| R4-29 | Funnel delta B: FULL pages model (multi-section pages, in-page A/B, in-page slot rules) | P3a+P3b | PASS (P3, evidence: phase log P3) |
 | R4-30 | Funnel delta C: funnel-level A/B surfaced (Add variant, what-varies, allocation) | P6b | OPEN |
 | R4-31 | Funnel delta D: theme picker per funnel name | P6b | OPEN |
 | R4-32 | D-2 routing rules: checkpoint model, ≤1 hop, precedence ladder, server-validated checkpoint endpoint | P4a+P4b | OPEN |
@@ -52,7 +52,7 @@ lifecycle parity.
 | R4-41 | B-4.8 columns stored-vs-rendered drift (no server validation; clamp mismatch) | P1b | PASS (P1, evidence: phase log P1) |
 | R4-42 | B-4.9 headline_text raw-id jargon in save errors | P1c | PASS (P1, evidence: phase log P1) |
 | R4-43 | D-1 cap raise 44,032 + per-feature byte ledger | P2a | PASS (P2, evidence: phase log P2) |
-| R4-44 | §19.1 binding: page_plan_hash + checkpoint validation + re-issue on switch | P3a+P4a | OPEN |
+| R4-44 | §19.1 binding: page_plan_hash + checkpoint validation + re-issue on switch | P3a+P4a | P3 legs PASS (page_plan_hash signed binding + dual-accept; P4 checkpoint legs pending) |
 | R4-45 | Round-4 acceptance journeys (sections + quotes suites, both engines) | P7a | OPEN |
 | R4-OP1 | Production deploys (post-P1 optional; program end) | operator | BLOCKED |
 | R4-OP2 | Staging hands-on acceptance (terminal gate) | operator | BLOCKED |
@@ -75,3 +75,11 @@ lifecycle parity.
 - Adversarial review: FIX-FIRST (2 MAJOR: client-side ReDoS on custom phone regex; ledger exhaustion) + 4 minor → ReDoS closed save+runtime (fail-before proven), __ prefix reserved (3 surfaces), formatPhone×preset incoherence warning (existing Problems mechanism), ledger owned as the P3a trim gate → delta re-verify **SHIP**, no new conflict.
 - Notes for P5a dispatch: ctx conditions must be scoped display-only OR the section-gating consequence explicitly accepted (reviewer minor-5). Non-NANP answers store the typed validated string (downstream normalization rides per-offer transforms; ties to the operator's open E.164 residue).
 - PR: https://github.com/Gavri19H/kodigital-homepages-cms/pull/125 · merge: 11d78c5
+
+### P3 — FULL pages model (2026-07-20)
+- Slices: P3a backend+engine (16 commits: trim rounds -587B+-58B, 0042 migration+wrap, server plan resolution @ /lg/attempt signed binding, ctx emission (closes P2 seam), same-screen pages + one-Continue-per-page + maps-meta ownership (operator-definition corrections), atomic pre-minted writes, sections-replace coherence, fork/duplicate page fidelity, auction re-resolution REMOVED per review) · P3b structure panel v2 (02c527f, 3c38fae — pages-first rows, slot editors incl. ruled UI leg, 10J CSS fix).
+- Operator D-1 amendments: 45,056 → FINAL 46,080 (consolidated; measured costs 3-5x projections). Bundle: 45,121/46,080 (959B headroom for P4).
+- Conductor gates (own hand): tsc 0 · vitest 398/5,791 pass==total · 46+ phase/guard specs green · operator acceptance 24/24 both engines · verify:all green · deploy.yml 0042 anchor verified · drift 0.
+- Adversarial review: FIX-FIRST (MAJOR-1 auction-side plan re-resolution FALSE-REJECTED legit conversions at hour boundaries — repro'd, removed as redundant-with-HMAC, no-false-reject regression pinned fail-before/pass-after; MAJOR-2 missing auction-side page-model matrix — added; fork flattening + ruled-UI leg minors) → delta re-verify **SHIP**, no new conflict.
+- Verified-clean by review: wrap migration, byte-identical serve gate, slot-rule field-scope un-bypassable, signed binding evolution (v1-downgrade blocked), .bind() discipline, admin auth on new CRUD.
+- PR: {{P3_PR}} · merge: {{P3_SHA}}
