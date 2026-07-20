@@ -16,11 +16,31 @@
 //         round-trips on reload (closes P1a seam #1).
 //   AC-5  an MQG whose shared choices number 6 (with 2 rows) SAVES (2xx) — the
 //         orphans are pruned, never the raw 2-4 "pill set" 400 (R4-34).
+//   AC-6  review-round finding 3: the studio/preview-only markup
+//         (.lg-address-composite / .lg-mqg-empty) is truly INVISIBLE on the
+//         REAL live /lg/:slug route (serve.ts's serveFunnelShell — NOT
+//         /sections/preview, which carries .lg-preview itself) — proved via
+//         getComputedStyle + offsetParent in a real browser DOM, not a CSS-
+//         rule-text pin. A zero-row MultiQuestionGrid can never be SAVED
+//         through the app (validateSectionContent rejects an empty rows
+//         array), so it is seeded the same way genuinely pre-existing legacy
+//         content would exist: a section saved valid, then its content_json
+//         directly corrupted in the SAME local D1 the dev server reads (the
+//         listicles-analytics-mirror.spec.ts `wrangler d1 execute --local`
+//         precedent) — never through a product-code bypass.
 //
 // chromium-only: every action is a plain click / fill / selectOption — no
-// gesture/drag machinery.
+// gesture/drag machinery. AC-6 additionally drives a REAL tenant-host live
+// funnel (leadgen-live-funnel.spec.ts / leadgen-b-seed.ts precedent), so this
+// file maps the `*.e2e.test` TLD to loopback at the browser-launch level —
+// inert for AC-1..AC-5, which never navigate to an e2e.test host.
 
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { seedActiveSite } from "./listicles-p6-seed";
+import { PW_PORT } from "./utils/base-url";
+
+test.use({ launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] } });
 
 const LG_API = "/api/admin/leadgen";
 const uniq = Date.now();
@@ -52,6 +72,22 @@ async function createSection(
     }),
     `p1b section create (${name})`,
   );
+}
+
+// AC-6 only: a raw write against the SAME local D1 the wrangler-dev webServer
+// reads (listicles-analytics-mirror.spec.ts's `wrangler d1 execute --local`
+// precedent) — used ONLY to simulate legacy/pre-validation content_json that
+// the app itself can never persist (validateSectionContent hard-rejects an
+// empty MultiQuestionGrid rows array; this is not a product-code path).
+function d1Local(command: string): void {
+  execFileSync(
+    "npx",
+    ["wrangler", "d1", "execute", "kodigital-homepages-cms-db", "--local", "--command", command],
+    { cwd: process.cwd(), stdio: "pipe", timeout: 120_000 },
+  );
+}
+function sqlStr(s: string): string {
+  return `'${s.replace(/'/g, "''")}'`;
 }
 
 // The live-equivalent render MARKUP (NO studio decoration ghost) straight from
@@ -353,5 +389,96 @@ test.describe("P1b AC-5 — MQG with 6 shared choices saves (orphans pruned)", (
       page.locator("#lg-section-save").click(),
     ]);
     expect(reSave.status(), "studio re-save status").toBeLessThan(300);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-6 — review-round finding 3: live-DOM invisibility proof (not a CSS-text pin)
+// ---------------------------------------------------------------------------
+test.describe("P1b AC-6 — studio-only markup is truly invisible on the live /lg funnel", () => {
+  test("an Address composite + zero-row MQG empty-state ship display:none + no box on the REAL live route; the live root carries no .lg-preview", async ({
+    page,
+  }) => {
+    const host = `p1b-live-${uniq}.e2e.test`;
+    const siteId = await seedActiveSite(page.request, host, `P1b live ${uniq}`);
+
+    // A section that SAVES valid (Address alone — content-schema requires no
+    // internal_field on AddressAutocompleteQuestion) …
+    const section = await json<{ id: number; public_id: string }>(
+      await page.request.post(`${LG_API}/sections`, {
+        data: {
+          section_name: `P1b live section ${uniq}`,
+          activity: "p1b_live_quote_funnel",
+          vertical: "p1b_live",
+          headline_text: "P1b live",
+          continue_mode: "button",
+          status: "active",
+          content_json: { components: [{ type: "AddressAutocompleteQuestion", question_id: "addr1" }] },
+        },
+      }),
+      "p1b live section create",
+    );
+
+    // … then corrupted DIRECTLY in D1 to ALSO carry a zero-row MultiQuestionGrid
+    // — the only way this state can exist (the app's own save-time validator
+    // rejects an empty rows array outright; see the header comment).
+    const corruptedContent = JSON.stringify({
+      components: [
+        { type: "AddressAutocompleteQuestion", question_id: "addr1" },
+        { type: "MultiQuestionGrid", question_id: "grid1", props: { rows: [] } },
+      ],
+    });
+    d1Local(`UPDATE leadgen_sections SET content_json = ${sqlStr(corruptedContent)} WHERE public_id = ${sqlStr(section.public_id)};`);
+
+    // Quote → funnel → control variant carrying that ONE section; activate on
+    // the seeded site (the leadgen-b-seed.ts / leadgen-live-funnel.spec.ts
+    // recipe for reaching the REAL /lg/:slug producer).
+    const quote = await json<{ public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }> }>(
+      await page.request.post(`${LG_API}/quotes`, {
+        data: { quote_name: `P1b live quote ${uniq}`, activity: "p1b_live_quote_funnel", verticals: ["p1b_live"] },
+      }),
+      "p1b live quote create",
+    );
+    const controlVariantId = quote.funnels[0]!.variants[0]!.public_id;
+    await json(
+      await page.request.put(`${LG_API}/variants/${controlVariantId}`, {
+        data: { sections: [{ section_id: section.id, position: 0 }] },
+      }),
+      "p1b live variant sections",
+    );
+    const slug = `p1b-live-${uniq}`;
+    await json(
+      await page.request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, {
+        data: { enabled: true, slug },
+      }),
+      "p1b live activation",
+    );
+
+    // The REAL live route (serve.ts serveFunnelShell) on the tenant host —
+    // never /sections/preview, which itself carries the .lg-preview wrapper.
+    await page.goto(`http://${host}:${PW_PORT}/lg/${slug}`, { waitUntil: "domcontentloaded" });
+
+    // The guard premise itself: the live root does NOT carry .lg-preview (the
+    // class every display:none→block override in styles.ts keys off).
+    const root = page.locator("#lg-funnel-root");
+    await expect(root).toBeVisible();
+    expect(await root.evaluate((el) => el.classList.contains("lg-preview")), "live root has no .lg-preview").toBe(false);
+
+    // Both studio/preview-only elements are PRESENT in the live DOM (the
+    // renderer emits them unconditionally) …
+    const composite = page.locator(".lg-address-composite");
+    const empty = page.locator(".lg-mqg-empty");
+    await expect(composite).toHaveCount(1);
+    await expect(empty).toHaveCount(1);
+
+    // … but truly invisible: computed display is 'none' AND each has no box
+    // (offsetParent null — the two-signal invisibility proof, not a CSS-rule
+    // string comparison).
+    for (const [name, loc] of [["address composite", composite] as const, ["mqg empty-state", empty] as const]) {
+      const display = await loc.evaluate((el) => getComputedStyle(el).display);
+      expect(display, `${name} computed display`).toBe("none");
+      const hasBox = await loc.evaluate((el) => (el as HTMLElement).offsetParent !== null);
+      expect(hasBox, `${name} offsetParent (should be null / no box)`).toBe(false);
+    }
   });
 });
