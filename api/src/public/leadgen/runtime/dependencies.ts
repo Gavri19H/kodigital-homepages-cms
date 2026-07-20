@@ -112,11 +112,15 @@ export function conditionMet(
   }
   const actual = answers[conditional.when];
   if (actual === undefined) return false;
+  // Hoisted once (byte trim — 4 call sites below shared 1 computation);
+  // cheap + pure, so computing it for gt/lt/range too (never read there) is
+  // a no-op, never a behavior change.
+  const actualNorm = normalizeBoolShape(actual);
   switch (conditional.op) {
     case "eq":
-      return normalizeBoolShape(actual) === normalizeBoolShape(conditional.value);
+      return actualNorm === normalizeBoolShape(conditional.value);
     case "neq":
-      return normalizeBoolShape(actual) !== normalizeBoolShape(conditional.value);
+      return actualNorm !== normalizeBoolShape(conditional.value);
     case "gt":
     case "lt":
     case "gte":
@@ -137,18 +141,14 @@ export function conditionMet(
       if (typeof from !== "number" || typeof to !== "number") return false;
       return n >= from && n <= to;
     }
-    case "in": {
+    case "in":
       // Array.includes (SameValueZero, e.g. NaN-membership) over the
       // bool-normalized values — NOT .some(===), which would break the NaN
       // edge: matches the server's `values.includes(actual)` for every
       // non-boolean-shaped element, plus the new true/"true" equivalence.
-      const actualNorm = normalizeBoolShape(actual);
       return Array.isArray(conditional.values) && conditional.values.map(normalizeBoolShape).includes(actualNorm);
-    }
-    case "not_in": {
-      const actualNorm = normalizeBoolShape(actual);
+    case "not_in":
       return Array.isArray(conditional.values) && !conditional.values.map(normalizeBoolShape).includes(actualNorm);
-    }
   }
   // Unknown op (config from a newer server): fail-closed like an unmet
   // conditional. (The server switch is exhaustive over the typed union; the

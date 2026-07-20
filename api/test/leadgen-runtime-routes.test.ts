@@ -121,6 +121,7 @@ const LEADGEN_MIGRATIONS = [
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
   "0040_leadgen_runtime_context.sql", // macro_context_json snapshot (04 §4.6)
+  "0042_leadgen_pages.sql",
 ] as const;
 
 const TENANT_HOST = "one.example.com";

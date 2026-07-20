@@ -44,6 +44,11 @@ import {
 } from "../attempt";
 import { computeSectionOrderHash } from "../config-dto";
 import type { ResolvedActivatedFunnel } from "../resolver";
+// Round-4 P3a (D-3 pages model, conductor GRANT 2): the page_plan_hash
+// equality leg -- server RE-RESOLVES the plan (SAME function attempt.ts's
+// mint uses) and compares. resolvePagePlan needs no DB access (pure over the
+// already-loaded resolved.pages), so this stays a cheap in-memory recompute.
+import { resolvePagePlan, parseUtmFromLandingUrl, type EntryKnownContext } from "../resolver";
 import { normalizeAnswers, type LeadgenRawAnswers } from "../../../leadgen/answers";
 import type { LeadgenSectionContent } from "../components/content-schema";
 import {
@@ -440,7 +445,11 @@ export type AntiTamperReason =
   | "section_order_hash_mismatch"
   | "signed_token_invalid"
   | "answer_mapping_version_mismatch"
-  | "auction_config_version_mismatch";
+  | "auction_config_version_mismatch"
+  // Round-4 P3a (D-3): the signed page_plan_hash no longer matches a fresh
+  // server recomputation over the CURRENT resolved.pages (an operator edit —
+  // slot rules/allocations/candidates — invalidated the plan mid-session).
+  | "page_plan_hash_mismatch";
 
 export type AntiTamperVerdict =
   // `landing_url` = the VERIFIED attempt-context funnel-page URL persisted in
@@ -465,11 +474,35 @@ export type AntiTamperVerdict =
 // The pre-v2 NON-crypto equality checks (client-sent answer_mapping_versions
 // array vs section_mapping_version; client-sent auction_config_version) are
 // KEPT additively below.
+// Round-4 P3a (D-3, conductor GRANT 2): the entry-known request signals for
+// the page_plan_hash equality leg below. `state`/`device` mirror
+// serve-auction.ts's EXISTING buildRequestContext dims (already threaded
+// into runAuction as RunAuctionInput.request_context — reused verbatim, no
+// new derivation); `hour`/`weekday` are added there too (server UTC clock at
+// auction-verify time — see resolvePagePlan's own doc comment for why this
+// is a documented, narrow, retry-absorbed volatility rather than a security
+// gap: the HMAC already proves NO ONE BUT THIS SERVER minted the hash being
+// compared against).
+function entryContextFromRequestContext(
+  rc: Readonly<Record<string, unknown>> | undefined,
+  landingUrl: string,
+): EntryKnownContext {
+  const now = new Date();
+  return {
+    state: typeof rc?.["state"] === "string" ? rc["state"] : undefined,
+    device: typeof rc?.["device"] === "string" ? rc["device"] : undefined,
+    hour: typeof rc?.["hour"] === "number" ? rc["hour"] : now.getUTCHours(),
+    weekday: typeof rc?.["weekday"] === "number" ? rc["weekday"] : now.getUTCDay(),
+    ...parseUtmFromLandingUrl(landingUrl),
+  };
+}
+
 export async function validateAntiTamper(
   env: Env,
   resolved: ResolvedActivatedFunnel,
   auction: LeadgenAuctionRow,
   input: AntiTamperInput,
+  requestContext?: Readonly<Record<string, unknown>>,
 ): Promise<AntiTamperVerdict> {
   // (a) forged variant -- the client-declared variant must be the served one.
   if (input.funnel_variant_id !== resolved.variant.public_id) {
@@ -501,6 +534,22 @@ export async function validateAntiTamper(
   // deploy can never silently void anti-tamper.
   const verification = await verifyConfigTokenDetailed(env, input.signed_config_token, tuple, { requireSigned: true });
   if (!verification.ok) return { ok: false, reason: "signed_token_invalid" };
+
+  // (c.1) Round-4 P3a page_plan_hash (DUAL-ACCEPT: "" on a pre-deploy
+  // in-flight token skips this entirely — see attempt.ts's decodeTupleV2
+  // doc). The server RE-RESOLVES the plan (the SAME resolvePagePlan attempt-
+  // mint used) over the CURRENT resolved.pages and compares — mirrors every
+  // other v2 field's "recompute server-side, compare" discipline. A mismatch
+  // means the page/slot structure (rules_json/ab_allocations_json/candidate
+  // set/slot_revision) changed since mint — a real config-drift signal, not
+  // a forgery (the HMAC already rules that out).
+  if (verification.page_plan_hash !== "" && resolved.pages !== undefined) {
+    const entryCtx = entryContextFromRequestContext(requestContext, verification.landing_url);
+    const freshPlan = resolvePagePlan(resolved.pages, entryCtx, input.session_id ?? "");
+    if (freshPlan.hash !== verification.page_plan_hash) {
+      return { ok: false, reason: "page_plan_hash_mismatch" };
+    }
+  }
 
   // (d) answer_mapping_version(s) -- reconcile against the resolved sections
   // (order-sensitive) when the client sends them.
@@ -853,7 +902,7 @@ export async function runAuction(
   // A pass yields the VERIFIED attempt-context landing URL (04 §4.2).
   let landingUrl = "";
   if (!opts.dryRun) {
-    const verdict = await validateAntiTamper(env, input.resolved, auction, input.binding);
+    const verdict = await validateAntiTamper(env, input.resolved, auction, input.binding, input.request_context);
     if (!verdict.ok) {
       return empty("tampered", 422, "tampered", null, null);
     }

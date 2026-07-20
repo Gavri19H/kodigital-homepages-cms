@@ -282,6 +282,17 @@ function acquisitionParams(search: string): Partial<Record<LgAcquisitionKey, str
 // landing traffic params server-side), no-store, retry ×2 (§3.5.8).
 // ---------------------------------------------------------------------------
 
+// Round-4 P3a (D-3): one resolved slot winner off the /lg/attempt page_plan
+// echo (attempt.ts ResolvedSlotWinner, mirrored locally — runtime/ stays
+// dependency-free). slot_id rides as a NUMBER on the wire (resolver.ts's
+// plain internal id); the engine stringifies it for the analytics dim.
+interface LgPlanWinner {
+  page_id: string;
+  slot_id: number;
+  section_public_id: string;
+  assignment_reason: string;
+}
+
 interface LgAttempt {
   funnel_attempt_id: string;
   signed_config_token: string;
@@ -296,6 +307,10 @@ interface LgAttempt {
   // P3/P4 seam; until then a rule on those keys is fail-closed). Merged only
   // into the evaluation map, NEVER sent back to /lg/auction.
   ctx?: { state?: string; device?: string };
+  // Round-4 P3a: the resolved page plan (flat, per-slot winners) — ABSENT
+  // for a legacy/no-page-model funnel (byte-identical fallback: every
+  // section counts as its own page, exactly pre-P3a).
+  page_plan?: LgPlanWinner[];
 }
 
 function sleep(ms: number): Promise<void> {
@@ -316,6 +331,14 @@ function parseAttemptCtx(raw: unknown): { state?: string; device?: string } | nu
   return out.state === undefined && out.device === undefined ? null : out;
 }
 
+// Round-4 P3a: tolerant parse of the OPTIONAL page_plan echo. Same-origin,
+// server-authored (never attacker-shaped) — a shallow array/length sanity
+// check is enough; every downstream read (String()/Map keys) degrades
+// harmlessly on a stray malformed field rather than needing a deep guard.
+function parseAttemptPagePlan(raw: unknown): LgPlanWinner[] | null {
+  return Array.isArray(raw) && raw.length > 0 ? (raw as LgPlanWinner[]) : null;
+}
+
 async function fetchAttemptOnce(funnelVariantId: string): Promise<LgAttempt | null> {
   try {
     const url = `${LG_ATTEMPT_URL}?vid=${encodeURIComponent(funnelVariantId)}&u=${encodeURIComponent(location.href)}`;
@@ -329,6 +352,7 @@ async function fetchAttemptOnce(funnelVariantId: string): Promise<LgAttempt | nu
     const raw = (await res.json()) as Record<string, unknown>;
     if (typeof raw["funnel_attempt_id"] !== "string" || raw["funnel_attempt_id"] === "") return null;
     const ctx = parseAttemptCtx(raw["ctx"]);
+    const pagePlan = parseAttemptPagePlan(raw["page_plan"]);
     return {
       funnel_attempt_id: raw["funnel_attempt_id"],
       signed_config_token:
@@ -338,6 +362,7 @@ async function fetchAttemptOnce(funnelVariantId: string): Promise<LgAttempt | nu
         : {}),
       ...(typeof raw["expires_at"] === "number" ? { expires_at: raw["expires_at"] } : {}),
       ...(ctx !== null ? { ctx } : {}),
+      ...(pagePlan !== null ? { page_plan: pagePlan } : {}),
     };
   } catch {
     return null;
@@ -379,6 +404,14 @@ export class LgEngine {
   // 10C ctx (geo/device) captured from the /lg/attempt echo — merged into the
   // evaluation map by evalAnswers(), never persisted, never sent to /lg/auction.
   private ctx: { state?: string; device?: string } = {};
+  // Round-4 P3a: section_public_id -> [pageIndex, slotId, reason] (a tuple —
+  // byte-lean, no object-literal keys). null when the attempt carried no
+  // page_plan (legacy funnel — every section counts as its own page,
+  // byte-identical to pre-P3a). pageIds[pageIndex] is the page's public_id
+  // (analytics dim); pagesCount === pageIds.length.
+  private planMeta: Map<string, [number, string, string]> | null = null;
+  private pageIds: string[] = [];
+  private pagesCount = 0;
 
   constructor(root: HTMLElement, config: LgPublicConfig, preview: boolean) {
     this.root = root;
@@ -476,6 +509,21 @@ export class LgEngine {
       });
       // 10C: adopt the server ctx echo (geo/device) for __state/__device rules.
       if (attempt.ctx !== undefined) this.ctx = attempt.ctx;
+      // Round-4 P3a: build the page-plan lookup ONCE from the flat winners
+      // list (page_id first-seen order == page order, matching resolver.ts's
+      // own page.position ordering).
+      if (attempt.page_plan !== undefined) {
+        const meta = new Map<string, [number, string, string]>();
+        const ids: string[] = [];
+        for (const w of attempt.page_plan) {
+          let page = ids.indexOf(w.page_id);
+          if (page === -1) page = ids.push(w.page_id) - 1;
+          meta.set(w.section_public_id, [page, String(w.slot_id), w.assignment_reason]);
+        }
+        this.planMeta = meta;
+        this.pageIds = ids;
+        this.pagesCount = ids.length;
+      }
     }
 
     // §3.5.1 restore iff same attempt-binding tuple (see state.ts header for
@@ -583,12 +631,19 @@ export class LgEngine {
 
   private sectionDims(section: LgSectionConfig | null): Record<string, unknown> {
     if (section === null) return {};
+    // Round-4 P3a: page_id/slot_id/slot_assignment_reason ride alongside the
+    // existing dims when this section resolved from a page plan (absent for
+    // a legacy funnel — leadgen-events.ts defaults them to "").
+    const meta = this.planMeta?.get(section.section_public_id);
     return {
       section_id: section.section_public_id,
       section_index: section.section_index,
       continue_mode: section.continue_mode,
       section_mapping_version: section.section_mapping_version,
       answer_mapping_version: section.answer_mapping_version,
+      ...(meta !== undefined
+        ? { page_id: this.pageIds[meta[0]] ?? "", slot_id: meta[1], slot_assignment_reason: meta[2] }
+        : {}),
     };
   }
 
@@ -637,8 +692,19 @@ export class LgEngine {
     return hiddenAnswerFields(this.config.sections, this.evalAnswers());
   }
 
+  // Round-4 P3a: intersect dependency-visible indices with the resolved
+  // plan's WINNING sections — a non-winning slot candidate (server-rendered
+  // hidden, per the visitor-invariant shell design) is never walkable, never
+  // counted, never auction-projected. planMeta null (legacy funnel /
+  // attempt-fetch failure) -> no filter, byte-identical to pre-P3a.
   private visibleIndexes(): number[] {
-    return visibleSectionIndexes(this.config.sections, this.evalAnswers());
+    const all = visibleSectionIndexes(this.config.sections, this.evalAnswers());
+    const meta = this.planMeta;
+    if (meta === null) return all;
+    return all.filter((i) => {
+      const id = this.config.sections[i]?.section_public_id;
+      return id !== undefined && meta.has(id);
+    });
   }
 
   private normalizeSectionIndex(wanted: number): number {
@@ -832,7 +898,17 @@ export class LgEngine {
 
     // §3.5.4 auto-advance: single-question sections advance on answer_click
     // after validation; multi-question sections require Continue regardless.
-    if (section !== null && section.continue_mode === "auto_advance" && !multi) {
+    // Round-4 P3a: auto-advance is authorable ONLY for single-SECTION pages
+    // (a multi-slot page must always be walked via Continue, even when its
+    // current section itself would otherwise qualify) — isSingleSectionPage
+    // is a no-op true when planMeta is null (legacy: every section IS its
+    // own page).
+    if (
+      section !== null &&
+      section.continue_mode === "auto_advance" &&
+      !multi &&
+      this.isSingleSectionPage(section.section_public_id)
+    ) {
       const deps = this.dependencyState(section);
       const interactive = section.components.filter(
         (c, i) =>
@@ -842,6 +918,15 @@ export class LgEngine {
         this.advance();
       }
     }
+  }
+
+  private isSingleSectionPage(sectionId: string): boolean {
+    const m = this.planMeta;
+    const page = m?.get(sectionId)?.[0];
+    if (page === undefined) return true;
+    let count = 0;
+    for (const v of m!.values()) if (v[0] === page) count++;
+    return count <= 1;
   }
 
   private handleInputEvent(target: Element): void {
@@ -1094,14 +1179,25 @@ export class LgEngine {
     }
   }
 
+  // Round-4 P3a: progress counts PAGES (denominator = the resolved plan
+  // length; numerator = the current section's page index) when a plan
+  // exists — a multi-slot page's internal section-to-section transitions
+  // keep the SAME page number (the visitor only sees it tick up crossing a
+  // PAGE boundary). planMeta null (legacy) falls through to the unchanged
+  // per-SECTION count, byte-identical to pre-P3a.
   private updateProgressUi(): void {
     const visible = this.visibleIndexes();
     const pos = visible.indexOf(this.si);
-    render.updateProgress(this.root, pos === -1 ? 1 : pos + 1, visible.length);
-    // 11 §11.3 footer show_on: first = the first VISIBLE section (pos -1
-    // normalizes to step 1, matching updateProgress); final = the last
-    // visible section (the banners-view leg rides showCompletionState).
-    render.updateFooterVisibility(this.root, pos <= 0, pos !== -1 && pos === visible.length - 1);
+    const page = this.planMeta?.get(this.currentSection()?.section_public_id ?? "")?.[0];
+    const total = page !== undefined ? this.pagesCount : visible.length;
+    const current = page !== undefined ? page + 1 : pos === -1 ? 1 : pos + 1;
+    render.updateProgress(this.root, current, total);
+    // 11 §11.3 footer show_on: first = the first VISIBLE section/page (pos -1
+    // normalizes to step 1, matching updateProgress); final = the last one
+    // (the banners-view leg rides showCompletionState). The `pos !== -1`
+    // guard is load-bearing ONLY on the no-plan path (a plan-resolved
+    // section is never pos-ambiguous).
+    render.updateFooterVisibility(this.root, current <= 1, page !== undefined ? current === total : pos !== -1 && current === total);
   }
 
   // ----- §3.6 auction -------------------------------------------------------

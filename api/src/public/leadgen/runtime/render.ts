@@ -29,26 +29,23 @@ function toggleHidden(el: Element, visible: boolean): void {
 }
 
 export function sectionElements(root: Element): HTMLElement[] {
-  return Array.prototype.slice.call(root.querySelectorAll("[data-lg-section]"));
+  return Array.from(root.querySelectorAll("[data-lg-section]"));
 }
 
 export function sectionElementAt(root: Element, index: number): HTMLElement | null {
   const sections = sectionElements(root);
-  for (const el of sections) {
-    if (Number(el.getAttribute("data-lg-index")) === index) return el;
-  }
-  return sections[index] ?? null;
+  return sections.find((el) => Number(el.getAttribute("data-lg-index")) === index) ?? sections[index] ?? null;
 }
 
 // §3.5.2: exactly ONE [data-lg-section] visible.
 export function showOnlySection(root: Element, index: number): HTMLElement | null {
   let shown: HTMLElement | null = null;
-  for (const el of sectionElements(root)) {
+  sectionElements(root).forEach((el) => {
     const elIndex = Number(el.getAttribute("data-lg-index"));
     const match = (Number.isNaN(elIndex) ? -1 : elIndex) === index;
     toggleHidden(el, match);
     if (match) shown = el;
-  }
+  });
   return shown;
 }
 
@@ -75,19 +72,11 @@ export function applyComponentVisibility(
 // block lose it. Multi-select (array value): every member value is marked.
 export function applySelectionClasses(questionEl: Element, value: unknown): void {
   const values = Array.isArray(value) ? value.map((v) => String(v)) : [String(value)];
-  const choices = questionEl.querySelectorAll("[data-lg-choice]");
-  for (let i = 0; i < choices.length; i++) {
-    const el = choices[i];
-    if (el === undefined) continue;
+  questionEl.querySelectorAll("[data-lg-choice]").forEach((el) => {
     const isOn = values.indexOf(el.getAttribute("data-lg-choice") ?? "") !== -1;
-    if (isOn) {
-      el.classList.add(SELECTED_CLASS);
-      el.setAttribute("aria-pressed", "true");
-    } else {
-      el.classList.remove(SELECTED_CLASS);
-      el.setAttribute("aria-pressed", "false");
-    }
-  }
+    el.classList[isOn ? "add" : "remove"](SELECTED_CLASS);
+    el.setAttribute("aria-pressed", isOn ? "true" : "false");
+  });
 }
 
 // S2-3 (register §C): a range slider's visible value text + filled track must
@@ -121,12 +110,9 @@ export function updateRangeDisplay(input: HTMLInputElement): void {
 // [data-lg-progress-bar] (when present) + a percent label. Both stamp
 // aria/data attributes for the Playwright assertions.
 export function updateProgress(root: Element, currentStep: number, totalSteps: number): void {
-  const nodes = root.querySelectorAll("[data-lg-progress]");
   const safeTotal = totalSteps > 0 ? totalSteps : 1;
   const pct = Math.max(0, Math.min(100, Math.round((currentStep / safeTotal) * 100)));
-  for (let i = 0; i < nodes.length; i++) {
-    const el = nodes[i];
-    if (el === undefined) continue;
+  root.querySelectorAll("[data-lg-progress]").forEach((el) => {
     const mode = el.getAttribute("data-mode") === "percent" ? "percent" : "step";
     el.setAttribute("aria-valuemin", "0");
     el.setAttribute("aria-valuemax", String(safeTotal));
@@ -148,18 +134,15 @@ export function updateProgress(root: Element, currentStep: number, totalSteps: n
     // 11 §11.6 dots-style mounts: re-stamp the StepIndicator dots inside this
     // mount so EXACTLY the current step's dot carries data-active (the server
     // renders step 1 active; without this the dots never advance).
-    const dots = el.querySelectorAll(".lg-step");
-    for (let d = 0; d < dots.length; d++) {
-      const dot = dots[d];
-      if (dot === undefined) continue;
+    el.querySelectorAll(".lg-step").forEach((dot, d) => {
       if (d === currentStep - 1) dot.setAttribute("data-active", "true");
       else dot.removeAttribute("data-active");
-    }
+    });
     const label = el.querySelector("[data-lg-progress-label]");
     const text = mode === "percent" ? `${pct}%` : `${currentStep} / ${safeTotal}`;
     if (label !== null) label.textContent = text;
     else if (bar === null) el.textContent = text;
-  }
+  });
 }
 
 // 11 §11.3 footer show_on (v2.5): the frame renders the footer ONCE with
@@ -168,23 +151,23 @@ export function updateProgress(root: Element, currentStep: number, totalSteps: n
 // last visible section AND the banners/auction view, all/unknown = always.
 // Legacy shells carry no [data-show-on] → no-op.
 export function updateFooterVisibility(root: Element, first: boolean, final: boolean): void {
-  const nodes = root.querySelectorAll("[data-show-on]");
-  for (let i = 0; i < nodes.length; i++) {
-    const el = nodes[i];
-    if (el === undefined) continue;
+  forEachToggle(root, "[data-show-on]", (el) => {
     const on = el.getAttribute("data-show-on");
-    toggleHidden(el, on === "first" ? first : on === "final" ? final : true);
-  }
+    return on === "first" ? first : on === "final" ? final : true;
+  });
+}
+
+// Shared by setBackVisible/setContinueVisible/updateFooterVisibility below —
+// identical loop shape (NodeList's OWN .forEach — no hand-rolled iterator
+// needed; every querySelectorAll index is a real Element, never a hole), only
+// the selector + per-element decision differ (byte trim).
+function forEachToggle(root: Element, selector: string, decide: (el: Element) => boolean): void {
+  root.querySelectorAll(selector).forEach((el) => toggleHidden(el, decide(el)));
 }
 
 // Back affordance (§3.5.2): shown only while back_stack is non-empty.
 export function setBackVisible(sectionEl: Element, visible: boolean): void {
-  const backs = sectionEl.querySelectorAll("[data-lg-back]");
-  for (let i = 0; i < backs.length; i++) {
-    const el = backs[i];
-    if (el === undefined) continue;
-    toggleHidden(el, visible);
-  }
+  forEachToggle(sectionEl, "[data-lg-back]", () => visible);
 }
 
 // P4c (register PC-12): section-level Continue visibility. Scoped to
@@ -195,12 +178,7 @@ export function setBackVisible(sectionEl: Element, visible: boolean): void {
 // element cannot receive a real click), so "cannot advance via it while
 // unmet" holds with no extra engine guard.
 export function setContinueVisible(sectionEl: Element, visible: boolean): void {
-  const conts = sectionEl.querySelectorAll("[data-lg-continue]");
-  for (let i = 0; i < conts.length; i++) {
-    const el = conts[i];
-    if (el === undefined) continue;
-    toggleHidden(el, visible);
-  }
+  forEachToggle(sectionEl, "[data-lg-continue]", () => visible);
 }
 
 // Inline field errors (§3.5.4): fill [data-lg-error-for="{internal_field}"],
@@ -229,17 +207,12 @@ export function setFieldError(
 }
 
 export function clearFieldErrors(sectionEl: Element): void {
-  const slots = sectionEl.querySelectorAll("[data-lg-error-for]");
-  for (let i = 0; i < slots.length; i++) {
-    const el = slots[i];
-    if (el === undefined) continue;
+  sectionEl.querySelectorAll("[data-lg-error-for]").forEach((el) => {
     el.textContent = "";
-    el.setAttribute("hidden", "");
-  }
-  const marked = sectionEl.querySelectorAll(`.${ERROR_CLASS}`);
-  for (let i = 0; i < marked.length; i++) marked[i]?.classList.remove(ERROR_CLASS);
-  const invalid = sectionEl.querySelectorAll('[aria-invalid="true"]');
-  for (let i = 0; i < invalid.length; i++) invalid[i]?.removeAttribute("aria-invalid");
+    toggleHidden(el, false);
+  });
+  sectionEl.querySelectorAll(`.${ERROR_CLASS}`).forEach((el) => el.classList.remove(ERROR_CLASS));
+  sectionEl.querySelectorAll('[aria-invalid="true"]').forEach((el) => el.removeAttribute("aria-invalid"));
 }
 
 // B9 Other-group expansion (§3.2 render row): clicking [data-lg-other-trigger]
@@ -252,7 +225,7 @@ export function openOtherPanel(triggerEl: Element): HTMLElement | null {
   if (scope === null) return null;
   const panel = scope.querySelector("[data-lg-other-panel]");
   if (panel === null || !(panel instanceof HTMLElement)) return null;
-  panel.removeAttribute("hidden");
+  toggleHidden(panel, true);
   triggerEl.setAttribute("aria-expanded", "true");
   return panel;
 }
@@ -271,14 +244,14 @@ export function injectBanners(root: Element, bannersHtml: string): HTMLElement |
   const mount = root.querySelector("[data-lg-banners]");
   if (mount === null || !(mount instanceof HTMLElement)) return null;
   mount.innerHTML = bannersHtml;
-  mount.removeAttribute("hidden");
+  toggleHidden(mount, true);
   return mount;
 }
 
 // Completion state (§3.5.6–7): hide every section, reveal the banners mount
 // region, stamp the root for the E2E assertions.
 export function showCompletionState(root: Element, status: "filled" | "unfilled"): void {
-  for (const el of sectionElements(root)) el.setAttribute("hidden", "");
+  sectionElements(root).forEach((el) => toggleHidden(el, false));
   root.setAttribute("data-lg-complete", "1");
   root.setAttribute("data-lg-auction", status);
   // §11.3: the banners/auction view counts as "final" for footer show_on.
@@ -302,7 +275,7 @@ export function showRuntimeNotice(container: Element, message: string): void {
 
 export function hideRuntimeNotice(container: Element): void {
   const notice = container.querySelector(`.${NOTICE_CLASS}`);
-  if (notice !== null) notice.setAttribute("hidden", "");
+  if (notice !== null) toggleHidden(notice, false);
 }
 
 // Container-aware focus (§3.2 render row): focus the first interactive
