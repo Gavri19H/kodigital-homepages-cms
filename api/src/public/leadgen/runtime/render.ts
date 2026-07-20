@@ -37,15 +37,26 @@ export function sectionElementAt(root: Element, index: number): HTMLElement | nu
   return sections.find((el) => Number(el.getAttribute("data-lg-index")) === index) ?? sections[index] ?? null;
 }
 
-// §3.5.2: exactly ONE [data-lg-section] visible.
-export function showOnlySection(root: Element, index: number): HTMLElement | null {
-  let shown: HTMLElement | null = null;
+// Round-4 P3a same-screen pages (D-3 operator amendment, 2026-07-20): show
+// EVERY [data-lg-section] whose data-lg-index is in `indices` together (a
+// multi-section page renders as ONE screen); everything else hidden. A
+// single-index array is the pre-P3a "exactly one visible" behavior byte-for-
+// byte (legacy/single-section-page callers pass [index]). Returns the shown
+// elements in `indices` order.
+export function showPageSections(root: Element, indices: readonly number[]): HTMLElement[] {
+  const wanted = new Set(indices);
+  const byIndex = new Map<number, HTMLElement>();
   sectionElements(root).forEach((el) => {
     const elIndex = Number(el.getAttribute("data-lg-index"));
-    const match = (Number.isNaN(elIndex) ? -1 : elIndex) === index;
+    const match = !Number.isNaN(elIndex) && wanted.has(elIndex);
     toggleHidden(el, match);
-    if (match) shown = el;
+    if (match) byIndex.set(elIndex, el);
   });
+  const shown: HTMLElement[] = [];
+  for (const i of indices) {
+    const el = byIndex.get(i);
+    if (el !== undefined) shown.push(el);
+  }
   return shown;
 }
 

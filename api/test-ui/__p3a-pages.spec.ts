@@ -135,16 +135,34 @@ async function ready(page: Page): Promise<void> {
   await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 8_000 });
 }
 
-// The visible (non-hidden) section's data-lg-section-id — identifies WHICH
-// candidate currently won its slot without decoding any engine internals.
-function visibleSectionId(page: Page): Promise<string | null> {
-  return page.locator("[data-lg-section]:not([hidden])").first().getAttribute("data-lg-section-id");
+// Same-screen pages (D-3 operator amendment, 2026-07-20): a multi-section
+// page renders EVERY visible section together — this returns ALL of them,
+// not just the first.
+function visibleSectionIds(page: Page): Promise<string[]> {
+  return page.locator("[data-lg-section]:not([hidden])").evaluateAll((els) =>
+    els.map((el) => el.getAttribute("data-lg-section-id") ?? ""),
+  );
 }
 
-async function answerAndContinue(page: Page): Promise<void> {
-  const section = page.locator("[data-lg-section]:not([hidden])").first();
-  await section.locator('[data-lg-choice="true"]').click();
-  await section.locator("[data-lg-continue]").click();
+// Answers EVERY currently-visible section's TwoButtonYesNo, then clicks ONE
+// Continue mount (same-screen pages: every visible section carries its own
+// [data-lg-continue], and ANY of them triggers the SAME whole-page gate).
+async function answerAllVisibleAndContinue(page: Page): Promise<void> {
+  const sections = page.locator("[data-lg-section]:not([hidden])");
+  const count = await sections.count();
+  for (let i = 0; i < count; i++) {
+    await sections.nth(i).locator('[data-lg-choice="true"]').click();
+  }
+  await sections.first().locator("[data-lg-continue]").click();
+}
+
+// Answers only the FIRST currently-visible section (leaving any others on
+// the SAME page unanswered) then clicks Continue — used to prove the page
+// gate blocks on a partially-answered multi-section page.
+async function answerFirstVisibleAndContinue(page: Page): Promise<void> {
+  const sections = page.locator("[data-lg-section]:not([hidden])");
+  await sections.first().locator('[data-lg-choice="true"]').click();
+  await sections.first().locator("[data-lg-continue]").click();
 }
 
 test.beforeAll(() => {
@@ -196,48 +214,65 @@ test.describe("P3a — FULL pages model (D-3): 2-page funnel, ruled + A/B slots"
     await page.screenshot({ path: `${SHOT_DIR}/page1-progress.png`, fullPage: true });
   });
 
-  test("Continue gates the multi-section page 2: the FIRST of its 2 sections does not yet bump the page counter; the LAST does", async ({ page }) => {
+  test("page 2's 2 sections show TOGETHER on one screen; Continue is blocked until BOTH required answers are set", async ({ page }) => {
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
 
     // Page 1 (1 fixed section) -> Continue crosses into page 2.
-    await answerAndContinue(page);
+    await answerAllVisibleAndContinue(page);
     const progress = page.locator("[data-lg-progress]").first();
     await expect(progress).toHaveAttribute("data-lg-progress-current", "2");
-    const page2FirstSection = await visibleSectionId(page);
-    expect(page2FirstSection, "page 2's first winning section must be visible").not.toBeNull();
 
-    // Page 2's FIRST section -> Continue must move to its SECOND section
-    // WITHOUT bumping the page counter (still page 2 of 2) — this IS the
-    // gate: a multi-section page walks section-by-section but the page
-    // number only advances once ALL of its sections are passed.
-    await answerAndContinue(page);
+    // Same-screen pages (D-3 operator amendment): BOTH of page 2's winning
+    // sections (the ruled slot's winner + the A/B slot's winner) are visible
+    // TOGETHER, not one at a time.
+    const bothVisible = await visibleSectionIds(page);
+    expect(bothVisible, "page 2's ruled + A/B winners are BOTH visible at once").toHaveLength(2);
+    await page.screenshot({ path: `${SHOT_DIR}/page2-both-sections.png`, fullPage: true });
+
+    // Answer ONLY the first of the two -> Continue is BLOCKED (still page 2,
+    // both sections still visible, funnel not complete) — this IS the page
+    // gate: "every visible answer across the page's sections" must be valid.
+    await answerFirstVisibleAndContinue(page);
+    await page.waitForTimeout(300);
     await expect(progress).toHaveAttribute("data-lg-progress-current", "2");
-    await expect(progress).toHaveAttribute("data-lg-progress-total", "2");
-    const page2SecondSection = await visibleSectionId(page);
-    expect(page2SecondSection).not.toBe(page2FirstSection);
-    await page.screenshot({ path: `${SHOT_DIR}/page2-second-section.png`, fullPage: true });
+    await expect(page.locator("#lg-funnel-root[data-lg-complete]")).toHaveCount(0);
+    expect(await visibleSectionIds(page), "still both visible -- Continue did not advance").toHaveLength(2);
 
-    // Page 2's LAST section -> Continue crosses the LAST page -> the auction
-    // fires (completion state), never a 3rd page.
-    await answerAndContinue(page);
+    // Answer the SECOND (now the only remaining unanswered section) too ->
+    // Continue crosses the LAST page -> the auction fires, never a 3rd page.
+    await answerAllVisibleAndContinue(page);
     await expect(page.locator("#lg-funnel-root[data-lg-complete]"), "advancing past the LAST page's LAST section triggers the auction").toHaveCount(1, { timeout: 8_000 });
+  });
+
+  test("back returns to the PREVIOUS PAGE (page 1's fixed section), not a single section within page 2", async ({ page }) => {
+    await page.goto(shellUrl(seeded), { waitUntil: "load" });
+    await ready(page);
+    await answerAllVisibleAndContinue(page); // page 1 -> page 2 (both sections together)
+    expect(await visibleSectionIds(page)).toHaveLength(2);
+
+    await page.locator("[data-lg-back]:not([hidden])").first().click();
+    await page.waitForTimeout(300);
+    const progress = page.locator("[data-lg-progress]").first();
+    await expect(progress).toHaveAttribute("data-lg-progress-current", "1");
+    const backVisible = await visibleSectionIds(page);
+    expect(backVisible, "back from page 2 lands on page 1's single fixed section").toEqual([seeded.sectionIds.fixed]);
   });
 
   test("the A/B slot is session-sticky across a reload (same ko_sid cookie)", async ({ page }) => {
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
-    await answerAndContinue(page); // page 1 -> page 2 first section
-    await answerAndContinue(page); // page 2 first -> page 2 second (the AB winner)
-    const abWinnerFirstLoad = await visibleSectionId(page);
-    expect([seeded.sectionIds.abA, seeded.sectionIds.abB]).toContain(abWinnerFirstLoad);
+    await answerAllVisibleAndContinue(page); // page 1 -> page 2 (both sections together)
+    const page2FirstLoad = await visibleSectionIds(page);
+    const abWinnerFirstLoad = page2FirstLoad.find((id) => id === seeded.sectionIds.abA || id === seeded.sectionIds.abB);
+    expect(abWinnerFirstLoad, "one of page 2's visible sections is the A/B winner").toBeDefined();
 
     // RELOAD (same browser context -> same ko_sid cookie -> same session_id
     // -> the SAME A/B bucket, per resolvePagePlan's session-sticky hash).
     await page.reload({ waitUntil: "load" });
     await ready(page);
-    await answerAndContinue(page); // page 1 -> page 2 first
-    const abWinnerSecondLoad = await visibleSectionId(page);
-    expect(abWinnerSecondLoad, "the SAME session must resolve the SAME A/B winner across a reload").toBe(abWinnerFirstLoad);
+    await answerAllVisibleAndContinue(page); // page 1 -> page 2 again
+    const page2SecondLoad = await visibleSectionIds(page);
+    expect(page2SecondLoad, "the SAME session must resolve the SAME A/B winner across a reload").toContain(abWinnerFirstLoad);
   });
 });
