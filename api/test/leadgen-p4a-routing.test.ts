@@ -44,6 +44,9 @@ import {
   computeResumeSection,
   resolveActivatedFunnel,
   resolveActivatedFunnelByVariant,
+  resolveEffectiveFrameOnly,
+  buildFrameCtaCtx,
+  computeCtaVerdict,
   type RoutingRuleRow,
   type EntryKnownContext,
   type ResolvedFunnelPage,
@@ -1772,5 +1775,178 @@ describeDb("P4a review MAJOR-1: S2S multiplier through the REAL end-to-end path"
     const outcome = await dispatchMatchedConversionS2S(seed.env, ctx, seed.env.DB, clickCtx!, { revenue: 10, currency: "USD" }, { fetchImpl });
     expect(outcome.status).toBe("fired");
     expect(fetchCalls[0]).toContain("v=30"); // 10 * 3.0 base -- no outcome row for THIS attempt
+  });
+});
+
+// ===========================================================================
+// P4a-adj (P5a runtime seam #1): server-side CTA visibility verdict —
+// buildFrameCtaCtx + computeCtaVerdict, pure (no DB), plus the two endpoints
+// that carry it (/lg/attempt mint, /lg/ck checkpoint).
+// ===========================================================================
+
+describe("P4a-adj: buildFrameCtaCtx (pure, the __-prefixed ctx builder)", () => {
+  it("builds the __-prefixed shape matching the client twin (runtime/dependencies.ts buildCtxFields)", () => {
+    const ctx = buildFrameCtaCtx({ state: "CA", device: "mobile", hour: 14, weekday: 2 }, 0);
+    expect(ctx).toEqual({ __page: 0, __hour: 14, __weekday: 2, __state: "CA", __device: "mobile" });
+  });
+
+  it("omits __state/__device when absent or empty (fail-closed, matching the client's own tolerant-absence rule)", () => {
+    const ctxAbsent = buildFrameCtaCtx({ hour: 9, weekday: 0 }, 2);
+    expect(ctxAbsent).toEqual({ __page: 2, __hour: 9, __weekday: 0 });
+    expect("__state" in ctxAbsent).toBe(false);
+    expect("__device" in ctxAbsent).toBe(false);
+    const ctxEmpty = buildFrameCtaCtx({ state: "", device: "", hour: 9, weekday: 0 }, 1);
+    expect("__state" in ctxEmpty).toBe(false);
+    expect("__device" in ctxEmpty).toBe(false);
+  });
+});
+
+describe("P4a-adj: computeCtaVerdict (pure, the server-side condition evaluator)", () => {
+  it("a __state-conditioned CTA is visible only when the ctx state matches; absent ctx is fail-closed", () => {
+    const slots = [
+      {
+        slot: "footer" as const, label: "CA hotline", tel: "+1 555 000 0000", id: "cta_ca",
+        condition: { match: "all" as const, conditions: [{ when: "__state", op: "eq" as const, value: "CA" }] },
+      },
+    ];
+    expect(computeCtaVerdict(slots, { __state: "CA" })).toEqual(["cta_ca"]);
+    expect(computeCtaVerdict(slots, { __state: "NY" })).toEqual([]);
+    expect(computeCtaVerdict(slots, {})).toEqual([]); // no __state key at all -> fail-closed, never a false match
+  });
+
+  it("an answer-conditioned CTA is visible only when the (server re-normalized) answer is present and matching", () => {
+    const slots = [
+      {
+        slot: "under_header" as const, label: "Senior line", tel: "+1 555 111 0000", id: "cta_senior",
+        condition: { match: "all" as const, conditions: [{ when: "age", op: "gte" as const, value: 65 }] },
+      },
+    ];
+    expect(computeCtaVerdict(slots, { age: 70 })).toEqual(["cta_senior"]);
+    expect(computeCtaVerdict(slots, { age: 40 })).toEqual([]);
+    expect(computeCtaVerdict(slots, {})).toEqual([]); // no answer yet (e.g. mint time) -> fail-closed
+  });
+
+  it("an UNCONDITIONAL CTA (no `condition` at all) is never in the verdict — it server-renders visible already, never hidden", () => {
+    const slots = [{ slot: "footer" as const, label: "Call now", tel: "+1 555 222 0000", id: "cta_plain" }];
+    expect(computeCtaVerdict(slots, { __state: "CA", age: 70 })).toEqual([]);
+  });
+
+  it("id derivation matches frame.ts's renderCtaSlot exactly: an authored id wins, else frame_cta_<slot>_<index>", () => {
+    const slots = [
+      {
+        slot: "header_right" as const, label: "A", tel: "+1", // no id -> derived from slot+index
+        condition: { match: "all" as const, conditions: [{ when: "__state", op: "eq" as const, value: "CA" }] },
+      },
+      {
+        slot: "footer" as const, label: "B", tel: "+2", id: "explicit_id",
+        condition: { match: "all" as const, conditions: [{ when: "__state", op: "eq" as const, value: "CA" }] },
+      },
+    ];
+    expect(computeCtaVerdict(slots, { __state: "CA" })).toEqual(["frame_cta_header_right_0", "explicit_id"]);
+  });
+
+  it("absent cta_slots (no frame, or a frame with none) -> empty verdict, never throws", () => {
+    expect(computeCtaVerdict(undefined, { __state: "CA" })).toEqual([]);
+    expect(computeCtaVerdict([], {})).toEqual([]);
+  });
+});
+
+describeDb("P4a-adj: CTA verdict wired at /lg/attempt mint (entry-known conditions)", () => {
+  it("a __state-conditioned CTA appears in mintFunnelAttempt's `cc` when entry_ctx.state matches, is absent otherwise", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId, funnelId } = await seedQuote(env);
+    const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(funnelId) as { id: number }).id;
+    const frameConfig = {
+      version: 1,
+      template: "centered",
+      cta_slots: [
+        {
+          id: "cta_ca_only", slot: "footer", label: "CA hotline", tel: "+1 555 000 0000",
+          condition: { match: "all", conditions: [{ when: "__state", op: "eq", value: "CA" }] },
+        },
+      ],
+    };
+    sdb.prepare("UPDATE leadgen_funnels SET frame_config_json = ? WHERE id = ?").run(JSON.stringify(frameConfig), funnelRowId);
+    await activate(env, quotePublicId);
+
+    const resolvedCA = await resolveActivatedFunnel(env, { site_id: "site-1", session_id: "s-ca", entry_ctx: { hour: 12, weekday: 3, state: "CA" } });
+    const attemptCA = await mintFunnelAttempt(env, resolvedCA!, Date.now(), { session_id: "s-ca", entry_ctx: { hour: 12, weekday: 3, state: "CA" } });
+    expect(attemptCA.cc, "a state=CA attempt must carry the CA-conditioned CTA id").toEqual(["cta_ca_only"]);
+
+    const resolvedNY = await resolveActivatedFunnel(env, { site_id: "site-1", session_id: "s-ny", entry_ctx: { hour: 12, weekday: 3, state: "NY" } });
+    const attemptNY = await mintFunnelAttempt(env, resolvedNY!, Date.now(), { session_id: "s-ny", entry_ctx: { hour: 12, weekday: 3, state: "NY" } });
+    expect(attemptNY.cc, "a state=NY attempt must NOT carry the CA-conditioned CTA id").toBeUndefined();
+  });
+
+  it("a variant with NO frame config mints with `cc` absent (legacy shell, byte-identical to pre-P4a-adj)", async () => {
+    const { env } = newHarness();
+    const { quotePublicId, variantId } = await seedQuote(env);
+    await activate(env, quotePublicId);
+    const resolved = await resolveActivatedFunnel(env, { site_id: "site-1", session_id: "s1", entry_ctx: BASE_CTX });
+    const attempt = await mintFunnelAttempt(env, resolved!, Date.now(), { session_id: "s1", entry_ctx: BASE_CTX });
+    expect(attempt.cc).toBeUndefined();
+  });
+});
+
+describeDb("P4a-adj: CTA verdict wired at /lg/ck checkpoint (answer-conditioned CTA updates at the page transition)", () => {
+  it("an answer-conditioned CTA appears in the /lg/ck response's `cc` after the qualifying answer's page transition, absent before", async () => {
+    const seed = await seedCheckpointFunnel({ multiplier: 2.0 });
+    const entryRowId = variantRowId(seed.sdb, seed.entryVariantId);
+    const funnelRowId = (seed.sdb.prepare("SELECT funnel_id FROM leadgen_funnel_variants WHERE id = ?").get(entryRowId) as { funnel_id: number }).funnel_id;
+    const frameConfig = {
+      version: 1,
+      template: "centered",
+      cta_slots: [
+        {
+          id: "cta_senior", slot: "footer", label: "Senior line", tel: "+1 555 333 0000",
+          condition: { match: "all", conditions: [{ when: "age", op: "gte", value: 65 }] },
+        },
+      ],
+    };
+    seed.sdb.prepare("UPDATE leadgen_funnels SET frame_config_json = ? WHERE id = ?").run(JSON.stringify(frameConfig), funnelRowId);
+
+    const attempt = await mintAttempt(seed.env, seed.entryVariantId);
+    // Before the qualifying answer's page transition: mint-time cc is absent
+    // (no answers exist yet, so the answer-conditioned CTA is fail-closed).
+    const mintRes = await get(seed.env, `/lg/attempt?vid=${seed.entryVariantId}`);
+    const mintBody = (await mintRes.json()) as { cc?: string[] };
+    expect(mintBody.cc).toBeUndefined();
+
+    // The qualifying answer's page transition -> POST /lg/ck (age >= 65 ALSO
+    // matches this funnel's routing rule, so this is a real switch; the CTA
+    // verdict is independent of the routing match outcome either way).
+    const ckpt = await post(seed.env, "/lg/ck", {
+      k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
+      s: attempt.session_id, a: { age: { value: 70 } },
+    });
+    const ckptBody = (await ckpt.json()) as { sw: boolean; cc?: string[] };
+    expect(ckptBody.sw).toBe(true);
+    expect(ckptBody.cc, "the age>=65 answer must surface the senior CTA in this checkpoint response").toEqual(["cta_senior"]);
+  });
+
+  it("an answer that does NOT qualify leaves `cc` absent on the /lg/ck response", async () => {
+    const seed = await seedCheckpointFunnel({ multiplier: 2.0 });
+    const entryRowId = variantRowId(seed.sdb, seed.entryVariantId);
+    const funnelRowId = (seed.sdb.prepare("SELECT funnel_id FROM leadgen_funnel_variants WHERE id = ?").get(entryRowId) as { funnel_id: number }).funnel_id;
+    const frameConfig = {
+      version: 1,
+      template: "centered",
+      cta_slots: [
+        {
+          id: "cta_senior", slot: "footer", label: "Senior line", tel: "+1 555 333 0000",
+          condition: { match: "all", conditions: [{ when: "age", op: "gte", value: 65 }] },
+        },
+      ],
+    };
+    seed.sdb.prepare("UPDATE leadgen_funnels SET frame_config_json = ? WHERE id = ?").run(JSON.stringify(frameConfig), funnelRowId);
+
+    const attempt = await mintAttempt(seed.env, seed.entryVariantId);
+    const ckpt = await post(seed.env, "/lg/ck", {
+      k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
+      s: attempt.session_id, a: { age: { value: 40 } }, // does not qualify (< 65) -- no routing switch, no CTA either
+    });
+    const ckptBody = (await ckpt.json()) as { sw: boolean; cc?: string[] };
+    expect(ckptBody.sw).toBe(false);
+    expect(ckptBody.cc).toBeUndefined();
   });
 });

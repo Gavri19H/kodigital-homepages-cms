@@ -957,7 +957,7 @@ export class LgEngine {
     // vs-string was never the broken case); leadgen-p4a-behavior.spec.ts /
     // the p4c-rules spec's leg 4 prove the previously-stuck boolean-picker-
     // vs-live-click case now reveals live.
-    const attrValue = choiceEl.getAttribute("data-lg-choice") ?? "";
+    const attrValue = choiceEl.getAttribute("data-lg-choice") || "";
     const choiceConfig = component?.choices?.find((c) => String(c.value) === attrValue);
     let value: unknown = choiceConfig !== undefined ? choiceConfig.value : attrValue;
 
@@ -1003,7 +1003,7 @@ export class LgEngine {
       const deps = this.dependencyState(section);
       const interactive = section.components.filter(
         (c, i) =>
-          (c.internal_field ?? "") !== "" && deps.components[i]?.visible === true,
+          (c.internal_field || "") !== "" && deps.components[i]?.visible === true,
       );
       if (interactive.length === 1 && this.sectionPassesAt(this.config.sections.indexOf(section), section)) {
         this.advance();
@@ -1170,7 +1170,7 @@ export class LgEngine {
   }
 
   private handleInputEvent(target: Element): void {
-    const input = target.closest("[data-lg-input]") ?? target;
+    const input = target.closest("[data-lg-input]") || target;
     const fieldEl = input.closest("[data-lg-field]");
     const questionEl = input.closest("[data-lg-question]");
     const questionId = questionEl?.getAttribute("data-lg-question") ?? "";
@@ -1429,7 +1429,7 @@ export class LgEngine {
     if (shownEls[0] !== undefined) render.focusSection(shownEls[0]);
     this.updateProgressUi();
     if (fireView) {
-      for (const i of visibleInPage) this.fireSectionView(this.config.sections[i] ?? null, nav);
+      for (const i of visibleInPage) this.fireSectionView(this.config.sections[i] || null, nav);
     }
   }
 
@@ -1545,7 +1545,7 @@ export class LgEngine {
       // §3.5.8: inline notice inside the funnel card; beacons continue.
       this.store.setAuction({ status: "error" });
       this.root.setAttribute("data-lg-auction", "error");
-      render.showRuntimeNotice(this.currentSectionEl() ?? this.root, FRIENDLY_ERROR);
+      render.showRuntimeNotice(this.currentSectionEl() || this.root, FRIENDLY_ERROR);
       this.finalized = outcome.kind === "tampered"; // network errors may retry via Continue
       return;
     }
@@ -1582,7 +1582,7 @@ export class LgEngine {
           this.beacons.enqueue(imp.event_type, {
             offer_id: imp.offer_id,
             placement_id: imp.placement_id,
-            carrier_key: imp.carrier_key ?? "",
+            carrier_key: imp.carrier_key || "",
             carrier_position: imp.slot_index,
             auction_result_id: imp.auction_result_id,
             banner_render_id: imp.banner_render_id,
@@ -1637,7 +1637,7 @@ export async function bootLeadgenRuntime(): Promise<void> {
     // Dedicated try/catch: a corrupt inline config renders the notice, never
     // a blank page / thrown boot.
     try {
-      config = JSON.parse(configEl.textContent ?? "") as LgPublicConfig;
+      config = JSON.parse(configEl.textContent || "") as LgPublicConfig;
     } catch {
       config = null;
     }

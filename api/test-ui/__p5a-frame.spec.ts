@@ -26,6 +26,7 @@
 // --host-resolver-rules.
 
 import { test, expect, request as playwrightRequest, type APIRequestContext, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { seedActiveSite } from "./listicles-p6-seed";
 import { PW_PORT } from "./utils/base-url";
@@ -275,6 +276,206 @@ test.describe("P5a — authorable frame elements v2 on the live funnel", () => {
     expect(footerBg).not.toBe("rgba(0, 0, 0, 0)"); // a real scoped color, not transparent
     expect(footerBg).not.toBe(pageBg);
     await page.screenshot({ path: `${SHOT_DIR}/footer.png`, fullPage: true });
+  });
+});
+
+// ===========================================================================
+// P4a-adj (P5a runtime seams #1/#2) — the two runtime legs LIVE:
+//   * CTA visibility: the server evaluates cta_slots[].condition (10C's
+//     WIRING SEAM frame.ts flagged) and the client applies the id-list
+//     verdict at /lg/attempt mint + /lg/ck checkpoint. A __state-conditioned
+//     CTA is proven server-side by leadgen-p4a-routing.test.ts's vitest
+//     (computeCtaVerdict/buildFrameCtaCtx + a direct mintFunnelAttempt call
+//     with an explicit entry_ctx.state override) — NOT here: this local
+//     wrangler-dev harness cannot spoof request.cf.regionCode at either the
+//     browser OR the API-request layer (the __p3a-pages.spec.ts / __p4a-
+//     routing.spec.ts sanctioned precedent for the exact same constraint).
+//     An ANSWER-conditioned CTA, by contrast, IS fully live-controllable (a
+//     real filled+submitted answer), and exercises the identical server
+//     evaluator + the client's applyCtaVerdict DOM applier — proven here.
+//   * Page-range targeting: data-frame-pages "range:2-2" hidden on page 1,
+//     visible on page 2, hidden again on page 3 (render.ts pageInSpec).
+//
+// A routing rule is seeded (age >= 200, NEVER matches) purely to make the
+// age page a routing CHECKPOINT (deriveCheckpointPages keys on the FIELD a
+// rule references, not on whether it ultimately matches) — this is what
+// makes the engine POST /lg/ck at all; the CTA verdict is proven independent
+// of the routing match outcome (sw:false, cc still present).
+// ===========================================================================
+
+interface CtaPageRangeSeed {
+  host: string;
+}
+
+test.describe("P4a-adj — CTA verdict LIVE toggle (answer-conditioned) + page-range targeting", () => {
+  let seeded: CtaPageRangeSeed;
+
+  test.beforeAll(async () => {
+    const ctx = await playwrightRequest.newContext({ baseURL: ORIGIN });
+    const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const host = `lg-p4a-adj-cta-${uniq}.e2e.test`;
+    const siteId = await seedActiveSite(ctx, host, `P4a-adj CTA ${uniq}`);
+
+    const quote = await json<{ public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }> }>(
+      await ctx.post(`${LG_API}/quotes`, { data: { quote_name: `P4a-adj CTA ${uniq}`, activity: "quote_funnel", verticals: ["life"] } }),
+      "quote create",
+    );
+    const funnelId = quote.funnels[0]!.public_id;
+    const variantA = quote.funnels[0]!.variants[0]!.public_id;
+
+    const secAge = await json<{ public_id: string }>(
+      await ctx.post(`${LG_API}/sections`, {
+        data: {
+          activity: "quote_funnel", vertical: "life", status: "active",
+          section_name: "AgeQuestion", headline_text: "How old are you?",
+          content_json: JSON.stringify({
+            components: [
+              { type: "QuestionHeadline", question_id: "h_age", props: { text: "How old are you" } },
+              { type: "NumberInputQuestion", question_id: "q_age", question_key: "age", internal_field: "age", required: true },
+              CONTINUE,
+            ],
+          }),
+        },
+      }),
+      "section age create",
+    );
+    const secP2 = await json<{ public_id: string }>(
+      await ctx.post(`${LG_API}/sections`, {
+        data: {
+          activity: "quote_funnel", vertical: "life", status: "active",
+          section_name: "PageTwo", headline_text: "Page Two",
+          content_json: JSON.stringify({
+            components: [
+              { type: "QuestionHeadline", question_id: "h_p2", props: { text: "Page Two" } },
+              { type: "TwoButtonYesNo", question_id: "q_p2", question_key: "p2", internal_field: "p2_field", answer_type: "boolean", required: true },
+              CONTINUE,
+            ],
+          }),
+        },
+      }),
+      "section p2 create",
+    );
+    const secP3 = await json<{ public_id: string }>(
+      await ctx.post(`${LG_API}/sections`, {
+        data: {
+          activity: "quote_funnel", vertical: "life", status: "active",
+          section_name: "PageThree", headline_text: "Page Three",
+          content_json: JSON.stringify({
+            components: [
+              { type: "QuestionHeadline", question_id: "h_p3", props: { text: "Page Three" } },
+              { type: "TwoButtonYesNo", question_id: "q_p3", question_key: "p3", internal_field: "p3_field", answer_type: "boolean", required: true },
+              CONTINUE,
+            ],
+          }),
+        },
+      }),
+      "section p3 create",
+    );
+
+    await json(
+      await ctx.put(`${LG_API}/variants/${variantA}`, {
+        data: {
+          pages: [
+            { name: "Age", slots: [{ kind: "fixed", section_id: secAge.public_id }] },
+            { name: "P2", slots: [{ kind: "fixed", section_id: secP2.public_id }] },
+            { name: "P3", slots: [{ kind: "fixed", section_id: secP3.public_id }] },
+          ],
+        },
+      }),
+      "variant A pages",
+    );
+
+    // A sibling variant purely to satisfy route_funnel_variant's non-null-
+    // target requirement -- NEVER actually visited (the rule's own condition
+    // never matches); its only job is to make the age page a checkpoint.
+    const variantB = await json<{ public_id: string }>(
+      await ctx.post(`${LG_API}/funnels/${funnelId}/variants`, { data: { variant_label: "B" } }),
+      "variant B create",
+    );
+
+    const frameConfig = {
+      version: 1,
+      template: "centered",
+      cta_slots: [
+        {
+          id: "cta_senior", slot: "footer", label: "Senior line", tel: "+1 555 444 0000",
+          condition: { match: "all", conditions: [{ when: "age", op: "gte", value: 65 }] },
+        },
+      ],
+      free_text: [
+        {
+          id: "ft_range", slot: "below_section", pages: { mode: "range", from: 2, to: 2 },
+          blocks: [{ type: "paragraph", html: "<strong>Page 2 only text</strong>" }],
+        },
+      ],
+    };
+    await json(
+      await ctx.put(`${LG_API}/funnels/${funnelId}/frame`, { data: { frame_config_json: frameConfig } }),
+      "funnel frame",
+    );
+    await json(await ctx.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true } }), "activation");
+
+    const esc = (s: string): string => s.replace(/'/g, "''");
+    const rowsA = JSON.parse(
+      execFileSync("npx", ["wrangler", "d1", "execute", "kodigital-homepages-cms-db", "--local", "--json", "--command", `SELECT id FROM leadgen_funnel_variants WHERE public_id='${esc(variantA)}';`], { cwd: process.cwd(), timeout: 120_000 }).toString(),
+    ) as Array<{ results: Array<{ id: number }> }>;
+    const rowsB = JSON.parse(
+      execFileSync("npx", ["wrangler", "d1", "execute", "kodigital-homepages-cms-db", "--local", "--json", "--command", `SELECT id FROM leadgen_funnel_variants WHERE public_id='${esc(variantB.public_id)}';`], { cwd: process.cwd(), timeout: 120_000 }).toString(),
+    ) as Array<{ results: Array<{ id: number }> }>;
+    const aRowId = rowsA[0]!.results[0]!.id;
+    const bRowId = rowsB[0]!.results[0]!.id;
+    execFileSync(
+      "npx",
+      [
+        "wrangler", "d1", "execute", "kodigital-homepages-cms-db", "--local", "--command",
+        `INSERT INTO leadgen_funnel_rules (public_id, variant_id, rule_type, conditions_json, conditions_hash, priority, status, target_funnel_variant_id, rule_name, enabled) VALUES ('lgfr_pw_cta_${uniq}', ${aRowId}, 'route_funnel_variant', '{"groups":[{"field":"age","op":"gte","value":200}]}', 'h_pw_cta_${uniq}', 10, 'active', ${bRowId}, 'Never matches (checkpoint-only)', 1);`,
+      ],
+      { cwd: process.cwd(), stdio: "pipe", timeout: 120_000 },
+    );
+
+    seeded = { host };
+  });
+
+  test("answer-conditioned CTA appears LIVE after the qualifying page transition; page-range text hidden(p1)->visible(p2)->hidden(p3)", async ({ page }) => {
+    await page.goto(`http://${seeded.host}:${PW_PORT}/lg`, { waitUntil: "load" });
+    await ready(page);
+
+    const cta = page.locator('[data-lg-node="cta_senior"]');
+    const ftRange = page.locator('[data-free-text-id="ft_range"]');
+    // Page 1 (age, unanswered): the answer-conditioned CTA is hidden (no
+    // answer yet -> fail-closed); the range-2-2 text is hidden (page 1 is
+    // outside the range).
+    await expect(cta).toBeHidden();
+    await expect(ftRange).toBeHidden();
+    await expect(page.locator("[data-lg-progress]").first()).toHaveAttribute("data-lg-progress-current", "1");
+
+    await page.locator("[data-lg-section]:not([hidden]) [data-lg-input]").first().fill("70");
+    const [ckptResponse] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/lg/ck")),
+      page.locator("[data-lg-continue]:visible").click(),
+    ]);
+    const ckptBody = (await ckptResponse.json()) as { sw: boolean; cc?: string[] };
+    expect(ckptBody.sw, "the seeded routing rule's own condition (age>=200) never matches").toBe(false);
+    expect(ckptBody.cc, "the CTA verdict is computed independent of the routing-match outcome").toEqual(["cta_senior"]);
+
+    await page.waitForTimeout(300); // let the engine apply the verdict + advance to page 2
+
+    // Page 2: the CTA is now visible (verdict applied live); the range-2-2
+    // text is visible (page 2 is inside "range:2-2").
+    await expect(cta).toBeVisible();
+    await expect(ftRange).toBeVisible();
+    await expect(page.locator("[data-lg-progress]").first()).toHaveAttribute("data-lg-progress-current", "2");
+
+    // Advance to page 3 (no further /lg/ck call — this page is not a
+    // checkpoint anchor): the range-2-2 text hides again (page 3 is outside
+    // the range); the CTA stays visible — the verdict is not re-evaluated
+    // off a checkpoint page (documented v1 semantics: CTA visibility updates
+    // at routing-checkpoint page transitions only).
+    await page.locator('[data-lg-section]:not([hidden]) [data-lg-choice="true"]').first().click();
+    await page.locator("[data-lg-continue]:visible").click();
+    await expect(page.locator("[data-lg-progress]").first()).toHaveAttribute("data-lg-progress-current", "3");
+    await expect(ftRange).toBeHidden();
+    await expect(cta).toBeVisible();
   });
 });
 
