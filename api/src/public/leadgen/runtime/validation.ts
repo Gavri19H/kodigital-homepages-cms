@@ -119,13 +119,50 @@ export function normalizePhoneE164(value: string): string | null {
   return "+1" + digits;
 }
 
-function checkFormat(kind: LgFormatKind, value: unknown, out: LgValidationFailure[]): void {
+function checkFormat(
+  kind: LgFormatKind,
+  value: unknown,
+  out: LgValidationFailure[],
+  cv: Record<string, unknown>,
+): void {
   if (kind === null) return;
   if (typeof value !== "string" || value === "") return; // emptiness is `required`'s job
   if (kind === "email" && !EMAIL_RE.test(value.trim())) {
     out.push({ code: "email_format", message: "Enter a valid email address." });
   } else if (kind === "phone") {
-    if (normalizePhoneE164(value) === null) {
+    // Round-4 A-6b: the compiled phone contract (config-dto buildPhoneContract →
+    // client_validation.phone) drives a GENERIC checker — strip per `normalize`,
+    // test the compiled `regex`, emit the compiled `message`. When NO contract
+    // is present (legacy config, no phone_format) the behavior is BYTE-FOR-BYTE
+    // the NANP default (normalizePhoneE164 — still the engine's answer-normalizer
+    // + the frozen p4b pin). A bad compiled regex degrades to "no rule" (never a
+    // runtime throw), the same defensive idiom as the authored `pattern` rule.
+    // config-dto guarantees `regex`/`normalize`/`message` are non-empty strings
+    // on every emitted contract, so the cast is safe (a corrupt non-object /
+    // primitive falls through to the NANP default; a bad regex is caught below).
+    const c = cv["phone"] as { regex: string; normalize: string; message: string } | undefined;
+    if (c && typeof c === "object") {
+      // Review-round (MAJOR-1, defense-in-depth): patterns are pre-screened at
+      // save (content-schema isCatastrophicRegexShape); this is a cheap floor
+      // for legacy/pre-fix-stored contracts — no phone ever needs 40+ chars.
+      // Gating regex work behind it (not just gating the push) keeps a bad
+      // legacy contract from ever running .test() on an over-long value.
+      let ok = value.length <= 40;
+      if (ok) {
+        const stripped =
+          c.normalize === "e164"
+            ? value.replace(/[^\d+]/g, "")
+            : c.normalize === "none"
+              ? value.trim()
+              : value.replace(/\D/g, "");
+        try {
+          ok = new RegExp(c.regex).test(stripped);
+        } catch {
+          ok = true;
+        }
+      }
+      if (!ok) out.push({ code: "phone_format", message: c.message });
+    } else if (normalizePhoneE164(value) === null) {
       out.push({ code: "phone_format", message: "Enter a valid US phone number." });
     }
   } else if (kind === "zip" && !ZIP_RE.test(value.trim())) {
@@ -280,7 +317,7 @@ export function validateValue(
     }
   }
 
-  checkFormat(formatKindFor(component), value, out);
+  checkFormat(formatKindFor(component), value, out, cv);
   // E1-C1: swap in the authored copy for every value-wrong failure collected
   // above (required already returned; only "wrong value" codes remain here).
   if (errText !== undefined) {

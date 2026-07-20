@@ -23,6 +23,10 @@ import type { LeadgenConditionOp, LeadgenContinueMode } from "../../../admin/lea
 // from the build-time-vendored Tabler (MIT) icon map — see the
 // LEADGEN_FIELD_LEADING_ICONS comment below.
 import { LEADGEN_ICON_NAMES } from "./icons.generated";
+// P2b review-round (MAJOR-1): the phone_format custom regex is an author-
+// facing custom-pattern surface exactly like the free-text custom pattern —
+// reuse the SAME ReDoS screen + length cap (one detection engine, never two).
+import { isCatastrophicRegexShape, FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH } from "../../../leadgen/payload";
 
 // ---------------------------------------------------------------------------
 // Node + content types
@@ -314,6 +318,30 @@ const ACCEPT_FORMAT_BY_TYPE: Partial<Record<ComponentType, LeadgenFieldAcceptFor
 // the type isn't one of the 8 Accept-swappable text-input types.
 export function acceptFormatOfType(type: ComponentType): LeadgenFieldAcceptFormat | undefined {
   return ACCEPT_FORMAT_BY_TYPE[type];
+}
+
+// ---------------------------------------------------------------------------
+// Round-4 A-6b / Part D — phone-format presets (`node.props.phone_format`).
+// ---------------------------------------------------------------------------
+// The investigation ground (A-6b): the runtime hard-coded NANP + the message
+// "Enter a valid US phone number." with NO author choice — wrong for IL /
+// international funnels (operator examples: US, IL 0XX-XXXXXXX, intl +code).
+// A phone-typed field may now select a preset: 'nanp' (default, US/Canada) |
+// 'e164_intl' (+ and 8-15 digits) | 'il' (Israeli national) | a {custom:{regex,
+// mask?, message?}} rule. content-schema VALIDATES the shape at save (below);
+// config-dto COMPILES it into the client contract (buildPhoneContract); the
+// runtime CHECKER (validation.ts) consumes the contract. Absent ⇒ byte-
+// identical legacy NANP behavior (the runtime's normalizePhoneE164 default).
+export const LEADGEN_PHONE_FORMAT_PRESETS = ["nanp", "e164_intl", "il"] as const;
+export type LeadgenPhoneFormatPreset = (typeof LEADGEN_PHONE_FORMAT_PRESETS)[number];
+const PHONE_FORMAT_PRESET_SET: ReadonlySet<string> = new Set(LEADGEN_PHONE_FORMAT_PRESETS);
+
+// A phone-typed field: the concrete PhoneInputQuestion, or any text tile
+// Accept-swapped to the `phone` format (§5.6). props.phone_format is valid ONLY
+// here, and config-dto compiles a phone contract ONLY here — one definition so
+// the save-gate and the config-builder can never disagree on "is this a phone".
+export function isPhoneTypedComponent(type: ComponentType, props: Record<string, unknown>): boolean {
+  return acceptFormatOfType(type) === "phone" || props["format"] === "phone";
 }
 
 // ---------------------------------------------------------------------------
@@ -1043,6 +1071,9 @@ export type SectionContentErrorCode =
   | "duplicate_question_id"
   | "duplicate_question_key"
   | "duplicate_internal_field"
+  // P2b review-round (minor-4): an internal_field / row internal_field / Maps
+  // fill-target starting with "__" (components, MQG rows, Maps fills alike).
+  | "reserved_internal_field"
   | "missing_required_field"
   | "invalid_choice"
   // P2a §R-A per-element theme freedom — choice.style shape / vocabulary /
@@ -1957,6 +1988,83 @@ function validateNewFieldProps(
     }
   }
 
+  // Round-4 A-6b / Part D: phone_format — the phone-validation preset. Valid
+  // ONLY on a phone-typed field (isPhoneTypedComponent). A string names a
+  // built-in preset (nanp | e164_intl | il); an object is a custom rule
+  // {custom:{regex, mask?, message?}} whose regex MUST compile (a bad pattern is
+  // an author error, never a runtime throw). config-dto compiles the choice into
+  // the client contract; absent ⇒ byte-identical NANP default.
+  if (props["phone_format"] !== undefined) {
+    const pf = props["phone_format"];
+    if (!isPhoneTypedComponent(type, props)) {
+      push(
+        "invalid_field_prop",
+        `${base}.props.phone_format`,
+        "props.phone_format is only valid on a Phone field (§A-6b)",
+      );
+    } else if (typeof pf === "string") {
+      if (!PHONE_FORMAT_PRESET_SET.has(pf)) {
+        push(
+          "invalid_field_prop",
+          `${base}.props.phone_format`,
+          `props.phone_format must be one of ${LEADGEN_PHONE_FORMAT_PRESETS.join("|")} or a {custom:{regex}} object`,
+        );
+      }
+    } else if (isRecord(pf)) {
+      const custom = pf["custom"];
+      if (!isRecord(custom) || !isNonEmptyString(custom["regex"])) {
+        push(
+          "invalid_field_prop",
+          `${base}.props.phone_format`,
+          "a custom phone format needs {custom:{regex}} — a non-empty pattern string",
+        );
+      } else {
+        // P2b review-round (MAJOR-1, money path): a custom phone regex is
+        // exactly as author-controlled as the free-text custom pattern —
+        // reuse BOTH of its save-time defenses (payload.ts §6.5): the length
+        // cap first (cheap, catches degenerate input), then the paren-aware
+        // catastrophic-backtracking screen. Evil patterns must never compile
+        // into a DTO; both checks run before the compile-check below.
+        const regex = custom["regex"];
+        if (regex.length > FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH) {
+          push(
+            "invalid_field_prop",
+            `${base}.props.phone_format.custom.regex`,
+            `the custom phone pattern must be at most ${FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH} characters`,
+          );
+        } else if (isCatastrophicRegexShape(regex)) {
+          push(
+            "invalid_field_prop",
+            `${base}.props.phone_format.custom.regex`,
+            "This pattern could freeze visitors' browsers — simplify it",
+          );
+        } else {
+          try {
+            new RegExp(regex);
+          } catch {
+            push(
+              "invalid_field_prop",
+              `${base}.props.phone_format.custom.regex`,
+              "the custom phone pattern isn't a valid regular expression",
+            );
+          }
+        }
+        if (custom["mask"] !== undefined && typeof custom["mask"] !== "string") {
+          push("invalid_field_prop", `${base}.props.phone_format.custom.mask`, "custom.mask must be a string");
+        }
+        if (custom["message"] !== undefined && typeof custom["message"] !== "string") {
+          push("invalid_field_prop", `${base}.props.phone_format.custom.message`, "custom.message must be a string");
+        }
+      }
+    } else {
+      push(
+        "invalid_field_prop",
+        `${base}.props.phone_format`,
+        "props.phone_format must be a preset name or a {custom:{regex}} object",
+      );
+    }
+  }
+
   // PC-7/PC-A3 (P4b): props.step is meaningful ONLY on the numeric Accept-swap
   // tiles (Number / Amount). The Accept-swap bug let a stale `step` SURVIVE onto
   // a text/email/phone/ZIP/date/address field when the type changed (the studio
@@ -2177,6 +2285,10 @@ function validateMapsFills(
     const v = value[slot];
     if (v !== undefined && (typeof v !== "string" || v === "")) {
       push("invalid_maps_prop", `${path}.${slot}`, `props.maps.fills.${slot} must be a non-empty string (§9.2)`);
+    } else if (typeof v === "string" && v.startsWith("__")) {
+      // P2b review-round (minor-4): a fill target NAMES an internal_field —
+      // same reservation as the field it targets.
+      push("reserved_internal_field", `${path}.${slot}`, "Field names starting with __ are reserved");
     }
   }
 }
@@ -2600,7 +2712,12 @@ export function validateSectionContent(
     // join (or collide with) the uniqueness universe.
     const internalField = raw["internal_field"];
     if (isNonEmptyString(internalField) && catalog.produces !== null) {
-      if (seenInternalFields.has(internalField)) {
+      // P2b review-round (minor-4): "__"-prefixed names are reserved (ctx
+      // fields like __page/__hour/__weekday/__state/__device, P2a 10C) — an
+      // author-typed field can never collide with/shadow one.
+      if (internalField.startsWith("__")) {
+        push("reserved_internal_field", `${base}.internal_field`, "Field names starting with __ are reserved");
+      } else if (seenInternalFields.has(internalField)) {
         push(
           "duplicate_internal_field",
           `${base}.internal_field`,
@@ -2804,6 +2921,10 @@ export function validateSectionContent(
               `${rp}.internal_field`,
               "row.internal_field is required (the row's answer name)",
             );
+          } else if (rowField.startsWith("__")) {
+            // P2b review-round (minor-4): same reservation as a component's
+            // internal_field — a row IS an answer field (§8.5 P5/PC-10).
+            push("reserved_internal_field", `${rp}.internal_field`, "Field names starting with __ are reserved");
           } else if (seenRowFields.has(rowField) || seenInternalFields.has(rowField)) {
             push(
               "duplicate_internal_field",
@@ -3139,6 +3260,26 @@ function validateConditional(
 ): void {
   if (!isRecord(raw)) {
     push("conditional_invalid", path, "conditional must be an object {when, op, value}");
+    return;
+  }
+  // Round-4 A-4 (P2a composed groups): a group is detected STRUCTURALLY by an
+  // array `conditions` — the SAME discriminator the runtime + server evaluators
+  // use (runtime/dependencies.ts isConditionGroup / payload.ts), so authoring
+  // and evaluation can never disagree on which shape a slot carries. `match` ∈
+  // {all, any}; every inner condition is validated EXACTLY as a bare conditional
+  // (recursively, so nested groups + unknown-field/op/value checks all apply).
+  // A bare conditional never carries `conditions`, so the legacy path below is
+  // byte-identical for pre-A-4 content. P2a owns the evaluators (both already
+  // handle both shapes) — this widens only the save-time AUTHORING gate.
+  if (Array.isArray(raw["conditions"])) {
+    const match = raw["match"];
+    if (match !== undefined && match !== "all" && match !== "any") {
+      push("conditional_invalid", `${path}.match`, "condition group 'match' must be 'all' or 'any'");
+    }
+    const conditions = raw["conditions"];
+    for (let i = 0; i < conditions.length; i++) {
+      validateConditional(conditions[i], `${path}.conditions[${i}]`, knownFields, push);
+    }
     return;
   }
   const when = raw["when"];

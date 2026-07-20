@@ -51,6 +51,7 @@ import {
   readMultiQuestionRows,
   multiQuestionRowChoices,
   multiQuestionRowQuestionId,
+  isPhoneTypedComponent,
 } from "./components/content-schema";
 import type {
   LeadgenComponentNode,
@@ -193,6 +194,13 @@ export function parseSectionContinueVisibleWhen(
   if (typeof parsed !== "object" || parsed === null) return undefined;
   const cvw = (parsed as { continue_visible_when?: unknown }).continue_visible_when;
   if (typeof cvw !== "object" || cvw === null || Array.isArray(cvw)) return undefined;
+  // Round-4 A-4 (P2a composed groups): a group ({match?, conditions[]}) is
+  // detected STRUCTURALLY by an array `conditions` — the SAME discriminator the
+  // runtime evaluator uses (dependencies.ts isConditionGroup) — and round-trips
+  // untouched. The bare {when, op} shape keeps its existing defensive gate.
+  if (Array.isArray((cvw as { conditions?: unknown }).conditions)) {
+    return cvw as LeadgenComponentConditional;
+  }
   const when = (cvw as { when?: unknown }).when;
   const op = (cvw as { op?: unknown }).op;
   if (typeof when !== "string" || when === "" || typeof op !== "string") return undefined;
@@ -253,6 +261,61 @@ const PATTERN_PRESET_REGEX: Readonly<Record<string, string>> = {
   digits: "^[0-9]+$",
 };
 
+// Round-4 A-6b / Part D: compile a phone field's props.phone_format preset into
+// the client phone contract {regex, normalize, message} the runtime checker
+// (validation.ts) consumes — strip per `normalize`, test `regex`, emit
+// `message`. Built-in presets:
+//   nanp       — US/Canada NANP: optional leading country-1, area + exchange
+//                first digit 2-9, 10 significant digits (digits-normalized).
+//                Byte-equivalent to the runtime normalizePhoneE164 default
+//                (proven in leadgen-p2b-phone.test.ts), so explicit 'nanp'
+//                validates identically to legacy no-prop content.
+//   e164_intl  — E.164: '+' then 8-15 digits (keep '+' and digits).
+//   il         — Israeli national: 0 + 8-9 digits (incl. 05X mobiles), digits.
+// A {custom:{regex, mask?, message?}} rule passes its own regex verbatim, tested
+// on the raw value ('none'); its message wins (a plain default otherwise). The
+// `mask` is a P2c studio-picker display hint — never a validation input.
+interface CompiledPhoneContract {
+  regex: string;
+  normalize: "digits" | "e164" | "none";
+  message: string;
+}
+const PHONE_PRESET_CONTRACTS: Readonly<Record<string, CompiledPhoneContract>> = {
+  nanp: { regex: "^1?[2-9]\\d{2}[2-9]\\d{2}\\d{4}$", normalize: "digits", message: "Enter a valid US phone number." },
+  e164_intl: { regex: "^\\+\\d{8,15}$", normalize: "e164", message: "Enter your phone number with the country code, like +972…" },
+  il: { regex: "^0\\d{8,9}$", normalize: "digits", message: "Enter a valid Israeli phone number." },
+};
+
+// Resolve a node's props.phone_format to a compiled contract, or undefined —
+// undefined means "emit NO cv.phone" so a legacy phone field (no phone_format)
+// keeps a BYTE-IDENTICAL DTO and the runtime falls to its NANP default (the
+// back-compat gate). Only a phone-typed node with the prop present compiles one.
+// A string that is not a known preset returns undefined (content-schema rejected
+// it at save; a stale/corrupt config just falls to the NANP default, never
+// throws). A custom rule needs a non-empty string regex.
+function buildPhoneContract(node: LeadgenComponentNode): CompiledPhoneContract | undefined {
+  const props = node.props ?? {};
+  if (!isPhoneTypedComponent(node.type, props)) return undefined;
+  const pf = props["phone_format"];
+  if (pf === undefined) return undefined;
+  if (typeof pf === "string") return PHONE_PRESET_CONTRACTS[pf];
+  if (pf !== null && typeof pf === "object") {
+    const custom = (pf as { custom?: unknown }).custom;
+    if (custom !== null && typeof custom === "object") {
+      const regex = (custom as { regex?: unknown }).regex;
+      const message = (custom as { message?: unknown }).message;
+      if (typeof regex === "string" && regex !== "") {
+        return {
+          regex,
+          normalize: "none",
+          message: typeof message === "string" && message !== "" ? message : "Enter a valid phone number.",
+        };
+      }
+    }
+  }
+  return undefined;
+}
+
 function buildClientValidation(
   node: LeadgenComponentNode,
   todayIso: string,
@@ -301,6 +364,11 @@ function buildClientValidation(
   if (typeof errorText === "string" && errorText.trim() !== "") {
     cv["error_text"] = errorText;
   }
+  // Round-4 A-6b: compile the phone-format preset into the client contract. Only
+  // a phone-typed node WITH props.phone_format emits `cv.phone`; absent ⇒ no key
+  // (byte-identical legacy DTO; the runtime uses its NANP default).
+  const phoneContract = buildPhoneContract(node);
+  if (phoneContract !== undefined) cv["phone"] = phoneContract;
   return Object.keys(cv).length > 0 ? cv : undefined;
 }
 

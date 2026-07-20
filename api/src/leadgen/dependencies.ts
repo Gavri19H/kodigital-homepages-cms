@@ -34,7 +34,12 @@ import type {
   LeadgenComponentNode,
   LeadgenComponentConditional,
 } from "../public/leadgen/components/content-schema";
-import { conditionalMet, type LeadgenPayloadConditional } from "./payload";
+import {
+  conditionalMet,
+  isPayloadConditionGroup,
+  type LeadgenPayloadConditional,
+  type LeadgenPayloadConditionGroup,
+} from "./payload";
 
 // A component carrying a conditional is visible ONLY while the conditional is
 // met; a component with NO conditional is always visible. (The "hide when X"
@@ -58,20 +63,49 @@ export interface LeadgenDependencyState {
   blocking_question_ids: string[];
 }
 
-// content-schema's `LeadgenComponentConditional` is structurally identical to
-// payload's `LeadgenPayloadConditional`; this cast documents the reuse of the
-// single op evaluator without a second divergent implementation.
-function asPayloadConditional(c: LeadgenComponentConditional): LeadgenPayloadConditional {
+// A conditional-bearing slot (node.conditional / props.requiredWhen) holds
+// EITHER the bare content-schema.ts shape OR the Round-4 A-4 composed group
+// (content-schema.ts's declared `LeadgenComponentConditional` type is the bare
+// shape only — widening it is a separate, non-owned type-honesty pass,
+// reported alongside this fix; the P2a client twin runtime/dependencies.ts
+// carries the identical widening). `LeadgenComponentConditional` is
+// structurally identical to payload's `LeadgenPayloadConditional`; this cast
+// documents the reuse of the single op evaluator without a second divergent
+// implementation — `conditionalMet` itself detects a group STRUCTURALLY at
+// runtime (isPayloadConditionGroup), so either shape reaches identical
+// composed semantics through this ONE cast, no duplicated dispatch.
+type LeadgenConditionalSlot = LeadgenComponentConditional | LeadgenPayloadConditionGroup;
+
+function asPayloadConditional(
+  c: LeadgenConditionalSlot,
+): LeadgenPayloadConditional | LeadgenPayloadConditionGroup {
   return c;
 }
 
 function isConditionMet(
-  conditional: LeadgenComponentConditional | undefined,
+  conditional: LeadgenConditionalSlot | undefined,
   answers: Readonly<Record<string, unknown>>,
 ): boolean {
   // No conditional ⇒ unconditionally visible.
   if (!conditional) return true;
   return conditionalMet(asPayloadConditional(conditional), answers);
+}
+
+// Shape guard for `props.requiredWhen` (an untyped `unknown` field): a bare
+// {when,op,...} conditional (the original "when"/"op" probe, UNCHANGED — same
+// runtime result for every pre-existing bare rule) OR the A-4 composed group,
+// detected via the SAME structural check payload.ts / the client evaluator
+// use (isPayloadConditionGroup) — never a second, divergent detector. THE FIX
+// (P2a seam #2): before this guard only recognized the bare shape, so a
+// composed requiredWhen silently fell through to `return false` below —
+// evaluating as never-required server-side while the client's requiredNow
+// (runtime/dependencies.ts) correctly evaluated it — a client/server
+// divergence on the money path (required_now feeds continue_blocked here and
+// the client's own validation gate).
+function isConditionalSlotShape(v: unknown): v is LeadgenConditionalSlot {
+  if (v === null || typeof v !== "object") return false;
+  if ("when" in v && "op" in v) return true;
+  return isPayloadConditionGroup(v);
 }
 
 // An answer counts as "provided" when it is not undefined/null and not an empty
@@ -96,9 +130,7 @@ function requiredNow(
 ): boolean {
   if (node.required === true) return true;
   const rw = node.props?.["requiredWhen"];
-  if (rw && typeof rw === "object" && "when" in rw && "op" in rw) {
-    return isConditionMet(rw as LeadgenComponentConditional, answers);
-  }
+  if (isConditionalSlotShape(rw)) return isConditionMet(rw, answers);
   return false;
 }
 

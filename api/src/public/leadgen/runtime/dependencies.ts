@@ -73,11 +73,43 @@ function normalizeBoolShape(value: unknown): unknown {
   return value;
 }
 
-// Server-parity op evaluator — see the mirrored-semantics table above.
+// A-4 (Round-4) composed condition group — the §21.4 AND/OR model applied at
+// the SECTION level (industry-standard ANY/ALL groups, Form.io/Tally/Formidable).
+// `match:"any"` = OR (at least one condition true); anything else (incl. "all"
+// or absent) = AND (every condition true). Empty `conditions` follows the
+// Array.every/some identities: all ⇒ true (vacuous), any ⇒ false. A group is
+// detected STRUCTURALLY by an array `conditions` (a bare LgConditional never
+// carries one), so both shapes coexist in the same conditional /
+// props.requiredWhen / continue_visible_when slot with no discriminator field.
+// Total + fail-closed: every leg bottoms out in the bare evaluator, whose
+// absent-answer rule makes an unknown field false — a group never throws and
+// never blocks on missing data. The server twin (payload.ts conditionalMet)
+// carries the byte-identical dispatch so client show/hide and money-path
+// node-drop can never diverge on a composed rule.
+export interface LgConditionGroup {
+  match?: "all" | "any";
+  conditions: LgConditional[];
+}
+
+export function isConditionGroup(v: unknown): v is LgConditionGroup {
+  return (
+    v !== null &&
+    typeof v === "object" &&
+    Array.isArray((v as { conditions?: unknown }).conditions)
+  );
+}
+
+// Server-parity op evaluator — accepts BOTH the bare {when,op,...} conditional
+// (legacy — evaluated exactly as before) and the composed group above.
 export function conditionMet(
-  conditional: LgConditional,
+  conditional: LgConditional | LgConditionGroup,
   answers: Readonly<Record<string, unknown>>,
 ): boolean {
+  if (isConditionGroup(conditional)) {
+    return conditional.match === "any"
+      ? conditional.conditions.some((c) => conditionMet(c, answers))
+      : conditional.conditions.every((c) => conditionMet(c, answers));
+  }
   const actual = answers[conditional.when];
   if (actual === undefined) return false;
   switch (conditional.op) {
@@ -125,7 +157,7 @@ export function conditionMet(
 }
 
 function isConditionMetOn(
-  conditional: LgConditional | undefined,
+  conditional: LgConditional | LgConditionGroup | undefined,
   answers: Readonly<Record<string, unknown>>,
 ): boolean {
   if (!conditional) return true;
@@ -152,7 +184,9 @@ function requiredNow(
 ): boolean {
   if (component.required === true) return true;
   const rw = component.props ? component.props["requiredWhen"] : undefined;
+  // requiredWhen may be a bare conditional OR a composed group (A-4).
   if (isConditionalShape(rw)) return isConditionMetOn(rw, answers);
+  if (isConditionGroup(rw)) return isConditionMetOn(rw, answers);
   return false;
 }
 
@@ -238,5 +272,34 @@ export function visibleSectionIndexes(
     const section = sections[i];
     if (section !== undefined && isSectionVisible(section, answers)) out.push(i);
   }
+  return out;
+}
+
+// 10C (Round-4) conditional-display ctx sources — the data a CTA / free-text
+// display rule may gate on BEYOND the answers: the current page/step, the
+// visitor-local clock, and server-provided geo/device. The engine MERGES this
+// over the answer map (answers ∪ ctx) at EVALUATION time only. Every key is
+// `__`-prefixed so it can never collide with an internal_field and is
+// structurally excluded from the answer store: the auction/S2S projection
+// (state.ts auctionAnswers) and the persistence snapshot (serialize) read the
+// STORE, not this map, so a ctx key can never reach the wire nor a
+// progress/answered count. `state`/`device` are emitted ONLY when supplied (the
+// /lg/attempt server ctx leg is a P3/P4 seam) — until then a rule on
+// __state/__device is fail-closed (the key is absent ⇒ the condition is false).
+export interface LgCtxSources {
+  page: number; // current section/step index (0-based)
+  now: Date; // visitor-local clock (getHours 0-23 / getDay 0-6)
+  state?: string; // attempt ctx — visitor region
+  device?: string; // attempt ctx — device class
+}
+
+export function buildCtxFields(src: LgCtxSources): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    __page: src.page,
+    __hour: src.now.getHours(),
+    __weekday: src.now.getDay(),
+  };
+  if (src.state !== undefined && src.state !== "") out["__state"] = src.state;
+  if (src.device !== undefined && src.device !== "") out["__device"] = src.device;
   return out;
 }

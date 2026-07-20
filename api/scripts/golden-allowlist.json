@@ -223,6 +223,24 @@
       "note": "P3b placement panel — post-golden feature. Structured-placement Style-tab controls (align/width/nudge/row-indicator) plus the CONDUCTOR-FIX excluded-ownership note for ContinueButton/AutoAdvanceButton (position is Quote-Builder-owned). Extracted out of renderStudioInspector on conductor ruling so this post-golden addition does not dilute that already-classified golden:true region — the same P1-granularity discipline renderStyleExtraControls/renderContainerLayoutPanel/renderImageFitControl already follow. Not a golden region — accepted extension (conductor-classified 2026-07-17)."
     },
     {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderShowIfControls",
+      "golden": false,
+      "register": "Round-4 P2c (A-4 authoring)",
+      "note": "P2c group-row controls — post-golden feature. The Rules-tab Show-if picker (row 0, data-inspector-cond, is the pre-existing golden-verbatim single-condition picker, byte-unchanged) PLUS the NEW ANY/ALL group toggle + \"+ Add condition\" affordance. Extracted out of renderStudioInspector (the SAME P1-granularity discipline renderStylePlacementBlock/renderStyleContinueBlock already follow) so this post-golden addition does not dilute that already-classified golden:true region. Not a golden region — accepted extension (implementer-classified 2026-07-20, P2c slice)."
+    },
+    {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderRequiredWhenControls",
+      "golden": false,
+      "register": "Round-4 P2c (A-4 authoring)",
+      "note": "P2c group-row controls — the SAME extraction/rationale as renderShowIfControls, applied to the Require-if surface (props.requiredWhen). Row 0 (data-inspector-reqcond) is byte-unchanged; the ANY/ALL toggle + \"+ Add condition\" are new. Not a golden region — accepted extension (implementer-classified 2026-07-20, P2c slice)."
+    },
+    {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderPhoneFormatControls",
+      "golden": false,
+      "register": "Round-4 P2c (A-6b studio surface)",
+      "note": "The Content-tab \"Phone format\" picker (US default | International | Israel | Custom…) — the FIRST studio authoring surface for props.phone_format (content-schema/config-dto validate/compile it since P2b). Extracted out of renderStudioInspector (same P1-granularity discipline as the other P2c/P3b extractions) so this post-golden addition does not dilute that already-classified golden:true region. Not a golden region — accepted extension (implementer-classified 2026-07-20, P2c slice)."
+    },
+    {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderThemesOverlay",
       "golden": true,
       "register": "S4-A11 (R5 D6)",

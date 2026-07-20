@@ -37,9 +37,11 @@ import {
 } from "./state";
 import {
   conditionMet,
+  buildCtxFields,
   evaluateComponents,
   hiddenAnswerFields,
   visibleSectionIndexes,
+  type LgConditionGroup,
   type LgDependencyState,
 } from "./dependencies";
 import { formatKindFor, normalizePhoneE164, validateSection } from "./validation";
@@ -289,12 +291,29 @@ interface LgAttempt {
   // /lg/auction or the v2 session binding rejects (422 tampered).
   session_id?: string;
   expires_at?: number;
+  // 10C conditional-display ctx the server MAY echo (visitor geo/device) for
+  // __state/__device rules — tolerant of absence (the emitting server leg is a
+  // P3/P4 seam; until then a rule on those keys is fail-closed). Merged only
+  // into the evaluation map, NEVER sent back to /lg/auction.
+  ctx?: { state?: string; device?: string };
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+// Tolerant parse of the OPTIONAL /lg/attempt ctx echo (10C). Only non-empty
+// string state/device are adopted; anything else — or absence — yields null so
+// the caller omits ctx and __state/__device stay fail-closed.
+function parseAttemptCtx(raw: unknown): { state?: string; device?: string } | null {
+  if (raw === null || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const out: { state?: string; device?: string } = {};
+  if (typeof r["state"] === "string" && r["state"] !== "") out.state = r["state"];
+  if (typeof r["device"] === "string" && r["device"] !== "") out.device = r["device"];
+  return out.state === undefined && out.device === undefined ? null : out;
 }
 
 async function fetchAttemptOnce(funnelVariantId: string): Promise<LgAttempt | null> {
@@ -309,6 +328,7 @@ async function fetchAttemptOnce(funnelVariantId: string): Promise<LgAttempt | nu
     if (!res.ok) return null;
     const raw = (await res.json()) as Record<string, unknown>;
     if (typeof raw["funnel_attempt_id"] !== "string" || raw["funnel_attempt_id"] === "") return null;
+    const ctx = parseAttemptCtx(raw["ctx"]);
     return {
       funnel_attempt_id: raw["funnel_attempt_id"],
       signed_config_token:
@@ -317,6 +337,7 @@ async function fetchAttemptOnce(funnelVariantId: string): Promise<LgAttempt | nu
         ? { session_id: raw["session_id"] }
         : {}),
       ...(typeof raw["expires_at"] === "number" ? { expires_at: raw["expires_at"] } : {}),
+      ...(ctx !== null ? { ctx } : {}),
     };
   } catch {
     return null;
@@ -355,6 +376,9 @@ export class LgEngine {
   private readonly firedImpressions = new Set<string>();
   private readonly debounceTimers: Record<string, unknown> = {};
   private finalized = false;
+  // 10C ctx (geo/device) captured from the /lg/attempt echo — merged into the
+  // evaluation map by evalAnswers(), never persisted, never sent to /lg/auction.
+  private ctx: { state?: string; device?: string } = {};
 
   constructor(root: HTMLElement, config: LgPublicConfig, preview: boolean) {
     this.root = root;
@@ -450,6 +474,8 @@ export class LgEngine {
         funnel_attempt_id: attempt.funnel_attempt_id,
         ...(boundSessionId !== sessionId ? { session_id: boundSessionId } : {}),
       });
+      // 10C: adopt the server ctx echo (geo/device) for __state/__device rules.
+      if (attempt.ctx !== undefined) this.ctx = attempt.ctx;
     }
 
     // §3.5.1 restore iff same attempt-binding tuple (see state.ts header for
@@ -568,16 +594,36 @@ export class LgEngine {
     return null;
   }
 
+  // The condition-evaluation map: the persisted answers UNION the 10C ctx
+  // fields (__page/__hour/__weekday + __state/__device when the attempt echoed
+  // them). ALL show/hide/require/continue/section-visibility reads go through
+  // this ONE map so a component's visibility is computed identically everywhere
+  // (never a divergence between what's shown and what's auction-projected). The
+  // ctx keys live ONLY in this transient object — the store (which the auction
+  // projection + persistence read) is never given a `__` key, so they can never
+  // reach the wire nor a progress/answered count.
+  private evalAnswers(): Record<string, unknown> {
+    return {
+      ...this.store.answerValues(),
+      ...buildCtxFields({
+        page: this.store.state.section_index,
+        now: new Date(),
+        state: this.ctx.state,
+        device: this.ctx.device,
+      }),
+    };
+  }
+
   private dependencyState(section: LgSectionConfig): LgDependencyState {
-    return evaluateComponents(section.components, this.store.answerValues());
+    return evaluateComponents(section.components, this.evalAnswers());
   }
 
   private hiddenFields(): Set<string> {
-    return hiddenAnswerFields(this.config.sections, this.store.answerValues());
+    return hiddenAnswerFields(this.config.sections, this.evalAnswers());
   }
 
   private visibleIndexes(): number[] {
-    return visibleSectionIndexes(this.config.sections, this.store.answerValues());
+    return visibleSectionIndexes(this.config.sections, this.evalAnswers());
   }
 
   private normalizeSectionIndex(wanted: number): number {
@@ -696,10 +742,11 @@ export class LgEngine {
   // field the config legitimately carries. Absent ⇒ no-op (byte-identical
   // pre-P4c: Continue stays unconditionally visible).
   private applyContinueVisibility(section: LgSectionConfig, sectionEl: Element): void {
-    const cond = (section as unknown as { continue_visible_when?: LgConditional })
-      .continue_visible_when;
+    const cond = (
+      section as unknown as { continue_visible_when?: LgConditional | LgConditionGroup }
+    ).continue_visible_when;
     if (cond === undefined) return;
-    render.setContinueVisible(sectionEl, conditionMet(cond, this.store.answerValues()));
+    render.setContinueVisible(sectionEl, conditionMet(cond, this.evalAnswers()));
   }
 
   private handleChoiceActivation(choiceEl: Element): void {
@@ -880,7 +927,7 @@ export class LgEngine {
 
   private sectionPasses(section: LgSectionConfig): boolean {
     const deps = this.dependencyState(section);
-    const failures = validateSection(section.components, this.store.answerValues(), deps.components);
+    const failures = validateSection(section.components, this.evalAnswers(), deps.components);
     const sectionEl = this.currentSectionEl();
     if (sectionEl !== null) render.clearFieldErrors(sectionEl);
     if (failures.length === 0) return true;
