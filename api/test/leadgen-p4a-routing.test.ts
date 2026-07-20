@@ -54,9 +54,14 @@ import { computeSectionOrderHash } from "../src/public/leadgen/config-dto";
 import {
   dispatchMatchedConversionS2S,
   resolveRoutingMultiplier,
+  resolveClickContextFromCh,
   type S2SClickContext,
   type S2SRevenueContext,
 } from "../src/leadgen/s2s-dispatch";
+import type { LeadgenChClient, LeadgenChQueryResult } from "../src/leadgen/clickhouse";
+import { resolveLeadgenClick } from "../src/public/leadgen/click";
+import { loadAuctionBundle } from "../src/public/leadgen/auction/engine";
+import type { LeadgenAuctionRow } from "../src/admin/leadgen/db-types";
 
 // --- node:sqlite harness (repo pattern, mirrors leadgen-p3a-pages.test.ts) --
 
@@ -1145,6 +1150,18 @@ interface FullAttempt {
   section_order_hash: string;
 }
 
+// /lg/auction's anti-tamper recomputes its expected section_order_hash +
+// content_version from a FRESH resolveActivatedFunnelByVariant for whichever
+// variant_id the request claims — this derives the SAME two values the SAME
+// way for a given variant, shared by mintFullAttempt below and the minor-2
+// completion-ownership test (which needs the ORIGIN variant's own binding
+// extras, distinct from the target's).
+async function bindingExtrasFor(env: Env, variantId: string): Promise<{ content_version: number; section_order_hash: string }> {
+  const resolved = await resolveActivatedFunnelByVariant(env, "site-1", variantId);
+  if (resolved === null) throw new Error(`bindingExtrasFor: variant ${variantId} did not resolve`);
+  return { content_version: resolved.variant.content_version, section_order_hash: computeSectionOrderHash(resolved) };
+}
+
 // Mints a REAL, fully-signed attempt via the real /lg/attempt route —
 // optionally pinning session_id via the ko_sid cookie the route reads first
 // (m2: readCookie(...) wins over minting a fresh one), so a redirect_pct
@@ -1152,24 +1169,14 @@ interface FullAttempt {
 // return shape is deliberately narrow ({funnel_attempt_id, signed_config_token,
 // ...}) — content_version/section_order_hash are NEVER echoed there (they
 // live only inside the signed token's payload; a real browser reads them from
-// the /lg SHELL's config instead). /lg/auction's anti-tamper recomputes its
-// expected section_order_hash from a FRESH resolveActivatedFunnelByVariant —
-// so this helper derives the SAME two values the SAME way, rather than
-// (wrongly) expecting the mint response to carry them.
+// the /lg SHELL's config instead), so this helper derives them itself.
 async function mintFullAttempt(env: Env, variantId: string, sessionId?: string): Promise<FullAttempt> {
   const headers: Record<string, string> = sessionId !== undefined ? { Cookie: `ko_sid=${sessionId}` } : {};
   const res = await app.request(`${TENANT_ORIGIN}/lg/attempt?vid=${variantId}`, { headers }, env);
   expect(res.status, `mint full attempt: ${await res.clone().text()}`).toBe(200);
   const body = (await res.json()) as { funnel_attempt_id: string; signed_config_token: string; session_id: string };
-  const resolved = await resolveActivatedFunnelByVariant(env, "site-1", variantId);
-  if (resolved === null) throw new Error(`mintFullAttempt: variant ${variantId} did not resolve`);
-  return {
-    funnel_attempt_id: body.funnel_attempt_id,
-    signed_config_token: body.signed_config_token,
-    session_id: body.session_id,
-    content_version: resolved.variant.content_version,
-    section_order_hash: computeSectionOrderHash(resolved),
-  };
+  const extras = await bindingExtrasFor(env, variantId);
+  return { funnel_attempt_id: body.funnel_attempt_id, signed_config_token: body.signed_config_token, session_id: body.session_id, ...extras };
 }
 
 // Drives the REAL, untouched /lg/auction endpoint (serve-auction.ts ->
@@ -1388,5 +1395,382 @@ describeDb("P4a S2S value_multiplier graft — replace-not-stack", () => {
     const outcome = await dispatchMatchedConversionS2S(env, ctx, env.DB, click, revenue, { fetchImpl });
     expect(outcome.status).toBe("fired");
     expect(fetchCalls[0]).toContain("v=30"); // 10 * 3.0 base, no routing override
+  });
+});
+
+// ===========================================================================
+// Review MAJOR-1: the S2S multiplier graft through the REAL production path
+// (routed attempt -> resolveLeadgenClick's REAL offer_click event -> a CH
+// stub that echoes exactly what that event carries -> resolveClickContextFromCh
+// -> dispatchMatchedConversionS2S), not a hand-typed S2SClickContext. Proves
+// the fix: resolveClickContextFromCh's SELECT now reads back funnel_attempt_id
+// (stamped by click.ts's buildClickEvent), so resolveRoutingMultiplier is no
+// longer unreachable on the real postback path. The hand-injected tests above
+// stay (they isolate dispatchMatchedConversionS2S's own multiplier-replace
+// logic); this is the end-to-end proof the reviewer additionally demanded.
+// ---------------------------------------------------------------------------
+
+// A LeadgenChClient stub whose lg_events_raw row is exactly what the REAL
+// resolveLeadgenClick call built (never a hand-typed fixture) -- proving the
+// field NAME resolveClickContextFromCh reads back (funnel_attempt_id) is the
+// SAME name click.ts's buildClickEvent stamps, not a coincidental match.
+function chClientEchoing(event: { traffic_source?: string; session_id?: string; offer_id: string; funnel_attempt_id: string }): LeadgenChClient {
+  return {
+    configured: true,
+    query: async <T>(sql: string): Promise<LeadgenChQueryResult<T>> => {
+      if (sql.includes("lg_events_raw")) {
+        return {
+          rows: [
+            {
+              traffic_source: event.traffic_source ?? "",
+              session_id: event.session_id ?? "",
+              offer_id: event.offer_id,
+              funnel_attempt_id: event.funnel_attempt_id,
+            } as unknown as T,
+          ],
+          configured: true,
+        };
+      }
+      return { rows: [], configured: true }; // lg_sessions (fbc/fbclid) -- empty is fine for this proof
+    },
+  };
+}
+
+// ===========================================================================
+// Review minor-2: completion ownership — once routed, only the TARGET
+// variant's binding may complete the auction for this attempt.
+// ===========================================================================
+
+describeDb("P4a review minor-2: post-switch completion ownership pinning", () => {
+  it("a STALE, still-validly-signed ORIGIN token is REJECTED (422 tampered class) once a routing outcome exists for the attempt", async () => {
+    const seed = await seedCheckpointFunnel({ multiplier: 5.0 });
+    seedMinimalAuction(seed.sdb, variantRowId(seed.sdb, seed.entryVariantId));
+    const attempt = await mintAttempt(seed.env, seed.entryVariantId);
+
+    const ckpt = await post(seed.env, "/lg/ck", {
+      k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
+      s: attempt.session_id, a: { age: { value: 70 } },
+    });
+    expect((await ckpt.clone().json() as { sw: boolean }).sw).toBe(true);
+
+    // The ORIGIN token is untouched by the switch — still independently
+    // well-signed for the origin variant's OWN (unchanged) config. Post it
+    // straight to /lg/auction with the origin's OWN binding extras (every
+    // pre-existing anti-tamper check (a)-(e) would pass on its own terms).
+    const originExtras = await bindingExtrasFor(seed.env, seed.entryVariantId);
+    const staleRes = await post(seed.env, "/lg/auction", {
+      funnel_variant_id: seed.entryVariantId,
+      funnel_attempt_id: attempt.funnel_attempt_id,
+      signed_config_token: attempt.signed_config_token,
+      content_version: originExtras.content_version,
+      section_order_hash: originExtras.section_order_hash,
+      session_id: attempt.session_id,
+      answers: {},
+    });
+    expect(staleRes.status, `stale-origin auction: ${await staleRes.clone().text()}`).toBe(422);
+    const staleBody = (await staleRes.json()) as { traffic_quality_flag?: string };
+    expect(staleBody.traffic_quality_flag).toBe("tampered");
+  });
+
+  it("the RE-ISSUED target token completes the auction normally (not rejected)", async () => {
+    const seed = await seedCheckpointFunnel({ multiplier: 5.0 });
+    seedMinimalAuction(seed.sdb, variantRowId(seed.sdb, seed.targetVariantId));
+    const attempt = await mintAttempt(seed.env, seed.entryVariantId);
+
+    const ckpt = await post(seed.env, "/lg/ck", {
+      k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
+      s: attempt.session_id, a: { age: { value: 70 } },
+    });
+    const ckptBody = (await ckpt.json()) as { sw: boolean; v: string; k: string; so: string; cv: number };
+    expect(ckptBody.sw).toBe(true);
+    expect(ckptBody.v).toBe(seed.targetVariantId);
+
+    const targetRes = await post(seed.env, "/lg/auction", {
+      funnel_variant_id: ckptBody.v,
+      funnel_attempt_id: attempt.funnel_attempt_id,
+      signed_config_token: ckptBody.k,
+      content_version: ckptBody.cv,
+      section_order_hash: ckptBody.so,
+      session_id: attempt.session_id,
+      answers: {},
+    });
+    expect(targetRes.status, `re-issued target auction: ${await targetRes.clone().text()}`).not.toBe(422);
+    const targetBody = (await targetRes.json()) as { status?: string };
+    // A REAL, resolved auction status — never the tampered error shape (no
+    // `status` field at all) NOR the no_auction short-circuit (which would
+    // trivially satisfy "not 422" without ever reaching validateAntiTamper).
+    expect(targetBody.status).toBeDefined();
+    expect(targetBody.status).not.toBe("no_auction");
+  });
+
+  it("an UNROUTED attempt (no outcome row at all) is unaffected — no completion-ownership check ever fires", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId } = await seedQuote(env);
+    await activate(env, quotePublicId);
+    const rowId = variantRowId(sdb, variantId);
+    // seedMinimalAuction is defined later in the file (redirect_pct block) but
+    // hoisted as a function declaration — available here.
+    seedMinimalAuction(sdb, rowId);
+    const attempt = await mintFullAttempt(env, variantId);
+    const res = await postAuction(env, variantId, attempt);
+    expect(res.status).not.toBe("tampered");
+  });
+});
+
+// ===========================================================================
+// Review minor-4: the auction rule-SELECT fallback must NOT widen past what
+// each migration state actually removes. A DB with 0043 applied but not yet
+// 0044 (status exists, redirect_pct doesn't) must still gate on status.
+// ===========================================================================
+
+describeDb("P4a review minor-4: narrowed two-step fallback (0043-without-0044 still gates on status)", () => {
+  it("a status='disabled' rule NEVER fires in a DB that has 0043 but NOT 0044 (the redirect_pct column is absent)", async () => {
+    const ctor = DatabaseSync as DatabaseSyncCtor;
+    const sdb = new ctor(":memory:");
+    runSql(
+      sdb,
+      "CREATE TABLE sites (id TEXT PRIMARY KEY, name TEXT, domain TEXT, vertical_slug TEXT, status TEXT, content_version INTEGER DEFAULT 1, settings_version INTEGER DEFAULT 1);" +
+        "CREATE TABLE domains (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT, hostname TEXT, status TEXT);" +
+        "CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);" +
+        `INSERT INTO sites (id, name, domain, vertical_slug, status) VALUES ('site-1','Site One','${TENANT_HOST}','insurance','active');`,
+    );
+    // 0036 through 0043 ONLY — deliberately stop before 0044, so redirect_pct
+    // does not exist but status (0043) does.
+    for (const file of ["0036_leadgen_core.sql", "0037_leadgen_analytics_mirror.sql", "0038_leadgen_revenue_infra.sql", "0039_leadgen_conversion_dedupe.sql", "0040_leadgen_runtime_context.sql", "0041_leadgen_frame_theme.sql", "0042_leadgen_pages.sql", "0043_leadgen_routing_rules.sql"]) {
+      runSql(sdb, readFileSync(join(TEST_DIR, "../migrations", file), "utf8"));
+    }
+    const db = d1FromSqlite(sdb);
+
+    // Minimal quote/funnel/variant scaffold via raw SQL (no admin API needed
+    // for this pure fallback-behavior proof).
+    sdb.prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json, status) VALUES ('lgq_x','Q','quote_funnel','[]','active')").run();
+    const quoteRowId = (sdb.prepare("SELECT id FROM leadgen_quotes WHERE public_id = 'lgq_x'").get() as { id: number }).id;
+    sdb.prepare("INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name, status) VALUES ('lgf_x', ?, 'F', 'active')").run(quoteRowId);
+    const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = 'lgf_x'").get() as { id: number }).id;
+    sdb.prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label, is_control, traffic_allocation_bp, status) VALUES ('lgn_x', ?, 'A', 1, 10000, 'active')").run(funnelRowId);
+    const variantRowIdLocal = (sdb.prepare("SELECT id FROM leadgen_funnel_variants WHERE public_id = 'lgn_x'").get() as { id: number }).id;
+
+    // status='disabled', enabled=1 (the exact incoherent shape ui-rules-builder.ts's
+    // toggle produces) — a disqualification rule that must NEVER fire.
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_funnel_rules (public_id, variant_id, rule_type, conditions_json, conditions_hash, priority, enabled, status) VALUES ('lgfr_disabled', ?, 'disqualification', '{\"groups\":[]}', 'h1', 1, 1, 'disabled')",
+      )
+      .run(variantRowIdLocal);
+    // An ACTIVE rule on the same variant, proving the fallback isn't overly
+    // broad either — a genuinely-active rule still comes through.
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_funnel_rules (public_id, variant_id, rule_type, conditions_json, conditions_hash, priority, enabled, status) VALUES ('lgfr_active', ?, 'auction_entry', '{\"groups\":[]}', 'h2', 2, 1, 'active')",
+      )
+      .run(variantRowIdLocal);
+
+    const minimalAuction = { id: 1, banner_config_json: null } as unknown as LeadgenAuctionRow;
+    const bundle = await loadAuctionBundle(db, minimalAuction, variantRowIdLocal);
+    const publicIds = bundle.funnel_rules.map((r) => r.public_id);
+    expect(publicIds, "a status='disabled' rule must never fire even without the redirect_pct column").not.toContain("lgfr_disabled");
+    expect(publicIds).toContain("lgfr_active");
+  });
+});
+
+// ===========================================================================
+// Review minor-6: 0043's full-table-recreation ritual replay-safety — a
+// LEGACY row (seeded under the pre-0043 six-type CHECK) must survive the
+// CREATE-new/INSERT-OR-IGNORE-SELECT/DROP/RENAME sequence with its id AND
+// conditions_hash byte-intact (0043's own header claims exactly this;
+// this is the executable proof).
+// ===========================================================================
+
+describeDb("P4a review minor-6: 0043 migration replay preserves legacy rows byte-intact", () => {
+  it("a pre-0043 leadgen_funnel_rules row survives the recreation with id + conditions_hash unchanged", async () => {
+    const ctor = DatabaseSync as DatabaseSyncCtor;
+    const sdb = new ctor(":memory:");
+    runSql(
+      sdb,
+      "CREATE TABLE sites (id TEXT PRIMARY KEY, name TEXT, domain TEXT, vertical_slug TEXT, status TEXT, content_version INTEGER DEFAULT 1, settings_version INTEGER DEFAULT 1);" +
+        "CREATE TABLE domains (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT, hostname TEXT, status TEXT);" +
+        "CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);" +
+        `INSERT INTO sites (id, name, domain, vertical_slug, status) VALUES ('site-1','Site One','${TENANT_HOST}','insurance','active');`,
+    );
+    // 0036 through 0042 ONLY — the pre-0043 world (six-type CHECK, no status/
+    // match_mode/etc. columns), the exact "before" state 0043's replay runs over.
+    for (const file of ["0036_leadgen_core.sql", "0037_leadgen_analytics_mirror.sql", "0038_leadgen_revenue_infra.sql", "0039_leadgen_conversion_dedupe.sql", "0040_leadgen_runtime_context.sql", "0041_leadgen_frame_theme.sql", "0042_leadgen_pages.sql"]) {
+      runSql(sdb, readFileSync(join(TEST_DIR, "../migrations", file), "utf8"));
+    }
+
+    sdb.prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json, status) VALUES ('lgq_legacy','Q','quote_funnel','[]','active')").run();
+    const quoteRowId = (sdb.prepare("SELECT id FROM leadgen_quotes WHERE public_id = 'lgq_legacy'").get() as { id: number }).id;
+    sdb.prepare("INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name, status) VALUES ('lgf_legacy', ?, 'F', 'active')").run(quoteRowId);
+    const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = 'lgf_legacy'").get() as { id: number }).id;
+    sdb.prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label, is_control, traffic_allocation_bp, status) VALUES ('lgn_legacy', ?, 'A', 1, 10000, 'active')").run(funnelRowId);
+    const variantRowIdLocal = (sdb.prepare("SELECT id FROM leadgen_funnel_variants WHERE public_id = 'lgn_legacy'").get() as { id: number }).id;
+
+    // A LEGACY rule row, seeded under the pre-0043 (six-type) schema, with an
+    // EXPLICIT id + a specific conditions_hash — the exact two values 0043's
+    // own header claims are preserved byte-for-byte (id: primary-key stability
+    // for any future rule-id reference; conditions_hash: copied, never
+    // recomputed by the migration).
+    const LEGACY_ID = 4242;
+    const LEGACY_HASH = "legacy_conditions_hash_deadbeef00112233";
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_funnel_rules (id, public_id, variant_id, rule_type, conditions_json, conditions_hash, priority, enabled) VALUES (?, 'lgfr_legacy', ?, 'redirect_direct_offer', '{\"groups\":[]}', ?, 5, 1)",
+      )
+      .run(LEGACY_ID, variantRowIdLocal, LEGACY_HASH);
+
+    // Run the migration under test.
+    runSql(sdb, readFileSync(join(TEST_DIR, "../migrations/0043_leadgen_routing_rules.sql"), "utf8"));
+
+    const row = sdb.prepare("SELECT id, public_id, conditions_hash, rule_type, priority, enabled FROM leadgen_funnel_rules WHERE public_id = 'lgfr_legacy'").get() as {
+      id: number; public_id: string; conditions_hash: string; rule_type: string; priority: number; enabled: number;
+    };
+    expect(row, "the legacy row must survive the recreation at all").toBeDefined();
+    expect(row.id, "primary key id must be preserved byte-intact").toBe(LEGACY_ID);
+    expect(row.conditions_hash, "conditions_hash must be copied, never recomputed").toBe(LEGACY_HASH);
+    expect(row.rule_type).toBe("redirect_direct_offer");
+    expect(row.priority).toBe(5);
+    expect(row.enabled).toBe(1);
+
+    // The NEW (0043) additive columns exist and default correctly for a
+    // carried-over row (redirect_pct is 0044's column, not this migration's —
+    // out of scope for a 0043-only replay test).
+    const extended = sdb.prepare("SELECT status, match_mode FROM leadgen_funnel_rules WHERE public_id = 'lgfr_legacy'").get() as {
+      status: string; match_mode: string | null;
+    };
+    expect(extended.status).toBe("active"); // DEFAULT 'active' -- behavior-preserving
+    expect(extended.match_mode).toBeNull();
+  });
+});
+
+// ===========================================================================
+// Review minor-5: checkpoint answer injection — a posted key outside the
+// variant's known internal_field set must never ride into rule evaluation.
+// ===========================================================================
+
+describeDb("P4a review minor-5: checkpoint answers restricted to the variant's known internal_field set", () => {
+  it("posting `state` (an ENTRY-known attribute, not a real section field) can NO LONGER inject/override the merged evaluation context", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId, funnelId } = await seedQuote(env);
+    const age = seedSection(sdb, "age", { required: true, field: "age" });
+    const entryRowId = variantRowId(sdb, variantId);
+    attachSection(sdb, entryRowId, age.id, 0);
+
+    const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(funnelId) as { id: number }).id;
+    const targetPublicId = seedSiblingVariant(sdb, funnelRowId, "Target", false);
+    const targetRowId = variantRowId(sdb, targetPublicId);
+    attachSection(sdb, targetRowId, age.id, 0);
+
+    // A checkpoint rule keyed on `state` (entry-known, NEVER a real answer
+    // field on any section here) AND `age` (a genuine answer field). The
+    // harness's CF signals are always absent (Node/undici Request has no
+    // `.cf`), so the REAL, authoritative state is "" (unknown) -- a posted
+    // `state` claiming "NY" is the injection under test.
+    seedRoutingRule(sdb, entryRowId, {
+      conditions: { groups: [{ field: "state", op: "eq", value: "NY" }, { field: "age", op: "gte", value: 65 }] },
+      targetVariantId: targetRowId,
+      priority: 1,
+    });
+    await activate(env, quotePublicId);
+
+    const attempt = await mintAttempt(env, variantId);
+    const res = await post(env, "/lg/ck", {
+      k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: variantId,
+      s: attempt.session_id,
+      a: { state: "NY", age: { value: 70 } }, // `state` is the injection attempt
+    });
+    const body = (await res.json()) as { sw: boolean };
+    // Fail-before (pre-fix): `state` rode through the {...entryFlatCtx, ...answers}
+    // merge, overriding the real (empty/unknown) state -> the rule wrongly fired.
+    // Fail-after (fixed): `state` is outside the variant's known internal_field
+    // set (only `age` is), so it's dropped -> real state stays "" -> "" != "NY"
+    // -> the rule correctly does NOT fire.
+    expect(body.sw, "a posted `state` must not fabricate a match the real (unknown) geo would never produce").toBe(false);
+  });
+
+  it("a genuine section answer field (e.g. `age`) is UNAFFECTED — still rides into evaluation normally", async () => {
+    const seed = await seedCheckpointFunnel({ multiplier: 2.0 });
+    const attempt = await mintAttempt(seed.env, seed.entryVariantId);
+    const res = await post(seed.env, "/lg/ck", {
+      k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
+      s: attempt.session_id, a: { age: { value: 70 } },
+    });
+    const body = (await res.json()) as { sw: boolean };
+    expect(body.sw).toBe(true); // unchanged, existing behavior for a real field
+  });
+});
+
+describeDb("P4a review MAJOR-1: S2S multiplier through the REAL end-to-end path", () => {
+  it("a ROUTED attempt's real offer_click -> CH-resolved context carries funnel_attempt_id -> the conversion books at the ROUTING rule's multiplier (5.0), not the platform base", async () => {
+    const seed = await seedCheckpointFunnel({ multiplier: 5.0 });
+    seed.sdb
+      .prepare("INSERT INTO leadgen_media_platforms (platform, enabled, postback_url_template, value_multiplier) VALUES ('facebook',1,'https://t.example/pb?v={value}',1.0)")
+      .run();
+
+    // 1. Real attempt + real checkpoint switch -> a REAL leadgen_routing_outcomes row.
+    const attempt = await mintAttempt(seed.env, seed.entryVariantId);
+    const ckpt = await post(seed.env, "/lg/ck", {
+      k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
+      s: attempt.session_id, a: { age: { value: 70 } },
+    });
+    expect((await ckpt.json() as { sw: boolean }).sw).toBe(true);
+
+    // 2. Real offer_click event via the REAL resolveLeadgenClick -- click.ts's
+    // OWN buildClickEvent stamps funnel_attempt_id, never a test-side literal.
+    const ctx = { waitUntil: (p: Promise<unknown>) => p } as unknown as ExecutionContext;
+    const clickResult = await resolveLeadgenClick(seed.env, ctx, {
+      offer_public_id: "off_x", carrier_key: "", auction_instance_id: "ai1", banner_render_id: "br1",
+      slot: null, funnel_attempt_id: attempt.funnel_attempt_id,
+      event_context: { traffic_source: "facebook" },
+    });
+    const event = clickResult.events[0]!;
+    expect(event.event_type).toBe("offer_click");
+    expect(event.funnel_attempt_id).toBe(attempt.funnel_attempt_id);
+
+    // 3. resolveClickContextFromCh over a CH stub echoing THAT real event.
+    const clickCtx = await resolveClickContextFromCh(seed.env, clickResult.click_id, {
+      client: chClientEchoing({ traffic_source: event.traffic_source, session_id: event.session_id, offer_id: event.offer_id, funnel_attempt_id: event.funnel_attempt_id }),
+    });
+    expect(clickCtx?.funnel_attempt_id, "MAJOR-1 fix: funnel_attempt_id must round-trip through CH").toBe(attempt.funnel_attempt_id);
+
+    // 4. dispatchMatchedConversionS2S books at the ROUTING multiplier (5.0), not the 1.0 platform base.
+    const fetchCalls: string[] = [];
+    const fetchImpl = (async (input: unknown) => {
+      fetchCalls.push(String(input));
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+    const outcome = await dispatchMatchedConversionS2S(seed.env, ctx, seed.env.DB, clickCtx!, { revenue: 10, currency: "USD" }, { fetchImpl });
+    expect(outcome.status).toBe("fired");
+    expect(fetchCalls[0]).toContain("v=50"); // 10 revenue * 5.0 routing multiplier, NOT 1.0 base
+  });
+
+  it("an UNROUTED attempt's real offer_click -> CH-resolved context has funnel_attempt_id but NO routing outcome -> books at the platform base", async () => {
+    const seed = await seedCheckpointFunnel({ multiplier: 5.0 });
+    seed.sdb
+      .prepare("INSERT INTO leadgen_media_platforms (platform, enabled, postback_url_template, value_multiplier) VALUES ('facebook',1,'https://t.example/pb?v={value}',3.0)")
+      .run();
+
+    // Mint an attempt but NEVER post /lg/ck -- no routing outcome exists for it.
+    const attempt = await mintAttempt(seed.env, seed.entryVariantId);
+    const ctx = { waitUntil: (p: Promise<unknown>) => p } as unknown as ExecutionContext;
+    const clickResult = await resolveLeadgenClick(seed.env, ctx, {
+      offer_public_id: "off_y", carrier_key: "", auction_instance_id: "ai2", banner_render_id: "br2",
+      slot: null, funnel_attempt_id: attempt.funnel_attempt_id,
+      event_context: { traffic_source: "facebook" },
+    });
+    const event = clickResult.events[0]!;
+
+    const clickCtx = await resolveClickContextFromCh(seed.env, clickResult.click_id, {
+      client: chClientEchoing({ traffic_source: event.traffic_source, session_id: event.session_id, offer_id: event.offer_id, funnel_attempt_id: event.funnel_attempt_id }),
+    });
+    expect(clickCtx?.funnel_attempt_id).toBe(attempt.funnel_attempt_id); // present, just no outcome row
+
+    const fetchCalls: string[] = [];
+    const fetchImpl = (async (input: unknown) => {
+      fetchCalls.push(String(input));
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+    const outcome = await dispatchMatchedConversionS2S(seed.env, ctx, seed.env.DB, clickCtx!, { revenue: 10, currency: "USD" }, { fetchImpl });
+    expect(outcome.status).toBe("fired");
+    expect(fetchCalls[0]).toContain("v=30"); // 10 * 3.0 base -- no outcome row for THIS attempt
   });
 });

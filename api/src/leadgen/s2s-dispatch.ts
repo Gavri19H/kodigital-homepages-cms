@@ -289,8 +289,8 @@ export async function resolveClickContextFromCh(
   const client = opts?.client ?? createLeadgenChClient(env);
   if (!client.configured) return null;
   try {
-    const clickRes = await client.query<{ traffic_source: string; session_id: string; offer_id: string }>(
-      "SELECT traffic_source, session_id, offer_id FROM lg_events_raw " +
+    const clickRes = await client.query<{ traffic_source: string; session_id: string; offer_id: string; funnel_attempt_id: string }>(
+      "SELECT traffic_source, session_id, offer_id, funnel_attempt_id FROM lg_events_raw " +
         "WHERE event_type = 'offer_click' AND click_id = {click_id} " +
         "AND traffic_quality_flag = 'clean' ORDER BY ts DESC LIMIT 1",
       { click_id: clickId },
@@ -310,12 +310,20 @@ export async function resolveClickContextFromCh(
         fbclid = String(sess.fbclid ?? "");
       }
     }
+    const funnelAttemptId = String(click.funnel_attempt_id ?? "");
     return {
       click_id: clickId,
       traffic_source: String(click.traffic_source),
       fbc,
       fbclid,
       offer_id: String(click.offer_id ?? ""),
+      // Round-4 P4a review MAJOR-1: without this, resolveRoutingMultiplier
+      // (called inside dispatchMatchedConversionS2S below) is UNREACHABLE on
+      // the real postback path — the offer_click event stamps
+      // funnel_attempt_id (click.ts buildClickEvent), but this SELECT never
+      // read it back, so every S2S postback conversion silently fell back to
+      // the platform base multiplier even for a routed attempt.
+      ...(funnelAttemptId !== "" ? { funnel_attempt_id: funnelAttemptId } : {}),
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -410,12 +410,19 @@ export async function loadAuctionBundle(
     // touch status/redirect_pct at all (confirmed against
     // leadgen-r1-auction-roundtrip.test.ts / leadgen-r4b-maps-runtime.test.ts,
     // both frozen at 0042 — their seeded disqualification rules stopped
-    // firing under the broad-catch version). Fall back to the pre-0043
-    // query shape instead: same rows, same enabled=1 filter, `status`
-    // implicitly "on" (the column doesn't exist, so nothing could have
-    // disabled it) and redirect_pct implicitly null (same reasoning, and
-    // `??0` = never-redirect is exactly the pre-0044 behavior this rule type
-    // never had anyway).
+    // firing under the broad-catch version).
+    //
+    // Review minor-4: a SINGLE-STEP fallback straight to the fully-legacy
+    // (no status, no redirect_pct) shape was ALSO wrong — a DB with 0043
+    // applied but not yet 0044 (status exists, redirect_pct doesn't) would
+    // take that same fallback and lose its status FILTER too, letting a
+    // status='disabled' rule fire during that window. TWO-STEP fallback
+    // instead: (1) full query; (2) on failure, retry WITH status but WITHOUT
+    // redirect_pct (the 0043-without-0044 window — status still gates,
+    // redirect_pct implicitly null/never-redirect); (3) only on a SECOND
+    // failure, the fully-legacy pre-0043 shape (no status column exists AT
+    // ALL there, so there is nothing a status filter could have caught —
+    // enabled=1 remains the only, and only ever was the only, signal).
     let frRows: D1Result<{
       public_id: string;
       rule_type: LeadgenFunnelRuleType;
@@ -436,26 +443,52 @@ export async function loadAuctionBundle(
         .bind(variantId)
         .all();
     } catch {
-      const legacyRows = await db
-        .prepare(
-          "SELECT public_id, rule_type, conditions_json, target_offer_id, target_section_id, redirect_url, redirect_url_allowlisted, priority, enabled FROM leadgen_funnel_rules WHERE variant_id = ? AND enabled = 1 ORDER BY priority ASC, id ASC",
-        )
-        .bind(variantId)
-        .all<{
-          public_id: string;
-          rule_type: LeadgenFunnelRuleType;
-          conditions_json: string;
-          target_offer_id: number | null;
-          target_section_id: number | null;
-          redirect_url: string | null;
-          redirect_url_allowlisted: number;
-          priority: number;
-          enabled: number;
-        }>();
-      frRows = {
-        ...legacyRows,
-        results: (legacyRows.results ?? []).map((r) => ({ ...r, redirect_pct: null })),
-      };
+      try {
+        // Step 2: 0043-without-0044 — status exists and still gates; only
+        // redirect_pct is dropped (implicitly null below).
+        const statusOnlyRows = await db
+          .prepare(
+            "SELECT public_id, rule_type, conditions_json, target_offer_id, target_section_id, redirect_url, redirect_url_allowlisted, priority, enabled FROM leadgen_funnel_rules WHERE variant_id = ? AND enabled = 1 AND status != 'disabled' ORDER BY priority ASC, id ASC",
+          )
+          .bind(variantId)
+          .all<{
+            public_id: string;
+            rule_type: LeadgenFunnelRuleType;
+            conditions_json: string;
+            target_offer_id: number | null;
+            target_section_id: number | null;
+            redirect_url: string | null;
+            redirect_url_allowlisted: number;
+            priority: number;
+            enabled: number;
+          }>();
+        frRows = {
+          ...statusOnlyRows,
+          results: (statusOnlyRows.results ?? []).map((r) => ({ ...r, redirect_pct: null })),
+        };
+      } catch {
+        // Step 3: fully pre-0043 — no status column exists at all here.
+        const legacyRows = await db
+          .prepare(
+            "SELECT public_id, rule_type, conditions_json, target_offer_id, target_section_id, redirect_url, redirect_url_allowlisted, priority, enabled FROM leadgen_funnel_rules WHERE variant_id = ? AND enabled = 1 ORDER BY priority ASC, id ASC",
+          )
+          .bind(variantId)
+          .all<{
+            public_id: string;
+            rule_type: LeadgenFunnelRuleType;
+            conditions_json: string;
+            target_offer_id: number | null;
+            target_section_id: number | null;
+            redirect_url: string | null;
+            redirect_url_allowlisted: number;
+            priority: number;
+            enabled: number;
+          }>();
+        frRows = {
+          ...legacyRows,
+          results: (legacyRows.results ?? []).map((r) => ({ ...r, redirect_pct: null })),
+        };
+      }
     }
     for (const r of frRows.results ?? []) {
       funnel_rules.push({
@@ -499,7 +532,8 @@ export type AntiTamperReason =
   | "section_order_hash_mismatch"
   | "signed_token_invalid"
   | "answer_mapping_version_mismatch"
-  | "auction_config_version_mismatch";
+  | "auction_config_version_mismatch"
+  | "routing_completion_mismatch";
 
 export type AntiTamperVerdict =
   // `landing_url` = the VERIFIED attempt-context funnel-page URL persisted in
@@ -601,6 +635,32 @@ export async function validateAntiTamper(
   if (input.auction_config_version !== undefined) {
     if (String(input.auction_config_version) !== String(auction.carrier_normalization_version)) {
       return { ok: false, reason: "auction_config_version_mismatch" };
+    }
+  }
+
+  // (f) Review minor-2 (completion ownership): once P4a routing has recorded
+  // an outcome for THIS attempt, the attempt's completion belongs to the
+  // ROUTED-TO variant only. A pre-switch (origin) token stays independently
+  // well-signed forever -- nothing revokes it -- so without this check a
+  // stale token could still book the auction/conversion against the origin
+  // variant even after the visitor was switched away from it. If a routing
+  // outcome row exists and its routed_to_variant is NOT the variant THIS
+  // request resolved to, reject (the same 422/tampered class as every other
+  // anti-tamper failure). Fail-SAFE on a DB read error (matches
+  // resolveRoutingMultiplier's own discipline): an unreadable outcome table
+  // must never block an otherwise-legitimate, unrouted conversion.
+  const db = (env as { DB?: D1Database }).DB;
+  if (db !== undefined && input.funnel_attempt_id !== "") {
+    try {
+      const outcome = await db
+        .prepare("SELECT routed_to_variant FROM leadgen_routing_outcomes WHERE funnel_attempt_id = ? LIMIT 1")
+        .bind(input.funnel_attempt_id)
+        .first<{ routed_to_variant: string }>();
+      if (outcome !== null && outcome.routed_to_variant !== resolved.variant.public_id) {
+        return { ok: false, reason: "routing_completion_mismatch" };
+      }
+    } catch {
+      /* fail-safe: an unreadable outcome table never blocks a legitimate conversion */
     }
   }
 

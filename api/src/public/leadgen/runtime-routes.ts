@@ -37,7 +37,7 @@ import {
   computeAttemptBindingExtras,
   type ConfigTokenTuple,
 } from "./attempt";
-import { computeSectionOrderHash } from "./config-dto";
+import { computeSectionOrderHash, parseSectionComponents, expandPublicComponents } from "./config-dto";
 import {
   resolveActivatedFunnelByVariant,
   parseUtmFromLandingUrl,
@@ -48,6 +48,7 @@ import {
   getControlVariantForFunnel,
   computeResumeSection,
   type EntryKnownContext,
+  type ResolvedActivatedFunnel,
 } from "./resolver";
 import { genSessionId, readCookie, sessionCookie } from "../listicle/experiment-pick";
 // Round-4 P3a (D-3 pages model): the SAME canonical geo/UA primitives
@@ -250,11 +251,48 @@ function requestEntryCtx(c: PublicContext, landingUrl: string, now: number): Ent
 // answer_source}) and a bare scalar. Client `__`-prefixed synthetic keys are
 // DROPPED — the server derives entry attributes itself; a client can never
 // inject `__state`/`__device` etc. into rule evaluation (money-path guard).
-function normalizeCheckpointAnswers(raw: unknown): Record<string, unknown> {
+// Review minor-5: the variant's known internal_field universe, server-side —
+// reused, not reinvented. Same TWO primitives resolver.ts's fieldToPageIndex
+// already builds its own internal_field map from (parseSectionComponents +
+// expandPublicComponents over each candidate section's content_json); a
+// dedicated collectKnownFields exists too (content-schema.ts, ~2424) but it
+// is a PRIVATE nested helper inside validateSectionContent's save-time gate,
+// not exported, so it is not reusable here. expandPublicComponents already
+// covers the MultiQuestionGrid per-row expansion this needs; it does not
+// walk layout-container children the way content-schema.ts's SAVE-time
+// walker does (checkpoint rules are authored on top-level answer fields, and
+// resolver.ts's OWN existing checkpoint-page derivation makes the same
+// non-recursive assumption — no scope narrowing relative to what already
+// governs which fields a routing rule can reference).
+function checkpointKnownFields(current: ResolvedActivatedFunnel): ReadonlySet<string> {
+  const known = new Set<string>();
+  for (const s of current.sections) {
+    for (const node of parseSectionComponents(s.section.content_json ?? "")) {
+      for (const comp of expandPublicComponents(node)) {
+        if (comp.internal_field !== undefined && comp.internal_field !== "") known.add(comp.internal_field);
+      }
+    }
+  }
+  return known;
+}
+
+// Review minor-5 (checkpoint answer injection): a posted key was previously
+// kept verbatim whenever it didn't start with `__` — so a client could post
+// e.g. `state` (an ENTRY-known attribute, not a section answer field at all)
+// and have it silently override the server-derived CF geo in the merged
+// evaluation context (evaluateCheckpointRouting's `{...entryFlatCtx(ctx),
+// ...answers}` spread lets a later key win). `knownFields` restricts the
+// posted answers to the variant's OWN internal_field universe — an
+// entry-known name like `state`/`device`/`utm_source` is never a real
+// section field, so it can never ride through as a spoofed "answer" again;
+// a genuine, unknown/renamed field is dropped rather than trusted, which is
+// the safe direction (it can only suppress a match, never fabricate one).
+function normalizeCheckpointAnswers(raw: unknown, knownFields: ReadonlySet<string>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (raw === null || typeof raw !== "object") return out;
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     if (k.startsWith("__")) continue;
+    if (!knownFields.has(k)) continue;
     if (v !== null && typeof v === "object" && "value" in (v as Record<string, unknown>)) {
       out[k] = (v as { value: unknown }).value;
     } else {
@@ -364,7 +402,7 @@ async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
   }
 
   // (2) server-side answer re-normalization + request-derived entry attributes.
-  const answers = normalizeCheckpointAnswers(body.a);
+  const answers = normalizeCheckpointAnswers(body.a, checkpointKnownFields(current));
   const entryCtx = requestEntryCtx(c, verified.landing_url, Date.now());
 
   // (3b) evaluate the bound variant's CHECKPOINT-plane routing rules.
