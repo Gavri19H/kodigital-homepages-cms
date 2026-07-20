@@ -9,7 +9,16 @@
 // conditional takes the unchanged legacy path (a 1-element all-group equals it).
 
 import { describe, expect, it } from "vitest";
-import { conditionMet, isConditionGroup } from "../src/public/leadgen/runtime/dependencies";
+import {
+  conditionMet,
+  isConditionGroup,
+  buildCtxFields,
+} from "../src/public/leadgen/runtime/dependencies";
+import {
+  LgStateStore,
+  type LgStateAdapters,
+  type LgStorageAdapter,
+} from "../src/public/leadgen/runtime/state";
 import {
   conditionalMet,
   isPayloadConditionGroup,
@@ -165,5 +174,104 @@ describe("P2a A-4: back-compat — bare conditional unchanged", () => {
     expect(isConditionGroup({ conditions: [] })).toBe(true); // structural: array conditions
     expect(isConditionGroup(null)).toBe(false);
     expect(isConditionGroup([])).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10C ctx-field plumbing — the client leg (the /lg/attempt ctx emission is a
+// P3/P4 server seam; here __state/__device degrade to absent = fail-closed).
+// ---------------------------------------------------------------------------
+
+function memStore(): LgStateStore {
+  const backing = new Map<string, string>();
+  const storage: LgStorageAdapter = {
+    get: (k) => (backing.has(k) ? (backing.get(k) as string) : null),
+    set: (k, v) => void backing.set(k, v),
+    remove: (k) => void backing.delete(k),
+    keys: () => [...backing.keys()],
+  };
+  const adapters: LgStateAdapters = { storage, now: () => 1_700_000_000_000 };
+  const store = new LgStateStore(adapters);
+  store.bindIdentity({
+    session_id: "s",
+    page_view_id: "p",
+    funnel_attempt_id: "att_1",
+    signed_config_token: "tok",
+    tuple: { funnel_variant_id: "v", section_order_hash: "h", content_version: 1 },
+  });
+  return store;
+}
+
+describe("P2a 10C: ctx fields build + evaluate in conditions", () => {
+  it("buildCtxFields emits only __-prefixed keys; state/device present only when supplied", () => {
+    const now = new Date(2026, 6, 20, 9, 30, 0); // Mon 2026-07-20 09:30 local (getDay()===1)
+    const withCtx = buildCtxFields({ page: 2, now, state: "CA", device: "mobile" });
+    expect(withCtx).toEqual({ __page: 2, __hour: 9, __weekday: 1, __state: "CA", __device: "mobile" });
+    for (const k of Object.keys(withCtx)) expect(k.startsWith("__")).toBe(true);
+
+    // Absent/blank geo → those keys omitted (degrade: a rule on them is false).
+    const noGeo = buildCtxFields({ page: 0, now });
+    expect(noGeo).toEqual({ __page: 0, __hour: 9, __weekday: 1 });
+    expect("__state" in noGeo).toBe(false);
+    expect("__device" in noGeo).toBe(false);
+    expect(buildCtxFields({ page: 0, now, state: "", device: "" })).toEqual({
+      __page: 0,
+      __hour: 9,
+      __weekday: 1,
+    });
+  });
+
+  it("a __page/__hour condition is FALSE against the plain answer map but TRUE against the ctx-merged map (fail-before/pass-after)", () => {
+    const store = memStore();
+    store.recordUserAnswer("age", 40, { question_id: "q", section_public_id: "s" });
+    const plain = store.answerValues();
+    const merged = { ...plain, ...buildCtxFields({ page: 3, now: new Date(2026, 6, 20, 14, 0, 0) }) };
+
+    const fromPage2 = { when: "__page", op: "gte", value: 2 } as LeadgenPayloadConditional;
+    const afternoon = { when: "__hour", op: "gte", value: 12 } as LeadgenPayloadConditional;
+    // BEFORE (no ctx merge): the __ key is absent ⇒ fail-closed false.
+    expect(conditionMet(fromPage2, plain)).toBe(false);
+    expect(conditionMet(afternoon, plain)).toBe(false);
+    // AFTER (ctx merged): evaluates; real answers still evaluate too.
+    expect(conditionMet(fromPage2, merged)).toBe(true);
+    expect(conditionMet(afternoon, merged)).toBe(true);
+    expect(conditionMet({ when: "age", op: "gte", value: 18 } as LeadgenPayloadConditional, merged)).toBe(true);
+    // A composed group mixing a ctx field and an answer field (client === server).
+    const grp: LeadgenPayloadConditionGroup = {
+      match: "all",
+      conditions: [fromPage2, { when: "age", op: "gte", value: 18 }],
+    };
+    expect(conditionMet(grp, merged)).toBe(true);
+    expect(conditionalMet(grp, merged)).toBe(true);
+    // __state fail-closed until the server supplies it.
+    expect(conditionMet({ when: "__state", op: "eq", value: "CA" } as LeadgenPayloadConditional, merged)).toBe(false);
+  });
+});
+
+describe("P2a 10C GUARD: ctx keys never enter the auction/S2S projection or persistence", () => {
+  it("__ keys live only in the eval map — auctionAnswers + serialize read the store and exclude them", () => {
+    const store = memStore();
+    store.recordUserAnswer("age", 40, { question_id: "q", section_public_id: "s1" });
+    store.recordUserAnswer("state", "CA", { question_id: "q2", section_public_id: "s1" });
+
+    // Merge ctx for evaluation — a SEPARATE transient object.
+    const merged = {
+      ...store.answerValues(),
+      ...buildCtxFields({ page: 5, now: new Date(2026, 6, 20, 8, 0, 0), state: "CA", device: "mobile" }),
+    };
+    expect(merged["__page"]).toBe(5); // ctx present in the eval map
+
+    // Projection (auction/S2S) reads the STORE, not the eval map.
+    const projected = store.auctionAnswers(new Set());
+    const projectedKeys = Object.keys(projected).sort();
+    expect(projectedKeys).toEqual(["age", "state"]); // note the answer field is "state", NOT "__state"
+    for (const k of projectedKeys) expect(k.startsWith("__")).toBe(false);
+
+    // Persistence snapshot likewise carries no __ key.
+    const snap = JSON.parse(store.serialize(new Set())) as { answers: Record<string, unknown> };
+    for (const k of Object.keys(snap.answers)) expect(k.startsWith("__")).toBe(false);
+
+    // Merging ctx never mutated the store (the structural guarantee).
+    expect(Object.keys(store.answerValues()).some((k) => k.startsWith("__"))).toBe(false);
   });
 });

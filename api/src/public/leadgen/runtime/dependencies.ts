@@ -274,3 +274,32 @@ export function visibleSectionIndexes(
   }
   return out;
 }
+
+// 10C (Round-4) conditional-display ctx sources — the data a CTA / free-text
+// display rule may gate on BEYOND the answers: the current page/step, the
+// visitor-local clock, and server-provided geo/device. The engine MERGES this
+// over the answer map (answers ∪ ctx) at EVALUATION time only. Every key is
+// `__`-prefixed so it can never collide with an internal_field and is
+// structurally excluded from the answer store: the auction/S2S projection
+// (state.ts auctionAnswers) and the persistence snapshot (serialize) read the
+// STORE, not this map, so a ctx key can never reach the wire nor a
+// progress/answered count. `state`/`device` are emitted ONLY when supplied (the
+// /lg/attempt server ctx leg is a P3/P4 seam) — until then a rule on
+// __state/__device is fail-closed (the key is absent ⇒ the condition is false).
+export interface LgCtxSources {
+  page: number; // current section/step index (0-based)
+  now: Date; // visitor-local clock (getHours 0-23 / getDay 0-6)
+  state?: string; // attempt ctx — visitor region
+  device?: string; // attempt ctx — device class
+}
+
+export function buildCtxFields(src: LgCtxSources): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    __page: src.page,
+    __hour: src.now.getHours(),
+    __weekday: src.now.getDay(),
+  };
+  if (src.state !== undefined && src.state !== "") out["__state"] = src.state;
+  if (src.device !== undefined && src.device !== "") out["__device"] = src.device;
+  return out;
+}
