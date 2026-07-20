@@ -1596,7 +1596,15 @@ async function preparePages(
         // A brand-new slot has no PRIOR bucketing to invalidate — start clean.
         newSlot.slotRevision = 0;
       } else {
-        const oldKey = slotContentKey(JSON.stringify(oldSlot.rules), JSON.stringify(oldSlot.ab_allocations));
+        // BUG GUARD: JSON.stringify(null) is the 4-char STRING "null", not
+        // actual null — feeding that through unconditionally would make
+        // slotContentKey's `?? ""` fallback never fire on the OLD side,
+        // permanently mismatching a genuinely unchanged null/null slot
+        // against the NEW side's real `null` values.
+        const oldKey = slotContentKey(
+          oldSlot.rules === null ? null : JSON.stringify(oldSlot.rules),
+          oldSlot.ab_allocations === null ? null : JSON.stringify(oldSlot.ab_allocations),
+        );
         newSlot.slotRevision = oldKey === newKey ? oldSlot.slot_revision : oldSlot.slot_revision + 1;
       }
     }
