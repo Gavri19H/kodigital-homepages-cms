@@ -14,11 +14,11 @@ lifecycle parity.
 | R4-03 | #3 Question grid unusable from picker (seed drops rows; ghost grows invisible choices; no affordance) | P1a+P1b | PASS (P1, evidence: phase log P1) |
 | R4-04 | #4A rules UX flow direction (source above → dependent below) | P4b | OPEN |
 | R4-05 | #4B/4C grid rows as rule condition sources end-to-end (via picker path) | P1a | PASS (P1, evidence: phase log P1) |
-| R4-06 | #4D complex rules AND/OR (ANY/ALL groups, client+server parity) | P2a+P2c | OPEN |
+| R4-06 | #4D complex rules AND/OR (ANY/ALL groups, client+server parity) | P2a+P2c | PASS (P2, evidence: phase log P2) |
 | R4-07 | #4E every component mapped: Address sub-fields + NameFields as rule sources | P1a | PASS (P1, evidence: phase log P1) |
 | R4-08 | #5 two "When answered" controls → one | P1a | PASS (P1, evidence: phase log P1) |
 | R4-09 | #6A field chrome: label above + helper below + in-box error, ALL text-like inputs | P1b | PASS (P1, evidence: phase log P1) |
-| R4-10 | #6B phone format author-defined (NANP/E.164-intl/IL/custom) | P2b+P2c | OPEN |
+| R4-10 | #6B phone format author-defined (NANP/E.164-intl/IL/custom) | P2b+P2c | PASS (P2, evidence: phase log P2) |
 | R4-11 | #6C/6D Address = real composite w/ Maps at component level, pre-mapped autofill roles | P1a+P1b | PASS (P1, evidence: phase log P1) |
 | R4-12 | #7 single-column (1) authorable everywhere + clamp/validation alignment | P1b | PASS (P1, evidence: phase log P1) |
 | R4-13 | #8 section-name affordance + plain-language save errors (no raw ids) | P1a+P1c | PASS (P1, evidence: phase log P1) |
@@ -51,7 +51,7 @@ lifecycle parity.
 | R4-40 | B-4.7 "Numbered" progress style fake (== Bar) | P5a | OPEN |
 | R4-41 | B-4.8 columns stored-vs-rendered drift (no server validation; clamp mismatch) | P1b | PASS (P1, evidence: phase log P1) |
 | R4-42 | B-4.9 headline_text raw-id jargon in save errors | P1c | PASS (P1, evidence: phase log P1) |
-| R4-43 | D-1 cap raise 44,032 + per-feature byte ledger | P2a | OPEN |
+| R4-43 | D-1 cap raise 44,032 + per-feature byte ledger | P2a | PASS (P2, evidence: phase log P2) |
 | R4-44 | §19.1 binding: page_plan_hash + checkpoint validation + re-issue on switch | P3a+P4a | OPEN |
 | R4-45 | Round-4 acceptance journeys (sections + quotes suites, both engines) | P7a | OPEN |
 | R4-OP1 | Production deploys (post-P1 optional; program end) | operator | BLOCKED |
@@ -67,3 +67,11 @@ lifecycle parity.
 - Notable in-phase catches: Archive-button-wired-to-hard-DELETE safety bug; kebab clip/stacking → body portal; FK cascade harness-vs-prod divergence probe; TOCTOU closed via atomic conditional DELETE; duplicate collapses A/B to control.
 - Disclosure for operator/staging: section DELETE is now a real hard delete when unreferenced (guarded 409 otherwise); append-only analytics rows for deleted sections survive by design.
 - PR: https://github.com/Gavri19H/kodigital-homepages-cms/pull/124 · merge: 07cf9a9
+
+### P2 — cap raise + runtime logic (2026-07-20)
+- Slices: P2a cap+groups+ctx (ed53842, 8ae24e7, f53718a, ec675a6) · P2b phone presets + authoring widening (6945ed6, db0ed14) · P2c studio builders (0f9dfcf) · formatPhone warning (1d05d5e).
+- Conductor gates (own hand): tsc 0 · vitest 397/5,766 pass==total · 40/40 phase+guard specs (cross-engine where registered) · operator acceptance 24/24 both engines · verify:all green · bundle 44,005/44,032 (freshness byte-identical) · diff-scope == ownership · drift 0.
+- Byte ledger: 42,874 → +178 groups → +663 ctx → +269 phone → +21 ReDoS cap = 44,005 (27 spare). P2 consumed ~2× projections → **P3a MUST open with a measured ≥450B dead-code trim commit or STOP for a D-1 re-decision** (reviewer-acknowledged process gate).
+- Adversarial review: FIX-FIRST (2 MAJOR: client-side ReDoS on custom phone regex; ledger exhaustion) + 4 minor → ReDoS closed save+runtime (fail-before proven), __ prefix reserved (3 surfaces), formatPhone×preset incoherence warning (existing Problems mechanism), ledger owned as the P3a trim gate → delta re-verify **SHIP**, no new conflict.
+- Notes for P5a dispatch: ctx conditions must be scoped display-only OR the section-gating consequence explicitly accepted (reviewer minor-5). Non-NANP answers store the typed validated string (downstream normalization rides per-offer transforms; ties to the operator's open E.164 residue).
+- PR: {{P2_PR}} · merge: {{P2_SHA}}
