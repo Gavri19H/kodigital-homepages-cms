@@ -628,12 +628,77 @@ export async function patchAuctionHandler(c: AdminContext): Promise<Response> {
   return c.json(auctionRowToApi(updated));
 }
 
+// Round-4 D-8 (lifecycle parity, row R4-38): an Auction is "in use" when any
+// funnel variant references it as its live auction (leadgen_funnel_variants.
+// auction_id — the variant's render-time banner source, §16). ONE query
+// feeds both the DELETE guard and auctionUsageHandler's delete_eligibility so
+// the two can never disagree about "in use." Surfaced at the QUOTE grain
+// (quote_name — funnel_name (variant_label)) for operator recognition even
+// though the FK itself lives on the variant.
+interface AuctionUsageItem {
+  id: number;
+  public_id: string;
+  name: string;
+  link: string;
+}
+
+async function auctionReferencingVariants(db: D1Database, auctionId: number): Promise<AuctionUsageItem[]> {
+  const result = await db
+    .prepare(
+      `SELECT v.id AS id, v.public_id AS public_id,
+              q.quote_name || ' — ' || f.funnel_name || ' (' || v.variant_label || ')' AS name,
+              '/admin/leadgen/quotes/' || q.public_id || '/edit' AS link
+       FROM leadgen_funnel_variants v
+       JOIN leadgen_funnels f ON f.id = v.funnel_id
+       JOIN leadgen_quotes q ON q.id = f.quote_id
+       WHERE v.auction_id = ?
+       ORDER BY q.quote_name, f.funnel_name, v.variant_label`,
+    )
+    .bind(auctionId)
+    .all<AuctionUsageItem>();
+  return result.results ?? [];
+}
+
 // DELETE /auctions/:id — archive (status flip, reversible; matches Listicles).
 export async function deleteAuctionHandler(c: AdminContext): Promise<Response> {
   const row = await resolveAuctionRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
+  // Round-4 D-8: DELETE stays archive-semantics, but an Auction referenced by
+  // a live funnel variant is REFUSED outright — fail closed to Archive
+  // (PATCH {status:'archived'} is already reachable + unrestricted, see
+  // patchAuctionHandler's generic status merge via buildAuctionSettings).
+  const referencing = await auctionReferencingVariants(c.env.DB, row.id);
+  if (referencing.length > 0) {
+    return c.json(
+      {
+        error: "This auction is used by a live funnel variant — archive it instead",
+        usage: { variants: referencing },
+      },
+      409,
+    );
+  }
   await c.env.DB.prepare("UPDATE leadgen_auctions SET status = 'archived', updated_at = unixepoch() WHERE id = ?").bind(row.id).run();
   return c.json({ id: row.id, public_id: row.public_id, status: "archived" });
+}
+
+// ---------------------------------------------------------------------------
+// GET /auctions/:id/usage (Round-4 A-2, row R4-38) — where-used, matching the
+// offers usage response shape (offers-handlers.ts buildOfferUsageReport):
+// {kinds:[{kind,count,items,warning_only}], delete_eligibility}.
+// ---------------------------------------------------------------------------
+
+export async function auctionUsageHandler(c: AdminContext): Promise<Response> {
+  const row = await resolveAuctionRow(c.env.DB, c.req.param("id") ?? "");
+  if (row === null) return c.json({ error: "Not Found" }, 404);
+  const referencing = await auctionReferencingVariants(c.env.DB, row.id);
+  const kinds = [
+    { kind: "variants_referencing", count: referencing.length, items: referencing, warning_only: false },
+  ];
+  const blocking = kinds.filter((k) => !k.warning_only && k.count > 0).map((k) => k.kind);
+  return c.json({
+    auction: { id: row.id, public_id: row.public_id, name: row.auction_name },
+    usage: { kinds, delete_eligibility: { eligible: blocking.length === 0, blocking_kinds: blocking } },
+  });
 }
 
 // ---------------------------------------------------------------------------

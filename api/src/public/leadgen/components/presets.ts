@@ -391,6 +391,10 @@ function ovColor(
 // LAYER 4 grid defaults (§9.5) — consumed only where the node left the slot
 // unset (per-node design_overrides/props win over Section wins over design).
 function sectionColumnsDefault(ctx: LeadgenSectionRenderCtx | undefined): number | undefined {
+  // Round-4 A-7 (P1b): a Section-level default of 1 (the "stack" preset — one
+  // card per row) is a first-class value now that renderCardGrid clamps 1..5.
+  // This reader passes ANY finite number straight through; the consuming clamp
+  // is the single bound, so a columnsDefault of 1 renders a full-width stack.
   const v = ctx?.design_overrides?.columnsDefault;
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 }
@@ -782,17 +786,22 @@ function answerGroupRootStyle(
 ): string {
   const width = sizeStyleEntries(node, ctx).width;
   // P1a (register PC-1): the group is a CSS grid now (.lg-answer-group,
-  // styles.ts). `columns` (per-node, authorable 1..4 via the studio Card-layout
+  // styles.ts). `columns` (per-node, authorable 1..5 via the studio Card-layout
   // control) rides the SAME --lg-cols custom property the card grid uses; the
   // grid's own default (answerGrid.columns) applies when unauthored, so an
   // un-authored group emits NO --lg-cols. `gridGap` (curated token) overrides
   // the grid gap inline. Both ADDITIVE: style() drops undefined and preserves
   // the surviving keys' order, so no-override groups (incl. the legacy-pin
   // yes/no) emit byte-identically to pre-P1a.
+  // Round-4 A-7 (P1b): the clamp is now 1..5 — UNIFIED with the card grid's
+  // (renderCardGrid) so a single-column (Image26 stack) or 5-across button
+  // group renders exactly what the studio offers; content-schema validates
+  // `columns` 1..5 at save (design_overrides + props), so an out-of-range
+  // authored value is rejected before it can reach this clamp.
   const authoredCols = ovNum(node, "columns") ?? propNum(node, "columns");
   return style({
     "--lg-sel-bg": ovColor(node, "buttonBackground", design, ctx),
-    "--lg-cols": authoredCols !== undefined ? String(clampInt(authoredCols, 1, 4)) : undefined,
+    "--lg-cols": authoredCols !== undefined ? String(clampInt(authoredCols, 1, 5)) : undefined,
     gap: ov(node, "gridGap"),
     width: width,
     // R7 U11b: a fixed-width block-level grid centers via auto side-margins (no
@@ -897,12 +906,18 @@ function renderCardGrid(
   // §9.5 layer 4: Section columnsDefault/gapDefault fill the slots the node
   // left unset — per-node (design_overrides/props) wins over Section wins
   // over the design tokens.
+  // Round-4 A-7 (P1b): the clamp is now 1..5 (was 2..5) — UNIFIED with the
+  // button group (answerGroupRootStyle). A 1-column card grid is the Image26
+  // full-width stacked-card reference, now offerable + renderable; a
+  // Section-level columnsDefault of 1 (a "stack" preset) flows straight
+  // through. content-schema validates `columns` 1..5 at save, so an
+  // out-of-range value never reaches this clamp from authored content.
   const cols = clampInt(
     ovNum(node, "columns") ??
       propNum(node, "columns") ??
       sectionColumnsDefault(ctx) ??
       design.iconCardGrid.columnsDesktop,
-    2,
+    1,
     5,
   );
   const gap = ov(node, "gridGap") ?? sectionGapDefault(ctx) ?? design.iconCardGrid.gap;
@@ -1204,7 +1219,16 @@ export function renderMultiQuestionGrid(
   // parent as an answer; each row IS the answer.
   return (
     `<div class="lg-mqg"${attr("data-component-type", node.type)}${attr("data-question-id", node.question_id)}>` +
-    rows.map(rowHtml).join("") +
+    // Round-4 A-3 (P1b, renderer leg): a zero-row grid emits a minimal
+    // placeholder instead of a blank shell. styles.ts scopes `.lg-mqg-empty`
+    // to `.lg-preview` ONLY (studio canvas + admin preview), and hides it again
+    // whenever P1a's client-side canvas decoration has injected its own
+    // `.studio-mqg-empty` (a :has() de-dup) so the two never double. On the
+    // LIVE funnel (#lg-funnel-root, no `.lg-preview`) it stays display:none —
+    // a zero-row grid renders NOTHING visible, exactly as today.
+    (rows.length === 0
+      ? `<div class="lg-mqg-empty">No sub-questions yet &mdash; add one in the rows editor.</div>`
+      : rows.map(rowHtml).join("")) +
     `</div>` +
     // node-level helper below the grid ("" when no props.helper).
     fieldHelperLine(node)
@@ -1992,6 +2016,16 @@ function fieldHelperLine(node: LeadgenComponentNode, key: string = "helper"): st
     ? ""
     : `<div class="lg-field-help" style="font-size:12.5px;color:#96A0AF;margin-top:7px;padding-left:2px">${esc(helper)}</div>`;
 }
+// Round-4 A-6a (P1b): the field label line for text-like inputs — the SAME
+// `.lg-label` block-above chrome renderNameFieldsGroup + MultiQuestionGrid rows
+// already use, so a Contact stack reads consistently. Sourced from props.label
+// (an ADDITIVE prop: absent/empty/whitespace ⇒ "" ⇒ NO <span> node at all, so
+// a component WITHOUT a label renders byte-identically to pre-P1b — never an
+// empty label element).
+function labelLine(node: LeadgenComponentNode): string {
+  const label = propStr(node, "label");
+  return label === undefined || label.trim() === "" ? "" : `<span class="lg-label">${esc(label)}</span>`;
+}
 function renderTextInput(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
@@ -2004,6 +2038,15 @@ function renderTextInput(
   const maxLen = propNum(node, "maxLen");
   const icon = fieldLeadingIcon(node);
   const helper = fieldHelperLine(node);
+  // Round-4 A-6a (P1b): a UNIFIED field label ABOVE the input for every
+  // text-like input (FreeText/Number/Email/Phone/Date/ZIP share this renderer),
+  // so a Contact stack no longer mixes labeled NameFields with label-less
+  // inputs — the label reuses the SAME `.lg-label` block-above chrome
+  // renderNameFieldsGroup/MultiQuestionGrid rows use. Sourced from props.label.
+  // ADDITIVE: absent/empty ⇒ "" ⇒ no <label> node at all, so every field
+  // WITHOUT an authored label renders byte-identically to pre-P1b (the fast
+  // path below still returns the bare input; the boxed path concatenates "").
+  const fieldLabel = labelLine(node);
   // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
   // the :focus / [aria-invalid] state rules win by cascade (no !important).
   // An authored design_overrides.border_color rides the `--lg-field-border`
@@ -2041,13 +2084,15 @@ function renderTextInput(
     (node.required === true ? " required" : "") +
     extra +
     `>`;
-  // §12 no-regression: absent icon AND helper AND slot -> the bare input,
-  // byte-for-byte with pre-FIX-3a output (fieldStyleAttr unchanged in that
-  // branch). CONDUCTOR FIX (P4b regression): an <input> is a void element — it
-  // cannot CONTAIN a slot, so a slot's presence now ALSO forces the wrapping
-  // box (below), exactly like an authored icon/helper already did; the slot
-  // becomes the box's LAST CHILD instead of a card-level sibling.
-  if (icon === "" && helper === "" && slot === "") return input;
+  // §12 no-regression: absent icon AND helper AND slot AND label -> the bare
+  // input, byte-for-byte with pre-FIX-3a output (fieldStyleAttr unchanged in
+  // that branch). CONDUCTOR FIX (P4b regression): an <input> is a void element
+  // — it cannot CONTAIN a slot, so a slot's presence now ALSO forces the
+  // wrapping box (below), exactly like an authored icon/helper already did; the
+  // slot becomes the box's LAST CHILD instead of a card-level sibling. Round-4
+  // A-6a (P1b): an authored field label likewise forces the wrapper so the
+  // `.lg-label` sits ABOVE the input — absent label keeps this fast path.
+  if (icon === "" && helper === "" && slot === "" && fieldLabel === "") return input;
   const boxed =
     icon === ""
       ? input
@@ -2075,8 +2120,10 @@ function renderTextInput(
         "</span>";
   // CONDUCTOR FIX (P4b regression): the auto error slot is the LAST CHILD of
   // the field box (`.lg-field-boxed`) — nested INSIDE, after the helper line,
-  // never a card-level sibling. "" (no slot) is a no-op concatenation.
-  return '<span class="lg-field-boxed" style="display:block">' + boxed + helper + slot + "</span>";
+  // never a card-level sibling. "" (no slot) is a no-op concatenation. Round-4
+  // A-6a (P1b): the field label (fieldLabel, "" when unauthored) leads the box,
+  // ABOVE the input — helper stays below, the error slot stays last.
+  return '<span class="lg-field-boxed" style="display:block">' + fieldLabel + boxed + helper + slot + "</span>";
 }
 
 export function renderFreeTextQuestion(
@@ -2125,6 +2172,10 @@ export function renderCurrencyInputQuestion(
 ): string {
   const currency = propStr(node, "currency") ?? "$";
   return (
+    // Round-4 A-6a (P1b): the shared field label ABOVE the currency box (this
+    // renderer bypasses renderTextInput but is text-like). "" when unauthored ⇒
+    // byte-identical to pre-P1b.
+    labelLine(node) +
     `<div class="lg-currency"${hydration(node)}${fieldSizeStyle(node, ctx)}>` +
     `<span class="lg-currency-prefix" aria-hidden="true">${esc(currency)}</span>` +
     // v3.1 §8.5b/§11.5/§12: corners/border_color ride the INNER `.lg-input`
@@ -2324,6 +2375,51 @@ export function renderAddressAutocompleteQuestion(
         "</span>" +
         input +
         "</span>";
+  // Round-4 A-6/P-6 (P1b): a VISIBLE composite preview of the fill-target
+  // fields (Street/City/State/ZIP), so the studio canvas shows the Address as a
+  // structured autofill control, not a bare text field. The role→field mapping
+  // is the SAME derivation P1a wired into the rules pickers (a configured
+  // props.maps.fills.<slot>, else `${internal_field || question_id}_<slot>`,
+  // default-seed 'address') — so the chip names match the rule sources exactly.
+  // styles.ts scopes `.lg-address-composite` to `.lg-preview` ONLY (studio +
+  // admin preview); on the LIVE funnel it is display:none, so the live render
+  // keeps its single autocomplete input + the configured sibling fills, byte-
+  // for-byte in behavior. aria-hidden — it is an author affordance, never a
+  // form control (the real hidden data-address-part inputs below are untouched).
+  const addrBase =
+    typeof node.internal_field === "string" && node.internal_field.trim() !== ""
+      ? node.internal_field.trim()
+      : typeof node.question_id === "string" && node.question_id !== ""
+        ? node.question_id
+        : "address";
+  const addrMapsObj = addressMapsRaw !== null && typeof addressMapsRaw === "object" ? (addressMapsRaw as Record<string, unknown>) : {};
+  const addrFillsObj =
+    addrMapsObj["fills"] !== null && typeof addrMapsObj["fills"] === "object" ? (addrMapsObj["fills"] as Record<string, unknown>) : {};
+  const addrRoleField = (slot: string): string => {
+    const f = addrFillsObj[slot];
+    return typeof f === "string" && f.trim() !== "" ? f.trim() : `${addrBase}_${slot}`;
+  };
+  const addressComposite =
+    '<div class="lg-address-composite" aria-hidden="true">' +
+    '<span class="lg-address-composite-note">Auto-filled from the address</span>' +
+    '<div class="lg-address-composite-fields">' +
+    (
+      [
+        ["street", "Street"],
+        ["city", "City"],
+        ["state", "State"],
+        ["zip", "ZIP"],
+      ] as [string, string][]
+    )
+      .map(
+        ([slot, label]) =>
+          '<span class="lg-address-chip">' +
+          `<span class="lg-address-chip-role">${esc(label)}</span>` +
+          `<span class="lg-address-chip-field">${esc(addrRoleField(slot))}</span>` +
+          "</span>",
+      )
+      .join("") +
+    "</div></div>";
   return (
     // 03 §3.3 / 08 §8.8: data-lg-maps carries the field-level props.maps
     // config (or the "{}" compat fallback for global-checkbox-era content).
@@ -2342,6 +2438,9 @@ export function renderAddressAutocompleteQuestion(
     // radius of its own (designs/default-funnel/styles.ts has no
     // `.lg-address` rule at all), only `.lg-input` does.
     boxedInput +
+    // Round-4 A-6/P-6 (P1b): the studio-only labeled composite preview (CSS
+    // hides it on the live funnel — see .lg-address-composite in styles.ts).
+    addressComposite +
     // Distinct normalized sub-fields for payload mapping (§12.8).
     `<input type="hidden" data-address-part="street"><input type="hidden" data-address-part="city">` +
     `<input type="hidden" data-address-part="state"><input type="hidden" data-address-part="zip">` +

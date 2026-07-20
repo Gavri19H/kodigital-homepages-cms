@@ -9,7 +9,14 @@
 // via ui.ts's apiJson. Inline scripts are strict ES5 (layout.ts constraint,
 // asserted by the ES5 parse test). Every author value is escapeHtml-escaped.
 
-import { escapeHtml, renderListPager, listFilterScript } from "../templates/layout";
+import {
+  escapeHtml,
+  renderListPager,
+  listFilterScript,
+  renderKebabOpen,
+  KEBAB_CLOSE,
+  kebabMenuScript,
+} from "../templates/layout";
 import { resolveTimeframe, renderTimeframeSelect, type Timeframe } from "../listicles/ui-shared";
 import {
   apiJson,
@@ -212,6 +219,7 @@ function completenessBadge(c: SectionListItem["completeness"]): string {
 }
 
 function renderSectionListRow(s: SectionListItem): string {
+  const name = escapeHtml(s.section_name);
   // R4a E3-NEW-9: the server supports reactivating via the same general
   // PATCH {status} the editor's Advanced surfaces already use
   // (sections-handlers.ts patchSectionHandler; "status" rides
@@ -219,10 +227,31 @@ function renderSectionListRow(s: SectionListItem): string {
   // instead of a disabled Archive button promising nothing.
   const archiveOrReactivate =
     s.status === "archived"
-      ? `<button type="button" class="btn btn-sm btn-secondary" data-section-reactivate="${escapeHtml(s.public_id)}">Reactivate</button>`
-      : `<button type="button" class="btn btn-sm btn-danger" data-section-archive="${escapeHtml(s.public_id)}">Archive</button>`;
-  return `<tr data-entity-id="${s.id}" data-entity-name="${escapeHtml(s.section_name)}">
-  <td>${escapeHtml(s.section_name)}</td>
+      ? `<button type="button" class="lg-kebab-item" role="menuitem" data-section-reactivate="${escapeHtml(s.public_id)}" data-entity-name="${name}">Reactivate</button>`
+      : `<button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-section-archive="${escapeHtml(s.public_id)}" data-entity-name="${name}">Archive</button>`;
+  // Round-4 A-2 (row R4-02/R4-38): Edit stays a direct link; Duplicate/Usage/
+  // Archive-or-Reactivate/Delete move into the shared kebab (renderKebabOpen/
+  // KEBAB_CLOSE, layout.ts). Duplicate -> POST /sections/:id/duplicate.
+  // Fix-round correction: P1c (commit 3943892/4bc4600) gave DELETE
+  // /sections/:id a REAL contract — it guards on variant references
+  // (leadgen_funnel_variant_sections, already checked before) AND rule
+  // references (leadgen_funnel_rules.target_section_id, added in 3943892) ->
+  // 409 "This section is used by quotes — archive it instead"; unreferenced
+  // -> HARD DELETE (the row + its own answer-map/available-offer children are
+  // permanently removed — no more archive-flip on that path). Archive/
+  // Reactivate are therefore the SEPARATE, unconditional PATCH {status} leg
+  // (patchSectionHandler already accepts "status", SECTION_LIST_SCRIPT below)
+  // — Archive can never be refused and never destroys data; Delete is the
+  // guarded, permanent one — matching the label the button already carried.
+  // Usage keeps its EXISTING inline-panel toggle (data-section-usage + the
+  // sibling .lg-usage-row below) untouched — only its button now lives inside
+  // the kebab; note the panel itself still renders only body.usage.variants
+  // (sectionUsageHandler's response shape), not the newer usage.rules the
+  // same P1c commit added — a section blocked ONLY by a rule reference would
+  // show "Not used by any funnel variant" in Usage while Delete still 409s, a
+  // real but pre-existing display gap outside this deliverable's scope.
+  return `<tr data-entity-id="${s.id}" data-entity-name="${name}">
+  <td>${name}</td>
   <td>${escapeHtml(s.activity)} / ${escapeHtml(s.vertical)}</td>
   <td class="lg-num">${s.question_count}</td>
   <td class="lg-num">${s.mapped_offer_count}</td>
@@ -231,11 +260,13 @@ function renderSectionListRow(s: SectionListItem): string {
   <td class="lg-num" data-metric="views"><span class="skel" aria-hidden="true"></span></td>
   <td class="lg-num" data-metric="continue_rate"><span class="skel" aria-hidden="true"></span></td>
   <td class="lg-num" data-metric="validation_error_rate"><span class="skel" aria-hidden="true"></span></td>
-  <td>
+  <td><div class="table-actions">
     <a href="/admin/leadgen/sections/${escapeHtml(s.public_id)}/edit" class="btn btn-sm btn-secondary">Edit</a>
-    <button type="button" class="btn btn-sm btn-outline" data-section-usage="${escapeHtml(s.public_id)}" aria-expanded="false">Usage</button>
+    ${renderKebabOpen(name)}<button type="button" class="lg-kebab-item" role="menuitem" data-section-duplicate="${escapeHtml(s.public_id)}" data-entity-name="${name}">Duplicate</button>
+    <button type="button" class="lg-kebab-item" role="menuitem" data-section-usage="${escapeHtml(s.public_id)}" aria-expanded="false">Usage</button>
     ${archiveOrReactivate}
-  </td>
+    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-section-delete="${escapeHtml(s.public_id)}" data-entity-name="${name}">Delete</button>${KEBAB_CLOSE}
+  </div></td>
 </tr>
 <tr class="lg-usage-row" data-section-usage-row="${escapeHtml(s.public_id)}" hidden>
   <td colspan="${SECTION_LIST_COLUMNS.length}"><div class="lg-usage-panel" data-section-usage-panel role="status" aria-live="polite"></div></td>
@@ -307,15 +338,55 @@ const SECTION_LIST_SCRIPT = `
   }
 
   // row actions: archive/reactivate (confirm + response.ok-checked PATCH/
-  // DELETE), usage (inline expandable panel — R4a E3-S1, replaces alert())
+  // DELETE), usage (inline expandable panel — R4a E3-S1, replaces alert()),
+  // duplicate + delete (Round-4 A-2 kebab rollout, row R4-02/R4-38).
   document.addEventListener('click', function (ev) {
     var el = ev.target;
     if (!el || !el.getAttribute) { return; }
+    var dupId = el.getAttribute('data-section-duplicate');
+    if (dupId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
+      fetch('/api/admin/leadgen/sections/' + encodeURIComponent(dupId) + '/duplicate', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({})
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) { window.alert((res.body && res.body.error) || 'Duplicate failed'); return; }
+        window.location.reload();
+      }).catch(function () { window.alert('Duplicate request failed'); });
+      return;
+    }
+    var deleteId = el.getAttribute('data-section-delete');
+    if (deleteId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
+      var deleteName = el.getAttribute('data-entity-name') || 'this section';
+      if (!window.confirm('Delete ' + deleteName + '?')) { return; }
+      fetch('/api/admin/leadgen/sections/' + encodeURIComponent(deleteId), {
+        method: 'DELETE', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) { window.alert((res.body && res.body.error) || ('Delete failed (' + res.status + ')')); return; }
+        window.location.reload();
+      }).catch(function () { window.alert('Delete request failed'); });
+      return;
+    }
     var archiveId = el.getAttribute('data-section-archive');
     if (archiveId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
       if (!window.confirm('Archive this Section? It can be reactivated later from this list.')) { return; }
+      // Fix-round correction: DELETE now HARD-deletes an unreferenced section
+      // (P1c commit 3943892/4bc4600) — Archive must use the SEPARATE,
+      // unconditional PATCH {status} leg (matching Reactivate just below and
+      // the quotes/auctions kebabs) so this button's own confirm text
+      // ("can be reactivated later") stays true instead of silently
+      // performing an irreversible delete.
       fetch('/api/admin/leadgen/sections/' + encodeURIComponent(archiveId), {
-        method: 'DELETE', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ status: 'archived' })
       }).then(function (r) {
         return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, body: j }; });
       }).then(function (res) {
@@ -331,6 +402,7 @@ const SECTION_LIST_SCRIPT = `
     // this is the ONLY new client action, no new server work needed.
     var reactivateId = el.getAttribute('data-section-reactivate');
     if (reactivateId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
       if (!window.confirm('Reactivate this Section?')) { return; }
       fetch('/api/admin/leadgen/sections/' + encodeURIComponent(reactivateId), {
         method: 'PATCH', credentials: 'same-origin',
@@ -346,6 +418,7 @@ const SECTION_LIST_SCRIPT = `
     }
     var usageId = el.getAttribute('data-section-usage');
     if (usageId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
       var panelRow = document.querySelector('[data-section-usage-row="' + usageId + '"]');
       if (!panelRow) { return; }
       var wasHidden = panelRow.hidden;
@@ -359,27 +432,51 @@ const SECTION_LIST_SCRIPT = `
       fetch('/api/admin/leadgen/sections/' + encodeURIComponent(usageId) + '/usage', {
         credentials: 'same-origin', headers: { 'Accept': 'application/json' }
       }).then(function (r) { return r.json(); }).then(function (body) {
+        // Fix-round (P1c commit 3943892 sectionUsageHandler shape): usage
+        // carries TWO independent, non-cascading references — variants
+        // (a funnel variant orders this section) AND rules (a funnel rule's
+        // target_section_id points at it, e.g. show_section/skip_section,
+        // WITHOUT the section ever being placed in a variant's order) — the
+        // SAME two legs deleteSectionHandler's guard checks, so Usage must
+        // show both or an operator sees "not used" here while Delete still
+        // 409s. Empty-state fires only when BOTH are empty.
         var variants = (body && body.usage && body.usage.variants) ? body.usage.variants : [];
+        var rules = (body && body.usage && body.usage.rules) ? body.usage.rules : [];
         clearChildren(panel);
         panel.setAttribute('data-loaded', 'true');
-        if (variants.length === 0) {
-          panel.appendChild(document.createTextNode('Not used by any funnel variant.'));
+        if (variants.length === 0 && rules.length === 0) {
+          panel.appendChild(document.createTextNode('Not used by any funnel variant or rule.'));
           return;
         }
-        var head = document.createElement('p');
-        head.appendChild(document.createTextNode('Used by ' + variants.length + ' funnel variant(s):'));
-        panel.appendChild(head);
-        var list = document.createElement('ul');
-        var i, v, li;
-        for (i = 0; i < variants.length; i++) {
-          v = variants[i];
-          li = document.createElement('li');
-          li.appendChild(document.createTextNode(
-            (v.quote_name || 'Quote') + ' \\u203A ' + (v.funnel_name || v.funnel_public_id || 'Funnel') + ' \\u203A Variant ' + (v.variant_label || '?')
-          ));
-          list.appendChild(li);
+        var i, v, r, li;
+        if (variants.length > 0) {
+          var vhead = document.createElement('p');
+          vhead.appendChild(document.createTextNode('Used by ' + variants.length + ' funnel variant(s):'));
+          panel.appendChild(vhead);
+          var vlist = document.createElement('ul');
+          for (i = 0; i < variants.length; i++) {
+            v = variants[i];
+            li = document.createElement('li');
+            li.appendChild(document.createTextNode(
+              (v.quote_name || 'Quote') + ' \\u203A ' + (v.funnel_name || v.funnel_public_id || 'Funnel') + ' \\u203A Variant ' + (v.variant_label || '?')
+            ));
+            vlist.appendChild(li);
+          }
+          panel.appendChild(vlist);
         }
-        panel.appendChild(list);
+        if (rules.length > 0) {
+          var rhead = document.createElement('p');
+          rhead.appendChild(document.createTextNode('Used by ' + rules.length + ' funnel rule(s):'));
+          panel.appendChild(rhead);
+          var rlist = document.createElement('ul');
+          for (i = 0; i < rules.length; i++) {
+            r = rules[i];
+            li = document.createElement('li');
+            li.appendChild(document.createTextNode(r.name || r.public_id || String(r.id)));
+            rlist.appendChild(li);
+          }
+          panel.appendChild(rlist);
+        }
       }).catch(function () {
         clearChildren(panel);
         panel.appendChild(document.createTextNode('Failed to load usage.'));
@@ -433,7 +530,7 @@ ${loadErrorHtml}
 ${renderSectionsToolbar({ search, activity, vertical, status }, verticalsRes.ok ? verticalsRes.body.items : [], activitiesRes.ok ? activitiesRes.body.items : [], timeframe)}
 <div class="card">
   <div class="table-wrapper">
-    <table class="table leadgen-sections-list" aria-label="Sections list" data-lg-analytics data-analytics-url-prefix="/api/admin/leadgen/sections/" data-analytics-from="${escapeHtml(timeframe.from)}" data-analytics-to="${escapeHtml(timeframe.to)}">
+    <table class="table table--sticky-edges leadgen-sections-list" aria-label="Sections list" data-lg-analytics data-analytics-url-prefix="/api/admin/leadgen/sections/" data-analytics-from="${escapeHtml(timeframe.from)}" data-analytics-to="${escapeHtml(timeframe.to)}">
       <thead><tr>${headerCells}</tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -447,7 +544,7 @@ ${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging
       userEmail: branding(c).userEmail,
       content,
       styles: LG_SECTIONS_STYLES,
-      scripts: SECTION_LIST_SCRIPT + listFilterScript,
+      scripts: kebabMenuScript + SECTION_LIST_SCRIPT + listFilterScript,
     }),
   );
 }

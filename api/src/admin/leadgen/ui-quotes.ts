@@ -17,7 +17,14 @@
 // backticks, NO arrow/const/let, template literals forbidden). Every author
 // value is escapeHtml-escaped; JSON blobs are `<`-escaped.
 
-import { escapeHtml, renderListPager, listFilterScript } from "../templates/layout";
+import {
+  escapeHtml,
+  renderListPager,
+  listFilterScript,
+  renderKebabOpen,
+  KEBAB_CLOSE,
+  kebabMenuScript,
+} from "../templates/layout";
 import { resolveTimeframe, renderTimeframeSelect, type Timeframe } from "../listicles/ui-shared";
 import {
   apiJson,
@@ -593,8 +600,22 @@ function abBadge(status: string): string {
 
 function renderQuoteListRow(q: QuoteListItem): string {
   const verticals = Array.isArray(q.verticals_json) ? q.verticals_json.join(", ") : "";
-  return `<tr data-entity-id="${escapeHtml(q.public_id)}" data-entity-name="${escapeHtml(q.quote_name)}">
-  <td>${escapeHtml(q.quote_name)}</td>
+  const name = escapeHtml(q.quote_name);
+  // Round-4 A-2 (row R4-02/R4-38): Edit stays a direct link; Duplicate/Usage/
+  // Archive-or-Reactivate/Delete move into the shared kebab (renderKebabOpen/
+  // KEBAB_CLOSE, layout.ts — the offers-tab pattern promoted). Archive/
+  // Reactivate are the PATCH {status} leg (patchQuoteHandler already accepts
+  // "status"; never blocked) — Delete is the SEPARATE guarded DELETE
+  // /quotes/:id (deleteQuoteHandler 409s "This quote has live history —
+  // archive it instead" when site_activations/analytics_rows exist, else it
+  // also archives). Duplicate → POST /quotes/:id/duplicate; Usage → GET
+  // /quotes/:id/usage (new inline panel below, mirrors the Sections pattern).
+  const archiveOrReactivate =
+    q.status === "archived"
+      ? `<button type="button" class="lg-kebab-item" role="menuitem" data-quote-reactivate="${escapeHtml(q.public_id)}" data-entity-name="${name}">Reactivate</button>`
+      : `<button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-archive="${escapeHtml(q.public_id)}" data-entity-name="${name}">Archive</button>`;
+  return `<tr data-entity-id="${escapeHtml(q.public_id)}" data-entity-name="${name}">
+  <td>${name}</td>
   <td>${escapeHtml(q.activity)}</td>
   <td>${escapeHtml(verticals)}</td>
   <td class="lg-num">${q.variant_count}</td>
@@ -605,10 +626,16 @@ function renderQuoteListRow(q: QuoteListItem): string {
   <td class="lg-num" data-metric="avg_rps"><span class="skel" aria-hidden="true"></span></td>
   <td class="lg-num" data-metric="unfilled_rate"><span class="skel" aria-hidden="true"></span></td>
   <td class="lg-num" data-metric="revenue"><span class="skel" aria-hidden="true"></span></td>
-  <td>
+  <td><div class="table-actions">
     <a href="/admin/leadgen/quotes/${escapeHtml(q.public_id)}/edit" class="btn btn-sm btn-secondary">Edit</a>
-    <button type="button" class="btn btn-sm btn-danger" data-quote-archive="${escapeHtml(q.public_id)}"${q.status === "archived" ? " disabled" : ""}>Archive</button>
-  </td>
+    ${renderKebabOpen(name)}<button type="button" class="lg-kebab-item" role="menuitem" data-quote-duplicate="${escapeHtml(q.public_id)}" data-entity-name="${name}">Duplicate</button>
+    <button type="button" class="lg-kebab-item" role="menuitem" data-quote-usage="${escapeHtml(q.public_id)}" aria-expanded="false">Usage</button>
+    ${archiveOrReactivate}
+    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-delete="${escapeHtml(q.public_id)}" data-entity-name="${name}">Delete</button>${KEBAB_CLOSE}
+  </div></td>
+</tr>
+<tr class="lg-usage-row" data-quote-usage-row="${escapeHtml(q.public_id)}" hidden>
+  <td colspan="${QUOTE_LIST_COLUMNS.length}"><div class="lg-usage-panel" data-quote-usage-panel role="status" aria-live="polite"></div></td>
 </tr>`;
 }
 
@@ -695,15 +722,124 @@ const QUOTE_LIST_SCRIPT = `
     for (j = 0; j < rows.length; j++) { fillRow(tables[t], rows[j]); }
   }
 
+  // Round-4 A-2 kebab rollout (row R4-02/R4-38): Archive/Reactivate are the
+  // unrestricted PATCH {status} leg; Delete is the SEPARATE guarded DELETE
+  // (surfaces the server's plain-language 409 verbatim); Duplicate is a
+  // fire-and-reload POST; Usage is a new inline expandable panel (mirrors
+  // the Sections list's existing pattern, ui-sections.ts SECTION_LIST_SCRIPT).
   document.addEventListener('click', function (ev) {
     var el = ev.target;
     if (!el || !el.getAttribute) { return; }
+    var dupId = el.getAttribute('data-quote-duplicate');
+    if (dupId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
+      fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(dupId) + '/duplicate', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({})
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) { window.alert((res.body && res.body.error) || 'Duplicate failed'); return; }
+        window.location.reload();
+      }).catch(function () { window.alert('Duplicate request failed'); });
+      return;
+    }
     var archiveId = el.getAttribute('data-quote-archive');
     if (archiveId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
       if (!window.confirm('Archive this Quote?')) { return; }
       fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(archiveId), {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ status: 'archived' })
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) { window.alert((res.body && res.body.error) || 'Archive failed'); return; }
+        window.location.reload();
+      }).catch(function () { window.alert('Archive request failed'); });
+      return;
+    }
+    var reactivateId = el.getAttribute('data-quote-reactivate');
+    if (reactivateId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
+      if (!window.confirm('Reactivate this Quote?')) { return; }
+      fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(reactivateId), {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ status: 'active' })
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) { window.alert((res.body && res.body.error) || 'Reactivate failed'); return; }
+        window.location.reload();
+      }).catch(function () { window.alert('Reactivate request failed'); });
+      return;
+    }
+    var deleteId = el.getAttribute('data-quote-delete');
+    if (deleteId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
+      var deleteName = el.getAttribute('data-entity-name') || 'this quote';
+      if (!window.confirm('Delete ' + deleteName + '?')) { return; }
+      fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(deleteId), {
         method: 'DELETE', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-      }).then(function () { window.location.reload(); });
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) { window.alert((res.body && res.body.error) || ('Delete failed (' + res.status + ')')); return; }
+        window.location.reload();
+      }).catch(function () { window.alert('Delete request failed'); });
+      return;
+    }
+    var usageId = el.getAttribute('data-quote-usage');
+    if (usageId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
+      var panelRow = document.querySelector('[data-quote-usage-row="' + usageId + '"]');
+      if (!panelRow) { return; }
+      var wasHidden = panelRow.hidden;
+      panelRow.hidden = !wasHidden;
+      el.setAttribute('aria-expanded', wasHidden ? 'true' : 'false');
+      if (!wasHidden) { return; }
+      var panel = panelRow.querySelector('[data-quote-usage-panel]');
+      if (!panel || panel.getAttribute('data-loaded') === 'true') { return; }
+      panel.appendChild(document.createTextNode('Loading usage\\u2026'));
+      fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(usageId) + '/usage', {
+        credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+      }).then(function (r) { return r.json(); }).then(function (body) {
+        var kinds = (body && body.usage && body.usage.kinds) ? body.usage.kinds : [];
+        var labels = { site_activations: 'Site activations', analytics_history: 'Analytics history' };
+        clearChildren(panel);
+        panel.setAttribute('data-loaded', 'true');
+        var total = 0;
+        var ki;
+        for (ki = 0; ki < kinds.length; ki++) { total += Number(kinds[ki].count) || 0; }
+        if (total === 0) {
+          panel.appendChild(document.createTextNode('Not in use \\u2014 safe to delete or archive.'));
+          return;
+        }
+        for (ki = 0; ki < kinds.length; ki++) {
+          var kind = kinds[ki];
+          if (!kind.count) { continue; }
+          var head = document.createElement('p');
+          head.appendChild(document.createTextNode((labels[kind.kind] || kind.kind) + ': ' + kind.count));
+          panel.appendChild(head);
+          var items = kind.items || [];
+          if (items.length > 0) {
+            var list = document.createElement('ul');
+            var ii;
+            for (ii = 0; ii < items.length; ii++) {
+              var li = document.createElement('li');
+              li.appendChild(document.createTextNode(items[ii].name || items[ii].public_id || String(items[ii].id)));
+              list.appendChild(li);
+            }
+            panel.appendChild(list);
+          }
+        }
+      }).catch(function () {
+        clearChildren(panel);
+        panel.appendChild(document.createTextNode('Failed to load usage.'));
+      });
     }
   });
 }());
@@ -750,7 +886,7 @@ ${loadErrorHtml}
 ${renderQuotesToolbar({ search, activity, status }, activitiesRes.ok ? activitiesRes.body.items : [], timeframe)}
 <div class="card">
   <div class="table-wrapper">
-    <table class="table leadgen-quotes-list" aria-label="Quotes list" data-lg-analytics data-analytics-from="${escapeHtml(timeframe.from)}" data-analytics-to="${escapeHtml(timeframe.to)}">
+    <table class="table table--sticky-edges leadgen-quotes-list" aria-label="Quotes list" data-lg-analytics data-analytics-from="${escapeHtml(timeframe.from)}" data-analytics-to="${escapeHtml(timeframe.to)}">
       <thead><tr>${headerCells}</tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -764,7 +900,7 @@ ${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging
       userEmail: branding(c).userEmail,
       content,
       styles: LG_QUOTES_STYLES,
-      scripts: QUOTE_LIST_SCRIPT + listFilterScript,
+      scripts: kebabMenuScript + QUOTE_LIST_SCRIPT + listFilterScript,
     }),
   );
 }

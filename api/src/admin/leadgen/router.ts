@@ -57,6 +57,7 @@ import {
   createSectionHandler,
   deleteComponentPresetHandler,
   deleteSectionHandler,
+  duplicateSectionHandler,
   getSectionHandler,
   listComponentPresetsHandler,
   listSectionsHandler,
@@ -83,6 +84,7 @@ import {
   deleteActivationHandler,
   deleteFunnelHandler,
   deleteQuoteHandler,
+  duplicateQuoteHandler,
   experimentAssignmentPreviewHandler,
   forkVariantHandler,
   getFunnelHandler,
@@ -99,12 +101,14 @@ import {
   quoteActivationHandler,
   quoteAnalyticsHandler,
   quoteStructureHandler,
+  quoteUsageHandler,
   startExperimentHandler,
   stopExperimentHandler,
 } from "./quotes-handlers";
 import {
   auctionAnalyticsHandler,
   auctionSimulateHandler,
+  auctionUsageHandler,
   createAuctionHandler,
   createAuctionRuleHandler,
   deleteAuctionHandler,
@@ -188,6 +192,7 @@ routes.post("/sections/preview", previewSectionHandler); // static BEFORE /secti
 routes.get("/sections/:id", getSectionHandler);
 routes.patch("/sections/:id", patchSectionHandler);
 routes.delete("/sections/:id", deleteSectionHandler);
+routes.post("/sections/:id/duplicate", duplicateSectionHandler); // Round-4 A-2 (row R4-02)
 routes.get("/sections/:id/usage", sectionUsageHandler);
 routes.get("/sections/:id/offers", sectionOffersHandler);
 routes.get("/sections/:id/analytics", sectionAnalyticsHandler);
@@ -209,6 +214,8 @@ routes.delete("/quotes/:id/activation/:site_id", deleteActivationHandler);
 routes.get("/quotes/:id/activation", quoteActivationHandler);
 routes.get("/quotes/:id/funnels", listQuoteFunnelsHandler);
 routes.post("/quotes/:id/funnels", createQuoteFunnelHandler);
+routes.post("/quotes/:id/duplicate", duplicateQuoteHandler); // Round-4 A-2 (row R4-02)
+routes.get("/quotes/:id/usage", quoteUsageHandler); // Round-4 A-2 (row R4-38)
 routes.get("/quotes/:id", getQuoteHandler);
 routes.patch("/quotes/:id", patchQuoteHandler);
 routes.delete("/quotes/:id", deleteQuoteHandler);
@@ -261,6 +268,7 @@ routes.delete("/auctions/:id/rules/:rule_id", deleteAuctionRuleHandler);
 routes.get("/auctions/:id/banner", getAuctionBannerHandler);
 routes.put("/auctions/:id/banner", putAuctionBannerHandler);
 routes.get("/auctions/:id/analytics", auctionAnalyticsHandler);
+routes.get("/auctions/:id/usage", auctionUsageHandler); // Round-4 A-2 (row R4-38)
 routes.post("/auctions/:id/simulate", auctionSimulateHandler);
 routes.get("/auctions/:id", getAuctionHandler);
 routes.patch("/auctions/:id", patchAuctionHandler);

@@ -539,7 +539,10 @@ describe("renderComponent — escapes all hostile author content", () => {
 // ---------------------------------------------------------------------------
 
 describe("IconCardAnswerGrid (§14.4)", () => {
-  it("emits the requested desktop column count via --lg-cols (clamped 2..5)", () => {
+  it("emits the requested desktop column count via --lg-cols (clamped 1..5)", () => {
+    // Round-4 A-7 (P1b) re-pin: the card-grid clamp is now 1..5 (was 2..5),
+    // UNIFIED with the button group — a 1-column input renders --lg-cols:1 (the
+    // Image26 full-width stacked-card reference), no longer clamped up to 2.
     const four = renderComponent(
       { type: "IconCardAnswerGrid", question_id: "g", internal_field: "biz", props: { columns: 4 }, choices: ICON_CHOICES },
       DESIGN,
@@ -550,11 +553,11 @@ describe("IconCardAnswerGrid (§14.4)", () => {
       DESIGN,
     );
     expect(clampedHigh).toContain("--lg-cols:5");
-    const clampedLow = renderComponent(
+    const singleColumn = renderComponent(
       { type: "IconCardAnswerGrid", question_id: "g", internal_field: "biz", props: { columns: 1 }, choices: ICON_CHOICES },
       DESIGN,
     );
-    expect(clampedLow).toContain("--lg-cols:2");
+    expect(singleColumn).toContain("--lg-cols:1");
   });
 
   it("expresses the §14.4 example choices with per-choice icon + navy icon color", () => {

@@ -10,7 +10,14 @@
 // escapeHtml-escaped; the editor carries an unsaved-changes guard. The tab path
 // is SINGULAR /admin/leadgen/auction (01 §5.2) driving the plural /auctions API.
 
-import { escapeHtml, renderListPager, listFilterScript } from "../templates/layout";
+import {
+  escapeHtml,
+  renderListPager,
+  listFilterScript,
+  renderKebabOpen,
+  KEBAB_CLOSE,
+  kebabMenuScript,
+} from "../templates/layout";
 import { resolveTimeframe, renderTimeframeSelect, type Timeframe } from "../listicles/ui-shared";
 import {
   apiJson,
@@ -148,21 +155,39 @@ const EM_DASH = "—";
 
 function renderAuctionListRow(a: AuctionListItem): string {
   const quoteLabel = a.quote_name ?? EM_DASH;
+  const name = escapeHtml(a.auction_name);
   const analyticsCells = AUCTION_LIST_COLUMNS.filter((col) => col.metric !== undefined)
     .map((col) => `<td class="lg-num" data-metric="${escapeHtml(col.metric ?? "")}">${EM_DASH}</td>`)
     .join("");
-  return `<tr data-entity-id="${escapeHtml(a.public_id)}" data-entity-name="${escapeHtml(a.auction_name)}">
-  <td>${escapeHtml(a.auction_name)}</td>
+  // Round-4 A-2 (row R4-02/R4-38): Edit stays a direct link; Usage/Archive-
+  // or-Reactivate/Delete move into the shared kebab (renderKebabOpen/
+  // KEBAB_CLOSE, layout.ts). No Duplicate — auctions have no duplicate
+  // endpoint (router.ts). Archive/Reactivate are the unrestricted PATCH
+  // {status} leg (patchAuctionHandler/buildAuctionSettings already accept
+  // "status"); Delete is the SEPARATE guarded DELETE /auctions/:id
+  // (deleteAuctionHandler 409s "This auction is used by a live funnel
+  // variant — archive it instead" when referenced, else it also archives).
+  const archiveOrReactivate =
+    a.status === "archived"
+      ? `<button type="button" class="lg-kebab-item" role="menuitem" data-auction-reactivate="${escapeHtml(a.public_id)}" data-entity-name="${name}">Reactivate</button>`
+      : `<button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-auction-archive="${escapeHtml(a.public_id)}" data-entity-name="${name}">Archive</button>`;
+  return `<tr data-entity-id="${escapeHtml(a.public_id)}" data-entity-name="${name}">
+  <td>${name}</td>
   <td>${escapeHtml(quoteLabel)}</td>
   <td>${escapeHtml(a.auction_type)}</td>
   <td>${escapeHtml(a.winner_logic)}</td>
   <td class="lg-num">${a.participating_count}</td>
   <td>${escapeHtml(a.multi_offer)} / ${escapeHtml(a.backfill)}</td>
   ${analyticsCells}
-  <td>
+  <td><div class="table-actions">
     <a href="/admin/leadgen/auction/${escapeHtml(a.public_id)}/edit" class="btn btn-sm btn-secondary">Edit</a>
-    <button type="button" class="btn btn-sm btn-danger" data-auction-archive="${escapeHtml(a.public_id)}"${a.status === "archived" ? " disabled" : ""}>Archive</button>
-  </td>
+    ${renderKebabOpen(name)}<button type="button" class="lg-kebab-item" role="menuitem" data-auction-usage="${escapeHtml(a.public_id)}" aria-expanded="false">Usage</button>
+    ${archiveOrReactivate}
+    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-auction-delete="${escapeHtml(a.public_id)}" data-entity-name="${name}">Delete</button>${KEBAB_CLOSE}
+  </div></td>
+</tr>
+<tr class="lg-usage-row" data-auction-usage-row="${escapeHtml(a.public_id)}" hidden>
+  <td colspan="${AUCTION_LIST_COLUMNS.length}"><div class="lg-usage-panel" data-auction-usage-panel role="status" aria-live="polite"></div></td>
 </tr>`;
 }
 
@@ -225,7 +250,7 @@ ${loadErrorHtml}
 ${renderAuctionsToolbar({ search, type, status }, timeframe)}
 <div class="card">
   <div class="table-wrapper">
-    <table class="table leadgen-auctions-list" aria-label="Auctions list" data-lg-analytics data-analytics-from="${escapeHtml(timeframe.from)}" data-analytics-to="${escapeHtml(timeframe.to)}">
+    <table class="table table--sticky-edges leadgen-auctions-list" aria-label="Auctions list" data-lg-analytics data-analytics-from="${escapeHtml(timeframe.from)}" data-analytics-to="${escapeHtml(timeframe.to)}">
       <thead><tr>${headerCells}</tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -239,7 +264,7 @@ ${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging
       userEmail: branding(c).userEmail,
       content,
       styles: LG_AUCTIONS_STYLES,
-      scripts: AUCTION_LIST_SCRIPT + listFilterScript,
+      scripts: kebabMenuScript + AUCTION_LIST_SCRIPT + listFilterScript,
     }),
   );
 }
@@ -292,15 +317,111 @@ const AUCTION_LIST_SCRIPT = `
     for (j = 0; j < rows.length; j++) { fillRow(tables[t], rows[j]); }
   }
 
+  // Round-4 A-2 kebab rollout (row R4-02/R4-38): Archive/Reactivate are the
+  // unrestricted PATCH {status} leg (previously Archive silently DELETEd
+  // with no res.ok check at all — a blocked/failed archive reloaded the page
+  // with no error shown; fixed here as part of the restructure); Delete is
+  // the SEPARATE guarded DELETE (surfaces the server's plain-language 409
+  // verbatim); Usage is a new inline expandable panel (mirrors the Sections
+  // list's existing pattern, ui-sections.ts SECTION_LIST_SCRIPT). No
+  // Duplicate — auctions have no duplicate endpoint.
   document.addEventListener('click', function (ev) {
     var el = ev.target;
     if (!el || !el.getAttribute) { return; }
     var archiveId = el.getAttribute('data-auction-archive');
     if (archiveId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
       if (!window.confirm('Archive this Auction?')) { return; }
       fetch('/api/admin/leadgen/auctions/' + encodeURIComponent(archiveId), {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ status: 'archived' })
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) { window.alert((res.body && res.body.error) || 'Archive failed'); return; }
+        window.location.reload();
+      }).catch(function () { window.alert('Archive request failed'); });
+      return;
+    }
+    var reactivateId = el.getAttribute('data-auction-reactivate');
+    if (reactivateId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
+      if (!window.confirm('Reactivate this Auction?')) { return; }
+      fetch('/api/admin/leadgen/auctions/' + encodeURIComponent(reactivateId), {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ status: 'active' })
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) { window.alert((res.body && res.body.error) || 'Reactivate failed'); return; }
+        window.location.reload();
+      }).catch(function () { window.alert('Reactivate request failed'); });
+      return;
+    }
+    var deleteId = el.getAttribute('data-auction-delete');
+    if (deleteId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
+      var deleteName = el.getAttribute('data-entity-name') || 'this auction';
+      if (!window.confirm('Delete ' + deleteName + '?')) { return; }
+      fetch('/api/admin/leadgen/auctions/' + encodeURIComponent(deleteId), {
         method: 'DELETE', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-      }).then(function () { window.location.reload(); });
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) { window.alert((res.body && res.body.error) || ('Delete failed (' + res.status + ')')); return; }
+        window.location.reload();
+      }).catch(function () { window.alert('Delete request failed'); });
+      return;
+    }
+    var usageId = el.getAttribute('data-auction-usage');
+    if (usageId) {
+      if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
+      var panelRow = document.querySelector('[data-auction-usage-row="' + usageId + '"]');
+      if (!panelRow) { return; }
+      var wasHidden = panelRow.hidden;
+      panelRow.hidden = !wasHidden;
+      el.setAttribute('aria-expanded', wasHidden ? 'true' : 'false');
+      if (!wasHidden) { return; }
+      var panel = panelRow.querySelector('[data-auction-usage-panel]');
+      if (!panel || panel.getAttribute('data-loaded') === 'true') { return; }
+      panel.appendChild(document.createTextNode('Loading usage\\u2026'));
+      fetch('/api/admin/leadgen/auctions/' + encodeURIComponent(usageId) + '/usage', {
+        credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+      }).then(function (r) { return r.json(); }).then(function (body) {
+        var kinds = (body && body.usage && body.usage.kinds) ? body.usage.kinds : [];
+        clearChildren(panel);
+        panel.setAttribute('data-loaded', 'true');
+        var total = 0;
+        var ki;
+        for (ki = 0; ki < kinds.length; ki++) { total += Number(kinds[ki].count) || 0; }
+        if (total === 0) {
+          panel.appendChild(document.createTextNode('Not referenced by any live funnel variant \\u2014 safe to delete or archive.'));
+          return;
+        }
+        for (ki = 0; ki < kinds.length; ki++) {
+          var kind = kinds[ki];
+          if (!kind.count) { continue; }
+          var head = document.createElement('p');
+          head.appendChild(document.createTextNode('Funnel variants referencing this auction: ' + kind.count));
+          panel.appendChild(head);
+          var items = kind.items || [];
+          if (items.length > 0) {
+            var list = document.createElement('ul');
+            var ii;
+            for (ii = 0; ii < items.length; ii++) {
+              var li = document.createElement('li');
+              li.appendChild(document.createTextNode(items[ii].name || items[ii].public_id || String(items[ii].id)));
+              list.appendChild(li);
+            }
+            panel.appendChild(list);
+          }
+        }
+      }).catch(function () {
+        clearChildren(panel);
+        panel.appendChild(document.createTextNode('Failed to load usage.'));
+      });
     }
   });
 }());

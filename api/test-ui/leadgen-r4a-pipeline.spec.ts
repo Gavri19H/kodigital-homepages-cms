@@ -161,10 +161,19 @@ test.describe('R4a E3-NEW-3 — save failure shows per-field message text', () =
 
     // the control gets the invalid outline…
     await expect(nameInput).toHaveClass(/studio-control-invalid/, { timeout: 10_000 });
-    // …AND readable message text (the actual E3-NEW-3 fix — not just the class)
+    // …AND readable message text (the actual E3-NEW-3 fix — not just the
+    // class). Re-pin (operator item #8 humanization, pre-round-4 raw-id
+    // pin): the original assertion here (`toContainText(/section_name/i)`)
+    // predates the server-side jargon-humanization pass (validateSection now
+    // maps the raw field id to "Section name is required" before it ever
+    // reaches this box) — the test's INTENT (a readable inline message
+    // appears, not just a red outline) is preserved and strengthened: assert
+    // the humanized text is present AND the raw id is gone, matching the
+    // same discipline test-ui/__p1a-studio.spec.ts AC-4 already pins.
     const problemsBox = page.locator('[data-studio-save-problems]');
     await expect(problemsBox).toBeVisible();
-    await expect(problemsBox).toContainText(/section_name/i);
+    await expect(problemsBox).toContainText('Section name is required');
+    await expect(problemsBox).not.toContainText('section_name');
     await page.screenshot({ path: `${SHOT_DIR}/03-save-failure-field-message.png` });
   });
 });
@@ -195,19 +204,47 @@ test.describe('R4a E3-NEW-9 — Archive checks response.ok (client-visible failu
 
   test('Reactivate on the sections list flips an archived Section back to active (server already supported it — only the UI action was missing)', async ({ page }) => {
     const section = await createSection(page.request, `Reactivate Me ${uniq}`, `r4a-react-act-${uniq}`, `r4a-react-vert-${uniq}`);
+    // Round-4 P1c (commit 3943892/4bc4600): DELETE /sections/:id is no longer
+    // archive-semantics — it now guards on variant/rule references (409 "used
+    // by quotes — archive it instead") and HARD-deletes when unreferenced.
+    // "archive via API" now means PATCH {status:'archived'} (the same generic
+    // status leg patchSectionHandler already exposes to the Advanced UI) —
+    // DELETE here would hard-delete this freshly-created, unreferenced
+    // section, leaving no row for the rest of the test to find at all.
     await json(
-      await page.request.delete(`${LG_API}/sections/${section.public_id}`),
+      await page.request.patch(`${LG_API}/sections/${section.public_id}`, { data: { status: 'archived' } }),
       'archive via API',
     );
 
+    // Round-4 P1d (register R4-02/R4-38): Archive/Usage/Reactivate/Delete now
+    // live inside the shared kebab (layout.ts renderKebabOpen/kebabMenuScript)
+    // instead of flat row buttons. Opening the kebab REPARENTS its menu to
+    // <body> (a portal — escapes .table-wrapper's forced overflow-y clip and
+    // .admin-main's isolated stacking context; see kebabMenuScript's own doc
+    // comment), so once open, its items are document-level, not row-scoped —
+    // locate them via page.locator(the exact public-id value), never
+    // row.locator, from here on (the toggle button itself and the row stay
+    // put; only the menu's own contents move).
     await page.goto('/admin/leadgen/sections', { waitUntil: 'domcontentloaded' });
     const row = page.locator(`tr[data-entity-id="${section.id}"]`);
-    const reactivateBtn = row.locator(`[data-section-reactivate="${section.public_id}"]`);
+    await row.getByRole('button', { name: /More actions/i }).click();
+    const reactivateBtn = page.locator(`[data-section-reactivate="${section.public_id}"]`);
     await expect(reactivateBtn).toBeVisible();
-    await expect(row.locator(`[data-section-archive="${section.public_id}"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-section-archive="${section.public_id}"]`)).toHaveCount(0);
 
     page.once('dialog', (d) => d.accept());
-    await Promise.all([page.waitForEvent('load'), reactivateBtn.click()]);
+    // The reactivate handler closes the kebab (window.lgCloseKebabs()) before
+    // firing its own confirm() — a `Promise.all([page.waitForEvent('load'), …])`
+    // race against that in-handler DOM mutation proved flaky here (click
+    // resolves, 'load' never observed); reopening the kebab post-reload and
+    // asserting on it is the same proven wait-out-the-reload idiom
+    // test-ui/__p1d-lists.spec.ts already uses for quotes' Archive/Reactivate.
+    await reactivateBtn.click();
+    const rowAfterReactivate = page.locator(`tr[data-entity-id="${section.id}"]`);
+    await expect(rowAfterReactivate.getByRole('button', { name: /More actions/i })).toBeVisible({ timeout: 10_000 });
+    await rowAfterReactivate.getByRole('button', { name: /More actions/i }).click();
+    await expect(page.locator(`[data-section-archive="${section.public_id}"]`)).toBeVisible();
+    await expect(page.locator(`[data-section-reactivate="${section.public_id}"]`)).toHaveCount(0);
 
     const readBack = await json<{ status: string }>(
       await page.request.get(`${LG_API}/sections/${section.public_id}`),
@@ -295,16 +332,27 @@ test.describe('R4a E3-S1 — sections list Usage is an inline expandable panel, 
     });
 
     await page.goto('/admin/leadgen/sections', { waitUntil: 'domcontentloaded' });
+    const row = page.locator(`tr[data-entity-id="${section.id}"]`);
     const usageBtn = page.locator(`[data-section-usage="${section.public_id}"]`);
     const panelRow = page.locator(`[data-section-usage-row="${section.public_id}"]`);
     await expect(panelRow).toBeHidden();
 
+    // Usage now lives inside the shared kebab (P1d) — open it before each
+    // click. The usage handler itself closes the kebab right after firing
+    // (window.lgCloseKebabs()), independent of the usage panel's own
+    // open/closed state, so the SECOND click needs the kebab reopened too.
+    await row.getByRole('button', { name: /More actions/i }).click();
     await usageBtn.click();
     await expect(panelRow).toBeVisible();
-    await expect(panelRow).toContainText('Not used by any funnel variant.');
+    // Fix-round (usage-panel coherence): the empty-state copy now covers
+    // BOTH legs sectionUsageHandler returns (variants AND rules, P1c commit
+    // 3943892) — "Not used by any funnel variant." alone would be untrue
+    // whenever a rule-only reference exists; this section has neither.
+    await expect(panelRow).toContainText('Not used by any funnel variant or rule.');
     await expect(usageBtn).toHaveAttribute('aria-expanded', 'true');
     await page.screenshot({ path: `${SHOT_DIR}/07-usage-panel-expanded.png` });
 
+    await row.getByRole('button', { name: /More actions/i }).click();
     await usageBtn.click();
     await expect(panelRow).toBeHidden();
     await expect(usageBtn).toHaveAttribute('aria-expanded', 'false');

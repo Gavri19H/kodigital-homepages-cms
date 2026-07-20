@@ -75,7 +75,11 @@ const CURATED_OVERRIDE_KEY_SET: ReadonlySet<string> = new Set(CURATED_DESIGN_OVE
 // --- v2.5 09 §9.5 Section-level layer-4 override keys (Phase C) --------------
 // `design_overrides_json` additionally accepts the sparse §9.5 shape:
 //   palette?        role → role-or-#hex map over the 14 §9.1 roles
-//   columnsDefault? integer 2..5 (the presets' renderCardGrid clampInt range)
+//   columnsDefault? integer 1..5 (Round-4 A-7: the presets' renderCardGrid
+//                   clampInt range, widened from 2..5 to offer the 1-column
+//                   "stack" preset — P1b widened the renderer + per-node
+//                   content-schema clamps; this Section-level default seam
+//                   was the P1c leg, row R4-41)
 //   gapDefault?     fixed spacing-token value (never arbitrary CSS)
 // The renderer side already consumes them (config-dto parseSectionDesignOverrides
 // → presets layer 4); this is the WRITER that was blocked by the curated-key
@@ -90,9 +94,10 @@ const THEME_ROLE_SET: ReadonlySet<string> = new Set(LEADGEN_THEME_ROLES);
 // MUST stay byte-identical to LEGACY_HEX_RE in content-schema.ts (§9.4 value
 // vocabulary: known role OR raw #hex literal).
 const LEGACY_HEX_RE = /^#[0-9a-fA-F]{3,8}$/;
-// The presets clamp answer-grid columns to 2..5 (renderCardGrid clampInt) —
-// the save gate accepts exactly the renderable range.
-const SECTION_COLUMNS_MIN = 2;
+// The presets clamp answer-grid columns to 1..5 (renderCardGrid clampInt,
+// widened Round-4 A-7 to offer the 1-column "stack" preset) — the save gate
+// accepts exactly the renderable range.
+const SECTION_COLUMNS_MIN = 1;
 const SECTION_COLUMNS_MAX = 5;
 
 // Validate the §9.5 `palette` map into `errors` (path-precise per role).
@@ -128,7 +133,7 @@ function validateSectionLevelOverride(key: string, value: unknown, errors: Field
       value > SECTION_COLUMNS_MAX
     ) {
       errors["design_overrides.columnsDefault"] =
-        `columnsDefault must be an integer between ${SECTION_COLUMNS_MIN} and ${SECTION_COLUMNS_MAX} (the answer-grid clamp, §9.5)`;
+        `Columns must be between ${SECTION_COLUMNS_MIN} and ${SECTION_COLUMNS_MAX}`;
     }
     return;
   }
@@ -144,6 +149,28 @@ function validateSectionLevelOverride(key: string, value: unknown, errors: Field
 
 export const LEADGEN_CONTINUE_MODES = ["button", "auto_advance"] as const satisfies readonly LeadgenContinueMode[];
 export const LEADGEN_SECTION_STATUSES = ["active", "archived"] as const satisfies readonly LeadgenSectionStatus[];
+
+// Round-4 A-8/P-9 (rows R4-13/R4-42): a display-name map so validateSection's
+// save-error MESSAGES read as plain operator language, never the raw field id
+// verbatim ("section_name is required" -> "Section name is required"). The
+// `fields` object's KEYS stay the raw ids unchanged (the studio maps/links by
+// key, P1a) -- only the human-readable message text changes. Mirrors the
+// client-side SAVE_FIELD_DISPLAY fallback (ui-section-studio.ts
+// renderSaveFieldErrors) so the server-authoritative text and the client's
+// paint-time fallback agree.
+const FIELD_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  section_name: "Section name",
+  activity: "Activity",
+  vertical: "Vertical",
+  headline_text: "Headline",
+  subheadline_text: "Subheadline",
+  image_json: "Image",
+  content_json: "Content",
+  continue_mode: "Continue mode",
+  address_validation_enabled: "Address validation",
+  status: "Status",
+  design_overrides_json: "Design overrides",
+};
 
 // ---------------------------------------------------------------------------
 // §12.1 create/update — scalar fields + content validation
@@ -190,15 +217,15 @@ function contentWarningToProblem(warning: SectionContentError): Problem {
 // already-parsed object. Returns the parsed object or a typed error string.
 function parseContentJson(raw: unknown): { content: unknown } | string {
   if (typeof raw === "string") {
-    if (raw.trim() === "") return "content_json is required";
+    if (raw.trim() === "") return `${FIELD_DISPLAY_NAMES.content_json} is required`;
     try {
       return { content: JSON.parse(raw) as unknown };
     } catch {
-      return "content_json must be valid JSON";
+      return `${FIELD_DISPLAY_NAMES.content_json} must be valid JSON`;
     }
   }
   if (isRecord(raw)) return { content: raw };
-  return "content_json is required";
+  return `${FIELD_DISPLAY_NAMES.content_json} is required`;
 }
 
 // Validate a create/update Section body (§12.1 + §35.1 Section rules).
@@ -214,19 +241,21 @@ export function validateSection(raw: unknown): LeadgenSectionValidationResult {
   }
 
   const sectionName = trimmedString(raw["section_name"]);
-  if (sectionName === null) errors["section_name"] = "section_name is required";
+  if (sectionName === null) errors["section_name"] = `${FIELD_DISPLAY_NAMES.section_name} is required`;
   const activity = trimmedString(raw["activity"]);
-  if (activity === null) errors["activity"] = "activity is required";
+  if (activity === null) errors["activity"] = `${FIELD_DISPLAY_NAMES.activity} is required`;
   const vertical = trimmedString(raw["vertical"]);
-  if (vertical === null) errors["vertical"] = "vertical is required";
+  if (vertical === null) errors["vertical"] = `${FIELD_DISPLAY_NAMES.vertical} is required`;
   const headline = trimmedString(raw["headline_text"]);
-  if (headline === null) errors["headline_text"] = "headline_text is required";
+  if (headline === null) errors["headline_text"] = `${FIELD_DISPLAY_NAMES.headline_text} is required`;
 
   // subheadline: optional string | null.
   let subheadline: string | null = null;
   if (raw["subheadline_text"] !== undefined && raw["subheadline_text"] !== null) {
     subheadline = trimmedString(raw["subheadline_text"]);
-    if (subheadline === null) errors["subheadline_text"] = "subheadline_text must be a non-empty string or null";
+    if (subheadline === null) {
+      errors["subheadline_text"] = `${FIELD_DISPLAY_NAMES.subheadline_text} must be a non-empty string or null`;
+    }
   }
 
   // image_json: optional; a provided object serializes, a provided string must
@@ -241,10 +270,10 @@ export function validateSection(raw: unknown): LeadgenSectionValidationResult {
         JSON.parse(rawImage);
         imageJson = rawImage;
       } catch {
-        errors["image_json"] = "image_json must be valid JSON";
+        errors["image_json"] = `${FIELD_DISPLAY_NAMES.image_json} must be valid JSON`;
       }
     } else {
-      errors["image_json"] = "image_json must be an object or JSON string";
+      errors["image_json"] = `${FIELD_DISPLAY_NAMES.image_json} must be an object or JSON string`;
     }
   }
 
@@ -253,15 +282,16 @@ export function validateSection(raw: unknown): LeadgenSectionValidationResult {
   if (raw["continue_mode"] !== undefined && raw["continue_mode"] !== null) {
     const cm = raw["continue_mode"];
     if (cm === "button" || cm === "auto_advance") continueMode = cm;
-    else errors["continue_mode"] = "continue_mode must be one of button|auto_advance";
+    else errors["continue_mode"] = `${FIELD_DISPLAY_NAMES.continue_mode} must be one of button|auto_advance`;
   }
 
   // address_validation_enabled (§12.8) toggle, default false.
   let addressValidation = false;
   if (raw["address_validation_enabled"] !== undefined && raw["address_validation_enabled"] !== null) {
     const toggled = asToggle(raw["address_validation_enabled"]);
-    if (toggled === null) errors["address_validation_enabled"] = "address_validation_enabled must be a boolean";
-    else addressValidation = toggled;
+    if (toggled === null) {
+      errors["address_validation_enabled"] = `${FIELD_DISPLAY_NAMES.address_validation_enabled} must be a boolean`;
+    } else addressValidation = toggled;
   }
 
   // status, default 'active'.
@@ -269,7 +299,7 @@ export function validateSection(raw: unknown): LeadgenSectionValidationResult {
   if (raw["status"] !== undefined && raw["status"] !== null) {
     const s = raw["status"];
     if (s === "active" || s === "archived") status = s;
-    else errors["status"] = "status must be one of active|archived";
+    else errors["status"] = `${FIELD_DISPLAY_NAMES.status} must be one of active|archived`;
   }
 
   // design_overrides_json (§14.8 + v2.5 09 §9.5): Section-level token bag —
@@ -284,13 +314,14 @@ export function validateSection(raw: unknown): LeadgenSectionValidationResult {
       try {
         parsed = JSON.parse(rawOverrides) as unknown;
       } catch {
-        errors["design_overrides_json"] = "design_overrides_json must be valid JSON";
+        errors["design_overrides_json"] = `${FIELD_DISPLAY_NAMES.design_overrides_json} must be valid JSON`;
         parsed = undefined;
       }
     }
     if (parsed !== undefined) {
       if (!isRecord(parsed)) {
-        errors["design_overrides_json"] = "design_overrides must be an object of curated token keys";
+        errors["design_overrides_json"] =
+          `${FIELD_DISPLAY_NAMES.design_overrides_json} must be an object of curated token keys`;
       } else {
         for (const [key, val] of Object.entries(parsed)) {
           if (SECTION_LEVEL_OVERRIDE_KEYS.has(key)) {

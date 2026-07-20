@@ -345,7 +345,7 @@ interface ParsedAnswerMaps {
 function parseTransformSteps(raw: unknown, key: string, errors: FieldErrors): LeadgenTransformStep[] | null {
   if (raw === undefined || raw === null) return null;
   if (!Array.isArray(raw)) {
-    errors[key] = "value_transform must be an array of steps";
+    errors[key] = "Value transform must be an array of steps";
     return null;
   }
   const steps: LeadgenTransformStep[] = [];
@@ -412,22 +412,22 @@ async function parseAnswerMaps(
 
   const edges: LeadgenAnswerMapEdge[] = [];
   if (rawMaps !== undefined && !Array.isArray(rawMaps)) {
-    errors["answer_maps"] = "answer_maps must be an array";
+    errors["answer_maps"] = "Answer maps must be an array";
   }
   rawList.forEach((item, index) => {
     const base = `answer_maps[${index}]`;
     if (!isRecord(item)) {
-      errors[base] = "answer_map must be an object";
+      errors[base] = "Each answer map must be an object";
       return;
     }
     const questionId = trimmedString(item["question_id"]);
     if (questionId === null) {
-      errors[`${base}.question_id`] = "question_id is required";
+      errors[`${base}.question_id`] = "Question ID is required";
       return;
     }
     const node = nodesByQuestionId.get(questionId);
     if (node === undefined) {
-      errors[`${base}.question_id`] = `question_id '${questionId}' is not a component in content_json`;
+      errors[`${base}.question_id`] = `Question ID '${questionId}' is not a component in the Section content`;
       return;
     }
 
@@ -437,19 +437,19 @@ async function parseAnswerMaps(
     if (typeof ref === "number" && Number.isInteger(ref)) offerId = ref;
     else if (typeof ref === "string" && isPublicId("offer", ref)) offerId = offerIdByPublicId.get(ref) ?? null;
     if (offerId === null) {
-      errors[`${base}.offer_id`] = "offer_id must be a numeric id or an lgo_ public id for an existing Offer";
+      errors[`${base}.offer_id`] = "Offer ID must be a numeric id or an lgo_ public id for an existing Offer";
       return;
     }
 
     const fieldPath = trimmedString(item["offer_payload_field_path"]);
     if (fieldPath === null) {
-      errors[`${base}.offer_payload_field_path`] = "offer_payload_field_path is required";
+      errors[`${base}.offer_payload_field_path`] = "Offer payload field path is required";
       return;
     }
     const providerType = trimmedString(item["provider_expected_type"]);
     if (providerType === null || !PAYLOAD_NODE_TYPES.has(providerType)) {
       errors[`${base}.provider_expected_type`] =
-        "provider_expected_type must be one of string|number|boolean|enum|object|array";
+        "Provider expected type must be one of string|number|boolean|enum|object|array";
       return;
     }
 
@@ -461,7 +461,7 @@ async function parseAnswerMaps(
     let outputValueMap: Record<string, unknown> | null = null;
     if (rawOutputValueMap !== undefined && rawOutputValueMap !== null) {
       if (!isRecord(rawOutputValueMap)) {
-        errors[`${base}.output_value_map`] = "output_value_map must be an object";
+        errors[`${base}.output_value_map`] = "Output value map must be an object";
         return;
       }
       outputValueMap = rawOutputValueMap;
@@ -1127,18 +1127,220 @@ async function storedAnswerMapsAsInput(db: D1Database, sectionId: number): Promi
 }
 
 // ---------------------------------------------------------------------------
-// DELETE /sections/:id — archive (03 §9.6: status flip, never a hard delete)
+// DELETE /sections/:id (Round-4 P1d gap, A-2) — guarded hard delete, in line
+// with the quote/auction pattern. Fix-round-3 migration sweep (every FK in
+// migrations/*.sql that REFERENCES leadgen_sections(id), so the guard covers
+// every non-cascading reference): leadgen_section_available_offers.
+// section_id and leadgen_section_answer_maps.section_id are ON DELETE
+// CASCADE (own children); leadgen_funnel_variant_sections.section_id and
+// leadgen_funnel_rules.target_section_id are BOTH plain (non-cascading)
+// REFERENCES — those are the two the guard checks. A section referenced by
+// EITHER (a funnel variant orders it, OR a show_section/skip_section-style
+// rule targets it — the second can exist without the first) is REFUSED
+// (409), fail closed to Archive (PATCH {status:'archived'} stays reachable
+// regardless of usage — the guard applies to DELETE only, and status has NO
+// bearing on it: an ALREADY-archived-but-still-referenced section is
+// refused exactly like an active one).
+//
+// Adversarial-review finding 5 (race-free): the guard check and the delete
+// are now ONE atomic SQL statement — the two NOT EXISTS subqueries and the
+// DELETE run together, so there is no separate read-then-act window a
+// concurrent variant-attach or rule-retarget could land in between. `meta.
+// changes` (the SAME idiom leadgen/retention.ts's pruneTable already uses)
+// tells us definitively whether the row was actually removed:
+//   changes === 0 → the row exists (resolved above) but the conditional
+//     failed — a reference appeared. Build the informative 409 ONLY here
+//     (read-only-on-failure, never pre-read on the happy path); the guard
+//     message + usage payload shape is unchanged for the caller.
+//   changes === 1 → the parent is confirmed gone, atomically. Its own
+//     children are declared ON DELETE CASCADE, but NOT relied upon: D1/
+//     SQLite only cascades when `PRAGMA foreign_keys=ON`, and this
+//     codebase's own documented understanding (offers-handlers.ts's
+//     hard-delete comment "D1 FKs are not enforced"; migrations 0007/0008's
+//     "D1 migrations run with PRAGMA foreign_keys=OFF by default") is that
+//     production D1 does NOT cascade. VERIFIED directly against this repo's
+//     own node:sqlite harness: it defaults foreign_keys=ON and DOES cascade
+//     — the OPPOSITE of documented production behavior — so relying on
+//     cascade here would pass in tests while silently orphaning rows in
+//     production. Deleted explicitly instead, now that the parent's absence
+//     is confirmed (a plain follow-up statement, not part of the atomic
+//     conditional delete — safe because nothing else references these two
+//     child tables by FK).
 // ---------------------------------------------------------------------------
 
 export async function deleteSectionHandler(c: AdminContext): Promise<Response> {
   const row = await resolveSectionRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
-  await c.env.DB.prepare(
-    "UPDATE leadgen_sections SET status = 'archived', updated_at = unixepoch() WHERE id = ?",
-  )
+
+  const attempt = await c.env.DB
+    .prepare(
+      `DELETE FROM leadgen_sections
+       WHERE id = ?1
+         AND NOT EXISTS (SELECT 1 FROM leadgen_funnel_variant_sections WHERE section_id = ?1)
+         AND NOT EXISTS (SELECT 1 FROM leadgen_funnel_rules WHERE target_section_id = ?1)`,
+    )
     .bind(row.id)
     .run();
-  return c.json({ ok: true, id: row.id, public_id: row.public_id, status: "archived" });
+
+  if (Number(attempt.meta?.changes ?? 0) === 0) {
+    const referencingVariants = await readSectionUsageRows(c.env.DB, row.id);
+    const referencingRules = await readSectionRuleReferences(c.env.DB, row.id);
+    return c.json(
+      {
+        error: "This section is used by quotes — archive it instead",
+        usage: { variants: referencingVariants, rules: referencingRules },
+      },
+      409,
+    );
+  }
+
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM leadgen_section_answer_maps WHERE section_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM leadgen_section_available_offers WHERE section_id = ?").bind(row.id),
+  ]);
+  return c.json({ ok: true, id: row.id, public_id: row.public_id, deleted: "hard" });
+}
+
+// ---------------------------------------------------------------------------
+// POST /sections/:id/duplicate (Round-4 A-2, row R4-02) — mirrors the offers
+// duplicate idiom (offers-handlers.ts duplicateOfferHandler): a fresh public
+// id, name + " (copy)", every authored column copied verbatim (activity/
+// vertical/headline/subheadline/image/content/content_html/continue_mode/
+// design_overrides/address_validation) so the clone renders byte-identically
+// to its source. NOTE: the dispatch text asked for "status draft" — Sections
+// has NO draft state (LeadgenSectionStatus is CHECK-constrained to
+// active|archived only, migration 0036:97); the clone lands 'active', the
+// same resting state createSectionHandler's own default produces.
+//
+// Fix-round ruling: leadgen_section_answer_maps + leadgen_section_available_
+// offers ARE copied (re-keyed to the new section id) — they are the
+// section's OWN authored offer-mapping config (like offers' duplicate
+// cloning its own active payload schema), not a cross-entity USAGE
+// reference, and the operator's "Duplicate" must produce a fully-usable
+// copy. Answer-map rows mint a FRESH public_id each (their own identity
+// column); available-offer rows have no public_id (composite PK). Copied
+// verbatim (including mapping_status/validation_status) — nothing about the
+// mapping facts has changed, so nothing needs recomputing. Only the
+// section's own analytics history (leadgen_analytics_section, keyed by the
+// OLD public_id) is never copied.
+// ---------------------------------------------------------------------------
+
+export async function duplicateSectionHandler(c: AdminContext): Promise<Response> {
+  const src = await resolveSectionRow(c.env.DB, c.req.param("id") ?? "");
+  if (src === null) return c.json({ error: "Not Found" }, 404);
+
+  const body = (await readJsonBody(c)) ?? {};
+  const rawName = trimmedString(body["section_name"] ?? body["name"]);
+  const name = rawName ?? `${src.section_name} (copy)`;
+
+  // Read the source's own offer-mapping config BEFORE any write (the §7.3
+  // "one transaction" idiom) — RAW rows, copied byte-verbatim (no JSON
+  // parse/re-stringify round-trip that could reformat the stored text).
+  const srcAvailableOffers = await c.env.DB.prepare(
+    "SELECT * FROM leadgen_section_available_offers WHERE section_id = ? ORDER BY offer_id ASC",
+  )
+    .bind(src.id)
+    .all<LeadgenSectionAvailableOfferRow>();
+  const srcAnswerMaps = await c.env.DB.prepare(
+    "SELECT * FROM leadgen_section_answer_maps WHERE section_id = ? ORDER BY id ASC",
+  )
+    .bind(src.id)
+    .all<LeadgenSectionAnswerMapRow>();
+
+  const publicId = mintPublicId("section");
+  const statements: D1PreparedStatement[] = [
+    c.env.DB.prepare(
+      `INSERT INTO leadgen_sections
+         (public_id, section_name, activity, vertical, headline_text, subheadline_text, image_json,
+          content_json, content_html, continue_mode, design_overrides_json, address_validation_enabled,
+          status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+    ).bind(
+      publicId,
+      name,
+      src.activity,
+      src.vertical,
+      src.headline_text,
+      src.subheadline_text,
+      src.image_json,
+      src.content_json,
+      src.content_html,
+      src.continue_mode,
+      src.design_overrides_json,
+      src.address_validation_enabled,
+      null,
+    ),
+  ];
+
+  const availableOfferRows = srcAvailableOffers.results ?? [];
+  for (const offer of availableOfferRows) {
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO leadgen_section_available_offers
+           (section_id, offer_id, selected, mapping_state, required_fields_total, required_fields_mapped)
+         VALUES ((SELECT id FROM leadgen_sections WHERE public_id = ?), ?, ?, ?, ?, ?)`,
+      ).bind(
+        publicId,
+        offer.offer_id,
+        offer.selected,
+        offer.mapping_state,
+        offer.required_fields_total,
+        offer.required_fields_mapped,
+      ),
+    );
+  }
+
+  const answerMapRows = srcAnswerMaps.results ?? [];
+  for (const map of answerMapRows) {
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO leadgen_section_answer_maps
+           (public_id, section_id, question_id, question_key, internal_field, answer_type, offer_id,
+            payload_schema_id, payload_schema_public_id, offer_payload_field_path, provider_expected_type,
+            output_value_map_json, transform_json, required_for_offer, default_value, fallback_value,
+            mapping_status, validation_status)
+         VALUES (?, (SELECT id FROM leadgen_sections WHERE public_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        mintPublicId("answer_field_map"),
+        publicId,
+        map.question_id,
+        map.question_key,
+        map.internal_field,
+        map.answer_type,
+        map.offer_id,
+        map.payload_schema_id,
+        map.payload_schema_public_id,
+        map.offer_payload_field_path,
+        map.provider_expected_type,
+        map.output_value_map_json,
+        map.transform_json,
+        map.required_for_offer,
+        map.default_value,
+        map.fallback_value,
+        map.mapping_status,
+        map.validation_status,
+      ),
+    );
+  }
+
+  // §7.3-style one transaction: the section + every available-offer/
+  // answer-map row land in ONE batch via a public_id subquery — a mid-batch
+  // failure rolls the WHOLE clone back, never a section with a partial copy.
+  await c.env.DB.batch(statements);
+
+  const dup = await c.env.DB.prepare("SELECT * FROM leadgen_sections WHERE public_id = ? LIMIT 1")
+    .bind(publicId)
+    .first<LeadgenSectionRow>();
+  if (!dup) return c.json({ error: "Duplicate failed" }, 500);
+  return c.json(
+    {
+      ...(await sectionDetailJson(c.env.DB, dup)),
+      duplicated_from: { id: src.id, public_id: src.public_id, name: src.section_name },
+      copied: { available_offers: availableOfferRows.length, answer_maps: answerMapRows.length },
+      not_copied: ["analytics"],
+    },
+    201,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1817,25 +2019,79 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
 
 // The §7.3 P7 tables (leadgen_funnel_variant_sections → variants → funnels →
 // quotes) exist in migration 0036, so this is a real join (not a derivable
-// approximation). A Section is "used" when a funnel variant orders it.
+// approximation). A Section is "used" when a funnel variant orders it. This
+// is the ONE query both sectionUsageHandler AND deleteSectionHandler's usage
+// guard read — they can never disagree about "in use" (Round-4 P1d gap fix).
+interface SectionUsageRow {
+  quote_id: number;
+  quote_public_id: string;
+  quote_name: string;
+  quote_status: string;
+  funnel_public_id: string;
+  funnel_name: string;
+  variant_public_id: string;
+  variant_label: string;
+  variant_status: string;
+  position: number;
+}
+
+async function readSectionUsageRows(db: D1Database, sectionId: number): Promise<SectionUsageRow[]> {
+  const usage = await db
+    .prepare(
+      `SELECT DISTINCT q.id AS quote_id, q.public_id AS quote_public_id, q.quote_name, q.status AS quote_status,
+              f.public_id AS funnel_public_id, f.funnel_name,
+              v.public_id AS variant_public_id, v.variant_label, v.status AS variant_status,
+              fvs.position
+       FROM leadgen_funnel_variant_sections fvs
+       JOIN leadgen_funnel_variants v ON v.id = fvs.variant_id
+       JOIN leadgen_funnels f ON f.id = v.funnel_id
+       JOIN leadgen_quotes q ON q.id = f.quote_id
+       WHERE fvs.section_id = ?
+       ORDER BY q.quote_name ASC, v.variant_label ASC, fvs.position ASC`,
+    )
+    .bind(sectionId)
+    .all<SectionUsageRow>();
+  return usage.results ?? [];
+}
+
+// Round-4 P1c fix-round-3 (guard-expansion ruling): a funnel RULE (e.g.
+// show_section/skip_section) can target a Section via target_section_id
+// WITHOUT that section ever being placed in a variant's ordered list — a
+// second, independent, non-cascading reference the migration-sweep below
+// found. Same shared-query discipline: this is the ONE query both
+// sectionUsageHandler AND deleteSectionHandler's guard read for the "rules"
+// leg, so they can never disagree.
+interface SectionRuleReference {
+  id: number;
+  public_id: string;
+  name: string;
+  link: string;
+}
+
+async function readSectionRuleReferences(db: D1Database, sectionId: number): Promise<SectionRuleReference[]> {
+  const result = await db
+    .prepare(
+      `SELECT DISTINCT r.id AS id, r.public_id AS public_id,
+              q.quote_name || ' — ' || f.funnel_name || ' (' || v.variant_label || ') rule ' || r.rule_type AS name,
+              '/admin/leadgen/quotes/' || q.public_id || '/edit' AS link
+       FROM leadgen_funnel_rules r
+       JOIN leadgen_funnel_variants v ON v.id = r.variant_id
+       JOIN leadgen_funnels f ON f.id = v.funnel_id
+       JOIN leadgen_quotes q ON q.id = f.quote_id
+       WHERE r.target_section_id = ?
+       ORDER BY q.quote_name ASC, v.variant_label ASC, r.id ASC`,
+    )
+    .bind(sectionId)
+    .all<SectionRuleReference>();
+  return result.results ?? [];
+}
+
 export async function sectionUsageHandler(c: AdminContext): Promise<Response> {
   const row = await resolveSectionRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
-  const usage = await c.env.DB.prepare(
-    `SELECT DISTINCT q.id AS quote_id, q.public_id AS quote_public_id, q.quote_name, q.status AS quote_status,
-            f.public_id AS funnel_public_id, f.funnel_name,
-            v.public_id AS variant_public_id, v.variant_label, v.status AS variant_status,
-            fvs.position
-     FROM leadgen_funnel_variant_sections fvs
-     JOIN leadgen_funnel_variants v ON v.id = fvs.variant_id
-     JOIN leadgen_funnels f ON f.id = v.funnel_id
-     JOIN leadgen_quotes q ON q.id = f.quote_id
-     WHERE fvs.section_id = ?
-     ORDER BY q.quote_name ASC, v.variant_label ASC, fvs.position ASC`,
-  )
-    .bind(row.id)
-    .all();
-  return c.json({ usage: { variants: usage.results ?? [] } });
+  const usage = await readSectionUsageRows(c.env.DB, row.id);
+  const rules = await readSectionRuleReferences(c.env.DB, row.id);
+  return c.json({ usage: { variants: usage, rules } });
 }
 
 // ---------------------------------------------------------------------------
@@ -2451,7 +2707,7 @@ export async function createComponentPresetHandler(c: AdminContext): Promise<Res
   else if (name.length > 64) errors["name"] = "name must be 64 characters or fewer";
   const componentType = trimmedString(body["component_type"]);
   if (componentType === null || !(componentType in COMPONENT_CATALOG)) {
-    errors["component_type"] = "component_type must be a known component type";
+    errors["component_type"] = "Component type must be a known component type";
   }
   const overrides = parsePresetScalarMap(body["overrides"], "overrides", PRESET_OVERRIDE_KEY_SET, errors);
   const propsSubset = parsePresetScalarMap(body["props_subset"], "props_subset", PRESET_PROP_KEY_SET, errors);

@@ -154,6 +154,121 @@ export const listFilterScript = `
 }());
 `;
 
+// Round-4 A-2 (row R4-02/R4-38): the SHARED kebab-actions component. The
+// offers tab's own kebab (ui-offers.ts, "Edit" link + a &#8942; toggle
+// opening Duplicate/Archive/Delete/Usage) is the reference this promotes for
+// every OTHER list (sections/quotes/auctions/listicles) — offers keeps its
+// own bespoke markup/script UNCHANGED (a working, already-tested
+// implementation; nothing here re-binds its `data-offer-kebab-*` attributes,
+// so the two can never double-fire on the same element). Consumers open with
+// renderKebabOpen(name), append their own <button class="lg-kebab-item" …>
+// menu items (each carrying its OWN per-entity data attribute the page's
+// existing/extended click-delegation script reads), then close with
+// KEBAB_CLOSE. Toggle/outside-click/Escape/one-open-at-a-time behavior is
+// kebabMenuScript below — generic `data-kebab*` attributes, so it can never
+// collide with offers' `data-offer-kebab-*` listener either.
+//
+// `data-kebab-target` links the toggle to its menu by a per-render-call
+// unique id (kebabSeq below) — kebabMenuScript reparents the menu to <body>
+// on open (see its own doc comment), so an ancestor-relative lookup
+// (host.querySelector) stops finding it after the first open; the id-link
+// survives the move (getElementById/attribute-selector query the whole
+// document, not a subtree).
+let kebabSeq = 0;
+export function renderKebabOpen(name: string): string {
+  kebabSeq += 1;
+  const menuId = `lg-kebab-menu-${kebabSeq}`;
+  return `<div class="lg-kebab" data-kebab><button type="button" class="btn btn-sm btn-outline lg-kebab-btn" data-kebab-toggle data-kebab-target="${menuId}" aria-haspopup="true" aria-expanded="false" aria-label="More actions for ${escapeHtml(name)}">&#8942;</button><div class="lg-kebab-menu" id="${menuId}" data-kebab-menu hidden role="menu">`;
+}
+export const KEBAB_CLOSE = `</div></div>`;
+
+// The shared kebab toggle/close behavior (ES5 — same inline-script
+// constraint as every other layout.ts script export): one menu open at a
+// time, closes on outside click / Escape, and exposes window.lgCloseKebabs
+// so a page's OWN action script can collapse the menu right after handling
+// an item click (Duplicate/Archive/Delete/etc.) without re-implementing the
+// open/close bookkeeping itself.
+//
+// Fix-round finding (P1d): a kebab menu left nested inside .table-wrapper
+// loses BOTH ways: (1) CSS Overflow's "mixed overflow" rule computes
+// overflow-y to auto the moment overflow-x is set to anything but visible
+// (.table-wrapper{overflow-x:auto} — the A-1 fix itself), so a
+// position:absolute menu extending past the wrapper's own box gets CLIPPED;
+// (2) switching the menu to position:fixed escapes that clip, but NOT the
+// STACKING context .admin-main{isolation:isolate} establishes — inside that
+// context a later row's own table--sticky-edges last-column cell (the A-1
+// sticky-actions-column fix) can still win the paint order against a
+// same-context z-index, so the menu visually loses to a LOWER row's cell
+// (reproduced live: Playwright's hit-test resolved a menu item's click
+// coordinate to the NEXT row's <td>, not the menu). Fix: on open, reparent
+// the menu DOM node itself to <body> (a "portal") — this removes it from
+// every ancestor's overflow-clip AND stacking context in one step, not just
+// from the clip. position:fixed + a live getBoundingClientRect() of the
+// toggle then places it correctly regardless of where it re-renders or
+// which row it belongs to. Closes on scroll (capture phase, since
+// .table-wrapper's own scroll does not bubble to document) so a fixed,
+// reparented menu never floats away, stale, from a toggle its wrapper has
+// since scrolled out from under it.
+export const kebabMenuScript = `
+(function () {
+  function resetMenuPosition(menu) {
+    menu.style.position = '';
+    menu.style.top = '';
+    menu.style.right = '';
+    menu.style.left = '';
+  }
+  function toggleForMenu(menu) {
+    return document.querySelector('[data-kebab-target="' + menu.id + '"]');
+  }
+  function closeAllKebabMenus() {
+    var open = document.querySelectorAll('[data-kebab-menu]:not([hidden])');
+    var i, toggle;
+    for (i = 0; i < open.length; i++) {
+      open[i].hidden = true;
+      resetMenuPosition(open[i]);
+      toggle = toggleForMenu(open[i]);
+      if (toggle) { toggle.setAttribute('aria-expanded', 'false'); }
+    }
+  }
+  window.lgCloseKebabs = closeAllKebabMenus;
+  function menuForToggle(toggle) {
+    var id = toggle.getAttribute('data-kebab-target');
+    return id ? document.getElementById(id) : null;
+  }
+  function openKebab(toggle, menu) {
+    if (menu.parentNode !== document.body) { document.body.appendChild(menu); }
+    var r = toggle.getBoundingClientRect();
+    menu.style.position = 'fixed';
+    menu.style.top = r.bottom + 'px';
+    menu.style.right = (window.innerWidth - r.right) + 'px';
+    menu.style.left = 'auto';
+    menu.hidden = false;
+    toggle.setAttribute('aria-expanded', 'true');
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) { return; }
+    var toggle = t.closest('[data-kebab-toggle]');
+    if (toggle) {
+      var menu = menuForToggle(toggle);
+      var wasHidden = menu ? menu.hidden : true;
+      closeAllKebabMenus();
+      if (menu && wasHidden) { openKebab(toggle, menu); }
+      return;
+    }
+    // A click inside an (already reparented-to-<body>) open menu is never
+    // an "outside click" even though it is no longer a descendant of
+    // [data-kebab] — data-kebab-menu itself still identifies it.
+    if (t.closest('[data-kebab-menu]')) { return; }
+    if (!t.closest('[data-kebab]')) { closeAllKebabMenus(); }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' || e.keyCode === 27) { closeAllKebabMenus(); }
+  });
+  document.addEventListener('scroll', function () { closeAllKebabMenus(); }, true);
+}());
+`;
+
 function isActive(activePath: string | undefined, href: string): boolean {
   if (!activePath) { return false; }
   if (activePath === href) { return true; }
@@ -268,7 +383,7 @@ html,body{height:100%;overflow-x:hidden}
 .nav-item:hover{background:var(--c-bg-alt);color:var(--c-text);text-decoration:none}
 .nav-item.active{background:var(--c-primary-light);color:var(--c-primary);font-weight:500}
 .sidebar-footer{padding:16px 0;border-top:1px solid var(--c-border)}
-.admin-main{flex:1;margin-left:var(--sidebar-w);min-height:100vh;display:flex;flex-direction:column;isolation:isolate}
+.admin-main{flex:1;min-width:0;margin-left:var(--sidebar-w);min-height:100vh;display:flex;flex-direction:column;isolation:isolate}
 .admin-header{height:var(--header-h);background:var(--c-bg);border-bottom:1px solid var(--c-border);display:flex;align-items:center;padding:0 24px;gap:16px;position:sticky;top:0;z-index:50;backface-visibility:hidden;transform:translateZ(0)}
 .mobile-menu-btn{display:none;background:none;border:none;padding:8px;cursor:pointer;color:var(--c-text)}
 .page-title{font-size:18px;font-weight:600;flex:1}
@@ -300,12 +415,36 @@ html,body{height:100%;overflow-x:hidden}
 .form-textarea{min-height:120px;resize:vertical}
 .form-help{font-size:12px;color:var(--c-muted);margin-top:4px}
 .form-error{font-size:12px;color:var(--c-error);margin-top:4px}
-.table-wrapper{overflow-x:auto}
+.table-wrapper{overflow-x:auto;width:100%;max-width:100%;min-width:0}
 .table{width:100%;border-collapse:collapse}
 .table th,.table td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--c-border)}
 .table th{font-weight:600;background:var(--c-bg-alt);white-space:nowrap}
 .table tr:hover td{background:var(--c-bg-alt)}
 .table-actions{display:flex;gap:8px}
+/* Round-4 A-1 (list-overflow fix): the wrapper's own overflow-x:auto only
+   engages once its ancestor chain is width-constrained (the flex-item
+   min-width:0 above on .admin-main is the actual fix — this class is the
+   per-table opt-in for the wide analytics tables so the first/actions
+   columns stay reachable while the middle scrolls underneath them). Applied
+   by each list page's <table> when it carries more columns than fit at
+   1280-1440px (offers/sections/quotes/auction + Listicles sections/articles). */
+.table--sticky-edges th:first-child,.table--sticky-edges td:first-child{position:sticky;left:0;z-index:1;background:var(--c-bg);box-shadow:1px 0 0 0 var(--c-border)}
+.table--sticky-edges th:first-child{background:var(--c-bg-alt)}
+.table--sticky-edges th:last-child,.table--sticky-edges td:last-child{position:sticky;right:0;z-index:1;background:var(--c-bg);box-shadow:-1px 0 0 0 var(--c-border)}
+.table--sticky-edges th:last-child{background:var(--c-bg-alt)}
+.table--sticky-edges tr:hover td:first-child,.table--sticky-edges tr:hover td:last-child{background:var(--c-bg-alt)}
+/* Round-4 A-2 shared kebab-actions component (extracted from the offers
+   reference implementation, ui-offers.ts's own local .lg-kebab* rules —
+   those stay put unchanged there; this is the promoted, globally-available
+   copy every OTHER list (sections/quotes/auctions/listicles) renders
+   against via renderKebabOpen/KEBAB_CLOSE + kebabMenuScript below). */
+.lg-kebab{position:relative;display:inline-block}
+.lg-kebab-btn{line-height:1;font-weight:700}
+.lg-kebab-menu{position:absolute;right:0;top:100%;z-index:100;min-width:180px;background:#fff;border:1px solid var(--c-border);border-radius:6px;box-shadow:0 8px 20px rgba(0,0,0,0.14);padding:4px;display:flex;flex-direction:column}
+.lg-kebab-menu[hidden]{display:none}
+.lg-kebab-item{display:block;width:100%;text-align:left;padding:8px 12px;border:0;background:none;font-size:13px;color:var(--c-text);text-decoration:none;cursor:pointer;border-radius:4px}
+.lg-kebab-item:hover{background:var(--c-bg-alt)}
+.lg-kebab-danger{color:var(--c-danger,#8a1f11)}
 .badge{display:inline-flex;align-items:center;padding:2px 8px;font-size:12px;font-weight:500;border-radius:9999px}
 .badge-draft{background:var(--c-bg-dark);color:var(--c-muted)}
 .badge-published{background:#d1fae5;color:#065f46}
