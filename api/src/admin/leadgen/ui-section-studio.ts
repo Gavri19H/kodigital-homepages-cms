@@ -2094,6 +2094,12 @@ function renderStyleContinueBlock(opOptions: string): string {
       <fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-continuecond-fields hidden>
         <legend class="form-label">Show Continue IF</legend>
         <p class="form-help" data-continuecond-source-empty-hint hidden>Add a question to this section to condition on it.</p>
+        <!-- Round-4 P2c: plain-language ANY/ALL group toggle — hidden until a
+             2nd condition row exists. -->
+        <div class="studio-segmented" role="group" aria-label="Match all or any of these conditions" data-continuecond-match-group hidden>
+          <button type="button" class="active" data-set-continuecond-match="all">Match ALL of these</button>
+          <button type="button" data-set-continuecond-match="any">Match ANY of these</button>
+        </div>
         <select class="form-input" data-inspector-continuecond="when" aria-label="Continue depends on field"><option value="">— always visible —</option></select>
         <select class="form-input" data-inspector-continuecond="op" aria-label="Continue condition operator">${opOptions}</select>
         <select class="form-input" data-inspector-continuecond="value-bool" aria-label="Continue boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
@@ -2102,7 +2108,8 @@ function renderStyleContinueBlock(opOptions: string): string {
         <input class="form-input" type="number" data-inspector-continuecond="from" placeholder="from" aria-label="Continue range from" hidden />
         <input class="form-input" type="number" data-inspector-continuecond="to" placeholder="to" aria-label="Continue range to" hidden />
         <input class="form-input" type="text" data-inspector-continuecond="values" placeholder="values, comma-separated" aria-label="Continue condition values" hidden />
-        <p class="form-help">If this condition can never be met, visitors relying only on this button could get stuck — the section still saves, with a warning.</p>
+        <button type="button" class="studio-add-condition-btn studio-cond-fullrow" data-continuecond-add-row>+ Add condition</button>
+        <p class="form-help studio-cond-fullrow">If this condition can never be met, visitors relying only on this button could get stuck — the section still saves, with a warning.</p>
       </fieldset>
     </div>`;
 }
@@ -2169,6 +2176,100 @@ function renderStylePlacementBlock(): string {
       <p class="form-help studio-inline-note">A small visual offset (up to 48px) to fine-tune position. It never changes the layout flow, and drops away on mobile.</p>
       </div><!-- /data-placement-controls -->
     </div>`;
+}
+
+// Round-4 P2c (A-4 authoring) — EXTRACTED as its OWN top-level block (SAME
+// discipline as renderStylePlacementBlock/renderStyleContinueBlock above): a
+// post-golden feature (the ANY/ALL group builder) must not dilute the
+// already-classified golden:true renderStudioInspector — classified
+// golden:false below (golden-allowlist.json, "P2c group-row controls — post-
+// golden feature"). Row 0 (the when/op/value* pickers, data-inspector-cond)
+// is the pre-existing golden-verbatim single-condition picker, BYTE-
+// UNCHANGED (same attributes, same position, no wrapper) — every existing
+// selector/screenshot/test that only ever sees ONE condition keeps working
+// untouched. The NEW surface (the ANY/ALL toggle + "+ Add condition") is
+// entirely additive: hidden/collapsed until a 2nd condition row exists
+// (island-side sync, syncRulesGroupChrome).
+function renderShowIfControls(opOptions: string): string {
+  return `<div class="studio-rules-always-row" data-rules-always-row>
+      <span class="studio-dot-green" data-rules-summary-dot></span>
+      <span class="lg-check-label studio-cond-sentence" data-cond-sentence aria-live="polite">Always shown</span>
+      <button type="button" class="studio-add-condition-btn" data-rules-add-condition>+ Add a show/hide rule</button>
+      <button type="button" class="studio-link-btn studio-danger-link" data-rules-remove-condition hidden>Remove rule</button>
+    </div>
+    <fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-rules-condition-fields hidden>
+      <legend class="form-label">Show this component IF</legend>
+      <!-- R4a S3-1: no eligible source field (self-excluded, whole-section
+           empty otherwise) — plain words IN PLACE of the bare dropdown. -->
+      <p class="form-help" data-rules-source-empty-hint hidden>Add another question to this section to condition on it.</p>
+      <!-- Round-4 P2c: plain-language ANY/ALL group toggle — hidden until a
+           2nd condition row exists. -->
+      <div class="studio-segmented" role="group" aria-label="Match all or any of these conditions" data-rules-match-group hidden>
+        <button type="button" class="active" data-set-rules-match="all">Match ALL of these</button>
+        <button type="button" data-set-rules-match="any">Match ANY of these</button>
+      </div>
+      <select class="form-input" data-inspector-cond="when" aria-label="Depends on field"><option value="">— always visible —</option></select>
+      <select class="form-input" data-inspector-cond="op" aria-label="Condition operator">${opOptions}</select>
+      <select class="form-input" data-inspector-cond="value-bool" aria-label="Boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
+      <select class="form-input" data-inspector-cond="value-enum" aria-label="Choice value" hidden></select>
+      <input class="form-input" type="text" data-inspector-cond="value" placeholder="value" aria-label="Condition value" />
+      <input class="form-input" type="number" data-inspector-cond="from" placeholder="from" aria-label="Range from" hidden />
+      <input class="form-input" type="number" data-inspector-cond="to" placeholder="to" aria-label="Range to" hidden />
+      <input class="form-input" type="text" data-inspector-cond="values" placeholder="values, comma-separated" aria-label="Condition values" hidden />
+      <button type="button" class="studio-add-condition-btn studio-cond-fullrow" data-rules-add-row>+ Add condition</button>
+    </fieldset>`;
+}
+
+// Round-4 P2c — the SAME extraction/rationale as renderShowIfControls,
+// applied to the Require-if surface (props.requiredWhen). Row 0
+// (data-inspector-reqcond) is BYTE-UNCHANGED.
+function renderRequiredWhenControls(opOptions: string): string {
+  return `<fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-reqcond-wrap hidden>
+      <legend class="form-label">Require this question IF</legend>
+      <p class="form-help studio-cond-sentence" data-reqcond-sentence aria-live="polite"></p>
+      <!-- R4a S3-1 (same dead-end, mirrored here): no eligible source field. -->
+      <p class="form-help" data-reqcond-source-empty-hint hidden>Add another question to this section to condition on it.</p>
+      <div class="studio-segmented" role="group" aria-label="Match all or any of these conditions" data-reqcond-match-group hidden>
+        <button type="button" class="active" data-set-reqcond-match="all">Match ALL of these</button>
+        <button type="button" data-set-reqcond-match="any">Match ANY of these</button>
+      </div>
+      <select class="form-input" data-inspector-reqcond="when" aria-label="Required when field"><option value="">— only when marked Required —</option></select>
+      <select class="form-input" data-inspector-reqcond="op" aria-label="Required-when operator">${opOptions}</select>
+      <select class="form-input" data-inspector-reqcond="value-bool" aria-label="Required-when boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
+      <select class="form-input" data-inspector-reqcond="value-enum" aria-label="Required-when choice value" hidden></select>
+      <input class="form-input" type="text" data-inspector-reqcond="value" placeholder="value" aria-label="Required-when value" />
+      <input class="form-input" type="number" data-inspector-reqcond="from" placeholder="from" aria-label="Required-when range from" hidden />
+      <input class="form-input" type="number" data-inspector-reqcond="to" placeholder="to" aria-label="Required-when range to" hidden />
+      <input class="form-input" type="text" data-inspector-reqcond="values" placeholder="values, comma-separated" aria-label="Required-when values" hidden />
+      <button type="button" class="studio-add-condition-btn studio-cond-fullrow" data-reqcond-add-row>+ Add condition</button>
+      <p class="form-help studio-cond-fullrow">An answer becomes required only while the condition holds. A component marked Required is always required.</p>
+    </fieldset>`;
+}
+
+// Round-4 P2c — the Content-tab "Phone format" picker (A-6b studio surface):
+// a phone-typed field selects a preset (US default | International | Israel
+// | Custom…); content-schema/config-dto already validate/compile the choice
+// (P2b) — this is the FIRST authoring surface for it. EXTRACTED (same
+// discipline as above): golden:false, new post-golden content inside the
+// Content tab's "Answer format" group.
+function renderPhoneFormatControls(): string {
+  return `<div class="lg-inspector-field" data-content-phoneformat-block hidden>
+        <label class="form-label" for="lg-phone-format">Phone format</label>
+        <select id="lg-phone-format" class="form-input" data-phone-format-preset aria-label="Phone format">
+          <option value="nanp">US (default)</option>
+          <option value="e164_intl">International (+ country code)</option>
+          <option value="il">Israel</option>
+          <option value="custom">Custom&#8230;</option>
+        </select>
+        <div data-phone-format-custom hidden>
+          <label class="form-label" for="lg-phone-format-regex">Custom pattern</label>
+          <input id="lg-phone-format-regex" class="form-input" type="text" data-phone-format-field="regex" placeholder="Regular expression, e.g. ^[0-9]{4}$" aria-label="Custom phone pattern" />
+          <p class="form-help">A plain regular expression the number must match &#8212; visitors never see this, only your message below.</p>
+          <label class="form-label" for="lg-phone-format-message">Error message (optional)</label>
+          <input id="lg-phone-format-message" class="form-input" type="text" data-phone-format-field="message" placeholder="Enter a valid phone number." aria-label="Custom phone error message" />
+        </div>
+        <p class="form-help" data-phone-format-error hidden></p>
+      </div>`;
 }
 
 // The full tabbed inspector. Panels are server-rendered ONCE; the island
@@ -2408,6 +2509,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
            Accept type-swap is LOCKED (hidden) for it and this line explains why
            (its map lookup would not apply to another answer format). -->
       <p class="form-help" data-accept-address-lock hidden>Address is a fixed type &#8212; it can&#8217;t be switched to another answer format (its map lookup wouldn&#8217;t apply).</p>
+      ${renderPhoneFormatControls()}
       <!-- R5 D3 (register S4-A3 migration): searchable-dropdown / card-style /
            slider-format toggles — MIGRATED from the canvas toolbar's
            "component" cluster (each SWITCHES the concrete stored component
@@ -2671,43 +2773,10 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
        stored (populateRulesAlwaysRow). -->
   <div class="studio-panel" data-studio-panel="rules" role="tabpanel" hidden>
     <div class="studio-panel-eyebrow">When to show this</div>
-    <div class="studio-rules-always-row" data-rules-always-row>
-      <span class="studio-dot-green" data-rules-summary-dot></span>
-      <span class="lg-check-label studio-cond-sentence" data-cond-sentence aria-live="polite">Always shown</span>
-      <button type="button" class="studio-add-condition-btn" data-rules-add-condition>+ Add a show/hide rule</button>
-      <button type="button" class="studio-link-btn studio-danger-link" data-rules-remove-condition hidden>Remove rule</button>
-    </div>
-    <fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-rules-condition-fields hidden>
-      <legend class="form-label">Show this component IF</legend>
-      <!-- R4a S3-1: no eligible source field (self-excluded, whole-section
-           empty otherwise) — plain words IN PLACE of the bare dropdown. -->
-      <p class="form-help" data-rules-source-empty-hint hidden>Add another question to this section to condition on it.</p>
-      <select class="form-input" data-inspector-cond="when" aria-label="Depends on field"><option value="">— always visible —</option></select>
-      <select class="form-input" data-inspector-cond="op" aria-label="Condition operator">${opOptions}</select>
-      <select class="form-input" data-inspector-cond="value-bool" aria-label="Boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
-      <select class="form-input" data-inspector-cond="value-enum" aria-label="Choice value" hidden></select>
-      <input class="form-input" type="text" data-inspector-cond="value" placeholder="value" aria-label="Condition value" />
-      <input class="form-input" type="number" data-inspector-cond="from" placeholder="from" aria-label="Range from" hidden />
-      <input class="form-input" type="number" data-inspector-cond="to" placeholder="to" aria-label="Range to" hidden />
-      <input class="form-input" type="text" data-inspector-cond="values" placeholder="values, comma-separated" aria-label="Condition values" hidden />
-    </fieldset>
+    ${renderShowIfControls(opOptions)}
 
     <div class="studio-hr"></div>
-    <fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-reqcond-wrap hidden>
-      <legend class="form-label">Require this question IF</legend>
-      <p class="form-help studio-cond-sentence" data-reqcond-sentence aria-live="polite"></p>
-      <!-- R4a S3-1 (same dead-end, mirrored here): no eligible source field. -->
-      <p class="form-help" data-reqcond-source-empty-hint hidden>Add another question to this section to condition on it.</p>
-      <select class="form-input" data-inspector-reqcond="when" aria-label="Required when field"><option value="">— only when marked Required —</option></select>
-      <select class="form-input" data-inspector-reqcond="op" aria-label="Required-when operator">${opOptions}</select>
-      <select class="form-input" data-inspector-reqcond="value-bool" aria-label="Required-when boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
-      <select class="form-input" data-inspector-reqcond="value-enum" aria-label="Required-when choice value" hidden></select>
-      <input class="form-input" type="text" data-inspector-reqcond="value" placeholder="value" aria-label="Required-when value" />
-      <input class="form-input" type="number" data-inspector-reqcond="from" placeholder="from" aria-label="Required-when range from" hidden />
-      <input class="form-input" type="number" data-inspector-reqcond="to" placeholder="to" aria-label="Required-when range to" hidden />
-      <input class="form-input" type="text" data-inspector-reqcond="values" placeholder="values, comma-separated" aria-label="Required-when values" hidden />
-      <p class="form-help">An answer becomes required only while the condition holds. A component marked Required is always required.</p>
-    </fieldset>
+    ${renderRequiredWhenControls(opOptions)}
   </div>
 
   <!-- ============================================================ -->
@@ -3311,6 +3380,15 @@ export const SECTION_STUDIO_STYLES = `
 .studio-segmented{display:inline-flex;background:var(--c-surface-alt,#edf0f5);border-radius:6px;padding:2px;width:100%;margin-bottom:9px}
 .studio-segmented button{flex:1;text-align:center;font-size:12px;font-weight:600;padding:6px 4px;border:0;background:none;color:var(--c-muted);cursor:pointer;border-radius:5px}
 .studio-segmented button.active{background:var(--c-card,#fff);color:var(--c-primary);box-shadow:0 1px 2px rgba(16,24,40,.1)}
+/* Round-4 P2c (A-4 authoring) — the ANY/ALL group-row engine shared by all
+   three conditional surfaces (show/hide, requiredWhen, continue_visible_
+   when). Row 0 (the pre-existing single-condition picker) stays a bare
+   flex-wrap item of .lg-inspector-conditional, UNCHANGED; only the NEW
+   elements (the "+ Add condition" button and each extra row) need an
+   explicit full-width break so they land on their own line instead of
+   trailing row 0's last visible control. */
+.studio-cond-fullrow{flex-basis:100%;width:100%}
+.studio-cond-extra-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center;flex-basis:100%;width:100%;margin-top:6px;padding-top:6px;border-top:1px dashed var(--c-border)}
 /* v3.1 audit-round G FIX 1c: §7.3 custom chip matches golden :529-531 — bg
    navyTint #EAF0F6, border #C7D6E6 (a golden-sourced hairline, NOT navy — so
    the var(--c-primary) border the shell blue leaked through is replaced),
@@ -4540,6 +4618,16 @@ export const SECTION_STUDIO_SCRIPT = `
     AddressAutocompleteQuestion: 'street_address'
   };
   function acceptFormatOfNode(node) { return node ? (ACCEPT_TYPE_FORMAT[node.type] || null) : null; }
+  // Round-4 P2c (A-6b studio surface) — mirrors content-schema.ts's
+  // isPhoneTypedComponent(type, props) EXACTLY (acceptFormatOfType(type)===
+  // 'phone' || props.format==='phone'): the concrete PhoneInputQuestion, OR
+  // any text tile Accept-swapped to 'phone'. One definition so the picker's
+  // visibility and the save-gate can never disagree on "is this a phone".
+  function isPhoneTypedNode(node) {
+    if (!node) { return false; }
+    if (acceptFormatOfNode(node) === 'phone') { return true; }
+    return !!(node.props && node.props.format === 'phone');
+  }
   function setAcceptFormat(node, format) {
     var target = ACCEPT_FORMAT_TYPE[format];
     if (!node || !target) { return false; }
@@ -5022,8 +5110,23 @@ export const SECTION_STUDIO_SCRIPT = `
   function findConditionalRefs(fieldName) {
     var refs = [];
     if (!fieldName) { return refs; }
+    // Round-4 P2c (A-4 authoring): a composed group ({match,conditions[]})
+    // carries no 'when' of its OWN — recurse so a rename-warning still
+    // counts a field referenced only inside a group's leaves. 'mentions' is
+    // a NESTED declaration (travels with this function's own vm-probe
+    // slice — see MODEL_FUNCS/sliceIslandFunction — with no external
+    // dependency beyond its own parameter).
+    function mentions(c) {
+      if (!c) { return false; }
+      if (c.conditions) {
+        var i;
+        for (i = 0; i < c.conditions.length; i++) { if (mentions(c.conditions[i])) { return true; } }
+        return false;
+      }
+      return c.when === fieldName;
+    }
     walkTree(state.content.components, 1, function (n) {
-      if (n.conditional && n.conditional.when === fieldName) { refs.push(n.question_id); }
+      if (mentions(n.conditional)) { refs.push(n.question_id); }
     });
     return refs;
   }
@@ -7735,6 +7838,11 @@ export const SECTION_STUDIO_SCRIPT = `
     populateValidation(node, meta);
     populateMapsTab(node, meta);
     populateConditional(node);
+    // Round-4 P2c: the group-row DOM sync lives HERE (never inside
+    // populateConditional itself — see that function's own comment) since
+    // this orchestrator (populateInspector) is never probe-sliced.
+    hydrateRulesExtraRows(node);
+    syncRulesGroupChrome(node);
     populateRulesAlwaysRow(node);
     populateRequiredWhen(node);
     populateDefaultControls(node);
@@ -7747,6 +7855,7 @@ export const SECTION_STUDIO_SCRIPT = `
     populateContainerProps(node);
     populateImageBlockControls(node);
     populateNameFieldsGroupControls(node);
+    populatePhoneFormatControls(node);
     populateMqgRows(node);
     var choicesBlock = document.querySelector('[data-field-choices-block]');
     if (choicesBlock) { choicesBlock.hidden = !node || meta.choice !== true; }
@@ -8357,7 +8466,10 @@ export const SECTION_STUDIO_SCRIPT = `
   // (cond vs. reqcond) — self-contained for the vm-probe slicing contract.
   function continueVisibleWhen() {
     var cvw = state.content ? state.content.continue_visible_when : null;
-    return (cvw && typeof cvw === 'object' && cvw.when) ? cvw : null;
+    // Round-4 P2c (A-4 authoring): a composed group ({match, conditions[]})
+    // carries no 'when' of its own — accept it too (same structural
+    // discriminator the runtime/save-gate use: an array 'conditions').
+    return (cvw && typeof cvw === 'object' && (cvw.when || (cvw.conditions && cvw.conditions.length))) ? cvw : null;
   }
   function readContinueCond(key) {
     var el = document.querySelector('[data-inspector-continuecond="' + key + '"]');
@@ -8381,7 +8493,10 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!whenSel || !opSel) { return; }
     var op = opSel.value || 'eq';
     var info = refFieldInfo(whenSel.value);
-    var cond = continueVisibleWhen() || {};
+    // Round-4 P2c: row 0 always reflects conditions[0] of a composed group
+    // (the SAME structural discriminator as continueVisibleWhen above).
+    var stored = continueVisibleWhen() || {};
+    var cond = (stored.conditions && stored.conditions.length > 0) ? stored.conditions[0] : stored;
     var isRange = op === 'range';
     var isList = op === 'in' || op === 'not_in';
     var scalarKind = 'text';
@@ -8418,6 +8533,52 @@ export const SECTION_STUDIO_SCRIPT = `
       valuesIn.value = (cond.values && cond.values.length) ? cond.values.join(', ') : '';
     }
   }
+  // Round-4 P2c — extra-row lifecycle for the Continue-visibility surface
+  // (section-level, no node — mirrors the rules-tab engine exactly, keyed
+  // at state.content instead of a node).
+  function continueExtraRows() {
+    var host = document.querySelector('[data-continuecond-fields]');
+    return host ? host.querySelectorAll('[data-continuecond-extra-row]') : [];
+  }
+  function syncContinueGroupChrome(stored) {
+    var total = 1 + continueExtraRows().length;
+    var matchGroup = document.querySelector('[data-continuecond-match-group]');
+    if (matchGroup) { matchGroup.hidden = total < 2; }
+    if (matchGroup && stored && stored.conditions) {
+      setMatchActive('[data-continuecond-match-group]', 'data-set-continuecond-match', stored.match === 'any' ? 'any' : 'all');
+    }
+  }
+  function hydrateContinueExtraRows(stored) {
+    var host = document.querySelector('[data-continuecond-fields]');
+    if (!host) { return; }
+    var addBtn = document.querySelector('[data-continuecond-add-row]');
+    var existing = host.querySelectorAll('[data-continuecond-extra-row]');
+    var i;
+    for (i = 0; i < existing.length; i++) { existing[i].parentNode.removeChild(existing[i]); }
+    var conditions = (stored && stored.conditions) ? stored.conditions : [];
+    var whenTemplate = document.querySelector('[data-inspector-continuecond="when"]');
+    var opTemplate = document.querySelector('[data-inspector-continuecond="op"]');
+    if (!whenTemplate || !opTemplate) { return; }
+    for (i = 1; i < conditions.length; i++) {
+      var built = buildConditionRow('continuecond', whenTemplate, opTemplate);
+      wireConditionRowEvents(built.row, 'continuecond', collectContinueVisibility);
+      wireRowRemove(built, collectContinueVisibility, function () { syncContinueGroupChrome(continueVisibleWhen()); });
+      if (addBtn && addBtn.parentNode === host) { host.insertBefore(built.row, addBtn); } else { host.appendChild(built.row); }
+      applyRowCondition(built.row, 'continuecond', conditions[i]);
+    }
+  }
+  function addContinueConditionRow() {
+    var host = document.querySelector('[data-continuecond-fields]');
+    var addBtn = document.querySelector('[data-continuecond-add-row]');
+    var whenTemplate = document.querySelector('[data-inspector-continuecond="when"]');
+    var opTemplate = document.querySelector('[data-inspector-continuecond="op"]');
+    if (!host || !whenTemplate || !opTemplate) { return; }
+    var built = buildConditionRow('continuecond', whenTemplate, opTemplate);
+    wireConditionRowEvents(built.row, 'continuecond', collectContinueVisibility);
+    wireRowRemove(built, collectContinueVisibility, function () { syncContinueGroupChrome(continueVisibleWhen()); });
+    if (addBtn && addBtn.parentNode === host) { host.insertBefore(built.row, addBtn); } else { host.appendChild(built.row); }
+    syncContinueGroupChrome(continueVisibleWhen());
+  }
   var continueRulesRevealed = false;
   function renderContinueRulesVisibility(show) {
     var fields = document.querySelector('[data-continuecond-fields]');
@@ -8433,6 +8594,22 @@ export const SECTION_STUDIO_SCRIPT = `
     var cond = continueVisibleWhen();
     if (!cond) { el.textContent = 'Always shown.'; return; }
     var labels = sectionFieldLabels(internalFieldsOf(), currentHeadlineText());
+    // Round-4 P2c (A-4 authoring): a composed group joins each leaf's own
+    // clause with AND/OR, the prefix spoken ONCE — conditionSentence('',
+    // leaf, ...) always yields ' when <clause>' (see its own body), so
+    // stripping that fixed 6-char lead ('_when_', SIX chars: space,w,h,e,n,
+    // space) isolates just the clause; conditionSentence itself stays
+    // UNTOUCHED (vm-probe self-containment — see its header comment).
+    if (cond.conditions && cond.conditions.length > 0) {
+      var clauses = [], gi, leaf, full;
+      for (gi = 0; gi < cond.conditions.length; gi++) {
+        leaf = cond.conditions[gi];
+        full = conditionSentence('', leaf, labels[leaf.when], refFieldInfo(leaf.when));
+        clauses.push(full.indexOf(' when ') === 0 ? full.slice(6) : full);
+      }
+      el.textContent = 'Show Continue when ' + clauses.join(cond.match === 'any' ? ' OR ' : ' AND ');
+      return;
+    }
     el.textContent = conditionSentence('Show Continue', cond, labels[cond.when], refFieldInfo(cond.when));
   }
   function populateContinueVisibility() {
@@ -8456,13 +8633,17 @@ export const SECTION_STUDIO_SCRIPT = `
     var emptyHint = document.querySelector('[data-continuecond-source-empty-hint]');
     if (emptyHint) { emptyHint.hidden = fields.length > 0; }
     whenSel.hidden = fields.length === 0;
-    var cond = continueVisibleWhen();
+    var stored = continueVisibleWhen();
+    // Round-4 P2c: row 0 shows conditions[0] of a composed group.
+    var cond = (stored && stored.conditions && stored.conditions.length > 0) ? stored.conditions[0] : stored;
     whenSel.value = cond ? cond.when : '';
     opSel.value = cond ? (cond.op || 'eq') : 'eq';
     updateContinueCondValueInputs();
-    continueRulesRevealed = !!cond;
+    continueRulesRevealed = !!stored;
     renderContinueRulesVisibility(continueRulesRevealed);
     renderContinueSentence();
+    hydrateContinueExtraRows(stored);
+    syncContinueGroupChrome(stored);
   }
   function collectContinueVisibility() {
     var whenSel = document.querySelector('[data-inspector-continuecond="when"]');
@@ -8477,10 +8658,26 @@ export const SECTION_STUDIO_SCRIPT = `
       from: readContinueCond('from'),
       to: readContinueCond('to')
     };
-    var cond = buildConditional(whenVal, op, parts, info.type);
-    if (cond === null) { delete state.content.continue_visible_when; } else { state.content.continue_visible_when = cond; }
+    var primary = buildConditional(whenVal, op, parts, info.type);
+    var conditions = [];
+    if (primary !== null) { conditions.push(primary); }
+    // Round-4 P2c (A-4 authoring): extra rows beyond the primary — added by
+    // "+ Add condition" — each carries its OWN scoped when/op/value*
+    // pickers under [data-continuecond-extra-row]; an incomplete extra row
+    // (no 'when' picked yet) is silently dropped, never a placeholder.
+    var extras = document.querySelectorAll('[data-continuecond-extra-row]');
+    var i, c;
+    for (i = 0; i < extras.length; i++) {
+      c = readRowCondition(extras[i], 'continuecond');
+      if (c !== null) { conditions.push(c); }
+    }
+    if (conditions.length === 0) { delete state.content.continue_visible_when; }
+    else if (conditions.length === 1) { state.content.continue_visible_when = conditions[0]; }
+    else { state.content.continue_visible_when = { match: currentMatchValue('[data-continuecond-match-group]', 'data-set-continuecond-match'), conditions: conditions }; }
     updateContinueCondValueInputs();
+    for (i = 0; i < extras.length; i++) { applyRowCondition(extras[i], 'continuecond'); }
     renderContinueSentence();
+    syncContinueGroupChrome(continueVisibleWhen());
     afterModelChange();
   }
   function collectTextBlockRole() {
@@ -8672,7 +8869,13 @@ export const SECTION_STUDIO_SCRIPT = `
     if (removeBtn) { removeBtn.hidden = !show; }
   }
   function populateRulesAlwaysRow(node) {
-    var hasCond = !!(node && node.conditional && node.conditional.when);
+    // Round-4 P2c: a composed group ({match,conditions[]}) carries no
+    // 'when' of its own — recognize it too (same structural discriminator
+    // as everywhere else), or a stored group would misreport "no
+    // condition" and collapse the WHOLE fieldset (row 0 + match-toggle +
+    // extra rows) shut on every selection/reload.
+    var cond = node && node.conditional;
+    var hasCond = !!(cond && (cond.when || (cond.conditions && cond.conditions.length > 0)));
     rulesFieldsRevealed = hasCond;
     renderRulesFieldsVisibility(hasCond);
   }
@@ -8900,6 +9103,72 @@ export const SECTION_STUDIO_SCRIPT = `
     var emptyNote = document.querySelector('[data-content-empty]');
     if (emptyNote) { emptyNote.hidden = true; }
   }
+  // Round-4 P2c (A-6b studio surface) — the Content-tab "Phone format"
+  // picker: US (default) | International | Israel | Custom…. content-
+  // schema/config-dto (P2b) already validate/compile props.phone_format;
+  // this is the FIRST authoring surface. "US (default)" ALWAYS clears the
+  // key (never writes the literal string 'nanp') — nanp and absent are
+  // BYTE-EQUIVALENT at the runtime (config-dto's own documented parity), so
+  // this is the honest back-compat choice: a brand-new/untouched phone
+  // field never gains a phone_format key merely by opening the studio.
+  function populatePhoneFormatControls(node) {
+    var block = document.querySelector('[data-content-phoneformat-block]');
+    var isPhone = isPhoneTypedNode(node);
+    if (block) { block.hidden = !isPhone; }
+    if (!isPhone) { return; }
+    var sel = document.querySelector('[data-phone-format-preset]');
+    var customWrap = document.querySelector('[data-phone-format-custom]');
+    var regexEl = document.querySelector('[data-phone-format-field="regex"]');
+    var msgEl = document.querySelector('[data-phone-format-field="message"]');
+    var errEl = document.querySelector('[data-phone-format-error]');
+    var pf = node.props ? node.props.phone_format : undefined;
+    var isCustom = !!(pf && typeof pf === 'object');
+    if (sel) { sel.value = isCustom ? 'custom' : (typeof pf === 'string' ? pf : 'nanp'); }
+    if (customWrap) { customWrap.hidden = !isCustom; }
+    var custom = (isCustom && pf.custom && typeof pf.custom === 'object') ? pf.custom : {};
+    if (regexEl) { regexEl.value = typeof custom.regex === 'string' ? custom.regex : ''; }
+    if (msgEl) { msgEl.value = typeof custom.message === 'string' ? custom.message : ''; }
+    if (errEl) { errEl.hidden = true; }
+  }
+  function collectPhoneFormat() {
+    var node = selectedNode();
+    if (!node || !isPhoneTypedNode(node)) { return; }
+    var sel = document.querySelector('[data-phone-format-preset]');
+    if (!sel) { return; }
+    var props = ensureObj(node, 'props');
+    var val = sel.value;
+    var customWrap = document.querySelector('[data-phone-format-custom]');
+    var errEl = document.querySelector('[data-phone-format-error]');
+    if (val === 'custom') {
+      if (customWrap) { customWrap.hidden = false; }
+      var regexEl = document.querySelector('[data-phone-format-field="regex"]');
+      var msgEl = document.querySelector('[data-phone-format-field="message"]');
+      var regex = regexEl ? trimStr(regexEl.value) : '';
+      var message = msgEl ? trimStr(msgEl.value) : '';
+      if (regex === '') {
+        // No pattern yet — never persist an incomplete custom rule (the
+        // content-schema save-gate would 400 on it); a plain-language hint
+        // in place of a raw error code (E1-C1's own idiom).
+        if (errEl) { errEl.hidden = false; errEl.textContent = 'Enter a pattern for the custom phone format, or pick another option.'; }
+      } else {
+        var custom = { regex: regex };
+        if (message !== '') { custom.message = message; }
+        props.phone_format = { custom: custom };
+        if (errEl) { errEl.hidden = true; }
+      }
+    } else if (val === 'e164_intl' || val === 'il') {
+      if (customWrap) { customWrap.hidden = true; }
+      if (errEl) { errEl.hidden = true; }
+      props.phone_format = val;
+    } else {
+      // 'nanp' ("US (default)") or any unrecognized value — clear the key.
+      if (customWrap) { customWrap.hidden = true; }
+      if (errEl) { errEl.hidden = true; }
+      delete props.phone_format;
+    }
+    cleanupEmpty(node, 'props');
+    afterModelChange();
+  }
 
   // --- dependencies (§6.10 typed IF/THEN builder) --------------------------------
   function typedScalar(raw, refType) {
@@ -8927,6 +9196,232 @@ export const SECTION_STUDIO_SCRIPT = `
     else { cond.value = typedScalar(parts.value, refType); }
     return cond;
   }
+
+  // --- Round-4 P2c (A-4 authoring) — the ANY/ALL group-row engine ---------------
+  // Shared by all three conditional surfaces (show/hide 'conditional',
+  // 'requiredWhen', section 'continue_visible_when'). Row 0 of each surface
+  // is the pre-existing STATIC single-condition picker (data-inspector-
+  // cond/reqcond/continuecond="when"/"op"/...) — BYTE-UNCHANGED, never
+  // touched by this engine. An extra row (index 1+) is built FRESH here
+  // (never cloned — cloneNode would carry row 0's CURRENT value, which a
+  // brand-new row must not start with) and carries the SAME attribute
+  // names, scoped by rowEl.querySelector (never document.querySelector),
+  // so a row-scoped read/write can never accidentally hit row 0's controls.
+  function appendOption(sel, value, text) {
+    var o = document.createElement('option');
+    o.value = value;
+    o.textContent = text;
+    sel.appendChild(o);
+  }
+  // Builds one detached extra-row element for the given surface ('cond' |
+  // 'reqcond' | 'continuecond'), inheriting the "when" field list + "op"
+  // word list from row 0's OWN already-populated selects (cloned so the
+  // human-labeled options — internalFieldsOf/CONDITION_OP_LABELS — never
+  // need re-deriving here), then RESET to an empty (unpicked) row — a
+  // fresh row must never start pre-filled with row 0's current selection.
+  function buildConditionRow(prefixAttr, whenTemplate, opTemplate) {
+    var row = document.createElement('div');
+    row.className = 'studio-cond-extra-row';
+    row.setAttribute('data-' + prefixAttr + '-extra-row', '');
+    var whenSel = whenTemplate.cloneNode(true);
+    whenSel.removeAttribute('id');
+    whenSel.value = '';
+    row.appendChild(whenSel);
+    var opSel = opTemplate.cloneNode(true);
+    opSel.removeAttribute('id');
+    opSel.value = 'eq';
+    row.appendChild(opSel);
+    var boolSel = document.createElement('select');
+    boolSel.className = 'form-input';
+    boolSel.setAttribute('data-inspector-' + prefixAttr, 'value-bool');
+    boolSel.setAttribute('aria-label', 'Boolean value');
+    boolSel.hidden = true;
+    appendOption(boolSel, 'true', 'true');
+    appendOption(boolSel, 'false', 'false');
+    row.appendChild(boolSel);
+    var enumSel = document.createElement('select');
+    enumSel.className = 'form-input';
+    enumSel.setAttribute('data-inspector-' + prefixAttr, 'value-enum');
+    enumSel.setAttribute('aria-label', 'Choice value');
+    enumSel.hidden = true;
+    row.appendChild(enumSel);
+    var valIn = document.createElement('input');
+    valIn.className = 'form-input';
+    valIn.type = 'text';
+    valIn.setAttribute('data-inspector-' + prefixAttr, 'value');
+    valIn.setAttribute('placeholder', 'value');
+    valIn.setAttribute('aria-label', 'Condition value');
+    row.appendChild(valIn);
+    var fromIn = document.createElement('input');
+    fromIn.className = 'form-input';
+    fromIn.type = 'number';
+    fromIn.setAttribute('data-inspector-' + prefixAttr, 'from');
+    fromIn.setAttribute('placeholder', 'from');
+    fromIn.hidden = true;
+    row.appendChild(fromIn);
+    var toIn = document.createElement('input');
+    toIn.className = 'form-input';
+    toIn.type = 'number';
+    toIn.setAttribute('data-inspector-' + prefixAttr, 'to');
+    toIn.setAttribute('placeholder', 'to');
+    toIn.hidden = true;
+    row.appendChild(toIn);
+    var valuesIn = document.createElement('input');
+    valuesIn.className = 'form-input';
+    valuesIn.type = 'text';
+    valuesIn.setAttribute('data-inspector-' + prefixAttr, 'values');
+    valuesIn.setAttribute('placeholder', 'values, comma-separated');
+    valuesIn.hidden = true;
+    row.appendChild(valuesIn);
+    var removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'studio-link-btn studio-danger-link';
+    removeBtn.textContent = 'Remove';
+    row.appendChild(removeBtn);
+    return { row: row, removeBtn: removeBtn };
+  }
+  // Reads ONE row's own when/op/value* controls (scoped to rowEl, never
+  // document) into a bare {when,op,...} conditional — buildConditional
+  // itself is untouched; an incomplete row (no 'when' picked) returns null,
+  // filtered out by every caller (never a placeholder condition).
+  function readRowCondition(rowEl, prefixAttr) {
+    var whenSel = rowEl.querySelector('[data-inspector-' + prefixAttr + '="when"]');
+    var opSel = rowEl.querySelector('[data-inspector-' + prefixAttr + '="op"]');
+    if (!whenSel || !opSel) { return null; }
+    var whenVal = trimStr(whenSel.value);
+    var op = opSel.value || 'eq';
+    var info = refFieldInfo(whenVal);
+    var scalarVal = '';
+    if (op !== 'range' && op !== 'in' && op !== 'not_in') {
+      var key = info.type === 'boolean' ? 'value-bool' : ((info.choices && (op === 'eq' || op === 'neq')) ? 'value-enum' : 'value');
+      var scalarEl = rowEl.querySelector('[data-inspector-' + prefixAttr + '="' + key + '"]');
+      scalarVal = scalarEl ? scalarEl.value : '';
+    }
+    var valuesEl = rowEl.querySelector('[data-inspector-' + prefixAttr + '="values"]');
+    var fromEl = rowEl.querySelector('[data-inspector-' + prefixAttr + '="from"]');
+    var toEl = rowEl.querySelector('[data-inspector-' + prefixAttr + '="to"]');
+    var parts = {
+      value: scalarVal,
+      values: valuesEl ? valuesEl.value : '',
+      from: fromEl ? fromEl.value : '',
+      to: toEl ? toEl.value : ''
+    };
+    return buildConditional(whenVal, op, parts, info.type);
+  }
+  // Refreshes ONE row's value-widget visibility (bool/enum/text/range/list)
+  // from its OWN current when/op selection, scoped to rowEl. 'cond'
+  // provided (even '{}') ALSO hydrates when/op/value* from it (reload /
+  // selection-change / post-remove redraw); 'cond' omitted (undefined)
+  // ONLY refreshes visibility — used on every live input/change so typing
+  // is never clobbered mid-edit.
+  function applyRowCondition(rowEl, prefixAttr, cond) {
+    var whenSel = rowEl.querySelector('[data-inspector-' + prefixAttr + '="when"]');
+    var opSel = rowEl.querySelector('[data-inspector-' + prefixAttr + '="op"]');
+    if (!whenSel || !opSel) { return; }
+    if (cond !== undefined) {
+      whenSel.value = (cond && cond.when) ? cond.when : '';
+      opSel.value = (cond && cond.op) ? cond.op : 'eq';
+    }
+    var boolSel = rowEl.querySelector('[data-inspector-' + prefixAttr + '="value-bool"]');
+    var enumSel = rowEl.querySelector('[data-inspector-' + prefixAttr + '="value-enum"]');
+    var valIn = rowEl.querySelector('[data-inspector-' + prefixAttr + '="value"]');
+    var fromIn = rowEl.querySelector('[data-inspector-' + prefixAttr + '="from"]');
+    var toIn = rowEl.querySelector('[data-inspector-' + prefixAttr + '="to"]');
+    var valuesIn = rowEl.querySelector('[data-inspector-' + prefixAttr + '="values"]');
+    var op = opSel.value || 'eq';
+    var info = refFieldInfo(whenSel.value);
+    var c = cond || {};
+    var isRange = op === 'range';
+    var isList = op === 'in' || op === 'not_in';
+    var scalarKind = 'text';
+    if (!isRange && !isList) {
+      if (info.type === 'boolean') { scalarKind = 'bool'; }
+      else if (info.choices && (op === 'eq' || op === 'neq')) { scalarKind = 'enum'; }
+    }
+    if (boolSel) {
+      boolSel.hidden = scalarKind !== 'bool';
+      if (cond !== undefined) { boolSel.value = c.value === false ? 'false' : 'true'; }
+    }
+    if (enumSel) {
+      enumSel.hidden = scalarKind !== 'enum';
+      var keep = cond !== undefined ? ((c.value !== undefined && c.value !== null) ? String(c.value) : '') : enumSel.value;
+      clearChildren(enumSel);
+      var i, o;
+      if (info.choices) {
+        for (i = 0; i < info.choices.length; i++) {
+          o = document.createElement('option');
+          o.value = String(info.choices[i].value);
+          o.textContent = String(info.choices[i].label || info.choices[i].value);
+          enumSel.appendChild(o);
+        }
+      }
+      if (scalarKind === 'enum' && keep) { enumSel.value = keep; }
+    }
+    if (valIn) {
+      valIn.hidden = isRange || isList || scalarKind !== 'text';
+      if (cond !== undefined) { valIn.value = (c.value === undefined || c.value === null) ? '' : String(c.value); }
+    }
+    if (fromIn) {
+      fromIn.hidden = !isRange;
+      if (cond !== undefined) { fromIn.value = (c.from === undefined) ? '' : String(c.from); }
+    }
+    if (toIn) {
+      toIn.hidden = !isRange;
+      if (cond !== undefined) { toIn.value = (c.to === undefined) ? '' : String(c.to); }
+    }
+    if (valuesIn) {
+      valuesIn.hidden = !isList;
+      if (cond !== undefined) { valuesIn.value = (c.values && c.values.length) ? c.values.join(', ') : ''; }
+    }
+  }
+  // Wires a freshly-built row's OWN input/change listeners — a row created
+  // after page-init never rides the one-time bulk [data-inspector-cond]
+  // wiring pass (init runs ONCE, before this row existed), so every extra
+  // row wires itself at creation time.
+  function wireConditionRowEvents(rowEl, prefixAttr, collectFn) {
+    var els = rowEl.querySelectorAll('[data-inspector-' + prefixAttr + ']');
+    var i;
+    function onRowInput() { applyRowCondition(rowEl, prefixAttr); collectFn(); }
+    for (i = 0; i < els.length; i++) {
+      els[i].addEventListener('input', onRowInput);
+      els[i].addEventListener('change', onRowInput);
+    }
+  }
+  // Wires a row's "Remove" button: drops JUST this row, then re-collects
+  // (row 0 + whatever rows remain) — removing down to a single condition
+  // naturally collapses to the bare shape (the collector's own
+  // conditions.length===1 branch), never a stale {match,conditions} wrapper.
+  // 'built'/'recollect'/'resync' are this CALL's own parameters (a fresh
+  // activation record per row), so wiring several rows in a loop never
+  // shares a stale closure over a reused loop variable.
+  function wireRowRemove(built, recollect, resync) {
+    built.removeBtn.addEventListener('click', function () {
+      if (built.row.parentNode) { built.row.parentNode.removeChild(built.row); }
+      recollect();
+      resync();
+    });
+  }
+  // Reads which side of an ANY/ALL segmented toggle is active (matches the
+  // existing populateImageBlockControls className idiom: 'active' | '').
+  function currentMatchValue(matchGroupSelector, attrName) {
+    var group = document.querySelector(matchGroupSelector);
+    if (!group) { return 'all'; }
+    var active = group.querySelector('.active');
+    if (!active) { return 'all'; }
+    return active.getAttribute(attrName) === 'any' ? 'any' : 'all';
+  }
+  // Sets the active button on an ANY/ALL segmented toggle (mirrors
+  // populateImageBlockControls's own className idiom).
+  function setMatchActive(matchGroupSelector, attrName, value) {
+    var group = document.querySelector(matchGroupSelector);
+    if (!group) { return; }
+    var btns = group.querySelectorAll('button');
+    var i;
+    for (i = 0; i < btns.length; i++) {
+      btns[i].className = btns[i].getAttribute(attrName) === value ? 'active' : '';
+    }
+  }
+
   function readCond(key) {
     var el = document.querySelector('[data-inspector-cond="' + key + '"]');
     return el ? el.value : '';
@@ -8949,7 +9444,10 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!whenSel || !opSel) { return; }
     var op = opSel.value || 'eq';
     var info = refFieldInfo(whenSel.value);
-    var cond = (node && node.conditional) ? node.conditional : {};
+    // Round-4 P2c: row 0 always reflects conditions[0] of a composed group
+    // (the SAME structural discriminator the save-gate/evaluators use).
+    var stored = (node && node.conditional) ? node.conditional : {};
+    var cond = (stored.conditions && stored.conditions.length > 0) ? stored.conditions[0] : stored;
     var isRange = op === 'range';
     var isList = op === 'in' || op === 'not_in';
     var scalarKind = 'text';
@@ -8986,6 +9484,51 @@ export const SECTION_STUDIO_SCRIPT = `
       valuesIn.value = (cond.values && cond.values.length) ? cond.values.join(', ') : '';
     }
   }
+  // Round-4 P2c — extra-row lifecycle for the Show-if surface (rules tab).
+  function rulesExtraRows() {
+    var host = document.querySelector('[data-rules-condition-fields]');
+    return host ? host.querySelectorAll('[data-cond-extra-row]') : [];
+  }
+  function syncRulesGroupChrome(node) {
+    var total = 1 + rulesExtraRows().length;
+    var matchGroup = document.querySelector('[data-rules-match-group]');
+    if (matchGroup) { matchGroup.hidden = total < 2; }
+    if (node && node.conditional && node.conditional.conditions) {
+      setMatchActive('[data-rules-match-group]', 'data-set-rules-match', node.conditional.match === 'any' ? 'any' : 'all');
+    }
+  }
+  function hydrateRulesExtraRows(node) {
+    var host = document.querySelector('[data-rules-condition-fields]');
+    if (!host) { return; }
+    var addBtn = document.querySelector('[data-rules-add-row]');
+    var existing = host.querySelectorAll('[data-cond-extra-row]');
+    var i;
+    for (i = 0; i < existing.length; i++) { existing[i].parentNode.removeChild(existing[i]); }
+    var stored = (node && node.conditional) ? node.conditional : null;
+    var conditions = (stored && stored.conditions) ? stored.conditions : [];
+    var whenTemplate = document.querySelector('[data-inspector-cond="when"]');
+    var opTemplate = document.querySelector('[data-inspector-cond="op"]');
+    if (!whenTemplate || !opTemplate) { return; }
+    for (i = 1; i < conditions.length; i++) {
+      var built = buildConditionRow('cond', whenTemplate, opTemplate);
+      wireConditionRowEvents(built.row, 'cond', collectConditional);
+      wireRowRemove(built, collectConditional, function () { syncRulesGroupChrome(selectedNode()); });
+      if (addBtn && addBtn.parentNode === host) { host.insertBefore(built.row, addBtn); } else { host.appendChild(built.row); }
+      applyRowCondition(built.row, 'cond', conditions[i]);
+    }
+  }
+  function addRulesConditionRow() {
+    var host = document.querySelector('[data-rules-condition-fields]');
+    var addBtn = document.querySelector('[data-rules-add-row]');
+    var whenTemplate = document.querySelector('[data-inspector-cond="when"]');
+    var opTemplate = document.querySelector('[data-inspector-cond="op"]');
+    if (!host || !whenTemplate || !opTemplate) { return; }
+    var built = buildConditionRow('cond', whenTemplate, opTemplate);
+    wireConditionRowEvents(built.row, 'cond', collectConditional);
+    wireRowRemove(built, collectConditional, function () { syncRulesGroupChrome(selectedNode()); });
+    if (addBtn && addBtn.parentNode === host) { host.insertBefore(built.row, addBtn); } else { host.appendChild(built.row); }
+    syncRulesGroupChrome(selectedNode());
+  }
   function populateConditional(node) {
     var whenSel = document.querySelector('[data-inspector-cond="when"]');
     var opSel = document.querySelector('[data-inspector-cond="op"]');
@@ -9013,10 +9556,20 @@ export const SECTION_STUDIO_SCRIPT = `
     var emptyHint = document.querySelector('[data-rules-source-empty-hint]');
     if (emptyHint) { emptyHint.hidden = eligible > 0; }
     whenSel.hidden = eligible === 0;
-    var cond = (node && node.conditional) ? node.conditional : null;
+    // Round-4 P2c: row 0 shows conditions[0] of a composed group.
+    var stored = (node && node.conditional) ? node.conditional : null;
+    var cond = (stored && stored.conditions && stored.conditions.length > 0) ? stored.conditions[0] : stored;
     whenSel.value = (cond && cond.when) ? cond.when : '';
     opSel.value = (cond && cond.op) ? cond.op : 'eq';
     updateCondValueInputs(node);
+    // Round-4 P2c: the group-row DOM sync (hydrateRulesExtraRows/
+    // syncRulesGroupChrome) is DELIBERATELY NOT called from here —
+    // populateConditional is individually vm-probe-sliced (register R4a
+    // S3-1) with a bespoke sandbox whose document stub has NEITHER
+    // querySelectorAll NOR these new functions; calling them here would
+    // throw under that probe. The real call site (populateInspector, never
+    // probe-sliced) invokes them itself, immediately after
+    // populateConditional(node) — see there.
   }
   function collectConditional() {
     var node = selectedNode();
@@ -9033,10 +9586,26 @@ export const SECTION_STUDIO_SCRIPT = `
       from: readCond('from'),
       to: readCond('to')
     };
-    var cond = buildConditional(whenVal, op, parts, info.type);
-    if (cond === null) { delete node.conditional; } else { node.conditional = cond; }
+    var primary = buildConditional(whenVal, op, parts, info.type);
+    var conditions = [];
+    if (primary !== null) { conditions.push(primary); }
+    // Round-4 P2c (A-4 authoring): extra rows beyond the primary — added by
+    // "+ Add condition" — each carries its OWN scoped when/op/value*
+    // pickers under [data-cond-extra-row]; an incomplete extra row (no
+    // 'when' picked yet) is silently dropped, never a placeholder.
+    var extras = rulesExtraRows();
+    var i, c;
+    for (i = 0; i < extras.length; i++) {
+      c = readRowCondition(extras[i], 'cond');
+      if (c !== null) { conditions.push(c); }
+    }
+    if (conditions.length === 0) { delete node.conditional; }
+    else if (conditions.length === 1) { node.conditional = conditions[0]; }
+    else { node.conditional = { match: currentMatchValue('[data-rules-match-group]', 'data-set-rules-match'), conditions: conditions }; }
     updateCondValueInputs(node);
+    for (i = 0; i < extras.length; i++) { applyRowCondition(extras[i], 'cond'); }
     renderConditionSentences(node);
+    syncRulesGroupChrome(node);
     afterModelChange();
   }
 
@@ -9071,7 +9640,10 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!whenSel || !opSel) { return; }
     var op = opSel.value || 'eq';
     var info = refFieldInfo(whenSel.value);
-    var cond = nodeRequiredWhen(node) || {};
+    // Round-4 P2c: row 0 always reflects conditions[0] of a composed group
+    // (the SAME structural discriminator the save-gate/evaluators use).
+    var stored = nodeRequiredWhen(node) || {};
+    var cond = (stored.conditions && stored.conditions.length > 0) ? stored.conditions[0] : stored;
     var isRange = op === 'range';
     var isList = op === 'in' || op === 'not_in';
     var scalarKind = 'text';
@@ -9108,6 +9680,52 @@ export const SECTION_STUDIO_SCRIPT = `
       valuesIn.value = (cond.values && cond.values.length) ? cond.values.join(', ') : '';
     }
   }
+  // Round-4 P2c — extra-row lifecycle for the Require-if surface.
+  function reqCondExtraRows() {
+    var host = document.querySelector('[data-reqcond-wrap]');
+    return host ? host.querySelectorAll('[data-reqcond-extra-row]') : [];
+  }
+  function syncReqCondGroupChrome(node) {
+    var total = 1 + reqCondExtraRows().length;
+    var matchGroup = document.querySelector('[data-reqcond-match-group]');
+    if (matchGroup) { matchGroup.hidden = total < 2; }
+    var stored = nodeRequiredWhen(node);
+    if (matchGroup && stored && stored.conditions) {
+      setMatchActive('[data-reqcond-match-group]', 'data-set-reqcond-match', stored.match === 'any' ? 'any' : 'all');
+    }
+  }
+  function hydrateReqCondExtraRows(node) {
+    var host = document.querySelector('[data-reqcond-wrap]');
+    if (!host) { return; }
+    var addBtn = document.querySelector('[data-reqcond-add-row]');
+    var existing = host.querySelectorAll('[data-reqcond-extra-row]');
+    var i;
+    for (i = 0; i < existing.length; i++) { existing[i].parentNode.removeChild(existing[i]); }
+    var stored = nodeRequiredWhen(node);
+    var conditions = (stored && stored.conditions) ? stored.conditions : [];
+    var whenTemplate = document.querySelector('[data-inspector-reqcond="when"]');
+    var opTemplate = document.querySelector('[data-inspector-reqcond="op"]');
+    if (!whenTemplate || !opTemplate) { return; }
+    for (i = 1; i < conditions.length; i++) {
+      var built = buildConditionRow('reqcond', whenTemplate, opTemplate);
+      wireConditionRowEvents(built.row, 'reqcond', collectRequiredWhen);
+      wireRowRemove(built, collectRequiredWhen, function () { syncReqCondGroupChrome(selectedNode()); });
+      if (addBtn && addBtn.parentNode === host) { host.insertBefore(built.row, addBtn); } else { host.appendChild(built.row); }
+      applyRowCondition(built.row, 'reqcond', conditions[i]);
+    }
+  }
+  function addReqCondConditionRow() {
+    var host = document.querySelector('[data-reqcond-wrap]');
+    var addBtn = document.querySelector('[data-reqcond-add-row]');
+    var whenTemplate = document.querySelector('[data-inspector-reqcond="when"]');
+    var opTemplate = document.querySelector('[data-inspector-reqcond="op"]');
+    if (!host || !whenTemplate || !opTemplate) { return; }
+    var built = buildConditionRow('reqcond', whenTemplate, opTemplate);
+    wireConditionRowEvents(built.row, 'reqcond', collectRequiredWhen);
+    wireRowRemove(built, collectRequiredWhen, function () { syncReqCondGroupChrome(selectedNode()); });
+    if (addBtn && addBtn.parentNode === host) { host.insertBefore(built.row, addBtn); } else { host.appendChild(built.row); }
+    syncReqCondGroupChrome(selectedNode());
+  }
   function populateRequiredWhen(node) {
     var wrap = document.querySelector('[data-reqcond-wrap]');
     var meta = node ? typeMeta(node.type) : {};
@@ -9138,11 +9756,15 @@ export const SECTION_STUDIO_SCRIPT = `
     var reqEmptyHint = document.querySelector('[data-reqcond-source-empty-hint]');
     if (reqEmptyHint) { reqEmptyHint.hidden = eligible > 0; }
     whenSel.hidden = eligible === 0;
-    var cond = nodeRequiredWhen(node);
+    // Round-4 P2c: row 0 shows conditions[0] of a composed group.
+    var stored = nodeRequiredWhen(node);
+    var cond = (stored && stored.conditions && stored.conditions.length > 0) ? stored.conditions[0] : stored;
     whenSel.value = (cond && cond.when) ? cond.when : '';
     opSel.value = (cond && cond.op) ? cond.op : 'eq';
     updateReqCondValueInputs(node);
     renderConditionSentences(node);
+    hydrateReqCondExtraRows(node);
+    syncReqCondGroupChrome(node);
   }
   function collectRequiredWhen() {
     var node = selectedNode();
@@ -9159,9 +9781,54 @@ export const SECTION_STUDIO_SCRIPT = `
       from: readReqCond('from'),
       to: readReqCond('to')
     };
-    var cond = buildConditional(whenVal, op, parts, info.type);
+    var primary = buildConditional(whenVal, op, parts, info.type);
+    var conditions = [];
+    if (primary !== null) { conditions.push(primary); }
+    // Round-4 P2c (A-4 authoring): extra rows beyond the primary — added by
+    // "+ Add condition" — each row's own when/op/value* pickers share the
+    // SAME data-inspector-reqcond attribute names as row 0, read DIRECTLY
+    // off the row element (never document.querySelector, which always
+    // resolves to row 0). INLINED, not the shared readRowCondition engine
+    // helper — collectRequiredWhen is individually vm-probe-sliced (its own
+    // isolated bundle carries no dependency beyond what its own test
+    // lists), so a call to a function outside that bundle would throw
+    // ReferenceError under the probe; every row-visibility refresh already
+    // happens in the row's OWN wired input/change handler
+    // (wireConditionRowEvents), so nothing further is needed here.
+    var extraRows = document.querySelectorAll('[data-reqcond-extra-row]');
+    var i, rowWhenSel, rowOpSel, rowInfo, rowOp, rowScalarKey, rowScalarEl, rowValuesEl, rowFromEl, rowToEl, rowParts, rowCond;
+    for (i = 0; i < extraRows.length; i++) {
+      rowWhenSel = extraRows[i].querySelector('[data-inspector-reqcond="when"]');
+      rowOpSel = extraRows[i].querySelector('[data-inspector-reqcond="op"]');
+      if (!rowWhenSel || !rowOpSel) { continue; }
+      rowOp = rowOpSel.value || 'eq';
+      rowInfo = refFieldInfo(trimStr(rowWhenSel.value));
+      rowScalarEl = null;
+      if (rowOp !== 'range' && rowOp !== 'in' && rowOp !== 'not_in') {
+        rowScalarKey = rowInfo.type === 'boolean' ? 'value-bool' : ((rowInfo.choices && (rowOp === 'eq' || rowOp === 'neq')) ? 'value-enum' : 'value');
+        rowScalarEl = extraRows[i].querySelector('[data-inspector-reqcond="' + rowScalarKey + '"]');
+      }
+      rowValuesEl = extraRows[i].querySelector('[data-inspector-reqcond="values"]');
+      rowFromEl = extraRows[i].querySelector('[data-inspector-reqcond="from"]');
+      rowToEl = extraRows[i].querySelector('[data-inspector-reqcond="to"]');
+      rowParts = {
+        value: rowScalarEl ? rowScalarEl.value : '',
+        values: rowValuesEl ? rowValuesEl.value : '',
+        from: rowFromEl ? rowFromEl.value : '',
+        to: rowToEl ? rowToEl.value : ''
+      };
+      rowCond = buildConditional(trimStr(rowWhenSel.value), rowOp, rowParts, rowInfo.type);
+      if (rowCond !== null) { conditions.push(rowCond); }
+    }
     var props = ensureObj(node, 'props');
-    if (cond === null) { delete props.requiredWhen; } else { props.requiredWhen = cond; }
+    if (conditions.length === 0) { delete props.requiredWhen; }
+    else if (conditions.length === 1) { props.requiredWhen = conditions[0]; }
+    else {
+      var matchGroup = document.querySelector('[data-reqcond-match-group]');
+      var activeMatch = matchGroup ? matchGroup.querySelector('.active') : null;
+      var matchVal = (activeMatch && activeMatch.getAttribute('data-set-reqcond-match') === 'any') ? 'any' : 'all';
+      props.requiredWhen = { match: matchVal, conditions: conditions };
+    }
     cleanupEmpty(node, 'props');
     updateReqCondValueInputs(node);
     renderConditionSentences(node);
@@ -9207,11 +9874,36 @@ export const SECTION_STUDIO_SCRIPT = `
     // PC-12: the SAME human-name map every "when" picker option uses, so the
     // rendered sentence never disagrees with the dropdown that authored it.
     var fieldLabels = sectionFieldLabels(internalFieldsOf(), currentHeadlineText());
+    // Round-4 P2c (A-4 authoring): a composed group ({match,conditions[]})
+    // joins each leaf's own clause with AND/OR, the prefix spoken ONCE.
+    // conditionSentence('', leaf, ...) always returns ' when <clause>' (see
+    // its own body — every branch returns prefix + ' when ' + ...), so
+    // stripping that fixed 6-char lead isolates just the clause.
+    // conditionSentence itself is UNCHANGED (this function stays self-
+    // contained for its own vm-probe slice — see its header comment).
     if (showEl) {
-      showEl.textContent = (cond && cond.when) ? conditionSentence('Show this question', cond, fieldLabels[cond.when], refFieldInfo(cond.when)) : 'Always shown.';
+      if (cond && cond.conditions && cond.conditions.length > 0) {
+        var showClauses = [], si, sleaf, sfull;
+        for (si = 0; si < cond.conditions.length; si++) {
+          sleaf = cond.conditions[si];
+          sfull = conditionSentence('', sleaf, fieldLabels[sleaf.when], refFieldInfo(sleaf.when));
+          showClauses.push(sfull.indexOf(' when ') === 0 ? sfull.slice(6) : sfull);
+        }
+        showEl.textContent = 'Show this question when ' + showClauses.join(cond.match === 'any' ? ' OR ' : ' AND ');
+      } else {
+        showEl.textContent = (cond && cond.when) ? conditionSentence('Show this question', cond, fieldLabels[cond.when], refFieldInfo(cond.when)) : 'Always shown.';
+      }
     }
     if (reqEl) {
-      if (rw && rw.when) { reqEl.textContent = conditionSentence('Require this question', rw, fieldLabels[rw.when], refFieldInfo(rw.when)); }
+      if (rw && rw.conditions && rw.conditions.length > 0) {
+        var reqClauses = [], ri, rleaf, rfull;
+        for (ri = 0; ri < rw.conditions.length; ri++) {
+          rleaf = rw.conditions[ri];
+          rfull = conditionSentence('', rleaf, fieldLabels[rleaf.when], refFieldInfo(rleaf.when));
+          reqClauses.push(rfull.indexOf(' when ') === 0 ? rfull.slice(6) : rfull);
+        }
+        reqEl.textContent = 'Require this question when ' + reqClauses.join(rw.match === 'any' ? ' OR ' : ' AND ');
+      } else if (rw && rw.when) { reqEl.textContent = conditionSentence('Require this question', rw, fieldLabels[rw.when], refFieldInfo(rw.when)); }
       else if (node && node.required === true) { reqEl.textContent = 'This question is always required (Validation tab).'; }
       else { reqEl.textContent = 'No requirement condition \\u2014 add one below.'; }
     }
@@ -12029,6 +12721,22 @@ export const SECTION_STUDIO_SCRIPT = `
       if (node) { setAcceptFormat(node, this.value); populateInspector(); applyCanvasDecoration(); }
     });
   }
+  // Round-4 P2c (A-6b studio surface): the phone-format preset select +
+  // custom regex/message inputs.
+  var phoneFormatPresetEl = document.querySelector('[data-phone-format-preset]');
+  if (phoneFormatPresetEl) {
+    phoneFormatPresetEl.addEventListener('change', function () {
+      collectPhoneFormat();
+      var node = selectedNode();
+      populatePhoneFormatControls(node);
+    });
+  }
+  var phoneFormatFieldEls = document.querySelectorAll('[data-phone-format-field]');
+  var pfi;
+  for (pfi = 0; pfi < phoneFormatFieldEls.length; pfi++) {
+    phoneFormatFieldEls[pfi].addEventListener('input', collectPhoneFormat);
+    phoneFormatFieldEls[pfi].addEventListener('change', collectPhoneFormat);
+  }
   var contentModeEls = document.querySelectorAll('[data-set-continue-mode]');
   var cmi;
   for (cmi = 0; cmi < contentModeEls.length; cmi++) {
@@ -12064,6 +12772,8 @@ export const SECTION_STUDIO_SCRIPT = `
       if (node) { delete node.conditional; }
       rulesFieldsRevealed = false;
       populateConditional(node);
+      hydrateRulesExtraRows(node);
+      syncRulesGroupChrome(node);
       renderConditionSentences(node);
       renderRulesFieldsVisibility(false);
       afterModelChange();
@@ -12112,6 +12822,36 @@ export const SECTION_STUDIO_SCRIPT = `
     continueCondEls[cce].addEventListener('input', collectContinueVisibility);
     continueCondEls[cce].addEventListener('change', collectContinueVisibility);
   }
+
+  // Round-4 P2c (A-4 authoring) — the ANY/ALL group builder's NEW controls:
+  // the "+ Add condition" row-appender (one per surface) and the ANY/ALL
+  // segmented toggle (mirrors the existing populateImageBlockControls
+  // className idiom: the clicked button's OWN attribute value decides which
+  // sibling gets 'active').
+  var rulesAddRowBtn = document.querySelector('[data-rules-add-row]');
+  if (rulesAddRowBtn) { rulesAddRowBtn.addEventListener('click', addRulesConditionRow); }
+  var reqCondAddRowBtn = document.querySelector('[data-reqcond-add-row]');
+  if (reqCondAddRowBtn) { reqCondAddRowBtn.addEventListener('click', addReqCondConditionRow); }
+  var continueCondAddRowBtn = document.querySelector('[data-continuecond-add-row]');
+  if (continueCondAddRowBtn) { continueCondAddRowBtn.addEventListener('click', addContinueConditionRow); }
+  function wireMatchToggle(selector, attrName, collectFn) {
+    var group = document.querySelector(selector);
+    if (!group) { return; }
+    var btns = group.querySelectorAll('button');
+    var i;
+    for (i = 0; i < btns.length; i++) {
+      btns[i].addEventListener('click', function () {
+        var chosen = this.getAttribute(attrName);
+        var j;
+        for (j = 0; j < btns.length; j++) { btns[j].className = btns[j].getAttribute(attrName) === chosen ? 'active' : ''; }
+        collectFn();
+      });
+    }
+  }
+  wireMatchToggle('[data-rules-match-group]', 'data-set-rules-match', collectConditional);
+  wireMatchToggle('[data-reqcond-match-group]', 'data-set-reqcond-match', collectRequiredWhen);
+  wireMatchToggle('[data-continuecond-match-group]', 'data-set-continuecond-match', collectContinueVisibility);
+
   // §5.5 (FIX 8a/8b): the typed default controls.
   var defaultEls = document.querySelectorAll('[data-default-control]');
   var dce;
