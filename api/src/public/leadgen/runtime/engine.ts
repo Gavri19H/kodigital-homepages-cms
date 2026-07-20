@@ -903,14 +903,14 @@ export class LgEngine {
     // after validation; multi-question sections require Continue regardless.
     // Round-4 P3a: auto-advance is authorable ONLY for single-SECTION pages
     // (a multi-slot page must always be walked via Continue, even when its
-    // current section itself would otherwise qualify) — isSingleSectionPage
-    // is a no-op true when planMeta is null (legacy: every section IS its
-    // own page).
+    // current section itself would otherwise qualify) — pageIndicesFor(...)
+    // .length<=1 is a no-op true when planMeta is null (legacy: every
+    // section IS its own page).
     if (
       section !== null &&
       section.continue_mode === "auto_advance" &&
       !multi &&
-      this.isSingleSectionPage(section.section_public_id)
+      this.pageIndicesFor(section.section_public_id).length <= 1
     ) {
       const deps = this.dependencyState(section);
       const interactive = section.components.filter(
@@ -947,10 +947,6 @@ export class LgEngine {
   private currentPageIndices(): number[] {
     const indices = this.pageIndicesFor(this.currentSection()?.section_public_id ?? "");
     return indices.length > 0 ? indices : [this.si];
-  }
-
-  private isSingleSectionPage(sectionId: string): boolean {
-    return this.pageIndicesFor(sectionId).length <= 1;
   }
 
   private handleInputEvent(target: Element): void {
