@@ -2879,6 +2879,16 @@ export interface ComposedVariantPreviewInput {
   // composedVariantPreviewResponse (its async caller) resolves the id and
   // fetches the record. Absent/null = today's behavior unchanged.
   themeRecord?: ThemeRecord | null;
+  // Round-4 P5b (10B admin leg, conductor-granted): threads renderQuoteFrame's
+  // adminPreview flag (frame.ts renderNoLogoHint — the admin-preview-only
+  // no-logo hint, [data-admin-preview-hint="1"]). Defaults to false/absent so
+  // this function's OTHER caller — test/leadgen-preview-runtime-parity-v25
+  // .test.ts's direct, mode-less call proving renderComposedVariantPreview's
+  // html is BYTE-IDENTICAL to the live /lg serve path — is unaffected (the
+  // live serve never sets adminPreview, so parity only holds when this also
+  // defaults off). ONLY composedVariantPreviewResponse (the REAL admin
+  // builder/Templates preview route) opts in.
+  adminPreview?: boolean;
 }
 
 export interface ComposedVariantPreview {
@@ -3059,6 +3069,13 @@ export function renderComposedVariantPreview(
       effectiveTokens: composition.effectiveTokens,
       frame: composition.frame,
       siteBranding: input.siteBranding ?? null,
+      // Round-4 P5b (10B admin leg, conductor-granted): the no-logo hint
+      // (frame.ts renderNoLogoHint, [data-admin-preview-hint="1"]) is gated
+      // behind adminPreview — PASSED THROUGH from the caller (see
+      // ComposedVariantPreviewInput.adminPreview's doc comment), never
+      // hardcoded, so this function's OTHER caller (the byte-parity test)
+      // keeps its live-serve-identical contract when it omits the flag.
+      adminPreview: input.adminPreview === true,
       sectionsHtml,
       bannersMountHtml: LG_BANNERS_MOUNT_HTML,
       sectionCount: input.sections.length,
@@ -3360,6 +3377,10 @@ async function composedVariantPreviewResponse(
     draftFrameOverrides,
     page,
     themeRecord,
+    // Round-4 P5b (10B admin leg, conductor-granted): this IS the real admin
+    // builder/Templates preview route — the one caller that should show the
+    // no-logo hint (see ComposedVariantPreviewInput.adminPreview's comment).
+    adminPreview: true,
   });
   // With `mode` set the renderer never yields null (legacy funnels compose
   // through the pinned legacy shell) — this guard is type narrowing only.

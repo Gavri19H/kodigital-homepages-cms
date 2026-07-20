@@ -274,6 +274,13 @@ test.describe.serial("LeadGen v2.5 Quote Builder frame studio — §15.3 rows", 
     await expect(page.locator("#lg-theme-editor")).toBeVisible();
     await page.locator('select[data-theme-key="scales.radius"]').selectOption("round");
 
+    // Round-4 P5b DELIBERATE RE-PIN (conductor-granted, mandated IA change):
+    // "Theme" is now a top-level tab (the operator restructure spec), so
+    // #lg-theme-btn navigates away from the Funnel builder tab instead of
+    // toggling an inline panel over the SAME always-visible canvas. Re-
+    // activate the builder tab before the next canvas interaction.
+    await page.locator('.lg-qtab[data-tab="builder"]').click();
+
     // OVERRIDE edit (this arm): progress inspector → style percent (the
     // stored dots override + the checked override switch come from the seed)
     await canvas(page).locator("[data-frame-region='progress']").first().click();

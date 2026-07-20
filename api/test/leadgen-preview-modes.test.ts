@@ -370,7 +370,11 @@ describeDb("preview modes — POST /variants/:id/preview (13 §13.4)", () => {
         )
         .all(variant.id) as unknown[]
     ) as LeadgenSectionRow[];
-    const direct = renderComposedVariantPreview({ quote, funnel, variant, sections });
+    // Round-4 P5b (10B admin leg, conductor-granted): postPreview hits the
+    // REAL composedVariantPreviewResponse route, which now always passes
+    // adminPreview:true (the admin-preview-only no-logo hint) — the
+    // reference call must match it for this byte-parity assertion to hold.
+    const direct = renderComposedVariantPreview({ quote, funnel, variant, sections, adminPreview: true });
     expect(direct).not.toBeNull();
     expect(body.preview.html).toBe(direct!.html);
     expect(body.preview.css).toBe(direct!.css);

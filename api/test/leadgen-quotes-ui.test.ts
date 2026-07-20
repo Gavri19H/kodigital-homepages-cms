@@ -194,7 +194,7 @@ async function editorHtmlWithContent(): Promise<{ html: string; env: Env; varian
   return { html, env, variantId, quotePublicId: q.public_id };
 }
 
-describeDb("Quotes editor — the four sub-tabs (03 §9.4 / 06 §15–§17)", () => {
+describeDb("Quotes editor — the six sub-tabs (03 §9.4 / 06 §15–§17)", () => {
   // v2.5 B2 ADJUSTED: the head "Preview" button (`lg-variant-preview`) is
   // gone — the §4.1 frame canvas IS the preview (an always-on srcdoc iframe,
   // same id + sandbox contract as before).
@@ -203,10 +203,18 @@ describeDb("Quotes editor — the four sub-tabs (03 §9.4 / 06 §15–§17)", ()
   // the standalone "Rules" top tab is REMOVED — routing rules now live
   // INSIDE the Funnel builder tab's right column (ui-quotes.ts
   // renderInspectorColumn -> renderRulesPanel -> ui-rules-builder.ts
-  // renderRoutingRulesPanel). Four tabs remain (builder/ab/activation/
-  // analytics); the rules experience is proven embedded via its unified
-  // panel's root marker (id="lg-routing-rules-root") instead.
-  it("renders the four remaining editor sub-tabs + Save + the frame canvas; the rules experience is embedded in the builder panel", async () => {
+  // renderRoutingRulesPanel); the rules experience is proven embedded via
+  // its unified panel's root marker (id="lg-routing-rules-root") instead.
+  //
+  // Round-4 P5b DELIBERATE RE-PIN (conductor-granted, operator restructure):
+  // "Templates" and "Themes" are promoted to top-level tabs (ui-quotes.ts
+  // renderTemplatesTabPanel / renderThemesTabPanel), inserted between
+  // Funnel builder and A/B. Six tabs remain (builder/templates/themes/ab/
+  // activation/analytics); this test asserts the four the assertions below
+  // have always covered — templates/themes are proven by test-ui/__p5b-
+  // quotes-ia.spec.ts instead (this file's assertions stay untouched, only
+  // this comment + the two titles change).
+  it("renders the (four of six) editor sub-tabs it covers + Save + the frame canvas; the rules experience is embedded in the builder panel", async () => {
     const { html } = await editorHtmlWithContent();
     for (const tab of ["builder", "ab", "activation", "analytics"]) {
       expect(html, `tab ${tab}`).toContain(`data-tab="${tab}"`);
