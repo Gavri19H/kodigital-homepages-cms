@@ -1,0 +1,1047 @@
+// LeadGen Round-4 P4a (D-2, operator decision, reference-faithful funnel
+// routing) — contract-delta coverage over REAL sqlite (node:sqlite harness,
+// the leadgen-runtime-api.test.ts / leadgen-p3a-pages.test.ts pattern):
+//   * pure routing-model functions (resolver.ts): entry-known field
+//     classification (utm_campaign alias), priority ordering, entry-only vs
+//     checkpoint-plane partitioning, auto-CHECKPOINT derivation (answer-field
+//     page mapping) incl. entry-only rules producing NO checkpoint page,
+//     save-time conflict flagging, the prefix-rule resume computation;
+//   * DB-integration: entry routing precedence over §16 A/B (a RUNNING test
+//     that would otherwise bucket a visitor elsewhere is bypassed by a
+//     matched entry rule);
+//   * the full /lg/checkpoint HTTP endpoint: a matched switch (re-issued
+//     binding + target plan + resume), a non-match (zero effects), the ≤1-hop
+//     guard (a second checkpoint POST on the same attempt after a switch is
+//     refused), and binding validation (a forged/tampered signed_config_token
+//     is rejected 422 with ZERO effects — no outcome row written, no rule
+//     evaluated);
+//   * §19-step-4 plane reconciliation: a target variant's OWN non-routing
+//     leadgen_funnel_rules are a DISTINCT set from the origin's, keyed by
+//     whichever funnel_variant_id resolveActivatedFunnelByVariant resolves —
+//     proving the (untouched) /lg/auction pipeline naturally evaluates the
+//     TARGET's rules once the engine re-points funnel_variant_id post-switch;
+//   * the S2S value_multiplier graft (s2s-dispatch.ts): a recorded routing
+//     outcome's multiplier REPLACES the platform base (no stacking); no
+//     outcome (or a NULL recorded multiplier) falls back to the base.
+
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import app from "../src/index";
+import admin from "../src/admin/router";
+import type { Env } from "../src/env";
+import { mintPublicId } from "../src/leadgen/ids";
+import {
+  ROUTING_ENTRY_KNOWN_FIELDS,
+  parseRoutingRule,
+  evaluateEntryRouting,
+  evaluateCheckpointRouting,
+  deriveCheckpointPages,
+  checkpointPageAnchors,
+  detectRoutingRuleConflicts,
+  computeResumeSection,
+  resolveActivatedFunnel,
+  resolveActivatedFunnelByVariant,
+  type RoutingRuleRow,
+  type EntryKnownContext,
+  type ResolvedFunnelPage,
+  type ResolvedPagePlanEntry,
+} from "../src/public/leadgen/resolver";
+import { mintFunnelAttempt, verifyConfigTokenDetailed, type ConfigTokenTuple } from "../src/public/leadgen/attempt";
+import { computeSectionOrderHash } from "../src/public/leadgen/config-dto";
+import {
+  dispatchMatchedConversionS2S,
+  resolveRoutingMultiplier,
+  type S2SClickContext,
+  type S2SRevenueContext,
+} from "../src/leadgen/s2s-dispatch";
+
+// --- node:sqlite harness (repo pattern, mirrors leadgen-p3a-pages.test.ts) --
+
+type SqliteStatement = {
+  run(...params: unknown[]): unknown;
+  get(...params: unknown[]): unknown;
+  all(...params: unknown[]): unknown[];
+};
+type SqliteDb = {
+  prepare(sql: string): SqliteStatement;
+  close(): void;
+  [method: string]: unknown;
+};
+type DatabaseSyncCtor = new (path: string) => SqliteDb;
+
+function loadDatabaseSync(): DatabaseSyncCtor | null {
+  try {
+    const { createRequire } = require("node:module") as typeof import("node:module");
+    const nodeRequire = createRequire(import.meta.url);
+    const mod = nodeRequire("node:sqlite") as { DatabaseSync: DatabaseSyncCtor };
+    return mod.DatabaseSync;
+  } catch {
+    try {
+      const getBuiltin = (process as unknown as {
+        getBuiltinModule?: (name: string) => unknown;
+      }).getBuiltinModule;
+      if (typeof getBuiltin === "function") {
+        const mod = getBuiltin("node:sqlite") as { DatabaseSync: DatabaseSyncCtor };
+        return mod.DatabaseSync;
+      }
+    } catch {
+      /* fall through */
+    }
+    return null;
+  }
+}
+
+function runSql(sdb: SqliteDb, sql: string): void {
+  (sdb["exec"] as (s: string) => void)(sql);
+}
+
+function d1FromSqlite(sdb: SqliteDb): D1Database {
+  const db = {
+    prepare(sql: string) {
+      let binds: unknown[] = [];
+      const stmt = {
+        bind(...a: unknown[]) {
+          binds = a;
+          return stmt;
+        },
+        async first<T = unknown>(): Promise<T | null> {
+          const r = sdb.prepare(sql).get(...binds);
+          return (r ?? null) as T | null;
+        },
+        async all<T = unknown>() {
+          const rows = sdb.prepare(sql).all(...binds);
+          return { results: rows as T[], success: true, meta: {} };
+        },
+        async run() {
+          const r = sdb.prepare(sql).run(...binds) as {
+            changes?: number;
+            lastInsertRowid?: number | bigint;
+          };
+          return {
+            success: true,
+            meta: { changes: Number(r?.changes ?? 0), last_row_id: Number(r?.lastInsertRowid ?? 0) },
+          };
+        },
+      };
+      return stmt;
+    },
+    async batch(statements: Array<{ run(): Promise<unknown> }>) {
+      runSql(sdb, "BEGIN");
+      const results: unknown[] = [];
+      try {
+        for (const statement of statements) {
+          results.push(await statement.run());
+        }
+        runSql(sdb, "COMMIT");
+      } catch (err) {
+        runSql(sdb, "ROLLBACK");
+        throw err;
+      }
+      return results;
+    },
+  } as unknown as D1Database;
+  return db;
+}
+
+function makeKvStub(): KVNamespace {
+  const store = new Map<string, { value: string; metadata: unknown }>();
+  return {
+    async get(key: string): Promise<string | null> {
+      return store.has(key) ? store.get(key)!.value : null;
+    },
+    async getWithMetadata(key: string): Promise<{ value: string | null; metadata: unknown }> {
+      const e = store.get(key);
+      return e ? { value: e.value, metadata: e.metadata ?? null } : { value: null, metadata: null };
+    },
+    async put(key: string, value: string, opts?: { metadata?: unknown }): Promise<void> {
+      store.set(key, { value, metadata: opts?.metadata ?? null });
+    },
+    async delete(key: string): Promise<void> {
+      store.delete(key);
+    },
+    async list(): Promise<{ keys: Array<{ name: string }>; list_complete: boolean; cursor: string }> {
+      return { keys: [...store.keys()].map((name) => ({ name })), list_complete: true, cursor: "" };
+    },
+  } as unknown as KVNamespace;
+}
+
+const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+
+const LEADGEN_MIGRATIONS = [
+  "0036_leadgen_core.sql",
+  "0037_leadgen_analytics_mirror.sql",
+  "0038_leadgen_revenue_infra.sql",
+  "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
+  "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+] as const;
+
+const TENANT_HOST = "p4a.example.com";
+const TENANT_ORIGIN = `http://${TENANT_HOST}`;
+const CONFIG_SIGNING_KEY = "p4a-signing-key-test-only";
+
+function createDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
+  const sdb = new DatabaseSync(":memory:");
+  runSql(
+    sdb,
+    "CREATE TABLE sites (id TEXT PRIMARY KEY, name TEXT, domain TEXT, vertical_slug TEXT, status TEXT, content_version INTEGER DEFAULT 1, settings_version INTEGER DEFAULT 1);" +
+      "CREATE TABLE domains (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT, hostname TEXT, status TEXT);" +
+      "CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);" +
+      `INSERT INTO sites (id, name, domain, vertical_slug, status) VALUES ('site-1','Site One','${TENANT_HOST}','insurance','active');` +
+      `INSERT INTO domains (site_id, hostname, status) VALUES ('site-1','${TENANT_HOST}','active');`,
+  );
+  for (const file of LEADGEN_MIGRATIONS) {
+    runSql(sdb, readFileSync(join(TEST_DIR, "../migrations", file), "utf8"));
+  }
+  return sdb;
+}
+
+function buildEnv(db: D1Database, kv: KVNamespace): Env {
+  return {
+    DB: db,
+    CACHE: kv,
+    MEDIA: {} as R2Bucket,
+    APP_ENV: "test",
+    ADMIN_HOST: "cms.kodigital.app",
+    ADMIN_BASE_URL: "https://cms.kodigital.app",
+    ADMIN_BASE_PATH: "/admin",
+    CACHE_API_ENABLED: "false",
+    HTML_CACHE_TTL_SECONDS: "300",
+    OPENAI_TEXT_MODEL: "gpt-test",
+    OPENAI_IMAGE_MODEL: "img-test",
+    SITE_PROVISIONING_DRY_RUN: "true",
+    SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
+    DEV_BYPASS_AUTH: "true",
+    LEADGEN_CONFIG_SIGNING_KEY: CONFIG_SIGNING_KEY,
+  } as unknown as Env;
+}
+
+const DatabaseSync = loadDatabaseSync();
+const describeDb = DatabaseSync === null ? describe.skip : describe;
+
+const API = "/api/admin/leadgen";
+
+function jsonInit(method: string, body: unknown): RequestInit {
+  return { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
+}
+
+interface Harness {
+  sdb: SqliteDb;
+  env: Env;
+}
+
+function newHarness(): Harness {
+  const ctor = DatabaseSync as DatabaseSyncCtor;
+  const sdb = createDb(ctor);
+  return { sdb, env: buildEnv(d1FromSqlite(sdb), makeKvStub()) };
+}
+
+function seedSection(sdb: SqliteDb, name: string, opts?: { required?: boolean; field?: string }): { id: number; public_id: string } {
+  const publicId = mintPublicId("section");
+  const field = opts?.field ?? name;
+  const content = JSON.stringify({
+    components: [
+      {
+        type: "TwoButtonYesNo",
+        question_id: `q_${name}`,
+        question_key: name,
+        internal_field: field,
+        answer_type: "boolean",
+        ...(opts?.required === true ? { required: true } : {}),
+      },
+    ],
+  });
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, address_validation_enabled, status) VALUES (?, ?, 'quote_funnel', 'life', ?, ?, 'button', 0, 'active')",
+    )
+    .run(publicId, name, `Headline ${name}`, content);
+  const row = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(publicId) as { id: number };
+  return { id: row.id, public_id: publicId };
+}
+
+async function seedQuote(env: Env): Promise<{ quotePublicId: string; variantId: string; funnelId: string }> {
+  const createRes = await admin.request(
+    `${API}/quotes`,
+    jsonInit("POST", { quote_name: `P4a ${Date.now()}-${Math.random()}`, activity: "quote_funnel", verticals: ["life"] }),
+    env,
+  );
+  expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
+  const quote = (await createRes.json()) as {
+    public_id: string;
+    funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
+  };
+  return {
+    quotePublicId: quote.public_id,
+    variantId: quote.funnels[0]!.variants[0]!.public_id,
+    funnelId: quote.funnels[0]!.public_id,
+  };
+}
+
+async function activate(env: Env, quotePublicId: string): Promise<void> {
+  const actRes = await admin.request(`${API}/quotes/${quotePublicId}/activation/site-1`, jsonInit("PUT", { enabled: true }), env);
+  expect(actRes.status, `activate: ${await actRes.clone().text()}`).toBe(200);
+}
+
+async function post(env: Env, path: string, body: unknown): Promise<Response> {
+  return app.request(`${TENANT_ORIGIN}${path}`, jsonInit("POST", body), env);
+}
+async function get(env: Env, path: string): Promise<Response> {
+  return app.request(`${TENANT_ORIGIN}${path}`, {}, env);
+}
+
+// Raw-SQL rule seeding (bypasses the admin API deliberately — P4b, the
+// route_funnel_variant admin authoring surface, is a SEPARATE dispatch not
+// yet landed; FUNNEL_RULE_TYPES in quotes-handlers.ts does not accept this
+// rule_type yet, so a routing rule can only be seeded directly against the
+// 0043 schema for THIS slice's server-layer tests).
+function seedRoutingRule(
+  sdb: SqliteDb,
+  variantId: number,
+  opts: {
+    conditions: { groups: Array<{ field: string; op: string; value?: unknown; values?: unknown[]; from?: number; to?: number }> };
+    targetVariantId: number | null;
+    priority?: number;
+    multiplier?: number | null;
+    status?: string;
+    name?: string;
+  },
+): string {
+  const publicId = mintPublicId("funnel_rule");
+  const conditionsJson = JSON.stringify(opts.conditions);
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_rules
+         (public_id, variant_id, rule_type, conditions_json, conditions_hash, priority, status,
+          target_funnel_variant_id, value_multiplier, rule_name, enabled)
+       VALUES (?, ?, 'route_funnel_variant', ?, ?, ?, ?, ?, ?, ?, 1)`,
+    )
+    .run(
+      publicId,
+      variantId,
+      conditionsJson,
+      `hash_${publicId}`,
+      opts.priority ?? 100,
+      opts.status ?? "active",
+      opts.targetVariantId,
+      opts.multiplier ?? null,
+      opts.name ?? null,
+    );
+  return publicId;
+}
+
+function variantRowId(sdb: SqliteDb, variantPublicId: string): number {
+  return (sdb.prepare("SELECT id FROM leadgen_funnel_variants WHERE public_id = ?").get(variantPublicId) as { id: number }).id;
+}
+
+// A second variant of the SAME funnel, seeded directly (raw SQL — faster/more
+// controllable than the admin `/fork` endpoint for these DB-integration tests;
+// the Playwright spec exercises the REAL fork+pages-PUT admin flow instead).
+function seedSiblingVariant(sdb: SqliteDb, funnelRowId: number, label: string, isControl: boolean): string {
+  const publicId = mintPublicId("funnel_variant");
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label, is_control, traffic_allocation_bp, status, content_version) VALUES (?, ?, ?, ?, 10000, 'active', 1)",
+    )
+    .run(publicId, funnelRowId, label, isControl ? 1 : 0);
+  return publicId;
+}
+
+function attachSection(sdb: SqliteDb, variantId: number, sectionId: number, position: number): void {
+  sdb
+    .prepare("INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position) VALUES (?, ?, ?)")
+    .run(variantId, sectionId, position);
+}
+
+const BASE_CTX: EntryKnownContext = { hour: 12, weekday: 3 };
+
+// ===========================================================================
+// Pure routing-model functions (resolver.ts) — no DB
+// ===========================================================================
+
+describe("P4a field registry + rule parsing (pure)", () => {
+  it("ROUTING_ENTRY_KNOWN_FIELDS carries the closed entry-known set incl. the utm_campaign alias", () => {
+    expect([...ROUTING_ENTRY_KNOWN_FIELDS].sort()).toEqual(
+      ["device", "hour", "state", "utm_campaign", "utm_content", "utm_medium", "utm_source", "weekday"].sort(),
+    );
+    expect(ROUTING_ENTRY_KNOWN_FIELDS.has("age")).toBe(false); // an answer field, not entry-known
+  });
+
+  function row(overrides: Partial<RoutingRuleRow> = {}): RoutingRuleRow {
+    return {
+      public_id: "lgfr_x",
+      variant_id: 1,
+      conditions_json: JSON.stringify({ groups: [] }),
+      conditions_hash: "h",
+      target_funnel_variant_id: 2,
+      value_multiplier: null,
+      priority: 100,
+      status: "active",
+      ...overrides,
+    };
+  }
+
+  it("a rule whose conditions reference ONLY entry-known fields parses entry_only=true", () => {
+    const r = parseRoutingRule(row({ conditions_json: JSON.stringify({ groups: [{ field: "utm_source", op: "eq", value: "facebook" }] }) }));
+    expect(r.entry_only).toBe(true);
+  });
+
+  it("a rule referencing an answer field (e.g. age) parses entry_only=false", () => {
+    const r = parseRoutingRule(row({ conditions_json: JSON.stringify({ groups: [{ field: "age", op: "gte", value: 65 }] }) }));
+    expect(r.entry_only).toBe(false);
+  });
+
+  it("a rule with NO conditions (catch-all) parses entry_only=true", () => {
+    const r = parseRoutingRule(row({ conditions_json: JSON.stringify({ groups: [] }) }));
+    expect(r.entry_only).toBe(true);
+  });
+
+  it("a corrupt conditions_json blob degrades to an empty catch-all (D1 JSON-parse safety) — never throws", () => {
+    const r = parseRoutingRule(row({ conditions_json: "{not json" }));
+    expect(r.conditions.groups).toEqual([]);
+    expect(r.entry_only).toBe(true);
+  });
+});
+
+describe("P4a evaluateEntryRouting (pure)", () => {
+  it("priority ordering: TWO matching rules, the LOWER priority number (higher precedence) wins", () => {
+    const low = parseRoutingRule({
+      public_id: "r_low", variant_id: 1, conditions_json: JSON.stringify({ groups: [] }), conditions_hash: "hlow",
+      target_funnel_variant_id: 10, value_multiplier: null, priority: 5, status: "active",
+    });
+    const high = parseRoutingRule({
+      public_id: "r_high", variant_id: 1, conditions_json: JSON.stringify({ groups: [] }), conditions_hash: "hhigh",
+      target_funnel_variant_id: 20, value_multiplier: null, priority: 50, status: "active",
+    });
+    // loadRoutingRules ORDER BY priority ASC — simulate that ordering here.
+    const match = evaluateEntryRouting([low, high], BASE_CTX);
+    expect(match?.target_funnel_variant_id).toBe(10);
+    expect(match?.hash).toBe("hlow");
+    // Reversed input order — priority (not array order) must still decide.
+    const match2 = evaluateEntryRouting([high, low], BASE_CTX);
+    expect(match2?.target_funnel_variant_id).toBe(10);
+  });
+
+  it("no matching rule -> null (falls through to normal §16 A/B)", () => {
+    const rule = parseRoutingRule({
+      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }] }),
+      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 10, status: "active",
+    });
+    expect(evaluateEntryRouting([rule], { ...BASE_CTX, state: "NY" })).toBeNull();
+  });
+
+  it("a rule with a NULL target can never route (skipped even if its conditions match)", () => {
+    const rule = parseRoutingRule({
+      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [] }), conditions_hash: "h1",
+      target_funnel_variant_id: null, value_multiplier: null, priority: 1, status: "active",
+    });
+    expect(evaluateEntryRouting([rule], BASE_CTX)).toBeNull();
+  });
+
+  it("a CHECKPOINT-plane rule (answer field) never matches at the entry plane", () => {
+    const rule = parseRoutingRule({
+      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "age", op: "gte", value: 65 }] }),
+      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
+    });
+    expect(evaluateEntryRouting([rule], BASE_CTX)).toBeNull();
+  });
+
+  it("utm_campaign is a documented alias of utm_content — a rule authored on either name matches the SAME parsed value", () => {
+    const onCampaign = parseRoutingRule({
+      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "utm_campaign", op: "eq", value: "spring" }] }),
+      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
+    });
+    expect(evaluateEntryRouting([onCampaign], { ...BASE_CTX, utm_content: "spring" })?.target_funnel_variant_id).toBe(10);
+  });
+});
+
+describe("P4a evaluateCheckpointRouting (pure)", () => {
+  it("matches over answers UNION entry ctx (an AND across an entry field + an answer field)", () => {
+    const rule = parseRoutingRule({
+      public_id: "r1", variant_id: 1,
+      conditions_json: JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }, { field: "age", op: "gte", value: 65 }] }),
+      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: 2.5, priority: 1, status: "active",
+    });
+    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "CA" }, { age: 70 })?.target_funnel_variant_id).toBe(10);
+    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "NY" }, { age: 70 })).toBeNull(); // entry field fails
+    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "CA" }, { age: 10 })).toBeNull(); // answer field fails
+  });
+
+  it("an ENTRY-only rule never matches at the checkpoint plane (planes are disjoint)", () => {
+    const rule = parseRoutingRule({
+      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "utm_source", op: "eq", value: "fb" }] }),
+      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
+    });
+    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, utm_source: "fb" }, {})).toBeNull();
+  });
+
+  it("value_multiplier rides the match (single value, no stacking at the evaluator level)", () => {
+    const rule = parseRoutingRule({
+      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "age", op: "gte", value: 65 }] }),
+      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: 3, priority: 1, status: "active",
+    });
+    expect(evaluateCheckpointRouting([rule], BASE_CTX, { age: 70 })?.value_multiplier).toBe(3);
+  });
+});
+
+// A minimal 3-page ResolvedFunnelPage fixture (age question on page 0, a
+// middle marker on page 1, a final section on page 2) for the checkpoint-page
+// derivation + resume tests below.
+function threePageFixture(): { pages: ResolvedFunnelPage[]; ids: { age: string; mid: string; fin: string } } {
+  const ageSection = { id: 1, public_id: "lgs_age", content_json: JSON.stringify({ components: [{ type: "TextInput", question_id: "q_age", internal_field: "age", required: true }] }) } as never;
+  const midSection = { id: 2, public_id: "lgs_mid", content_json: JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q_mid", internal_field: "mid_field", required: true }] }) } as never;
+  const finSection = { id: 3, public_id: "lgs_fin", content_json: JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q_fin", internal_field: "fin_field" }] }) } as never;
+  const pages: ResolvedFunnelPage[] = [
+    { id: 1, public_id: "lgpg_0", position: 0, name: null, slots: [{ id: 1, position: 0, slot_revision: 0, rules: null, ab_allocations: null, candidates: [{ variant_section_id: 1, section: ageSection }] }] },
+    { id: 2, public_id: "lgpg_1", position: 1, name: null, slots: [{ id: 2, position: 0, slot_revision: 0, rules: null, ab_allocations: null, candidates: [{ variant_section_id: 2, section: midSection }] }] },
+    { id: 3, public_id: "lgpg_2", position: 2, name: null, slots: [{ id: 3, position: 0, slot_revision: 0, rules: null, ab_allocations: null, candidates: [{ variant_section_id: 3, section: finSection }] }] },
+  ];
+  return { pages, ids: { age: "lgs_age", mid: "lgs_mid", fin: "lgs_fin" } };
+}
+
+describe("P4a deriveCheckpointPages + checkpointPageAnchors (pure, answer-field page mapping)", () => {
+  it("a rule on `age` derives to page 0 (where `age` is answered) — anchor is lgs_age", () => {
+    const { pages } = threePageFixture();
+    const rule = parseRoutingRule({
+      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "age", op: "gte", value: 65 }] }),
+      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
+    });
+    const pageNumbers = deriveCheckpointPages(pages, [rule]);
+    expect(pageNumbers).toEqual([0]);
+    const planPages: ResolvedPagePlanEntry[] = [
+      { page_id: "lgpg_0", section_public_ids: ["lgs_age"] },
+      { page_id: "lgpg_1", section_public_ids: ["lgs_mid"] },
+      { page_id: "lgpg_2", section_public_ids: ["lgs_fin"] },
+    ];
+    expect(checkpointPageAnchors(pageNumbers, planPages)).toEqual(["lgs_age"]);
+  });
+
+  it("a rule on `mid_field` derives to page 1 (a LATER page than a rule on `age`)", () => {
+    const { pages } = threePageFixture();
+    const rule = parseRoutingRule({
+      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "mid_field", op: "eq", value: true }] }),
+      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
+    });
+    expect(deriveCheckpointPages(pages, [rule])).toEqual([1]);
+  });
+
+  it("an ENTRY-only rule contributes NO checkpoint page (it's evaluated at entry, not mid-funnel)", () => {
+    const { pages } = threePageFixture();
+    const rule = parseRoutingRule({
+      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }] }),
+      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
+    });
+    expect(deriveCheckpointPages(pages, [rule])).toEqual([]);
+  });
+
+  it("TWO checkpoint rules on DIFFERENT pages produce a DISTINCT, sorted set of pages", () => {
+    const { pages } = threePageFixture();
+    const onAge = parseRoutingRule({
+      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "age", op: "gte", value: 65 }] }),
+      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
+    });
+    const onMid = parseRoutingRule({
+      public_id: "r2", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "mid_field", op: "eq", value: true }] }),
+      conditions_hash: "h2", target_funnel_variant_id: 20, value_multiplier: null, priority: 1, status: "active",
+    });
+    expect(deriveCheckpointPages(pages, [onAge, onMid])).toEqual([0, 1]);
+  });
+
+  it("a rule referencing an answer field NOT present on any page falls back to the LAST page (never unevaluated)", () => {
+    const { pages } = threePageFixture();
+    const rule = parseRoutingRule({
+      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "no_such_field", op: "eq", value: 1 }] }),
+      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
+    });
+    expect(deriveCheckpointPages(pages, [rule])).toEqual([2]);
+  });
+
+  it("no checkpoint-plane rules at all -> empty (the common, non-routing-funnel case)", () => {
+    const { pages } = threePageFixture();
+    expect(deriveCheckpointPages(pages, [])).toEqual([]);
+  });
+});
+
+describe("P4a detectRoutingRuleConflicts (pure, save-time Problems mechanism)", () => {
+  it("SAME priority + SAME checkpoint (both entry) + OVERLAPPING fields -> a plain-language conflict message", () => {
+    const msgs = detectRoutingRuleConflicts([
+      { rule_name: "Facebook route", checkpoint_page: null, priority: 10, fields: ["utm_source"] },
+      { rule_name: "Google route", checkpoint_page: null, priority: 10, fields: ["utm_source", "state"] },
+    ]);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toContain("Facebook route");
+    expect(msgs[0]).toContain("Google route");
+    expect(msgs[0]?.toLowerCase()).not.toMatch(/error|exception|null|undefined/); // jargon-free
+  });
+
+  it("a DISTINCT priority resolves the order deterministically -> NO conflict", () => {
+    const msgs = detectRoutingRuleConflicts([
+      { rule_name: "A", checkpoint_page: null, priority: 1, fields: ["utm_source"] },
+      { rule_name: "B", checkpoint_page: null, priority: 2, fields: ["utm_source"] },
+    ]);
+    expect(msgs).toHaveLength(0);
+  });
+
+  it("the SAME priority at DIFFERENT checkpoints never race (different evaluation points) -> NO conflict", () => {
+    const msgs = detectRoutingRuleConflicts([
+      { rule_name: "A", checkpoint_page: 0, priority: 5, fields: ["age"] },
+      { rule_name: "B", checkpoint_page: 1, priority: 5, fields: ["age"] },
+    ]);
+    expect(msgs).toHaveLength(0);
+  });
+
+  it("the SAME priority + checkpoint but NO overlapping fields -> NO conflict", () => {
+    const msgs = detectRoutingRuleConflicts([
+      { rule_name: "A", checkpoint_page: 0, priority: 5, fields: ["age"] },
+      { rule_name: "B", checkpoint_page: 0, priority: 5, fields: ["homeowner"] },
+    ]);
+    expect(msgs).toHaveLength(0);
+  });
+});
+
+describe("P4a computeResumeSection (pure, prefix-rule resume)", () => {
+  it("the FIRST page with an unanswered required field is the resume point", () => {
+    const { pages } = threePageFixture();
+    const winners = [
+      { page_id: "lgpg_0", slot_id: 1, section_public_id: "lgs_age", assignment_reason: "fixed" as const },
+      { page_id: "lgpg_1", slot_id: 2, section_public_id: "lgs_mid", assignment_reason: "fixed" as const },
+      { page_id: "lgpg_2", slot_id: 3, section_public_id: "lgs_fin", assignment_reason: "fixed" as const },
+    ];
+    // age answered (carried over), mid_field NOT answered -> resume at lgs_mid.
+    expect(computeResumeSection(winners, pages, { age: 70 })).toBe("lgs_mid");
+  });
+
+  it("EVERY required field already satisfied -> \"\" (straight to auction, never a question repeat)", () => {
+    const { pages } = threePageFixture();
+    const winners = [
+      { page_id: "lgpg_0", slot_id: 1, section_public_id: "lgs_age", assignment_reason: "fixed" as const },
+      { page_id: "lgpg_1", slot_id: 2, section_public_id: "lgs_mid", assignment_reason: "fixed" as const },
+    ];
+    expect(computeResumeSection(winners, pages, { age: 70, mid_field: true })).toBe("");
+  });
+
+  it("a target plan with NO required fields anywhere -> \"\" immediately", () => {
+    const { pages } = threePageFixture();
+    const winners = [{ page_id: "lgpg_2", slot_id: 3, section_public_id: "lgs_fin", assignment_reason: "fixed" as const }];
+    expect(computeResumeSection(winners, pages, {})).toBe(""); // fin_field is NOT required
+  });
+});
+
+// ===========================================================================
+// DB integration — entry routing precedence over §16 A/B
+// ===========================================================================
+
+describeDb("P4a entry routing — DB integration (precedence over A/B)", () => {
+  it("a matched ENTRY rule serves its target variant EVEN WITH a running A/B test that would otherwise bucket elsewhere", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId, funnelId } = await seedQuote(env);
+    const controlRowId = variantRowId(sdb, variantId);
+    const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(funnelId) as { id: number }).id;
+    const targetPublicId = seedSiblingVariant(sdb, funnelRowId, "B", false);
+    const targetRowId = variantRowId(sdb, targetPublicId);
+
+    // A RUNNING A/B test spanning BOTH variants — without the routing rule this
+    // would deterministically bucket SOME sessions onto the control.
+    sdb.prepare("INSERT INTO leadgen_funnel_ab_tests (public_id, funnel_id, name, revision, status, started_at) VALUES ('lgx_p4a', ?, 'T', 1, 'running', unixepoch())").run(funnelRowId);
+
+    seedRoutingRule(sdb, controlRowId, {
+      conditions: { groups: [{ field: "utm_source", op: "eq", value: "facebook" }] },
+      targetVariantId: targetRowId,
+      priority: 1,
+    });
+    await activate(env, quotePublicId);
+
+    const resolved = await resolveActivatedFunnel(env, {
+      site_id: "site-1",
+      session_id: "sess-p4a-entry",
+      entry_ctx: { ...BASE_CTX, utm_source: "facebook" },
+    });
+    expect(resolved).not.toBeNull();
+    expect(resolved!.variant.public_id).toBe(targetPublicId);
+    expect(resolved!.assignment.assignment_reason).toBe("single_control");
+    expect(resolved!.assignment.routing_rule_hash).toBeTruthy();
+  });
+
+  it("priority ordering resolved from the DB: the LOWER-priority-number rule's target wins", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId, funnelId } = await seedQuote(env);
+    const controlRowId = variantRowId(sdb, variantId);
+    const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(funnelId) as { id: number }).id;
+    const targetLow = seedSiblingVariant(sdb, funnelRowId, "Low", false);
+    const targetHigh = seedSiblingVariant(sdb, funnelRowId, "High", false);
+
+    seedRoutingRule(sdb, controlRowId, { conditions: { groups: [] }, targetVariantId: variantRowId(sdb, targetHigh), priority: 50 });
+    seedRoutingRule(sdb, controlRowId, { conditions: { groups: [] }, targetVariantId: variantRowId(sdb, targetLow), priority: 5 });
+    await activate(env, quotePublicId);
+
+    const resolved = await resolveActivatedFunnel(env, { site_id: "site-1", session_id: "s1", entry_ctx: BASE_CTX });
+    expect(resolved!.variant.public_id).toBe(targetLow);
+  });
+
+  it("NO matching entry rule -> the ordinary single_control path (byte-identical to pre-P4a)", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId, funnelId } = await seedQuote(env);
+    const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(funnelId) as { id: number }).id;
+    const target = seedSiblingVariant(sdb, funnelRowId, "B", false);
+    seedRoutingRule(sdb, variantRowId(sdb, variantId), {
+      conditions: { groups: [{ field: "utm_source", op: "eq", value: "facebook" }] },
+      targetVariantId: variantRowId(sdb, target),
+      priority: 1,
+    });
+    await activate(env, quotePublicId);
+
+    const resolved = await resolveActivatedFunnel(env, { site_id: "site-1", session_id: "s1", entry_ctx: { ...BASE_CTX, utm_source: "google" } });
+    expect(resolved!.variant.public_id).toBe(variantId); // the ORIGINAL control, unrouted
+    expect(resolved!.assignment.routing_rule_hash).toBeUndefined();
+  });
+
+  it("absent entry_ctx (preview / reverse config lookups) skips routing entirely -- pure §16 path", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId, funnelId } = await seedQuote(env);
+    const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(funnelId) as { id: number }).id;
+    const target = seedSiblingVariant(sdb, funnelRowId, "B", false);
+    seedRoutingRule(sdb, variantRowId(sdb, variantId), { conditions: { groups: [] }, targetVariantId: variantRowId(sdb, target), priority: 1 });
+    await activate(env, quotePublicId);
+
+    const resolved = await resolveActivatedFunnel(env, { site_id: "site-1", session_id: "s1" }); // no entry_ctx
+    expect(resolved!.variant.public_id).toBe(variantId);
+  });
+});
+
+// ===========================================================================
+// The full /lg/checkpoint HTTP endpoint
+// ===========================================================================
+
+interface CheckpointSeed {
+  env: Env;
+  sdb: SqliteDb;
+  quotePublicId: string;
+  entryVariantId: string;
+  targetVariantId: string;
+  ageSectionId: string;
+  midSectionId: string;
+  finSectionId: string;
+}
+
+// Entry variant (3 pages: age/mid/fin) + target variant (2 pages: age/fin --
+// reuses the SAME leadgen_sections rows so the pages are share-compatible),
+// activated, with ONE checkpoint rule (age >= 65 -> target) on the entry
+// variant. Mirrors the Playwright spec's design (documented there) so a
+// switch is renderable client-side (the target's winning sections are a
+// SUBSET of the entry variant's own candidate catalog).
+async function seedCheckpointFunnel(opts?: { multiplier?: number | null; requireFin?: boolean }): Promise<CheckpointSeed> {
+  const { sdb, env } = newHarness();
+  const { quotePublicId, variantId, funnelId } = await seedQuote(env);
+  const age = seedSection(sdb, "age", { required: true, field: "age" });
+  const mid = seedSection(sdb, "mid", { required: true, field: "mid_field" });
+  const fin = seedSection(sdb, "fin", { required: opts?.requireFin === true, field: "fin_field" });
+
+  const entryRowId = variantRowId(sdb, variantId);
+  attachSection(sdb, entryRowId, age.id, 0);
+  attachSection(sdb, entryRowId, mid.id, 1);
+  attachSection(sdb, entryRowId, fin.id, 2);
+
+  const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(funnelId) as { id: number }).id;
+  const targetPublicId = seedSiblingVariant(sdb, funnelRowId, "Senior", false);
+  const targetRowId = variantRowId(sdb, targetPublicId);
+  attachSection(sdb, targetRowId, age.id, 0); // SAME underlying section row as the entry variant's page 0
+  attachSection(sdb, targetRowId, fin.id, 1); // skips `mid` entirely
+
+  seedRoutingRule(sdb, entryRowId, {
+    conditions: { groups: [{ field: "age", op: "gte", value: 65 }] },
+    targetVariantId: targetRowId,
+    priority: 10,
+    multiplier: opts?.multiplier === undefined ? 2.0 : opts.multiplier,
+    name: "Senior route",
+  });
+  await activate(env, quotePublicId);
+  return {
+    env, sdb, quotePublicId,
+    entryVariantId: variantId, targetVariantId: targetPublicId,
+    ageSectionId: age.public_id, midSectionId: mid.public_id, finSectionId: fin.public_id,
+  };
+}
+
+interface MintedAttempt {
+  funnel_attempt_id: string;
+  signed_config_token: string;
+  session_id: string;
+}
+
+async function mintAttempt(env: Env, variantId: string): Promise<MintedAttempt> {
+  const res = await get(env, `/lg/attempt?vid=${variantId}`);
+  expect(res.status, `mint attempt: ${await res.clone().text()}`).toBe(200);
+  const body = (await res.json()) as { funnel_attempt_id: string; signed_config_token: string; session_id: string };
+  return body;
+}
+
+describeDb("P4a /lg/checkpoint — full HTTP flow", () => {
+  it("age >= 65 MATCHES: switched=true, re-issued binding, target's OWN plan, resume at the target's first unanswered required page", async () => {
+    const seed = await seedCheckpointFunnel();
+    const attempt = await mintAttempt(seed.env, seed.entryVariantId);
+
+    const res = await post(seed.env, "/lg/checkpoint", {
+      k: attempt.signed_config_token,
+      f: attempt.funnel_attempt_id,
+      v: seed.entryVariantId,
+      s: attempt.session_id,
+      a: { age: { value: 70 } },
+    });
+    expect(res.status, `checkpoint: ${await res.clone().text()}`).toBe(200);
+    const body = (await res.json()) as {
+      sw: boolean; k: string; v: string; so: string; cv: number;
+      ar: string; pp: Array<{ section_public_id: string }>; r: string;
+    };
+    expect(body.sw).toBe(true);
+    expect(body.v).toBe(seed.targetVariantId);
+    expect(body.k).not.toBe(attempt.signed_config_token); // a FRESH re-issued binding
+    expect(body.ar).toMatch(/^routing_rule:/);
+    // The target's OWN plan: [age, fin] -- `mid` is never a winner post-switch.
+    expect(body.pp.map((w) => w.section_public_id)).toEqual([seed.ageSectionId, seed.finSectionId]);
+    // age is already answered (carried); fin has no required field in this
+    // seed (requireFin defaults false) -> resume straight to auction.
+    expect(body.r).toBe("");
+
+    // Server-authoritative outcome recorded, keyed by the SAME attempt id.
+    const outcome = seed.sdb
+      .prepare("SELECT routed_from_variant, routed_to_variant, plane, value_multiplier FROM leadgen_routing_outcomes WHERE funnel_attempt_id = ?")
+      .get(attempt.funnel_attempt_id) as { routed_from_variant: string; routed_to_variant: string; plane: string; value_multiplier: number };
+    expect(outcome.routed_from_variant).toBe(seed.entryVariantId);
+    expect(outcome.routed_to_variant).toBe(seed.targetVariantId);
+    expect(outcome.plane).toBe("checkpoint");
+    expect(outcome.value_multiplier).toBe(2.0);
+  });
+
+  it("resume lands ON the target's remaining required page when one is unanswered (not '' )", async () => {
+    const seed = await seedCheckpointFunnel({ requireFin: true }); // target's `fin` page now REQUIRED
+    const attempt = await mintAttempt(seed.env, seed.entryVariantId);
+    const res = await post(seed.env, "/lg/checkpoint", {
+      k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
+      s: attempt.session_id, a: { age: { value: 70 } },
+    });
+    const body = (await res.json()) as { sw: boolean; r: string };
+    expect(body.sw).toBe(true);
+    expect(body.r).toBe(seed.finSectionId); // fin is unanswered + required -> prefix-rule resume there
+  });
+
+  it("age < 65 does NOT match: sw:false, ZERO effects (no outcome row written)", async () => {
+    const seed = await seedCheckpointFunnel();
+    const attempt = await mintAttempt(seed.env, seed.entryVariantId);
+    const res = await post(seed.env, "/lg/checkpoint", {
+      k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
+      s: attempt.session_id, a: { age: { value: 20 } },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sw: boolean };
+    expect(body.sw).toBe(false);
+    // node:sqlite's raw .get() returns `undefined` (not `null`) for no row.
+    const outcome = seed.sdb.prepare("SELECT * FROM leadgen_routing_outcomes WHERE funnel_attempt_id = ?").get(attempt.funnel_attempt_id);
+    expect(outcome).toBeUndefined();
+  });
+
+  it("≤1 HOP: a SECOND checkpoint POST on the SAME attempt after a successful switch is refused (sw:false, no second outcome row)", async () => {
+    const seed = await seedCheckpointFunnel();
+    const attempt = await mintAttempt(seed.env, seed.entryVariantId);
+    const first = await post(seed.env, "/lg/checkpoint", {
+      k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
+      s: attempt.session_id, a: { age: { value: 70 } },
+    });
+    expect(((await first.clone().json()) as { sw: boolean }).sw).toBe(true);
+
+    // A second POST -- even resending the ORIGINAL (pre-switch) binding, the
+    // most plausible client retry shape -- must be refused by the SERVER'S
+    // OWN ≤1-hop check (leadgen_routing_outcomes already carries a
+    // 'checkpoint' row for this funnel_attempt_id), independent of any
+    // client-side `rtd` bookkeeping.
+    const second = await post(seed.env, "/lg/checkpoint", {
+      k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
+      s: attempt.session_id, a: { age: { value: 70 } },
+    });
+    expect(second.status).toBe(200);
+    expect(((await second.json()) as { sw: boolean }).sw).toBe(false);
+
+    const rows = seed.sdb.prepare("SELECT COUNT(*) as n FROM leadgen_routing_outcomes WHERE funnel_attempt_id = ?").get(attempt.funnel_attempt_id) as { n: number };
+    expect(rows.n).toBe(1); // exactly one outcome row, never a second
+  });
+
+  it("BINDING VALIDATION: a forged signed_config_token is rejected 422 tampered with ZERO effects (no rule evaluation, no DB write)", async () => {
+    const seed = await seedCheckpointFunnel();
+    const attempt = await mintAttempt(seed.env, seed.entryVariantId);
+    const res = await post(seed.env, "/lg/checkpoint", {
+      k: "v2.forged-payload.forged-signature",
+      f: attempt.funnel_attempt_id,
+      v: seed.entryVariantId,
+      s: attempt.session_id,
+      a: { age: { value: 70 } }, // even a would-MATCH age -- must never be evaluated
+    });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; traffic_quality_flag: string };
+    expect(body.traffic_quality_flag).toBe("tampered");
+    // node:sqlite's raw .get() returns `undefined` (not `null`) for no row.
+    const outcome = seed.sdb.prepare("SELECT * FROM leadgen_routing_outcomes WHERE funnel_attempt_id = ?").get(attempt.funnel_attempt_id);
+    expect(outcome).toBeUndefined(); // zero effects
+  });
+
+  it("BINDING VALIDATION: a token minted for a DIFFERENT session_id is rejected 422 (session is v2 crypto-bound)", async () => {
+    const seed = await seedCheckpointFunnel();
+    const attempt = await mintAttempt(seed.env, seed.entryVariantId);
+    const res = await post(seed.env, "/lg/checkpoint", {
+      k: attempt.signed_config_token,
+      f: attempt.funnel_attempt_id,
+      v: seed.entryVariantId,
+      s: "some-other-session-id", // tampered session claim
+      a: { age: { value: 70 } },
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it("a `__`-prefixed synthetic answer key can NEVER inject an entry attribute into rule evaluation (server re-normalizes, drops it)", async () => {
+    const seed = await seedCheckpointFunnel();
+    const attempt = await mintAttempt(seed.env, seed.entryVariantId);
+    // A rule on `age` should NOT be satisfiable via a client-forged `__state`
+    // masquerading as an answer -- confirm the age-gated rule still requires
+    // a REAL age answer (this posts NO age at all, only a synthetic key).
+    const res = await post(seed.env, "/lg/checkpoint", {
+      k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
+      s: attempt.session_id, a: { __state: "CA", __age: 70 },
+    });
+    const body = (await res.json()) as { sw: boolean };
+    expect(body.sw).toBe(false); // no REAL `age` answer -> the age>=65 rule cannot match
+  });
+});
+
+// ===========================================================================
+// §19-step-4 plane reconciliation
+// ===========================================================================
+
+describeDb("P4a §19-step-4 plane reconciliation", () => {
+  it("the target variant's OWN non-routing leadgen_funnel_rules are a DISTINCT set from the origin's -- whichever funnel_variant_id /lg/auction resolves for (the target, post-switch) naturally sees ITS OWN rules via the untouched resolveActivatedFunnelByVariant", async () => {
+    const seed = await seedCheckpointFunnel();
+    const originRowId = variantRowId(seed.sdb, seed.entryVariantId);
+    const targetRowId = variantRowId(seed.sdb, seed.targetVariantId);
+
+    // A §15.5 non-routing rule (existing type, untouched by P4a) on EACH
+    // variant, DISTINCT conditions -- simulating an admin having configured
+    // per-variant redirect/eligibility rules independently.
+    seed.sdb.prepare(
+      "INSERT INTO leadgen_funnel_rules (public_id, variant_id, rule_type, conditions_json, conditions_hash, priority, enabled) VALUES ('lgfr_origin','" + originRowId + "','eligibility','{\"groups\":[]}','h_origin',1,1)",
+    ).run();
+    seed.sdb.prepare(
+      "INSERT INTO leadgen_funnel_rules (public_id, variant_id, rule_type, conditions_json, conditions_hash, priority, enabled) VALUES ('lgfr_target','" + targetRowId + "','eligibility','{\"groups\":[]}','h_target',1,1)",
+    ).run();
+
+    // Perform the switch (proving the checkpoint response correctly names the
+    // TARGET's variant id -- the ONLY input serve-auction.ts's UNMODIFIED
+    // resolveActivatedFunnelByVariant needs to key its OWN §19-step-4 rule
+    // read by).
+    const attempt = await mintAttempt(seed.env, seed.entryVariantId);
+    const ckpt = await post(seed.env, "/lg/checkpoint", {
+      k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
+      s: attempt.session_id, a: { age: { value: 70 } },
+    });
+    const ckptBody = (await ckpt.json()) as { sw: boolean; v: string };
+    expect(ckptBody.sw).toBe(true);
+    expect(ckptBody.v).toBe(seed.targetVariantId);
+
+    // The rule set keyed by the RESOLVED (target) variant is the TARGET's OWN
+    // row, never the origin's -- resolveActivatedFunnelByVariant is the exact
+    // reverse lookup serve-auction.ts calls with `body.funnel_variant_id`.
+    const resolvedTarget = await resolveActivatedFunnelByVariant(seed.env, "site-1", ckptBody.v);
+    expect(resolvedTarget).not.toBeNull();
+    const targetRules = seed.sdb
+      .prepare("SELECT public_id FROM leadgen_funnel_rules WHERE variant_id = (SELECT id FROM leadgen_funnel_variants WHERE public_id = ?) AND rule_type != 'route_funnel_variant'")
+      .all(resolvedTarget!.variant.public_id) as Array<{ public_id: string }>;
+    expect(targetRules.map((r) => r.public_id)).toEqual(["lgfr_target"]); // never lgfr_origin
+
+    // And post-switch, a REAL /lg/auction POST (the existing, untouched
+    // endpoint) accepts the re-issued binding for the TARGET without a 404 —
+    // proving the auction pipeline's OWN reverse resolution recognizes it as
+    // a servable variant of this activated funnel.
+    const auctionRes = await post(seed.env, "/lg/auction", {
+      funnel_variant_id: ckptBody.v,
+      funnel_attempt_id: attempt.funnel_attempt_id,
+      signed_config_token: (ckptBody as unknown as { k: string }).k,
+      content_version: (ckptBody as unknown as { cv: number }).cv,
+      section_order_hash: (ckptBody as unknown as { so: string }).so,
+      session_id: attempt.session_id,
+      answers: {},
+    });
+    expect(auctionRes.status, `auction post-switch: ${await auctionRes.clone().text()}`).not.toBe(404);
+  });
+});
+
+// ===========================================================================
+// S2S value_multiplier graft (s2s-dispatch.ts)
+// ===========================================================================
+
+describeDb("P4a S2S value_multiplier graft — replace-not-stack", () => {
+  it("resolveRoutingMultiplier returns the recorded outcome's multiplier", async () => {
+    const { sdb, env } = newHarness();
+    sdb.prepare(
+      "INSERT INTO leadgen_routing_outcomes (funnel_attempt_id, session_id, routed_from_variant, routed_to_variant, matched_rule_hash, value_multiplier, plane) VALUES ('att_1','s1','lgn_a','lgn_b','h1',2.5,'entry')",
+    ).run();
+    expect(await resolveRoutingMultiplier(env.DB, "att_1")).toBe(2.5);
+  });
+
+  it("no outcome row -> null (falls back to platform base)", async () => {
+    const { env } = newHarness();
+    expect(await resolveRoutingMultiplier(env.DB, "att_missing")).toBeNull();
+  });
+
+  it("an outcome row with a NULL recorded multiplier -> null (a matched rule with no multiplier configured)", async () => {
+    const { sdb, env } = newHarness();
+    sdb.prepare(
+      "INSERT INTO leadgen_routing_outcomes (funnel_attempt_id, session_id, routed_from_variant, routed_to_variant, matched_rule_hash, value_multiplier, plane) VALUES ('att_2','s1','lgn_a','lgn_b','h1',NULL,'checkpoint')",
+    ).run();
+    expect(await resolveRoutingMultiplier(env.DB, "att_2")).toBeNull();
+  });
+
+  it("empty funnel_attempt_id -> null (never a DB read)", async () => {
+    const { env } = newHarness();
+    expect(await resolveRoutingMultiplier(env.DB, "")).toBeNull();
+  });
+
+  it("dispatchMatchedConversionS2S: a recorded routing multiplier REPLACES the platform base (no stacking)", async () => {
+    const { sdb, env } = newHarness();
+    sdb.prepare(
+      "INSERT INTO leadgen_media_platforms (platform, enabled, postback_url_template, value_multiplier) VALUES ('facebook',1,'https://t.example/pb?v={value}',1.0)",
+    ).run();
+    sdb.prepare(
+      "INSERT INTO leadgen_routing_outcomes (funnel_attempt_id, session_id, routed_from_variant, routed_to_variant, matched_rule_hash, value_multiplier, plane) VALUES ('att_route','s1','lgn_a','lgn_b','h1',5.0,'checkpoint')",
+    ).run();
+    const fetchCalls: string[] = [];
+    const fetchImpl = (async (input: unknown) => {
+      fetchCalls.push(String(input));
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+    const click: S2SClickContext = { click_id: "c1", traffic_source: "facebook", fbc: "", fbclid: "", funnel_attempt_id: "att_route" };
+    const revenue: S2SRevenueContext = { revenue: 10, currency: "USD" };
+    const ctx = { waitUntil: (p: Promise<unknown>) => p } as unknown as ExecutionContext;
+    const outcome = await dispatchMatchedConversionS2S(env, ctx, env.DB, click, revenue, { fetchImpl });
+    expect(outcome.status).toBe("fired");
+    await Promise.all([]); // let the fire-and-forget resolve (already awaited via waitUntil above)
+    expect(fetchCalls[0]).toContain("v=50"); // 10 revenue * 5.0 routing multiplier, NOT 1.0 base
+  });
+
+  it("dispatchMatchedConversionS2S: NO routing outcome -> the platform's OWN base multiplier applies (default, unchanged behavior)", async () => {
+    const { sdb, env } = newHarness();
+    sdb.prepare(
+      "INSERT INTO leadgen_media_platforms (platform, enabled, postback_url_template, value_multiplier) VALUES ('google',1,'https://t.example/pb?v={value}',3.0)",
+    ).run();
+    const fetchCalls: string[] = [];
+    const fetchImpl = (async (input: unknown) => {
+      fetchCalls.push(String(input));
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+    const click: S2SClickContext = { click_id: "c2", traffic_source: "google", fbc: "", fbclid: "" }; // no funnel_attempt_id
+    const revenue: S2SRevenueContext = { revenue: 10, currency: "USD" };
+    const ctx = { waitUntil: (p: Promise<unknown>) => p } as unknown as ExecutionContext;
+    const outcome = await dispatchMatchedConversionS2S(env, ctx, env.DB, click, revenue, { fetchImpl });
+    expect(outcome.status).toBe("fired");
+    expect(fetchCalls[0]).toContain("v=30"); // 10 * 3.0 base, no routing override
+  });
+});

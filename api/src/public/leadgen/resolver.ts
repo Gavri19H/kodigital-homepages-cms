@@ -47,6 +47,11 @@ import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
 // diverge on operator meaning. Read-only reuse — this module is not edited.
 import { conditionsMatch } from "../../leadgen/auction-rules";
 import { sha256Hex } from "./auction/parse";
+// Round-4 P4a (D-2): the ONE canonical component parser/expander (no drift)
+// used to derive which page each ANSWER field becomes known on (the auto-
+// CHECKPOINT). Imported as VALUES; config-dto imports THIS module type-only
+// (`import type`), so there is no runtime import cycle.
+import { parseSectionComponents, expandPublicComponents } from "./config-dto";
 
 // One ordered section of the resolved variant (position + the full section
 // row). Ordered ascending by position; the auction runs after the MAX position
@@ -162,7 +167,17 @@ export interface FunnelAssignment {
   variant_label: string;
   traffic_allocation_bp: number;
   assignment_bucket: number | null;
+  // The variant-scoped fallback reason baked into the CACHEABLE config (stays
+  // the closed {ab_hash,single_control} vocabulary so config-dto's cacheable
+  // DTO is unchanged). An ENTRY-routed variant sets this to 'single_control'
+  // (it serves as-is, no A/B bucket) and carries the routing hash SEPARATELY —
   assignment_reason: LeadgenAssignmentReason;
+  // Round-4 P4a (D-2): set ONLY on an entry-routed assignment. The PER-REQUEST
+  // §16.3 reason (`routing_rule:<conditions_hash>`, the analytics attribution
+  // key) is emitted from this by serve.ts injectAssignment onto the RESPONSE
+  // global — NEVER baked into the shared cacheable config/shell body (which a
+  // second request to the same variant would otherwise inherit).
+  routing_rule_hash?: string;
 }
 
 export interface ResolvedActivatedFunnel {
@@ -207,6 +222,13 @@ export interface ResolveFunnelArgs {
   // single_control seam serves the is_control variant (no running-test bucket is
   // drawn), so preview / no-cookie callers resolve deterministically.
   session_id?: string | null;
+  // Round-4 P4a (D-2): the request's ENTRY-KNOWN attributes (CF geo state, UA
+  // device, landing-URL UTM, visitor clock hour/weekday). When supplied
+  // (serve.ts serveFunnelShell populates it), ENTRY routing rules on the
+  // funnel's control variant evaluate over these BEFORE funnel A/B (precedence
+  // ladder: entry routing ≻ A/B). Absent (preview, tests, config/attempt reverse
+  // lookups) → no entry routing, pure §16 A/B, byte-identical to pre-P4a.
+  entry_ctx?: EntryKnownContext;
 }
 
 // The single_control §16.3 dims for a KNOWN variant (no running test): ""/0 test
@@ -758,6 +780,422 @@ export function parseUtmFromLandingUrl(landingUrl: string): Pick<EntryKnownConte
   }
 }
 
+// ---------------------------------------------------------------------------
+// Round-4 P4a (D-2, operator-locked) — funnel ROUTING rules (rule model v2)
+// ---------------------------------------------------------------------------
+//
+// The reference's core behavior the §15.5 model lacked: condition-driven
+// routing to a funnel NAME/variant ("rules of which funnel name each user
+// sees", Image42). A `route_funnel_variant` rule = §21.4 condition groups over
+// a FIELD REGISTRY + { target_funnel_variant_id, value_multiplier, priority
+// (1 high..100), status }. Two evaluation PLANES, auto-partitioned by the
+// rule's condition fields (the CHECKPOINT is auto-derived, never authored):
+//   * ENTRY plane      — every condition field is ENTRY-KNOWN. Evaluated in
+//                        resolveActivatedFunnel BEFORE §16 A/B (precedence
+//                        ladder: entry routing ≻ A/B).
+//   * CHECKPOINT plane — >=1 condition field is an ANSWER field (e.g. `age`).
+//                        Evaluated server-side at /lg/checkpoint when the engine
+//                        crosses the rule's derived checkpoint page.
+//
+// FIELD REGISTRY (the D-2 "ANY answer field + state/geo + device + UTM +
+// age + hour/weekday"): the ENTRY-KNOWN attribute set is CLOSED (below);
+// EVERYTHING ELSE is an answer internal_field (open set — any section field,
+// incl. MQG rows / Address roles / a `age` question's field). Per the dispatch,
+// `age` is entry-known ONLY if a mapped entry attribute exists — this codebase
+// has none, so `age` is simply an answer field (a rule on it is CHECKPOINT-plane).
+//
+// UTM VOCABULARY (binding note): the operator's phrasing is "UTM source/medium/
+// campaign", but this codebase's established 3-dim taxonomy is utm_source/
+// utm_medium/utm_CONTENT (ab-hash.ts / runtime-context.ts / parseUtmFromLandingUrl).
+// BOTH `utm_campaign` and `utm_content` are registry fields; the evaluation
+// context binds them to the SAME parsed value (utm_content), so a rule authored
+// with either name resolves against the one dimension the resolver actually parses.
+export const ROUTING_ENTRY_KNOWN_FIELDS: ReadonlySet<string> = new Set([
+  "state",
+  "device",
+  "utm_source",
+  "utm_medium",
+  "utm_content",
+  "utm_campaign", // documented alias of utm_content
+  "hour",
+  "weekday",
+]);
+
+// A route_funnel_variant rule as READ for server evaluation. A LOCAL type (not
+// db-types.ts's LeadgenFunnelRuleRow, which P4b extends for the admin API) so
+// this slice's server reads are self-contained over the 0043 columns.
+export interface RoutingRuleRow {
+  public_id: string;
+  variant_id: number;
+  conditions_json: string;
+  conditions_hash: string;
+  target_funnel_variant_id: number | null;
+  value_multiplier: number | null;
+  priority: number;
+  status: string;
+}
+
+export interface ParsedRoutingRule {
+  hash: string;
+  priority: number;
+  conditions: LeadgenRuleConditions;
+  target_funnel_variant_id: number | null;
+  value_multiplier: number | null;
+  // true iff EVERY condition field is entry-known (=> ENTRY plane); false iff
+  // any condition field is an answer field (=> CHECKPOINT plane).
+  entry_only: boolean;
+}
+
+// D1 JSON-parse safety: a corrupt/absent blob degrades to "no conditions"
+// (never throws). Empty groups = a catch-all rule (matches all traffic).
+function parseRoutingConditions(raw: string): LeadgenRuleConditions {
+  try {
+    const p = JSON.parse(raw) as unknown;
+    if (p !== null && typeof p === "object" && Array.isArray((p as { groups?: unknown }).groups)) {
+      return p as LeadgenRuleConditions;
+    }
+  } catch {
+    /* fall through */
+  }
+  return { groups: [] };
+}
+
+// A rule is ENTRY-plane iff every condition field is entry-known. A rule with
+// NO conditions is a catch-all → ENTRY plane (matches all entry traffic; a
+// useful lowest-priority default route).
+function isEntryOnly(conditions: LeadgenRuleConditions): boolean {
+  for (const g of conditions.groups ?? []) {
+    if (!ROUTING_ENTRY_KNOWN_FIELDS.has(g.field)) return false;
+  }
+  return true;
+}
+
+export function parseRoutingRule(row: RoutingRuleRow): ParsedRoutingRule {
+  const conditions = parseRoutingConditions(row.conditions_json);
+  return {
+    hash: row.conditions_hash,
+    priority: row.priority,
+    conditions,
+    target_funnel_variant_id: row.target_funnel_variant_id,
+    value_multiplier: row.value_multiplier,
+    entry_only: isEntryOnly(conditions),
+  };
+}
+
+// A variant's ACTIVE route_funnel_variant rules, priority ASC (1 = highest).
+export async function loadRoutingRules(db: D1Database, variantId: number): Promise<ParsedRoutingRule[]> {
+  const res = await db
+    .prepare(
+      `SELECT public_id, variant_id, conditions_json, conditions_hash,
+              target_funnel_variant_id, value_multiplier, priority, status
+       FROM leadgen_funnel_rules
+       WHERE variant_id = ? AND rule_type = 'route_funnel_variant' AND status = 'active'
+       ORDER BY priority ASC, id ASC`,
+    )
+    .bind(variantId)
+    .all<RoutingRuleRow>();
+  return (res.results ?? []).map(parseRoutingRule);
+}
+
+// The entry-attribute evaluation map (bare field names — "state"/"utm_source"/
+// … — the SAME names the slot-rule ctx uses). utm_campaign mirrors utm_content.
+function entryFlatCtx(ctx: EntryKnownContext): Record<string, unknown> {
+  const content = ctx.utm_content ?? "";
+  return {
+    state: ctx.state ?? "",
+    device: ctx.device ?? "",
+    utm_source: ctx.utm_source ?? "",
+    utm_medium: ctx.utm_medium ?? "",
+    utm_content: content,
+    utm_campaign: content,
+    hour: ctx.hour,
+    weekday: ctx.weekday,
+  };
+}
+
+export interface RoutingMatch {
+  target_funnel_variant_id: number;
+  hash: string;
+  value_multiplier: number | null;
+}
+
+// Priority ASC (1 = highest precedence) is an INTRINSIC guarantee of the
+// evaluators below, not an implicit contract with the caller's SQL ordering
+// (loadRoutingRules ALSO orders by priority — this is a defensive, cheap
+// re-sort so a future/alternate caller can never silently break "priority
+// (1 high..100)" by handing over an unsorted array). A stable sort (Array.
+// prototype.sort is stable since ES2019) preserves relative order for a
+// genuine priority TIE, which detectRoutingRuleConflicts flags at save-time
+// as non-deterministic — the evaluator does not need its own tie-break rule.
+function byPriorityAsc(rules: readonly ParsedRoutingRule[]): ParsedRoutingRule[] {
+  return [...rules].sort((a, b) => a.priority - b.priority);
+}
+
+// ENTRY plane: the highest-priority entry-only rule matching the request
+// attributes AND naming a target — or null (a null-target rule can never route).
+export function evaluateEntryRouting(
+  rules: readonly ParsedRoutingRule[],
+  ctx: EntryKnownContext,
+): RoutingMatch | null {
+  const flat = entryFlatCtx(ctx);
+  for (const r of byPriorityAsc(rules)) {
+    if (!r.entry_only || r.target_funnel_variant_id === null) continue;
+    if (conditionsMatch(r.conditions, flat)) {
+      return {
+        target_funnel_variant_id: r.target_funnel_variant_id,
+        hash: r.hash,
+        value_multiplier: r.value_multiplier,
+      };
+    }
+  }
+  return null;
+}
+
+// CHECKPOINT plane: the highest-priority checkpoint rule (>=1 answer field)
+// matching the entry attributes UNION the server-re-normalized posted answers
+// AND naming a target — or null.
+export function evaluateCheckpointRouting(
+  rules: readonly ParsedRoutingRule[],
+  ctx: EntryKnownContext,
+  answers: Readonly<Record<string, unknown>>,
+): RoutingMatch | null {
+  const flat = { ...entryFlatCtx(ctx), ...answers };
+  for (const r of byPriorityAsc(rules)) {
+    if (r.entry_only || r.target_funnel_variant_id === null) continue;
+    if (conditionsMatch(r.conditions, flat)) {
+      return {
+        target_funnel_variant_id: r.target_funnel_variant_id,
+        hash: r.hash,
+        value_multiplier: r.value_multiplier,
+      };
+    }
+  }
+  return null;
+}
+
+// internal_field -> page index (0-based, page.position order) over a variant's
+// pages: a field becomes answerable at the page whose ANY candidate section
+// maps it; a field on multiple pages maps to its MAX (last) page (all known
+// only after the last). Uses config-dto's ONE parser/expander (MQG rows +
+// Address roles expand to their real internal_fields). STABLE across attempts
+// (candidate-based, not winner-based) — the engine page index == this index.
+function fieldToPageIndex(pages: readonly ResolvedFunnelPage[]): Map<string, number> {
+  const out = new Map<string, number>();
+  pages.forEach((page, idx) => {
+    for (const slot of page.slots) {
+      for (const c of slot.candidates) {
+        for (const node of parseSectionComponents(c.section.content_json ?? "")) {
+          for (const comp of expandPublicComponents(node)) {
+            const f = comp.internal_field;
+            if (f !== undefined && f !== "") out.set(f, idx); // later page overwrites -> max
+          }
+        }
+      }
+    }
+  });
+  return out;
+}
+
+// The auto-derived checkpoint page for ONE checkpoint rule: the MAX page over
+// its ANSWER-field conditions (entry-known fields are always known → skipped);
+// an answer field absent from every page falls back to the LAST page (safe:
+// the rule still gets exactly one evaluation, at the end, and a condition on a
+// missing field simply won't match). Entry-only rules never reach here.
+export function deriveRuleCheckpointPage(
+  rule: ParsedRoutingRule,
+  fieldToPage: ReadonlyMap<string, number>,
+  lastPageIndex: number,
+): number {
+  let max = -1;
+  for (const g of rule.conditions.groups ?? []) {
+    if (ROUTING_ENTRY_KNOWN_FIELDS.has(g.field)) continue;
+    const p = fieldToPage.get(g.field);
+    max = Math.max(max, p === undefined ? lastPageIndex : p);
+  }
+  return max === -1 ? lastPageIndex : max;
+}
+
+// The DISTINCT set of checkpoint page indexes (server-computed) the /lg/attempt
+// echo carries so the engine knows WHICH page-completions to POST at. Empty
+// when the variant has no checkpoint-plane routing rules.
+export function deriveCheckpointPages(
+  pages: readonly ResolvedFunnelPage[],
+  rules: readonly ParsedRoutingRule[],
+): number[] {
+  const checkpointRules = rules.filter((r) => !r.entry_only && r.target_funnel_variant_id !== null);
+  if (checkpointRules.length === 0 || pages.length === 0) return [];
+  const f2p = fieldToPageIndex(pages);
+  const lastPage = pages.length - 1;
+  const set = new Set<number>();
+  for (const r of checkpointRules) set.add(deriveRuleCheckpointPage(r, f2p, lastPage));
+  return [...set].filter((p) => p >= 0).sort((a, b) => a - b);
+}
+
+// P4a: the prefix-rule RESUME point after a mid-funnel switch — the target
+// plan's FIRST page carrying any unanswered REQUIRED field (carried answers by
+// field name; no question repeats). Returns "" when EVERY target required field
+// is already satisfied → the attempt proceeds directly to the auction. Winners
+// are the FLAT per-slot list (attempt.ts page_plan); pages carry the section
+// rows the required-field extraction reads (config-dto's ONE expander).
+export function computeResumeSection(
+  winners: readonly ResolvedSlotWinner[],
+  pages: readonly ResolvedFunnelPage[],
+  answers: Readonly<Record<string, unknown>>,
+): string {
+  const reqBySection = new Map<string, string[]>();
+  for (const page of pages) {
+    for (const slot of page.slots) {
+      for (const c of slot.candidates) {
+        if (reqBySection.has(c.section.public_id)) continue;
+        const req: string[] = [];
+        for (const node of parseSectionComponents(c.section.content_json ?? "")) {
+          for (const comp of expandPublicComponents(node)) {
+            if (comp.required === true && comp.internal_field !== undefined && comp.internal_field !== "") {
+              req.push(comp.internal_field);
+            }
+          }
+        }
+        reqBySection.set(c.section.public_id, req);
+      }
+    }
+  }
+  const answered = (f: string): boolean => {
+    const v = answers[f];
+    return v !== undefined && v !== null && String(v) !== "";
+  };
+  // Group winners into pages in first-seen page_id order (== page order).
+  const order: string[] = [];
+  const byPage = new Map<string, string[]>();
+  for (const w of winners) {
+    let list = byPage.get(w.page_id);
+    if (list === undefined) {
+      list = [];
+      byPage.set(w.page_id, list);
+      order.push(w.page_id);
+    }
+    list.push(w.section_public_id);
+  }
+  for (const pid of order) {
+    const sids = byPage.get(pid) ?? [];
+    for (const sid of sids) {
+      const req = reqBySection.get(sid) ?? [];
+      if (req.some((f) => !answered(f))) return sids[0] ?? sid;
+    }
+  }
+  return "";
+}
+
+// Convert checkpoint PAGE NUMBERS (deriveCheckpointPages) to their ANCHOR
+// (first winning) section_public_id, over the RESOLVED plan's page entries —
+// the wire form the engine echo carries. Byte-lean by design: the client can
+// then gate on `currentSection().section_public_id` membership directly (it
+// is always the page's anchor per the P3a same-screen-page model — the FIRST
+// section of whatever page store.setSectionIndex entered), with NO client-side
+// page-number lookup at all. A page number outside the resolved plan (should
+// not happen — checkpoint pages are derived from the SAME variant's pages)
+// is defensively skipped rather than emitting an unresolvable anchor.
+export function checkpointPageAnchors(
+  checkpointPageIndexes: readonly number[],
+  planPages: readonly ResolvedPagePlanEntry[],
+): string[] {
+  const out: string[] = [];
+  for (const idx of checkpointPageIndexes) {
+    const sid = planPages[idx]?.section_public_ids[0];
+    if (sid !== undefined) out.push(sid);
+  }
+  return out;
+}
+
+// Save-time CONFLICT flagging (exported for P4b's Problems mechanism): two
+// rules at the SAME checkpoint (both entry, or same derived page) with the
+// SAME priority and OVERLAPPING condition fields have no deterministic winner.
+// A DISTINCT priority resolves the order → no conflict. Plain-language output.
+export interface RoutingConflictInput {
+  rule_name: string;
+  checkpoint_page: number | null; // null == entry plane
+  priority: number;
+  fields: readonly string[]; // condition field names
+}
+export function detectRoutingRuleConflicts(rules: readonly RoutingConflictInput[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < rules.length; i++) {
+    for (let j = i + 1; j < rules.length; j++) {
+      const a = rules[i]!;
+      const b = rules[j]!;
+      if (a.priority !== b.priority) continue; // distinct priority => deterministic
+      const ca = a.checkpoint_page === null ? "entry" : String(a.checkpoint_page);
+      const cb = b.checkpoint_page === null ? "entry" : String(b.checkpoint_page);
+      if (ca !== cb) continue; // different evaluation points never race
+      if (!a.fields.some((f) => b.fields.includes(f))) continue; // no overlap
+      out.push(
+        `Rules "${a.rule_name || "(unnamed)"}" and "${b.rule_name || "(unnamed)"}" evaluate at the same point with the same priority and overlapping conditions — the winner is not deterministic. Give one a higher priority (a lower number wins).`,
+      );
+    }
+  }
+  return out;
+}
+
+// P4a (D-2): is `variantId` the ACTIVE target of an ACTIVE route_funnel_variant
+// rule belonging to ANY variant of THIS funnel? Used to WIDEN
+// resolveActivatedFunnelByVariant's anti-leak servability check (below): a
+// routing rule's target is an author-approved serving destination — it must
+// be reachable even when it is not the funnel's control variant and no §16
+// A/B test is running (the entry/checkpoint routing PLANE is its own
+// authorization, orthogonal to the §16 arm-set check). This does NOT weaken
+// the anti-leak invariant's real purpose (hiding draft/non-participating
+// variants): an ACTIVE variant named by an ACTIVE rule is, by construction,
+// an intended destination — the only thing bypassed by knowing its `lgn_` id
+// directly is the CONDITION MATCH, which is a targeting mechanism, not an
+// access-control boundary (entry conditions are themselves client-observable
+// signals like UTM params).
+async function isActiveRoutingTargetOnFunnel(db: D1Database, funnelId: number, variantId: number): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 FROM leadgen_funnel_rules r
+       JOIN leadgen_funnel_variants v ON v.id = r.variant_id
+       WHERE v.funnel_id = ? AND r.rule_type = 'route_funnel_variant' AND r.status = 'active'
+         AND r.target_funnel_variant_id = ? LIMIT 1`,
+    )
+    .bind(funnelId, variantId)
+    .first();
+  return row !== null;
+}
+
+// Resolve a specific target variant by its internal id, constrained to an
+// ACTIVE variant of THIS funnel (a routing rule can only route within its own
+// funnel's variants — anti-leak: never serves a foreign/inactive variant).
+export async function getActiveVariantByIdOnFunnel(
+  db: D1Database,
+  funnelId: number,
+  variantId: number,
+): Promise<LeadgenFunnelVariantRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT ${VARIANT_COLUMNS} FROM leadgen_funnel_variants
+       WHERE id = ? AND funnel_id = ? AND status = 'active' LIMIT 1`,
+    )
+    .bind(variantId, funnelId)
+    .first<LeadgenFunnelVariantRow>();
+  return row ?? null;
+}
+
+// The §16.3 dims for an ENTRY-routed variant: no A/B test identity, the
+// target's own label/allocation, a null bucket, assignment_reason carrying the
+// matched rule's hash (`routing_rule:<hash>` — the analytics attribution key).
+function routingAssignmentDims(variant: LeadgenFunnelVariantRow, hash: string): FunnelAssignment {
+  return {
+    funnel_ab_test_id: "",
+    funnel_ab_test_revision: 0,
+    variant_label: variant.variant_label,
+    traffic_allocation_bp: variant.traffic_allocation_bp,
+    assignment_bucket: null,
+    // Cacheable fallback = single_control (the target serves as-is, no A/B
+    // bucket); the per-request routing_rule:<hash> reason rides routing_rule_hash.
+    assignment_reason: "single_control",
+    routing_rule_hash: hash,
+  };
+}
+
 // Resolve the activated funnel for a site + optional quote slug (§17.2). Any
 // unresolved hop (no enabled activation, missing quote/funnel/variant) → null,
 // which the caller answers with a 404.
@@ -776,34 +1214,58 @@ export async function resolveActivatedFunnel(
   const funnel = await getActiveFunnelForQuote(db, quote.id);
   if (funnel === null) return null;
 
+  const sessionId = args.session_id ?? "";
+
+  let variant: LeadgenFunnelVariantRow | null = null;
+  let assignment: FunnelAssignment | null = null;
+
+  // P4a (D-2) ENTRY routing ≻ A/B: routing rules live on the funnel's CONTROL/
+  // entry variant. When the request's entry attributes match an entry-plane
+  // rule, its target variant serves and A/B is bypassed entirely. Only when
+  // `entry_ctx` is supplied (serve.ts serveFunnelShell) — a preview / reverse
+  // lookup with no ctx keeps pure §16 A/B, byte-identical to pre-P4a.
+  if (args.entry_ctx !== undefined) {
+    const control = await getControlVariantForFunnel(db, funnel.id);
+    if (control !== null) {
+      const match = evaluateEntryRouting(await loadRoutingRules(db, control.id), args.entry_ctx);
+      if (match !== null) {
+        const target = await getActiveVariantByIdOnFunnel(db, funnel.id, match.target_funnel_variant_id);
+        if (target !== null) {
+          variant = target;
+          assignment = routingAssignmentDims(target, match.hash);
+        }
+      }
+    }
+  }
+
   // §16.2: a RUNNING test buckets the session across the funnel's active
   // variants (the ab_hash edge path); with no running test the is_control
   // variant serves (single_control). An absent/empty session id also resolves
   // to single_control so preview / no-cookie callers stay deterministic.
-  const sessionId = args.session_id ?? "";
-  const abTest = sessionId === "" ? null : await getRunningAbTestForFunnel(db, funnel.id);
-
-  let variant: LeadgenFunnelVariantRow;
-  let assignment: FunnelAssignment;
-  if (abTest !== null) {
-    const arms = await getActiveVariantsForFunnel(db, funnel.id);
-    if (arms.length === 0) return null;
-    const picked = assignVariant(abTest.public_id, abTest.revision, sessionId, arms);
-    variant = picked.variant;
-    assignment = {
-      funnel_ab_test_id: abTest.public_id,
-      funnel_ab_test_revision: abTest.revision,
-      variant_label: picked.variant.variant_label,
-      traffic_allocation_bp: picked.variant.traffic_allocation_bp,
-      assignment_bucket: picked.assignment_bucket, // §16.2 bucket 0..9999
-      assignment_reason: picked.assignment_reason, // "ab_hash"
-    };
-  } else {
-    const control = await getControlVariantForFunnel(db, funnel.id);
-    if (control === null) return null;
-    variant = control;
-    assignment = singleControlAssignmentDims(control);
+  if (variant === null) {
+    const abTest = sessionId === "" ? null : await getRunningAbTestForFunnel(db, funnel.id);
+    if (abTest !== null) {
+      const arms = await getActiveVariantsForFunnel(db, funnel.id);
+      if (arms.length === 0) return null;
+      const picked = assignVariant(abTest.public_id, abTest.revision, sessionId, arms);
+      variant = picked.variant;
+      assignment = {
+        funnel_ab_test_id: abTest.public_id,
+        funnel_ab_test_revision: abTest.revision,
+        variant_label: picked.variant.variant_label,
+        traffic_allocation_bp: picked.variant.traffic_allocation_bp,
+        assignment_bucket: picked.assignment_bucket, // §16.2 bucket 0..9999
+        assignment_reason: picked.assignment_reason, // "ab_hash"
+      };
+    } else {
+      const control = await getControlVariantForFunnel(db, funnel.id);
+      if (control === null) return null;
+      variant = control;
+      assignment = singleControlAssignmentDims(control);
+    }
   }
+  // Both branches above assign both, or return null (TS narrowing guard).
+  if (variant === null || assignment === null) return null;
 
   const pages = await loadVariantPages(db, variant.id);
   const sections = sectionsFromPages(pages);
@@ -872,16 +1334,28 @@ export async function resolveActivatedFunnelByVariant(
   if (quote === null) return null;
 
   // Servability + §16.3 dims. A running test makes every active variant a served
-  // arm (ab_hash); otherwise ONLY the control variant is served (single_control)
-  // — a non-control draft/fork variant's config never leaks when no test runs.
+  // arm (ab_hash); otherwise the control variant is served (single_control) OR
+  // — P4a (D-2) — an ACTIVE route_funnel_variant rule on this funnel names
+  // `variant` as its target (isActiveRoutingTargetOnFunnel) — a non-control
+  // draft/fork variant NOT named by any rule still never leaks.
   const abTest = await getRunningAbTestForFunnel(db, funnel.id);
   let assignment: FunnelAssignment;
   if (abTest !== null) {
     assignment = abHashAssignmentDims(abTest, variant);
   } else {
     const control = await getControlVariantForFunnel(db, funnel.id);
-    if (control === null || control.id !== variant.id) return null;
-    assignment = singleControlAssignmentDims(variant);
+    if (control !== null && control.id === variant.id) {
+      assignment = singleControlAssignmentDims(variant);
+    } else if (await isActiveRoutingTargetOnFunnel(db, funnel.id, variant.id)) {
+      // Servable as a routing target; single_control-shaped dims (no A/B
+      // bucket to draw — there is no running test). The caller (the
+      // checkpoint endpoint / a future direct /lg/config probe) does not read
+      // `assignment_reason` for this path; the per-request routing_rule:<hash>
+      // attribution is stamped separately, keyed by the ACTUAL matched rule.
+      assignment = singleControlAssignmentDims(variant);
+    } else {
+      return null;
+    }
   }
 
   const pages = await loadVariantPages(db, variant.id);

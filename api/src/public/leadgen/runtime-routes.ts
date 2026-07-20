@@ -31,8 +31,24 @@ import { runtimeRequestGuard, type GuardOutcome } from "./runtime-guard";
 import { ingestProviderPostback, ingestBrowserPixel } from "./postback";
 import { leadgenTrackRouter } from "../../analytics/leadgen-track";
 import { resolveLeadgenClick, type LeadgenClickInput } from "./click";
-import { mintFunnelAttempt } from "./attempt";
-import { resolveActivatedFunnelByVariant, parseUtmFromLandingUrl } from "./resolver";
+import {
+  mintFunnelAttempt,
+  verifyConfigTokenDetailed,
+  computeAttemptBindingExtras,
+  type ConfigTokenTuple,
+} from "./attempt";
+import { computeSectionOrderHash } from "./config-dto";
+import {
+  resolveActivatedFunnelByVariant,
+  parseUtmFromLandingUrl,
+  loadRoutingRules,
+  evaluateEntryRouting,
+  evaluateCheckpointRouting,
+  getActiveVariantByIdOnFunnel,
+  getControlVariantForFunnel,
+  computeResumeSection,
+  type EntryKnownContext,
+} from "./resolver";
 import { genSessionId, readCookie, sessionCookie } from "../listicle/experiment-pick";
 // Round-4 P3a (D-3 pages model): the SAME canonical geo/UA primitives
 // runtime-context.ts's ONE builder + serve-auction.ts's rule-dims already
@@ -134,23 +150,258 @@ async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
   // helpers, never a fresh regex (04 §4.2 "bridged, not duplicated"). UTM
   // comes from the SAME resolved landing URL the signed token persists (the
   // client's own page URL — ad-traffic query params land there).
-  const geo = geoFromCf(readCfSignals(c.req.raw));
-  const ua = parseClientUa(c.req.header("User-Agent"));
-  const attempt = await mintFunnelAttempt(c.env, resolved, Date.now(), {
+  const now = Date.now();
+  const entryCtx = requestEntryCtx(c, landingUrl, now);
+  const attempt = await mintFunnelAttempt(c.env, resolved, now, {
     session_id: sessionId,
     landing_url: landingUrl,
-    entry_ctx: {
-      ...(geo.state !== "" ? { state: geo.state } : {}),
-      ...(ua.device !== "" ? { device: ua.device } : {}),
-      ...parseUtmFromLandingUrl(landingUrl),
-    },
+    entry_ctx: entryCtx,
   });
+
+  // P4a (D-2): if THIS served variant was reached via an ENTRY routing rule
+  // (i.e. it is NOT the funnel's control and a control-variant entry rule
+  // targets it), record the server-authoritative routing OUTCOME keyed by the
+  // freshly-minted attempt id — the source of truth the S2S value_multiplier
+  // graft + the auction variant re-derivation read (never a client echo).
+  // Best-effort: a failure never blocks the mint (the auction re-derives from
+  // the signed binding regardless; only the multiplier attribution is skipped).
+  //
+  // OPEN CONCERN (documented, not silently accepted): this RE-EVALUATES the
+  // entry rule using a FRESH entryCtx built from THIS /lg/attempt request,
+  // independently of `resolveActivatedFunnel`'s EARLIER evaluation at
+  // serveFunnelShell time (a SEPARATE HTTP request — the shell load, then the
+  // client engine's later /lg/attempt fetch). geo/device/UTM are effectively
+  // stable across the two nearly-simultaneous requests (same client, same
+  // page), but an hour/weekday-conditioned entry rule could theoretically
+  // disagree if the two requests straddle an hour/weekday boundary — a narrow,
+  // low-severity timing edge case (affects only analytics attribution +
+  // the S2S multiplier lookup for that one boundary-crossing visit, never the
+  // actually-served content, which the shell already locked in and the signed
+  // token/cache key already reflect). Not fixed here: doing so would need a
+  // shell→attempt channel (e.g. baking the matched rule hash into the shell
+  // and echoing it back) — a larger change flagged for the adversarial review.
+  try {
+    const control = await getControlVariantForFunnel(c.env.DB, resolved.funnel.id);
+    if (control !== null && control.id !== resolved.variant.id) {
+      const match = evaluateEntryRouting(await loadRoutingRules(c.env.DB, control.id), entryCtx);
+      if (match !== null && match.target_funnel_variant_id === resolved.variant.id) {
+        await recordRoutingOutcome(c.env.DB, {
+          funnel_attempt_id: attempt.funnel_attempt_id,
+          session_id: sessionId,
+          from: control.public_id,
+          to: resolved.variant.public_id,
+          hash: match.hash,
+          multiplier: match.value_multiplier,
+          plane: "entry",
+        });
+      }
+    }
+  } catch {
+    /* best-effort — never blocks the mint */
+  }
+
   const headers = leadgenNoStoreHeaders();
   if (sessionWasAbsent) headers.append("Set-Cookie", sessionCookie("ko_sid", sessionId));
   return new Response(JSON.stringify({ ...attempt, session_id: sessionId }), {
     status: 200,
     headers,
   });
+}
+
+// ---------------------------------------------------------------------------
+// POST /lg/checkpoint — the P4a (D-2) mid-funnel routing evaluation endpoint.
+// ---------------------------------------------------------------------------
+//
+// The engine POSTs here (no-store) when it completes a page the server flagged
+// as a routing CHECKPOINT (attempt echo `checkpoint_pages`). The endpoint:
+//   1. VALIDATES the incoming §19.1 signed binding FIRST (HMAC via attempt.ts
+//      verifyConfigTokenDetailed, requireSigned — the money path). A mismatch
+//      => 422 + traffic_quality_flag='tampered', ZERO effects (roast MAJOR-3).
+//   2. Re-normalizes the posted answers server-side (drops any client `__` ctx
+//      keys) and builds the entry attributes from the request + the VERIFIED
+//      landing URL (never the raw request body).
+//   3. Evaluates the ENTRY (bound) variant's CHECKPOINT-plane routing rules by
+//      priority; ≤1 switch per attempt (an existing checkpoint outcome refuses).
+//   4. On a match: re-resolves the target's plan, re-issues the signed binding
+//      under the SAME attempt id, records the SERVER-authoritative outcome, and
+//      responds with the outcome + re-issued binding + target plan + the prefix
+//      -rule resume section (or "" => straight to auction).
+// /lg/auction re-derives the variant from the re-issued token (server truth,
+// never client echo); the S2S multiplier graft reads the recorded outcome.
+
+// Build the request's ENTRY-KNOWN attributes: CF geo state + UA device + the
+// VERIFIED landing-URL UTM + server UTC clock. The SAME primitives serve.ts /
+// serve-auction already read (04 §4.2 "bridged, not duplicated").
+function requestEntryCtx(c: PublicContext, landingUrl: string, now: number): EntryKnownContext {
+  const geo = geoFromCf(readCfSignals(c.req.raw));
+  const ua = parseClientUa(c.req.header("User-Agent"));
+  const d = new Date(now);
+  return {
+    hour: d.getUTCHours(),
+    weekday: d.getUTCDay(),
+    ...(geo.state !== "" ? { state: geo.state } : {}),
+    ...(ua.device !== "" ? { device: ua.device } : {}),
+    ...parseUtmFromLandingUrl(landingUrl),
+  };
+}
+
+// Server-side re-normalization of the posted answers into the field→value map
+// the §21.4 evaluator reads. Accepts BOTH the auction wire shape ({value,
+// answer_source}) and a bare scalar. Client `__`-prefixed synthetic keys are
+// DROPPED — the server derives entry attributes itself; a client can never
+// inject `__state`/`__device` etc. into rule evaluation (money-path guard).
+function normalizeCheckpointAnswers(raw: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (raw === null || typeof raw !== "object") return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (k.startsWith("__")) continue;
+    if (v !== null && typeof v === "object" && "value" in (v as Record<string, unknown>)) {
+      out[k] = (v as { value: unknown }).value;
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function checkpointJson(obj: unknown, status: number): Response {
+  return new Response(JSON.stringify(obj), { status, headers: leadgenNoStoreHeaders() });
+}
+
+// The SERVER-recorded routing outcome (INSERT OR REPLACE — one row per attempt;
+// a checkpoint outcome supersedes an entry one). The auction/S2S read THIS.
+async function recordRoutingOutcome(
+  db: D1Database,
+  row: {
+    funnel_attempt_id: string;
+    session_id: string;
+    from: string;
+    to: string;
+    hash: string;
+    multiplier: number | null;
+    plane: "entry" | "checkpoint";
+  },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT OR REPLACE INTO leadgen_routing_outcomes
+         (funnel_attempt_id, session_id, routed_from_variant, routed_to_variant,
+          matched_rule_hash, value_multiplier, plane, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())`,
+    )
+    .bind(row.funnel_attempt_id, row.session_id, row.from, row.to, row.hash, row.multiplier, row.plane)
+    .run();
+}
+
+// Short wire keys (the P4a /lg/checkpoint protocol is engine+server-internal;
+// short keys keep the CLIENT engine leg inside its byte budget — esbuild does
+// not mangle object keys, so long echoed key names would blow the bundle cap):
+//   REQUEST  k=signed_config_token, f=funnel_attempt_id, v=funnel_variant_id,
+//            s=session_id, a=answers
+//   RESPONSE sw=switched, k=re-issued token, v=target funnel_variant_id,
+//            so=section_order_hash, cv=content_version, ar=assignment_reason,
+//            pp=target page plan, r=resume section_public_id ("" => auction)
+interface CheckpointBody {
+  k?: unknown;
+  f?: unknown;
+  v?: unknown;
+  s?: unknown;
+  a?: unknown;
+}
+
+async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
+  const siteContext = c.get("siteContext");
+  let body: CheckpointBody;
+  try {
+    body = (await c.req.json()) as CheckpointBody;
+  } catch {
+    return checkpointJson({ error: "bad request" }, 400);
+  }
+  const token = typeof body.k === "string" ? body.k : "";
+  const faid = typeof body.f === "string" ? body.f : "";
+  const currentVariantId = typeof body.v === "string" ? body.v : "";
+  const sessionId = typeof body.s === "string" ? body.s : "";
+
+  // Anti-leak reverse lookup of the CURRENT (entry/bound) variant on THIS site.
+  const current = await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, currentVariantId);
+  if (current === null) return checkpointJson({ error: "Not Found" }, 404);
+
+  // (1) §19.1 binding validation FIRST — recompute the EXACT tuple the current
+  // variant minted + constant-time-verify (requireSigned). ANY mismatch =>
+  // 422 tampered, ZERO effects (no rule evaluation, no writes, no re-issue).
+  const extras = await computeAttemptBindingExtras(c.env, current);
+  const expected: ConfigTokenTuple = {
+    funnel_variant_id: current.variant.public_id,
+    section_order_hash: computeSectionOrderHash(current),
+    content_version: current.variant.content_version,
+    funnel_attempt_id: faid,
+    session_id: sessionId,
+    answer_mapping_hash: extras.answer_mapping_hash,
+    auction_config_version: extras.auction_config_version,
+  };
+  const verified = await verifyConfigTokenDetailed(c.env, token, expected, { requireSigned: true });
+  if (!verified.ok) {
+    return checkpointJson({ error: "tampered", traffic_quality_flag: "tampered" }, 422);
+  }
+
+  const db = c.env.DB;
+  // (3a) ≤1 switch: a prior CHECKPOINT switch on this attempt refuses a second
+  // (hop guard — loops impossible). An entry-plane row does NOT block.
+  const prior = await db
+    .prepare("SELECT plane FROM leadgen_routing_outcomes WHERE funnel_attempt_id = ? LIMIT 1")
+    .bind(faid)
+    .first<{ plane: string }>();
+  if (prior !== null && prior.plane === "checkpoint") {
+    return checkpointJson({ sw: false }, 200);
+  }
+
+  // (2) server-side answer re-normalization + request-derived entry attributes.
+  const answers = normalizeCheckpointAnswers(body.a);
+  const entryCtx = requestEntryCtx(c, verified.landing_url, Date.now());
+
+  // (3b) evaluate the bound variant's CHECKPOINT-plane routing rules.
+  const match = evaluateCheckpointRouting(await loadRoutingRules(db, current.variant.id), entryCtx, answers);
+  if (match === null) return checkpointJson({ sw: false }, 200);
+
+  // Resolve the target (active sibling of THIS funnel) + its full bundle.
+  const targetRow = await getActiveVariantByIdOnFunnel(db, current.funnel.id, match.target_funnel_variant_id);
+  if (targetRow === null) return checkpointJson({ sw: false }, 200);
+  const target = await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, targetRow.public_id);
+  if (target === null) return checkpointJson({ sw: false }, 200);
+
+  // (4) re-issue the binding for the target under the SAME attempt id.
+  const now = Date.now();
+  const reissued = await mintFunnelAttempt(c.env, target, now, {
+    session_id: sessionId,
+    landing_url: verified.landing_url,
+    entry_ctx: entryCtx,
+    funnel_attempt_id: faid,
+  });
+  const resume = computeResumeSection(reissued.page_plan ?? [], target.pages ?? [], answers);
+
+  await recordRoutingOutcome(db, {
+    funnel_attempt_id: faid,
+    session_id: sessionId,
+    from: current.variant.public_id,
+    to: target.variant.public_id,
+    hash: match.hash,
+    multiplier: match.value_multiplier,
+    plane: "checkpoint",
+  });
+
+  return checkpointJson(
+    {
+      sw: true,
+      k: reissued.signed_config_token,
+      v: target.variant.public_id,
+      so: computeSectionOrderHash(target),
+      cv: target.variant.content_version,
+      ar: `routing_rule:${match.hash}`,
+      pp: reissued.page_plan ?? [],
+      r: resume,
+    },
+    200,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -578,6 +829,9 @@ leadgenPublicRouter.get("/lg/runtime/:version_js", (c) => {
   });
 });
 leadgenPublicRouter.get("/lg/config/:funnel_variant_id", (c) => serveLeadgenConfig(c));
+// P4a (D-2): mid-funnel routing evaluation (POST, no-store). Registered ahead
+// of the /lg/:quote_slug catch-all like the other reserved /lg heads.
+leadgenPublicRouter.post("/lg/checkpoint", (c) => serveLeadgenCheckpoint(c));
 leadgenPublicRouter.post("/lg/auction", (c) => serveLeadgenAuctionGuarded(c));
 leadgenPublicRouter.post("/lg/track", (c) => serveLeadgenTrack(c));
 leadgenPublicRouter.get("/lg/lc/:offer_id", (c) => serveLeadgenClick(c));

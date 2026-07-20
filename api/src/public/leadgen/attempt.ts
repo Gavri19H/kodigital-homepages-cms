@@ -63,6 +63,9 @@ import type { ResolvedActivatedFunnel } from "./resolver";
 import { computeSectionOrderHash } from "./config-dto";
 import {
   resolvePagePlan,
+  loadRoutingRules,
+  deriveCheckpointPages,
+  checkpointPageAnchors,
   type EntryKnownContext,
   type ResolvedSlotWinner,
 } from "./resolver";
@@ -115,6 +118,21 @@ export interface FunnelAttempt {
   // per-section slot_id/assignment_reason (analytics dims) in ONE structure.
   // Present only when `resolved.pages` was supplied.
   page_plan?: ResolvedSlotWinner[];
+  // Round-4 P4a (D-2): the ANCHOR (first winning) section_public_id of every
+  // page at which the engine must POST /lg/checkpoint (resolver.ts
+  // deriveCheckpointPages + checkpointPageAnchors) — a mid-funnel routing
+  // rule's condition answer fields all become known there. Wire form is the
+  // section id (not a page NUMBER) so the client gates on `currentSection().
+  // section_public_id` membership directly, with NO page-index lookup at all.
+  // ABSENT/empty when the entry variant has no checkpoint-plane routing rules
+  // (the engine then never calls /lg/checkpoint — byte-identical to a
+  // non-routing funnel). SHORT KEY (`cps` not `checkpoint_pages`): this field
+  // name IS the wire key (JSON.stringify({...attempt}) in runtime-routes.ts
+  // serveLeadgenAttemptV2), read 3× in the client's parse of EVERY /lg/attempt
+  // response (isArray guard, object key, value read) — a verbose name there
+  // would cost bytes on every response shape check, not just a routing one;
+  // matches the /lg/checkpoint protocol's short-key precedent.
+  cps?: string[];
 }
 
 // Request-derived attempt context threaded by the /lg/attempt route (04 §4.2):
@@ -128,6 +146,12 @@ export interface MintAttemptContext {
   // ctx echo (state/device only — hour/weekday are resolution-internal, not
   // echoed). hour/weekday default to `now`'s UTC clock when omitted.
   entry_ctx?: Partial<EntryKnownContext>;
+  // Round-4 P4a (D-2): reuse an EXISTING attempt id instead of minting a fresh
+  // one. A checkpoint SWITCH re-issues the signed binding for the TARGET variant
+  // under the SAME attempt (the auction + analytics + S2S must still see ONE
+  // funnel_attempt_id). Absent → a fresh id is minted (the normal /lg/attempt
+  // mint), byte-identical to pre-P4a.
+  funnel_attempt_id?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -312,7 +336,9 @@ export async function mintFunnelAttempt(
   ctx?: MintAttemptContext,
 ): Promise<FunnelAttempt> {
   const secret = readEnvSecret(env, LEADGEN_CONFIG_SIGNING_KEY_NAME);
-  const funnel_attempt_id = mintFunnelAttemptId(now);
+  // P4a: a checkpoint switch reuses the attempt id (same attempt, new binding);
+  // the normal mint path passes none → a fresh id.
+  const funnel_attempt_id = ctx?.funnel_attempt_id ?? mintFunnelAttemptId(now);
   const extras = await computeAttemptBindingExtras(env, resolved);
   const sessionId = ctx?.session_id ?? "";
 
@@ -324,6 +350,9 @@ export async function mintFunnelAttempt(
   // — byte-identical to pre-P3a for those callers.
   let pagePlanHash = "";
   let pagePlan: ResolvedSlotWinner[] | undefined;
+  // Round-4 P4a: the checkpoint page ANCHOR section ids for THIS variant's
+  // mid-funnel routing rules (empty when it has none — the common case).
+  let checkpointPages: string[] = [];
   if (resolved.pages !== undefined) {
     const entryCtx: EntryKnownContext = {
       hour: new Date(now).getUTCHours(),
@@ -333,6 +362,19 @@ export async function mintFunnelAttempt(
     const resolved_plan = resolvePagePlan(resolved.pages, entryCtx, sessionId);
     pagePlanHash = resolved_plan.hash;
     pagePlan = resolved_plan.winners;
+    // Derive the checkpoint pages from the variant's routing rules. A degraded
+    // read (no DB in a unit harness) simply yields none → no /lg/checkpoint
+    // calls (fail-safe; the server still re-derives authoritatively).
+    const db = (env as { DB?: D1Database }).DB;
+    if (db !== undefined) {
+      try {
+        const rules = await loadRoutingRules(db, resolved.variant.id);
+        const pageNumbers = deriveCheckpointPages(resolved.pages, rules);
+        checkpointPages = checkpointPageAnchors(pageNumbers, resolved_plan.pages);
+      } catch {
+        checkpointPages = [];
+      }
+    }
   }
 
   const tuple: ConfigTokenTuple = {
@@ -352,6 +394,7 @@ export async function mintFunnelAttempt(
     result.ctx = { ...(ctxState !== undefined ? { state: ctxState } : {}), ...(ctxDevice !== undefined ? { device: ctxDevice } : {}) };
   }
   if (pagePlan !== undefined) result.page_plan = pagePlan;
+  if (checkpointPages.length > 0) result.cps = checkpointPages;
   return result;
 }
 
