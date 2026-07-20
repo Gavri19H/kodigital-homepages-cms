@@ -1871,6 +1871,331 @@ export function funnelChromeCss(
       }),
       rule(`${scope} .lg-continue-slot .lg-continue`, { "margin-top": "0" }),
     );
+
+    // =====================================================================
+    // Round-4 P5a — authorable frame elements v2 (10C/10E/10F/10G/10H).
+    // PURE APPEND inside the frameRegions gate: the legacy shell (frameRegions
+    // OFF) is byte-untouched; every rule here keys on a P5a-only class, so a
+    // pre-P5a frame render (no new element markup) is unaffected.
+    // =====================================================================
+    // Role custom properties (footer scope var() refs read these; frame-gated
+    // only, so the base scope-root rule is byte-unchanged).
+    {
+      const roleVars: Record<string, string> = {};
+      for (const role of FUNNEL_TOKEN_ROLES) roleVars[`--lg-role-${role}`] = baseTokenForRole(design, role);
+      // footer typography size scale (structural rem steps — the logo-size
+      // precedent above; no dedicated token exists for arbitrary element text).
+      roleVars["--lg-footer-size-s"] = "0.8125rem";
+      roleVars["--lg-footer-size-m"] = "0.9375rem";
+      roleVars["--lg-footer-size-l"] = "1.125rem";
+      roleVars["--lg-footer-size-xl"] = "1.5rem";
+      out.push(rule(scope, roleVars));
+    }
+    out.push(
+      // ---- shared element alignment / size (10E typography overrides) --------
+      rule(`${scope} .lg-frame-el--align-left`, { "text-align": "left" }),
+      rule(`${scope} .lg-frame-el--align-center`, { "text-align": "center" }),
+      rule(`${scope} .lg-frame-el--align-right`, { "text-align": "right" }),
+      // structural rem steps (logo-size precedent; no arbitrary-text token).
+      rule(`${scope} .lg-frame-el--size-s`, { "font-size": "0.8125rem" }),
+      rule(`${scope} .lg-frame-el--size-m`, { "font-size": "0.9375rem" }),
+      rule(`${scope} .lg-frame-el--size-l`, { "font-size": "1.125rem" }),
+      rule(`${scope} .lg-frame-el--size-xl`, { "font-size": "1.5rem" }),
+    );
+    for (const role of FUNNEL_TOKEN_ROLES) {
+      out.push(rule(`${scope} .lg-frame-el--color-${role}`, { color: baseTokenForRole(design, role) }));
+    }
+    out.push(
+      // ---- 10E free text ----------------------------------------------------
+      rule(`${scope} .lg-frame-freetext`, {
+        "max-width": content.maxWidth,
+        margin: `${spacing.md} auto 0`,
+        padding: `0 ${content.paddingDesktop}`,
+        "box-sizing": "border-box",
+        color: page.textColor,
+      }),
+      rule(`${scope} .lg-frame-freetext-p`, { margin: `0 0 ${spacing.sm}`, "line-height": "1.5" }),
+      rule(`${scope} .lg-frame-freetext-h`, {
+        margin: `0 0 ${spacing.sm}`,
+        "font-family": headline.fontFamily,
+        color: headline.color,
+      }),
+      rule(`${scope} .lg-frame-freetext-list`, { margin: `0 0 ${spacing.sm}`, "padding-left": spacing.lg }),
+      // ✓ list: replace the marker with a check glyph (design-contract idiom).
+      rule(`${scope} .lg-frame-freetext-list--check`, { "list-style": "none", "padding-left": "0" }),
+      rule(`${scope} .lg-frame-freetext-list--check li`, {
+        position: "relative",
+        "padding-left": spacing.lg,
+        "margin-bottom": spacing.xs,
+      }),
+      rule(`${scope} .lg-frame-freetext-list--check li::before`, {
+        content: '"\\2713"',
+        position: "absolute",
+        left: "0",
+        color: color.primary,
+        "font-weight": "700",
+      }),
+      // ---- 10F brand logos --------------------------------------------------
+      rule(`${scope} .lg-frame-brand-logos`, {
+        "max-width": content.maxWidth,
+        margin: `${spacing.md} auto 0`,
+        padding: `0 ${content.paddingDesktop}`,
+        "box-sizing": "border-box",
+      }),
+      rule(`${scope} .lg-frame-brand-logos .lg-logo-strip`, {
+        display: "flex",
+        "flex-wrap": "wrap",
+        "align-items": "center",
+        "justify-content": "center",
+        gap: spacing.lg,
+      }),
+      rule(`${scope} .lg-frame-brand-logos--row .lg-logo-strip`, { "flex-wrap": "nowrap", "overflow-x": "auto" }),
+      rule(`${scope} .lg-frame-brand-logos--grid .lg-logo-strip`, {
+        display: "grid",
+        "grid-template-columns": "repeat(4,1fr)",
+      }),
+      rule(`${scope} .lg-frame-brand-logos .lg-logo-strip-img`, {
+        "max-height": logoStrip.logoMaxHeight,
+        width: "auto",
+      }),
+      // ---- 10C CTA / phone slots -------------------------------------------
+      rule(`${scope} .lg-frame-cta`, {
+        "max-width": content.maxWidth,
+        margin: `${spacing.md} auto 0`,
+        padding: `0 ${content.paddingDesktop}`,
+        "box-sizing": "border-box",
+        "text-align": "center",
+      }),
+      rule(`${scope} .lg-frame-cta-link`, {
+        display: "inline-block",
+        background: headerBar.ctaBackground,
+        color: headerBar.ctaColor,
+        "border-radius": headerBar.ctaRadius,
+        "font-size": headerBar.ctaFontSize,
+        padding: headerBar.ctaPadding,
+        "text-decoration": "none",
+        "font-weight": primaryButton.fontWeight,
+      }),
+      rule(`${scope} .lg-frame-cta--footer`, { "margin-top": spacing.sm }),
+      // ---- 10G trust / benefit rows ----------------------------------------
+      rule(`${scope} .lg-frame-trustrow`, {
+        display: "flex",
+        "flex-wrap": "wrap",
+        "align-items": "center",
+        "justify-content": "center",
+        gap: spacing.lg,
+        "max-width": content.maxWidth,
+        margin: `${spacing.md} auto 0`,
+        padding: `0 ${content.paddingDesktop}`,
+        "box-sizing": "border-box",
+      }),
+      rule(`${scope} .lg-frame-trustrow--align-left`, { "justify-content": "flex-start" }),
+      rule(`${scope} .lg-frame-trustrow--align-right`, { "justify-content": "flex-end" }),
+      rule(`${scope} .lg-frame-trustrow-item`, {
+        position: "relative",
+        display: "inline-flex",
+        "align-items": "center",
+        gap: spacing.xs,
+        color: page.textColor,
+      }),
+      rule(`${scope} .lg-frame-trustrow-icon`, { display: "inline-flex", color: color.primary }),
+      // CSS-only tooltip: hidden until hover/focus (no JS).
+      rule(`${scope} .lg-frame-trustrow-tip`, {
+        position: "absolute",
+        bottom: "100%",
+        left: "50%",
+        transform: "translateX(-50%)",
+        "margin-bottom": spacing.xs,
+        background: color.primaryDark,
+        color: color.card,
+        padding: `${spacing.xs} ${spacing.sm}`,
+        "border-radius": radius.sm,
+        "font-size": "0.75rem",
+        "white-space": "nowrap",
+        opacity: "0",
+        "pointer-events": "none",
+        transition: "opacity 120ms",
+        "z-index": "5",
+      }),
+      rule(`${scope} .lg-frame-trustrow-item:hover .lg-frame-trustrow-tip`, { opacity: "1" }),
+      rule(`${scope} .lg-frame-trustrow-item:focus .lg-frame-trustrow-tip`, { opacity: "1" }),
+      // ---- 10H-adjacent disclosure v2 --------------------------------------
+      rule(`${scope} .lg-frame-disc2-region`, {
+        "max-width": content.maxWidth,
+        margin: `${spacing.sm} auto 0`,
+        padding: `0 ${content.paddingDesktop}`,
+        "box-sizing": "border-box",
+      }),
+      rule(`${scope} .lg-frame-disc2--full`, {
+        color: page.textSecondaryColor,
+        "font-size": "0.75rem",
+        "line-height": "1.4",
+      }),
+      rule(`${scope} .lg-frame-disc2--hover`, { position: "relative", display: "inline-block", cursor: "help" }),
+      rule(`${scope} .lg-frame-disc2-trigger`, {
+        color: disclosure.color,
+        "text-decoration": "underline",
+        "font-size": "0.75rem",
+      }),
+      rule(`${scope} .lg-frame-disc2-tip`, {
+        position: "absolute",
+        bottom: "100%",
+        left: "0",
+        "margin-bottom": spacing.xs,
+        background: color.primaryDark,
+        color: color.card,
+        padding: `${spacing.xs} ${spacing.sm}`,
+        "border-radius": radius.sm,
+        "font-size": "0.75rem",
+        "max-width": cardPanel.widthS,
+        opacity: "0",
+        "pointer-events": "none",
+        transition: "opacity 120ms",
+        "z-index": "5",
+      }),
+      rule(`${scope} .lg-frame-disc2--hover:hover .lg-frame-disc2-tip`, { opacity: "1" }),
+      rule(`${scope} .lg-frame-disc2--hover:focus .lg-frame-disc2-tip`, { opacity: "1" }),
+      // ---- 10H footer v2 (own palette/typography scope via custom props) ----
+      rule(`${scope} .lg-frame-footer2`, {
+        background: "var(--lg-footer-bg,transparent)",
+        color: "var(--lg-footer-fg,inherit)",
+        "font-size": "var(--lg-footer-size,inherit)",
+        padding: `${spacing.lg} ${content.paddingDesktop}`,
+        "text-align": "center",
+      }),
+      rule(`${scope} .lg-frame-footer2-about`, { margin: `0 0 ${spacing.sm}`, "line-height": "1.5" }),
+      rule(`${scope} .lg-frame-footer2-address`, { "font-style": "normal", margin: `0 0 ${spacing.sm}` }),
+      rule(`${scope} .lg-frame-footer2-disclosure`, {
+        "font-size": "0.75rem",
+        color: validation.helperColor,
+        margin: `0 0 ${spacing.sm}`,
+      }),
+      rule(`${scope} .lg-frame-footer2-links`, {
+        display: "flex",
+        "flex-wrap": "wrap",
+        "justify-content": "center",
+        gap: spacing.md,
+        margin: `0 0 ${spacing.sm}`,
+      }),
+      rule(`${scope} .lg-frame-footer2-link`, { color: "var(--lg-footer-link,inherit)", "text-decoration": "none" }),
+      rule(`${scope} .lg-frame-footer2-socials`, {
+        display: "flex",
+        "flex-wrap": "wrap",
+        "justify-content": "center",
+        gap: spacing.md,
+      }),
+      rule(`${scope} .lg-frame-footer2-social`, { color: "var(--lg-footer-link,inherit)", "text-decoration": "none" }),
+      // ---- 10D progress v2 distinct styles ---------------------------------
+      // alignment of the unit within its band.
+      rule(`${scope} .lg-frame-progress--align-left`, { "text-align": "left" }),
+      rule(`${scope} .lg-frame-progress--align-right`, { "text-align": "right" }),
+      // numbered: circles with step numbers (distinct from the linear bar and
+      // the empty dots). The .lg-steps--numbered wrapper is a row of numbered
+      // badges; the visible label sits below.
+      rule(`${scope} .lg-frame-progress--numbered .lg-steps--numbered`, {
+        display: "flex",
+        "align-items": "center",
+        "justify-content": "center",
+        gap: spacing.sm,
+      }),
+      rule(`${scope} .lg-frame-progress--numbered .lg-step`, {
+        display: "inline-flex",
+        "align-items": "center",
+        "justify-content": "center",
+        width: "28px",
+        height: "28px",
+        "border-radius": "50%",
+        border: `2px solid ${color.border}`,
+        color: page.textSecondaryColor,
+        background: color.card,
+        "font-size": "0.8125rem",
+        "font-weight": "700",
+        "line-height": "1",
+      }),
+      rule(`${scope} .lg-frame-progress--numbered .lg-progress-text`, {
+        display: "block",
+        "text-align": "center",
+        "margin-top": spacing.xs,
+        "font-size": "0.75rem",
+        color: page.textSecondaryColor,
+      }),
+      // percent: the % label rides INSIDE the fill (distinct from bar, whose
+      // label is a separate line). Position the label over the track.
+      rule(`${scope} .lg-frame-progress--percent .lg-progress`, { position: "relative" }),
+      rule(`${scope} .lg-frame-progress--percent .lg-progress-text`, {
+        position: "absolute",
+        top: "50%",
+        left: spacing.sm,
+        transform: "translateY(-50%)",
+        margin: "0",
+        "font-size": "0.75rem",
+        "font-weight": "700",
+        color: color.card,
+        "z-index": "2",
+      }),
+      // icon_on_track: a thumb rides the fill's right edge (distinct from bar).
+      rule(`${scope} .lg-frame-progress--icon_on_track .lg-progress-fill`, { position: "relative", overflow: "visible" }),
+      rule(`${scope} .lg-frame-progress--icon_on_track .lg-progress-fill::after`, {
+        content: '""',
+        position: "absolute",
+        right: "0",
+        top: "50%",
+        width: "16px",
+        height: "16px",
+        transform: "translate(50%,-50%)",
+        "border-radius": "50%",
+        background: color.primaryDark,
+        border: `2px solid ${color.card}`,
+        "box-shadow": shadow.sm,
+      }),
+      // label honesty: a non-hidden dots/other label sink shows (dots stop
+      // force-hiding when show_label is on — the sink is rendered without
+      // `hidden`, and this makes it visible).
+      rule(`${scope} .lg-frame-progress .lg-frame-progress-label:not([hidden])`, {
+        display: "block",
+        "text-align": "center",
+        "margin-top": spacing.xs,
+        "font-size": "0.75rem",
+        color: page.textSecondaryColor,
+      }),
+      // ---- 10C / A-6 header fixes ------------------------------------------
+      // the extras band respects logo_align (kills the hard-centered bug for a
+      // left header); center headers stay centered (base rule).
+      rule(`${scope} .lg-frame-header--left .lg-frame-header-extras`, { "justify-content": "flex-start" }),
+      // header_right CTA: pushed to the far side; the header becomes a
+      // space-between row so the logo keeps its align and the CTA sits right.
+      rule(`${scope} .lg-frame-header--has-right .lg-header-inner`, {
+        display: "flex",
+        "align-items": "center",
+        "justify-content": "space-between",
+        gap: spacing.md,
+      }),
+      rule(`${scope} .lg-frame-header-right`, { "margin-left": "auto" }),
+      // 10B admin-preview-only "no logo set" hint (never emitted live).
+      rule(`${scope} .lg-frame-logo-hint`, {
+        "text-align": "center",
+        "font-size": "0.75rem",
+        color: validation.helperColor,
+        background: color.primaryGhost,
+        padding: `${spacing.xs} ${spacing.sm}`,
+        margin: `${spacing.xs} auto 0`,
+        "border-radius": radius.sm,
+        "max-width": cardPanel.widthS,
+      }),
+    );
+    // numbered active circle + icon thumb honour the progress color_role.
+    for (const role of FUNNEL_TOKEN_ROLES) {
+      out.push(
+        rule(`${scope} .lg-frame-progress--role-${role}.lg-frame-progress--numbered .lg-step[data-active]`, {
+          background: baseTokenForRole(design, role),
+          "border-color": baseTokenForRole(design, role),
+          color: color.card,
+        }),
+        rule(`${scope} .lg-frame-progress--role-${role}.lg-frame-progress--icon_on_track .lg-progress-fill::after`, {
+          background: `${baseTokenForRole(design, role)}`,
+        }),
+      );
+    }
     // frame mobile behaviors (§3.3 footer.hide_on_mobile + mobile.hide_footer;
     // trust_strip.mobile scroll/hide) — same single media query.
     mobile.push(
@@ -1881,6 +2206,16 @@ export function funnelChromeCss(
         "overflow-x": "auto",
         "justify-content": "flex-start",
       }),
+      // Round-4 P5a (10F): desktop ROW → mobile GRID preset. A row strip
+      // reflows to a 3-up grid at the breakpoint (Image21/22 reference).
+      rule(`${scope} .lg-frame-brand-logos--row .lg-logo-strip`, {
+        display: "grid",
+        "grid-template-columns": "repeat(3,1fr)",
+        "overflow-x": "visible",
+        gap: spacing.md,
+      }),
+      // header_right stacks under the logo on mobile (no cramped row).
+      rule(`${scope} .lg-frame-header--has-right .lg-header-inner`, { "flex-wrap": "wrap" }),
     );
 
     // ---- §3.3 `mobile` group consumers (DEV-57 B leg) ----------------------
