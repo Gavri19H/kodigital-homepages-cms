@@ -995,16 +995,16 @@ export async function duplicateQuoteHandler(c: AdminContext): Promise<Response> 
       );
       counts.variants += 1;
 
-      const sections = await readVariantSections(c.env.DB, variant.id);
-      for (const s of sections) {
-        statements.push(
-          c.env.DB.prepare(
-            `INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position)
-             VALUES ((SELECT id FROM leadgen_funnel_variants WHERE public_id = ?), ?, ?)`,
-          ).bind(newVariantPublicId, s.section_id, s.position),
-        );
-        counts.sections += 1;
-      }
+      // Round-4 P3a review round (minor-3): clone the source variant's REAL
+      // page/slot structure (fresh ids, rules/allocations preserved,
+      // slot_revision reset to 0) instead of bare variant-section rows --
+      // the OLD loop here (readVariantSections + a flat INSERT) silently
+      // flattened any A/B or ruled slot into sequential mandatory pages.
+      // `counts.sections` keeps its EXISTING response meaning (one count
+      // per cloned candidate/variant-section row, not per page/slot).
+      const pages = await loadVariantPages(c.env.DB, variant.id);
+      const cloneCounts = pushPageCloneStatements(c.env.DB, statements, newVariantPublicId, pages);
+      counts.sections += cloneCounts.candidates;
 
       const rules = await readVariantRules(c.env.DB, variant.id);
       for (const r of rules) {
@@ -1670,6 +1670,81 @@ function pushSectionPageWrapStatements(
   }
 }
 
+// Round-4 P3a review round (adversarial minor-3): forkVariantHandler and
+// duplicateQuoteHandler used to clone a source variant's sections as bare
+// leadgen_funnel_variant_sections rows -- silently FLATTENING any real page/
+// slot structure (an A/B or ruled slot with N candidates) into N sequential
+// MANDATORY single-candidate pages. This is the shared clone both handlers
+// now call instead: fresh page/slot public ids, rules_json/ab_allocations_
+// json copied VERBATIM (their embedded section_id values reference the
+// GLOBAL leadgen_sections catalog, not a per-variant row, so they stay
+// valid with zero remapping across variants), slot_revision RESET to 0 (a
+// fresh lineage -- the clone has never been re-bucketed), candidates re-
+// keyed to the NEW variant's OWN leadgen_funnel_variant_sections rows (the
+// source's variant_section rows belong to a DIFFERENT variant_id and can
+// never be reused). Subquery-linked into the caller's SAME atomic
+// `statements` array/batch -- the same public-id-subquery idiom this file
+// already uses throughout (forkVariantHandler's own section/rule clones,
+// putVariantHandler's atomic pages insert). `newVariantPublicId` (not yet a
+// real row at statement-BUILD time -- it may be INSERTed earlier in the
+// SAME batch) is threaded through via subquery, never a bound numeric id.
+function pushPageCloneStatements(
+  db: D1Database,
+  statements: D1PreparedStatement[],
+  newVariantPublicId: string,
+  sourcePages: readonly ResolvedFunnelPage[],
+): { pages: number; slots: number; candidates: number } {
+  let pages = 0;
+  let slots = 0;
+  let candidates = 0;
+  let sectionRowPosition = 0;
+  for (const page of sourcePages) {
+    const pagePublicId = mintPublicId("funnel_page");
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO leadgen_funnel_pages (public_id, variant_id, position, name)
+           VALUES (?, (SELECT id FROM leadgen_funnel_variants WHERE public_id = ?), ?, ?)`,
+        )
+        .bind(pagePublicId, newVariantPublicId, page.position, page.name),
+    );
+    pages += 1;
+    for (const slot of page.slots) {
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO leadgen_funnel_page_slots (page_id, position, slot_revision, rules_json, ab_allocations_json)
+             VALUES ((SELECT id FROM leadgen_funnel_pages WHERE public_id = ?), ?, 0, ?, ?)`,
+          )
+          .bind(
+            pagePublicId,
+            slot.position,
+            slot.rules !== null ? JSON.stringify(slot.rules) : null,
+            slot.ab_allocations !== null ? JSON.stringify(slot.ab_allocations) : null,
+          ),
+      );
+      slots += 1;
+      for (const candidate of slot.candidates) {
+        statements.push(
+          db
+            .prepare(
+              `INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position, page_id, slot_id)
+               VALUES (
+                 (SELECT id FROM leadgen_funnel_variants WHERE public_id = ?), ?, ?,
+                 (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?),
+                 (SELECT s.id FROM leadgen_funnel_page_slots s
+                    JOIN leadgen_funnel_pages p ON p.id = s.page_id
+                   WHERE p.public_id = ? AND s.position = ?))`,
+            )
+            .bind(newVariantPublicId, candidate.section.id, sectionRowPosition++, pagePublicId, pagePublicId, slot.position),
+        );
+        candidates += 1;
+      }
+    }
+  }
+  return { pages, slots, candidates };
+}
+
 export async function putVariantHandler(c: AdminContext): Promise<Response> {
   const variant = await resolveVariantRow(c.env.DB, c.req.param("id") ?? "");
   if (variant === null) return c.json({ error: "Not Found" }, 404);
@@ -2080,8 +2155,13 @@ export async function forkVariantHandler(c: AdminContext): Promise<Response> {
   const newLabel = `${source.variant_label}-fork-${existing.length}`;
   const variantPublicId = mintPublicId("funnel_variant");
 
-  // Read the source's ordered sections + rules BEFORE the write batch (reads).
-  const srcSections = await readVariantSections(c.env.DB, source.id);
+  // Read the source's ordered pages (loadVariantPages -- the SAME loader the
+  // live runtime resolves through, real page/slot rows OR the synthetic
+  // legacy-flat fallback; either way it is the fidelity-preserving read) +
+  // rules BEFORE the write batch. Round-4 P3a review round minor-3:
+  // srcSections/readVariantSections is NO LONGER the clone source -- it
+  // flattened A/B/ruled slots into sequential mandatory fixed pages.
+  const srcPages = await loadVariantPages(c.env.DB, source.id);
   const srcRules = await readVariantRules(c.env.DB, source.id);
 
   // v2.5 04 §4.5: "a fork clones the arm" — frame_overrides_json rides the
@@ -2122,14 +2202,10 @@ export async function forkVariantHandler(c: AdminContext): Promise<Response> {
           source.lander_hero_media_id, source.lander_hero_media_url, source.lander_cta_json, sourceFrameOverrides,
         ),
   ];
-  for (const s of srcSections) {
-    statements.push(
-      c.env.DB.prepare(
-        `INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position)
-         VALUES ((SELECT id FROM leadgen_funnel_variants WHERE public_id = ?), ?, ?)`,
-      ).bind(variantPublicId, s.section_id, s.position),
-    );
-  }
+  // Round-4 P3a review round (minor-3): clone the source's REAL page/slot
+  // structure (fresh ids, rules/allocations preserved, slot_revision reset
+  // to 0) rather than bare variant-section rows.
+  pushPageCloneStatements(c.env.DB, statements, variantPublicId, srcPages);
   for (const r of srcRules) {
     statements.push(
       c.env.DB.prepare(

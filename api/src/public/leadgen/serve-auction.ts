@@ -87,12 +87,6 @@ function buildRequestContext(c: PublicContext): Record<string, unknown> {
     if (typeof cf["city"] === "string") ctx["city"] = cf["city"];
     if (typeof cf["postalCode"] === "string") ctx["zip"] = cf["postalCode"];
   }
-  // Round-4 P3a (D-3 pages model, conductor GRANT 2): server UTC clock at
-  // auction-verify time — validateAntiTamper's page_plan_hash equality leg
-  // reads these two (auction/engine.ts entryContextFromRequestContext).
-  const now = new Date();
-  ctx["hour"] = now.getUTCHours();
-  ctx["weekday"] = now.getUTCDay();
   return ctx;
 }
 

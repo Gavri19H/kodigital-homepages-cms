@@ -159,6 +159,8 @@ const LEADGEN_MIGRATIONS = [
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql", // leadgen_funnels.frame_config_json/theme_json (duplicateQuoteHandler clones both)
   "0042_leadgen_pages.sql",
 ] as const;
 
@@ -893,6 +895,115 @@ describeDb("quotes-handlers pages PUT contract + end-to-end plan resolution", ()
       )
       .get(variantRow.id) as { n: number };
     expect(afterSlots.n).toBe(2);
+  });
+});
+
+// ===========================================================================
+// Round-4 P3a review round (adversarial minor-3): fork/duplicate must clone
+// the source variant's REAL page/slot structure — an A/B or ruled slot used
+// to silently flatten into sequential MANDATORY single-candidate pages
+// (forkVariantHandler/duplicateQuoteHandler used to clone bare
+// leadgen_funnel_variant_sections rows via readVariantSections, never the
+// page/slot tables).
+// ===========================================================================
+
+describeDb("fork/duplicate page fidelity (Round-4 P3a review round minor-3)", () => {
+  it("forking a variant with an A/B slot clones an EQUIVALENT A/B slot (own ids, revision 0); source untouched", async () => {
+    const { sdb, env } = newHarness();
+    const { variantId } = await seedQuote(env);
+    const abA = seedSection(sdb, "forkAbA");
+    const abB = seedSection(sdb, "forkAbB");
+
+    const putRes = await admin.request(
+      `${API}/variants/${variantId}`,
+      jsonInit("PUT", {
+        pages: [{ name: "P1", slots: [{ kind: "ab", allocations: [{ section_id: abA.public_id, bp: 5000 }, { section_id: abB.public_id, bp: 5000 }] }] }],
+      }),
+      env,
+    );
+    expect(putRes.status, `put pages: ${await putRes.clone().text()}`).toBe(200);
+    const before = (await putRes.json()) as {
+      pages: Array<{ page_id: string; slots: Array<{ slot_id: number; slot_revision: number; kind: string; candidates: Array<{ section_id: string }> }> }>;
+    };
+    const sourcePage = before.pages[0]!;
+    const sourceSlot = sourcePage.slots[0]!;
+    expect(sourceSlot.kind).toBe("ab");
+
+    const forkRes = await admin.request(`${API}/variants/${variantId}/fork`, jsonInit("POST", {}), env);
+    expect(forkRes.status, `fork: ${await forkRes.clone().text()}`).toBe(201);
+    const forked = (await forkRes.json()) as {
+      pages: Array<{ page_id: string; slots: Array<{ slot_id: number; slot_revision: number; kind: string; candidates: Array<{ section_id: string }> }> }>;
+    };
+
+    expect(forked.pages).toHaveLength(1);
+    const forkedSlot = forked.pages[0]!.slots[0]!;
+    // EQUIVALENT structure: same kind, same candidate set -- NOT flattened
+    // into two sequential mandatory fixed pages.
+    expect(forkedSlot.kind).toBe("ab");
+    expect(new Set(forkedSlot.candidates.map((c) => c.section_id))).toEqual(new Set(sourceSlot.candidates.map((c) => c.section_id)));
+    // OWN ids (never the source's) + a fresh revision-0 lineage.
+    expect(forked.pages[0]!.page_id).not.toBe(sourcePage.page_id);
+    expect(forkedSlot.slot_id).not.toBe(sourceSlot.slot_id);
+    expect(forkedSlot.slot_revision).toBe(0);
+
+    // Source UNTOUCHED: a read-only PUT ({} body -- no sections/pages/rules
+    // key, so neither replace-set branch runs) re-reads the SAME page/slot
+    // ids + revision as before the fork.
+    const reread = await admin.request(`${API}/variants/${variantId}`, jsonInit("PUT", {}), env);
+    expect(reread.status).toBe(200);
+    const after = (await reread.json()) as { pages: Array<{ page_id: string; slots: Array<{ slot_id: number; slot_revision: number }> }> };
+    expect(after.pages[0]!.page_id).toBe(sourcePage.page_id);
+    expect(after.pages[0]!.slots[0]!.slot_id).toBe(sourceSlot.slot_id);
+    expect(after.pages[0]!.slots[0]!.slot_revision).toBe(sourceSlot.slot_revision);
+  });
+
+  it("duplicating a quote clones an EQUIVALENT A/B slot on the new quote's variant (own ids, revision 0); source untouched", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId } = await seedQuote(env);
+    const abA = seedSection(sdb, "dupAbA");
+    const abB = seedSection(sdb, "dupAbB");
+
+    const putRes = await admin.request(
+      `${API}/variants/${variantId}`,
+      jsonInit("PUT", {
+        pages: [{ name: "P1", slots: [{ kind: "ab", allocations: [{ section_id: abA.public_id, bp: 5000 }, { section_id: abB.public_id, bp: 5000 }] }] }],
+      }),
+      env,
+    );
+    expect(putRes.status, `put pages: ${await putRes.clone().text()}`).toBe(200);
+    const before = (await putRes.json()) as {
+      pages: Array<{ page_id: string; slots: Array<{ slot_id: number; slot_revision: number; kind: string; candidates: Array<{ section_id: string }> }> }>;
+    };
+    const sourcePage = before.pages[0]!;
+    const sourceSlot = sourcePage.slots[0]!;
+
+    const dupRes = await admin.request(`${API}/quotes/${quotePublicId}/duplicate`, jsonInit("POST", {}), env);
+    expect(dupRes.status, `duplicate: ${await dupRes.clone().text()}`).toBe(201);
+    const dup = (await dupRes.json()) as { funnels: Array<{ variants: Array<{ public_id: string }> }> };
+    const newVariantId = dup.funnels[0]!.variants[0]!.public_id;
+
+    // duplicateQuoteHandler's own response uses the shallow variantRowToApi
+    // (no pages) -- read the new variant's FULL detail via the same read-
+    // only-PUT trick used for the source below.
+    const newDetailRes = await admin.request(`${API}/variants/${newVariantId}`, jsonInit("PUT", {}), env);
+    expect(newDetailRes.status).toBe(200);
+    const newDetail = (await newDetailRes.json()) as {
+      pages: Array<{ page_id: string; slots: Array<{ slot_id: number; slot_revision: number; kind: string; candidates: Array<{ section_id: string }> }> }>;
+    };
+    expect(newDetail.pages).toHaveLength(1);
+    const newSlot = newDetail.pages[0]!.slots[0]!;
+    expect(newSlot.kind).toBe("ab");
+    expect(new Set(newSlot.candidates.map((c) => c.section_id))).toEqual(new Set(sourceSlot.candidates.map((c) => c.section_id)));
+    expect(newDetail.pages[0]!.page_id).not.toBe(sourcePage.page_id);
+    expect(newSlot.slot_id).not.toBe(sourceSlot.slot_id);
+    expect(newSlot.slot_revision).toBe(0);
+
+    // Source quote's ORIGINAL variant untouched.
+    const rereadSource = await admin.request(`${API}/variants/${variantId}`, jsonInit("PUT", {}), env);
+    const afterSource = (await rereadSource.json()) as { pages: Array<{ page_id: string; slots: Array<{ slot_id: number; slot_revision: number }> }> };
+    expect(afterSource.pages[0]!.page_id).toBe(sourcePage.page_id);
+    expect(afterSource.pages[0]!.slots[0]!.slot_id).toBe(sourceSlot.slot_id);
+    expect(afterSource.pages[0]!.slots[0]!.slot_revision).toBe(sourceSlot.slot_revision);
   });
 });
 
