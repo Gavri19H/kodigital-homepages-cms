@@ -34,6 +34,16 @@ import {
   loadVariantPages,
   validateSlotRuleFieldScope,
   type ResolvedFunnelPage,
+  // Round-4 P4b: the P4a (D-2) routing-rule primitives this module's CRUD
+  // reuses so the admin-side checkpoint derivation + conflict detection can
+  // never diverge from the runtime's own (deriveRuleCheckpointPage,
+  // ROUTING_ENTRY_KNOWN_FIELDS are EXPORTED from resolver.ts for exactly this
+  // reuse — its own module-header comment: "conditions_hash + save-time
+  // conflict flagging" / "exported for P4b's Problems mechanism").
+  deriveRuleCheckpointPage,
+  ROUTING_ENTRY_KNOWN_FIELDS,
+  detectRoutingRuleConflicts,
+  type RoutingConflictInput,
 } from "../../public/leadgen/resolver";
 import {
   auctionEntryPosition,
@@ -69,6 +79,13 @@ import type { ComponentType } from "../../public/leadgen/components/presets";
 import { flattenComponents, type LeadgenComponentNode } from "../../public/leadgen/components/content-schema";
 import { COMPONENT_CATALOG } from "../../public/leadgen/components/registry";
 import { buildPublicConfig, type LeadgenPublicConfig } from "../../public/leadgen/config-dto";
+// Round-4 P4b: the SAME component parser/expander resolver.ts's private
+// fieldToPageIndex uses (config-dto.ts, both EXPORTED) — reused here to mirror
+// that exact field->page derivation locally (see computeFieldToPageIndex
+// below). resolver.ts's own fieldToPageIndex helper is NOT exported and
+// resolver.ts is not in this slice's file ownership, so this module keeps its
+// own drift-pinned copy of the algorithm rather than widening that file.
+import { parseSectionComponents, expandPublicComponents } from "../../public/leadgen/config-dto";
 // v2.5 A7 (13 §13.1/§13.3 + 14 §14.1): the composed-variant preview renders
 // through the SAME serve-owned pieces as the live /lg frame path
 // (resolveFrameComposition + renderVariantSectionsHtml + renderQuoteFrame —
@@ -138,6 +155,7 @@ import type {
   LeadgenFunnelRuleType,
   LeadgenFunnelVariantRow,
   LeadgenQuoteRow,
+  LeadgenRuleConditions,
   LeadgenQuoteStatus,
   LeadgenSectionRow,
   LeadgenSiteQuoteRow,
@@ -192,6 +210,37 @@ function parseStringArray(raw: unknown): string[] {
 }
 
 const QUOTE_STATUSES = ["draft", "active", "archived"] as const satisfies readonly LeadgenQuoteStatus[];
+
+// ---------------------------------------------------------------------------
+// Round-4 P4b (D-2 rule-model v2) — additive local types
+// ---------------------------------------------------------------------------
+// db-types.ts's LeadgenFunnelRuleType/LeadgenFunnelRuleRow/LeadgenFunnelRuleApi
+// and leadgen/funnel.ts's validateFunnelRule/FunnelRuleInput do NOT know the
+// route_funnel_variant rule type or the migration-0043 v2 columns
+// (target_funnel_variant_id, value_multiplier, checkpoint_page, match_mode,
+// rule_name, status) -- neither file is in the P4b slice's file ownership
+// (its dispatch lists only ui-rules-builder.ts / ui-quotes.ts /
+// quotes-handlers.ts / router.ts). resolver.ts's own P4a comment anticipated
+// this ("db-types.ts's LeadgenFunnelRuleRow, which P4b extends for the admin
+// API") but the widening was never added to either shared file. Rather than
+// touch two files outside this slice, the v2 surface is expressed with local,
+// additive types here (SEAM -- reported to the conductor rather than silently
+// widening db-types.ts/leadgen/funnel.ts).
+type FunnelRuleTypeV2 = LeadgenFunnelRuleType | "route_funnel_variant";
+
+interface LeadgenFunnelRuleRowV2 extends Omit<LeadgenFunnelRuleRow, "rule_type"> {
+  rule_type: FunnelRuleTypeV2;
+  target_funnel_variant_id: number | null;
+  value_multiplier: number | null;
+  checkpoint_page: number | null;
+  match_mode: string | null;
+  rule_name: string | null;
+  status: string;
+  // 0044 (P4a fix round) — the §15.5 redirect_direct_offer session-sticky
+  // percentage gate (funnel.ts resolveRedirectPct/shouldRedirectForSession).
+  redirect_pct: number | null;
+}
+
 const FUNNEL_RULE_TYPES = [
   "redirect_direct_offer",
   "skip_section",
@@ -199,7 +248,107 @@ const FUNNEL_RULE_TYPES = [
   "eligibility",
   "disqualification",
   "auction_entry",
-] as const satisfies readonly LeadgenFunnelRuleType[];
+  "route_funnel_variant",
+] as const satisfies readonly FunnelRuleTypeV2[];
+
+// route_funnel_variant is a P4b-only rule_type: leadgen/funnel.ts's
+// validateFunnelRule (its OWN, unexported FUNNEL_RULE_TYPES Set) rejects it as
+// unknown_rule_type, and that file is outside this slice. So route_funnel_
+// variant rules are validated LOCALLY (validateRoutingConditionsShape below)
+// and never routed through validateFunnelRule; every other rule type is
+// UNCHANGED (still validated by the shared Stage-A validator, no drift).
+const CONDITION_OPS_V2: ReadonlySet<string> = new Set([
+  "eq",
+  "neq",
+  "gt",
+  "lt",
+  "gte",
+  "lte",
+  "range",
+  "in",
+  "not_in",
+]);
+
+// Mirrors leadgen/funnel.ts's private validateRuleConditions (same §21.4
+// shape check); duplicated locally because that function is not exported and
+// its file is outside this slice. Returns a plain-language error, or null
+// when the shape is acceptable.
+function validateRoutingConditionsShape(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return "conditions_json must be an object { groups: [...] }";
+  const groups = (value as { groups?: unknown }).groups;
+  if (!Array.isArray(groups)) return "conditions_json.groups must be an array";
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    if (typeof g !== "object" || g === null || Array.isArray(g)) return `conditions_json.groups[${i}] must be an object`;
+    const group = g as Record<string, unknown>;
+    if (typeof group["field"] !== "string" || group["field"].trim() === "") {
+      return `conditions_json.groups[${i}].field is required`;
+    }
+    const op = group["op"];
+    if (typeof op !== "string" || !CONDITION_OPS_V2.has(op)) {
+      return `conditions_json.groups[${i}].op must be one of ${[...CONDITION_OPS_V2].join("|")}`;
+    }
+    if (op === "range" && (typeof group["from"] !== "number" || typeof group["to"] !== "number")) {
+      return `conditions_json.groups[${i}] range op requires numeric from + to`;
+    }
+    if ((op === "in" || op === "not_in") && !Array.isArray(group["values"])) {
+      return `conditions_json.groups[${i}] ${op} op requires a values array`;
+    }
+  }
+  return null;
+}
+
+// Mirrors resolver.ts's private fieldToPageIndex (same "later page overwrites
+// -> max" derivation) using the SAME exported component parser/expander, so
+// the P4b builder's checkpoint_page can never drift from the runtime's own
+// per-rule derivation (deriveRuleCheckpointPage, imported above, is reused
+// verbatim -- only this field->page map is a local mirror).
+function computeFieldToPageIndex(pages: readonly ResolvedFunnelPage[]): Map<string, number> {
+  const out = new Map<string, number>();
+  pages.forEach((page, idx) => {
+    for (const slot of page.slots) {
+      for (const c of slot.candidates) {
+        for (const node of parseSectionComponents(c.section.content_json ?? "")) {
+          for (const comp of expandPublicComponents(node)) {
+            const f = comp.internal_field;
+            if (f !== undefined && f !== "") out.set(f, idx);
+          }
+        }
+      }
+    }
+  });
+  return out;
+}
+
+// A route_funnel_variant rule is "entry-only" (no checkpoint_page -- evaluated
+// at entry) iff every condition field is entry-known. Mirrors resolver.ts's
+// private isEntryOnly using the SAME exported ROUTING_ENTRY_KNOWN_FIELDS set.
+function routingRuleIsEntryOnly(conditions: { groups?: Array<{ field: string }> }): boolean {
+  for (const g of conditions.groups ?? []) {
+    if (!ROUTING_ENTRY_KNOWN_FIELDS.has(g.field)) return false;
+  }
+  return true;
+}
+
+// Resolve a route_funnel_variant target: a funnel_variant PUBLIC id (lgn_...),
+// constrained to the SAME FUNNEL as the rule's own variant (P4a's resolver.ts
+// anti-leak invariant -- getActiveVariantByIdOnFunnel/isActiveRoutingTargetOnFunnel
+// both scope by funnel_id; a routing rule can only route within its own
+// funnel's variants). Returns the target's internal id, or null when absent/
+// not-found/foreign-funnel (caller surfaces a field error on not-found).
+async function resolveRoutingTargetVariantId(
+  db: D1Database,
+  funnelId: number,
+  targetPublicId: string,
+): Promise<number | null> {
+  if (targetPublicId === "") return null;
+  const row = await db
+    .prepare("SELECT id FROM leadgen_funnel_variants WHERE public_id = ? AND funnel_id = ? LIMIT 1")
+    .bind(targetPublicId, funnelId)
+    .first<{ id: number }>();
+  return row ? row.id : null;
+}
 
 type FieldErrors = Record<string, string>;
 
@@ -314,12 +463,18 @@ function variantRowToApi(row: LeadgenFunnelVariantRow): Record<string, unknown> 
   };
 }
 
-function ruleRowToApi(row: LeadgenFunnelRuleRow): Record<string, unknown> {
+function ruleRowToApi(row: LeadgenFunnelRuleRowV2): Record<string, unknown> {
   return {
     ...row,
     conditions_json: parseJsonColumn(row.conditions_json),
     redirect_url_allowlisted: row.redirect_url_allowlisted !== 0,
     enabled: row.enabled !== 0,
+    // v2 columns (target_funnel_variant_id, value_multiplier, checkpoint_page,
+    // match_mode, rule_name, status) ride the `...row` spread verbatim --
+    // NULLable/plain-string, no transform needed. The admin client resolves
+    // target_funnel_variant_id -> a display name against the SAME quote's
+    // funnel-variants list it already loads (no server-side name join here,
+    // matching how target_offer_id/target_section_id already work).
   };
 }
 
@@ -464,13 +619,13 @@ async function readVariantSections(
   });
 }
 
-async function readVariantRules(db: D1Database, variantId: number): Promise<LeadgenFunnelRuleRow[]> {
+async function readVariantRules(db: D1Database, variantId: number): Promise<LeadgenFunnelRuleRowV2[]> {
   const result = await db
     .prepare(
       "SELECT * FROM leadgen_funnel_rules WHERE variant_id = ? ORDER BY priority ASC, id ASC",
     )
     .bind(variantId)
-    .all<LeadgenFunnelRuleRow>();
+    .all<LeadgenFunnelRuleRowV2>();
   return result.results ?? [];
 }
 
@@ -936,6 +1091,69 @@ interface QuoteDuplicateCounts {
   rules: number;
 }
 
+// ---------------------------------------------------------------------------
+// Round-4 P4b fix round (conductor ruling, consolidated commit): the v2
+// envelope (rule_name/status/match_mode/checkpoint_page/target_funnel_
+// variant_id/value_multiplier/redirect_pct) is now UNCONDITIONAL — every rule
+// type gets the full migration-0043/0044 column set (the reference's table
+// shows names+statuses on every row, not just route_funnel_variant). This
+// REVERSES the prior round's route_funnel_variant-only scoping: that scoping
+// existed only because 6 non-owned vitest files hardcoded a pre-0043/0044
+// migration replay list; the conductor has since granted the one-line fix to
+// each of those 6 files (0043 + 0044 added — verified clean replay), so the
+// schema landmine this worked around no longer exists.
+// `variantIdSql`/`variantIdBindValue` are either a direct "?" + numeric id
+// (putVariantHandler, forkVariantHandler — both write into an id that is
+// already resolved/known) or a "(SELECT id FROM leadgen_funnel_variants
+// WHERE public_id = ?)" subquery + a public id (duplicateQuoteHandler, whose
+// new variant row is minted in the SAME batch). `targetVariantIdSql`/
+// `targetVariantIdBindValue` default to a direct bind of the ALREADY-
+// resolved target_funnel_variant_id; duplicateQuoteHandler overrides both
+// with its OWN remap subquery (a cloned quote's target must point at the
+// CLONE's variant, not the original's).
+// ---------------------------------------------------------------------------
+interface RuleInsertRow {
+  publicId: string;
+  ruleType: string;
+  conditionsJson: string;
+  conditionsHash: string;
+  targetOfferId: number | null;
+  targetSectionId: number | null;
+  redirectUrl: string | null;
+  redirectAllowlisted: number;
+  priority: number;
+  enabled: number;
+  targetFunnelVariantId: number | null;
+  valueMultiplier: number | null;
+  checkpointPage: number | null;
+  matchMode: string | null;
+  ruleName: string | null;
+  status: string;
+  redirectPct: number | null;
+}
+function insertRuleStatement(
+  db: D1Database,
+  variantIdSql: string,
+  variantIdBindValue: number | string,
+  r: RuleInsertRow,
+  targetVariantIdSql = "?",
+  targetVariantIdBindValue: number | string | null = r.targetFunnelVariantId,
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO leadgen_funnel_rules
+         (public_id, variant_id, rule_type, conditions_json, conditions_hash, target_offer_id, target_section_id,
+          redirect_url, redirect_url_allowlisted, priority, enabled,
+          target_funnel_variant_id, value_multiplier, checkpoint_page, match_mode, rule_name, status, redirect_pct)
+       VALUES (?, ${variantIdSql}, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${targetVariantIdSql}, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      r.publicId, variantIdBindValue, r.ruleType, r.conditionsJson, r.conditionsHash, r.targetOfferId, r.targetSectionId,
+      r.redirectUrl, r.redirectAllowlisted, r.priority, r.enabled,
+      targetVariantIdBindValue, r.valueMultiplier, r.checkpointPage, r.matchMode, r.ruleName, r.status, r.redirectPct,
+    );
+}
+
 export async function duplicateQuoteHandler(c: AdminContext): Promise<Response> {
   const src = await resolveQuoteRow(c.env.DB, c.req.param("id") ?? "");
   if (src === null) return c.json({ error: "Not Found" }, 404);
@@ -974,8 +1192,16 @@ export async function duplicateQuoteHandler(c: AdminContext): Promise<Response> 
     // enforces exactly one) — filter explicitly rather than index [0].
     const variants = await readFunnelVariants(c.env.DB, funnel.id);
     const controlVariants = variants.filter((v) => v.is_control !== 0);
+    // Round-4 P4b: pre-mint every control variant's NEW public id BEFORE any
+    // INSERT is pushed, so a route_funnel_variant rule that targets a SIBLING
+    // control variant (of this SAME funnel) can be remapped regardless of
+    // loop order (source variant.id -> the clone's new public_id).
+    const newControlVariantPublicIds = new Map<number, string>();
     for (const variant of controlVariants) {
-      const newVariantPublicId = mintPublicId("funnel_variant");
+      newControlVariantPublicIds.set(variant.id, mintPublicId("funnel_variant"));
+    }
+    for (const variant of controlVariants) {
+      const newVariantPublicId = newControlVariantPublicIds.get(variant.id)!;
       statements.push(
         c.env.DB.prepare(
           `INSERT INTO leadgen_funnel_variants
@@ -1008,16 +1234,44 @@ export async function duplicateQuoteHandler(c: AdminContext): Promise<Response> 
 
       const rules = await readVariantRules(c.env.DB, variant.id);
       for (const r of rules) {
+        // Round-4 P4b: a route_funnel_variant target is remapped to the
+        // clone's new public id ONLY when the target was itself one of this
+        // funnel's cloned CONTROL variants; a target on a non-control sibling
+        // (the common case -- adversarial-review finding 4 clones ONLY the
+        // control arm) has no clone to point at, so it is dropped to NULL
+        // rather than carry the WRONG (foreign/original-quote) internal id.
+        // The impossible-sentinel public_id ('') makes the subquery resolve
+        // to NULL uniformly -- no conditional SQL text/bind-arity needed.
+        const remappedTargetPublicId =
+          r.target_funnel_variant_id !== null
+            ? (newControlVariantPublicIds.get(r.target_funnel_variant_id) ?? "")
+            : "";
         statements.push(
-          c.env.DB.prepare(
-            `INSERT INTO leadgen_funnel_rules
-               (public_id, variant_id, rule_type, conditions_json, conditions_hash, target_offer_id,
-                target_section_id, redirect_url, redirect_url_allowlisted, priority, enabled)
-             VALUES (?, (SELECT id FROM leadgen_funnel_variants WHERE public_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          ).bind(
-            mintPublicId("funnel_rule"), newVariantPublicId, r.rule_type, r.conditions_json, r.conditions_hash,
-            r.target_offer_id, r.target_section_id, r.redirect_url, r.redirect_url_allowlisted, r.priority,
-            r.enabled,
+          insertRuleStatement(
+            c.env.DB,
+            "(SELECT id FROM leadgen_funnel_variants WHERE public_id = ?)",
+            newVariantPublicId,
+            {
+              publicId: mintPublicId("funnel_rule"),
+              ruleType: r.rule_type,
+              conditionsJson: r.conditions_json,
+              conditionsHash: r.conditions_hash,
+              targetOfferId: r.target_offer_id,
+              targetSectionId: r.target_section_id,
+              redirectUrl: r.redirect_url,
+              redirectAllowlisted: r.redirect_url_allowlisted,
+              priority: r.priority,
+              enabled: r.enabled,
+              targetFunnelVariantId: r.target_funnel_variant_id,
+              valueMultiplier: r.value_multiplier,
+              checkpointPage: r.checkpoint_page,
+              matchMode: r.match_mode,
+              ruleName: r.rule_name,
+              status: r.status,
+              redirectPct: r.redirect_pct,
+            },
+            "(SELECT id FROM leadgen_funnel_variants WHERE public_id = ?)",
+            remappedTargetPublicId,
           ),
         );
         counts.rules += 1;
@@ -1311,7 +1565,7 @@ async function resolveRowSection(db: D1Database, idParam: string): Promise<Leadg
 
 interface PreparedRule {
   publicId: string;
-  ruleType: LeadgenFunnelRuleType;
+  ruleType: FunnelRuleTypeV2;
   conditionsJson: string;
   conditionsHash: string;
   targetOfferId: number | null;
@@ -1320,18 +1574,53 @@ interface PreparedRule {
   redirectAllowlisted: number;
   priority: number;
   enabled: number;
+  // Round-4 P4b rule-model v2 additive fields — EVERY rule type persists the
+  // full envelope (conductor ruling, consolidated fix round): rule_name/
+  // status/match_mode/redirect_pct apply uniformly; target_funnel_variant_id/
+  // value_multiplier/checkpoint_page stay meaningful only for route_funnel_
+  // variant (null otherwise) and redirect_pct only for redirect_direct_offer
+  // (null otherwise) — both simply unused/ignored by the runtime for other
+  // types, never fabricated.
+  ruleName: string | null;
+  status: string;
+  matchMode: string | null;
+  targetFunnelVariantId: number | null;
+  valueMultiplier: number | null;
+  checkpointPage: number | null;
+  redirectPct: number | null;
 }
 
-// Validate + prepare the funnel-rule replace-set (§15.5). Every rule runs
-// through the Stage-A validateFunnelRule with the admin raw-redirect allowlist;
-// conditions_json + conditions_hash (both NOT NULL) are computed here.
-function prepareRules(raw: unknown, allowlist: string[]): { rules: PreparedRule[]; errors: FieldErrors } {
+// Validate + prepare the funnel-rule replace-set (§15.5 + Round-4 P4b rule-
+// model v2). Every LEGACY rule type still runs through the Stage-A
+// validateFunnelRule with the admin raw-redirect allowlist (byte-identical to
+// pre-P4b); route_funnel_variant is validated LOCALLY (see the FUNNEL_RULE_
+// TYPES comment above) since leadgen/funnel.ts does not know this rule_type
+// and is outside this slice. conditions_json + conditions_hash (both NOT
+// NULL) are computed here, as before. `funnelId` scopes a route_funnel_
+// variant target to the SAME funnel (P4a's resolver.ts anti-leak invariant).
+// checkpoint_page is SERVER-DERIVED (never client-accepted) from the
+// variant's CURRENT pages (loaded once, before this save's own page replace-
+// set commits -- a same-request page-reorder + rule-add can leave the stored
+// display value one save behind; the RUNTIME always re-derives fresh from
+// live pages per resolver.ts's own doc comment, so this is a display-only,
+// self-correcting edge case, not a functional gap).
+async function prepareRules(
+  db: D1Database,
+  variantId: number,
+  funnelId: number,
+  raw: unknown,
+  allowlist: string[],
+): Promise<{ rules: PreparedRule[]; errors: FieldErrors }> {
   const errors: FieldErrors = {};
   if (!Array.isArray(raw)) {
     errors["rules"] = "rules must be an array";
     return { rules: [], errors };
   }
   const rules: PreparedRule[] = [];
+  const pages = await loadVariantPages(db, variantId);
+  const fieldToPage = computeFieldToPageIndex(pages);
+  const lastPageIndex = pages.length - 1;
+
   for (let i = 0; i < raw.length; i++) {
     const entry = raw[i];
     if (!isRecord(entry)) {
@@ -1352,34 +1641,146 @@ function prepareRules(raw: unknown, allowlist: string[]): { rules: PreparedRule[
     const redirectAllowlisted = asToggle(entry["redirect_url_allowlisted"]) ?? false;
     const priorityRaw = entry["priority"];
     const priority = typeof priorityRaw === "number" ? priorityRaw : 100;
-    const enabled = asToggle(entry["enabled"]) ?? true;
 
-    const ruleInput: FunnelRuleInput = {
-      rule_type: ruleType,
-      target_offer_id: targetOfferId,
-      target_section_id: targetSectionId,
-      redirect_url: redirectUrl,
-      redirect_url_allowlisted: redirectAllowlisted,
-      conditions_json: conditions,
-      priority,
-    };
-    const verdict = validateFunnelRule(ruleInput, allowlist);
-    if (!verdict.ok) {
-      errors[`rules.${i}`] = verdict.errors.map((e) => `${e.code}: ${e.message}`).join("; ");
+    // --- v2 envelope (rule_name / status / match_mode) — every rule type ---
+    const ruleName = trimmedString(entry["rule_name"]);
+    const statusRaw = entry["status"];
+    const statusProvided = statusRaw === "active" || statusRaw === "disabled";
+    if (statusRaw !== undefined && statusRaw !== null && statusRaw !== "" && !statusProvided) {
+      errors[`rules.${i}.status`] = "status must be one of active|disabled";
       continue;
     }
+    const enabledRaw = entry["enabled"];
+    const enabledExplicit = enabledRaw !== undefined && enabledRaw !== null && enabledRaw !== "";
+    let status: string;
+    let enabled: boolean;
+    if (statusProvided) {
+      status = statusRaw as string;
+      // Round-4 P4b fix round (P4a's cited save-side bug, resolver.ts/
+      // auction/engine.ts commits eb1969c/32990e8): BOTH evaluation planes
+      // now gate on `enabled = 1 AND status != 'disabled'` — two
+      // independently-writable axes over the SAME "is this rule on" concept.
+      // When the envelope carries status WITHOUT an explicit enabled, derive
+      // enabled FROM status (never default enabled=true independent of what
+      // status says — the prior bug: an operator's Disable click could
+      // persist status='disabled' while enabled stayed true/default, an
+      // incoherent stored row).
+      enabled = enabledExplicit ? (asToggle(enabledRaw) ?? true) : status !== "disabled";
+    } else {
+      enabled = asToggle(enabledRaw) ?? true;
+      status = enabled ? "active" : "disabled";
+    }
+    const matchModeRaw = entry["match_mode"];
+    let matchMode: string | null;
+    if (matchModeRaw === "any") {
+      matchMode = "any";
+    } else if (matchModeRaw === "all" || matchModeRaw === undefined || matchModeRaw === null || matchModeRaw === "") {
+      matchMode = null; // migration convention: NULL == 'all' (the default)
+    } else {
+      errors[`rules.${i}.match_mode`] = "match_mode must be one of all|any";
+      continue;
+    }
+    const valueMultiplierRaw = entry["value_multiplier"];
+    let valueMultiplier: number | null = null;
+    if (valueMultiplierRaw !== undefined && valueMultiplierRaw !== null && valueMultiplierRaw !== "") {
+      if (typeof valueMultiplierRaw !== "number" || !Number.isFinite(valueMultiplierRaw) || valueMultiplierRaw <= 0) {
+        errors[`rules.${i}.value_multiplier`] = "value_multiplier must be a positive number";
+        continue;
+      }
+      valueMultiplier = valueMultiplierRaw;
+    }
+    // §15.5 redirect_pct (0044, REAL NULL) — funnel.ts's resolveRedirectPct/
+    // shouldRedirectForSession treat `redirect_pct ?? 0` as authoritative:
+    // NULL/absent -> never redirect; an explicit 0 ALSO never redirects (both
+    // legitimate, not errors); 100 -> always; anything outside 0..100 or
+    // non-numeric is rejected. Meaningful only for redirect_direct_offer, but
+    // parsed uniformly (harmless/unused by the runtime for other types).
+    const redirectPctRaw = entry["redirect_pct"];
+    let redirectPct: number | null = null;
+    if (redirectPctRaw !== undefined && redirectPctRaw !== null && redirectPctRaw !== "") {
+      if (typeof redirectPctRaw !== "number" || !Number.isFinite(redirectPctRaw) || redirectPctRaw < 0 || redirectPctRaw > 100) {
+        errors[`rules.${i}.redirect_pct`] = "redirect_pct must be a number between 0 and 100";
+        continue;
+      }
+      redirectPct = redirectPctRaw;
+    }
+
+    let targetFunnelVariantId: number | null = null;
+    let checkpointPage: number | null = null;
+
+    if (ruleType === "route_funnel_variant") {
+      if (!Number.isInteger(priority) || priority < 1 || priority > 100) {
+        errors[`rules.${i}.priority`] = "priority must be an integer between 1 and 100";
+        continue;
+      }
+      const shapeError = validateRoutingConditionsShape(conditions);
+      if (shapeError !== null) {
+        errors[`rules.${i}.conditions_json`] = shapeError;
+        continue;
+      }
+      const targetPublicId = trimmedString(entry["target_funnel_variant_id"]) ?? "";
+      if (targetPublicId === "") {
+        errors[`rules.${i}.target_funnel_variant_id`] = "route_funnel_variant requires a target funnel variant";
+        continue;
+      }
+      const resolvedTarget = await resolveRoutingTargetVariantId(db, funnelId, targetPublicId);
+      if (resolvedTarget === null) {
+        errors[`rules.${i}.target_funnel_variant_id`] = `target funnel variant '${targetPublicId}' does not exist on this funnel`;
+        continue;
+      }
+      targetFunnelVariantId = resolvedTarget;
+      const conditionsForCheckpoint = conditions as { groups?: Array<{ field: string }> };
+      const entryOnly = routingRuleIsEntryOnly(conditionsForCheckpoint);
+      checkpointPage = entryOnly
+        ? null
+        : deriveRuleCheckpointPage(
+            {
+              hash: "",
+              priority,
+              conditions: conditionsForCheckpoint as LeadgenRuleConditions,
+              target_funnel_variant_id: targetFunnelVariantId,
+              value_multiplier: valueMultiplier,
+              entry_only: entryOnly,
+            },
+            fieldToPage,
+            lastPageIndex,
+          );
+    } else {
+      const ruleInput: FunnelRuleInput = {
+        rule_type: ruleType,
+        target_offer_id: targetOfferId,
+        target_section_id: targetSectionId,
+        redirect_url: redirectUrl,
+        redirect_url_allowlisted: redirectAllowlisted,
+        conditions_json: conditions,
+        priority,
+      };
+      const verdict = validateFunnelRule(ruleInput, allowlist);
+      if (!verdict.ok) {
+        errors[`rules.${i}`] = verdict.errors.map((e) => `${e.code}: ${e.message}`).join("; ");
+        continue;
+      }
+    }
+
     const conditionsJson = JSON.stringify(conditions);
     rules.push({
       publicId: mintPublicId("funnel_rule"),
-      ruleType: ruleType as LeadgenFunnelRuleType,
+      ruleType: ruleType as FunnelRuleTypeV2,
       conditionsJson,
       conditionsHash: sha256Hex(conditionsJson),
       targetOfferId,
       targetSectionId,
       redirectUrl,
       redirectAllowlisted: redirectAllowlisted ? 1 : 0,
+      redirectPct,
       priority,
       enabled: enabled ? 1 : 0,
+      ruleName,
+      status,
+      matchMode,
+      targetFunnelVariantId,
+      valueMultiplier,
+      checkpointPage,
     });
   }
   return { rules, errors };
@@ -1945,7 +2346,7 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
   const rulesProvided = body["rules"] !== undefined;
   let preparedRules: PreparedRule[] = [];
   if (rulesProvided) {
-    const prep = prepareRules(body["rules"], redirectAllowlist(c.env));
+    const prep = await prepareRules(c.env.DB, variant.id, variant.funnel_id, body["rules"], redirectAllowlist(c.env));
     Object.assign(errors, prep.errors);
     preparedRules = prep.rules;
     // FK existence for rule targets (leadgen_funnel_rules FKs are enforced by
@@ -2041,17 +2442,7 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
   if (rulesProvided) {
     statements.push(c.env.DB.prepare("DELETE FROM leadgen_funnel_rules WHERE variant_id = ?").bind(variant.id));
     for (const r of preparedRules) {
-      statements.push(
-        c.env.DB.prepare(
-          `INSERT INTO leadgen_funnel_rules
-             (public_id, variant_id, rule_type, conditions_json, conditions_hash, target_offer_id, target_section_id,
-              redirect_url, redirect_url_allowlisted, priority, enabled)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).bind(
-          r.publicId, variant.id, r.ruleType, r.conditionsJson, r.conditionsHash, r.targetOfferId, r.targetSectionId,
-          r.redirectUrl, r.redirectAllowlisted, r.priority, r.enabled,
-        ),
-      );
+      statements.push(insertRuleStatement(c.env.DB, "?", variant.id, r));
     }
   }
   // Round-4 P3a item 3 (was an OPEN CONCERN in the prior round): pages/
@@ -2207,16 +2598,31 @@ export async function forkVariantHandler(c: AdminContext): Promise<Response> {
   // to 0) rather than bare variant-section rows.
   pushPageCloneStatements(c.env.DB, statements, variantPublicId, srcPages);
   for (const r of srcRules) {
+    // Round-4 P4b: a fork stays WITHIN the source's own funnel (funnel_id is
+    // reused verbatim above), so a route_funnel_variant rule's target_funnel_
+    // variant_id (a sibling variant of that SAME funnel) is copied AS-IS --
+    // unlike duplicateQuoteHandler's cross-quote clone, no remapping is
+    // needed (the target variant is never touched/replaced by a fork).
     statements.push(
-      c.env.DB.prepare(
-        `INSERT INTO leadgen_funnel_rules
-           (public_id, variant_id, rule_type, conditions_json, conditions_hash, target_offer_id, target_section_id,
-            redirect_url, redirect_url_allowlisted, priority, enabled)
-         VALUES (?, (SELECT id FROM leadgen_funnel_variants WHERE public_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(
-        mintPublicId("funnel_rule"), variantPublicId, r.rule_type, r.conditions_json, r.conditions_hash, r.target_offer_id,
-        r.target_section_id, r.redirect_url, r.redirect_url_allowlisted, r.priority, r.enabled,
-      ),
+      insertRuleStatement(c.env.DB, "(SELECT id FROM leadgen_funnel_variants WHERE public_id = ?)", variantPublicId, {
+        publicId: mintPublicId("funnel_rule"),
+        ruleType: r.rule_type,
+        conditionsJson: r.conditions_json,
+        conditionsHash: r.conditions_hash,
+        targetOfferId: r.target_offer_id,
+        targetSectionId: r.target_section_id,
+        redirectUrl: r.redirect_url,
+        redirectAllowlisted: r.redirect_url_allowlisted,
+        priority: r.priority,
+        enabled: r.enabled,
+        targetFunnelVariantId: r.target_funnel_variant_id,
+        valueMultiplier: r.value_multiplier,
+        checkpointPage: r.checkpoint_page,
+        matchMode: r.match_mode,
+        ruleName: r.rule_name,
+        status: r.status,
+        redirectPct: r.redirect_pct,
+      }),
     );
   }
   await c.env.DB.batch(statements);
@@ -2285,6 +2691,56 @@ function renderLanderHtml(variant: LeadgenFunnelVariantRow): string {
   ${headline ? `<h1 class="lg-lander-headline">${escapeHtml(headline)}</h1>` : ""}
   ${sub ? `<p class="lg-lander-sub">${escapeHtml(sub)}</p>` : ""}
 </div>`;
+}
+
+// POST /variants/:variant_id/rules/:rule_id/duplicate — Round-4 P4b. Rules
+// have no OTHER independent CRUD surface (they live inside the §15.5/P4b
+// replace-set the variant PUT owns), but each carries its own stable id/
+// public_id (migration 0043), so a single-row clone is a safe, isolated
+// INSERT that persists IMMEDIATELY -- mirrors the existing
+// duplicateSectionHandler/duplicateOfferHandler precedent (instant 201 + the
+// new row, never touching sibling rows, never requiring the operator to hit
+// the variant's main Save first).
+export async function duplicateRuleHandler(c: AdminContext): Promise<Response> {
+  const variant = await resolveVariantRow(c.env.DB, c.req.param("variant_id") ?? "");
+  if (variant === null) return c.json({ error: "Not Found" }, 404);
+
+  const selector = idSelector("funnel_rule", c.req.param("rule_id") ?? "");
+  if (selector === null) return c.json({ error: "Not Found" }, 404);
+  const sql =
+    selector.column === "id"
+      ? "SELECT * FROM leadgen_funnel_rules WHERE id = ? AND variant_id = ? LIMIT 1"
+      : "SELECT * FROM leadgen_funnel_rules WHERE public_id = ? AND variant_id = ? LIMIT 1";
+  const src = await c.env.DB.prepare(sql).bind(selector.value, variant.id).first<LeadgenFunnelRuleRowV2>();
+  if (src === null) return c.json({ error: "Not Found" }, 404);
+
+  const newPublicId = mintPublicId("funnel_rule");
+  const newName = src.rule_name !== null && src.rule_name !== "" ? `${src.rule_name} (copy)` : src.rule_name;
+  await insertRuleStatement(c.env.DB, "?", variant.id, {
+    publicId: newPublicId,
+    ruleType: src.rule_type,
+    conditionsJson: src.conditions_json,
+    conditionsHash: src.conditions_hash,
+    targetOfferId: src.target_offer_id,
+    targetSectionId: src.target_section_id,
+    redirectUrl: src.redirect_url,
+    redirectAllowlisted: src.redirect_url_allowlisted,
+    priority: src.priority,
+    enabled: src.enabled,
+    targetFunnelVariantId: src.target_funnel_variant_id,
+    valueMultiplier: src.value_multiplier,
+    checkpointPage: src.checkpoint_page,
+    matchMode: src.match_mode,
+    ruleName: newName,
+    status: src.status,
+    redirectPct: src.redirect_pct,
+  }).run();
+
+  const dup = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_rules WHERE public_id = ? LIMIT 1")
+    .bind(newPublicId)
+    .first<LeadgenFunnelRuleRowV2>();
+  if (!dup) return c.json({ error: "Duplicate failed" }, 500);
+  return c.json(ruleRowToApi(dup), 201);
 }
 
 // v2.5 13 §13.4: the additive body keys that route a preview POST to the
@@ -3879,6 +4335,53 @@ async function computeMapsNoJobProblems(
 // the funnel HAS a configured frame (§14.4) — the per-section chrome
 // (error/warning per compat, C2) · local progress/back · duplicate Continue ·
 // missing headline · legacy-hex rows.
+// Round-4 P4b: surface P4a's save-time routing-rule conflict flags (resolver.ts
+// detectRoutingRuleConflicts, exported "for P4b's Problems mechanism") through
+// the SAME activation-preflight Problems list every other variant-level
+// advisory already rides (storeVariantPreflight -> computeVariantV25Problems
+// -> the Activation tab's publish badge). `scope` is drawn from theme.ts's
+// CLOSED ProblemScope union ("frame"|"theme"|"section"|"component"|"choice"|
+// "mapping") -- none of those literals actually fit "two routing rules race"
+// semantically, and widening that union is out of this slice's file
+// ownership (theme.ts is not in the P4b file list). "section" is the least-
+// wrong existing bucket (routing rules are authored on the same funnel-
+// variant surface as section-scoped problems); flagged to the conductor as a
+// SEAM rather than silently adding a new ProblemScope literal.
+async function computeRoutingRuleConflictProblems(
+  db: D1Database,
+  variant: LeadgenFunnelVariantRow,
+): Promise<Problem[]> {
+  const rules = await readVariantRules(db, variant.id);
+  // Mirrors resolver.ts loadRoutingRules' own gate exactly (commit 32990e8):
+  // `enabled = 1 AND status != 'disabled'` — a rule off by EITHER axis never
+  // actually evaluates at runtime, so it can never actually conflict.
+  const routingRules = rules.filter(
+    (r) => r.rule_type === "route_funnel_variant" && r.enabled !== 0 && r.status !== "disabled",
+  );
+  if (routingRules.length === 0) return [];
+  const inputs: RoutingConflictInput[] = routingRules.map((r) => {
+    const conditions = parseJsonColumn(r.conditions_json);
+    const fields =
+      isRecord(conditions) && Array.isArray((conditions as { groups?: unknown }).groups)
+        ? ((conditions as { groups: Array<{ field?: unknown }> }).groups)
+            .map((g) => g.field)
+            .filter((f): f is string => typeof f === "string")
+        : [];
+    return {
+      rule_name: r.rule_name ?? "",
+      checkpoint_page: r.checkpoint_page,
+      priority: r.priority,
+      fields,
+    };
+  });
+  return detectRoutingRuleConflicts(inputs).map((message) => ({
+    path: "rules",
+    scope: "section",
+    severity: "warning",
+    message,
+  }));
+}
+
 async function computeVariantV25Problems(
   db: D1Database,
   quote: LeadgenQuoteRow,
@@ -3888,6 +4391,7 @@ async function computeVariantV25Problems(
 ): Promise<Problem[]> {
   const problems: Problem[] = [];
   problems.push(...(await computeMapsNoJobProblems(db, variant)));
+  problems.push(...(await computeRoutingRuleConflictProblems(db, variant)));
   const fixQuote = QUOTE_BUILDER_LINK(quote.public_id);
 
   // --- variant frame_overrides_json invalid (row 3, error — per-variant) ----

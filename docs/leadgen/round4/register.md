@@ -12,7 +12,7 @@ lifecycle parity.
 | R4-01 | #1 list tables overflow unreachable (all LeadGen tabs + Listicles) | P1d | PASS (P1, evidence: phase log P1) |
 | R4-02 | #2 actions parity: kebab + duplicate/archive/reactivate/usage/delete-guarded (sections/quotes/auctions) | P1c+P1d | PASS (P1, evidence: phase log P1) |
 | R4-03 | #3 Question grid unusable from picker (seed drops rows; ghost grows invisible choices; no affordance) | P1a+P1b | PASS (P1, evidence: phase log P1) |
-| R4-04 | #4A rules UX flow direction (source above → dependent below) | P4b | OPEN |
+| R4-04 | #4A rules UX flow direction (source above → dependent below) | P4b | PASS (P4, evidence: phase log P4) |
 | R4-05 | #4B/4C grid rows as rule condition sources end-to-end (via picker path) | P1a | PASS (P1, evidence: phase log P1) |
 | R4-06 | #4D complex rules AND/OR (ANY/ALL groups, client+server parity) | P2a+P2c | PASS (P2, evidence: phase log P2) |
 | R4-07 | #4E every component mapped: Address sub-fields + NameFields as rule sources | P1a | PASS (P1, evidence: phase log P1) |
@@ -35,12 +35,12 @@ lifecycle parity.
 | R4-24 | #10I theme v2: fonts (self-hosted), display-XXL, button ranges (Img38-40), presets+DELETE, theme A/B | P6a+P6b | OPEN |
 | R4-25 | #10J funnel structure panel broken layout | P3b | PASS (P3, evidence: phase log P3) |
 | R4-26 | Restructure: Templates+Themes top tabs + 7 box pickers | P5b | OPEN |
-| R4-27 | Restructure: rules UNIFIED into funnel-builder (standalone tab removed) | P4b | OPEN |
+| R4-27 | Restructure: rules UNIFIED into funnel-builder (standalone tab removed) | P4b | PASS (P4, evidence: phase log P4) |
 | R4-28 | Funnel delta A: page order changeable per funnel name | P3a+P3b | PASS (P3, evidence: phase log P3) |
 | R4-29 | Funnel delta B: FULL pages model (multi-section pages, in-page A/B, in-page slot rules) | P3a+P3b | PASS (P3, evidence: phase log P3) |
 | R4-30 | Funnel delta C: funnel-level A/B surfaced (Add variant, what-varies, allocation) | P6b | OPEN |
 | R4-31 | Funnel delta D: theme picker per funnel name | P6b | OPEN |
-| R4-32 | D-2 routing rules: checkpoint model, ≤1 hop, precedence ladder, server-validated checkpoint endpoint | P4a+P4b | OPEN |
+| R4-32 | D-2 routing rules: checkpoint model, ≤1 hop, precedence ladder, server-validated checkpoint endpoint | P4a+P4b | PASS (P4, evidence: phase log P4) |
 | R4-33 | A/B tab = whole-quote template-level testing | P6b | OPEN |
 | R4-34 | B-4.1 MQG save trap (orphan choices → unexplainable 400) | P1a+P1b | PASS (P1, evidence: phase log P1) |
 | R4-35 | B-4.2 MQG row-1 headline mislabel in pickers | P1a | PASS (P1, evidence: phase log P1) |
@@ -52,7 +52,7 @@ lifecycle parity.
 | R4-41 | B-4.8 columns stored-vs-rendered drift (no server validation; clamp mismatch) | P1b | PASS (P1, evidence: phase log P1) |
 | R4-42 | B-4.9 headline_text raw-id jargon in save errors | P1c | PASS (P1, evidence: phase log P1) |
 | R4-43 | D-1 cap raise 44,032 + per-feature byte ledger | P2a | PASS (P2, evidence: phase log P2) |
-| R4-44 | §19.1 binding: page_plan_hash + checkpoint validation + re-issue on switch | P3a+P4a | P3 legs PASS (page_plan_hash signed binding + dual-accept; P4 checkpoint legs pending) |
+| R4-44 | §19.1 binding: page_plan_hash + checkpoint validation + re-issue on switch | P3a+P4a | PASS (P3+P4: signed binding, dual-accept, checkpoint validation + re-issue, completion pinning) |
 | R4-45 | Round-4 acceptance journeys (sections + quotes suites, both engines) | P7a | OPEN |
 | R4-OP1 | Production deploys (post-P1 optional; program end) | operator | BLOCKED |
 | R4-OP2 | Staging hands-on acceptance (terminal gate) | operator | BLOCKED |
@@ -82,4 +82,12 @@ lifecycle parity.
 - Conductor gates (own hand): tsc 0 · vitest 398/5,791 pass==total · 46+ phase/guard specs green · operator acceptance 24/24 both engines · verify:all green · deploy.yml 0042 anchor verified · drift 0.
 - Adversarial review: FIX-FIRST (MAJOR-1 auction-side plan re-resolution FALSE-REJECTED legit conversions at hour boundaries — repro'd, removed as redundant-with-HMAC, no-false-reject regression pinned fail-before/pass-after; MAJOR-2 missing auction-side page-model matrix — added; fork flattening + ruled-UI leg minors) → delta re-verify **SHIP**, no new conflict.
 - Verified-clean by review: wrap migration, byte-identical serve gate, slot-rule field-scope un-bypassable, signed binding evolution (v1-downgrade blocked), .bind() discipline, admin auth on new CRUD.
-- PR: {{P3_PR}} · merge: {{P3_SHA}}
+- PR: https://github.com/Gavri19H/kodigital-homepages-cms/pull/126 · merge: b1b01a6
+
+### P4 — funnel routing rules (2026-07-20)
+- Slices: P4a backend (fa50da3, 19be2bb, c20cc6c, a18724e, eb1969c, 32990e8, 51eb78e, b3abd57 + the P3a deflake f18f8c5 riding here) · P4b builder (99be8a1, 60dad9e).
+- Delivered: rule model v2 (name/priority/status/ANY-ALL over the full field registry incl. MQG rows + state/device/UTM/hour/weekday); 0043 CHECK-recreation + 0044 redirect_pct (backfill 100 preserves live behavior); entry routing pre-A/B; server-validated /lg/ck checkpoint (binding-first, ≤1 hop, prefix resume, re-issued binding); S2S multiplier REPLACES base — proven through the REAL conversion path after the review caught a hand-injected false-green; completion pinned to routed_to_variant (stale origin tokens rejected); post-switch beacon re-stamp; redirect % gated + sticky; status/enabled coherent at every plane; the Image42 unified builder (by-NAME pickers, no raw ids, standalone Rules tab removed, rules embedded in the funnel builder).
+- Conductor gates (own hand): tsc both configs 0 · vitest 399/5,864 pass==total (zero failures) · 34/34 phase+guard specs (P3a sticky spec root-caused: session-restore feature vs wrong test assumption — no product race) · acceptance 24/24 both engines · bundle 46,079/46,080 byte-identical freshness · deploy.yml 0043+0044 anchored · drift 0.
+- Adversarial review: FIX-FIRST (MAJOR: value_multiplier dead in production behind a hand-injected green test — the exact producer→consumer false-green class; + completion-ownership, fallback-widening, answer-injection, migration-coverage minors; cap provenance clarified) → all fixed with fail-before/pass-after each → delta re-verify **SHIP**, no new conflict.
+- Pre-deploy note: 0044 was authored+extended pre-merge on this branch only (never applied to any shared D1) — single-apply integrity holds.
+- PR: {{P4_PR}} · merge: {{P4_SHA}}

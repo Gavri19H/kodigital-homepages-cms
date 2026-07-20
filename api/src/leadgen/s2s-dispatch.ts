@@ -45,6 +45,16 @@ export interface S2SClickContext {
   traffic_source: string;
   fbc: string;
   fbclid: string;
+  // Round-4 P4a (D-2): the attempt whose SERVER-recorded routing outcome (if a
+  // routing rule matched, entry or checkpoint) supplies the value_multiplier
+  // that REPLACES the platform base for THIS conversion (the reference FB
+  // Multiplier). OPTIONAL — absent, or no outcome row, or a null recorded
+  // multiplier => the platform base applies (single value, NO stacking, the
+  // default). SEAM: the conversion callers (postback.ts / the browser path,
+  // NOT this slice's files) must resolve click_id -> funnel_attempt_id and pass
+  // it here for the graft to fire in production; the mechanism + its default
+  // are proven at the dispatch layer by this slice's unit test.
+  funnel_attempt_id?: string;
 }
 
 // The postback path also needs the matched click's offer (for the §25
@@ -92,6 +102,29 @@ export async function getEnabledPlatformByTrafficSource(
     .bind(ts)
     .first<MediaPlatformRow>();
   return row ?? null;
+}
+
+// Round-4 P4a (D-2): the SERVER-recorded routing multiplier for an attempt, or
+// null. null on: no attempt id, no outcome row, a NULL recorded multiplier, or
+// a read error — in every case the platform base applies (the safe default).
+// Read straight from leadgen_routing_outcomes (0043) — the single source of
+// truth the /lg/auction variant re-derivation shares; NEVER a client echo.
+export async function resolveRoutingMultiplier(
+  db: D1Database,
+  funnelAttemptId: string,
+): Promise<number | null> {
+  if (funnelAttemptId === "") return null;
+  try {
+    const row = await db
+      .prepare("SELECT value_multiplier FROM leadgen_routing_outcomes WHERE funnel_attempt_id = ? LIMIT 1")
+      .bind(funnelAttemptId)
+      .first<{ value_multiplier: number | null }>();
+    if (row === null) return null;
+    const v = row.value_multiplier;
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+  } catch {
+    return null;
+  }
 }
 
 // §26: derive the FB `fbc` from `fbclid` when the browser never captured one.
@@ -182,11 +215,20 @@ export async function dispatchMatchedConversionS2S(
         ? (readEnvSecret(env, platform.auth_secret_ref) ?? "")
         : "";
 
+    // P4a (D-2, roast minor-7): the highest-priority MATCHED routing rule's
+    // multiplier REPLACES the platform base for this conversion (single value,
+    // NO stacking); the base applies when no routing rule matched the attempt.
+    const routingMultiplier =
+      click.funnel_attempt_id !== undefined && click.funnel_attempt_id !== ""
+        ? await resolveRoutingMultiplier(db, click.funnel_attempt_id)
+        : null;
+    const effectiveMultiplier = routingMultiplier ?? platform.value_multiplier;
+
     const macroValues: Record<string, string> = {
       click_id: click.click_id,
       fbclid: click.fbclid,
       fbc: deriveFbc(click.fbclid, click.fbc, now),
-      value: reportedValue(revenue.revenue, platform.value_multiplier),
+      value: reportedValue(revenue.revenue, effectiveMultiplier),
       currency: revenue.currency,
       event_name: eventName,
       auth_token: authToken,
@@ -247,8 +289,8 @@ export async function resolveClickContextFromCh(
   const client = opts?.client ?? createLeadgenChClient(env);
   if (!client.configured) return null;
   try {
-    const clickRes = await client.query<{ traffic_source: string; session_id: string; offer_id: string }>(
-      "SELECT traffic_source, session_id, offer_id FROM lg_events_raw " +
+    const clickRes = await client.query<{ traffic_source: string; session_id: string; offer_id: string; funnel_attempt_id: string }>(
+      "SELECT traffic_source, session_id, offer_id, funnel_attempt_id FROM lg_events_raw " +
         "WHERE event_type = 'offer_click' AND click_id = {click_id} " +
         "AND traffic_quality_flag = 'clean' ORDER BY ts DESC LIMIT 1",
       { click_id: clickId },
@@ -268,12 +310,20 @@ export async function resolveClickContextFromCh(
         fbclid = String(sess.fbclid ?? "");
       }
     }
+    const funnelAttemptId = String(click.funnel_attempt_id ?? "");
     return {
       click_id: clickId,
       traffic_source: String(click.traffic_source),
       fbc,
       fbclid,
       offer_id: String(click.offer_id ?? ""),
+      // Round-4 P4a review MAJOR-1: without this, resolveRoutingMultiplier
+      // (called inside dispatchMatchedConversionS2S below) is UNREACHABLE on
+      // the real postback path — the offer_click event stamps
+      // funnel_attempt_id (click.ts buildClickEvent), but this SELECT never
+      // read it back, so every S2S postback conversion silently fell back to
+      // the platform base multiplier even for a routed attempt.
+      ...(funnelAttemptId !== "" ? { funnel_attempt_id: funnelAttemptId } : {}),
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

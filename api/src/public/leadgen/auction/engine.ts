@@ -37,6 +37,7 @@
 
 import type { Env } from "../../../env";
 import { ulid } from "../../../leadgen/ids";
+import { shouldRedirectForSession } from "../../../leadgen/funnel";
 import {
   computeAttemptBindingExtras,
   verifyConfigTokenDetailed,
@@ -176,6 +177,11 @@ export interface AuctionFunnelRule {
   redirect_url_allowlisted: number;
   priority: number;
   enabled: number;
+  // §15.5 (0044, additive REAL NULL): the redirect_direct_offer session-sticky
+  // percentage gate. `?? 0` (funnel.ts resolveRedirectPct/shouldRedirectForSession)
+  // — NULL/absent means never redirect, preserving every PRE-0044 rule's
+  // 100%-on-match behavior byte-for-byte until an operator sets it.
+  redirect_pct: number | null;
 }
 
 export interface AuctionBundle {
@@ -383,22 +389,107 @@ export async function loadAuctionBundle(
   // --- funnel rules (step 4) ----------------------------------------------
   const funnel_rules: AuctionFunnelRule[] = [];
   if (variantId !== null) {
-    const frRows = await db
-      .prepare(
-        "SELECT public_id, rule_type, conditions_json, target_offer_id, target_section_id, redirect_url, redirect_url_allowlisted, priority, enabled FROM leadgen_funnel_rules WHERE variant_id = ? AND enabled = 1 ORDER BY priority ASC, id ASC",
-      )
-      .bind(variantId)
-      .all<{
-        public_id: string;
-        rule_type: LeadgenFunnelRuleType;
-        conditions_json: string;
-        target_offer_id: number | null;
-        target_section_id: number | null;
-        redirect_url: string | null;
-        redirect_url_allowlisted: number;
-        priority: number;
-        enabled: number;
-      }>();
+    // enabled (0036, legacy INTEGER toggle) AND status (0043, 'active'|
+    // 'disabled' TEXT, additive DEFAULT 'active') are TWO INDEPENDENTLY
+    // writable signals over the SAME "is this rule on" concept — the admin
+    // save path (quotes-handlers.ts prepareRules) can leave `enabled` at its
+    // stale/default value while `status` alone is toggled (its rules-builder
+    // UI's "Disable"/"Enable" button writes ONLY {status}, never {enabled} —
+    // see ui-rules-builder.ts's data-rule-toggle-status handler). A rule must
+    // be affirmatively on by BOTH signals to participate; either one being
+    // "off" excludes it (fail-safe: a disabled-by-either-axis rule never
+    // fires, never the reverse).
+    //
+    // `status` (0043) and `redirect_pct` (0044) are additive columns this
+    // query now references. A DB not yet on ONE of those two migrations (a
+    // transient rolling-deploy window, or an older fixture that predates
+    // them) must NOT lose its funnel_rules entirely — a broad try/catch
+    // degrading straight to [] was tried and REJECTED here: it silently
+    // dropped every rule (disqualification/redirect/auction_entry included)
+    // for such a DB, which is a correctness regression for callers who never
+    // touch status/redirect_pct at all (confirmed against
+    // leadgen-r1-auction-roundtrip.test.ts / leadgen-r4b-maps-runtime.test.ts,
+    // both frozen at 0042 — their seeded disqualification rules stopped
+    // firing under the broad-catch version).
+    //
+    // Review minor-4: a SINGLE-STEP fallback straight to the fully-legacy
+    // (no status, no redirect_pct) shape was ALSO wrong — a DB with 0043
+    // applied but not yet 0044 (status exists, redirect_pct doesn't) would
+    // take that same fallback and lose its status FILTER too, letting a
+    // status='disabled' rule fire during that window. TWO-STEP fallback
+    // instead: (1) full query; (2) on failure, retry WITH status but WITHOUT
+    // redirect_pct (the 0043-without-0044 window — status still gates,
+    // redirect_pct implicitly null/never-redirect); (3) only on a SECOND
+    // failure, the fully-legacy pre-0043 shape (no status column exists AT
+    // ALL there, so there is nothing a status filter could have caught —
+    // enabled=1 remains the only, and only ever was the only, signal).
+    let frRows: D1Result<{
+      public_id: string;
+      rule_type: LeadgenFunnelRuleType;
+      conditions_json: string;
+      target_offer_id: number | null;
+      target_section_id: number | null;
+      redirect_url: string | null;
+      redirect_url_allowlisted: number;
+      priority: number;
+      enabled: number;
+      redirect_pct: number | null;
+    }>;
+    try {
+      frRows = await db
+        .prepare(
+          "SELECT public_id, rule_type, conditions_json, target_offer_id, target_section_id, redirect_url, redirect_url_allowlisted, priority, enabled, redirect_pct FROM leadgen_funnel_rules WHERE variant_id = ? AND enabled = 1 AND status != 'disabled' ORDER BY priority ASC, id ASC",
+        )
+        .bind(variantId)
+        .all();
+    } catch {
+      try {
+        // Step 2: 0043-without-0044 — status exists and still gates; only
+        // redirect_pct is dropped (implicitly null below).
+        const statusOnlyRows = await db
+          .prepare(
+            "SELECT public_id, rule_type, conditions_json, target_offer_id, target_section_id, redirect_url, redirect_url_allowlisted, priority, enabled FROM leadgen_funnel_rules WHERE variant_id = ? AND enabled = 1 AND status != 'disabled' ORDER BY priority ASC, id ASC",
+          )
+          .bind(variantId)
+          .all<{
+            public_id: string;
+            rule_type: LeadgenFunnelRuleType;
+            conditions_json: string;
+            target_offer_id: number | null;
+            target_section_id: number | null;
+            redirect_url: string | null;
+            redirect_url_allowlisted: number;
+            priority: number;
+            enabled: number;
+          }>();
+        frRows = {
+          ...statusOnlyRows,
+          results: (statusOnlyRows.results ?? []).map((r) => ({ ...r, redirect_pct: null })),
+        };
+      } catch {
+        // Step 3: fully pre-0043 — no status column exists at all here.
+        const legacyRows = await db
+          .prepare(
+            "SELECT public_id, rule_type, conditions_json, target_offer_id, target_section_id, redirect_url, redirect_url_allowlisted, priority, enabled FROM leadgen_funnel_rules WHERE variant_id = ? AND enabled = 1 ORDER BY priority ASC, id ASC",
+          )
+          .bind(variantId)
+          .all<{
+            public_id: string;
+            rule_type: LeadgenFunnelRuleType;
+            conditions_json: string;
+            target_offer_id: number | null;
+            target_section_id: number | null;
+            redirect_url: string | null;
+            redirect_url_allowlisted: number;
+            priority: number;
+            enabled: number;
+          }>();
+        frRows = {
+          ...legacyRows,
+          results: (legacyRows.results ?? []).map((r) => ({ ...r, redirect_pct: null })),
+        };
+      }
+    }
     for (const r of frRows.results ?? []) {
       funnel_rules.push({
         public_id: r.public_id,
@@ -410,6 +501,7 @@ export async function loadAuctionBundle(
         redirect_url_allowlisted: r.redirect_url_allowlisted,
         priority: r.priority,
         enabled: r.enabled,
+        redirect_pct: r.redirect_pct,
       });
     }
   }
@@ -440,7 +532,8 @@ export type AntiTamperReason =
   | "section_order_hash_mismatch"
   | "signed_token_invalid"
   | "answer_mapping_version_mismatch"
-  | "auction_config_version_mismatch";
+  | "auction_config_version_mismatch"
+  | "routing_completion_mismatch";
 
 export type AntiTamperVerdict =
   // `landing_url` = the VERIFIED attempt-context funnel-page URL persisted in
@@ -542,6 +635,32 @@ export async function validateAntiTamper(
   if (input.auction_config_version !== undefined) {
     if (String(input.auction_config_version) !== String(auction.carrier_normalization_version)) {
       return { ok: false, reason: "auction_config_version_mismatch" };
+    }
+  }
+
+  // (f) Review minor-2 (completion ownership): once P4a routing has recorded
+  // an outcome for THIS attempt, the attempt's completion belongs to the
+  // ROUTED-TO variant only. A pre-switch (origin) token stays independently
+  // well-signed forever -- nothing revokes it -- so without this check a
+  // stale token could still book the auction/conversion against the origin
+  // variant even after the visitor was switched away from it. If a routing
+  // outcome row exists and its routed_to_variant is NOT the variant THIS
+  // request resolved to, reject (the same 422/tampered class as every other
+  // anti-tamper failure). Fail-SAFE on a DB read error (matches
+  // resolveRoutingMultiplier's own discipline): an unreadable outcome table
+  // must never block an otherwise-legitimate, unrouted conversion.
+  const db = (env as { DB?: D1Database }).DB;
+  if (db !== undefined && input.funnel_attempt_id !== "") {
+    try {
+      const outcome = await db
+        .prepare("SELECT routed_to_variant FROM leadgen_routing_outcomes WHERE funnel_attempt_id = ? LIMIT 1")
+        .bind(input.funnel_attempt_id)
+        .first<{ routed_to_variant: string }>();
+      if (outcome !== null && outcome.routed_to_variant !== resolved.variant.public_id) {
+        return { ok: false, reason: "routing_completion_mismatch" };
+      }
+    } catch {
+      /* fail-safe: an unreadable outcome table never blocks a legitimate conversion */
     }
   }
 
@@ -1034,6 +1153,13 @@ export async function runAuction(
       return empty("disqualified", 200, null, "disqualified", null);
     }
     if (fr.rule_type === "redirect_direct_offer" && conditionsMatch(fr.conditions, ruleContext)) {
+      // §15.5 redirect_pct session-sticky gate (0044): a match alone is not
+      // enough — this session must also fall inside the rule's percentage
+      // bucket. `?? 0` (NULL/absent -> never) preserves every pre-0044 rule's
+      // ALWAYS-on-match behavior until an operator sets a value. A session
+      // outside the bucket is treated exactly as a non-match: keep scanning
+      // (a lower-priority redirect or the auction_entry gate below still runs).
+      if (!shouldRedirectForSession(fr.redirect_pct, fr.public_id, input.session_id ?? "")) continue;
       // 10 §10.2 redirect producers (server, where the rule triggers):
       // redirect_rule_triggered = a redirect funnel rule fired;
       // direct_offer_redirect = the redirect targets a direct Offer.

@@ -45,7 +45,7 @@ import {
   type LgDependencyState,
 } from "./dependencies";
 import { formatKindFor, normalizePhoneE164, validateSection } from "./validation";
-import { LgBeaconClient, ulidLike, type LgSendFn } from "./events";
+import { LgBeaconClient, ulidLike, type LgSendFn, type LgEnvelopeBase } from "./events";
 import * as render from "./render";
 import { wireMapsFields } from "./maps";
 import {
@@ -311,6 +311,13 @@ interface LgAttempt {
   // for a legacy/no-page-model funnel (byte-identical fallback: every
   // section counts as its own page, exactly pre-P3a).
   page_plan?: LgPlanWinner[];
+  // Round-4 P4a (D-2): the ANCHOR section_public_id of every page at which to
+  // POST /lg/ck (a mid-funnel routing rule's fields are all known
+  // there) — the anchor is always `currentSection()`'s id when that page is
+  // entered (P3a same-screen-page model), so the gate is a direct membership
+  // check, no page-number lookup. ABSENT/empty when the variant has no
+  // checkpoint-plane routing rules. Short key `cps` (see attempt.ts FunnelAttempt.cps).
+  cps?: string[];
 }
 
 function sleep(ms: number): Promise<void> {
@@ -363,11 +370,30 @@ async function fetchAttemptOnce(funnelVariantId: string): Promise<LgAttempt | nu
       ...(typeof raw["expires_at"] === "number" ? { expires_at: raw["expires_at"] } : {}),
       ...(ctx !== null ? { ctx } : {}),
       ...(pagePlan !== null ? { page_plan: pagePlan } : {}),
+      ...(Array.isArray(raw["cps"]) ? { cps: raw["cps"] as string[] } : {}),
     };
   } catch {
     return null;
   }
 }
+
+// Round-4 P4a (D-2): POST /lg/ck (no-store, same-origin). The server
+// FIRST validates the signed binding (422 on tamper → treated as no switch);
+// on a route match it returns the re-issued binding + target plan + resume.
+// Any failure → null (the engine continues the current plan unrouted — fail-
+// open for UX; the server re-derives the routing authoritatively at auction).
+// Short wire keys (see maybeSwitch): sw=switched, k=re-issued token, v=target
+// funnel_variant_id, so=section_order_hash, cv=content_version, ar=the
+// routing_rule:<hash> assignment_reason (already server-computed; the client
+// adopts it verbatim for post-switch analytics — 07 §16.3/P4a "completion
+// belongs to the variant serving the last page"), pp=target page plan,
+// r=resume section_public_id ("" => auction). A discriminated union so TS
+// narrows every switch field to a required value after the `sw !== true`
+// guard — no runtime `?? default` fallbacks (byte-lean; the server contract
+// always emits them on a switch).
+type LgCheckpointResult =
+  | { sw: false }
+  | { sw: true; k: string; v: string; so: string; cv: number; ar: string; pp: LgPlanWinner[]; r: string };
 
 async function fetchAttemptWithRetry(funnelVariantId: string): Promise<LgAttempt | null> {
   let attempt = await fetchAttemptOnce(funnelVariantId);
@@ -412,6 +438,20 @@ export class LgEngine {
   private planMeta: Map<string, [number, string, string]> | null = null;
   private pageIds: string[] = [];
   private pagesCount = 0;
+  // Round-4 P4a (D-2): the server-computed checkpoint-page anchor section ids
+  // to POST /lg/ck at. Short field name (`ckpts`) — private class
+  // fields compile to a `__publicField` polyfill call per occurrence (esbuild
+  // es2019 target has no native class-field syntax), so the string name
+  // itself is repeated, unmangled, at every use site; the checkpoint-call
+  // leg's byte budget makes this the same tradeoff as the wire-protocol short
+  // keys elsewhere in this leg. A checkpoint SWITCH overwrites config's
+  // binding fields in place (funnel_variant_id/section_order_hash/
+  // content_version) so buildAuctionRequest + every config reader see the
+  // TARGET, and CLEARS `ckpts` (below) — no separate "already switched" flag:
+  // the ≤1-hop invariant means no further checkpoint is ever evaluated once
+  // one has fired, so an emptied `ckpts` is both the resume-navigation input
+  // AND the switched signal.
+  private ckpts: string[] = [];
 
   constructor(root: HTMLElement, config: LgPublicConfig, preview: boolean) {
     this.root = root;
@@ -511,19 +551,11 @@ export class LgEngine {
       if (attempt.ctx !== undefined) this.ctx = attempt.ctx;
       // Round-4 P3a: build the page-plan lookup ONCE from the flat winners
       // list (page_id first-seen order == page order, matching resolver.ts's
-      // own page.position ordering).
-      if (attempt.page_plan !== undefined) {
-        const meta = new Map<string, [number, string, string]>();
-        const ids: string[] = [];
-        for (const w of attempt.page_plan) {
-          let page = ids.indexOf(w.page_id);
-          if (page === -1) page = ids.push(w.page_id) - 1;
-          meta.set(w.section_public_id, [page, String(w.slot_id), w.assignment_reason]);
-        }
-        this.planMeta = meta;
-        this.pageIds = ids;
-        this.pagesCount = ids.length;
-      }
+      // own page.position ordering). P4a reuses applyPlan on a checkpoint switch.
+      if (attempt.page_plan !== undefined) this.applyPlan(attempt.page_plan);
+      // Round-4 P4a: the checkpoint pages to POST at (empty for a non-routing
+      // funnel → the /lg/ck leg never fires, byte-neutral behavior).
+      if (Array.isArray(attempt.cps)) this.ckpts = attempt.cps;
     }
 
     // §3.5.1 restore iff same attempt-binding tuple (see state.ts header for
@@ -661,6 +693,16 @@ export class LgEngine {
         : {}),
     };
   }
+
+  // Round-4 P4a (D-2): post-switch beacon re-stamping (§16.3 attribution;
+  // "completion belongs to the variant serving the last page" applies to the
+  // full client event stream, not just the final auction call) uses the
+  // EXISTING LgBeaconClient.setEnvelope (events.ts) — its own docstring is
+  // written for exactly this: "Engine updates identity dims as they resolve
+  // ... subsequent events carry the newest values." maybeSwitch calls it ONCE
+  // on a switch; every call site below is UNCHANGED (`this.beacons.enqueue`),
+  // so every subsequent event automatically merges the new funnel_variant_id/
+  // assignment_reason/routed_from_variant — no per-call-site wrapper needed.
 
   private componentByQuestionId(
     section: LgSectionConfig | null,
@@ -984,6 +1026,116 @@ export class LgEngine {
     return indices.length > 0 ? indices : [this.si];
   }
 
+  // Round-4 P4a (D-2): (re)build the page-plan lookup from a flat winners list
+  // (init AND a checkpoint switch share this — the P3 plan-application machinery).
+  private applyPlan(winners: LgPlanWinner[]): void {
+    const meta = new Map<string, [number, string, string]>();
+    const ids: string[] = [];
+    for (const w of winners) {
+      let page = ids.indexOf(w.page_id);
+      if (page === -1) page = ids.push(w.page_id) - 1;
+      meta.set(w.section_public_id, [page, String(w.slot_id), w.assignment_reason]);
+    }
+    this.planMeta = meta;
+    this.pageIds = ids;
+    this.pagesCount = ids.length;
+  }
+
+  // Round-4 P4a (D-2): on a page-complete crossing a routing CHECKPOINT (and
+  // not already switched — the ≤1-hop guard, checked by the ONE caller
+  // handleContinue), POST answers to /lg/ck. On a switch outcome:
+  // adopt the re-issued binding, swap the remaining page plan + re-baseline
+  // progress (reusing applyPlan), stamp the target variant + routing reason
+  // on subsequent events, and resume at the target's first unanswered-
+  // required page (or finalize when all satisfied). OWNS its own fallback
+  // (calls `advance()` itself on any non-switch outcome) so the caller is a
+  // plain fire-and-forget — fail-open: any non-switch continues the CURRENT
+  // plan unrouted (the server re-derives authoritatively at auction; the
+  // server's OWN ≤1-hop check in leadgen_routing_outcomes is the
+  // authoritative guard regardless of any client-side double-call). Short
+  // wire keys (k/f/v/s/a request; sw/k/v/so/cv/pp/r response) — the P4a
+  // /lg/ck protocol is server+engine-internal; short keys keep the
+  // client leg inside its byte budget (esbuild does not mangle object keys).
+  private async maybeSwitch(): Promise<void> {
+    const store = this.store;
+    const cfg = this.config;
+    const ov = cfg.funnel_variant_id; // the ORIGIN variant — read once, reused below
+    const sec = this.currentSection();
+    const st = store.state;
+    let out: LgCheckpointResult | null = null;
+    // `currentSection()` is always the page's ANCHOR when entered (P3a
+    // same-screen-page model — store.setSectionIndex is set to the page's
+    // FIRST visible section) — a direct section-id membership check, no
+    // page-number lookup needed (byte-lean; see checkpointPageAnchors).
+    // Inlined (single call site) — credentials default to same-origin
+    // (cookies ride); a POST is never served from / written to the HTTP
+    // cache (both omitted). `res.ok` is deliberately NOT checked — EVERY
+    // /lg/ck response (200/400/404/422) is valid JSON without a
+    // `sw:true` field except an actual switch, so any non-2xx already falls
+    // through the `out.sw !== true` check below; only a genuine network/parse
+    // failure throws (caught). Any failure (gate/network/parse/non-switch) =>
+    // out stays null => the ONE fallback below fires the unchanged
+    // synchronous advance (fail-open).
+    if (sec !== null && this.ckpts.includes(sec.section_public_id)) {
+      try {
+        const res = await fetch("/lg/ck", {
+          method: "POST",
+          body: JSON.stringify({
+            k: st.signed_config_token,
+            f: st.funnel_attempt_id,
+            v: ov, // always the (pre-switch) entry variant
+            s: st.session_id,
+            a: store.auctionAnswers(this.hiddenFields()),
+          }),
+        });
+        out = (await res.json()) as LgCheckpointResult;
+      } catch {
+        /* out stays null */
+      }
+    }
+    if (out === null || out.sw !== true) {
+      this.advance();
+      return;
+    }
+    // §16.3 attribution: patch the beacon envelope ONCE (LgBeaconClient.
+    // setEnvelope, events.ts — its own docstring: "subsequent events carry the
+    // newest values") with the TARGET funnel_variant_id + its routing
+    // assignment_reason + the ORIGIN id (`ov`, captured above) — every event
+    // from here on (continue_click, section_view, quote_complete, …)
+    // automatically carries it via the UNCHANGED beacons.enqueue call sites
+    // (§16.3 "completion belongs to the variant serving the last page"
+    // applies to the full client event stream). `routed_from_variant` is NOT
+    // part of events.ts's OWN LgEnvelopeBase (not this leg's file to extend)
+    // — the `as Partial<LgEnvelopeBase>` assertion (type-only, erased, zero
+    // runtime bytes) suppresses the excess-property literal check for this
+    // ONE extra key; the runtime spread inside setEnvelope/enqueue still
+    // copies it through to the actual wire payload unchanged (TS types never
+    // affect what a plain object spread actually carries at runtime).
+    this.beacons.setEnvelope({ funnel_variant_id: out.v, assignment_reason: out.ar, routed_from_variant: ov } as Partial<LgEnvelopeBase>);
+    // Overwrite config's binding fields IN PLACE with the target's so the
+    // auction (buildAuctionRequest) re-validates against the TARGET; the
+    // re-issued token rides the store (a plain field write — memory-only, sent
+    // ONLY to /lg/auction). store.tuple is intentionally NOT updated (never
+    // read post-init; a mid-switch reload re-derives from the server).
+    cfg.funnel_variant_id = out.v;
+    cfg.section_order_hash = out.so;
+    cfg.content_version = out.cv;
+    st.signed_config_token = out.k;
+    this.applyPlan(out.pp);
+    this.ckpts = []; // ≤1-hop: no further checkpoint is ever evaluated after a switch
+    if (out.r === "") {
+      void this.finalize();
+      return;
+    }
+    // `r` is a server-guaranteed WINNING section of the target plan (so it is in
+    // planMeta → walkable); jump straight to it (a defensive Math.max clamps
+    // a -1 "not found" up to 0 — the first — same as an explicit ternary,
+    // fewer bytes).
+    store.setSectionIndex(Math.max(cfg.sections.findIndex((s) => s.section_public_id === out.r), 0));
+    this.enterPage(null);
+    this.persist();
+  }
+
   private handleInputEvent(target: Element): void {
     const input = target.closest("[data-lg-input]") ?? target;
     const fieldEl = input.closest("[data-lg-field]");
@@ -1115,7 +1267,13 @@ export class LgEngine {
       if (!this.sectionPassesAt(i, section)) allPass = false;
     }
     if (!allPass) return;
-    this.advance();
+    // Round-4 P4a (D-2): a routing-enabled funnel (checkpoint pages present)
+    // routes the page-complete through the /lg/ck evaluation first
+    // (it owns its own advance() fallback on any non-switch); every OTHER
+    // funnel — AND this one once switched (maybeSwitch clears `ckpts`, the
+    // ≤1-hop invariant) — takes the unchanged SYNCHRONOUS advance
+    // (byte-neutral — no routing rules => `ckpts` is empty).
+    this.ckpts.length > 0 ? void this.maybeSwitch() : this.advance();
   }
 
   // 11 §11.2 history_fallback (v2.5, additive + default-safe): armed ONLY when
@@ -1306,6 +1464,11 @@ export class LgEngine {
     for (const section of this.config.sections) {
       versions[section.section_public_id] = section.answer_mapping_version;
     }
+    // P4a (D-2): a checkpoint SWITCH already overwrote config's binding fields
+    // in place with the target's, so these read the TARGET after a switch (the
+    // re-issued token binds it; the server re-validates + re-derives from THERE,
+    // never the client echo) and the origin variant before one — byte-identical
+    // to pre-P4a on the no-switch path.
     return {
       funnel_attempt_id: this.store.state.funnel_attempt_id,
       signed_config_token: this.store.state.signed_config_token,

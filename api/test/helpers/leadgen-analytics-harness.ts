@@ -95,6 +95,12 @@ const LEADGEN_MIGRATIONS = [
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
   "0040_leadgen_runtime_context.sql",
+  // 0043/0044 needed for seedRedirectRule's redirect_pct column (0043's full-
+  // table recreation of leadgen_funnel_rules runs cleanly directly over
+  // 0036's shape; 0041/0042 are unrelated frame/pages features this harness
+  // never touches, so they're deliberately skipped, not forgotten).
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
 ] as const;
 
 export function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -375,8 +381,8 @@ export function seedRedirectRule(sdb: SqliteDb, variantId: number, targetOfferNu
   sdb
     .prepare(
       `INSERT INTO leadgen_funnel_rules
-         (public_id, variant_id, rule_type, conditions_json, conditions_hash, target_offer_id, redirect_url, redirect_url_allowlisted, priority, enabled)
-       VALUES (?, ?, 'redirect_direct_offer', ?, 'h', ?, 'https://redirect.example/go', 1, 10, 1)`,
+         (public_id, variant_id, rule_type, conditions_json, conditions_hash, target_offer_id, redirect_url, redirect_url_allowlisted, priority, enabled, redirect_pct)
+       VALUES (?, ?, 'redirect_direct_offer', ?, 'h', ?, 'https://redirect.example/go', 1, 10, 1, 100)`,
     )
     .run(mintPublicId("funnel_rule"), variantId, JSON.stringify({ groups: [] }), targetOfferNumericId);
 }

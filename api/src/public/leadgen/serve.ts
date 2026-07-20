@@ -60,10 +60,16 @@ import { escapeHtml } from "../../editor/sanitize";
 import {
   resolveActivatedFunnel,
   resolveActivatedFunnelByVariant,
+  parseUtmFromLandingUrl,
   type ResolvedActivatedFunnel,
   type ResolvedFunnelSection,
   type FunnelAssignment,
+  type EntryKnownContext,
 } from "./resolver";
+// Round-4 P4a (D-2): the SAME canonical geo/UA primitives /lg/attempt +
+// serve-auction already read (04 §4.2 "bridged, not duplicated") — reused here
+// (read-only) to build the ENTRY-KNOWN attributes entry routing evaluates on.
+import { readCfSignals, geoFromCf, parseClientUa } from "../../analytics/listicle-quality";
 import {
   buildPublicConfig,
   parseSectionComponents,
@@ -380,7 +386,12 @@ function injectAssignment(
     traffic_allocation_bp: assignment.traffic_allocation_bp,
     funnel_variant_id: funnelVariantId,
     assignment_bucket: null,
-    assignment_reason: assignment.assignment_reason,
+    // P4a (D-2): an entry-routed request emits `routing_rule:<hash>` (the §16.3
+    // attribution key) on THIS response only — never the cacheable body.
+    assignment_reason:
+      assignment.routing_rule_hash !== undefined && assignment.routing_rule_hash !== ""
+        ? `routing_rule:${assignment.routing_rule_hash}`
+        : assignment.assignment_reason,
   }).replace(/</g, "\\u003c");
   const script = `<script>window.__LG_ASSIGNMENT__=${json};</script>`;
   return html.replace(ASSIGN_SENTINEL, () => script);
@@ -742,10 +753,27 @@ export async function serveFunnelShell(
   const sidWasAbsent = sid === "";
   if (sidWasAbsent) sid = genSessionId();
 
+  // P4a (D-2) entry-routing attributes: CF geo state + UA device + landing-URL
+  // UTM (the request URL carries the ad params) + the server UTC clock. When an
+  // entry-plane routing rule on the control variant matches these, the resolver
+  // serves its target variant (routing ≻ A/B) — and since variantId feeds the
+  // cache key below, each routed target caches its OWN shell (no poisoning).
+  const geo = geoFromCf(readCfSignals(c.req.raw));
+  const ua = parseClientUa(c.req.header("User-Agent"));
+  const now = new Date();
+  const entryCtx: EntryKnownContext = {
+    hour: now.getUTCHours(),
+    weekday: now.getUTCDay(),
+    ...(geo.state !== "" ? { state: geo.state } : {}),
+    ...(ua.device !== "" ? { device: ua.device } : {}),
+    ...parseUtmFromLandingUrl(c.req.url),
+  };
+
   const resolved = await resolveActivatedFunnel(c.env, {
     site_id: siteContext.siteId,
     quote_slug: quoteSlug,
     session_id: sid,
+    entry_ctx: entryCtx,
   });
   // Disabled / missing activation → 404 (the reserved /lg head never falls
   // through to publicRouter's /:slug catch-all — §17.2 / §4.3).

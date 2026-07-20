@@ -1,0 +1,32 @@
+-- 0044_leadgen_redirect_pct.sql
+-- LeadGen Round-4 P4a fix round (§15.5 `redirect_pct` made real).
+--
+-- The operator's reference (Image42) shows a "Redirect %: 100" field on a
+-- redirect_direct_offer funnel rule; contract §15.5 mandates `redirect_pct ??
+-- 0` semantics (an explicit 0 or an absent value both mean "no redirect").
+-- Grepping the codebase before this migration proved the field existed ONLY
+-- as an authored, non-persisted TypeScript shape (funnel.ts's
+-- `FunnelRuleInput.redirect_pct` + the pure `resolveRedirectPct` helper, zero
+-- real callers) -- no DDL column existed anywhere. This migration adds it.
+--
+-- A plain `ALTER TABLE ... ADD COLUMN` (no CHECK constraint is touched, so
+-- .claude/rules/d1-database-safety.md's full-table-recreation ritual does NOT
+-- apply here -- that ritual is reserved for CHECK constraint changes, e.g.
+-- 0043's rule_type CHECK extension). `REAL` (not INTEGER) so a future
+-- fractional percent (e.g. 33.3) is representable without a further
+-- migration; `NULL` default so the ADD COLUMN itself is a no-op for every
+-- existing row.
+--
+-- BEHAVIOR-PRESERVING BACKFILL (deployment-discipline micro-round): the
+-- runtime gate this column feeds (auction/engine.ts step 4) treats
+-- `redirect_pct ?? 0` as "never redirect" -- correct for a rule authored
+-- AFTER this ships, but it would silently STOP every EXISTING, live
+-- redirect_direct_offer rule from ever redirecting again (today, with no
+-- pct concept at all, a match ALWAYS redirects). Backfilling existing rows
+-- to 100 keeps them redirecting exactly as they do today; only a NEWLY
+-- authored rule (INSERTed after this migration, so it starts genuinely NULL)
+-- gets the contract's NULL -> 0 default. This is a schema-migration
+-- behavior-preservation step, not a live operator data mutation -- NOT
+-- backfilling is what would change production behavior.
+ALTER TABLE leadgen_funnel_rules ADD COLUMN redirect_pct REAL NULL;
+UPDATE leadgen_funnel_rules SET redirect_pct = 100 WHERE rule_type = 'redirect_direct_offer' AND redirect_pct IS NULL;
