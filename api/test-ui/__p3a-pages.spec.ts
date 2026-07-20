@@ -281,10 +281,39 @@ test.describe("P3a — FULL pages model (D-3): 2-page funnel, ruled + A/B slots"
 
     // RELOAD (same browser context -> same ko_sid cookie -> same session_id
     // -> the SAME A/B bucket, per resolvePagePlan's session-sticky hash).
+    //
+    // DEFLAKE ROOT-CAUSE (2026-07-20): this does NOT call
+    // answerAllVisibleAndContinue() a second time. §3.5.1 session-restore
+    // (state.ts scanForRestorableSnapshot/tupleMatches) keys on the BINDING
+    // TUPLE (funnel_variant_id/section_order_hash/content_version) -- never
+    // funnel_attempt_id, which DOES mint fresh every reload -- so a reload
+    // with the same tuple restores section_index + answers and lands
+    // DIRECTLY back on page 2, already answered. Confirmed via a live
+    // diagnostic probe (5/5 runs): visibleSectionIds() read immediately
+    // after ready() on reload already shows BOTH of page 2's sections, and
+    // progress already reads "2" -- restore is fully synchronous within
+    // init() (applyPlan + adoptSnapshot + enterPage all run before
+    // data-lg-ready is set, no yield point between them). The PRE-FIX test
+    // called answerAllVisibleAndContinue() again anyway, which re-clicked
+    // the ALREADY-ANSWERED choices (harmless) then clicked the ONE visible
+    // Continue -- which, since page 2 is the LAST page and was already
+    // fully answered, advanced PAST it: a REAL POST /lg/auction fired
+    // (confirmed in the same probe) whose async response + the
+    // showCompletionState DOM swap raced the very next visibleSectionIds()
+    // read. That race — NOT the plan/echo timing — is the actual ~1-in-3
+    // mechanism (the probe measured up to ~2s between the click and
+    // data-lg-complete appearing). This is a genuine PRODUCT feature
+    // (deliberate cross-reload progress restore) interacting with a TEST
+    // bug (assuming reload resets to page 1), not a product race — nothing
+    // product-side changed. Asserting stickiness on the RESTORED state
+    // directly removes the race at its root instead of chasing the timing
+    // with a longer wait. toPass polls defensively (the established idiom,
+    // e.g. leadgen-p3a-placement.gesture.spec.ts) for slower CI boxes.
     await page.reload({ waitUntil: "load" });
     await ready(page);
-    await answerAllVisibleAndContinue(page); // page 1 -> page 2 again
-    const page2SecondLoad = await visibleSectionIds(page);
-    expect(page2SecondLoad, "the SAME session must resolve the SAME A/B winner across a reload").toContain(abWinnerFirstLoad);
+    await expect(async () => {
+      const page2SecondLoad = await visibleSectionIds(page);
+      expect(page2SecondLoad, "the SAME session must resolve the SAME A/B winner across a reload").toContain(abWinnerFirstLoad);
+    }).toPass({ timeout: 8_000 });
   });
 });
