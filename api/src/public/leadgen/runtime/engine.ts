@@ -510,7 +510,7 @@ export class LgEngine {
 
     // Land on a VISIBLE section (the restored pointer may now be hidden).
     // section_view for it fires AFTER quote_view below (§3.5.1 ordering).
-    const startIndex = this.normalizeSectionIndex(this.store.state.section_index);
+    const startIndex = this.normalizeSectionIndex(this.si);
     this.store.setSectionIndex(startIndex);
     this.enterSection(startIndex, null, /*fireView*/ false);
 
@@ -547,12 +547,27 @@ export class LgEngine {
 
   // ----- config/derived helpers -------------------------------------------
 
+  // The current step pointer — one read-alias for the store's section index
+  // (read in ~6 places; the writer stays store.setSectionIndex).
+  private get si(): number {
+    return this.store.state.section_index;
+  }
+
+  // The {question_id, section_public_id} write-meta both answer handlers build
+  // identically — one shape, two call sites.
+  private answerMeta(
+    questionId: string,
+    section: LgSectionConfig | null,
+  ): { question_id: string; section_public_id: string } {
+    return { question_id: questionId, section_public_id: section?.section_public_id ?? "" };
+  }
+
   private currentSection(): LgSectionConfig | null {
-    return this.config.sections[this.store.state.section_index] ?? null;
+    return this.config.sections[this.si] ?? null;
   }
 
   private currentSectionEl(): HTMLElement | null {
-    return render.sectionElementAt(this.root, this.store.state.section_index);
+    return render.sectionElementAt(this.root, this.si);
   }
 
   private sectionConfigFor(el: Element | null): LgSectionConfig | null {
@@ -606,7 +621,7 @@ export class LgEngine {
     return {
       ...this.store.answerValues(),
       ...buildCtxFields({
-        page: this.store.state.section_index,
+        page: this.si,
         now: new Date(),
         state: this.ctx.state,
         device: this.ctx.device,
@@ -666,20 +681,13 @@ export class LgEngine {
       }
     });
 
-    this.root.addEventListener("input", (raw) => {
+    const onInput = (raw: Event): void => {
       const target = raw.target;
       if (!(target instanceof Element) || target.closest("[data-lg-input]") === null) return;
       this.handleInputEvent(target);
-    });
-    this.root.addEventListener(
-      "change",
-      (raw) => {
-        const target = raw.target;
-        if (!(target instanceof Element) || target.closest("[data-lg-input]") === null) return;
-        this.handleInputEvent(target);
-      },
-      true,
-    );
+    };
+    this.root.addEventListener("input", onInput);
+    this.root.addEventListener("change", onInput, true);
   }
 
   private replayPrehydrateQueue(): void {
@@ -807,10 +815,7 @@ export class LgEngine {
       value = list;
     }
 
-    const meta = {
-      question_id: questionId,
-      section_public_id: section?.section_public_id ?? "",
-    };
+    const meta = this.answerMeta(questionId, section);
     const write = this.store.recordUserAnswer(internalField, value, meta);
     if (questionEl !== null) render.applySelectionClasses(questionEl, value);
     this.afterAnswerMutation();
@@ -890,10 +895,7 @@ export class LgEngine {
       if (e164 !== null) value = e164;
     }
 
-    const meta = {
-      question_id: questionId,
-      section_public_id: section?.section_public_id ?? "",
-    };
+    const meta = this.answerMeta(questionId, section);
     const write = this.store.recordUserAnswer(internalField, value, meta);
     // S2-3 (register §C): a range slider moves its own visible value text +
     // filled track live as it is dragged (input fires continuously).
@@ -990,7 +992,7 @@ export class LgEngine {
 
   private advance(): void {
     const section = this.currentSection();
-    const current = this.store.state.section_index;
+    const current = this.si;
     this.beacons.enqueue("section_continue", {
       ...this.sectionDims(section),
       continued_to_next_section: true,
@@ -1094,7 +1096,7 @@ export class LgEngine {
 
   private updateProgressUi(): void {
     const visible = this.visibleIndexes();
-    const pos = visible.indexOf(this.store.state.section_index);
+    const pos = visible.indexOf(this.si);
     render.updateProgress(this.root, pos === -1 ? 1 : pos + 1, visible.length);
     // 11 §11.3 footer show_on: first = the first VISIBLE section (pos -1
     // normalizes to step 1, matching updateProgress); final = the last
@@ -1211,7 +1213,7 @@ export class LgEngine {
         session_id: engine.store.state.session_id,
         page_view_id: engine.store.state.page_view_id,
         funnel_attempt_id: engine.store.state.funnel_attempt_id,
-        section_index: engine.store.state.section_index,
+        section_index: engine.si,
         back_stack: [...engine.store.state.back_stack],
         auction: { ...engine.store.state.auction },
       }),
