@@ -312,15 +312,36 @@ test.describe("P4a — CHECKPOINT routing rule (D-2): age-answer switch mid-funn
     await page.goto(`http://${seeded.host}:${PW_PORT}/lg`, { waitUntil: "load" });
     await ready(page);
 
-    // Page 1 (age): fill 70, capture the /lg/checkpoint response live (ANY
-    // continue-click on this page posts to /lg/checkpoint since it's the
+    // Capture EVERY /lg/track beacon POST body from here on (fix round: the
+    // post-switch beacon envelope re-stamp) — the events.ts default flush
+    // delay is 800ms, so events land in ONE OR MORE later batches, not
+    // synchronously with the switch itself. page.route (not the passive
+    // page.on("request") listener) reliably captures navigator.sendBeacon
+    // traffic too (browserSender's preferred transport) — it must
+    // route.continue() so the beacon still actually sends.
+    const trackedBatches: Array<Record<string, unknown>[]> = [];
+    await page.route("**/lg/track", async (route) => {
+      const data = route.request().postData();
+      if (data !== null) {
+        try {
+          const parsed = JSON.parse(data) as { events?: unknown };
+          if (Array.isArray(parsed.events)) trackedBatches.push(parsed.events as Record<string, unknown>[]);
+        } catch {
+          /* ignore unparsable batches */
+        }
+      }
+      await route.continue();
+    });
+
+    // Page 1 (age): fill 70, capture the /lg/ck response live (ANY
+    // continue-click on this page posts to /lg/ck since it's the
     // derived checkpoint anchor — match or not — so both journeys wait on it).
     await page.locator("[data-lg-section]:not([hidden]) [data-lg-input]").first().fill("70");
     const [ckptResponse] = await Promise.all([
-      page.waitForResponse((r) => r.url().includes("/lg/checkpoint")),
+      page.waitForResponse((r) => r.url().includes("/lg/ck")),
       page.locator("[data-lg-continue]:visible").click(),
     ]);
-    const ckptBody = (await ckptResponse.json()) as { sw: boolean; r: string };
+    const ckptBody = (await ckptResponse.json()) as { sw: boolean; v: string; r: string };
     expect(ckptBody.sw, "the checkpoint call reports a real switch").toBe(true);
 
     await page.waitForTimeout(300); // let the engine apply the switch + enterPage
@@ -337,6 +358,27 @@ test.describe("P4a — CHECKPOINT routing rule (D-2): age-answer switch mid-funn
     expect(total, "progress denominator re-baselines to variant C's 2 pages, not A's 3").toBe("2");
     await expect(progress).toHaveAttribute("data-lg-progress-current", "2");
 
+    // Fix round (coordinator): a client event (section_view fires on
+    // entering `fin` via enterPage, immediately after the switch) carries the
+    // TARGET variant id + routed_from_variant in its payload — the FULL
+    // client event stream, not just the final auction call. Wait past the
+    // 800ms flush delay so the batch actually lands, then inspect it.
+    await page.waitForTimeout(1200);
+    const allEvents = trackedBatches.flat();
+    const routedEvent = allEvents.find(
+      (e) => e["funnel_variant_id"] === ckptBody.v && typeof e["routed_from_variant"] === "string" && e["routed_from_variant"] !== "",
+    );
+    expect(
+      routedEvent,
+      `expected a post-switch beacon event stamped funnel_variant_id=${ckptBody.v} + a non-empty routed_from_variant; captured events: ${JSON.stringify(allEvents.map((e) => ({ event_type: e["event_type"], funnel_variant_id: e["funnel_variant_id"], routed_from_variant: e["routed_from_variant"] })))}`,
+    ).toBeDefined();
+    // routed_from_variant must be the ORIGIN, i.e. genuinely different from
+    // the (target) funnel_variant_id on the SAME event — never a self-loop.
+    expect(routedEvent?.["routed_from_variant"]).not.toBe(ckptBody.v);
+    // assignment_reason on the SAME event carries the routing_rule:<hash>
+    // attribution (§16.3), not a stale pre-switch value.
+    expect(routedEvent?.["assignment_reason"]).toMatch(/^routing_rule:/);
+
     await page.screenshot({ path: `${SHOT_DIR}/checkpoint-switched.png`, fullPage: true });
   });
 
@@ -345,7 +387,7 @@ test.describe("P4a — CHECKPOINT routing rule (D-2): age-answer switch mid-funn
     await ready(page);
     await page.locator("[data-lg-section]:not([hidden]) [data-lg-input]").first().fill("20");
     const [ckptResponse] = await Promise.all([
-      page.waitForResponse((r) => r.url().includes("/lg/checkpoint")),
+      page.waitForResponse((r) => r.url().includes("/lg/ck")),
       page.locator("[data-lg-continue]:visible").click(),
     ]);
     const ckptBody = (await ckptResponse.json()) as { sw: boolean };

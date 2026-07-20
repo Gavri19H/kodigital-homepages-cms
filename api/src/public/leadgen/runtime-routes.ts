@@ -209,7 +209,7 @@ async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
-// POST /lg/checkpoint — the P4a (D-2) mid-funnel routing evaluation endpoint.
+// POST /lg/ck — the P4a (D-2) mid-funnel routing evaluation endpoint.
 // ---------------------------------------------------------------------------
 //
 // The engine POSTs here (no-store) when it completes a page the server flagged
@@ -293,7 +293,7 @@ async function recordRoutingOutcome(
     .run();
 }
 
-// Short wire keys (the P4a /lg/checkpoint protocol is engine+server-internal;
+// Short wire keys (the P4a /lg/ck protocol is engine+server-internal;
 // short keys keep the CLIENT engine leg inside its byte budget — esbuild does
 // not mangle object keys, so long echoed key names would blow the bundle cap):
 //   REQUEST  k=signed_config_token, f=funnel_attempt_id, v=funnel_variant_id,
@@ -850,7 +850,7 @@ leadgenPublicRouter.get("/lg/runtime/:version_js", (c) => {
 leadgenPublicRouter.get("/lg/config/:funnel_variant_id", (c) => serveLeadgenConfig(c));
 // P4a (D-2): mid-funnel routing evaluation (POST, no-store). Registered ahead
 // of the /lg/:quote_slug catch-all like the other reserved /lg heads.
-leadgenPublicRouter.post("/lg/checkpoint", (c) => serveLeadgenCheckpoint(c));
+leadgenPublicRouter.post("/lg/ck", (c) => serveLeadgenCheckpoint(c));
 leadgenPublicRouter.post("/lg/auction", (c) => serveLeadgenAuctionGuarded(c));
 leadgenPublicRouter.post("/lg/track", (c) => serveLeadgenTrack(c));
 leadgenPublicRouter.get("/lg/lc/:offer_id", (c) => serveLeadgenClick(c));

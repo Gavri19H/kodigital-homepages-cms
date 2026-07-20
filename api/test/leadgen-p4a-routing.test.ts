@@ -9,7 +9,7 @@
 //   * DB-integration: entry routing precedence over §16 A/B (a RUNNING test
 //     that would otherwise bucket a visitor elsewhere is bypassed by a
 //     matched entry rule);
-//   * the full /lg/checkpoint HTTP endpoint: a matched switch (re-issued
+//   * the full /lg/ck HTTP endpoint: a matched switch (re-issued
 //     binding + target plan + resume), a non-match (zero effects), the ≤1-hop
 //     guard (a second checkpoint POST on the same attempt after a switch is
 //     refused), and binding validation (a forged/tampered signed_config_token
@@ -713,7 +713,7 @@ describeDb("P4a entry routing — DB integration (precedence over A/B)", () => {
 });
 
 // ===========================================================================
-// The full /lg/checkpoint HTTP endpoint
+// The full /lg/ck HTTP endpoint
 // ===========================================================================
 
 interface CheckpointSeed {
@@ -779,12 +779,12 @@ async function mintAttempt(env: Env, variantId: string): Promise<MintedAttempt> 
   return body;
 }
 
-describeDb("P4a /lg/checkpoint — full HTTP flow", () => {
+describeDb("P4a /lg/ck — full HTTP flow", () => {
   it("age >= 65 MATCHES: switched=true, re-issued binding, target's OWN plan, resume at the target's first unanswered required page", async () => {
     const seed = await seedCheckpointFunnel();
     const attempt = await mintAttempt(seed.env, seed.entryVariantId);
 
-    const res = await post(seed.env, "/lg/checkpoint", {
+    const res = await post(seed.env, "/lg/ck", {
       k: attempt.signed_config_token,
       f: attempt.funnel_attempt_id,
       v: seed.entryVariantId,
@@ -819,7 +819,7 @@ describeDb("P4a /lg/checkpoint — full HTTP flow", () => {
   it("resume lands ON the target's remaining required page when one is unanswered (not '' )", async () => {
     const seed = await seedCheckpointFunnel({ requireFin: true }); // target's `fin` page now REQUIRED
     const attempt = await mintAttempt(seed.env, seed.entryVariantId);
-    const res = await post(seed.env, "/lg/checkpoint", {
+    const res = await post(seed.env, "/lg/ck", {
       k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
       s: attempt.session_id, a: { age: { value: 70 } },
     });
@@ -831,7 +831,7 @@ describeDb("P4a /lg/checkpoint — full HTTP flow", () => {
   it("age < 65 does NOT match: sw:false, ZERO effects (no outcome row written)", async () => {
     const seed = await seedCheckpointFunnel();
     const attempt = await mintAttempt(seed.env, seed.entryVariantId);
-    const res = await post(seed.env, "/lg/checkpoint", {
+    const res = await post(seed.env, "/lg/ck", {
       k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
       s: attempt.session_id, a: { age: { value: 20 } },
     });
@@ -846,7 +846,7 @@ describeDb("P4a /lg/checkpoint — full HTTP flow", () => {
   it("≤1 HOP: a SECOND checkpoint POST on the SAME attempt after a successful switch is refused (sw:false, no second outcome row)", async () => {
     const seed = await seedCheckpointFunnel();
     const attempt = await mintAttempt(seed.env, seed.entryVariantId);
-    const first = await post(seed.env, "/lg/checkpoint", {
+    const first = await post(seed.env, "/lg/ck", {
       k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
       s: attempt.session_id, a: { age: { value: 70 } },
     });
@@ -857,7 +857,7 @@ describeDb("P4a /lg/checkpoint — full HTTP flow", () => {
     // OWN ≤1-hop check (leadgen_routing_outcomes already carries a
     // 'checkpoint' row for this funnel_attempt_id), independent of any
     // client-side `rtd` bookkeeping.
-    const second = await post(seed.env, "/lg/checkpoint", {
+    const second = await post(seed.env, "/lg/ck", {
       k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
       s: attempt.session_id, a: { age: { value: 70 } },
     });
@@ -871,7 +871,7 @@ describeDb("P4a /lg/checkpoint — full HTTP flow", () => {
   it("BINDING VALIDATION: a forged signed_config_token is rejected 422 tampered with ZERO effects (no rule evaluation, no DB write)", async () => {
     const seed = await seedCheckpointFunnel();
     const attempt = await mintAttempt(seed.env, seed.entryVariantId);
-    const res = await post(seed.env, "/lg/checkpoint", {
+    const res = await post(seed.env, "/lg/ck", {
       k: "v2.forged-payload.forged-signature",
       f: attempt.funnel_attempt_id,
       v: seed.entryVariantId,
@@ -889,7 +889,7 @@ describeDb("P4a /lg/checkpoint — full HTTP flow", () => {
   it("BINDING VALIDATION: a token minted for a DIFFERENT session_id is rejected 422 (session is v2 crypto-bound)", async () => {
     const seed = await seedCheckpointFunnel();
     const attempt = await mintAttempt(seed.env, seed.entryVariantId);
-    const res = await post(seed.env, "/lg/checkpoint", {
+    const res = await post(seed.env, "/lg/ck", {
       k: attempt.signed_config_token,
       f: attempt.funnel_attempt_id,
       v: seed.entryVariantId,
@@ -905,7 +905,7 @@ describeDb("P4a /lg/checkpoint — full HTTP flow", () => {
     // A rule on `age` should NOT be satisfiable via a client-forged `__state`
     // masquerading as an answer -- confirm the age-gated rule still requires
     // a REAL age answer (this posts NO age at all, only a synthetic key).
-    const res = await post(seed.env, "/lg/checkpoint", {
+    const res = await post(seed.env, "/lg/ck", {
       k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
       s: attempt.session_id, a: { __state: "CA", __age: 70 },
     });
@@ -939,7 +939,7 @@ describeDb("P4a §19-step-4 plane reconciliation", () => {
     // resolveActivatedFunnelByVariant needs to key its OWN §19-step-4 rule
     // read by).
     const attempt = await mintAttempt(seed.env, seed.entryVariantId);
-    const ckpt = await post(seed.env, "/lg/checkpoint", {
+    const ckpt = await post(seed.env, "/lg/ck", {
       k: attempt.signed_config_token, f: attempt.funnel_attempt_id, v: seed.entryVariantId,
       s: attempt.session_id, a: { age: { value: 70 } },
     });
