@@ -545,10 +545,25 @@ export class LgEngine {
     // re-runs the field wiring on ready), render the current step.
     this.bindListeners();
     wireMapsFields(this.root, {
+      // Coordinator ruling (2026-07-20): stamp the section that OWNS the
+      // edited field, not the anchor (this.currentSection()) — on a same-
+      // screen multi-section page an Address on section 2 must not mis-
+      // attribute to section 1's public id just because this.si still
+      // points at the page's anchor. maps.ts hands back only the field NAME
+      // (no DOM element to walk), so resolution is an internal_field lookup
+      // across config.sections (inlined -- its one call site) — falls back
+      // to the anchor only if no section declares the field at all (should
+      // not happen for a validly authored funnel). `||` not `??`/`?.` -- a
+      // resolved section is always a non-null object (never falsy-but-
+      // defined), and the es2019 build target transpiles `?.`/`??` into far
+      // costlier ternary chains than a plain `||`/explicit null check.
       setAnswer: (field, value, meta) => {
+        const owner =
+          this.config.sections.find((s) => s.components.some((c) => c.internal_field === field)) ||
+          this.currentSection();
         this.writeAnswer(field, value, {
           question_id: meta.question_id,
-          section_public_id: this.currentSection()?.section_public_id ?? "",
+          section_public_id: owner !== null ? owner.section_public_id : "",
         });
       },
       emit: (type, fields) => {
@@ -800,30 +815,50 @@ export class LgEngine {
   // conditional ANYWHERE ELSE on the SAME page (both simultaneously on
   // screen), so every visible section of the current page re-checks its own
   // component/Continue visibility — not just the one the edit occurred in.
+  // lastInPage (the page's one Continue-bearing section, coordinator ruling
+  // 2026-07-20) is recomputed fresh -- an answer here can itself flip which
+  // section is last-visible within the page.
   private afterAnswerMutation(): void {
-    for (const i of this.currentPageIndices()) {
+    const pageIndices = this.currentPageIndices();
+    const visible = this.visibleIndexes();
+    let lastInPage: number | undefined;
+    for (const i of pageIndices) if (visible.indexOf(i) !== -1) lastInPage = i;
+    for (const i of pageIndices) {
       const section = this.config.sections[i];
       const sectionEl = section !== undefined ? render.sectionElementAt(this.root, i) : null;
       if (section === undefined || sectionEl === null) continue;
       render.applyComponentVisibility(sectionEl, this.dependencyState(section).components);
-      this.applyContinueVisibility(section, sectionEl);
+      this.applyContinueVisibility(section, sectionEl, i === lastInPage);
     }
     this.updateProgressUi();
     this.persist();
   }
 
+  // Coordinator ruling (2026-07-20): a multi-section page shows Continue on
+  // ONLY its LAST dependency-visible section — one gate per page, not N
+  // (that single Continue already validates + advances the WHOLE page, see
+  // handleContinue/advance). Single-section pages are the length-1 case
+  // (isLastInPage is always true), unaffected. `isLastInPage` composes with
+  // the section's own continue_visible_when — both must pass.
+  //
   // P4c (register PC-12): section-level Continue visibility. `continue_
   // visible_when` is not part of the declared LgSectionConfig shape (kept a
   // hand-maintained LOCAL mirror per the state.ts module header) — it is
   // read here via a narrow, defensive cast, exactly like an untyped JSON
-  // field the config legitimately carries. Absent ⇒ no-op (byte-identical
-  // pre-P4c: Continue stays unconditionally visible).
-  private applyContinueVisibility(section: LgSectionConfig, sectionEl: Element): void {
+  // field the config legitimately carries. Absent ⇒ treated as "no condition
+  // authored", i.e. visible whenever isLastInPage alone says so (pre-P4c:
+  // Continue was unconditionally visible; now composed with the P3a
+  // last-in-page gate above, so this can no longer stay a true no-op — an
+  // explicit `true` here is what RE-shows a Continue this SAME feature may
+  // have hidden on the section's prior turn as a non-last section).
+  private applyContinueVisibility(section: LgSectionConfig, sectionEl: Element, isLastInPage: boolean): void {
     const cond = (
       section as unknown as { continue_visible_when?: LgConditional | LgConditionGroup }
     ).continue_visible_when;
-    if (cond === undefined) return;
-    render.setContinueVisible(sectionEl, conditionMet(cond, this.evalAnswers()));
+    render.setContinueVisible(
+      sectionEl,
+      isLastInPage && (cond === undefined || conditionMet(cond, this.evalAnswers())),
+    );
   }
 
   private handleChoiceActivation(choiceEl: Element): void {
@@ -1165,7 +1200,7 @@ export class LgEngine {
       const sectionEl = shownEls[k];
       if (section === undefined || sectionEl === undefined) continue;
       render.applyComponentVisibility(sectionEl, this.dependencyState(section).components);
-      this.applyContinueVisibility(section, sectionEl);
+      this.applyContinueVisibility(section, sectionEl, k === visibleInPage.length - 1);
       // Restore selection classes for restored/default answers.
       for (const component of section.components) {
         const field = component.internal_field;
@@ -1246,7 +1281,12 @@ export class LgEngine {
   private updateProgressUi(): void {
     const visible = this.visibleIndexes();
     const pos = visible.indexOf(this.si);
-    const page = this.planMeta?.get(this.currentSection()?.section_public_id ?? "")?.[0];
+    const section = this.currentSection();
+    // `||`/explicit checks not `?.`/`??` -- see the setAnswer hook's note
+    // above (this file's es2019 build target transpiles chained `?.`/`??`
+    // into far costlier ternary chains; this is a 3-link chain).
+    const meta = this.planMeta !== null && section !== null ? this.planMeta.get(section.section_public_id) : undefined;
+    const page = meta !== undefined ? meta[0] : undefined;
     const total = page !== undefined ? this.pagesCount : visible.length;
     const current = page !== undefined ? page + 1 : pos === -1 ? 1 : pos + 1;
     render.updateProgress(this.root, current, total);

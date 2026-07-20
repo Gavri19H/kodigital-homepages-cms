@@ -144,25 +144,32 @@ function visibleSectionIds(page: Page): Promise<string[]> {
   );
 }
 
-// Answers EVERY currently-visible section's TwoButtonYesNo, then clicks ONE
-// Continue mount (same-screen pages: every visible section carries its own
-// [data-lg-continue], and ANY of them triggers the SAME whole-page gate).
+// Answers EVERY currently-visible section's TwoButtonYesNo, then clicks the
+// page's ONE visible Continue. Coordinator ruling (2026-07-20): a multi-
+// section page shows Continue on ONLY its LAST section (the earlier
+// sections' own [data-lg-continue] mounts are hidden), so this targets
+// `:visible` (an actual-rendered-visibility check, unlike `:not([hidden])`
+// — a section that scrolled off-page keeps its OWN [data-lg-continue]
+// attribute stale-unhidden from a prior page-enter; only its ANCESTOR
+// section's hidden state changed, which `:visible` correctly follows)
+// rather than assuming it lives under sections.first()/.last().
 async function answerAllVisibleAndContinue(page: Page): Promise<void> {
   const sections = page.locator("[data-lg-section]:not([hidden])");
   const count = await sections.count();
   for (let i = 0; i < count; i++) {
     await sections.nth(i).locator('[data-lg-choice="true"]').click();
   }
-  await sections.first().locator("[data-lg-continue]").click();
+  await page.locator("[data-lg-continue]:visible").click();
 }
 
 // Answers only the FIRST currently-visible section (leaving any others on
-// the SAME page unanswered) then clicks Continue — used to prove the page
-// gate blocks on a partially-answered multi-section page.
+// the SAME page unanswered) then clicks the page's ONE visible Continue —
+// used to prove the page gate blocks on a partially-answered multi-section
+// page.
 async function answerFirstVisibleAndContinue(page: Page): Promise<void> {
   const sections = page.locator("[data-lg-section]:not([hidden])");
   await sections.first().locator('[data-lg-choice="true"]').click();
-  await sections.first().locator("[data-lg-continue]").click();
+  await page.locator("[data-lg-continue]:visible").click();
 }
 
 test.beforeAll(() => {
@@ -228,6 +235,11 @@ test.describe("P3a — FULL pages model (D-3): 2-page funnel, ruled + A/B slots"
     // TOGETHER, not one at a time.
     const bothVisible = await visibleSectionIds(page);
     expect(bothVisible, "page 2's ruled + A/B winners are BOTH visible at once").toHaveLength(2);
+
+    // Coordinator ruling (2026-07-20): a 2-section page shows exactly ONE
+    // Continue (the LAST section's), not one per section — the earlier
+    // section's own [data-lg-continue] mount is hidden, not just unused.
+    await expect(page.locator("[data-lg-continue]:visible"), "a multi-section page has exactly one visible Continue, not N").toHaveCount(1);
     await page.screenshot({ path: `${SHOT_DIR}/page2-both-sections.png`, fullPage: true });
 
     // Answer ONLY the first of the two -> Continue is BLOCKED (still page 2,
