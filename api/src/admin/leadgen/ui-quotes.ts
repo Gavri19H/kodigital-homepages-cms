@@ -70,6 +70,15 @@ import {
 } from "../../public/leadgen/designs/theme";
 import type { Problem } from "../../public/leadgen/designs/theme";
 import { getFunnelDesign } from "../../public/leadgen/designs/registry";
+// Round-4 P3b: the structure panel renders the FULL page/slot tree. The
+// canonical read model is P3a's loadVariantPages (the SAME loader the public
+// runtime + quotes-handlers' pageToApi use). No admin GET endpoint projects
+// `pages` (variantDetailJson only rides POST create / PUT save / POST fork), so
+// the SSR editor sources them directly through this public loader — the import
+// pattern quotes-handlers.ts already established — and resolves every slot's
+// raw-integer section_id to its public_id + name for the client island. See
+// buildPageNodes below.
+import { loadVariantPages, type ResolvedFunnelPage } from "../../public/leadgen/resolver";
 import { renderRulesBuilderPanel, RULES_BUILDER_SCRIPT } from "./ui-rules-builder";
 
 // ---------------------------------------------------------------------------
@@ -135,6 +144,127 @@ interface VariantNode {
   // v2.5 §4.5 — the sparse per-arm frame/theme override patch (0041 column,
   // parsed by variantRowToApi; null on legacy rows).
   frame_overrides_json: Record<string, unknown> | null;
+  // Round-4 P3b — the FULL page/slot tree, sourced by the SSR editor via
+  // loadVariantPages (buildPageNodes) and attached to the SELECTED variant
+  // only (the structure panel renders one variant). Absent on the non-selected
+  // arms and on the raw structure-endpoint projection.
+  pages?: PageNode[];
+}
+
+// --- Round-4 P3b page/slot node model (structure panel) ----------------------
+// A client-friendly projection of P3a's ResolvedFunnelPage: every raw-integer
+// section_id in a slot's rules/allocations is resolved HERE (server-side, via
+// the candidate order the loader returns) to its public_id + display name, so
+// the ES5 island never sees a bare integer id nor has to re-derive the
+// int→public mapping. A `fixed` slot carries one section ref; a `ruled` slot a
+// list of cases (each an entry-known condition group → a section) plus a
+// required default; an `ab` slot a list of {section, bp} allocations (Σbp ==
+// 10000). slot_revision rides along so the A/B re-bucket note can surface it.
+interface SectionRef {
+  section_id: string; // the section's public_id (what preparePages/resolveRef accepts)
+  section_name: string;
+  // The section's raw-integer DB id — ONLY set on a fixed slot's ref, where the
+  // rendered .lg-section-row keeps its historical NUMERIC data-section-id (the
+  // collectSections()/slideStillPresent() readers + the seam harness's
+  // `data-section-id="(\d+)"` row regex both require digits).
+  num_id?: number;
+}
+interface AbEntryNode extends SectionRef {
+  bp: number;
+}
+interface RuledCaseNode extends SectionRef {
+  conditions: { groups: unknown[] };
+}
+interface PageSlotNode {
+  slot_revision: number;
+  kind: "fixed" | "ruled" | "ab";
+  fixed: SectionRef | null;
+  ab: AbEntryNode[] | null;
+  ruled: { cases: RuledCaseNode[]; default_section: SectionRef } | null;
+}
+interface PageNode {
+  name: string | null;
+  slots: PageSlotNode[];
+}
+
+// Resolve a slot's raw-integer section_id (rules_json / ab_allocations_json)
+// to the candidate's public_id + name. The loader returns a slot's candidate
+// rows in the SAME order preparePages inserted them (fvs.id ASC == insertion
+// order == candidateSectionIds order): for an A/B slot that is exactly the
+// allocation order; for a ruled slot it is the de-duplicated first-appearance
+// order of [each case's section, then the default]. Replaying that de-dup here
+// against the parsed rules gives an integer→candidate index that is faithful
+// to what the backend stored — no separate id map is needed from the API.
+function slotSectionRefIndex(slot: ResolvedFunnelPage["slots"][number]): Map<number, SectionRef> {
+  const index = new Map<number, SectionRef>();
+  if (slot.ab_allocations !== null) {
+    // A/B: candidate k ↔ allocation k (index-aligned).
+    slot.ab_allocations.forEach((alloc, k) => {
+      const cand = slot.candidates[k];
+      if (cand !== undefined) index.set(alloc.section_id, { section_id: cand.section.public_id, section_name: cand.section.section_name });
+    });
+    return index;
+  }
+  if (slot.rules !== null) {
+    // Ruled: replay the loader's [unique case sections…, default] ordering.
+    const order: number[] = [];
+    for (const c of slot.rules.cases) if (!order.includes(c.section_id)) order.push(c.section_id);
+    if (!order.includes(slot.rules.default_section_id)) order.push(slot.rules.default_section_id);
+    order.forEach((sid, k) => {
+      const cand = slot.candidates[k];
+      if (cand !== undefined) index.set(sid, { section_id: cand.section.public_id, section_name: cand.section.section_name });
+    });
+    return index;
+  }
+  return index;
+}
+
+function buildPageNodes(pages: readonly ResolvedFunnelPage[]): PageNode[] {
+  return pages.map((page) => ({
+    name: page.name,
+    slots: page.slots.map((slot): PageSlotNode => {
+      const kind: PageSlotNode["kind"] = slot.rules !== null ? "ruled" : slot.ab_allocations !== null ? "ab" : "fixed";
+      if (kind === "ab" && slot.ab_allocations !== null) {
+        const refs = slotSectionRefIndex(slot);
+        return {
+          slot_revision: slot.slot_revision,
+          kind,
+          fixed: null,
+          ruled: null,
+          ab: slot.ab_allocations.map((alloc): AbEntryNode => {
+            const ref = refs.get(alloc.section_id);
+            return { section_id: ref?.section_id ?? "", section_name: ref?.section_name ?? "", bp: alloc.bp };
+          }),
+        };
+      }
+      if (kind === "ruled" && slot.rules !== null) {
+        const refs = slotSectionRefIndex(slot);
+        const emptyRef: SectionRef = { section_id: "", section_name: "" };
+        return {
+          slot_revision: slot.slot_revision,
+          kind,
+          fixed: null,
+          ab: null,
+          ruled: {
+            cases: slot.rules.cases.map((c): RuledCaseNode => {
+              const ref = refs.get(c.section_id) ?? emptyRef;
+              return { conditions: c.conditions as { groups: unknown[] }, section_id: ref.section_id, section_name: ref.section_name };
+            }),
+            default_section: refs.get(slot.rules.default_section_id) ?? emptyRef,
+          },
+        };
+      }
+      // fixed: exactly one candidate.
+      const cand = slot.candidates[0];
+      return {
+        slot_revision: slot.slot_revision,
+        kind: "fixed",
+        ab: null,
+        ruled: null,
+        fixed: cand !== undefined ? { section_id: cand.section.public_id, section_name: cand.section.section_name, num_id: cand.section.id } : { section_id: "", section_name: "" },
+      };
+    }),
+  }));
 }
 
 interface AbTestNode {
@@ -527,6 +657,39 @@ const LG_QUOTES_STYLES = `
 .lg-structure-row .lg-grow{flex:1;min-width:0}
 .lg-structure-row button[data-select-slide]{background:none;border:0;padding:0;cursor:pointer;color:var(--c-text);text-align:left;font:inherit}
 .lg-structure-row.lg-slide-current{border-color:var(--c-primary)}
+/* --- Round-4 P3b: pages-first structure panel (fixes 10J/Image41) ----------
+   ONE grid/stack model for the section + slot rows replaces the old
+   .lg-section-row / .lg-structure-row flex SPLIT that wrapped and crowded at
+   the 260px rail. Every slot row now STACKS an identity line (drag/pos/dot +
+   an ellipsizing name cell that never wraps) above a controls rail — so no
+   control overlaps the name and nothing overflows the sidebar. Arm rows (plain
+   .lg-structure-row, no .lg-section-row/.lg-slot-row) keep the flex layout. */
+.lg-structure-hint{margin:0 0 8px}
+.lg-page{border:1px solid var(--c-border);border-radius:8px;padding:8px;margin-bottom:10px;background:var(--c-bg,#f6f7f9)}
+.lg-page-head{display:flex;align-items:center;gap:6px;margin-bottom:6px;min-width:0}
+.lg-page-num{font-variant-numeric:tabular-nums;font-weight:600;font-size:12px;background:var(--c-card,#fff);border:1px solid var(--c-border);border-radius:999px;min-width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.lg-page-name{flex:1;min-width:0}
+.lg-page-slots{display:flex;flex-direction:column;gap:6px}
+.lg-page-add{margin-top:6px}
+.lg-slot{background:var(--c-card,#fff);border:1px solid var(--c-border);border-radius:6px;overflow:hidden}
+.lg-section-row.lg-structure-row,.lg-slot-row.lg-structure-row{display:flex;flex-direction:column;align-items:stretch;gap:4px;padding:6px;margin-bottom:0;border:0;border-radius:0;min-width:0}
+.lg-slot-line{display:flex;align-items:center;gap:6px;min-width:0}
+.lg-name-cell{flex:1;min-width:0;overflow:hidden}
+.lg-name-cell button[data-select-slide],.lg-name-cell.lg-slot-summary{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lg-vertical{flex:none;color:var(--c-muted);font-size:11px;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lg-row-rail{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px}
+.lg-row-rail .btn{flex:none}
+.lg-slot-kind-select{max-width:104px}
+.lg-slot-badge{flex:none;font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#fff;background:var(--c-primary,#2563eb);border-radius:4px;padding:1px 6px}
+.lg-slot-config{border-top:1px dashed var(--c-border);padding:8px;display:flex;flex-direction:column;gap:6px}
+.lg-slot-config .form-help{margin:0}
+.lg-ab-cand,.lg-ruled-case{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.lg-ab-cand .lg-grow,.lg-ruled-case .lg-grow{flex:1;min-width:80px}
+.lg-pct{width:54px;flex:none}
+.lg-pct-unit{color:var(--c-muted);font-size:12px}
+.lg-ruled-if,.lg-ruled-then,.lg-ruled-otherwise{color:var(--c-muted);font-size:12px;flex:none}
+.lg-ruled-default{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:4px}
+.form-select-sm,.form-input-sm{padding:2px 6px;font-size:12px;height:auto;min-height:0}
 .lg-map-dot{width:10px;height:10px;border-radius:50%;display:inline-block;background:var(--c-border);flex:none}
 /* DEV-59 real tri-state: green complete · amber incomplete · gray none */
 .lg-map-dot[data-mapping-status="complete"]{background:#198754}
@@ -1320,35 +1483,246 @@ export const MAPPING_DOT_TITLES: Readonly<Record<"complete" | "incomplete" | "no
   none: "No Offers selected yet",
 };
 
+// Round-4 P3b entry-known slot-rule vocabulary (mirrors resolver.ts
+// ENTRY_KNOWN_SLOT_FIELDS — a ruled slot may branch ONLY on these). The
+// operator sees plain labels; the value goes out verbatim as the condition
+// group's `value` (the §21.4 composed-group evaluator conditionsMatch reads
+// {field, op, value}). `eq`/`neq` are the two ops the builder exposes.
+const RULED_FIELD_OPTIONS: ReadonlyArray<readonly [string, string]> = [
+  ["state", "State"],
+  ["device", "Device"],
+  ["utm_source", "UTM source"],
+  ["utm_medium", "UTM medium"],
+  ["utm_content", "UTM content"],
+  ["hour", "Hour (UTC 0–23)"],
+  ["weekday", "Weekday (UTC 0–6)"],
+];
+const RULED_OP_OPTIONS: ReadonlyArray<readonly [string, string]> = [
+  ["eq", "is"],
+  ["neq", "is not"],
+];
+
+function ruledFieldOptions(selected: string): string {
+  return RULED_FIELD_OPTIONS.map(
+    ([v, label]) => `<option value="${v}"${v === selected ? " selected" : ""}>${escapeHtml(label)}</option>`,
+  ).join("");
+}
+function ruledOpOptions(selected: string): string {
+  return RULED_OP_OPTIONS.map(
+    ([v, label]) => `<option value="${v}"${v === selected ? " selected" : ""}>${escapeHtml(label)}</option>`,
+  ).join("");
+}
+
+// Section <option>s addressed by PUBLIC id — for the A/B candidate + ruled
+// case/default selects (preparePages.resolveRef accepts a public_id string).
+function sectionRefOptions(available: AvailableSection[], selectedPublicId: string): string {
+  const opts = available
+    .map(
+      (s) =>
+        `<option value="${escapeHtml(s.public_id)}"${s.public_id === selectedPublicId ? " selected" : ""}>${escapeHtml(s.section_name)} (${escapeHtml(s.vertical)})</option>`,
+    )
+    .join("");
+  return `<option value="">— choose a section —</option>${opts}`;
+}
+
+// The fixed-slot ADD picker <option>s (numeric value == the existing add
+// contract; data-* mirror the section name/vertical/mapping so a client-side
+// add stamps a truthful row WITHOUT a reload). The public id rides as
+// `data-section-public` — deliberately NOT `data-section-public-id`, so the
+// DEV-59 mapping-dot probe's `data-section-public-id="…"` row search never
+// matches an <option> before the rendered .lg-section-row. fixedSlotFromOption
+// copies it onto the row's data-section-public-id (needed so a fixed→A/B switch
+// can seed the A/B candidate, whose select is keyed by public id).
+function sectionAddOptions(available: AvailableSection[]): string {
+  return available
+    .map(
+      (s) =>
+        `<option value="${s.id}" data-section-public="${escapeHtml(s.public_id)}" data-section-name="${escapeHtml(s.section_name)}" data-vertical="${escapeHtml(s.vertical)}" data-mapping-status="${mappingDotStatus(s.completeness)}">${escapeHtml(s.section_name)} (${escapeHtml(s.vertical)})</option>`,
+    )
+    .join("");
+}
+
+function slotKindSelect(kind: string): string {
+  return `<select class="form-select form-select-sm lg-slot-kind-select" data-slot-kind-select aria-label="How this slot resolves">
+      <option value="fixed"${kind === "fixed" ? " selected" : ""}>One section</option>
+      <option value="ruled"${kind === "ruled" ? " selected" : ""}>Rule&#8230;</option>
+      <option value="ab"${kind === "ab" ? " selected" : ""}>A/B&#8230;</option>
+    </select>`;
+}
+
+// The shared right-rail controls every slot body carries: kind switch, move
+// across pages, reorder within the page, remove.
+function slotRail(kind: string): string {
+  return `<span class="lg-row-rail">
+    ${slotKindSelect(kind)}
+    <button type="button" class="btn btn-sm btn-outline" data-slot-move-prev aria-label="Move to previous page" title="Move to previous page">&#9668;</button>
+    <button type="button" class="btn btn-sm btn-outline" data-slot-move-next aria-label="Move to next page" title="Move to next page">&#9658;</button>
+    <button type="button" class="btn btn-sm btn-outline" data-move-up aria-label="Move up">&#8593;</button>
+    <button type="button" class="btn btn-sm btn-outline" data-move-down aria-label="Move down">&#8595;</button>
+    <button type="button" class="btn btn-sm btn-danger" data-remove-section aria-label="Remove">Remove</button>
+  </span>`;
+}
+
+// The FIXED-slot inner row. Its opening tag is byte-preserved from v2.4
+// (`<div class="lg-section-row lg-structure-row" data-section-id data-section-
+// public-id>`) — the collectSections()/slideStillPresent() readers + the seam
+// harness's SSR-row regex both anchor on it, and the preview click-select reads
+// data-section-public-id off it.
 function renderSectionRow(
-  sectionId: number,
+  sectionId: number | string,
   sectionPublicId: string,
   name: string,
   vertical: string,
   position: number,
-  isAuctionEntry: boolean,
+  _isAuctionEntry: boolean,
   mappingStatus?: string,
 ): string {
-  const marker = isAuctionEntry
-    ? `<div class="lg-auction-entry-mark" data-auction-entry="1">Auction runs after this slide</div>`
-    : "";
   const dot = mappingDotStatus(mappingStatus);
   return `<div class="lg-section-row lg-structure-row" data-section-id="${sectionId}" data-section-public-id="${escapeHtml(sectionPublicId)}">
+  <div class="lg-slot-line">
   <span class="lg-drag-handle" data-drag-handle draggable="true" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
   <span class="lg-pos" data-pos>${position}</span>
   <span class="lg-map-dot" data-mapping-status="${dot}" title="${escapeHtml(MAPPING_DOT_TITLES[dot])}"></span>
-  <span class="lg-grow"><button type="button" data-select-slide data-section-name>${escapeHtml(name)}</button></span>
-  <span class="form-help" data-vertical>${escapeHtml(vertical)}</span>
-  <button type="button" class="btn btn-sm btn-outline" data-move-up aria-label="Move up">&#8593;</button>
-  <button type="button" class="btn btn-sm btn-outline" data-move-down aria-label="Move down">&#8595;</button>
-  <button type="button" class="btn btn-sm btn-danger" data-remove-section aria-label="Remove">Remove</button>
-</div>${marker}`;
+  <span class="lg-grow lg-name-cell" data-name-cell><button type="button" data-select-slide data-section-name>${escapeHtml(name)}</button></span>
+  <span class="form-help lg-vertical" data-vertical>${escapeHtml(vertical)}</span>
+  </div>
+  ${slotRail("fixed")}
+</div>`;
 }
 
-// Funnel structure (left): ordered slides + add picker + the A/B arms mini
-// switcher + Rules link + the PRESERVED variant scalars (lander / base design
-// / auction FK) behind a collapsed Funnel settings disclosure — their ids and
-// the §4.7 save path are unchanged.
+// A/B candidate row: a section ref + a percent (bp/100). Σ across a slot's
+// candidates must be 100% (validated at save; the live sum note updates client-
+// side). data-ab-cand marks the row for collectPages.
+function renderAbCandidate(available: AvailableSection[], entry: AbEntryNode | null): string {
+  const pct = entry !== null ? (entry.bp / 100).toString() : "50";
+  return `<div class="lg-ab-cand" data-ab-cand>
+    <select class="form-select form-select-sm lg-grow" data-ab-section aria-label="A/B candidate section">${sectionRefOptions(available, entry?.section_id ?? "")}</select>
+    <input type="number" class="form-input form-input-sm lg-pct" data-ab-pct min="0" max="100" step="1" value="${escapeHtml(pct)}" aria-label="Percent of traffic" />
+    <span class="lg-pct-unit">%</span>
+    <button type="button" class="btn btn-sm btn-outline" data-ab-cand-remove aria-label="Remove candidate">&#215;</button>
+  </div>`;
+}
+
+// A/B slot body: the summary chip + the split editor. data-slot-kind="ab".
+function renderAbSlot(available: AvailableSection[], entries: AbEntryNode[], slotRevision: number): string {
+  const rows = (entries.length > 0 ? entries : [null, null])
+    .map((e) => renderAbCandidate(available, e))
+    .join("");
+  const sum = entries.reduce((acc, e) => acc + e.bp, 0);
+  return `<div class="lg-slot" data-slot data-slot-kind="ab" data-slot-revision="${slotRevision}">
+    <div class="lg-slot-row lg-structure-row">
+      <div class="lg-slot-line">
+        <span class="lg-slot-badge">A/B</span>
+        <span class="lg-grow lg-name-cell lg-slot-summary" data-slot-summary>Split traffic between sections</span>
+      </div>
+      ${slotRail("ab")}
+    </div>
+    <div class="lg-slot-config" data-ab-editor>
+      <p class="form-help">Each visitor sticks to one section for their whole session. Percentages must add up to 100%.</p>
+      <div data-ab-cands>${rows}</div>
+      <div class="toolbar">
+        <button type="button" class="btn btn-sm btn-secondary" data-ab-add>+ Add candidate</button>
+        <span class="form-help" data-ab-sum>Total: ${entries.length > 0 ? (sum / 100).toString() : "0"}%</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+// Ruled case row: one entry-known condition (field/op/value) → a section.
+function renderRuledCase(available: AvailableSection[], c: RuledCaseNode | null): string {
+  const g = c !== null && Array.isArray(c.conditions.groups) ? (c.conditions.groups[0] as { field?: string; op?: string; value?: string } | undefined) : undefined;
+  return `<div class="lg-ruled-case" data-ruled-case>
+    <span class="lg-ruled-if">If</span>
+    <select class="form-select form-select-sm" data-ruled-field aria-label="Condition field">${ruledFieldOptions(g?.field ?? "state")}</select>
+    <select class="form-select form-select-sm" data-ruled-op aria-label="Condition operator">${ruledOpOptions(g?.op ?? "eq")}</select>
+    <input type="text" class="form-input form-input-sm" data-ruled-value value="${escapeHtml(g?.value ?? "")}" aria-label="Condition value" placeholder="value" />
+    <span class="lg-ruled-then">show</span>
+    <select class="form-select form-select-sm lg-grow" data-ruled-section aria-label="Section for this branch">${sectionRefOptions(available, c?.section_id ?? "")}</select>
+    <button type="button" class="btn btn-sm btn-outline" data-ruled-case-remove aria-label="Remove branch">&#215;</button>
+  </div>`;
+}
+
+// Ruled slot body: ordered cases (first match wins) + a REQUIRED default.
+function renderRuledSlot(available: AvailableSection[], ruled: { cases: RuledCaseNode[]; default_section: SectionRef } | null, slotRevision: number): string {
+  const cases = (ruled !== null && ruled.cases.length > 0 ? ruled.cases : [null])
+    .map((c) => renderRuledCase(available, c))
+    .join("");
+  return `<div class="lg-slot" data-slot data-slot-kind="ruled" data-slot-revision="${slotRevision}">
+    <div class="lg-slot-row lg-structure-row">
+      <div class="lg-slot-line">
+        <span class="lg-slot-badge">Rule</span>
+        <span class="lg-grow lg-name-cell lg-slot-summary" data-slot-summary>Show a section by visitor condition</span>
+      </div>
+      ${slotRail("ruled")}
+    </div>
+    <div class="lg-slot-config" data-ruled-editor>
+      <p class="form-help">Branch on what's known at entry (state, device, UTM, time). Answer-based visibility lives on the section's own show/hide rules.</p>
+      <div data-ruled-cases>${cases}</div>
+      <div class="toolbar"><button type="button" class="btn btn-sm btn-secondary" data-ruled-add>+ Add branch</button></div>
+      <div class="lg-ruled-default">
+        <span class="lg-ruled-otherwise">Otherwise show</span>
+        <select class="form-select form-select-sm lg-grow" data-ruled-default aria-label="Default section">${sectionRefOptions(available, ruled?.default_section.section_id ?? "")}</select>
+      </div>
+    </div>
+  </div>`;
+}
+
+// A FIXED slot: the section row wrapped so the island reads its kind off the
+// wrapper (data-slot). The mapping dot on the inner row comes from the picker's
+// per-section verdict on a client-side add.
+function renderFixedSlot(ref: SectionRef, slotRevision: number, mappingStatus?: string): string {
+  return `<div class="lg-slot" data-slot data-slot-kind="fixed" data-slot-revision="${slotRevision}">${renderSectionRow(
+    ref.num_id === undefined ? "" : ref.num_id,
+    ref.section_id,
+    ref.section_name,
+    "",
+    0,
+    false,
+    mappingStatus,
+  )}</div>`;
+}
+
+function renderSlot(available: AvailableSection[], slot: PageSlotNode, mappingByPublic: Map<string, string>): string {
+  if (slot.kind === "ab" && slot.ab !== null) return renderAbSlot(available, slot.ab, slot.slot_revision);
+  if (slot.kind === "ruled" && slot.ruled !== null) return renderRuledSlot(available, slot.ruled, slot.slot_revision);
+  const ref = slot.fixed ?? { section_id: "", section_name: "" };
+  return renderFixedSlot(ref, slot.slot_revision, mappingByPublic.get(ref.section_id));
+}
+
+function renderPageCard(available: AvailableSection[], page: PageNode, index: number, mappingByPublic: Map<string, string>): string {
+  const slots = page.slots.map((s) => renderSlot(available, s, mappingByPublic)).join("");
+  return `<div class="lg-page" data-page>
+    <div class="lg-page-head">
+      <span class="lg-page-num" data-page-num>${index + 1}</span>
+      <input class="form-input lg-page-name" data-page-name value="${escapeHtml(page.name ?? "")}" placeholder="Page name (optional)" aria-label="Page name" />
+      <span class="lg-row-rail">
+        <button type="button" class="btn btn-sm btn-outline" data-page-up aria-label="Move page up">&#8593;</button>
+        <button type="button" class="btn btn-sm btn-outline" data-page-down aria-label="Move page down">&#8595;</button>
+        <button type="button" class="btn btn-sm btn-danger" data-page-remove aria-label="Remove page">Remove</button>
+      </span>
+    </div>
+    <div class="lg-page-slots" data-page-slots>${slots}</div>
+    <div class="lg-page-add toolbar">
+      <select class="form-select form-select-sm lg-grow" data-add-slot-select aria-label="Add a section to this page">${sectionAddOptions(available)}</select>
+      <button type="button" class="btn btn-sm btn-secondary" data-add-slot>+ Add section</button>
+    </div>
+  </div>`;
+}
+
+// A plain single-section-per-page funnel (no page names, every slot a single
+// fixed section) still reads as a flat list of "slides"; the "page" vocabulary
+// only earns its place once a page holds more than one slot or a ruled / A/B
+// slot. Drives the auction-marker copy (mirrored by the client renumber()).
+function pagesAreFlat(pages: PageNode[]): boolean {
+  if (pages.length === 0) return false;
+  return pages.every((p) => (p.name === null || p.name === "") && p.slots.length === 1 && (p.slots[0]?.kind ?? "fixed") === "fixed");
+}
+
+// Funnel structure (left): ordered PAGES, each a first-class row holding its
+// nested section slots (fixed / ruled / A/B). Progress counts pages; the
+// auction runs after the LAST page. The A/B arms mini switcher + Rules link +
+// the PRESERVED variant scalars (lander / base design / auction FK) ride below,
+// their ids + the §4.7 save path unchanged.
 function renderStructurePanel(
   structure: StructureBody,
   variant: VariantNode,
@@ -1366,14 +1740,28 @@ function renderStructurePanel(
       ),
     )
     .join("");
-  const addOptions = available
-    .map((s) => `<option value="${s.id}" data-section-name="${escapeHtml(s.section_name)}" data-vertical="${escapeHtml(s.vertical)}" data-mapping-status="${mappingDotStatus(s.completeness)}">${escapeHtml(s.section_name)} (${escapeHtml(s.vertical)})</option>`)
-    .join("");
+  const addOptions = sectionAddOptions(available);
 
-  const maxPos = variant.auction_entry_position;
-  const sectionRows = variant.sections
-    .map((s) => renderSectionRow(s.section_id, s.section_public_id, s.section_name, s.vertical, s.position, s.position === maxPos, s.mapping_status))
-    .join("");
+  // The mapping verdict is a per-section list attribute; index it by public id
+  // so a rendered fixed slot shows the same dot the old flat list did.
+  const mappingByPublic = new Map<string, string>();
+  for (const s of variant.sections) if (s.mapping_status !== undefined) mappingByPublic.set(s.section_public_id, s.mapping_status);
+
+  const pages = variant.pages ?? [];
+  const pageCards = pages.map((p, i) => renderPageCard(available, p, i, mappingByPublic)).join("");
+  // §15.3 honesty copy: exactly ONE auction-entry marker, after the LAST page
+  // (progress counts pages, so the auction fires once every page is passed).
+  // A plain single-section-per-page funnel keeps the historical "slide"
+  // vocabulary (a page IS one slide there); the "last page" copy takes over
+  // once the funnel genuinely branches into multi-slot / ruled / A/B pages. The
+  // client renumber() mirrors this EXACT decision (structureIsFlatDom), so the
+  // SSR and post-mutation marker never disagree.
+  const auctionMark = pages.length > 0
+    ? `<div class="lg-auction-entry-mark" data-auction-entry="1">${pagesAreFlat(pages) ? "Auction runs after this slide" : "Auction runs after the last page"}</div>`
+    : "";
+  const listBody = pageCards
+    ? pageCards + auctionMark
+    : `<p class="form-help" data-empty-sections>No pages yet — add a page to start building the funnel.</p>`;
 
   const funnel =
     structure.funnels.find((f) => f.funnel_id === variant.funnel_id) ?? structure.funnels[0] ?? null;
@@ -1391,10 +1779,12 @@ function renderStructurePanel(
   return `<div class="lg-studio-left">
   <div class="lg-panel-card" id="lg-structure-panel">
     <h3>Funnel structure</h3>
-    <div id="lg-section-list" data-max-position="${maxPos === null ? "" : maxPos}">${sectionRows || `<p class="form-help" data-empty-sections>No slides yet — add at least one Section to publish.</p>`}</div>
+    <p class="form-help lg-structure-hint">Each page is one step of the funnel. Progress counts pages, and the auction runs once every page is passed.</p>
+    <div id="lg-section-list" data-max-position="${variant.auction_entry_position === null ? "" : variant.auction_entry_position}">${listBody}</div>
     <div class="toolbar">
-      <select id="lg-add-section-select" class="form-select" aria-label="Add section">${addOptions || `<option value="">No sections for this activity</option>`}</select>
-      <button type="button" id="lg-add-section" class="btn btn-secondary">+ Add Section</button>
+      <select id="lg-add-section-select" class="form-select" aria-label="Add a section as a new page">${addOptions || `<option value="">No sections for this activity</option>`}</select>
+      <button type="button" id="lg-add-section" class="btn btn-secondary">+ Add section</button>
+      <button type="button" id="lg-add-page" class="btn btn-outline">+ Add page</button>
     </div>
   </div>
   <div class="lg-panel-card" id="lg-ab-switcher">
@@ -1412,7 +1802,12 @@ function renderStructurePanel(
     <div class="form-group"><label class="form-label" for="lg-funnel-design">Base visual design</label><select id="lg-funnel-design" class="form-select" aria-label="Funnel design">${designOptions}</select></div>
     <div class="form-group"><label class="form-label" for="lg-auction-id">Auction</label><select id="lg-auction-id" class="form-select" aria-label="Auction">${auctionOptions}</select></div>
   </details>
-  <template id="lg-section-row-tpl">${renderSectionRow(0, "", "", "", 0, false)}</template>
+  <template id="lg-page-tpl">${renderPageCard(available, { name: null, slots: [] }, 0, new Map())}</template>
+  <template id="lg-slot-fixed-tpl">${renderFixedSlot({ section_id: "", section_name: "" }, 0)}</template>
+  <template id="lg-slot-ab-tpl">${renderAbSlot(available, [], 0)}</template>
+  <template id="lg-slot-ruled-tpl">${renderRuledSlot(available, null, 0)}</template>
+  <template id="lg-ab-cand-tpl">${renderAbCandidate(available, null)}</template>
+  <template id="lg-ruled-case-tpl">${renderRuledCase(available, null)}</template>
 </div>`;
 }
 
@@ -2075,6 +2470,14 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
   const selected = findSelectedVariant(structure, wanted);
   if (selected === null) return c.html(quoteNotFoundPage(branding(c)), 404);
 
+  // Round-4 P3b: attach the FULL page/slot tree to the SELECTED variant (the
+  // one the structure panel renders). loadVariantPages is the canonical loader
+  // — real pages when the variant has any, else its own synthetic
+  // one-fixed-slot-per-section wrap (so a pre-page-model or freshly section-
+  // saved variant still renders as ordered single-section pages that round-
+  // trip byte-identically). See buildPageNodes.
+  selected.pages = buildPageNodes(await loadVariantPages(c.env.DB, selected.id));
+
   const activity = structure.quote.activity;
   const encodedQuote = encodeURIComponent(structure.quote.public_id);
   const sectionsRes = await apiJson<ListBody<AvailableSection>>(
@@ -2437,54 +2840,84 @@ const QUOTE_EDITOR_SCRIPT = `
     if (el && el.getAttribute) { activate(el.getAttribute('data-goto-tab')); }
   });
 
-  // --- section order --------------------------------------------------------
+  // --- Round-4 P3b: pages-first funnel structure ----------------------------
+  // The panel is ordered PAGES (first-class rows); each page holds nested
+  // section SLOTS (fixed / ruled / A/B). Every DOM mutation funnels into
+  // renumber() (page badges + the single after-the-last-page auction marker) +
+  // markVariantDirty(). collectSections() below stays as the flat fixed-slot
+  // reader the 4.7 legacy sections fallback + the seam harness use.
   var sectionList = byId('lg-section-list');
+  function trimStr(s) { return String(s).replace(/^\\s+|\\s+$/g, ''); }
+  function ancestorWith(el, attr) {
+    var n = el;
+    while (n && n.getAttribute) {
+      if (n.hasAttribute && n.hasAttribute(attr)) { return n; }
+      n = n.parentNode;
+    }
+    return null;
+  }
+  function pageOf(el) { return ancestorWith(el, 'data-page'); }
+  function slotOf(el) { return ancestorWith(el, 'data-slot'); }
+  function currentPages() { return sectionList ? sectionList.querySelectorAll('[data-page]') : []; }
+  function cloneTpl(id, selector) {
+    var tpl = byId(id);
+    if (!tpl || !tpl.content) { return null; }
+    var frag = document.importNode(tpl.content, true);
+    return frag.querySelector(selector);
+  }
+  function optText(sel) { var o = sel && sel.options ? sel.options[sel.selectedIndex] : null; return o ? (o.textContent || '') : ''; }
+  // Is the current structure a plain single-section-per-page funnel (no page
+  // names, every slot fixed)? Drives ONLY the auction-marker vocabulary:
+  // "slide" stays for a flat funnel (a page IS one slide there), "page" is used
+  // once the funnel genuinely branches into multi-slot / ruled / A/B pages.
+  function structureIsFlatDom() {
+    var pages = currentPages();
+    if (!pages.length) { return true; }
+    var i;
+    for (i = 0; i < pages.length; i++) {
+      var nameEl = pages[i].querySelector('[data-page-name]');
+      if (nameEl && nameEl.value && trimStr(nameEl.value) !== '') { return false; }
+      var slots = pages[i].querySelectorAll('[data-slot]');
+      if (slots.length !== 1) { return false; }
+      if (slots[0].getAttribute('data-slot-kind') !== 'fixed') { return false; }
+    }
+    return true;
+  }
   function renumber() {
     if (!sectionList) { return; }
-    var rows = sectionList.querySelectorAll('.lg-section-row');
+    var pages = currentPages();
     var i;
-    // drop stale auction markers
-    var marks = sectionList.querySelectorAll('.lg-auction-entry-mark');
-    for (i = 0; i < marks.length; i++) { marks[i].parentNode.removeChild(marks[i]); }
-    for (i = 0; i < rows.length; i++) {
-      var pos = rows[i].querySelector('[data-pos]');
-      if (pos) { pos.textContent = String(i); }
+    for (i = 0; i < pages.length; i++) {
+      var num = pages[i].querySelector('[data-page-num]');
+      if (num) { num.textContent = String(i + 1); }
     }
-    // mark the MAX-position (last) row as the auction entry (§15.3 max
-    // position rule; §2.4 Quote-Builder vocabulary: "slide")
-    if (rows.length > 0) {
-      var last = rows[rows.length - 1];
+    var marks = sectionList.querySelectorAll('.lg-auction-entry-mark');
+    for (i = 0; i < marks.length; i++) { if (marks[i].parentNode) { marks[i].parentNode.removeChild(marks[i]); } }
+    if (pages.length > 0) {
+      var last = pages[pages.length - 1];
       var mark = document.createElement('div');
       mark.className = 'lg-auction-entry-mark';
       mark.setAttribute('data-auction-entry', '1');
-      mark.appendChild(document.createTextNode('Auction runs after this slide'));
+      mark.appendChild(document.createTextNode(structureIsFlatDom() ? 'Auction runs after this slide' : 'Auction runs after the last page'));
       if (last.nextSibling) { last.parentNode.insertBefore(mark, last.nextSibling); } else { last.parentNode.appendChild(mark); }
     }
     var empty = sectionList.querySelector('[data-empty-sections]');
-    if (empty) { empty.parentNode.removeChild(empty); }
+    if (empty && empty.parentNode) { empty.parentNode.removeChild(empty); }
   }
 
-  var addSectionBtn = byId('lg-add-section');
-  if (addSectionBtn) {
-    addSectionBtn.addEventListener('click', function () {
-      var sel = byId('lg-add-section-select');
-      if (!sel || !sel.value) { return; }
-      var opt = sel.options[sel.selectedIndex];
-      var tpl = byId('lg-section-row-tpl');
-      var frag = tpl.content ? document.importNode(tpl.content, true) : null;
-      var row = frag ? frag.querySelector('.lg-section-row') : null;
-      if (!row) { return; }
-      row.setAttribute('data-section-id', sel.value);
-      row.setAttribute('data-section-public-id', '');
+  // A fixed-slot node built from an add-picker <option> (numeric value + the
+  // data-section-* mirror attributes DEV-59 threads onto the option).
+  function fixedSlotFromOption(opt, numericId) {
+    var slot = cloneTpl('lg-slot-fixed-tpl', '.lg-slot');
+    if (!slot) { return null; }
+    var row = slot.querySelector('.lg-section-row');
+    if (row) {
+      row.setAttribute('data-section-id', numericId);
+      row.setAttribute('data-section-public-id', opt ? (opt.getAttribute('data-section-public') || '') : '');
       var nameEl = row.querySelector('[data-section-name]');
-      if (nameEl) { nameEl.textContent = opt.getAttribute('data-section-name') || ''; }
-      var vEl = row.querySelector('[data-vertical]');
-      if (vEl) { vEl.textContent = opt.getAttribute('data-vertical') || ''; }
-      // DEV-59: the add-option carries the section's REAL mapping verdict
-      // (sections-list completeness, server-decoded) — thread it onto the
-      // fresh row's dot so a client-side add never shows a placeholder.
+      if (nameEl) { nameEl.textContent = opt ? (opt.getAttribute('data-section-name') || '') : ''; }
       var dotEl = row.querySelector('.lg-map-dot');
-      if (dotEl) {
+      if (dotEl && opt) {
         var dotStatus = opt.getAttribute('data-mapping-status') || 'none';
         if (dotStatus !== 'complete' && dotStatus !== 'incomplete') { dotStatus = 'none'; }
         dotEl.setAttribute('data-mapping-status', dotStatus);
@@ -2492,105 +2925,241 @@ const QUOTE_EDITOR_SCRIPT = `
           : dotStatus === 'incomplete' ? 'Offer mapping incomplete'
           : 'No Offers selected yet';
       }
-      sectionList.appendChild(row);
+    }
+    return slot;
+  }
+  function appendPage(page) {
+    if (!sectionList || !page) { return; }
+    var mark = sectionList.querySelector('.lg-auction-entry-mark');
+    if (mark) { sectionList.insertBefore(page, mark); } else { sectionList.appendChild(page); }
+  }
+
+  // Top-level "+ Add section" adds the picked section AS A NEW PAGE (one fixed
+  // slot); "+ Add page" adds an empty page.
+  var addSectionBtn = byId('lg-add-section');
+  if (addSectionBtn) {
+    addSectionBtn.addEventListener('click', function () {
+      var sel = byId('lg-add-section-select');
+      if (!sel || !sel.value) { return; }
+      var page = cloneTpl('lg-page-tpl', '.lg-page');
+      if (!page) { return; }
+      var wrap = page.querySelector('[data-page-slots]');
+      var slot = fixedSlotFromOption(sel.options[sel.selectedIndex], sel.value);
+      if (wrap && slot) { wrap.appendChild(slot); }
+      appendPage(page);
       renumber();
       markVariantDirty();
     });
+  }
+  var addPageBtn = byId('lg-add-page');
+  if (addPageBtn) {
+    addPageBtn.addEventListener('click', function () {
+      var page = cloneTpl('lg-page-tpl', '.lg-page');
+      if (page) { appendPage(page); renumber(); markVariantDirty(); }
+    });
+  }
+
+  function prevPage(page) { var n = page.previousElementSibling; while (n && !(n.getAttribute && n.hasAttribute('data-page'))) { n = n.previousElementSibling; } return n; }
+  function nextPage(page) { var n = page.nextElementSibling; while (n && !(n.getAttribute && n.hasAttribute('data-page'))) { n = n.nextElementSibling; } return n; }
+  function prevSlot(slot) { var n = slot.previousElementSibling; while (n && !(n.getAttribute && n.hasAttribute('data-slot'))) { n = n.previousElementSibling; } return n; }
+  function nextSlot(slot) { var n = slot.nextElementSibling; while (n && !(n.getAttribute && n.hasAttribute('data-slot'))) { n = n.nextElementSibling; } return n; }
+
+  function movePage(page, dir) {
+    if (!page || !page.parentNode) { return; }
+    if (dir < 0) { var p = prevPage(page); if (p) { page.parentNode.insertBefore(page, p); renumber(); markVariantDirty(); } }
+    else { var n = nextPage(page); if (n) { page.parentNode.insertBefore(n, page); renumber(); markVariantDirty(); } }
+  }
+  function removePage(page) {
+    if (!page) { return; }
+    if (currentPages().length <= 1) { window.alert('A funnel needs at least one page. Add another page before removing this one.'); return; }
+    var wrap = page.querySelector('[data-page-slots]');
+    var slots = wrap ? wrap.querySelectorAll('[data-slot]') : [];
+    if (slots.length > 0) {
+      if (!window.confirm('Remove this page? Its ' + slots.length + ' section' + (slots.length === 1 ? '' : 's') + ' will move to the neighbouring page.')) { return; }
+      var neighbor = prevPage(page) || nextPage(page);
+      var target = neighbor ? neighbor.querySelector('[data-page-slots]') : null;
+      if (target) { var i; for (i = 0; i < slots.length; i++) { target.appendChild(slots[i]); } }
+    } else if (!window.confirm('Remove this empty page?')) { return; }
+    if (page.parentNode) { page.parentNode.removeChild(page); }
+    renumber();
+    markVariantDirty();
+  }
+  function addSlotToPage(page) {
+    if (!page) { return; }
+    var sel = page.querySelector('[data-add-slot-select]');
+    if (!sel || !sel.value) { return; }
+    var wrap = page.querySelector('[data-page-slots]');
+    var slot = fixedSlotFromOption(sel.options[sel.selectedIndex], sel.value);
+    if (wrap && slot) { wrap.appendChild(slot); renumber(); markVariantDirty(); }
+  }
+  function removeSlot(slot) { if (slot && slot.parentNode) { slot.parentNode.removeChild(slot); renumber(); markVariantDirty(); } }
+  function moveSlot(slot, dir) {
+    if (!slot || !slot.parentNode) { return; }
+    if (dir < 0) { var p = prevSlot(slot); if (p) { slot.parentNode.insertBefore(slot, p); renumber(); markVariantDirty(); } }
+    else { var n = nextSlot(slot); if (n) { slot.parentNode.insertBefore(n, slot); renumber(); markVariantDirty(); } }
+  }
+  function moveSlotAcross(slot, dir) {
+    if (!slot) { return; }
+    var page = pageOf(slot);
+    if (!page) { return; }
+    var target = dir < 0 ? prevPage(page) : nextPage(page);
+    if (!target) { window.alert(dir < 0 ? 'This is already the first page.' : 'This is already the last page.'); return; }
+    var wrap = target.querySelector('[data-page-slots]');
+    if (wrap) { wrap.appendChild(slot); renumber(); markVariantDirty(); }
+  }
+
+  // A/B + ruled editor mutations.
+  function updateAbSum(slot) {
+    if (!slot) { return; }
+    var cands = slot.querySelectorAll('[data-ab-cand]');
+    var sum = 0, i;
+    for (i = 0; i < cands.length; i++) { var pctEl = cands[i].querySelector('[data-ab-pct]'); var v = pctEl ? Number(pctEl.value) : 0; if (isFinite(v)) { sum += v; } }
+    var sumEl = slot.querySelector('[data-ab-sum]');
+    if (sumEl) { sumEl.textContent = 'Total: ' + sum + '%'; }
+  }
+  function addAbCand(slot) {
+    if (!slot) { return; }
+    var wrap = slot.querySelector('[data-ab-cands]');
+    var cand = cloneTpl('lg-ab-cand-tpl', '.lg-ab-cand');
+    if (wrap && cand) { wrap.appendChild(cand); updateAbSum(slot); markVariantDirty(); }
+  }
+  function removeAbCand(el) {
+    var cand = ancestorWith(el, 'data-ab-cand');
+    var slot = slotOf(el);
+    if (cand && cand.parentNode) { cand.parentNode.removeChild(cand); updateAbSum(slot); markVariantDirty(); }
+  }
+  function addRuledCase(slot) {
+    if (!slot) { return; }
+    var wrap = slot.querySelector('[data-ruled-cases]');
+    var c = cloneTpl('lg-ruled-case-tpl', '.lg-ruled-case');
+    if (wrap && c) { wrap.appendChild(c); markVariantDirty(); }
+  }
+  function removeRuledCase(el) {
+    var c = ancestorWith(el, 'data-ruled-case');
+    if (c && c.parentNode) { c.parentNode.removeChild(c); markVariantDirty(); }
+  }
+
+  // Kind switch: rebuild the slot body from the target template, seeding it
+  // with whatever section refs the old body held so nothing is silently lost.
+  function slotSectionRefs(slot) {
+    var refs = [];
+    var kind = slot.getAttribute('data-slot-kind');
+    var i;
+    if (kind === 'fixed') {
+      var row = slot.querySelector('.lg-section-row');
+      if (row) { var nameEl = row.querySelector('[data-section-name]'); refs.push({ id: row.getAttribute('data-section-public-id') || row.getAttribute('data-section-id') || '', name: nameEl ? (nameEl.textContent || '') : '' }); }
+    } else if (kind === 'ab') {
+      var cands = slot.querySelectorAll('[data-ab-cand]');
+      for (i = 0; i < cands.length; i++) { var s = cands[i].querySelector('[data-ab-section]'); if (s && s.value) { refs.push({ id: s.value, name: optText(s) }); } }
+    } else if (kind === 'ruled') {
+      var d = slot.querySelector('[data-ruled-default]'); if (d && d.value) { refs.push({ id: d.value, name: optText(d) }); }
+    }
+    return refs;
+  }
+  function seedSlot(fresh, kind, refs) {
+    var i;
+    if (kind === 'fixed') {
+      var row = fresh.querySelector('.lg-section-row');
+      if (row && refs.length > 0) {
+        row.setAttribute('data-section-id', refs[0].id);
+        row.setAttribute('data-section-public-id', refs[0].id);
+        var nameEl = row.querySelector('[data-section-name]'); if (nameEl) { nameEl.textContent = refs[0].name; }
+      }
+    } else if (kind === 'ab') {
+      var cands = fresh.querySelectorAll('[data-ab-cand]');
+      for (i = 0; i < refs.length && i < cands.length; i++) { var s = cands[i].querySelector('[data-ab-section]'); if (s) { s.value = refs[i].id; } }
+      updateAbSum(fresh);
+    } else if (kind === 'ruled' && refs.length > 0) {
+      var d = fresh.querySelector('[data-ruled-default]'); if (d) { d.value = refs[0].id; }
+    }
+  }
+  function switchSlotKind(slot, kind) {
+    if (!slot || slot.getAttribute('data-slot-kind') === kind) { return; }
+    var tplId = kind === 'ab' ? 'lg-slot-ab-tpl' : kind === 'ruled' ? 'lg-slot-ruled-tpl' : 'lg-slot-fixed-tpl';
+    var fresh = cloneTpl(tplId, '.lg-slot');
+    if (!fresh) { return; }
+    seedSlot(fresh, kind, slotSectionRefs(slot));
+    if (slot.parentNode) { slot.parentNode.insertBefore(fresh, slot); slot.parentNode.removeChild(slot); }
+    renumber();
+    markVariantDirty();
   }
 
   if (sectionList) {
     sectionList.addEventListener('click', function (ev) {
       var el = ev.target;
-      if (!el || !el.getAttribute) { return; }
-      var row = el;
-      while (row && row.className !== undefined && String(row.className).indexOf('lg-section-row') < 0) { row = row.parentNode; }
-      if (!row || !row.getAttribute) { return; }
-      if (el.getAttribute('data-remove-section') !== null && el.getAttribute('data-remove-section') !== undefined && el.hasAttribute('data-remove-section')) {
-        row.parentNode.removeChild(row);
-        renumber();
-        markVariantDirty();
-        return;
-      }
-      if (el.hasAttribute('data-move-up')) {
-        var prev = row.previousElementSibling;
-        while (prev && String(prev.className).indexOf('lg-section-row') < 0) { prev = prev.previousElementSibling; }
-        if (prev) { row.parentNode.insertBefore(row, prev); renumber(); markVariantDirty(); }
-        return;
-      }
-      if (el.hasAttribute('data-move-down')) {
-        var next = row.nextElementSibling;
-        while (next && String(next.className).indexOf('lg-section-row') < 0) { next = next.nextElementSibling; }
-        if (next) { row.parentNode.insertBefore(next, row); renumber(); markVariantDirty(); }
-        return;
-      }
+      if (!el || !el.getAttribute || !el.hasAttribute) { return; }
+      if (el.hasAttribute('data-page-up')) { movePage(pageOf(el), -1); return; }
+      if (el.hasAttribute('data-page-down')) { movePage(pageOf(el), 1); return; }
+      if (el.hasAttribute('data-page-remove')) { removePage(pageOf(el)); return; }
+      if (el.hasAttribute('data-add-slot')) { addSlotToPage(pageOf(el)); return; }
+      if (el.hasAttribute('data-ab-add')) { addAbCand(slotOf(el)); return; }
+      if (el.hasAttribute('data-ab-cand-remove')) { removeAbCand(el); return; }
+      if (el.hasAttribute('data-ruled-add')) { addRuledCase(slotOf(el)); return; }
+      if (el.hasAttribute('data-ruled-case-remove')) { removeRuledCase(el); return; }
+      if (el.hasAttribute('data-remove-section')) { removeSlot(slotOf(el)); return; }
+      if (el.hasAttribute('data-move-up')) { moveSlot(slotOf(el), -1); return; }
+      if (el.hasAttribute('data-move-down')) { moveSlot(slotOf(el), 1); return; }
+      if (el.hasAttribute('data-slot-move-prev')) { moveSlotAcross(slotOf(el), -1); return; }
+      if (el.hasAttribute('data-slot-move-next')) { moveSlotAcross(slotOf(el), 1); return; }
+    });
+    sectionList.addEventListener('change', function (ev) {
+      var el = ev.target;
+      if (!el || !el.hasAttribute) { return; }
+      if (el.hasAttribute('data-slot-kind-select')) { switchSlotKind(slotOf(el), el.value); return; }
+      if (el.hasAttribute('data-ab-pct')) { updateAbSum(slotOf(el)); return; }
     });
   }
 
-  // --- 4.1 drag-handle reorder (DEV-60 c) — the ui-payload-builder drag
-  // idiom; the drop funnels into the SAME DOM move + renumber() +
-  // markVariantDirty() the arrow buttons use (buttons stay: keyboard path).
+  // --- within-page slot drag (the ui-payload-builder idiom, kept cheap): a
+  // handle drag reorders a slot inside its OWN page; cross-page moves use the
+  // ◀/▶ buttons. Boot only attaches listeners, so a page-less harness mount is
+  // unaffected.
   if (sectionList) {
     (function () {
-      var dragRowEl = null;
-      function rowOf(el) {
-        var row = el;
-        while (row && row.className !== undefined && String(row.className).indexOf('lg-section-row') < 0) { row = row.parentNode; }
-        return (row && row.className !== undefined) ? row : null;
-      }
+      var dragEl = null;
       function clearDragOver() {
-        var rows = sectionList.querySelectorAll('.lg-section-row');
+        var rows = sectionList.querySelectorAll('.lg-slot');
         var i;
         for (i = 0; i < rows.length; i++) { rows[i].className = String(rows[i].className).replace(/\\s*lg-drag-over/g, ''); }
       }
       sectionList.addEventListener('dragstart', function (ev) {
         var t = ev.target;
         if (!t || !t.getAttribute || t.getAttribute('data-drag-handle') === null) { return; }
-        dragRowEl = rowOf(t);
-        if (!dragRowEl) { return; }
-        if (ev.dataTransfer) {
-          try { ev.dataTransfer.setData('text/plain', dragRowEl.getAttribute('data-section-id') || ''); ev.dataTransfer.effectAllowed = 'move'; } catch (dragErr) { /* engines without drag data */ }
-        }
+        dragEl = slotOf(t);
+        if (dragEl && ev.dataTransfer) { try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', ''); } catch (dragErr) { /* engines without drag data */ } }
       });
       sectionList.addEventListener('dragover', function (ev) {
-        if (dragRowEl === null) { return; }
-        var over = rowOf(ev.target);
-        if (!over || over === dragRowEl) { return; }
+        if (dragEl === null) { return; }
+        var over = slotOf(ev.target);
+        if (!over || over === dragEl || over.parentNode !== dragEl.parentNode) { return; }
         if (ev.preventDefault) { ev.preventDefault(); }
         if (ev.dataTransfer) { ev.dataTransfer.dropEffect = 'move'; }
         clearDragOver();
         over.className = String(over.className).replace(/\\s*lg-drag-over/g, '') + ' lg-drag-over';
       });
       sectionList.addEventListener('dragleave', function (ev) {
-        var over = rowOf(ev.target);
+        var over = slotOf(ev.target);
         if (over) { over.className = String(over.className).replace(/\\s*lg-drag-over/g, ''); }
       });
       sectionList.addEventListener('drop', function (ev) {
         clearDragOver();
-        if (dragRowEl === null) { return; }
-        var target = rowOf(ev.target);
-        var moving = dragRowEl;
-        dragRowEl = null;
-        if (!target || target === moving) { return; }
+        if (dragEl === null) { return; }
+        var target = slotOf(ev.target);
+        var moving = dragEl;
+        dragEl = null;
+        if (!target || target === moving || target.parentNode !== moving.parentNode) { return; }
         if (ev.preventDefault) { ev.preventDefault(); }
-        var rows = sectionList.querySelectorAll('.lg-section-row');
-        var from = -1;
-        var to = -1;
-        var i;
-        for (i = 0; i < rows.length; i++) {
-          if (rows[i] === moving) { from = i; }
-          if (rows[i] === target) { to = i; }
-        }
+        var parent = moving.parentNode;
+        var slots = parent.querySelectorAll('[data-slot]');
+        var from = -1, to = -1, i;
+        for (i = 0; i < slots.length; i++) { if (slots[i] === moving) { from = i; } if (slots[i] === target) { to = i; } }
         if (from < 0 || to < 0) { return; }
-        if (from < to) {
-          if (target.nextSibling) { target.parentNode.insertBefore(moving, target.nextSibling); }
-          else { target.parentNode.appendChild(moving); }
-        } else {
-          target.parentNode.insertBefore(moving, target);
-        }
+        if (from < to) { if (target.nextSibling) { parent.insertBefore(moving, target.nextSibling); } else { parent.appendChild(moving); } }
+        else { parent.insertBefore(moving, target); }
         renumber();
         markVariantDirty();
       });
-      sectionList.addEventListener('dragend', function () { dragRowEl = null; clearDragOver(); });
+      sectionList.addEventListener('dragend', function () { dragEl = null; clearDragOver(); });
     }());
   }
 
@@ -2619,6 +3188,9 @@ const QUOTE_EDITOR_SCRIPT = `
   }
 
   // --- collect + save (PUT /variants/:id) -----------------------------------
+  // Flat fixed-slot reader — the 4.7 legacy sections replace-set + the seam
+  // harness both call it (kept for a page-LESS DOM; the production panel always
+  // renders page cards and saves via collectPages()).
   function collectSections() {
     var out = [];
     if (!sectionList) { return out; }
@@ -2627,6 +3199,70 @@ const QUOTE_EDITOR_SCRIPT = `
     for (i = 0; i < rows.length; i++) {
       var sid = rows[i].getAttribute('data-section-id');
       out.push({ section_id: Number(sid), position: i });
+    }
+    return out;
+  }
+  // One slot → the P3a pages slot shape preparePages validates: fixed
+  // {kind, section_id}; ab {kind, allocations:[{section_id, bp}]} (Σbp==10000
+  // gated server-side, bp == percent*100); ruled {kind, cases:[{conditions:
+  // {groups:[{field,op,value}]}, section_id}], default_section_id}. section_id
+  // is the section's PUBLIC id (resolveRef accepts it); the fixed row's
+  // data-section-public-id falls back to its numeric data-section-id.
+  function collectSlot(slotEl) {
+    var kind = slotEl.getAttribute('data-slot-kind');
+    if (kind === 'ab') {
+      var allocs = [];
+      var cands = slotEl.querySelectorAll('[data-ab-cand]');
+      var i;
+      for (i = 0; i < cands.length; i++) {
+        var secEl = cands[i].querySelector('[data-ab-section]');
+        var pctEl = cands[i].querySelector('[data-ab-pct]');
+        var secVal = secEl ? secEl.value : '';
+        if (!secVal) { continue; }
+        var pct = pctEl ? Number(pctEl.value) : 0;
+        if (!isFinite(pct)) { pct = 0; }
+        allocs.push({ section_id: secVal, bp: Math.round(pct * 100) });
+      }
+      return { kind: 'ab', allocations: allocs };
+    }
+    if (kind === 'ruled') {
+      var cases = [];
+      var caseEls = slotEl.querySelectorAll('[data-ruled-case]');
+      var k;
+      for (k = 0; k < caseEls.length; k++) {
+        var fEl = caseEls[k].querySelector('[data-ruled-field]');
+        var oEl = caseEls[k].querySelector('[data-ruled-op]');
+        var vEl = caseEls[k].querySelector('[data-ruled-value]');
+        var csEl = caseEls[k].querySelector('[data-ruled-section]');
+        var csVal = csEl ? csEl.value : '';
+        if (!csVal) { continue; }
+        cases.push({ conditions: { groups: [{ field: fEl ? fEl.value : 'state', op: oEl ? oEl.value : 'eq', value: vEl ? vEl.value : '' }] }, section_id: csVal });
+      }
+      var out = { kind: 'ruled', cases: cases };
+      var defEl = slotEl.querySelector('[data-ruled-default]');
+      if (defEl && defEl.value) { out.default_section_id = defEl.value; }
+      return out;
+    }
+    // fixed
+    var row = slotEl.querySelector('.lg-section-row');
+    if (!row) { return null; }
+    var fid = row.getAttribute('data-section-public-id') || row.getAttribute('data-section-id') || '';
+    if (!fid) { return null; }
+    return { kind: 'fixed', section_id: fid };
+  }
+  function collectPages() {
+    var out = [];
+    if (!sectionList) { return out; }
+    var pages = currentPages();
+    var i, j;
+    for (i = 0; i < pages.length; i++) {
+      var nameEl = pages[i].querySelector('[data-page-name]');
+      var name = nameEl && nameEl.value ? trimStr(nameEl.value) : null;
+      if (name === '') { name = null; }
+      var slots = [];
+      var slotEls = pages[i].querySelectorAll('[data-slot]');
+      for (j = 0; j < slotEls.length; j++) { var s = collectSlot(slotEls[j]); if (s) { slots.push(s); } }
+      out.push({ name: name, slots: slots });
     }
     return out;
   }
@@ -2666,9 +3302,21 @@ const QUOTE_EDITOR_SCRIPT = `
       lander_hero_media_url: byId('lg-lander-hero').value,
       funnel_design_id: byId('lg-funnel-design').value,
       auction_id: auctionVal,
-      sections: collectSections(),
       rules: collectRules()
     };
+    // Round-4 P3b: pages-first replace-set. When the panel rendered page cards
+    // (the production path — loadVariantPages ALWAYS yields >=1 page, real or
+    // its synthetic per-section wrap) the variant PUT carries pages (mutually
+    // exclusive with sections). A page-LESS DOM (a legacy / harness mount
+    // with flat rows and no [data-page]) falls back to the byte-equivalent
+    // sections replace-set. Sending pages for a real (incl. migrated)
+    // variant is REQUIRED: the sections path would leave the migrated
+    // leadgen_funnel_pages rows orphaned and the loader renders them empty.
+    if (sectionList && sectionList.querySelectorAll('[data-page]').length > 0) {
+      payload.pages = collectPages();
+    } else {
+      payload.sections = collectSections();
+    }
     // 4.5/4.7 — the sparse per-arm overrides ride the SAME variant PUT, and
     // ONLY when the operator touched them (additive contract; {} clears).
     if (overridesDirty) {

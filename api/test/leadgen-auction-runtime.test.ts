@@ -13,7 +13,7 @@ import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
 import { mintFunnelAttempt } from "../src/public/leadgen/attempt";
 import { computeSectionOrderHash } from "../src/public/leadgen/config-dto";
-import type { ResolvedActivatedFunnel } from "../src/public/leadgen/resolver";
+import type { ResolvedActivatedFunnel, ResolvedFunnelPage } from "../src/public/leadgen/resolver";
 import {
   loadAuctionBundle,
   persistAuctionResult,
@@ -83,6 +83,7 @@ const LEADGEN_MIGRATIONS = [
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
   "0040_leadgen_runtime_context.sql", // macro_context_json snapshot (04 §4.6)
+  "0042_leadgen_pages.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -835,5 +836,190 @@ describeDb("leadgen §19 writes — secret never to D1 + dry-run writes nothing"
     expect(log!.auction_config_id).toBe(auction.public_id);
     const prov = sdb.prepare("SELECT auction_instance_id, parsed_carriers_json FROM leadgen_provider_request_log WHERE auction_instance_id = ?").get(result.auction_instance_id) as { auction_instance_id: string } | undefined;
     expect(prov).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round-4 P3a review round (MAJOR-2): page-model auction-side coverage.
+// MAJOR-1's ruling REMOVES the auction-side page_plan_hash RE-RESOLUTION
+// equality check (it false-rejected legitimate conversions -- hour-boundary
+// dayparting, geo drift, mid-session slot edits -- while adding ZERO anti-
+// tamper value: page_plan_hash already rides inside the HMAC, so a forged
+// value is still caught by signed_token_invalid). These three pin: (a) a
+// page-model resolved bundle still auctions normally through the signed-
+// token path; (b) a forged token is STILL rejected -- the HMAC, not the
+// removed re-resolution, is what protects page_plan_hash; (c) THE
+// REGRESSION THE REVIEWER DEMANDED -- a post-mint slot/candidate edit no
+// longer false-rejects a still-valid original token.
+// ---------------------------------------------------------------------------
+
+describeDb("leadgen §19.1 anti-tamper — page-model (Round-4 P3a review round)", () => {
+  function harness(): { sdb: SqliteDb; env: Env } {
+    const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+    const { kv } = makeKvStub();
+    return { sdb, env: buildEnv(d1FromSqlite(sdb), kv) };
+  }
+
+  // A resolved bundle with a REAL page-model structure: one page, one A/B
+  // slot (2 candidates) -- the `resolved.pages !== undefined` shape
+  // mintFunnelAttempt/resolvePagePlan actually branch on. Hand-built per
+  // this file's OWN convention (makeResolved above is ALSO hand-built,
+  // never DB-round-tripped -- validateAntiTamper takes `resolved` as a
+  // direct parameter, so a test fully controls it without touching D1).
+  function resolvedWithAbPage(): ResolvedActivatedFunnel {
+    const base = makeResolved([{ public_id: "lgs_a", content_version: 1 }, { public_id: "lgs_b", content_version: 1 }]);
+    const sectionA = base.sections[0]!.section;
+    const sectionB = base.sections[1]!.section;
+    const pages: ResolvedFunnelPage[] = [
+      {
+        id: 1,
+        public_id: "lgpg_test00000000000000000ab1",
+        position: 0,
+        name: null,
+        slots: [
+          {
+            id: 1,
+            position: 0,
+            slot_revision: 0,
+            rules: null,
+            ab_allocations: [
+              { section_id: sectionA.id, bp: 5000 },
+              { section_id: sectionB.id, bp: 5000 },
+            ],
+            candidates: [
+              { variant_section_id: 1, section: sectionA },
+              { variant_section_id: 2, section: sectionB },
+            ],
+          },
+        ],
+      },
+    ];
+    return { ...base, pages };
+  }
+
+  // A resolved bundle with a FIXED slot whose one candidate is deterministic
+  // (candidateIndex picks WHICH of the 2 sections it is) -- used ONLY by the
+  // no-false-reject pin (c), which needs a GUARANTEED page_plan_hash change
+  // between mint-time and verify-time (an A/B hash-bucket flip is not
+  // guaranteed to occur for any two arbitrary revisions/sessions; a fixed
+  // slot's one candidate changing is a 100%-deterministic hash change).
+  function resolvedWithFixedPage(candidateIndex: 0 | 1): ResolvedActivatedFunnel {
+    const base = makeResolved([{ public_id: "lgs_a", content_version: 1 }, { public_id: "lgs_b", content_version: 1 }]);
+    const sections = [base.sections[0]!.section, base.sections[1]!.section];
+    const chosen = sections[candidateIndex]!;
+    const pages: ResolvedFunnelPage[] = [
+      {
+        id: 1,
+        public_id: "lgpg_test00000000000000000fx1",
+        position: 0,
+        name: null,
+        slots: [
+          {
+            id: 1,
+            position: 0,
+            slot_revision: 0,
+            rules: null,
+            ab_allocations: null,
+            candidates: [{ variant_section_id: candidateIndex + 1, section: chosen }],
+          },
+        ],
+      },
+    ];
+    return { ...base, pages };
+  }
+
+  async function pageModelBinding(env: Env, resolved: ResolvedActivatedFunnel): Promise<AntiTamperInput> {
+    const attempt = await mintFunnelAttempt(env, resolved, Date.now(), { session_id: "sess-page-1" });
+    return {
+      funnel_variant_id: resolved.variant.public_id,
+      funnel_attempt_id: attempt.funnel_attempt_id,
+      section_order_hash: computeSectionOrderHash(resolved),
+      signed_config_token: attempt.signed_config_token,
+      session_id: "sess-page-1",
+    };
+  }
+
+  it("(a) a valid signed token carrying the minted page_plan_hash auctions ok, result logged", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const o1 = seedOffer(sdb);
+    attachOffer(sdb, auction.id, o1, 0);
+    stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+
+    const resolved = resolvedWithAbPage();
+    const binding = await pageModelBinding(env, resolved);
+    const verdict = await validateAntiTamper(env, resolved, auction, binding);
+    expect(verdict.ok).toBe(true);
+
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(
+      env,
+      { resolved, bundle, environment: "production", binding, session_id: "sess-page-1", raw_answers: {}, clicked: [] },
+      { dryRun: false },
+    );
+    expect(result.status).toBe("ok");
+    await persistAuctionResult(env, result);
+    const log = sdb.prepare("SELECT auction_instance_id FROM leadgen_auction_result_log WHERE auction_instance_id = ?").get(result.auction_instance_id) as { auction_instance_id: string } | undefined;
+    expect(log, "the ok result is logged to leadgen_auction_result_log").toBeDefined();
+  });
+
+  it("(b) a forged/mangled token over a page-model bundle is STILL rejected -- 422 tampered, no fetch, no writes", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const o1 = seedOffer(sdb);
+    attachOffer(sdb, auction.id, o1, 0);
+    const calls = stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+
+    const resolved = resolvedWithAbPage();
+    const binding = await pageModelBinding(env, resolved);
+    const forged = { ...binding, signed_config_token: "v2.forged.pagemodel.signature" };
+    const verdict = await validateAntiTamper(env, resolved, auction, forged);
+    expect(verdict).toEqual({ ok: false, reason: "signed_token_invalid" });
+
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(
+      env,
+      { resolved, bundle, environment: "production", binding: forged, session_id: "sess-page-1", raw_answers: {}, clicked: [] },
+      { dryRun: false },
+    );
+    expect(result.status).toBe("tampered");
+    expect(result.http_status).toBe(422);
+    expect(calls.length, "NO provider fetch on a tampered result").toBe(0);
+    expect(result.result_log_row).toBeNull();
+    await persistAuctionResult(env, result);
+    const logCount = sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_auction_result_log").get() as { n: number };
+    expect(logCount.n, "NO write on a tampered result").toBe(0);
+  });
+
+  it("(c) THE NO-FALSE-REJECT PIN: a post-mint slot/candidate edit does NOT invalidate the still-valid original token", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const o1 = seedOffer(sdb);
+    attachOffer(sdb, auction.id, o1, 0);
+    stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+
+    // Mint against a fixed slot whose one candidate is section A.
+    const mintTimeResolved = resolvedWithFixedPage(0);
+    const binding = await pageModelBinding(env, mintTimeResolved);
+
+    // "Config edit after mint": the CURRENT resolved bundle at auction-verify
+    // time now has the SAME page/slot ids but the operator re-pointed the
+    // fixed slot's candidate to section B (an admin edit made AFTER this
+    // visitor's attempt minted -- exactly D-1's "a mid-session slot edit is
+    // real config drift, not a forgery" scenario). This DETERMINISTICALLY
+    // changes what a fresh resolvePagePlan would compute (unlike an A/B
+    // hash-bucket flip, which is not guaranteed for arbitrary revisions).
+    // The auction must still verify + serve the ORIGINALLY MINTED plan.
+    const verifyTimeResolved = resolvedWithFixedPage(1);
+    const verdict = await validateAntiTamper(env, verifyTimeResolved, auction, binding);
+    expect(verdict.ok, "a post-mint slot/candidate edit must NOT false-reject the still-valid original token").toBe(true);
+
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(
+      env,
+      { resolved: verifyTimeResolved, bundle, environment: "production", binding, session_id: "sess-page-1", raw_answers: {}, clicked: [] },
+      { dryRun: false },
+    );
+    expect(result.status, "the auction still succeeds using the minted plan despite the post-mint edit").toBe("ok");
   });
 });

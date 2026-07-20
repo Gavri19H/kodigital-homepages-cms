@@ -126,6 +126,7 @@ const LEADGEN_MIGRATIONS = [
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0042_leadgen_pages.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -208,7 +209,7 @@ describe("leadgen ids — ULID shape", () => {
   });
 });
 
-describe("leadgen ids — the fourteen entity prefixes (02 §6.1 + §6.3)", () => {
+describe("leadgen ids — the fifteen entity prefixes (02 §6.1 + §6.3; lgpg_ added round4 P3a)", () => {
   const expected: Record<PublicIdKind, string> = {
     offer: "lgo_",
     offer_placement: "lgpl_",
@@ -224,11 +225,12 @@ describe("leadgen ids — the fourteen entity prefixes (02 §6.1 + §6.3)", () =
     auction: "lga_",
     auction_rule: "lgar_",
     link_click: "lgl_",
+    funnel_page: "lgpg_",
   };
 
-  it("exposes exactly the fourteen contract prefixes", () => {
+  it("exposes exactly the fifteen contract prefixes", () => {
     expect(PUBLIC_ID_PREFIXES).toEqual(expected);
-    expect(Object.keys(PUBLIC_ID_PREFIXES)).toHaveLength(14);
+    expect(Object.keys(PUBLIC_ID_PREFIXES)).toHaveLength(15);
   });
 
   for (const [kind, prefix] of Object.entries(expected) as Array<[PublicIdKind, string]>) {

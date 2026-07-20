@@ -26,6 +26,15 @@
 // affordance. Each seam is commented at its handler.
 
 import { isPublicId, mintPublicId, type PublicIdKind } from "../../leadgen/ids";
+// Round-4 P3a (D-3 pages model): the SAME loader the public runtime resolves
+// through (parity by construction — the admin structure panel and the live
+// serve/attempt path can never disagree on a variant's page/slot shape), plus
+// the entry-known field-scope validator for slot rules.
+import {
+  loadVariantPages,
+  validateSlotRuleFieldScope,
+  type ResolvedFunnelPage,
+} from "../../public/leadgen/resolver";
 import {
   auctionEntryPosition,
   resolveFunnelIdentity,
@@ -465,15 +474,53 @@ async function readVariantRules(db: D1Database, variantId: number): Promise<Lead
   return result.results ?? [];
 }
 
+// Round-4 P3a: API-safe projection of a resolved page/slot/candidate tree
+// (loadVariantPages — the SAME loader the public runtime uses). A "fixed"
+// slot (exactly 1 candidate, no rules/allocations) surfaces kind:"fixed" so
+// the structure panel (P3b) never has to re-derive it from the absence of
+// rules/allocations.
+function pageToApi(page: ResolvedFunnelPage): Record<string, unknown> {
+  return {
+    page_id: page.public_id,
+    position: page.position,
+    name: page.name,
+    slots: page.slots.map((slot) => ({
+      slot_id: slot.id,
+      position: slot.position,
+      slot_revision: slot.slot_revision,
+      kind: slot.rules !== null ? "ruled" : slot.ab_allocations !== null ? "ab" : "fixed",
+      rules: slot.rules,
+      allocations: slot.ab_allocations,
+      candidates: slot.candidates.map((c) => ({
+        section_id: c.section.public_id,
+        section_name: c.section.section_name,
+      })),
+    })),
+  };
+}
+
+// EXPORTED (Round-4 P3a item 5, P3b request): the structure panel's builder
+// SSR reads this directly instead of re-deriving its own projection of
+// loadVariantPages — one source of the page/slot API shape.
+export async function readVariantPagesApi(db: D1Database, variantId: number): Promise<Record<string, unknown>[]> {
+  const pages = await loadVariantPages(db, variantId);
+  return pages.map(pageToApi);
+}
+
 async function variantDetailJson(
   db: D1Database,
   variant: LeadgenFunnelVariantRow,
 ): Promise<Record<string, unknown>> {
   const sections = await readVariantSections(db, variant.id);
   const rules = await readVariantRules(db, variant.id);
+  // Round-4 P3a: the page/slot tree rides alongside the existing flat
+  // `sections` projection (untouched — legacy single-page-per-section
+  // callers read EXACTLY what they always have).
+  const pages = await readVariantPagesApi(db, variant.id);
   return {
     ...variantRowToApi(variant),
     sections,
+    pages,
     rules: rules.map(ruleRowToApi),
     // §15.3 the auction runs after the MAX position section (derived, no
     // "final" flag). null when the variant has no sections yet.
@@ -948,16 +995,16 @@ export async function duplicateQuoteHandler(c: AdminContext): Promise<Response> 
       );
       counts.variants += 1;
 
-      const sections = await readVariantSections(c.env.DB, variant.id);
-      for (const s of sections) {
-        statements.push(
-          c.env.DB.prepare(
-            `INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position)
-             VALUES ((SELECT id FROM leadgen_funnel_variants WHERE public_id = ?), ?, ?)`,
-          ).bind(newVariantPublicId, s.section_id, s.position),
-        );
-        counts.sections += 1;
-      }
+      // Round-4 P3a review round (minor-3): clone the source variant's REAL
+      // page/slot structure (fresh ids, rules/allocations preserved,
+      // slot_revision reset to 0) instead of bare variant-section rows --
+      // the OLD loop here (readVariantSections + a flat INSERT) silently
+      // flattened any A/B or ruled slot into sequential mandatory pages.
+      // `counts.sections` keeps its EXISTING response meaning (one count
+      // per cloned candidate/variant-section row, not per page/slot).
+      const pages = await loadVariantPages(c.env.DB, variant.id);
+      const cloneCounts = pushPageCloneStatements(c.env.DB, statements, newVariantPublicId, pages);
+      counts.sections += cloneCounts.candidates;
 
       const rules = await readVariantRules(c.env.DB, variant.id);
       for (const r of rules) {
@@ -1192,6 +1239,16 @@ interface SectionOrderItem {
 // Resolve + validate the ordered section list against the owning Quote
 // (§15.3): each ref exists, is active, and matches the quote's activity + a
 // quote vertical; positions are contiguous 0..n-1 (validateFunnelBuilder).
+//
+// Round-4 P3a (D-3 pages model) design note: this function is DELIBERATELY
+// left untouched — "existing single-page-per-section funnels keep working
+// untouched" means the flat `sections` PUT contract must stay byte-identical.
+// The page-model "evolution" of section-order resolution lives in the NEW,
+// PARALLEL `preparePages` (below, near putVariantHandler) — it reuses the
+// SAME per-item membership checks (active/activity/vertical) this function
+// performs, over the page/slot shape instead of a flat list. The two paths
+// are mutually exclusive per save (putVariantHandler rejects a body
+// carrying both `sections` and `pages`).
 async function resolveSectionOrder(
   db: D1Database,
   quote: LeadgenQuoteRow,
@@ -1326,6 +1383,366 @@ function prepareRules(raw: unknown, allowlist: string[]): { rules: PreparedRule[
     });
   }
   return { rules, errors };
+}
+
+// ---------------------------------------------------------------------------
+// Round-4 P3a (D-3 pages model) — page/slot replace-set preparation
+// ---------------------------------------------------------------------------
+
+interface PreparedSlot {
+  candidateSectionIds: number[];
+  rulesJson: string | null;
+  abAllocationsJson: string | null;
+  slotRevision: number;
+}
+
+interface PreparedPage {
+  name: string | null;
+  slots: PreparedSlot[];
+}
+
+// Byte-lean content compare for the revision-diff below — re-serializes the
+// OLD (parsed) shape the SAME way the new one is built, so an unchanged
+// slot keeps its revision and an edited one bumps (§16.2 discipline).
+function slotContentKey(rulesJson: string | null, abAllocationsJson: string | null): string {
+  return `${rulesJson ?? ""}|${abAllocationsJson ?? ""}`;
+}
+
+// Validate + prepare the FULL pages/slots/candidates replace-set (§15.3
+// membership rules apply identically to page-model sections — the SAME
+// activity/vertical/active checks resolveSectionOrder already enforces,
+// reused via resolveRowSection). `oldPages` (the variant's CURRENT resolved
+// structure, loaded before the caller's atomic delete+reinsert) is used
+// ONLY to carry forward a slot's revision when its rules/allocations are
+// byte-unchanged at the same (page, slot) coordinate — any content change,
+// added/removed slot, or reordering bumps it (a fresh, clean re-bucket).
+async function preparePages(
+  db: D1Database,
+  quote: LeadgenQuoteRow,
+  raw: unknown,
+  oldPages: readonly ResolvedFunnelPage[],
+): Promise<{ pages: PreparedPage[]; errors: FieldErrors }> {
+  const errors: FieldErrors = {};
+  if (!Array.isArray(raw) || raw.length === 0) {
+    errors["pages"] = "pages must be a non-empty array";
+    return { pages: [], errors };
+  }
+  const quoteVerticals = new Set(parseStringArray(quote.verticals_json));
+
+  const resolveRef = async (ref: unknown, path: string): Promise<number | null> => {
+    if (ref === undefined || ref === null || ref === "") {
+      errors[path] = "section_id is required";
+      return null;
+    }
+    const section = await resolveRowSection(db, String(ref));
+    if (section === null) {
+      errors[path] = `unknown section ${String(ref)}`;
+      return null;
+    }
+    if (section.status !== "active") {
+      errors[path] = `section ${section.public_id} is ${section.status} — only active sections can be ordered`;
+      return null;
+    }
+    if (section.activity !== quote.activity) {
+      errors[path] = `section ${section.public_id} activity '${section.activity}' does not match the quote activity '${quote.activity}'`;
+      return null;
+    }
+    if (quoteVerticals.size > 0 && !quoteVerticals.has(section.vertical)) {
+      errors[path] = `section ${section.public_id} vertical '${section.vertical}' is not one of the quote verticals`;
+      return null;
+    }
+    return section.id;
+  };
+
+  const pages: PreparedPage[] = [];
+  for (let pi = 0; pi < raw.length; pi++) {
+    const pageRaw = raw[pi];
+    const pagePath = `pages.${pi}`;
+    if (!isRecord(pageRaw)) {
+      errors[pagePath] = "each page must be an object";
+      continue;
+    }
+    const name = trimmedString(pageRaw["name"]);
+    const slotsRaw = pageRaw["slots"];
+    if (!Array.isArray(slotsRaw) || slotsRaw.length === 0) {
+      errors[`${pagePath}.slots`] = "a page requires at least one slot";
+      continue;
+    }
+    const slots: PreparedSlot[] = [];
+    for (let si = 0; si < slotsRaw.length; si++) {
+      const slotRaw = slotsRaw[si];
+      const path = `${pagePath}.slots.${si}`;
+      if (!isRecord(slotRaw)) {
+        errors[path] = "each slot must be an object";
+        continue;
+      }
+      const kind = slotRaw["kind"];
+      if (kind === "fixed") {
+        const sectionId = await resolveRef(slotRaw["section_id"], `${path}.section_id`);
+        if (sectionId === null) continue;
+        slots.push({ candidateSectionIds: [sectionId], rulesJson: null, abAllocationsJson: null, slotRevision: 0 });
+      } else if (kind === "ruled") {
+        const casesRaw = slotRaw["cases"];
+        if (!Array.isArray(casesRaw) || casesRaw.length === 0) {
+          errors[`${path}.cases`] = "a ruled slot requires at least one case";
+          continue;
+        }
+        const candidateIds = new Set<number>();
+        const cases: { conditions: { groups: unknown[] }; section_id: number }[] = [];
+        let bad = false;
+        for (let ci = 0; ci < casesRaw.length; ci++) {
+          const caseRaw = casesRaw[ci];
+          const casePath = `${path}.cases.${ci}`;
+          if (!isRecord(caseRaw)) {
+            errors[casePath] = "each case must be an object";
+            bad = true;
+            continue;
+          }
+          const conditions = caseRaw["conditions"];
+          if (!isRecord(conditions) || !Array.isArray(conditions["groups"])) {
+            errors[`${casePath}.conditions`] = "conditions must be an object { groups: [...] }";
+            bad = true;
+            continue;
+          }
+          // Entry-known-only field scope (roast MAJOR-4): an answer-field
+          // condition is REJECTED with plain language, never a jargon code.
+          const scopeError = validateSlotRuleFieldScope({
+            groups: conditions["groups"] as { field: string; op: string }[],
+          } as Parameters<typeof validateSlotRuleFieldScope>[0]);
+          if (scopeError !== null) {
+            errors[`${casePath}.conditions`] = scopeError;
+            bad = true;
+            continue;
+          }
+          const sectionId = await resolveRef(caseRaw["section_id"], `${casePath}.section_id`);
+          if (sectionId === null) {
+            bad = true;
+            continue;
+          }
+          candidateIds.add(sectionId);
+          cases.push({ conditions: conditions as { groups: unknown[] }, section_id: sectionId });
+        }
+        const defaultSectionId = await resolveRef(slotRaw["default_section_id"], `${path}.default_section_id`);
+        if (defaultSectionId === null) bad = true;
+        else candidateIds.add(defaultSectionId);
+        if (bad) continue;
+        slots.push({
+          candidateSectionIds: [...candidateIds],
+          rulesJson: JSON.stringify({ cases, default_section_id: defaultSectionId }),
+          abAllocationsJson: null,
+          slotRevision: 0,
+        });
+      } else if (kind === "ab") {
+        const allocRaw = slotRaw["allocations"];
+        if (!Array.isArray(allocRaw) || allocRaw.length === 0) {
+          errors[`${path}.allocations`] = "an A/B slot requires at least one allocation";
+          continue;
+        }
+        const allocations: { section_id: number; bp: number }[] = [];
+        let sum = 0;
+        let bad = false;
+        for (let ai = 0; ai < allocRaw.length; ai++) {
+          const a = allocRaw[ai];
+          const allocPath = `${path}.allocations.${ai}`;
+          if (!isRecord(a)) {
+            errors[allocPath] = "each allocation must be an object";
+            bad = true;
+            continue;
+          }
+          const sectionId = await resolveRef(a["section_id"], `${allocPath}.section_id`);
+          const bp = a["bp"];
+          if (typeof bp !== "number" || !Number.isInteger(bp) || bp < 0 || bp > 10000) {
+            errors[`${allocPath}.bp`] = "bp must be an integer 0..10000";
+            bad = true;
+          }
+          if (sectionId === null) {
+            bad = true;
+            continue;
+          }
+          if (typeof bp === "number" && Number.isInteger(bp)) {
+            allocations.push({ section_id: sectionId, bp });
+            sum += bp;
+          }
+        }
+        if (!bad && sum !== 10000) {
+          errors[`${path}.allocations`] = `an A/B slot's allocations must sum to 10000 (100%), got ${sum}`;
+          bad = true;
+        }
+        if (bad) continue;
+        slots.push({
+          candidateSectionIds: allocations.map((a) => a.section_id),
+          rulesJson: null,
+          abAllocationsJson: JSON.stringify(allocations),
+          slotRevision: 0,
+        });
+      } else {
+        errors[path] = "a slot's kind must be one of fixed|ruled|ab";
+      }
+    }
+    pages.push({ name, slots });
+  }
+
+  // slot_revision diffing: position-matched against the PRE-SAVE structure.
+  // Unchanged content at the same (page, slot) coordinate keeps its revision;
+  // anything else (new content, new slot, reordering) starts a fresh
+  // revision-0 lineage bump from the old value (or 0 for a brand-new slot).
+  for (let pi = 0; pi < pages.length; pi++) {
+    const oldPage = oldPages[pi];
+    const page = pages[pi];
+    if (page === undefined) continue;
+    for (let si = 0; si < page.slots.length; si++) {
+      const newSlot = page.slots[si];
+      const oldSlot = oldPage?.slots[si];
+      if (newSlot === undefined) continue;
+      const newKey = slotContentKey(newSlot.rulesJson, newSlot.abAllocationsJson);
+      if (oldSlot === undefined) {
+        // A brand-new slot has no PRIOR bucketing to invalidate — start clean.
+        newSlot.slotRevision = 0;
+      } else {
+        // BUG GUARD: JSON.stringify(null) is the 4-char STRING "null", not
+        // actual null — feeding that through unconditionally would make
+        // slotContentKey's `?? ""` fallback never fire on the OLD side,
+        // permanently mismatching a genuinely unchanged null/null slot
+        // against the NEW side's real `null` values.
+        const oldKey = slotContentKey(
+          oldSlot.rules === null ? null : JSON.stringify(oldSlot.rules),
+          oldSlot.ab_allocations === null ? null : JSON.stringify(oldSlot.ab_allocations),
+        );
+        newSlot.slotRevision = oldKey === newKey ? oldSlot.slot_revision : oldSlot.slot_revision + 1;
+      }
+    }
+  }
+
+  return { pages, errors };
+}
+
+// Round-4 P3a item 4 (P3b-found coherence gap): the legacy `sections`
+// replace-set used to leave a page-bearing variant's leadgen_funnel_pages /
+// _page_slots rows ORPHANED — nothing re-links them once their
+// variant_sections rows are replaced, so loadVariantPages kept resolving a
+// STALE page/slot tree alongside the freshly-saved flat section list. This
+// wraps the fresh, already-ordered section list into one page + one fixed
+// slot per section — the SAME shape 0042's migration backfills a legacy row
+// into — so a `sections` save never goes stale, whether or not the variant
+// previously had a REAL page/slot structure (a variant that has never used
+// `pages` simply gets one minted fresh, every save; harmless and idempotent).
+//
+// Statement shape mirrors forkVariantHandler's clone batch (below): every
+// page/slot is pre-minted a public_id app-side, then linked via a
+// `(SELECT id FROM ... WHERE public_id = ?)` subquery — no `.meta.last_row_id`
+// forwarding, so this joins the SAME atomic `statements` array/batch as the
+// variant_sections delete+reinsert the caller just pushed (must be called
+// AFTER that, so the UPDATE below finds live rows to attach to).
+function pushSectionPageWrapStatements(
+  db: D1Database,
+  statements: D1PreparedStatement[],
+  variantId: number,
+  sectionItems: readonly SectionOrderItem[],
+): void {
+  statements.push(db.prepare("DELETE FROM leadgen_funnel_pages WHERE variant_id = ?").bind(variantId));
+  for (const item of sectionItems) {
+    const pagePublicId = mintPublicId("funnel_page");
+    statements.push(
+      db
+        .prepare("INSERT INTO leadgen_funnel_pages (public_id, variant_id, position, name) VALUES (?, ?, ?, NULL)")
+        .bind(pagePublicId, variantId, item.position),
+    );
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO leadgen_funnel_page_slots (page_id, position, slot_revision, rules_json, ab_allocations_json)
+           VALUES ((SELECT id FROM leadgen_funnel_pages WHERE public_id = ?), 0, 0, NULL, NULL)`,
+        )
+        .bind(pagePublicId),
+    );
+    statements.push(
+      db
+        .prepare(
+          `UPDATE leadgen_funnel_variant_sections
+             SET page_id = (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?),
+                 slot_id = (SELECT s.id FROM leadgen_funnel_page_slots s
+                              JOIN leadgen_funnel_pages p ON p.id = s.page_id
+                             WHERE p.public_id = ?)
+           WHERE variant_id = ? AND section_id = ? AND position = ?`,
+        )
+        .bind(pagePublicId, pagePublicId, variantId, item.section_id, item.position),
+    );
+  }
+}
+
+// Round-4 P3a review round (adversarial minor-3): forkVariantHandler and
+// duplicateQuoteHandler used to clone a source variant's sections as bare
+// leadgen_funnel_variant_sections rows -- silently FLATTENING any real page/
+// slot structure (an A/B or ruled slot with N candidates) into N sequential
+// MANDATORY single-candidate pages. This is the shared clone both handlers
+// now call instead: fresh page/slot public ids, rules_json/ab_allocations_
+// json copied VERBATIM (their embedded section_id values reference the
+// GLOBAL leadgen_sections catalog, not a per-variant row, so they stay
+// valid with zero remapping across variants), slot_revision RESET to 0 (a
+// fresh lineage -- the clone has never been re-bucketed), candidates re-
+// keyed to the NEW variant's OWN leadgen_funnel_variant_sections rows (the
+// source's variant_section rows belong to a DIFFERENT variant_id and can
+// never be reused). Subquery-linked into the caller's SAME atomic
+// `statements` array/batch -- the same public-id-subquery idiom this file
+// already uses throughout (forkVariantHandler's own section/rule clones,
+// putVariantHandler's atomic pages insert). `newVariantPublicId` (not yet a
+// real row at statement-BUILD time -- it may be INSERTed earlier in the
+// SAME batch) is threaded through via subquery, never a bound numeric id.
+function pushPageCloneStatements(
+  db: D1Database,
+  statements: D1PreparedStatement[],
+  newVariantPublicId: string,
+  sourcePages: readonly ResolvedFunnelPage[],
+): { pages: number; slots: number; candidates: number } {
+  let pages = 0;
+  let slots = 0;
+  let candidates = 0;
+  let sectionRowPosition = 0;
+  for (const page of sourcePages) {
+    const pagePublicId = mintPublicId("funnel_page");
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO leadgen_funnel_pages (public_id, variant_id, position, name)
+           VALUES (?, (SELECT id FROM leadgen_funnel_variants WHERE public_id = ?), ?, ?)`,
+        )
+        .bind(pagePublicId, newVariantPublicId, page.position, page.name),
+    );
+    pages += 1;
+    for (const slot of page.slots) {
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO leadgen_funnel_page_slots (page_id, position, slot_revision, rules_json, ab_allocations_json)
+             VALUES ((SELECT id FROM leadgen_funnel_pages WHERE public_id = ?), ?, 0, ?, ?)`,
+          )
+          .bind(
+            pagePublicId,
+            slot.position,
+            slot.rules !== null ? JSON.stringify(slot.rules) : null,
+            slot.ab_allocations !== null ? JSON.stringify(slot.ab_allocations) : null,
+          ),
+      );
+      slots += 1;
+      for (const candidate of slot.candidates) {
+        statements.push(
+          db
+            .prepare(
+              `INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position, page_id, slot_id)
+               VALUES (
+                 (SELECT id FROM leadgen_funnel_variants WHERE public_id = ?), ?, ?,
+                 (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?),
+                 (SELECT s.id FROM leadgen_funnel_page_slots s
+                    JOIN leadgen_funnel_pages p ON p.id = s.page_id
+                   WHERE p.public_id = ? AND s.position = ?))`,
+            )
+            .bind(newVariantPublicId, candidate.section.id, sectionRowPosition++, pagePublicId, pagePublicId, slot.position),
+        );
+        candidates += 1;
+      }
+    }
+  }
+  return { pages, slots, candidates };
 }
 
 export async function putVariantHandler(c: AdminContext): Promise<Response> {
@@ -1506,6 +1923,24 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
     }
   }
 
+  // --- Round-4 P3a pages/slots (D-3 replace-set) ----------------------------
+  // MUTUALLY EXCLUSIVE with `sections` on the SAME PUT call: both replace the
+  // SAME underlying leadgen_funnel_variant_sections rows via a delete+reinsert
+  // batch (pages ALSO owns leadgen_funnel_pages/_page_slots) — accepting both
+  // in one request would make the atomic batch's statement order decide which
+  // one silently wins. Existing single-page-per-section callers keep using
+  // `sections` untouched; the page-aware structure panel (P3b) uses `pages`.
+  const pagesProvided = body["pages"] !== undefined;
+  let preparedPages: PreparedPage[] = [];
+  if (pagesProvided && sectionsProvided) {
+    errors["pages"] = "pages and sections cannot both be provided in the same save";
+  } else if (pagesProvided) {
+    const oldPages = await loadVariantPages(c.env.DB, variant.id);
+    const prep = await preparePages(c.env.DB, owner.quote, body["pages"], oldPages);
+    Object.assign(errors, prep.errors);
+    preparedPages = prep.pages;
+  }
+
   // --- funnel rules (§15.5 replace-set) -------------------------------------
   const rulesProvided = body["rules"] !== undefined;
   let preparedRules: PreparedRule[] = [];
@@ -1595,6 +2030,13 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
         ).bind(variant.id, s.section_id, s.position),
       );
     }
+    // Round-4 P3a item 4 (P3b-found coherence gap) — see
+    // pushSectionPageWrapStatements' doc comment: a `sections` save always
+    // wraps the fresh list into pages/slots too, so page rows never go
+    // orphaned/stale relative to the section list actually being saved.
+    // Must run AFTER the delete+reinsert above (its UPDATE targets the rows
+    // just inserted); same statements array => same atomic batch.
+    pushSectionPageWrapStatements(c.env.DB, statements, variant.id, sectionItems);
   }
   if (rulesProvided) {
     statements.push(c.env.DB.prepare("DELETE FROM leadgen_funnel_rules WHERE variant_id = ?").bind(variant.id));
@@ -1610,6 +2052,55 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
           r.redirectUrl, r.redirectAllowlisted, r.priority, r.enabled,
         ),
       );
+    }
+  }
+  // Round-4 P3a item 3 (was an OPEN CONCERN in the prior round): pages/
+  // slots/candidates now join the SAME atomic `statements` batch instead of
+  // running as a separate sequential-`.run()` pass after it. D1's batch()
+  // can't forward an earlier statement's auto-generated id into a later
+  // statement's bind params — so instead of reading back `.meta.last_row_id`,
+  // every page (and, transitively, its slots) is pre-minted a public_id
+  // app-side and linked via a `(SELECT id FROM ... WHERE public_id = ?)`
+  // subquery, exactly the idiom forkVariantHandler already uses below to
+  // link its cloned sections/rules to the not-yet-committed new variant row.
+  // The whole pages+slots+candidates write now commits or rolls back with
+  // the rest of the save — no partial-write window.
+  if (pagesProvided) {
+    statements.push(c.env.DB.prepare("DELETE FROM leadgen_funnel_pages WHERE variant_id = ?").bind(variant.id));
+    let sectionRowPosition = 0;
+    for (let pi = 0; pi < preparedPages.length; pi++) {
+      const page = preparedPages[pi];
+      if (page === undefined) continue;
+      const pagePublicId = mintPublicId("funnel_page");
+      statements.push(
+        c.env.DB.prepare(
+          "INSERT INTO leadgen_funnel_pages (public_id, variant_id, position, name) VALUES (?, ?, ?, ?)",
+        ).bind(pagePublicId, variant.id, pi, page.name),
+      );
+      for (let si = 0; si < page.slots.length; si++) {
+        const slot = page.slots[si];
+        if (slot === undefined) continue;
+        statements.push(
+          c.env.DB.prepare(
+            `INSERT INTO leadgen_funnel_page_slots
+               (page_id, position, slot_revision, rules_json, ab_allocations_json)
+             VALUES ((SELECT id FROM leadgen_funnel_pages WHERE public_id = ?), ?, ?, ?, ?)`,
+          ).bind(pagePublicId, si, slot.slotRevision, slot.rulesJson, slot.abAllocationsJson),
+        );
+        for (const sectionId of slot.candidateSectionIds) {
+          statements.push(
+            c.env.DB.prepare(
+              `INSERT INTO leadgen_funnel_variant_sections
+                 (variant_id, section_id, position, page_id, slot_id)
+               VALUES (?, ?, ?,
+                 (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?),
+                 (SELECT s.id FROM leadgen_funnel_page_slots s
+                    JOIN leadgen_funnel_pages p ON p.id = s.page_id
+                   WHERE p.public_id = ? AND s.position = ?))`,
+            ).bind(variant.id, sectionId, sectionRowPosition++, pagePublicId, pagePublicId, si),
+          );
+        }
+      }
     }
   }
   await c.env.DB.batch(statements);
@@ -1664,8 +2155,13 @@ export async function forkVariantHandler(c: AdminContext): Promise<Response> {
   const newLabel = `${source.variant_label}-fork-${existing.length}`;
   const variantPublicId = mintPublicId("funnel_variant");
 
-  // Read the source's ordered sections + rules BEFORE the write batch (reads).
-  const srcSections = await readVariantSections(c.env.DB, source.id);
+  // Read the source's ordered pages (loadVariantPages -- the SAME loader the
+  // live runtime resolves through, real page/slot rows OR the synthetic
+  // legacy-flat fallback; either way it is the fidelity-preserving read) +
+  // rules BEFORE the write batch. Round-4 P3a review round minor-3:
+  // srcSections/readVariantSections is NO LONGER the clone source -- it
+  // flattened A/B/ruled slots into sequential mandatory fixed pages.
+  const srcPages = await loadVariantPages(c.env.DB, source.id);
   const srcRules = await readVariantRules(c.env.DB, source.id);
 
   // v2.5 04 §4.5: "a fork clones the arm" — frame_overrides_json rides the
@@ -1706,14 +2202,10 @@ export async function forkVariantHandler(c: AdminContext): Promise<Response> {
           source.lander_hero_media_id, source.lander_hero_media_url, source.lander_cta_json, sourceFrameOverrides,
         ),
   ];
-  for (const s of srcSections) {
-    statements.push(
-      c.env.DB.prepare(
-        `INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position)
-         VALUES ((SELECT id FROM leadgen_funnel_variants WHERE public_id = ?), ?, ?)`,
-      ).bind(variantPublicId, s.section_id, s.position),
-    );
-  }
+  // Round-4 P3a review round (minor-3): clone the source's REAL page/slot
+  // structure (fresh ids, rules/allocations preserved, slot_revision reset
+  // to 0) rather than bare variant-section rows.
+  pushPageCloneStatements(c.env.DB, statements, variantPublicId, srcPages);
   for (const r of srcRules) {
     statements.push(
       c.env.DB.prepare(

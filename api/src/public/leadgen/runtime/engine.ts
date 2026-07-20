@@ -282,6 +282,17 @@ function acquisitionParams(search: string): Partial<Record<LgAcquisitionKey, str
 // landing traffic params server-side), no-store, retry ×2 (§3.5.8).
 // ---------------------------------------------------------------------------
 
+// Round-4 P3a (D-3): one resolved slot winner off the /lg/attempt page_plan
+// echo (attempt.ts ResolvedSlotWinner, mirrored locally — runtime/ stays
+// dependency-free). slot_id rides as a NUMBER on the wire (resolver.ts's
+// plain internal id); the engine stringifies it for the analytics dim.
+interface LgPlanWinner {
+  page_id: string;
+  slot_id: number;
+  section_public_id: string;
+  assignment_reason: string;
+}
+
 interface LgAttempt {
   funnel_attempt_id: string;
   signed_config_token: string;
@@ -296,6 +307,10 @@ interface LgAttempt {
   // P3/P4 seam; until then a rule on those keys is fail-closed). Merged only
   // into the evaluation map, NEVER sent back to /lg/auction.
   ctx?: { state?: string; device?: string };
+  // Round-4 P3a: the resolved page plan (flat, per-slot winners) — ABSENT
+  // for a legacy/no-page-model funnel (byte-identical fallback: every
+  // section counts as its own page, exactly pre-P3a).
+  page_plan?: LgPlanWinner[];
 }
 
 function sleep(ms: number): Promise<void> {
@@ -316,6 +331,14 @@ function parseAttemptCtx(raw: unknown): { state?: string; device?: string } | nu
   return out.state === undefined && out.device === undefined ? null : out;
 }
 
+// Round-4 P3a: tolerant parse of the OPTIONAL page_plan echo. Same-origin,
+// server-authored (never attacker-shaped) — a shallow array/length sanity
+// check is enough; every downstream read (String()/Map keys) degrades
+// harmlessly on a stray malformed field rather than needing a deep guard.
+function parseAttemptPagePlan(raw: unknown): LgPlanWinner[] | null {
+  return Array.isArray(raw) && raw.length > 0 ? (raw as LgPlanWinner[]) : null;
+}
+
 async function fetchAttemptOnce(funnelVariantId: string): Promise<LgAttempt | null> {
   try {
     const url = `${LG_ATTEMPT_URL}?vid=${encodeURIComponent(funnelVariantId)}&u=${encodeURIComponent(location.href)}`;
@@ -329,6 +352,7 @@ async function fetchAttemptOnce(funnelVariantId: string): Promise<LgAttempt | nu
     const raw = (await res.json()) as Record<string, unknown>;
     if (typeof raw["funnel_attempt_id"] !== "string" || raw["funnel_attempt_id"] === "") return null;
     const ctx = parseAttemptCtx(raw["ctx"]);
+    const pagePlan = parseAttemptPagePlan(raw["page_plan"]);
     return {
       funnel_attempt_id: raw["funnel_attempt_id"],
       signed_config_token:
@@ -338,6 +362,7 @@ async function fetchAttemptOnce(funnelVariantId: string): Promise<LgAttempt | nu
         : {}),
       ...(typeof raw["expires_at"] === "number" ? { expires_at: raw["expires_at"] } : {}),
       ...(ctx !== null ? { ctx } : {}),
+      ...(pagePlan !== null ? { page_plan: pagePlan } : {}),
     };
   } catch {
     return null;
@@ -379,6 +404,14 @@ export class LgEngine {
   // 10C ctx (geo/device) captured from the /lg/attempt echo — merged into the
   // evaluation map by evalAnswers(), never persisted, never sent to /lg/auction.
   private ctx: { state?: string; device?: string } = {};
+  // Round-4 P3a: section_public_id -> [pageIndex, slotId, reason] (a tuple —
+  // byte-lean, no object-literal keys). null when the attempt carried no
+  // page_plan (legacy funnel — every section counts as its own page,
+  // byte-identical to pre-P3a). pageIds[pageIndex] is the page's public_id
+  // (analytics dim); pagesCount === pageIds.length.
+  private planMeta: Map<string, [number, string, string]> | null = null;
+  private pageIds: string[] = [];
+  private pagesCount = 0;
 
   constructor(root: HTMLElement, config: LgPublicConfig, preview: boolean) {
     this.root = root;
@@ -476,6 +509,21 @@ export class LgEngine {
       });
       // 10C: adopt the server ctx echo (geo/device) for __state/__device rules.
       if (attempt.ctx !== undefined) this.ctx = attempt.ctx;
+      // Round-4 P3a: build the page-plan lookup ONCE from the flat winners
+      // list (page_id first-seen order == page order, matching resolver.ts's
+      // own page.position ordering).
+      if (attempt.page_plan !== undefined) {
+        const meta = new Map<string, [number, string, string]>();
+        const ids: string[] = [];
+        for (const w of attempt.page_plan) {
+          let page = ids.indexOf(w.page_id);
+          if (page === -1) page = ids.push(w.page_id) - 1;
+          meta.set(w.section_public_id, [page, String(w.slot_id), w.assignment_reason]);
+        }
+        this.planMeta = meta;
+        this.pageIds = ids;
+        this.pagesCount = ids.length;
+      }
     }
 
     // §3.5.1 restore iff same attempt-binding tuple (see state.ts header for
@@ -497,10 +545,25 @@ export class LgEngine {
     // re-runs the field wiring on ready), render the current step.
     this.bindListeners();
     wireMapsFields(this.root, {
+      // Coordinator ruling (2026-07-20): stamp the section that OWNS the
+      // edited field, not the anchor (this.currentSection()) — on a same-
+      // screen multi-section page an Address on section 2 must not mis-
+      // attribute to section 1's public id just because this.si still
+      // points at the page's anchor. maps.ts hands back only the field NAME
+      // (no DOM element to walk), so resolution is an internal_field lookup
+      // across config.sections (inlined -- its one call site) — falls back
+      // to the anchor only if no section declares the field at all (should
+      // not happen for a validly authored funnel). `||` not `??`/`?.` -- a
+      // resolved section is always a non-null object (never falsy-but-
+      // defined), and the es2019 build target transpiles `?.`/`??` into far
+      // costlier ternary chains than a plain `||`/explicit null check.
       setAnswer: (field, value, meta) => {
+        const owner =
+          this.config.sections.find((s) => s.components.some((c) => c.internal_field === field)) ||
+          this.currentSection();
         this.writeAnswer(field, value, {
           question_id: meta.question_id,
-          section_public_id: this.currentSection()?.section_public_id ?? "",
+          section_public_id: owner !== null ? owner.section_public_id : "",
         });
       },
       emit: (type, fields) => {
@@ -510,9 +573,9 @@ export class LgEngine {
 
     // Land on a VISIBLE section (the restored pointer may now be hidden).
     // section_view for it fires AFTER quote_view below (§3.5.1 ordering).
-    const startIndex = this.normalizeSectionIndex(this.store.state.section_index);
+    const startIndex = this.normalizeSectionIndex(this.si);
     this.store.setSectionIndex(startIndex);
-    this.enterSection(startIndex, null, /*fireView*/ false);
+    this.enterPage(null, /*fireView*/ false);
 
     // Hydration complete (§3.5.1): the anti-false-PASS suite keys on this.
     this.root.setAttribute("data-lg-ready", "1");
@@ -547,12 +610,27 @@ export class LgEngine {
 
   // ----- config/derived helpers -------------------------------------------
 
+  // The current step pointer — one read-alias for the store's section index
+  // (read in ~6 places; the writer stays store.setSectionIndex).
+  private get si(): number {
+    return this.store.state.section_index;
+  }
+
+  // The {question_id, section_public_id} write-meta both answer handlers build
+  // identically — one shape, two call sites.
+  private answerMeta(
+    questionId: string,
+    section: LgSectionConfig | null,
+  ): { question_id: string; section_public_id: string } {
+    return { question_id: questionId, section_public_id: section?.section_public_id ?? "" };
+  }
+
   private currentSection(): LgSectionConfig | null {
-    return this.config.sections[this.store.state.section_index] ?? null;
+    return this.config.sections[this.si] ?? null;
   }
 
   private currentSectionEl(): HTMLElement | null {
-    return render.sectionElementAt(this.root, this.store.state.section_index);
+    return render.sectionElementAt(this.root, this.si);
   }
 
   private sectionConfigFor(el: Element | null): LgSectionConfig | null {
@@ -568,12 +646,19 @@ export class LgEngine {
 
   private sectionDims(section: LgSectionConfig | null): Record<string, unknown> {
     if (section === null) return {};
+    // Round-4 P3a: page_id/slot_id/slot_assignment_reason ride alongside the
+    // existing dims when this section resolved from a page plan (absent for
+    // a legacy funnel — leadgen-events.ts defaults them to "").
+    const meta = this.planMeta?.get(section.section_public_id);
     return {
       section_id: section.section_public_id,
       section_index: section.section_index,
       continue_mode: section.continue_mode,
       section_mapping_version: section.section_mapping_version,
       answer_mapping_version: section.answer_mapping_version,
+      ...(meta !== undefined
+        ? { page_id: this.pageIds[meta[0]] ?? "", slot_id: meta[1], slot_assignment_reason: meta[2] }
+        : {}),
     };
   }
 
@@ -606,7 +691,7 @@ export class LgEngine {
     return {
       ...this.store.answerValues(),
       ...buildCtxFields({
-        page: this.store.state.section_index,
+        page: this.si,
         now: new Date(),
         state: this.ctx.state,
         device: this.ctx.device,
@@ -622,8 +707,19 @@ export class LgEngine {
     return hiddenAnswerFields(this.config.sections, this.evalAnswers());
   }
 
+  // Round-4 P3a: intersect dependency-visible indices with the resolved
+  // plan's WINNING sections — a non-winning slot candidate (server-rendered
+  // hidden, per the visitor-invariant shell design) is never walkable, never
+  // counted, never auction-projected. planMeta null (legacy funnel /
+  // attempt-fetch failure) -> no filter, byte-identical to pre-P3a.
   private visibleIndexes(): number[] {
-    return visibleSectionIndexes(this.config.sections, this.evalAnswers());
+    const all = visibleSectionIndexes(this.config.sections, this.evalAnswers());
+    const meta = this.planMeta;
+    if (meta === null) return all;
+    return all.filter((i) => {
+      const id = this.config.sections[i]?.section_public_id;
+      return id !== undefined && meta.has(id);
+    });
   }
 
   private normalizeSectionIndex(wanted: number): number {
@@ -666,20 +762,13 @@ export class LgEngine {
       }
     });
 
-    this.root.addEventListener("input", (raw) => {
+    const onInput = (raw: Event): void => {
       const target = raw.target;
       if (!(target instanceof Element) || target.closest("[data-lg-input]") === null) return;
       this.handleInputEvent(target);
-    });
-    this.root.addEventListener(
-      "change",
-      (raw) => {
-        const target = raw.target;
-        if (!(target instanceof Element) || target.closest("[data-lg-input]") === null) return;
-        this.handleInputEvent(target);
-      },
-      true,
-    );
+    };
+    this.root.addEventListener("input", onInput);
+    this.root.addEventListener("change", onInput, true);
   }
 
   private replayPrehydrateQueue(): void {
@@ -722,31 +811,54 @@ export class LgEngine {
     return write.entry.answer_source;
   }
 
+  // Same-screen pages: an answer anywhere on the page can drive a
+  // conditional ANYWHERE ELSE on the SAME page (both simultaneously on
+  // screen), so every visible section of the current page re-checks its own
+  // component/Continue visibility — not just the one the edit occurred in.
+  // lastInPage (the page's one Continue-bearing section, coordinator ruling
+  // 2026-07-20) is recomputed fresh -- an answer here can itself flip which
+  // section is last-visible within the page.
   private afterAnswerMutation(): void {
-    const section = this.currentSection();
-    if (section !== null) {
-      const sectionEl = this.currentSectionEl();
-      if (sectionEl !== null) {
-        render.applyComponentVisibility(sectionEl, this.dependencyState(section).components);
-        this.applyContinueVisibility(section, sectionEl);
-      }
+    const pageIndices = this.currentPageIndices();
+    const visible = this.visibleIndexes();
+    let lastInPage: number | undefined;
+    for (const i of pageIndices) if (visible.indexOf(i) !== -1) lastInPage = i;
+    for (const i of pageIndices) {
+      const section = this.config.sections[i];
+      const sectionEl = section !== undefined ? render.sectionElementAt(this.root, i) : null;
+      if (section === undefined || sectionEl === null) continue;
+      render.applyComponentVisibility(sectionEl, this.dependencyState(section).components);
+      this.applyContinueVisibility(section, sectionEl, i === lastInPage);
     }
     this.updateProgressUi();
     this.persist();
   }
 
+  // Coordinator ruling (2026-07-20): a multi-section page shows Continue on
+  // ONLY its LAST dependency-visible section — one gate per page, not N
+  // (that single Continue already validates + advances the WHOLE page, see
+  // handleContinue/advance). Single-section pages are the length-1 case
+  // (isLastInPage is always true), unaffected. `isLastInPage` composes with
+  // the section's own continue_visible_when — both must pass.
+  //
   // P4c (register PC-12): section-level Continue visibility. `continue_
   // visible_when` is not part of the declared LgSectionConfig shape (kept a
   // hand-maintained LOCAL mirror per the state.ts module header) — it is
   // read here via a narrow, defensive cast, exactly like an untyped JSON
-  // field the config legitimately carries. Absent ⇒ no-op (byte-identical
-  // pre-P4c: Continue stays unconditionally visible).
-  private applyContinueVisibility(section: LgSectionConfig, sectionEl: Element): void {
+  // field the config legitimately carries. Absent ⇒ treated as "no condition
+  // authored", i.e. visible whenever isLastInPage alone says so (pre-P4c:
+  // Continue was unconditionally visible; now composed with the P3a
+  // last-in-page gate above, so this can no longer stay a true no-op — an
+  // explicit `true` here is what RE-shows a Continue this SAME feature may
+  // have hidden on the section's prior turn as a non-last section).
+  private applyContinueVisibility(section: LgSectionConfig, sectionEl: Element, isLastInPage: boolean): void {
     const cond = (
       section as unknown as { continue_visible_when?: LgConditional | LgConditionGroup }
     ).continue_visible_when;
-    if (cond === undefined) return;
-    render.setContinueVisible(sectionEl, conditionMet(cond, this.evalAnswers()));
+    render.setContinueVisible(
+      sectionEl,
+      isLastInPage && (cond === undefined || conditionMet(cond, this.evalAnswers())),
+    );
   }
 
   private handleChoiceActivation(choiceEl: Element): void {
@@ -807,10 +919,7 @@ export class LgEngine {
       value = list;
     }
 
-    const meta = {
-      question_id: questionId,
-      section_public_id: section?.section_public_id ?? "",
-    };
+    const meta = this.answerMeta(questionId, section);
     const write = this.store.recordUserAnswer(internalField, value, meta);
     if (questionEl !== null) render.applySelectionClasses(questionEl, value);
     this.afterAnswerMutation();
@@ -827,16 +936,52 @@ export class LgEngine {
 
     // §3.5.4 auto-advance: single-question sections advance on answer_click
     // after validation; multi-question sections require Continue regardless.
-    if (section !== null && section.continue_mode === "auto_advance" && !multi) {
+    // Round-4 P3a: auto-advance is authorable ONLY for single-SECTION pages
+    // (a multi-slot page must always be walked via Continue, even when its
+    // current section itself would otherwise qualify) — pageIndicesFor(...)
+    // .length<=1 is a no-op true when planMeta is null (legacy: every
+    // section IS its own page).
+    if (
+      section !== null &&
+      section.continue_mode === "auto_advance" &&
+      !multi &&
+      this.pageIndicesFor(section.section_public_id).length <= 1
+    ) {
       const deps = this.dependencyState(section);
       const interactive = section.components.filter(
         (c, i) =>
           (c.internal_field ?? "") !== "" && deps.components[i]?.visible === true,
       );
-      if (interactive.length === 1 && this.sectionPasses(section)) {
+      if (interactive.length === 1 && this.sectionPassesAt(this.config.sections.indexOf(section), section)) {
         this.advance();
       }
     }
+  }
+
+  // Round-4 P3a same-screen pages (D-3 operator amendment, 2026-07-20): every
+  // config.sections index sharing sectionId's PAGE (structural — regardless
+  // of current dependency visibility), in ascending order. planMeta null
+  // (legacy funnel) degrades to [thatSection'sOwnIndex] — the byte-identical
+  // single-section-page case every call site below composes over.
+  private pageIndicesFor(sectionId: string): number[] {
+    const meta = this.planMeta;
+    if (meta === null) {
+      const i = this.config.sections.findIndex((s) => s.section_public_id === sectionId);
+      return i === -1 ? [] : [i];
+    }
+    const page = meta.get(sectionId)?.[0];
+    if (page === undefined) return [];
+    const out: number[] = [];
+    for (let i = 0; i < this.config.sections.length; i++) {
+      const id = this.config.sections[i]?.section_public_id;
+      if (id !== undefined && meta.get(id)?.[0] === page) out.push(i);
+    }
+    return out;
+  }
+
+  private currentPageIndices(): number[] {
+    const indices = this.pageIndicesFor(this.currentSection()?.section_public_id ?? "");
+    return indices.length > 0 ? indices : [this.si];
   }
 
   private handleInputEvent(target: Element): void {
@@ -890,18 +1035,16 @@ export class LgEngine {
       if (e164 !== null) value = e164;
     }
 
-    const meta = {
-      question_id: questionId,
-      section_public_id: section?.section_public_id ?? "",
-    };
+    const meta = this.answerMeta(questionId, section);
     const write = this.store.recordUserAnswer(internalField, value, meta);
     // S2-3 (register §C): a range slider moves its own visible value text +
     // filled track live as it is dragged (input fires continuously).
     if (input instanceof HTMLInputElement && input.type === "range") {
       render.updateRangeDisplay(input);
     }
-    // Editing clears the field's stale error immediately.
-    const sectionEl = this.currentSectionEl();
+    // Editing clears the field's stale error immediately — the INPUT's own
+    // section (same-screen pages: not necessarily this.si's anchor section).
+    const sectionEl = input.closest("[data-lg-section]");
     if (sectionEl !== null) render.setFieldError(sectionEl, internalField, null);
     this.afterAnswerMutation();
 
@@ -925,10 +1068,13 @@ export class LgEngine {
 
   // ----- validation + navigation (§3.5.4–5) --------------------------------
 
-  private sectionPasses(section: LgSectionConfig): boolean {
+  // Validates ONE section AT A GIVEN INDEX (same-screen pages: the section
+  // being checked is not necessarily this.si's anchor — every visible
+  // section of the current page is checked in turn by handleContinue below).
+  private sectionPassesAt(index: number, section: LgSectionConfig): boolean {
     const deps = this.dependencyState(section);
     const failures = validateSection(section.components, this.evalAnswers(), deps.components);
-    const sectionEl = this.currentSectionEl();
+    const sectionEl = render.sectionElementAt(this.root, index);
     if (sectionEl !== null) render.clearFieldErrors(sectionEl);
     if (failures.length === 0) return true;
 
@@ -952,11 +1098,23 @@ export class LgEngine {
     return false;
   }
 
+  // Round-4 P3a same-screen pages (D-3 operator amendment): Continue gates
+  // the WHOLE PAGE — every VISIBLE section of the current page must pass
+  // (composing sectionPassesAt over each; a single-section/legacy page is
+  // the length-1 case, byte-identical to pre-amendment). Every section's
+  // errors paint (no early return), so the visitor sees every outstanding
+  // field across the page in one pass, not one section at a time.
   private handleContinue(): void {
-    const section = this.currentSection();
-    if (section === null) return;
-    this.beacons.enqueue("continue_click", this.sectionDims(section));
-    if (!this.sectionPasses(section)) return;
+    const visible = this.visibleIndexes();
+    const visibleInPage = this.currentPageIndices().filter((i) => visible.indexOf(i) !== -1);
+    this.beacons.enqueue("continue_click", this.sectionDims(this.currentSection()));
+    let allPass = true;
+    for (const i of visibleInPage) {
+      const section = this.config.sections[i];
+      if (section === undefined) continue;
+      if (!this.sectionPassesAt(i, section)) allPass = false;
+    }
+    if (!allPass) return;
     this.advance();
   }
 
@@ -984,45 +1142,65 @@ export class LgEngine {
       return;
     }
     this.store.setSectionIndex(previous);
-    this.enterSection(previous, "back");
+    this.enterPage("back");
     this.persist();
   }
 
+  // Round-4 P3a same-screen pages: advancing skips PAST the ENTIRE current
+  // page (its structural last index, regardless of per-section visibility —
+  // pageIndicesFor is ascending, so its own last entry IS that boundary) to
+  // the next VISIBLE section, which by construction belongs to the NEXT
+  // page. A single-section/legacy page's "structural last index" is just
+  // itself, so this is byte-identical to the pre-amendment per-section walk.
   private advance(): void {
     const section = this.currentSection();
-    const current = this.store.state.section_index;
+    const current = this.si;
     this.beacons.enqueue("section_continue", {
       ...this.sectionDims(section),
       continued_to_next_section: true,
     });
 
-    const visible = this.visibleIndexes();
-    const pos = visible.indexOf(current);
-    const nextIndex =
-      pos !== -1 ? visible[pos + 1] : visible.find((index) => index > current);
+    const pageIndices = this.currentPageIndices();
+    const lastOfPage = pageIndices[pageIndices.length - 1] ?? current;
+    const nextIndex = this.visibleIndexes().find((i) => i > lastOfPage);
 
     if (nextIndex === undefined) {
-      // §3.5.6: advancing past the LAST visible section — and never before —
+      // §3.5.6: advancing past the LAST visible PAGE — and never before —
       // triggers the auction.
       void this.finalize();
       return;
     }
     this.store.pushBack(current);
     this.store.setSectionIndex(nextIndex);
-    this.enterSection(nextIndex, null);
+    this.enterPage(null);
     this.persist();
   }
 
-  // Section entry (§3.5.2 + §3.4 defaults): apply defaults once, show the
-  // section, progress/back/focus, section_view (nav="back" on back-nav).
-  private enterSection(index: number, nav: "back" | null, fireView = true): void {
-    const section = this.config.sections[index] ?? null;
-    if (section !== null) this.applySectionDefaults(section);
+  // Round-4 P3a same-screen pages (D-3 operator amendment, 2026-07-20): show
+  // EVERY dependency-visible section of the CURRENT page TOGETHER (this.si
+  // is the page's anchor — set by the caller via store.setSectionIndex
+  // immediately before calling this); a single-section/legacy page is the
+  // length-1 case, byte-identical to the pre-amendment one-section-at-a-time
+  // behavior. Applies defaults, shows the sections, progress/back/focus
+  // (focus the FIRST shown section), section_view per shown section
+  // (nav="back" on back-nav).
+  private enterPage(nav: "back" | null, fireView = true): void {
+    const visible = this.visibleIndexes();
+    const visibleInPage = this.currentPageIndices().filter((i) => visible.indexOf(i) !== -1);
 
-    const sectionEl = render.showOnlySection(this.root, index);
-    if (section !== null && sectionEl !== null) {
+    for (const i of visibleInPage) {
+      const section = this.config.sections[i];
+      if (section !== undefined) this.applySectionDefaults(section);
+    }
+
+    const shownEls = render.showPageSections(this.root, visibleInPage);
+    for (let k = 0; k < visibleInPage.length; k++) {
+      const i = visibleInPage[k];
+      const section = i !== undefined ? this.config.sections[i] : undefined;
+      const sectionEl = shownEls[k];
+      if (section === undefined || sectionEl === undefined) continue;
       render.applyComponentVisibility(sectionEl, this.dependencyState(section).components);
-      this.applyContinueVisibility(section, sectionEl);
+      this.applyContinueVisibility(section, sectionEl, k === visibleInPage.length - 1);
       // Restore selection classes for restored/default answers.
       for (const component of section.components) {
         const field = component.internal_field;
@@ -1046,20 +1224,22 @@ export class LgEngine {
           render.applySelectionClasses(questionEl, entry.value);
         }
       }
-      // 11 §11.6: back mounts may be FRAME-level (outside the swapped section
-      // elements) since v2.5 — scope the visibility toggle to the funnel ROOT
-      // so one state drives every [data-lg-back] mount (per-section legacy
-      // mounts toggle identically; hidden sections make it a no-op visually).
-      // §11.2: an armed history fallback keeps the affordance visible on an
-      // empty stack (the click walks browser history instead).
-      render.setBackVisible(
-        this.root,
-        this.store.state.back_stack.length > 0 || this.historyFallbackArmed(),
-      );
-      render.focusSection(sectionEl);
     }
+    // 11 §11.6: back mounts may be FRAME-level (outside the swapped section
+    // elements) since v2.5 — scope the visibility toggle to the funnel ROOT
+    // so one state drives every [data-lg-back] mount (per-section legacy
+    // mounts toggle identically; hidden sections make it a no-op visually).
+    // §11.2: an armed history fallback keeps the affordance visible on an
+    // empty stack (the click walks browser history instead).
+    render.setBackVisible(
+      this.root,
+      this.store.state.back_stack.length > 0 || this.historyFallbackArmed(),
+    );
+    if (shownEls[0] !== undefined) render.focusSection(shownEls[0]);
     this.updateProgressUi();
-    if (fireView) this.fireSectionView(section, nav);
+    if (fireView) {
+      for (const i of visibleInPage) this.fireSectionView(this.config.sections[i] ?? null, nav);
+    }
   }
 
   private fireSectionView(section: LgSectionConfig | null, nav: "back" | null): void {
@@ -1092,14 +1272,30 @@ export class LgEngine {
     }
   }
 
+  // Round-4 P3a: progress counts PAGES (denominator = the resolved plan
+  // length; numerator = the current section's page index) when a plan
+  // exists — a multi-slot page's internal section-to-section transitions
+  // keep the SAME page number (the visitor only sees it tick up crossing a
+  // PAGE boundary). planMeta null (legacy) falls through to the unchanged
+  // per-SECTION count, byte-identical to pre-P3a.
   private updateProgressUi(): void {
     const visible = this.visibleIndexes();
-    const pos = visible.indexOf(this.store.state.section_index);
-    render.updateProgress(this.root, pos === -1 ? 1 : pos + 1, visible.length);
-    // 11 §11.3 footer show_on: first = the first VISIBLE section (pos -1
-    // normalizes to step 1, matching updateProgress); final = the last
-    // visible section (the banners-view leg rides showCompletionState).
-    render.updateFooterVisibility(this.root, pos <= 0, pos !== -1 && pos === visible.length - 1);
+    const pos = visible.indexOf(this.si);
+    const section = this.currentSection();
+    // `||`/explicit checks not `?.`/`??` -- see the setAnswer hook's note
+    // above (this file's es2019 build target transpiles chained `?.`/`??`
+    // into far costlier ternary chains; this is a 3-link chain).
+    const meta = this.planMeta !== null && section !== null ? this.planMeta.get(section.section_public_id) : undefined;
+    const page = meta !== undefined ? meta[0] : undefined;
+    const total = page !== undefined ? this.pagesCount : visible.length;
+    const current = page !== undefined ? page + 1 : pos === -1 ? 1 : pos + 1;
+    render.updateProgress(this.root, current, total);
+    // 11 §11.3 footer show_on: first = the first VISIBLE section/page (pos -1
+    // normalizes to step 1, matching updateProgress); final = the last one
+    // (the banners-view leg rides showCompletionState). The `pos !== -1`
+    // guard is load-bearing ONLY on the no-plan path (a plan-resolved
+    // section is never pos-ambiguous).
+    render.updateFooterVisibility(this.root, current <= 1, page !== undefined ? current === total : pos !== -1 && current === total);
   }
 
   // ----- §3.6 auction -------------------------------------------------------
@@ -1211,7 +1407,7 @@ export class LgEngine {
         session_id: engine.store.state.session_id,
         page_view_id: engine.store.state.page_view_id,
         funnel_attempt_id: engine.store.state.funnel_attempt_id,
-        section_index: engine.store.state.section_index,
+        section_index: engine.si,
         back_stack: [...engine.store.state.back_stack],
         auction: { ...engine.store.state.auction },
       }),

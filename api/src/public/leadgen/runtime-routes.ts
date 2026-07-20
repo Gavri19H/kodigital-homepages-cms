@@ -32,8 +32,14 @@ import { ingestProviderPostback, ingestBrowserPixel } from "./postback";
 import { leadgenTrackRouter } from "../../analytics/leadgen-track";
 import { resolveLeadgenClick, type LeadgenClickInput } from "./click";
 import { mintFunnelAttempt } from "./attempt";
-import { resolveActivatedFunnelByVariant } from "./resolver";
+import { resolveActivatedFunnelByVariant, parseUtmFromLandingUrl } from "./resolver";
 import { genSessionId, readCookie, sessionCookie } from "../listicle/experiment-pick";
+// Round-4 P3a (D-3 pages model): the SAME canonical geo/UA primitives
+// runtime-context.ts's ONE builder + serve-auction.ts's rule-dims already
+// read (04 §4.2 "bridged, not duplicated") — reused here, read-only, for the
+// slot-rule/A-B plan resolution's entry-known state/device signals + the
+// P2a ctx echo.
+import { readCfSignals, geoFromCf, parseClientUa } from "../../analytics/listicle-quality";
 import { buildLeadgenRuntimeContext } from "../../leadgen/runtime-context";
 import { LEADGEN_TEMPLATE_VERSION } from "../../cache/cache-keys";
 import { LEADGEN_RUNTIME_JS } from "./runtime/engine-bundle.generated";
@@ -122,9 +128,22 @@ async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
   let sessionId = readCookie(c.req.header("Cookie") ?? null, "ko_sid");
   const sessionWasAbsent = sessionId === "";
   if (sessionWasAbsent) sessionId = genSessionId();
+  const landingUrl = resolveAttemptLandingUrl(c);
+  // Round-4 P3a: the entry-known signals a slot RULE/A-B may resolve on
+  // (state/geo, device) + the P2a ctx echo — derived via the canonical
+  // helpers, never a fresh regex (04 §4.2 "bridged, not duplicated"). UTM
+  // comes from the SAME resolved landing URL the signed token persists (the
+  // client's own page URL — ad-traffic query params land there).
+  const geo = geoFromCf(readCfSignals(c.req.raw));
+  const ua = parseClientUa(c.req.header("User-Agent"));
   const attempt = await mintFunnelAttempt(c.env, resolved, Date.now(), {
     session_id: sessionId,
-    landing_url: resolveAttemptLandingUrl(c),
+    landing_url: landingUrl,
+    entry_ctx: {
+      ...(geo.state !== "" ? { state: geo.state } : {}),
+      ...(ua.device !== "" ? { device: ua.device } : {}),
+      ...parseUtmFromLandingUrl(landingUrl),
+    },
   });
   const headers = leadgenNoStoreHeaders();
   if (sessionWasAbsent) headers.append("Set-Cookie", sessionCookie("ko_sid", sessionId));

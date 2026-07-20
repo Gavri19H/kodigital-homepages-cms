@@ -309,14 +309,27 @@ export class LgStateStore {
     return this.state.answers[internalField];
   }
 
+  // Shared answers walk: every entry, optionally skipping the hidden set
+  // (null = no skip), feeding each surviving {key, entry} pair to `fn` — the
+  // one loop shape answerValues/auctionAnswers/serialize each repeated.
+  private eachAnswer(
+    hiddenFields: ReadonlySet<string> | null,
+    fn: (key: string, entry: LgAnswerEntry) => void,
+  ): void {
+    for (const key of Object.keys(this.state.answers)) {
+      if (hiddenFields !== null && hiddenFields.has(key)) continue;
+      const entry = this.state.answers[key];
+      if (entry !== undefined) fn(key, entry);
+    }
+  }
+
   // The dependency/validation evaluation space: internal_field → raw value
   // (mirrors the server's normalized-answers map shape).
   answerValues(): Record<string, unknown> {
     const out: Record<string, unknown> = {};
-    for (const key of Object.keys(this.state.answers)) {
-      const entry = this.state.answers[key];
-      if (entry !== undefined) out[key] = entry.value;
-    }
+    this.eachAnswer(null, (key, entry) => {
+      out[key] = entry.value;
+    });
     return out;
   }
 
@@ -327,11 +340,9 @@ export class LgStateStore {
     hiddenFields: ReadonlySet<string>,
   ): Record<string, { value: unknown; answer_source: LgAnswerSource }> {
     const out: Record<string, { value: unknown; answer_source: LgAnswerSource }> = {};
-    for (const key of Object.keys(this.state.answers)) {
-      if (hiddenFields.has(key)) continue;
-      const entry = this.state.answers[key];
-      if (entry !== undefined) out[key] = { value: entry.value, answer_source: entry.answer_source };
-    }
+    this.eachAnswer(hiddenFields, (key, entry) => {
+      out[key] = { value: entry.value, answer_source: entry.answer_source };
+    });
     return out;
   }
 
@@ -359,11 +370,9 @@ export class LgStateStore {
   // stay in memory only.
   serialize(hiddenFields: ReadonlySet<string>): string {
     const answers: Record<string, LgAnswerEntry> = {};
-    for (const key of Object.keys(this.state.answers)) {
-      if (hiddenFields.has(key)) continue;
-      const entry = this.state.answers[key];
-      if (entry !== undefined) answers[key] = entry;
-    }
+    this.eachAnswer(hiddenFields, (key, entry) => {
+      answers[key] = entry;
+    });
     const snapshot: LgPersistedSnapshot = {
       v: 1,
       tuple: this.tuple,

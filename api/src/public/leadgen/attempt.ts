@@ -16,7 +16,18 @@
 // v2.4 05 §5.3 — the R9 v2 extension), plus non-tuple DATA fields:
 //   { funnel_variant_id, section_order_hash, content_version,
 //     funnel_attempt_id, session_id, answer_mapping_hash,
-//     auction_config_version, landing_url }
+//     auction_config_version, landing_url, page_plan_hash }
+// `page_plan_hash` (Round-4 P3a, D-3 pages model) is a SECOND non-tuple DATA
+// field, additive exactly like `landing_url`: the per-attempt RESOLVED page
+// plan's digest (resolver.ts resolvePagePlan -- rules-first over ENTRY-KNOWN
+// attributes, else session-sticky slot A/B). It rides the SAME HMAC as the
+// rest of the payload (integrity-proven, never separately signed) and is
+// decoded/compared at /lg/auction (auction/engine.ts validateAntiTamper)
+// against a FRESH server recomputation -- the SAME "recompute server-side,
+// compare" discipline every other v2 field already uses. DUAL-ACCEPT is
+// automatic: an in-flight token minted before this deploy carries no
+// `page_plan_hash` key, decodes to "" (the landing_url absent-pattern), and
+// the auction-side check SKIPS entirely on an empty decoded hash.
 // `landing_url` is the 04 §4.2 ATTEMPT-CONTEXT carrier: the funnel page's
 // ORIGINAL URL (from /lg/attempt's `u` query param, same-origin Referer
 // fallback). The token IS the attempt-context store — no new tables. The
@@ -50,6 +61,11 @@ import { ulid } from "../../leadgen/ids";
 import { sha256Hex } from "./auction/parse";
 import type { ResolvedActivatedFunnel } from "./resolver";
 import { computeSectionOrderHash } from "./config-dto";
+import {
+  resolvePagePlan,
+  type EntryKnownContext,
+  type ResolvedSlotWinner,
+} from "./resolver";
 
 export const LEADGEN_CONFIG_SIGNING_KEY_NAME = "LEADGEN_CONFIG_SIGNING_KEY";
 // Dated deploy-grace flag (05 §5.3): v1 tokens verify only while this env var
@@ -85,6 +101,20 @@ type ConfigTokenTupleV1 = Pick<
 export interface FunnelAttempt {
   funnel_attempt_id: string;
   signed_config_token: string;
+  // Round-4 P3a: the P2a-promised ctx echo (closes that seam — the engine
+  // already parses it tolerantly). Present only when the caller supplied
+  // state/device; a caller without them (unit harnesses, the dead legacy
+  // serve.ts handler) omits it — byte-identical to pre-P3a for those callers.
+  ctx?: { state?: string; device?: string };
+  // Round-4 P3a: the resolved page plan, PLAINTEXT (its hash — not the plan
+  // itself — is what rides inside signed_config_token; see serializePayload)
+  // so the client engine can navigate by PAGE without ever decoding the
+  // opaque token. FLAT (per-slot winners, in page/slot order) rather than
+  // resolver.ts's nested ResolvedPagePlanEntry shape: the engine needs BOTH
+  // the page grouping (page_id, first-seen order == page order) AND the
+  // per-section slot_id/assignment_reason (analytics dims) in ONE structure.
+  // Present only when `resolved.pages` was supplied.
+  page_plan?: ResolvedSlotWinner[];
 }
 
 // Request-derived attempt context threaded by the /lg/attempt route (04 §4.2):
@@ -94,6 +124,10 @@ export interface FunnelAttempt {
 export interface MintAttemptContext {
   session_id?: string;
   landing_url?: string;
+  // Round-4 P3a: entry-known signals for slot-rule/A-B plan resolution + the
+  // ctx echo (state/device only — hour/weekday are resolution-internal, not
+  // echoed). hour/weekday default to `now`'s UTC clock when omitted.
+  entry_ctx?: Partial<EntryKnownContext>;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,9 +175,9 @@ export function timingSafeEqualBytes(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 // Canonical payload serialization — FIXED key order so mint + any re-sign
-// produce byte-identical payloads. The non-tuple `landing_url` DATA field
-// (04 §4.2 attempt context) rides LAST, inside the signed bytes.
-function serializePayload(tuple: ConfigTokenTuple, landingUrl: string): Uint8Array {
+// produce byte-identical payloads. The non-tuple `landing_url` + (Round-4
+// P3a) `page_plan_hash` DATA fields ride LAST, inside the signed bytes.
+function serializePayload(tuple: ConfigTokenTuple, landingUrl: string, pagePlanHash: string): Uint8Array {
   const json = JSON.stringify({
     funnel_variant_id: tuple.funnel_variant_id,
     section_order_hash: tuple.section_order_hash,
@@ -153,6 +187,7 @@ function serializePayload(tuple: ConfigTokenTuple, landingUrl: string): Uint8Arr
     answer_mapping_hash: tuple.answer_mapping_hash,
     auction_config_version: tuple.auction_config_version,
     landing_url: landingUrl,
+    page_plan_hash: pagePlanHash,
   });
   return new TextEncoder().encode(json);
 }
@@ -247,8 +282,9 @@ async function buildToken(
   secret: string | undefined,
   tuple: ConfigTokenTuple,
   landingUrl: string,
+  pagePlanHash: string,
 ): Promise<string> {
-  const payload = serializePayload(tuple, landingUrl);
+  const payload = serializePayload(tuple, landingUrl, pagePlanHash);
   const payloadSeg = base64UrlEncode(payload);
   if (secret === undefined) {
     return `${UNSIGNED_SCHEME}.${payloadSeg}`;
@@ -278,23 +314,53 @@ export async function mintFunnelAttempt(
   const secret = readEnvSecret(env, LEADGEN_CONFIG_SIGNING_KEY_NAME);
   const funnel_attempt_id = mintFunnelAttemptId(now);
   const extras = await computeAttemptBindingExtras(env, resolved);
+  const sessionId = ctx?.session_id ?? "";
+
+  // Round-4 P3a: resolve the per-attempt page plan ONCE, server-side (rules
+  // first over entry-known attributes, else session-sticky slot A/B — see
+  // resolver.ts resolvePagePlan). `resolved.pages` absent (a hand-built
+  // minimal bundle — auctions-handlers.ts dry-run, several test fixtures)
+  // skips this whole leg: no page_plan_hash, no ctx echo, no page_plan field
+  // — byte-identical to pre-P3a for those callers.
+  let pagePlanHash = "";
+  let pagePlan: ResolvedSlotWinner[] | undefined;
+  if (resolved.pages !== undefined) {
+    const entryCtx: EntryKnownContext = {
+      hour: new Date(now).getUTCHours(),
+      weekday: new Date(now).getUTCDay(),
+      ...ctx?.entry_ctx,
+    };
+    const resolved_plan = resolvePagePlan(resolved.pages, entryCtx, sessionId);
+    pagePlanHash = resolved_plan.hash;
+    pagePlan = resolved_plan.winners;
+  }
+
   const tuple: ConfigTokenTuple = {
     funnel_variant_id: resolved.variant.public_id,
     section_order_hash: computeSectionOrderHash(resolved),
     content_version: resolved.variant.content_version,
     funnel_attempt_id,
-    session_id: ctx?.session_id ?? "",
+    session_id: sessionId,
     answer_mapping_hash: extras.answer_mapping_hash,
     auction_config_version: extras.auction_config_version,
   };
-  const signed_config_token = await buildToken(secret, tuple, ctx?.landing_url ?? "");
-  return { funnel_attempt_id, signed_config_token };
+  const signed_config_token = await buildToken(secret, tuple, ctx?.landing_url ?? "", pagePlanHash);
+  const result: FunnelAttempt = { funnel_attempt_id, signed_config_token };
+  const ctxState = ctx?.entry_ctx?.state;
+  const ctxDevice = ctx?.entry_ctx?.device;
+  if (ctxState !== undefined || ctxDevice !== undefined) {
+    result.ctx = { ...(ctxState !== undefined ? { state: ctxState } : {}), ...(ctxDevice !== undefined ? { device: ctxDevice } : {}) };
+  }
+  if (pagePlan !== undefined) result.page_plan = pagePlan;
+  return result;
 }
 
-// The decoded signed payload: the v2 tuple + the landing_url data field.
+// The decoded signed payload: the v2 tuple + the landing_url + (Round-4 P3a)
+// page_plan_hash data fields.
 interface DecodedPayloadV2 {
   tuple: ConfigTokenTuple;
   landing_url: string;
+  page_plan_hash: string;
 }
 
 function decodePayloadJson(payloadSeg: string): Record<string, unknown> | null {
@@ -336,6 +402,9 @@ function decodeTupleV2(payloadSeg: string): DecodedPayloadV2 | null {
       auction_config_version: p["auction_config_version"],
     },
     landing_url: typeof p["landing_url"] === "string" ? p["landing_url"] : "",
+    // Absent on a pre-P3a-deploy in-flight token -> "" (the dual-accept
+    // window: the auction-side equality check skips entirely on "").
+    page_plan_hash: typeof p["page_plan_hash"] === "string" ? p["page_plan_hash"] : "",
   };
 }
 
@@ -392,9 +461,12 @@ export interface ConfigTokenVerification {
   // The VERIFIED attempt-context landing URL (04 §4.2) — "" on failure, on a
   // v1 grace token (v1 carries no attempt context), and when the mint had none.
   landing_url: string;
+  // Round-4 P3a: the VERIFIED page_plan_hash — "" on failure, on a v1 grace
+  // token, and on a pre-P3a-deploy in-flight v2 token (dual-accept).
+  page_plan_hash: string;
 }
 
-const VERIFY_FAIL: ConfigTokenVerification = { ok: false, landing_url: "" };
+const VERIFY_FAIL: ConfigTokenVerification = { ok: false, landing_url: "", page_plan_hash: "" };
 
 // Verify a token against the EXACT expected v2 tuple and return the verified
 // attempt-context payload (the auction path reads `landing_url` from HERE —
@@ -429,7 +501,7 @@ export async function verifyConfigTokenDetailed(
     if (secret !== undefined) return VERIFY_FAIL; // production never accepts unsigned
     const decoded = decodeTupleV2(parts[1]!);
     if (decoded === null || !tupleEqualsV2(decoded.tuple, expectedTuple)) return VERIFY_FAIL;
-    return { ok: true, landing_url: decoded.landing_url };
+    return { ok: true, landing_url: decoded.landing_url, page_plan_hash: decoded.page_plan_hash };
   }
 
   if (parts[0] === SIGNED_SCHEME || parts[0] === LEGACY_SIGNED_SCHEME) {
@@ -452,11 +524,11 @@ export async function verifyConfigTokenDetailed(
     if (isLegacy) {
       const decoded = decodeTupleV1(payloadSeg);
       if (decoded === null || !tupleEqualsV1(decoded, expectedTuple)) return VERIFY_FAIL;
-      return { ok: true, landing_url: "" }; // v1 carries no attempt context
+      return { ok: true, landing_url: "", page_plan_hash: "" }; // v1 carries no attempt context
     }
     const decoded = decodeTupleV2(payloadSeg);
     if (decoded === null || !tupleEqualsV2(decoded.tuple, expectedTuple)) return VERIFY_FAIL;
-    return { ok: true, landing_url: decoded.landing_url };
+    return { ok: true, landing_url: decoded.landing_url, page_plan_hash: decoded.page_plan_hash };
   }
 
   return VERIFY_FAIL;

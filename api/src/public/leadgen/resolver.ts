@@ -30,14 +30,23 @@ import type {
   LeadgenFunnelVariantRow,
   LeadgenFunnelAbTestRow,
   LeadgenSectionRow,
+  LeadgenRuleConditions,
 } from "../../admin/leadgen/db-types";
 import {
   assignVariant,
   singleControlAssignment,
+  pickVariantByBucket,
+  abBucket,
   type LeadgenAssignmentReason,
 } from "./ab-hash";
 import { isFunnelVariantId } from "../../leadgen/funnel";
 import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
+// Round-4 P3a (D-3 pages model): slot RULES reuse the EXISTING §21.4
+// composed-group evaluator (07 §21.4; the same one funnel offer/carrier
+// rules already share) so a slot rule and a future P4 routing rule can never
+// diverge on operator meaning. Read-only reuse — this module is not edited.
+import { conditionsMatch } from "../../leadgen/auction-rules";
+import { sha256Hex } from "./auction/parse";
 
 // One ordered section of the resolved variant (position + the full section
 // row). Ordered ascending by position; the auction runs after the MAX position
@@ -45,6 +54,98 @@ import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
 export interface ResolvedFunnelSection {
   position: number;
   section: LeadgenSectionRow;
+}
+
+// ---------------------------------------------------------------------------
+// Round-4 P3a (D-3, FULL pages model) — page/slot resolution
+// ---------------------------------------------------------------------------
+//
+// A page holds >=1 ordered SLOTS; each slot resolves to exactly ONE candidate
+// section per attempt: "fixed" (its one candidate), "slot_rule" (ENTRY-KNOWN
+// conditions pick a case, else the slot's default), or "slot_ab" (session-
+// sticky hash over its bp allocations). `sections` on ResolvedActivatedFunnel
+// stays the FULL, session-INDEPENDENT candidate catalog (every candidate of
+// every slot) — this is what the visitor-invariant cacheable shell/config
+// need (every candidate ships server-rendered, hidden until the attempt-time
+// plan reveals the winner); it is what section_order_hash/answer_mapping_hash
+// already hash today, so those anti-tamper legs need ZERO changes. The
+// SESSION-DEPENDENT resolved plan (which candidate won each slot) is a
+// SEPARATE, additive concept — resolvePagePlan below — computed once per
+// attempt (never at shell-serve time) and carried by the signed
+// `page_plan_hash` (attempt.ts), never by the cacheable config.
+
+// Entry-known field registry for slot RULES (roast MAJOR-4): conditions may
+// reference ONLY these — never an answer `internal_field`. `utm_campaign` is
+// NOT part of this system's macro vocabulary (utm_source/utm_medium/
+// utm_content are the established 3, e.g. ab-hash.ts/runtime-context.ts/
+// leadgen-events.ts) — `utm_content` is used here in its place (documented
+// substitution; the operator's "UTM source/medium/campaign" phrasing maps
+// onto this codebase's actual 3-dim UTM taxonomy).
+export const ENTRY_KNOWN_SLOT_FIELDS: ReadonlySet<string> = new Set([
+  "state",
+  "device",
+  "utm_source",
+  "utm_medium",
+  "utm_content",
+  "hour",
+  "weekday",
+]);
+
+// Save-time validator (quotes-handlers.ts) — rejects any slot-rule condition
+// field outside ENTRY_KNOWN_SLOT_FIELDS with the plain-language guidance the
+// dispatch mandates. Pure; never throws.
+export function validateSlotRuleFieldScope(conditions: LeadgenRuleConditions): string | null {
+  for (const group of conditions.groups ?? []) {
+    if (!ENTRY_KNOWN_SLOT_FIELDS.has(group.field)) {
+      return "answer-based visibility lives on the section's own show/hide rules";
+    }
+  }
+  return null;
+}
+
+// One ruled-slot case: entry-known conditions -> the section that wins when
+// they match. Cases evaluate in array order; the first match wins.
+export interface SlotRuleCase {
+  conditions: LeadgenRuleConditions;
+  section_id: number;
+}
+
+// A ruled slot ALWAYS resolves (every slot must produce exactly one winner):
+// default_section_id is REQUIRED (validated at save) for a slot carrying
+// rules_json.
+export interface SlotRules {
+  cases: SlotRuleCase[];
+  default_section_id: number;
+}
+
+export interface SlotAbAllocation {
+  section_id: number;
+  bp: number; // Sigma across a slot's allocations == 10000 (validated at save)
+}
+
+export interface ResolvedPageSlotCandidate {
+  variant_section_id: number;
+  section: LeadgenSectionRow;
+}
+
+export interface ResolvedPageSlot {
+  // A REAL slot's DB id, or a synthetic negative sentinel for a pre-page-
+  // model row resolved on the fly (see loadVariantPages) — never a real id
+  // (leadgen_funnel_page_slots.id is an AUTOINCREMENT PK, always >= 1).
+  id: number;
+  position: number;
+  slot_revision: number;
+  rules: SlotRules | null;
+  ab_allocations: SlotAbAllocation[] | null;
+  candidates: ResolvedPageSlotCandidate[];
+}
+
+export interface ResolvedFunnelPage {
+  id: number;
+  public_id: string;
+  position: number;
+  name: string | null;
+  slots: ResolvedPageSlot[];
 }
 
 // The §16.3 tracking dims for the resolved variant, computed once by the
@@ -70,6 +171,16 @@ export interface ResolvedActivatedFunnel {
   funnel: LeadgenFunnelRow; // funnel.public_id is the stable lgf_ funnel_id
   variant: LeadgenFunnelVariantRow; // variant.public_id is the lgn_ funnel_variant_id (the ASSIGNED variant)
   sections: ResolvedFunnelSection[]; // ordered by position ASC
+  // Round-4 P3a (D-3): the variant's ordered pages -> ordered slots -> ALL
+  // candidate sections (session-independent; see the module-header note
+  // above `ResolvedFunnelSection`). Optional in the TYPE only (the
+  // site_branding precedent, same file): hand-built minimal bundles
+  // (admin/leadgen/auctions-handlers.ts's dry-run + several test fixtures)
+  // stay valid without this field; BOTH resolver functions below always
+  // populate it (real page/slot rows when the variant has them, else a
+  // synthetic 1-page/1-slot-per-row fallback — pre-P3a raw-seeded fixtures
+  // resolve byte-identically with no migration backfill of THEIR rows).
+  pages?: ResolvedFunnelPage[];
   // GA4 measurement id resolved from the activation's settings_overrides_json
   // (contract 08 §28 "measurement id from settings"); null when unset. Kept on
   // the resolved bundle so the pure config-dto builder needs no env access.
@@ -288,10 +399,10 @@ async function getActiveVariantsForFunnel(
 async function getOrderedVariantSections(
   db: D1Database,
   variantId: number,
-): Promise<ResolvedFunnelSection[]> {
+): Promise<(ResolvedFunnelSection & { variant_section_id: number })[]> {
   const result = await db
     .prepare(
-      `SELECT fvs.position AS position,
+      `SELECT fvs.id AS variant_section_id, fvs.position AS position,
               s.id AS id, s.public_id AS public_id, s.section_name AS section_name,
               s.activity AS activity, s.vertical AS vertical, s.headline_text AS headline_text,
               s.subheadline_text AS subheadline_text, s.image_json AS image_json,
@@ -306,12 +417,345 @@ async function getOrderedVariantSections(
        WHERE fvs.variant_id = ? ORDER BY fvs.position ASC`,
     )
     .bind(variantId)
-    .all<LeadgenSectionRow & { position: number }>();
+    .all<LeadgenSectionRow & { position: number; variant_section_id: number }>();
   const rows = result.results ?? [];
   return rows.map((r) => {
-    const { position, ...section } = r;
-    return { position, section: section as LeadgenSectionRow };
+    const { position, variant_section_id, ...section } = r;
+    return { position, variant_section_id, section: section as LeadgenSectionRow };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Round-4 P3a — page/slot loading (real rows, or a synthetic fallback)
+// ---------------------------------------------------------------------------
+
+// Dedicated JSON-object read (D1 JSON-parse safety): a corrupt/absent blob
+// yields null — never throws, degrades to "no rules"/"no allocations".
+function parseSlotRules(raw: string | null): SlotRules | null {
+  if (raw === null || raw.trim() === "") return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const cases = (parsed as { cases?: unknown }).cases;
+    const defaultId = (parsed as { default_section_id?: unknown }).default_section_id;
+    if (!Array.isArray(cases) || typeof defaultId !== "number") return null;
+    return { cases: cases as SlotRuleCase[], default_section_id: defaultId };
+  } catch {
+    return null;
+  }
+}
+
+function parseSlotAbAllocations(raw: string | null): SlotAbAllocation[] | null {
+  if (raw === null || raw.trim() === "") return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    return parsed as SlotAbAllocation[];
+  } catch {
+    return null;
+  }
+}
+
+// Real page + slot rows for a variant (leadgen_funnel_pages/_page_slots).
+async function loadRealPageRows(
+  db: D1Database,
+  variantId: number,
+): Promise<{ id: number; public_id: string; position: number; name: string | null }[]> {
+  const result = await db
+    .prepare(
+      `SELECT id, public_id, position, name FROM leadgen_funnel_pages
+       WHERE variant_id = ? ORDER BY position ASC`,
+    )
+    .bind(variantId)
+    .all<{ id: number; public_id: string; position: number; name: string | null }>();
+  return result.results ?? [];
+}
+
+async function loadRealSlotRows(
+  db: D1Database,
+  pageIds: readonly number[],
+): Promise<Map<number, { id: number; position: number; slot_revision: number; rules_json: string | null; ab_allocations_json: string | null }[]>> {
+  const byPage = new Map<
+    number,
+    { id: number; position: number; slot_revision: number; rules_json: string | null; ab_allocations_json: string | null }[]
+  >();
+  if (pageIds.length === 0) return byPage;
+  // Chunked IN(?) <= 80 (D1 100-binding rule).
+  for (let i = 0; i < pageIds.length; i += 80) {
+    const chunk = pageIds.slice(i, i + 80);
+    const marks = chunk.map(() => "?").join(",");
+    const result = await db
+      .prepare(
+        `SELECT id, page_id, position, slot_revision, rules_json, ab_allocations_json
+         FROM leadgen_funnel_page_slots WHERE page_id IN (${marks}) ORDER BY position ASC`,
+      )
+      .bind(...chunk)
+      .all<{
+        id: number;
+        page_id: number;
+        position: number;
+        slot_revision: number;
+        rules_json: string | null;
+        ab_allocations_json: string | null;
+      }>();
+    for (const row of result.results ?? []) {
+      const list = byPage.get(row.page_id) ?? [];
+      list.push(row);
+      byPage.set(row.page_id, list);
+    }
+  }
+  return byPage;
+}
+
+// Real candidate variant-section rows for a variant, keyed by their slot_id
+// (every row post-migration carries one; see loadVariantPages for the
+// pre-page-model fallback branch, which never calls this).
+async function loadRealCandidateRows(
+  db: D1Database,
+  variantId: number,
+): Promise<Map<number, ResolvedPageSlotCandidate[]>> {
+  const result = await db
+    .prepare(
+      `SELECT fvs.id AS variant_section_id, fvs.slot_id AS slot_id,
+              s.id AS id, s.public_id AS public_id, s.section_name AS section_name,
+              s.activity AS activity, s.vertical AS vertical, s.headline_text AS headline_text,
+              s.subheadline_text AS subheadline_text, s.image_json AS image_json,
+              s.content_json AS content_json, s.content_html AS content_html,
+              s.continue_mode AS continue_mode, s.design_overrides_json AS design_overrides_json,
+              s.address_validation_enabled AS address_validation_enabled,
+              s.section_mapping_version AS section_mapping_version, s.content_version AS content_version,
+              s.status AS status, s.created_by AS created_by, s.created_at AS created_at,
+              s.updated_at AS updated_at
+       FROM leadgen_funnel_variant_sections fvs
+       JOIN leadgen_sections s ON s.id = fvs.section_id
+       WHERE fvs.variant_id = ? AND fvs.slot_id IS NOT NULL
+       ORDER BY fvs.id ASC`,
+    )
+    .bind(variantId)
+    .all<LeadgenSectionRow & { variant_section_id: number; slot_id: number }>();
+  const bySlot = new Map<number, ResolvedPageSlotCandidate[]>();
+  for (const r of result.results ?? []) {
+    const { variant_section_id, slot_id, ...section } = r;
+    const list = bySlot.get(slot_id) ?? [];
+    list.push({ variant_section_id, section: section as LeadgenSectionRow });
+    bySlot.set(slot_id, list);
+  }
+  return bySlot;
+}
+
+// The variant's ordered pages -> ordered slots -> ALL candidate sections.
+// Real page/slot rows win when the variant has any (the common, post-P3a
+// path). NO real pages -> a SYNTHETIC 1-page/1-fixed-slot-per-row fallback,
+// mirroring the migration's own wrap logic in-memory: a variant whose rows
+// were seeded directly (bypassing quotes-handlers.ts — several pre-P3a test
+// fixtures do this) resolves byte-identically without needing a persisted
+// backfill for those specific rows. Synthetic slot ids are negative
+// sentinels (real leadgen_funnel_page_slots.id is an AUTOINCREMENT PK, >=1).
+export async function loadVariantPages(
+  db: D1Database,
+  variantId: number,
+): Promise<ResolvedFunnelPage[]> {
+  const realPages = await loadRealPageRows(db, variantId);
+  if (realPages.length === 0) {
+    const legacy = await getOrderedVariantSections(db, variantId);
+    return legacy.map((row, i) => ({
+      id: -(i + 1),
+      public_id: `lgpg_v${row.variant_section_id}`,
+      position: row.position,
+      name: null,
+      slots: [
+        {
+          id: -(i + 1),
+          position: 0,
+          slot_revision: 0,
+          rules: null,
+          ab_allocations: null,
+          candidates: [{ variant_section_id: row.variant_section_id, section: row.section }],
+        },
+      ],
+    }));
+  }
+
+  const slotsByPage = await loadRealSlotRows(
+    db,
+    realPages.map((p) => p.id),
+  );
+  const candidatesBySlot = await loadRealCandidateRows(db, variantId);
+
+  return realPages.map((p) => ({
+    id: p.id,
+    public_id: p.public_id,
+    position: p.position,
+    name: p.name,
+    slots: (slotsByPage.get(p.id) ?? []).map((s) => ({
+      id: s.id,
+      position: s.position,
+      slot_revision: s.slot_revision,
+      rules: parseSlotRules(s.rules_json),
+      ab_allocations: parseSlotAbAllocations(s.ab_allocations_json),
+      candidates: candidatesBySlot.get(s.id) ?? [],
+    })),
+  }));
+}
+
+// Flatten pages -> slots -> ALL candidates into the session-independent flat
+// list `ResolvedActivatedFunnel.sections` needs (config-dto/serve/auction
+// consumers — see the module-header note). Order: page.position, slot.
+// position, candidate insertion order (stable, DB `id ASC`).
+export function sectionsFromPages(pages: readonly ResolvedFunnelPage[]): ResolvedFunnelSection[] {
+  const out: ResolvedFunnelSection[] = [];
+  let position = 0;
+  for (const page of pages) {
+    for (const slot of page.slots) {
+      for (const candidate of slot.candidates) {
+        out.push({ position: position++, section: candidate.section });
+      }
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Round-4 P3a — per-attempt plan resolution (server-side, ONCE per attempt)
+// ---------------------------------------------------------------------------
+
+// The entry-known context a slot RULE or slot A/B hash may use. `hour`/
+// `weekday` are SERVER-clock (UTC) at resolution time — a DIFFERENT,
+// documented semantic from the client-side visitor-LOCAL __hour/__weekday
+// P2a added for CTA display rules (those evaluate per-render, client-side;
+// this evaluates ONCE, server-side, at plan-resolution time — dayparting for
+// WHICH SECTION SHOWS, not a live per-request UI toggle).
+export interface EntryKnownContext {
+  state?: string;
+  device?: string;
+  utm_source?: string;
+  utm_medium?: string;
+  utm_content?: string;
+  hour: number;
+  weekday: number;
+}
+
+export type SlotAssignmentReason = "fixed" | "slot_rule" | "slot_ab";
+
+export interface ResolvedSlotWinner {
+  page_id: string;
+  slot_id: number;
+  section_public_id: string;
+  assignment_reason: SlotAssignmentReason;
+}
+
+export interface ResolvedPagePlanEntry {
+  page_id: string;
+  section_public_ids: string[]; // this page's winning sections, in slot order
+}
+
+export interface ResolvedPagePlan {
+  pages: ResolvedPagePlanEntry[];
+  winners: ResolvedSlotWinner[]; // flat, for analytics/engine lookup by section_public_id
+  hash: string;
+}
+
+// Resolve ONE slot to its winning candidate. Never throws; a malformed/
+// inconsistent rules_json (e.g. an unknown default_section_id) degrades to
+// the slot's FIRST candidate (fail-safe — a slot must always resolve to
+// something rather than leave a page with a missing section).
+function resolveSlot(
+  page: ResolvedFunnelPage,
+  slot: ResolvedPageSlot,
+  ctx: EntryKnownContext,
+  sessionId: string,
+): { section_public_id: string; reason: SlotAssignmentReason } {
+  const byId = new Map(slot.candidates.map((c) => [c.section.id, c.section.public_id]));
+  const first = slot.candidates[0]?.section.public_id ?? "";
+
+  if (slot.rules !== null) {
+    const flatCtx: Record<string, unknown> = {
+      state: ctx.state ?? "",
+      device: ctx.device ?? "",
+      utm_source: ctx.utm_source ?? "",
+      utm_medium: ctx.utm_medium ?? "",
+      utm_content: ctx.utm_content ?? "",
+      hour: ctx.hour,
+      weekday: ctx.weekday,
+    };
+    for (const c of slot.rules.cases) {
+      if (conditionsMatch(c.conditions, flatCtx)) {
+        return { section_public_id: byId.get(c.section_id) ?? first, reason: "slot_rule" };
+      }
+    }
+    return { section_public_id: byId.get(slot.rules.default_section_id) ?? first, reason: "slot_rule" };
+  }
+
+  if (slot.ab_allocations !== null && slot.ab_allocations.length > 0) {
+    // Per-slot decorrelation (refines the dispatch's page_id:slot_revision:
+    // session_id shorthand — a page with TWO A/B slots at the same revision
+    // would otherwise draw the IDENTICAL bucket for both; slot.id makes each
+    // slot's hash independent, matching the stated "per-slot decorrelation"
+    // property literally).
+    const bucket = abBucket(`${page.public_id}:${slot.id}`, slot.slot_revision, sessionId);
+    const shims = slot.ab_allocations.map((a) => ({
+      variant_label: String(a.section_id),
+      traffic_allocation_bp: a.bp,
+    }));
+    const picked = pickVariantByBucket(bucket, shims);
+    const sectionId = Number(picked.variant_label);
+    return { section_public_id: byId.get(sectionId) ?? first, reason: "slot_ab" };
+  }
+
+  // Fixed slot (0 or 1 candidate — validated at save to be exactly 1).
+  return { section_public_id: first, reason: "fixed" };
+}
+
+// The FULL per-attempt resolution: every page's every slot resolved ONCE
+// (rules-first, else A/B, else fixed), producing the ordered page plan +
+// its deterministic hash (attempt.ts signs this hash into the token).
+export function resolvePagePlan(
+  pages: readonly ResolvedFunnelPage[],
+  ctx: EntryKnownContext,
+  sessionId: string,
+): ResolvedPagePlan {
+  const planPages: ResolvedPagePlanEntry[] = [];
+  const winners: ResolvedSlotWinner[] = [];
+  for (const page of pages) {
+    const sectionIds: string[] = [];
+    for (const slot of page.slots) {
+      if (slot.candidates.length === 0) continue; // an empty slot contributes nothing (defensive)
+      const { section_public_id, reason } = resolveSlot(page, slot, ctx, sessionId);
+      sectionIds.push(section_public_id);
+      winners.push({
+        page_id: page.public_id,
+        slot_id: slot.id,
+        section_public_id,
+        assignment_reason: reason,
+      });
+    }
+    planPages.push({ page_id: page.public_id, section_public_ids: sectionIds });
+  }
+  const hash = sha256Hex(
+    JSON.stringify(winners.map((w) => `${w.page_id}:${w.slot_id}:${w.section_public_id}`)),
+  );
+  return { pages: planPages, winners, hash };
+}
+
+// Parse utm_source/medium/content off a landing URL's query string — the
+// SAME 3-dim vocabulary the client's acquisitionParams(location.search) /
+// runtime-context.ts traffic slice already use. Malformed/absent -> {} (never
+// throws; a slot rule referencing an unparseable field just evaluates false).
+export function parseUtmFromLandingUrl(landingUrl: string): Pick<EntryKnownContext, "utm_source" | "utm_medium" | "utm_content"> {
+  if (landingUrl === "") return {};
+  try {
+    const params = new URL(landingUrl).searchParams;
+    const out: Pick<EntryKnownContext, "utm_source" | "utm_medium" | "utm_content"> = {};
+    const source = params.get("utm_source");
+    const medium = params.get("utm_medium");
+    const content = params.get("utm_content");
+    if (source !== null && source !== "") out.utm_source = source;
+    if (medium !== null && medium !== "") out.utm_medium = medium;
+    if (content !== null && content !== "") out.utm_content = content;
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 // Resolve the activated funnel for a site + optional quote slug (§17.2). Any
@@ -361,7 +805,8 @@ export async function resolveActivatedFunnel(
     assignment = singleControlAssignmentDims(control);
   }
 
-  const sections = await getOrderedVariantSections(db, variant.id);
+  const pages = await loadVariantPages(db, variant.id);
+  const sections = sectionsFromPages(pages);
 
   // §10.2: site branding rides the resolved bundle (this resolver runs on the
   // cache-miss serve path only — one extra read; never throws).
@@ -373,6 +818,7 @@ export async function resolveActivatedFunnel(
     funnel,
     variant,
     sections,
+    pages,
     ga4_measurement_id: readGa4MeasurementId(siteQuote.settings_overrides_json),
     assignment,
     site_branding: siteBranding,
@@ -438,7 +884,8 @@ export async function resolveActivatedFunnelByVariant(
     assignment = singleControlAssignmentDims(variant);
   }
 
-  const sections = await getOrderedVariantSections(db, variant.id);
+  const pages = await loadVariantPages(db, variant.id);
+  const sections = sectionsFromPages(pages);
 
   // §10.2: same branding field as resolveActivatedFunnel so preview/config/
   // attempt callers see one consistent bundle shape (never throws).
@@ -450,6 +897,7 @@ export async function resolveActivatedFunnelByVariant(
     funnel,
     variant,
     sections,
+    pages,
     ga4_measurement_id: readGa4MeasurementId(siteQuote.settings_overrides_json),
     assignment,
     site_branding: siteBranding,

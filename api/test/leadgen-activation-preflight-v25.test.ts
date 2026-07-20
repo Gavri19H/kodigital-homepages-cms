@@ -164,6 +164,7 @@ const LEADGEN_MIGRATIONS = [
   "0039_leadgen_conversion_dedupe.sql",
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql",
+  "0042_leadgen_pages.sql",
 ] as const;
 
 function createRuntimeDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {

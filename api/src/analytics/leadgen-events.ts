@@ -109,6 +109,18 @@ export interface LeadgenEvent {
   assignment_reason: string;
   funnel_attempt_id: string;
   section_order_hash: string;
+  // Round-4 P3a (D-3 pages model): the resolved page/slot dims for the
+  // CURRENT section's page (empty "" when the section belongs to no
+  // resolved plan — a pre-attempt/legacy event). `page_id` is the real
+  // lgpg_ public_id (or resolver.ts's synthetic lgpg_v<n> for a
+  // pre-page-model row); `slot_id` is the OWNING slot's plain internal id
+  // stringified (slots carry no public_id — ids.ts grant scope) so it rides
+  // a DIFFERENT id namespace than every other public_id-based dim here,
+  // documented; `slot_assignment_reason` is the SLOT-level pick (distinct
+  // from `assignment_reason` above, which is the funnel-level A/B reason).
+  page_id: string;
+  slot_id: string;
+  slot_assignment_reason: string; // "" | "fixed" | "slot_rule" | "slot_ab"
   // --- section / question (§22.2) ---
   section_id: string;
   section_name: string;
@@ -341,6 +353,9 @@ export function blankLeadgenEvent(eventType: string, now: number): LeadgenEvent 
     assignment_reason: "",
     funnel_attempt_id: "",
     section_order_hash: "",
+    page_id: "",
+    slot_id: "",
+    slot_assignment_reason: "",
     section_id: "",
     section_name: "",
     section_index: null,
@@ -534,6 +549,10 @@ export function leadgenEventFromPayload(
   e.assignment_reason = asString(payload["assignment_reason"]);
   e.funnel_attempt_id = asString(payload["funnel_attempt_id"]);
   e.section_order_hash = asString(payload["section_order_hash"]);
+  // Round-4 P3a
+  e.page_id = asString(payload["page_id"]);
+  e.slot_id = asString(payload["slot_id"]);
+  e.slot_assignment_reason = asString(payload["slot_assignment_reason"]);
   // section / question
   e.section_id = asString(payload["section_id"]);
   e.section_name = asString(payload["section_name"]);

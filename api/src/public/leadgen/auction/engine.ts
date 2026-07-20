@@ -465,6 +465,7 @@ export type AntiTamperVerdict =
 // The pre-v2 NON-crypto equality checks (client-sent answer_mapping_versions
 // array vs section_mapping_version; client-sent auction_config_version) are
 // KEPT additively below.
+
 export async function validateAntiTamper(
   env: Env,
   resolved: ResolvedActivatedFunnel,
@@ -501,6 +502,25 @@ export async function validateAntiTamper(
   // deploy can never silently void anti-tamper.
   const verification = await verifyConfigTokenDetailed(env, input.signed_config_token, tuple, { requireSigned: true });
   if (!verification.ok) return { ok: false, reason: "signed_token_invalid" };
+  // Round-4 P3a review round (adversarial MAJOR-1, 2026-07-20): there is
+  // DELIBERATELY no further check on verification.page_plan_hash here. An
+  // earlier revision of this function RE-RESOLVED the plan (fresh
+  // resolvePagePlan over the auction-verify-time resolved.pages) and
+  // rejected on any hash drift, reasoning it was "a documented, narrow,
+  // retry-absorbed volatility." The reviewer PROVED that framing wrong with
+  // concrete repros: an hour-boundary dayparting rule, geo drift between
+  // mint and verify, and a mid-session slot_revision edit ALL flip the fresh
+  // recomputation's winner relative to what was minted — none of those are
+  // tampering, and the false rejection cost real, legitimate conversions.
+  // The check ALSO added zero anti-tamper value: page_plan_hash rides
+  // inside the SAME signed tuple verifyConfigTokenDetailed already
+  // cryptographically validated above, so a forged hash is caught by
+  // signed_token_invalid regardless (leadgen-auction-runtime.test.ts's
+  // page-model describeDb block, item (b), pins this). The minted plan is
+  // authoritative for the attempt's entire lifetime — a visitor's funnel
+  // does not reshuffle mid-attempt just because the clock crossed an hour
+  // boundary or an operator edited an unrelated slot — so removing the
+  // re-resolution is the CORRECT product semantics, not a relaxed gate.
 
   // (d) answer_mapping_version(s) -- reconcile against the resolved sections
   // (order-sensitive) when the client sends them.

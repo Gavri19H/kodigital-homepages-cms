@@ -43,6 +43,15 @@ export interface LgSectionValidationFailure extends LgValidationFailure {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 // Server parity (leadgen/maps.ts ZIP_RE): exactly 5 digits.
 const ZIP_RE = /^\d{5}$/;
+// Shared "empty required field" copy — one literal, two emit sites
+// (validateValue + validateSection group-required); byte-identical to before.
+const REQUIRED_MSG = "This field is required.";
+
+// The lowercased "type answer_type" token both format detectors match on —
+// one template literal instead of two identical inline copies.
+function typeToken(component: LgComponentConfig): string {
+  return `${component.type} ${component.answer_type ?? ""}`.toLowerCase();
+}
 
 function asFiniteNumber(v: unknown): number | null {
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
@@ -65,7 +74,7 @@ function ruleNumber(cv: Record<string, unknown>, key: string): number | null {
 export type LgFormatKind = "email" | "phone" | "zip" | null;
 
 export function formatKindFor(component: LgComponentConfig): LgFormatKind {
-  const type = `${component.type} ${component.answer_type ?? ""}`.toLowerCase();
+  const type = typeToken(component);
   if (type.indexOf("email") !== -1) return "email";
   if (type.indexOf("phone") !== -1 || type.indexOf("tel") !== -1) return "phone";
   if (type.indexOf("zip") !== -1 || type.indexOf("postal") !== -1) return "zip";
@@ -76,7 +85,7 @@ export function formatKindFor(component: LgComponentConfig): LgFormatKind {
 // min/max (config-dto resolved any dynamic token server-side), so the client
 // gate is a pure lexical ISO compare — no token grammar ships in the bundle.
 function isDateComponent(component: LgComponentConfig): boolean {
-  return `${component.type} ${component.answer_type ?? ""}`.toLowerCase().indexOf("date") !== -1;
+  return typeToken(component).indexOf("date") !== -1;
 }
 
 // PC-A2 (P4b): the sub-field internal_fields a multi-subfield group contributes
@@ -210,7 +219,7 @@ export function validateValue(
 
   const required = requiredNow || cv["required"] === true || component.required === true;
   if (!isAnswered(value)) {
-    if (required) out.push({ code: "required", message: "This field is required." });
+    if (required) out.push({ code: "required", message: REQUIRED_MSG });
     return out; // nothing else to validate on an empty answer
   }
 
@@ -359,7 +368,7 @@ export function validateSection(
         if (required && subs.some((f) => !isAnswered(answers[f]))) {
           out.push({
             code: "required",
-            message: "This field is required.",
+            message: REQUIRED_MSG,
             question_id: component.question_id,
             internal_field: component.question_id,
           });

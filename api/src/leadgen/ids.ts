@@ -30,6 +30,11 @@ export const PUBLIC_ID_PREFIXES = {
   auction: "lga_",
   auction_rule: "lgar_",
   link_click: "lgl_",
+  // Round-4 P3a (D-3 pages model): a Funnel Variant's page container. Slots
+  // (leadgen_funnel_page_slots) carry no public id -- addressed by their
+  // plain integer id, the same convention target_offer_id/target_section_id
+  // already use on leadgen_funnel_rules.
+  funnel_page: "lgpg_",
 } as const;
 
 export type PublicIdKind = keyof typeof PUBLIC_ID_PREFIXES;
@@ -80,9 +85,9 @@ export function ulid(now: number = Date.now()): string {
   return encodeTime(now) + encodeRandom();
 }
 
-// Mint a prefixed public id for one of the fourteen leadgen entity kinds:
-// lgo_ lgpl_ lgp_ lgrr_ lgs_ lgm_ lgq_ lgf_ lgx_ lgn_ lgfr_ lga_ lgar_ lgl_
-// (contract 02 §6.1 + §6.3).
+// Mint a prefixed public id for one of the fifteen leadgen entity kinds:
+// lgo_ lgpl_ lgp_ lgrr_ lgs_ lgm_ lgq_ lgf_ lgx_ lgn_ lgfr_ lga_ lgar_ lgl_ lgpg_
+// (contract 02 §6.1 + §6.3; lgpg_ added round4 P3a, D-3 pages model).
 export function mintPublicId(kind: PublicIdKind, now: number = Date.now()): string {
   return PUBLIC_ID_PREFIXES[kind] + ulid(now);
 }
