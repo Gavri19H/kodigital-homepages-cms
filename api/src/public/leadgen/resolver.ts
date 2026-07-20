@@ -905,6 +905,14 @@ export function parseRoutingRule(row: RoutingRuleRow): ParsedRoutingRule {
 // rather than 500 the ENTIRE funnel shell for every visitor. Fail-safe, never
 // fail-closed here: an unreadable rule set is NOT a security concern (it can
 // only ever suppress a routing effect, never fabricate one).
+//
+// `enabled = 1 AND status != 'disabled'` — TWO independently-writable "is
+// this rule on" signals (enabled: 0036 legacy INTEGER; status: 0043 additive
+// TEXT), unified the same way as the auction-layer §19-step-4 SELECT
+// (auction/engine.ts). The admin save path can leave `enabled` at its
+// stale/default value while the rules-builder UI's Disable/Enable button
+// writes ONLY {status} — so a rule must be affirmatively on by BOTH to
+// route; either axis being "off" excludes it.
 export async function loadRoutingRules(db: D1Database, variantId: number): Promise<ParsedRoutingRule[]> {
   try {
     const res = await db
@@ -912,7 +920,7 @@ export async function loadRoutingRules(db: D1Database, variantId: number): Promi
         `SELECT public_id, variant_id, conditions_json, conditions_hash,
                 target_funnel_variant_id, value_multiplier, priority, status, match_mode
          FROM leadgen_funnel_rules
-         WHERE variant_id = ? AND rule_type = 'route_funnel_variant' AND status = 'active'
+         WHERE variant_id = ? AND rule_type = 'route_funnel_variant' AND enabled = 1 AND status != 'disabled'
          ORDER BY priority ASC, id ASC`,
       )
       .bind(variantId)

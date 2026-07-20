@@ -1133,6 +1133,193 @@ describeDb("P4a §19-step-4 plane reconciliation", () => {
 });
 
 // ===========================================================================
+// redirect_pct WIRED at the auction layer (auction/engine.ts step 4, granted
+// extension) + rule-status/enabled coherence (both evaluation planes)
+// ===========================================================================
+
+interface FullAttempt {
+  funnel_attempt_id: string;
+  signed_config_token: string;
+  session_id: string;
+  content_version: number;
+  section_order_hash: string;
+}
+
+// Mints a REAL, fully-signed attempt via the real /lg/attempt route —
+// optionally pinning session_id via the ko_sid cookie the route reads first
+// (m2: readCookie(...) wins over minting a fresh one), so a redirect_pct
+// sticky-split test can drive MANY distinct sessions. mintFunnelAttempt's OWN
+// return shape is deliberately narrow ({funnel_attempt_id, signed_config_token,
+// ...}) — content_version/section_order_hash are NEVER echoed there (they
+// live only inside the signed token's payload; a real browser reads them from
+// the /lg SHELL's config instead). /lg/auction's anti-tamper recomputes its
+// expected section_order_hash from a FRESH resolveActivatedFunnelByVariant —
+// so this helper derives the SAME two values the SAME way, rather than
+// (wrongly) expecting the mint response to carry them.
+async function mintFullAttempt(env: Env, variantId: string, sessionId?: string): Promise<FullAttempt> {
+  const headers: Record<string, string> = sessionId !== undefined ? { Cookie: `ko_sid=${sessionId}` } : {};
+  const res = await app.request(`${TENANT_ORIGIN}/lg/attempt?vid=${variantId}`, { headers }, env);
+  expect(res.status, `mint full attempt: ${await res.clone().text()}`).toBe(200);
+  const body = (await res.json()) as { funnel_attempt_id: string; signed_config_token: string; session_id: string };
+  const resolved = await resolveActivatedFunnelByVariant(env, "site-1", variantId);
+  if (resolved === null) throw new Error(`mintFullAttempt: variant ${variantId} did not resolve`);
+  return {
+    funnel_attempt_id: body.funnel_attempt_id,
+    signed_config_token: body.signed_config_token,
+    session_id: body.session_id,
+    content_version: resolved.variant.content_version,
+    section_order_hash: computeSectionOrderHash(resolved),
+  };
+}
+
+// Drives the REAL, untouched /lg/auction endpoint (serve-auction.ts ->
+// runAuction) with a validly-signed attempt — the actual runtime path a
+// browser's engine takes, not a hand-built AuctionBundle.
+async function postAuction(env: Env, variantId: string, a: FullAttempt): Promise<{ status: string }> {
+  const res = await post(env, "/lg/auction", {
+    funnel_variant_id: variantId,
+    funnel_attempt_id: a.funnel_attempt_id,
+    signed_config_token: a.signed_config_token,
+    content_version: a.content_version,
+    section_order_hash: a.section_order_hash,
+    session_id: a.session_id,
+    answers: {},
+  });
+  expect(res.status, `auction: ${await res.clone().text()}`).not.toBe(404);
+  return (await res.json()) as { status: string };
+}
+
+// A fresh seedQuote() variant has auction_id=NULL — serve-auction.ts short-
+// circuits to status:"no_auction" BEFORE step 4 (funnel rules) ever runs.
+// Minimal §19 auction row (leadgen-auction-runtime.test.ts's seedAuction
+// column set) + link it onto the variant so runAuction's step 4 is actually
+// reached. No offers needed: a redirect_direct_offer match returns at step 4,
+// before step 5 (offer participation) is ever evaluated.
+function seedMinimalAuction(sdb: SqliteDb, variantRowId: number): void {
+  const publicId = mintPublicId("auction");
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_auctions
+         (public_id, auction_name, auction_type, winner_logic, floor_type, floor_value, multi_offer,
+          surface_static_bid_offers, banner_slots_count, max_carriers_per_offer, max_total_carriers,
+          backfill, backfill_trigger, remove_clicked_offers, removal_scope, timeout_ms, carrier_normalization_version, status)
+       VALUES (?, 'P4a redirect_pct test auction', 'dynamic', 'highest_bid', 'percentage_of_max', 10, 'enabled',
+               1, 5, 3, 10, 'disabled', 'on_slot_exhaustion', 0, 'offer', 2500, 1, 'active')`,
+    )
+    .run(publicId);
+  const auctionRowId = (sdb.prepare("SELECT id FROM leadgen_auctions WHERE public_id = ?").get(publicId) as { id: number }).id;
+  sdb.prepare("UPDATE leadgen_funnel_variants SET auction_id = ? WHERE id = ?").run(auctionRowId, variantRowId);
+}
+
+// Raw-SQL §15.5 redirect_direct_offer rule seeding, matching ALL traffic
+// (empty conditions groups) — isolates the redirect_pct gate as the ONLY
+// variable under test. enabled/status default to the coherent "on" state;
+// callers exercising the coherence fix override them explicitly.
+function seedRedirectRule(sdb: SqliteDb, variantId: number, opts: { pct?: number | null; enabled?: number; status?: string }): void {
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_rules
+         (public_id, variant_id, rule_type, conditions_json, conditions_hash, priority, enabled, status, redirect_pct)
+       VALUES (?, ?, 'redirect_direct_offer', '{"groups":[]}', ?, 1, ?, ?, ?)`,
+    )
+    .run(mintPublicId("funnel_rule"), variantId, `h_${Math.random()}`, opts.enabled ?? 1, opts.status ?? "active", opts.pct ?? null);
+}
+
+describeDb("P4a redirect_pct WIRED at the auction layer (real /lg/auction -> runAuction -> step 4)", () => {
+  it("pct=0 NEVER redirects", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId } = await seedQuote(env);
+    await activate(env, quotePublicId);
+    const rowId = variantRowId(sdb, variantId);
+    seedMinimalAuction(sdb, rowId);
+    seedRedirectRule(sdb, rowId, { pct: 0 });
+    const result = await postAuction(env, variantId, await mintFullAttempt(env, variantId));
+    expect(result.status).not.toBe("redirect");
+  });
+
+  it("NULL redirect_pct (every rule before an operator ever sets it) NEVER redirects — contract `?? 0`", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId } = await seedQuote(env);
+    await activate(env, quotePublicId);
+    const rowId = variantRowId(sdb, variantId);
+    seedMinimalAuction(sdb, rowId);
+    seedRedirectRule(sdb, rowId, { pct: null });
+    const result = await postAuction(env, variantId, await mintFullAttempt(env, variantId));
+    expect(result.status).not.toBe("redirect");
+  });
+
+  it("pct=100 ALWAYS redirects", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId } = await seedQuote(env);
+    await activate(env, quotePublicId);
+    const rowId = variantRowId(sdb, variantId);
+    seedMinimalAuction(sdb, rowId);
+    seedRedirectRule(sdb, rowId, { pct: 100 });
+    const result = await postAuction(env, variantId, await mintFullAttempt(env, variantId));
+    expect(result.status).toBe("redirect");
+  });
+
+  it("pct=50 is session-sticky across MANY distinct sessions (roughly half redirect) through the REAL HTTP+D1 path", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId } = await seedQuote(env);
+    await activate(env, quotePublicId);
+    const rowId = variantRowId(sdb, variantId);
+    seedMinimalAuction(sdb, rowId);
+    seedRedirectRule(sdb, rowId, { pct: 50 });
+    let redirected = 0;
+    const total = 40; // bounded — real HTTP+D1 round-trips, not a pure-function loop
+    for (let i = 0; i < total; i++) {
+      const a = await mintFullAttempt(env, variantId, `auction-sticky-${i}`);
+      const result = await postAuction(env, variantId, a);
+      if (result.status === "redirect") redirected++;
+    }
+    expect(redirected).toBeGreaterThan(0);
+    expect(redirected).toBeLessThan(total);
+  });
+});
+
+describeDb("P4a rule status/enabled coherence (fix round: enabled=1 AND status!='disabled' unified across both planes)", () => {
+  it("a status='disabled' redirect_direct_offer rule (enabled=1 stale, the EXACT shape the ui-rules-builder.ts Disable button produces) NEVER fires at auction", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId } = await seedQuote(env);
+    await activate(env, quotePublicId);
+    const rowId = variantRowId(sdb, variantId);
+    seedMinimalAuction(sdb, rowId);
+    seedRedirectRule(sdb, rowId, { pct: 100, enabled: 1, status: "disabled" });
+    const result = await postAuction(env, variantId, await mintFullAttempt(env, variantId));
+    expect(result.status).not.toBe("redirect");
+  });
+
+  it("an enabled=0 (legacy-disabled, status left 'active') redirect_direct_offer rule ALSO never fires — both signals gate independently", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId } = await seedQuote(env);
+    await activate(env, quotePublicId);
+    const rowId = variantRowId(sdb, variantId);
+    seedMinimalAuction(sdb, rowId);
+    seedRedirectRule(sdb, rowId, { pct: 100, enabled: 0, status: "active" });
+    const result = await postAuction(env, variantId, await mintFullAttempt(env, variantId));
+    expect(result.status).not.toBe("redirect");
+  });
+
+  it("a status='disabled' route_funnel_variant rule (enabled=1 stale) NEVER routes at the entry plane", async () => {
+    const { sdb, env } = newHarness();
+    const { quotePublicId, variantId, funnelId } = await seedQuote(env);
+    const controlRowId = variantRowId(sdb, variantId);
+    const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(funnelId) as { id: number }).id;
+    const target = seedSiblingVariant(sdb, funnelRowId, "B", false);
+    seedRoutingRule(sdb, controlRowId, {
+      conditions: { groups: [] },
+      targetVariantId: variantRowId(sdb, target),
+      priority: 1,
+      status: "disabled", // seedRoutingRule always sets enabled=1 — isolates status alone
+    });
+    await activate(env, quotePublicId);
+    const resolved = await resolveActivatedFunnel(env, { site_id: "site-1", session_id: "s1", entry_ctx: BASE_CTX });
+    expect(resolved!.variant.public_id).toBe(variantId); // control, unrouted — the disabled rule never fires
+  });
+});
+
+// ===========================================================================
 // S2S value_multiplier graft (s2s-dispatch.ts)
 // ===========================================================================
 
