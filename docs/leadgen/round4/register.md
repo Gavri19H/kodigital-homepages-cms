@@ -66,4 +66,4 @@ lifecycle parity.
 - Adversarial review (fresh Opus): FIX-FIRST (1 MAJOR gate-fidelity + 4 minor) → all five fixed in-phase (4 commits) → delta re-verify **SHIP**, all findings RESOLVED, no new conflict.
 - Notable in-phase catches: Archive-button-wired-to-hard-DELETE safety bug; kebab clip/stacking → body portal; FK cascade harness-vs-prod divergence probe; TOCTOU closed via atomic conditional DELETE; duplicate collapses A/B to control.
 - Disclosure for operator/staging: section DELETE is now a real hard delete when unreferenced (guarded 409 otherwise); append-only analytics rows for deleted sections survive by design.
-- PR: {{PR_URL}} · merge: {{MERGE_SHA}}
+- PR: https://github.com/Gavri19H/kodigital-homepages-cms/pull/124 · merge: 07cf9a9
