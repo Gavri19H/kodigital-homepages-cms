@@ -8,9 +8,12 @@
  *      and byte-diff against the committed engine-bundle.generated.ts. A
  *      mismatch means someone edited runtime/* without re-running
  *      `npm run build:leadgen-runtime` (or hand-edited the generated file).
- *   2. SIZE — LEADGEN_RUNTIME_JS_BYTES ≤ 45056 (§3.1 "≤40KB minified", raised
+ *   2. SIZE — LEADGEN_RUNTIME_JS_BYTES ≤ 46080 (§3.1 "≤40KB minified", raised
  *      to 42 KiB by D4 (2026-07-16), then 43 KiB by D-1 (2026-07-19), then
- *      44 KiB by the operator's P3a same-screen-pages amendment (2026-07-20)).
+ *      44 KiB by the operator's P3a same-screen-pages amendment (2026-07-20),
+ *      then the program's FINAL 45 KiB (46080) by a consolidated operator
+ *      amendment (2026-07-20, covers P3a's page-Continue/maps-ownership
+ *      overage + P4's checkpoint leg; no further raises this program)).
  *   3. TYPES — `tsc -p tsconfig.runtime.json --noEmit` (the browser-lib
  *      project covering ONLY src/public/leadgen/runtime/): the runtime
  *      modules are excluded from the worker tsconfig (no DOM lib there), so
