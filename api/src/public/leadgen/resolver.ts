@@ -52,6 +52,16 @@ import { sha256Hex } from "./auction/parse";
 // CHECKPOINT). Imported as VALUES; config-dto imports THIS module type-only
 // (`import type`), so there is no runtime import cycle.
 import { parseSectionComponents, expandPublicComponents } from "./config-dto";
+// Round-4 P4a-adj (P5a runtime seam #1, CTA visibility): frame-only resolution
+// (no theme/tokens) + the P2a composed-group evaluator, both reused here (NOT
+// re-derived) so a CTA condition and a section dependency conditional can never
+// diverge on operator meaning. Deliberately resolver.ts (not serve.ts): serve.ts
+// imports mintFunnelAttempt FROM attempt.ts, so attempt.ts importing this back
+// FROM serve.ts would be circular; resolver.ts sits BELOW both (serve.ts and
+// attempt.ts each already import resolver.ts, never the reverse).
+import { effectiveFrame, validateFrameConfig } from "./designs/frames";
+import type { EffectiveFrameConfig, FrameOverrides, StoredFrameConfig, FrameCtaSlotConfig } from "./designs/frames";
+import { conditionalMet, type LeadgenPayloadConditional, type LeadgenPayloadConditionGroup } from "../../leadgen/payload";
 
 // One ordered section of the resolved variant (position + the full section
 // row). Ordered ascending by position; the auction runs after the MAX position
@@ -1419,4 +1429,95 @@ export async function resolveActivatedFunnelByVariant(
     assignment,
     site_branding: siteBranding,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Round-4 P4a-adj (P5a runtime seam #1) — CTA visibility verdict, server-side
+// ---------------------------------------------------------------------------
+//
+// P5a authored the MARKUP (frame.ts renderCtaSlot): a cta_slots[] entry with a
+// `condition` server-renders `hidden` + `data-lg-node="<id>"` +
+// `data-lg-cta-condition="<compiled group JSON>"`. It deliberately left the
+// EVALUATION seam open (frame.ts is server-render-only, zero runtime bytes).
+// The byte-minimal design: evaluate HERE (server, already has the answers +
+// entry ctx in hand at /lg/attempt mint and /lg/ck checkpoint) and hand the
+// client a compact id LIST of which conditional CTAs are currently visible —
+// the client leg is then a trivial DOM applier, never a condition evaluator
+// (no compiled-group parsing/dispatch ships to the browser at all).
+
+// Structural (not the serve.ts-owned LeadgenFrameSource type, to avoid a
+// resolver.ts -> serve.ts import): any object carrying these three raw 0041
+// columns satisfies it. Dedicated try/catch JSON-object read (D1 safety): a
+// corrupt blob degrades to null (the caller's fail-safe legacy/no-frame path).
+function parseFrameJsonColumn(raw: string | null | undefined): Record<string, unknown> | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+// The frame-ONLY half of serve.ts's resolveFrameComposition — parse+validate
+// the stored config, merge the variant's frame_overrides_json, NO theme/tokens
+// (a KV-free, synchronous read). serve.ts's resolveFrameComposition calls this
+// too (one source of truth for the frame-group-merge step, no divergent copy).
+export function resolveEffectiveFrameOnly(source: {
+  frame_config_json: string | null | undefined;
+  theme_json: string | null | undefined;
+  frame_overrides_json: string | null | undefined;
+}): EffectiveFrameConfig | null {
+  const rawFrame = parseFrameJsonColumn(source.frame_config_json ?? null);
+  if (rawFrame === null) return null;
+  const frameValidation = validateFrameConfig(rawFrame);
+  if (frameValidation.config === null) return null;
+  const rawOverrides = parseFrameJsonColumn(source.frame_overrides_json ?? null);
+  let frameOverrides: FrameOverrides | null = null;
+  if (rawOverrides !== null) {
+    const { theme: _overridesTheme, ...frameParts } = rawOverrides;
+    const overridesValidation = validateFrameConfig(frameParts);
+    if (overridesValidation.config !== null) frameOverrides = overridesValidation.config as FrameOverrides;
+  }
+  const { frame } = effectiveFrame(frameValidation.config as StoredFrameConfig, null, frameOverrides);
+  return frame;
+}
+
+// The __-prefixed synthetic ctx keys a CTA condition may reference — SAME
+// shape as the client twin (runtime/dependencies.ts buildCtxFields), so a
+// condition authored against __state/__device/__page evaluates identically
+// whether it runs server-side (here) or client-side. __hour/__weekday are
+// SERVER UTC-clock-derived here (the attempt/checkpoint request has no
+// visitor-local clock) — a documented, narrow divergence from the client
+// twin's OWN getHours()/getDay(); no CTA condition in the current authoring
+// surface references either key, so this is not yet an observed gap.
+export function buildFrameCtaCtx(
+  entryCtx: { state?: string; device?: string; hour: number; weekday: number },
+  pageIndex: number,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { __page: pageIndex, __hour: entryCtx.hour, __weekday: entryCtx.weekday };
+  if (entryCtx.state !== undefined && entryCtx.state !== "") out["__state"] = entryCtx.state;
+  if (entryCtx.device !== undefined && entryCtx.device !== "") out["__device"] = entryCtx.device;
+  return out;
+}
+
+// The SAME id-derivation renderCtaSlot uses (frame.ts) — an authored `id`
+// wins, else `frame_cta_<slot>_<index>` — so a verdict id always matches the
+// rendered `data-lg-node` attribute byte for byte. A CTA with no `condition`
+// is not evaluated (it never server-renders hidden, so the client never
+// needs to touch it).
+export function computeCtaVerdict(
+  ctaSlots: readonly FrameCtaSlotConfig[] | undefined,
+  ctx: Readonly<Record<string, unknown>>,
+): string[] {
+  const visible: string[] = [];
+  (ctaSlots ?? []).forEach((slot, i) => {
+    if (slot.condition === null || slot.condition === undefined) return;
+    const id = typeof slot.id === "string" && slot.id.trim() !== "" ? slot.id : `frame_cta_${slot.slot}_${i}`;
+    const cond = slot.condition as unknown as LeadgenPayloadConditional | LeadgenPayloadConditionGroup;
+    if (conditionalMet(cond, ctx)) visible.push(id);
+  });
+  return visible;
 }

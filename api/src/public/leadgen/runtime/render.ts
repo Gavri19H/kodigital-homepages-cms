@@ -34,7 +34,7 @@ export function sectionElements(root: Element): HTMLElement[] {
 
 export function sectionElementAt(root: Element, index: number): HTMLElement | null {
   const sections = sectionElements(root);
-  return sections.find((el) => Number(el.getAttribute("data-lg-index")) === index) ?? sections[index] ?? null;
+  return sections.find((el) => Number(el.getAttribute("data-lg-index")) === index) || sections[index] || null;
 }
 
 // Round-4 P3a same-screen pages (D-3 operator amendment, 2026-07-20): show
@@ -84,7 +84,7 @@ export function applyComponentVisibility(
 export function applySelectionClasses(questionEl: Element, value: unknown): void {
   const values = Array.isArray(value) ? value.map((v) => String(v)) : [String(value)];
   questionEl.querySelectorAll("[data-lg-choice]").forEach((el) => {
-    const isOn = values.indexOf(el.getAttribute("data-lg-choice") ?? "") !== -1;
+    const isOn = values.indexOf(el.getAttribute("data-lg-choice") || "") !== -1;
     el.classList[isOn ? "add" : "remove"](SELECTED_CLASS);
     el.setAttribute("aria-pressed", isOn ? "true" : "false");
   });
@@ -101,8 +101,8 @@ export function applySelectionClasses(questionEl: Element, value: unknown): void
 export function updateRangeDisplay(input: HTMLInputElement): void {
   const wrap = input.closest(".lg-range");
   if (wrap === null) return;
-  const min = Number(input.getAttribute("min") ?? 0);
-  const max = Number(input.getAttribute("max") ?? 100);
+  const min = Number(input.getAttribute("min") || 0);
+  const max = Number(input.getAttribute("max") || 100);
   const val = Number(input.value);
   if (!Number.isFinite(val)) return;
   // A range input's own .value is always clamped by the browser into
@@ -112,7 +112,7 @@ export function updateRangeDisplay(input: HTMLInputElement): void {
   const fill = wrap.querySelector(".lg-range-fill");
   if (fill instanceof HTMLElement) fill.style.width = `${pct}%`;
   const valueEl = wrap.querySelector(".lg-range-value");
-  if (valueEl !== null) valueEl.textContent = (wrap.getAttribute("data-currency") ?? "") + val.toLocaleString("en-US");
+  if (valueEl !== null) valueEl.textContent = (wrap.getAttribute("data-currency") || "") + val.toLocaleString("en-US");
   input.setAttribute("aria-valuenow", `${val}`);
 }
 
@@ -156,15 +156,37 @@ export function updateProgress(root: Element, currentStep: number, totalSteps: n
   });
 }
 
+// P4a-adj (P5a runtime seam #2): a [data-frame-pages] element's spec is
+// "range:<from>-<to>" or "list:<n>,<n>,…" (frame.ts pageTargetGating) — true
+// when the 1-based `current` page falls inside it. `indexOf` (not split on
+// ":" then again) keeps this to one pass per axis; multi-digit from/to (e.g.
+// "10-12") still split correctly since only the FIRST "-" after the colon is
+// significant.
+function pageInSpec(spec: string, current: number): boolean {
+  const rest = spec.slice(spec.indexOf(":") + 1);
+  if (spec[0] === "r") {
+    const dash = rest.indexOf("-");
+    return current >= Number(rest.slice(0, dash)) && current <= Number(rest.slice(dash + 1));
+  }
+  return ("," + rest + ",").includes("," + current + ",");
+}
+
 // 11 §11.3 footer show_on (v2.5): the frame renders the footer ONCE with
 // data-show-on="all|first|final" ("never" renders nothing at all); the engine
 // toggles it per step — first = only the first VISIBLE section, final = the
 // last visible section AND the banners/auction view, all/unknown = always.
 // Legacy shells carry no [data-show-on] → no-op.
-export function updateFooterVisibility(root: Element, first: boolean, final: boolean): void {
-  forEachToggle(root, "[data-show-on]", (el) => {
+// P4a-adj: the SAME pass also toggles [data-frame-pages] (10E/10F/10G page
+// RANGE/LIST targeting, frame.ts pageTargetGating) against `current` — an
+// element carrying data-show-on is decided by that (unchanged); a
+// data-frame-pages-only element (the general range/list case a `first`-only
+// target doesn't need) is decided by pageInSpec. Still display-only, one
+// selector/pass, never touches section visibility or progress.
+export function updateFooterVisibility(root: Element, first: boolean, final: boolean, current: number): void {
+  forEachToggle(root, "[data-show-on],[data-frame-pages]", (el) => {
     const on = el.getAttribute("data-show-on");
-    return on === "first" ? first : on === "final" ? final : true;
+    if (on !== null) return on === "first" ? first : on === "final" ? final : true;
+    return pageInSpec(el.getAttribute("data-frame-pages") || "", current);
   });
 }
 
@@ -202,7 +224,7 @@ export function setFieldError(
 ): void {
   const slot = sectionEl.querySelector(`[data-lg-error-for="${cssEscape(internalField)}"]`);
   if (slot !== null) {
-    slot.textContent = message ?? "";
+    slot.textContent = message || "";
     toggleHidden(slot, message !== null);
   }
   const fieldEl = sectionEl.querySelector(`[data-lg-field="${cssEscape(internalField)}"]`);
@@ -232,7 +254,7 @@ export function clearFieldErrors(sectionEl: Element): void {
 // REAL value through the engine's normal choice path.
 export function openOtherPanel(triggerEl: Element): HTMLElement | null {
   const question = triggerEl.closest("[data-lg-question]");
-  const scope = question ?? triggerEl.parentElement;
+  const scope = question || triggerEl.parentElement;
   if (scope === null) return null;
   const panel = scope.querySelector("[data-lg-other-panel]");
   if (panel === null || !(panel instanceof HTMLElement)) return null;
@@ -266,7 +288,11 @@ export function showCompletionState(root: Element, status: "filled" | "unfilled"
   root.setAttribute("data-lg-complete", "1");
   root.setAttribute("data-lg-auction", status);
   // §11.3: the banners/auction view counts as "final" for footer show_on.
-  updateFooterVisibility(root, false, true);
+  // A page-RANGE/LIST target (data-frame-pages) is scoped to the FUNNEL
+  // pages, never the post-funnel completion view — 1e9 is outside any real
+  // range/list, so such an element (if present) hides here (data-show-on
+  // elements are unaffected — decided before `current` is ever read).
+  updateFooterVisibility(root, false, true, 1e9);
 }
 
 // §3.5.8 error path: a NON-TECHNICAL notice inside the funnel card — never a
@@ -293,7 +319,7 @@ export function hideRuntimeNotice(container: Element): void {
 // element INSIDE the newly-shown section without scroll-jacking.
 export function focusSection(sectionEl: Element): void {
   const target =
-    sectionEl.querySelector("[data-lg-input]") ?? sectionEl.querySelector("[data-lg-choice]");
+    sectionEl.querySelector("[data-lg-input]") || sectionEl.querySelector("[data-lg-choice]");
   if (target !== null && target instanceof HTMLElement) {
     try {
       target.focus({ preventScroll: true });
