@@ -85,6 +85,7 @@ import {
   deleteFunnelHandler,
   deleteQuoteHandler,
   duplicateQuoteHandler,
+  duplicateRuleHandler,
   experimentAssignmentPreviewHandler,
   forkVariantHandler,
   getFunnelHandler,
@@ -227,9 +228,15 @@ routes.post("/experiments/:id/start", startExperimentHandler);
 routes.post("/experiments/:id/stop", stopExperimentHandler);
 routes.get("/experiments/:id/assignment-preview", experimentAssignmentPreviewHandler);
 
-// Variants — static suffixes (/fork, /preview) BEFORE the bare /variants/:id PUT.
+// Variants — static/deeper suffixes (/fork, /preview, /rules/:rule_id/duplicate)
+// BEFORE the bare /variants/:id PUT (03 §8.1 static-before-param discipline).
 routes.post("/variants/:id/fork", forkVariantHandler);
 routes.post("/variants/:id/preview", previewVariantHandler);
+// Round-4 P4b: a rule's only independent CRUD verb (rules otherwise live
+// inside the variant's §15.5 replace-set PUT below) — param name is
+// `variant_id` here (distinct from the outer `:id`) so duplicateRuleHandler
+// reads BOTH ids unambiguously via c.req.param.
+routes.post("/variants/:variant_id/rules/:rule_id/duplicate", duplicateRuleHandler);
 routes.put("/variants/:id", putVariantHandler);
 
 // Stable Funnels — /funnels/:id/{variants,experiments,frame,theme} BEFORE the

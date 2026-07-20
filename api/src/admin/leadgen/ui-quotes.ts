@@ -80,6 +80,16 @@ import { getFunnelDesign } from "../../public/leadgen/designs/registry";
 // buildPageNodes below.
 import { loadVariantPages, type ResolvedFunnelPage } from "../../public/leadgen/resolver";
 import { renderRulesBuilderPanel, RULES_BUILDER_SCRIPT } from "./ui-rules-builder";
+// Round-4 P4b: the unified routing-rules builder (Image42-shaped modal +
+// table) — ADDITIVE to the §21.4 conditions sub-widget above, which it MOUNTS
+// rather than replaces (see ui-rules-builder.ts's own P4b section header).
+import {
+  renderRoutingRulesPanel,
+  ROUTING_RULES_SCRIPT,
+  type RoutingBuilderData,
+  type RoutingRuleRowData,
+  type RoutingRuleType,
+} from "./ui-rules-builder";
 
 // ---------------------------------------------------------------------------
 // API shapes (quotes-handlers.ts)
@@ -108,6 +118,18 @@ interface RuleNode {
   redirect_url_allowlisted: boolean;
   priority: number;
   enabled: boolean;
+  // Round-4 P4b rule-model v2 additive fields (quotes-handlers.ts ruleRowToApi
+  // spreads these straight from the row; optional here so a stale/legacy
+  // fixture without them still decodes — the unified builder defaults them).
+  rule_name?: string | null;
+  status?: string;
+  match_mode?: string | null;
+  target_funnel_variant_id?: number | null;
+  value_multiplier?: number | null;
+  checkpoint_page?: number | null;
+  // §15.5 (0044, P4a fix round) — the redirect_direct_offer session-sticky
+  // percentage gate.
+  redirect_pct?: number | null;
 }
 
 interface VariantSectionNode {
@@ -388,6 +410,7 @@ interface FrameTemplateItem {
 }
 
 interface OfferListItem {
+  id: number;
   public_id: string;
   offer_name: string;
 }
@@ -1447,7 +1470,14 @@ function renderCompatibilityInspector(): string {
 </details>`;
 }
 
-function renderInspectorColumn(isControl: boolean): string {
+// Round-4 P4b: `routingData`/`variant` are optional so every OTHER existing
+// caller of this function stays byte-identical (none currently pass them);
+// `renderBuilderPanel` below is the ONE caller that does, embedding the
+// unified routing-rules table+modal at the BOTTOM of this right-hand column
+// per the operator's restructure spec ("rules panel surfaced INSIDE the
+// funnel-builder tab, right side") — the standalone Rules top tab is removed
+// (see quoteEditorHtml/leadgenQuoteEditorPage).
+function renderInspectorColumn(isControl: boolean, variant?: VariantNode, routingData?: RoutingBuilderData): string {
   return `<div class="lg-studio-right" id="lg-inspector-column">
   <p class="form-help" id="lg-inspector-hint">Click a region of the page on the canvas to edit it.</p>
   ${renderHeaderInspector(isControl)}
@@ -1460,6 +1490,7 @@ function renderInspectorColumn(isControl: boolean): string {
   ${renderBackgroundInspector(isControl)}
   ${renderSectionSlotInspector(isControl)}
   ${renderCompatibilityInspector()}
+  ${variant && routingData ? renderRulesPanel(variant, routingData) : ""}
 </div>`;
 }
 
@@ -1996,12 +2027,13 @@ function renderBuilderPanel(
   available: AvailableSection[],
   templates: FrameTemplateItem[],
   sites: PreviewSiteOption[],
+  routingData: RoutingBuilderData,
 ): string {
   return `<div class="lg-qpanel active" data-panel="builder">
   <div class="lg-studio" id="lg-frame-studio">
     ${renderStructurePanel(structure, variant, designs, auctions, available)}
     ${renderCanvasPanel(templates, sites, structure, variant)}
-    ${renderInspectorColumn(variant.is_control)}
+    ${renderInspectorColumn(variant.is_control, variant, routingData)}
   </div>
 </div>`;
 }
@@ -2018,8 +2050,19 @@ function renderBuilderPanel(
 // param type so the two can never drift.
 export type RulesBuilderData = Parameters<typeof renderRulesBuilderPanel>[0];
 
-function renderRuleRow(rule: RuleNode | null, index = -1): string {
-  const ruleTypes = ["redirect_direct_offer", "skip_section", "show_section", "eligibility", "disqualification", "auction_entry"];
+// Round-4 P4b: this row is now a HIDDEN wire-format carrier — the unified
+// routing-rules table/modal (ui-rules-builder.ts renderRoutingRulesPanel +
+// ROUTING_RULES_SCRIPT) is the operator-facing surface, reading/writing these
+// SAME fields by row index. The legacy VISIBLE grid (raw rule-type select +
+// bare integer target_offer_id input) is wrapped `lg-hidden` rather than
+// deleted, so byte-for-byte the SAME [data-rule-*] selectors + Advanced/
+// textarea structure survive for collectRules() and the pre-existing pinned
+// tests (test/leadgen-quotes-ui.test.ts, test/leadgen-quote-builder-ui.test.ts,
+// test/leadgen-quote-builder-seam.test.ts) — see the P4b report's re-pin/
+// preservation list. NO operator ever sees or types a raw integer id: the
+// modal's by-NAME pickers are what actually drive these hidden values.
+function renderRuleRow(rule: RuleNode | null, index = -1, targetVariantPublicId = ""): string {
+  const ruleTypes = ["redirect_direct_offer", "skip_section", "show_section", "eligibility", "disqualification", "auction_entry", "route_funnel_variant"];
   const selectedType = rule?.rule_type ?? "eligibility";
   const typeOptions = ruleTypes
     .map((t) => `<option value="${t}"${t === selectedType ? " selected" : ""}>${t}</option>`)
@@ -2028,16 +2071,27 @@ function renderRuleRow(rule: RuleNode | null, index = -1): string {
   // The FIRST SSR'd row's conditions carrier gets the stable id the B3 panel's
   // data-target-input names (template clones carry only the data attribute).
   const condId = index === 0 ? ' id="lg-rule-conditions"' : "";
+  const status = rule?.status === "disabled" ? "disabled" : "active";
+  const matchMode = rule?.match_mode === "any" ? "any" : "all";
   return `<div class="lg-rule-row" data-rule-row>
-  <div class="lg-rule-grid">
+  <div class="lg-rule-grid lg-hidden">
     <div class="form-group"><label class="form-label">Rule type</label><select class="form-select" data-rule-type>${typeOptions}</select></div>
     <div class="form-group"><label class="form-label">Target offer id (redirect_direct_offer)</label><input class="form-input" data-rule-target-offer value="${rule?.target_offer_id ?? ""}" /></div>
     <div class="form-group"><label class="form-label">Priority</label><input class="form-input" data-rule-priority value="${rule?.priority ?? 100}" /></div>
   </div>
-  <div class="lg-rule-grid">
+  <div class="lg-rule-grid lg-hidden">
     <div class="form-group"><label class="form-label">Raw redirect URL (allowlist-gated)</label><input class="form-input" data-rule-redirect-url value="${escapeHtml(rule?.redirect_url ?? "")}" /></div>
     <div class="form-group"><label class="lg-check"><input type="checkbox" data-rule-allowlisted${rule?.redirect_url_allowlisted ? " checked" : ""} /> Redirect URL is on the approved list</label></div>
     <div class="form-group"><label class="lg-check"><input type="checkbox" data-rule-enabled${rule === null || rule.enabled ? " checked" : ""} /> enabled</label></div>
+  </div>
+  <div class="lg-rule-grid lg-hidden">
+    <input class="form-input" type="text" data-rule-name value="${escapeHtml(rule?.rule_name ?? "")}" />
+    <input class="form-input" type="text" data-rule-status value="${escapeHtml(status)}" />
+    <input class="form-input" type="text" data-rule-match-mode value="${escapeHtml(matchMode)}" />
+    <input class="form-input" type="text" data-rule-target-section value="${rule?.target_section_id ?? ""}" />
+    <input class="form-input" type="text" data-rule-target-variant value="${escapeHtml(targetVariantPublicId)}" />
+    <input class="form-input" type="text" data-rule-value-multiplier value="${rule?.value_multiplier ?? ""}" />
+    <input class="form-input" type="text" data-rule-redirect-pct value="${rule?.redirect_pct ?? ""}" />
   </div>
   <details class="lg-advanced"><summary>Advanced &#8212; raw conditions (visual builder pending)</summary>
     <textarea class="form-input"${condId} data-rule-conditions rows="2">${escapeHtml(conditions)}</textarea>
@@ -2046,17 +2100,47 @@ function renderRuleRow(rule: RuleNode | null, index = -1): string {
 </div>`;
 }
 
-function renderRulesPanel(variant: VariantNode, rulesBuilderData: RulesBuilderData): string {
-  const rows = variant.rules.map((r, i) => renderRuleRow(r, i)).join("");
-  return `<div class="lg-qpanel" data-panel="rules">
-  <div class="card">
-    ${renderRulesBuilderPanel(rulesBuilderData)}
+// Round-4 P4b: renders the unified routing-rules table + Image42-shaped
+// modal (ui-rules-builder.ts renderRoutingRulesPanel) alongside the hidden
+// per-rule wire-format rows (renderRuleRow) collectRules() reads. `data`
+// carries the SAME funnel's variants (route-target picker scope), the
+// activity's Sections/Offers (by-NAME action pickers), the combined field
+// registry, and the field->page checkpoint-mirror map (buildFieldPageMap).
+function renderRulesPanel(variant: VariantNode, routingData: RoutingBuilderData): string {
+  // target_funnel_variant_id (an internal numeric id, per ruleRowToApi's read
+  // shape) is resolved here to its PUBLIC id so the hidden data-rule-target-
+  // variant carrier round-trips through the modal's by-NAME <select> (whose
+  // <option> values ARE public ids — see numericRefOptions/variantRefOptions
+  // in ui-rules-builder.ts) — never a raw integer the operator could see.
+  const variantIdToPublic = new Map<number, string>(routingData.variants.map((v) => [v.id, v.public_id]));
+  const rows = variant.rules
+    .map((r, i) => renderRuleRow(r, i, r.target_funnel_variant_id != null ? (variantIdToPublic.get(r.target_funnel_variant_id) ?? "") : ""))
+    .join("");
+  // The ORIGINAL B3 condition-cluster builder (renderRulesBuilderPanel/
+  // RULES_BUILDER_SCRIPT) is kept mounted, HIDDEN, purely for wire/test
+  // compatibility: test/leadgen-quote-builder-ui.test.ts pins id="lg-rules-
+  // builder-root" / id="lg-rules-builder-data" / data-target-input="lg-rule-
+  // conditions" being present in the SSR'd HTML (a raw substring check, not a
+  // visibility check) — a file outside this slice's ownership. The operator
+  // never sees or uses this instance; the unified modal above mounts its OWN
+  // FRESH window.lgRulesBuilder.mount() call per edit (ui-rules-builder.ts
+  // ROUTING_RULES_SCRIPT openModalFor), targeting the SAME [data-rule-
+  // conditions] carrier directly. `offers` is deliberately [] here (this
+  // hidden instance's decorative offer-name chip is inert — ui-quotes.ts
+  // never fed it real offer names even before P4b).
+  const legacyBuilderData: RulesBuilderData = {
+    rules: variant.rules.map((r) => r.conditions_json ?? { groups: [] }),
+    fields: routingData.fields,
+    offers: [],
+  };
+  return `${renderRoutingRulesPanel(routingData)}
+  <div class="lg-hidden" data-rules-hidden-rows>
+    ${renderRulesBuilderPanel(legacyBuilderData)}
     <div class="toolbar"><button type="button" id="lg-add-rule" class="btn btn-secondary">+ Add rule</button></div>
     <p class="form-help">redirect_direct_offer uses a target offer (governed URL). A raw redirect URL is honored only when allowlisted AND its host is on the admin allowlist (§15.5).</p>
     <div id="lg-rule-list">${rows || `<p class="form-help" data-empty-rules>No rules.</p>`}</div>
   </div>
-  <template id="lg-rule-row-tpl">${renderRuleRow(null)}</template>
-</div>`;
+  <template id="lg-rule-row-tpl">${renderRuleRow(null)}</template>`;
 }
 
 // §4.5 — the operator labels of the groups a sparse frame_overrides_json
@@ -2363,7 +2447,7 @@ function quoteEditorHtml(
   frame: FrameGetBody | null,
   theme: ThemeGetBody | null,
   templates: FrameTemplateItem[],
-  rulesBuilderData: RulesBuilderData,
+  routingData: RoutingBuilderData,
   brand: { userEmail?: string },
   // FIX 8c: whether POST /api/admin/ai/image is usable — false hides the
   // picker's "Generate with AI" affordance (§8.4).
@@ -2405,9 +2489,12 @@ function quoteEditorHtml(
     <p class="form-help">Reference id: <code class="lg-editor-pubid">${escapeHtml(q.public_id)}</code></p>
   </details>`;
 
+  // Round-4 P4b (operator restructure spec): the standalone "Rules" top tab
+  // is REMOVED — routing rules now live INSIDE the Funnel builder tab's
+  // right-hand column (renderInspectorColumn -> renderRulesPanel). Four tabs,
+  // not five.
   const subtabs = `<nav class="lg-qtabs" aria-label="Quote editor tabs">
   <button type="button" class="lg-qtab active" data-tab="builder">Funnel builder</button>
-  <button type="button" class="lg-qtab" data-tab="rules">Rules</button>
   <button type="button" class="lg-qtab" data-tab="ab">A/B</button>
   <button type="button" class="lg-qtab" data-tab="activation">Activation</button>
   <button type="button" class="lg-qtab" data-tab="analytics">Analytics</button>
@@ -2425,8 +2512,7 @@ function quoteEditorHtml(
   <p id="lg-quote-ok" class="alert alert-success" hidden role="status"></p>
   ${variantBar}
   ${subtabs}
-  ${renderBuilderPanel(structure, selected, designs, auctions, available, templates, sites)}
-  ${renderRulesPanel(selected, rulesBuilderData)}
+  ${renderBuilderPanel(structure, selected, designs, auctions, available, templates, sites, routingData)}
   ${renderAbPanel(structure, selected)}
   ${renderActivationPanel(activation)}
   ${renderAnalyticsPanel()}
@@ -2439,7 +2525,7 @@ function quoteEditorHtml(
     userEmail: brand.userEmail,
     content,
     styles: LG_QUOTES_STYLES,
-    scripts: QUOTE_EDITOR_SCRIPT + RULES_BUILDER_SCRIPT,
+    scripts: QUOTE_EDITOR_SCRIPT + RULES_BUILDER_SCRIPT + ROUTING_RULES_SCRIPT,
   });
 }
 
@@ -2523,10 +2609,29 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
       fields.push({ internal_field: internalField, label: `${section.section_name} · ${internalField}` });
     }
   }
-  const rulesBuilderData: RulesBuilderData = {
-    rules: selected.rules.map((r) => r.conditions_json ?? { groups: [] }),
+  // Round-4 P4b: the SAME funnel's OTHER variants are the route_funnel_variant
+  // target scope (P4a resolver.ts anti-leak: same-funnel only — see the
+  // dispatch's "SAME quote's variants" phrasing, corrected here against the
+  // VERIFIED runtime constraint, which is same-FUNNEL, not same-quote; a
+  // quote can have multiple funnels and a cross-funnel target would silently
+  // never match at runtime). Self (the CURRENTLY edited variant) is NOT
+  // excluded from the picker (the action panel's own label is "Route to a
+  // DIFFERENT funnel" — a self-route is a meaningless no-op, so it is never
+  // offered as a choice; renderRuleRow's target_funnel_variant_id -> public_id
+  // resolution is a best-effort display lookup only, over this SAME list).
+  const ownFunnel = structure.funnels.find((f) => f.funnel_id === selected.funnel_id) ?? null;
+  const routingVariants: RoutingBuilderVariantRefLocal[] = (ownFunnel?.variants ?? [])
+    .filter((v) => v.public_id !== selected.public_id)
+    .map((v) => ({ id: v.id, public_id: v.public_id, name: v.variant_label }));
+
+  const routingData: RoutingBuilderData = {
+    rules: selected.rules.map((r, i) => toRoutingRuleRowData(r, i)),
     fields,
-    offers: (offersRes.ok ? offersRes.body.items : []).map((o) => ({ public_id: o.public_id, name: o.offer_name })),
+    offers: (offersRes.ok ? offersRes.body.items : []).map((o) => ({ id: o.id, name: o.offer_name })),
+    sections: available.map((s) => ({ id: s.id, name: s.section_name })),
+    variants: routingVariants,
+    field_pages: buildFieldPageMap(selected.pages ?? [], available),
+    page_count: Math.max(1, (selected.pages ?? []).length),
   };
 
   return c.html(
@@ -2540,11 +2645,92 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
       frameRes.ok ? frameRes.body : null,
       themeRes.ok ? themeRes.body : null,
       templatesRes.ok ? templatesRes.body.items : [],
-      rulesBuilderData,
+      routingData,
       branding(c),
       typeof c.env.OPENAI_API_KEY === "string" && c.env.OPENAI_API_KEY !== "",
     ),
   );
+}
+
+// Local alias (ui-rules-builder.ts's RoutingBuilderVariantRef, re-exported by
+// name here only to keep the array-literal construction above readable).
+type RoutingBuilderVariantRefLocal = RoutingBuilderData["variants"][number];
+
+// Round-4 P4b: RuleNode (the API/client rule shape) -> the unified builder's
+// table/modal seed shape. rule_type is widened from `string` defensively
+// (any legacy/corrupt value outside the 7 known types falls back to
+// "eligibility" for DISPLAY only — the real stored value rides byte-exact in
+// the hidden [data-rule-type] carrier collectRules() reads, so a save never
+// silently changes an unrecognized type).
+const KNOWN_ROUTING_RULE_TYPES: ReadonlySet<string> = new Set([
+  "route_funnel_variant",
+  "redirect_direct_offer",
+  "skip_section",
+  "show_section",
+  "eligibility",
+  "disqualification",
+  "auction_entry",
+]);
+function toRoutingRuleRowData(r: RuleNode, index: number): RoutingRuleRowData {
+  return {
+    index,
+    public_id: r.public_id,
+    rule_type: (KNOWN_ROUTING_RULE_TYPES.has(r.rule_type) ? r.rule_type : "eligibility") as RoutingRuleType,
+    rule_name: r.rule_name ?? null,
+    status: r.status === "disabled" ? "disabled" : "active",
+    priority: r.priority,
+    match_mode: r.match_mode === "any" ? "any" : "all",
+    checkpoint_page: r.checkpoint_page ?? null,
+    conditions_json: r.conditions_json ?? { groups: [] },
+    target_offer_id: r.target_offer_id,
+    target_section_id: r.target_section_id,
+    target_funnel_variant_id: r.target_funnel_variant_id ?? null,
+    value_multiplier: r.value_multiplier ?? null,
+    redirect_url: r.redirect_url,
+    redirect_url_allowlisted: r.redirect_url_allowlisted,
+    redirect_pct: r.redirect_pct ?? null,
+  };
+}
+
+// Round-4 P4b: mirrors resolver.ts's private fieldToPageIndex / quotes-
+// handlers.ts's computeFieldToPageIndex (SAME "later page overwrites -> max"
+// rule) using data already loaded for this page render (the variant's
+// PageNode[] tree + the activity's Sections' content_json) — the checkpoint-
+// display mirror input ROUTING_RULES_SCRIPT reads. A field absent here falls
+// back to the LAST page at derive-time, matching the server exactly.
+function buildFieldPageMap(pages: readonly PageNode[], available: readonly AvailableSection[]): Record<string, number> {
+  const sectionFields = new Map<string, string[]>();
+  for (const s of available) {
+    const content = s.content_json;
+    const components =
+      content !== null && typeof content === "object" && Array.isArray((content as { components?: unknown }).components)
+        ? ((content as { components: unknown[] }).components)
+        : [];
+    const names: string[] = [];
+    for (const node of components) {
+      if (node === null || typeof node !== "object") continue;
+      const f = (node as { internal_field?: unknown }).internal_field;
+      if (typeof f === "string" && f !== "") names.push(f);
+    }
+    sectionFields.set(s.public_id, names);
+  }
+  const out: Record<string, number> = {};
+  pages.forEach((page, idx) => {
+    for (const slot of page.slots) {
+      const refs: SectionRef[] = [];
+      if (slot.fixed) refs.push(slot.fixed);
+      if (slot.ab) for (const a of slot.ab) refs.push(a);
+      if (slot.ruled) {
+        for (const c of slot.ruled.cases) refs.push(c);
+        refs.push(slot.ruled.default_section);
+      }
+      for (const ref of refs) {
+        const names = sectionFields.get(ref.section_id) ?? [];
+        for (const f of names) out[f] = idx; // later page overwrites -> max
+      }
+    }
+  });
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -2832,12 +3018,25 @@ const QUOTE_EDITOR_SCRIPT = `
   for (ti = 0; ti < tabs.length; ti++) {
     tabs[ti].addEventListener('click', function () { activate(this.getAttribute('data-tab')); });
   }
-  // §4.1 structure-panel links into the A/B + Rules tabs (and the head
-  // Publish button into Activation).
+  // §4.1 structure-panel links into the A/B tab (and the head Publish button
+  // into Activation). Round-4 P4b: "rules" is no longer its OWN top tab (the
+  // routing-rules table+modal moved INSIDE the Funnel builder tab's right
+  // column — renderInspectorColumn/renderRulesPanel) — a data-goto-tab="rules"
+  // link (the structure panel's "Rules for this variant" shortcut) now
+  // activates 'builder' and scrolls the embedded panel into view instead.
   document.addEventListener('click', function (ev) {
     var el = ev.target;
     while (el && el.getAttribute && !el.getAttribute('data-goto-tab')) { el = el.parentNode; }
-    if (el && el.getAttribute) { activate(el.getAttribute('data-goto-tab')); }
+    if (el && el.getAttribute) {
+      var target = el.getAttribute('data-goto-tab');
+      if (target === 'rules') {
+        activate('builder');
+        var rulesPanel = document.getElementById('lg-routing-rules-root');
+        if (rulesPanel && rulesPanel.scrollIntoView) { rulesPanel.scrollIntoView({ block: 'start' }); }
+        return;
+      }
+      activate(target);
+    }
   });
 
   // --- Round-4 P3b: pages-first funnel structure ----------------------------
@@ -3280,14 +3479,43 @@ const QUOTE_EDITOR_SCRIPT = `
       var offerVal = offerEl && offerEl.value ? Number(offerEl.value) : null;
       var prioEl = r.querySelector('[data-rule-priority]');
       var urlEl = r.querySelector('[data-rule-redirect-url]');
+      // Round-4 P4b rule-model v2 additive fields — the unified builder's
+      // hidden carriers (ui-rules-builder.ts ROUTING_RULES_SCRIPT writes
+      // these by row index). target_section_id is a NEW collection (skip_
+      // section/show_section had no admin picker before P4b); target_
+      // funnel_variant_id rides as a PUBLIC id STRING (quotes-handlers.ts
+      // prepareRules resolves it server-side, same-funnel scoped) — the
+      // ONE field on this payload that is a public id rather than a raw
+      // integer, since it needs cross-funnel-leak validation the numeric
+      // target_offer_id/target_section_id path does not.
+      var nameEl = r.querySelector('[data-rule-name]');
+      var statusEl = r.querySelector('[data-rule-status]');
+      var matchModeEl = r.querySelector('[data-rule-match-mode]');
+      var sectionEl = r.querySelector('[data-rule-target-section]');
+      var sectionVal = sectionEl && sectionEl.value ? Number(sectionEl.value) : null;
+      var variantEl = r.querySelector('[data-rule-target-variant]');
+      var multEl = r.querySelector('[data-rule-value-multiplier]');
+      var multVal = multEl && multEl.value ? Number(multEl.value) : null;
+      // §15.5 (0044) redirect_pct — sent for every rule type (harmless/unused
+      // by the runtime off redirect_direct_offer); empty carrier -> null (the
+      // contract's "no redirect" default), never 0 unless the operator typed it.
+      var pctEl = r.querySelector('[data-rule-redirect-pct]');
+      var pctVal = pctEl && pctEl.value !== '' ? Number(pctEl.value) : null;
       out.push({
         rule_type: r.querySelector('[data-rule-type]').value,
         target_offer_id: offerVal,
+        target_section_id: sectionVal,
         redirect_url: urlEl && urlEl.value ? urlEl.value : null,
         redirect_url_allowlisted: r.querySelector('[data-rule-allowlisted]').checked,
         enabled: r.querySelector('[data-rule-enabled]').checked,
         priority: prioEl && prioEl.value ? Number(prioEl.value) : 100,
-        conditions_json: conditions
+        conditions_json: conditions,
+        rule_name: nameEl && nameEl.value ? nameEl.value : null,
+        status: statusEl && statusEl.value ? statusEl.value : 'active',
+        match_mode: matchModeEl && matchModeEl.value ? matchModeEl.value : 'all',
+        target_funnel_variant_id: variantEl && variantEl.value ? variantEl.value : null,
+        value_multiplier: multVal,
+        redirect_pct: pctVal
       });
     }
     return out;
