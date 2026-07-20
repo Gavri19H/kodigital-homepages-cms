@@ -23,6 +23,10 @@ import type { LeadgenConditionOp, LeadgenContinueMode } from "../../../admin/lea
 // from the build-time-vendored Tabler (MIT) icon map — see the
 // LEADGEN_FIELD_LEADING_ICONS comment below.
 import { LEADGEN_ICON_NAMES } from "./icons.generated";
+// P2b review-round (MAJOR-1): the phone_format custom regex is an author-
+// facing custom-pattern surface exactly like the free-text custom pattern —
+// reuse the SAME ReDoS screen + length cap (one detection engine, never two).
+import { isCatastrophicRegexShape, FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH } from "../../../leadgen/payload";
 
 // ---------------------------------------------------------------------------
 // Node + content types
@@ -1067,6 +1071,9 @@ export type SectionContentErrorCode =
   | "duplicate_question_id"
   | "duplicate_question_key"
   | "duplicate_internal_field"
+  // P2b review-round (minor-4): an internal_field / row internal_field / Maps
+  // fill-target starting with "__" (components, MQG rows, Maps fills alike).
+  | "reserved_internal_field"
   | "missing_required_field"
   | "invalid_choice"
   // P2a §R-A per-element theme freedom — choice.style shape / vocabulary /
@@ -2012,14 +2019,35 @@ function validateNewFieldProps(
           "a custom phone format needs {custom:{regex}} — a non-empty pattern string",
         );
       } else {
-        try {
-          new RegExp(custom["regex"]);
-        } catch {
+        // P2b review-round (MAJOR-1, money path): a custom phone regex is
+        // exactly as author-controlled as the free-text custom pattern —
+        // reuse BOTH of its save-time defenses (payload.ts §6.5): the length
+        // cap first (cheap, catches degenerate input), then the paren-aware
+        // catastrophic-backtracking screen. Evil patterns must never compile
+        // into a DTO; both checks run before the compile-check below.
+        const regex = custom["regex"];
+        if (regex.length > FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH) {
           push(
             "invalid_field_prop",
             `${base}.props.phone_format.custom.regex`,
-            "the custom phone pattern isn't a valid regular expression",
+            `the custom phone pattern must be at most ${FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH} characters`,
           );
+        } else if (isCatastrophicRegexShape(regex)) {
+          push(
+            "invalid_field_prop",
+            `${base}.props.phone_format.custom.regex`,
+            "This pattern could freeze visitors' browsers — simplify it",
+          );
+        } else {
+          try {
+            new RegExp(regex);
+          } catch {
+            push(
+              "invalid_field_prop",
+              `${base}.props.phone_format.custom.regex`,
+              "the custom phone pattern isn't a valid regular expression",
+            );
+          }
         }
         if (custom["mask"] !== undefined && typeof custom["mask"] !== "string") {
           push("invalid_field_prop", `${base}.props.phone_format.custom.mask`, "custom.mask must be a string");
@@ -2257,6 +2285,10 @@ function validateMapsFills(
     const v = value[slot];
     if (v !== undefined && (typeof v !== "string" || v === "")) {
       push("invalid_maps_prop", `${path}.${slot}`, `props.maps.fills.${slot} must be a non-empty string (§9.2)`);
+    } else if (typeof v === "string" && v.startsWith("__")) {
+      // P2b review-round (minor-4): a fill target NAMES an internal_field —
+      // same reservation as the field it targets.
+      push("reserved_internal_field", `${path}.${slot}`, "Field names starting with __ are reserved");
     }
   }
 }
@@ -2680,7 +2712,12 @@ export function validateSectionContent(
     // join (or collide with) the uniqueness universe.
     const internalField = raw["internal_field"];
     if (isNonEmptyString(internalField) && catalog.produces !== null) {
-      if (seenInternalFields.has(internalField)) {
+      // P2b review-round (minor-4): "__"-prefixed names are reserved (ctx
+      // fields like __page/__hour/__weekday/__state/__device, P2a 10C) — an
+      // author-typed field can never collide with/shadow one.
+      if (internalField.startsWith("__")) {
+        push("reserved_internal_field", `${base}.internal_field`, "Field names starting with __ are reserved");
+      } else if (seenInternalFields.has(internalField)) {
         push(
           "duplicate_internal_field",
           `${base}.internal_field`,
@@ -2884,6 +2921,10 @@ export function validateSectionContent(
               `${rp}.internal_field`,
               "row.internal_field is required (the row's answer name)",
             );
+          } else if (rowField.startsWith("__")) {
+            // P2b review-round (minor-4): same reservation as a component's
+            // internal_field — a row IS an answer field (§8.5 P5/PC-10).
+            push("reserved_internal_field", `${rp}.internal_field`, "Field names starting with __ are reserved");
           } else if (seenRowFields.has(rowField) || seenInternalFields.has(rowField)) {
             push(
               "duplicate_internal_field",

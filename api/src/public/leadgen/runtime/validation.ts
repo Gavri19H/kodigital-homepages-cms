@@ -142,17 +142,24 @@ function checkFormat(
     // primitive falls through to the NANP default; a bad regex is caught below).
     const c = cv["phone"] as { regex: string; normalize: string; message: string } | undefined;
     if (c && typeof c === "object") {
-      const stripped =
-        c.normalize === "e164"
-          ? value.replace(/[^\d+]/g, "")
-          : c.normalize === "none"
-            ? value.trim()
-            : value.replace(/\D/g, "");
-      let ok = true;
-      try {
-        ok = new RegExp(c.regex).test(stripped);
-      } catch {
-        ok = true;
+      // Review-round (MAJOR-1, defense-in-depth): patterns are pre-screened at
+      // save (content-schema isCatastrophicRegexShape); this is a cheap floor
+      // for legacy/pre-fix-stored contracts — no phone ever needs 40+ chars.
+      // Gating regex work behind it (not just gating the push) keeps a bad
+      // legacy contract from ever running .test() on an over-long value.
+      let ok = value.length <= 40;
+      if (ok) {
+        const stripped =
+          c.normalize === "e164"
+            ? value.replace(/[^\d+]/g, "")
+            : c.normalize === "none"
+              ? value.trim()
+              : value.replace(/\D/g, "");
+        try {
+          ok = new RegExp(c.regex).test(stripped);
+        } catch {
+          ok = true;
+        }
       }
       if (!ok) out.push({ code: "phone_format", message: c.message });
     } else if (normalizePhoneE164(value) === null) {

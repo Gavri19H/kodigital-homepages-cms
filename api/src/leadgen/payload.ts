@@ -533,7 +533,11 @@ export const FREE_TEXT_RUNTIME_INPUT_HARD_CAP = 4096;
 // exponential shape); conservatively over-rejects some safe quantified
 // alternations like "(cat|dog)+" (author those as valid_values or via the
 // Advanced drawer) — a safe-side usability trade-off, DEV-38.
-function isCatastrophicRegexShape(pattern: string): boolean {
+//
+// P2b review-round: exported so content-schema.ts's phone_format custom-regex
+// gate (a SEPARATE author-facing custom-pattern surface, §A-6b) reuses this
+// SAME screen rather than re-implementing it — one ReDoS-detection engine.
+export function isCatastrophicRegexShape(pattern: string): boolean {
   interface Frame { hasQuantifier: boolean; hasAlternation: boolean; }
   const stack: Frame[] = [{ hasQuantifier: false, hasAlternation: false }];
   let justClosed: Frame | null = null; // the group closed by the most recent ')'

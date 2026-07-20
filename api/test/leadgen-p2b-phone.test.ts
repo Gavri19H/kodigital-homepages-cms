@@ -262,3 +262,145 @@ describe("P2b A-4 — composed-conditional authoring on all three slots", () => 
     expect(parseSectionContinueVisibleWhen(bareJson)).toEqual({ when: "f1", op: "eq", value: "yes" });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Review-round MAJOR-1 — ReDoS guard on the custom phone regex (money path).
+// Fail-before/pass-after: BEFORE this round, content-schema's custom-regex gate
+// was a single compile try/catch — new RegExp("^(\\d+)+$") does not throw (a
+// syntactically valid, catastrophically-shaped pattern), so it was silently
+// ACCEPTED into the DTO (verified directly: `new RegExp("^(\\d+)+$")` compiles
+// clean, no error). AFTER this round it is rejected at save with a plain-
+// language message, reusing payload.ts's isCatastrophicRegexShape screen (the
+// SAME engine the free-text custom pattern already trusts) + its length cap.
+// ---------------------------------------------------------------------------
+
+function phoneSectionWithCustomRegex(regex: string): unknown {
+  return {
+    components: [
+      {
+        type: "PhoneInputQuestion",
+        question_id: "q_phone",
+        internal_field: "phone",
+        props: { phone_format: { custom: { regex } } },
+      },
+    ],
+  };
+}
+
+describe("P2b review-round MAJOR-1 — ReDoS guard, save-time (content-schema)", () => {
+  it("a catastrophic-backtracking pattern is REJECTED with the plain-language message (fail-before: silently accepted)", () => {
+    const r = validateSectionContent(phoneSectionWithCustomRegex("^(\\d+)+$"));
+    expect(r.ok, JSON.stringify(r.errors)).toBe(false);
+    const err = r.errors.find((e) => e.code === "invalid_field_prop" && e.path.includes("phone_format"));
+    expect(err?.message).toBe("This pattern could freeze visitors' browsers — simplify it");
+  });
+
+  it("a second catastrophic shape (quantified alternation) is also rejected", () => {
+    const r = validateSectionContent(phoneSectionWithCustomRegex("(a|a)+"));
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message === "This pattern could freeze visitors' browsers — simplify it")).toBe(true);
+  });
+
+  it("a pattern over 200 chars is rejected on length, independent of shape", () => {
+    const r = validateSectionContent(phoneSectionWithCustomRegex("a".repeat(201)));
+    expect(r.ok).toBe(false);
+    const err = r.errors.find((e) => e.code === "invalid_field_prop" && e.path.includes("phone_format"));
+    expect(err?.message).toContain("at most 200 characters");
+  });
+
+  it("a SAFE custom pattern (linear, no nested quantifier/alternation) still saves fine", () => {
+    const r = validateSectionContent(phoneSectionWithCustomRegex("^[0-9]{4}$"));
+    expect(r.ok, JSON.stringify(r.errors)).toBe(true);
+  });
+});
+
+describe("P2b review-round MAJOR-1 — ReDoS guard, runtime (defense-in-depth)", () => {
+  // Models a contract that reached the runtime WITHOUT passing today's save
+  // gate (legacy/pre-fix-stored config or a direct DB edit — the same "belt
+  // and suspenders" framing payload.ts's own runtime leg uses). The cheap
+  // length cap must short-circuit BEFORE the evil regex ever runs .test().
+  const evilContract = { regex: "^(\\d+)+$", normalize: "none", message: "Enter a valid phone number." };
+  const evilField = {
+    type: "PhoneInputQuestion",
+    question_id: "q_phone",
+    internal_field: "phone",
+    client_validation: { phone: evilContract },
+  } as unknown as LgComponentConfig;
+
+  it("a 60-char junk input against the catastrophic contract fails FAST (bounded time, never hangs)", () => {
+    const junk = "9".repeat(60) + "x"; // trailing non-digit defeats the '$' anchor — the classic hang trigger
+    const start = Date.now();
+    const result = validateValue(evilField, junk, false);
+    const elapsedMs = Date.now() - start;
+    expect(elapsedMs, "must complete in bounded time, not hang").toBeLessThan(1000);
+    expect(result.map((f) => f.code)).toEqual(["phone_format"]);
+    expect(result[0]?.message).toBe(evilContract.message);
+  });
+
+  it("a short (<=40 char) input against the SAME catastrophic contract still runs the regex (proves the cap is length-gated, not blanket-reject)", () => {
+    // "1234" matches "^(\d+)+$" trivially (short input never triggers backtracking).
+    expect(validateValue(evilField, "1234", false)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review-round minor-4 — "__"-prefixed internal_field is reserved (components,
+// MQG rows, Maps fill-targets alike — the three authoring surfaces a field name
+// can be typed on).
+// ---------------------------------------------------------------------------
+
+describe("P2b review-round minor-4 — __ prefix reservation", () => {
+  it("a component internal_field starting with __ is rejected", () => {
+    const r = validateSectionContent({
+      components: [{ type: "PhoneInputQuestion", question_id: "q1", internal_field: "__page" }],
+    });
+    expect(r.ok).toBe(false);
+    const err = r.errors.find((e) => e.code === "reserved_internal_field");
+    expect(err?.message).toBe("Field names starting with __ are reserved");
+    expect(err?.path).toContain("internal_field");
+  });
+
+  it("a normal (non __-prefixed) internal_field is unaffected", () => {
+    const r = validateSectionContent({
+      components: [{ type: "PhoneInputQuestion", question_id: "q1", internal_field: "phone" }],
+    });
+    expect(r.errors.some((e) => e.code === "reserved_internal_field")).toBe(false);
+  });
+
+  it("a MultiQuestionGrid row internal_field starting with __ is rejected", () => {
+    const r = validateSectionContent({
+      components: [
+        {
+          type: "MultiQuestionGrid",
+          question_id: "q_grid",
+          choices: [
+            { label: "Yes", value: "yes", analytics_id: "yes" },
+            { label: "No", value: "no", analytics_id: "no" },
+          ],
+          props: { rows: [{ label: "Row 1", internal_field: "__hour" }] },
+        },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    const err = r.errors.find((e) => e.code === "reserved_internal_field");
+    expect(err?.message).toBe("Field names starting with __ are reserved");
+    expect(err?.path).toContain("rows[0].internal_field");
+  });
+
+  it("a Maps fill-target name starting with __ is rejected", () => {
+    const r = validateSectionContent({
+      components: [
+        {
+          type: "ZIPInputQuestion",
+          question_id: "q_zip",
+          internal_field: "zip",
+          props: { maps: { enabled: true, jobs: { validate: true, auction: false, autocomplete: false }, fills: { state: "__state" } } },
+        },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    const err = r.errors.find((e) => e.code === "reserved_internal_field");
+    expect(err?.message).toBe("Field names starting with __ are reserved");
+    expect(err?.path).toContain("fills.state");
+  });
+});
