@@ -20,6 +20,14 @@ export const SELECTED_CLASS = "lg-selected";
 export const ERROR_CLASS = "lg-error";
 export const NOTICE_CLASS = "lg-runtime-notice";
 
+// The `hidden`-attribute toggle every visibility function below performs —
+// one shared helper, ~6 call sites (byte trim; behavior-identical:
+// removeAttribute("hidden") / setAttribute("hidden","") verbatim).
+function toggleHidden(el: Element, visible: boolean): void {
+  if (visible) el.removeAttribute("hidden");
+  else el.setAttribute("hidden", "");
+}
+
 export function sectionElements(root: Element): HTMLElement[] {
   return Array.prototype.slice.call(root.querySelectorAll("[data-lg-section]"));
 }
@@ -38,12 +46,8 @@ export function showOnlySection(root: Element, index: number): HTMLElement | nul
   for (const el of sectionElements(root)) {
     const elIndex = Number(el.getAttribute("data-lg-index"));
     const match = (Number.isNaN(elIndex) ? -1 : elIndex) === index;
-    if (match) {
-      el.removeAttribute("hidden");
-      shown = el;
-    } else {
-      el.setAttribute("hidden", "");
-    }
+    toggleHidden(el, match);
+    if (match) shown = el;
   }
   return shown;
 }
@@ -62,8 +66,7 @@ export function applyComponentVisibility(
     const q = cssEscape(vis.question_id);
     const el = sectionEl.querySelector(`[data-lg-question="${q}"],[data-lg-node="${q}"]`);
     if (el === null) continue;
-    if (vis.visible) el.removeAttribute("hidden");
-    else el.setAttribute("hidden", "");
+    toggleHidden(el, vis.visible);
   }
 }
 
@@ -170,9 +173,7 @@ export function updateFooterVisibility(root: Element, first: boolean, final: boo
     const el = nodes[i];
     if (el === undefined) continue;
     const on = el.getAttribute("data-show-on");
-    const show = on === "first" ? first : on === "final" ? final : true;
-    if (show) el.removeAttribute("hidden");
-    else el.setAttribute("hidden", "");
+    toggleHidden(el, on === "first" ? first : on === "final" ? final : true);
   }
 }
 
@@ -182,8 +183,7 @@ export function setBackVisible(sectionEl: Element, visible: boolean): void {
   for (let i = 0; i < backs.length; i++) {
     const el = backs[i];
     if (el === undefined) continue;
-    if (visible) el.removeAttribute("hidden");
-    else el.setAttribute("hidden", "");
+    toggleHidden(el, visible);
   }
 }
 
@@ -199,8 +199,7 @@ export function setContinueVisible(sectionEl: Element, visible: boolean): void {
   for (let i = 0; i < conts.length; i++) {
     const el = conts[i];
     if (el === undefined) continue;
-    if (visible) el.removeAttribute("hidden");
-    else el.setAttribute("hidden", "");
+    toggleHidden(el, visible);
   }
 }
 
@@ -215,8 +214,7 @@ export function setFieldError(
   const slot = sectionEl.querySelector(`[data-lg-error-for="${cssEscape(internalField)}"]`);
   if (slot !== null) {
     slot.textContent = message ?? "";
-    if (message !== null) slot.removeAttribute("hidden");
-    else slot.setAttribute("hidden", "");
+    toggleHidden(slot, message !== null);
   }
   const fieldEl = sectionEl.querySelector(`[data-lg-field="${cssEscape(internalField)}"]`);
   if (fieldEl !== null) {
