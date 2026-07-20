@@ -883,18 +883,30 @@ export function parseRoutingRule(row: RoutingRuleRow): ParsedRoutingRule {
 }
 
 // A variant's ACTIVE route_funnel_variant rules, priority ASC (1 = highest).
+// Dedicated try/catch (D1 safety discipline, matching computeAttemptBindingExtras):
+// this is called from `resolveActivatedFunnel`'s ENTRY-ROUTING branch, which
+// EVERY /lg shell-serve now reaches — a query failure (e.g. a DB not yet on
+// migration 0043's target_funnel_variant_id column, a transient rolling-
+// deploy window, or any other read hiccup) must degrade to "no routing rules"
+// rather than 500 the ENTIRE funnel shell for every visitor. Fail-safe, never
+// fail-closed here: an unreadable rule set is NOT a security concern (it can
+// only ever suppress a routing effect, never fabricate one).
 export async function loadRoutingRules(db: D1Database, variantId: number): Promise<ParsedRoutingRule[]> {
-  const res = await db
-    .prepare(
-      `SELECT public_id, variant_id, conditions_json, conditions_hash,
-              target_funnel_variant_id, value_multiplier, priority, status
-       FROM leadgen_funnel_rules
-       WHERE variant_id = ? AND rule_type = 'route_funnel_variant' AND status = 'active'
-       ORDER BY priority ASC, id ASC`,
-    )
-    .bind(variantId)
-    .all<RoutingRuleRow>();
-  return (res.results ?? []).map(parseRoutingRule);
+  try {
+    const res = await db
+      .prepare(
+        `SELECT public_id, variant_id, conditions_json, conditions_hash,
+                target_funnel_variant_id, value_multiplier, priority, status
+         FROM leadgen_funnel_rules
+         WHERE variant_id = ? AND rule_type = 'route_funnel_variant' AND status = 'active'
+         ORDER BY priority ASC, id ASC`,
+      )
+      .bind(variantId)
+      .all<RoutingRuleRow>();
+    return (res.results ?? []).map(parseRoutingRule);
+  } catch {
+    return [];
+  }
 }
 
 // The entry-attribute evaluation map (bare field names — "state"/"utm_source"/
@@ -1148,17 +1160,26 @@ export function detectRoutingRuleConflicts(rules: readonly RoutingConflictInput[
 // directly is the CONDITION MATCH, which is a targeting mechanism, not an
 // access-control boundary (entry conditions are themselves client-observable
 // signals like UTM params).
+// Dedicated try/catch (see loadRoutingRules): this gates a SERVABILITY check
+// inside resolveActivatedFunnelByVariant, reached by every /lg/config +
+// /lg/attempt + /lg/auction reverse lookup. A query failure (e.g. pre-0043
+// schema) must degrade to "not a routing target" — i.e. fall through to the
+// PRE-EXISTING anti-leak reject — never 500 the whole reverse lookup.
 async function isActiveRoutingTargetOnFunnel(db: D1Database, funnelId: number, variantId: number): Promise<boolean> {
-  const row = await db
-    .prepare(
-      `SELECT 1 FROM leadgen_funnel_rules r
-       JOIN leadgen_funnel_variants v ON v.id = r.variant_id
-       WHERE v.funnel_id = ? AND r.rule_type = 'route_funnel_variant' AND r.status = 'active'
-         AND r.target_funnel_variant_id = ? LIMIT 1`,
-    )
-    .bind(funnelId, variantId)
-    .first();
-  return row !== null;
+  try {
+    const row = await db
+      .prepare(
+        `SELECT 1 FROM leadgen_funnel_rules r
+         JOIN leadgen_funnel_variants v ON v.id = r.variant_id
+         WHERE v.funnel_id = ? AND r.rule_type = 'route_funnel_variant' AND r.status = 'active'
+           AND r.target_funnel_variant_id = ? LIMIT 1`,
+      )
+      .bind(funnelId, variantId)
+      .first();
+    return row !== null;
+  } catch {
+    return false;
+  }
 }
 
 // Resolve a specific target variant by its internal id, constrained to an

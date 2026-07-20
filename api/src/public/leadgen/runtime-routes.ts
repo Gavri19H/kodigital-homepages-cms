@@ -346,11 +346,19 @@ async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
 
   const db = c.env.DB;
   // (3a) ≤1 switch: a prior CHECKPOINT switch on this attempt refuses a second
-  // (hop guard — loops impossible). An entry-plane row does NOT block.
-  const prior = await db
-    .prepare("SELECT plane FROM leadgen_routing_outcomes WHERE funnel_attempt_id = ? LIMIT 1")
-    .bind(faid)
-    .first<{ plane: string }>();
+  // (hop guard — loops impossible). An entry-plane row does NOT block. Dedicated
+  // try/catch (D1 safety): an unreadable outcomes table degrades to "no prior"
+  // rather than 500ing the checkpoint call (fail-safe — it can only ever
+  // suppress the ≤1-hop check's positive match, never fabricate a switch).
+  let prior: { plane: string } | null;
+  try {
+    prior = await db
+      .prepare("SELECT plane FROM leadgen_routing_outcomes WHERE funnel_attempt_id = ? LIMIT 1")
+      .bind(faid)
+      .first<{ plane: string }>();
+  } catch {
+    prior = null;
+  }
   if (prior !== null && prior.plane === "checkpoint") {
     return checkpointJson({ sw: false }, 200);
   }
@@ -379,15 +387,26 @@ async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
   });
   const resume = computeResumeSection(reissued.page_plan ?? [], target.pages ?? [], answers);
 
-  await recordRoutingOutcome(db, {
-    funnel_attempt_id: faid,
-    session_id: sessionId,
-    from: current.variant.public_id,
-    to: target.variant.public_id,
-    hash: match.hash,
-    multiplier: match.value_multiplier,
-    plane: "checkpoint",
-  });
+  // The recorded outcome row IS the ≤1-hop guard + the S2S multiplier lookup's
+  // source of truth — unlike the read-side degrades above, a WRITE failure
+  // here must refuse the switch (fail CLOSED): reporting sw:true without a
+  // durable record would let a retried/duplicate checkpoint call switch AGAIN
+  // (no prior row to detect) and would silently drop the multiplier
+  // attribution. The client's documented fail-open (continue the CURRENT
+  // plan unrouted) is the correct, safe outcome here too.
+  try {
+    await recordRoutingOutcome(db, {
+      funnel_attempt_id: faid,
+      session_id: sessionId,
+      from: current.variant.public_id,
+      to: target.variant.public_id,
+      hash: match.hash,
+      multiplier: match.value_multiplier,
+      plane: "checkpoint",
+    });
+  } catch {
+    return checkpointJson({ sw: false }, 200);
+  }
 
   return checkpointJson(
     {
