@@ -114,6 +114,8 @@ const LEADGEN_MIGRATIONS = [
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {

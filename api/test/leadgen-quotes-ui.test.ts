@@ -73,7 +73,7 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
 }
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
-const LEADGEN_MIGRATIONS = ["0036_leadgen_core.sql", "0037_leadgen_analytics_mirror.sql", "0038_leadgen_revenue_infra.sql", "0039_leadgen_conversion_dedupe.sql", "0042_leadgen_pages.sql"] as const;
+const LEADGEN_MIGRATIONS = ["0036_leadgen_core.sql", "0037_leadgen_analytics_mirror.sql", "0038_leadgen_revenue_infra.sql", "0039_leadgen_conversion_dedupe.sql", "0042_leadgen_pages.sql", "0043_leadgen_routing_rules.sql", "0044_leadgen_redirect_pct.sql"] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
   const sdb = new DatabaseSync(":memory:");
@@ -194,16 +194,29 @@ async function editorHtmlWithContent(): Promise<{ html: string; env: Env; varian
   return { html, env, variantId, quotePublicId: q.public_id };
 }
 
-describeDb("Quotes editor — the five sub-tabs (03 §9.4 / 06 §15–§17)", () => {
+describeDb("Quotes editor — the four sub-tabs (03 §9.4 / 06 §15–§17)", () => {
   // v2.5 B2 ADJUSTED: the head "Preview" button (`lg-variant-preview`) is
   // gone — the §4.1 frame canvas IS the preview (an always-on srcdoc iframe,
   // same id + sandbox contract as before).
-  it("renders all five editor sub-tabs + Save + the frame canvas", async () => {
+  //
+  // Round-4 P4b DELIBERATE RE-PIN (conductor-granted, operator restructure):
+  // the standalone "Rules" top tab is REMOVED — routing rules now live
+  // INSIDE the Funnel builder tab's right column (ui-quotes.ts
+  // renderInspectorColumn -> renderRulesPanel -> ui-rules-builder.ts
+  // renderRoutingRulesPanel). Four tabs remain (builder/ab/activation/
+  // analytics); the rules experience is proven embedded via its unified
+  // panel's root marker (id="lg-routing-rules-root") instead.
+  it("renders the four remaining editor sub-tabs + Save + the frame canvas; the rules experience is embedded in the builder panel", async () => {
     const { html } = await editorHtmlWithContent();
-    for (const tab of ["builder", "rules", "ab", "activation", "analytics"]) {
+    for (const tab of ["builder", "ab", "activation", "analytics"]) {
       expect(html, `tab ${tab}`).toContain(`data-tab="${tab}"`);
       expect(html, `panel ${tab}`).toContain(`data-panel="${tab}"`);
     }
+    // the removed standalone Rules tab/panel no longer exist
+    expect(html).not.toContain('data-tab="rules"');
+    expect(html).not.toContain('data-panel="rules"');
+    // the unified routing-rules table+modal is embedded in the builder panel
+    expect(html).toContain('id="lg-routing-rules-root"');
     expect(html).toContain('id="lg-variant-save"');
     expect(html).toContain('id="lg-preview-iframe"'); // the §4.1 frame canvas
     expect(html).toContain('sandbox="allow-same-origin"');
