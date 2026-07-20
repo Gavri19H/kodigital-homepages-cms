@@ -9,20 +9,20 @@ lifecycle parity.
 
 | Row | Operator item / defect | Phase | Status |
 |---|---|---|---|
-| R4-01 | #1 list tables overflow unreachable (all LeadGen tabs + Listicles) | P1d | OPEN |
-| R4-02 | #2 actions parity: kebab + duplicate/archive/reactivate/usage/delete-guarded (sections/quotes/auctions) | P1c+P1d | OPEN |
-| R4-03 | #3 Question grid unusable from picker (seed drops rows; ghost grows invisible choices; no affordance) | P1a+P1b | OPEN |
+| R4-01 | #1 list tables overflow unreachable (all LeadGen tabs + Listicles) | P1d | PASS (P1, evidence: phase log P1) |
+| R4-02 | #2 actions parity: kebab + duplicate/archive/reactivate/usage/delete-guarded (sections/quotes/auctions) | P1c+P1d | PASS (P1, evidence: phase log P1) |
+| R4-03 | #3 Question grid unusable from picker (seed drops rows; ghost grows invisible choices; no affordance) | P1a+P1b | PASS (P1, evidence: phase log P1) |
 | R4-04 | #4A rules UX flow direction (source above → dependent below) | P4b | OPEN |
-| R4-05 | #4B/4C grid rows as rule condition sources end-to-end (via picker path) | P1a | OPEN |
+| R4-05 | #4B/4C grid rows as rule condition sources end-to-end (via picker path) | P1a | PASS (P1, evidence: phase log P1) |
 | R4-06 | #4D complex rules AND/OR (ANY/ALL groups, client+server parity) | P2a+P2c | OPEN |
-| R4-07 | #4E every component mapped: Address sub-fields + NameFields as rule sources | P1a | OPEN |
-| R4-08 | #5 two "When answered" controls → one | P1a | OPEN |
-| R4-09 | #6A field chrome: label above + helper below + in-box error, ALL text-like inputs | P1b | OPEN |
+| R4-07 | #4E every component mapped: Address sub-fields + NameFields as rule sources | P1a | PASS (P1, evidence: phase log P1) |
+| R4-08 | #5 two "When answered" controls → one | P1a | PASS (P1, evidence: phase log P1) |
+| R4-09 | #6A field chrome: label above + helper below + in-box error, ALL text-like inputs | P1b | PASS (P1, evidence: phase log P1) |
 | R4-10 | #6B phone format author-defined (NANP/E.164-intl/IL/custom) | P2b+P2c | OPEN |
-| R4-11 | #6C/6D Address = real composite w/ Maps at component level, pre-mapped autofill roles | P1a+P1b | OPEN |
-| R4-12 | #7 single-column (1) authorable everywhere + clamp/validation alignment | P1b | OPEN |
-| R4-13 | #8 section-name affordance + plain-language save errors (no raw ids) | P1a+P1c | OPEN |
-| R4-14 | #9 "+ Add choice" out of layout flow (live==edit geometry) | P1a+P1b | OPEN |
+| R4-11 | #6C/6D Address = real composite w/ Maps at component level, pre-mapped autofill roles | P1a+P1b | PASS (P1, evidence: phase log P1) |
+| R4-12 | #7 single-column (1) authorable everywhere + clamp/validation alignment | P1b | PASS (P1, evidence: phase log P1) |
+| R4-13 | #8 section-name affordance + plain-language save errors (no raw ids) | P1a+P1c | PASS (P1, evidence: phase log P1) |
+| R4-14 | #9 "+ Add choice" out of layout flow (live==edit geometry) | P1a+P1b | PASS (P1, evidence: phase log P1) |
 | R4-15 | #10A activity/verticals dropdowns on New Quote (existing endpoints) | P5b | OPEN |
 | R4-16 | #10B real site-logo preview + no-logo hint | P5a | OPEN |
 | R4-17 | #10C phone/CTA element: 4 slots, alignment, tel:, conditional display (page/answer/state/hour/day) | P2a+P5a | OPEN |
@@ -42,15 +42,15 @@ lifecycle parity.
 | R4-31 | Funnel delta D: theme picker per funnel name | P6b | OPEN |
 | R4-32 | D-2 routing rules: checkpoint model, ≤1 hop, precedence ladder, server-validated checkpoint endpoint | P4a+P4b | OPEN |
 | R4-33 | A/B tab = whole-quote template-level testing | P6b | OPEN |
-| R4-34 | B-4.1 MQG save trap (orphan choices → unexplainable 400) | P1a+P1b | OPEN |
-| R4-35 | B-4.2 MQG row-1 headline mislabel in pickers | P1a | OPEN |
-| R4-36 | B-4.3 call button phone-only renders nothing | P1d | OPEN |
-| R4-37 | B-4.4 unreachable clipped columns (body overflow-x hidden) | P1d | OPEN |
-| R4-38 | B-4.5 quotes archive dead-end (no reactivate) | P1c+P1d | OPEN |
-| R4-39 | B-4.6 Address rule-invisibility + no internal_field seed + Accept type-swap allowed | P1a | OPEN |
+| R4-34 | B-4.1 MQG save trap (orphan choices → unexplainable 400) | P1a+P1b | PASS (P1, evidence: phase log P1) |
+| R4-35 | B-4.2 MQG row-1 headline mislabel in pickers | P1a | PASS (P1, evidence: phase log P1) |
+| R4-36 | B-4.3 call button phone-only renders nothing | P1d | PASS (P1, evidence: phase log P1) |
+| R4-37 | B-4.4 unreachable clipped columns (body overflow-x hidden) | P1d | PASS (P1, evidence: phase log P1) |
+| R4-38 | B-4.5 quotes archive dead-end (no reactivate) | P1c+P1d | PASS (P1, evidence: phase log P1) |
+| R4-39 | B-4.6 Address rule-invisibility + no internal_field seed + Accept type-swap allowed | P1a | PASS (P1, evidence: phase log P1) |
 | R4-40 | B-4.7 "Numbered" progress style fake (== Bar) | P5a | OPEN |
-| R4-41 | B-4.8 columns stored-vs-rendered drift (no server validation; clamp mismatch) | P1b | OPEN |
-| R4-42 | B-4.9 headline_text raw-id jargon in save errors | P1c | OPEN |
+| R4-41 | B-4.8 columns stored-vs-rendered drift (no server validation; clamp mismatch) | P1b | PASS (P1, evidence: phase log P1) |
+| R4-42 | B-4.9 headline_text raw-id jargon in save errors | P1c | PASS (P1, evidence: phase log P1) |
 | R4-43 | D-1 cap raise 44,032 + per-feature byte ledger | P2a | OPEN |
 | R4-44 | §19.1 binding: page_plan_hash + checkpoint validation + re-issue on switch | P3a+P4a | OPEN |
 | R4-45 | Round-4 acceptance journeys (sections + quotes suites, both engines) | P7a | OPEN |
@@ -59,4 +59,11 @@ lifecycle parity.
 | R4-OP3 | OpenAI spend/quota + GOOGLE_MAPS_SERVER_KEY sign-off | operator | BLOCKED |
 
 ## Phase log
-_(conductor appends per phase: gates run + counts, review verdict, PR, merge SHA)_
+
+### P1 — unblock batch (2026-07-20)
+- Slices: P1a ui-section-studio (ababbe9, dc06b55) · P1b presets/schema/styles (4b5a325, b75e66c) · P1c server/lifecycle (1009b90, 679f0f0, 4bc4600, 3943892, 42945b3) · P1d layout/lists/frame-CTA (e88ac01, 7b9c232, c0b957a, c371593).
+- Conductor gates (own hand, explicit cwd, fresh D1): tsc 0 · vitest 394 files / 5,692 tests pass==total · P1 specs 29/29 (__p1a both engines, __p1b 6, __p1d 15) · adapted suites r4a-pipeline 9/9 + listicles-sections 5/5 · operator acceptance 24/24 both engines · verify:all green (bundle byte-identical 42,874/44,032 cap pending P2; jargon 0; golden 0 unclassified) · diff-scope == ownership tables · origin/main drift 0.
+- Adversarial review (fresh Opus): FIX-FIRST (1 MAJOR gate-fidelity + 4 minor) → all five fixed in-phase (4 commits) → delta re-verify **SHIP**, all findings RESOLVED, no new conflict.
+- Notable in-phase catches: Archive-button-wired-to-hard-DELETE safety bug; kebab clip/stacking → body portal; FK cascade harness-vs-prod divergence probe; TOCTOU closed via atomic conditional DELETE; duplicate collapses A/B to control.
+- Disclosure for operator/staging: section DELETE is now a real hard delete when unreferenced (guarded 409 otherwise); append-only analytics rows for deleted sections survive by design.
+- PR: {{PR_URL}} · merge: {{MERGE_SHA}}
