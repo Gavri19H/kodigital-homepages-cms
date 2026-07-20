@@ -35,6 +35,10 @@ const NAME_S1 = "Welcome Intro Section";
 const NAME_S2 = "Benefits Choice Section";
 const NAME_LONG = "A very long section headline that has to ellipsize inside the two hundred and sixty pixel structure rail without ever wrapping the row";
 const NAME_S4 = "Final Offer Section";
+// Review-round addition (P3 minor-4): the two sections the RULED-slot test
+// wires — a case-branch candidate ("X") and the required default ("Y").
+const NAME_RULED_CASE = "California Rate Section";
+const NAME_RULED_DEFAULT = "Standard Rate Section";
 const VERTICAL = "life";
 
 async function json<T>(
@@ -209,7 +213,15 @@ test.describe("P3b — pages-first Quote-Builder structure panel", () => {
     await expect(marker).toHaveCount(1);
     await expect(marker).toHaveText("Auction runs after the last page"); // rich (A/B) funnel → page vocabulary
     const domOrder = await list2.evaluate((el) => {
-      const kids = Array.from(el.children);
+      // Indexed `.item()` walk, not `Array.from(el.children)` — the project
+      // tsconfig's `lib` is `["ES2022"]` (no `dom.iterable`), so an
+      // HTMLCollection isn't recognized as `Iterable<Element>` and
+      // `Array.from` would infer `unknown[]` (TS18046 on every element use).
+      const kids: Element[] = [];
+      for (let i = 0; i < el.children.length; i++) {
+        const kid = el.children.item(i);
+        if (kid) kids.push(kid);
+      }
       const pageIdxs = kids.map((k, i) => (k.hasAttribute("data-page") ? i : -1)).filter((i) => i >= 0);
       const markIdx = kids.findIndex((k) => k.getAttribute("data-auction-entry") === "1");
       return { lastPageIdx: pageIdxs[pageIdxs.length - 1] ?? -1, markIdx };
@@ -234,5 +246,152 @@ test.describe("P3b — pages-first Quote-Builder structure panel", () => {
     expect(railBox).not.toBeNull();
     expect(boxesIntersect(nameBox!, railBox!), "name cell must not intersect the controls rail").toBe(false);
     await page.screenshot({ path: `${SHOT_DIR}/p3b-reloaded-260.png`, fullPage: true });
+  });
+});
+
+interface RuledSeed {
+  quotePublicId: string;
+  variantId: string;
+  caseSectionName: string;
+  caseSectionId: string;
+  defaultSectionName: string;
+  defaultSectionId: string;
+}
+
+// A SEPARATE quote/variant + 2 dedicated sections for the ruled-slot test,
+// deliberately NOT reusing seedP3bQuote: the admin editor's add-picker list
+// (`/api/admin/leadgen/sections?activity=...`) is GLOBAL to the activity, not
+// scoped to one quote, and addSectionToPage matches an option by its VISIBLE
+// LABEL (the picker's numeric `value` isn't known ahead of a section's
+// creation). Calling seedP3bQuote a second time would re-mint its FOUR fixed
+// literal names (NAME_S1..NAME_S4) verbatim, producing duplicate labels in
+// that shared list and making the A/B test's OWN label-based picks
+// nondeterministic. This fixture's two names instead embed a fresh `uniq`
+// suffix, so they can never collide with NAME_S1..NAME_S4/NAME_LONG or with
+// themselves across repeated runs.
+async function seedRuledFixture(request: APIRequestContext): Promise<RuledSeed> {
+  const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+  const quote = await json<{ public_id: string; funnels: Array<{ variants: Array<{ public_id: string }> }> }>(
+    await request.post(`${LG_API}/quotes`, { data: { quote_name: `P3b ruled ${uniq}`, activity: "quote_funnel", verticals: [VERTICAL] } }),
+    "quote create",
+  );
+  const mk = async (name: string): Promise<string> => {
+    const created = await json<{ public_id: string }>(
+      await request.post(`${LG_API}/sections`, {
+        data: {
+          activity: "quote_funnel",
+          vertical: VERTICAL,
+          status: "active",
+          section_name: name,
+          headline_text: name,
+          content_json: JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q", question_key: "k", internal_field: `f_${uniq}_${name.length}`, answer_type: "boolean", required: true }] }),
+        },
+      }),
+      `section create (${name})`,
+    );
+    return created.public_id;
+  };
+  const caseSectionName = `${NAME_RULED_CASE} ${uniq}`;
+  const defaultSectionName = `${NAME_RULED_DEFAULT} ${uniq}`;
+  return {
+    quotePublicId: quote.public_id,
+    variantId: quote.funnels[0]!.variants[0]!.public_id,
+    caseSectionName,
+    caseSectionId: await mk(caseSectionName),
+    defaultSectionName,
+    defaultSectionId: await mk(defaultSectionName),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Review-round addition (P3 minor-4): the ruled-slot editor round-trips
+// through REAL picker clicks — the A/B leg above already proves the kind-
+// switch + save/reload machinery; this proves the SAME machinery for `kind:
+// "ruled"` (cases[] + a REQUIRED default), which until now was only exercised
+// server-side (quotes-handlers.ts preparePages / the P3a Playwright spec's
+// pre-authored fixture). Its OWN isolated quote (seedRuledFixture) —
+// independent of the A/B test's DOM/save state above.
+// ---------------------------------------------------------------------------
+test.describe("P3b — ruled-slot editor (review round, P3 minor-4)", () => {
+  let seed: RuledSeed;
+
+  test.beforeAll(async () => {
+    const ctx = await playwrightRequest.newContext({ baseURL: ORIGIN });
+    seed = await seedRuledFixture(ctx);
+    await ctx.dispose();
+  });
+
+  test("configure a page's slot as RULED (state is CA → section X, default section Y) via the pickers → save → reload round-trips", async ({ page }) => {
+    test.setTimeout(120_000);
+    page.on("dialog", (d) => d.accept());
+
+    await page.goto(`/admin/leadgen/quotes/${seed.quotePublicId}/edit`, { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#lg-structure-panel")).toBeVisible({ timeout: 20_000 });
+    const list = page.locator("#lg-section-list");
+
+    // --- one page, one starting (fixed) slot on section Y --------------------
+    await page.locator("#lg-add-page").click();
+    const pages = list.locator("[data-page]");
+    await expect(pages).toHaveCount(1);
+    const p1 = pages.nth(0);
+    await addSectionToPage(p1, seed.defaultSectionName); // Y — becomes the fixed slot the kind-switch seeds `default_section_id` from
+    await expect(p1.locator("[data-slot]")).toHaveCount(1);
+    await expect(p1.locator("[data-slot]").first()).toHaveAttribute("data-slot-kind", "fixed");
+
+    // --- switch the slot's kind to Rule… via the real kind-select picker ------
+    await p1.locator("[data-slot]").first().locator("[data-slot-kind-select]").selectOption("ruled");
+    const ruledSlot = p1.locator('[data-slot][data-slot-kind="ruled"]');
+    await expect(ruledSlot).toHaveCount(1);
+    // switching from a fixed(Y) slot auto-seeds the new default to Y (a sane
+    // starting point — every ruled slot must always resolve to something)
+    await expect(ruledSlot.locator("[data-ruled-default]")).toHaveValue(seed.defaultSectionId);
+
+    // --- author the case (state is CA → section X) through the pickers -------
+    const caseRow = ruledSlot.locator("[data-ruled-case]").first();
+    await caseRow.locator("[data-ruled-field]").selectOption("state"); // entry-known field picker
+    await caseRow.locator("[data-ruled-op]").selectOption("eq"); // "is"
+    await caseRow.locator("[data-ruled-value]").fill("CA");
+    await caseRow.locator("[data-ruled-section]").selectOption(seed.caseSectionId); // X
+
+    // --- the default (section Y) — re-confirm explicitly via its own picker --
+    await ruledSlot.locator("[data-ruled-default]").selectOption(seed.defaultSectionId);
+    await page.screenshot({ path: `${SHOT_DIR}/p3b-ruled-authored.png`, fullPage: true });
+
+    // --- SAVE (the pages replace-set) -----------------------------------------
+    const putPromise = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().includes(`/variants/${seed.variantId}`));
+    await page.locator("#lg-variant-save").click();
+    const put = await putPromise;
+    expect(put.status(), `variant PUT: ${await put.text()}`).toBe(200);
+    await expect(page.locator("#lg-quote-ok")).toContainText("Saved", { timeout: 20_000 });
+
+    // the accepted payload carried a genuine `ruled` slot (not a UI-only shape)
+    const putBody = put.request().postDataJSON() as { pages: Array<{ slots: Array<Record<string, unknown>> }> };
+    const sentSlot = putBody.pages[0]!.slots[0]!;
+    expect(sentSlot["kind"]).toBe("ruled");
+    expect(sentSlot["default_section_id"]).toBe(seed.defaultSectionId);
+    expect(sentSlot["cases"]).toEqual([{ conditions: { groups: [{ field: "state", op: "eq", value: "CA" }] }, section_id: seed.caseSectionId }]);
+
+    // --- RELOAD → the ruled config round-trips off the SSR panel -------------
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("#lg-structure-panel")).toBeVisible({ timeout: 20_000 });
+    const list2 = page.locator("#lg-section-list");
+    const pages2 = list2.locator("[data-page]");
+    await expect(pages2).toHaveCount(1);
+    const slot2 = pages2.nth(0).locator("[data-slot]");
+    await expect(slot2).toHaveCount(1);
+    await expect(slot2.first()).toHaveAttribute("data-slot-kind", "ruled");
+
+    // the case row is VISIBLE with the right selections
+    const caseRow2 = slot2.first().locator("[data-ruled-case]").first();
+    await expect(caseRow2).toBeVisible();
+    await expect(caseRow2.locator("[data-ruled-field]")).toHaveValue("state");
+    await expect(caseRow2.locator("[data-ruled-op]")).toHaveValue("eq");
+    await expect(caseRow2.locator("[data-ruled-value]")).toHaveValue("CA");
+    await expect(caseRow2.locator("[data-ruled-section]")).toHaveValue(seed.caseSectionId);
+
+    // …and the default is visible with the right selection
+    await expect(slot2.first().locator("[data-ruled-default]")).toBeVisible();
+    await expect(slot2.first().locator("[data-ruled-default]")).toHaveValue(seed.defaultSectionId);
+    await page.screenshot({ path: `${SHOT_DIR}/p3b-ruled-reloaded.png`, fullPage: true });
   });
 });
