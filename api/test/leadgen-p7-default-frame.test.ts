@@ -37,6 +37,19 @@
 // null) while leaving the "no theme" / "inline theme, no theme_id" cases
 // passing unchanged (they were never the point of failure).
 //
+// R4-48 FOLLOW-UP (money-path fail-safe): parseJsonRecordColumn collapses TWO
+// distinct frame_config_json states into the same `rawFrame === null` — a
+// TRUE SQL-NULL/absent column, and a present-but-CORRUPT/schema-invalid
+// string that fails to parse. The initial fc41ae2 cut synthesized the narrow
+// default on EITHER, which would have weakened leadgen-frame-serve.test.ts's
+// "a corrupt or schema-invalid stored frame must never break OR ALTER a
+// revenue-serving page" fail-safe for themed funnels. The fix distinguishes
+// them at the resolveFrameComposition call site using the RAW column value
+// already in hand (source.frame_config_json) — only a truly absent/blank
+// column is eligible; a corrupt one always stays on the exact legacy path,
+// themed or not. See the two new tests below ('CORRUPT frame_config_json...'
+// and 'schema-invalid (non-object) frame_config_json...').
+//
 // Harness: the leadgen-frame-serve.test.ts node:sqlite pattern + migrations
 // 0036–0042 (0041 adds the frame/theme columns).
 
@@ -260,6 +273,37 @@ describe("P7fix (narrow): resolveFrameComposition NULL-frame branch (R4 item 10I
     expect(composition, "an explicit theme_id flips the frameless funnel onto the frame path").not.toBeNull();
     expect(composition!.frame.template).toBe("minimal");
     expect(composition!.frame.header.enabled, "the synthesized frame's header is OFF (never double-renders a section HeaderBar)").toBe(false);
+  });
+
+  // R4-48 (money-path fail-safe): parseJsonRecordColumn collapses TWO distinct
+  // frame_config_json states to the same `rawFrame === null` — a TRUE
+  // SQL-NULL/absent column (eligible for the narrow default above) and a
+  // present-but-CORRUPT string that fails to parse (NOT eligible — it must
+  // stay on the exact legacy fail-safe path unconditionally, themed or not).
+  // Uses the SAME corrupt literal ('{not json') as leadgen-frame-serve.
+  // test.ts's fail-safe fixture.
+  it("CORRUPT frame_config_json ('{not json') + explicit theme_id: stays on the EXACT legacy byte path — NOT synthesized/framed (13 §13.3 fail-safe)", () => {
+    const composition = resolveFrameComposition(
+      {
+        frame_config_json: "{not json",
+        theme_json: JSON.stringify({ theme_id: "thm_someone_authored_this" }),
+        frame_overrides_json: null,
+      },
+      design,
+    );
+    expect(composition, "a corrupt (present, unparseable) frame must never be synthesized, even when explicitly themed").toBeNull();
+  });
+
+  it("schema-invalid (non-object) frame_config_json ('[1,2,3]') + explicit theme_id: also stays legacy — corrupt-shape, not SQL-NULL", () => {
+    const composition = resolveFrameComposition(
+      {
+        frame_config_json: "[1,2,3]",
+        theme_json: JSON.stringify({ theme_id: "thm_someone_authored_this" }),
+        frame_overrides_json: null,
+      },
+      design,
+    );
+    expect(composition, "a non-object parse result is also 'present but not a valid frame' — legacy, not synthesized").toBeNull();
   });
 
   it("explicit theme_id WITH an existing operator frame: the operator's own frame wins untouched (narrow default only fires on NULL frame)", () => {

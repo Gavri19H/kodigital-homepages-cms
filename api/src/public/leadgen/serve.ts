@@ -501,9 +501,23 @@ export function resolveFrameComposition(
 
   let frameSource: LeadgenFrameSource = source;
   if (rawFrame === null) {
+    // R4-48 (money-path fail-safe): parseJsonRecordColumn collapses TWO
+    // distinct states to the same null — (a) frame_config_json is a TRUE
+    // SQL-NULL/absent/blank column (never configured), and (b) the column
+    // holds a non-empty string that failed to parse or isn't a plain object
+    // (corrupt/schema-invalid). Only (a) is eligible for the narrow default
+    // below — a corrupt/invalid frame must stay on the EXACT legacy fail-safe
+    // path unconditionally, themed or not (13 §13.3; leadgen-frame-serve.
+    // test.ts's "must never break OR ALTER a revenue-serving page" contract,
+    // pre-dating this fix). The raw column value is already in hand on
+    // `source` — no new query needed to tell the two apart.
+    const rawFrameColumn = source.frame_config_json;
+    const frameColumnTrulyAbsent = typeof rawFrameColumn !== "string" || rawFrameColumn.trim() === "";
     const explicitThemeId =
-      rawTheme !== null && typeof rawTheme["theme_id"] === "string" ? rawTheme["theme_id"] : null;
-    if (explicitThemeId === null) return null; // legacy funnel — exact current behavior (03 §3.1)
+      frameColumnTrulyAbsent && rawTheme !== null && typeof rawTheme["theme_id"] === "string"
+        ? rawTheme["theme_id"]
+        : null;
+    if (explicitThemeId === null) return null; // legacy funnel (absent+themeless) OR present-but-corrupt frame — exact current behavior (03 §3.1 / 13 §13.3)
     frameSource = { ...source, frame_config_json: NARROW_DEFAULT_THEMED_FRAME_CONFIG_JSON };
   }
 
