@@ -124,6 +124,17 @@ const canvasRender = (page: Page) => frameOf(page).locator("#lg-studio-canvas-re
 async function openEdit(page: Page, publicId: string): Promise<void> {
   await page.goto(`/admin/leadgen/sections/${publicId}/edit`, { waitUntil: "domcontentloaded" });
   await expect(page.locator("#lg-section-name")).toBeVisible({ timeout: 15_000 });
+  // Deflake (combined-run only; every createStudioSection call in this file
+  // seeds >=1 component, so this is always reachable): #lg-section-name is a
+  // top-level DOM node visible as soon as the shell HTML parses, but the
+  // canvas srcdoc iframe + its palette click-handlers can still be mid-init
+  // under load — a palette click firing in that window is a silent no-op
+  // (0 nodes inserted), never a thrown error, so nothing upstream of the
+  // insert assertion catches it. Wait for the SAME canvas-ready signal
+  // leadgen-operator-acceptance.gesture.spec.ts's bootStudio() uses (a real
+  // rendered node inside the iframe) so callers that immediately drive the
+  // palette (openEdit -> palette(...).click()) never race canvas init.
+  await expect(frameOf(page).locator("[data-question-id]").first()).toBeVisible({ timeout: 15_000 });
 }
 
 async function saveStudio(page: Page): Promise<void> {
@@ -131,6 +142,19 @@ async function saveStudio(page: Page): Promise<void> {
 }
 
 async function saveStudioAwaitOk(page: Page, publicId: string): Promise<void> {
+  // Armed BEFORE the click (never after) so a clean save's own hard-navigate
+  // reload — fired asynchronously by the studio's client JS the instant the
+  // PATCH resolves 2xx, same mechanism saveStudio()'s Promise.all races
+  // intentionally — can never be missed. Without this, a caller that
+  // immediately re-navigates (e.g. openEdit -> page.goto) after this
+  // function returns can race that in-flight reload and get "navigation
+  // interrupted by another navigation to <the same edit URL>" (deflake,
+  // same class as the P3a fix — crib: __p1a-studio.spec.ts's own save
+  // sequence waits for BOTH the PATCH response and `load` together).
+  // Timeout+catch so a save that legitimately FAILS (no reload ever fires)
+  // never hangs this promise — it just resolves to null in the background,
+  // harmless since the failure path below throws before ever awaiting it.
+  const loaded = page.waitForEvent("load", { timeout: 15_000 }).catch(() => null);
   const [res] = await Promise.all([
     page.waitForResponse((r) => r.url().includes(`/sections/${publicId}`) && r.request().method() === "PATCH"),
     page.locator("#lg-section-save").click(),
@@ -144,6 +168,10 @@ async function saveStudioAwaitOk(page: Page, publicId: string): Promise<void> {
     }
     throw new Error(`save PATCH ${res.status()}: ${detail}`);
   }
+  // Clean save confirmed — wait for the studio's own reload to fully land
+  // before returning, so the NEXT action (often another openEdit) is never
+  // racing it.
+  await loaded;
 }
 
 async function openInspectorTab(page: Page, key: string): Promise<void> {
