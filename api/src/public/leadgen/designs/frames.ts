@@ -20,6 +20,7 @@
 
 import { FUNNEL_TOKEN_ROLES, isFunnelTokenRole } from "./theme";
 import type { FunnelTokenRole, Problem, ProblemSeverity, VariantThemeOverrides } from "./theme";
+import { sanitizeFrameInlineHtml } from "../../../lib/inline-sanitizer";
 
 // ---------------------------------------------------------------------------
 // §3.3 enums (closed sets).
@@ -1136,8 +1137,29 @@ function validateFreeText(value: unknown, push: FramePush): void {
           push("error", `${bp}.type`, `A text block type must be one of: ${FRAME_FREE_TEXT_BLOCK_TYPES.join(", ")}.`);
           return;
         }
+        // SECURITY (adversarial review MAJOR-1, Round-4 P5a fix): run the SAME
+        // allowlist re-serializer that frame.ts uses at RENDER time here too,
+        // at STORE time — and OVERWRITE the field with its output (a
+        // deliberate, documented mutation of the caller's `raw` object). Every
+        // caller of validateFrameConfig (frame-handlers.ts's PUT
+        // /funnels/:id/frame handler, the money-path one) persists
+        // JSON.stringify(raw) AFTER this function returns — since `b` here is
+        // a reference into the SAME object graph `raw` points to, this
+        // rewrite is exactly what ends up in D1: the authored payload never
+        // persists, even if some future write path skipped render-time
+        // sanitization entirely. See lib/inline-sanitizer.ts's module header
+        // for the full corpus this closes.
+        if (typeof b["html"] === "string") {
+          b["html"] = sanitizeFrameInlineHtml(b["html"]);
+        }
         if (b["type"] === "list") {
-          if (!Array.isArray(b["items"])) push("error", `${bp}.items`, "A list block needs a list of items.");
+          if (!Array.isArray(b["items"])) {
+            push("error", `${bp}.items`, "A list block needs a list of items.");
+          } else {
+            b["items"] = (b["items"] as unknown[]).map((it) =>
+              typeof it === "string" ? sanitizeFrameInlineHtml(it) : it,
+            );
+          }
           if (b["style"] !== undefined && !inEnum(b["style"], FRAME_FREE_TEXT_LIST_STYLES)) {
             push("error", `${bp}.style`, `A list style must be one of: ${FRAME_FREE_TEXT_LIST_STYLES.join(", ")}.`);
           }

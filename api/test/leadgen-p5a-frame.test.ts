@@ -21,6 +21,7 @@ import { resolveTokens } from "../src/public/leadgen/designs/theme";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { funnelChromeCss, DEFAULT_FUNNEL_SCOPE } from "../src/public/leadgen/designs/default-funnel/styles";
 import type { SiteBranding } from "../src/leadgen/branding";
+import { sanitizeFrameInlineHtml } from "../src/lib/inline-sanitizer";
 
 const TOKENS = resolveTokens(defaultFunnelDesign);
 
@@ -224,6 +225,195 @@ describe("P5a 10E free text", () => {
     expect(listFirstOnly).toContain('data-frame-pages="list:1"');
     expect(listFirstOnly).toContain('data-show-on="first"');
     expect(listFirstOnly).not.toContain("hidden"); // includes page 1 → visible
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SECURITY FIX (adversarial review MAJOR-1, ship-blocker) — the free-text
+// html sink previously ran through editor/sanitize.ts's STRIP/BLOCKLIST
+// sanitizeHtml, which the reviewer broke live with a 5-payload corpus. The
+// sink now runs lib/inline-sanitizer.ts's ALLOWLIST re-serializer instead —
+// {p,strong,b,em,i,a[safe href],ul,ol,li,br,span} ONLY; every other element
+// (script/style/img/audio/iframe/object/embed/…) is DROPPED ENTIRELY,
+// regardless of spelling/casing/spacing/entity-encoding. Proves, per the
+// EXACT corpus the reviewer supplied: each payload neutralized (both at
+// RENDER time via the composed frame, and at STORE time via
+// validateFrameConfig directly) + the legitimate cases (bold/italic/link/
+// ✓-list) still render.
+// ---------------------------------------------------------------------------
+
+describe("P5a security fix (MAJOR-1) — allowlist re-serializer neutralizes the 5-payload XSS corpus", () => {
+  // The EXACT 5 payloads the adversarial reviewer found surviving verbatim
+  // against the old strip/blocklist sanitizer, run through the render path
+  // (composed full frame HTML) via a paragraph block's `html` field.
+  const CORPUS: Array<{ name: string; payload: string; mustNotContain: string[] }> = [
+    {
+      name: "img onerror, no leading space before on* (quote-adjacent)",
+      payload: '<img src="x"onerror="alert(1)">',
+      mustNotContain: ["<img", "onerror", "alert(1)", "src=\"x\""],
+    },
+    {
+      name: "img onerror, slash-adjacent (HTML5-tolerant separator)",
+      payload: '<img/onerror="alert(1)" src="x">',
+      mustNotContain: ["<img", "onerror", "alert(1)"],
+    },
+    {
+      name: "audio onerror (tag absent from any enumerable blocklist)",
+      payload: '<audio src="x"onerror="alert(1)">',
+      mustNotContain: ["<audio", "onerror", "alert(1)"],
+    },
+    {
+      name: "iframe srcdoc, double-encoded entities (single-pass decode miss)",
+      payload: '<iframe srcdoc="&amp;lt;script&amp;gt;alert(1)&amp;lt;/script&amp;gt;">',
+      mustNotContain: ["<iframe", "srcdoc", "<script", "alert(1)"],
+    },
+    {
+      name: "iframe arbitrary embed / phishing",
+      payload: '<iframe src="https://evil.example.com">',
+      mustNotContain: ["<iframe", "evil.example.com"],
+    },
+  ];
+
+  // Scope to the free-text REGION's own content (the composed frame
+  // legitimately carries an unrelated <img> for the site's own header logo —
+  // asserting "not.toContain('<img')" over the WHOLE page would be a false
+  // positive; none of the allowlisted tags include <div>, so a non-greedy
+  // match to the region's OWN closing </div> is exact).
+  function freeTextRegionHtml(html: string, id: string): string {
+    const m = html.match(new RegExp(`<div[^>]*data-free-text-id="${id}"[^>]*>([\\s\\S]*?)</div>`));
+    expect(m, `free_text region ${id}`).not.toBeNull();
+    return (m as RegExpMatchArray)[1]!;
+  }
+
+  it.each(CORPUS)("RENDER-time: $name renders INERT (dangerous construct fully absent)", ({ payload, mustNotContain }) => {
+    const html = composed({
+      free_text: [{ id: "ft_corpus", slot: "below_section", blocks: [{ type: "paragraph", html: payload }] }],
+    } as FrameConfig);
+    const region = freeTextRegionHtml(html, "ft_corpus");
+    for (const bad of mustNotContain) expect(region, `payload=${payload} bad=${bad}`).not.toContain(bad);
+  });
+
+  it.each(CORPUS)("STORE-time: $name — validateFrameConfig sanitizes so the raw string never persists", ({ payload, mustNotContain }) => {
+    const raw = {
+      version: 1,
+      template: "centered",
+      free_text: [{ id: "ft_store", slot: "below_section", blocks: [{ type: "paragraph", html: payload }] }],
+    };
+    const { config, problems } = validateFrameConfig(raw);
+    expect(problems.filter((p) => p.severity === "error"), `payload=${payload}`).toEqual([]);
+    expect(config, `payload=${payload}`).not.toBeNull();
+    // the SAME object validateFrameConfig returns is what frame-handlers.ts's
+    // PUT /funnels/:id/frame handler JSON.stringifies and persists — assert
+    // directly on the field the caller would store.
+    const storedHtml = (config as unknown as { free_text: Array<{ blocks: Array<{ html: string }> }> }).free_text[0]!
+      .blocks[0]!.html;
+    for (const bad of mustNotContain) expect(storedHtml, `payload=${payload} bad=${bad}`).not.toContain(bad);
+    // AND raw itself was mutated in place (the exact mechanism that makes the
+    // fix work with zero changes to frame-handlers.ts).
+    expect(raw.free_text[0]!.blocks[0]!.html).toBe(storedHtml);
+    expect(raw.free_text[0]!.blocks[0]!.html).not.toBe(payload);
+  });
+
+  it("a MIXED string (legit tag + injected dangerous tag together) is not selectively bypassed", () => {
+    // The old code's pre-check regex only invoked the blocklist sanitizer when
+    // the string LOOKED like it contained an allowed tag — meaning a string
+    // combining a legit tag with an injected payload took the vulnerable path
+    // regardless. The new sanitizer ALWAYS runs, tag-by-tag, so this can never
+    // happen: the legit part survives, the injected part is dropped, always.
+    const html = composed({
+      free_text: [
+        {
+          id: "ft_mixed",
+          slot: "below_section",
+          blocks: [{ type: "paragraph", html: '<strong>Free quote</strong><img src="x"onerror="alert(1)"><em>today</em>' }],
+        },
+      ],
+    } as FrameConfig);
+    const region = freeTextRegionHtml(html, "ft_mixed");
+    expect(region).toContain("<strong>Free quote</strong>");
+    expect(region).toContain("<em>today</em>");
+    expect(region).not.toContain("<img");
+    expect(region).not.toContain("onerror");
+    expect(region).not.toContain("alert(1)");
+  });
+
+  it("VALID formatting still renders correctly: bold/italic/link/✓-list", () => {
+    const html = composed({
+      free_text: [
+        {
+          id: "ft_valid",
+          slot: "below_section",
+          blocks: [
+            { type: "paragraph", html: "<strong>Bold</strong> and <em>italic</em> and <b>b</b> and <i>i</i>" },
+            { type: "paragraph", html: '<a href="https://example.com/quote">Get a quote</a>' },
+            { type: "list", style: "check", items: ["First point", "<strong>Second</strong> point"] },
+          ],
+        },
+      ],
+    } as FrameConfig);
+    expect(html).toContain("<strong>Bold</strong>");
+    expect(html).toContain("<em>italic</em>");
+    expect(html).toContain("<b>b</b>");
+    expect(html).toContain("<i>i</i>");
+    expect(html).toContain('<a href="https://example.com/quote">Get a quote</a>');
+    expect(html).toContain("<li>First point</li>");
+    expect(html).toContain("<li><strong>Second</strong> point</li>");
+    expect(html).toContain("lg-frame-freetext-list--check");
+  });
+
+  it("tel:/mailto: hrefs are preserved (the allowed schemes beyond http(s))", () => {
+    expect(sanitizeFrameInlineHtml('<a href="tel:+15551234567">Call</a>')).toBe('<a href="tel:+15551234567">Call</a>');
+    expect(sanitizeFrameInlineHtml('<a href="mailto:info@example.com">Email</a>')).toBe(
+      '<a href="mailto:info@example.com">Email</a>',
+    );
+  });
+
+  it("an unsafe href (javascript:/data:) drops the href but keeps the inert text", () => {
+    expect(sanitizeFrameInlineHtml('<a href="javascript:alert(1)">click</a>')).toBe("<a>click</a>");
+    expect(sanitizeFrameInlineHtml('<a href="data:text/html,<script>alert(1)</script>">click</a>')).toBe("<a>click</a>");
+  });
+
+  it("a double/triple-encoded javascript: href is rejected too (fixpoint decode, allowlist scheme check)", () => {
+    // &amp;#106;avascript: -> (decode 1) &#106;avascript: -> (decode 2) javascript:
+    // — a single-pass decoder would see "&#106;avascript:" and (correctly, for
+    // ITS OWN single-pass contract) not recognize it as javascript: yet; a
+    // fixpoint decoder reveals it, and the ALLOWLIST scheme check (not a
+    // javascript: blocklist) rejects it regardless of decode depth.
+    const out = sanitizeFrameInlineHtml('<a href="&amp;#106;avascript:alert(1)">click</a>');
+    expect(out).toBe("<a>click</a>");
+    expect(out).not.toContain("javascript:");
+  });
+
+  it("script/style tag content never survives as executable markup — only as inert escaped text", () => {
+    expect(sanitizeFrameInlineHtml("<script>alert(1)</script>")).toBe("alert(1)");
+    expect(sanitizeFrameInlineHtml("<style>body{background:url(x)}</style>")).toBe("body{background:url(x)}");
+  });
+
+  it("unknown/malformed tag-like text in prose is escaped, not rejected (forgiving of casual authoring)", () => {
+    expect(sanitizeFrameInlineHtml("if x < 5 and y > 3")).toBe("if x &lt; 5 and y &gt; 3");
+  });
+
+  it("unclosed tags are auto-closed at EOF (never leaves dangling markup)", () => {
+    expect(sanitizeFrameInlineHtml("<strong>bold forever")).toBe("<strong>bold forever</strong>");
+  });
+
+  it("case-insensitive matching: SCRIPT/IMG in any case are still dropped (attrs never survive; a dropped tag's OWN inner text is inert, matching the documented script/style behavior above)", () => {
+    const out = sanitizeFrameInlineHtml('<SCRIPT>alert(1)</SCRIPT><StRoNg>ok</StRoNg><IMG SRC="x" ONERROR="alert(2)">');
+    // the disallowed IMG tag's own attribute name/value never survive at all
+    // (fully consumed as part of dropping the whole tag construct).
+    expect(out).not.toContain("<img");
+    expect(out).not.toContain("<IMG");
+    expect(out).not.toContain("ONERROR");
+    expect(out).not.toContain("onerror");
+    expect(out).not.toContain("alert(2)");
+    // the mixed-case allowed tag still renders correctly.
+    expect(out).toContain("<strong>ok</strong>");
+    // the SCRIPT tag's own INNER TEXT (between its open/close) is inert plain
+    // text once its tag delimiters are dropped — expected, matches the
+    // dedicated script/style test above (never executable, just visible copy).
+    expect(out).not.toContain("<script");
+    expect(out).not.toContain("<SCRIPT");
+    expect(out).toContain("alert(1)");
   });
 });
 

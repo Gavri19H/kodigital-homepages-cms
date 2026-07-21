@@ -131,6 +131,17 @@ const RICH_FRAME: Record<string, unknown> = {
   free_text: [
     { id: "ft_first", slot: "above_section", pages: { mode: "first" }, blocks: [{ type: "paragraph", html: "<strong>Shown only on page 1</strong>" }] },
     { id: "ft_all", slot: "below_section", pages: { mode: "all" }, blocks: [{ type: "list", style: "check", items: ["Free to use", "No obligation"] }] },
+    // Security fix (adversarial review MAJOR-1): an authored block MIXING a
+    // legit tag with an onerror/iframe payload — proves it renders INERT on
+    // the REAL served funnel (through the authoring API's save gate, not
+    // just the pure renderer unit).
+    {
+      id: "ft_xss",
+      slot: "below_section",
+      blocks: [
+        { type: "paragraph", html: '<strong>Safe copy</strong><img src="x"onerror="alert(document.domain)"><iframe src="https://evil.example.com"></iframe>' },
+      ],
+    },
   ],
   brand_logos: {
     enabled: true,
@@ -308,6 +319,54 @@ test.describe("P5a — authorable frame elements v2 on the live funnel", () => {
     await answerPageAndContinue(page);
     await expect(page.locator("[data-lg-progress]").first()).toHaveAttribute("data-lg-progress-current", "2");
     await expect(img).toBeHidden();
+  });
+
+  // SECURITY FIX (adversarial review MAJOR-1, ship-blocker): an authored
+  // free-text block mixing a legit tag with an onerror/iframe payload,
+  // authored through the REAL save gate (PUT /funnels/:id/frame ->
+  // validateFrameConfig, not just the pure renderer unit) and served on the
+  // REAL live funnel — proves the fix end to end, not just at the unit level.
+  test("security fix (MAJOR-1): an onerror/iframe payload renders INERT on the live funnel", async ({ page }) => {
+    // Attached BEFORE navigation so a console error / uncaught exception
+    // fired during the initial render (the moment an onerror handler WOULD
+    // fire, were it live) is caught, not just after the page has settled.
+    const consoleErrors: string[] = [];
+    const pageErrors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") consoleErrors.push(msg.text());
+    });
+    page.on("pageerror", (err) => pageErrors.push(err.message));
+    await page.goto(shellUrl(rich), { waitUntil: "load" });
+    await ready(page);
+    const region = page.locator('[data-free-text-id="ft_xss"]');
+    await expect(region).toBeVisible();
+    // the safe part of the mixed string survives.
+    await expect(region.locator("strong")).toHaveText("Safe copy");
+    // no <img>/<iframe> ELEMENT anywhere in the live DOM for this region —
+    // not "hidden", not present at all.
+    expect(await region.locator("img").count()).toBe(0);
+    expect(await region.locator("iframe").count()).toBe(0);
+    // the dangerous attribute/value never reaches the served page at all
+    // (checked against the region's own innerHTML, not the whole page, since
+    // the page legitimately renders an unrelated <img> for the site logo).
+    const regionHtml = await region.evaluate((el) => el.innerHTML);
+    expect(regionHtml).not.toContain("onerror");
+    expect(regionHtml).not.toContain("<img");
+    expect(regionHtml).not.toContain("<iframe");
+    expect(regionHtml).not.toContain("evil.example.com");
+    // no console activity attributable to the ATTACKER's payload — i.e. no
+    // JS ran (an executed onerror/script would log via its own alert/throw or
+    // a page error event) and nothing tried to reach the attacker's domain.
+    // NOT a blanket "zero console errors" check: this fixture's brand_logos/
+    // images elements intentionally use placeholder media URLs that 404 in
+    // this test environment — legitimate, unrelated noise this assertion
+    // must not conflate with a security signal.
+    await page.waitForTimeout(200);
+    const attackerRelated = consoleErrors.filter(
+      (m) => /evil\.example\.com|onerror|document\.domain/i.test(m),
+    );
+    expect(attackerRelated, `all console errors: ${JSON.stringify(consoleErrors)}`).toEqual([]);
+    expect(pageErrors, `page errors: ${JSON.stringify(pageErrors)}`).toEqual([]);
   });
 });
 

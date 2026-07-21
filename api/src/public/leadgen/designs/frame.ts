@@ -36,7 +36,8 @@
 // rendered INSIDE the section subtree by the presets — ANOTHER slice's work;
 // this module passes sectionsHtml through untouched.
 
-import { escapeHtml, sanitizeHtml } from "../../../editor/sanitize";
+import { escapeHtml } from "../../../editor/sanitize";
+import { sanitizeFrameInlineHtml } from "../../../lib/inline-sanitizer";
 import { leadgenIconSvg } from "../components/icons.generated";
 import { mediaUrl } from "../../view-models/media-url";
 import {
@@ -642,17 +643,24 @@ function elementClasses(
   return cls;
 }
 
-// 10E free-text inline model — MIRRORS api/src/editor/blocks.ts inlineBody /
-// inlineItem (module-private there; re-declared per the reuse rule): author rich
-// text on `html` flows through the SAME sanitizeHtml (bold/italic/link kept;
-// script/on*/javascript: stripped), plain copy on `text` is escaped. NEVER raw.
-const FRAME_INLINE_ITEM_TAG_RE = /<\/?(?:strong|b|em|i|a|br)(?:\s|\/?>)/i;
+// 10E free-text inline model. SECURITY (adversarial review MAJOR-1, Round-4
+// P5a fix): author rich text on `html` (and each list `item` string) flows
+// through lib/inline-sanitizer.ts's ALLOWLIST re-serializer — NOT
+// editor/sanitize.ts's sanitizeHtml (a strip/blocklist sanitizer the
+// reviewer broke live on THIS sink with five payloads; see the module header
+// there for the full corpus + root causes). Every item/html string is
+// ALWAYS run through the allowlist sanitizer regardless of its apparent
+// content — mixing a legitimate tag with an injected dangerous one in the
+// SAME string (e.g. `<strong>Free quote</strong><img onerror=...>`) can
+// never selectively bypass it the way the old pre-check-then-blocklist
+// gate could. Plain copy on `text` is a straight escape (that field is
+// contractually never markup). NEVER raw either way.
 function frameInlineBody(block: FrameFreeTextBlock): string {
-  if (typeof block.html === "string" && block.html.trim() !== "") return sanitizeHtml(block.html);
+  if (typeof block.html === "string" && block.html.trim() !== "") return sanitizeFrameInlineHtml(block.html);
   return escapeHtml(block.text ?? "");
 }
 function frameInlineItem(item: string): string {
-  return FRAME_INLINE_ITEM_TAG_RE.test(item) ? sanitizeHtml(item) : escapeHtml(item);
+  return sanitizeFrameInlineHtml(item);
 }
 function renderFreeTextBlock(block: FrameFreeTextBlock): string {
   if (block.type === "heading") {
