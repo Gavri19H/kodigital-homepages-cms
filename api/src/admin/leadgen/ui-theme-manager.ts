@@ -56,15 +56,26 @@ import { escapeHtml } from "../templates/layout";
 import { apiJson, leadgenPageShell, leadgenStandalonePageShell, branding, type UiContext } from "./ui";
 import { parseJsonColumn } from "./offers-handlers";
 import {
+  THEME_BUTTON_LAYOUTS,
+  THEME_BUTTON_SELECTED_STYLES,
+  THEME_BUTTON_STYLES,
+  THEME_DISPLAY_SIZE_SCALES,
   THEME_RECORD_BUTTON_SIZES,
   THEME_RECORD_CORNERS,
+  THEME_RECORD_EXTRA_ROLE_KEYS,
   THEME_RECORD_FIELD_HEIGHTS,
   THEME_RECORD_FONT_NAMES,
+  THEME_RECORD_FONT_STACKS,
   THEME_RECORD_ROLE_KEYS,
   winningThemeId,
+  type ThemeButtonLayout,
+  type ThemeButtonSelectedStyle,
+  type ThemeButtonStyle,
+  type ThemeDisplaySizeScale,
   type ThemeRecord,
   type ThemeRecordButtonSize,
   type ThemeRecordCorners,
+  type ThemeRecordExtraRoleKey,
   type ThemeRecordFieldHeight,
   type ThemeRecordFontName,
   type ThemeRecordRoleKey,
@@ -151,10 +162,28 @@ const TM_COLOR = {
 // gates on write; this is a SEPARATE table (admin-preview CSS, never the
 // served runtime <style>) but reuses the identical closed-enum discipline —
 // no raw font-name string is ever interpolated into a style attribute here.
+// P6b (round 2 — the P6a ThemeRecord widening's exhaustiveness signal):
+// THEME_RECORD_FONT_NAMES grew from 3 to 11 (the 8 new self-hosted families,
+// commit 0992752), so this Record's exhaustiveness check demanded all 11 keys
+// — the 3 original entries keep their EXISTING literal strings unchanged (a
+// deliberately separate admin-preview table, per this const's own doc
+// comment, not required to match THEME_RECORD_FONT_STACKS byte-for-byte); the
+// 8 new entries mirror THEME_RECORD_FONT_STACKS's values directly (no
+// hand-retyped literals — same "reuse verbatim for parity" discipline
+// theme.ts's own THEME_RECORD_FONT_STACKS widening already used against
+// THEME_FONT_STACKS).
 const TM_FONT_PREVIEW_STACK: Record<ThemeRecordFontName, string> = {
   Newsreader: "Newsreader,serif",
   Inter: "Inter,system-ui,Arial,sans-serif",
   "Roboto Mono": "'Roboto Mono',monospace",
+  Poppins: THEME_RECORD_FONT_STACKS.Poppins,
+  "Space Grotesk": THEME_RECORD_FONT_STACKS["Space Grotesk"],
+  Fraunces: THEME_RECORD_FONT_STACKS.Fraunces,
+  "Playfair Display": THEME_RECORD_FONT_STACKS["Playfair Display"],
+  Manrope: THEME_RECORD_FONT_STACKS.Manrope,
+  "DM Sans": THEME_RECORD_FONT_STACKS["DM Sans"],
+  "Work Sans": THEME_RECORD_FONT_STACKS["Work Sans"],
+  Lexend: THEME_RECORD_FONT_STACKS.Lexend,
 };
 
 // ---------------------------------------------------------------------------
@@ -306,7 +335,11 @@ function swatch(hex: string, withBorder: boolean): string {
   return `<span style="width:22px;height:22px;border-radius:6px;${border}background:${safeHex(hex)}"></span>`;
 }
 
-function bigSwatch(hex: string, withBorder: boolean): string {
+// P6b round 2: widened to accept `undefined` (was `string`-only) — the 7
+// extra_roles are OPTIONAL, so a preset that never set one calls this with
+// `theme.extra_roles?.[key]`; safeHex already accepted undefined/null, this
+// just lets a legitimate optional-role caller reach it without a cast.
+function bigSwatch(hex: string | undefined, withBorder: boolean): string {
   const border = withBorder ? `border:1px solid ${TM_COLOR.swatchBorder};` : "";
   return `<span style="width:40px;height:40px;border-radius:10px;flex:0 0 auto;${border}background:${safeHex(hex)}"></span>`;
 }
@@ -335,9 +368,18 @@ function buildThemesHref(themeId: string, from: string): string {
 // way) can intercept the click and postMessage the STUDIO PARENT to close
 // the overlay instead of navigating the iframe itself. The href stays a
 // real, working fallback (direct-link / no-JS / opened standalone).
+//
+// P6b: gated additionally on `from !== ""` — the close-intercept only makes
+// sense when there IS a specific "from" surface to signal closing back to
+// (Section Studio's own usage always pairs embed=1 with a from=<sectionId>).
+// ui-quotes.ts's NEW Themes-tab embed (deliverable 3) passes embed=1 with NO
+// `from` (there is no "close the overlay" concept in a persistent tab) — for
+// that shape the link stays a PLAIN, working navigation instead of an inert
+// preventDefault-then-nothing dead click. Zero change to the existing
+// Section Studio path (from is never empty there).
 function renderTopBar(from: string, embed: boolean): string {
   const backHref = from !== "" ? `/admin/leadgen/sections/${encodeURIComponent(from)}/edit` : "/admin/leadgen/sections";
-  const backAttr = embed ? " data-tm-embed-close" : "";
+  const backAttr = embed && from !== "" ? " data-tm-embed-close" : "";
   return `<div style="flex:0 0 auto;height:56px;display:flex;align-items:center;gap:14px;padding:0 18px;background:${TM_COLOR.topbarBg};border-bottom:1px solid ${TM_COLOR.topbarBorder}">
   <a href="${escapeHtml(backHref)}" class="tm-back"${backAttr} style="display:flex;align-items:center;gap:7px;padding:7px 12px 7px 9px;border:1px solid ${TM_COLOR.lineControl};border-radius:8px;cursor:pointer;color:${TM_COLOR.back};font-weight:600;font-size:13px;text-decoration:none"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M14 6l-6 6 6 6" stroke="${TM_COLOR.backIcon}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Back to section</a>
   <div style="width:1px;height:24px;background:${TM_COLOR.divider}"></div>
@@ -414,6 +456,24 @@ const ROLE_META: ReadonlyArray<{ key: ThemeRecordRoleKey; label: string; sub: st
   { key: "success", label: "Success", sub: "reassurance · valid", border: false },
 ];
 
+// P6b round 2 (deliverable 3 — "presets carry+expose the v2 axes"): the 7
+// ADDITIONAL roles theme.ts's ThemeRecord.extra_roles carries, completing the
+// 14-role palette a rich preset can now author. Labels/sub-text copied
+// VERBATIM from ui-quotes.ts's own 14-role ROLE_META for these same 7 keys
+// (the inline funnel-theme editor) so the SAME role reads with the SAME
+// human name in both editors. All 7 are OPTIONAL (a preset may set some/all/
+// none) — renderCenterEditor below falls back to a neutral placeholder swatch
+// for any unset key (safeHex's existing undefined-input handling).
+const EXTRA_ROLE_META: ReadonlyArray<{ key: ThemeRecordExtraRoleKey; label: string; sub: string; border: boolean }> = [
+  { key: "brand_secondary", label: "Brand secondary", sub: "gradients · secondary emphasis", border: false },
+  { key: "surface_wash", label: "Soft fill", sub: "selected fills · quiet panels", border: false },
+  { key: "border", label: "Border", sub: "card/input borders", border: true },
+  { key: "text_muted", label: "Muted text", sub: "subheadlines · helper · meta", border: false },
+  { key: "button_primary_bg", label: "Button", sub: "Continue/CTA background", border: false },
+  { key: "button_primary_text", label: "Button text", sub: "Continue/CTA text", border: false },
+  { key: "button_secondary_bg", label: "Secondary button", sub: "back button-style · quiet buttons", border: false },
+];
+
 function fontOptionsHtml(selected: ThemeRecordFontName): string {
   return THEME_RECORD_FONT_NAMES.map(
     (name) => `<option value="${escapeHtml(name)}"${name === selected ? " selected" : ""}>${escapeHtml(name)}</option>`,
@@ -445,8 +505,41 @@ const CORNERS_OPTS: ReadonlyArray<{ value: ThemeRecordCorners; label: string }> 
   { value: "pill", label: "Pill" },
 ];
 
+// P6b round 2 (deliverable 3) — option tables for the 4 new segmented
+// controls (typography.display_size + the button_style triple), matching the
+// SAME enums/labels ui-quotes.ts's inline theme editor already exposes for
+// funnel-level theming (Round-4 P6b round 1), so a preset and an inline theme
+// present the SAME vocabulary to the operator.
+const DISPLAY_SIZE_OPTS: ReadonlyArray<{ value: ThemeDisplaySizeScale; label: string }> = [
+  { value: "m", label: "Base" },
+  { value: "l", label: "Large" },
+  { value: "xl", label: "X-Large" },
+  { value: "xxl", label: "XX-Large" },
+];
+const BUTTON_FILL_OPTS: ReadonlyArray<{ value: ThemeButtonStyle; label: string }> = [
+  { value: "fill", label: "Solid" },
+  { value: "outline", label: "Outline" },
+  { value: "soft", label: "Soft" },
+];
+const BUTTON_LAYOUT_OPTS: ReadonlyArray<{ value: ThemeButtonLayout; label: string }> = [
+  { value: "grid", label: "Grid" },
+  { value: "list", label: "List" },
+];
+const BUTTON_SELECTED_OPTS: ReadonlyArray<{ value: ThemeButtonSelectedStyle; label: string }> = [
+  { value: "wash", label: "Wash" },
+  { value: "mark", label: "Mark" },
+];
+
+// P6b round 2: `topGroup` is the PATCH body's top-level key this control's
+// group nests under (theme.ts's ThemeRecord shape: controls.*/typography.*/
+// button_style.*) — stamped as `data-top` so THEME_MGR_SCRIPT's wireSegments
+// can build the right patch shape generically instead of always assuming
+// `controls` (the ONLY top-level group before this round). The 3 EXISTING
+// call sites below now pass "controls" explicitly — byte-identical resulting
+// PATCH body to before this change (still `{controls:{<group>:<value>}}`).
 function segmentedControl<T extends string>(
-  group: "field_height" | "button_size" | "corners",
+  topGroup: "controls" | "typography" | "button_style",
+  group: string,
   options: ReadonlyArray<{ value: T; label: string }>,
   current: T,
   themeId: string,
@@ -457,14 +550,19 @@ function segmentedControl<T extends string>(
       const style = active
         ? `flex:1;text-align:center;font-size:12px;padding:6px;background:#fff;border-radius:6px;color:${TM_COLOR.segActiveText};font-weight:700;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.1)`
         : `flex:1;text-align:center;font-size:12px;padding:6px;color:${TM_COLOR.segInactiveText};font-weight:600;cursor:pointer`;
-      return `<div data-tm-seg data-group="${group}" data-value="${escapeHtml(opt.value)}" data-theme-id="${escapeHtml(themeId)}" style="${style}">${escapeHtml(opt.label)}</div>`;
+      return `<div data-tm-seg data-top="${topGroup}" data-group="${group}" data-value="${escapeHtml(opt.value)}" data-theme-id="${escapeHtml(themeId)}" style="${style}">${escapeHtml(opt.label)}</div>`;
     })
     .join("");
   return `<div style="display:flex;background:${TM_COLOR.segBg};border-radius:8px;padding:2px">${segs}</div>`;
 }
 
-function advancedHexRow(key: ThemeRecordRoleKey, hex: string, themeId: string): string {
-  return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0"><span style="font-size:12px;color:${TM_COLOR.segInactiveText}">${escapeHtml(key)}</span><input data-tm-hex data-role="${key}" data-theme-id="${escapeHtml(themeId)}" value="${escapeHtml(hex)}" spellcheck="false" style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:${TM_COLOR.monoTextStrong};background:${TM_COLOR.monoBg};padding:2px 8px;border-radius:5px;border:1px solid transparent;width:88px;text-align:right" /></div>`;
+// P6b round 2: `topGroup` mirrors segmentedControl's — "roles" for the
+// original 7 (existing call site now passes it explicitly, same resulting
+// `{roles:{<key>:<hex>}}` PATCH body as before), "extra_roles" for the 7 new
+// ones (a SEPARATE optional group, never merged into the required 7-key
+// `roles`).
+function advancedHexRow(topGroup: "roles" | "extra_roles", key: string, hex: string, themeId: string): string {
+  return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0"><span style="font-size:12px;color:${TM_COLOR.segInactiveText}">${escapeHtml(key)}</span><input data-tm-hex data-top="${topGroup}" data-role="${key}" data-theme-id="${escapeHtml(themeId)}" value="${escapeHtml(hex)}" spellcheck="false" style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:${TM_COLOR.monoTextStrong};background:${TM_COLOR.monoBg};padding:2px 8px;border-radius:5px;border:1px solid transparent;width:88px;text-align:right" /></div>`;
 }
 
 function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[]): string {
@@ -473,7 +571,27 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[]): s
       `<div style="display:flex;align-items:center;gap:12px;cursor:pointer">${bigSwatch(theme.roles[meta.key], meta.border)}<div><div style="font-size:13px;font-weight:600;color:${TM_COLOR.roleLabel}">${escapeHtml(meta.label)}</div><div style="font-size:11px;color:${TM_COLOR.roleSub}">${escapeHtml(meta.sub)}</div></div></div>`,
   ).join("\n        ");
 
-  const advRows = THEME_RECORD_ROLE_KEYS.map((key) => advancedHexRow(key, theme.roles[key], theme.id)).join("\n          ");
+  // P6b round 2 (deliverable 3) — the 7 additional roles completing the
+  // 14-role palette. `theme.extra_roles?.[key]` is `undefined` for a
+  // pre-P6/never-set role; bigSwatch/safeHex already render undefined as the
+  // neutral placeholder (no new fallback logic needed).
+  const extraColorRows = EXTRA_ROLE_META.map(
+    (meta) =>
+      `<div style="display:flex;align-items:center;gap:12px;cursor:pointer">${bigSwatch(theme.extra_roles?.[meta.key], meta.border)}<div><div style="font-size:13px;font-weight:600;color:${TM_COLOR.roleLabel}">${escapeHtml(meta.label)}</div><div style="font-size:11px;color:${TM_COLOR.roleSub}">${escapeHtml(meta.sub)}</div></div></div>`,
+  ).join("\n        ");
+
+  const advRows = THEME_RECORD_ROLE_KEYS.map((key) => advancedHexRow("roles", key, theme.roles[key], theme.id)).join(
+    "\n          ",
+  );
+  // Advanced hex rows for the 7 extra_roles — "" (empty input) for an unset
+  // one rather than inventing a fake default; typing a hex here PATCHes
+  // exactly like an original role's row (mergeThemeBody/validateThemeBody
+  // now accept `extra_roles.<key>`, P6b round 2).
+  const extraAdvRows = THEME_RECORD_EXTRA_ROLE_KEYS.map((key) =>
+    advancedHexRow("extra_roles", key, theme.extra_roles?.[key] ?? "", theme.id),
+  ).join("\n          ");
+
+  const buttonStyle = theme.button_style ?? {};
 
   return `<div style="flex:1 1 auto;overflow-y:auto;padding:24px 28px;min-width:0">
       <div style="display:flex;align-items:center;gap:13px;margin-bottom:5px">
@@ -492,19 +610,48 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[]): s
       </div>
       <div style="display:flex;align-items:flex-start;gap:8px;background:${TM_COLOR.noteBg};border-radius:9px;padding:11px 13px;font-size:11.5px;color:${TM_COLOR.noteText};line-height:1.45;margin-bottom:24px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto;margin-top:1px"><path d="M12 3l7 4v5c0 4-3 7-7 9-4-2-7-5-7-9V7z" stroke="${TM_COLOR.noteIcon}" stroke-width="1.7"/></svg>Components reference these roles, never fixed shades — change one here and every question in the funnel reskins.</div>
 
+      <!-- P6b round 2 (deliverable 3) — the 7 roles completing the 14-role
+           palette (theme.ts ThemeRecord.extra_roles); no golden line ref
+           (a follow-on ruling beyond the original §10.4 mockup's 7-swatch
+           set). Same swatch/label pattern as "Colors — semantic roles"
+           above, editable the SAME way (Advanced hex, below). -->
+      <div style="font-size:11px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:${TM_COLOR.sectionEyebrow};margin-bottom:6px">More roles — completing the 14-role palette</div>
+      <div style="font-size:11.5px;color:${TM_COLOR.subtitle};line-height:1.45;margin-bottom:13px">Optional — set any of these under Advanced to move past the design's default for that role.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 22px;margin-bottom:24px">
+        ${extraColorRows}
+      </div>
+
       <div style="font-size:11px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:${TM_COLOR.sectionEyebrow};margin-bottom:13px">Typography</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
         ${fontSelectRow("tm-headline-font", "Headline font", theme.typography.headline_font, theme.id)}
         ${fontSelectRow("tm-body-font", "Body font", theme.typography.body_font, theme.id)}
       </div>
+      <!-- P6b round 2 (deliverable 3) — the display-only size ramp
+           (theme.ts ThemeRecordTypography.display_size), mirroring the
+           inline theme editor's SAME "Display size" control (Round-4 P6b
+           round 1, ui-quotes.ts). Absent ⇒ "m" (base) ⇒ identity. -->
+      <div style="max-width:50%;margin-bottom:24px"><div style="font-size:12px;font-weight:600;color:${TM_COLOR.fieldLabel};margin-bottom:6px">Display size</div>${segmentedControl("typography", "display_size", DISPLAY_SIZE_OPTS, theme.typography.display_size ?? "m", theme.id)}</div>
 
       <div style="font-size:11px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:${TM_COLOR.sectionEyebrow};margin-bottom:6px">Buttons &amp; inputs — the shared size language</div>
       <div style="font-size:11.5px;color:${TM_COLOR.subtitle};line-height:1.45;margin-bottom:13px">Every question inherits these. A section can override a single field on its canvas — that field then shows as <b style="color:${TM_COLOR.footerStrong}">Custom</b>.</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px">
-        <div><div style="font-size:12px;font-weight:600;color:${TM_COLOR.fieldLabel};margin-bottom:6px">Field height</div>${segmentedControl("field_height", FIELD_HEIGHT_OPTS, theme.controls.field_height, theme.id)}</div>
-        <div><div style="font-size:12px;font-weight:600;color:${TM_COLOR.fieldLabel};margin-bottom:6px">Button size</div>${segmentedControl("button_size", BUTTON_SIZE_OPTS, theme.controls.button_size, theme.id)}</div>
+        <div><div style="font-size:12px;font-weight:600;color:${TM_COLOR.fieldLabel};margin-bottom:6px">Field height</div>${segmentedControl("controls", "field_height", FIELD_HEIGHT_OPTS, theme.controls.field_height, theme.id)}</div>
+        <div><div style="font-size:12px;font-weight:600;color:${TM_COLOR.fieldLabel};margin-bottom:6px">Button size</div>${segmentedControl("controls", "button_size", BUTTON_SIZE_OPTS, theme.controls.button_size, theme.id)}</div>
       </div>
-      <div style="max-width:50%;margin-bottom:24px"><div style="font-size:12px;font-weight:600;color:${TM_COLOR.fieldLabel};margin-bottom:6px">Corners</div>${segmentedControl("corners", CORNERS_OPTS, theme.controls.corners, theme.id)}</div>
+      <div style="max-width:50%;margin-bottom:24px"><div style="font-size:12px;font-weight:600;color:${TM_COLOR.fieldLabel};margin-bottom:6px">Corners</div>${segmentedControl("controls", "corners", CORNERS_OPTS, theme.controls.corners, theme.id)}</div>
+
+      <!-- P6b round 2 (deliverable 3) — the button-style triple
+           (theme.ts ThemeRecord.button_style.{fill,layout,selected}),
+           mirroring the inline editor's SAME 3 controls exactly (same
+           enums/labels). All 3 independently optional; absent ⇒ today's
+           look (fill/grid/wash). -->
+      <div style="font-size:11px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:${TM_COLOR.sectionEyebrow};margin-bottom:6px">Button style</div>
+      <div style="font-size:11.5px;color:${TM_COLOR.subtitle};line-height:1.45;margin-bottom:13px">Three independent looks — mix and match; each defaults to today's look.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px">
+        <div><div style="font-size:12px;font-weight:600;color:${TM_COLOR.fieldLabel};margin-bottom:6px">Fill</div>${segmentedControl("button_style", "fill", BUTTON_FILL_OPTS, buttonStyle.fill ?? "fill", theme.id)}</div>
+        <div><div style="font-size:12px;font-weight:600;color:${TM_COLOR.fieldLabel};margin-bottom:6px">Answer layout</div>${segmentedControl("button_style", "layout", BUTTON_LAYOUT_OPTS, buttonStyle.layout ?? "grid", theme.id)}</div>
+      </div>
+      <div style="max-width:50%;margin-bottom:24px"><div style="font-size:12px;font-weight:600;color:${TM_COLOR.fieldLabel};margin-bottom:6px">Selected style</div>${segmentedControl("button_style", "selected", BUTTON_SELECTED_OPTS, buttonStyle.selected ?? "wash", theme.id)}</div>
 
       <div style="height:1px;background:${TM_COLOR.topbarBorder};margin-bottom:16px"></div>
       <button type="button" id="tm-adv-toggle" class="tm-adv-toggle" style="display:flex;align-items:center;gap:9px;padding:12px 14px;border:1px solid ${TM_COLOR.advBorder};border-radius:10px;cursor:pointer;width:100%;background:transparent;text-align:left">
@@ -516,7 +663,21 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[]): s
       <div id="tm-adv-body" hidden style="padding:6px 2px 0">
         <div style="font-size:11.5px;color:${TM_COLOR.roleSub};line-height:1.5;margin:6px 0 11px">For developers. Renaming these can unlink Offer mappings.</div>
           ${advRows}
+          ${extraAdvRows}
       </div>
+      <div style="height:1px;background:${TM_COLOR.topbarBorder};margin:20px 0 16px"></div>
+      <!-- P6b (deliverable 1 — the operator's explicit demand, no golden line
+           ref: DELETE was out of scope for the original v3.1 §10.1 CRUD).
+           IN-USE guard lives server-side (themes-handlers.ts deleteTheme-
+           Handler); this button just surfaces it + relays a 409's plain-
+           language funnel listing through the SAME #tm-error banner every
+           other failure here already uses (showError). Reuses TM_COLOR.
+           errText + the EXISTING literal #FBEEEC (the #tm-error banner's own
+           background, THEME_MGR_STYLES below) -- zero new hex introduced. -->
+      <button type="button" id="tm-delete-theme" class="tm-delete-theme" data-tm-delete-theme="${escapeHtml(theme.id)}" data-tm-delete-theme-name="${escapeHtml(theme.name)}" style="display:inline-flex;align-items:center;gap:7px;padding:8px 13px;border:1px solid ${TM_COLOR.cardBorder};border-radius:8px;cursor:pointer;background:transparent;color:${TM_COLOR.errText};font-weight:600;font-size:12.5px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m2 0v13a1 1 0 01-1 1H8a1 1 0 01-1-1V7h10z" stroke="${TM_COLOR.errText}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Delete theme
+      </button>
     </div>`;
 }
 
@@ -608,6 +769,8 @@ export const THEME_MGR_STYLES = `
 /* R4a E3-NEW-6: the theme-name input reads as plain text until touched. */
 .tm-name-input:hover,.tm-name-input:focus{border-color:${TM_COLOR.backHoverBorder};background:#fff}
 .tm-name-input:focus-visible{outline:2px solid ${TM_COLOR.navy};outline-offset:1px}
+/* P6b: the SAME literal #FBEEEC the #tm-error banner already uses (renderTopBar) -- no new hex. */
+.tm-delete-theme:hover{border-color:${TM_COLOR.errText};background:#FBEEEC}
 /* Conductor ruling (gate1c-unmasked defect): this shell had NO height bound
    at all (only min-height:0, a flex-shrink enabler, not a ceiling) while its
    3 columns (LEFT list / CENTER editor / RIGHT panel, below) each already
@@ -662,17 +825,25 @@ export const THEME_MGR_SCRIPT = `
     });
   }
 
+  // P6b round 2: generalized over data-top (defaulting to 'controls' --
+  // byte-identical behavior for the 3 pre-existing segmented controls, which
+  // now stamp data-top="controls" explicitly) so the SAME wiring drives the
+  // NEW typography.display_size / button_style.fill/layout/selected
+  // segments too, each nesting its patch under its OWN top-level key instead
+  // of always assuming controls.
   function wireSegments() {
     var segs = document.querySelectorAll('[data-tm-seg]');
     var i;
     for (i = 0; i < segs.length; i++) {
       (function (el) {
         el.addEventListener('click', function () {
+          var top = el.getAttribute('data-top') || 'controls';
           var group = el.getAttribute('data-group');
           var value = el.getAttribute('data-value');
           var themeId = el.getAttribute('data-theme-id');
-          var patch = { controls: {} };
-          patch.controls[group] = value;
+          var patch = {};
+          patch[top] = {};
+          patch[top][group] = value;
           patchTheme(themeId, patch);
         });
       })(segs[i]);
@@ -690,16 +861,22 @@ export const THEME_MGR_SCRIPT = `
     });
   }
 
+  // P6b round 2: generalized over data-top (defaulting to 'roles' --
+  // byte-identical for the 7 original Advanced hex rows, which now stamp
+  // data-top="roles" explicitly) so the SAME wiring also drives the 7 new
+  // extra_roles hex rows, nesting under extra_roles instead.
   function wireHexInputs() {
     var inputs = document.querySelectorAll('[data-tm-hex]');
     var i;
     for (i = 0; i < inputs.length; i++) {
       (function (el) {
         el.addEventListener('change', function () {
+          var top = el.getAttribute('data-top') || 'roles';
           var role = el.getAttribute('data-role');
           var themeId = el.getAttribute('data-theme-id');
-          var patch = { roles: {} };
-          patch.roles[role] = el.value;
+          var patch = {};
+          patch[top] = {};
+          patch[top][role] = el.value;
           patchTheme(themeId, patch);
         });
       })(inputs[i]);
@@ -727,6 +904,50 @@ export const THEME_MGR_SCRIPT = `
       var wasOpen = !body.hidden;
       body.hidden = wasOpen;
       if (chevron) { chevron.setAttribute('transform', wasOpen ? 'rotate(0)' : 'rotate(90)'); }
+    });
+  }
+
+  // P6b (deliverable 1): read a query param the plain-string way (no
+  // URLSearchParams dependency needed for a single-value read) so a delete
+  // redirect can preserve embed and from query params, exactly like
+  // wireNewTheme's own redirect already threads from through -- same "plain
+  // fetch, no complex island" steer this whole script follows.
+  function currentQueryParam(name) {
+    var re = new RegExp('[?&]' + name + '=([^&]*)');
+    var m = window.location.search.match(re);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  function wireDeleteTheme() {
+    var btn = document.getElementById('tm-delete-theme');
+    if (!btn) { return; }
+    btn.addEventListener('click', function () {
+      var themeId = btn.getAttribute('data-tm-delete-theme');
+      var themeName = btn.getAttribute('data-tm-delete-theme-name') || 'this theme';
+      if (!window.confirm('Delete "' + themeName + '"? This cannot be undone.')) { return; }
+      btn.disabled = true;
+      showError('');
+      fetch('/api/admin/leadgen/themes/' + encodeURIComponent(themeId), {
+        method: 'DELETE',
+        headers: { 'Accept': 'application/json' }
+      }).then(function (res) {
+        if (res.ok) {
+          var qs = [];
+          var embedVal = currentQueryParam('embed');
+          var fromVal = currentQueryParam('from');
+          if (embedVal) { qs.push('embed=' + encodeURIComponent(embedVal)); }
+          if (fromVal) { qs.push('from=' + encodeURIComponent(fromVal)); }
+          window.location.href = '/admin/leadgen/themes' + (qs.length ? '?' + qs.join('&') : '');
+          return null;
+        }
+        return res.json().catch(function () { return null; }).then(function (data) {
+          var msg = (data && data.error) ? data.error : ('Delete failed (HTTP ' + res.status + ')');
+          throw new Error(msg);
+        });
+      }).catch(function (err) {
+        btn.disabled = false;
+        showError(err && err.message ? err.message : 'Network error');
+      });
     });
   }
 
@@ -774,6 +995,7 @@ export const THEME_MGR_SCRIPT = `
   wireNameInput();
   wireAdvancedToggle();
   wireNewTheme();
+  wireDeleteTheme();
 }());
 `;
 

@@ -32,16 +32,16 @@ lifecycle parity.
 | R4-21 | #10G rich elements: trust/benefit icon+text rows + hover tooltip + AI persona image (quota) | P5a+P5c | PASS (P5, evidence: phase log P5) |
 | R4-22 | #10H footer v2 full builder (blocks, own palette/typography, per-site vars) | P5a | PASS (P5, evidence: phase log P5) |
 | R4-23 | #10H-adj disclosure v2 (multi-location, per-location text/mode/align) | P5a | PASS (P5, evidence: phase log P5) |
-| R4-24 | #10I theme v2: fonts (self-hosted), display-XXL, button ranges (Img38-40), presets+DELETE, theme A/B | P6a+P6b | OPEN |
+| R4-24 | #10I theme v2: fonts (self-hosted), display-XXL, button ranges (Img38-40), presets+DELETE, theme A/B | P6a+P6b | PASS (P6, evidence: phase log P6) |
 | R4-25 | #10J funnel structure panel broken layout | P3b | PASS (P3, evidence: phase log P3) |
 | R4-26 | Restructure: Templates+Themes top tabs + 7 box pickers | P5b | PASS (P5, evidence: phase log P5) |
 | R4-27 | Restructure: rules UNIFIED into funnel-builder (standalone tab removed) | P4b | PASS (P4, evidence: phase log P4) |
 | R4-28 | Funnel delta A: page order changeable per funnel name | P3a+P3b | PASS (P3, evidence: phase log P3) |
 | R4-29 | Funnel delta B: FULL pages model (multi-section pages, in-page A/B, in-page slot rules) | P3a+P3b | PASS (P3, evidence: phase log P3) |
-| R4-30 | Funnel delta C: funnel-level A/B surfaced (Add variant, what-varies, allocation) | P6b | OPEN |
-| R4-31 | Funnel delta D: theme picker per funnel name | P6b | OPEN |
+| R4-30 | Funnel delta C: funnel-level A/B surfaced (Add variant, what-varies, allocation) | P6b | PASS (P6, evidence: phase log P6) |
+| R4-31 | Funnel delta D: theme picker per funnel name | P6b | PASS (P6, evidence: phase log P6) |
 | R4-32 | D-2 routing rules: checkpoint model, ≤1 hop, precedence ladder, server-validated checkpoint endpoint | P4a+P4b | PASS (P4, evidence: phase log P4) |
-| R4-33 | A/B tab = whole-quote template-level testing | P6b | OPEN |
+| R4-33 | A/B tab = whole-quote template-level testing | P6b | PASS (P6, evidence: phase log P6) |
 | R4-34 | B-4.1 MQG save trap (orphan choices → unexplainable 400) | P1a+P1b | PASS (P1, evidence: phase log P1) |
 | R4-35 | B-4.2 MQG row-1 headline mislabel in pickers | P1a | PASS (P1, evidence: phase log P1) |
 | R4-36 | B-4.3 call button phone-only renders nothing | P1d | PASS (P1, evidence: phase log P1) |
@@ -54,6 +54,7 @@ lifecycle parity.
 | R4-43 | D-1 cap raise 44,032 + per-feature byte ledger | P2a | PASS (P2, evidence: phase log P2) |
 | R4-44 | §19.1 binding: page_plan_hash + checkpoint validation + re-issue on switch | P3a+P4a | PASS (P3+P4: signed binding, dual-accept, checkpoint validation + re-issue, completion pinning) |
 | R4-45 | Round-4 acceptance journeys (sections + quotes suites, both engines) | P7a | OPEN |
+| R4-46 | Gate1c visual baselines re-mint — last minted @ d8da7b7 (round-3 close, pre-round-4); cumulative P1-P6 intended rendering drift (P1 section-builder rewrite + P5 frame elements + P6 fonts). Conductor visual-confirms each diff, re-mints all states, part of staging sign-off. NOT a P6 regression (P6 touched no Sections files; drift proven pre-P6 via mint history). NOT a CI gate (Playwright solo-only). | P7b | OPEN |
 | R4-OP1 | Production deploys (post-P1 optional; program end) | operator | BLOCKED |
 | R4-OP2 | Staging hands-on acceptance (terminal gate) | operator | BLOCKED |
 | R4-OP3 | OpenAI spend/quota + GOOGLE_MAPS_SERVER_KEY sign-off | operator | BLOCKED |
@@ -99,4 +100,12 @@ lifecycle parity.
 - Conductor gates (own hand): tsc both 0 · vitest 403/5,997 pass==total · every P5+guard spec green IN ISOLATION (socket-exhaustion flake on combined runs — environmental, drained between runs) · acceptance 24/24 both engines · bundle 46,008/46,080 byte-identical · 0045 anchored · drift 0.
 - Adversarial review (security-weighted): FIX-FIRST (2 MAJOR both live-proven: free-text stored XSS via the shared strip-sanitizer — reviewer broke it 5 ways; persona quota check-then-increment race; + SVG attr-name emit minor) → allowlist re-serializer (articles sanitizer untouched) + atomic D1 quota + positive attr-name class → delta re-verify **SHIP** (reviewer's 23-payload run: 0 leaks).
 - Verified-clean by review: SVG element/href/url() vectors (29/29 + attr-name); all 3 upload routes + nosniff; AI paths SVG-incapable; key never logged; ??/?. conversions falsy-safe; R4-40 genuinely distinct.
-- PR: {{P5_PR}} · merge: {{P5_SHA}}
+- PR: https://github.com/Gavri19H/kodigital-homepages-cms/pull/128 · merge: 9c8ed0b
+
+### P6 — theme v2 (2026-07-21)
+- Slices: P6a schema+fonts+resolver (2453dc8,7bc47e6,9b553ce,f8de6f4 + ThemeRecord widening 0992752) · P6b theme-manager UI (919e631 + v2-axes consumption f590f03).
+- Delivered (D-7): SELF-HOSTED curated fonts (8 OFL families, WOFF2 data: @font-face, ZERO external requests — network-asserted) · display-XXL size ramp (~72px live, Image37) · button-style sub-schema (fill/outline+shadow/two-line-list/icon-card-selected — Images 38-40, computed-style-distinct) · display-vs-body clarity · presets carry the FULL v2 richness (ThemeRecord widened; resolveTokens record-branch byte-parity with inline) with save/apply/DELETE (in-use guard scans funnels AND variants) · per-funnel theme picker · one-click theme A/B fork · A/B tab reframed (Add-variant + what-varies + allocation). Runtime engine bundle byte-identical 46,008 (fonts are static, not in engine JS).
+- Conductor gates (own hand): tsc both 0 · vitest 404/6,031 pass==total · all P6+guard specs green IN ISOLATION (socket-flake truncates combined runs — full counts verified via --list: __p6a 3/3, __p6b 8/8, __p5a 10/10, __p5b 7/7, acceptance 24/24 both engines) · verify:all clean · drift 0.
+- PROCESS NOTE (conductor error, caught+recovered): P6a's ThemeRecord-widening round was dispatched onto the shared worktree while P6b's round sat UNCOMMITTED (P6b reported "tree clean" but hadn't committed) — a shared-worktree contention hazard. Recovery: snapshotted P6b's 6 files non-git before any concurrent git op, kept P6a committing surgically (add by explicit path, never -A), committed P6b's protected work, serialized the remaining round. No work lost; commit history coherent (verified by review). Lesson reinforced: [[feedback-no-parallel-git-stash-shared-worktree]].
+- Adversarial review: **SHIP first pass** (rare) — every D-7 row proven at the real boundary, no false-green patterns; one non-blocking UX-comment observation (3+-arm fork drafts Σ≠10000, blocked at experiment-start gate — polish, not a defect).
+- PR: {{P6_PR}} · merge: {{P6_SHA}}

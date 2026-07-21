@@ -77,6 +77,7 @@ import {
 } from "./sections-handlers";
 import {
   createThemeHandler,
+  deleteThemeHandler,
   getThemeHandler,
   listThemesHandler,
   updateThemeHandler,
@@ -183,14 +184,16 @@ routes.post("/component-presets", createComponentPresetHandler);
 routes.delete("/component-presets/:name", deleteComponentPresetHandler);
 
 // --- Themes (v3.1 §10 — KV `lg-funnel-themes`, mirrors component-presets) ----
-// Own top-level prefix; static list/create BEFORE the /:id get/update per the
-// 03 §8.1 discipline. Storage is the CACHE KV binding — no migration. NO
-// delete this phase (not in the contract — §10.1 CRUD is list/get/create/
-// update only).
+// Own top-level prefix; static list/create BEFORE the /:id get/update/delete
+// per the 03 §8.1 discipline. Storage is the CACHE KV binding — no migration.
+// Round-4 P6b: DELETE added (the operator's explicit demand, beyond the
+// original §10.1 list/get/create/update-only CRUD) — in-use guarded (409 +
+// referencing-funnel listing) by themes-handlers.ts's deleteThemeHandler.
 routes.get("/themes", listThemesHandler);
 routes.post("/themes", createThemeHandler);
 routes.get("/themes/:id", getThemeHandler);
 routes.patch("/themes/:id", updateThemeHandler);
+routes.delete("/themes/:id", deleteThemeHandler);
 
 // --- Sections (03 §8.2 + 05 §12–§14 — Phase-5 Stage B full surface) ----------
 // Static paths BEFORE /sections/:id (03 §8.1 static-before-param discipline).

@@ -174,25 +174,117 @@ export const THEME_SHADOW_SHIFTS: Record<Exclude<ThemeShadowScale, "none">, -1 |
   high: 1,
 };
 
-// §9.3 typography — curated list only (the fonts already shipped by designs).
-export const THEME_FONT_IDS = ["literata", "sora", "system"] as const;
+// §9.3 typography — the curated theme font vocabulary.
+//
+// P6 THEME v2 (D-7): widened from the original 3 back-compat ids
+// (literata/sora/system) to add a CURATED SELF-HOSTED family set. The three
+// original ids are KEPT UNCHANGED for back-compat: their stacks name families
+// the base design already references (`'Literata'`/`'Sora'`) or a pure system
+// stack, and NONE of them is self-hosted — so a v1 theme picking one of them
+// emits ZERO @font-face and renders byte-identically to pre-P6 (the base
+// design's own font values are 'Sora'/'Literata'/'Newsreader', so those names
+// are DELIBERATELY excluded from the self-hosted set below — see
+// fonts.generated.ts + styles.ts's scan: a self-hosted @font-face is emitted
+// ONLY for a family a theme explicitly opts into, never for a base-design
+// family, so every legacy/v1 funnel stays byte-identical).
+//
+// The NEW self-hosted ids map onto WOFF2 Latin subsets vendored at BUILD time
+// into fonts.generated.ts (base64 data: URLs, served same-origin — ZERO
+// external font requests on live; the same build-time-vendoring precedent as
+// the P1 Tabler icon pipeline, scripts/build-fonts.mjs). Their CSS family
+// names (Poppins/Manrope/DM Sans/Work Sans/Space Grotesk/Fraunces/Playfair
+// Display/Lexend) are what styles.ts scans the resolved design's font slots
+// for, and what fonts.generated.ts emits @font-face for — the ONE coupling
+// point between this id list and the vendored assets.
+export const THEME_FONT_IDS = [
+  // --- back-compat (unchanged; NOT self-hosted; byte-identical to pre-P6) ---
+  "literata",
+  "sora",
+  "system",
+  // --- P6 self-hosted display families (WOFF2 Latin subset, same-origin) ---
+  "poppins",
+  "space_grotesk",
+  "fraunces",
+  "playfair",
+  // --- P6 self-hosted body families ---
+  "manrope",
+  "dm_sans",
+  "work_sans",
+  "lexend",
+] as const;
 export type ThemeFontId = (typeof THEME_FONT_IDS)[number];
 
+// The CSS font-family stack each id resolves to. The self-hosted families lead
+// with the vendored family name (a real @font-face target — see
+// fonts.generated.ts) then documented fallbacks (so a family fails safe to a
+// sane system font if its @font-face somehow does not load). The quoted family
+// name here is the EXACT string styles.ts matches when scanning the resolved
+// design for self-hosted families to emit @font-face for.
 export const THEME_FONT_STACKS: Record<ThemeFontId, string> = {
+  // back-compat (unchanged)
   literata: "'Literata',Georgia,serif",
   sora: "'Sora',system-ui,Arial,sans-serif",
   system: "system-ui,-apple-system,'Segoe UI',Arial,sans-serif",
+  // self-hosted display
+  poppins: "'Poppins',system-ui,Arial,sans-serif",
+  space_grotesk: "'Space Grotesk',system-ui,Arial,sans-serif",
+  fraunces: "'Fraunces',Georgia,'Times New Roman',serif",
+  playfair: "'Playfair Display',Georgia,'Times New Roman',serif",
+  // self-hosted body
+  manrope: "'Manrope',system-ui,Arial,sans-serif",
+  dm_sans: "'DM Sans',system-ui,Arial,sans-serif",
+  work_sans: "'Work Sans',system-ui,Arial,sans-serif",
+  lexend: "'Lexend',system-ui,Arial,sans-serif",
 };
 
 export const THEME_SIZE_SCALES = ["s", "m", "l"] as const;
 export type ThemeSizeScale = (typeof THEME_SIZE_SCALES)[number];
 
-// font-size multiplier over every *FontSize* token; `m` is the identity.
+// font-size multiplier over every *FontSize* token; `m` is the identity. This
+// is the UNIFORM/overall (body) size ramp — it scales display AND body tokens
+// together, exactly as pre-P6. Kept at 3 steps (s/m/l) UNCHANGED: a uniform
+// ramp cannot express a display-XXL headline (~72px, Image37) without blowing
+// body text up with it, so the P6 display ramp lives on its OWN axis
+// (typography.display_size / THEME_DISPLAY_SIZE_FACTORS below) that scales the
+// DISPLAY font-size tokens only. (Widening THIS enum to xl/xxl is intentionally
+// avoided — it is the DISPLAY axis that carries the new tiers.)
 export const THEME_SIZE_FACTORS: Record<ThemeSizeScale, number> = {
   s: 0.9,
   m: 1,
   l: 1.1,
 };
+
+// P6 THEME v2 (D-7 / deliverable 2) — the DISPLAY size ramp. A SEPARATE axis
+// from typography.size so the display/body distinction is explicit: `size` is
+// the paragraph/body ramp (uniform, above), `display_size` is the headline
+// ramp, scaling ONLY the DISPLAY font-size tokens (DISPLAY_FONTSIZE_PATHS
+// below — the *FontSize* siblings of the applyDisplayFont family slots:
+// headline / logo / range value / success heading). `m` is the identity
+// (absent display_size ⇒ factor 1 ⇒ byte-identical to pre-P6). The top tier
+// `xxl` takes the base 31px question headline to ~72px (31 × 2.3 ≈ 71.3),
+// matching the operator's Image37 display-XXL reference; l/xl are the
+// intermediate display tiers (43 / 56px).
+export const THEME_DISPLAY_SIZE_SCALES = ["m", "l", "xl", "xxl"] as const;
+export type ThemeDisplaySizeScale = (typeof THEME_DISPLAY_SIZE_SCALES)[number];
+
+export const THEME_DISPLAY_SIZE_FACTORS: Record<ThemeDisplaySizeScale, number> = {
+  m: 1,
+  l: 1.4,
+  xl: 1.8,
+  xxl: 2.3,
+};
+
+// The DISPLAY font-size token paths display_size scales (the *FontSize*
+// siblings of applyDisplayFont's family slots — headline / logo / range value
+// / success heading). Body/paragraph font-size tokens are deliberately absent
+// so a display-XXL headline never enlarges body copy.
+const DISPLAY_FONTSIZE_PATHS: ReadonlyArray<readonly [group: string, key: string]> = [
+  ["headline", "fontSizeDesktop"],
+  ["headline", "fontSizeMobile"],
+  ["header", "logoFontSize"],
+  ["rangeQuestion", "valueFontSize"],
+  ["successState", "headingFontSize"],
+];
 
 // R5 SEAM-1 (register E.5 "Theme base_px … ZERO consumers — dead theme
 // feature"): the neutral reference for ThemeRecordTypography.base_px
@@ -224,14 +316,111 @@ export const THEME_BUTTON_CASINGS = ["none", "upper"] as const;
 export type ThemeButtonCasing = (typeof THEME_BUTTON_CASINGS)[number];
 
 // ---------------------------------------------------------------------------
+// P6 THEME v2 (D-7 / deliverable 3) — the BUTTON-STYLE sub-schema. Three
+// INDEPENDENT, OPTIONAL axes that together let a theme express the operator's
+// reference looks (Images 38-40) as THEME-LEVEL defaults (the R-A design
+// language — per-ELEMENT overrides already exist from P2 and are NOT
+// duplicated here). Each axis has a `default` member that reproduces the
+// pre-P6 look exactly, so an absent/default value emits ZERO new markup or CSS
+// (byte-identical):
+//
+//   • fill      — the primary/answer fill treatment.
+//                   fill    (default) = today's solid navy primary + white
+//                                       bordered answer chip.
+//                   outline           = transparent fill + a coloured 2px
+//                                       border (ghost buttons).
+//                   soft (Image 39)   = pill radius + a soft elevation shadow
+//                                       ("soft-shadow pill stacks").
+//   • layout    — the answer-group arrangement.
+//                   grid    (default) = today's equal-cell grid.
+//                   list (Image 38)   = a single-column, left-aligned,
+//                                       two-line (title + subtitle) list of
+//                                       full-width list-buttons.
+//   • selected  — the icon-card selected-state treatment.
+//                   wash    (default) = today's border-colour + wash fill.
+//                   mark (Image 40)   = a bigger selected state: heavier
+//                                       border + a slight scale-up + a check
+//                                       badge in the corner.
+//
+// resolveTokens STASHES the resolved (defaults-applied) triple on the
+// effective design under a Symbol key (readButtonStyle / setButtonStyle
+// below) — Symbol-keyed so JSON.stringify (buildPublicConfig's design_tokens)
+// never serializes it (ZERO public-config byte change) while it still travels
+// on the SAME design object reference to funnelChromeCss (styles.ts) and the
+// section renderers (presets.ts), the two live-render consumers. It is stashed
+// ONLY when at least one axis is non-default, so a legacy/v1 theme leaves the
+// design untouched.
+export const THEME_BUTTON_STYLES = ["fill", "outline", "soft"] as const;
+export type ThemeButtonStyle = (typeof THEME_BUTTON_STYLES)[number];
+
+export const THEME_BUTTON_LAYOUTS = ["grid", "list"] as const;
+export type ThemeButtonLayout = (typeof THEME_BUTTON_LAYOUTS)[number];
+
+export const THEME_BUTTON_SELECTED_STYLES = ["wash", "mark"] as const;
+export type ThemeButtonSelectedStyle = (typeof THEME_BUTTON_SELECTED_STYLES)[number];
+
+// The defaults-applied triple stashed on the effective design. The `default`
+// member of each axis is what an absent theme value resolves to, and the ONE
+// value for which NOTHING new is emitted (byte-identical).
+export interface EffectiveButtonStyle {
+  fill: ThemeButtonStyle; // default: "fill"
+  layout: ThemeButtonLayout; // default: "grid"
+  selected: ThemeButtonSelectedStyle; // default: "wash"
+}
+
+const BUTTON_STYLE_DEFAULTS: EffectiveButtonStyle = { fill: "fill", layout: "grid", selected: "wash" };
+
+// Symbol key (never a string key) — JSON.stringify skips Symbol-keyed
+// properties, so the stash never leaks into the serialized public config.
+const BUTTON_STYLE_STASH = Symbol("lgButtonStyle");
+
+// True iff at least one axis differs from its default (i.e. the theme actually
+// asked for a P6 button look — the ONLY case anything new is emitted).
+function buttonStyleIsNonDefault(s: EffectiveButtonStyle): boolean {
+  return s.fill !== "fill" || s.layout !== "grid" || s.selected !== "wash";
+}
+
+// Stash the resolved triple on the effective design (mutates the fresh clone
+// resolveTokens already made — never the frozen registry singleton).
+function setButtonStyle(design: EffectiveFunnelDesign, style: EffectiveButtonStyle): void {
+  (design as unknown as Record<symbol, unknown>)[BUTTON_STYLE_STASH] = style;
+}
+
+// Read the stashed button style off a resolved design (styles.ts + presets.ts
+// consumers). Undefined ⇒ no P6 button look was requested ⇒ the consumer emits
+// exactly its pre-P6 markup/CSS (byte-identical). Accepts the base
+// FunnelDesign too (the legacy render path passes the un-stashed registry
+// design) — always undefined there.
+export function readButtonStyle(
+  design: FunnelDesign | EffectiveFunnelDesign,
+): EffectiveButtonStyle | undefined {
+  const stash = (design as unknown as Record<symbol, unknown>)[BUTTON_STYLE_STASH];
+  return isRecord(stash) &&
+    (THEME_BUTTON_STYLES as readonly string[]).includes(stash["fill"] as string) &&
+    (THEME_BUTTON_LAYOUTS as readonly string[]).includes(stash["layout"] as string) &&
+    (THEME_BUTTON_SELECTED_STYLES as readonly string[]).includes(stash["selected"] as string)
+    ? (stash as unknown as EffectiveButtonStyle)
+    : undefined;
+}
+
+// ---------------------------------------------------------------------------
 // theme_json contract (§3.2 storage, §9.3 editor groups). All keys optional —
 // absent keys inherit from the base design (`funnel_design_id`).
 // ---------------------------------------------------------------------------
 
+// §9.3 typography group. The display/body FONT families were already
+// separated; P6 makes the display/body RAMP distinction explicit too:
+//   • display — the HEADLINE family (`display`) + the HEADLINE ramp
+//               (`display_size`, DISPLAY_FONTSIZE_PATHS only).
+//   • body    — the PARAGRAPH family (`body`) + the overall/body ramp
+//               (`size`, uniform).
 export interface ThemeTypography {
   display?: ThemeFontId;
   body?: ThemeFontId;
   size?: ThemeSizeScale;
+  // P6 (deliverable 2): the display-only headline ramp (m..xxl; absent ⇒ m ⇒
+  // identity). xxl ≈ 72px headline (Image37). Independent of `size`.
+  display_size?: ThemeDisplaySizeScale;
 }
 
 export interface ThemeScales {
@@ -246,6 +435,11 @@ export interface ThemeButtonDefaults {
   radius?: ThemeRadiusStep;
   min_height?: ThemeButtonMinHeight;
   casing?: ThemeButtonCasing;
+  // P6 (deliverable 3) — the button-style vocabulary (Images 38-40). All
+  // OPTIONAL; each absent ⇒ its `default` member ⇒ byte-identical to pre-P6.
+  fill?: ThemeButtonStyle; // fill (default) | outline | soft (Image 39)
+  layout?: ThemeButtonLayout; // grid (default) | list (Image 38)
+  selected?: ThemeButtonSelectedStyle; // wash (default) | mark (Image 40)
 }
 
 export interface ThemeCardDefaults {
@@ -341,6 +535,46 @@ export const THEME_RECORD_ROLE_TO_TOKEN_ROLE = {
   error: "error",
 } as const satisfies Record<ThemeRecordRoleKey, FunnelTokenRole>;
 
+// P6 THEME v2 (follow-on ruling — "save-as-preset must carry the SAME
+// richness as inline theme_json"): the 7 ADDITIONAL FUNNEL_TOKEN_ROLES
+// completing the 14-role palette a rich preset can author, on a SEPARATE
+// OPTIONAL field (`ThemeRecord.extra_roles` below) — never widening the
+// original 7-key `ThemeRecordRoles`/`THEME_RECORD_ROLE_KEYS` above, so every
+// existing typed literal/consumer of that exact 7-key shape stays untouched.
+// Named identically to their FunnelTokenRole (no established alternate
+// "contract vocabulary" exists for these 7 the way the original 7 have one —
+// §10.4's JSON sample never enumerated them; P6b/product should rename here
+// if a spec later surfaces a different authoring label). A pre-P6 record has
+// no `extra_roles` key at all ⇒ contributes nothing ⇒ byte-identical to today.
+export const THEME_RECORD_EXTRA_ROLE_KEYS = [
+  "brand_secondary",
+  "surface_wash",
+  "border",
+  "text_muted",
+  "button_primary_bg",
+  "button_primary_text",
+  "button_secondary_bg",
+] as const;
+
+export type ThemeRecordExtraRoleKey = (typeof THEME_RECORD_EXTRA_ROLE_KEYS)[number];
+
+// Every key OPTIONAL — a rich preset may author some/all/none of the 7.
+export type ThemeRecordExtraRoles = Partial<Record<ThemeRecordExtraRoleKey, string>>;
+
+// The bridge onto FUNNEL_TOKEN_ROLES — identity-shaped (the extra keys are
+// already spelled as their FunnelTokenRole), but written out `satisfies`-style
+// like the original 7's bridge for the SAME exhaustiveness guarantee: a
+// renamed/removed FunnelTokenRole is a compile error here too.
+export const THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE = {
+  brand_secondary: "brand_secondary",
+  surface_wash: "surface_wash",
+  border: "border",
+  text_muted: "text_muted",
+  button_primary_bg: "button_primary_bg",
+  button_primary_text: "button_primary_text",
+  button_secondary_bg: "button_secondary_bg",
+} as const satisfies Record<ThemeRecordExtraRoleKey, FunnelTokenRole>;
+
 export const THEME_RECORD_FIELD_HEIGHTS = ["small", "medium", "large"] as const;
 export type ThemeRecordFieldHeight = (typeof THEME_RECORD_FIELD_HEIGHTS)[number];
 
@@ -387,7 +621,26 @@ export interface ThemeRecordControls {
 // resolveTokens's lookup below are DEFENSE IN DEPTH — even a corrupted KV
 // blob or a caller that bypasses validation can never make a raw string
 // reach the served <style> block through this path.
-export const THEME_RECORD_FONT_NAMES = ["Newsreader", "Inter", "Roboto Mono"] as const;
+// P6 THEME v2 (follow-on ruling): widened with the SAME 8 self-hosted
+// families the inline theme_json font ids name (THEME_FONT_STACKS
+// poppins/space_grotesk/fraunces/playfair/manrope/dm_sans/work_sans/lexend),
+// spelled as the REAL family name — this vocabulary's own established
+// convention ("Newsreader"/"Inter", not a short id) — so a rich preset can
+// pick the SAME self-hosted families inline theming can. The original 3 are
+// UNCHANGED (same array positions/values) — back-compat.
+export const THEME_RECORD_FONT_NAMES = [
+  "Newsreader",
+  "Inter",
+  "Roboto Mono",
+  "Poppins",
+  "Space Grotesk",
+  "Fraunces",
+  "Playfair Display",
+  "Manrope",
+  "DM Sans",
+  "Work Sans",
+  "Lexend",
+] as const;
 export type ThemeRecordFontName = (typeof THEME_RECORD_FONT_NAMES)[number];
 
 export function isThemeRecordFontName(value: unknown): value is ThemeRecordFontName {
@@ -396,16 +649,38 @@ export function isThemeRecordFontName(value: unknown): value is ThemeRecordFontN
 
 // The ONLY CSS font-family values a theme record's typography may ever
 // produce — closed, pre-vetted, no interpolation of the stored name itself.
+// P6: the 8 new entries REUSE THEME_FONT_STACKS' values verbatim (not
+// re-typed literals) so the record path and the inline path produce
+// byte-IDENTICAL stack strings for the same family — preset-vs-inline parity,
+// and the SAME string styles.ts's font-face family-substring scan matches
+// regardless of which path produced it (no styles.ts change needed).
 export const THEME_RECORD_FONT_STACKS: Record<ThemeRecordFontName, string> = {
   Newsreader: "'Newsreader',Georgia,serif",
   Inter: "'Inter',system-ui,Arial,sans-serif",
   "Roboto Mono": "'Roboto Mono',monospace",
+  Poppins: THEME_FONT_STACKS.poppins,
+  "Space Grotesk": THEME_FONT_STACKS.space_grotesk,
+  Fraunces: THEME_FONT_STACKS.fraunces,
+  "Playfair Display": THEME_FONT_STACKS.playfair,
+  Manrope: THEME_FONT_STACKS.manrope,
+  "DM Sans": THEME_FONT_STACKS.dm_sans,
+  "Work Sans": THEME_FONT_STACKS.work_sans,
+  Lexend: THEME_FONT_STACKS.lexend,
 };
 
 export interface ThemeRecordTypography {
   headline_font: ThemeRecordFontName;
   body_font: ThemeRecordFontName;
   base_px: number;
+  // P6 THEME v2 (follow-on ruling) — mirrors inline theme_json.typography.
+  // display_size exactly (the SAME THEME_DISPLAY_SIZE_SCALES/_FACTORS table,
+  // SAME scaleDisplayFontSizes call — resolveTokens below). OPTIONAL; absent
+  // ⇒ "m" ⇒ identity ⇒ byte-identical to every pre-P6 record. No write-time
+  // validator exists for this field yet (P6b's themes-handlers.ts /
+  // theme-store.ts widening is the authoritative gate) — resolveTokens
+  // defense-in-depth-validates it at read (safeRecordDisplaySize below),
+  // mirroring this file's own base_px clamp discipline just above.
+  display_size?: ThemeDisplaySizeScale;
 }
 
 // Defense-in-depth lookup (never the primary gate): an unrecognised name —
@@ -421,6 +696,19 @@ function safeThemeRecordFontStack(value: string): string {
 // addendum (§0 fidelity-vs-function rule) — no Phase-A code interprets it.
 export type ThemeRecordSpacing = string;
 
+// P6 THEME v2 (follow-on ruling) — mirrors inline theme_json.button_defaults'
+// {fill, layout, selected} vocabulary EXACTLY (the SAME THEME_BUTTON_STYLES /
+// THEME_BUTTON_LAYOUTS / THEME_BUTTON_SELECTED_STYLES enums) — deliberately
+// NOT the role/radius/min_height/casing axes (those stay theme_json-only;
+// this follow-on's scope is exactly the 3 "button-style vocab" fields the
+// ruling names). All optional; absent/all-default ⇒ resolveTokens stashes
+// nothing ⇒ byte-identical to pre-P6.
+export interface ThemeRecordButtonStyle {
+  fill?: ThemeButtonStyle;
+  layout?: ThemeButtonLayout;
+  selected?: ThemeButtonSelectedStyle;
+}
+
 // One KV `lg-funnel-themes` record (§10.4 JSON sample, verbatim shape).
 export interface ThemeRecord {
   id: string;
@@ -429,6 +717,15 @@ export interface ThemeRecord {
   typography: ThemeRecordTypography;
   controls: ThemeRecordControls;
   spacing?: ThemeRecordSpacing;
+  // P6 THEME v2 (follow-on ruling — "save-as-preset must carry the SAME
+  // richness as inline theme_json; a resolved ThemeRecord must not drop the
+  // P6a axes"). Both OPTIONAL and ADDITIVE: a pre-P6 record (7 roles / 3
+  // fonts / no button_style) has NEITHER key ⇒ resolveTokens's record branch
+  // resolves BYTE-IDENTICAL to today (the same discipline as the inline
+  // theme_json v1 back-compat gate — new fields are optional with defaults
+  // that reproduce v1).
+  extra_roles?: ThemeRecordExtraRoles;
+  button_style?: ThemeRecordButtonStyle;
 }
 
 // PURE precedence rule (§10.1 "A funnel variant overrides it for A/B via
@@ -457,6 +754,11 @@ export function winningThemeId(
 // editor swatch grid).
 // ---------------------------------------------------------------------------
 
+// NOTE (P6): EffectiveTypography's SHAPE is deliberately unchanged — the
+// display ramp lands in the design's display font-size tokens
+// (scaleDisplayFontSizes), not as a new readout field here, so every existing
+// exact-shape consumer/test of EffectiveTokens stays byte-identical. The §4.8
+// editor reads the requested tier off theme_json.typography.display_size.
 export interface EffectiveTypography {
   display: string;
   body: string;
@@ -469,6 +771,11 @@ export interface EffectiveScales {
   shadow: ThemeShadowScale;
 }
 
+// NOTE (P6): EffectiveButtonDefaults's SHAPE is deliberately unchanged — the
+// button-style triple travels on the design stash (readButtonStyle), NOT as new
+// fields here, so every existing exact-shape consumer/test stays byte-identical.
+// The live-render consumers (styles.ts / presets.ts) read the stash; the §4.8
+// editor reads theme_json.button_defaults.{fill,layout,selected}.
 export interface EffectiveButtonDefaults {
   background: string;
   color: string;
@@ -536,9 +843,17 @@ export function resolveTokens(
   // themes).
   const recordPalette: Partial<Record<FunnelTokenRole, string>> =
     record !== null
-      ? (Object.fromEntries(
-          THEME_RECORD_ROLE_KEYS.map((key) => [THEME_RECORD_ROLE_TO_TOKEN_ROLE[key], record.roles[key]]),
-        ) as Partial<Record<FunnelTokenRole, string>>)
+      ? {
+          ...(Object.fromEntries(
+            THEME_RECORD_ROLE_KEYS.map((key) => [THEME_RECORD_ROLE_TO_TOKEN_ROLE[key], record.roles[key]]),
+          ) as Partial<Record<FunnelTokenRole, string>>),
+          // P6 THEME v2 (follow-on ruling): the 7 additional roles completing
+          // the 14-role palette — see recordExtraPalette below for the
+          // defense-in-depth hex filter (no upstream validator exists for this
+          // field yet). Absent `extra_roles` (every pre-P6 record) contributes
+          // nothing — byte-identical to today.
+          ...recordExtraPalette(record.extra_roles),
+        }
       : {};
 
   // v3.1 fix (adversarial review MINOR-3): when a WINNING theme record is
@@ -587,12 +902,21 @@ export function resolveTokens(
 
   // --- typography (§9.3) ----------------------------------------------------
   const sizeScale: ThemeSizeScale = theme.typography?.size ?? "m";
+  // P6 (deliverable 2): the DISPLAY ramp — a separate axis from `size` scaling
+  // ONLY the display font-size tokens, so a display-XXL headline never enlarges
+  // body copy. `m` (absent) is the identity ⇒ byte-identical to pre-P6.
+  const displaySizeScale: ThemeDisplaySizeScale = theme.typography?.display_size ?? "m";
   const displayId = theme.typography?.display;
   const bodyId = theme.typography?.body;
   if (displayId !== undefined) applyDisplayFont(design, THEME_FONT_STACKS[displayId]);
   if (bodyId !== undefined) applyBodyFont(design, THEME_FONT_STACKS[bodyId]);
   if (THEME_SIZE_FACTORS[sizeScale] !== 1) {
     scaleFontSizes(design as unknown as Record<string, unknown>, THEME_SIZE_FACTORS[sizeScale]);
+  }
+  // Applied AFTER the uniform size scale so the two compound (display-XXL rides
+  // on top of a chosen body size). Scales the display font-size tokens only.
+  if (THEME_DISPLAY_SIZE_FACTORS[displaySizeScale] !== 1) {
+    scaleDisplayFontSizes(design, THEME_DISPLAY_SIZE_FACTORS[displaySizeScale]);
   }
   // v3.1 §10.4: a resolved theme RECORD's typography feeds the SAME design
   // slots the curated display/body ids above would — record-backed and
@@ -648,6 +972,21 @@ export function resolveTokens(
     if (basePxFactor !== 1) {
       scaleFontSizes(design as unknown as Record<string, unknown>, basePxFactor);
     }
+
+    // P6 THEME v2 (follow-on ruling) — the record path's OWN display-only
+    // ramp, mirroring the inline branch's displaySizeScale above EXACTLY (the
+    // SAME THEME_DISPLAY_SIZE_FACTORS table, SAME scaleDisplayFontSizes call)
+    // so a preset resolves IDENTICALLY to the same display_size applied
+    // inline (preset-vs-inline parity). Applied AFTER base_px so the two
+    // compound the same way the inline size+display_size pair does above.
+    // safeRecordDisplaySize defense-in-depth-validates (no write-time
+    // validator exists for this field yet, P6b) — an invalid/absent value
+    // defaults to "m" (identity), never reaching scaleCssLength with a factor
+    // a real validated record could not have produced.
+    const recordDisplaySize = safeRecordDisplaySize(record.typography.display_size);
+    if (THEME_DISPLAY_SIZE_FACTORS[recordDisplaySize] !== 1) {
+      scaleDisplayFontSizes(design, THEME_DISPLAY_SIZE_FACTORS[recordDisplaySize]);
+    }
   }
 
   // --- button defaults (§9.3) — applied AFTER palette + scales so a radius
@@ -657,6 +996,28 @@ export function resolveTokens(
   if (bd.text_role !== undefined) design.primaryButton.color = roles[bd.text_role];
   if (bd.radius !== undefined) design.primaryButton.borderRadius = design.radius[bd.radius];
   if (bd.min_height !== undefined) design.primaryButton.minHeight = BUTTON_MIN_HEIGHT_CSS[bd.min_height];
+  // P6 THEME v2 (follow-on ruling): a resolved theme RECORD's button_style
+  // feeds the SAME resolution the inline theme_json.button_defaults fill/
+  // layout/selected would — mutually exclusive inputs (`bd` is `{}` on the
+  // record path since `theme = {}` there; `record` is null on the inline
+  // path), so a preset's button-style axes resolve through the ONE existing
+  // mechanism. safeRecordButtonStyle defense-in-depth-validates each field
+  // (no write-time validator exists for this field yet, P6b) — an invalid
+  // value is dropped (falls through to default), never stashed raw;
+  // readButtonStyle's own downstream enum re-check (above) is a SECOND,
+  // unconditional layer regardless of source.
+  const recordButtonStyle = safeRecordButtonStyle(record?.button_style);
+  // P6 (deliverable 3): resolve the button-style triple (defaults applied) and
+  // STASH it on the design (Symbol key) so the live-render consumers
+  // (funnelChromeCss / the section renderers) reskin through ONE source. Only
+  // stashed when at least one axis is non-default — a legacy/v1 theme leaves
+  // the design (and therefore every consumer's output) byte-identical.
+  const buttonStyle: EffectiveButtonStyle = {
+    fill: bd.fill ?? recordButtonStyle.fill ?? BUTTON_STYLE_DEFAULTS.fill,
+    layout: bd.layout ?? recordButtonStyle.layout ?? BUTTON_STYLE_DEFAULTS.layout,
+    selected: bd.selected ?? recordButtonStyle.selected ?? BUTTON_STYLE_DEFAULTS.selected,
+  };
+  if (buttonStyleIsNonDefault(buttonStyle)) setButtonStyle(design, buttonStyle);
   const button_defaults: EffectiveButtonDefaults = {
     background: design.primaryButton.background,
     color: design.primaryButton.color,
@@ -709,6 +1070,66 @@ function pickPaletteValue(
 
 function shadowStepValue(design: EffectiveFunnelDesign, step: ThemeShadowStep): string {
   return step === "none" ? "none" : design.shadow[step];
+}
+
+// P6 THEME v2 (follow-on ruling) — bridge a resolved ThemeRecord's
+// `extra_roles` onto FUNNEL_TOKEN_ROLES, HEX-FILTERED (HEX_COLOR_RE — the same
+// anchored pattern validateTheme uses below for the inline palette): unlike
+// the original 7 `roles` (validated at the theme-store.ts KV-shape-read
+// layer), NO upstream validator exists yet for this NEW field (P6b's
+// themes-handlers.ts / theme-store.ts widening is the write/read-time
+// authoritative gate) — an invalid/non-hex value for any one role is simply
+// DROPPED (that role falls through to the base design's own value via the
+// normal recordPalette[role] === undefined path), never passed through raw.
+// Absent `extra_roles` (every pre-P6 record) returns {} — byte-identical.
+function recordExtraPalette(extra: ThemeRecordExtraRoles | undefined): Partial<Record<FunnelTokenRole, string>> {
+  if (extra === undefined) return {};
+  const out: Partial<Record<FunnelTokenRole, string>> = {};
+  for (const key of THEME_RECORD_EXTRA_ROLE_KEYS) {
+    const value = extra[key];
+    if (typeof value === "string" && HEX_COLOR_RE.test(value)) {
+      out[THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE[key]] = value;
+    }
+  }
+  return out;
+}
+
+// P6 THEME v2 (follow-on ruling) — defense-in-depth validation for a
+// ThemeRecord's `typography.display_size` (mirrors the base_px clamp's own
+// "the write-time gate is authoritative; a hand-edited/corrupted blob could
+// carry an out-of-range value here" discipline, applied to this NEW field
+// which has no write-time validator yet). An invalid/absent value degrades to
+// "m" (identity) — never reaches THEME_DISPLAY_SIZE_FACTORS with a key a real
+// validated record could not have produced (which would otherwise read back
+// `undefined` and corrupt every scaled font-size token to "NaNpx").
+function safeRecordDisplaySize(value: unknown): ThemeDisplaySizeScale {
+  return typeof value === "string" && (THEME_DISPLAY_SIZE_SCALES as readonly string[]).includes(value)
+    ? (value as ThemeDisplaySizeScale)
+    : "m";
+}
+
+// P6 THEME v2 (follow-on ruling) — defense-in-depth validation for a
+// ThemeRecord's `button_style` triple (no write-time validator exists yet for
+// this NEW field, P6b's job). Each axis independently degrades to "not
+// authored" (undefined, so resolveTokens's buttonStyle merge falls through to
+// BUTTON_STYLE_DEFAULTS) rather than ever stashing a raw, unrecognised value —
+// readButtonStyle's own downstream enum re-check is a SECOND, unconditional
+// layer on top of this one.
+function safeRecordButtonStyle(raw: ThemeRecordButtonStyle | undefined): Partial<EffectiveButtonStyle> {
+  if (raw === undefined) return {};
+  const fill =
+    typeof raw.fill === "string" && (THEME_BUTTON_STYLES as readonly string[]).includes(raw.fill)
+      ? raw.fill
+      : undefined;
+  const layout =
+    typeof raw.layout === "string" && (THEME_BUTTON_LAYOUTS as readonly string[]).includes(raw.layout)
+      ? raw.layout
+      : undefined;
+  const selected =
+    typeof raw.selected === "string" && (THEME_BUTTON_SELECTED_STYLES as readonly string[]).includes(raw.selected)
+      ? raw.selected
+      : undefined;
+  return { fill, layout, selected };
 }
 
 // --- scale application helpers ----------------------------------------------
@@ -779,6 +1200,20 @@ function scaleFontSizes(node: Record<string, unknown>, factor: number): void {
       scaleFontSizes(value, factor);
     } else if (typeof value === "string" && /fontsize/i.test(key)) {
       node[key] = scaleCssLength(value, factor);
+    }
+  }
+}
+
+// P6 (deliverable 2): scale ONLY the DISPLAY font-size tokens
+// (DISPLAY_FONTSIZE_PATHS — the *FontSize* siblings of the display-family
+// slots) — the display/headline ramp, distinct from the uniform `size` scale
+// above which touches body tokens too. A missing/non-length token passes
+// through unchanged (never a thrown error from a pure resolver).
+function scaleDisplayFontSizes(design: EffectiveFunnelDesign, factor: number): void {
+  for (const [group, key] of DISPLAY_FONTSIZE_PATHS) {
+    const groupObj = (design as unknown as Record<string, unknown>)[group];
+    if (isRecord(groupObj) && typeof groupObj[key] === "string") {
+      groupObj[key] = scaleCssLength(groupObj[key] as string, factor);
     }
   }
 }
@@ -986,7 +1421,7 @@ export function validateTheme(raw: unknown): ThemeValidation {
       push("error", "theme.typography", "Typography settings must be a group of settings.");
     } else {
       for (const key of Object.keys(typography)) {
-        if (key !== "display" && key !== "body" && key !== "size") {
+        if (key !== "display" && key !== "body" && key !== "size" && key !== "display_size") {
           push("error", `theme.typography.${key}`, `'${key}' isn't a recognised typography setting.`);
         }
       }
@@ -1003,6 +1438,18 @@ export function validateTheme(raw: unknown): ThemeValidation {
       const size = typography["size"];
       if (size !== undefined && !(THEME_SIZE_SCALES as readonly string[]).includes(size as string)) {
         push("error", "theme.typography.size", `The text size scale must be one of: ${THEME_SIZE_SCALES.join(", ")}.`);
+      }
+      // P6 (deliverable 2): the display headline ramp is a closed enum.
+      const displaySize = typography["display_size"];
+      if (
+        displaySize !== undefined &&
+        !(THEME_DISPLAY_SIZE_SCALES as readonly string[]).includes(displaySize as string)
+      ) {
+        push(
+          "error",
+          "theme.typography.display_size",
+          `The display size scale must be one of: ${THEME_DISPLAY_SIZE_SCALES.join(", ")}.`,
+        );
       }
     }
   }
@@ -1040,6 +1487,10 @@ export function validateTheme(raw: unknown): ThemeValidation {
     radius: "radius_step",
     min_height: "min_height",
     casing: "casing",
+    // P6 (deliverable 3): the button-style vocabulary — each a closed enum.
+    fill: "btn_fill",
+    layout: "btn_layout",
+    selected: "btn_selected",
   });
   validateComponentDefaults(raw["card_defaults"], "theme.card_defaults", "card", push, {
     background_role: "role",
@@ -1052,7 +1503,15 @@ export function validateTheme(raw: unknown): ThemeValidation {
   return { theme: hasErrors ? null : (raw as ThemeJson), problems };
 }
 
-type DefaultsFieldKind = "role" | "radius_step" | "shadow_step" | "min_height" | "casing";
+type DefaultsFieldKind =
+  | "role"
+  | "radius_step"
+  | "shadow_step"
+  | "min_height"
+  | "casing"
+  | "btn_fill"
+  | "btn_layout"
+  | "btn_selected";
 
 function validateComponentDefaults(
   raw: unknown,
@@ -1095,6 +1554,18 @@ function validateComponentDefaults(
     } else if (kind === "min_height") {
       if (!(THEME_BUTTON_MIN_HEIGHTS as readonly string[]).includes(value as string)) {
         push("error", path, `The ${label} ${human} must be one of: ${THEME_BUTTON_MIN_HEIGHTS.join(", ")}.`);
+      }
+    } else if (kind === "btn_fill") {
+      if (!(THEME_BUTTON_STYLES as readonly string[]).includes(value as string)) {
+        push("error", path, `The ${label} ${human} must be one of: ${THEME_BUTTON_STYLES.join(", ")}.`);
+      }
+    } else if (kind === "btn_layout") {
+      if (!(THEME_BUTTON_LAYOUTS as readonly string[]).includes(value as string)) {
+        push("error", path, `The ${label} ${human} must be one of: ${THEME_BUTTON_LAYOUTS.join(", ")}.`);
+      }
+    } else if (kind === "btn_selected") {
+      if (!(THEME_BUTTON_SELECTED_STYLES as readonly string[]).includes(value as string)) {
+        push("error", path, `The ${label} ${human} must be one of: ${THEME_BUTTON_SELECTED_STYLES.join(", ")}.`);
       }
     } else {
       if (!(THEME_BUTTON_CASINGS as readonly string[]).includes(value as string)) {

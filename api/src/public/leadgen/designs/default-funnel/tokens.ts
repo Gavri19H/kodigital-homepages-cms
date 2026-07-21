@@ -2,6 +2,24 @@
 // Target: api/src/public/leadgen/designs/default-funnel/tokens.ts
 // Measured 1:1 from the reference funnel stylesheet. Visual design only; SEPARATE
 // from the component capability registry. No banned product name in source.
+//
+// P6 THEME v2 (D-7) — the DISPLAY vs BODY font-slot split (deliverable 2), made
+// explicit so the theme display/body ramp wiring (theme.ts applyDisplayFont /
+// applyBodyFont + scaleDisplayFontSizes) is legible at the token layer. These
+// are the ONLY font-family / display-font-size slots the theme layer touches;
+// no NEW token key is added here — a new key would change the serialized
+// `design_tokens` bytes and break the A0 legacy config byte-pin, so P6's
+// display ramp scales these EXISTING slots and its button-style looks reuse the
+// existing radius/shadow/colour scales (see designs/theme.ts + styles.ts):
+//   DISPLAY family slots (headline voice): page.fontDisplay, header.logoFontFamily,
+//     headline.fontFamily, rangeQuestion.valueFontFamily, successState.headingFontFamily
+//   DISPLAY size slots (the display_size ramp scales these): headline.fontSizeDesktop,
+//     headline.fontSizeMobile, header.logoFontSize, rangeQuestion.valueFontSize,
+//     successState.headingFontSize
+//   BODY family slots (paragraph voice): page.fontFamily, primaryButton.fontFamily
+// (The base design's own families — 'Sora'/'Literata'/'Newsreader' — are NOT in
+// the P6 self-hosted set, so a legacy funnel emits no @font-face and renders
+// byte-identically; a theme opts into a self-hosted family per-funnel.)
 export const defaultFunnelDesign = {
   id: "default-funnel", source: "reference funnel stylesheet (measured)",
   page:{backgroundColor:"#F5F7FA",textColor:"#1A1F36",textSecondaryColor:"#4A5568",textLightColor:"#718096",fontFamily:"'Sora',system-ui,Arial,sans-serif",fontDisplay:"'Literata',Georgia,serif",minHeight:"100vh"},
