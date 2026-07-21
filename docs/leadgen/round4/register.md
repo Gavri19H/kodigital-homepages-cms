@@ -99,4 +99,4 @@ lifecycle parity.
 - Conductor gates (own hand): tsc both 0 · vitest 403/5,997 pass==total · every P5+guard spec green IN ISOLATION (socket-exhaustion flake on combined runs — environmental, drained between runs) · acceptance 24/24 both engines · bundle 46,008/46,080 byte-identical · 0045 anchored · drift 0.
 - Adversarial review (security-weighted): FIX-FIRST (2 MAJOR both live-proven: free-text stored XSS via the shared strip-sanitizer — reviewer broke it 5 ways; persona quota check-then-increment race; + SVG attr-name emit minor) → allowlist re-serializer (articles sanitizer untouched) + atomic D1 quota + positive attr-name class → delta re-verify **SHIP** (reviewer's 23-payload run: 0 leaks).
 - Verified-clean by review: SVG element/href/url() vectors (29/29 + attr-name); all 3 upload routes + nosniff; AI paths SVG-incapable; key never logged; ??/?. conversions falsy-safe; R4-40 genuinely distinct.
-- PR: {{P5_PR}} · merge: {{P5_SHA}}
+- PR: https://github.com/Gavri19H/kodigital-homepages-cms/pull/128 · merge: 9c8ed0b
