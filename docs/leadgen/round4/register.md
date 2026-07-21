@@ -13,14 +13,14 @@ lifecycle parity.
 | R4-02 | #2 actions parity: kebab + duplicate/archive/reactivate/usage/delete-guarded (sections/quotes/auctions) | P1c+P1d | PASS (P1, evidence: phase log P1) |
 | R4-03 | #3 Question grid unusable from picker (seed drops rows; ghost grows invisible choices; no affordance) | P1a+P1b | PASS (P1, evidence: phase log P1) |
 | R4-04 | #4A rules UX flow direction (source above → dependent below) | P4b | PASS (P4, evidence: phase log P4) |
-| R4-05 | #4B/4C grid rows as rule condition sources end-to-end (via picker path) | P1a→**P7-REOPENED** | FAIL@ACCEPTANCE — studio-author+save works, but site ACTIVATION 409s (dependency_missing_field) because the activation-time knownFields builder (quotes-handlers ~3748) never expands MQG rows/Address/Name; fix P7 |
+| R4-05 | #4B/4C grid rows as rule condition sources end-to-end (via picker path) | P1a+P7fix | PASS (P7 8832bbc: shared collectKnownAnswerFields unifies studio/save/activation; acceptance Item-4 live green; fail-before/pass-after) |
 | R4-06 | #4D complex rules AND/OR (ANY/ALL groups, client+server parity) | P2a+P2c | PASS (P2, evidence: phase log P2) |
-| R4-07 | #4E every component mapped: Address sub-fields + NameFields as rule sources | P1a→**P7-REOPENED** | FAIL@ACCEPTANCE — same activation-knownFields gap as R4-05; + composed {match,conditions} rules SKIP activation validation entirely (guard tests conditional["when"] which composed shape lacks); fix P7 |
+| R4-07 | #4E every component mapped: Address sub-fields + NameFields as rule sources | P1a+P7fix | PASS (P7 8832bbc: activation now expands Address/Name/MQG + validates composed shapes — composed rules no longer skip validation) |
 | R4-08 | #5 two "When answered" controls → one | P1a | PASS (P1, evidence: phase log P1) |
 | R4-09 | #6A field chrome: label above + helper below + in-box error, ALL text-like inputs | P1b | PASS (P1, evidence: phase log P1) |
 | R4-10 | #6B phone format author-defined (NANP/E.164-intl/IL/custom) | P2b+P2c | PASS (P2, evidence: phase log P2) |
 | R4-11 | #6C/6D Address = real composite w/ Maps at component level, pre-mapped autofill roles | P1a+P1b | PASS (P1, evidence: phase log P1) |
-| R4-12 | #7 single-column (1) authorable everywhere + clamp/validation alignment | P1b→**P7-REOPENED** | FAIL@ACCEPTANCE — schema validates 1-5 but BOTH studio dropdowns still render options([2,3,4,5]) + label "Card columns (2–5)"; the operator literally cannot pick "1" (Image27). UI half never landed; fix P7 |
+| R4-12 | #7 single-column (1) authorable everywhere + clamp/validation alignment | P1b+P7fix | PASS (P7 61a6f35: both Columns pickers offer 1-5 + label fixed; acceptance Item-7 green). NOTE: MultiChoiceCardGroup renderer clamp 2→1 pending (P7fix-mcg) |
 | R4-13 | #8 section-name affordance + plain-language save errors (no raw ids) | P1a+P1c | PASS (P1, evidence: phase log P1) |
 | R4-14 | #9 "+ Add choice" out of layout flow (live==edit geometry) | P1a+P1b | PASS (P1, evidence: phase log P1) |
 | R4-15 | #10A activity/verticals dropdowns on New Quote (existing endpoints) | P5b | PASS (P5, evidence: phase log P5) |
@@ -32,7 +32,7 @@ lifecycle parity.
 | R4-21 | #10G rich elements: trust/benefit icon+text rows + hover tooltip + AI persona image (quota) | P5a+P5c | PASS (P5, evidence: phase log P5) |
 | R4-22 | #10H footer v2 full builder (blocks, own palette/typography, per-site vars) | P5a | PASS (P5, evidence: phase log P5) |
 | R4-23 | #10H-adj disclosure v2 (multi-location, per-location text/mode/align) | P5a | PASS (P5, evidence: phase log P5) |
-| R4-24 | #10I theme v2: fonts (self-hosted), display-XXL, button ranges (Img38-40), presets+DELETE, theme A/B | P6a+P6b→**P7-REOPENED** | FAIL@ACCEPTANCE — a ThemeRecord preset edit does NOT bust the funnel-shell cache of funnels referencing it (serve.ts:815 documents the risk); a funnel via {theme_id} renders the STALE font (proven server-side raw-fetch). Cache-invalidation gap; fix P7 |
+| R4-24 | #10I theme v2: fonts (self-hosted), display-XXL, button ranges (Img38-40), presets+DELETE, theme A/B | P6a+P6b+P7fix | PASS (P7 fc41ae2: root cause was NOT cache — a frameless funnel ignored its theme; now a funnel with an explicit theme_id + null frame renders via a minimal headerless default frame so the PRESET theme applies; acceptance Item-10I live green, zero blast, legacy pin intact). RESIDUAL→R4-47 |
 | R4-25 | #10J funnel structure panel broken layout | P3b | PASS (P3, evidence: phase log P3) |
 | R4-26 | Restructure: Templates+Themes top tabs + 7 box pickers | P5b | PASS (P5, evidence: phase log P5) |
 | R4-27 | Restructure: rules UNIFIED into funnel-builder (standalone tab removed) | P4b | PASS (P4, evidence: phase log P4) |
@@ -55,6 +55,7 @@ lifecycle parity.
 | R4-44 | §19.1 binding: page_plan_hash + checkpoint validation + re-issue on switch | P3a+P4a | PASS (P3+P4: signed binding, dual-accept, checkpoint validation + re-issue, completion pinning) |
 | R4-45 | Round-4 acceptance journeys (sections + quotes suites, both engines) | P7a | OPEN |
 | R4-46 | Gate1c visual baselines re-mint — last minted @ d8da7b7 (round-3 close, pre-round-4); cumulative P1-P6 intended rendering drift (P1 section-builder rewrite + P5 frame elements + P6 fonts). Conductor visual-confirms each diff, re-mints all states, part of staging sign-off. NOT a P6 regression (P6 touched no Sections files; drift proven pre-P6 via mint history). NOT a CI gate (Playwright solo-only). | P7b | OPEN |
+| R4-47 | INLINE-themed frameless funnel (theme via the inline Themes-tab editor, no saved-preset theme_id) still renders un-themed — same class as 10I, narrower. Safe fix needs a resolver.ts null-conflation refactor (distinguish absent-frame from corrupt-frame — the latter MUST stay byte-legacy per leadgen-frame-serve money-path safety invariant); NOT a same-file workaround. WORKAROUND: save the inline theme as a preset (one click, P6b) → apply → works via the fixed theme_id path. | operator-decision | BLOCKED (operator: fix in a scoped follow-up, or accept the save-as-preset workaround) |
 | R4-OP1 | Production deploys (post-P1 optional; program end) | operator | BLOCKED |
 | R4-OP2 | Staging hands-on acceptance (terminal gate) | operator | BLOCKED |
 | R4-OP3 | OpenAI spend/quota + GOOGLE_MAPS_SERVER_KEY sign-off | operator | BLOCKED |
