@@ -76,7 +76,12 @@ import {
   renderStepIndicator,
 } from "../../public/leadgen/components/presets";
 import type { ComponentType } from "../../public/leadgen/components/presets";
-import { flattenComponents, type LeadgenComponentNode } from "../../public/leadgen/components/content-schema";
+import {
+  collectKnownAnswerFields,
+  conditionalFieldRefs,
+  flattenComponents,
+  type LeadgenComponentNode,
+} from "../../public/leadgen/components/content-schema";
 import { COMPONENT_CATALOG } from "../../public/leadgen/components/registry";
 import { buildPublicConfig, type LeadgenPublicConfig } from "../../public/leadgen/config-dto";
 // Round-4 P4b: the SAME component parser/expander resolver.ts's private
@@ -3763,11 +3768,16 @@ async function computeVariantPreflightBlocks(
       flattenComponents(topLevel as unknown as LeadgenComponentNode[]) as unknown[]
     ).filter(isRecord);
     componentsBySection.set(sectionId, components);
-    for (const node of components) {
-      if (typeof node["internal_field"] === "string" && node["internal_field"] !== "") {
-        knownFields.add(node["internal_field"]);
-      }
-    }
+    // Round-4 P7: the dependency universe is the SHARED expanded answer-field
+    // set (content-schema.ts collectKnownAnswerFields) — the SAME enumerator
+    // save-time validateSectionContent uses. It walks the raw tree itself and
+    // expands MQG rows (props.rows[].internal_field), Address role sub-fields,
+    // and NameFieldsGroup fields — none of which carry a top-level
+    // internal_field, so the prior "collect each flattened node's OWN
+    // internal_field" loop never saw them and wrongly flagged a rule referencing
+    // one as a missing dependency at activation. Accumulated across ALL active
+    // sections (the variant-wide field space).
+    for (const f of collectKnownAnswerFields(topLevel)) knownFields.add(f);
   }
 
   for (const s of activeSections) {
@@ -3777,9 +3787,17 @@ async function computeVariantPreflightBlocks(
     // §5.2 "a dependency references a missing field" — the shared conditional
     // shape {when, op, …} over the VARIANT's internal-field space.
     for (const node of componentsBySection.get(s.section_id) ?? []) {
-      const conditional = node["conditional"];
-      if (isRecord(conditional) && typeof conditional["when"] === "string" && conditional["when"] !== "") {
-        const when = conditional["when"];
+      // Round-4 P7: a `conditional` may be a BARE {when,op,…} OR a composed
+      // {match,conditions:[…]} group (A-4 / P2). conditionalFieldRefs
+      // (content-schema.ts) yields EVERY `when` reference across both shapes
+      // (recursively, nested groups included) — the SAME structural discriminator
+      // the runtime evaluator (dependencies.ts isConditionGroup) and the save-time
+      // validateConditional use. The prior guard tested only a top-level string
+      // `when`, so a composed rule skipped this dependency check ENTIRELY (a
+      // second, opposite-direction hole: a group naming a truly-missing field
+      // sailed through unblocked). One block per missing reference — byte-identical
+      // shape for the bare single-field case.
+      for (const when of conditionalFieldRefs(node["conditional"])) {
         if (!knownFields.has(when)) {
           blocks.push({
             section_id: content.public_id,
