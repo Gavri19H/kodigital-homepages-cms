@@ -71,6 +71,10 @@ import {
 } from "../../public/leadgen/designs/frames";
 import {
   FUNNEL_TOKEN_ROLES,
+  THEME_BUTTON_LAYOUTS,
+  THEME_BUTTON_SELECTED_STYLES,
+  THEME_BUTTON_STYLES,
+  THEME_DISPLAY_SIZE_SCALES,
   THEME_FONT_IDS,
   THEME_RADIUS_SCALES,
   THEME_RADIUS_STEPS,
@@ -793,6 +797,10 @@ const LG_QUOTES_STYLES = `
 .lg-tplbox-pagetarget{border-top:1px dashed var(--c-border);margin-top:8px;padding-top:8px}
 .lg-tplbox-persona{border-top:1px dashed var(--c-border);margin-top:8px;padding-top:8px}
 .lg-hidden{display:none}
+/* --- P6b: Themes-tab presets (apply picker + embedded theme-manager) ------- */
+.lg-preset-apply-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.lg-preset-apply-row select{flex:1 1 220px;min-width:160px}
+.lg-theme-presets-frame{display:block;width:100%;height:820px;border:1px solid var(--c-border);border-radius:8px;margin-top:10px}
 `;
 
 // ---------------------------------------------------------------------------
@@ -2085,6 +2093,27 @@ function renderHarmonyRow(role: string): string {
   return `<div class="lg-harmony-row" data-harmony-row="${escapeHtml(role)}">${buttons}</div>`;
 }
 
+// P6b (deliverable 2) — proper-case labels for the FULL THEME_FONT_IDS
+// vocabulary. P6a widened THEME_FONT_IDS from the 3 back-compat ids
+// (literata/sora/system) to 11 (+8 curated self-hosted families, theme.ts
+// THEME_FONT_STACKS doc comment) — enumOptions() already falls back to a
+// de-underscored raw id when no label is given (e.g. "space grotesk"), so
+// this map exists purely to give every option a polished human label,
+// extending the pre-existing 3-id inline label the two font selects used.
+const THEME_FONT_LABELS: Readonly<Record<string, string>> = {
+  literata: "Literata",
+  sora: "Sora",
+  system: "System",
+  poppins: "Poppins",
+  space_grotesk: "Space Grotesk",
+  fraunces: "Fraunces",
+  playfair: "Playfair Display",
+  manrope: "Manrope",
+  dm_sans: "DM Sans",
+  work_sans: "Work Sans",
+  lexend: "Lexend",
+};
+
 function renderThemeEditorPanel(isControl: boolean): string {
   const paletteRows = ROLE_META.map(
     (r) => `<div class="lg-theme-role-row" data-theme-role="${escapeHtml(r.role)}">
@@ -2117,10 +2146,12 @@ function renderThemeEditorPanel(isControl: boolean): string {
   <h3>Colors</h3>
   <div id="lg-theme-palette">${paletteRows}</div>
   <h3>Typography</h3>
+  <p class="form-help">Display sets headlines, big numbers and the display size below. Body sets paragraphs, labels and inputs — the two never share a size or a font by accident.</p>
   <div class="lg-scalars">
-    ${themeSelect("Display font", "typography.display", THEME_FONT_IDS, { literata: "Literata", sora: "Sora", system: "System" })}
-    ${themeSelect("Body font", "typography.body", THEME_FONT_IDS, { literata: "Literata", sora: "Sora", system: "System" })}
-    ${themeSelect("Text size", "typography.size", THEME_SIZE_SCALES, { s: "Small", m: "Medium", l: "Large" })}
+    ${themeSelect("Display font (headlines)", "typography.display", THEME_FONT_IDS, THEME_FONT_LABELS)}
+    ${themeSelect("Body font (paragraphs)", "typography.body", THEME_FONT_IDS, THEME_FONT_LABELS)}
+    ${themeSelect("Body text size", "typography.size", THEME_SIZE_SCALES, { s: "Small", m: "Medium", l: "Large" })}
+    ${themeSelect("Display size", "typography.display_size", THEME_DISPLAY_SIZE_SCALES, { m: "Base", l: "Large", xl: "X-Large", xxl: "XX-Large" })}
   </div>
   <h3>Scales</h3>
   <div class="lg-scalars">
@@ -2135,6 +2166,13 @@ function renderThemeEditorPanel(isControl: boolean): string {
     ${themeSelect("Button corners", "button_defaults.radius", THEME_RADIUS_STEPS)}
     ${themeSelect("Button height", "button_defaults.min_height", ["m", "l"], { m: "Medium", l: "Large" })}
     ${themeSelect("Button casing", "button_defaults.casing", ["none", "upper"], { none: "As written", upper: "UPPERCASE" })}
+  </div>
+  <h4>Button style</h4>
+  <p class="form-help">Three independent looks (Images 38&#8211;40) &#8212; mix and match; each defaults to today's look.</p>
+  <div class="lg-scalars">
+    ${themeSelect("Fill", "button_defaults.fill", THEME_BUTTON_STYLES, { fill: "Solid (default)", outline: "Outline", soft: "Soft pill + shadow" })}
+    ${themeSelect("Answer layout", "button_defaults.layout", THEME_BUTTON_LAYOUTS, { grid: "Grid (default)", list: "Single-column list" })}
+    ${themeSelect("Selected style", "button_defaults.selected", THEME_BUTTON_SELECTED_STYLES, { wash: "Soft wash (default)", mark: "Bigger + check badge" })}
   </div>
   <h3>Cards</h3>
   ${frameControl("Card background", renderRoleStrip("theme:card_defaults.background_role"))}
@@ -2155,12 +2193,40 @@ function renderThemeEditorPanel(isControl: boolean): string {
 </div>`;
 }
 
+// ---------------------------------------------------------------------------
+// P6b (deliverables 3+4) — PRESETS: the KV `lg-funnel-themes` catalog
+// (themes-handlers.ts CRUD), surfaced inline in the SAME Themes tab. Full
+// list/create/edit/delete already exists as the standalone Themes-manager
+// page (ui-theme-manager.ts) — embedded here via its OWN `?embed=1`
+// chromeless mode, the SAME mechanism Section Studio already uses to overlay
+// it (ui-section-studio.ts's `#lg-themes-overlay-frame`), so this reuses
+// 100% of its rendering/CRUD/delete-guard UI rather than duplicating any of
+// it ("Reuse ui-theme-manager's existing editor internals" — the whole page
+// IS its internals). This panel adds ONLY what that page cannot do on its
+// own: a picker to APPLY a saved preset to THIS funnel/variant (a per-funnel
+// ThemeIdRef picker), and the theme A/B one-click fork.
+// ---------------------------------------------------------------------------
+
+function renderThemePresetsPanel(): string {
+  return `<div class="lg-panel-card" id="lg-theme-presets">
+  <h3>Theme presets</h3>
+  <p class="form-help">Save the current look as a reusable preset from the panel below (its own "New theme" button), then apply or delete any preset here. Presets are shared across every funnel.</p>
+  <div class="lg-preset-apply-row">
+    <select class="form-select" id="lg-theme-preset-select" aria-label="Theme preset"><option value="">Loading presets&#8230;</option></select>
+    <button type="button" class="btn btn-sm btn-secondary" id="lg-theme-preset-apply">Apply to this funnel</button>
+    <button type="button" class="btn btn-sm btn-outline" id="lg-theme-ab-this" title="Fork this variant with the picked preset as its theme, then set the traffic split">A/B this theme</button>
+  </div>
+  <iframe id="lg-theme-presets-frame" class="lg-theme-presets-frame" title="Theme presets manager" src="/admin/leadgen/themes?embed=1"></iframe>
+</div>`;
+}
+
 function renderThemesTabPanel(isControl: boolean): string {
   // Round-4 P5b deliverable 1: a CLEAN mount point — P6b replaces the panel
   // BODY (renderThemeEditorPanel's internals) without touching this tab's
   // chrome (the tab button + this wrapper div stay byte-stable across P6b).
   return `<div class="lg-qpanel" data-panel="themes">
   <div id="lg-themes-panel-mount">${renderThemeEditorPanel(isControl)}</div>
+  ${renderThemePresetsPanel()}
 </div>`;
 }
 
@@ -2731,13 +2797,51 @@ function overriddenGroupLabels(overrides: Record<string, unknown> | null): strin
   return labels;
 }
 
+// P6b (deliverable 5) — per-variant "what varies" summary: the SAME per-arm
+// override groups overriddenGroupLabels already exposes (theme/frame keys),
+// PLUS whether this arm's template (funnel_design_id), ordered sections, or
+// rule set differ from the CONTROL arm — the "whole-quote template-level
+// testing" reframe's promised template/theme/sections/rules comparison.
+// Structural signature compares only (never content), so a re-ordered
+// section list or a renamed rule that changes nothing meaningful still
+// reads as "differs" — a coarse but honest (no false-negative) summary.
+function sectionSignature(v: VariantNode): string {
+  return v.sections.map((s) => s.section_public_id).join(",");
+}
+
+function ruleSignature(v: VariantNode): string {
+  return v.rules
+    .map((r) => `${r.rule_type}:${r.target_offer_id ?? ""}:${r.target_section_id ?? ""}:${r.redirect_url ?? ""}`)
+    .sort()
+    .join("|");
+}
+
+function variantWhatVaries(control: VariantNode, variant: VariantNode): string {
+  if (variant.public_id === control.public_id) return "Control";
+  const parts: string[] = [];
+  if (variant.funnel_design_id !== control.funnel_design_id) parts.push("template");
+  const overrideGroups = overriddenGroupLabels(variant.frame_overrides_json);
+  if (overrideGroups.length > 0) parts.push(overrideGroups.join(" & "));
+  if (sectionSignature(variant) !== sectionSignature(control)) parts.push("sections");
+  if (ruleSignature(variant) !== ruleSignature(control)) parts.push("rules");
+  return parts.length > 0 ? `Differs from control: ${parts.join(", ")}` : "Same as control (no differences yet)";
+}
+
 // A/B panel (§16.2) — per-variant percent allocation (stored as basis points),
 // a live Σ indicator, the test lifecycle (create / start / stop), and an
 // assignment preview. Scoped to the SELECTED variant's funnel (its arms).
+//
+// P6b reframe (operator restructure spec): this tab is now presented as
+// WHOLE-QUOTE template-level testing, not just a "fork this variant" arm
+// manager — "Add variant" (below) forks + immediately prompts the traffic
+// split (the SAME §16.2 fork+allocation mechanism "Fork this variant" and
+// the Themes tab's "A/B this theme" both use), and every row's what-varies
+// line (variantWhatVaries) names what actually differs from control.
 function renderAbPanel(structure: StructureBody, selected: VariantNode): string {
   const funnel =
     structure.funnels.find((f) => f.funnel_id === selected.funnel_id) ?? structure.funnels[0] ?? null;
   const variants = funnel?.variants ?? [];
+  const control = variants.find((v) => v.is_control) ?? variants[0] ?? null;
   const tests = funnel?.ab_tests ?? [];
   const running = tests.find((t) => t.status === "running") ?? null;
   const activeTest = running ?? tests[0] ?? null; // ab_tests are newest-first
@@ -2753,12 +2857,17 @@ function renderAbPanel(structure: StructureBody, selected: VariantNode): string 
         groups.length > 0
           ? `<p class="form-help" data-arm-overrides="${escapeHtml(v.public_id)}">Funnel-layout overrides: ${escapeHtml(groups.join(", "))}</p>`
           : `<p class="form-help" data-arm-overrides="${escapeHtml(v.public_id)}">Same layout as funnel (no overrides)</p>`;
+      const varianceLine =
+        control !== null
+          ? `<p class="form-help" data-arm-variance="${escapeHtml(v.public_id)}">${escapeHtml(variantWhatVaries(control, v))}</p>`
+          : "";
       return `<div class="lg-alloc-row" data-variant="${escapeHtml(v.public_id)}">
     <span class="lg-alloc-label"><strong>${escapeHtml(v.variant_label)}</strong>${v.is_control ? " (control)" : ""}</span>
     <label class="lg-alloc-pct"><input type="number" class="form-input lg-alloc-input" data-alloc-input
       data-variant-id="${escapeHtml(v.public_id)}" data-variant-label="${escapeHtml(v.variant_label)}"
       min="0" max="100" step="0.01" value="${escapeHtml(String(pct))}" /> %</label>
     ${overridesLine}
+    ${varianceLine}
   </div>`;
     })
     .join("");
@@ -2790,11 +2899,12 @@ function renderAbPanel(structure: StructureBody, selected: VariantNode): string 
   return `<div class="lg-qpanel" data-panel="ab">
   <div class="card">
     <h3>Traffic allocation (§16.2)</h3>
-    <p class="form-help">Each variant's share of traffic. Percentages must sum to <strong>100%</strong> (stored as basis points; per-test Σ == 10000) before a test can start.</p>
+    <p class="form-help">Test this whole quote against a variant of itself — a different template, theme, sections, or rules. Add a variant, decide what changes on it, then split the traffic below (must sum to <strong>100%</strong>; stored as basis points, per-test Σ == 10000) before a test can start.</p>
     <div id="lg-ab-variant-list" class="lg-alloc-list">${allocRows || `<p class="form-help">No variants.</p>`}</div>
     <p class="lg-alloc-summary">Σ = <strong data-alloc-sum>&mdash;</strong> <span data-alloc-sum-note class="form-help"></span></p>
     <div class="toolbar">
       <button type="button" id="lg-save-allocations" class="btn btn-primary">Save allocations</button>
+      <button type="button" id="lg-add-variant" class="btn btn-secondary">Add variant&#8230;</button>
       <button type="button" class="btn btn-outline" data-fork-variant="${escapeHtml(selected.public_id)}">Fork this variant</button>
       ${lifecycle}
     </div>
@@ -3603,7 +3713,7 @@ const QUOTE_EDITOR_SCRIPT = `
     // Header/Background inspectors) and the moved theme editor never show a
     // stale value.
     if (name === 'templates' || name === 'themes') { populateAllControls(); }
-    if (name === 'themes') { themeMiniOpen = true; scheduleMiniPreview(); }
+    if (name === 'themes') { themeMiniOpen = true; scheduleMiniPreview(); loadThemePresetOptions(); }
   }
   var ti;
   for (ti = 0; ti < tabs.length; ti++) {
@@ -6013,6 +6123,159 @@ const QUOTE_EDITOR_SCRIPT = `
     if (miniTimer) { window.clearTimeout(miniTimer); }
     miniTimer = window.setTimeout(function () { miniTimer = null; renderMiniPreview(); }, 300);
   }
+
+  // ==========================================================================
+  // P6b — theme PRESETS (the KV lg-funnel-themes catalog): a picker to apply
+  // a saved preset to this funnel/variant, and the theme A/B one-click fork.
+  // Full create/edit/delete lives in the embedded ui-theme-manager.ts iframe
+  // (#lg-theme-presets-frame) — this only needs to KNOW the catalog (for the
+  // <select>) and call the two existing endpoints (PUT funnel theme / PUT
+  // variant frame_overrides_json) the standalone Themes manager itself has no
+  // reason to know about (it has no "current funnel" context).
+  // ==========================================================================
+
+  function loadThemePresetOptions() {
+    var sel = byId('lg-theme-preset-select');
+    if (!sel) { return; }
+    var keep = sel.value;
+    fetch('/api/admin/leadgen/themes', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (body) {
+        var items = (body && body.items) || [];
+        clearChildren(sel);
+        var placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = items.length === 0 ? 'No presets yet \\u2014 create one below' : 'Choose a preset\\u2026';
+        sel.appendChild(placeholder);
+        var i;
+        for (i = 0; i < items.length; i++) {
+          var opt = document.createElement('option');
+          opt.value = items[i].id;
+          opt.textContent = items[i].name;
+          sel.appendChild(opt);
+        }
+        if (keep) { sel.value = keep; }
+      })
+      .catch(function () { /* leave the select as-is on a transient network error */ });
+  }
+
+  // Fork the SELECTED variant, then apply the new arm's traffic split (and
+  // shrink the original's to match, keeping Σ==10000) — the SAME §16.2 fork+
+  // allocation mechanism "Fork this variant"/"Add variant"/"A/B this theme"
+  // all share. themeIdOrNull !== null additionally assigns that preset as the
+  // new arm's theme override (frame_overrides_json.theme_id) — the theme A/B
+  // one-click path; null leaves the fork's own cloned theme untouched (the
+  // generic "Add variant" path).
+  function forkWithAllocation(themeIdOrNull) {
+    var pctStr = window.prompt("New variant's share of traffic, in percent (the rest stays with the current variant):", '50');
+    if (pctStr === null) { return; }
+    var pct = parseFloat(pctStr);
+    if (!(pct >= 0 && pct <= 100)) { showMsg('lg-quote-error', 'Enter a number between 0 and 100.'); return; }
+    var newBp = Math.round(pct * 100);
+    var keepBp = 10000 - newBp;
+    hideMsg('lg-quote-error');
+    fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId) + '/fork', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
+      if (!res.ok || !res.body || !res.body.public_id) {
+        showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Could not add a variant.');
+        return null;
+      }
+      var newVariantId = res.body.public_id;
+      var newPatch = { traffic_allocation_bp: newBp };
+      if (themeIdOrNull) { newPatch.frame_overrides_json = { theme_id: themeIdOrNull }; }
+      return Promise.all([
+        fetch('/api/admin/leadgen/variants/' + encodeURIComponent(newVariantId), {
+          method: 'PUT', credentials: 'same-origin',
+          headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(newPatch)
+        }).then(function (r2) { return r2.json().then(function (j2) { return { ok: r2.ok, body: j2 }; }); }),
+        fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId), {
+          method: 'PUT', credentials: 'same-origin',
+          headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ traffic_allocation_bp: keepBp })
+        }).then(function (r3) { return r3.json().then(function (j3) { return { ok: r3.ok, body: j3 }; }); })
+      ]).then(function (results) {
+        var failed = null;
+        var k;
+        for (k = 0; k < results.length; k++) { if (!results[k].ok) { failed = results[k].body; break; } }
+        if (failed) {
+          showMsg('lg-quote-error', (failed && failed.error) ? failed.error : 'The variant was added, but saving the traffic split failed — set it from the A/B tab.');
+          return;
+        }
+        window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(variantPublicId);
+      });
+    }).catch(function () {
+      showMsg('lg-quote-error', 'Network error while adding a variant.');
+    });
+  }
+
+  function wireThemePresets() {
+    var applyBtn = byId('lg-theme-preset-apply');
+    if (applyBtn) {
+      applyBtn.addEventListener('click', function () {
+        var sel = byId('lg-theme-preset-select');
+        var themeId = sel ? sel.value : '';
+        if (!themeId) { showMsg('lg-quote-error', 'Pick a preset first.'); return; }
+        hideMsg('lg-quote-error');
+        applyBtn.disabled = true;
+        // §4.5-aware: apply to the VARIANT's own override while this arm has
+        // the theme override switch ON, to the FUNNEL otherwise — the SAME
+        // override-vs-funnel split writeThemeValue/applyPaletteValue already
+        // respect for every other theme edit on this panel.
+        var useOverride = !isControl && overrideMode['theme'] === 'override';
+        var req = useOverride
+          ? fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId), {
+              method: 'PUT', credentials: 'same-origin',
+              headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({ frame_overrides_json: { theme_id: themeId } })
+            })
+          : fetch('/api/admin/leadgen/funnels/' + encodeURIComponent(funnelPublicId) + '/theme', {
+              method: 'PUT', credentials: 'same-origin',
+              headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({ theme_json: { theme_id: themeId } })
+            });
+        req.then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
+          if (res.ok) { window.location.reload(); return; }
+          applyBtn.disabled = false;
+          showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Apply failed.');
+        }).catch(function () {
+          applyBtn.disabled = false;
+          showMsg('lg-quote-error', 'Network error while applying the preset.');
+        });
+      });
+    }
+
+    var abThisBtn = byId('lg-theme-ab-this');
+    if (abThisBtn) {
+      abThisBtn.addEventListener('click', function () {
+        var sel = byId('lg-theme-preset-select');
+        var themeId = sel ? sel.value : '';
+        if (!themeId) { showMsg('lg-quote-error', 'Pick a preset first, then A/B it.'); return; }
+        forkWithAllocation(themeId);
+      });
+    }
+
+    var addVariantBtn = byId('lg-add-variant');
+    if (addVariantBtn) {
+      addVariantBtn.addEventListener('click', function () { forkWithAllocation(null); });
+    }
+
+    // The embedded theme-manager reloads ITSELF (a real navigation, not a
+    // postMessage) after every create/delete inside the iframe — refreshing
+    // the picker on its load event keeps "Apply"/"A/B this theme" accurate
+    // without polling.
+    var presetsFrame = byId('lg-theme-presets-frame');
+    if (presetsFrame) {
+      presetsFrame.addEventListener('load', function () { loadThemePresetOptions(); });
+    }
+  }
+  wireThemePresets();
+  // The Themes tab is not necessarily the boot tab (builder is) — populate
+  // the picker eagerly too so it is never empty if the operator's very first
+  // click lands on "Apply"/"A/B this theme" before a tab-switch fires (the
+  // activate('themes') hook above also refreshes it on every switch).
+  loadThemePresetOptions();
 
   // --- region click-select (same-origin contentDocument delegation) ----------
   function outlineSelection(doc) {

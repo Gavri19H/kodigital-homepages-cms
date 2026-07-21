@@ -335,9 +335,18 @@ function buildThemesHref(themeId: string, from: string): string {
 // way) can intercept the click and postMessage the STUDIO PARENT to close
 // the overlay instead of navigating the iframe itself. The href stays a
 // real, working fallback (direct-link / no-JS / opened standalone).
+//
+// P6b: gated additionally on `from !== ""` — the close-intercept only makes
+// sense when there IS a specific "from" surface to signal closing back to
+// (Section Studio's own usage always pairs embed=1 with a from=<sectionId>).
+// ui-quotes.ts's NEW Themes-tab embed (deliverable 3) passes embed=1 with NO
+// `from` (there is no "close the overlay" concept in a persistent tab) — for
+// that shape the link stays a PLAIN, working navigation instead of an inert
+// preventDefault-then-nothing dead click. Zero change to the existing
+// Section Studio path (from is never empty there).
 function renderTopBar(from: string, embed: boolean): string {
   const backHref = from !== "" ? `/admin/leadgen/sections/${encodeURIComponent(from)}/edit` : "/admin/leadgen/sections";
-  const backAttr = embed ? " data-tm-embed-close" : "";
+  const backAttr = embed && from !== "" ? " data-tm-embed-close" : "";
   return `<div style="flex:0 0 auto;height:56px;display:flex;align-items:center;gap:14px;padding:0 18px;background:${TM_COLOR.topbarBg};border-bottom:1px solid ${TM_COLOR.topbarBorder}">
   <a href="${escapeHtml(backHref)}" class="tm-back"${backAttr} style="display:flex;align-items:center;gap:7px;padding:7px 12px 7px 9px;border:1px solid ${TM_COLOR.lineControl};border-radius:8px;cursor:pointer;color:${TM_COLOR.back};font-weight:600;font-size:13px;text-decoration:none"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M14 6l-6 6 6 6" stroke="${TM_COLOR.backIcon}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Back to section</a>
   <div style="width:1px;height:24px;background:${TM_COLOR.divider}"></div>
@@ -517,6 +526,19 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[]): s
         <div style="font-size:11.5px;color:${TM_COLOR.roleSub};line-height:1.5;margin:6px 0 11px">For developers. Renaming these can unlink Offer mappings.</div>
           ${advRows}
       </div>
+      <div style="height:1px;background:${TM_COLOR.topbarBorder};margin:20px 0 16px"></div>
+      <!-- P6b (deliverable 1 — the operator's explicit demand, no golden line
+           ref: DELETE was out of scope for the original v3.1 §10.1 CRUD).
+           IN-USE guard lives server-side (themes-handlers.ts deleteTheme-
+           Handler); this button just surfaces it + relays a 409's plain-
+           language funnel listing through the SAME #tm-error banner every
+           other failure here already uses (showError). Reuses TM_COLOR.
+           errText + the EXISTING literal #FBEEEC (the #tm-error banner's own
+           background, THEME_MGR_STYLES below) -- zero new hex introduced. -->
+      <button type="button" id="tm-delete-theme" class="tm-delete-theme" data-tm-delete-theme="${escapeHtml(theme.id)}" data-tm-delete-theme-name="${escapeHtml(theme.name)}" style="display:inline-flex;align-items:center;gap:7px;padding:8px 13px;border:1px solid ${TM_COLOR.cardBorder};border-radius:8px;cursor:pointer;background:transparent;color:${TM_COLOR.errText};font-weight:600;font-size:12.5px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m2 0v13a1 1 0 01-1 1H8a1 1 0 01-1-1V7h10z" stroke="${TM_COLOR.errText}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Delete theme
+      </button>
     </div>`;
 }
 
@@ -608,6 +630,8 @@ export const THEME_MGR_STYLES = `
 /* R4a E3-NEW-6: the theme-name input reads as plain text until touched. */
 .tm-name-input:hover,.tm-name-input:focus{border-color:${TM_COLOR.backHoverBorder};background:#fff}
 .tm-name-input:focus-visible{outline:2px solid ${TM_COLOR.navy};outline-offset:1px}
+/* P6b: the SAME literal #FBEEEC the #tm-error banner already uses (renderTopBar) -- no new hex. */
+.tm-delete-theme:hover{border-color:${TM_COLOR.errText};background:#FBEEEC}
 /* Conductor ruling (gate1c-unmasked defect): this shell had NO height bound
    at all (only min-height:0, a flex-shrink enabler, not a ceiling) while its
    3 columns (LEFT list / CENTER editor / RIGHT panel, below) each already
@@ -730,6 +754,50 @@ export const THEME_MGR_SCRIPT = `
     });
   }
 
+  // P6b (deliverable 1): read a query param the plain-string way (no
+  // URLSearchParams dependency needed for a single-value read) so a delete
+  // redirect can preserve embed and from query params, exactly like
+  // wireNewTheme's own redirect already threads from through -- same "plain
+  // fetch, no complex island" steer this whole script follows.
+  function currentQueryParam(name) {
+    var re = new RegExp('[?&]' + name + '=([^&]*)');
+    var m = window.location.search.match(re);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  function wireDeleteTheme() {
+    var btn = document.getElementById('tm-delete-theme');
+    if (!btn) { return; }
+    btn.addEventListener('click', function () {
+      var themeId = btn.getAttribute('data-tm-delete-theme');
+      var themeName = btn.getAttribute('data-tm-delete-theme-name') || 'this theme';
+      if (!window.confirm('Delete "' + themeName + '"? This cannot be undone.')) { return; }
+      btn.disabled = true;
+      showError('');
+      fetch('/api/admin/leadgen/themes/' + encodeURIComponent(themeId), {
+        method: 'DELETE',
+        headers: { 'Accept': 'application/json' }
+      }).then(function (res) {
+        if (res.ok) {
+          var qs = [];
+          var embedVal = currentQueryParam('embed');
+          var fromVal = currentQueryParam('from');
+          if (embedVal) { qs.push('embed=' + encodeURIComponent(embedVal)); }
+          if (fromVal) { qs.push('from=' + encodeURIComponent(fromVal)); }
+          window.location.href = '/admin/leadgen/themes' + (qs.length ? '?' + qs.join('&') : '');
+          return null;
+        }
+        return res.json().catch(function () { return null; }).then(function (data) {
+          var msg = (data && data.error) ? data.error : ('Delete failed (HTTP ' + res.status + ')');
+          throw new Error(msg);
+        });
+      }).catch(function (err) {
+        btn.disabled = false;
+        showError(err && err.message ? err.message : 'Network error');
+      });
+    });
+  }
+
   function wireNewTheme() {
     var btn = document.getElementById('tm-new-theme');
     if (!btn) { return; }
@@ -774,6 +842,7 @@ export const THEME_MGR_SCRIPT = `
   wireNameInput();
   wireAdvancedToggle();
   wireNewTheme();
+  wireDeleteTheme();
 }());
 `;
 

@@ -255,6 +255,12 @@ function safeExecutionCtx(c: AdminContext): ExecutionContext {
 interface AffectedFunnel {
   public_id: string;
   quote_id: number;
+  // P6b (deliverable 1 — the operator's DELETE demand): the in-use guard's
+  // 409 must name the referencing funnels in plain language, not just their
+  // ids. Added alongside public_id/quote_id (both existing consumers —
+  // scheduleThemeInvalidate's sweep — only ever read those two, so this is
+  // strictly additive).
+  funnel_name: string;
 }
 
 // A stored theme_json / frame_overrides_json TEXT column references this
@@ -281,28 +287,28 @@ function referencesThemeId(raw: string | null, themeId: string): boolean {
 async function findFunnelsReferencingTheme(db: D1Database, themeId: string): Promise<AffectedFunnel[]> {
   const needle = `%"theme_id":"${themeId}"%`;
   const byFunnel = await db
-    .prepare("SELECT public_id, quote_id, theme_json FROM leadgen_funnels WHERE theme_json LIKE ?")
+    .prepare("SELECT public_id, quote_id, funnel_name, theme_json FROM leadgen_funnels WHERE theme_json LIKE ?")
     .bind(needle)
-    .all<{ public_id: string; quote_id: number; theme_json: string | null }>();
+    .all<{ public_id: string; quote_id: number; funnel_name: string; theme_json: string | null }>();
   const byVariant = await db
     .prepare(
-      `SELECT f.public_id AS f_public_id, f.quote_id AS f_quote_id, v.frame_overrides_json AS frame_overrides_json
+      `SELECT f.public_id AS f_public_id, f.quote_id AS f_quote_id, f.funnel_name AS f_funnel_name, v.frame_overrides_json AS frame_overrides_json
        FROM leadgen_funnel_variants v
        JOIN leadgen_funnels f ON f.id = v.funnel_id
        WHERE v.frame_overrides_json LIKE ?`,
     )
     .bind(needle)
-    .all<{ f_public_id: string; f_quote_id: number; frame_overrides_json: string | null }>();
+    .all<{ f_public_id: string; f_quote_id: number; f_funnel_name: string; frame_overrides_json: string | null }>();
 
   const affected = new Map<string, AffectedFunnel>();
   for (const row of byFunnel.results ?? []) {
     if (referencesThemeId(row.theme_json, themeId)) {
-      affected.set(row.public_id, { public_id: row.public_id, quote_id: row.quote_id });
+      affected.set(row.public_id, { public_id: row.public_id, quote_id: row.quote_id, funnel_name: row.funnel_name });
     }
   }
   for (const row of byVariant.results ?? []) {
     if (referencesThemeId(row.frame_overrides_json, themeId)) {
-      affected.set(row.f_public_id, { public_id: row.f_public_id, quote_id: row.f_quote_id });
+      affected.set(row.f_public_id, { public_id: row.f_public_id, quote_id: row.f_quote_id, funnel_name: row.f_funnel_name });
     }
   }
   return [...affected.values()];
@@ -392,4 +398,43 @@ export async function updateThemeHandler(c: AdminContext): Promise<Response> {
   await writeThemeRecords(c.env.CACHE, next);
   if (changed) scheduleThemeInvalidate(c, id);
   return c.json({ item: record, items: Object.values(next) });
+}
+
+// ---------------------------------------------------------------------------
+// P6b (deliverable 1) — DELETE /themes/:id, the operator's explicit demand
+// (the v3.1 §10.1 CRUD originally shipped list/get/create/update only — see
+// router.ts's now-updated comment). IN-USE GUARD: mirrors the sections-
+// handlers.ts deleteSectionHandler precedent ("used by quotes -> archive
+// instead" 409 + a structured usage payload) rather than the component-
+// presets sibling (deleteComponentPresetHandler has no back-reference to
+// guard at all — themes DO, via the SAME findFunnelsReferencingTheme scan
+// scheduleThemeInvalidate already uses for cache invalidation on edit). A
+// theme referenced by ANY funnel's theme_json OR ANY variant's frame_
+// overrides_json.theme_id (§10.5 "computed by scanning ... no back-reference
+// stored") is refused with a plain-language 409 naming every referencing
+// funnel; themes carry no archive/status lifecycle (§10.4's KV record is
+// pure name+roles+typography+controls), so hard-delete is the ONLY
+// deletion path once unreferenced.
+export async function deleteThemeHandler(c: AdminContext): Promise<Response> {
+  const id = (c.req.param("id") ?? "").trim();
+  if (id === "") return c.json({ error: "Not Found" }, 404);
+  const existing = await readThemeRecords(c.env.CACHE);
+  if (existing[id] === undefined) return c.json({ error: "Not Found" }, 404);
+
+  const referencing = await findFunnelsReferencingTheme(c.env.DB, id);
+  if (referencing.length > 0) {
+    const names = referencing.map((f) => f.funnel_name);
+    return c.json(
+      {
+        error: `This theme is used by ${referencing.length} funnel${referencing.length === 1 ? "" : "s"} (${names.join(", ")}) — assign them a different theme first, then delete this one.`,
+        usage: { funnels: referencing.map((f) => ({ public_id: f.public_id, funnel_name: f.funnel_name })) },
+      },
+      409,
+    );
+  }
+
+  const next = { ...existing };
+  delete next[id];
+  await writeThemeRecords(c.env.CACHE, next);
+  return c.json({ ok: true, id, items: Object.values(next) });
 }
