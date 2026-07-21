@@ -54,6 +54,7 @@ lifecycle parity.
 | R4-43 | D-1 cap raise 44,032 + per-feature byte ledger | P2a | PASS (P2, evidence: phase log P2) |
 | R4-44 | §19.1 binding: page_plan_hash + checkpoint validation + re-issue on switch | P3a+P4a | PASS (P3+P4: signed binding, dual-accept, checkpoint validation + re-issue, completion pinning) |
 | R4-45 | Round-4 acceptance journeys (sections + quotes suites, both engines) | P7a | OPEN |
+| R4-46 | Gate1c visual baselines re-mint — last minted @ d8da7b7 (round-3 close, pre-round-4); cumulative P1-P6 intended rendering drift (P1 section-builder rewrite + P5 frame elements + P6 fonts). Conductor visual-confirms each diff, re-mints all states, part of staging sign-off. NOT a P6 regression (P6 touched no Sections files; drift proven pre-P6 via mint history). NOT a CI gate (Playwright solo-only). | P7b | OPEN |
 | R4-OP1 | Production deploys (post-P1 optional; program end) | operator | BLOCKED |
 | R4-OP2 | Staging hands-on acceptance (terminal gate) | operator | BLOCKED |
 | R4-OP3 | OpenAI spend/quota + GOOGLE_MAPS_SERVER_KEY sign-off | operator | BLOCKED |
