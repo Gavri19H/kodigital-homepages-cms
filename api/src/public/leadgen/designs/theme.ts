@@ -535,6 +535,46 @@ export const THEME_RECORD_ROLE_TO_TOKEN_ROLE = {
   error: "error",
 } as const satisfies Record<ThemeRecordRoleKey, FunnelTokenRole>;
 
+// P6 THEME v2 (follow-on ruling — "save-as-preset must carry the SAME
+// richness as inline theme_json"): the 7 ADDITIONAL FUNNEL_TOKEN_ROLES
+// completing the 14-role palette a rich preset can author, on a SEPARATE
+// OPTIONAL field (`ThemeRecord.extra_roles` below) — never widening the
+// original 7-key `ThemeRecordRoles`/`THEME_RECORD_ROLE_KEYS` above, so every
+// existing typed literal/consumer of that exact 7-key shape stays untouched.
+// Named identically to their FunnelTokenRole (no established alternate
+// "contract vocabulary" exists for these 7 the way the original 7 have one —
+// §10.4's JSON sample never enumerated them; P6b/product should rename here
+// if a spec later surfaces a different authoring label). A pre-P6 record has
+// no `extra_roles` key at all ⇒ contributes nothing ⇒ byte-identical to today.
+export const THEME_RECORD_EXTRA_ROLE_KEYS = [
+  "brand_secondary",
+  "surface_wash",
+  "border",
+  "text_muted",
+  "button_primary_bg",
+  "button_primary_text",
+  "button_secondary_bg",
+] as const;
+
+export type ThemeRecordExtraRoleKey = (typeof THEME_RECORD_EXTRA_ROLE_KEYS)[number];
+
+// Every key OPTIONAL — a rich preset may author some/all/none of the 7.
+export type ThemeRecordExtraRoles = Partial<Record<ThemeRecordExtraRoleKey, string>>;
+
+// The bridge onto FUNNEL_TOKEN_ROLES — identity-shaped (the extra keys are
+// already spelled as their FunnelTokenRole), but written out `satisfies`-style
+// like the original 7's bridge for the SAME exhaustiveness guarantee: a
+// renamed/removed FunnelTokenRole is a compile error here too.
+export const THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE = {
+  brand_secondary: "brand_secondary",
+  surface_wash: "surface_wash",
+  border: "border",
+  text_muted: "text_muted",
+  button_primary_bg: "button_primary_bg",
+  button_primary_text: "button_primary_text",
+  button_secondary_bg: "button_secondary_bg",
+} as const satisfies Record<ThemeRecordExtraRoleKey, FunnelTokenRole>;
+
 export const THEME_RECORD_FIELD_HEIGHTS = ["small", "medium", "large"] as const;
 export type ThemeRecordFieldHeight = (typeof THEME_RECORD_FIELD_HEIGHTS)[number];
 
@@ -581,7 +621,26 @@ export interface ThemeRecordControls {
 // resolveTokens's lookup below are DEFENSE IN DEPTH — even a corrupted KV
 // blob or a caller that bypasses validation can never make a raw string
 // reach the served <style> block through this path.
-export const THEME_RECORD_FONT_NAMES = ["Newsreader", "Inter", "Roboto Mono"] as const;
+// P6 THEME v2 (follow-on ruling): widened with the SAME 8 self-hosted
+// families the inline theme_json font ids name (THEME_FONT_STACKS
+// poppins/space_grotesk/fraunces/playfair/manrope/dm_sans/work_sans/lexend),
+// spelled as the REAL family name — this vocabulary's own established
+// convention ("Newsreader"/"Inter", not a short id) — so a rich preset can
+// pick the SAME self-hosted families inline theming can. The original 3 are
+// UNCHANGED (same array positions/values) — back-compat.
+export const THEME_RECORD_FONT_NAMES = [
+  "Newsreader",
+  "Inter",
+  "Roboto Mono",
+  "Poppins",
+  "Space Grotesk",
+  "Fraunces",
+  "Playfair Display",
+  "Manrope",
+  "DM Sans",
+  "Work Sans",
+  "Lexend",
+] as const;
 export type ThemeRecordFontName = (typeof THEME_RECORD_FONT_NAMES)[number];
 
 export function isThemeRecordFontName(value: unknown): value is ThemeRecordFontName {
@@ -590,16 +649,38 @@ export function isThemeRecordFontName(value: unknown): value is ThemeRecordFontN
 
 // The ONLY CSS font-family values a theme record's typography may ever
 // produce — closed, pre-vetted, no interpolation of the stored name itself.
+// P6: the 8 new entries REUSE THEME_FONT_STACKS' values verbatim (not
+// re-typed literals) so the record path and the inline path produce
+// byte-IDENTICAL stack strings for the same family — preset-vs-inline parity,
+// and the SAME string styles.ts's font-face family-substring scan matches
+// regardless of which path produced it (no styles.ts change needed).
 export const THEME_RECORD_FONT_STACKS: Record<ThemeRecordFontName, string> = {
   Newsreader: "'Newsreader',Georgia,serif",
   Inter: "'Inter',system-ui,Arial,sans-serif",
   "Roboto Mono": "'Roboto Mono',monospace",
+  Poppins: THEME_FONT_STACKS.poppins,
+  "Space Grotesk": THEME_FONT_STACKS.space_grotesk,
+  Fraunces: THEME_FONT_STACKS.fraunces,
+  "Playfair Display": THEME_FONT_STACKS.playfair,
+  Manrope: THEME_FONT_STACKS.manrope,
+  "DM Sans": THEME_FONT_STACKS.dm_sans,
+  "Work Sans": THEME_FONT_STACKS.work_sans,
+  Lexend: THEME_FONT_STACKS.lexend,
 };
 
 export interface ThemeRecordTypography {
   headline_font: ThemeRecordFontName;
   body_font: ThemeRecordFontName;
   base_px: number;
+  // P6 THEME v2 (follow-on ruling) — mirrors inline theme_json.typography.
+  // display_size exactly (the SAME THEME_DISPLAY_SIZE_SCALES/_FACTORS table,
+  // SAME scaleDisplayFontSizes call — resolveTokens below). OPTIONAL; absent
+  // ⇒ "m" ⇒ identity ⇒ byte-identical to every pre-P6 record. No write-time
+  // validator exists for this field yet (P6b's themes-handlers.ts /
+  // theme-store.ts widening is the authoritative gate) — resolveTokens
+  // defense-in-depth-validates it at read (safeRecordDisplaySize below),
+  // mirroring this file's own base_px clamp discipline just above.
+  display_size?: ThemeDisplaySizeScale;
 }
 
 // Defense-in-depth lookup (never the primary gate): an unrecognised name —
@@ -615,6 +696,19 @@ function safeThemeRecordFontStack(value: string): string {
 // addendum (§0 fidelity-vs-function rule) — no Phase-A code interprets it.
 export type ThemeRecordSpacing = string;
 
+// P6 THEME v2 (follow-on ruling) — mirrors inline theme_json.button_defaults'
+// {fill, layout, selected} vocabulary EXACTLY (the SAME THEME_BUTTON_STYLES /
+// THEME_BUTTON_LAYOUTS / THEME_BUTTON_SELECTED_STYLES enums) — deliberately
+// NOT the role/radius/min_height/casing axes (those stay theme_json-only;
+// this follow-on's scope is exactly the 3 "button-style vocab" fields the
+// ruling names). All optional; absent/all-default ⇒ resolveTokens stashes
+// nothing ⇒ byte-identical to pre-P6.
+export interface ThemeRecordButtonStyle {
+  fill?: ThemeButtonStyle;
+  layout?: ThemeButtonLayout;
+  selected?: ThemeButtonSelectedStyle;
+}
+
 // One KV `lg-funnel-themes` record (§10.4 JSON sample, verbatim shape).
 export interface ThemeRecord {
   id: string;
@@ -623,6 +717,15 @@ export interface ThemeRecord {
   typography: ThemeRecordTypography;
   controls: ThemeRecordControls;
   spacing?: ThemeRecordSpacing;
+  // P6 THEME v2 (follow-on ruling — "save-as-preset must carry the SAME
+  // richness as inline theme_json; a resolved ThemeRecord must not drop the
+  // P6a axes"). Both OPTIONAL and ADDITIVE: a pre-P6 record (7 roles / 3
+  // fonts / no button_style) has NEITHER key ⇒ resolveTokens's record branch
+  // resolves BYTE-IDENTICAL to today (the same discipline as the inline
+  // theme_json v1 back-compat gate — new fields are optional with defaults
+  // that reproduce v1).
+  extra_roles?: ThemeRecordExtraRoles;
+  button_style?: ThemeRecordButtonStyle;
 }
 
 // PURE precedence rule (§10.1 "A funnel variant overrides it for A/B via
@@ -740,9 +843,17 @@ export function resolveTokens(
   // themes).
   const recordPalette: Partial<Record<FunnelTokenRole, string>> =
     record !== null
-      ? (Object.fromEntries(
-          THEME_RECORD_ROLE_KEYS.map((key) => [THEME_RECORD_ROLE_TO_TOKEN_ROLE[key], record.roles[key]]),
-        ) as Partial<Record<FunnelTokenRole, string>>)
+      ? {
+          ...(Object.fromEntries(
+            THEME_RECORD_ROLE_KEYS.map((key) => [THEME_RECORD_ROLE_TO_TOKEN_ROLE[key], record.roles[key]]),
+          ) as Partial<Record<FunnelTokenRole, string>>),
+          // P6 THEME v2 (follow-on ruling): the 7 additional roles completing
+          // the 14-role palette — see recordExtraPalette below for the
+          // defense-in-depth hex filter (no upstream validator exists for this
+          // field yet). Absent `extra_roles` (every pre-P6 record) contributes
+          // nothing — byte-identical to today.
+          ...recordExtraPalette(record.extra_roles),
+        }
       : {};
 
   // v3.1 fix (adversarial review MINOR-3): when a WINNING theme record is
@@ -861,6 +972,21 @@ export function resolveTokens(
     if (basePxFactor !== 1) {
       scaleFontSizes(design as unknown as Record<string, unknown>, basePxFactor);
     }
+
+    // P6 THEME v2 (follow-on ruling) — the record path's OWN display-only
+    // ramp, mirroring the inline branch's displaySizeScale above EXACTLY (the
+    // SAME THEME_DISPLAY_SIZE_FACTORS table, SAME scaleDisplayFontSizes call)
+    // so a preset resolves IDENTICALLY to the same display_size applied
+    // inline (preset-vs-inline parity). Applied AFTER base_px so the two
+    // compound the same way the inline size+display_size pair does above.
+    // safeRecordDisplaySize defense-in-depth-validates (no write-time
+    // validator exists for this field yet, P6b) — an invalid/absent value
+    // defaults to "m" (identity), never reaching scaleCssLength with a factor
+    // a real validated record could not have produced.
+    const recordDisplaySize = safeRecordDisplaySize(record.typography.display_size);
+    if (THEME_DISPLAY_SIZE_FACTORS[recordDisplaySize] !== 1) {
+      scaleDisplayFontSizes(design, THEME_DISPLAY_SIZE_FACTORS[recordDisplaySize]);
+    }
   }
 
   // --- button defaults (§9.3) — applied AFTER palette + scales so a radius
@@ -870,15 +996,26 @@ export function resolveTokens(
   if (bd.text_role !== undefined) design.primaryButton.color = roles[bd.text_role];
   if (bd.radius !== undefined) design.primaryButton.borderRadius = design.radius[bd.radius];
   if (bd.min_height !== undefined) design.primaryButton.minHeight = BUTTON_MIN_HEIGHT_CSS[bd.min_height];
+  // P6 THEME v2 (follow-on ruling): a resolved theme RECORD's button_style
+  // feeds the SAME resolution the inline theme_json.button_defaults fill/
+  // layout/selected would — mutually exclusive inputs (`bd` is `{}` on the
+  // record path since `theme = {}` there; `record` is null on the inline
+  // path), so a preset's button-style axes resolve through the ONE existing
+  // mechanism. safeRecordButtonStyle defense-in-depth-validates each field
+  // (no write-time validator exists for this field yet, P6b) — an invalid
+  // value is dropped (falls through to default), never stashed raw;
+  // readButtonStyle's own downstream enum re-check (above) is a SECOND,
+  // unconditional layer regardless of source.
+  const recordButtonStyle = safeRecordButtonStyle(record?.button_style);
   // P6 (deliverable 3): resolve the button-style triple (defaults applied) and
   // STASH it on the design (Symbol key) so the live-render consumers
   // (funnelChromeCss / the section renderers) reskin through ONE source. Only
   // stashed when at least one axis is non-default — a legacy/v1 theme leaves
   // the design (and therefore every consumer's output) byte-identical.
   const buttonStyle: EffectiveButtonStyle = {
-    fill: bd.fill ?? BUTTON_STYLE_DEFAULTS.fill,
-    layout: bd.layout ?? BUTTON_STYLE_DEFAULTS.layout,
-    selected: bd.selected ?? BUTTON_STYLE_DEFAULTS.selected,
+    fill: bd.fill ?? recordButtonStyle.fill ?? BUTTON_STYLE_DEFAULTS.fill,
+    layout: bd.layout ?? recordButtonStyle.layout ?? BUTTON_STYLE_DEFAULTS.layout,
+    selected: bd.selected ?? recordButtonStyle.selected ?? BUTTON_STYLE_DEFAULTS.selected,
   };
   if (buttonStyleIsNonDefault(buttonStyle)) setButtonStyle(design, buttonStyle);
   const button_defaults: EffectiveButtonDefaults = {
@@ -933,6 +1070,66 @@ function pickPaletteValue(
 
 function shadowStepValue(design: EffectiveFunnelDesign, step: ThemeShadowStep): string {
   return step === "none" ? "none" : design.shadow[step];
+}
+
+// P6 THEME v2 (follow-on ruling) — bridge a resolved ThemeRecord's
+// `extra_roles` onto FUNNEL_TOKEN_ROLES, HEX-FILTERED (HEX_COLOR_RE — the same
+// anchored pattern validateTheme uses below for the inline palette): unlike
+// the original 7 `roles` (validated at the theme-store.ts KV-shape-read
+// layer), NO upstream validator exists yet for this NEW field (P6b's
+// themes-handlers.ts / theme-store.ts widening is the write/read-time
+// authoritative gate) — an invalid/non-hex value for any one role is simply
+// DROPPED (that role falls through to the base design's own value via the
+// normal recordPalette[role] === undefined path), never passed through raw.
+// Absent `extra_roles` (every pre-P6 record) returns {} — byte-identical.
+function recordExtraPalette(extra: ThemeRecordExtraRoles | undefined): Partial<Record<FunnelTokenRole, string>> {
+  if (extra === undefined) return {};
+  const out: Partial<Record<FunnelTokenRole, string>> = {};
+  for (const key of THEME_RECORD_EXTRA_ROLE_KEYS) {
+    const value = extra[key];
+    if (typeof value === "string" && HEX_COLOR_RE.test(value)) {
+      out[THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE[key]] = value;
+    }
+  }
+  return out;
+}
+
+// P6 THEME v2 (follow-on ruling) — defense-in-depth validation for a
+// ThemeRecord's `typography.display_size` (mirrors the base_px clamp's own
+// "the write-time gate is authoritative; a hand-edited/corrupted blob could
+// carry an out-of-range value here" discipline, applied to this NEW field
+// which has no write-time validator yet). An invalid/absent value degrades to
+// "m" (identity) — never reaches THEME_DISPLAY_SIZE_FACTORS with a key a real
+// validated record could not have produced (which would otherwise read back
+// `undefined` and corrupt every scaled font-size token to "NaNpx").
+function safeRecordDisplaySize(value: unknown): ThemeDisplaySizeScale {
+  return typeof value === "string" && (THEME_DISPLAY_SIZE_SCALES as readonly string[]).includes(value)
+    ? (value as ThemeDisplaySizeScale)
+    : "m";
+}
+
+// P6 THEME v2 (follow-on ruling) — defense-in-depth validation for a
+// ThemeRecord's `button_style` triple (no write-time validator exists yet for
+// this NEW field, P6b's job). Each axis independently degrades to "not
+// authored" (undefined, so resolveTokens's buttonStyle merge falls through to
+// BUTTON_STYLE_DEFAULTS) rather than ever stashing a raw, unrecognised value —
+// readButtonStyle's own downstream enum re-check is a SECOND, unconditional
+// layer on top of this one.
+function safeRecordButtonStyle(raw: ThemeRecordButtonStyle | undefined): Partial<EffectiveButtonStyle> {
+  if (raw === undefined) return {};
+  const fill =
+    typeof raw.fill === "string" && (THEME_BUTTON_STYLES as readonly string[]).includes(raw.fill)
+      ? raw.fill
+      : undefined;
+  const layout =
+    typeof raw.layout === "string" && (THEME_BUTTON_LAYOUTS as readonly string[]).includes(raw.layout)
+      ? raw.layout
+      : undefined;
+  const selected =
+    typeof raw.selected === "string" && (THEME_BUTTON_SELECTED_STYLES as readonly string[]).includes(raw.selected)
+      ? raw.selected
+      : undefined;
+  return { fill, layout, selected };
 }
 
 // --- scale application helpers ----------------------------------------------

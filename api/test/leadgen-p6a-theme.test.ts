@@ -20,13 +20,21 @@ import {
   resolveTokens,
   validateTheme,
   readButtonStyle,
+  baseTokenForRole,
+  FUNNEL_TOKEN_ROLES,
   THEME_FONT_IDS,
   THEME_FONT_STACKS,
   THEME_DISPLAY_SIZE_SCALES,
+  THEME_DISPLAY_SIZE_FACTORS,
   THEME_BUTTON_STYLES,
   THEME_BUTTON_LAYOUTS,
   THEME_BUTTON_SELECTED_STYLES,
+  THEME_RECORD_ROLE_TO_TOKEN_ROLE,
+  THEME_RECORD_EXTRA_ROLE_KEYS,
+  THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE,
+  THEME_RECORD_FONT_NAMES,
   type ThemeJson,
+  type ThemeRecord,
 } from "../src/public/leadgen/designs/theme";
 import { funnelChromeCss } from "../src/public/leadgen/designs/default-funnel/styles";
 import {
@@ -266,5 +274,195 @@ describe("P6a deliverable 4 — v1 back-compat (byte-comparable)", () => {
     expect(sheet).not.toContain("@font-face");
     expect(sheet).not.toContain("data-btn-fill");
     expect(sheet).not.toContain(".lg-card-check");
+  });
+});
+
+// ===========================================================================
+// FOLLOW-ON (coordinator ruling) — ThemeRecord (the KV preset type) carries
+// the SAME v2 axes inline theme_json supports, so "author a rich theme →
+// save as preset → apply via {theme_id}" does not silently drop the P6a
+// richness. Proves: (a) the widened schema shape; (b) preset-vs-inline
+// PARITY for the new font / display ramp / button-style axes; (c) the full
+// 14-role palette via extra_roles; (d) a legacy 7-role/3-font/no-new-axes
+// record resolves byte-identical to pre-P6; (e) defense-in-depth for each
+// new field (no write-time validator exists yet — that is P6b's job).
+// ===========================================================================
+
+// A legacy (pre-P6) ThemeRecord — EXACTLY the shape that existed before this
+// follow-on: 7 roles, one of the original 3 fonts, no extra_roles/
+// button_style/display_size keys AT ALL (not merely undefined values —
+// genuinely absent, matching a real pre-P6 KV blob).
+const LEGACY_RECORD: ThemeRecord = {
+  id: "thm_legacy",
+  name: "Legacy preset",
+  roles: {
+    brand_primary: "#1B3A5C",
+    accent: "#F5C518",
+    page_bg: "#F4F6F9",
+    card: "#FFFFFF",
+    text: "#1A1F36",
+    success: "#0E7C3A",
+    error: "#B23A2C",
+  },
+  typography: { headline_font: "Newsreader", body_font: "Inter", base_px: 16 },
+  controls: { field_height: "large", button_size: "l", corners: "pill" },
+};
+
+// A RICH (post-P6) ThemeRecord authoring all three new-axis deliverables at
+// once: a new self-hosted headline font, the display-XXL ramp, and a button
+// style — the exact "save-as-preset" scenario the coordinator's ruling names.
+const RICH_RECORD: ThemeRecord = {
+  ...LEGACY_RECORD,
+  id: "thm_rich",
+  name: "Rich preset",
+  typography: { headline_font: "Poppins", body_font: "Inter", base_px: 16, display_size: "xxl" },
+  button_style: { fill: "soft", layout: "list", selected: "mark" },
+};
+
+describe("P6a follow-on — ThemeRecord carries the v2 axes (preset parity)", () => {
+  it("THEME_RECORD_FONT_NAMES keeps the 3 back-compat names and widens with the 8 self-hosted families", () => {
+    for (const name of ["Newsreader", "Inter", "Roboto Mono"]) expect(THEME_RECORD_FONT_NAMES).toContain(name);
+    for (const name of ["Poppins", "Space Grotesk", "Fraunces", "Playfair Display", "Manrope", "DM Sans", "Work Sans", "Lexend"]) {
+      expect(THEME_RECORD_FONT_NAMES).toContain(name);
+    }
+  });
+
+  it("the original 7 + extra 7 record role keys together cover ALL 14 FUNNEL_TOKEN_ROLES with no overlap", () => {
+    const combined = [
+      ...Object.values(THEME_RECORD_ROLE_TO_TOKEN_ROLE),
+      ...Object.values(THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE),
+    ];
+    expect(combined.sort()).toEqual([...FUNNEL_TOKEN_ROLES].sort());
+    expect(new Set(combined).size).toBe(14);
+    expect(THEME_RECORD_EXTRA_ROLE_KEYS).toHaveLength(7);
+  });
+
+  // --- (b) preset-vs-inline parity for the 3 new-axis deliverables ---------
+
+  it("PARITY — a record's new self-hosted headline font resolves the SAME stack string as the inline id", () => {
+    const viaRecord = resolveTokens(base, { theme_id: "thm_rich" }, null, RICH_RECORD).design;
+    const viaInline = resolveTokens(base, { typography: { display: "poppins" } }).design;
+    expect(viaRecord.page.fontDisplay).toBe(THEME_FONT_STACKS.poppins);
+    expect(viaRecord.page.fontDisplay).toBe(viaInline.page.fontDisplay);
+  });
+
+  it("PARITY — a record's display_size:xxl scales the headline to the SAME ~72px as the inline axis (body untouched)", () => {
+    const viaRecord = resolveTokens(base, { theme_id: "thm_rich" }, null, RICH_RECORD).design;
+    const viaInline = resolveTokens(base, { typography: { display: "poppins", display_size: "xxl" } }).design;
+    expect(viaRecord.headline.fontSizeDesktop).toBe(viaInline.headline.fontSizeDesktop);
+    expect(viaRecord.headline.fontSizeDesktop).toBe("71.3px");
+    // body untouched on the record path too (display-only ramp, same as inline)
+    expect(viaRecord.subheadline.fontSize).toBe(base.subheadline.fontSize);
+  });
+
+  it("PARITY — a record's button_style resolves the SAME stashed triple as the inline button_defaults", () => {
+    const viaRecord = resolveTokens(base, { theme_id: "thm_rich" }, null, RICH_RECORD).design;
+    const viaInline = resolveTokens(base, {
+      button_defaults: { fill: "soft", layout: "list", selected: "mark" },
+    }).design;
+    expect(readButtonStyle(viaRecord)).toEqual({ fill: "soft", layout: "list", selected: "mark" });
+    expect(readButtonStyle(viaRecord)).toEqual(readButtonStyle(viaInline));
+  });
+
+  it("a record's OWN body_font (Inter, an original-3 name) applies independently of the new headline font", () => {
+    const { design } = resolveTokens(base, { theme_id: "thm_rich" }, null, RICH_RECORD);
+    expect(design.page.fontFamily).toBe("'Inter',system-ui,Arial,sans-serif");
+  });
+
+  // --- (c) the full 14-role palette via extra_roles -------------------------
+
+  it("a record's extra_roles complete the 14-role palette (roles beyond the original 7)", () => {
+    const record: ThemeRecord = {
+      ...LEGACY_RECORD,
+      id: "thm_extra",
+      extra_roles: {
+        brand_secondary: "#111111",
+        surface_wash: "#222222",
+        border: "#333333",
+        text_muted: "#444444",
+        button_primary_bg: "#555555",
+        button_primary_text: "#666666",
+        button_secondary_bg: "#777777",
+      },
+    };
+    const { roles } = resolveTokens(base, { theme_id: "thm_extra" }, null, record);
+    expect(roles.brand_secondary).toBe("#111111");
+    expect(roles.surface_wash).toBe("#222222");
+    expect(roles.border).toBe("#333333");
+    expect(roles.text_muted).toBe("#444444");
+    expect(roles.button_primary_bg).toBe("#555555");
+    expect(roles.button_primary_text).toBe("#666666");
+    expect(roles.button_secondary_bg).toBe("#777777");
+  });
+
+  it("a record with NO extra_roles leaves the additional 7 roles at the base design's own value", () => {
+    const { roles } = resolveTokens(base, { theme_id: "thm_legacy" }, null, LEGACY_RECORD);
+    for (const role of ["brand_secondary", "surface_wash", "border", "text_muted", "button_primary_bg", "button_primary_text", "button_secondary_bg"] as const) {
+      expect(roles[role]).toBe(baseTokenForRole(base, role));
+    }
+  });
+
+  // --- (d) legacy record back-compat: byte-identical to pre-P6 -------------
+
+  it("a legacy 7-role/3-font/no-new-axes record triggers NONE of the new machinery", () => {
+    const { design } = resolveTokens(base, { theme_id: "thm_legacy" }, null, LEGACY_RECORD);
+    // no button-style stash
+    expect(readButtonStyle(design)).toBeUndefined();
+    // no @font-face — Newsreader/Inter are NOT in the self-hosted set
+    expect(css(design as AnyDesign)).not.toContain("@font-face");
+    expect(css(design as AnyDesign)).not.toContain("data-btn-fill");
+    // display ramp untouched (absent display_size ⇒ "m" ⇒ identity)
+    expect(design.headline.fontSizeDesktop).toBe(base.headline.fontSizeDesktop);
+  });
+
+  it("a legacy record's resolveTokens output (roles/typography/scales) matches what the pre-follow-on shape would produce", () => {
+    // Cross-check against the EXACT same fixture shape leadgen-v31-themes-*
+    // tests use elsewhere in the repo (roles/typography/controls only, no new
+    // keys) — this test's own literal IS that shape (LEGACY_RECORD), so a
+    // pass here is a pass for that established fixture too.
+    const { roles, typography } = resolveTokens(base, { theme_id: "thm_legacy" }, null, LEGACY_RECORD);
+    expect(roles.brand_primary).toBe("#1B3A5C");
+    expect(roles.page_background).toBe("#F4F6F9");
+    expect(typography.size).toBe("m");
+  });
+
+  // --- (e) defense-in-depth (no write-time validator exists yet for these
+  // NEW fields — P6b's job; resolveTokens must never let an untrusted raw
+  // value reach the served output through the NEW axes either) -------------
+
+  it("a non-hex extra_roles value is DROPPED — falls back to the base design's value, never passed through raw", () => {
+    const record: ThemeRecord = {
+      ...LEGACY_RECORD,
+      id: "thm_bad_role",
+      extra_roles: { border: "javascript:alert(1)" },
+    };
+    const { roles } = resolveTokens(base, { theme_id: "thm_bad_role" }, null, record);
+    expect(roles.border).toBe(baseTokenForRole(base, "border"));
+    expect(roles.border).not.toContain("javascript:");
+  });
+
+  it("an invalid record display_size defaults to m (identity) — never NaN/corrupted", () => {
+    const record: ThemeRecord = {
+      ...LEGACY_RECORD,
+      id: "thm_bad_size",
+      typography: { ...LEGACY_RECORD.typography, display_size: "gigantic" as never },
+    };
+    const { design } = resolveTokens(base, { theme_id: "thm_bad_size" }, null, record);
+    expect(design.headline.fontSizeDesktop).toBe(base.headline.fontSizeDesktop);
+    expect(design.headline.fontSizeDesktop).not.toContain("NaN");
+  });
+
+  it("an invalid record button_style axis is dropped per-axis — the OTHER valid axes still apply", () => {
+    const record: ThemeRecord = {
+      ...LEGACY_RECORD,
+      id: "thm_bad_style",
+      button_style: { fill: "glossy" as never, layout: "list" },
+    };
+    const { design } = resolveTokens(base, { theme_id: "thm_bad_style" }, null, record);
+    expect(readButtonStyle(design)).toEqual({ fill: "fill", layout: "list", selected: "wash" });
+  });
+
+  it("THEME_DISPLAY_SIZE_FACTORS.xxl is exactly 2.3 (documents the 31px -> 71.3px ratio the parity tests above rely on)", () => {
+    expect(THEME_DISPLAY_SIZE_FACTORS.xxl).toBe(2.3);
   });
 });
