@@ -113,6 +113,23 @@ const REJECT_CASES: Case[] = [
     reason: /javascript: URI/i,
   },
   {
+    // minor-3: a quote inside an attribute-NAME position (not a value) must
+    // not be silently absorbed into the name and re-emitted unescaped — that
+    // would re-open a live onload= handler in the sanitizer's OWN output.
+    name: "attribute-name injection: a quote breaks out into a bogus onload=",
+    input: `<svg ${XMLNS}><rect data-x"onload="alert(1)"/></svg>`,
+    verdict: "reject",
+    reason: /malformed attribute/i,
+  },
+  {
+    // minor-3: an angle bracket inside an attribute-NAME position must not be
+    // silently absorbed either — that would re-open a live <script in output.
+    name: "attribute-name injection: an angle bracket breaks out into <script",
+    input: `<svg ${XMLNS}><rect aria-x<script=""/></svg>`,
+    verdict: "reject",
+    reason: /malformed attribute/i,
+  },
+  {
     name: "disallowed attribute (style) on a shape",
     input: `<svg ${XMLNS}><rect style="background:url(https://evil.example)"/></svg>`,
     verdict: "reject",
@@ -268,6 +285,21 @@ describe("sanitizeSvg — re-serialization guarantees", () => {
     if (res.ok) {
       expect(res.svg).not.toMatch(/onload/i);
       expect(res.svg).toContain("&quot;");
+    }
+  });
+
+  // minor-3 control: well-formed aria-/data- attribute NAMES (the identifier
+  // charset [A-Za-z0-9:_-]) survive the attribute-name hardening completely
+  // unaffected — the hardening only rejects a NAME containing a character
+  // outside that set (a quote, an angle bracket, …), never a legitimate one.
+  it("valid data-/aria- attributes pass through byte-verbatim (attribute-name hardening control)", () => {
+    const res = run(
+      `<svg ${XMLNS}><rect data-brand="acme-mark" aria-label="Acme logo" width="4" height="4"/></svg>`,
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.svg).toContain('data-brand="acme-mark"');
+      expect(res.svg).toContain('aria-label="Acme logo"');
     }
   });
 });

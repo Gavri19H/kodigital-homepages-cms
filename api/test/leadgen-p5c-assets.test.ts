@@ -2,16 +2,24 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { LEADGEN_PERSONAS } from "../src/ai/generators/image";
+import { personaQuotaPeriodYm } from "../src/admin/leadgen/assets-handlers";
 
 // Round-4 P5c — asset endpoints (unit / integration through the REAL router).
 //   POST /api/admin/leadgen/assets/brand-logo    (sanitized SVG / raster)
 //   POST /api/admin/leadgen/assets/persona-image (quota-guarded generation)
 //
 // The D1 layer is a mock that records prepared calls, replays ai_generations
-// rows on the idempotency SELECT, and answers the media INSERT ... RETURNING
-// id with a fake id. R2 is a put-recording stub. CACHE is a Map-backed KV
-// stub. Outbound OpenAI traffic is a stubbed global fetch — NO network, NO
-// real API call, NO cost.
+// rows on the idempotency SELECT, answers the media INSERT ... RETURNING id
+// with a fake id, and models leadgen_persona_quota (migration 0045) with an
+// in-memory Map keyed `${site_id}::${period_ym}`. The quota claim/refund
+// handlers (`first()`/`run()`) contain NO `await` before mutating that Map,
+// so — exactly like a real D1/SQLite single-statement UPDATE — the
+// read-check-write is indivisible relative to every OTHER concurrently
+// in-flight request, which is what makes the Promise.all race test below a
+// faithful proof of the atomic-claim fix (MAJOR-2). R2 is a put-recording
+// stub. CACHE is a Map-backed KV stub (unused by the quota path since the
+// MAJOR-2 fix — kept only because Env requires the binding). Outbound OpenAI
+// traffic is a stubbed global fetch — NO network, NO real API call, NO cost.
 
 interface PreparedCall {
   sql: string;
@@ -30,6 +38,10 @@ function makeFakeDb(opts: { knownSites?: Set<string> | "all" } = {}) {
   const knownSites = opts.knownSites ?? "all";
   const calls: PreparedCall[] = [];
   const aiRows = new Map<string, FakeAiRow>();
+  // leadgen_persona_quota (migration 0045), key `${site_id}::${period_ym}`.
+  // Exposed to tests so they can pre-seed a boundary value or read the final
+  // post-race count directly.
+  const personaQuota = new Map<string, number>();
   let nextMediaId = 6;
   const prepare = (sql: string) => {
     let captured: unknown[] = [];
@@ -50,6 +62,37 @@ function makeFakeDb(opts: { knownSites?: Set<string> | "all" } = {}) {
         }
         if (sql.startsWith("INSERT INTO media")) {
           return { id: nextMediaId++ } as unknown as T;
+        }
+        // --- leadgen_persona_quota: atomic claim / refund / read ---------
+        // Every branch below is FULLY SYNCHRONOUS (no `await` before the Map
+        // mutation) — the async keyword only affects the caller's await
+        // point, not this function's internal execution, so this correctly
+        // models a real D1 UPDATE's single-statement atomicity even under a
+        // `Promise.all` of many concurrently-dispatched handler calls: only
+        // one call's turn on the microtask queue can ever be "inside" this
+        // branch's read-check-write at a time, exactly like SQLite
+        // serializing writes to a row.
+        if (sql.startsWith("UPDATE leadgen_persona_quota SET used = used + 1")) {
+          const key = `${String(captured[0])}::${String(captured[1])}`;
+          const limit = Number(captured[2]);
+          const current = personaQuota.get(key) ?? 0;
+          if (current < limit) {
+            const next = current + 1;
+            personaQuota.set(key, next);
+            return { used: next } as unknown as T;
+          }
+          return null; // 0 rows affected — the claim is NOT granted.
+        }
+        if (sql.startsWith("UPDATE leadgen_persona_quota SET used = MAX(0, used - 1)")) {
+          const key = `${String(captured[0])}::${String(captured[1])}`;
+          const next = Math.max(0, (personaQuota.get(key) ?? 0) - 1);
+          personaQuota.set(key, next);
+          return { used: next } as unknown as T;
+        }
+        if (sql.startsWith("SELECT used FROM leadgen_persona_quota")) {
+          const key = `${String(captured[0])}::${String(captured[1])}`;
+          const current = personaQuota.get(key);
+          return (current === undefined ? null : { used: current }) as unknown as T | null;
         }
         return null;
       },
@@ -75,6 +118,13 @@ function makeFakeDb(opts: { knownSites?: Set<string> | "all" } = {}) {
           const row = aiRows.get(String(captured[2]));
           if (row) row.status = "failed";
         }
+        if (sql.startsWith("INSERT INTO leadgen_persona_quota")) {
+          // ON CONFLICT(site_id, period_ym) DO NOTHING — seed at 0 IFF the
+          // row is absent; a pre-seeded value (a test's boundary setup)
+          // survives untouched.
+          const key = `${String(captured[0])}::${String(captured[1])}`;
+          if (!personaQuota.has(key)) personaQuota.set(key, 0);
+        }
         return { success: true, meta: {} };
       },
       async all<T = unknown>() {
@@ -84,7 +134,7 @@ function makeFakeDb(opts: { knownSites?: Set<string> | "all" } = {}) {
     };
     return stmt;
   };
-  return { db: { prepare } as unknown as D1Database, calls, aiRows };
+  return { db: { prepare } as unknown as D1Database, calls, aiRows, personaQuota };
 }
 
 interface RecordedPut {
@@ -128,7 +178,10 @@ function buildEnv(
   db: D1Database,
   media: R2Bucket,
   cache: KVNamespace,
-  overrides: Partial<Env> = {},
+  // & Record<...> so a test can also inject LEADGEN_PERSONA_MONTHLY_QUOTA —
+  // an ad-hoc var the handler reads defensively (assets-handlers.ts
+  // personaQuotaLimit) rather than a declared Env field.
+  overrides: Partial<Env> & Record<string, unknown> = {},
 ): Env {
   return {
     DB: db,
@@ -335,10 +388,10 @@ describe("POST /assets/persona-image — quota + cost safety (mocked client)", (
     expect(res.status).toBe(400);
   });
 
-  it("generates: prompt carries persona + base scene, deterministic R2 key, quota bumps", async () => {
-    const { db, calls } = makeFakeDb();
+  it("generates: prompt carries persona + base scene, deterministic R2 key, quota bumps (atomic D1 claim)", async () => {
+    const { db, calls, personaQuota } = makeFakeDb();
     const { media, puts } = makeFakeMedia();
-    const { cache, puts: kvPuts } = makeFakeCache();
+    const { cache } = makeFakeCache();
     const fetchSpy = stubOpenAIFetch({ data: [{ b64_json: FAKE_PNG_B64 }] });
     const res = await admin.request(
       PERSONA_URL,
@@ -365,23 +418,25 @@ describe("POST /assets/persona-image — quota + cost safety (mocked client)", (
     // R2 stored the generated bytes under the deterministic key.
     expect(puts).toHaveLength(1);
     expect(puts[0]!.key).toBe("ai/site-1/persona/young_woman.png");
-    // quota bumped to 1 with a TTL.
-    expect(kvPuts).toHaveLength(1);
-    expect(kvPuts[0]!.key).toMatch(/^lg-persona-quota:site-1:/);
-    expect(kvPuts[0]!.value).toBe("1");
-    expect(kvPuts[0]!.options?.expirationTtl).toBeGreaterThan(0);
+    // quota claimed atomically in D1 — the counter row now reads 1.
+    expect(personaQuota.get(`site-1::${personaQuotaPeriodYm()}`)).toBe(1);
+    // the claim UPDATE ran with a bound (never interpolated) limit.
+    const claimCall = calls.find((c) => c.sql.startsWith("UPDATE leadgen_persona_quota SET used = used + 1"));
+    expect(claimCall).toBeDefined();
+    expect(claimCall!.binds).toEqual(["site-1", personaQuotaPeriodYm(), 50]);
     // a persona-image receipt row was written.
     expect(calls.some((c) => c.sql.startsWith("INSERT INTO ai_generations"))).toBe(true);
   });
 
-  it("idempotency vs quota: a REPLAY (same site+persona) spends nothing and does NOT bump the counter", async () => {
+  it("idempotency vs quota: a REPLAY (same site+persona) spends nothing and its claimed slot is refunded", async () => {
     // Regression for the coordinator's ruling: a re-request for a persona
     // image ALREADY generated for this (site, persona) must be served from
     // the recorded ai_generations/media row — zero new OpenAI calls — and
-    // must NOT consume another unit of the site's monthly quota.
-    const { db } = makeFakeDb();
+    // must NOT consume another unit of the site's monthly quota (the slot
+    // claimed before the idempotent short-circuit was discovered is refunded).
+    const { db, personaQuota } = makeFakeDb();
     const { media, puts } = makeFakeMedia();
-    const { cache, puts: kvPuts } = makeFakeCache();
+    const { cache } = makeFakeCache();
     const fetchSpy = stubOpenAIFetch({ data: [{ b64_json: FAKE_PNG_B64 }] });
     const env = buildEnv(db, media, cache, { OPENAI_API_KEY: "sk-test" });
 
@@ -396,22 +451,24 @@ describe("POST /assets/persona-image — quota + cost safety (mocked client)", (
     const secondBody = (await second.json()) as { replay: boolean; quota: { used: number; limit: number }; storage_key: string };
     expect(second.status).toBe(200);
     expect(secondBody.replay).toBe(true);
-    // quota UNCHANGED — the replay did not spend.
+    // quota back to its PRE-replay value — the claim it took was refunded.
     expect(secondBody.quota).toEqual({ used: 1, limit: 50 });
     expect(secondBody.storage_key).toBe("ai/site-replay/persona/young_woman.png");
 
     // Zero ADDITIONAL OpenAI calls and zero additional R2 puts on the replay.
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(puts).toHaveLength(1);
-    // The quota KV counter was bumped exactly ONCE (the fresh call only).
-    expect(kvPuts).toHaveLength(1);
-    expect(kvPuts[0]!.value).toBe("1");
+    // The D1 counter nets to exactly 1 (claimed twice, refunded once).
+    expect(personaQuota.get(`site-replay::${personaQuotaPeriodYm()}`)).toBe(1);
   });
 
-  it("429 over quota — refuses BEFORE any OpenAI call", async () => {
-    const { db } = makeFakeDb();
+  it("429 over quota — refuses BEFORE any OpenAI call (the atomic claim affects 0 rows)", async () => {
+    const { db, personaQuota } = makeFakeDb();
     const { media, puts } = makeFakeMedia();
-    const { cache } = makeFakeCache({ forcedGet: "50" }); // already at the default limit
+    const { cache } = makeFakeCache();
+    // Seed the D1 counter row directly at the default limit — the INSERT-if-
+    // absent step is a no-op (ON CONFLICT DO NOTHING) against a pre-seeded row.
+    personaQuota.set(`site-1::${personaQuotaPeriodYm()}`, 50);
     const fetchSpy = stubOpenAIFetch({ data: [{ b64_json: FAKE_PNG_B64 }] });
     const res = await admin.request(
       PERSONA_URL,
@@ -424,12 +481,14 @@ describe("POST /assets/persona-image — quota + cost safety (mocked client)", (
     expect(body.quota).toEqual({ used: 50, limit: 50 });
     expect(fetchSpy).not.toHaveBeenCalled(); // no spend once over quota
     expect(puts).toHaveLength(0);
+    // The claim did not move the counter (still exactly 50, no overspend).
+    expect(personaQuota.get(`site-1::${personaQuotaPeriodYm()}`)).toBe(50);
   });
 
   it("quota decrements per generation across two distinct personas", async () => {
-    const { db } = makeFakeDb();
+    const { db, personaQuota } = makeFakeDb();
     const { media } = makeFakeMedia();
-    const { cache, puts: kvPuts } = makeFakeCache();
+    const { cache } = makeFakeCache();
     stubOpenAIFetch({ data: [{ b64_json: FAKE_PNG_B64 }] });
     const env = buildEnv(db, media, cache, { OPENAI_API_KEY: "sk-test" });
     const r1 = await admin.request(PERSONA_URL, postJson({ site_id: "site-x", persona_key: "young_woman" }), env);
@@ -438,7 +497,77 @@ describe("POST /assets/persona-image — quota + cost safety (mocked client)", (
     const b2 = (await r2.json()) as { quota: { used: number } };
     expect(b1.quota.used).toBe(1);
     expect(b2.quota.used).toBe(2);
-    expect(kvPuts.map((p) => p.value)).toEqual(["1", "2"]);
+    expect(personaQuota.get(`site-x::${personaQuotaPeriodYm()}`)).toBe(2);
+  });
+
+  it("MAJOR-2 fix — concurrent requests at the quota boundary: EXACTLY 1 succeeds, the rest 429, counter ends at exactly limit (no overspend)", async () => {
+    // The adversarial-review scenario verbatim: N concurrent requests racing
+    // the SAME atomic claim at used = limit - 1 (one slot remaining). The OLD
+    // KV read-check-then-LATER-write design would have let ALL of them
+    // through (every request reads the same stale `used` before the
+    // multi-second OpenAI call ever runs); the D1 atomic-UPDATE claim must
+    // let through EXACTLY the number of remaining slots — here, exactly 1.
+    const { db, personaQuota } = makeFakeDb();
+    const { media } = makeFakeMedia();
+    const { cache } = makeFakeCache();
+    stubOpenAIFetch({ data: [{ b64_json: FAKE_PNG_B64 }] });
+    const env = buildEnv(db, media, cache, {
+      OPENAI_API_KEY: "sk-test",
+      LEADGEN_PERSONA_MONTHLY_QUOTA: "3",
+    });
+
+    const siteId = "site-race";
+    const limit = 3;
+    const key = `${siteId}::${personaQuotaPeriodYm()}`;
+    // One slot remaining before the burst.
+    personaQuota.set(key, limit - 1);
+
+    // limit + 3 = 6 concurrent requests. DISTINCT personas so a "success" is
+    // always a FRESH claim+generation, never masked by the separate
+    // idempotent-replay mechanism (which is proven by its own test above).
+    const personas = [
+      "old_person",
+      "young_salesman",
+      "young_woman",
+      "mid_age_professional",
+      "friendly_advisor",
+      "senior_expert",
+    ];
+    expect(personas).toHaveLength(limit + 3);
+
+    const results = await Promise.all(
+      personas.map((persona_key) =>
+        admin.request(PERSONA_URL, postJson({ site_id: siteId, persona_key }), env),
+      ),
+    );
+    const statuses = results.map((r) => r.status);
+    const succeeded = statuses.filter((s) => s === 200);
+    const rejected = statuses.filter((s) => s === 429);
+
+    expect(succeeded).toHaveLength(1);
+    expect(rejected).toHaveLength(personas.length - 1);
+    // The counter ends at EXACTLY `limit` — no overspend, no matter how many
+    // requests raced the claim simultaneously.
+    expect(personaQuota.get(key)).toBe(limit);
+  });
+
+  it("MAJOR-2 fix — refund path: an OpenAI failure releases the claimed slot back to its pre-claim value", async () => {
+    const { db, personaQuota } = makeFakeDb();
+    const { media, puts } = makeFakeMedia();
+    const { cache } = makeFakeCache();
+    // 400 is non-retriable so the client throws immediately; runImageGenerator
+    // catches it and returns status:'failed' (T1/AC3 — never a silent
+    // fallback). The handler must refund the slot it claimed before this call.
+    stubOpenAIFetch({ error: { message: "bad request" } }, 400);
+    const res = await admin.request(
+      PERSONA_URL,
+      postJson({ site_id: "site-refund", persona_key: "young_woman" }),
+      buildEnv(db, media, cache, { OPENAI_API_KEY: "sk-test" }),
+    );
+    expect(res.status).toBe(502);
+    expect(puts).toHaveLength(0);
+    // Back to 0 — the pre-claim value — NOT left at 1.
+    expect(personaQuota.get(`site-refund::${personaQuotaPeriodYm()}`)).toBe(0);
   });
 
   it("is gated by accessAuth (401 without bypass)", async () => {

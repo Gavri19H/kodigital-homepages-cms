@@ -54,7 +54,6 @@ const RASTER_MIME_ALLOW: ReadonlySet<string> = new Set([
 // raise it via the LEADGEN_PERSONA_MONTHLY_QUOTA var (read defensively so the
 // Env interface stays untouched by this slice).
 const DEFAULT_PERSONA_MONTHLY_QUOTA = 50;
-const PERSONA_QUOTA_TTL_SECONDS = 62 * 24 * 60 * 60; // ~2 months — the bucket self-expires.
 
 function asString(v: string | File | null): string | null {
   if (v === null || typeof v !== "string") return null;
@@ -176,22 +175,84 @@ function personaQuotaLimit(env: Env): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_PERSONA_MONTHLY_QUOTA;
 }
 
-function personaQuotaKey(siteId: string): string {
+// Exported so tests can compute the SAME period key this module uses when
+// pre-seeding a fake D1's leadgen_persona_quota counter (concurrency /
+// refund tests — test/leadgen-p5c-assets.test.ts).
+export function personaQuotaPeriodYm(): string {
   const d = new Date();
-  const ym = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-  return `lg-persona-quota:${siteId}:${ym}`;
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-async function readPersonaQuotaUsed(env: Env, siteId: string): Promise<number> {
-  const raw = await env.CACHE.get(personaQuotaKey(siteId));
-  const n = raw != null ? Number(raw) : 0;
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+interface PersonaQuotaClaim {
+  claimed: boolean;
+  used: number;
 }
 
-async function bumpPersonaQuota(env: Env, siteId: string, used: number): Promise<void> {
-  await env.CACHE.put(personaQuotaKey(siteId), String(used + 1), {
-    expirationTtl: PERSONA_QUOTA_TTL_SECONDS,
-  });
+// MAJOR-2 fix (adversarial review): the quota counter moved off KV (a
+// read-check-then-LATER-write race — N concurrent requests all read the same
+// pre-spend `used`, all pass the cap, all spend; the counter's final value
+// depends only on the last writer, so the cap the endpoint exists to enforce
+// never actually held) onto D1's leadgen_persona_quota table (migration
+// 0045), gated by a SINGLE atomic UPDATE. D1/SQLite executes one UPDATE
+// statement as an indivisible unit, so "is used < limit" and "increment used"
+// happen together — no other request's claim attempt can observe a stale
+// value in between. `changes` (D1Result.meta.changes) tells us definitively
+// whether THIS call's claim won a slot; RETURNING gives the post-claim value
+// directly (no extra read on the happy path).
+//
+// This is a RESERVE-BEFORE-SPEND, not a spend-then-record: the caller MUST
+// call this BEFORE the OpenAI request, and refundPersonaQuotaSlot AFTER, on
+// every path that turns out not to have spent (a failure, or an idempotent
+// replay that served a cached result).
+async function claimPersonaQuotaSlot(
+  env: Env,
+  siteId: string,
+  limit: number,
+): Promise<PersonaQuotaClaim> {
+  const period = personaQuotaPeriodYm();
+  // Ensure a row exists (idempotent no-op if already present) so the atomic
+  // claim UPDATE below always has a row to act on for a brand-new site.
+  await env.DB.prepare(
+    "INSERT INTO leadgen_persona_quota (site_id, period_ym, used, updated_at) " +
+      "VALUES (?, ?, 0, unixepoch()) ON CONFLICT(site_id, period_ym) DO NOTHING",
+  )
+    .bind(siteId, period)
+    .run();
+
+  // THE ATOMIC RESERVE. Bound (never interpolated) — d1-database-safety.
+  const claimedRow = await env.DB.prepare(
+    "UPDATE leadgen_persona_quota SET used = used + 1, updated_at = unixepoch() " +
+      "WHERE site_id = ? AND period_ym = ? AND used < ? RETURNING used",
+  )
+    .bind(siteId, period, limit)
+    .first<{ used: number }>();
+
+  if (claimedRow) return { claimed: true, used: claimedRow.used };
+
+  // Not claimed (at/over limit). Read the current value for the 429 body
+  // ONLY — never used to gate anything (a concurrent claim/refund may shift
+  // it by the time it's read; that race is harmless here, it only affects a
+  // human-facing number in a rejection message).
+  const row = await env.DB.prepare(
+    "SELECT used FROM leadgen_persona_quota WHERE site_id = ? AND period_ym = ?",
+  )
+    .bind(siteId, period)
+    .first<{ used: number }>();
+  return { claimed: false, used: row?.used ?? limit };
+}
+
+// Release a previously claimed slot (a failed generation, or an idempotent
+// replay that spent nothing) — floors at 0 so a refund can never underflow
+// the counter negative.
+async function refundPersonaQuotaSlot(env: Env, siteId: string): Promise<number> {
+  const period = personaQuotaPeriodYm();
+  const row = await env.DB.prepare(
+    "UPDATE leadgen_persona_quota SET used = MAX(0, used - 1), updated_at = unixepoch() " +
+      "WHERE site_id = ? AND period_ym = ? RETURNING used",
+  )
+    .bind(siteId, period)
+    .first<{ used: number }>();
+  return row?.used ?? 0;
 }
 
 export async function generatePersonaImageHandler(c: Context<{ Bindings: Env }>) {
@@ -230,50 +291,71 @@ export async function generatePersonaImageHandler(c: Context<{ Bindings: Env }>)
     );
   }
 
-  // COST SAFETY: check the monthly quota BEFORE any OpenAI call.
+  // COST SAFETY (atomic reserve-before-spend, MAJOR-2 fix): claim a slot
+  // BEFORE calling OpenAI via a SINGLE atomic D1 UPDATE (claimPersonaQuotaSlot
+  // above) — not a read-then-later-write. If the claim affects 0 rows the
+  // site is already at/over its cap and we 429 WITHOUT ever reaching the
+  // OpenAI call. This holds even under N concurrent requests racing the SAME
+  // claim: at most (limit - priorUsed) of them can ever see `changes >= 1`,
+  // no matter how long the OpenAI call between claim and response takes.
   const limit = personaQuotaLimit(c.env);
-  const used = await readPersonaQuotaUsed(c.env, siteId);
-  if (used >= limit) {
+  const claim = await claimPersonaQuotaSlot(c.env, siteId, limit);
+  if (!claim.claimed) {
     return c.json(
       {
         error: `You've reached this site's monthly limit of ${limit} generated persona images. It resets next month.`,
         code: "quota_exceeded",
-        quota: { used, limit },
+        quota: { used: claim.used, limit },
       },
       429,
     );
   }
+  let usedNow = claim.used;
 
   const scene = typeof body.scene === "string" && body.scene.trim() !== "" ? body.scene.trim() : undefined;
   const altText =
     typeof body.alt_text === "string" && body.alt_text.trim() !== "" ? body.alt_text.trim() : undefined;
 
-  const outcome = await generatePersonaImage(c.env, {
-    site_id: siteId,
-    personaKey: personaKeyRaw,
-    scene,
-    alt_text: altText,
-  });
+  let outcome;
+  try {
+    outcome = await generatePersonaImage(c.env, {
+      site_id: siteId,
+      personaKey: personaKeyRaw,
+      scene,
+      alt_text: altText,
+    });
+  } catch (err) {
+    // Defensive: generatePersonaImage's OpenAI-failure path already returns
+    // status:'failed' rather than throwing, but ANY unexpected throw after a
+    // successful claim MUST refund — a claimed slot must never be lost to a
+    // request that spent nothing.
+    await refundPersonaQuotaSlot(c.env, siteId);
+    return c.json(
+      { error: "The persona image could not be generated. Please try again." },
+      502,
+    );
+  }
 
   if (outcome.status === "skipped_no_api_key") {
-    // Unreachable (key checked above) but keep the honest contract.
+    // Unreachable (key checked above) but never leak a claimed slot.
+    await refundPersonaQuotaSlot(c.env, siteId);
     return c.json({ error: "AI image generation is not configured (no OpenAI key)." }, 501);
   }
   if (outcome.status === "failed" || outcome.media_id === 0) {
+    // REFUND: this call spent nothing — release the slot it claimed.
+    usedNow = await refundPersonaQuotaSlot(c.env, siteId);
     return c.json(
       { error: "The persona image could not be generated. Please try again.", ai_generation_id: outcome.ai_generation_id },
       502,
     );
   }
-
-  // COST SAFETY (idempotency vs quota): outcome.replay === true means this
-  // call was an idempotent short-circuit (the SAME site+persona already has a
-  // recorded row/media) — NO new OpenAI request was made this call, so it
-  // MUST NOT consume an extra unit of the site's monthly budget. Only a
-  // FRESH generation (replay: false) bumps the counter.
-  const nextUsed = outcome.replay ? used : used + 1;
-  if (!outcome.replay) {
-    await bumpPersonaQuota(c.env, siteId, used);
+  if (outcome.replay) {
+    // COST SAFETY (idempotency vs quota): outcome.replay === true means this
+    // call was an idempotent short-circuit (the SAME site+persona already has
+    // a recorded row/media) — NO new OpenAI request was made this call, so
+    // the slot claimed above MUST be refunded (a cached persona returns
+    // without holding a claim).
+    usedNow = await refundPersonaQuotaSlot(c.env, siteId);
   }
 
   return c.json({
@@ -284,6 +366,6 @@ export async function generatePersonaImageHandler(c: Context<{ Bindings: Env }>)
     persona_key: personaKeyRaw,
     ai_generation_id: outcome.ai_generation_id,
     replay: outcome.replay,
-    quota: { used: nextUsed, limit },
+    quota: { used: usedNow, limit },
   });
 }

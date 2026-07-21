@@ -221,7 +221,21 @@ type ParsedTag = ParsedTagOk | SanitizeSvgErr;
 
 const NAME_CHAR_RE = /[A-Za-z0-9:_-]/;
 const WS_RE = /\s/;
-const ATTR_NAME_STOP_RE = /[\s=/>]/;
+// minor-3 hardening: attribute NAMES are matched by a POSITIVE identifier
+// character class (the SAME set element names already use) — not a
+// negative stop-set. The prior stop-set (/[\s=/>]/) only halted on
+// whitespace/=/// />, so a quote (") or angle bracket (<) inside an
+// attribute-name position was silently absorbed into `aname` and later
+// re-emitted UNESCAPED by checkAttr's aria-/data- allowlist (which only
+// checks the string PREFIX, not its full character set). A payload like
+// `data-x"onload="alert(1)"` parsed as one aname containing a raw `"`,
+// which — re-serialized verbatim — reintroduced a live `onload="..."`
+// attribute in the OUTPUT the module is supposed to guarantee it never
+// built. A positive identifier-only match rejects (via the existing
+// `aname === "" -> "malformed attribute"` error) the instant a
+// non-identifier character appears where a name is expected, instead of
+// silently absorbing it.
+const ATTR_NAME_CHAR_RE = /[A-Za-z0-9:_-]/;
 const UNQUOTED_STOP_RE = /[\s>]/;
 
 // Parse a single open / self-closing tag beginning at `start` (the '<').
@@ -247,7 +261,7 @@ function parseTag(raw: string, start: number): ParsedTag {
       return { ok: true, name, nameLower: name.toLowerCase(), attrs, selfClosing: true, nextIndex: i + 1 };
     }
     const anStart = i;
-    while (i < n && !ATTR_NAME_STOP_RE.test(raw[i]!)) i += 1;
+    while (i < n && ATTR_NAME_CHAR_RE.test(raw[i]!)) i += 1;
     const aname = raw.slice(anStart, i);
     if (aname === "") return err("malformed attribute");
     while (i < n && WS_RE.test(raw[i]!)) i += 1;

@@ -200,6 +200,7 @@ jobs:
       #   - 0042_leadgen_pages.sql
       #   - 0043_leadgen_routing_rules.sql
       #   - 0044_leadgen_redirect_pct.sql
+      #   - 0045_leadgen_persona_quota.sql
       - name: Apply D1 migrations to production (kodigital-homepages-cms-db)
         run: npx wrangler d1 migrations apply kodigital-homepages-cms-db --env production --remote
 
