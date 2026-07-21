@@ -124,6 +124,28 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // machinery, no e2e.test dynamic tenant host), so it is expected to pass
   // unmodified on chromium AND firefox.
   '__p1a-studio.spec.ts',
+  // P7a (register R4-45 — full-program audit Finding 1, "both engines" closed
+  // honestly): the round-4 operator-acceptance suite (25 journeys, split
+  // across 3 files for socket-flake runtime reasons). SAME cross-engine shape
+  // as leadgen-operator-acceptance.gesture.spec.ts above (its own round-3
+  // sibling): every studio/admin-UI/API-authoring assertion is plain click/
+  // fill/selectOption and runs on BOTH engines; each dynamic *.e2e.test
+  // tenant-host live leg is guarded by the file's own liveLegChromiumOnly()
+  // (documented live-leg-skip annotation on firefox, both-engine assertions
+  // run first). leadgen-round4-acceptance.gesture.spec.ts (Section Studio &
+  // Lists, items 1-9): 3 of 11 tests (6B/7/9) had an UNGUARDED live leg found
+  // + fixed during this closure (they previously ran chromium-only so the gap
+  // was latent, never exercised on firefox). leadgen-round4-quotes-acceptance
+  // .gesture.spec.ts (Templates/frame elements, items 10A-H+restructure): 6 of
+  // 9 tests needed a new gate; item 10G was reordered (admin authoring first,
+  // ONE live check last) so its firefox run keeps the persona-picker
+  // zero-cost-guard coverage instead of skipping it too. leadgen-round4-
+  // funnel-acceptance.gesture.spec.ts (structure/pages/routing/theme/A-B):
+  // only item 10I touches a tenant host; the other 4 tests are pure admin-UI
+  // (quote-builder pages), already engine-agnostic.
+  'leadgen-round4-acceptance.gesture.spec.ts',
+  'leadgen-round4-quotes-acceptance.gesture.spec.ts',
+  'leadgen-round4-funnel-acceptance.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',

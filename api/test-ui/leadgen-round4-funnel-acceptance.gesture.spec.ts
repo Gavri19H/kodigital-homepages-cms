@@ -101,6 +101,20 @@ async function addSectionToPage(pageLoc: import("@playwright/test").Locator, lab
   await pageLoc.locator("[data-add-slot]").click();
 }
 
+// The dynamic-host live leg (a *.e2e.test tenant host, resolved via
+// chromium's --host-resolver-rules launch arg above) is chromium-only —
+// firefox has no equivalent for a wildcard/dynamic subdomain. On firefox:
+// record a DOCUMENTED skip annotation and signal the caller to return after
+// its both-engine admin/authoring assertions — the SAME liveLegChromiumOnly()
+// pattern the sibling round-4 acceptance files use.
+function liveLegChromiumOnly(browserName: string, reason: string): boolean {
+  if (browserName === "firefox") {
+    test.info().annotations.push({ type: "live-leg-skip", description: reason });
+    return false;
+  }
+  return true;
+}
+
 let apiCtx: APIRequestContext;
 test.beforeAll(async () => {
   apiCtx = await playwrightRequest.newContext({ baseURL: ORIGIN });
@@ -395,7 +409,7 @@ test.describe("Round-4 acceptance — Funnel builder: structure/pages/routing/th
   // the funnel) -> unreferenced it deletes 200 -> "A/B this theme" forks with
   // the picked preset on the new arm at the chosen split.
   // =========================================================================
-  test("Item 10I — theme v2: font+display-XXL+button-style preset authored via the standalone editor, applies live, DELETE in-use-guarded, one-click theme A/B fork", async ({ page }) => {
+  test("Item 10I — theme v2: font+display-XXL+button-style preset authored via the standalone editor, applies live, DELETE in-use-guarded, one-click theme A/B fork", async ({ page, browserName }) => {
     const u = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
     const themePayload = (name: string, headlineFont: string) => ({
       name,
@@ -463,32 +477,18 @@ test.describe("Round-4 acceptance — Funnel builder: structure/pages/routing/th
     );
     expect(funnelAfter.theme_json?.theme_id, "the funnel correctly references the edited preset").toBe(themeId);
 
-    // REGRESSION FOUND HERE (report to conductor, not fixed in this slice —
-    // src/public/leadgen/serve.ts is outside this slice's exclusive
-    // ownership): this assertion is the CORRECT expected behavior and
-    // currently FAILS. Evidence (reproduced twice, isolated D1-reset runs):
-    // the theme RECORD is confirmed correct server-side (the 3 assertions
-    // just above: headline_font/display_size/button_style ALL read back
-    // "Poppins"/"xxl"/"soft" via a direct GET) and the funnel correctly
-    // references that exact theme_id (assertion just above) — yet BOTH a
-    // raw server-side fetch (Playwright APIRequestContext, no browser, Host
-    // header override, confirmed containsPoppins=false/containsNewsreader=
-    // true) AND the rendered page show the theme's ORIGINAL creation-time
-    // values (Newsreader, unscaled ~31px) instead of the edited ones — even
-    // though this specific funnel/variant is BRAND NEW (first-ever render,
-    // so no per-funnel shell-cache entry should predate it). own-hand read:
-    // serve.ts:815-823 documents exactly this risk class as an ALREADY-
-    // ACKNOWLEDGED open concern — "the SAME cold-path-only discipline for
-    // the theme_id KV read — a cache hit already carries whatever theme was
-    // baked in at write time (a theme_json/frame_overrides_json EDIT bumps
-    // content_version, which busts this cache key; a THEME RECORD content
-    // edit does not — see the open concern in the phase report)." The exact
-    // path connecting a brand-new funnel to stale content was not fully
-    // isolated within this slice (getThemeRecord/theme-store.ts itself does
-    // a fresh KV read every call, no memoization found there) — flagging the
-    // reproduced symptom + the team's own documented mechanism for the
-    // conductor to route, rather than asserting a root cause beyond what was
-    // directly verified.
+    if (
+      !liveLegChromiumOnly(
+        browserName,
+        "Item 10I live theme-record render needs chromium --host-resolver-rules for the dynamic *.e2e.test host. The standalone theme-editor authoring + persist + DELETE-guard + A/B-fork assertions (before and after this block) run engine-agnostically.",
+      )
+    )
+      return;
+
+    // P7fix-defaultframe (fc41ae2) closed the regression this block
+    // originally found (a brand-new, explicitly-themed frameless funnel was
+    // resolving the WRONG render-path default frame, serving the theme
+    // record's pre-edit values) — this assertion is now expected to hold.
     await page.goto(`http://${host}:${PW_PORT}/lg/r4f-theme-${u}`, { waitUntil: "load" });
     await page.locator(".lg-headline").first().waitFor();
     const size = Number.parseFloat(await page.locator(".lg-headline").first().evaluate((el) => getComputedStyle(el).fontSize));

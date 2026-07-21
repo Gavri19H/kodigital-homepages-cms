@@ -912,6 +912,7 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
   test("Item 6B — phone format author-selectable (US NANP default / IL / International E.164) and enforced live", async ({
     page,
     request,
+    browserName,
   }) => {
     const s = await createStudioSection(request, `R4ACC Item6B phone ${uniq}`, [
       { type: "PhoneInputQuestion", question_id: "q_phone", internal_field: "r6b_phone", required: true },
@@ -933,6 +934,14 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
     await canvasRender(page).locator('[data-component-type="PhoneInputQuestion"]').click();
     await openInspectorTab(page, "content");
     await expect(page.locator("[data-phone-format-preset]"), "IL preset round-trips on reload").toHaveValue("il");
+
+    if (
+      !liveLegChromiumOnly(
+        browserName,
+        "Item 6B live phone enforcement needs chromium --host-resolver-rules for the dynamic *.e2e.test host. The phone-format authoring + round-trip assertions above run engine-agnostically.",
+      )
+    )
+      return;
 
     // LIVE: a US-shaped number blocks with the Israeli message; an IL-valid
     // number advances. A trailing section is required so "advances" means
@@ -996,6 +1005,7 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
   test('Item 7 — "offer a single-column (1) answer layout" authorable via the real Columns picker + honored live', async ({
     page,
     request,
+    browserName,
   }) => {
     const s = await createStudioSection(request, `R4ACC Item7 columns ${uniq}`, [
       { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
@@ -1088,7 +1098,13 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
       type: "item-7-diagnostic",
       description: `direct-API columns:1 PATCH status=${directNode.status()} (server-side schema honoring of columns:1, independent of the UI authoring gap above)`,
     });
-    if (directNode.ok()) {
+    if (
+      directNode.ok() &&
+      liveLegChromiumOnly(
+        browserName,
+        "Item 7 live columns:1 render needs chromium --host-resolver-rules for the dynamic *.e2e.test host. The Columns-picker authoring assertions + the direct-API diagnostic above run engine-agnostically.",
+      )
+    ) {
       const seeded = await seedLiveFunnel(request, "item7", [s.id]);
       await page.goto(shellUrl(seeded), { waitUntil: "load" });
       await expect(page.locator('[data-question-id="q_cards"]').first()).toBeVisible({ timeout: 15_000 });
@@ -1142,6 +1158,7 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
   test('Item 9 — "+ Add choice" ghost does not distort the live answer-grid geometry (studio == live cell widths/track count)', async ({
     page,
     request,
+    browserName,
   }) => {
     const s = await createStudioSection(request, `R4ACC Item9 addchoice ${uniq}`, [
       { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
@@ -1174,6 +1191,14 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
     });
     expect(studioMetrics, "studio canvas measurable").not.toBeNull();
     expect(studioMetrics!.cellCount, "exactly the 2 REAL choices measured (the ghost is not counted as a real answer)").toBe(2);
+
+    if (
+      !liveLegChromiumOnly(
+        browserName,
+        "Item 9 live geometry parity needs chromium --host-resolver-rules for the dynamic *.e2e.test host. The studio-canvas ghost + measurement assertions above run engine-agnostically.",
+      )
+    )
+      return;
 
     const seeded = await seedLiveFunnel(request, "item9", [s.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
