@@ -2416,70 +2416,15 @@ export function validateSectionContent(
   }
 
   // Pass 1: collect the known-field universe (internal_field / question_key /
-  // question_id) ACROSS THE WHOLE TREE so conditionals can be checked against
-  // it order- and level-independently (§8.5: a conditional may reference a
-  // field defined inside a sibling container). Depth-capped like every other
-  // walk (terminates on cyclic non-JSON input).
-  const knownFields = new Set<string>();
-  const collectKnownFields = (nodes: readonly unknown[], depth: number): void => {
-    for (const raw of nodes) {
-      if (!isRecord(raw)) continue;
-      for (const key of ["internal_field", "question_key", "question_id"] as const) {
-        const v = raw[key];
-        if (isNonEmptyString(v)) knownFields.add(v);
-      }
-      // P5 (PC-10): a MultiQuestionGrid carries no single internal_field — its
-      // rows' internal_fields are the real answer names, so register each so a
-      // conditional (this section or a sibling) may reference a row by field.
-      if (raw["type"] === "MultiQuestionGrid") {
-        for (const row of readMultiQuestionRows(raw as unknown as LeadgenComponentNode)) {
-          knownFields.add(row.internal_field);
-        }
-      }
-      // Round-4 A-4 (P1b — P1a seam #1): the two MULTI-SUBFIELD question types
-      // carry NO single internal_field, yet each sub-field IS a real answer a
-      // rule can reference. Register them so a saved conditional whose `when`
-      // names an Address role or a Name field passes validateConditional (no
-      // conditional_unknown_field 400). The derivation MATCHES P1a's studio-side
-      // internalFieldsOf/refFieldInfo EXACTLY (ui-section-studio.ts, commit
-      // ababbe9): a configured props.maps.fills.<slot> wins, else the node is
-      // namespaced `${internal_field || question_id || 'address'}_<slot>` — P1a
-      // default-seeds an Address's internal_field to 'address', so its four roles
-      // default to address_street/_city/_state/_zip.
-      if (raw["type"] === "AddressAutocompleteQuestion") {
-        const ifRaw = raw["internal_field"];
-        const base =
-          typeof ifRaw === "string" && ifRaw.trim() !== ""
-            ? ifRaw.trim()
-            : isNonEmptyString(raw["question_id"])
-              ? raw["question_id"]
-              : "address";
-        const aProps = isRecord(raw["props"]) ? raw["props"] : {};
-        const aMaps = isRecord(aProps["maps"]) ? aProps["maps"] : {};
-        const aFills = isRecord(aMaps["fills"]) ? aMaps["fills"] : {};
-        for (const slot of ["street", "city", "state", "zip"] as const) {
-          const f = aFills[slot];
-          knownFields.add(typeof f === "string" && f.trim() !== "" ? f.trim() : `${base}_${slot}`);
-        }
-      }
-      if (raw["type"] === "NameFieldsGroup") {
-        const nProps = isRecord(raw["props"]) ? raw["props"] : {};
-        const nFields = Array.isArray(nProps["fields"]) ? nProps["fields"] : [];
-        const first = typeof nFields[0] === "string" && nFields[0].trim() !== "" ? nFields[0].trim() : "first";
-        const last = typeof nFields[1] === "string" && nFields[1].trim() !== "" ? nFields[1].trim() : "last";
-        knownFields.add(first);
-        knownFields.add(last);
-      }
-      if (
-        isLayoutContainerType(raw["type"]) &&
-        depth <= LEADGEN_MAX_CONTAINER_DEPTH &&
-        Array.isArray(raw["children"])
-      ) {
-        collectKnownFields(raw["children"], depth + 1);
-      }
-    }
-  };
-  collectKnownFields(rawComponents, 1);
+  // question_id + the expanded MQG-row / Address-role / Name-field answer
+  // sub-fields) ACROSS THE WHOLE TREE so conditionals can be checked against it
+  // order- and level-independently (§8.5: a conditional may reference a field
+  // defined inside a sibling container). collectKnownAnswerFields is THE shared
+  // enumerator (below) — the SAME field-set the activation preflight
+  // (quotes-handlers.ts computeVariantPreflightBlocks) consumes, so save-time
+  // validation and activation-time validation can never disagree on which fields
+  // exist (Round-4 P7: one collector, no activation-only "missing field" hole).
+  const knownFields = collectKnownAnswerFields(rawComponents);
 
   const seenQuestionIds = new Set<string>();
   const seenQuestionKeys = new Set<string>();
@@ -3307,4 +3252,114 @@ function validateConditional(
   if ((op === "in" || op === "not_in") && !Array.isArray(raw["values"])) {
     push("conditional_invalid", path, `${op} conditional requires a values array`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Round-4 P7 — THE shared answer-field enumerator + conditional-reference reader
+// ---------------------------------------------------------------------------
+//
+// collectKnownAnswerFields is THE one field-set collector every server-side
+// dependency gate consumes: save-time validateSectionContent (Pass 1 above) AND
+// activation-time computeVariantPreflightBlocks (quotes-handlers.ts) both call
+// it, so the two can never disagree on which fields exist. It expands the whole
+// tree — every node's top-level internal_field / question_key / question_id,
+// PLUS the three MULTI-SUBFIELD classes that carry NO single internal_field yet
+// each name a real answer a rule can reference:
+//   * MultiQuestionGrid — one field per row (readMultiQuestionRows);
+//   * AddressAutocompleteQuestion — its four role sub-fields (a configured
+//     props.maps.fills.<slot> wins, else the node-namespaced
+//     `${internal_field || question_id || 'address'}_<slot>`);
+//   * NameFieldsGroup — its first/last field names (props.fields[0]/[1], default
+//     'first'/'last').
+// The derivation MATCHES P1a's studio-side internalFieldsOf/refFieldInfo
+// (ui-section-studio.ts) EXACTLY, so the studio's rule-source picker, the save
+// gate, and the activation gate all see the identical universe (Round-4 P7 kills
+// the activation-only "MQG/Address/Name row is a missing field" 409). Depth-
+// capped like every other tree walk (terminates on cyclic / over-deep junk).
+export function collectKnownAnswerFields(components: readonly unknown[]): Set<string> {
+  const knownFields = new Set<string>();
+  const walk = (nodes: readonly unknown[], depth: number): void => {
+    for (const raw of nodes) {
+      if (!isRecord(raw)) continue;
+      for (const key of ["internal_field", "question_key", "question_id"] as const) {
+        const v = raw[key];
+        if (isNonEmptyString(v)) knownFields.add(v);
+      }
+      // P5 (PC-10): a MultiQuestionGrid carries no single internal_field — its
+      // rows' internal_fields are the real answer names, so register each so a
+      // conditional (this section or a sibling) may reference a row by field.
+      if (raw["type"] === "MultiQuestionGrid") {
+        for (const row of readMultiQuestionRows(raw as unknown as LeadgenComponentNode)) {
+          knownFields.add(row.internal_field);
+        }
+      }
+      // Round-4 A-4 (P1b — P1a seam #1): the two MULTI-SUBFIELD question types
+      // carry NO single internal_field, yet each sub-field IS a real answer a
+      // rule can reference. Register them so a saved conditional whose `when`
+      // names an Address role or a Name field passes validateConditional (no
+      // conditional_unknown_field 400) — and, per Round-4 P7, so the activation
+      // preflight recognizes them too. A configured props.maps.fills.<slot> wins,
+      // else the node is namespaced `${internal_field || question_id ||
+      // 'address'}_<slot>` (P1a default-seeds an Address's internal_field to
+      // 'address', so its four roles default to address_street/_city/_state/_zip).
+      if (raw["type"] === "AddressAutocompleteQuestion") {
+        const ifRaw = raw["internal_field"];
+        const base =
+          typeof ifRaw === "string" && ifRaw.trim() !== ""
+            ? ifRaw.trim()
+            : isNonEmptyString(raw["question_id"])
+              ? raw["question_id"]
+              : "address";
+        const aProps = isRecord(raw["props"]) ? raw["props"] : {};
+        const aMaps = isRecord(aProps["maps"]) ? aProps["maps"] : {};
+        const aFills = isRecord(aMaps["fills"]) ? aMaps["fills"] : {};
+        for (const slot of ["street", "city", "state", "zip"] as const) {
+          const f = aFills[slot];
+          knownFields.add(typeof f === "string" && f.trim() !== "" ? f.trim() : `${base}_${slot}`);
+        }
+      }
+      if (raw["type"] === "NameFieldsGroup") {
+        const nProps = isRecord(raw["props"]) ? raw["props"] : {};
+        const nFields = Array.isArray(nProps["fields"]) ? nProps["fields"] : [];
+        const first = typeof nFields[0] === "string" && nFields[0].trim() !== "" ? nFields[0].trim() : "first";
+        const last = typeof nFields[1] === "string" && nFields[1].trim() !== "" ? nFields[1].trim() : "last";
+        knownFields.add(first);
+        knownFields.add(last);
+      }
+      if (
+        isLayoutContainerType(raw["type"]) &&
+        depth <= LEADGEN_MAX_CONTAINER_DEPTH &&
+        Array.isArray(raw["children"])
+      ) {
+        walk(raw["children"], depth + 1);
+      }
+    }
+  };
+  walk(components, 1);
+  return knownFields;
+}
+
+// Every field a `conditional` reads, across BOTH shapes: a BARE {when,op,…}
+// yields its single `when`; a composed {match,conditions:[…]} group (Round-4 A-4
+// / P2) yields EVERY inner condition's `when`, recursively (nested groups
+// included). A group is detected STRUCTURALLY by an array `conditions` — the
+// SAME discriminator validateConditional above and the runtime evaluator
+// (dependencies.ts isConditionGroup) use, so authoring, evaluation, and the
+// activation preflight can never disagree on which shape a slot carries. Round-4
+// P7: the activation dependency-check consumes this so a composed rule's `when`s
+// are validated too — the prior guard tested only a top-level string `when` and
+// so skipped composed rules' dependency validation ENTIRELY. Depth-capped
+// (defense in depth over the save-time-bounded shape).
+export function conditionalFieldRefs(conditional: unknown): string[] {
+  const out: string[] = [];
+  const walk = (raw: unknown, depth: number): void => {
+    if (!isRecord(raw) || depth > LEADGEN_MAX_CONTAINER_DEPTH + 1) return;
+    if (Array.isArray(raw["conditions"])) {
+      for (const inner of raw["conditions"]) walk(inner, depth + 1);
+      return;
+    }
+    if (isNonEmptyString(raw["when"])) out.push(raw["when"]);
+  };
+  walk(conditional, 1);
+  return out;
 }

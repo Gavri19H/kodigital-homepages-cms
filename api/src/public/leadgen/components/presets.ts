@@ -1159,11 +1159,20 @@ export function renderMultiChoiceCardGroup(
     // §9.5 layer-4 resolution — per-node override wins over Section
     // columnsDefault/gapDefault wins over the design token; the default stays 2,
     // so an un-authored multi renders --lg-cols:2 byte-identically to pre-P1a.
+    // P7fix-mcg: the clamp is now 1..5 (was 2..5) — UNIFIED with renderCardGrid
+    // and answerGroupRootStyle (both re-clamped 1..5 in P1b), matching the
+    // Columns picker (offers "1" for every answer-layout type since
+    // P7fix-columns/61a6f35) and content-schema's `columns` 1..5 validation.
+    // Previously an operator-authored 1 SAVED (schema allowed it) but this
+    // renderer silently forced it back to 2 — a stored-vs-rendered drift where
+    // the operator's setting was silently ignored. A 1-column
+    // MultiChoiceCardGroup now renders single-column, honoring the saved
+    // value. The un-authored fallback stays 2 (unchanged, byte-identical).
     ((): string => {
       const w = sizeStyleEntries(node, ctx).width;
       const cols = clampInt(
         ovNum(node, "columns") ?? propNum(node, "columns") ?? sectionColumnsDefault(ctx) ?? 2,
-        2,
+        1,
         5,
       );
       const gap = ov(node, "gridGap") ?? sectionGapDefault(ctx) ?? design.iconCardGrid.gap;

@@ -13,14 +13,14 @@ lifecycle parity.
 | R4-02 | #2 actions parity: kebab + duplicate/archive/reactivate/usage/delete-guarded (sections/quotes/auctions) | P1c+P1d | PASS (P1, evidence: phase log P1) |
 | R4-03 | #3 Question grid unusable from picker (seed drops rows; ghost grows invisible choices; no affordance) | P1a+P1b | PASS (P1, evidence: phase log P1) |
 | R4-04 | #4A rules UX flow direction (source above → dependent below) | P4b | PASS (P4, evidence: phase log P4) |
-| R4-05 | #4B/4C grid rows as rule condition sources end-to-end (via picker path) | P1a | PASS (P1, evidence: phase log P1) |
+| R4-05 | #4B/4C grid rows as rule condition sources end-to-end (via picker path) | P1a+P7fix | PASS (P7 8832bbc: shared collectKnownAnswerFields unifies studio/save/activation; acceptance Item-4 live green; fail-before/pass-after) |
 | R4-06 | #4D complex rules AND/OR (ANY/ALL groups, client+server parity) | P2a+P2c | PASS (P2, evidence: phase log P2) |
-| R4-07 | #4E every component mapped: Address sub-fields + NameFields as rule sources | P1a | PASS (P1, evidence: phase log P1) |
+| R4-07 | #4E every component mapped: Address sub-fields + NameFields as rule sources | P1a+P7fix | PASS (P7 8832bbc: activation now expands Address/Name/MQG + validates composed shapes — composed rules no longer skip validation) |
 | R4-08 | #5 two "When answered" controls → one | P1a | PASS (P1, evidence: phase log P1) |
 | R4-09 | #6A field chrome: label above + helper below + in-box error, ALL text-like inputs | P1b | PASS (P1, evidence: phase log P1) |
 | R4-10 | #6B phone format author-defined (NANP/E.164-intl/IL/custom) | P2b+P2c | PASS (P2, evidence: phase log P2) |
 | R4-11 | #6C/6D Address = real composite w/ Maps at component level, pre-mapped autofill roles | P1a+P1b | PASS (P1, evidence: phase log P1) |
-| R4-12 | #7 single-column (1) authorable everywhere + clamp/validation alignment | P1b | PASS (P1, evidence: phase log P1) |
+| R4-12 | #7 single-column (1) authorable everywhere + clamp/validation alignment | P1b+P7fix | PASS (P7 61a6f35: both Columns pickers offer 1-5 + label fixed; acceptance Item-7 green). MultiChoiceCardGroup renderer clamp aligned 1..5 (P7fix-mcg 21e00e5, verified presets.ts) |
 | R4-13 | #8 section-name affordance + plain-language save errors (no raw ids) | P1a+P1c | PASS (P1, evidence: phase log P1) |
 | R4-14 | #9 "+ Add choice" out of layout flow (live==edit geometry) | P1a+P1b | PASS (P1, evidence: phase log P1) |
 | R4-15 | #10A activity/verticals dropdowns on New Quote (existing endpoints) | P5b | PASS (P5, evidence: phase log P5) |
@@ -32,7 +32,7 @@ lifecycle parity.
 | R4-21 | #10G rich elements: trust/benefit icon+text rows + hover tooltip + AI persona image (quota) | P5a+P5c | PASS (P5, evidence: phase log P5) |
 | R4-22 | #10H footer v2 full builder (blocks, own palette/typography, per-site vars) | P5a | PASS (P5, evidence: phase log P5) |
 | R4-23 | #10H-adj disclosure v2 (multi-location, per-location text/mode/align) | P5a | PASS (P5, evidence: phase log P5) |
-| R4-24 | #10I theme v2: fonts (self-hosted), display-XXL, button ranges (Img38-40), presets+DELETE, theme A/B | P6a+P6b | PASS (P6, evidence: phase log P6) |
+| R4-24 | #10I theme v2: fonts (self-hosted), display-XXL, button ranges (Img38-40), presets+DELETE, theme A/B | P6a+P6b+P7fix | PASS (P7 fc41ae2: root cause was NOT cache — a frameless funnel ignored its theme; now a funnel with an explicit theme_id + null frame renders via a minimal headerless default frame so the PRESET theme applies; acceptance Item-10I live green, zero blast, legacy pin intact). RESIDUAL→R4-47 |
 | R4-25 | #10J funnel structure panel broken layout | P3b | PASS (P3, evidence: phase log P3) |
 | R4-26 | Restructure: Templates+Themes top tabs + 7 box pickers | P5b | PASS (P5, evidence: phase log P5) |
 | R4-27 | Restructure: rules UNIFIED into funnel-builder (standalone tab removed) | P4b | PASS (P4, evidence: phase log P4) |
@@ -53,8 +53,10 @@ lifecycle parity.
 | R4-42 | B-4.9 headline_text raw-id jargon in save errors | P1c | PASS (P1, evidence: phase log P1) |
 | R4-43 | D-1 cap raise 44,032 + per-feature byte ledger | P2a | PASS (P2, evidence: phase log P2) |
 | R4-44 | §19.1 binding: page_plan_hash + checkpoint validation + re-issue on switch | P3a+P4a | PASS (P3+P4: signed binding, dual-accept, checkpoint validation + re-issue, completion pinning) |
-| R4-45 | Round-4 acceptance journeys (sections + quotes suites, both engines) | P7a | OPEN |
-| R4-46 | Gate1c visual baselines re-mint — last minted @ d8da7b7 (round-3 close, pre-round-4); cumulative P1-P6 intended rendering drift (P1 section-builder rewrite + P5 frame elements + P6 fonts). Conductor visual-confirms each diff, re-mints all states, part of staging sign-off. NOT a P6 regression (P6 touched no Sections files; drift proven pre-P6 via mint history). NOT a CI gate (Playwright solo-only). | P7b | OPEN |
+| R4-45 | Round-4 acceptance journeys (sections + quotes suites, both engines) | P7a | PASS (P7 c80bdef: both engines real — chromium full journeys 11/9/5, firefox authoring legs 11/9/5 with liveLegChromiumOnly live-leg skips; conductor-confirmed both engines) |
+| R4-46 | Gate1c visual baselines re-mint — DONE: 7/7 states re-minted + conductor-visual-confirmed healthy (each read by own eyes; cumulative P1/P5/P6 intended drift, no regression). Was — last minted @ d8da7b7 (round-3 close, pre-round-4); cumulative P1-P6 intended rendering drift (P1 section-builder rewrite + P5 frame elements + P6 fonts). Conductor visual-confirms each diff, re-mints all states, part of staging sign-off. NOT a P6 regression (P6 touched no Sections files; drift proven pre-P6 via mint history). NOT a CI gate (Playwright solo-only). | P7b | PASS (conductor-visual-confirmed re-mint) |
+| R4-47 | INLINE-themed frameless funnel (theme via the inline Themes-tab editor, no saved-preset theme_id) still renders un-themed — same class as 10I, narrower. REACHABLE first-session flow (new funnel is frameless by default → inline theme edit writes theme_json w/ NO theme_id → un-themed live). The PRESET path IS fixed+live (fc41ae2, Item 10I green) — this residual is the INLINE-without-preset path only. Safe auto-frame for it needs the SQL-NULL-vs-corrupt distinction (R4-48) so it never breaks the corrupt-frame fail-safe. WORKAROUND (one click): save the inline theme as a preset → apply. Sign-off package carries the exact repro + workaround for the operator's ruling. | operator-decision | BLOCKED (operator: fix in a scoped follow-up, or accept the save-as-preset workaround) |
+| R4-48 | Money-path fail-safe: fc41ae2's default-frame synthesis fires on parse-null (covers BOTH SQL-NULL and CORRUPT frame_config_json), so a corrupt frame + theme_id now renders framed instead of byte-legacy — weakening the leadgen-frame-serve invariant "a corrupt stored frame must never alter a revenue-serving page". Fix: gate synthesis on a TRUE SQL-NULL only; corrupt frame stays byte-legacy. | P7 | PASS (P7 0820437: synthesis gated on true SQL-NULL; corrupt frame stays byte-legacy; fail-before/pass-after; frame-serve+legacy-pin 11/11) |
 | R4-OP1 | Production deploys (post-P1 optional; program end) | operator | BLOCKED |
 | R4-OP2 | Staging hands-on acceptance (terminal gate) | operator | BLOCKED |
 | R4-OP3 | OpenAI spend/quota + GOOGLE_MAPS_SERVER_KEY sign-off | operator | BLOCKED |
@@ -108,4 +110,4 @@ lifecycle parity.
 - Conductor gates (own hand): tsc both 0 · vitest 404/6,031 pass==total · all P6+guard specs green IN ISOLATION (socket-flake truncates combined runs — full counts verified via --list: __p6a 3/3, __p6b 8/8, __p5a 10/10, __p5b 7/7, acceptance 24/24 both engines) · verify:all clean · drift 0.
 - PROCESS NOTE (conductor error, caught+recovered): P6a's ThemeRecord-widening round was dispatched onto the shared worktree while P6b's round sat UNCOMMITTED (P6b reported "tree clean" but hadn't committed) — a shared-worktree contention hazard. Recovery: snapshotted P6b's 6 files non-git before any concurrent git op, kept P6a committing surgically (add by explicit path, never -A), committed P6b's protected work, serialized the remaining round. No work lost; commit history coherent (verified by review). Lesson reinforced: [[feedback-no-parallel-git-stash-shared-worktree]].
 - Adversarial review: **SHIP first pass** (rare) — every D-7 row proven at the real boundary, no false-green patterns; one non-blocking UX-comment observation (3+-arm fork drafts Σ≠10000, blocked at experiment-start gate — polish, not a defect).
-- PR: {{P6_PR}} · merge: {{P6_SHA}}
+- PR: https://github.com/Gavri19H/kodigital-homepages-cms/pull/129 · merge: 018a51b

@@ -439,6 +439,36 @@ export interface LeadgenFrameComposition {
   effectiveTokens: EffectiveTokens;
 }
 
+// Round-4 P7fix (narrow default frame, register R4 item 10I): a NULL
+// frame_config_json normally takes the exact legacy fork in
+// resolveFrameComposition below (return null) — the OVERWHELMING majority of
+// frameless funnels (legacy rows AND brand-new funnels that never touched a
+// theme) stay byte-identical. The ONE exception carved out there: an operator
+// who has EXPLICITLY assigned a theme PRESET (funnel.theme_json.theme_id is a
+// real string, written only by PUT /funnels/:id/theme — never a resolved/
+// default ThemeRecord, never a bespoke inline theme with no theme_id) expects
+// that preset to actually show. A ThemeRecord composes ONLY on the frame path
+// (resolveTokens below), so for that narrow case only, the composition is
+// synthesized onto this LEAST-CHROME frame: "minimal" (bare slot, no footer,
+// no disclosure — the least additional chrome among the 6 named templates;
+// see designs/frames.ts FRAME_TEMPLATES) with its header region explicitly
+// disabled (none of the 6 ships with header.enabled:false by default —
+// baseFrameDefaults() sets header.enabled:true and no template patches it —
+// so it is overridden here). designs/frame.ts's renderHeaderRegion does
+// `if (!h.enabled) return "";` — no header markup is emitted at all, so this
+// can never double-render against a section's own legacy HeaderBar. The admin
+// activation preflight's SEPARATE frame-scope-component check
+// (quotes-handlers.ts computeQuoteActivationPreflight rows 5/6) is gated on
+// "any frame configured" + "section has a scope:frame component" — not on
+// which regions are enabled — so a themed funnel that ALSO still carries
+// legacy per-section chrome correctly continues to be flagged; that is the
+// existing v2.5 contract, not a new regression this introduces.
+const NARROW_DEFAULT_THEMED_FRAME_CONFIG_JSON = JSON.stringify({
+  version: 1,
+  template: "minimal",
+  header: { enabled: false },
+});
+
 // v3.1 §10.1/§12 (fix round, ADDITIVE 3rd param): `themeRecord` is the
 // ALREADY-FETCHED KV record for whichever theme_id won (variant frame_
 // overrides_json.theme_id over funnel theme_json.theme_id, winningThemeId) —
@@ -447,14 +477,18 @@ export interface LeadgenFrameComposition {
 // admin preview/quote-builder call sites do the equivalent). Absent (undefined/
 // null) is BYTE-IDENTICAL to today: a NULL/legacy-inline theme_json resolves
 // exactly as before, since resolveTokens's 4th arg only changes anything when
-// non-null AND the 2nd arg is a {theme_id} ref.
+// non-null AND the 2nd arg is a {theme_id} ref. resolveThemeRecordFor itself
+// is NOT gated on frame_config_json (winningThemeId reads theme_json/
+// frame_overrides_json only), so the KV fetch for an explicitly-themed
+// frameless funnel already happens correctly upstream today — it was simply
+// discarded downstream by the legacy fork; the narrow default below is what
+// lets it actually reach the render.
 export function resolveFrameComposition(
   source: LeadgenFrameSource,
   design: FunnelDesign,
   themeRecord?: ThemeRecord | null,
 ): LeadgenFrameComposition | null {
   const rawFrame = parseJsonRecordColumn(source.frame_config_json ?? null);
-  if (rawFrame === null) return null; // legacy funnel — exact current behavior (03 §3.1)
 
   // theme_json: applied only when structurally valid (validateTheme is the
   // save-time gate; serve re-checks so drifted/corrupt json can never feed
@@ -463,6 +497,28 @@ export function resolveFrameComposition(
   let theme: ThemeJson | null = null;
   if (rawTheme !== null) {
     theme = validateTheme(rawTheme).theme;
+  }
+
+  let frameSource: LeadgenFrameSource = source;
+  if (rawFrame === null) {
+    // R4-48 (money-path fail-safe): parseJsonRecordColumn collapses TWO
+    // distinct states to the same null — (a) frame_config_json is a TRUE
+    // SQL-NULL/absent/blank column (never configured), and (b) the column
+    // holds a non-empty string that failed to parse or isn't a plain object
+    // (corrupt/schema-invalid). Only (a) is eligible for the narrow default
+    // below — a corrupt/invalid frame must stay on the EXACT legacy fail-safe
+    // path unconditionally, themed or not (13 §13.3; leadgen-frame-serve.
+    // test.ts's "must never break OR ALTER a revenue-serving page" contract,
+    // pre-dating this fix). The raw column value is already in hand on
+    // `source` — no new query needed to tell the two apart.
+    const rawFrameColumn = source.frame_config_json;
+    const frameColumnTrulyAbsent = typeof rawFrameColumn !== "string" || rawFrameColumn.trim() === "";
+    const explicitThemeId =
+      frameColumnTrulyAbsent && rawTheme !== null && typeof rawTheme["theme_id"] === "string"
+        ? rawTheme["theme_id"]
+        : null;
+    if (explicitThemeId === null) return null; // legacy funnel (absent+themeless) OR present-but-corrupt frame — exact current behavior (03 §3.1 / 13 §13.3)
+    frameSource = { ...source, frame_config_json: NARROW_DEFAULT_THEMED_FRAME_CONFIG_JSON };
   }
 
   // Variant frame_overrides_json (§13.2): the `theme.palette` part rides
@@ -484,7 +540,7 @@ export function resolveFrameComposition(
     }
   }
 
-  const frame = resolveEffectiveFrameOnly(source);
+  const frame = resolveEffectiveFrameOnly(frameSource);
   if (frame === null) return null; // invalid stored frame → fail-safe legacy render
   const effectiveTokens = resolveTokens(design, theme, overridesTheme, themeRecord ?? null);
   return { frame, effectiveTokens };
@@ -817,10 +873,18 @@ export async function serveFunnelShell(
     // baked into #lg-config).
     const answerMapVersions = await loadAnswerMapVersions(c.env.DB, resolved.sections);
     // v3.1 §10.1/§12: the SAME cold-path-only discipline for the theme_id KV
-    // read — a cache hit already carries whatever theme was baked in at
-    // write time (a theme_json/frame_overrides_json EDIT bumps content_version,
-    // §3.1, which busts this cache key; a THEME RECORD content edit does not —
-    // see the open concern in the phase report).
+    // read — a cache hit already carries whatever theme was baked in at write
+    // time. A theme_json/frame_overrides_json EDIT bumps content_version (§3.1),
+    // which busts this cache key; and a THEME RECORD content edit
+    // (updateThemeHandler) now fans out through P6b's scheduleThemeInvalidate —
+    // it sweeps every funnel referencing that theme_id and invalidates each
+    // activated site's shell cache (themes-handlers.ts invalidateThemeAcross-
+    // Funnels → invalidateOnVariantPublish), so an edited preset re-renders on
+    // the next request (the earlier "open concern" is closed). A funnel whose
+    // frame_config_json is NULL but whose theme_json carries an EXPLICIT
+    // theme_id also now composes on the frame path (resolveFrameComposition's
+    // narrow default, register R4 item 10I) instead of being dropped by the
+    // legacy frameless fork below.
     const themeRecord = await resolveThemeRecordFor(c.env, frameSourceOf(resolved));
     pristine = renderFunnelShell(resolved, design, answerMapVersions, themeRecord);
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);

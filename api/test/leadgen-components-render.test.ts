@@ -594,6 +594,58 @@ describe("IconCardAnswerGrid (§14.4)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// P7fix-mcg: the Columns picker (P7fix-columns/61a6f35) offers "1" for every
+// answer-layout type INCLUDING MultiChoiceCardGroup, and content-schema
+// accepts columns=1 for any type — but renderMultiChoiceCardGroup still
+// clamped 2..5, so an operator-chosen 1 SAVED (schema ok) but silently
+// rendered as 2 (a stored-vs-rendered drift: the operator's setting was
+// silently ignored). This is the sibling coverage of the IconCardAnswerGrid
+// 1..5 re-pin above (renderCardGrid, P1b) and answerGroupRootStyle (P1b).
+// ---------------------------------------------------------------------------
+
+describe("MultiChoiceCardGroup (P7fix-mcg — stored-vs-rendered clamp parity)", () => {
+  it("emits the requested desktop column count via --lg-cols (clamped 1..5, UNIFIED with IconCardAnswerGrid/renderCardGrid)", () => {
+    const four = renderComponent(
+      { type: "MultiChoiceCardGroup", question_id: "g", internal_field: "features", props: { columns: 4 }, choices: CHOICES },
+      DESIGN,
+    );
+    expect(four).toContain("--lg-cols:4");
+    const clampedHigh = renderComponent(
+      { type: "MultiChoiceCardGroup", question_id: "g", internal_field: "features", props: { columns: 9 }, choices: CHOICES },
+      DESIGN,
+    );
+    expect(clampedHigh).toContain("--lg-cols:5");
+    // THE FIX: a saved columns:1 now renders --lg-cols:1 — pre-fix this
+    // renderer clamped to a floor of 2, so a 1-column MultiChoiceCardGroup
+    // silently rendered 2-column despite the operator's saved choice.
+    const singleColumn = renderComponent(
+      { type: "MultiChoiceCardGroup", question_id: "g", internal_field: "features", props: { columns: 1 }, choices: CHOICES },
+      DESIGN,
+    );
+    expect(singleColumn).toContain("--lg-cols:1");
+    expect(singleColumn).not.toContain("--lg-cols:2");
+  });
+
+  it("back-compat: columns 2..5 render unchanged, and an un-authored group still defaults to --lg-cols:2", () => {
+    for (const n of [2, 3, 5]) {
+      const html = renderComponent(
+        { type: "MultiChoiceCardGroup", question_id: "g", internal_field: "features", props: { columns: n }, choices: CHOICES },
+        DESIGN,
+      );
+      expect(html).toContain(`--lg-cols:${n}`);
+    }
+    // No `columns` authored at all (no props, no design_override, no Section
+    // default) — the pre-P1a/pre-P7fix-mcg fallback of 2 is UNCHANGED, so
+    // legacy content renders byte-identically.
+    const unauthored = renderComponent(
+      { type: "MultiChoiceCardGroup", question_id: "g", internal_field: "features", choices: CHOICES },
+      DESIGN,
+    );
+    expect(unauthored).toContain("--lg-cols:2");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // §14.6 answer buttons — ButtonAnswerGroup + TwoButtonYesNo (§13.2 "Are you
 // insured? [Yes][No]"). Base + selected/hover/focus chrome is CLASS-DRIVEN
 // (.lg-btn.lg-btn-answer) so the "selected animation" applies; NO inline
