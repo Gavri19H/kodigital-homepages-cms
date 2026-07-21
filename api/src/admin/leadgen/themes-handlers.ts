@@ -15,13 +15,22 @@
 
 import { readJsonBody, type AdminContext } from "./offers-handlers";
 import {
+  THEME_BUTTON_LAYOUTS,
+  THEME_BUTTON_SELECTED_STYLES,
+  THEME_BUTTON_STYLES,
+  THEME_DISPLAY_SIZE_SCALES,
   THEME_RECORD_BUTTON_SIZES,
   THEME_RECORD_CORNERS,
+  THEME_RECORD_EXTRA_ROLE_KEYS,
   THEME_RECORD_FIELD_HEIGHTS,
   THEME_RECORD_FONT_NAMES,
   THEME_RECORD_ROLE_KEYS,
   isThemeRecordFontName,
+  type ThemeDisplaySizeScale,
   type ThemeRecord,
+  type ThemeRecordButtonStyle,
+  type ThemeRecordExtraRoleKey,
+  type ThemeRecordExtraRoles,
   type ThemeRecordRoleKey,
 } from "../../public/leadgen/designs/theme";
 import {
@@ -92,6 +101,46 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
     }
   }
 
+  // P6b round 2 (write-time validation for the P6a ThemeRecord widening,
+  // commit 0992752 — "the authoritative gate", per that commit's own doc
+  // comment; resolveTokens' recordExtraPalette/safeRecordDisplaySize/
+  // safeRecordButtonStyle are read-time DEFENSE IN DEPTH, never the primary
+  // gate). extra_roles is OPTIONAL and PARTIAL (a rich preset may author
+  // some/all/none of the 7 completing-the-14 roles) — unlike the REQUIRED
+  // 7-key `roles` group above, an absent extra_roles key is fine; a PRESENT
+  // one is validated exactly like roles (anchored hex, closed key set),
+  // mirroring the roles block's own two-pass shape (per-key hex check, then
+  // an unknown-key sweep). Back-compat: omitting the field entirely produces
+  // ZERO errors and outExtraRoles stays undefined (value.extra_roles never
+  // set) — a pre-P6 create/update body validates exactly as before.
+  // Same discipline as the `roles` block above: always BUILD from whatever
+  // valid keys are present (skipping invalid/unknown ones, which land their
+  // OWN field error) — the function's final `errors.length > 0` gate is what
+  // actually rejects the whole request, exactly like outRoles's partial
+  // build above never gets returned once any roles.* error exists.
+  const extraRolesRaw = raw["extra_roles"];
+  let outExtraRoles: ThemeRecordExtraRoles | undefined;
+  if (extraRolesRaw !== undefined) {
+    if (!isRecord(extraRolesRaw)) {
+      errors["extra_roles"] = "extra_roles must be a group of colours";
+    } else {
+      const built: ThemeRecordExtraRoles = {};
+      for (const key of Object.keys(extraRolesRaw)) {
+        if (!(THEME_RECORD_EXTRA_ROLE_KEYS as readonly string[]).includes(key)) {
+          errors[`extra_roles.${key}`] = `'${key}' isn't a recognised theme role`;
+          continue;
+        }
+        const v = extraRolesRaw[key];
+        if (typeof v !== "string" || !HEX_RE.test(v)) {
+          errors[`extra_roles.${key}`] = `extra_roles.${key} must be a hex colour like #1B3A5C`;
+        } else {
+          built[key as ThemeRecordExtraRoleKey] = v;
+        }
+      }
+      outExtraRoles = built;
+    }
+  }
+
   const typography = raw["typography"];
   let outTypography: ThemeRecord["typography"] | null = null;
   if (!isRecord(typography)) {
@@ -118,6 +167,19 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
     if (typeof basePx !== "number" || !Number.isFinite(basePx) || basePx < 10 || basePx > 24) {
       errors["typography.base_px"] = "typography.base_px must be a number between 10 and 24";
     }
+    // P6b round 2 — the P6a-widened OPTIONAL display-ramp field (mirrors the
+    // inline theme_json.typography.display_size axis exactly, same enum).
+    // Absent ⇒ no error, outTypography.display_size stays unset ⇒
+    // back-compat with every pre-P6 create/update body.
+    const displaySizeRaw = typography["display_size"];
+    let outDisplaySize: ThemeDisplaySizeScale | undefined;
+    if (displaySizeRaw !== undefined) {
+      if (typeof displaySizeRaw !== "string" || !(THEME_DISPLAY_SIZE_SCALES as readonly string[]).includes(displaySizeRaw)) {
+        errors["typography.display_size"] = `typography.display_size must be one of: ${THEME_DISPLAY_SIZE_SCALES.join(", ")}`;
+      } else {
+        outDisplaySize = displaySizeRaw as ThemeDisplaySizeScale;
+      }
+    }
     if (
       isThemeRecordFontName(headline) &&
       isThemeRecordFontName(body) &&
@@ -127,6 +189,7 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
       basePx <= 24
     ) {
       outTypography = { headline_font: headline, body_font: body, base_px: basePx };
+      if (outDisplaySize !== undefined) outTypography.display_size = outDisplaySize;
     }
   }
 
@@ -168,6 +231,54 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
     }
   }
 
+  // P6b round 2 — the P6a-widened OPTIONAL button_style triple (mirrors the
+  // inline theme_json.button_defaults.{fill,layout,selected} vocabulary
+  // exactly, same 3 enums). All 3 axes independently optional (a preset may
+  // author 1, 2, or all 3); unknown keys inside button_style are rejected
+  // the SAME way an unrecognised roles.* key is. Absent entirely ⇒ no error,
+  // value.button_style never set ⇒ back-compat with every pre-P6 body.
+  const buttonStyleRaw = raw["button_style"];
+  let outButtonStyle: ThemeRecordButtonStyle | undefined;
+  if (buttonStyleRaw !== undefined) {
+    if (!isRecord(buttonStyleRaw)) {
+      errors["button_style"] = "button_style must be a group of settings";
+    } else {
+      const BUTTON_STYLE_KEYS = ["fill", "layout", "selected"] as const;
+      for (const key of Object.keys(buttonStyleRaw)) {
+        if (!(BUTTON_STYLE_KEYS as readonly string[]).includes(key)) {
+          errors[`button_style.${key}`] = `'${key}' isn't a recognised button style setting`;
+        }
+      }
+      const built: ThemeRecordButtonStyle = {};
+      const fill = buttonStyleRaw["fill"];
+      if (fill !== undefined) {
+        if (typeof fill !== "string" || !(THEME_BUTTON_STYLES as readonly string[]).includes(fill)) {
+          errors["button_style.fill"] = `button_style.fill must be one of: ${THEME_BUTTON_STYLES.join(", ")}`;
+        } else {
+          built.fill = fill as (typeof THEME_BUTTON_STYLES)[number];
+        }
+      }
+      const layout = buttonStyleRaw["layout"];
+      if (layout !== undefined) {
+        if (typeof layout !== "string" || !(THEME_BUTTON_LAYOUTS as readonly string[]).includes(layout)) {
+          errors["button_style.layout"] = `button_style.layout must be one of: ${THEME_BUTTON_LAYOUTS.join(", ")}`;
+        } else {
+          built.layout = layout as (typeof THEME_BUTTON_LAYOUTS)[number];
+        }
+      }
+      const selected = buttonStyleRaw["selected"];
+      if (selected !== undefined) {
+        if (typeof selected !== "string" || !(THEME_BUTTON_SELECTED_STYLES as readonly string[]).includes(selected)) {
+          errors["button_style.selected"] =
+            `button_style.selected must be one of: ${THEME_BUTTON_SELECTED_STYLES.join(", ")}`;
+        } else {
+          built.selected = selected as (typeof THEME_BUTTON_SELECTED_STYLES)[number];
+        }
+      }
+      outButtonStyle = built;
+    }
+  }
+
   if (Object.keys(errors).length > 0 || outTypography === null || outControls === null) {
     return { value: null, errors };
   }
@@ -178,12 +289,21 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
     controls: outControls,
   };
   if (spacing !== undefined) value.spacing = spacing;
+  // P6b round 2 — both OPTIONAL/ADDITIVE (mirrors theme.ts's own ThemeRecord
+  // widening discipline): omitted entirely on a create/update body ⇒ neither
+  // key is ever set on the stored record ⇒ byte-identical to a pre-P6 save.
+  if (outExtraRoles !== undefined) value.extra_roles = outExtraRoles;
+  if (outButtonStyle !== undefined) value.button_style = outButtonStyle;
   return { value, errors };
 }
 
 // Shallow-merge each recognised group over the CURRENT record so an update
 // caller may send only the changed group (§10.4 per-section save: Colors /
-// Typography / Controls save independently) without resending the rest.
+// Typography / Controls save independently) without resending the rest).
+// P6b round 2: extra_roles/button_style join the per-key-merged GROUP list
+// (both optional on `current` — `{...undefined}` spreads to nothing, so a
+// pre-P6 record with neither key merges exactly like today until a patch
+// actually supplies one).
 function mergeThemeBody(current: ThemeRecord, patch: Record<string, unknown>): Record<string, unknown> {
   const merged: Record<string, unknown> = {
     name: current.name,
@@ -192,14 +312,16 @@ function mergeThemeBody(current: ThemeRecord, patch: Record<string, unknown>): R
     controls: { ...current.controls },
   };
   if (current.spacing !== undefined) merged["spacing"] = current.spacing;
+  if (current.extra_roles !== undefined) merged["extra_roles"] = { ...current.extra_roles };
+  if (current.button_style !== undefined) merged["button_style"] = { ...current.button_style };
   for (const key of ["name", "spacing"] as const) {
     if (patch[key] !== undefined) merged[key] = patch[key];
   }
-  for (const group of ["roles", "typography", "controls"] as const) {
+  for (const group of ["roles", "typography", "controls", "extra_roles", "button_style"] as const) {
     const patchGroup = patch[group];
     if (patchGroup === undefined) continue;
     if (isRecord(patchGroup)) {
-      merged[group] = { ...(merged[group] as Record<string, unknown>), ...patchGroup };
+      merged[group] = { ...(merged[group] as Record<string, unknown> | undefined), ...patchGroup };
     } else {
       merged[group] = patchGroup; // not a record — let validateThemeBody reject it
     }

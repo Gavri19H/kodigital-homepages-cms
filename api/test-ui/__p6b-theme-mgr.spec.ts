@@ -20,6 +20,21 @@
 //   * the A/B tab's template-level reframe: "Add variant" + the allocation
 //     editor + the per-arm what-varies summary.
 //
+// Round 2 (P6a's ThemeRecord widening, commit 0992752 — "presets carry+
+// expose the v2 axes"): the standalone theme-manager EDITOR itself (not just
+// the inline funnel-theme editor round 1 covers) now authors the SAME v2
+// richness on a PRESET —
+//   * a preset authored via the editor (a new self-hosted font, the
+//     display-XXL ramp, a button style) SAVES, reloads with those values
+//     intact (proves mergeThemeBody's per-group independence — 3 sequential
+//     PATCHes, each auto-reloading, must not clobber the prior ones), APPLIES
+//     to a funnel, and the live funnel renders them — the exact "author rich
+//     -> save preset -> apply -> A/B" gap this closes;
+//   * write-time validation (themes-handlers.ts, the authoritative gate per
+//     0992752's own doc comment): extra_roles/display_size/button_style
+//     reject malformed input with plain-language field errors, and omitting
+//     all three still validates exactly as before (back-compat).
+//
 // chromium-only (a non-gesture admin-UI spec, like __p5b-quotes-ia /
 // __p6a-theme). Admin UI on 127.0.0.1 — no tenant host — except the ONE
 // live-funnel assertions, which resolve a real e2e.test tenant host exactly
@@ -394,5 +409,167 @@ test.describe("P6b — theme A/B fork + the A/B tab's template-level reframe", (
     // A plain "Add variant" fork changes nothing (same template/theme/
     // sections/rules as control) — the honest, non-inflated summary.
     await expect(newRow.locator("[data-arm-variance]")).toHaveText("Same as control (no differences yet)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 — P6a's ThemeRecord widening (commit 0992752): a saved PRESET now
+// carries the SAME v2 axes the inline theme editor already had (round 1).
+// ---------------------------------------------------------------------------
+
+test.describe("P6b round 2 — presets carry the v2 axes (fonts, display-XXL, button styles)", () => {
+  test("authoring a preset via the theme-manager editor (new font + display-XXL + a button style) saves, persists across reload, applies to a funnel, and the live funnel renders it", async ({
+    page,
+  }) => {
+    const seed = await seedQuote(apiCtx, "richpreset");
+    const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const presetName = `P6b Rich Preset ${uniq}`;
+    const created = await json<{ item: { id: string } }>(
+      await apiCtx.post(`${LG_API}/themes`, { data: themePayload(presetName, "Newsreader") }),
+      "create baseline preset",
+    );
+    const themeId = created.item.id;
+
+    await page.goto(`/admin/leadgen/themes?theme=${themeId}`, { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#tm-theme-name")).toHaveValue(presetName);
+
+    // Each control here auto-PATCHes + reloads on its own (THEME_MGR_SCRIPT's
+    // patchTheme) — 3 sequential edits, each waited out fully, so the LAST
+    // reload's DOM reflects the cumulative record (proves mergeThemeBody's
+    // per-group merge never clobbers an earlier group's save).
+    // 1) a new self-hosted display font (was Newsreader).
+    let reloaded = page.waitForEvent("load");
+    await page.locator("#tm-headline-font").selectOption("Poppins");
+    await reloaded;
+
+    // 2) the display-XXL ramp (typography.display_size).
+    reloaded = page.waitForEvent("load");
+    await page.locator('[data-tm-seg][data-top="typography"][data-group="display_size"][data-value="xxl"]').click();
+    await reloaded;
+
+    // 3) a button style (soft fill).
+    reloaded = page.waitForEvent("load");
+    await page.locator('[data-tm-seg][data-top="button_style"][data-group="fill"][data-value="soft"]').click();
+    await reloaded;
+
+    // Fresh navigation (not just the auto-reload) — proves the SSR read path
+    // (not merely in-memory client state) carries all three forward.
+    await page.goto(`/admin/leadgen/themes?theme=${themeId}`, { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#tm-headline-font")).toHaveValue("Poppins");
+    await expect(
+      page.locator('[data-tm-seg][data-top="typography"][data-group="display_size"][data-value="xxl"]'),
+    ).toHaveAttribute("style", /background:#fff/);
+    await expect(
+      page.locator('[data-tm-seg][data-top="button_style"][data-group="fill"][data-value="soft"]'),
+    ).toHaveAttribute("style", /background:#fff/);
+
+    // Direct server round-trip too (not just a visual/DOM read).
+    const record = await json<{
+      item: {
+        typography: { headline_font: string; display_size?: string };
+        button_style?: { fill?: string };
+      };
+    }>(await apiCtx.get(`${LG_API}/themes/${themeId}`), "get theme after 3 patches");
+    expect(record.item.typography.headline_font).toBe("Poppins");
+    expect(record.item.typography.display_size).toBe("xxl");
+    expect(record.item.button_style?.fill).toBe("soft");
+
+    // Apply the preset to the funnel. Round 1 already proves the Themes-tab
+    // Apply PICKER end-to-end; this test's own signal is the NEW richness
+    // reaching resolveTokens' record branch, so a direct PUT keeps focus
+    // there rather than re-driving the picker.
+    await json(
+      await apiCtx.put(`${LG_API}/funnels/${seed.funnelPublicId}/theme`, {
+        data: { theme_json: { theme_id: themeId } },
+      }),
+      "apply rich preset to funnel",
+    );
+
+    await page.goto(shellUrl(seed), { waitUntil: "load" });
+    await page.locator(".lg-headline").first().waitFor();
+    const size = Number.parseFloat(await computed(page, ".lg-headline", "font-size"));
+    expect(size).toBeGreaterThan(68);
+    expect(size).toBeLessThan(76);
+    expect(await computed(page, ".lg-headline", "font-family")).toContain("Poppins");
+    const radius = Number.parseFloat(await computed(page, ".lg-continue", "border-top-left-radius"));
+    expect(radius).toBeGreaterThan(40);
+  });
+});
+
+test.describe("P6b round 2 — write-time validation for the new axes", () => {
+  test("extra_roles / typography.display_size / button_style reject malformed input with plain-language field errors; omitting all three still validates (back-compat)", async () => {
+    const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+
+    // Back-compat: a pre-P6-shaped body (no extra_roles/display_size/
+    // button_style) still creates cleanly and carries neither key.
+    const backCompat = await apiCtx.post(`${LG_API}/themes`, {
+      data: themePayload(`P6b BackCompat ${uniq}`, "Inter"),
+    });
+    expect(backCompat.status()).toBe(201);
+    const backCompatBody = (await backCompat.json()) as { item: Record<string, unknown> };
+    expect(backCompatBody.item["extra_roles"]).toBeUndefined();
+    expect(backCompatBody.item["button_style"]).toBeUndefined();
+
+    // Invalid extra_roles hex.
+    const badHex = await apiCtx.post(`${LG_API}/themes`, {
+      data: { ...themePayload(`P6b BadHex ${uniq}`, "Inter"), extra_roles: { border: "not-a-hex" } },
+    });
+    expect(badHex.status()).toBe(400);
+    expect(((await badHex.json()) as { fields: Record<string, string> }).fields["extra_roles.border"]).toBeTruthy();
+
+    // Unrecognised extra_roles key.
+    const badKey = await apiCtx.post(`${LG_API}/themes`, {
+      data: { ...themePayload(`P6b BadKey ${uniq}`, "Inter"), extra_roles: { not_a_role: "#112233" } },
+    });
+    expect(badKey.status()).toBe(400);
+    expect(((await badKey.json()) as { fields: Record<string, string> }).fields["extra_roles.not_a_role"]).toBeTruthy();
+
+    // Invalid typography.display_size.
+    const badSizePayload = themePayload(`P6b BadDisplaySize ${uniq}`, "Inter");
+    const badSize = await apiCtx.post(`${LG_API}/themes`, {
+      data: { ...badSizePayload, typography: { ...badSizePayload.typography, display_size: "huge" } },
+    });
+    expect(badSize.status()).toBe(400);
+    expect(
+      ((await badSize.json()) as { fields: Record<string, string> }).fields["typography.display_size"],
+    ).toBeTruthy();
+
+    // Invalid button_style.fill.
+    const badFill = await apiCtx.post(`${LG_API}/themes`, {
+      data: { ...themePayload(`P6b BadFill ${uniq}`, "Inter"), button_style: { fill: "glowing" } },
+    });
+    expect(badFill.status()).toBe(400);
+    expect(((await badFill.json()) as { fields: Record<string, string> }).fields["button_style.fill"]).toBeTruthy();
+
+    // Unrecognised button_style key.
+    const badAxis = await apiCtx.post(`${LG_API}/themes`, {
+      data: { ...themePayload(`P6b BadAxis ${uniq}`, "Inter"), button_style: { not_an_axis: "x" } },
+    });
+    expect(badAxis.status()).toBe(400);
+    expect(
+      ((await badAxis.json()) as { fields: Record<string, string> }).fields["button_style.not_an_axis"],
+    ).toBeTruthy();
+
+    // Valid: all three together create + round-trip.
+    const goodPayload = themePayload(`P6b GoodAxes ${uniq}`, "Inter");
+    const good = await apiCtx.post(`${LG_API}/themes`, {
+      data: {
+        ...goodPayload,
+        typography: { ...goodPayload.typography, display_size: "l" },
+        extra_roles: { border: "#334455" },
+        button_style: { layout: "list" },
+      },
+    });
+    expect(good.status()).toBe(201);
+    const goodBody = (await good.json()) as {
+      item: {
+        typography: { display_size?: string };
+        extra_roles?: { border?: string };
+        button_style?: { layout?: string };
+      };
+    };
+    expect(goodBody.item.typography.display_size).toBe("l");
+    expect(goodBody.item.extra_roles?.border).toBe("#334455");
+    expect(goodBody.item.button_style?.layout).toBe("list");
   });
 });
