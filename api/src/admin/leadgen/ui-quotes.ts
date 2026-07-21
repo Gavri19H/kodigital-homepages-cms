@@ -791,6 +791,7 @@ const LG_QUOTES_STYLES = `
 .lg-tplbox-block{border:1px dashed var(--c-border);border-radius:6px;padding:8px;margin:6px 0}
 .lg-tplbox-toolbar{display:flex;gap:4px;margin-bottom:6px}
 .lg-tplbox-pagetarget{border-top:1px dashed var(--c-border);margin-top:8px;padding-top:8px}
+.lg-tplbox-persona{border-top:1px dashed var(--c-border);margin-top:8px;padding-top:8px}
 .lg-hidden{display:none}
 `;
 
@@ -2377,8 +2378,12 @@ function renderTplBoxFreeText(): string {
 </div>`;
 }
 
-// 10F brand logos strip — media-id or URL refs (SVG upload arrives in P5c —
-// the "Upload SVG" button below is a marked, disabled mount for it).
+// 10F brand logos strip — media-id or URL refs, PLUS a direct upload through
+// P5c's sanitized endpoint (assets-handlers.ts uploadBrandLogoHandler: SVG
+// runs the allowlist sanitizer before storage; PNG/JPEG pass the raster
+// check). The hidden file input's accept list matches the dispatch's exact
+// spec; the SERVER additionally accepts webp/gif/avif (belt-and-suspenders —
+// the accept attribute is a UI filter hint only, never the security gate).
 function renderBrandLogoItemRowTemplate(): string {
   return `<div class="lg-list-row" data-bl-item-row>
     ${mediaFieldMarkup("data-list-field", "media_id", "Logo image (from the Media library)")}
@@ -2407,8 +2412,10 @@ function renderTplBoxBrandLogos(): string {
   <template data-tplbox-tpl="brand_logos.items">${renderBrandLogoItemRowTemplate()}</template>
   <div class="toolbar">
     <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="brand_logos.items">+ Add a logo</button>
-    <button type="button" class="btn btn-sm btn-outline" disabled title="Arrives in P5c">Upload SVG (coming soon)</button>
+    <button type="button" class="btn btn-sm btn-outline" data-bl-upload-btn>Upload a logo file&#8230;</button>
+    <input type="file" class="lg-hidden" data-bl-upload-input accept="image/svg+xml,image/png,image/jpeg" aria-label="Upload a logo file (SVG, PNG or JPEG)" />
   </div>
+  <p class="form-help lg-hidden" data-bl-upload-error role="alert"></p>
 </div>`;
 }
 
@@ -2465,6 +2472,75 @@ function renderTplBoxFooter(): string {
 </div>`;
 }
 
+// 10G/Image24 (P5a commit f58f6c2) — the first-class `images` element: N
+// independently-slotted placed images (mirrors free_text's per-item slot,
+// NOT brand_logos' single group slot — each image authors its OWN slot/size/
+// align/tooltip/page-targeting). A media source is EITHER the shared Media-
+// library picker OR a direct URL (the SAME dual-shape as brand_logos items),
+// PLUS an AI persona-portrait generator (P5c's POST /assets/persona-image).
+//
+// The persona dropdown is hardcoded to mirror api/src/ai/generators/image.ts
+// LEADGEN_PERSONAS's exact 8 keys/labels — P5c exposes this set today ONLY
+// inside the unknown-persona 400 response's `valid_personas` array (no GET
+// endpoint); building one is a P5c-owned seam, reported rather than built.
+const LEADGEN_PERSONA_OPTIONS: ReadonlyArray<readonly [string, string]> = [
+  ["old_person", "Older person"],
+  ["young_salesman", "Young salesman"],
+  ["young_woman", "Young woman"],
+  ["mid_age_professional", "Mid-age professional"],
+  ["friendly_advisor", "Friendly advisor"],
+  ["senior_expert", "Senior expert"],
+  ["casual_millennial", "Casual millennial"],
+  ["warm_grandmother", "Warm grandmother"],
+];
+function personaOptionsMarkup(): string {
+  return LEADGEN_PERSONA_OPTIONS.map(
+    ([key, label]) => `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`,
+  ).join("");
+}
+function renderImageItemRowTemplate(): string {
+  return `<div class="lg-tplbox-row" data-img-item-row>
+    <input type="hidden" data-img-item-id />
+    <div class="lg-list-row">
+      ${mediaFieldMarkup("data-list-field", "media_id", "Image (from the Media library)")}
+      <input class="form-input" data-img-item-url placeholder="Or a direct image URL (https://…)" aria-label="Image URL" />
+      <input class="form-input" data-img-item-alt placeholder="Alt text (required)" aria-label="Image alt text" />
+      <span class="lg-row-rail">
+        <button type="button" class="btn btn-sm btn-outline" data-img-item-up aria-label="Move image up">&#8593;</button>
+        <button type="button" class="btn btn-sm btn-outline" data-img-item-down aria-label="Move image down">&#8595;</button>
+        <button type="button" class="btn btn-sm btn-outline" data-img-item-remove aria-label="Remove image">&#10005;</button>
+      </span>
+    </div>
+    <div class="lg-scalars">
+      <div class="form-group"><label class="form-label">Slot</label><select class="form-select form-select-sm" data-img-item-slot aria-label="Image slot">${enumOptions(FRAME_FREE_TEXT_SLOTS, { above_section: "Above the section", below_section: "Below the section", above_header: "Above the header", below_footer: "Below the footer" })}</select></div>
+      <div class="form-group"><label class="form-label">Size</label><select class="form-select form-select-sm" data-img-item-size aria-label="Image size">${enumOptions(FRAME_SIZES, { s: "Small", m: "Medium", l: "Large" })}</select></div>
+      <div class="form-group"><label class="form-label">Alignment</label><select class="form-select form-select-sm" data-img-item-align aria-label="Image alignment">${enumOptions(FRAME_ELEMENT_ALIGNS, { left: "Left", center: "Center", right: "Right" })}</select></div>
+    </div>
+    <input class="form-input" data-img-item-tooltip placeholder="Hover caption (optional)" aria-label="Image hover caption" />
+    ${renderPageTargetControl()}
+    <div class="lg-tplbox-persona">
+      <p class="form-help">Or generate an AI persona portrait (P5c, quota-guarded):</p>
+      <div class="lg-list-row">
+        <select class="form-select form-select-sm" data-img-item-persona aria-label="Persona">
+          <option value="">Choose a persona&#8230;</option>
+          ${personaOptionsMarkup()}
+        </select>
+        <button type="button" class="btn btn-sm btn-secondary" data-img-item-generate>Generate</button>
+      </div>
+      <p class="form-help lg-hidden" data-img-item-gen-error role="alert"></p>
+    </div>
+  </div>`;
+}
+function renderTplBoxImages(): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="images">
+  <h3>H &middot; Images</h3>
+  <p class="form-help">Individually placed images (e.g. a persona portrait), each with its own slot, size, alignment and optional hover caption.</p>
+  <div data-tplbox-list="images"></div>
+  <template data-tplbox-tpl="images">${renderImageItemRowTemplate()}</template>
+  <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="images">+ Add an image</button>
+</div>`;
+}
+
 const TPLBOX_CARDS: ReadonlyArray<{ key: string; letter: string; label: string }> = [
   { key: "background", letter: "A", label: "Background" },
   { key: "logo", letter: "B", label: "Logo" },
@@ -2473,6 +2549,7 @@ const TPLBOX_CARDS: ReadonlyArray<{ key: string; letter: string; label: string }
   { key: "free_text", letter: "E", label: "Free text" },
   { key: "brand_logos", letter: "F", label: "Brand logos" },
   { key: "footer", letter: "G", label: "Footer" },
+  { key: "images", letter: "H", label: "Images" },
 ];
 
 function renderTemplateBoxPickers(answerFields: RoutingBuilderData["fields"]): string {
@@ -2496,6 +2573,7 @@ function renderTemplateBoxPickers(answerFields: RoutingBuilderData["fields"]): s
     ${renderTplBoxFreeText()}
     ${renderTplBoxBrandLogos()}
     ${renderTplBoxFooter()}
+    ${renderTplBoxImages()}
   </div>
 </div>`;
 }
@@ -4865,6 +4943,7 @@ const QUOTE_EDITOR_SCRIPT = `
     fillFreeText(eff.free_text || []);
     fillBrandLogos(eff.brand_logos || null);
     fillFooterBlocks((eff.footer && eff.footer.blocks) || []);
+    fillImages(eff.images || []);
     var themeControls = root.querySelectorAll('[data-theme-key]');
     for (i = 0; i < themeControls.length; i++) {
       var tval = getPath(workingTheme, themeControls[i].getAttribute('data-theme-key'));
@@ -5401,6 +5480,79 @@ const QUOTE_EDITOR_SCRIPT = `
     }
   }
 
+  // --- H: images — top-level array; EACH item owns its own slot/pages -------
+  // (mirrors free_text, not brand_logos' single group slot). The id field is
+  // REQUIRED (validateImages) and never operator-authored — stamped at
+  // collect time, same idiom as ftGenId.
+  function imgGenId() { return 'img_' + Date.now() + '_' + Math.floor(Math.random() * 100000); }
+  function collectImages() {
+    var list = tplList('images');
+    if (!list) { return []; }
+    var rows = list.querySelectorAll('[data-img-item-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var mediaInput = r.querySelector('[data-list-field="media_id"]');
+      var mediaId = mediaInput ? mediaInput.value : '';
+      var url = r.querySelector('[data-img-item-url]').value;
+      var alt = r.querySelector('[data-img-item-alt]').value;
+      if (mediaId === '' && url === '' && alt === '') { continue; }
+      var idEl = r.querySelector('[data-img-item-id]');
+      if (idEl && !idEl.value) { idEl.value = imgGenId(); }
+      var item = {
+        id: idEl ? idEl.value : imgGenId(),
+        alt: alt,
+        slot: r.querySelector('[data-img-item-slot]').value
+      };
+      if (mediaId !== '') { item.media_id = mediaId; }
+      if (url !== '') { item.url = url; }
+      var sizeEl = r.querySelector('[data-img-item-size]');
+      item.size = sizeEl ? sizeEl.value : 'm';
+      var alignEl = r.querySelector('[data-img-item-align]');
+      item.align = alignEl ? alignEl.value : 'left';
+      var tooltipEl = r.querySelector('[data-img-item-tooltip]');
+      if (tooltipEl && tooltipEl.value !== '') { item.tooltip = tooltipEl.value; }
+      var pt = collectPageTarget(r);
+      if (pt) { item.pages = pt; }
+      out.push(item);
+    }
+    return out;
+  }
+  function fillImageItemRow(row, it) {
+    var idEl = row.querySelector('[data-img-item-id]'); if (idEl) { idEl.value = it.id || imgGenId(); }
+    var mediaInput = row.querySelector('[data-list-field="media_id"]');
+    if (mediaInput) { mediaInput.value = it.media_id || ''; }
+    var span = row.querySelector('[data-media-field]');
+    if (span) { syncMediaField(span); }
+    var urlEl = row.querySelector('[data-img-item-url]'); if (urlEl) { urlEl.value = it.url || ''; }
+    var altEl = row.querySelector('[data-img-item-alt]'); if (altEl) { altEl.value = it.alt || ''; }
+    setListFieldValue(row.querySelector('[data-img-item-slot]'), it.slot || 'above_section');
+    setListFieldValue(row.querySelector('[data-img-item-size]'), it.size || 'm');
+    setListFieldValue(row.querySelector('[data-img-item-align]'), it.align || 'left');
+    var tooltipEl = row.querySelector('[data-img-item-tooltip]'); if (tooltipEl) { tooltipEl.value = it.tooltip || ''; }
+    fillPageTarget(row, it.pages);
+  }
+  function fillImages(items) {
+    var list = tplList('images');
+    if (!list) { return; }
+    clearChildren(list);
+    var i;
+    for (i = 0; i < items.length; i++) {
+      var row = cloneTplRow('images');
+      if (!row) { continue; }
+      fillImageItemRow(row, items[i] || {});
+      list.appendChild(row);
+    }
+  }
+  // A single-line inline note (upload/persona-generation errors) — shown when
+  // the message is truthy, hidden otherwise. Reused by both P5c asset flows.
+  function showInlineNote(el, message) {
+    if (!el) { return; }
+    if (message) { el.textContent = message; el.className = 'form-help'; }
+    else { el.className = 'form-help lg-hidden'; }
+  }
+
   // A media pick (the shared #lg-media-picker modal) sets a hidden input
   // directly (no native 'change' event) — writeMediaFieldValue's fallback
   // (below, near the media-picker section) recognizes a 'data-tplbox-list'
@@ -5411,13 +5563,14 @@ const QUOTE_EDITOR_SCRIPT = `
     'disclosure.entries': function () { writeConfigValue('disclosure.entries', collectDisclosureEntries()); },
     'free_text': function () { writeConfigValue('free_text', collectFreeText()); },
     'brand_logos.items': function () { writeConfigValue('brand_logos', collectBrandLogos()); },
-    'footer.blocks': function () { writeConfigValue('footer.blocks', collectFooterBlocks()); }
+    'footer.blocks': function () { writeConfigValue('footer.blocks', collectFooterBlocks()); },
+    'images': function () { writeConfigValue('images', collectImages()); }
   };
   function writeTplboxList(key) {
     var writer = TPLBOX_LIST_WRITERS[key];
     if (writer) { writer(); }
   }
-  var TPLBOX_PANEL_LIST_KEY = { cta: 'cta_slots', disclosure: 'disclosure.entries', free_text: 'free_text', brand_logos: 'brand_logos.items', footer: 'footer.blocks' };
+  var TPLBOX_PANEL_LIST_KEY = { cta: 'cta_slots', disclosure: 'disclosure.entries', free_text: 'free_text', brand_logos: 'brand_logos.items', footer: 'footer.blocks', images: 'images' };
 
   // ONE 'change' dispatcher for every box C–G field (selects/inputs/
   // textareas) — determines the owning box from the nearest
@@ -5586,6 +5739,116 @@ const QUOTE_EDITOR_SCRIPT = `
       if (linkrowEl) { addFooterLinkRow(linkrowEl, null); }
     }
   });
+
+  // H: image item remove/reorder + the AI persona-portrait generator (P5c
+  // POST /assets/persona-image, quota-guarded — checked server-side BEFORE
+  // any OpenAI spend). Client-side guards (empty persona / no preview site
+  // selected) short-circuit BEFORE the network call so an accidental click
+  // never risks a spend; siteId is the SAME variable the canvas toolbar's
+  // site selector already tracks (empty string = the CMS-fallback default,
+  // i.e. no real site chosen yet).
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute || !el.hasAttribute) { return; }
+    var itemRow = closestAttr(el, 'data-img-item-row');
+    if (!itemRow) { return; }
+    if (el.hasAttribute('data-img-item-remove')) { if (itemRow.parentNode) { itemRow.parentNode.removeChild(itemRow); } writeConfigValue('images', collectImages()); return; }
+    if (el.hasAttribute('data-img-item-up')) { moveRowSibling(itemRow, -1); writeConfigValue('images', collectImages()); return; }
+    if (el.hasAttribute('data-img-item-down')) { moveRowSibling(itemRow, 1); writeConfigValue('images', collectImages()); return; }
+    if (!el.hasAttribute('data-img-item-generate')) { return; }
+    var personaEl = itemRow.querySelector('[data-img-item-persona]');
+    var errEl = itemRow.querySelector('[data-img-item-gen-error]');
+    var personaKey = personaEl ? personaEl.value : '';
+    if (personaKey === '') { showInlineNote(errEl, 'Choose a persona first.'); return; }
+    if (!siteId) { showInlineNote(errEl, 'Choose a preview site (canvas toolbar, above) to generate a persona image.'); return; }
+    showInlineNote(errEl, null);
+    el.disabled = true;
+    var altEl = itemRow.querySelector('[data-img-item-alt]');
+    var altVal = altEl ? altEl.value : '';
+    fetch('/api/admin/leadgen/assets/persona-image', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ site_id: siteId, persona_key: personaKey, alt_text: altVal || undefined })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      el.disabled = false;
+      if (!res.ok || !res.body || !res.body.storage_key) {
+        showInlineNote(errEl, (res.body && res.body.error) ? res.body.error : 'Persona image generation failed.');
+        return;
+      }
+      // P5a's explicit type-seam warning: the item's media_id is the
+      // STORAGE-KEY STRING (storage_key) — NEVER outcome.media_id, a
+      // DIFFERENT, numeric media-table row id the SAME response also carries.
+      var mediaInput = itemRow.querySelector('[data-list-field="media_id"]');
+      if (mediaInput) { mediaInput.value = res.body.storage_key; }
+      var span = itemRow.querySelector('[data-media-field]');
+      if (span) { syncMediaField(span); }
+      if (altEl && altEl.value === '') {
+        var opt = personaEl && personaEl.selectedIndex >= 0 ? personaEl.options[personaEl.selectedIndex] : null;
+        altEl.value = opt ? ('Persona: ' + opt.textContent) : 'Persona portrait';
+      }
+      writeConfigValue('images', collectImages());
+    }).catch(function () {
+      el.disabled = false;
+      showInlineNote(errEl, 'Network error \\u2014 please try again.');
+    });
+  });
+
+  // F (10F): the "Upload a logo file…" button — a hidden file input triggered
+  // by a visible styled button; on file selection, POST straight to P5c's
+  // sanitized endpoint (SVG runs the allowlist sanitizer; PNG/JPEG pass the
+  // raster check). The upload targets the LAST existing brand-logo row (an
+  // empty one just added via "+ Add a logo" is the common flow) or creates a
+  // fresh row when the list is empty.
+  function nearestListRow(listKey, rowSelector) {
+    var list = tplList(listKey);
+    if (!list) { return null; }
+    var rows = list.querySelectorAll(rowSelector);
+    if (rows.length > 0) { return rows[rows.length - 1]; }
+    var row = cloneTplRow(listKey);
+    if (row) { list.appendChild(row); }
+    return row;
+  }
+  (function () {
+    var uploadBtn = root.querySelector('[data-bl-upload-btn]');
+    var uploadInput = root.querySelector('[data-bl-upload-input]');
+    var uploadError = root.querySelector('[data-bl-upload-error]');
+    if (!uploadBtn || !uploadInput) { return; }
+    uploadBtn.addEventListener('click', function () { uploadInput.click(); });
+    uploadInput.addEventListener('change', function () {
+      var file = uploadInput.files && uploadInput.files[0];
+      if (!file) { return; }
+      showInlineNote(uploadError, null);
+      uploadBtn.disabled = true;
+      var fd = new FormData();
+      fd.append('file', file, file.name);
+      fd.append('site_id', siteId || '');
+      fetch('/api/admin/leadgen/assets/brand-logo', { method: 'POST', credentials: 'same-origin', body: fd })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+        .then(function (res) {
+          uploadBtn.disabled = false;
+          uploadInput.value = '';
+          if (!res.ok || !res.body || !res.body.storage_key) {
+            showInlineNote(uploadError, (res.body && res.body.error) ? res.body.error : 'Upload failed.');
+            return;
+          }
+          var row = nearestListRow('brand_logos.items', '[data-bl-item-row]');
+          if (row) {
+            var mediaInput = row.querySelector('[data-list-field="media_id"]');
+            if (mediaInput) { mediaInput.value = res.body.storage_key; }
+            var span = row.querySelector('[data-media-field]');
+            if (span) { syncMediaField(span); }
+          }
+          writeConfigValue('brand_logos', collectBrandLogos());
+        })
+        .catch(function () {
+          uploadBtn.disabled = false;
+          uploadInput.value = '';
+          showInlineNote(uploadError, 'Network error \\u2014 please try again.');
+        });
+    });
+  }());
 
   // --- the canvas (server-rendered composed page in a srcdoc iframe) ---------
   var canvas = byId('lg-preview-iframe');

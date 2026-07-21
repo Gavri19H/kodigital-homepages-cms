@@ -456,3 +456,163 @@ test.describe("P5b — 10B admin leg: the builder/Templates preview resolves the
     await page.screenshot({ path: `${SHOT_DIR}/preview-no-logo-hint.png` });
   });
 });
+
+// A valid brand-logo SVG (author comment + <?xml?> PI, no xmlns) — the SAME
+// fixture __p5c-assets.spec.ts proves the sanitizer accepts (strips the
+// comment/PI, injects xmlns) — reused here to prove the P5b UPLOAD BUTTON
+// wiring end to end (that spec drives the endpoint directly; this one drives
+// the actual admin picker hook).
+const VALID_LOGO_SVG =
+  `<?xml version="1.0"?><!-- brand mark --><svg viewBox="0 0 48 24">` +
+  `<rect x="0" y="0" width="48" height="24" rx="4" fill="#1a56db"/>` +
+  `<text x="6" y="17" font-size="12" fill="#ffffff">ACME</text></svg>`;
+
+test.describe("P5b — SVG upload hook (brand logos) + the Images box (H, incl. persona-generation wiring)", () => {
+  let seed: Seeded;
+
+  test.beforeAll(async () => {
+    const ctx = await playwrightRequest.newContext({ baseURL: ORIGIN });
+    seed = await seedQuote(ctx, "assets");
+    await ctx.dispose();
+  });
+
+  test("Upload a logo file… uploads a valid SVG through the real endpoint, fills the nearest brand-logo item, and renders on the canvas", async ({ page }) => {
+    test.setTimeout(90_000);
+    await openEditor(page, seed.quotePublicId);
+    await page.locator('.lg-qtab[data-tab="templates"]').click();
+    await page.locator('[data-tplbox-pick="brand_logos"]').click();
+    const blPanel = page.locator('[data-tplbox-panel="brand_logos"]');
+    await blPanel.locator("[data-bl-enabled]").check();
+
+    const fileChooserPromise = page.waitForEvent("filechooser");
+    await blPanel.locator("[data-bl-upload-btn]").click();
+    const fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles({ name: "acme.svg", mimeType: "image/svg+xml", buffer: Buffer.from(VALID_LOGO_SVG) });
+
+    const row = blPanel.locator("[data-bl-item-row]").first();
+    // The upload POST resolved and wrote the REAL storage_key (never blank,
+    // never the numeric media_id) into the row's hidden media field, which
+    // syncMediaField then reveals as a thumbnail.
+    await expect(row.locator("[data-media-thumb]")).toBeVisible({ timeout: 20_000 });
+    const storageKey = await row.locator('input[data-list-field="media_id"]').inputValue();
+    expect(storageKey, "uploaded storage_key written into the item's media field").not.toBe("");
+    await expect(blPanel.locator("[data-bl-upload-error]")).toBeHidden();
+
+    // validateBrandLogos requires non-empty alt text per item (frames.ts) —
+    // the upload only writes media_id; alt is an independent required field.
+    await row.locator("[data-bl-item-alt]").fill("ACME logo");
+    await row.locator("[data-bl-item-alt]").blur();
+
+    const framePutPromise = page.waitForResponse(
+      (r) => r.request().method() === "PUT" && r.url().includes(`/funnels/${seed.funnelPublicId}/frame`),
+    );
+    await page.locator("#lg-variant-save").click();
+    expect((await framePutPromise).status()).toBe(200);
+    await expect(page.locator("#lg-quote-ok")).toBeVisible({ timeout: 20_000 });
+
+    // Server-side: the saved config carries the SAME storage key.
+    const frameRes = await page.request.get(`${LG_API}/funnels/${seed.funnelPublicId}/frame`);
+    const frameBody = (await frameRes.json()) as { frame_config: { brand_logos?: { items: Array<{ media_id?: string }> } } };
+    expect(frameBody.frame_config.brand_logos?.items[0]?.media_id).toBe(storageKey);
+
+    // The canvas lives under the "Funnel builder" tab, a SEPARATE top-level
+    // tab from "Templates" (the IA restructure this phase mandates) — same
+    // reactivation this phase's leadgen-quote-builder.spec.ts row (8) needed.
+    await page.locator('.lg-qtab[data-tab="builder"]').click();
+
+    // Renders live on the canvas (P5a's brand_logos -> renderLogoStrip <img>).
+    const img = canvas(page).locator(".lg-frame-brand-logos img.lg-logo-strip-img");
+    await expect(img).toBeVisible({ timeout: 20_000 });
+    await expect(img).toHaveAttribute("src", new RegExp(storageKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    const loaded = await img.evaluate((el) => (el as HTMLImageElement).complete && (el as HTMLImageElement).naturalWidth > 0);
+    expect(loaded, "the uploaded SVG <img> actually loaded (a valid sanitized image)").toBe(true);
+    await page.screenshot({ path: `${SHOT_DIR}/svg-upload-renders.png`, fullPage: true });
+  });
+
+  test("H · Images: author an item by URL -> round-trips + renders on the canvas; the persona picker exists and its client-side guards block BOTH zero-cost misuses without ever calling the billable endpoint", async ({ page }) => {
+    test.setTimeout(90_000);
+    await openEditor(page, seed.quotePublicId);
+    await page.locator('.lg-qtab[data-tab="templates"]').click();
+    await page.locator('[data-tplbox-pick="images"]').click();
+    const imgPanel = page.locator('[data-tplbox-panel="images"]');
+    await imgPanel.locator('[data-tplbox-add="images"]').click();
+    const row = imgPanel.locator("[data-img-item-row]").first();
+
+    // Media by URL (avoids a live OpenAI call, per the dispatch).
+    await row.locator("[data-img-item-url]").fill("https://example.com/persona-portrait.png");
+    await row.locator("[data-img-item-url]").blur();
+    await row.locator("[data-img-item-alt]").fill("Friendly advisor portrait");
+    await row.locator("[data-img-item-alt]").blur();
+    await row.locator("[data-img-item-slot]").selectOption("below_section");
+
+    // The persona dropdown carries the REAL 8 curated LEADGEN_PERSONAS keys
+    // (api/src/ai/generators/image.ts) + the Generate button is present.
+    const personaSel = row.locator("[data-img-item-persona]");
+    for (const key of ["old_person", "young_salesman", "young_woman", "mid_age_professional", "friendly_advisor", "senior_expert", "casual_millennial", "warm_grandmother"]) {
+      await expect(personaSel.locator(`option[value="${key}"]`)).toHaveCount(1);
+    }
+    const generateBtn = row.locator("[data-img-item-generate]");
+    await expect(generateBtn).toBeVisible();
+
+    // Track EVERY request to the billable endpoint — the mocked/validation
+    // path is proven WITHOUT ever letting a real one through (do NOT trigger
+    // a real billable generation in this spec, per the dispatch).
+    let personaImageRequests = 0;
+    page.on("request", (r) => {
+      if (r.url().includes("/assets/persona-image")) personaImageRequests += 1;
+    });
+
+    // Zero-cost misuse #1: no persona chosen -> inline error, no network call.
+    await generateBtn.click();
+    await expect(row.locator("[data-img-item-gen-error]")).toContainText("Choose a persona first.");
+    expect(personaImageRequests, "no request without a chosen persona").toBe(0);
+
+    // Zero-cost misuse #2: a persona IS chosen, but no preview site is
+    // selected (the default CMS-fallback state) -> a DIFFERENT inline error,
+    // STILL zero network calls — the client-side guard this dispatch asks
+    // for, proven end to end without any chance of a real OpenAI spend.
+    await personaSel.selectOption("young_woman");
+    await generateBtn.click();
+    await expect(row.locator("[data-img-item-gen-error]")).toContainText("Choose a preview site");
+    expect(personaImageRequests, "no request without a selected preview site").toBe(0);
+
+    const framePutPromise = page.waitForResponse(
+      (r) => r.request().method() === "PUT" && r.url().includes(`/funnels/${seed.funnelPublicId}/frame`),
+    );
+    await page.locator("#lg-variant-save").click();
+    expect((await framePutPromise).status()).toBe(200);
+    await expect(page.locator("#lg-quote-ok")).toBeVisible({ timeout: 20_000 });
+
+    // Server-side round-trip.
+    const frameRes = await page.request.get(`${LG_API}/funnels/${seed.funnelPublicId}/frame`);
+    const frameBody = (await frameRes.json()) as {
+      frame_config: { images?: Array<{ url?: string; alt: string; slot: string }> };
+    };
+    const saved = frameBody.frame_config.images?.[0];
+    expect(saved?.url).toBe("https://example.com/persona-portrait.png");
+    expect(saved?.alt).toBe("Friendly advisor portrait");
+    expect(saved?.slot).toBe("below_section");
+
+    // Reload -> the DOM re-populates from the SAME stored config.
+    await openEditor(page, seed.quotePublicId);
+    await page.locator('.lg-qtab[data-tab="templates"]').click();
+    await page.locator('[data-tplbox-pick="images"]').click();
+    const row2 = page.locator('[data-tplbox-panel="images"] [data-img-item-row]').first();
+    await expect(row2.locator("[data-img-item-url]")).toHaveValue("https://example.com/persona-portrait.png");
+    await expect(row2.locator("[data-img-item-alt]")).toHaveValue("Friendly advisor portrait");
+    await expect(row2.locator("[data-img-item-slot]")).toHaveValue("below_section");
+
+    // The canvas lives under the "Funnel builder" tab, a SEPARATE top-level
+    // tab from "Templates" (the IA restructure this phase mandates) — same
+    // reactivation this phase's leadgen-quote-builder.spec.ts row (8) needed.
+    await page.locator('.lg-qtab[data-tab="builder"]').click();
+
+    // Renders live on the canvas (P5a's first-class `images` element).
+    const canvasImg = canvas(page).locator(".lg-frame-image img.lg-frame-image-img");
+    await expect(canvasImg).toBeVisible({ timeout: 20_000 });
+    await expect(canvasImg).toHaveAttribute("src", "https://example.com/persona-portrait.png");
+    await page.screenshot({ path: `${SHOT_DIR}/images-box-renders.png`, fullPage: true });
+
+    expect(personaImageRequests, "the persona-image endpoint was NEVER called in this spec").toBe(0);
+  });
+});
