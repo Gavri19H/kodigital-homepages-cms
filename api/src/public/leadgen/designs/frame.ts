@@ -68,6 +68,7 @@ import type {
   FrameFooterConfig,
   FrameFreeTextBlock,
   FrameFreeTextEntry,
+  FrameImageItem,
   FramePageTarget,
   FrameHeaderConfig,
   FrameHeaderCtaConfig,
@@ -173,7 +174,9 @@ export type FrameRegionId =
   | "free_text"
   | "brand_logos"
   | "cta"
-  | "trust_row";
+  | "trust_row"
+  // Round-4 P5a follow-on (10G / Image24).
+  | "image";
 
 // §4.3 arrangement: whether the template's top band is a bare "logo" region
 // (centered / full-background rows) or a "header" region (site-header rows).
@@ -732,6 +735,48 @@ function renderTrustRow(row: FrameTrustRowConfig): string {
   return region("trust_row", `lg-frame-trustrow${alignClass(row.align)}`, items, `${gating.attrs}${gating.hidden ? " hidden" : ""}`);
 }
 
+// Round-4 P5a follow-on (10G / Image24) — a first-class PLACED IMAGE. P5c's AI
+// persona-image generator (generatePersonaImage -> R2) had no dedicated place
+// to land; it was riding a brand_logos item, which is semantically wrong (a
+// logo STRIP renders N logos; a persona portrait is ONE placed visual,
+// optionally with a mouse-over caption). Reuses mediaUrl() so BOTH a storage-
+// key `media_id` (e.g. the persona endpoint's `storage_key`) and a direct
+// `url` (its `url: "/media/<key>"` response field) resolve identically — the
+// SAME dual-shape as renderBrandLogos above. The hover caption is the SAME
+// CSS-only pattern as renderTrustRow (title + focusable [tabindex="0"] +
+// role="tooltip", no JS). Independently slotted + page-targeted per item
+// (mirrors renderFreeTextEntry), never emitted with no resolvable src.
+function renderImageElement(item: FrameImageItem): string {
+  const src = isNonEmptyStr(item.media_id)
+    ? mediaUrl(item.media_id as string)
+    : isNonEmptyStr(item.url)
+      ? (item.url as string)
+      : null;
+  if (src === null) return "";
+  const size = item.size ?? "m";
+  const hasTip = isNonEmptyStr(item.tooltip);
+  const tipId = `lg-img-tip-${item.id}`;
+  const wrapAttrs = hasTip
+    ? ` tabindex="0" aria-describedby="${escapeHtml(tipId)}" title="${escapeHtml(String(item.tooltip))}"`
+    : "";
+  const tipEl = hasTip
+    ? `<span class="lg-frame-image-tip" role="tooltip" id="${escapeHtml(tipId)}">${escapeHtml(String(item.tooltip))}</span>`
+    : "";
+  const inner =
+    `<span class="lg-frame-image-wrap"${wrapAttrs}>` +
+    `<img class="lg-frame-image-img" src="${escapeHtml(src)}" alt="${escapeHtml(item.alt)}" loading="lazy">` +
+    tipEl +
+    `</span>`;
+  const gating = pageTargetGating(item.pages);
+  const classes = `lg-frame-image lg-frame-image--${size}` + alignClass(item.align);
+  return region(
+    "image",
+    classes,
+    inner,
+    `${attrKV("data-image-id", item.id)}${gating.attrs}${gating.hidden ? " hidden" : ""}`,
+  );
+}
+
 // 10C CTA/phone slot. tel: derivation mirrors renderHeaderCta (a bare number
 // gets a tel: prefix; a phone-only slot defaults the label to "Call now").
 // CONDITIONAL DISPLAY (roast MAJOR-2): a slot with a `condition` server-renders
@@ -927,6 +972,8 @@ function renderSlotElements(
   const bl = frame.brand_logos;
   if (bl !== undefined && bl.enabled && (bl.slot ?? "below_section") === slot) parts.push(renderBrandLogos(bl, design));
   for (const tr of frame.trust_rows ?? []) if ((tr.slot ?? "below_section") === slot) parts.push(renderTrustRow(tr));
+  // Round-4 P5a follow-on (10G / Image24): first-class placed images.
+  for (const img of frame.images ?? []) if (img.slot === slot) parts.push(renderImageElement(img));
   return parts.join("");
 }
 function renderCtasAtSlot(frame: EffectiveFrameConfig, slot: FrameCtaSlotConfig["slot"]): string {

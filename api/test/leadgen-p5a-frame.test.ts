@@ -80,6 +80,7 @@ const P5A_MARKERS = [
   "lg-frame-logo-hint",
   "lg-steps--numbered",
   "lg-frame-progress--icon_on_track",
+  "lg-frame-image", // follow-on (10G / Image24)
 ];
 
 describe("P5a back-compat — old configs render byte-identical (no P5a markup leaks)", () => {
@@ -104,6 +105,7 @@ describe("P5a back-compat — old configs render byte-identical (no P5a markup l
     expect(composed({ brand_logos: { enabled: false, items: [], layout: "row" } }, 3)).toBe(base);
     expect(composed({ disclosure: { entries: [] } }, 3)).toBe(base);
     expect(composed({ footer: { blocks: [] } }, 3)).toBe(base);
+    expect(composed({ images: [] }, 3)).toBe(base); // follow-on (10G / Image24)
   });
 
   it("a legacy footer (no blocks) renders the FooterBar, never footer2", () => {
@@ -557,5 +559,121 @@ describe("P5a 10B site-logo preview hint", () => {
     const liveExplicitFalse = composed({}, 2, { adminPreview: false, branding: BRANDING_NO_LOGO });
     expect(live).not.toContain("lg-frame-logo-hint");
     expect(live).toBe(liveExplicitFalse);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P5a follow-on (10G / Image24) — first-class placed images. Previously an AI
+// persona image had no dedicated element and rode a brand_logos item (wrong:
+// a logo STRIP vs ONE placed visual). `images[]` is the general element (a
+// persona image is just an image with a generated ref + optional caption).
+// ---------------------------------------------------------------------------
+
+describe("P5a follow-on 10G images (persona / placed image)", () => {
+  it("valid image (url ref) validates zero problems + renders an <img> with alt", () => {
+    const cfg = {
+      images: [{ id: "img1", url: "/media/ai/site1/persona/warm-elder.png", alt: "A warm, trustworthy senior", slot: "above_section" as const }],
+    };
+    expect(validateFrameConfig({ version: 1, template: "centered", ...cfg }).problems).toEqual([]);
+    const html = composed(cfg as FrameConfig);
+    expect(html).toContain('data-frame-region="image"');
+    expect(html).toContain('data-image-id="img1"');
+    expect(html).toContain('src="/media/ai/site1/persona/warm-elder.png"');
+    expect(html).toContain('alt="A warm, trustworthy senior"');
+    expect(html).toContain("lg-frame-image--m"); // default size
+  });
+
+  it("a bare storage-key media_id resolves through mediaUrl() (the SAME dual-shape as brand_logos)", () => {
+    const html = composed({
+      images: [{ id: "img2", media_id: "ai/site1/persona/young-salesman.png", alt: "A young salesman", slot: "below_section" }],
+    } as FrameConfig);
+    expect(html).toContain('src="/media/ai/site1/persona/young-salesman.png"');
+  });
+
+  it("a hover tooltip renders the SAME CSS-only pattern as trust rows (title + focusable + role=tooltip)", () => {
+    const html = composed({
+      images: [{ id: "img3", url: "/media/p.png", alt: "Persona", slot: "above_header", tooltip: "Secured & verified" }],
+    } as FrameConfig);
+    expect(html).toContain('title="Secured &amp; verified"');
+    expect(html).toContain('tabindex="0"');
+    expect(html).toContain('role="tooltip"');
+    expect(html).toContain(">Secured &amp; verified</span>");
+  });
+
+  it("NO tooltip markup when tooltip is absent", () => {
+    const html = composed({ images: [{ id: "img4", url: "/media/p.png", alt: "Persona", slot: "above_header" }] } as FrameConfig);
+    expect(html).not.toContain("lg-frame-image-tip");
+    expect(html).not.toContain('role="tooltip"');
+  });
+
+  it("size + align are authorable + CSS-backed", () => {
+    const html = composed({
+      images: [{ id: "img5", url: "/media/p.png", alt: "Persona", slot: "below_footer", size: "l", align: "right" }],
+    } as FrameConfig);
+    expect(html).toContain("lg-frame-image--l");
+    expect(html).toContain("lg-frame-el--align-right");
+    expect(FRAME_CSS).toContain(".lg-frame-image--l .lg-frame-image-img");
+    expect(FRAME_CSS).toContain(".lg-frame-image-wrap:hover .lg-frame-image-tip");
+  });
+
+  it("page targeting reuses the SAME data-show-on/data-frame-pages machinery as free_text", () => {
+    const imgTag = (html: string, id: string): string => {
+      const m = html.match(new RegExp(`<div[^>]*data-image-id="${id}"[^>]*>`));
+      expect(m, `image region ${id}`).not.toBeNull();
+      return (m as RegExpMatchArray)[0];
+    };
+    const first = imgTag(
+      composed({ images: [{ id: "pf", url: "/media/p.png", alt: "x", slot: "above_section", pages: { mode: "first" } }] } as FrameConfig),
+      "pf",
+    );
+    expect(first).toContain('data-show-on="first"');
+    const rangeExcl = imgTag(
+      composed({ images: [{ id: "pr", url: "/media/p.png", alt: "x", slot: "above_section", pages: { mode: "range", from: 2, to: 3 } }] } as FrameConfig),
+      "pr",
+    );
+    expect(rangeExcl).toContain('data-frame-pages="range:2-3"');
+    expect(rangeExcl).toContain("hidden");
+  });
+
+  it("REJECTS an image with neither media_id nor a safe url, no alt, and a bad slot", () => {
+    const bad = validateFrameConfig({
+      version: 1,
+      template: "centered",
+      images: [{ id: "bad1", slot: "sidebar" }],
+    });
+    expect(bad.config).toBeNull();
+    expect(bad.problems.some((p) => p.path === "frame.images[0]")).toBe(true); // no media_id/url
+    expect(bad.problems.some((p) => p.path === "frame.images[0].alt")).toBe(true);
+    expect(bad.problems.some((p) => p.path === "frame.images[0].slot")).toBe(true);
+  });
+
+  it("REJECTS an unsafe url (javascript:) and a missing id", () => {
+    const bad = validateFrameConfig({
+      version: 1,
+      template: "centered",
+      images: [{ url: "javascript:alert(1)", alt: "x", slot: "above_section" }],
+    });
+    expect(bad.config).toBeNull();
+    expect(bad.problems.some((p) => p.path === "frame.images[0].id")).toBe(true);
+    expect(bad.problems.some((p) => p.path === "frame.images[0]")).toBe(true); // the unsafe url doesn't count as a resolvable src
+  });
+
+  it("REJECTS a bad size / align / non-string tooltip", () => {
+    const bad = validateFrameConfig({
+      version: 1,
+      template: "centered",
+      images: [{ id: "x", url: "/media/p.png", alt: "x", slot: "above_section", size: "xxl", align: "diagonal", tooltip: 123 }],
+    });
+    expect(bad.config).toBeNull();
+    expect(bad.problems.some((p) => p.path === "frame.images[0].size")).toBe(true);
+    expect(bad.problems.some((p) => p.path === "frame.images[0].align")).toBe(true);
+    expect(bad.problems.some((p) => p.path === "frame.images[0].tooltip")).toBe(true);
+  });
+
+  it("an image with no resolvable src renders NOTHING (fail-safe, never a broken <img>)", () => {
+    // Bypass validation (a hand-built config) to prove the RENDERER's own
+    // defensive filter, mirroring renderBrandLogos' fail-safe discipline.
+    const html = composed({ images: [{ id: "x", alt: "x", slot: "above_section" }] } as unknown as FrameConfig);
+    expect(html).not.toContain("lg-frame-image");
   });
 });

@@ -2019,6 +2019,46 @@ export function funnelChromeCss(
       }),
       rule(`${scope} .lg-frame-trustrow-item:hover .lg-frame-trustrow-tip`, { opacity: "1" }),
       rule(`${scope} .lg-frame-trustrow-item:focus .lg-frame-trustrow-tip`, { opacity: "1" }),
+      // ---- 10G images (follow-on): placed persona/authored image -----------
+      rule(`${scope} .lg-frame-image`, {
+        "max-width": content.maxWidth,
+        margin: `${spacing.md} auto 0`,
+        padding: `0 ${content.paddingDesktop}`,
+        "box-sizing": "border-box",
+        "text-align": "center",
+      }),
+      rule(`${scope} .lg-frame-image-wrap`, { position: "relative", display: "inline-block" }),
+      rule(`${scope} .lg-frame-image-img`, {
+        display: "block",
+        margin: "0 auto",
+        "border-radius": radius.md,
+        "object-fit": "cover",
+      }),
+      // size steps — structural (no dedicated "portrait" token exists; mirrors
+      // the header-logo s/m/l precedent).
+      rule(`${scope} .lg-frame-image--s .lg-frame-image-img`, { width: "96px", height: "96px" }),
+      rule(`${scope} .lg-frame-image--m .lg-frame-image-img`, { width: "160px", height: "160px" }),
+      rule(`${scope} .lg-frame-image--l .lg-frame-image-img`, { width: "240px", height: "240px" }),
+      // CSS-only hover/focus caption — the SAME pattern as .lg-frame-trustrow-tip.
+      rule(`${scope} .lg-frame-image-tip`, {
+        position: "absolute",
+        bottom: "100%",
+        left: "50%",
+        transform: "translateX(-50%)",
+        "margin-bottom": spacing.xs,
+        background: color.primaryDark,
+        color: color.card,
+        padding: `${spacing.xs} ${spacing.sm}`,
+        "border-radius": radius.sm,
+        "font-size": "0.75rem",
+        "white-space": "nowrap",
+        opacity: "0",
+        "pointer-events": "none",
+        transition: "opacity 120ms",
+        "z-index": "5",
+      }),
+      rule(`${scope} .lg-frame-image-wrap:hover .lg-frame-image-tip`, { opacity: "1" }),
+      rule(`${scope} .lg-frame-image-wrap:focus .lg-frame-image-tip`, { opacity: "1" }),
       // ---- 10H-adjacent disclosure v2 --------------------------------------
       rule(`${scope} .lg-frame-disc2-region`, {
         "max-width": content.maxWidth,

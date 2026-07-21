@@ -411,6 +411,34 @@ export interface FrameTrustRowConfig {
   pages?: FramePageTarget;
 }
 
+// Round-4 P5a follow-on (10G / Image24) — a first-class PLACED IMAGE element.
+// P5c's AI persona-image generator (generatePersonaImage -> R2) had no
+// dedicated place to land; it was riding a brand_logos item, which is
+// semantically wrong (a logo STRIP renders N logos in a row/grid; a persona
+// portrait is ONE placed visual, optionally with a mouse-over caption — the
+// Image24 "secured" tooltip). `images` is the GENERAL name (a persona image is
+// just an image with a generated ref + an optional hover caption) so any
+// authored/generated image can use it, not only AI personas. media_id/url is
+// the SAME dual-shape as FrameBrandLogoItem/FrameTrustLogo: `media_id` is a
+// STORAGE KEY string (resolved via mediaUrl(), which also passes an
+// already-rooted `/media/...` url or an absolute url through unchanged) — NOT
+// the numeric media-table row id some upload endpoints separately return (see
+// frame.ts renderImageElement + the P5b picker-hook note in the dispatch
+// report). Independently slotted per item (mirrors free_text, not the
+// single-slot brand_logos/trust_rows shape) since an author may place several
+// images across different regions.
+export interface FrameImageItem {
+  id: string;
+  media_id?: string | null;
+  url?: string | null;
+  alt: string;
+  slot: (typeof FRAME_FREE_TEXT_SLOTS)[number];
+  size?: (typeof FRAME_SIZES)[number];
+  align?: (typeof FRAME_ELEMENT_ALIGNS)[number];
+  tooltip?: string | null; // CSS-only hover caption — the disclosure v2 / trust-row pattern
+  pages?: FramePageTarget;
+}
+
 // The COMPLETE effective frame configuration (what effectiveFrame returns and
 // what renderQuoteFrame consumes).
 export interface EffectiveFrameConfig {
@@ -434,6 +462,8 @@ export interface EffectiveFrameConfig {
   brand_logos?: FrameBrandLogosConfig;
   cta_slots?: FrameCtaSlotConfig[];
   trust_rows?: FrameTrustRowConfig[];
+  // Round-4 P5a follow-on (10G / Image24): first-class placed images.
+  images?: FrameImageItem[];
 }
 
 // The STORED shape (`leadgen_funnels.frame_config_json`): every group optional
@@ -1235,11 +1265,49 @@ function validateTrustRows(value: unknown, push: FramePush): void {
   });
 }
 
+// 10G images (follow-on) — top-level list of independently-slotted placed
+// images (a first-class element; mirrors free_text's per-item slot).
+function validateImages(value: unknown, push: FramePush): void {
+  const base = "frame.images";
+  if (!Array.isArray(value)) {
+    push("error", base, "Images must be a list.");
+    return;
+  }
+  value.forEach((item, i) => {
+    const p = `${base}[${i}]`;
+    if (!isRecord(item)) {
+      push("error", p, "Each image must be an entry.");
+      return;
+    }
+    if (!isNonEmptyString(item["id"])) push("error", `${p}.id`, "An image needs an id.");
+    const hasMedia = isNonEmptyString(item["media_id"]);
+    const hasUrl = isNonEmptyString(item["url"]) && SAFE_HREF_RE.test(String(item["url"]).trim());
+    if (!hasMedia && !hasUrl) {
+      push("error", p, "An image needs an uploaded image (media id) or a safe image URL.");
+    }
+    if (!isNonEmptyString(item["alt"])) push("error", `${p}.alt`, "An image needs alt text.");
+    if (!inEnum(item["slot"], FRAME_FREE_TEXT_SLOTS)) {
+      push("error", `${p}.slot`, `An image slot must be one of: ${FRAME_FREE_TEXT_SLOTS.join(", ")}.`);
+    }
+    if (item["size"] !== undefined && !inEnum(item["size"], FRAME_SIZES)) {
+      push("error", `${p}.size`, `An image size must be one of: ${FRAME_SIZES.join(", ")}.`);
+    }
+    if (item["align"] !== undefined && !inEnum(item["align"], FRAME_ELEMENT_ALIGNS)) {
+      push("error", `${p}.align`, `An image alignment must be one of: ${FRAME_ELEMENT_ALIGNS.join(", ")}.`);
+    }
+    if (item["tooltip"] !== undefined && item["tooltip"] !== null && typeof item["tooltip"] !== "string") {
+      push("error", `${p}.tooltip`, "An image tooltip must be plain text.");
+    }
+    if (item["pages"] !== undefined) validateFramePageTarget(item["pages"], `${p}.pages`, push);
+  });
+}
+
 const FRAME_TOPLEVEL_CUSTOM: Record<string, (value: unknown, push: FramePush) => void> = {
   free_text: validateFreeText,
   brand_logos: validateBrandLogos,
   cta_slots: validateCtaSlots,
   trust_rows: validateTrustRows,
+  images: validateImages,
 };
 
 export function validateFrameConfig(raw: unknown): FrameConfigValidation {

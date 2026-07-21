@@ -152,6 +152,12 @@ const RICH_FRAME: Record<string, unknown> = {
   trust_rows: [
     { slot: "below_section", items: [{ icon: "shield-check", text: "Bank-level security", tooltip: "256-bit AES encryption" }, { icon: "star", text: "Rated 4.9/5" }] },
   ],
+  // Follow-on (10G / Image24): a first-class placed image (e.g. a P5c AI
+  // persona portrait) — a plain url ref here (the frame renderer doesn't care
+  // where the ref came from), with a mouse-over caption + page targeting.
+  images: [
+    { id: "img_persona", url: "/media/ai/persona/warm-elder.png", alt: "A warm, trustworthy insurance advisor", slot: "above_section", size: "m", tooltip: "Secured & verified", pages: { mode: "first" } },
+  ],
   disclosure: {
     enabled: true,
     entries: [
@@ -276,6 +282,32 @@ test.describe("P5a — authorable frame elements v2 on the live funnel", () => {
     expect(footerBg).not.toBe("rgba(0, 0, 0, 0)"); // a real scoped color, not transparent
     expect(footerBg).not.toBe(pageBg);
     await page.screenshot({ path: `${SHOT_DIR}/footer.png`, fullPage: true });
+  });
+
+  // Follow-on (10G / Image24): a first-class placed image (e.g. a P5c AI
+  // persona portrait) renders a real <img> with alt + a CSS-only mouse-over
+  // caption, and honors page targeting via the SAME data-show-on machinery
+  // already proven live for free text.
+  test("10G images (follow-on): a placed image with alt + hover caption; page targeting honored", async ({ page }) => {
+    await page.goto(shellUrl(rich), { waitUntil: "load" });
+    await ready(page);
+    const img = page.locator('[data-image-id="img_persona"]');
+    await expect(img).toBeVisible();
+    await expect(img.locator("img.lg-frame-image-img")).toHaveAttribute("alt", "A warm, trustworthy insurance advisor");
+    await expect(img.locator("img.lg-frame-image-img")).toHaveAttribute("src", "/media/ai/persona/warm-elder.png");
+    const wrap = img.locator(".lg-frame-image-wrap");
+    const tip = wrap.locator(".lg-frame-image-tip");
+    await expect(tip).toHaveText("Secured & verified");
+    expect(await tip.evaluate((el) => getComputedStyle(el).opacity)).toBe("0");
+    await wrap.hover();
+    await expect.poll(async () => tip.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
+    await page.screenshot({ path: `${SHOT_DIR}/image-tooltip.png` });
+
+    // page targeting (mode:"first"): visible on page 1, hidden on page 2 —
+    // the SAME [data-show-on] engine toggle proven for free text.
+    await answerPageAndContinue(page);
+    await expect(page.locator("[data-lg-progress]").first()).toHaveAttribute("data-lg-progress-current", "2");
+    await expect(img).toBeHidden();
   });
 });
 
