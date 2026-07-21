@@ -13,7 +13,14 @@
 // (03 §8.1): /offers/search is registered BEFORE /offers/:id.
 
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import type { Env } from "../../env";
+import {
+  BRAND_LOGO_UPLOAD_LIMIT_BYTES,
+  PERSONA_BODY_LIMIT_BYTES,
+  generatePersonaImageHandler,
+  uploadBrandLogoHandler,
+} from "./assets-handlers";
 import {
   createOfferHandler,
   createPayloadSchemaFromExampleHandler,
@@ -296,6 +303,22 @@ routes.post("/media-platforms", createMediaPlatformHandler);
 routes.get("/media-platforms/:id", getMediaPlatformHandler);
 routes.patch("/media-platforms/:id", patchMediaPlatformHandler);
 routes.delete("/media-platforms/:id", deleteMediaPlatformHandler);
+
+// --- Assets (Round-4 P5c) — 10F sanitized brand-logo upload + 10G AI persona -
+// Own top-level /assets prefix (no /:id sibling to order against). The upload
+// route runs the SVG sanitizer before storage; the persona route enforces a
+// per-site monthly quota BEFORE any OpenAI spend. Per-route bodyLimit mirrors
+// the ai-api.ts precedent (413 on an oversize body).
+routes.post(
+  "/assets/brand-logo",
+  bodyLimit({ maxSize: BRAND_LOGO_UPLOAD_LIMIT_BYTES }),
+  uploadBrandLogoHandler,
+);
+routes.post(
+  "/assets/persona-image",
+  bodyLimit({ maxSize: PERSONA_BODY_LIMIT_BYTES }),
+  generatePersonaImageHandler,
+);
 
 const leadgenApi = new Hono<{ Bindings: Env }>();
 leadgenApi.route("/api/admin/leadgen", routes);
