@@ -1005,7 +1005,27 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
     }
 
     // Cross-check the section-level DEFAULT columns picker carries the same ask.
-    await page.locator('[data-studio-act="group-columns"]').click().catch(() => undefined);
+    // P7fix-columns (own-hand read): this used to also click
+    // [data-studio-act="group-columns"] first — that control lives inside the
+    // canvas toolbar's collapsed "More" popover (data-studio-more-panel,
+    // ui-section-studio.ts ~1635), which this test never opens (no prior click
+    // on data-studio-more-toggle). Playwright's actionability wait for an
+    // element whose ANCESTOR carries `hidden` blocks for the full default
+    // action timeout before the outer .catch() ever sees a rejection —
+    // eating the whole 30s test budget and leaving the page mid-teardown for
+    // the next locator call ("Target page, context or browser has been
+    // closed"), reproduced deterministically pre-fix. The click also never
+    // helped reach [data-section-columns-default] in the first place: that
+    // control (renderSectionOverridesPanel) sits in the ALSO-hidden Design-
+    // overrides drawer panel (itself gated behind #lg-qa-tools-toggle, a
+    // second, unrelated precondition) — `.click()` on group-columns has no
+    // path to either. locator.count()/.evaluateAll() below do NOT require
+    // visibility (unlike .click()), so they already see the control exactly
+    // as SSR'd, hidden ancestor or not — own-hand curl-verified: a fresh
+    // studio page's raw HTML carries
+    // `id="lg-section-columns-default" ...><option value="1">1` unconditionally.
+    // Removing the dead click makes this cross-check assert for real instead
+    // of hanging before ever reaching it.
     const sectionDefaultSelect = page.locator("[data-section-columns-default]");
     if (await sectionDefaultSelect.count()) {
       const defaultOptionValues = await sectionDefaultSelect.locator("option").evaluateAll((opts) => opts.map((o) => (o as HTMLOptionElement).value));

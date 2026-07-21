@@ -1748,7 +1748,7 @@ export function curatedTokenOptions(design: FunnelDesign): Record<string, TokenO
   ];
   return {
     iconColor: colorList,
-    columns: [2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) })),
+    columns: [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) })),
     featureColor: colorList,
     rangeColor: colorList,
     buttonBackground: colorList,
@@ -1765,7 +1765,7 @@ export function curatedTokenOptions(design: FunnelDesign): Record<string, TokenO
 // their disposition below; only the genuinely-consumed, correctly-gated
 // rows remain (iconColor/rangeColor/columns/gridGap).
 const TOKEN_CONTROL_LABELS: Record<string, string> = {
-  columns: "Card columns (2–5)",
+  columns: "Card columns (1–5)",
   gridGap: "Answer-grid gap token",
 };
 
@@ -2732,7 +2732,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <div class="lg-inspector-field" data-toolbar-choice-layout hidden>
           <label class="form-label">Card layout</label>
           <div style="display:flex;gap:8px">
-            <select id="lg-style-choice-columns" class="form-input" data-inspector-override="columns" aria-label="Card columns"><option value="">Columns: inherit</option>${options([2, 3, 4, 5])}</select>
+            <select id="lg-style-choice-columns" class="form-input" data-inspector-override="columns" aria-label="Card columns"><option value="">Columns: inherit</option>${options([1, 2, 3, 4, 5])}</select>
             <select id="lg-style-choice-gap" class="form-input" data-inspector-override="gridGap" aria-label="Answer-grid gap token"><option value="">Gap: inherit</option>${(curatedTokenOptions(design)["gridGap"] ?? []).map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join("")}</select>
           </div>
         </div>
@@ -2971,7 +2971,7 @@ function renderSectionOverridesPanel(): string {
   <div class="studio-section-roles">${rows}</div>
   <div class="form-group lg-inspector-field">
     <label class="form-label" for="lg-section-columns-default">Default answer columns</label>
-    <select id="lg-section-columns-default" class="form-input" data-section-columns-default><option value="">Inherited</option>${options([2, 3, 4, 5])}</select>
+    <select id="lg-section-columns-default" class="form-input" data-section-columns-default><option value="">Inherited</option>${options([1, 2, 3, 4, 5])}</select>
   </div>
   <div class="form-group lg-inspector-field">
     <label class="form-label" for="lg-section-gap-default">Default answer-grid gap</label>
