@@ -19,8 +19,14 @@ import type { DefaultFunnelDesign } from "./tokens";
 // the SAME FunnelDesign structure with resolved/scaled leaf values) + the role
 // vocabulary the frame-region rules resolve through. theme.ts has no runtime
 // import back into this module (its registry import is type-only) — no cycle.
-import { FUNNEL_TOKEN_ROLES, baseTokenForRole } from "../theme";
-import type { EffectiveFunnelDesign } from "../theme";
+// P6: readButtonStyle reads the theme's resolved button-style triple off the
+// design stash (Symbol-keyed; undefined for a legacy/un-themed design).
+import { FUNNEL_TOKEN_ROLES, baseTokenForRole, readButtonStyle } from "../theme";
+import type { EffectiveButtonStyle, EffectiveFunnelDesign } from "../theme";
+// P6 self-hosted fonts (build-time-vendored WOFF2 Latin subsets, base64 data:
+// URLs — ZERO external font requests). selfHostedFontFaceCss emits the
+// @font-face blocks for a given set of CSS family names.
+import { LEADGEN_SELF_HOSTED_FONT_FAMILIES, selfHostedFontFaceCss } from "../fonts.generated";
 
 // The scope every rule is nested under. Stage B sets this attribute on the
 // funnel shell root; the same attribute value is the design id.
@@ -45,6 +51,144 @@ function rule(selector: string, pairs: Record<string, string>): string {
 // the render/parity regression suites embed the current CSS).
 export interface FunnelChromeCssOpts {
   frameRegions?: boolean;
+}
+
+// P6 (deliverable 1): the resolved-design font slots that may carry a
+// self-hosted family stack (the applyDisplayFont + applyBodyFont targets in
+// theme.ts). funnelChromeCss scans these for a self-hosted CSS family name and
+// emits ONLY those families' @font-face — so a live page requests ZERO
+// external fonts, and a legacy design (Sora/Literata/Newsreader — none
+// self-hosted) matches nothing and emits nothing (byte-identical to pre-P6).
+const FONT_SLOT_PATHS: ReadonlyArray<readonly [group: string, key: string]> = [
+  ["page", "fontFamily"],
+  ["page", "fontDisplay"],
+  ["header", "logoFontFamily"],
+  ["headline", "fontFamily"],
+  ["rangeQuestion", "valueFontFamily"],
+  ["successState", "headingFontFamily"],
+  ["primaryButton", "fontFamily"],
+];
+
+// Scan the resolved design's font slots and return the @font-face CSS for
+// every self-hosted family actually referenced (quoted family name, as
+// THEME_FONT_STACKS emits). "" when none are referenced.
+function selfHostedFontFacesForDesign(design: DefaultFunnelDesign | EffectiveFunnelDesign): string {
+  const referenced = new Set<string>();
+  const d = design as unknown as Record<string, Record<string, unknown> | undefined>;
+  for (const [group, key] of FONT_SLOT_PATHS) {
+    const stack = d[group]?.[key];
+    if (typeof stack !== "string") continue;
+    for (const family of LEADGEN_SELF_HOSTED_FONT_FAMILIES) {
+      if (stack.includes(`'${family}'`)) referenced.add(family);
+    }
+  }
+  return selfHostedFontFaceCss(referenced);
+}
+
+// P6 (deliverable 3): the THEME-level button-style rules (Images 38-40). These
+// are ADDITIVE, higher-specificity rules keyed on the data attributes presets
+// stamps (data-btn-fill / data-btn-layout / data-card-select) ONLY when a
+// theme opts into a non-default look — the base .lg-btn / .lg-btn-answer /
+// .lg-card rules are NEVER edited, so a theme without a button style (and every
+// legacy funnel) emits none of these and stays byte-identical. Pushed into the
+// base `out`/`mobile` arrays before the frame-region block, so the no-frame
+// sheet stays a byte-stable prefix of the framed sheet (13 §13.1).
+function pushButtonStyleRules(
+  scope: string,
+  design: DefaultFunnelDesign | EffectiveFunnelDesign,
+  bs: EffectiveButtonStyle,
+  out: string[],
+): void {
+  const { radius, shadow, color, spacing } = design;
+
+  // FILL — outline: transparent primary/continue with a coloured 2px border,
+  // and a heavier accent border on answer chips.
+  if (bs.fill === "outline") {
+    out.push(
+      rule(`${scope} .lg-continue[data-btn-fill="outline"],${scope} .lg-auto-advance[data-btn-fill="outline"]`, {
+        background: "transparent",
+        color: color.primary,
+        border: `2px solid ${color.primary}`,
+      }),
+      rule(`${scope} .lg-answer-group[data-btn-fill="outline"] .lg-btn-answer`, {
+        "border-width": "2px",
+        "border-color": color.primary,
+      }),
+    );
+  }
+  // FILL — soft (Image 39): pill radius + a soft elevation shadow on the
+  // primary/continue, answer chips, and cards ("soft-shadow pill stacks").
+  if (bs.fill === "soft") {
+    out.push(
+      rule(`${scope} .lg-continue[data-btn-fill="soft"],${scope} .lg-auto-advance[data-btn-fill="soft"]`, {
+        "border-radius": radius.full,
+        "box-shadow": shadow.lg,
+      }),
+      rule(`${scope} .lg-answer-group[data-btn-fill="soft"] .lg-btn-answer`, {
+        "border-radius": radius.full,
+        "box-shadow": shadow.lg,
+      }),
+      rule(`${scope} .lg-card-grid[data-btn-fill="soft"] .lg-card`, {
+        "border-radius": radius.lg,
+        "box-shadow": shadow.lg,
+      }),
+    );
+  }
+  // LAYOUT — list (Image 38): full-width, left-aligned, single-column
+  // "list-buttons". On an ANSWER GROUP the chips become a single left-aligned
+  // column (one line — the label). On a CARD GRID (which legitimately renders
+  // title + subtitle) the cards become a single left-aligned column of TWO-LINE
+  // list rows (icon + title + subtitle) — the operator's Image38 two-line list.
+  if (bs.layout === "list") {
+    out.push(
+      rule(`${scope} .lg-answer-group[data-btn-layout="list"]`, { "grid-template-columns": "1fr" }),
+      rule(`${scope} .lg-answer-group[data-btn-layout="list"] .lg-btn-answer`, {
+        "justify-content": "flex-start",
+        "text-align": "left",
+        "min-height": "56px",
+        padding: `${spacing.md} ${spacing.lg}`,
+      }),
+      rule(`${scope} .lg-card-grid[data-btn-layout="list"]`, { "grid-template-columns": "1fr" }),
+      rule(`${scope} .lg-card-grid[data-btn-layout="list"] .lg-card`, {
+        "align-items": "flex-start",
+        "justify-content": "center",
+        "text-align": "left",
+      }),
+    );
+  }
+  // SELECTED — mark (Image 40): a bigger selected state (heavier border + a
+  // slight scale-up) plus a corner check badge, shown only when selected.
+  if (bs.selected === "mark") {
+    const g = (leaf: string): string => `${scope} .lg-card-grid[data-card-select="mark"] ${leaf}`;
+    out.push(
+      rule(
+        `${g(".lg-card.lg-selected")},${g('.lg-card[aria-checked="true"]')},${g('.lg-card[data-selected="true"]')}`,
+        { "border-width": "3px", transform: "scale(1.03)" },
+      ),
+      // check badge sits top-LEFT (the .lg-card-badge occupies top-right), so a
+      // card carrying both a badge and a mark-selection never overlaps.
+      rule(g(".lg-card-check"), {
+        position: "absolute",
+        top: spacing.xs,
+        left: spacing.xs,
+        display: "none",
+        "align-items": "center",
+        "justify-content": "center",
+        width: "22px",
+        height: "22px",
+        "border-radius": radius.full,
+        background: color.primary,
+        color: color.card,
+        "font-size": "0.75rem",
+        "font-weight": "700",
+        "line-height": "1",
+      }),
+      rule(
+        `${g(".lg-card.lg-selected .lg-card-check")},${g('.lg-card[aria-checked="true"] .lg-card-check')},${g('.lg-card[data-selected="true"] .lg-card-check')}`,
+        { display: "flex" },
+      ),
+    );
+  }
 }
 
 // tokens → the full scoped chrome stylesheet for one funnel design. `scope`
@@ -1633,6 +1777,17 @@ export function funnelChromeCss(
     rule(`${scope}.lg-preview .lg-mqg:has(.studio-mqg-empty) .lg-mqg-empty`, { display: "none" }),
   );
 
+  // ---- P6 theme button-style rules (deliverable 3) ------------------------
+  // Emitted here — after every base per-component rule, BEFORE the opt-in
+  // frame-region block — so the no-frame sheet stays a byte-stable PREFIX of
+  // the framed sheet (13 §13.1). GATED on the theme's resolved button-style
+  // stash: undefined (every legacy/un-themed funnel, and any theme that picked
+  // no button look) ⇒ nothing pushed ⇒ byte-identical to pre-P6.
+  const buttonStyle = readButtonStyle(design);
+  if (buttonStyle !== undefined) {
+    pushButtonStyleRules(scope, design, buttonStyle, out);
+  }
+
   // ---- v2.5 frame-region rules (13 §13.1, opt-in — see FunnelChromeCssOpts).
   // Every value is a design token or a role resolved through the §9.1 mapping;
   // the only hand-written bits are structural (positioning/z-index/step sizes
@@ -2351,9 +2506,15 @@ export function funnelChromeCss(
     }
   }
 
-  // ---- assemble: base rules + a single mobile media query -----------------
+  // ---- assemble: [self-hosted @font-face] + base rules + one mobile query --
+  // P6 (deliverable 1): the referenced self-hosted families' @font-face lead
+  // the sheet (same-origin data: URLs — ZERO external font requests). "" for a
+  // legacy design (no self-hosted family referenced), and the prepend is
+  // SKIPPED entirely when empty so the leading bytes stay byte-identical to
+  // pre-P6 (never a stray leading newline).
+  const fontFaces = selfHostedFontFacesForDesign(design);
   const base = out.filter((r) => r !== "").join("\n");
   const mobileCss = mobile.filter((r) => r !== "").join("\n");
-  if (mobileCss === "") return base;
-  return `${base}\n@media (max-width: ${breakpoints.mobileMax}){\n${mobileCss}\n}`;
+  const sheet = mobileCss === "" ? base : `${base}\n@media (max-width: ${breakpoints.mobileMax}){\n${mobileCss}\n}`;
+  return fontFaces === "" ? sheet : `${fontFaces}\n${sheet}`;
 }

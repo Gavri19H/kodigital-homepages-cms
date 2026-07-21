@@ -75,7 +75,7 @@ import type {
 // build-time-vendored Tabler (MIT) subset (scripts/build-icons.mjs output) —
 // see fieldLeadingIcon / the renderCardGrid iconSlot below.
 import { LEADGEN_ICONS, leadgenIconSvg } from "./icons.generated";
-import { baseTokenForRole, isFunnelTokenRole } from "../designs/theme";
+import { baseTokenForRole, isFunnelTokenRole, readButtonStyle } from "../designs/theme";
 import type { FunnelTokenRole, ThemeRecordControls } from "../designs/theme";
 import type { LeadgenContinueMode } from "../../../admin/leadgen/db-types";
 
@@ -811,6 +811,26 @@ function answerGroupRootStyle(
   });
 }
 
+// P6 (deliverable 3): the button-style data attributes styles.ts's theme
+// button-style rules key on. Read off the design stash (readButtonStyle) —
+// undefined for a legacy/un-themed design ⇒ "" ⇒ byte-identical to pre-P6.
+// Each renderer requests only the axes its element responds to (answer groups:
+// fill + layout; card grids: fill + selected; continue: fill). Only NON-default
+// axis values emit an attribute, so a theme that set only one axis emits only
+// that one attribute.
+function buttonStyleAttrs(
+  design: DefaultFunnelDesign,
+  axes: { fill?: boolean; layout?: boolean; selected?: boolean },
+): string {
+  const bs = readButtonStyle(design);
+  if (bs === undefined) return "";
+  let out = "";
+  if (axes.fill === true && bs.fill !== "fill") out += ` data-btn-fill="${bs.fill}"`;
+  if (axes.layout === true && bs.layout === "list") out += ` data-btn-layout="list"`;
+  if (axes.selected === true && bs.selected === "mark") out += ` data-card-select="mark"`;
+  return out;
+}
+
 export function renderButtonAnswerGroup(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
@@ -848,7 +868,7 @@ export function renderButtonAnswerGroup(
     body = choiceList(node).map(btn).join("");
   }
   return (
-    `<div class="lg-answer-group" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choiceList(node)))}${answerGroupRootStyle(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
+    `<div class="lg-answer-group" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choiceList(node)))}${answerGroupRootStyle(node, design, ctx)}${buttonStyleAttrs(design, { fill: true, layout: true })} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
     body +
     // CONDUCTOR FIX (P4b regression): the auto error slot nests as the LAST
     // CHILD of the group box, never a card-level sibling — "" is a no-op.
@@ -884,7 +904,7 @@ export function renderTwoButtonYesNo(
     // 03 §3.3: data-lg-choice mirrors data-value (the stored boolean).
     ` data-value="${value ? "true" : "false"}" data-lg-choice="${value ? "true" : "false"}">${esc(label)}</button>`;
   return (
-    `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)}${choiceHeightsAttr(yesStyle?.size !== undefined || noStyle?.size !== undefined)}${answerGroupRootStyle(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
+    `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)}${choiceHeightsAttr(yesStyle?.size !== undefined || noStyle?.size !== undefined)}${answerGroupRootStyle(node, design, ctx)}${buttonStyleAttrs(design, { fill: true, layout: true })} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
     btn(yes, true, yesStyle) +
     btn(no, false, noStyle) +
     // CONDUCTOR FIX (P4b regression): the auto error slot nests as the LAST
@@ -921,6 +941,14 @@ function renderCardGrid(
     5,
   );
   const gap = ov(node, "gridGap") ?? sectionGapDefault(ctx) ?? design.iconCardGrid.gap;
+  // P6 (deliverable 3, Image 40): when the theme's selected style is "mark",
+  // each card carries a corner check badge — hidden by the base .lg-card-check
+  // rule, revealed by styles.ts's `[data-card-select="mark"] …selected…` rule.
+  // "" for every other theme (and all legacy content) ⇒ byte-identical.
+  const markCheck =
+    readButtonStyle(design)?.selected === "mark"
+      ? `<span class="lg-card-check" aria-hidden="true">✓</span>`
+      : "";
   // §9.4 layer 5: role-valued iconColor resolves via the (possibly Section-
   // re-pointed) role; legacy `#hex` renders as-is.
   const iconColor = ovColor(node, "iconColor", design, ctx) ?? design.iconCard.iconColor;
@@ -1015,7 +1043,7 @@ function renderCardGrid(
       attr("data-analytics-id", c.analytics_id) +
       // §8.4 aria_label — explicit accessible-name override when authored.
       attr("aria-label", c.aria_label) +
-      `>${badge}${media}<span class="lg-card-title">${esc(titleText)}</span>${desc}</button>`
+      `>${markCheck}${badge}${media}<span class="lg-card-title">${esc(titleText)}</span>${desc}</button>`
     );
   };
   const display = readChoiceDisplay(node);
@@ -1036,7 +1064,7 @@ function renderCardGrid(
     cards = choiceList(node).map(card).join("");
   }
   return (
-    `<div class="lg-card-grid" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choiceList(node)))}` +
+    `<div class="lg-card-grid" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choiceList(node)))}${buttonStyleAttrs(design, { fill: true, layout: true, selected: true })}` +
     // v3.1 R3 §7: width → the grid container's max-width (per the register's
     // "grid/container max-width for card grids"); "" when unauthored.
     ((): string => {
@@ -2485,7 +2513,7 @@ export function renderContinueButton(
     design.primaryButton.color;
   return (
     // 03 §3.3: data-lg-continue is the engine's advance hook.
-    `<button type="submit" class="lg-btn lg-continue"${hydration(node)} data-lg-continue` +
+    `<button type="submit" class="lg-btn lg-continue"${hydration(node)} data-lg-continue${buttonStyleAttrs(design, { fill: true })}` +
     style({ "--lg-btn-bg": bgOverride, color: fg }) +
     attr("data-loading-label", loadingLabel) +
     ` data-loading="false">` +
@@ -2516,7 +2544,7 @@ export function renderAutoAdvanceButton(
     // 03 §3.3: an AutoAdvanceButton is a manual advance control too → it
     // carries the same data-lg-continue hook (auto-advance sections advance on
     // answer_click; this button is the explicit fallback, §3.5 step 4).
-    `<button type="button" class="lg-btn lg-auto-advance"${hydration(node)} data-lg-continue` +
+    `<button type="button" class="lg-btn lg-auto-advance"${hydration(node)} data-lg-continue${buttonStyleAttrs(design, { fill: true })}` +
     style({ "--lg-btn-bg": bgOverride, color: fg }) +
     ` data-auto-advance="true">${esc(label)}</button>`
   );
