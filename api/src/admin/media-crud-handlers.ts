@@ -28,11 +28,17 @@
 //      (legacy parity — an orphaned blob beats a dangling DB row).
 //   5. Every D1 statement is `db.prepare(<static SQL>).bind(...)` — no
 //      template-literal SQL (d1-database-safety).
+//   6. Round-4 P5c / B-2 10F: an image/svg+xml upload runs through the
+//      SHARED sanitizeSvgUpload gate (lib/svg-sanitizer.ts) BEFORE storage —
+//      the SAME gate admin/leadgen/assets-handlers.ts's brand-logo endpoint
+//      uses, so an SVG uploaded through EITHER route is sanitized. A rejected
+//      SVG 400s with a plain-language reason; NOTHING is written to R2/D1.
 
 import type { Context } from "hono";
 import type { Env } from "../env";
 import { buildStorageKey } from "../media/upload";
 import { extractImageDimensions } from "../media/dimensions";
+import { sanitizeSvgUpload } from "../lib/svg-sanitizer";
 
 // Upload acceptance set — mirrors the legacy modal help text
 // ("Supports: JPEG, PNG, GIF, WebP, AVIF, SVG (max 10MB)").
@@ -147,6 +153,18 @@ export async function uploadMediaHandler(
     return c.json({ error: "Invalid filename" }, 400);
   }
 
+  // SECURITY CORE (B-2 10F): sanitize BEFORE an SVG can reach R2 / the
+  // public serve path — the SAME shared gate the brand-logo endpoint calls
+  // (admin/leadgen/assets-handlers.ts). A non-SVG upload is unaffected
+  // (isSvg: false) and falls through to the existing raster path unchanged.
+  const svgOutcome = await sanitizeSvgUpload(mimeType, file.name, () => file.text());
+  if (svgOutcome.isSvg && !svgOutcome.ok) {
+    return c.json(
+      { error: `This SVG can't be used: ${svgOutcome.reason}.`, code: "svg_rejected" },
+      400,
+    );
+  }
+
   // The ported UI's wire field names: alt_text + caption (NOT the
   // Phase-1 'alt'); folder defaults to the legacy root folder "/".
   const altText = asFormString(form.get("alt_text"));
@@ -162,7 +180,12 @@ export async function uploadMediaHandler(
     c.req.header("Cf-Access-Authenticated-User-Email")?.trim() || null;
 
   const storageKey = buildStorageKey(file.name);
-  const buf = await file.arrayBuffer();
+  // A sanitized SVG stores its RE-SERIALIZED bytes (never the caller's
+  // original bytes) — size_bytes reflects the sanitized length, not
+  // file.size, so the library's displayed size matches what is actually
+  // served.
+  const buf = svgOutcome.isSvg ? svgOutcome.bytes : await file.arrayBuffer();
+  const sizeBytes = svgOutcome.isSvg ? svgOutcome.bytes.byteLength : file.size;
   const dimensions = extractImageDimensions(mimeType, buf);
 
   try {
@@ -186,7 +209,7 @@ export async function uploadMediaHandler(
       file.name,
       storageKey,
       mimeType,
-      file.size,
+      sizeBytes,
       dimensions?.width ?? null,
       dimensions?.height ?? null,
       altText,

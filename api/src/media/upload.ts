@@ -12,9 +12,18 @@
 // Auth: this route is mounted under /admin so the access middleware wired
 // in T12 (`app.use('/admin/*', accessAuth)`) will gate it. The handler
 // itself does not re-implement auth.
+//
+// Round-4 P5c / B-2 10F: this was the THIRD (and last) route that could
+// store a raw, unsanitized image/svg+xml upload. It now runs through the
+// SAME shared sanitizeSvgUpload gate as admin/leadgen/assets-handlers.ts's
+// brand-logo endpoint and admin/media-crud-handlers.ts's generic upload — an
+// SVG-shaped upload is sanitized-or-rejected identically on all three routes.
+// Every other mime type is untouched (this route still has no allowlist
+// beyond the SVG gate — that stays out of scope here).
 
 import { Hono } from "hono";
 import type { Env } from "../env";
+import { sanitizeSvgUpload } from "../lib/svg-sanitizer";
 
 const FALLBACK_CONTENT_TYPE = "application/octet-stream";
 
@@ -56,11 +65,29 @@ upload.post("/admin/media", async (c) => {
   }
   const file = fileEntry;
 
+  // SECURITY CORE (B-2 10F): sanitize BEFORE an SVG can reach R2 / the
+  // public serve path. `file.type` (possibly "") is passed raw — NOT the
+  // FALLBACK_CONTENT_TYPE-defaulted value — so the gate's own filename
+  // fallback (an empty/generic mime + a `.svg` name) still triggers.
+  const svgOutcome = await sanitizeSvgUpload(file.type, file.name, () => file.text());
+  if (svgOutcome.isSvg && !svgOutcome.ok) {
+    return c.json(
+      { error: `This SVG can't be used: ${svgOutcome.reason}.`, code: "svg_rejected" },
+      400,
+    );
+  }
+
   const altText = asNullableString(form.get("alt") as unknown as string | File | null);
   const folder = asNullableString(form.get("folder") as unknown as string | File | null);
-  const mimeType = file.type !== "" ? file.type : FALLBACK_CONTENT_TYPE;
+  const mimeType = svgOutcome.isSvg
+    ? svgOutcome.mime
+    : file.type !== ""
+      ? file.type
+      : FALLBACK_CONTENT_TYPE;
   const storageKey = buildStorageKey(file.name);
-  const buf = await file.arrayBuffer();
+  // A sanitized SVG stores its RE-SERIALIZED bytes (never the raw upload);
+  // size_bytes below reflects that sanitized length, not the original.
+  const buf = svgOutcome.isSvg ? svgOutcome.bytes : await file.arrayBuffer();
 
   await c.env.MEDIA.put(storageKey, buf, {
     httpMetadata: { contentType: mimeType },

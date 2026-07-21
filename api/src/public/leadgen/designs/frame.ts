@@ -37,6 +37,8 @@
 // this module passes sectionsHtml through untouched.
 
 import { escapeHtml } from "../../../editor/sanitize";
+import { sanitizeFrameInlineHtml } from "../../../lib/inline-sanitizer";
+import { leadgenIconSvg } from "../components/icons.generated";
 import { mediaUrl } from "../../view-models/media-url";
 import {
   renderBackButton,
@@ -60,11 +62,21 @@ import type {
   FrameBackConfig,
   FrameBackgroundConfig,
   FrameBenefitBarConfig,
+  FrameBrandLogosConfig,
+  FrameCtaSlotConfig,
   FrameDisclosureConfig,
+  FrameFooterBlock,
+  FrameFooterConfig,
+  FrameFreeTextBlock,
+  FrameFreeTextEntry,
+  FrameImageItem,
+  FramePageTarget,
   FrameHeaderConfig,
   FrameHeaderCtaConfig,
   FrameTemplateId,
+  FrameTrustRowConfig,
   FrameTrustStripConfig,
+  FrameTypographyOverride,
 } from "./frames";
 import type { SiteBranding } from "../../../leadgen/branding";
 
@@ -105,6 +117,11 @@ export interface RenderQuoteFrameInput {
   // "progress counts the slides of this funnel variant").
   sectionCount: number;
   root: FrameRootIdentity;
+  // Round-4 P5a (10B): the admin preview passes this so frame.ts can emit the
+  // "no logo set for this site" hint when the branding ladder floors to a text
+  // mark. ABSENT/false on the live serve path → NO hint markup is emitted, so
+  // the cached public shell stays byte-identical (the hint never ships live).
+  adminPreview?: boolean;
 }
 
 export interface RenderLegacyShellInput {
@@ -153,7 +170,14 @@ export type FrameRegionId =
   | "trust_strip"
   | "benefit_bar"
   | "footer"
-  | "section_slot";
+  | "section_slot"
+  // Round-4 P5a authorable elements.
+  | "free_text"
+  | "brand_logos"
+  | "cta"
+  | "trust_row"
+  // Round-4 P5a follow-on (10G / Image24).
+  | "image";
 
 // §4.3 arrangement: whether the template's top band is a bare "logo" region
 // (centered / full-background rows) or a "header" region (site-header rows).
@@ -305,6 +329,7 @@ function renderHeaderRegion(
   frame: EffectiveFrameConfig,
   design: DefaultFunnelDesign,
   branding: SiteBranding | null,
+  adminPreview: boolean,
 ): string {
   const h = frame.header;
   if (!h.enabled) return "";
@@ -334,10 +359,20 @@ function renderHeaderRegion(
     );
   }
   const extrasHtml = extras.length > 0 ? `<div class="lg-frame-header-extras">${extras.join("")}</div>` : "";
+  // Round-4 P5a (10C / A-6): a header_right CTA rides its OWN right-aligned
+  // container (styles.ts) so it no longer inherits the hard-centered extras band;
+  // the extras band itself now respects logo_align (styles.ts). ABSENT (no
+  // header_right cta_slots) → headerRightHtml is "" and the class is unchanged.
+  const headerRight = renderCtasAtSlot(frame, "header_right");
+  const headerRightHtml = headerRight !== "" ? `<div class="lg-frame-header-right">${headerRight}</div>` : "";
+  // Round-4 P5a (10B): admin-preview-only "no logo set" hint (never emitted live
+  // → the cached public shell stays byte-identical).
+  const hint = adminPreview ? renderNoLogoHint(h, branding) : "";
   const classes =
     `lg-frame-header lg-frame-header--${h.logo_align} lg-frame-header--logo-${h.logo_size}` +
+    (headerRight !== "" ? " lg-frame-header--has-right" : "") +
     (h.sticky ? " lg-frame-header--sticky" : " lg-frame-header--static");
-  return region(TEMPLATE_HEADER_REGION[frame.template], classes, logo + extrasHtml);
+  return region(TEMPLATE_HEADER_REGION[frame.template], classes, logo + hint + extrasHtml + headerRightHtml);
 }
 
 // 11 §11.1 progress — rendered ONCE at frame_config.progress.position; style
@@ -369,14 +404,28 @@ function renderProgressRegion(
   let classes =
     `lg-frame-progress lg-frame-progress--${p.style} lg-frame-progress--w-${p.width}` +
     ` lg-frame-progress--th-${p.thickness} lg-frame-progress--role-${p.color_role}`;
+  // Round-4 P5a (10D): optional alignment of the unit within its width band.
+  if (p.align !== undefined) classes += ` lg-frame-progress--align-${p.align}`;
   let inner: string;
   let hookAttrs = "";
   if (p.style === "dots") {
+    // Round-4 P5a label honesty: the label sink is hidden ONLY when !show_label
+    // (dots stop force-hiding). Default (show_label false) stays byte-identical.
     inner =
       renderStepIndicator(
         frameNode("StepIndicator", "frame_progress", { steps: total, current: 1 }),
         design,
-      ) + `<span class="lg-frame-progress-label" data-lg-progress-label hidden></span>`;
+      ) +
+      `<span class="lg-frame-progress-label" data-lg-progress-label${p.show_label ? "" : " hidden"}></span>`;
+    hookAttrs = ` data-lg-progress data-mode="step"`;
+  } else if (p.style === "numbered") {
+    // Round-4 P5a (B-4.7): numbered is no longer a fake alias of bar — it renders
+    // REAL numbered step circles (advanced live by the engine's .lg-step pass)
+    // plus a visible "Step 1 of N" label (the pinned label + aria come from
+    // here). data-mode="step" on the region wrapper is the single engine mount.
+    inner =
+      renderNumberedIndicator(total, 1) +
+      `<div class="lg-progress-text lg-frame-progress-label" data-lg-progress-label>Step 1 of ${total}</div>`;
     hookAttrs = ` data-lg-progress data-mode="step"`;
   } else if (p.style === "percent") {
     const pct = Math.round((1 / total) * 100);
@@ -384,12 +433,16 @@ function renderProgressRegion(
     if (p.show_label) props["label"] = `${pct}%`;
     inner = renderProgressBar(frameNode("ProgressBar", "frame_progress", props), design);
   } else {
-    // bar | numbered — step semantics carry the section-order total.
+    // bar | icon_on_track — step semantics carry the section-order total; the
+    // icon thumb riding the fill edge is a CSS pseudo-element (styles.ts), so
+    // the markup is the shared ProgressBar and the engine drives the fill width.
     inner = renderProgressBar(
       frameNode("ProgressBar", "frame_progress", { mode: "step", step: 1, totalSteps: total }),
       design,
     );
-    if (p.style === "bar" && !p.show_label) classes += " lg-frame-progress--no-label";
+    if ((p.style === "bar" || p.style === "icon_on_track") && !p.show_label) {
+      classes += " lg-frame-progress--no-label";
+    }
   }
   return region("progress", classes, inner, hookAttrs);
 }
@@ -483,6 +536,12 @@ function renderFooterRegion(
 ): string {
   const f = frame.footer;
   if (!f.enabled || f.show_on === "never") return "";
+  // Round-4 P5a (10H) footer v2: when blocks/scope are authored, render the block
+  // model with its own palette/typography scope. ABSENT → the legacy FooterBar
+  // composition below is byte-identical.
+  if ((f.blocks ?? []).length > 0 || f.palette_scope !== undefined || f.typography_scope !== undefined) {
+    return renderFooterV2(frame, branding, extraInner, sectionCount);
+  }
   const links = (f.links_source === "site" ? (branding?.legal_links ?? []) : f.links).filter(
     (l) => l.label.trim() !== "" && l.href.trim() !== "",
   );
@@ -541,6 +600,418 @@ function renderSlotRegion(
 }
 
 // ---------------------------------------------------------------------------
+// Round-4 P5a — authorable frame elements v2 (10C/10E/10F/10G/10H). ALL
+// server-rendered; ZERO runtime-engine bytes (this module is not in the client
+// bundle). Every element renders ONLY when the (optional) config key is
+// present, so a pre-P5a frame produces byte-identical markup.
+// ---------------------------------------------------------------------------
+
+// Page targeting (10E/10F/10G). `all`/`first` ride the EXISTING engine toggle
+// (render.ts updateFooterVisibility selects EVERY [data-show-on] on the root,
+// with first = step<=1) — zero new bytes, live-correct. `range`/`list` bake the
+// page-1 visibility verdict here and stamp `data-frame-pages` for the follow-on
+// engine leg that would compare the current page live (a runtime-owned seam —
+// NOT P5a); a first-only range/list also gets data-show-on="first" so it toggles
+// live today. When the target excludes page 1 the element bakes `hidden` (safe
+// default: never wrongly shown on a cached shell).
+function pageTargetGating(pages: FramePageTarget | undefined): { hidden: boolean; attrs: string } {
+  if (pages === undefined || pages.mode === "all") return { hidden: false, attrs: "" };
+  if (pages.mode === "first") return { hidden: false, attrs: ` data-show-on="first"` };
+  const list = pages.mode === "list" && Array.isArray(pages.pages) ? pages.pages : [];
+  const from = pages.from ?? 1;
+  const to = pages.to ?? 1;
+  const includesFirst = pages.mode === "range" ? from <= 1 && to >= 1 : list.indexOf(1) !== -1;
+  const firstOnly =
+    pages.mode === "range" ? from <= 1 && to <= 1 : list.length === 1 && list[0] === 1;
+  const spec = pages.mode === "range" ? `range:${from}-${to}` : `list:${list.join(",")}`;
+  const showOn = firstOnly ? ` data-show-on="first"` : "";
+  return { hidden: !includesFirst, attrs: ` data-frame-pages="${escapeHtml(spec)}"${showOn}` };
+}
+
+// Alignment + typography → token-resolved classes (styles.ts owns the values).
+// typography.align (10E) wins over the element-level align when both are set.
+function elementClasses(
+  base: string,
+  align: "left" | "center" | "right" | undefined,
+  typo?: FrameTypographyOverride,
+): string {
+  const a = typo?.align ?? align;
+  let cls = base;
+  if (a !== undefined) cls += ` lg-frame-el--align-${a}`;
+  if (typo?.size !== undefined) cls += ` lg-frame-el--size-${typo.size}`;
+  if (typo?.color !== undefined) cls += ` lg-frame-el--color-${typo.color}`;
+  return cls;
+}
+
+// 10E free-text inline model. SECURITY (adversarial review MAJOR-1, Round-4
+// P5a fix): author rich text on `html` (and each list `item` string) flows
+// through lib/inline-sanitizer.ts's ALLOWLIST re-serializer — NOT
+// editor/sanitize.ts's sanitizeHtml (a strip/blocklist sanitizer the
+// reviewer broke live on THIS sink with five payloads; see the module header
+// there for the full corpus + root causes). Every item/html string is
+// ALWAYS run through the allowlist sanitizer regardless of its apparent
+// content — mixing a legitimate tag with an injected dangerous one in the
+// SAME string (e.g. `<strong>Free quote</strong><img onerror=...>`) can
+// never selectively bypass it the way the old pre-check-then-blocklist
+// gate could. Plain copy on `text` is a straight escape (that field is
+// contractually never markup). NEVER raw either way.
+function frameInlineBody(block: FrameFreeTextBlock): string {
+  if (typeof block.html === "string" && block.html.trim() !== "") return sanitizeFrameInlineHtml(block.html);
+  return escapeHtml(block.text ?? "");
+}
+function frameInlineItem(item: string): string {
+  return sanitizeFrameInlineHtml(item);
+}
+function renderFreeTextBlock(block: FrameFreeTextBlock): string {
+  if (block.type === "heading") {
+    const level = Math.min(6, Math.max(1, Math.trunc(block.level ?? 2)));
+    return `<h${level} class="lg-frame-freetext-h">${frameInlineBody(block)}</h${level}>`;
+  }
+  if (block.type === "list") {
+    const style = block.style ?? "unordered";
+    const tag = style === "ordered" ? "ol" : "ul";
+    const checkCls = style === "check" ? " lg-frame-freetext-list--check" : "";
+    const items = Array.isArray(block.items) ? block.items : [];
+    const li = items.map((it) => `<li>${frameInlineItem(String(it))}</li>`).join("");
+    return `<${tag} class="lg-frame-freetext-list${checkCls}">${li}</${tag}>`;
+  }
+  return `<p class="lg-frame-freetext-p">${frameInlineBody(block)}</p>`;
+}
+function renderFreeTextEntry(entry: FrameFreeTextEntry): string {
+  const inner = (entry.blocks ?? []).map(renderFreeTextBlock).join("");
+  if (inner === "") return "";
+  const gating = pageTargetGating(entry.pages);
+  const classes = elementClasses("lg-frame-freetext", entry.align, entry.typography);
+  return region(
+    "free_text",
+    classes,
+    inner,
+    `${attrKV("data-free-text-id", entry.id)}${gating.attrs}${gating.hidden ? " hidden" : ""}`,
+  );
+}
+
+// 10F brand-logos — reuses the existing LogoStrip preset (media ids resolved
+// through mediaUrl; safe url refs pass straight through — SVG upload pipeline
+// is P5c). Desktop row / mobile grid presets are CSS (styles.ts) keyed off the
+// layout class. Page targeting + alignment as for free text.
+function renderBrandLogos(cfg: FrameBrandLogosConfig, design: DefaultFunnelDesign): string {
+  if (!cfg.enabled) return "";
+  const logos = (cfg.items ?? [])
+    .map((it): { mediaId: string; alt: string } | null => {
+      const src = isNonEmptyStr(it.media_id)
+        ? mediaUrl(it.media_id as string)
+        : isNonEmptyStr(it.url)
+          ? (it.url as string)
+          : null;
+      return src === null ? null : { mediaId: src, alt: it.alt };
+    })
+    .filter((l): l is { mediaId: string; alt: string } => l !== null);
+  if (logos.length === 0) return "";
+  const strip = renderLogoStrip(frameNode("LogoStrip", "frame_brand_logos", { logos }), design);
+  const gating = pageTargetGating(cfg.pages);
+  const classes = `lg-frame-brand-logos lg-frame-brand-logos--${cfg.layout}` + alignClass(cfg.align);
+  return region("brand_logos", classes, strip, `${gating.attrs}${gating.hidden ? " hidden" : ""}`);
+}
+
+// 10G trust/benefit rows — authored Tabler-icon + text items, CSS-only hover
+// tooltip. A11Y: the tooltip rides a focusable [tabindex="0"] span with a
+// title + an aria-describedby target so keyboard + AT users reach it (no JS).
+function renderTrustRow(row: FrameTrustRowConfig): string {
+  const items = (row.items ?? [])
+    .map((it, i) => {
+      const svg = leadgenIconSvg(it.icon, 20);
+      const iconHtml = svg !== "" ? `<span class="lg-frame-trustrow-icon" aria-hidden="true">${svg}</span>` : "";
+      const hasTip = it.tooltip !== null && it.tooltip !== undefined && String(it.tooltip).trim() !== "";
+      const tipId = `lg-tip-${i}`;
+      const tip = hasTip
+        ? ` tabindex="0" aria-describedby="${tipId}" title="${escapeHtml(String(it.tooltip))}"`
+        : "";
+      const tipEl = hasTip
+        ? `<span class="lg-frame-trustrow-tip" role="tooltip" id="${tipId}">${escapeHtml(String(it.tooltip))}</span>`
+        : "";
+      return (
+        `<span class="lg-frame-trustrow-item"${tip}>` +
+        iconHtml +
+        `<span class="lg-frame-trustrow-text">${escapeHtml(it.text)}</span>` +
+        tipEl +
+        `</span>`
+      );
+    })
+    .join("");
+  if (items === "") return "";
+  const gating = pageTargetGating(row.pages);
+  return region("trust_row", `lg-frame-trustrow${alignClass(row.align)}`, items, `${gating.attrs}${gating.hidden ? " hidden" : ""}`);
+}
+
+// Round-4 P5a follow-on (10G / Image24) — a first-class PLACED IMAGE. P5c's AI
+// persona-image generator (generatePersonaImage -> R2) had no dedicated place
+// to land; it was riding a brand_logos item, which is semantically wrong (a
+// logo STRIP renders N logos; a persona portrait is ONE placed visual,
+// optionally with a mouse-over caption). Reuses mediaUrl() so BOTH a storage-
+// key `media_id` (e.g. the persona endpoint's `storage_key`) and a direct
+// `url` (its `url: "/media/<key>"` response field) resolve identically — the
+// SAME dual-shape as renderBrandLogos above. The hover caption is the SAME
+// CSS-only pattern as renderTrustRow (title + focusable [tabindex="0"] +
+// role="tooltip", no JS). Independently slotted + page-targeted per item
+// (mirrors renderFreeTextEntry), never emitted with no resolvable src.
+function renderImageElement(item: FrameImageItem): string {
+  const src = isNonEmptyStr(item.media_id)
+    ? mediaUrl(item.media_id as string)
+    : isNonEmptyStr(item.url)
+      ? (item.url as string)
+      : null;
+  if (src === null) return "";
+  const size = item.size ?? "m";
+  const hasTip = isNonEmptyStr(item.tooltip);
+  const tipId = `lg-img-tip-${item.id}`;
+  const wrapAttrs = hasTip
+    ? ` tabindex="0" aria-describedby="${escapeHtml(tipId)}" title="${escapeHtml(String(item.tooltip))}"`
+    : "";
+  const tipEl = hasTip
+    ? `<span class="lg-frame-image-tip" role="tooltip" id="${escapeHtml(tipId)}">${escapeHtml(String(item.tooltip))}</span>`
+    : "";
+  const inner =
+    `<span class="lg-frame-image-wrap"${wrapAttrs}>` +
+    `<img class="lg-frame-image-img" src="${escapeHtml(src)}" alt="${escapeHtml(item.alt)}" loading="lazy">` +
+    tipEl +
+    `</span>`;
+  const gating = pageTargetGating(item.pages);
+  const classes = `lg-frame-image lg-frame-image--${size}` + alignClass(item.align);
+  return region(
+    "image",
+    classes,
+    inner,
+    `${attrKV("data-image-id", item.id)}${gating.attrs}${gating.hidden ? " hidden" : ""}`,
+  );
+}
+
+// 10C CTA/phone slot. tel: derivation mirrors renderHeaderCta (a bare number
+// gets a tel: prefix; a phone-only slot defaults the label to "Call now").
+// CONDITIONAL DISPLAY (roast MAJOR-2): a slot with a `condition` server-renders
+// HIDDEN and carries the EXISTING evaluator's hideable hook `data-lg-node="<id>"`
+// (render.ts applyComponentVisibility toggles [data-lg-node] against the
+// per-scope visibility list; presets.ts hydration emits the same hook for
+// in-section conditional non-producing nodes) PLUS the compiled group on
+// `data-lg-cta-condition`. The cached public shell can never render per-user
+// variants, so the initial state is HIDDEN and the client reveals it. WIRING
+// SEAM (NOT P5a-owned): the engine only evaluates PER-SECTION dependency
+// conditionals today (engine.ts dependencyState + applyComponentVisibility(
+// sectionEl, …)); a frame-scope pass over the merged answers+__ctx that reads
+// data-lg-cta-condition and toggles these hooks lives in runtime/engine.ts +
+// config-dto.ts — reported as a seam.
+function ctaHref(slot: FrameCtaSlotConfig): string | null {
+  const tel = isNonEmptyStr(slot.tel) ? String(slot.tel).trim() : null;
+  if (isNonEmptyStr(slot.href)) return String(slot.href).trim();
+  if (tel !== null) return tel.toLowerCase().startsWith("tel:") ? tel : `tel:${tel}`;
+  return null;
+}
+function renderCtaSlot(slot: FrameCtaSlotConfig, index: number): string {
+  const href = ctaHref(slot);
+  if (href === null) return "";
+  const tel = isNonEmptyStr(slot.tel);
+  const label = slot.label.trim() !== "" ? slot.label.trim() : tel ? "Call now" : "";
+  if (label === "") return "";
+  const conditional = slot.condition !== null && slot.condition !== undefined;
+  const id = isNonEmptyStr(slot.id) ? String(slot.id) : `frame_cta_${slot.slot}_${index}`;
+  const condAttrs = conditional
+    ? ` data-lg-node="${escapeHtml(id)}" data-lg-cta-condition="${escapeHtml(JSON.stringify(slot.condition))}" hidden`
+    : "";
+  const classes = `lg-frame-cta lg-frame-cta--${slot.slot}${alignClass(slot.align)}`;
+  return region(
+    "cta",
+    classes,
+    `<a class="lg-frame-cta-link" href="${escapeHtml(href)}">${escapeHtml(label)}</a>`,
+    condAttrs,
+  );
+}
+
+// 10H-adjacent disclosure v2 — per-location entries. `full` prints the copy
+// inline; `hover` prints a focusable trigger with a CSS-only tooltip (title +
+// [tabindex] + role="tooltip" target). Reads frame.disclosure.entries; the
+// legacy single-location render is untouched when entries is absent.
+function renderDisclosureEntry(
+  entry: { location: string; text: string; mode: string; align?: string; link_label?: string },
+  fallbackLabel: string,
+  idx: number,
+): string {
+  if (entry.text.trim() === "") return "";
+  if (entry.mode === "hover") {
+    const tipId = `lg-disc-tip-${entry.location}-${idx}`;
+    const label = isNonEmptyStr(entry.link_label) ? String(entry.link_label) : fallbackLabel;
+    return (
+      `<span class="lg-frame-disc2 lg-frame-disc2--hover" tabindex="0" aria-describedby="${tipId}"` +
+      ` title="${escapeHtml(entry.text)}"${alignAttr(entry.align)}>` +
+      `<span class="lg-frame-disc2-trigger">${escapeHtml(label)}</span>` +
+      `<span class="lg-frame-disc2-tip" role="tooltip" id="${tipId}">${escapeHtml(entry.text)}</span>` +
+      `</span>`
+    );
+  }
+  return `<div class="lg-frame-disc2 lg-frame-disc2--full"${alignAttr(entry.align)}>${escapeHtml(entry.text)}</div>`;
+}
+function renderDisclosureEntriesAt(d: FrameDisclosureConfig, location: "top" | "bottom"): string {
+  const entries = d.entries ?? [];
+  const inner = entries
+    .filter((e) => e.location === location)
+    .map((e, i) => renderDisclosureEntry(e, d.link_label, i))
+    .join("");
+  if (inner === "") return "";
+  return region("disclosure", `lg-frame-disc2-region lg-frame-disc2-region--${location}`, inner);
+}
+
+// 10H footer v2 — block model with an own palette/typography SCOPE (CSS custom
+// properties on the footer element only). Renders when footer.blocks is present;
+// the legacy FooterBar composition (renderFooterRegion) is untouched otherwise.
+function footerScopeStyle(f: FrameFooterConfig): string {
+  const pairs: string[] = [];
+  const ps = f.palette_scope;
+  if (ps?.background !== undefined) pairs.push(`--lg-footer-bg:var(--lg-role-${ps.background})`);
+  if (ps?.text !== undefined) pairs.push(`--lg-footer-fg:var(--lg-role-${ps.text})`);
+  if (ps?.link !== undefined) pairs.push(`--lg-footer-link:var(--lg-role-${ps.link})`);
+  const size = f.typography_scope?.size;
+  if (size !== undefined) pairs.push(`--lg-footer-size:var(--lg-footer-size-${size})`);
+  return pairs.length > 0 ? ` style="${pairs.join(";")}"` : "";
+}
+function renderFooterBlock(block: FrameFooterBlock, branding: SiteBranding | null): string {
+  const alignA = alignAttr(block.align);
+  switch (block.type) {
+    case "about_paragraph":
+      return isNonEmptyStr(block.text)
+        ? `<p class="lg-frame-footer2-about"${alignA}>${escapeHtml(String(block.text))}</p>`
+        : "";
+    case "disclosure":
+      return isNonEmptyStr(block.text)
+        ? `<div class="lg-frame-footer2-disclosure"${alignA}>${escapeHtml(String(block.text))}</div>`
+        : "";
+    case "address":
+      return isNonEmptyStr(block.text)
+        ? `<address class="lg-frame-footer2-address"${alignA}>${escapeHtml(String(block.text))}</address>`
+        : "";
+    case "logo":
+      return `<div class="lg-frame-footer2-logo"${alignA}>${renderFooterLogo(branding)}</div>`;
+    case "link_row": {
+      const links = (block.links_source === "site" ? (branding?.legal_links ?? []) : (block.links ?? [])).filter(
+        (l) => l.label.trim() !== "" && l.href.trim() !== "",
+      );
+      if (links.length === 0) return "";
+      const anchors = links
+        .map((l) => `<a class="lg-frame-footer2-link" href="${escapeHtml(l.href)}">${escapeHtml(l.label)}</a>`)
+        .join("");
+      return `<div class="lg-frame-footer2-links"${alignA}>${anchors}</div>`;
+    }
+    case "socials":
+      return renderSocials(block, alignA);
+    default:
+      return "";
+  }
+}
+function renderSocials(block: FrameFooterBlock, alignA: string): string {
+  const items = (block.socials ?? []).filter((s) => s.platform.trim() !== "" && s.url.trim() !== "");
+  if (items.length === 0) return "";
+  const anchors = items
+    .map(
+      (s) =>
+        `<a class="lg-frame-footer2-social" href="${escapeHtml(s.url)}" aria-label="${escapeHtml(s.platform)}">${escapeHtml(s.platform)}</a>`,
+    )
+    .join("");
+  return `<div class="lg-frame-footer2-socials"${alignA}>${anchors}</div>`;
+}
+function renderFooterV2(
+  frame: EffectiveFrameConfig,
+  branding: SiteBranding | null,
+  extraInner: string,
+  sectionCount: number,
+): string {
+  const f = frame.footer;
+  if (!f.enabled || f.show_on === "never") return "";
+  const inner = (f.blocks ?? []).map((b) => renderFooterBlock(b, branding)).join("");
+  const hideMobile = f.hide_on_mobile || frame.mobile.hide_footer === true;
+  const classes =
+    `lg-frame-footer lg-frame-footer2 lg-frame-footer--show-${f.show_on}` +
+    (hideMobile ? " lg-frame-footer--m-hide" : "");
+  const bakedHidden = f.show_on === "final" && sectionCount > 1 ? " hidden" : "";
+  return (
+    `<div class="lg-frame-region ${classes}" data-frame-region="footer"` +
+    ` data-show-on="${f.show_on}"${bakedHidden}${footerScopeStyle(f)}>` +
+    inner +
+    extraInner +
+    `</div>`
+  );
+}
+
+// 10B admin-preview-only hint: when the branding ladder floors to a text mark
+// (no real image logo resolved) AND this is the admin preview, emit a hint that
+// points the operator at Site settings. It is emitted ONLY when adminPreview is
+// true, so the live serve shell is byte-identical (nothing to CSS-hide live).
+function renderNoLogoHint(header: FrameHeaderConfig, branding: SiteBranding | null): string {
+  const resolvesImage =
+    header.logo_source === "manual"
+      ? header.logo_media_id !== null && mediaUrl(header.logo_media_id) !== null
+      : branding !== null && branding.logo_url !== null && branding.logo_url !== "";
+  if (resolvesImage) return "";
+  return (
+    `<div class="lg-frame-logo-hint" data-frame-region="logo" data-admin-preview-hint="1">` +
+    `No logo set for this site — set it in Site settings.` +
+    `</div>`
+  );
+}
+
+// Small attribute + class helpers (byte-trim; mirror presets' attr()/style()).
+function isNonEmptyStr(v: unknown): v is string {
+  return typeof v === "string" && v.trim() !== "";
+}
+function attrKV(name: string, value: string | undefined | null): string {
+  return value === undefined || value === null || value === "" ? "" : ` ${name}="${escapeHtml(value)}"`;
+}
+function alignClass(align: string | undefined): string {
+  return align === undefined ? "" : ` lg-frame-el--align-${align}`;
+}
+function alignAttr(align: string | undefined): string {
+  return align === undefined ? "" : ` data-align="${escapeHtml(align)}"`;
+}
+
+// Collect all free-text / brand-logos / trust-row elements targeting a slot.
+function renderSlotElements(
+  frame: EffectiveFrameConfig,
+  design: DefaultFunnelDesign,
+  slot: FrameFreeTextEntry["slot"],
+): string {
+  const parts: string[] = [];
+  for (const ft of frame.free_text ?? []) if (ft.slot === slot) parts.push(renderFreeTextEntry(ft));
+  const bl = frame.brand_logos;
+  if (bl !== undefined && bl.enabled && (bl.slot ?? "below_section") === slot) parts.push(renderBrandLogos(bl, design));
+  for (const tr of frame.trust_rows ?? []) if ((tr.slot ?? "below_section") === slot) parts.push(renderTrustRow(tr));
+  // Round-4 P5a follow-on (10G / Image24): first-class placed images.
+  for (const img of frame.images ?? []) if (img.slot === slot) parts.push(renderImageElement(img));
+  return parts.join("");
+}
+function renderCtasAtSlot(frame: EffectiveFrameConfig, slot: FrameCtaSlotConfig["slot"]): string {
+  return (frame.cta_slots ?? [])
+    .filter((c) => c.slot === slot)
+    .map((c, i) => renderCtaSlot(c, i))
+    .join("");
+}
+
+// Numbered progress (10D / B-4.7) — REAL distinct markup: .lg-step circles that
+// CARRY their step number (dots keep the empty renderStepIndicator circles), so
+// the engine's .lg-step data-active advance (render.ts updateProgress) drives
+// them AND CSS renders them as numbered badges. A11y + the pinned label
+// (leadgen-frame-progress-back.test.ts) come from the .lg-steps aria + a visible
+// data-lg-progress-label the engine re-stamps.
+function renderNumberedIndicator(total: number, current: number): string {
+  let circles = "";
+  for (let i = 1; i <= total; i++) {
+    circles += `<span class="lg-step"${i === current ? ` data-active="true"` : ""}>${i}</span>`;
+  }
+  return (
+    `<div class="lg-steps lg-steps--numbered" role="progressbar"` +
+    ` aria-valuemin="1" aria-valuemax="${total}" aria-valuenow="${current}"` +
+    ` aria-valuetext="${escapeHtml(`Step ${current} of ${total}`)}">` +
+    circles +
+    `</div>`
+  );
+}
+
+// ---------------------------------------------------------------------------
 // renderQuoteFrame — 13 §13.1 the one composition path.
 //
 // Canonical order (all six §4.3 arrangements fall out of it because the
@@ -561,6 +1032,19 @@ export function renderQuoteFrame(input: RenderQuoteFrameInput): string {
   // back onto the literal shape the frozen preset signatures declare.
   const design = effectiveTokens.design as FunnelDesign;
   const branding = input.siteBranding ?? null;
+  const adminPreview = input.adminPreview === true;
+
+  // Round-4 P5a — authorable element slots (all "" when unauthored → the
+  // composition below is byte-identical for a pre-P5a frame).
+  const aboveHeaderEls = renderSlotElements(frame, design, "above_header");
+  const aboveSectionEls = renderSlotElements(frame, design, "above_section");
+  const belowSectionEls = renderSlotElements(frame, design, "below_section");
+  const belowFooterEls = renderSlotElements(frame, design, "below_footer");
+  const ctaUnderHeader = renderCtasAtSlot(frame, "under_header");
+  const ctaSectionBottom = renderCtasAtSlot(frame, "section_bottom");
+  const ctaFooter = renderCtasAtSlot(frame, "footer");
+  const discV2Top = renderDisclosureEntriesAt(frame.disclosure, "top");
+  const discV2Bottom = renderDisclosureEntriesAt(frame.disclosure, "bottom");
 
   // Position-keyed slots: each chrome piece renders ONCE at its configured
   // position; every other slot of that piece stays empty.
@@ -612,13 +1096,13 @@ export function renderQuoteFrame(input: RenderQuoteFrameInput): string {
     frame,
     design,
     branding,
-    trustAt.footer + discFooter + backAt.footer,
+    trustAt.footer + discFooter + backAt.footer + ctaFooter,
     sectionCount,
   );
   // A footer-positioned back/trust must not vanish with a disabled footer —
   // exactly one affordance per config (§11.2): fall back to standalone regions
   // at the footer slot position.
-  const footerOrphans = footer === "" ? trustAt.footer + backAt.footer : "";
+  const footerOrphans = footer === "" ? trustAt.footer + backAt.footer + ctaFooter : "";
 
   return (
     `<div id="lg-funnel-root" class="lg-frame lg-frame--${frame.template}${mobileFrameClasses(frame)}"` +
@@ -630,19 +1114,27 @@ export function renderQuoteFrame(input: RenderQuoteFrameInput): string {
     ` data-frame-template="${escapeHtml(frame.template)}">` +
     renderBackgroundRegion(frame.background) +
     discTopBar +
+    discV2Top +
     progressAt.top +
-    renderHeaderRegion(frame, design, branding) +
+    aboveHeaderEls +
+    renderHeaderRegion(frame, design, branding, adminPreview) +
     progressAt.under_header +
+    ctaUnderHeader +
     backAt.under_header_left +
     trustAt.between_progress_and_unit +
     progressAt.above_unit +
+    aboveSectionEls +
     renderSlotRegion(frame, sectionsHtml, bannersMountHtml, progressAt.in_card + backAt.in_card) +
+    belowSectionEls +
+    ctaSectionBottom +
     backAt.below_card +
     trustAt.below_unit +
     benefitAt.below_unit +
     footer +
     footerOrphans +
+    belowFooterEls +
     benefitAt.bottom +
+    discV2Bottom +
     discModal +
     `</div>`
   );

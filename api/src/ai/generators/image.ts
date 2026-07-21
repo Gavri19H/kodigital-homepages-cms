@@ -75,6 +75,13 @@ export interface GenerateImageOutcome {
   media_id: number;
   storage_key: string;
   prompt: string;
+  // Round-4 P5c (idempotency vs quota): true when this outcome came from the
+  // idempotent short-circuit (a PRIOR call's recorded row/media), meaning
+  // THIS call made no new OpenAI request and incurred no new spend. A caller
+  // that meters cost per call (e.g. the persona-image per-site quota) MUST
+  // NOT charge a replay — only a fresh generation (replay: false) spent
+  // anything. Every non-replay return path sets this to false explicitly.
+  replay: boolean;
 }
 
 interface MediaArtifactRecord {
@@ -103,7 +110,9 @@ function meta(
 
 export function buildAiStorageKey(opts: {
   site_id: string;
-  target_kind: "logo" | "feature_image";
+  // Round-4 P5c: 'persona' joins the two provisioning kinds — a per-(site,
+  // persona) deterministic key `ai/<site>/persona/<personaKey>.png`.
+  target_kind: "logo" | "feature_image" | "persona";
   target_id?: string;
   ext?: string;
 }): string {
@@ -492,7 +501,7 @@ interface RunImageArgs {
   prompt_version: string;
   target_type: string | null;
   target_id: string | null;
-  target_kind: "logo" | "feature_image";
+  target_kind: "logo" | "feature_image" | "persona";
   site_id: string;
   size: string;
   prompt: string;
@@ -537,6 +546,7 @@ async function runImageGenerator(
         media_id: artifact?.media_id ?? 0,
         storage_key: artifact?.storage_key ?? storage_key,
         prompt: args.prompt,
+        replay: true,
       };
     }
   }
@@ -587,6 +597,7 @@ async function runImageGenerator(
       media_id: 0,
       storage_key,
       prompt: args.prompt,
+      replay: false,
     };
   }
 
@@ -611,6 +622,7 @@ async function runImageGenerator(
       media_id: 0,
       storage_key,
       prompt: args.prompt,
+      replay: false,
     };
   }
 
@@ -642,6 +654,7 @@ async function runImageGenerator(
       media_id: 0,
       storage_key,
       prompt: args.prompt,
+      replay: false,
     };
   }
 
@@ -663,6 +676,7 @@ async function runImageGenerator(
       media_id: 0,
       storage_key,
       prompt: args.prompt,
+      replay: false,
     };
   }
 
@@ -715,6 +729,7 @@ async function runImageGenerator(
       media_id: 0,
       storage_key,
       prompt: args.prompt,
+      replay: false,
     };
   }
 
@@ -740,5 +755,133 @@ async function runImageGenerator(
     media_id: mediaRow.id,
     storage_key,
     prompt: args.prompt,
+    replay: false,
   };
+}
+
+// ============================================================
+// Round-4 P5c (10G) — AI persona image
+// ============================================================
+//
+// A curated persona slot merged into a base scene prompt, generated through
+// the SAME OpenAI client + R2 storage idiom as generateFeatureImage
+// (deterministic per-(site,persona) key, media row, ai_generations receipt,
+// idempotent re-gen, no-key skip). The author-time endpoint
+// (admin/leadgen/assets-handlers.ts) enforces the per-site monthly quota
+// BEFORE calling this. The LIVE render is a plain <img> — an ai_image is just
+// a frame image element (a brand_logos item's url/media_id →
+// renderLogoStrip) carrying the generated /media/<key> url — so P5c adds NO
+// client-runtime render bytes.
+
+export interface LeadgenPersona {
+  label: string;
+  fragment: string;
+}
+
+// The curated dropdown set (~8). Keys are stable slugs the admin dropdown +
+// the author-time endpoint validate against; each fragment is merged into the
+// base scene at the {{persona}} slot.
+export const LEADGEN_PERSONAS: Readonly<Record<string, LeadgenPersona>> = {
+  old_person: {
+    label: "Older person",
+    fragment: "a warm, trustworthy person in their late 60s or 70s",
+  },
+  young_salesman: {
+    label: "Young salesman",
+    fragment:
+      "a friendly, confident young salesman in his mid-20s in smart-casual business attire",
+  },
+  young_woman: {
+    label: "Young woman",
+    fragment: "a friendly, approachable young woman in her mid-20s",
+  },
+  mid_age_professional: {
+    label: "Mid-age professional",
+    fragment: "a composed professional in their 40s in business attire",
+  },
+  friendly_advisor: {
+    label: "Friendly advisor",
+    fragment: "a warm, reassuring financial advisor in their 30s",
+  },
+  senior_expert: {
+    label: "Senior expert",
+    fragment: "a distinguished senior industry expert in their 50s",
+  },
+  casual_millennial: {
+    label: "Casual millennial",
+    fragment: "a relaxed, casual person in their early 30s in everyday clothing",
+  },
+  warm_grandmother: {
+    label: "Warm grandmother",
+    fragment: "a kind, welcoming grandmother figure in her 70s",
+  },
+};
+
+export const PERSONA_PROMPT_VERSION = "v1";
+const PERSONA_TASK = "persona-image";
+const PERSONA_SIZE = "1024x1024";
+
+export function isLeadgenPersonaKey(key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(LEADGEN_PERSONAS, key);
+}
+
+// The base scene. The persona fragment is always merged at {{persona}} so the
+// dropdown selection is honored; a caller-supplied `scene` REPLACES the base
+// scene text (persona still merged) for a bespoke composition.
+const PERSONA_BASE_SCENE =
+  "A photorealistic, friendly portrait for a marketing landing page: {{persona}}, " +
+  "looking directly at the camera with a genuine, reassuring smile, soft natural " +
+  "studio light, clean neutral background, shot on a 50mm lens, high detail.";
+
+export function buildPersonaPrompt(
+  personaKey: string,
+  opts: { scene?: string } = {},
+): string {
+  const persona = LEADGEN_PERSONAS[personaKey];
+  const fragment = persona ? persona.fragment : personaKey;
+  const base =
+    typeof opts.scene === "string" && opts.scene.trim() !== ""
+      ? opts.scene.trim()
+      : PERSONA_BASE_SCENE;
+  return base.includes("{{persona}}")
+    ? base.replace(/\{\{persona\}\}/g, fragment)
+    : `${base} Featuring ${fragment}.`;
+}
+
+export interface GeneratePersonaImageInput {
+  site_id: string;
+  personaKey: string;
+  // Optional bespoke scene (replaces the base scene; persona still merged).
+  scene?: string;
+  alt_text?: string;
+  client?: OpenAIClient;
+}
+
+export async function generatePersonaImage(
+  env: Env,
+  input: GeneratePersonaImageInput,
+): Promise<GenerateImageOutcome> {
+  const prompt = buildPersonaPrompt(input.personaKey, { scene: input.scene });
+  const label = LEADGEN_PERSONAS[input.personaKey]?.label ?? input.personaKey;
+  return runImageGenerator({
+    env,
+    task: PERSONA_TASK,
+    prompt_version: PERSONA_PROMPT_VERSION,
+    target_type: "leadgen_persona",
+    target_id: `${input.site_id}:${input.personaKey}`,
+    target_kind: "persona",
+    site_id: input.site_id,
+    size: PERSONA_SIZE,
+    prompt,
+    filename: `persona-${input.personaKey}.png`,
+    folder: "ai/persona",
+    alt_text:
+      typeof input.alt_text === "string" && input.alt_text.trim() !== ""
+        ? input.alt_text.trim()
+        : `Persona image: ${label}`,
+    // Drives BOTH the idempotency key and the deterministic storage-key
+    // target_id → `ai/<site>/persona/<personaKey>.png`.
+    idempotency_suffix: input.personaKey,
+    client: input.client,
+  });
 }

@@ -61,6 +61,7 @@ import {
   resolveActivatedFunnel,
   resolveActivatedFunnelByVariant,
   parseUtmFromLandingUrl,
+  resolveEffectiveFrameOnly,
   type ResolvedActivatedFunnel,
   type ResolvedFunnelSection,
   type FunnelAssignment,
@@ -454,8 +455,6 @@ export function resolveFrameComposition(
 ): LeadgenFrameComposition | null {
   const rawFrame = parseJsonRecordColumn(source.frame_config_json ?? null);
   if (rawFrame === null) return null; // legacy funnel — exact current behavior (03 §3.1)
-  const frameValidation = validateFrameConfig(rawFrame);
-  if (frameValidation.config === null) return null; // invalid stored frame → fail-safe legacy render
 
   // theme_json: applied only when structurally valid (validateTheme is the
   // save-time gate; serve re-checks so drifted/corrupt json can never feed
@@ -466,19 +465,13 @@ export function resolveFrameComposition(
     theme = validateTheme(rawTheme).theme;
   }
 
-  // Variant frame_overrides_json (§13.2): the frame groups deep-merge; the
-  // `theme.palette` part rides resolveTokens layer 3 (§9.2). An invalid
-  // overrides patch is dropped whole (preflight reports it; the funnel-level
-  // frame still renders).
+  // Variant frame_overrides_json (§13.2): the `theme.palette` part rides
+  // resolveTokens layer 3 (§9.2) — read here (frame-group merging is now
+  // resolveEffectiveFrameOnly's job, called below).
   const rawOverrides = parseJsonRecordColumn(source.frame_overrides_json ?? null);
-  let frameOverrides: FrameOverrides | null = null;
   let overridesTheme: VariantThemeOverrides | null = null;
   if (rawOverrides !== null) {
-    const { theme: overridesThemeRaw, ...frameParts } = rawOverrides;
-    const overridesValidation = validateFrameConfig(frameParts);
-    if (overridesValidation.config !== null) {
-      frameOverrides = overridesValidation.config as FrameOverrides;
-    }
+    const overridesThemeRaw = (rawOverrides as Record<string, unknown>)["theme"];
     if (
       typeof overridesThemeRaw === "object" &&
       overridesThemeRaw !== null &&
@@ -491,8 +484,9 @@ export function resolveFrameComposition(
     }
   }
 
+  const frame = resolveEffectiveFrameOnly(source);
+  if (frame === null) return null; // invalid stored frame → fail-safe legacy render
   const effectiveTokens = resolveTokens(design, theme, overridesTheme, themeRecord ?? null);
-  const { frame } = effectiveFrame(frameValidation.config as StoredFrameConfig, null, frameOverrides);
   return { frame, effectiveTokens };
 }
 

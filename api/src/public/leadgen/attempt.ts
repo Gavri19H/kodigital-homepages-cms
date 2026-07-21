@@ -66,6 +66,9 @@ import {
   loadRoutingRules,
   deriveCheckpointPages,
   checkpointPageAnchors,
+  resolveEffectiveFrameOnly,
+  buildFrameCtaCtx,
+  computeCtaVerdict,
   type EntryKnownContext,
   type ResolvedSlotWinner,
 } from "./resolver";
@@ -133,6 +136,14 @@ export interface FunnelAttempt {
   // would cost bytes on every response shape check, not just a routing one;
   // matches the /lg/checkpoint protocol's short-key precedent.
   cps?: string[];
+  // Round-4 P4a-adj (P5a runtime seam #1): the frame's conditional CTA slots
+  // (cta_slots[].condition) currently MET, evaluated server-side against the
+  // entry-known ctx (no answers exist yet at mint time — an answer-conditioned
+  // CTA is fail-closed until the FIRST checkpoint re-evaluates it, see
+  // runtime-routes.ts's serveLeadgenCheckpoint `cc`). Short key: same
+  // hot-path-response-size rationale as `cps` above. Named `cc` (NOT `cv`) to
+  // avoid colliding with the CHECKPOINT response's `cv` (content_version).
+  cc?: string[];
 }
 
 // Request-derived attempt context threaded by the /lg/attempt route (04 §4.2):
@@ -353,10 +364,14 @@ export async function mintFunnelAttempt(
   // Round-4 P4a: the checkpoint page ANCHOR section ids for THIS variant's
   // mid-funnel routing rules (empty when it has none — the common case).
   let checkpointPages: string[] = [];
+  // Computed once regardless of resolved.pages — a CTA condition is a FRAME
+  // concept (P4a-adj below), independent of the pages model.
+  const nowHour = new Date(now).getUTCHours();
+  const nowWeekday = new Date(now).getUTCDay();
   if (resolved.pages !== undefined) {
     const entryCtx: EntryKnownContext = {
-      hour: new Date(now).getUTCHours(),
-      weekday: new Date(now).getUTCDay(),
+      hour: nowHour,
+      weekday: nowWeekday,
       ...ctx?.entry_ctx,
     };
     const resolved_plan = resolvePagePlan(resolved.pages, entryCtx, sessionId);
@@ -395,6 +410,23 @@ export async function mintFunnelAttempt(
   }
   if (pagePlan !== undefined) result.page_plan = pagePlan;
   if (checkpointPages.length > 0) result.cps = checkpointPages;
+  // Round-4 P4a-adj (P5a runtime seam #1): the mint-time CTA verdict. No
+  // answers exist yet, so only entry-known-conditioned CTAs (e.g. __state)
+  // can match here — an answer-conditioned one is fail-closed until the first
+  // checkpoint (correct v1 semantics: CTA visibility updates at checkpoint
+  // page transitions only, the SAME granularity P4a routing already re-
+  // evaluates at, not on every page). resolveEffectiveFrameOnly degrades to
+  // null on a legacy/invalid/absent frame (no cta_slots to evaluate).
+  const frame = resolveEffectiveFrameOnly({
+    frame_config_json: resolved.funnel.frame_config_json,
+    theme_json: resolved.funnel.theme_json,
+    frame_overrides_json: resolved.variant.frame_overrides_json,
+  });
+  if (frame !== null) {
+    const frameCtx = buildFrameCtaCtx({ state: ctxState, device: ctxDevice, hour: nowHour, weekday: nowWeekday }, 0);
+    const cc = computeCtaVerdict(frame.cta_slots, frameCtx);
+    if (cc.length > 0) result.cc = cc;
+  }
   return result;
 }
 

@@ -47,6 +47,9 @@ import {
   getActiveVariantByIdOnFunnel,
   getControlVariantForFunnel,
   computeResumeSection,
+  resolveEffectiveFrameOnly,
+  buildFrameCtaCtx,
+  computeCtaVerdict,
   type EntryKnownContext,
   type ResolvedActivatedFunnel,
 } from "./resolver";
@@ -405,9 +408,25 @@ async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
   const answers = normalizeCheckpointAnswers(body.a, checkpointKnownFields(current));
   const entryCtx = requestEntryCtx(c, verified.landing_url, Date.now());
 
+  // Round-4 P4a-adj (P5a runtime seam #1): the CURRENT variant's CTA verdict,
+  // re-evaluated against entry ctx UNION the freshly re-normalized answers —
+  // this is the "page transition" moment (checkpoint) an answer-conditioned
+  // CTA becomes evaluable at all (v1 semantics: ONLY at a P4a checkpoint page,
+  // since that is what gates /lg/ck firing in the first place — noted, not a
+  // general-purpose per-page re-evaluation). Computed BEFORE the routing match
+  // check so a CTA verdict updates even when the routing rule itself does NOT
+  // match (a CTA condition and a routing condition are independent axes).
+  const ctaCtx = { ...buildFrameCtaCtx(entryCtx, 0), ...answers };
+  const currentFrame = resolveEffectiveFrameOnly({
+    frame_config_json: current.funnel.frame_config_json,
+    theme_json: current.funnel.theme_json,
+    frame_overrides_json: current.variant.frame_overrides_json,
+  });
+  const ccCurrent = currentFrame !== null ? computeCtaVerdict(currentFrame.cta_slots, ctaCtx) : [];
+
   // (3b) evaluate the bound variant's CHECKPOINT-plane routing rules.
   const match = evaluateCheckpointRouting(await loadRoutingRules(db, current.variant.id), entryCtx, answers);
-  if (match === null) return checkpointJson({ sw: false }, 200);
+  if (match === null) return checkpointJson(ccCurrent.length > 0 ? { sw: false, cc: ccCurrent } : { sw: false }, 200);
 
   // Resolve the target (active sibling of THIS funnel) + its full bundle.
   const targetRow = await getActiveVariantByIdOnFunnel(db, current.funnel.id, match.target_funnel_variant_id);
@@ -446,6 +465,17 @@ async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
     return checkpointJson({ sw: false }, 200);
   }
 
+  // The TARGET's own CTA verdict — a DIFFERENT frame than the origin's (the
+  // whole point of routing to another funnel name/variant), re-evaluated
+  // against the SAME entry ctx UNION answers (reissued.cc from mintFunnelAttempt
+  // above lacks the answers half, so it is not reused here).
+  const targetFrame = resolveEffectiveFrameOnly({
+    frame_config_json: target.funnel.frame_config_json,
+    theme_json: target.funnel.theme_json,
+    frame_overrides_json: target.variant.frame_overrides_json,
+  });
+  const ccTarget = targetFrame !== null ? computeCtaVerdict(targetFrame.cta_slots, ctaCtx) : [];
+
   return checkpointJson(
     {
       sw: true,
@@ -456,6 +486,7 @@ async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
       ar: `routing_rule:${match.hash}`,
       pp: reissued.page_plan ?? [],
       r: resume,
+      ...(ccTarget.length > 0 ? { cc: ccTarget } : {}),
     },
     200,
   );

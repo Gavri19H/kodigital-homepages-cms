@@ -76,9 +76,9 @@ function readCookie(name: string): string {
     const m = document.cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
     if (m === null) return "";
     try {
-      return decodeURIComponent(m[1] ?? "");
+      return decodeURIComponent(m[1] || "");
     } catch {
-      return m[1] ?? "";
+      return m[1] || "";
     }
   } catch {
     return "";
@@ -204,7 +204,7 @@ function previewSender(): LgSendFn {
     try {
       let events: unknown = [];
       try {
-        events = (JSON.parse(body) as { events?: unknown }).events ?? [];
+        events = (JSON.parse(body) as { events?: unknown }).events || [];
       } catch {
         events = [];
       }
@@ -230,7 +230,7 @@ export async function computeAssignmentBucket(
     const digest = await crypto.subtle.digest("SHA-256", data);
     const b = new Uint8Array(digest);
     const word =
-      (((b[0] ?? 0) << 24) | ((b[1] ?? 0) << 16) | ((b[2] ?? 0) << 8) | (b[3] ?? 0)) >>> 0;
+      (((b[0] || 0) << 24) | ((b[1] || 0) << 16) | ((b[2] || 0) << 8) | (b[3] || 0)) >>> 0;
     return word % 10000;
   } catch {
     return null;
@@ -305,8 +305,10 @@ interface LgAttempt {
   // 10C conditional-display ctx the server MAY echo (visitor geo/device) for
   // __state/__device rules — tolerant of absence (the emitting server leg is a
   // P3/P4 seam; until then a rule on those keys is fail-closed). Merged only
-  // into the evaluation map, NEVER sent back to /lg/auction.
-  ctx?: { state?: string; device?: string };
+  // into the evaluation map, NEVER sent back to /lg/auction. Always present
+  // (parseAttemptCtx returns {} rather than a null/undefined this.ctx would
+  // need an extra branch to distinguish from its OWN {} default).
+  ctx: { state?: string; device?: string };
   // Round-4 P3a: the resolved page plan (flat, per-slot winners) — ABSENT
   // for a legacy/no-page-model funnel (byte-identical fallback: every
   // section counts as its own page, exactly pre-P3a).
@@ -318,6 +320,11 @@ interface LgAttempt {
   // check, no page-number lookup. ABSENT/empty when the variant has no
   // checkpoint-plane routing rules. Short key `cps` (see attempt.ts FunnelAttempt.cps).
   cps?: string[];
+  // Round-4 P4a-adj (P5a runtime seam #1): the SERVER-evaluated conditional-CTA
+  // verdict (attempt.ts FunnelAttempt.cc) — the ids of frame cta_slots[] whose
+  // `condition` currently matches. The engine never evaluates a condition
+  // itself; it only applies this id list (applyCtaVerdict).
+  cc?: string[];
 }
 
 function sleep(ms: number): Promise<void> {
@@ -327,15 +334,16 @@ function sleep(ms: number): Promise<void> {
 }
 
 // Tolerant parse of the OPTIONAL /lg/attempt ctx echo (10C). Only non-empty
-// string state/device are adopted; anything else — or absence — yields null so
-// the caller omits ctx and __state/__device stay fail-closed.
-function parseAttemptCtx(raw: unknown): { state?: string; device?: string } | null {
-  if (raw === null || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
+// string state/device are adopted; anything else (or absence) yields {} —
+// byte-lean unconditional adoption (this.ctx's own default IS {}, so a
+// null/undefined distinction here bought nothing) — so __state/__device stay
+// fail-closed.
+function parseAttemptCtx(raw: unknown): { state?: string; device?: string } {
+  const r = raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const out: { state?: string; device?: string } = {};
   if (typeof r["state"] === "string" && r["state"] !== "") out.state = r["state"];
   if (typeof r["device"] === "string" && r["device"] !== "") out.device = r["device"];
-  return out.state === undefined && out.device === undefined ? null : out;
+  return out;
 }
 
 // Round-4 P3a: tolerant parse of the OPTIONAL page_plan echo. Same-origin,
@@ -358,7 +366,6 @@ async function fetchAttemptOnce(funnelVariantId: string): Promise<LgAttempt | nu
     if (!res.ok) return null;
     const raw = (await res.json()) as Record<string, unknown>;
     if (typeof raw["funnel_attempt_id"] !== "string" || raw["funnel_attempt_id"] === "") return null;
-    const ctx = parseAttemptCtx(raw["ctx"]);
     const pagePlan = parseAttemptPagePlan(raw["page_plan"]);
     return {
       funnel_attempt_id: raw["funnel_attempt_id"],
@@ -368,9 +375,10 @@ async function fetchAttemptOnce(funnelVariantId: string): Promise<LgAttempt | nu
         ? { session_id: raw["session_id"] }
         : {}),
       ...(typeof raw["expires_at"] === "number" ? { expires_at: raw["expires_at"] } : {}),
-      ...(ctx !== null ? { ctx } : {}),
+      ctx: parseAttemptCtx(raw["ctx"]),
       ...(pagePlan !== null ? { page_plan: pagePlan } : {}),
       ...(Array.isArray(raw["cps"]) ? { cps: raw["cps"] as string[] } : {}),
+      ...(Array.isArray(raw["cc"]) ? { cc: raw["cc"] as string[] } : {}),
     };
   } catch {
     return null;
@@ -392,13 +400,13 @@ async function fetchAttemptOnce(funnelVariantId: string): Promise<LgAttempt | nu
 // guard — no runtime `?? default` fallbacks (byte-lean; the server contract
 // always emits them on a switch).
 type LgCheckpointResult =
-  | { sw: false }
-  | { sw: true; k: string; v: string; so: string; cv: number; ar: string; pp: LgPlanWinner[]; r: string };
+  | { sw: false; cc?: string[] }
+  | { sw: true; k: string; v: string; so: string; cv: number; ar: string; pp: LgPlanWinner[]; r: string; cc?: string[] };
 
 async function fetchAttemptWithRetry(funnelVariantId: string): Promise<LgAttempt | null> {
   let attempt = await fetchAttemptOnce(funnelVariantId);
   for (let i = 0; attempt === null && i < ATTEMPT_RETRY_DELAYS_MS.length; i++) {
-    await sleep(ATTEMPT_RETRY_DELAYS_MS[i] ?? 1000);
+    await sleep(ATTEMPT_RETRY_DELAYS_MS[i] || 1000);
     attempt = await fetchAttemptOnce(funnelVariantId);
   }
   return attempt;
@@ -520,6 +528,7 @@ export class LgEngine {
       attempt = {
         funnel_attempt_id: `att_preview_${ulidLike(Date.now(), randBytes)}`,
         signed_config_token: "",
+        ctx: {},
       };
     } else {
       attempt = await fetchAttemptWithRetry(config.funnel_variant_id);
@@ -532,14 +541,14 @@ export class LgEngine {
     // bound value or the v2 session binding rejects — and keep the beacon
     // envelope on the same id for attribution consistency.
     const boundSessionId =
-      attempt?.session_id !== undefined && attempt.session_id !== ""
+      attempt && attempt.session_id !== undefined && attempt.session_id !== ""
         ? attempt.session_id
         : sessionId;
     this.store.bindIdentity({
       session_id: boundSessionId,
       page_view_id: pageViewId,
-      funnel_attempt_id: attempt?.funnel_attempt_id ?? "",
-      signed_config_token: attempt?.signed_config_token ?? "",
+      funnel_attempt_id: (attempt && attempt.funnel_attempt_id) || "",
+      signed_config_token: (attempt && attempt.signed_config_token) || "",
       tuple,
     });
     if (attempt !== null) {
@@ -548,7 +557,7 @@ export class LgEngine {
         ...(boundSessionId !== sessionId ? { session_id: boundSessionId } : {}),
       });
       // 10C: adopt the server ctx echo (geo/device) for __state/__device rules.
-      if (attempt.ctx !== undefined) this.ctx = attempt.ctx;
+      this.ctx = attempt.ctx;
       // Round-4 P3a: build the page-plan lookup ONCE from the flat winners
       // list (page_id first-seen order == page order, matching resolver.ts's
       // own page.position ordering). P4a reuses applyPlan on a checkpoint switch.
@@ -556,6 +565,8 @@ export class LgEngine {
       // Round-4 P4a: the checkpoint pages to POST at (empty for a non-routing
       // funnel → the /lg/ck leg never fires, byte-neutral behavior).
       if (Array.isArray(attempt.cps)) this.ckpts = attempt.cps;
+      // Round-4 P4a-adj: mint-time CTA verdict (entry-known conditions only).
+      if (Array.isArray(attempt.cc)) this.applyCtaVerdict(attempt.cc);
     }
 
     // §3.5.1 restore iff same attempt-binding tuple (see state.ts header for
@@ -624,7 +635,7 @@ export class LgEngine {
     if (attemptFailed) {
       // §3.5.8: never a blank page; the server HTML is already interactive,
       // the notice explains the degraded step. Beacons continue regardless.
-      render.showRuntimeNotice(this.currentSectionEl() ?? this.root, FRIENDLY_ERROR);
+      render.showRuntimeNotice(this.currentSectionEl() || this.root, FRIENDLY_ERROR);
     }
 
     // Final flush on page exit (sendBeacon path).
@@ -654,11 +665,11 @@ export class LgEngine {
     questionId: string,
     section: LgSectionConfig | null,
   ): { question_id: string; section_public_id: string } {
-    return { question_id: questionId, section_public_id: section?.section_public_id ?? "" };
+    return { question_id: questionId, section_public_id: (section && section.section_public_id) || "" };
   }
 
   private currentSection(): LgSectionConfig | null {
-    return this.config.sections[this.si] ?? null;
+    return this.config.sections[this.si] || null;
   }
 
   private currentSectionEl(): HTMLElement | null {
@@ -669,11 +680,11 @@ export class LgEngine {
     if (el === null) return null;
     const sectionEl = el.closest("[data-lg-section]");
     if (sectionEl === null) return this.currentSection();
-    const id = sectionEl.getAttribute("data-lg-section-id") ?? "";
+    const id = sectionEl.getAttribute("data-lg-section-id") || "";
     const byId = this.config.sections.find((s) => s.section_public_id === id);
     if (byId !== undefined) return byId;
     const index = Number(sectionEl.getAttribute("data-lg-index"));
-    return this.config.sections[Number.isNaN(index) ? -1 : index] ?? this.currentSection();
+    return this.config.sections[Number.isNaN(index) ? -1 : index] || this.currentSection();
   }
 
   private sectionDims(section: LgSectionConfig | null): Record<string, unknown> {
@@ -689,7 +700,7 @@ export class LgEngine {
       section_mapping_version: section.section_mapping_version,
       answer_mapping_version: section.answer_mapping_version,
       ...(meta !== undefined
-        ? { page_id: this.pageIds[meta[0]] ?? "", slot_id: meta[1], slot_assignment_reason: meta[2] }
+        ? { page_id: this.pageIds[meta[0]] || "", slot_id: meta[1], slot_assignment_reason: meta[2] }
         : {}),
     };
   }
@@ -709,7 +720,7 @@ export class LgEngine {
     questionId: string,
   ): LgComponentConfig | null {
     const scan = (s: LgSectionConfig): LgComponentConfig | null =>
-      s.components.find((component) => component.question_id === questionId) ?? null;
+      s.components.find((component) => component.question_id === questionId) || null;
     if (section !== null) {
       const hit = scan(section);
       if (hit !== null) return hit;
@@ -769,7 +780,7 @@ export class LgEngine {
     if (visible.length === 0) return 0;
     if (visible.indexOf(wanted) !== -1) return wanted;
     for (const index of visible) if (index >= wanted) return index;
-    return visible[visible.length - 1] ?? 0;
+    return visible[visible.length - 1] || 0;
   }
 
   private persist(): void {
@@ -821,7 +832,7 @@ export class LgEngine {
       let el: Element | null = null;
       if (typeof item === "string") {
         try {
-          el = this.root.querySelector(item) ?? document.querySelector(item);
+          el = this.root.querySelector(item) || document.querySelector(item);
         } catch {
           el = null;
         }
@@ -946,7 +957,7 @@ export class LgEngine {
     // vs-string was never the broken case); leadgen-p4a-behavior.spec.ts /
     // the p4c-rules spec's leg 4 prove the previously-stuck boolean-picker-
     // vs-live-click case now reveals live.
-    const attrValue = choiceEl.getAttribute("data-lg-choice") ?? "";
+    const attrValue = choiceEl.getAttribute("data-lg-choice") || "";
     const choiceConfig = component?.choices?.find((c) => String(c.value) === attrValue);
     let value: unknown = choiceConfig !== undefined ? choiceConfig.value : attrValue;
 
@@ -992,7 +1003,7 @@ export class LgEngine {
       const deps = this.dependencyState(section);
       const interactive = section.components.filter(
         (c, i) =>
-          (c.internal_field ?? "") !== "" && deps.components[i]?.visible === true,
+          (c.internal_field || "") !== "" && deps.components[i]?.visible === true,
       );
       if (interactive.length === 1 && this.sectionPassesAt(this.config.sections.indexOf(section), section)) {
         this.advance();
@@ -1039,6 +1050,24 @@ export class LgEngine {
     this.planMeta = meta;
     this.pageIds = ids;
     this.pagesCount = ids.length;
+  }
+
+  // Round-4 P4a-adj (P5a runtime seam #1, CTA visibility): trivial APPLIER —
+  // the server already evaluated every conditional CTA's condition (attempt.ts
+  // computeCtaVerdict); this never parses/evaluates a condition itself. Reuses
+  // applyComponentVisibility UNCHANGED (its own `sectionEl.querySelector` works
+  // over ANY Element, not just a section) against every [data-lg-cta-condition]
+  // element found anywhere in the frame — display-only, never touches section
+  // visibility/progress. Re-hides an id NOT in `cc` too (a prior verdict's
+  // match can be superseded by a later one — see the checkpoint call site).
+  private applyCtaVerdict(cc: string[]): void {
+    render.applyComponentVisibility(
+      this.root,
+      Array.from(this.root.querySelectorAll("[data-lg-cta-condition]"), (el) => {
+        const id = el.getAttribute("data-lg-node") || "";
+        return { question_id: id, visible: cc.includes(id) };
+      }),
+    );
   }
 
   // Round-4 P4a (D-2): on a page-complete crossing a routing CHECKPOINT (and
@@ -1093,6 +1122,10 @@ export class LgEngine {
         /* out stays null */
       }
     }
+    // P4a-adj: a CTA verdict rides EVERY /lg/ck response (switch or not) —
+    // a checkpoint page transition is the moment an answer-conditioned CTA
+    // becomes evaluable at all (v1 semantics, see runtime-routes.ts).
+    if (out !== null && out.cc !== undefined) this.applyCtaVerdict(out.cc);
     if (out === null || out.sw !== true) {
       this.advance();
       return;
@@ -1137,7 +1170,7 @@ export class LgEngine {
   }
 
   private handleInputEvent(target: Element): void {
-    const input = target.closest("[data-lg-input]") ?? target;
+    const input = target.closest("[data-lg-input]") || target;
     const fieldEl = input.closest("[data-lg-field]");
     const questionEl = input.closest("[data-lg-question]");
     const questionId = questionEl?.getAttribute("data-lg-question") ?? "";
@@ -1396,7 +1429,7 @@ export class LgEngine {
     if (shownEls[0] !== undefined) render.focusSection(shownEls[0]);
     this.updateProgressUi();
     if (fireView) {
-      for (const i of visibleInPage) this.fireSectionView(this.config.sections[i] ?? null, nav);
+      for (const i of visibleInPage) this.fireSectionView(this.config.sections[i] || null, nav);
     }
   }
 
@@ -1453,7 +1486,7 @@ export class LgEngine {
     // (the banners-view leg rides showCompletionState). The `pos !== -1`
     // guard is load-bearing ONLY on the no-plan path (a plan-resolved
     // section is never pos-ambiguous).
-    render.updateFooterVisibility(this.root, current <= 1, page !== undefined ? current === total : pos !== -1 && current === total);
+    render.updateFooterVisibility(this.root, current <= 1, page !== undefined ? current === total : pos !== -1 && current === total, current);
   }
 
   // ----- §3.6 auction -------------------------------------------------------
@@ -1512,7 +1545,7 @@ export class LgEngine {
       // §3.5.8: inline notice inside the funnel card; beacons continue.
       this.store.setAuction({ status: "error" });
       this.root.setAttribute("data-lg-auction", "error");
-      render.showRuntimeNotice(this.currentSectionEl() ?? this.root, FRIENDLY_ERROR);
+      render.showRuntimeNotice(this.currentSectionEl() || this.root, FRIENDLY_ERROR);
       this.finalized = outcome.kind === "tampered"; // network errors may retry via Continue
       return;
     }
@@ -1549,7 +1582,7 @@ export class LgEngine {
           this.beacons.enqueue(imp.event_type, {
             offer_id: imp.offer_id,
             placement_id: imp.placement_id,
-            carrier_key: imp.carrier_key ?? "",
+            carrier_key: imp.carrier_key || "",
             carrier_position: imp.slot_index,
             auction_result_id: imp.auction_result_id,
             banner_render_id: imp.banner_render_id,
@@ -1604,7 +1637,7 @@ export async function bootLeadgenRuntime(): Promise<void> {
     // Dedicated try/catch: a corrupt inline config renders the notice, never
     // a blank page / thrown boot.
     try {
-      config = JSON.parse(configEl.textContent ?? "") as LgPublicConfig;
+      config = JSON.parse(configEl.textContent || "") as LgPublicConfig;
     } catch {
       config = null;
     }

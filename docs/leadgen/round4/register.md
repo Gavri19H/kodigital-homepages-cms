@@ -23,18 +23,18 @@ lifecycle parity.
 | R4-12 | #7 single-column (1) authorable everywhere + clamp/validation alignment | P1b | PASS (P1, evidence: phase log P1) |
 | R4-13 | #8 section-name affordance + plain-language save errors (no raw ids) | P1a+P1c | PASS (P1, evidence: phase log P1) |
 | R4-14 | #9 "+ Add choice" out of layout flow (live==edit geometry) | P1a+P1b | PASS (P1, evidence: phase log P1) |
-| R4-15 | #10A activity/verticals dropdowns on New Quote (existing endpoints) | P5b | OPEN |
-| R4-16 | #10B real site-logo preview + no-logo hint | P5a | OPEN |
-| R4-17 | #10C phone/CTA element: 4 slots, alignment, tel:, conditional display (page/answer/state/hour/day) | P2a+P5a | OPEN |
-| R4-18 | #10D progress bar v2: distinct styles incl. icon-on-track/%/numbered; editor layout fixed | P5a+P5b | OPEN |
-| R4-19 | #10E free-text elements above/below section, rich floor, page targeting | P5a | OPEN |
-| R4-20 | #10F brand-logos organizer + sanitized SVG upload | P5a+P5c | OPEN |
-| R4-21 | #10G rich elements: trust/benefit icon+text rows + hover tooltip + AI persona image (quota) | P5a+P5c | OPEN |
-| R4-22 | #10H footer v2 full builder (blocks, own palette/typography, per-site vars) | P5a | OPEN |
-| R4-23 | #10H-adj disclosure v2 (multi-location, per-location text/mode/align) | P5a | OPEN |
+| R4-15 | #10A activity/verticals dropdowns on New Quote (existing endpoints) | P5b | PASS (P5, evidence: phase log P5) |
+| R4-16 | #10B real site-logo preview + no-logo hint | P5a | PASS (P5, evidence: phase log P5) |
+| R4-17 | #10C phone/CTA element: 4 slots, alignment, tel:, conditional display (page/answer/state/hour/day) | P2a+P5a | PASS (P5, evidence: phase log P5) |
+| R4-18 | #10D progress bar v2: distinct styles incl. icon-on-track/%/numbered; editor layout fixed | P5a+P5b | PASS (P5, evidence: phase log P5) |
+| R4-19 | #10E free-text elements above/below section, rich floor, page targeting | P5a | PASS (P5, evidence: phase log P5) |
+| R4-20 | #10F brand-logos organizer + sanitized SVG upload | P5a+P5c | PASS (P5, evidence: phase log P5) |
+| R4-21 | #10G rich elements: trust/benefit icon+text rows + hover tooltip + AI persona image (quota) | P5a+P5c | PASS (P5, evidence: phase log P5) |
+| R4-22 | #10H footer v2 full builder (blocks, own palette/typography, per-site vars) | P5a | PASS (P5, evidence: phase log P5) |
+| R4-23 | #10H-adj disclosure v2 (multi-location, per-location text/mode/align) | P5a | PASS (P5, evidence: phase log P5) |
 | R4-24 | #10I theme v2: fonts (self-hosted), display-XXL, button ranges (Img38-40), presets+DELETE, theme A/B | P6a+P6b | OPEN |
 | R4-25 | #10J funnel structure panel broken layout | P3b | PASS (P3, evidence: phase log P3) |
-| R4-26 | Restructure: Templates+Themes top tabs + 7 box pickers | P5b | OPEN |
+| R4-26 | Restructure: Templates+Themes top tabs + 7 box pickers | P5b | PASS (P5, evidence: phase log P5) |
 | R4-27 | Restructure: rules UNIFIED into funnel-builder (standalone tab removed) | P4b | PASS (P4, evidence: phase log P4) |
 | R4-28 | Funnel delta A: page order changeable per funnel name | P3a+P3b | PASS (P3, evidence: phase log P3) |
 | R4-29 | Funnel delta B: FULL pages model (multi-section pages, in-page A/B, in-page slot rules) | P3a+P3b | PASS (P3, evidence: phase log P3) |
@@ -48,7 +48,7 @@ lifecycle parity.
 | R4-37 | B-4.4 unreachable clipped columns (body overflow-x hidden) | P1d | PASS (P1, evidence: phase log P1) |
 | R4-38 | B-4.5 quotes archive dead-end (no reactivate) | P1c+P1d | PASS (P1, evidence: phase log P1) |
 | R4-39 | B-4.6 Address rule-invisibility + no internal_field seed + Accept type-swap allowed | P1a | PASS (P1, evidence: phase log P1) |
-| R4-40 | B-4.7 "Numbered" progress style fake (== Bar) | P5a | OPEN |
+| R4-40 | B-4.7 "Numbered" progress style fake (== Bar) | P5a | PASS (P5, evidence: phase log P5) |
 | R4-41 | B-4.8 columns stored-vs-rendered drift (no server validation; clamp mismatch) | P1b | PASS (P1, evidence: phase log P1) |
 | R4-42 | B-4.9 headline_text raw-id jargon in save errors | P1c | PASS (P1, evidence: phase log P1) |
 | R4-43 | D-1 cap raise 44,032 + per-feature byte ledger | P2a | PASS (P2, evidence: phase log P2) |
@@ -90,4 +90,13 @@ lifecycle parity.
 - Conductor gates (own hand): tsc both configs 0 · vitest 399/5,864 pass==total (zero failures) · 34/34 phase+guard specs (P3a sticky spec root-caused: session-restore feature vs wrong test assumption — no product race) · acceptance 24/24 both engines · bundle 46,079/46,080 byte-identical freshness · deploy.yml 0043+0044 anchored · drift 0.
 - Adversarial review: FIX-FIRST (MAJOR: value_multiplier dead in production behind a hand-injected green test — the exact producer→consumer false-green class; + completion-ownership, fallback-widening, answer-injection, migration-coverage minors; cap provenance clarified) → all fixed with fail-before/pass-after each → delta re-verify **SHIP**, no new conflict.
 - Pre-deploy note: 0044 was authored+extended pre-merge on this branch only (never applied to any shared D1) — single-apply integrity holds.
-- PR: {{P4_PR}} · merge: {{P4_SHA}}
+- PR: https://github.com/Gavri19H/kodigital-homepages-cms/pull/127 · merge: 5dd0f11
+
+### P5 — templates/frame elements + Quotes IA (2026-07-21)
+- Slices: P5a frame elements (21e1245,0ea0c2d,8511af5,e095ead,f58f6c2,6b8cc46 + engine legs 6f2ce20/b011e51) · P5b Quotes IA (d5a2c0c,8790377,42eee29) · P5c security (dae707e,f71e1bf,19cb4ec).
+- Delivered: free-text rich blocks (page-targeted, sanitized) · brand-logo strips · disclosure v2 (multi-location+hover) · CTA slots with LIVE conditional display (server-verdict + client applier) · FIVE distinct progress styles (numbered≠bar, R4-40 fixed) · footer block builder (own palette scope) · real site-logo preview + no-logo hint · trust/benefit rows · first-class ai_image/persona element · Templates+Themes TOP tabs + EIGHT box pickers · activity/verticals dropdowns · progress-editor layout fix. SVG sanitizer (allowlist re-serializer) closes ALL THREE upload routes + nosniff; AI persona gen with ATOMIC D1 quota (reserve-before-spend); free-text sink hardened to an allowlist re-serializer.
+- ENV INCIDENT: original /private/tmp worktree destroyed by macOS midnight tmp-cleanup mid-phase; ALL commits recovered from main repo's git; rebuilt at durable /Users/guyhaikov/a2z-workspaces/kodigital-cms-round4-wt. Lesson saved (project-worktree-tmp-cleanup-hazard).
+- Conductor gates (own hand): tsc both 0 · vitest 403/5,997 pass==total · every P5+guard spec green IN ISOLATION (socket-exhaustion flake on combined runs — environmental, drained between runs) · acceptance 24/24 both engines · bundle 46,008/46,080 byte-identical · 0045 anchored · drift 0.
+- Adversarial review (security-weighted): FIX-FIRST (2 MAJOR both live-proven: free-text stored XSS via the shared strip-sanitizer — reviewer broke it 5 ways; persona quota check-then-increment race; + SVG attr-name emit minor) → allowlist re-serializer (articles sanitizer untouched) + atomic D1 quota + positive attr-name class → delta re-verify **SHIP** (reviewer's 23-payload run: 0 leaks).
+- Verified-clean by review: SVG element/href/url() vectors (29/29 + attr-name); all 3 upload routes + nosniff; AI paths SVG-incapable; key never logged; ??/?. conversions falsy-safe; R4-40 genuinely distinct.
+- PR: {{P5_PR}} · merge: {{P5_SHA}}

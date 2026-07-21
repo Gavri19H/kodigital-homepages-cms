@@ -12,6 +12,14 @@
 // Conditional GET: if If-None-Match matches the stored httpEtag, R2's
 // `onlyIf.etagDoesNotMatch` returns an R2Object without a body, which we
 // translate to a 304 Not Modified.
+//
+// Round-4 P5c / B-2 10F (defense-in-depth): every response also carries
+// `X-Content-Type-Options: nosniff` so a browser never content-sniffs a
+// mislabeled response into an executable type. The PRIMARY defense against a
+// malicious SVG is upload-time sanitization (lib/svg-sanitizer.ts, wired into
+// BOTH admin/media-crud-handlers.ts and admin/leadgen/assets-handlers.ts) —
+// nosniff narrows the blast radius further but does not by itself neutralize
+// a correctly-labeled image/svg+xml document navigated to directly.
 
 import { Hono } from "hono";
 import type { Env } from "../env";
@@ -70,6 +78,9 @@ serve.get("/media/*", async (c) => {
   const headers = new Headers();
   headers.set("ETag", obj.httpEtag);
   headers.set("Cache-Control", MEDIA_CACHE_CONTROL);
+  // B-2 10F defense-in-depth: never let a browser content-sniff a served
+  // asset into an executable type (applies to every response, incl. 304).
+  headers.set("X-Content-Type-Options", "nosniff");
 
   if (!hasBody(obj)) {
     // Conditional GET hit: precondition matched, body suppressed by R2.

@@ -178,19 +178,61 @@ describe("media module: serve sets ETag + 1y immutable Cache-Control + Content-T
     expect(inserted).toHaveLength(0);
   });
 
-  it("uploaded file is retrievable via GET /media/<storage_key> with matching Content-Type", async () => {
-    const { app, env } = makeApp();
+  // Round-4 P5c / B-2 10F — SECURITY RE-PIN. This test previously round-
+  // tripped a raw `.svg` upload VERBATIM (byte-for-byte, zero validation) —
+  // it PINNED the vulnerable behavior: a user-uploaded SVG was stored and
+  // served untouched, so a <script>/on*/foreignObject/etc payload would have
+  // reached the live serve path unchanged. POST /admin/media now runs every
+  // SVG-shaped upload through the SAME sanitizeSvgUpload gate as the other
+  // two upload routes (admin/leadgen/assets-handlers.ts,
+  // admin/media-crud-handlers.ts) — split into the two cases that gate
+  // proves: a malicious SVG is rejected, a benign one is stored SANITIZED
+  // (never byte-identical to the raw upload).
+  it("a malicious SVG 400s with a plain-language reason and stores NOTHING (security re-pin)", async () => {
+    const { app, env, r2, inserted } = makeApp();
     const form = new FormData();
     form.append(
       "file",
-      new File([new TextEncoder().encode("svg-data")], "logo.svg", { type: "image/svg+xml" }),
+      new File(
+        [
+          new TextEncoder().encode(
+            '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(document.cookie)</script></svg>',
+          ),
+        ],
+        "evil.svg",
+        { type: "image/svg+xml" },
+      ),
     );
+    const res = await app.request("/admin/media", { method: "POST", body: form }, env);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string; code: string };
+    expect(body.code).toBe("svg_rejected");
+    expect(body.error).toMatch(/disallowed element: script/i);
+    expect(r2.store.size).toBe(0);
+    expect(inserted).toHaveLength(0);
+  });
+
+  it("a benign SVG is retrievable via GET /media/<storage_key> with the SANITIZED bytes, not the raw upload (security re-pin)", async () => {
+    const { app, env } = makeApp();
+    const raw =
+      '<?xml version="1.0"?><!-- brand mark --><svg viewBox="0 0 10 10">' +
+      '<rect width="10" height="10" fill="#123456"/></svg>';
+    const form = new FormData();
+    form.append("file", new File([new TextEncoder().encode(raw)], "logo.svg", { type: "image/svg+xml" }));
     const upRes = await app.request("/admin/media", { method: "POST", body: form }, env);
+    expect(upRes.status).toBe(200);
     const { storage_key } = (await upRes.json()) as { storage_key: string };
     const getRes = await app.request(`/media/${storage_key}`, { method: "GET" }, env);
     expect(getRes.status).toBe(200);
     expect(getRes.headers.get("content-type")).toBe("image/svg+xml");
     expect(getRes.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
-    expect(await getRes.text()).toBe("svg-data");
+    const served = await getRes.text();
+    // SANITIZED (re-serialized) — deliberately NOT byte-identical to the raw
+    // upload (the opposite of the old pinned assertion).
+    expect(served).not.toBe(raw);
+    expect(served).not.toContain("<!--");
+    expect(served).not.toContain("<?xml");
+    expect(served).toContain('xmlns="http://www.w3.org/2000/svg"');
+    expect(served).toContain("<rect");
   });
 });
