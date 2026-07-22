@@ -299,13 +299,21 @@ img,svg{display:block}
         <div style="height:1px;background:#EEF1F6;margin:0 0 14px"></div>
         <div class="eyebrow-panel" style="margin-bottom:10px">Design — Dots</div>
 
-        <!-- per-type design box axes: position / thickness / width / color / show_label (frames.ts:1635 SWITCH_LAYOUT_FIELDS.progress + FrameProgressConfig) -->
+        <!-- per-type design box axes: position / alignment / thickness / width / color / label options — the axis list is contract §8.3 itself ("per-type design box (position/alignment/thickness/width/color/label options — exact controls pinned in P0)"), not SWITCH_LAYOUT_FIELDS.progress (frames.ts:1635, a template-switch RESET list that happens to omit color too — a different, narrower concern, not the design-box control inventory). -->
         <label style="display:block;font-size:12px;font-weight:600;color:#5A6470;margin-bottom:5px" for="pin-progress-position">Position</label>
         <div class="select-ctl" id="pin-progress-position" style="margin-bottom:13px">
           <span>Above the question</span>
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="#8A93A3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="pin-note" style="background:transparent;border:0;padding:0 0 9px;margin-top:-9px">4 options = <code>FRAME_PROGRESS_POSITIONS</code> (frames.ts:58): Top · Under header · Above the question · In the card. Canvas above shows <b>Under header</b> in context; this control's shown value (Above the question) demonstrates the dropdown's rest state independent of the live canvas render.</div>
+
+        <div style="font-size:12px;font-weight:600;color:#5A6470;margin-bottom:6px">Alignment</div>
+        <div class="seg" style="width:100%;margin-bottom:13px">
+          <div class="seg-item" style="flex:1;text-align:center">Left</div>
+          <div class="seg-item active" style="flex:1;text-align:center">Center</div>
+          <div class="seg-item" style="flex:1;text-align:center">Right</div>
+        </div>
+        <div class="pin-note" style="background:transparent;border:0;padding:0 0 9px;margin-top:-9px">3 options = <code>FRAME_PROGRESS_ALIGNS</code> (frames.ts:59): Left · Center · Right — <code>FrameProgressConfig.align</code> (frames.ts:172), optional, absent ⇒ "Center" (frame.ts fallback); shown selected here to match that default.</div>
 
         <div style="font-size:12px;font-weight:600;color:#5A6470;margin-bottom:6px">Thickness</div>
         <div class="seg" style="width:100%;margin-bottom:13px">
@@ -458,7 +466,7 @@ img,svg{display:block}
       <tr><td><code>8.3-canvas-theme-switcher</code> / <code>8.3-canvas-section-picker</code></td><td>§8.3</td><td>Canvas toolbar controls</td></tr>
       <tr><td><code>8.8-logo-placeholder-chip</code></td><td>§8.8, Appendix A-8</td><td>Shown because this canvas renders the header fallback</td></tr>
       <tr><td><code>8.3-progress-in-context</code></td><td>§8.3</td><td>Progress rendered at its configured position, in the live canvas</td></tr>
-      <tr><td><code>8.3-progress-settings</code>, <code>8.3-progress-type-picker</code></td><td>§8.3</td><td>Element I: 5 styles (frames.ts:57) + design box axes (frames.ts:1635)</td></tr>
+      <tr><td><code>8.3-progress-settings</code>, <code>8.3-progress-type-picker</code></td><td>§8.3</td><td>Element I: 5 styles (frames.ts:57) + design box axes per §8.3's own list — position/alignment/thickness/width/color/label options (alignment: frames.ts:59,172)</td></tr>
       <tr><td><code>appendix-a-9</code></td><td>Appendix A-9</td><td>"Sample section (add sections to preview your own)." — verbatim</td></tr>
     </table>
   </div>

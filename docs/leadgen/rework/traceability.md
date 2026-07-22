@@ -176,6 +176,6 @@
 ## Summary
 
 - **Total rows:** 97 (19 AC + 12 M + 15 R + 10 C + 10 U + 11 X + 11 STR + 5 D + 4 OP)
-- **OPEN:** 89 rows (all implementation rows)
-- **BLOCKED-operator:** 8 rows (5 decisions + 3 operator tasks pending)
+- **OPEN:** 88 rows (all implementation rows)
+- **BLOCKED-operator:** 9 rows (5 decisions D-1..D-5 + 4 operator tasks OP-1..OP-4)
 - **PASS:** 0 rows (conductor verifies; implementer never claims PASS)
