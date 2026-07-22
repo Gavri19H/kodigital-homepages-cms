@@ -4,9 +4,9 @@
 
 Engine at 46,008/46,080; new visitor behavior needs ≈ +5KB ⇒ **recommend 51,200 (50 KiB), FINAL for this program, per-feature ledger** (precedent D-4/D-1). Cost ≈ 1ms parse on mid-range mobile.
 
-**Decision:** ☐ PENDING — collected at the P0 consolidated review
+**Decision:** ☑ RESOLVED at the P0 consolidated review (2026-07-22)
 
-**Owner ruling:**
+**Owner ruling: 51,200 bytes (50 KiB), FINAL for this program, per-feature byte ledger. (P0 consolidated review, 2026-07-22)**
 
 **Downstream effect:** P2 runtime byte work + build cap constant.
 
@@ -16,9 +16,9 @@ Engine at 46,008/46,080; new visitor behavior needs ≈ +5KB ⇒ **recommend 51,
 
 Migrate conditions/multiplier/redirect intact with target = their funnel (behavior-neutral today) + a re-pointing report (recommended) — or drop them (early-stage data).
 
-**Decision:** ☐ PENDING — collected at the P0 consolidated review
+**Decision:** ☑ RESOLVED at the P0 consolidated review (2026-07-22)
 
-**Owner ruling:**
+**Owner ruling: MIGRATE — conditions/multiplier/redirect intact, target = owning funnel (behavior-neutral), re-pointing report delivered. (2026-07-22)**
 
 **Downstream effect:** M3 row migration content.
 
@@ -28,9 +28,9 @@ Migrate conditions/multiplier/redirect intact with target = their funnel (behavi
 
 Mechanism ships end-to-end (rule → outcome/analytics/`ctx.feed_name` payload node); name the downstream consumer (offer payload field? S2S param?) for any wiring beyond the stamp.
 
-**Decision:** ☐ PENDING — collected at the P0 consolidated review
+**Decision:** ☑ RESOLVED at the P0 consolidated review (2026-07-22)
 
-**Owner ruling:**
+**Owner ruling: STAMP-ONLY — mechanism ships end-to-end (outcome/analytics/ctx.feed_name mappable); no additional consumer wired now; M11 formatCurrency NOT requested. (2026-07-22)**
 
 **Downstream effect:** M10 wiring beyond stamp.
 
@@ -40,9 +40,9 @@ Mechanism ships end-to-end (rule → outcome/analytics/`ctx.feed_name` payload n
 
 Code renders real logos + honest placeholder; uploading actual assets in Site settings is yours (or name the correct source if not `site_settings.logo_media_id`).
 
-**Decision:** ☐ PENDING — collected at the P0 consolidated review
+**Decision:** ☑ RESOLVED at the P0 consolidated review (2026-07-22)
 
-**Owner ruling:**
+**Owner ruling: site_settings.logo_media_id CONFIRMED as source; owner uploads real logo assets (operator-owned OP-2). (2026-07-22)**
 
 **Downstream effect:** Data task, not code.
 
@@ -52,8 +52,8 @@ Code renders real logos + honest placeholder; uploading actual assets in Site se
 
 Relocates to the Auction tab (recommended) — or an "Advanced" drawer in the funnel tab.
 
-**Decision:** ☐ PENDING — collected at the P0 consolidated review
+**Decision:** ☑ RESOLVED at the P0 consolidated review (2026-07-22)
 
-**Owner ruling:**
+**Owner ruling: AUCTION TAB — the four auction-domain rule types relocate their UI to the Auction tab. (2026-07-22)**
 
 **Downstream effect:** Where auction-domain rules UI renders.

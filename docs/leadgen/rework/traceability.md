@@ -6,7 +6,7 @@
 
 **Legend:** Status ∈ {OPEN, PASS, BLOCKED-operator}. PASS is written ONLY by the conductor, ONLY with executed evidence (command + real output) cited in the Evidence column. Implementers never write to this file.
 
-**P1 entry gates — executed 2026-07-22 by the conductor (pre-P1 evidence, recorded here for recovery):**
+**P1 entry gates — executed 2026-07-22 by the conductor (pre-P1 evidence, recorded here for recovery; product source is byte-identical b8c302e→989c54a — the P0 merge was docs-only — so this evidence remains valid at the P1 base):**
 - **E1 (M2 reader sweep):** `grep -rln "leadgen_funnel_pages\|leadgen_funnel_variant_sections" src/` → exactly the 6 contract-listed reader files (db-types, offers-handlers, quotes-handlers, sections-handlers, ui-sections, resolver) + 1 comment-only mention (`ui-quotes.ts:4243`, not a reader; keep the comment truthful in S1.6/P3). Contract M2 list confirmed complete. PASS.
 - **E2 (M6 question_id proof):** executed the real `validateSectionContent` at b8c302e against `q_mig01::insured` on a valid ButtonAnswerGroup → `ok:true, errors:[]`; sibling pair of distinct `::` ids → `ok:true`; identical `::` ids → `duplicate_question_id` fires. `::`-projected ids pass save validation; M6 preserves ids byte-identically, fallback remap NOT needed. PASS.
 - **E3 (baselines at b8c302e):** `npx vitest run` → **406 files / 6045 tests, all passed** (114.21s). `npx playwright test --list` → **586 tests / 72 files**. Zero pre-existing failures to triage. PASS.
@@ -53,7 +53,7 @@
 | M-08 | §5 M8 | Phone mask: grammar validation, scaffold/digit_count/regex compile | tbd | tbd | OPEN | — |
 | M-09 | §5 M9 | Address field set: props.fields[] ordered, per-field modes, validations | tbd | tbd | OPEN | — |
 | M-10 | §5 M10 | OS entry context (ios/android/windows/macos/linux/other) from User-Agent | tbd | tbd | OPEN | — |
-| M-11 | §5 M11 | (Optional) formatCurrency(symbol,decimals) transform kind | tbd | tbd | OPEN | — |
+| M-11 | §5 M11 | (Optional) formatCurrency(symbol,decimals) transform kind | none — not requested | owner decision D3 | PASS | D3 ruling 2026-07-22: stamp-only, M11 NOT requested — no work required; row closed by decision |
 | M-12 | §5 M12 | OtherGroupSelector content retirement: nodes to ButtonAnswerGroup, choiceDisplay removed | tbd | tbd | OPEN | — |
 
 ---
@@ -110,7 +110,7 @@
 | U-07 | §8.7 | Analytics tab: routed_to_funnel and feed_name join drilldown | tbd | tbd | OPEN | — |
 | U-08 | §8.8 | Site logo: explicit placeholder chip (A-8); preview link to Site settings | tbd | tbd | OPEN | — |
 | U-09 | §8.9 | Dead-code bar: every rebuilt-tab control wired or absent | tbd | tbd | OPEN | — |
-| U-10 | §8.10 | P0 golden design pack: geometry, tokens, states, empty states, microcopy | tbd | tbd | OPEN | — |
+| U-10 | §8.10 | P0 golden design pack: geometry, tokens, states, empty states, microcopy | docs/leadgen/rework/design-pack/*.html + strings.md | adversarial §8.10 checklist + conductor live measurements | PASS | 21/21 §8.10 items pinned (review SHIP after F1-F3 fixed); overflow 1280+375 = none on all 4 mocks (live-measured); strings 11/11 byte-verbatim; merged 989c54a (PR #131); owner design sign-off 2026-07-22 |
 
 ---
 
@@ -154,11 +154,11 @@
 
 | Row ID | Contract Anchor | Requirement | Implementing Files | Proving Command/Test | Status | Evidence |
 |--------|---|---|---|---|---|---|
-| D-1 | §13 D1 | Runtime byte cap: recommend 51,200 (50 KiB), FINAL, per-feature ledger | tbd | tbd | BLOCKED-operator | — |
-| D-2 | §13 D2 | Existing routing rules: migrate intact or drop (owner choice) | tbd | tbd | BLOCKED-operator | — |
-| D-3 | §13 D3 | Feed Name consumer: name downstream use (offer field? S2S param?) | tbd | tbd | BLOCKED-operator | — |
-| D-4 | §13 D4 | Site logos: code renders; uploads are owner task or name source | tbd | tbd | BLOCKED-operator | — |
-| D-5 | §13 D5 | Auction-domain rules UI: relocate to Auction tab or Advanced drawer | tbd | tbd | BLOCKED-operator | — |
+| D-1 | §13 D1 | Runtime byte cap: recommend 51,200 (50 KiB), FINAL, per-feature ledger | decisions-D1-D5.md | P0 consolidated review | PASS | Owner 2026-07-22: 51,200 FINAL + per-feature ledger |
+| D-2 | §13 D2 | Existing routing rules: migrate intact or drop (owner choice) | decisions-D1-D5.md | P0 consolidated review | PASS | Owner 2026-07-22: MIGRATE + re-pointing report |
+| D-3 | §13 D3 | Feed Name consumer: name downstream use (offer field? S2S param?) | decisions-D1-D5.md | P0 consolidated review | PASS | Owner 2026-07-22: STAMP-ONLY (no extra consumer; M11 not requested) |
+| D-4 | §13 D4 | Site logos: code renders; uploads are owner task or name source | decisions-D1-D5.md | P0 consolidated review | PASS | Owner 2026-07-22: logo_media_id CONFIRMED; uploads = OP-2 (operator) |
+| D-5 | §13 D5 | Auction-domain rules UI: relocate to Auction tab or Advanced drawer | decisions-D1-D5.md | P0 consolidated review | PASS | Owner 2026-07-22: AUCTION TAB |
 
 ---
 
@@ -176,6 +176,6 @@
 ## Summary
 
 - **Total rows:** 97 (19 AC + 12 M + 15 R + 10 C + 10 U + 11 X + 11 STR + 5 D + 4 OP)
-- **OPEN:** 88 rows (all implementation rows)
-- **BLOCKED-operator:** 9 rows (5 decisions D-1..D-5 + 4 operator tasks OP-1..OP-4)
-- **PASS:** 0 rows (conductor verifies; implementer never claims PASS)
+- **OPEN:** 86 rows (implementation rows)
+- **BLOCKED-operator:** 4 rows (operator tasks OP-1..OP-4)
+- **PASS:** 7 rows (U-10, M-11-by-decision, D-1..D-5) — conductor-written with executed evidence
