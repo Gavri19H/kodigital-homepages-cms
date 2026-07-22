@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P0 Golden Design Pack — Section-Studio Inspector Panels (Slice S0.3)</title>
+<style>
+/* =========================================================================
+   TOKENS — literal copies of api/src/admin/leadgen/studio-tokens.ts (admin
+   STUDIO chrome; §3/§3.1b/§3.2/§3.3/Appendix B of contract-v3.1). Every hex
+   below is byte-exact with that file. Prefixed --sp- (studio-panels) to
+   avoid any collision with the product's own --c-*/--sp-* runtime vars.
+   ========================================================================= */
+:root{
+  /* §3.1 color */
+  --sp-ink:#1A1F36; --sp-ink-strong:#111726; --sp-text2:#2A3346; --sp-text2-strong:#41495B;
+  --sp-muted:#5A6470; --sp-muted-label:#6B7486; --sp-faint:#8A93A3; --sp-faint-sub:#98A1B0; --sp-faint-eyebrow:#9BA3B1;
+  --sp-line-panel:#E4E8EF; --sp-line-control:#E1E6EE; --sp-line-hairline:#EEF1F6; --sp-line-strip:#E7EBF1;
+  --sp-app-bg:#EDF0F4; --sp-page:#D9DEE6;
+  --sp-navy:#1B3A5C; --sp-navy-hover:#16324f; --sp-navy-tint:#EAF0F6;
+  --sp-accent:#F5C518;
+  --sp-success:#0E7C3A; --sp-success-tint:#E4F2E9;
+  --sp-info:#2E6BB0; --sp-info-tint:#EAF1F8;
+  --sp-warn:#B8860B; --sp-warn-strong:#8A6D00; --sp-warn-tint:#FDF4E3;
+  --sp-danger:#B23A2C; --sp-danger-tint:#FBEEEC; /* archiveHoverBg reused as the only red-family tint in §3.1b */
+  --sp-white:#FFFFFF;
+  --sp-tile-hover-bg:#F7F9FC;
+  --sp-toggle-off:#CBD3DF; --sp-checkbox-off-border:#C7CFDB;
+  --sp-subheadline:#63707F; --sp-field-placeholder:#9AA6B4; --sp-field-helper:#96A0AF;
+  --sp-tile-stroke-2:#9AA9BD; --sp-tile-line-2:#C2CCDA;
+  /* §3.3 radius */
+  --sp-r-control:8px; --sp-r-tile:9px; --sp-r-card:10px; --sp-r-question-card:16px; --sp-r-continue:11px; --sp-r-pill:20px;
+  /* §2.1 rail geometry */
+  --sp-rail-w:344px;
+  /* "Navy (default)" VISITOR funnel theme — sampled from the golden's own
+     Themes panel swatch strip (golden-master-source.dc.html:645-646:
+     Navy card swatches #1B3A5C / #F5C518 / #F4F6F9 / #1A1F36) plus the
+     owner's Image2/3/4/23 screenshots. Funnel Themes (§10) are Phase D and
+     not otherwise specified for P0 — this reuses the ONE audited brand hex
+     already on record rather than inventing a new unaudited value. See the
+     gap note in the legend section. */
+  --vt-primary:#1B3A5C; --vt-primary-hover:#16324f; --vt-selected-bg:#EAF0F6; --vt-ink:#1A1F36;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+/* Systemic 375-overflow containment, part 2: long unbroken runs (code-style
+   citations like "ui-section-studio.ts:2635-2638" or
+   "ButtonAnswerGroup/IconCardAnswerGrid/ImageCardAnswerGrid" have no space to
+   wrap at) force their containing box wide regardless of flex/max-width
+   fixes. overflow-wrap:anywhere lets the browser break such a run at a
+   narrow viewport instead of stretching the page; it never affects normal
+   space-separated text, so no pinned string content changes. */
+body{font-family:Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;background:var(--sp-app-bg);color:var(--sp-ink);font-size:14px;line-height:1.5;overflow-wrap:anywhere;word-break:break-word}
+h1,h2,h3,p,ul,ol,dl,dd{margin:0}
+img,svg{display:block;max-width:100%}
+input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--sp-navy);outline-offset:2px}
+
+/* ---- document chrome ---- */
+.doc-header{max-width:1280px;margin:0 auto;padding:32px 24px 18px}
+.doc-header .kicker{font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:var(--sp-navy);background:var(--sp-navy-tint);display:inline-block;padding:4px 10px;border-radius:20px;margin-bottom:12px}
+.doc-header h1{font-size:23px;font-weight:800;color:var(--sp-ink-strong);margin-bottom:10px}
+.doc-header p{font-size:13px;color:var(--sp-muted);max-width:900px;line-height:1.6;margin-bottom:6px}
+.doc-header .scope-box{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;padding:12px 16px;background:#fff;border:1px solid var(--sp-line-panel);border-radius:10px;font-size:12px;color:var(--sp-muted)}
+.doc-header .scope-box b{color:var(--sp-text2)}
+.doc-toc{max-width:1280px;margin:0 auto 8px;padding:0 24px}
+.doc-toc-inner{background:#fff;border:1px solid var(--sp-line-panel);border-radius:10px;padding:14px 18px}
+.doc-toc-inner .eyebrow{margin:0 0 8px}
+.doc-toc ol{columns:3 240px;column-gap:24px;font-size:12.5px;padding-left:18px}
+.doc-toc li{margin-bottom:6px}
+.doc-toc a{color:var(--sp-navy);text-decoration:none;font-weight:600}
+.doc-toc a:hover{text-decoration:underline}
+.doc-main{max-width:1280px;margin:0 auto;padding:8px 24px 90px}
+
+/* ---- pin section shell ---- */
+.pin-section{margin:0 0 52px;padding-top:26px;border-top:1px solid var(--sp-line-panel)}
+.pin-head{margin-bottom:20px;display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.pin-num{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:26px;padding:0 9px;font-size:11.5px;font-weight:800;color:#fff;background:var(--sp-navy);border-radius:20px;flex:0 0 auto}
+.pin-head-text{min-width:0}
+.pin-title{font-size:17px;font-weight:800;color:var(--sp-ink-strong)}
+.pin-anchor{font-size:11.5px;color:var(--sp-faint);margin-top:3px;font-family:'Roboto Mono',ui-monospace,SFMono-Regular,Menlo,monospace}
+.pin-refs{font-size:11.5px;color:var(--sp-faint-sub);margin-top:6px}
+.pin-body{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start;max-width:100%}
+/* 375-overflow containment (systemic, applies to EVERY specimen wrapper
+   regardless of which class it is — .state-block in most sections, bare
+   .rail/.canvas-wrap direct children in §6.7/§6.8): flex items default to
+   an "automatic minimum size" floored at their content's size (a fixed
+   600px .canvas-desktop or 344px .rail), which wins over max-width even
+   when one is set — that floor is what stretched the page to 1114px at a
+   375 viewport. overflow-x:auto changes a flex item's automatic minimum
+   size to 0 (per the flexbox spec) so max-width:100%/min-width:0 can
+   actually take effect; the specimen itself keeps its pinned width and
+   scrolls INSIDE this box instead of overflowing the page. The 3px padding
+   preserves each specimen's own box-shadow bleed instead of clipping it. */
+.pin-body>*{min-width:0;max-width:100%;overflow-x:auto;padding:3px}
+.pin-note{font-size:12px;color:var(--sp-muted);background:#F6F8FB;border:1px dashed var(--sp-line-control);border-radius:8px;padding:9px 12px;margin-top:14px;line-height:1.5;max-width:100%}
+.pin-note b{color:var(--sp-text2-strong)}
+
+/* ---- state chips (rest/hover/selected-or-default-or-activated/error) ---- */
+.state-chip{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;padding:3px 9px;border-radius:20px;margin-bottom:10px}
+.state-chip.rest{background:#F1F3F7;color:var(--sp-muted)}
+.state-chip.hover{background:var(--sp-info-tint);color:var(--sp-info)}
+.state-chip.on{background:var(--sp-navy-tint);color:var(--sp-navy)}
+.state-chip.err{background:var(--sp-danger-tint);color:var(--sp-danger)}
+.state-block{flex:0 0 auto;min-width:0;max-width:100%;overflow-x:auto}
+.state-block .cap{font-size:11px;color:var(--sp-faint);text-align:center;margin-top:8px}
+
+/* ---- 344px inspector rail excerpt ---- */
+.rail{width:var(--sp-rail-w);max-width:100%;background:#fff;border:1px solid var(--sp-line-panel);border-radius:12px;padding:16px 18px 20px;box-shadow:0 2px 10px rgba(20,32,54,.06)}
+.rail-breadcrumb{font-size:10.5px;font-weight:700;color:var(--sp-faint);margin:0 0 12px;padding-bottom:10px;border-bottom:1px solid var(--sp-line-hairline)}
+.rail-breadcrumb code{font-family:'Roboto Mono',ui-monospace,monospace;font-size:10px;background:#F3F5F8;color:var(--sp-text2-strong);padding:1px 5px;border-radius:4px}
+.eyebrow{font-size:10.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:var(--sp-faint-eyebrow);margin:16px 0 10px}
+.eyebrow:first-of-type{margin-top:0}
+.f-group{margin-bottom:13px}
+.f-label{display:block;font-size:12px;font-weight:600;color:var(--sp-muted-label);margin-bottom:5px}
+.f-label .opt{color:var(--sp-faint);font-weight:500}
+.f-input,.f-select{width:100%;padding:9px 11px;font-size:13.5px;border:1px solid var(--sp-line-control);border-radius:var(--sp-r-control);font-family:inherit;color:var(--sp-ink);background:#fff}
+.f-input::placeholder{color:var(--sp-field-placeholder)}
+.f-input.err{border-color:var(--sp-danger);background:var(--sp-danger-tint)}
+.f-help{font-size:11.5px;color:var(--sp-field-helper);line-height:1.45;margin-top:5px}
+.f-help.err{color:var(--sp-danger);font-weight:600}
+.hr{height:1px;background:var(--sp-line-hairline);margin:16px 0}
+.row-between{display:flex;align-items:center;justify-content:space-between;gap:10px}
+
+/* segmented control (§3.3) */
+.segmented{display:inline-flex;background:#EDF0F5;border-radius:8px;padding:2px;width:100%}
+.segmented button{flex:1;text-align:center;font-size:12px;font-weight:600;padding:7px 4px;border:0;background:none;color:var(--sp-muted-label);border-radius:6px;font-family:inherit;cursor:default}
+.segmented button.active{background:#fff;color:var(--sp-navy);font-weight:700;box-shadow:0 1px 2px rgba(16,24,40,.1)}
+
+/* toggle (Appendix B: 38x22 track / 18px knob) */
+.toggle{display:inline-flex;align-items:center;width:38px;height:22px;border-radius:20px;padding:2px;flex:0 0 auto}
+.toggle.on{background:var(--sp-navy);justify-content:flex-end}
+.toggle.off{background:var(--sp-toggle-off);justify-content:flex-start}
+.toggle .knob{width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(16,24,40,.3)}
+
+/* checkbox (lg-check pattern) */
+.lg-check{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:var(--sp-text2)}
+.cb-box{width:17px;height:17px;border-radius:5px;border:1.6px solid var(--sp-checkbox-off-border);flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}
+.cb-box.on{background:var(--sp-navy);border-color:var(--sp-navy)}
+
+/* choice row editor (base + Other-values anatomy) */
+.choice-list{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+.choice-row{display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap;border:1px solid var(--sp-line-hairline);border-radius:8px;padding:7px}
+.choice-cell{display:flex;flex-direction:column;gap:2px;flex:1 1 92px;min-width:0}
+.choice-cell-label{font-size:9px;font-weight:700;color:var(--sp-faint);letter-spacing:.03em;text-transform:uppercase}
+.choice-cell input{font-size:12.5px;padding:5px 7px;border:1px solid var(--sp-line-control);border-radius:6px;font-family:inherit;width:100%}
+.row-actions{display:flex;gap:3px;flex:0 0 auto;align-items:center}
+.icon-btn{border:1px solid var(--sp-line-control);background:#fff;border-radius:6px;font-size:11px;padding:4px 7px;color:var(--sp-muted-label);cursor:default;line-height:1}
+.icon-btn.danger{border-color:#f3c9c2;color:var(--sp-danger)}
+.btn-add{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--sp-line-control);background:#fff;border-radius:6px;font-size:12px;font-weight:600;padding:6px 11px;color:var(--sp-text2);cursor:default}
+.chip-btn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--sp-line-control);background:#fff;border-radius:20px;font-size:11.5px;font-weight:600;padding:5px 11px;color:var(--sp-text2);cursor:default}
+
+/* drag handle */
+.drag-handle{flex:0 0 auto;cursor:default;display:inline-flex}
+
+/* ---- canvas / visitor-render boxes ---- */
+.canvas-wrap{overflow-x:auto;padding:2px}
+.canvas-desktop{width:600px;max-width:none;background:#fff;border-radius:var(--sp-r-question-card);box-shadow:0 8px 28px rgba(20,32,54,.10);border:1px solid #E9EDF3;padding:38px 42px 34px}
+.canvas-375{width:375px;max-width:100%;background:#fff;border-radius:var(--sp-r-question-card);box-shadow:0 8px 28px rgba(20,32,54,.10);border:1px solid #E9EDF3;padding:26px 20px 22px;margin:0 auto}
+.canvas-label{font-size:10.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--sp-faint);margin-bottom:9px;text-align:center}
+.lg-field{margin:0}
+.lg-label{display:block;font-size:15px;font-weight:700;color:var(--vt-ink);margin-bottom:11px}
+.lg-help{font-size:12.5px;color:var(--sp-field-helper);margin-top:9px}
+.lg-answer-group{display:flex;gap:10px;flex-wrap:wrap}
+.lg-btn.lg-btn-answer{flex:1 1 0;min-width:96px;padding:13px 14px;border-radius:10px;border:1.5px solid var(--sp-line-control);background:#fff;font-size:14.5px;font-weight:600;color:var(--vt-ink);text-align:center;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-family:inherit}
+.lg-btn.lg-btn-answer.lg-selected{background:var(--vt-selected-bg);border-color:var(--vt-primary);font-weight:700}
+.lg-check-badge{width:19px;height:19px;border-radius:50%;background:var(--vt-primary);display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+.lg-check-hollow{width:17px;height:17px;border-radius:50%;border:1.6px solid var(--sp-checkbox-off-border);flex:0 0 auto}
+
+/* card grid — flex wrap + justify-center gives ghost-cell-free layout AND
+   centers a wrapped last row for free (§6.7); no CSS Grid ghost tracks. */
+.card-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:12px}
+.card-tile{flex:0 0 168px;border:1px solid #E9EDF3;border-radius:var(--sp-r-card);padding:20px 14px;text-align:center;background:#fff}
+.card-tile .t{font-family:Newsreader,Georgia,'Times New Roman',serif;font-size:17px;font-weight:600;color:var(--vt-ink)}
+.card-tile .s{font-size:11px;color:var(--sp-subheadline);margin-top:5px;line-height:1.35}
+
+/* ghost add-affordance placement (§6.1) */
+.ghost-component-root{border:1.5px solid #C7D6E6;border-radius:14px;padding:18px;background:#fff}
+.ghost-add-row{margin-top:10px}
+.ghost-add-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--sp-line-control);border-radius:6px;background:#fff;font-size:11.5px;font-weight:600;color:var(--sp-text2);padding:5px 11px;font-family:inherit}
+.measure-line{border-left:1px dashed #B8C2D2;padding-left:8px;margin-top:6px;font-size:10.5px;color:var(--sp-faint)}
+
+/* sliders */
+.slider-block{padding:8px 4px}
+.slider-track{position:relative;height:6px;border-radius:3px;background:var(--sp-line-control);margin:26px 4px 6px}
+.slider-fill{position:absolute;left:0;top:0;height:100%;border-radius:3px;background:var(--vt-primary)}
+.slider-handle{position:absolute;top:50%;width:18px;height:18px;border-radius:50%;background:#fff;border:2px solid var(--vt-primary);transform:translate(-50%,-50%);box-shadow:0 1px 3px rgba(20,32,54,.25)}
+.slider-minmax{display:flex;justify-content:space-between;font-size:11px;color:var(--sp-subheadline)}
+.slider-value{text-align:center;font-size:15px;font-weight:800;color:var(--vt-ink);margin-bottom:2px}
+.stepper-row{display:flex;align-items:center;justify-content:center;gap:14px}
+.stepper-btn{width:30px;height:30px;border-radius:8px;border:1.5px solid var(--vt-primary);color:var(--vt-primary);background:#fff;font-size:16px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+.fromto-inputs{display:flex;gap:10px;margin-top:10px}
+.fromto-inputs .f-input{text-align:center}
+.radial-outer{width:112px;height:112px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto}
+.radial-inner{width:82px;height:82px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;color:var(--vt-ink)}
+.slider-type-card{border:1.5px solid var(--sp-line-control);border-radius:10px;padding:10px 8px 8px;text-align:center;width:120px;flex:0 0 auto}
+.slider-type-card.active{border-color:var(--sp-navy);background:var(--sp-navy-tint)}
+.slider-type-card .name{font-size:11px;font-weight:700;color:var(--sp-text2);margin-top:6px}
+.mini-thumb{height:34px;display:flex;align-items:center;justify-content:center}
+
+/* phone mask */
+.phone-scaffold{font-family:'Roboto Mono',ui-monospace,SFMono-Regular,Menlo,monospace;font-size:19px;letter-spacing:.5px;color:var(--vt-ink);background:#fff;border:1.5px solid var(--sp-line-control);border-radius:10px;padding:14px 16px;text-align:center}
+.caret-block{background:var(--vt-primary);color:#fff;border-radius:2px;padding:0 1px}
+.prefill-row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+
+/* address rows */
+.addr-row{display:flex;align-items:center;gap:7px;border:1px solid var(--sp-line-hairline);border-radius:8px;padding:8px;margin-bottom:6px;flex-wrap:wrap}
+.addr-row select,.addr-row input{font-size:12px;padding:5px 6px;border:1px solid var(--sp-line-control);border-radius:6px;font-family:inherit}
+.addr-cell{display:flex;flex-direction:column;gap:2px;min-width:0}
+.addr-cell label{font-size:9px;font-weight:700;color:var(--sp-faint);text-transform:uppercase;letter-spacing:.03em}
+.addr-menu{border:1px solid var(--sp-line-panel);border-radius:8px;padding:4px;margin-top:6px;background:#fff;box-shadow:0 4px 14px rgba(20,32,54,.10)}
+.addr-menu-item{padding:7px 9px;font-size:12.5px;border-radius:6px;color:var(--sp-text2)}
+.addr-menu-item.disabled{color:var(--sp-faint);cursor:not-allowed}
+.addr-menu-item .sub{display:block;font-size:10.5px;color:var(--sp-faint-sub);font-weight:500;margin-top:1px}
+.maps-job-row{display:flex;gap:9px;align-items:flex-start;padding:9px;border:1px solid var(--sp-line-panel);border-radius:8px;margin-bottom:7px}
+
+/* palette tile */
+.tile-grid-context{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:220px}
+.studio-tile{display:flex;flex-direction:column;align-items:center;gap:8px;padding:13px 8px 10px;border:1px solid var(--sp-line-panel);border-radius:var(--sp-r-tile);background:#fff}
+.studio-tile.hover-demo{background:var(--sp-tile-hover-bg);border-color:var(--sp-navy)}
+.studio-tile .name{font-size:12.5px;font-weight:600;color:var(--sp-text2)}
+.mono-id{font-family:'Roboto Mono',ui-monospace,monospace;font-size:11px;color:var(--sp-faint-sub);background:#F3F5F8;padding:2px 7px;border-radius:5px}
+
+/* logo header excerpt */
+.header-strip{display:flex;align-items:center;padding:14px 20px;background:#fff;border:1px solid var(--sp-line-panel);border-radius:10px}
+.header-strip.center{justify-content:center}
+.logo-fallback-chip{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--sp-muted);background:#F6F8FB;border:1px dashed var(--sp-line-control);border-radius:20px;padding:7px 14px}
+
+/* legend table */
+.legend-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.legend-table th{text-align:left;font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--sp-faint);padding:8px 10px;border-bottom:1px solid var(--sp-line-panel)}
+.legend-table td{padding:9px 10px;border-bottom:1px solid var(--sp-line-hairline);vertical-align:top}
+.legend-table code{font-family:'Roboto Mono',ui-monospace,monospace;font-size:11px;background:#F3F5F8;padding:1px 6px;border-radius:4px;color:var(--sp-text2-strong)}
+
+@media (max-width:760px){
+  .pin-body{gap:18px}
+  .doc-toc ol{columns:1}
+}
+</style>
+</head>
+<body>
+
+<header class="doc-header">
+  <span class="kicker">P0 Golden Design Pack &middot; Slice S0.3</span>
+  <h1>Section-Studio Inspector Panels + Component Visuals</h1>
+  <p>Governing contract sections: <b>&sect;6.1&ndash;&sect;6.10</b> (component-model changes fixed once at the shared paths), <b>&sect;4.1</b> (palette starter), <b>M8</b> (phone mask grammar), <b>M9</b> (address field set), <b>&sect;8.8</b> (logo placeholder chip), <b>&sect;8.10</b> (P0 must-pin), Appendix&nbsp;A strings 7/8/10. Source: <code>LEADGEN-REWORK-03-CONTRACT-PLAN.md</code>.</p>
+  <p>Every panel below is a real 344px inspector-rail excerpt (<code>STUDIO_GEOMETRY.rightInspectorWidth</code>) using the <code>.form-*</code>/<code>.studio-*</code>/<code>.lg-*</code> vocabulary already shipped in <code>ui-section-studio.ts</code>; every visitor-facing render uses the <code>.lg-field</code>/<code>.lg-label</code>/<code>.lg-answer-group</code>/<code>.lg-btn.lg-btn-answer</code>/<code>.lg-selected</code> class names the runtime renderer (<code>presets.ts</code>) already emits. This mock is the PIN &mdash; every geometry/token/string/state shown becomes CI-asserted later (L-184).</p>
+  <div class="scope-box">
+    <div><b>In scope (this file):</b> inspector controls + rendered visitor states for &sect;6.3&ndash;&sect;6.10, the &sect;4.1 palette starter, and the &sect;8.8 logo chip.</div>
+    <div><b>NOT in scope:</b> the funnel board (Slice S0.1, <code>board.html</code>) and the Templates/Themes tabs (Slice S0.2, <code>templates.html</code>).</div>
+  </div>
+</header>
+
+<div class="doc-toc">
+  <div class="doc-toc-inner">
+    <div class="eyebrow">Contents &middot; data-pin index</div>
+    <ol>
+      <li><a href="#p-6-3">&sect;6.3 &mdash; Label + helper</a></li>
+      <li><a href="#p-6-4">&sect;6.4 &mdash; Defaults for choice groups</a></li>
+      <li><a href="#p-6-5">&sect;6.5 &mdash; &ldquo;Other&rdquo; editor</a></li>
+      <li><a href="#p-6-6">&sect;6.6 &mdash; &#10003;-in-selected marker</a></li>
+      <li><a href="#p-6-7">&sect;6.7/&sect;6.1 &mdash; Cards layout + add-ghost</a></li>
+      <li><a href="#p-6-8">&sect;6.8 &mdash; Slider types</a></li>
+      <li><a href="#p-6-9">&sect;6.9/M8 &mdash; Phone mask builder</a></li>
+      <li><a href="#p-6-10">&sect;6.10/M9 &mdash; Address field-set editor</a></li>
+      <li><a href="#p-4-1">&sect;4.1 &mdash; Palette starter</a></li>
+      <li><a href="#p-8-8">&sect;8.8 &mdash; Logo placeholder chip</a></li>
+      <li><a href="#p-legend">Legend &mdash; pin id &rarr; contract anchor</a></li>
+    </ol>
+  </div>
+</div>
+
+<main class="doc-main">
+
+<!-- =====================================================================
+     1. §6.3 — label + helper controls
+     ===================================================================== -->
+<section class="pin-section" id="p-6-3" data-pin="6.3">
+  <div class="pin-head">
+    <span class="pin-num">1</span>
+    <div class="pin-head-text">
+      <div class="pin-title">&sect;6.3 &mdash; Per-question label + helper</div>
+      <div class="pin-anchor">contract &sect;6.3 (F-A) &middot; matrix row &ldquo;Label + helper&rdquo; &sect;6.2 &middot; existing vocabulary: <code>ui-section-studio.ts:2459-2468</code> (Basics block), <code>presets.ts:2043-2065</code> (labelLine/fieldHelperLine)</div>
+      <div class="pin-refs">Owner reference: Image3.png (&ldquo;Are you currently insured?&rdquo;)</div>
+    </div>
+  </div>
+
+  <div class="pin-body">
+    <div class="state-block" data-pin="6.3-basics">
+      <div class="state-chip rest">Inspector &middot; Basics</div>
+      <div class="rail">
+        <div class="rail-breadcrumb">Inspector &middot; Content tab &middot; <code>ButtonAnswerGroup</code></div>
+        <div class="eyebrow">Basics</div>
+        <div class="f-group">
+          <label class="f-label" for="q-label">Question label</label>
+          <input id="q-label" class="f-input" type="text" value="Are you currently insured?">
+        </div>
+        <div class="f-group">
+          <label class="f-label" for="q-helper">Helper text</label>
+          <input id="q-helper" class="f-input" type="text" value="This helps us match the right rate options.">
+        </div>
+        <p class="f-help">Additive &mdash; leave either blank and this question renders byte-identically to today (R4 A-6a).</p>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.3-visitor-desktop">
+      <div class="state-chip rest">Rendered &middot; desktop</div>
+      <div class="canvas-wrap">
+        <div class="canvas-desktop">
+          <div class="canvas-label">Desktop &mdash; 600px question unit (1280 canvas)</div>
+          <div class="lg-field">
+            <span class="lg-label">Are you currently insured?</span>
+            <div class="lg-answer-group" role="radiogroup" aria-label="Are you currently insured?">
+              <button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false">Yes</button>
+              <button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false">No</button>
+            </div>
+            <p class="lg-help">This helps us match the right rate options.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.3-visitor-375">
+      <div class="state-chip rest">Rendered &middot; 375</div>
+      <div class="canvas-wrap">
+        <div class="canvas-375">
+          <div class="canvas-label">375 mobile</div>
+          <div class="lg-field">
+            <span class="lg-label">Are you currently insured?</span>
+            <div class="lg-answer-group" role="radiogroup" aria-label="Are you currently insured?">
+              <button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false">Yes</button>
+              <button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false">No</button>
+            </div>
+            <p class="lg-help">This helps us match the right rate options.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="pin-note"><b>Generalizes across the matrix:</b> the same Basics block (label above / helper below, additive) applies to Buttons, Cards, Dropdown, Yes/No, Slider and Address per the &sect;6.2 capability matrix &mdash; this is one representative instance, not a Buttons-only control.</p>
+</section>
+
+<!-- =====================================================================
+     2. §6.4 — defaults for all choice groups
+     ===================================================================== -->
+<section class="pin-section" id="p-6-4" data-pin="6.4">
+  <div class="pin-head">
+    <span class="pin-num">2</span>
+    <div class="pin-head-text">
+      <div class="pin-title">&sect;6.4 &mdash; Defaults for choice groups (F-C)</div>
+      <div class="pin-anchor">contract &sect;6.4 &middot; existing pattern: <code>ui-section-studio.ts:2635-2638</code> (<code>data-default-control="dropdown"</code>) extended to <code>'choice'</code> for ButtonAnswerGroup/IconCardAnswerGrid/ImageCardAnswerGrid</div>
+      <div class="pin-refs">Owner reference: Image4.png (&ldquo;Military Affiliation&rdquo; &mdash; No pre-selected, default_applied)</div>
+    </div>
+  </div>
+
+  <div class="pin-body">
+    <div class="state-block" data-pin="6.4-basics">
+      <div class="state-chip rest">Inspector &middot; Basics</div>
+      <div class="rail">
+        <div class="rail-breadcrumb">Inspector &middot; Content tab &middot; <code>ButtonAnswerGroup</code></div>
+        <div class="eyebrow">Basics</div>
+        <div class="f-group">
+          <label class="f-label" for="q-default">Default answer</label>
+          <select id="q-default" class="f-select">
+            <option>No default &mdash; the visitor picks</option>
+            <option selected>No (pre-selected)</option>
+            <option>Yes (pre-selected)</option>
+          </select>
+          <p class="f-help">A default pre-selects the answer &mdash; the visitor must still confirm it (click) before it counts as <code>user_confirmed_default</code>; untouched, it records as <code>default_applied</code>.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.4-visitor-default-applied">
+      <div class="state-chip on">default_applied</div>
+      <div class="canvas-wrap">
+        <div class="canvas-desktop">
+          <div class="canvas-label">Desktop &mdash; 600px question unit</div>
+          <div class="lg-field">
+            <span class="lg-label">Military Affiliation</span>
+            <div class="lg-answer-group" role="radiogroup" aria-label="Military Affiliation">
+              <button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false">Yes</button>
+              <button type="button" class="lg-btn lg-btn-answer lg-selected" role="radio" aria-checked="true" data-value="false">
+                <span class="lg-check-badge" aria-hidden="true"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4 10-11" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                No
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.4-visitor-default-applied-375">
+      <div class="state-chip on">default_applied &middot; 375</div>
+      <div class="canvas-wrap">
+        <div class="canvas-375">
+          <div class="canvas-label">375 mobile</div>
+          <div class="lg-field">
+            <span class="lg-label">Military Affiliation</span>
+            <div class="lg-answer-group" role="radiogroup" aria-label="Military Affiliation">
+              <button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false">Yes</button>
+              <button type="button" class="lg-btn lg-btn-answer lg-selected" role="radio" aria-checked="true" data-value="false">
+                <span class="lg-check-badge" aria-hidden="true"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4 10-11" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                No
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="pin-note"><b>Save validation:</b> <code>defaultValue &isin; choice values</code>. <b>Not offered</b> for <code>MultiChoiceCardGroup</code> (multi-select) &mdash; matrix has no default row for it in v1.</p>
+</section>
+
+<!-- =====================================================================
+     3. §6.5 — "Other" authored dropdown
+     ===================================================================== -->
+<section class="pin-section" id="p-6-5" data-pin="6.5">
+  <div class="pin-head">
+    <span class="pin-num">3</span>
+    <div class="pin-head-text">
+      <div class="pin-title">&sect;6.5 &mdash; &ldquo;Other&rdquo; = authored dropdown alongside choices</div>
+      <div class="pin-anchor">contract &sect;6.5 &middot; replaces <code>choiceDisplay</code>/<code>mainValues</code>/<code>OtherGroupSelector</code> (M12) &middot; base choice-row anatomy: <code>ui-section-studio.ts:10580-10748</code> (<code>buildChoiceRow</code>)</div>
+      <div class="pin-refs">Owner reference: Image23.png (full-width title+subtitle choice family + trailing chevron row)</div>
+    </div>
+  </div>
+
+  <div class="pin-body">
+    <div class="state-block" data-pin="6.5-other-editor" style="flex:0 0 auto">
+      <div class="state-chip rest">Inspector &middot; Other editor</div>
+      <div class="rail">
+        <div class="rail-breadcrumb">Inspector &middot; Content tab &middot; <code>ButtonAnswerGroup</code> &middot; choices block</div>
+        <div class="eyebrow">Other</div>
+        <div class="row-between f-group">
+          <span class="lg-check"><span class="cb-box on" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4 10-11" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Enable &ldquo;Other&rdquo;</span>
+          <span class="toggle on"><span class="knob"></span></span>
+        </div>
+        <div class="f-group">
+          <label class="f-label" for="other-label">Other label</label>
+          <input id="other-label" class="f-input" type="text" value="Other">
+        </div>
+        <div class="hr"></div>
+        <label class="f-label">Other values</label>
+        <div class="choice-list">
+          <div class="choice-row">
+            <div class="choice-cell"><span class="choice-cell-label">Label</span><input value="Agriculture" aria-label="Other value label"></div>
+            <div class="choice-cell"><span class="choice-cell-label">Analytics ID</span><input value="agriculture" aria-label="Other value analytics ID"></div>
+            <div class="row-actions">
+              <button class="icon-btn" type="button" aria-label="Move value up">&uarr;</button>
+              <button class="icon-btn" type="button" aria-label="Move value down">&darr;</button>
+              <button class="icon-btn danger" type="button">Remove</button>
+            </div>
+          </div>
+          <div class="choice-row">
+            <div class="choice-cell"><span class="choice-cell-label">Label</span><input value="Healthcare" aria-label="Other value label"></div>
+            <div class="choice-cell"><span class="choice-cell-label">Analytics ID</span><input value="healthcare" aria-label="Other value analytics ID"></div>
+            <div class="row-actions">
+              <button class="icon-btn" type="button" aria-label="Move value up">&uarr;</button>
+              <button class="icon-btn" type="button" aria-label="Move value down">&darr;</button>
+              <button class="icon-btn danger" type="button">Remove</button>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn-add">+ Add value</button>
+        <p class="f-help">1&ndash;50 values, same fields as the choices above (label + analytics ID, add/remove/reorder). Values join <code>valid_values</code>, the field universe, rules pickers and offer mapping exactly like base choices.</p>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.5-visitor-rest">
+      <div class="state-chip rest">Rendered &middot; rest</div>
+      <div class="canvas-wrap">
+        <div class="canvas-desktop" style="width:420px;padding:30px 26px">
+          <div class="canvas-label">Desktop</div>
+          <div class="lg-field">
+            <span class="lg-label">What&rsquo;s your industry?</span>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div class="lg-btn lg-btn-answer" style="justify-content:flex-start;text-align:left;padding:16px 18px">
+                <span><span style="display:block;font-family:Newsreader,Georgia,serif;font-size:16px;font-weight:600">Construction</span><span style="display:block;font-size:11.5px;color:var(--sp-subheadline);font-weight:400;margin-top:2px">Contractors, Home Builders, Renovation Services</span></span>
+              </div>
+              <div class="lg-btn lg-btn-answer" style="justify-content:flex-start;text-align:left;padding:16px 18px">
+                <span><span style="display:block;font-family:Newsreader,Georgia,serif;font-size:16px;font-weight:600">Food Services</span><span style="display:block;font-size:11.5px;color:var(--sp-subheadline);font-weight:400;margin-top:2px">Restaurants, Bars, Food Trucks</span></span>
+              </div>
+              <div class="lg-btn lg-btn-answer" style="justify-content:space-between;padding:14px 18px">
+                Other
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="var(--sp-faint)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.5-visitor-hover">
+      <div class="state-chip hover">Rendered &middot; hover (Other row)</div>
+      <div class="canvas-wrap">
+        <div class="canvas-desktop" style="width:420px;padding:30px 26px">
+          <div class="canvas-label">Desktop</div>
+          <div class="lg-field">
+            <span class="lg-label">What&rsquo;s your industry?</span>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div class="lg-btn lg-btn-answer" style="justify-content:flex-start;text-align:left;padding:16px 18px;opacity:.55">
+                <span><span style="display:block;font-family:Newsreader,Georgia,serif;font-size:16px;font-weight:600">Construction</span></span>
+              </div>
+              <div class="lg-btn lg-btn-answer" style="justify-content:flex-start;text-align:left;padding:16px 18px;opacity:.55">
+                <span><span style="display:block;font-family:Newsreader,Georgia,serif;font-size:16px;font-weight:600">Food Services</span></span>
+              </div>
+              <div class="lg-btn lg-btn-answer" style="justify-content:space-between;padding:14px 18px;border-color:var(--vt-primary);background:#FAFBFD">
+                Other
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="var(--vt-primary)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.5-visitor-activated">
+      <div class="state-chip on">Rendered &middot; activated</div>
+      <div class="canvas-wrap">
+        <div class="canvas-desktop" style="width:420px;padding:30px 26px">
+          <div class="canvas-label">Desktop</div>
+          <div class="lg-field">
+            <span class="lg-label">What&rsquo;s your industry?</span>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div class="lg-btn lg-btn-answer" style="justify-content:flex-start;text-align:left;padding:16px 18px;opacity:.55">
+                <span><span style="display:block;font-family:Newsreader,Georgia,serif;font-size:16px;font-weight:600">Construction</span></span>
+              </div>
+              <div class="lg-btn lg-btn-answer lg-selected" style="justify-content:flex-start;padding:14px 18px">
+                <label class="f-label" style="margin:0;font-size:11px" for="other-select">Other &mdash; choose one</label>
+              </div>
+              <select id="other-select" class="f-select">
+                <option selected>Choose&hellip;</option>
+                <option>Agriculture</option>
+                <option>Healthcare</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.5-visitor-375">
+      <div class="state-chip rest">375 mobile</div>
+      <div class="canvas-wrap">
+        <div class="canvas-375" style="width:300px">
+          <div class="canvas-label">375 mobile</div>
+          <div class="lg-field">
+            <span class="lg-label" style="font-size:13.5px">What&rsquo;s your industry?</span>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div class="lg-btn lg-btn-answer" style="justify-content:flex-start;text-align:left;padding:12px 14px;font-size:13px">Construction</div>
+              <div class="lg-btn lg-btn-answer" style="justify-content:space-between;padding:12px 14px;font-size:13px">Other<svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="var(--sp-faint)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="pin-note">Base choices stay visible and clickable; picking an Other value deselects any base choice (and vice versa) &mdash; existing change-delegation semantics, no new engine state machine. Identical render path serves Buttons and every card variant (#8D).</p>
+</section>
+
+<!-- =====================================================================
+     4. §6.6 — ✓-in-selected
+     ===================================================================== -->
+<section class="pin-section" id="p-6-6" data-pin="6.6">
+  <div class="pin-head">
+    <span class="pin-num">4</span>
+    <div class="pin-head-text">
+      <div class="pin-title">&sect;6.6 &mdash; &#10003;-in-selected marker</div>
+      <div class="pin-anchor">contract &sect;6.6 &middot; existing axis: theme <code>Selected: Wash/Mark</code> (cards already do this, <code>presets.ts:945-950</code>); pill renderer currently ignores it (<code>:1214-1220</code>) &mdash; this control adds the PER-NODE override</div>
+      <div class="pin-refs">Owner reference: Image4.png (&ldquo;Homeowner&rdquo;, &ldquo;Married&rdquo;, &ldquo;Gender&rdquo;)</div>
+    </div>
+  </div>
+
+  <div class="pin-body">
+    <div class="state-block" data-pin="6.6-marker-control">
+      <div class="state-chip rest">Inspector &middot; Style tab</div>
+      <div class="rail">
+        <div class="rail-breadcrumb">Inspector &middot; Style tab &middot; <code>ButtonAnswerGroup</code></div>
+        <div class="eyebrow">Selected-state style</div>
+        <label class="f-label">Per-node override</label>
+        <div class="segmented">
+          <button type="button">Inherit</button>
+          <button type="button">Wash</button>
+          <button type="button" class="active">Mark</button>
+        </div>
+        <p class="f-help">Inherit follows the funnel theme&rsquo;s <code>Selected</code> axis. Wash tints the background only. Mark adds the leading circle + &#10003; shown below.</p>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.6-visitor-selected">
+      <div class="state-chip on">selected &middot; mark</div>
+      <div class="canvas-wrap">
+        <div class="canvas-desktop" style="width:340px;padding:26px">
+          <div class="canvas-label">Desktop</div>
+          <div class="lg-field" style="margin-bottom:16px">
+            <span class="lg-label" style="font-size:13px;margin-bottom:8px">Homeowner</span>
+            <div class="lg-answer-group">
+              <button type="button" class="lg-btn lg-btn-answer lg-selected" role="radio" aria-checked="true">
+                <span class="lg-check-badge" aria-hidden="true"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4 10-11" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                Yes
+              </button>
+              <button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false">
+                <span class="lg-check-hollow" aria-hidden="true"></span>
+                No
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.6-visitor-wash-contrast">
+      <div class="state-chip rest">contrast &middot; wash (no &#10003;)</div>
+      <div class="canvas-wrap">
+        <div class="canvas-desktop" style="width:340px;padding:26px">
+          <div class="canvas-label">Desktop &mdash; for contrast only</div>
+          <div class="lg-field">
+            <span class="lg-label" style="font-size:13px;margin-bottom:8px">Married</span>
+            <div class="lg-answer-group">
+              <button type="button" class="lg-btn lg-btn-answer lg-selected" role="radio" aria-checked="true">Yes</button>
+              <button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false">No</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="pin-note">Server-rendered CSS/markup only &mdash; &#8776;0 engine bytes against the 46,080B cap. Cards already render the corner <code>.lg-card-check</code> badge under <code>mark</code>; this is the same axis reaching the pill/button family.</p>
+</section>
+
+<!-- =====================================================================
+     5. §6.7 / §6.1 — cards layout + add-ghost placement
+     ===================================================================== -->
+<section class="pin-section" id="p-6-7" data-pin="6.7">
+  <div class="pin-head">
+    <span class="pin-num">5</span>
+    <div class="pin-head-text">
+      <div class="pin-title">&sect;6.7 cards layout + &sect;6.1 add-ghost placement</div>
+      <div class="pin-anchor">contract &sect;6.7 (columns = <code>min(authored, choiceCount)</code>, wrapped last row centered) + &sect;6.1 (add-affordance is a SIBLING after the component root, never a grid cell)</div>
+      <div class="pin-refs">Owner reference: Image23.png (choice richness) &middot; issues #9</div>
+    </div>
+  </div>
+
+  <div class="pin-body" style="flex-direction:column;gap:30px">
+    <div>
+      <div class="state-chip rest">2-card component &middot; 2 centered columns, no ghost cell</div>
+      <div class="canvas-wrap" data-pin="6.7-cards-2col">
+        <div class="canvas-desktop" style="width:560px">
+          <div class="card-grid">
+            <div class="card-tile"><div class="t">Homeowner</div></div>
+            <div class="card-tile"><div class="t">Renter</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="state-chip rest">5-card component &middot; 3 columns, centered last row</div>
+      <div class="canvas-wrap" data-pin="6.7-cards-5-3col">
+        <div class="canvas-desktop" style="width:600px">
+          <div class="card-grid">
+            <div class="card-tile"><div class="t">Construction</div></div>
+            <div class="card-tile"><div class="t">Food Services</div></div>
+            <div class="card-tile"><div class="t">Retail</div></div>
+            <div class="card-tile"><div class="t">Transportation</div></div>
+            <div class="card-tile"><div class="t">Healthcare</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="state-chip rest">&sect;6.1 &mdash; &ldquo;+ Add choice&rdquo; ghost: sibling AFTER the root, never a cell</div>
+      <div class="canvas-wrap" data-pin="6.1-add-ghost">
+        <div class="canvas-desktop" style="width:560px">
+          <div class="ghost-component-root">
+            <div class="card-grid">
+              <div class="card-tile"><div class="t">Construction</div></div>
+              <div class="card-tile"><div class="t">Food Services</div></div>
+            </div>
+          </div>
+          <div class="ghost-add-row">
+            <button type="button" class="ghost-add-btn">+ Add choice</button>
+            <div class="measure-line">&uarr; small, left-aligned, OUTSIDE the component&rsquo;s 1.5px border &mdash; studio-only, never rendered to visitors, never changes component geometry (live == edit).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================================
+     6. §6.8 — slider types
+     ===================================================================== -->
+<section class="pin-section" id="p-6-8" data-pin="6.8">
+  <div class="pin-head">
+    <span class="pin-num">6</span>
+    <div class="pin-head-text">
+      <div class="pin-title">&sect;6.8 &mdash; Slider types (single catalog entry, five <code>slider_type</code> values)</div>
+      <div class="pin-anchor">contract &sect;6.8 / M7 &middot; replaces the 3-catalog-entry + <code>toggleSliderFormat</code> (the Image9 failure class)</div>
+      <div class="pin-refs">Owner reference: Image10&ndash;14.png (thumbnails), Image9.png (failure being eliminated, context only)</div>
+    </div>
+  </div>
+
+  <div class="pin-body" data-pin="6.8-type-picker" style="align-items:stretch">
+    <div style="flex:1 1 100%">
+      <div class="state-chip rest">Inspector &middot; type picker (thumbnail radio group)</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="slider-type-card active">
+          <div class="mini-thumb"><svg width="70" height="10" viewBox="0 0 70 10"><line x1="2" y1="5" x2="68" y2="5" stroke="#E1E6EE" stroke-width="4" stroke-linecap="round"/><line x1="2" y1="5" x2="34" y2="5" stroke="#1B3A5C" stroke-width="4" stroke-linecap="round"/><circle cx="34" cy="5" r="4.5" fill="#fff" stroke="#1B3A5C" stroke-width="2"/></svg></div>
+          <div class="name">Single</div>
+        </div>
+        <div class="slider-type-card">
+          <div class="mini-thumb"><svg width="70" height="10" viewBox="0 0 70 10"><line x1="2" y1="5" x2="68" y2="5" stroke="#E1E6EE" stroke-width="4" stroke-linecap="round"/><line x1="20" y1="5" x2="50" y2="5" stroke="#1B3A5C" stroke-width="4" stroke-linecap="round"/><circle cx="20" cy="5" r="4.5" fill="#fff" stroke="#1B3A5C" stroke-width="2"/><circle cx="50" cy="5" r="4.5" fill="#fff" stroke="#1B3A5C" stroke-width="2"/></svg></div>
+          <div class="name">Dual range</div>
+        </div>
+        <div class="slider-type-card">
+          <div class="mini-thumb"><svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="3" width="13" height="13" rx="3" fill="none" stroke="#1B3A5C" stroke-width="1.6"/><line x1="4" y1="9.5" x2="9" y2="9.5" stroke="#1B3A5C" stroke-width="1.6"/><line x1="28" y1="6" x2="42" y2="6" stroke="#E1E6EE" stroke-width="3" stroke-linecap="round"/><line x1="28" y1="6" x2="35" y2="6" stroke="#1B3A5C" stroke-width="3" stroke-linecap="round"/><rect x="57" y="3" width="13" height="13" rx="3" fill="none" stroke="#1B3A5C" stroke-width="1.6"/><line x1="60" y1="9.5" x2="67" y2="9.5" stroke="#1B3A5C" stroke-width="1.6"/><line x1="63.5" y1="6" x2="63.5" y2="13" stroke="#1B3A5C" stroke-width="1.6"/></svg></div>
+          <div class="name">Stepper</div>
+        </div>
+        <div class="slider-type-card">
+          <div class="mini-thumb"><svg width="70" height="14" viewBox="0 0 70 14"><rect x="0" y="2" width="20" height="10" rx="2" fill="none" stroke="#9AA9BD" stroke-width="1.4"/><line x1="26" y1="7" x2="44" y2="7" stroke="#1B3A5C" stroke-width="3" stroke-linecap="round"/><rect x="50" y="2" width="20" height="10" rx="2" fill="none" stroke="#9AA9BD" stroke-width="1.4"/></svg></div>
+          <div class="name">From / To</div>
+        </div>
+        <div class="slider-type-card">
+          <div class="mini-thumb"><svg width="34" height="24" viewBox="0 0 34 24"><circle cx="17" cy="12" r="10" fill="none" stroke="#E1E6EE" stroke-width="3.5"/><path d="M17 2a10 10 0 018.5 15.3" fill="none" stroke="#1B3A5C" stroke-width="3.5" stroke-linecap="round"/></svg></div>
+          <div class="name">Radial</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:1 1 100%" data-pin="6.8-currency-affix">
+      <div class="hr"></div>
+      <div class="row-between" style="max-width:400px">
+        <span class="lg-check-label" style="font-size:13px;font-weight:600;color:var(--sp-text2)">Currency symbol ($) prefix</span>
+        <span class="toggle on"><span class="knob"></span></span>
+      </div>
+      <p class="f-help" style="max-width:400px">Display only &mdash; never changes <code>node.type</code> or <code>answer_type</code>, and never triggers a save error. Applies regardless of the chosen type below (this is the fix for the Image9 fault: the old &ldquo;Format $&rdquo; toggle flipped the stored type without flipping <code>answer_type</code>).</p>
+    </div>
+  </div>
+
+  <div class="hr" style="max-width:100%"></div>
+  <div style="font-size:12.5px;font-weight:700;color:var(--sp-text2);margin-bottom:10px">Per-type prop rows (all five, always pinned)</div>
+  <div class="pin-body">
+    <div class="rail" style="width:230px" data-pin="6.8-props-single">
+      <div class="rail-breadcrumb">single</div>
+      <div class="f-group"><label class="f-label" for="sl-single-min">Min</label><input id="sl-single-min" class="f-input" value="5000"></div>
+      <div class="f-group"><label class="f-label" for="sl-single-max">Max</label><input id="sl-single-max" class="f-input" value="500000"></div>
+      <div class="f-group"><label class="f-label" for="sl-single-step">Step</label><input id="sl-single-step" class="f-input" value="1000"></div>
+      <div class="f-group"><label class="f-label" for="sl-single-default">Default value</label><input id="sl-single-default" class="f-input" placeholder="Starts at the minimum when empty"></div>
+    </div>
+    <div class="rail" style="width:230px" data-pin="6.8-props-stepper">
+      <div class="rail-breadcrumb">stepper (= single + &minus;/&#65291;)</div>
+      <div class="f-group"><label class="f-label" for="sl-step-min">Min</label><input id="sl-step-min" class="f-input" value="0"></div>
+      <div class="f-group"><label class="f-label" for="sl-step-max">Max</label><input id="sl-step-max" class="f-input" value="20"></div>
+      <div class="f-group"><label class="f-label" for="sl-step-step">Step <span class="opt">&middot; required for this type</span></label><input id="sl-step-step" class="f-input err" value=""></div>
+      <p class="f-help err">Step is required for Stepper.</p>
+      <div class="f-group"><label class="f-label" for="sl-step-default">Default value</label><input id="sl-step-default" class="f-input" value="1"></div>
+    </div>
+    <div class="rail" style="width:230px" data-pin="6.8-props-from_to">
+      <div class="rail-breadcrumb">from_to</div>
+      <div class="f-group"><label class="f-label" for="sl-ft-min">Min</label><input id="sl-ft-min" class="f-input" value="0"></div>
+      <div class="f-group"><label class="f-label" for="sl-ft-max">Max</label><input id="sl-ft-max" class="f-input" value="1000000"></div>
+      <div class="f-group"><label class="f-label" for="sl-ft-step">Step</label><input id="sl-ft-step" class="f-input" value="5000"></div>
+      <p class="f-help">Two number inputs synced to a single track. Validation: min &le; from &le; to &le; max; both required if the question is required.</p>
+      <p class="f-help">Saved as <span class="mono-id">coverage_min</span> / <span class="mono-id">coverage_max</span> (read-only)</p>
+    </div>
+    <div class="rail" style="width:230px" data-pin="6.8-props-dual_range">
+      <div class="rail-breadcrumb">dual_range (= from_to, handles not inputs)</div>
+      <div class="f-group"><label class="f-label" for="sl-dr-min">Min</label><input id="sl-dr-min" class="f-input" value="0"></div>
+      <div class="f-group"><label class="f-label" for="sl-dr-max">Max</label><input id="sl-dr-max" class="f-input" value="5000"></div>
+      <div class="f-group"><label class="f-label" for="sl-dr-step">Step</label><input id="sl-dr-step" class="f-input" value="50"></div>
+      <p class="f-help">Two drag handles on the track &mdash; no number inputs. Same data contract as From/To: <span class="mono-id">deductible_min</span> / <span class="mono-id">deductible_max</span>.</p>
+    </div>
+    <div class="rail" style="width:230px" data-pin="6.8-props-radial">
+      <div class="rail-breadcrumb">radial (= single, circular render)</div>
+      <div class="f-group"><label class="f-label" for="sl-rad-min">Min</label><input id="sl-rad-min" class="f-input" value="0"></div>
+      <div class="f-group"><label class="f-label" for="sl-rad-max">Max</label><input id="sl-rad-max" class="f-input" value="100"></div>
+      <div class="f-group"><label class="f-label" for="sl-rad-step">Step</label><input id="sl-rad-step" class="f-input" value="1"></div>
+      <p class="f-help">Circular dial rendering; same data contract as Single (<code>defaultValue</code> optional).</p>
+    </div>
+  </div>
+
+  <div class="hr" style="max-width:100%"></div>
+  <div style="font-size:12.5px;font-weight:700;color:var(--sp-text2);margin-bottom:10px">Rendered visitor examples &mdash; all five</div>
+  <div class="pin-body" data-pin="6.8-visitor-desktop">
+    <div class="canvas-wrap">
+      <div class="canvas-desktop" style="width:220px;padding:24px 18px">
+        <div class="canvas-label">Single &mdash; Loan amount</div>
+        <div class="slider-block">
+          <div class="slider-value">$170,000</div>
+          <div class="slider-track" role="slider" aria-valuenow="170000" aria-valuemin="5000" aria-valuemax="500000">
+            <div class="slider-fill" style="width:34%"></div>
+            <div class="slider-handle" style="left:34%"></div>
+          </div>
+          <div class="slider-minmax"><span>$5,000</span><span>$500,000</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="canvas-wrap">
+      <div class="canvas-desktop" style="width:220px;padding:24px 18px">
+        <div class="canvas-label">Stepper &mdash; # of drivers</div>
+        <div class="slider-block">
+          <div class="stepper-row">
+            <button type="button" class="stepper-btn" aria-label="Decrease">&minus;</button>
+            <div class="slider-value" style="margin:0">3</div>
+            <button type="button" class="stepper-btn" aria-label="Increase">&#65291;</button>
+          </div>
+          <div class="slider-track" style="margin-top:16px" role="slider" aria-valuenow="3" aria-valuemin="0" aria-valuemax="10">
+            <div class="slider-fill" style="width:30%"></div>
+            <div class="slider-handle" style="left:30%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="canvas-wrap">
+      <div class="canvas-desktop" style="width:240px;padding:24px 18px">
+        <div class="canvas-label">From / To &mdash; Coverage range</div>
+        <div class="slider-block">
+          <div class="slider-track">
+            <div class="slider-fill" style="left:20%;width:44%"></div>
+            <div class="slider-handle" style="left:20%" role="slider" aria-valuenow="20000" aria-valuemin="0" aria-valuemax="100000"></div>
+            <div class="slider-handle" style="left:64%" role="slider" aria-valuenow="63595" aria-valuemin="0" aria-valuemax="100000"></div>
+          </div>
+          <div class="fromto-inputs">
+            <input class="f-input" value="20000" aria-label="From">
+            <input class="f-input" value="63595" aria-label="To">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="canvas-wrap">
+      <div class="canvas-desktop" style="width:220px;padding:24px 18px">
+        <div class="canvas-label">Dual range &mdash; Deductible</div>
+        <div class="slider-block">
+          <div class="slider-track">
+            <div class="slider-fill" style="left:18%;width:60%"></div>
+            <div class="slider-handle" style="left:18%" role="slider" aria-valuenow="18" aria-valuemin="0" aria-valuemax="100"></div>
+            <div class="slider-handle" style="left:78%" role="slider" aria-valuenow="78" aria-valuemin="0" aria-valuemax="100"></div>
+          </div>
+          <div class="slider-minmax"><span>18%</span><span>78%</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="canvas-wrap">
+      <div class="canvas-desktop" style="width:200px;padding:24px 18px">
+        <div class="canvas-label">Radial &mdash; Age</div>
+        <div class="radial-outer" style="background:conic-gradient(var(--vt-primary) 0deg 162deg, #E1E6EE 162deg 360deg)" role="slider" aria-valuenow="45" aria-valuemin="0" aria-valuemax="100">
+          <div class="radial-inner">45</div>
+        </div>
+        <p class="f-help" style="text-align:center;margin-top:10px">Keyboard: &uarr;/&darr; or &larr;/&rarr; adjust by one step (<code>role=slider</code>).</p>
+      </div>
+    </div>
+  </div>
+
+  <div data-pin="6.8-visitor-375" style="margin-top:20px">
+    <div class="state-chip rest">375 mobile &mdash; all five, stacked</div>
+    <div class="canvas-wrap">
+      <div class="canvas-375" style="display:flex;flex-direction:column;gap:20px">
+        <div><div class="canvas-label">Single</div><div class="slider-value">$170,000</div><div class="slider-track"><div class="slider-fill" style="width:34%"></div><div class="slider-handle" style="left:34%"></div></div></div>
+        <div><div class="canvas-label">Stepper</div><div class="stepper-row"><button type="button" class="stepper-btn">&minus;</button><div class="slider-value" style="margin:0">3</div><button type="button" class="stepper-btn">&#65291;</button></div></div>
+        <div><div class="canvas-label">From / To</div><div class="slider-track"><div class="slider-fill" style="left:20%;width:44%"></div><div class="slider-handle" style="left:20%"></div><div class="slider-handle" style="left:64%"></div></div></div>
+        <div><div class="canvas-label">Dual range</div><div class="slider-track"><div class="slider-fill" style="left:18%;width:60%"></div><div class="slider-handle" style="left:18%"></div><div class="slider-handle" style="left:78%"></div></div></div>
+        <div><div class="canvas-label">Radial</div><div class="radial-outer" style="width:80px;height:80px;background:conic-gradient(var(--vt-primary) 0deg 162deg, #E1E6EE 162deg 360deg)"><div class="radial-inner" style="width:58px;height:58px;font-size:18px">45</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================================
+     7. §6.9 / M8 — phone mask builder
+     ===================================================================== -->
+<section class="pin-section" id="p-6-9" data-pin="6.9">
+  <div class="pin-head">
+    <span class="pin-num">7</span>
+    <div class="pin-head-text">
+      <div class="pin-title">&sect;6.9 / M8 &mdash; Phone mask builder</div>
+      <div class="pin-anchor">contract &sect;6.9 + M8 grammar &middot; replaces the <code>nanp/e164_intl/il</code> preset trio + country list + raw-regex custom path</div>
+      <div class="pin-refs">Appendix A-7 (default message), A-10 (format error) &middot; existing label convention: &ldquo;If it&rsquo;s wrong, say&rdquo; (<code>ui-section-studio.ts:2559</code>)</div>
+    </div>
+  </div>
+
+  <div class="pin-body">
+    <div class="state-block" data-pin="6.9-mask-builder">
+      <div class="state-chip rest">Inspector &middot; Answer format</div>
+      <div class="rail">
+        <div class="rail-breadcrumb">Inspector &middot; Content tab &middot; <code>PhoneInputQuestion</code></div>
+        <div class="eyebrow">Answer format</div>
+        <div class="f-group">
+          <label class="f-label" for="mask-format">Format</label>
+          <input id="mask-format" class="f-input" type="text" value="(3) 3-4">
+          <p class="f-help">Literals: <code>( ) - . / space</code>. Each number is a digit-group length &mdash; &ldquo;(3) 3-4&rdquo; = 3 digits, 3 digits, 4 digits. 1&ndash;6 groups, each 1&ndash;14 digits, 4&ndash;20 digits total.</p>
+        </div>
+        <div class="f-group">
+          <label class="f-label">Live scaffold preview</label>
+          <div class="phone-scaffold">(___) ___-____</div>
+        </div>
+        <div class="f-group">
+          <label class="f-label">Start from a common pattern</label>
+          <div class="prefill-row">
+            <button type="button" class="chip-btn">US (3) 3-4</button>
+            <button type="button" class="chip-btn">7-digit 3-4</button>
+          </div>
+        </div>
+        <div class="hr"></div>
+        <div class="f-group">
+          <label class="f-label" for="mask-error-msg">If it&rsquo;s wrong, say</label>
+          <input id="mask-error-msg" class="f-input" type="text" value="Enter a complete phone number.">
+          <p class="f-help">Appendix A-7 default, shown when Continue is blocked by an incomplete number.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.9-mask-error">
+      <div class="state-chip err">Error &middot; A-10 invalid pattern</div>
+      <div class="rail">
+        <div class="rail-breadcrumb">Inspector &middot; Content tab &middot; <code>PhoneInputQuestion</code></div>
+        <div class="eyebrow">Answer format</div>
+        <div class="f-group">
+          <label class="f-label" for="mask-format-bad">Format</label>
+          <input id="mask-format-bad" class="f-input err" type="text" value="(3x) 3-4">
+          <p class="f-help err">Format must be digit groups with separators, like (3) 3-4.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.9-visitor-desktop">
+      <div class="state-chip rest">Rendered &middot; mid-fill, desktop</div>
+      <div class="canvas-wrap">
+        <div class="canvas-desktop" style="width:320px;padding:30px 26px">
+          <div class="canvas-label">Desktop</div>
+          <div class="lg-field">
+            <span class="lg-label" style="font-size:13.5px">Phone number</span>
+            <div class="phone-scaffold" aria-label="Phone number, partially entered">(21<span class="caret-block">_</span>) ___-____</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.9-visitor-375">
+      <div class="state-chip rest">375 mobile</div>
+      <div class="canvas-wrap">
+        <div class="canvas-375">
+          <div class="canvas-label">375 mobile</div>
+          <div class="lg-field">
+            <span class="lg-label" style="font-size:13px">Phone number</span>
+            <div class="phone-scaffold" style="font-size:17px">(21<span class="caret-block">_</span>) ___-____</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="pin-note">Runtime: typed/pasted characters filter to digits, fill left-to-right into group slots; caret always at the first empty slot; Backspace clears the last filled digit. <b>Recorded answer = the raw digit string</b> (providers get shape via per-offer transforms). Legacy preset content (<code>nanp/e164_intl/il</code>) keeps validating unchanged.</p>
+</section>
+
+<!-- =====================================================================
+     8. §6.10 / M9 — address field-set editor
+     ===================================================================== -->
+<section class="pin-section" id="p-6-10" data-pin="6.10">
+  <div class="pin-head">
+    <span class="pin-num">8</span>
+    <div class="pin-head-text">
+      <div class="pin-title">&sect;6.10 / M9 &mdash; Address field-set editor</div>
+      <div class="pin-anchor">contract &sect;6.10 + M9 &middot; removes the fixed street/city/state/zip type-lock (<code>ui-section-studio.ts:2508-2511,7732-7735</code>); Maps job-row pattern reused from <code>:2793-2814</code></div>
+    </div>
+  </div>
+
+  <div class="pin-body">
+    <div class="state-block" data-pin="6.10-field-set-editor" style="flex:0 0 auto">
+      <div class="state-chip rest">Inspector &middot; field-set editor</div>
+      <div class="rail">
+        <div class="rail-breadcrumb">Inspector &middot; Content tab &middot; <code>AddressAutocompleteQuestion</code></div>
+        <div class="eyebrow">Fields</div>
+        <button type="button" class="chip-btn" style="margin-bottom:10px">Plain text address</button>
+        <p class="f-help" style="margin:0 0 10px">One click &rarr; a single <code>full_address</code> manual row (below).</p>
+
+        <div class="addr-row">
+          <span class="drag-handle" aria-hidden="true"><svg width="10" height="16" viewBox="0 0 10 16"><circle cx="2.5" cy="2.5" r="1.4" fill="#8A93A3"/><circle cx="7.5" cy="2.5" r="1.4" fill="#8A93A3"/><circle cx="2.5" cy="8" r="1.4" fill="#8A93A3"/><circle cx="7.5" cy="8" r="1.4" fill="#8A93A3"/><circle cx="2.5" cy="13.5" r="1.4" fill="#8A93A3"/><circle cx="7.5" cy="13.5" r="1.4" fill="#8A93A3"/></svg></span>
+          <div class="addr-cell" style="flex:1 1 70px"><label id="addr-r1-field-lb">Field</label><select aria-labelledby="addr-r1-field-lb"><option>Street</option></select></div>
+          <div class="addr-cell" style="flex:1 1 90px"><label id="addr-r1-label-lb">Label</label><input value="Street address" aria-labelledby="addr-r1-label-lb"></div>
+          <div class="addr-cell" style="flex:0 0 80px"><label id="addr-r1-mode-lb">Mode</label><select aria-labelledby="addr-r1-mode-lb"><option>Autofill</option><option>Manual</option></select></div>
+          <div class="addr-cell" style="flex:0 0 80px"><label id="addr-r1-val-lb">Validation</label><select aria-labelledby="addr-r1-val-lb"><option>None</option></select></div>
+          <label class="lg-check" style="font-size:11px"><span class="cb-box on" aria-hidden="true"></span>Required</label>
+        </div>
+        <div class="addr-row">
+          <span class="drag-handle" aria-hidden="true"><svg width="10" height="16" viewBox="0 0 10 16"><circle cx="2.5" cy="2.5" r="1.4" fill="#8A93A3"/><circle cx="7.5" cy="2.5" r="1.4" fill="#8A93A3"/><circle cx="2.5" cy="8" r="1.4" fill="#8A93A3"/><circle cx="7.5" cy="8" r="1.4" fill="#8A93A3"/><circle cx="2.5" cy="13.5" r="1.4" fill="#8A93A3"/><circle cx="7.5" cy="13.5" r="1.4" fill="#8A93A3"/></svg></span>
+          <div class="addr-cell" style="flex:1 1 70px"><label id="addr-r2-field-lb">Field</label><select aria-labelledby="addr-r2-field-lb"><option>City</option></select></div>
+          <div class="addr-cell" style="flex:1 1 90px"><label id="addr-r2-label-lb">Label</label><input value="City" aria-labelledby="addr-r2-label-lb"></div>
+          <div class="addr-cell" style="flex:0 0 80px"><label id="addr-r2-mode-lb">Mode</label><select aria-labelledby="addr-r2-mode-lb"><option>Autofill</option></select></div>
+          <div class="addr-cell" style="flex:0 0 80px"><label id="addr-r2-val-lb">Validation</label><select aria-labelledby="addr-r2-val-lb"><option>None</option></select></div>
+          <label class="lg-check" style="font-size:11px"><span class="cb-box on" aria-hidden="true"></span>Required</label>
+        </div>
+        <div class="addr-row">
+          <span class="drag-handle" aria-hidden="true"><svg width="10" height="16" viewBox="0 0 10 16"><circle cx="2.5" cy="2.5" r="1.4" fill="#8A93A3"/><circle cx="7.5" cy="2.5" r="1.4" fill="#8A93A3"/><circle cx="2.5" cy="8" r="1.4" fill="#8A93A3"/><circle cx="7.5" cy="8" r="1.4" fill="#8A93A3"/><circle cx="2.5" cy="13.5" r="1.4" fill="#8A93A3"/><circle cx="7.5" cy="13.5" r="1.4" fill="#8A93A3"/></svg></span>
+          <div class="addr-cell" style="flex:1 1 70px"><label id="addr-r3-field-lb">Field</label><select aria-labelledby="addr-r3-field-lb"><option>State</option></select></div>
+          <div class="addr-cell" style="flex:1 1 90px"><label id="addr-r3-label-lb">Label</label><input value="State" aria-labelledby="addr-r3-label-lb"></div>
+          <div class="addr-cell" style="flex:0 0 80px"><label id="addr-r3-mode-lb">Mode</label><select aria-labelledby="addr-r3-mode-lb"><option>Autofill</option></select></div>
+          <div class="addr-cell" style="flex:0 0 80px"><label id="addr-r3-val-lb">Validation</label><select aria-labelledby="addr-r3-val-lb"><option>None</option></select></div>
+          <label class="lg-check" style="font-size:11px"><span class="cb-box on" aria-hidden="true"></span>Required</label>
+        </div>
+        <div class="addr-row">
+          <span class="drag-handle" aria-hidden="true"><svg width="10" height="16" viewBox="0 0 10 16"><circle cx="2.5" cy="2.5" r="1.4" fill="#8A93A3"/><circle cx="7.5" cy="2.5" r="1.4" fill="#8A93A3"/><circle cx="2.5" cy="8" r="1.4" fill="#8A93A3"/><circle cx="7.5" cy="8" r="1.4" fill="#8A93A3"/><circle cx="2.5" cy="13.5" r="1.4" fill="#8A93A3"/><circle cx="7.5" cy="13.5" r="1.4" fill="#8A93A3"/></svg></span>
+          <div class="addr-cell" style="flex:1 1 70px"><label id="addr-r4-field-lb">Field</label><select aria-labelledby="addr-r4-field-lb"><option>ZIP</option></select></div>
+          <div class="addr-cell" style="flex:1 1 90px"><label id="addr-r4-label-lb">Label</label><input value="ZIP code" aria-labelledby="addr-r4-label-lb"></div>
+          <div class="addr-cell" style="flex:0 0 80px"><label id="addr-r4-mode-lb">Mode</label><select aria-labelledby="addr-r4-mode-lb"><option>Autofill</option></select></div>
+          <div class="addr-cell" style="flex:0 0 80px"><label id="addr-r4-val-lb">Validation</label><select aria-labelledby="addr-r4-val-lb"><option selected>ZIP (5 digits)</option></select></div>
+          <label class="lg-check" style="font-size:11px"><span class="cb-box on" aria-hidden="true"></span>Required</label>
+        </div>
+
+        <button type="button" class="btn-add">+ Add field</button>
+        <div class="addr-menu">
+          <div class="addr-menu-item disabled">Street <span class="sub">already in this set</span></div>
+          <div class="addr-menu-item disabled">City <span class="sub">already in this set</span></div>
+          <div class="addr-menu-item disabled">State <span class="sub">already in this set</span></div>
+          <div class="addr-menu-item disabled">ZIP <span class="sub">already in this set</span></div>
+          <div class="addr-menu-item">Full address <span class="sub">only field allowed alone &mdash; replaces this set</span></div>
+        </div>
+
+        <div class="hr"></div>
+        <div class="eyebrow">Google Maps</div>
+        <div class="row-between">
+          <span class="lg-check-label" style="font-size:13px;font-weight:600;color:var(--sp-text2)">Validate with Google Maps</span>
+          <span class="toggle on"><span class="knob"></span></span>
+        </div>
+        <p class="f-help">Optional. Off, or no server key: autofill fields render as plain manual entry (existing graceful degrade) &mdash; the field set above still works.</p>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.10-visitor-full-4field-desktop">
+      <div class="state-chip rest">Rendered &middot; full 4-field, desktop</div>
+      <div class="canvas-wrap">
+        <div class="canvas-desktop" style="width:340px;padding:30px 26px">
+          <div class="canvas-label">Desktop</div>
+          <div class="lg-field" style="display:flex;flex-direction:column;gap:10px">
+            <span class="lg-label" style="font-size:13.5px;margin-bottom:0">Your address</span>
+            <input class="f-input" placeholder="Street address" aria-label="Street address" style="padding:12px 13px">
+            <input class="f-input" placeholder="City" aria-label="City" style="padding:12px 13px">
+            <input class="f-input" placeholder="State" aria-label="State" style="padding:12px 13px">
+            <input class="f-input" placeholder="ZIP code" aria-label="ZIP code" style="padding:12px 13px">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.10-visitor-full-address-desktop">
+      <div class="state-chip rest">Rendered &middot; single full_address, desktop</div>
+      <div class="canvas-wrap">
+        <div class="canvas-desktop" style="width:340px;padding:30px 26px">
+          <div class="canvas-label">Desktop</div>
+          <div class="lg-field">
+            <span class="lg-label" style="font-size:13.5px">Your address</span>
+            <input class="f-input" placeholder="123 Main St, Springfield, IL 62704" aria-label="Your address" style="padding:12px 13px">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="6.10-visitor-375">
+      <div class="state-chip rest">375 mobile &mdash; both variants</div>
+      <div class="canvas-wrap">
+        <div class="canvas-375" style="display:flex;flex-direction:column;gap:16px">
+          <div>
+            <div class="canvas-label">Full 4-field</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <input class="f-input" placeholder="Street address" aria-label="Street address">
+              <input class="f-input" placeholder="City" aria-label="City">
+              <input class="f-input" placeholder="State" aria-label="State">
+              <input class="f-input" placeholder="ZIP code" aria-label="ZIP code">
+            </div>
+          </div>
+          <div>
+            <div class="canvas-label">Single full_address</div>
+            <input class="f-input" placeholder="123 Main St, Springfield, IL 62704" aria-label="Your address">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================================
+     9. §4.1 — palette starter
+     ===================================================================== -->
+<section class="pin-section" id="p-4-1" data-pin="4.1">
+  <div class="pin-head">
+    <span class="pin-num">9</span>
+    <div class="pin-head-text">
+      <div class="pin-title">&sect;4.1 &mdash; &ldquo;Questions on one screen&rdquo; palette starter</div>
+      <div class="pin-anchor">contract &sect;4.1 &middot; replaces the &ldquo;Question grid&rdquo; tile (<code>ui-section-studio.ts:246</code>, <code>TILE_SVG.questionGrid</code>) &middot; pure scaffold, real components, no new data semantics</div>
+    </div>
+  </div>
+
+  <div class="pin-body">
+    <div class="state-block" data-pin="4.1-palette-tile">
+      <div class="state-chip rest">Library tile &middot; rest</div>
+      <div class="tile-grid-context">
+        <div class="studio-tile">
+          <svg width="46" height="30" viewBox="0 0 46 30" fill="none">
+            <rect x="4" y="3" width="16" height="7" rx="3.5" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.2"/>
+            <rect x="22" y="3" width="16" height="7" rx="3.5" fill="#fff" stroke="#9AA9BD" stroke-width="1.2"/>
+            <line x1="4" y1="15" x2="38" y2="15" stroke="#C2CCDA" stroke-width="1" stroke-dasharray="2 2"/>
+            <rect x="4" y="20" width="16" height="7" rx="3.5" fill="#fff" stroke="#9AA9BD" stroke-width="1.2"/>
+            <rect x="22" y="20" width="16" height="7" rx="3.5" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.2"/>
+          </svg>
+          <div class="name">Questions on one screen</div>
+        </div>
+        <div class="studio-tile">
+          <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="4" width="34" height="9" rx="4.5" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.4"/><rect x="6" y="17" width="34" height="9" rx="4.5" fill="#fff" stroke="#9AA9BD" stroke-width="1.4"/></svg>
+          <div class="name">Buttons</div>
+        </div>
+      </div>
+      <p class="f-help" style="max-width:220px;margin-top:8px">New icon: two SEPARATE pill-pair rows with a dashed divider &mdash; signals two independent components, not one shared pill set (the old grid&rsquo;s visual). Colors: navy #1B3A5C / navyTint #EAF0F6 / secondary strokes #9AA9BD / #C2CCDA (all <code>studio-tokens.ts</code>).</p>
+    </div>
+
+    <div class="state-block" data-pin="4.1-oneclick-result">
+      <div class="state-chip on">One-click result</div>
+      <div class="canvas-wrap">
+        <div class="canvas-desktop" style="width:400px;padding:30px 26px">
+          <div class="canvas-label">Desktop &mdash; canvas after one click</div>
+          <div class="lg-field" style="margin-bottom:20px">
+            <span class="lg-label">Question 1</span>
+            <div class="lg-answer-group">
+              <button type="button" class="lg-btn lg-btn-answer">Yes</button>
+              <button type="button" class="lg-btn lg-btn-answer">No</button>
+            </div>
+            <p class="f-help" style="margin-top:6px">field: <span class="mono-id">answer1</span></p>
+          </div>
+          <div class="lg-field">
+            <span class="lg-label">Question 2</span>
+            <div class="lg-answer-group">
+              <button type="button" class="lg-btn lg-btn-answer">Yes</button>
+              <button type="button" class="lg-btn lg-btn-answer">No</button>
+            </div>
+            <p class="f-help" style="margin-top:6px">field: <span class="mono-id">answer2</span></p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="state-block" data-pin="4.1-oneclick-result-375">
+      <div class="state-chip on">375 mobile</div>
+      <div class="canvas-wrap">
+        <div class="canvas-375">
+          <div class="canvas-label">375 mobile</div>
+          <div class="lg-field" style="margin-bottom:16px">
+            <span class="lg-label" style="font-size:13.5px">Question 1</span>
+            <div class="lg-answer-group"><button type="button" class="lg-btn lg-btn-answer">Yes</button><button type="button" class="lg-btn lg-btn-answer">No</button></div>
+          </div>
+          <div class="lg-field">
+            <span class="lg-label" style="font-size:13.5px">Question 2</span>
+            <div class="lg-answer-group"><button type="button" class="lg-btn lg-btn-answer">Yes</button><button type="button" class="lg-btn lg-btn-answer">No</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="pin-note">Two real <code>TwoButtonYesNo</code> components, independently addressable/removable/re-labelable from this point on &mdash; the tile only seeds the starting point (no grid data model, no shared conditional).</p>
+</section>
+
+<!-- =====================================================================
+     10. §8.8 — logo placeholder chip
+     ===================================================================== -->
+<section class="pin-section" id="p-8-8" data-pin="8.8">
+  <div class="pin-head">
+    <span class="pin-num">10</span>
+    <div class="pin-head-text">
+      <div class="pin-title">&sect;8.8 &mdash; Site logo placeholder chip (#11A)</div>
+      <div class="pin-anchor">contract &sect;8.8 &middot; resolver: <code>branding.ts:199-252</code> (works) &middot; header ladder: <code>frame.ts:273-282</code> (currently falls back to bare site-name text &mdash; this pins the HONEST placeholder replacing that)</div>
+    </div>
+  </div>
+
+  <div class="pin-body">
+    <div class="state-block" data-pin="8.8-logo-present" style="flex:1 1 320px">
+      <div class="state-chip rest">With a real logo</div>
+      <div class="header-strip center">
+        <span style="font-family:Newsreader,Georgia,serif;font-size:20px;font-weight:600;color:#16324f;letter-spacing:.3px">brand<span style="color:#96A3B5">&middot;</span>logo</span>
+      </div>
+      <p class="f-help">Representative placeholder for an uploaded logo asset (Site settings &rarr; Logo). Real uploads are an owner data task (D4).</p>
+    </div>
+
+    <div class="state-block" data-pin="8.8-logo-fallback" style="flex:1 1 320px">
+      <div class="state-chip err">No logo &mdash; fallback chip</div>
+      <div class="header-strip center">
+        <span class="logo-fallback-chip">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2" stroke="#8A93A3" stroke-width="1.8"/><path d="M3 9h18" stroke="#8A93A3" stroke-width="1.8"/></svg>
+          <span>No logo — set it in Site settings.</span>
+        </span>
+      </div>
+      <div style="text-align:center;margin-top:8px">
+        <a href="#0" style="font-size:11.5px;font-weight:700;color:var(--sp-navy);border-bottom:1px solid #9DBCDD">Open Site settings &rarr;</a>
+      </div>
+      <p class="f-help">Appendix A-8 rendered as one plain-text run (never split by a nested link) + a separate &ldquo;Site settings&rdquo; link affordance below it, matching the existing note+link pattern (e.g. the Maps job row&rsquo;s &ldquo;Open auction rules &rarr;&rdquo;). Never a bare site-name text mark (the current #11A failure).</p>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================================
+     11. legend
+     ===================================================================== -->
+<section class="pin-section" id="p-legend" data-pin="legend">
+  <div class="pin-head">
+    <span class="pin-num">11</span>
+    <div class="pin-head-text">
+      <div class="pin-title">Legend &mdash; pin id &rarr; contract anchor</div>
+      <div class="pin-anchor">indexed for the P2/fidelity harness</div>
+    </div>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="legend-table">
+      <thead><tr><th>data-pin</th><th>Contract anchor</th><th>What it pins</th></tr></thead>
+      <tbody>
+        <tr><td><code>6.3</code>, <code>6.3-basics</code>, <code>6.3-visitor-desktop</code>, <code>6.3-visitor-375</code></td><td>&sect;6.3 (F-A)</td><td>Question label + Helper text inputs; rendered label-above/helper-below</td></tr>
+        <tr><td><code>6.4</code>, <code>6.4-basics</code>, <code>6.4-visitor-default-applied(-375)</code></td><td>&sect;6.4 (F-C)</td><td>Default-select control for choice groups; default_applied render state</td></tr>
+        <tr><td><code>6.5</code>, <code>6.5-other-editor</code>, <code>6.5-visitor-rest/hover/activated</code>, <code>6.5-visitor-375</code></td><td>&sect;6.5 (M12)</td><td>Other enabled/label/values editor; rest&rarr;hover&rarr;activated select disclosure</td></tr>
+        <tr><td><code>6.6</code>, <code>6.6-marker-control</code>, <code>6.6-visitor-selected</code>, <code>6.6-visitor-wash-contrast</code></td><td>&sect;6.6</td><td>Inherit/Wash/Mark control; leading-circle &#10003; selected pill</td></tr>
+        <tr><td><code>6.7-cards-2col</code>, <code>6.7-cards-5-3col</code>, <code>6.1-add-ghost</code></td><td>&sect;6.7, &sect;6.1</td><td>Centered 2-col / centered-last-row 3-col; ghost add sibling placement</td></tr>
+        <tr><td><code>6.8-type-picker</code>, <code>6.8-props-*</code>, <code>6.8-currency-affix</code>, <code>6.8-visitor-desktop/375</code></td><td>&sect;6.8 (M7)</td><td>Five slider_type thumbnails + per-type prop rows + rendered examples</td></tr>
+        <tr><td><code>6.9-mask-builder</code>, <code>6.9-mask-error</code>, <code>6.9-visitor-desktop/375</code></td><td>&sect;6.9 (M8)</td><td>Format/scaffold/prefill chips/message field; A-10 error; mid-fill render</td></tr>
+        <tr><td><code>6.10-field-set-editor</code>, <code>6.10-visitor-*</code></td><td>&sect;6.10 (M9)</td><td>Field rows + add-field menu + Maps section; full-4-field vs full_address renders</td></tr>
+        <tr><td><code>4.1-palette-tile</code>, <code>4.1-oneclick-result(-375)</code></td><td>&sect;4.1</td><td>&ldquo;Questions on one screen&rdquo; tile + 2&times;TwoButtonYesNo result</td></tr>
+        <tr><td><code>8.8-logo-present</code>, <code>8.8-logo-fallback</code></td><td>&sect;8.8 (#11A)</td><td>Real logo vs A-8 fallback chip + Site settings link</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="pin-note"><b>Open gap (flagged, not invented):</b> the visitor-facing &ldquo;Navy (default)&rdquo; funnel theme's exact button/selected/track hex values are a Phase D (&sect;10 Themes) concern and are not specified anywhere in this contract, my tail, or the &sect;6 design sources. This mock reuses the ONE audited brand hex on record &mdash; <code>#1B3A5C</code> navy, tint <code>#EAF0F6</code> &mdash; sourced from the golden's own Themes swatch strip (<code>golden-master-source.dc.html:645-646</code>, the &ldquo;Navy&rdquo; card: LIVE&middot;A) and cross-checked visually against Image2/3/4/23. It is internally consistent but should be confirmed against the real Theme-v2 defaults when Phase D specifies them, rather than treated as a new golden pin in its own right.</p>
+</section>
+
+</main>
+</body>
+</html>
