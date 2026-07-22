@@ -158,7 +158,7 @@ describe("R2 adversarial-review MAJOR fix #1 — the SIZE-CONSUMING type predica
     expect(fromIsland).toEqual(fromPresets);
   });
 
-  it("the derived/pinned set is exactly the 17 types expected (the 8 text-input/Currency/Address family + the 8 R3 choice/button/card/dropdown renderers + P5 MultiQuestionGrid)", () => {
+  it("the derived/pinned set is exactly the 16 types expected (the 8 text-input/Currency/Address family + the 7 R3 choice/button/card/dropdown renderers + P5 MultiQuestionGrid; OtherGroupSelector retired in the rework §10)", () => {
     expect(islandSizeConsumingTypes()).toEqual(
       [
         // R2 baseline — the .lg-input family
@@ -171,13 +171,14 @@ describe("R2 adversarial-review MAJOR fix #1 — the SIZE-CONSUMING type predica
         "PhoneInputQuestion",
         "ZIPInputQuestion",
         // R3 widening — the choice/button/card/dropdown renderers now consume
-        // design_overrides.size/.corners/.border_color (presets.ts)
+        // design_overrides.size/.corners/.border_color (presets.ts). Rework §10:
+        // OtherGroupSelector's size-consuming render leg was removed from
+        // presets.ts, so it drops from this lockstep set (island + derived).
         "ButtonAnswerGroup",
         "DropdownQuestion",
         "IconCardAnswerGrid",
         "ImageCardAnswerGrid",
         "MultiChoiceCardGroup",
-        "OtherGroupSelector",
         "SearchableDropdownQuestion",
         "TwoButtonYesNo",
         // P5 (PC-10) — MultiQuestionGrid's pills thread choiceItemStyle(.

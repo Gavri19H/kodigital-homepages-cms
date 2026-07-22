@@ -14,9 +14,17 @@
 //         ALL toggle; LIVE the Dropdown stays hidden until BOTH hold.
 //   AC-2  flip the group to ANY, persists; LIVE either answer alone reveals
 //         the Dropdown.
-//   AC-3  phone format picker sets Israel on a Phone field, round-trips;
-//         LIVE an IL-valid number passes, a US-shaped one blocks with the
-//         Israeli message (reuses __p2b-phone.spec.ts's live-driving idiom).
+//   AC-3  [LeadGen Rework §10/§6.9 rewrite] the phone-preset picker (Israel/
+//         International country list) this AC originally proved is a §10 dead
+//         feature — the country list is REMOVED, replaced by the M8 mask
+//         builder (a digit-group Format input + live scaffold preview, no
+//         country selector at all). Rewritten to prove the MASK builder
+//         instead (pattern -> scaffold preview round-trips through the real
+//         PATCH), the same journey shape leadgen-rework-p2-studio.gesture
+//         .spec.ts's test (b) already proves end to end — this AC keeps the
+//         narrower "picker persists through Section Studio" leg so the P6
+//         acceptance close's full mask journey (invalid-pattern A-10 error,
+//         prefill chips, live scaffold-fill validation) isn't duplicated here.
 //   AC-4  a legacy bare conditional (seeded via API, pre-group) renders as a
 //         single row; saving WITHOUT touching it persists the bare shape
 //         byte-identically — no silent migration to the composed shape.
@@ -104,17 +112,37 @@ async function activateFunnel(
     await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: sectionId }, { section_id: next.id }] } }),
     "variant sections",
   );
+  // LeadGen Rework §4.3-1/§4.3-15 (P1, own-hand-verified): activation now
+  // preflights "the shared first page needs at least one section" — this
+  // pre-M2 helper predates that requirement. Seed a TRIVIAL pass-through
+  // shared page (a single ContinueButton, no questions) so every live leg
+  // advances through it in one click (passSharedPage below) before reaching
+  // the funnel content under test.
+  const trivialShared = await createSection(request, {
+    section_name: `P2c shared ${tag} ${u}`,
+    headline_text: "Shared",
+    content_json: JSON.stringify({ components: [{ type: "ContinueButton", question_id: "q_shared_cont", props: { label: "Continue" } }] }),
+  });
+  await json(
+    await request.post(`${LG_API}/quotes/${quote.public_id}/shared-page`, { data: { sections: [{ section_id: trivialShared.id }] } }),
+    "shared page create",
+  );
   await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: tag } }), "activation");
   return { host, slug: tag };
+}
+
+// Click the trivial shared-page's Continue button once (see activateFunnel's
+// own comment) so a live leg lands on the funnel content under test.
+async function passSharedPage(page: Page): Promise<void> {
+  const cont = page.locator("[data-lg-continue]").first();
+  await expect(cont, "the shared page's Continue is reachable").toBeVisible({ timeout: 8_000 });
+  await cont.click();
 }
 
 const shellUrl = (s: { host: string; slug: string }) => `http://${s.host}:${PW_PORT}/lg/${s.slug}`;
 
 async function ready(page: Page): Promise<void> {
   await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 8_000 });
-}
-function sectionIndex(page: Page): Promise<number> {
-  return page.evaluate(() => (window as unknown as { __LG_ENGINE__: { getState(): { section_index: number } } }).__LG_ENGINE__.getState().section_index);
 }
 
 test.beforeAll(() => {
@@ -248,6 +276,7 @@ test.describe("P2c AC-1 LIVE — ALL group: the Dropdown stays hidden until BOTH
 
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
+    await passSharedPage(page);
     const dropdown = page.locator('[data-lg-question="q_dd"]');
     await expect(dropdown, "hidden before any answer").toBeHidden();
 
@@ -327,6 +356,7 @@ test.describe("P2c AC-2 LIVE — ANY group: either answer alone reveals the Drop
 
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
+    await passSharedPage(page);
     const dropdown = page.locator('[data-lg-question="q_dd"]');
     await expect(dropdown).toBeHidden();
     await page.locator('[data-lg-question="q_yn"] [data-lg-choice="true"]').click();
@@ -345,6 +375,7 @@ test.describe("P2c AC-2 LIVE — ANY group: either answer alone reveals the Drop
 
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
+    await passSharedPage(page);
     const dropdown = page.locator('[data-lg-question="q_dd"]');
     await expect(dropdown).toBeHidden();
     await page.locator('[data-lg-field="prior_claims"] [data-lg-choice="yes"]').click();
@@ -354,11 +385,20 @@ test.describe("P2c AC-2 LIVE — ANY group: either answer alone reveals the Drop
 });
 
 // ---------------------------------------------------------------------------
-// AC-3 — phone format picker sets Israel; round-trips; LIVE IL passes /
-// US-shaped blocks with the Israeli message
+// AC-3 — LeadGen Rework §10/§6.9: the phone-preset country-list journey this
+// AC used to prove is a §10 DEAD FEATURE (data-phone-format-preset no longer
+// exists — the country list is removed, own-hand-verified against
+// ui-section-studio.ts's renderPhoneFormatControls). Rewritten around the
+// REPLACEMENT mechanism, the M8 mask builder: a Format pattern input sets a
+// digit-group mask, round-trips through the real PATCH. This is the
+// narrower "Section Studio persists the picker" leg; the fuller mask journey
+// (invalid-pattern A-10 error inline, prefill chips, live scaffold-fill
+// validation blocking/passing Continue) is proven end to end by
+// leadgen-rework-p2-studio.gesture.spec.ts's test (b) and is the P6
+// acceptance close's terminal artifact for §11 AC#5 — not duplicated here.
 // ---------------------------------------------------------------------------
-test.describe("P2c AC-3 — Phone format picker: Israel, round-trips, LIVE behavior", () => {
-  test("setting 'Israel' persists props.phone_format='il'; reload round-trips; LIVE IL-valid passes, US-shaped invalid blocks with the Israeli message", async ({ page }) => {
+test.describe("P2c AC-3 — Mask builder: a Format pattern persists through Section Studio", () => {
+  test("typing a mask pattern persists props.phone_format.mask.pattern; reload round-trips", async ({ page }) => {
     const section = await createSection(page.request, {
       section_name: `P2c AC3 ${uniq}`,
       headline_text: "Your phone",
@@ -373,47 +413,27 @@ test.describe("P2c AC-3 — Phone format picker: Israel, round-trips, LIVE behav
     await canvas(page).locator('[data-component-type="PhoneInputQuestion"]').click();
     await page.locator('[data-studio-inspector-tab="content"]').click();
 
-    const preset = page.locator("[data-phone-format-preset]");
-    await expect(preset).toBeVisible();
-    await expect(preset).toHaveValue("nanp");
-    await preset.selectOption("il");
-    await expect(page.locator("[data-phone-format-custom]")).toBeHidden();
-    await page.screenshot({ path: `${SHOT_DIR}/ac3-picker-israel.png` });
+    const pattern = page.locator("[data-phone-mask-pattern]");
+    await expect(pattern).toBeVisible();
+    await pattern.fill("(3) 3-4");
+    await pattern.blur();
+    await expect(page.locator("[data-phone-mask-preview]"), "the scaffold preview updates").toHaveText("(___) ___-____");
+    await expect(page.locator("[data-phone-mask-error]"), "no error on a valid pattern").toBeHidden();
+    await page.screenshot({ path: `${SHOT_DIR}/ac3-mask-pattern.png` });
 
     await saveStudio(page);
 
     const savedDetail = await fetchSection(page.request, section.public_id);
-    const phoneNode = savedDetail.content_json.components.find((c) => c["question_id"] === "q1");
-    expect(phoneNode?.["props"]).toMatchObject({ phone_format: "il" });
+    const phoneNode = savedDetail.content_json.components.find((c) => c["question_id"] === "q1") as {
+      props?: { phone_format?: { mask?: { pattern?: string } } };
+    };
+    expect(phoneNode?.props?.phone_format?.mask?.pattern).toBe("(3) 3-4");
 
     // Reload round-trip.
     await expect(page.locator("#lg-section-name")).toBeVisible();
     await canvas(page).locator('[data-component-type="PhoneInputQuestion"]').click();
     await page.locator('[data-studio-inspector-tab="content"]').click();
-    await expect(page.locator("[data-phone-format-preset]")).toHaveValue("il");
-
-    // LIVE: activate a funnel against THIS section (now saved with
-    // phone_format='il') and drive it — reuses __p2b-phone.spec.ts's own
-    // fill/click/error-slot idiom verbatim.
-    const seeded = await activateFunnel(page.request, "il", section.id);
-    await page.goto(`http://${seeded.host}:${PW_PORT}/lg/${seeded.slug}`, { waitUntil: "load" });
-    await ready(page);
-    expect(await sectionIndex(page), "start on the phone section").toBe(0);
-
-    // US-shaped invalid (no leading 0, 10 digits) blocks with the Israeli message.
-    await page.locator('[data-lg-index="0"] [data-lg-input]').first().fill("4155551234");
-    await page.locator('[data-lg-index="0"] [data-lg-continue]').first().click();
-    await page.waitForTimeout(300);
-    expect(await sectionIndex(page), "US-shaped phone must block Continue under the IL preset").toBe(0);
-    const slot = page.locator('[data-lg-index="0"] [data-lg-error-for="phone"]');
-    await expect(slot).toBeVisible();
-    await expect(slot).toContainText("Israeli");
-    await page.screenshot({ path: `${SHOT_DIR}/ac3-live-invalid.png` });
-
-    // IL-valid (leading 0, Israeli mobile shape) advances.
-    await page.locator('[data-lg-index="0"] [data-lg-input]').first().fill("0541234567");
-    await page.locator('[data-lg-index="0"] [data-lg-continue]').first().click();
-    await expect.poll(() => sectionIndex(page), { timeout: 5_000 }).toBe(1);
+    await expect(page.locator("[data-phone-mask-pattern]")).toHaveValue("(3) 3-4");
   });
 });
 

@@ -281,10 +281,16 @@ describe("Gate 2 strings — Inspector (Appendix A)", () => {
   });
 
   it("field Content-tab (Basics/Behavior/Answer-format/Connect-to-Offers) strings render", () => {
+    // LeadGen Rework §6.3 (F-A): the Accept-swappable family's dedicated
+    // label control is renamed "Field label (only you see this)" -> "Question
+    // label" — the SAME data-field-label-wrap control now shared by every
+    // label_helper===true type (choice groups/dropdown/slider/phone/address),
+    // not just the 8 Accept-swappable types. Pin updated to the contracted
+    // new microcopy; the exhaustive per-string presence check is unchanged.
     assertAllPresent(
       STUDIO_HTML,
       [
-        "Basics", "Field label", "only you see this", "Placeholder", "Helper text", "Leading icon", "Location pin",
+        "Basics", "Question label", "Placeholder", "Helper text", "Leading icon", "Location pin",
         "Behavior", "Required", "Visitors must answer before they can continue.", "When answered", "Answer format",
         "Accept", "ZIP code (5 digits)", "If it&#8217;s wrong, say", // curly apostrophe entity (contract: "Curly apostrophes as shown")
       ],

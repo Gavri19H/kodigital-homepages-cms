@@ -241,6 +241,18 @@
       "note": "The Content-tab \"Phone format\" picker (US default | International | Israel | Custom…) — the FIRST studio authoring surface for props.phone_format (content-schema/config-dto validate/compile it since P2b). Extracted out of renderStudioInspector (same P1-granularity discipline as the other P2c/P3b extractions) so this post-golden addition does not dilute that already-classified golden:true region. Not a golden region — accepted extension (implementer-classified 2026-07-20, P2c slice)."
     },
     {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderSliderTypePicker",
+      "golden": false,
+      "register": "LEADGEN-REWORK-03 §6.8",
+      "note": "The Content-tab slider-type thumbnail radio group (single/dual_range/stepper/from_to/radial) + the display-only currency-affix toggle — the P0 golden design pack's studio-panels.html pins this control (data-pin 6.8-type-picker), but pixel-fidelity against that pack is the authoring (studio inspector) slice's own verification, not asserted here. Classified golden:false / accepted extension so the strict census gate is not silently left unclassified (gate-closing entry added by the P2 server-renderer slice per conductor coordination — the function itself is owned/authored by the studio-inspector slice, not this one)."
+    },
+    {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderAddressFieldSet",
+      "golden": false,
+      "register": "LEADGEN-REWORK-03 §6.10 / M9",
+      "note": "The Content-tab address field-set editor (ordered field rows + \"Plain text address\" preset + \"+ Add field\" + the Maps-off degrade note) — the P0 golden design pack's studio-panels.html pins this control (data-pin 6.10-field-set-editor), but pixel-fidelity against that pack is the authoring (studio inspector) slice's own verification, not asserted here. Classified golden:false / accepted extension so the strict census gate is not silently left unclassified (gate-closing entry added by the P2 server-renderer slice per conductor coordination — the function itself is owned/authored by the studio-inspector slice, not this one)."
+    },
+    {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderThemesOverlay",
       "golden": true,
       "register": "S4-A11 (R5 D6)",

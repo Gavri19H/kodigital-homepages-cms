@@ -188,6 +188,51 @@ function pushButtonStyleRules(
         { display: "flex" },
       ),
     );
+
+    // Rework §6.6 (S2.2 follow-up, coordinator-directed 2026-07-22): the SAME
+    // mark mechanism for the button/YesNo family — presets.ts now stamps
+    // data-card-select="mark" on .lg-answer-group roots too (whenever theme OR
+    // a per-choice/per-node selected_marker override resolves 'mark'), and
+    // every mark-resolved button unconditionally carries BOTH a hollow-circle
+    // span (resting) and a filled-badge span (selected) — presets.ts
+    // selectedMarkerMarkup. CSS alone decides which one paints, mirroring the
+    // card branch above; sizes/colors are the P0 golden pack's OWN pinned
+    // values (studio-panels.html .lg-check-badge/.lg-check-hollow, data-pin
+    // 6.6-visitor-selected) expressed through this design's existing measured
+    // tokens (color.primary/color.border/radius.full) — no new value invented.
+    const gb = (leaf: string): string => `${scope} .lg-answer-group[data-card-select="mark"] ${leaf}`;
+    out.push(
+      // resting: a 17px hollow (border-only) circle — the pack's own size.
+      rule(gb(".lg-check-hollow"), {
+        width: "17px",
+        height: "17px",
+        "border-radius": radius.full,
+        border: `1.6px solid ${color.border}`,
+        "flex-shrink": "0",
+      }),
+      // the filled 19px badge — present in markup, hidden until selected.
+      rule(gb(".lg-check-badge"), {
+        display: "none",
+        width: "19px",
+        height: "19px",
+        "border-radius": radius.full,
+        background: color.primary,
+        "align-items": "center",
+        "justify-content": "center",
+        "flex-shrink": "0",
+      }),
+      // selected: swap which one paints — the SAME 3-selector triplet
+      // (.lg-selected / [aria-checked="true"] / [data-selected="true"]) the
+      // card branch above uses, scoped to .lg-btn-answer instead of .lg-card.
+      rule(
+        `${gb(".lg-btn-answer.lg-selected .lg-check-hollow")},${gb('.lg-btn-answer[aria-checked="true"] .lg-check-hollow')},${gb('.lg-btn-answer[data-selected="true"] .lg-check-hollow')}`,
+        { display: "none" },
+      ),
+      rule(
+        `${gb(".lg-btn-answer.lg-selected .lg-check-badge")},${gb('.lg-btn-answer[aria-checked="true"] .lg-check-badge')},${gb('.lg-btn-answer[data-selected="true"] .lg-check-badge')}`,
+        { display: "inline-flex" },
+      ),
+    );
   }
 }
 

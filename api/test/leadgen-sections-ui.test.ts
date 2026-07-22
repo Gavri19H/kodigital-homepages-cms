@@ -546,7 +546,12 @@ describeDb("leadgen section editor — M1 authoring wired", () => {
     expect(html).toContain("data-inspector-choices");
     expect(html).toContain('id="lg-choice-add"');
     expect(html).toContain("data-choice-bulk"); // §8.6 bulk paste
-    expect(html).toContain('data-choicedisplay="otherGroupEnabled"'); // B9 main/Other grouping
+    // LeadGen Rework §6.5: the old B9 "main/Other grouping" choiceDisplay
+    // editor (data-choicedisplay="otherGroupEnabled") is retired, replaced by
+    // the authored-values Other editor (props.other = {enabled, label,
+    // choices}) — same choices-block region, current control markup.
+    expect(html).toContain("data-other-editor-block");
+    expect(html).toContain("data-other-enabled");
   });
 
   it("the ES5 builder COLLECTS inspector edits back into the selected node (not just markDirty)", async () => {

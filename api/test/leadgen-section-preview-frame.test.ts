@@ -625,6 +625,17 @@ function unmapR5Typography(html: string): string {
 function stripAutoErrorSlots(html: string): string {
   return html.replace(/<p class="lg-error lg-error-auto"[^>]*><\/p>/g, "");
 }
+// Rework §6.7 (P2, register #9 under-filled-grid fix): effective columns are
+// now ALSO min(authored, choiceCount) — LEGACY_PLAIN_CONTENT's IconCardAnswerGrid
+// carries exactly 2 choices with NO authored columns, so the CORRECTLY
+// clamped value is 2 (min(design-default 3, 2)) where the frozen pre-change
+// capture shows the un-clamped design default 3. A net-new, deliberate
+// behavior change (not a P2 regression) — reverse-mapped before comparison,
+// the SAME idiom as unmapR5Typography/stripAutoErrorSlots. LEGACY_DEP_CONTENT
+// carries no card grid, so this is a no-op there.
+function unmapColumnsClamp(html: string): string {
+  return html.split('style="--lg-cols:2;gap:0.5rem"').join('style="--lg-cols:3;gap:0.5rem"');
+}
 // The SAME R5 D11 typography grant, at the CSS-rule level (.lg-headline base
 // rule + .lg-subheadline's color + the NEW question-card-only font-size
 // override — see designs/default-funnel/tokens.ts + styles.ts).
@@ -853,7 +864,7 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     // R5 D11: desktop/mobile HTML carries the SAME headline typography
     // delta inline (per-node) — reverse-map before comparing, exactly the
     // css modulo idiom below, so this stays a true "nothing ELSE changed" pin.
-    const actualVal = typeof actualPreview[key] === "string" ? stripAutoErrorSlots(unmapR5Typography(actualPreview[key] as string)) : actualPreview[key];
+    const actualVal = typeof actualPreview[key] === "string" ? stripAutoErrorSlots(unmapR5Typography(unmapColumnsClamp(actualPreview[key] as string))) : actualPreview[key];
     expect(actualVal, `preview.${key}`).toEqual(expectedPreview[key]);
   }
   // css: the ONLY legal deltas are the moved base-sheet chunks (byte-exact):

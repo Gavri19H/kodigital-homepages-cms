@@ -25,7 +25,9 @@ import {
   FRAME_TEMPLATE_IDS,
   computeTemplateSwitch,
   effectiveFrame,
+  parseSavedFrameTemplateDefaults,
   validateFrameConfig,
+  type EffectiveFrameConfig,
   type FrameTemplateDef,
   type StoredFrameConfig,
 } from "../../public/leadgen/designs/frames";
@@ -80,11 +82,37 @@ async function funnelBaseDesignId(db: D1Database, funnel: LeadgenFunnelRow): Pro
 // GET/PUT /funnels/:id/frame (04 §4.8 rows 1–2)
 // ---------------------------------------------------------------------------
 
+// Rework M5 (§5, S2.2 follow-up): resolves a funnel's saved frame-template
+// defaults (frame_template_id → leadgen_frame_templates.frame_json) for
+// frameProjection's 4th effectiveFrame arg. This route is funnel-only (no
+// variant param), so the general M5 order (variant.frame_template_id ??
+// funnel.frame_template_id) collapses to funnel.frame_template_id alone —
+// reuses resolveFrameTemplateRow below for the actual row fetch (numeric id,
+// stringified — the SAME dual public_id/numeric selector that function's own
+// route callers use). NULL ftid or a since-deleted/corrupt row ⇒ null ⇒
+// frameProjection omits effectiveFrame's 4th arg ⇒ byte-identical legacy.
+async function resolveSavedFrameTemplateDefaults(
+  db: D1Database,
+  ftid: number | null,
+): Promise<EffectiveFrameConfig | null> {
+  if (ftid === null) return null;
+  const row = await resolveFrameTemplateRow(db, String(ftid));
+  return row === null ? null : parseSavedFrameTemplateDefaults(row.frame_json);
+}
+
 // The shared GET/PUT-success projection: the stored sparse config, the
 // effective frame (template ⊕ stored — what preview uses, ONE merge
 // implementation, 13 §13.2), and the CURRENT template's registry defaults.
-function frameProjection(stored: Record<string, unknown> | null): Record<string, unknown> {
-  const { frame, problems } = effectiveFrame(stored as StoredFrameConfig | null);
+function frameProjection(
+  stored: Record<string, unknown> | null,
+  savedTemplateDefaults: EffectiveFrameConfig | null,
+): Record<string, unknown> {
+  const { frame, problems } = effectiveFrame(
+    stored as StoredFrameConfig | null,
+    undefined,
+    undefined,
+    savedTemplateDefaults,
+  );
   return {
     frame_config: stored,
     effective_frame: frame,
@@ -112,7 +140,8 @@ export async function getFunnelFrameHandler(c: AdminContext): Promise<Response> 
     return c.json({ merged, confirmations });
   }
 
-  const projection = frameProjection(stored);
+  const savedDefaults = await resolveSavedFrameTemplateDefaults(c.env.DB, funnel.frame_template_id);
+  const projection = frameProjection(stored, savedDefaults);
   // Additive §3.6: a stored config's validation rows (e.g. the §4.4 manual-
   // logo warning, or drift errors the preflight also reports) surface on load
   // so the builder opens with the truth. NULL column = legacy → no rows.
@@ -144,6 +173,8 @@ export async function putFunnelFrameHandler(c: AdminContext): Promise<Response> 
     return c.json({ error: "Validation failed", problems: validation.problems }, 400);
   }
 
+  const savedDefaults = await resolveSavedFrameTemplateDefaults(c.env.DB, funnel.frame_template_id);
+
   // No-op save guard (DEV-57): the Quote Builder's one-Save chain re-PUTs the
   // frame on every Save, and the content_version bump is a full visitor-cache
   // invalidation (03 §3.1). A byte-identical config — the EXACT stored TEXT
@@ -152,7 +183,7 @@ export async function putFunnelFrameHandler(c: AdminContext): Promise<Response> 
   // `bumped_variants: 0` so the island flow is unchanged.
   const serialized = JSON.stringify(raw);
   if (funnel.frame_config_json === serialized) {
-    const projection = frameProjection(raw);
+    const projection = frameProjection(raw, savedDefaults);
     projection["problems"] = [...validation.problems, ...(projection["problems"] as Problem[])];
     projection["bumped_variants"] = 0;
     return c.json(projection);
@@ -166,7 +197,7 @@ export async function putFunnelFrameHandler(c: AdminContext): Promise<Response> 
   // 03 §3.1: the bump is what makes a frame edit reach visitors.
   const bumped = await bumpActiveVariantContentVersions(c.env.DB, funnel.id);
 
-  const projection = frameProjection(raw);
+  const projection = frameProjection(raw, savedDefaults);
   projection["problems"] = [...validation.problems, ...(projection["problems"] as Problem[])];
   projection["bumped_variants"] = bumped;
   return c.json(projection);

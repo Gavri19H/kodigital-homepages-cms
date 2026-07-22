@@ -583,9 +583,14 @@ describeDb("§9.3 parity matrix — every catalog type × default design (deskto
       expect(liveStyles, `${node.type}: token ${token} present on live`).toContain(token);
       expect(collectStyles(preview).join(" | "), `${node.type}: token parity`).toBe(liveStyles);
     }
-    // class-hook token: the icon grid's column count rides --lg-cols:3 (fixture).
+    // class-hook token: the icon grid's column count rides --lg-cols (fixture
+    // authors columns:3, but Rework §6.7 (test repair, P2) now ALSO clamps to
+    // min(authored, choiceCount) — NODE_SPECS.IconCardAnswerGrid carries only
+    // 2 choices (shared broadly across this file), so the correctly-clamped
+    // value is 2, not the authored 3; this still proves the class-hook token
+    // rides through identically live vs preview, just at the CLAMPED value.
     const iconLive = collectStyles(liveSubtree(NODE_SPECS.IconCardAnswerGrid)).join(" | ");
-    expect(iconLive).toContain("--lg-cols:3");
+    expect(iconLive).toContain("--lg-cols:2");
   });
 });
 

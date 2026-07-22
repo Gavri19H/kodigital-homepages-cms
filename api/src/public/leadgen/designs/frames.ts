@@ -673,10 +673,24 @@ export interface EffectiveFrameResult {
 // first. Unknown template id in STORED json → `centered` + a problems[]
 // warning (mirror of the design-registry unknown-id fallback); ABSENT
 // template → `centered` silently (it is simply the default).
+//
+// Rework M5 (§5) — 4th argument `savedTemplateDefaults`: the CALLER-resolved
+// `leadgen_frame_templates` row the funnel/variant's `frame_template_id`
+// points to (variant.frame_template_id ?? funnel.frame_template_id — the
+// query/lookup is the CALLER's job; this module owns no DB access), ALREADY
+// PARSED to the `frame_json` shape (== FRAME_TEMPLATES[].defaults per M5's
+// own contract — "the FrameConfig per-group defaults shape"). When provided
+// (non-null/undefined) it becomes the base layer INSTEAD OF the templateId
+// string lookup below — the ftid wins outright over whatever
+// frame_config_json.template names (M5 order: "template(variant.ftid ??
+// funnel.ftid).defaults ⊕ funnel.frame_config ⊕ variant.overrides"). Omitted
+// (every pre-M5 call site) ⇒ the templateId-string branch below runs
+// UNCHANGED — byte-identical legacy behavior ("when neither ftid is set").
 export function effectiveFrame(
   template: FrameTemplateId | string | StoredFrameConfig | null | undefined,
   frame_config_json?: StoredFrameConfig | null,
   frame_overrides_json?: FrameOverrides | null,
+  savedTemplateDefaults?: EffectiveFrameConfig | null,
 ): EffectiveFrameResult {
   const problems: Problem[] = [];
 
@@ -694,12 +708,26 @@ export function effectiveFrame(
   }
 
   let templateId: FrameTemplateId;
-  if (requested === undefined) {
+  let frame: EffectiveFrameConfig;
+  if (savedTemplateDefaults !== null && savedTemplateDefaults !== undefined) {
+    // M5: the ftid resolution wins outright — never "unknown" (a stale/
+    // deleted ftid is the CALLER's problem to detect via its own row lookup
+    // returning null, in which case it simply omits this argument and falls
+    // to the legacy branch below). `templateId`/`frame.template` still stamp
+    // a recognizable built-in-or-default id purely for callers keying
+    // UI/analytics off that string — it does not select which defaults this
+    // call started from.
+    templateId = requested !== undefined && isFrameTemplateId(requested) ? requested : DEFAULT_FRAME_TEMPLATE_ID;
+    frame = cloneJson(savedTemplateDefaults);
+  } else if (requested === undefined) {
     templateId = DEFAULT_FRAME_TEMPLATE_ID;
+    frame = cloneJson(FRAME_TEMPLATES[templateId].defaults);
   } else if (isFrameTemplateId(requested)) {
     templateId = requested;
+    frame = cloneJson(FRAME_TEMPLATES[templateId].defaults);
   } else {
     templateId = DEFAULT_FRAME_TEMPLATE_ID;
+    frame = cloneJson(FRAME_TEMPLATES[templateId].defaults);
     problems.push({
       path: "frame.template",
       scope: "frame",
@@ -708,7 +736,6 @@ export function effectiveFrame(
     });
   }
 
-  const frame = cloneJson(FRAME_TEMPLATES[templateId].defaults);
   if (funnel !== null) {
     const { template: _template, version: _version, ...groups } = funnel;
     mergeInto(frame as unknown as Record<string, unknown>, groups as Record<string, unknown>);
@@ -722,6 +749,31 @@ export function effectiveFrame(
   frame.template = templateId;
   frame.version = 1;
   return { frame, problems };
+}
+
+// Rework M5 (§5, S2.2 follow-up) — normalizes a `leadgen_frame_templates.
+// frame_json` column value into the EffectiveFrameConfig shape effectiveFrame's
+// 4th argument expects. Pure/sync, NO DB access — the row fetch (SELECT ...
+// FROM leadgen_frame_templates WHERE id = ?) is each CALLER's own job,
+// mirroring its local D1 conventions (same division of labor as
+// effectiveFrame's own 4th-arg comment above: "this module owns no DB
+// access"). validateTemplateInput (frame-handlers.ts) already gates every
+// SAVE with validateFrameConfig (zero error-severity problems); this
+// defensively re-validates on READ instead of trusting the write-time
+// guarantee blindly (D1 rule: a corrupt/malformed JSON column degrades to
+// null, never throws). A null/malformed/absent column ⇒ null ⇒ the caller
+// omits effectiveFrame's 4th arg ⇒ byte-identical legacy path.
+export function parseSavedFrameTemplateDefaults(raw: string | null | undefined): EffectiveFrameConfig | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  const validation = validateFrameConfig(parsed as Record<string, unknown>);
+  return validation.config === null ? null : (validation.config as EffectiveFrameConfig);
 }
 
 // Sparse deep-merge (§13.2): objects merge recursively; arrays replace WHOLE;

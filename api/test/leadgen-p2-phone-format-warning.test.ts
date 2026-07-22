@@ -312,6 +312,38 @@ describeDb("formatPhone x phone_format incoherence warning (P2 review round)", (
     expect(findPhoneWarning(body.problems)).toBeDefined();
   });
 
+  // LeadGen Rework §6.9/M8: S2.4 extended phoneFormatIncoherenceWarning for the
+  // new mask shape (props.phone_format = {mask:{pattern}}) — coherent iff the
+  // mask's parsed digit_count is exactly 10 (NANP), since formatPhone silently
+  // drops anything else, the SAME failure class the preset checks above guard.
+  it("a mask phone_format with digit_count!==10 + formatPhone: warns (own-hand-verified against phoneFormatIncoherenceWarning, sections-handlers.ts)", async () => {
+    const { env } = newHarness();
+    const offer = await createMappableOffer(env);
+    const res = await admin.request(
+      `${API}/sections`,
+      // "3-4" parses to groups [3,4] = 7 digits total, not 10.
+      jsonInit("POST", sectionBody({ mask: { pattern: "3-4" } }, offer.id)),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const body = (await res.json()) as { problems: ProblemJson[] };
+    expect(findPhoneWarning(body.problems)).toBeDefined();
+  });
+
+  it("a mask phone_format with digit_count===10 + formatPhone: NO warning (the coherent NANP-shaped mask)", async () => {
+    const { env } = newHarness();
+    const offer = await createMappableOffer(env);
+    const res = await admin.request(
+      `${API}/sections`,
+      // The M8 contract's own example: groups [3,3,4] = 10 digits total.
+      jsonInit("POST", sectionBody({ mask: { pattern: "(3) 3-4" } }, offer.id)),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const body = (await res.json()) as { problems: ProblemJson[] };
+    expect(findPhoneWarning(body.problems)).toBeUndefined();
+  });
+
   it("nanp phone_format + formatPhone: NO warning (the coherent pairing)", async () => {
     const { env } = newHarness();
     const offer = await createMappableOffer(env);

@@ -172,6 +172,223 @@ export const COMPONENT_CATALOG = {
 
 export type ComponentType = keyof typeof COMPONENT_CATALOG;
 
+// ---------------------------------------------------------------------------
+// LeadGen Rework §6.2 — the per-type inspector CONTROL-CAPABILITY matrix.
+// ---------------------------------------------------------------------------
+// The systemic #10 fix: inspector controls render from per-type capability
+// FLAGS instead of ad-hoc `hidden` toggles scattered through the studio island
+// (§6.2 "Controls render from per-type capability flags ... The ad-hoc
+// per-control `hidden` flags ... consolidate onto this one spec-driven
+// mechanism"). This is DATA — the SINGLE source of truth shared by the Studio
+// (S2.4, which renders exactly the flagged controls) and the schema validator
+// (content-schema.ts, which GATES props to the flagged capabilities so the
+// authoring surface and the save gate can never disagree) and the §6.2 matrix
+// test (S2.5). Every row/column of the contract's §6.2 table is transcribed
+// below verbatim; `satisfies Record<ComponentType, …>` makes it compile-time
+// EXHAUSTIVE (a new/removed catalog type forces a matching change here).
+//
+// Cell vocabulary (matching the matrix's non-✓/blank cells):
+//   * `"labels_only"` — YesNo shows a labels-only choice editor (Yes/No copy),
+//     not the full add/remove choice grid.
+//   * `"per_field"` — Address / NameFields render the control PER SUB-FIELD
+//     (existing convention), not once for the whole node.
+//   * `default_kind` — WHICH default control the type offers (§6.4): a YesNo
+//     toggle, a range value, a dropdown option, a choice pick, or none.
+export interface ComponentCapabilitySpec {
+  /** §6.3 Label + helper block. `"per_field"` = per sub-field (NameFields). */
+  label_helper: boolean | "per_field";
+  /** Required toggle. `"per_field"` = per sub-field (Address/NameFields). */
+  required: boolean | "per_field";
+  /** Choices editor (+ bulk paste). `"labels_only"` = YesNo Yes/No labels. */
+  choices_editor: boolean | "labels_only";
+  /** §6.5 "Other" values editor — SINGLE-select choice groups only. */
+  other_editor: boolean;
+  /** §6.4 default control kind — null = no default control on this type. */
+  default_kind: "yesno" | "range" | "dropdown" | "choice" | null;
+  /** §6.6 ✓-in-selected marker style (per-node, over the theme axis). */
+  selected_marker: boolean;
+  /** Column-count control (answer grids + containers). */
+  columns: boolean;
+  /** §5.6 Accept type-swap (text-input family + Phone). */
+  accept_type_swap: boolean;
+  /** §6.9 phone mask builder — Phone only. */
+  mask_builder: boolean;
+  /** §6.8 slider-type picker — Slider only. */
+  slider_type: boolean;
+  /** §6.10 address field-set + Maps editor — Address only. */
+  field_set_maps: boolean;
+  /** Placeholder control. `"per_field"` = per sub-field (Address/NameFields). */
+  placeholder: boolean | "per_field";
+}
+
+const CAP_NONE: ComponentCapabilitySpec = {
+  label_helper: false,
+  required: false,
+  choices_editor: false,
+  other_editor: false,
+  default_kind: null,
+  selected_marker: false,
+  columns: false,
+  accept_type_swap: false,
+  mask_builder: false,
+  slider_type: false,
+  field_set_maps: false,
+  placeholder: false,
+};
+
+// Buttons / Icon cards / Image cards — the SINGLE-select choice groups (§6.2
+// row set: Label+helper ✓, Required ✓, Choices editor ✓, Other editor ✓,
+// Default ✓ 'choice', Selected-marker ✓, Columns ✓).
+const CAP_CHOICE_SINGLE: ComponentCapabilitySpec = {
+  ...CAP_NONE,
+  label_helper: true,
+  required: true,
+  choices_editor: true,
+  other_editor: true,
+  default_kind: "choice",
+  selected_marker: true,
+  columns: true,
+};
+
+// Text-input family (FreeText / Email / Number / Currency / Date / ZIP):
+// Label+helper ✓, Required ✓, Accept type-swap ✓, Placeholder ✓.
+const CAP_TEXT_INPUT: ComponentCapabilitySpec = {
+  ...CAP_NONE,
+  label_helper: true,
+  required: true,
+  accept_type_swap: true,
+  placeholder: true,
+};
+
+// Dropdown / Searchable: Label+helper ✓, Required ✓, Choices editor ✓,
+// Default ✓ 'dropdown' (existing), Placeholder ✓. NO Other editor (the #10
+// fix: Dropdown shows no Other-group control), NO selected-marker, NO columns.
+const CAP_DROPDOWN: ComponentCapabilitySpec = {
+  ...CAP_NONE,
+  label_helper: true,
+  required: true,
+  choices_editor: true,
+  default_kind: "dropdown",
+  placeholder: true,
+};
+
+// Slider (NumberRangeQuestion + the legacy Range/CurrencyRange still in the
+// catalog): Label+helper ✓, Required ✓, Default ✓ 'range' (existing),
+// Slider type ✓.
+const CAP_SLIDER: ComponentCapabilitySpec = {
+  ...CAP_NONE,
+  label_helper: true,
+  required: true,
+  default_kind: "range",
+  slider_type: true,
+};
+
+// Layout containers: only the Columns control (matrix Containers column).
+const CAP_CONTAINER: ComponentCapabilitySpec = { ...CAP_NONE, columns: true };
+
+export const COMPONENT_CAPABILITIES = {
+  // chrome — no Section-inspector controls.
+  ProgressBar: CAP_NONE,
+  HeaderLogo: CAP_NONE,
+  BackButton: CAP_NONE,
+  DisclosureLink: CAP_NONE,
+  StepIndicator: CAP_NONE,
+
+  // copy affordances — no answer controls.
+  CategoryLabel: CAP_NONE,
+  QuestionHeadline: CAP_NONE,
+  Subheadline: CAP_NONE,
+
+  // range family (the collapsed Slider + legacy triplet members).
+  RangeQuestion: CAP_SLIDER,
+  CurrencyRangeQuestion: CAP_SLIDER,
+  NumberRangeQuestion: CAP_SLIDER,
+
+  // choice questions.
+  ButtonAnswerGroup: CAP_CHOICE_SINGLE,
+  // YesNo: Label+helper ✓, Required ✓, Choices editor "labels only",
+  // Default ✓ 'yesno', Selected-marker ✓ — but NO Other editor, NO Columns.
+  TwoButtonYesNo: {
+    ...CAP_NONE,
+    label_helper: true,
+    required: true,
+    choices_editor: "labels_only",
+    default_kind: "yesno",
+    selected_marker: true,
+  },
+  IconCardAnswerGrid: CAP_CHOICE_SINGLE,
+  ImageCardAnswerGrid: CAP_CHOICE_SINGLE,
+  // MultiChoice: like the single-select groups BUT no Other editor and NO
+  // default (§6.4 "Multi-select has no default in v1").
+  MultiChoiceCardGroup: {
+    ...CAP_NONE,
+    label_helper: true,
+    required: true,
+    choices_editor: true,
+    selected_marker: true,
+    columns: true,
+  },
+  // MultiQuestionGrid (legacy, slated for §10 removal): a choice grid shape —
+  // a defensive spec so the exhaustive matrix compiles until the type is
+  // removed in the coordinated cross-slice removal pass.
+  MultiQuestionGrid: { ...CAP_NONE, choices_editor: true, columns: true },
+  DropdownQuestion: CAP_DROPDOWN,
+  SearchableDropdownQuestion: CAP_DROPDOWN,
+  // OtherGroupSelector (legacy, slated for §10 removal): a single-select
+  // choice group shape.
+  OtherGroupSelector: CAP_CHOICE_SINGLE,
+
+  // free-form + PII inputs.
+  FreeTextQuestion: CAP_TEXT_INPUT,
+  NumberInputQuestion: CAP_TEXT_INPUT,
+  CurrencyInputQuestion: CAP_TEXT_INPUT,
+  EmailInputQuestion: CAP_TEXT_INPUT,
+  // Phone: the text-input family PLUS the §6.9 mask builder.
+  PhoneInputQuestion: { ...CAP_TEXT_INPUT, mask_builder: true },
+  // NameFields/Contact: every control is PER-FIELD (existing convention).
+  NameFieldsGroup: {
+    ...CAP_NONE,
+    label_helper: "per_field",
+    required: "per_field",
+    placeholder: "per_field",
+  },
+  DateQuestion: CAP_TEXT_INPUT,
+  ZIPInputQuestion: CAP_TEXT_INPUT,
+  // Address: Label+helper ✓, Required per-field, Field set + Maps ✓,
+  // Placeholder per-field.
+  AddressAutocompleteQuestion: {
+    ...CAP_NONE,
+    label_helper: true,
+    required: "per_field",
+    field_set_maps: true,
+    placeholder: "per_field",
+  },
+
+  // controls + remaining affordances — no answer controls.
+  ContinueButton: CAP_NONE,
+  AutoAdvanceButton: CAP_NONE,
+  ReassuranceBadge: CAP_NONE,
+  SuccessState: CAP_NONE,
+  SecureFormBadge: CAP_NONE,
+  TrustBar: CAP_NONE,
+  LogoStrip: CAP_NONE,
+  HelperText: CAP_NONE,
+  ValidationError: CAP_NONE,
+  LegalNote: CAP_NONE,
+  TextBlock: CAP_NONE,
+  ImageBlock: CAP_NONE,
+
+  // layout containers + leaves.
+  Stack: CAP_CONTAINER,
+  GridContainer: CAP_CONTAINER,
+  Columns: CAP_CONTAINER,
+  CardPanel: CAP_CONTAINER,
+  BackgroundPanel: CAP_CONTAINER,
+  Spacer: CAP_NONE,
+  HeaderBar: CAP_NONE,
+  FooterBar: CAP_NONE,
+} as const satisfies Record<ComponentType, ComponentCapabilitySpec>;
+
 // A component NOT in this catalog cannot be placed in a Section (server-validated
 // on save). Adding a new capability = a new catalog entry + a render in
 // components/<Type>.ts + (optionally) a style slot each visual design provides.

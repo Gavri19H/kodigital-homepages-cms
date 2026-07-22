@@ -79,15 +79,26 @@ const INPUT_MECHANISM = new Set<ComponentType>([
 ]);
 const CHOICE_MECHANISM = new Set<ComponentType>([
   "ButtonAnswerGroup", "TwoButtonYesNo", "IconCardAnswerGrid",
-  "ImageCardAnswerGrid", "MultiChoiceCardGroup", "OtherGroupSelector",
+  "ImageCardAnswerGrid", "MultiChoiceCardGroup",
   // P5 (PC-10): each row is a click-to-answer pill pair — records via
   // data-lg-choice (per-row [data-lg-question] wrapper), like the other choice
   // families.
   "MultiQuestionGrid",
 ]);
 
+// Rework §10 removal (test repair, P2): OtherGroupSelector's render leg is
+// RETIRED to a fail-safe extinct-type box (conductor ruling — the catalog
+// type stays, unreachable from the editor palette; §6.5's authored
+// props.other on Buttons/Cards supersedes it) that carries NEITHER
+// data-lg-input NOR data-lg-choice, by design. Excluded from the strict
+// recording-hook lockstep below (never silently — its own dedicated
+// retirement proof is the "R1 test repair" describe block further down), so
+// this exclusion can never mask a genuinely NEW answer type forgetting to
+// wire a recording hook.
+const RETIRED_NONRECORDING_TYPES = new Set<ComponentType>(["OtherGroupSelector"]);
+
 const ANSWER_TYPES = (Object.keys(COMPONENT_CATALOG) as ComponentType[]).filter(
-  (t) => COMPONENT_CATALOG[t].category === "question",
+  (t) => COMPONENT_CATALOG[t].category === "question" && !RETIRED_NONRECORDING_TYPES.has(t),
 );
 
 function comp(partial: Partial<LgComponentConfig>): LgComponentConfig {
@@ -111,7 +122,22 @@ describe("R1 Test A — every answer-producing type exposes a recording hook", (
     }
     // and the specs/sets carry no stale non-question entries
     expect(new Set([...INPUT_MECHANISM, ...CHOICE_MECHANISM])).toEqual(new Set(ANSWER_TYPES));
-    expect(Object.keys(ANSWER_NODE_SPECS).sort()).toEqual([...ANSWER_TYPES].sort());
+    // ANSWER_NODE_SPECS additionally carries the RETIRED non-recording types
+    // (OtherGroupSelector) — its own dedicated retirement proof (below) reuses
+    // the same fixture map rather than duplicating a node definition.
+    expect(Object.keys(ANSWER_NODE_SPECS).sort()).toEqual(
+      [...ANSWER_TYPES, ...RETIRED_NONRECORDING_TYPES].sort(),
+    );
+  });
+
+  // Rework §10 removal (test repair, P2): the retired type's OWN proof — it
+  // renders the fail-safe extinct-type box, records via NEITHER mechanism,
+  // and (unlike a forgotten-hook regression) this is BY DESIGN.
+  it.each([...RETIRED_NONRECORDING_TYPES])("%s (retired) renders the fail-safe box, records via NEITHER mechanism", (t) => {
+    const html = renderComponent(ANSWER_NODE_SPECS[t]!, DESIGN);
+    expect(html).toContain('class="lg-mqg-empty"');
+    expect(html).not.toContain("data-lg-input");
+    expect(html).not.toContain("data-lg-choice");
   });
 
   it.each(ANSWER_TYPES)(

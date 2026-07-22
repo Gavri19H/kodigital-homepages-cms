@@ -59,7 +59,7 @@ import { parseSectionComponents, expandPublicComponents } from "./config-dto";
 // imports mintFunnelAttempt FROM attempt.ts, so attempt.ts importing this back
 // FROM serve.ts would be circular; resolver.ts sits BELOW both (serve.ts and
 // attempt.ts each already import resolver.ts, never the reverse).
-import { effectiveFrame, validateFrameConfig } from "./designs/frames";
+import { effectiveFrame, validateFrameConfig, parseSavedFrameTemplateDefaults } from "./designs/frames";
 import type { EffectiveFrameConfig, FrameOverrides, StoredFrameConfig, FrameCtaSlotConfig } from "./designs/frames";
 import { conditionalMet, type LeadgenPayloadConditional, type LeadgenPayloadConditionGroup } from "../../leadgen/payload";
 // LeadGen Rework §4.3-3: the ONE pure checkpoint-plane derivation (shared by
@@ -1944,10 +1944,22 @@ function parseFrameJsonColumn(raw: string | null | undefined): Record<string, un
 // the stored config, merge the variant's frame_overrides_json, NO theme/tokens
 // (a KV-free, synchronous read). serve.ts's resolveFrameComposition calls this
 // too (one source of truth for the frame-group-merge step, no divergent copy).
+//
+// Rework M5 (§5, S2.2 follow-up): `saved_template_defaults` is an OPTIONAL
+// structural field — a caller may populate it with an ALREADY-RESOLVED
+// `leadgen_frame_templates` row (variant.frame_template_id ?? funnel.
+// frame_template_id, parsed via frames.ts's parseSavedFrameTemplateDefaults).
+// This function stays synchronous/DB-agnostic (no query happens here; the row
+// fetch is the CALLER's job — the same division of labor effectiveFrame's own
+// 4th-arg comment documents). Every CURRENT caller of resolveEffectiveFrameOnly
+// (runtime-routes.ts x2, serve.ts, attempt.ts) omits this field, so they keep
+// compiling unchanged and stay byte-identical (an absent optional field ⇒
+// `undefined` ⇒ effectiveFrame's legacy templateId-string branch, unchanged).
 export function resolveEffectiveFrameOnly(source: {
   frame_config_json: string | null | undefined;
   theme_json: string | null | undefined;
   frame_overrides_json: string | null | undefined;
+  saved_template_defaults?: EffectiveFrameConfig | null;
 }): EffectiveFrameConfig | null {
   const rawFrame = parseFrameJsonColumn(source.frame_config_json ?? null);
   if (rawFrame === null) return null;
@@ -1960,8 +1972,42 @@ export function resolveEffectiveFrameOnly(source: {
     const overridesValidation = validateFrameConfig(frameParts);
     if (overridesValidation.config !== null) frameOverrides = overridesValidation.config as FrameOverrides;
   }
-  const { frame } = effectiveFrame(frameValidation.config as StoredFrameConfig, null, frameOverrides);
+  const { frame } = effectiveFrame(
+    frameValidation.config as StoredFrameConfig,
+    null,
+    frameOverrides,
+    source.saved_template_defaults ?? null,
+  );
   return frame;
+}
+
+// LeadGen Rework M5 (§5, mini-round) — resolve the ALREADY-VALIDATED saved
+// frame-template defaults for a ResolvedActivatedFunnel: precedence
+// variant.frame_template_id ?? funnel.frame_template_id (a variant is ALWAYS
+// in scope at every one of this function's 4 callers — runtime-routes.ts x2,
+// serve.ts x2 internal call sites, attempt.ts x1 — unlike quotes-handlers.ts's
+// admin-side activation preflight, which sometimes has no variant in scope
+// yet and collapses to funnel.frame_template_id alone). SHARED here rather
+// than duplicated 4x because every caller shares this EXACT precedence over
+// the EXACT SAME ResolvedActivatedFunnel shape; mirrors quotes-handlers.ts's
+// own loadSavedFrameTemplateDefaults local-loader convention (same table,
+// same parser, same null-degrade), the one cross-cutting exception layering
+// allows since resolver.ts already owns frame-source resolution
+// (resolveEffectiveFrameOnly, just above). NULL/absent ftid or a since-
+// deleted/corrupt row degrades to null ⇒ the caller omits
+// resolveEffectiveFrameOnly's 4th-arg-equivalent source field ⇒
+// effectiveFrame's legacy templateId-string branch (byte-identical, A-6a).
+export async function resolveSavedFrameTemplateDefaultsFor(
+  db: D1Database,
+  resolved: Pick<ResolvedActivatedFunnel, "funnel" | "variant">,
+): Promise<EffectiveFrameConfig | null> {
+  const ftid = resolved.variant.frame_template_id ?? resolved.funnel.frame_template_id;
+  if (ftid === null || ftid === undefined) return null;
+  const row = await db
+    .prepare("SELECT frame_json FROM leadgen_frame_templates WHERE id = ? LIMIT 1")
+    .bind(ftid)
+    .first<{ frame_json: string | null }>();
+  return row === null ? null : parseSavedFrameTemplateDefaults(row.frame_json);
 }
 
 // The __-prefixed synthetic ctx keys a CTA condition may reference — SAME

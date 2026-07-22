@@ -10,7 +10,8 @@
     "src/public/leadgen/runtime/**/*.ts",
     "test/leadgen-runtime-hydration.test.ts",
     "test/leadgen-frame-engine-sim.test.ts",
-    "test/leadgen-r1-runtime-recording.test.ts"
+    "test/leadgen-r1-runtime-recording.test.ts",
+    "test/leadgen-rework-runtime.test.ts"
   ],
   "exclude": ["src/public/leadgen/runtime/engine-bundle.generated.ts"]
 }

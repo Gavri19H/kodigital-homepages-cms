@@ -508,7 +508,12 @@ describe("Gate 1a parity — component library tile SVGs (Appendix D, source-con
     }
   });
 
-  it("§5.6 Answer-fields group holds the 12 v3.1 contract tiles + P5 Question grid, in order", () => {
+  // LeadGen Rework §4.1: the one-unit "Question grid" tile is retired — the
+  // palette now offers the "Questions on one screen" STARTER at the same
+  // position (one insert seeds 2 independent TwoButtonYesNo components, no
+  // shared-grid data model). Pin updated to the contracted new reality; the
+  // exhaustive 13-tile count + order this test proves is unchanged.
+  it("§5.6 Answer-fields group holds the 12 v3.1 contract tiles + the §4.1 'Questions on one screen' starter, in order", () => {
     const group = STUDIO_LIBRARY_GROUPS.find((g) => g.key === "answer-fields")!;
     expect(group.tiles.map((t) => t.label)).toEqual([
       "Buttons",
@@ -516,7 +521,7 @@ describe("Gate 1a parity — component library tile SVGs (Appendix D, source-con
       "Yes / No",
       "Dropdown",
       "Multi-select",
-      "Question grid",
+      "Questions on one screen",
       "Short text",
       "Number",
       "Amount",

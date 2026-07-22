@@ -46,11 +46,19 @@ const iconGrid = (choices: LeadgenChoice[]): LeadgenComponentNode => ({
 
 // --- pre-change byte snapshots (captured from the renderer BEFORE this
 // slice's change landed; the no-new-fields legs must reproduce them) --------
+//
+// Rework §6.7 (test repair, P2): effective columns are now min(authored,
+// choiceCount) — these 2-choice fixtures author NO columns, so the design
+// default (3) is now correctly clamped down to 2 (the exact #9 under-filled-
+// grid bug the contract fixes: a 2-choice grid no longer renders a 3rd empty
+// column). --lg-cols:3 → --lg-cols:2 is the ONLY delta; every other byte
+// (label/helper/choice markup) is unchanged since neither fixture authors any
+// new §6.3/§6.5/§6.6 prop.
 
 const SNAPSHOT_IMAGE_LEGACY =
   `<div class="lg-card-grid" role="radiogroup" data-component-type="ImageCardAnswerGrid"` +
   ` data-question-id="q_make" data-internal-field="car_make" data-answer-type="enum"` +
-  ` data-lg-question="q_make" data-lg-field="car_make" style="--lg-cols:3;gap:0.5rem">` +
+  ` data-lg-question="q_make" data-lg-field="car_make" style="--lg-cols:2;gap:0.5rem">` +
   `<button type="button" class="lg-card" role="radio" aria-checked="false" data-value="toyota"` +
   ` data-lg-choice="toyota" data-analytics-id="mk_toyota">` +
   `<img class="lg-card-img" src="med_toyota" alt="Toyota" loading="lazy">` +
@@ -64,7 +72,7 @@ const SNAPSHOT_IMAGE_LEGACY =
 const SNAPSHOT_ICON_LEGACY =
   `<div class="lg-card-grid" role="radiogroup" data-component-type="IconCardAnswerGrid"` +
   ` data-question-id="q_biz" data-internal-field="business_type" data-answer-type="enum"` +
-  ` data-lg-question="q_biz" data-lg-field="business_type" style="--lg-cols:3;gap:0.5rem">` +
+  ` data-lg-question="q_biz" data-lg-field="business_type" style="--lg-cols:2;gap:0.5rem">` +
   `<button type="button" class="lg-card" role="radio" aria-checked="false" data-value="llc"` +
   ` data-lg-choice="llc" data-analytics-id="bt_llc">` +
   `<span class="lg-card-icon" style="color:#1B3A5C" aria-hidden="true">🏢</span>` +

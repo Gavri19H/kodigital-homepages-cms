@@ -62,6 +62,7 @@ import {
   resolveActivatedFunnelByVariant,
   parseUtmFromLandingUrl,
   resolveEffectiveFrameOnly,
+  resolveSavedFrameTemplateDefaultsFor,
   deriveOs,
   type ResolvedActivatedFunnel,
   type ResolvedFunnelSection,
@@ -426,6 +427,12 @@ export interface LeadgenFrameSource {
   frame_config_json: string | null | undefined;
   theme_json: string | null | undefined;
   frame_overrides_json: string | null | undefined;
+  // Rework M5 (§5, mini-round): the ALREADY-RESOLVED saved frame-template
+  // defaults (resolver.ts resolveSavedFrameTemplateDefaultsFor), threaded
+  // straight through resolveFrameComposition into resolveEffectiveFrameOnly's
+  // matching field. Optional — a caller that omits it (sections-handlers.ts's
+  // preview paths, unchanged) stays byte-identical (A-6a).
+  saved_template_defaults?: EffectiveFrameConfig | null;
 }
 
 // The resolved v2.5 composition bundle for one (funnel, variant): the effective
@@ -548,11 +555,19 @@ export function resolveFrameComposition(
 }
 
 // A ResolvedActivatedFunnel's frame source columns (funnel + assigned variant).
-function frameSourceOf(resolved: ResolvedActivatedFunnel): LeadgenFrameSource {
+// `savedTemplateDefaults` (Rework M5, mini-round) is an OPTIONAL 2nd arg — the
+// two callers feeding resolveFrameComposition resolve it via resolver.ts
+// resolveSavedFrameTemplateDefaultsFor on the COLD path and pass it through;
+// the theme-KV-only callers (resolveThemeRecordFor) omit it (irrelevant there).
+function frameSourceOf(
+  resolved: ResolvedActivatedFunnel,
+  savedTemplateDefaults?: EffectiveFrameConfig | null,
+): LeadgenFrameSource {
   return {
     frame_config_json: resolved.funnel.frame_config_json,
     theme_json: resolved.funnel.theme_json,
     frame_overrides_json: resolved.variant.frame_overrides_json,
+    saved_template_defaults: savedTemplateDefaults,
   };
 }
 
@@ -689,6 +704,11 @@ function renderFunnelShell(
   design: FunnelDesign,
   answerMapVersions: Readonly<Record<string, string>>,
   themeRecord: ThemeRecord | null,
+  // Rework M5 (§5, mini-round): pre-resolved by the ONE caller (serveFunnelShell,
+  // cold path only) via resolver.ts resolveSavedFrameTemplateDefaultsFor — this
+  // function stays synchronous (no DB access of its own), mirroring how
+  // themeRecord is already a pre-resolved plain param.
+  savedTemplateDefaults: EffectiveFrameConfig | null = null,
 ): string {
   const funnelId = toFunnelId(resolved.funnel.public_id);
   const funnelVariantId = toFunnelVariantId(resolved.variant.public_id);
@@ -703,7 +723,7 @@ function renderFunnelShell(
   // free on that path: the pin proves css/config/design_tokens bytes
   // unchanged). resolveTokens keeps design.id, so the scope selector is the
   // same string on both paths.
-  const composition = resolveFrameComposition(frameSourceOf(resolved), design, themeRecord);
+  const composition = resolveFrameComposition(frameSourceOf(resolved, savedTemplateDefaults), design, themeRecord);
   const effectiveDesign: FunnelDesign | EffectiveFunnelDesign =
     composition === null ? design : composition.effectiveTokens.design;
   const chromeCss =
@@ -893,7 +913,19 @@ export async function serveFunnelShell(
     // narrow default, register R4 item 10I) instead of being dropped by the
     // legacy frameless fork below.
     const themeRecord = await resolveThemeRecordFor(c.env, frameSourceOf(resolved));
-    pristine = renderFunnelShell(resolved, design, answerMapVersions, themeRecord);
+    // Rework M5 (§5, mini-round): the SAME cold-path-only discipline — a
+    // cache hit already carries whatever saved template defaults were baked
+    // in at write time. OPEN CONCERN (verified, not fixed here): unlike a
+    // theme/frame_overrides edit, quotes-handlers.ts's PUT frame_template_id
+    // (verified at quotes-handlers.ts:3429) does NOT bump content_version in
+    // the same statement — so re-pointing a funnel/variant to a different
+    // saved template does not itself bust this shell's cache key; the new
+    // template only takes effect once the key changes for another reason
+    // (TTL expiry, a content_version-bumping edit, etc.). Flagged for the
+    // conductor; out of this mini-round's named scope (the 4 resolve call
+    // sites), not silently asserted as fine.
+    const savedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(c.env.DB, resolved);
+    pristine = renderFunnelShell(resolved, design, answerMapVersions, themeRecord, savedTemplateDefaults);
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);
     // Write-through stores the PRISTINE shell (visitor-invariant: no Maps key,
     // no per-session assignment dims — only the sentinels).
@@ -953,10 +985,14 @@ export async function serveLeadgenConfig(c: PublicContext): Promise<Response> {
     // v3.1 §10.1/§12: the theme_id KV read — cold path only, mirrors the
     // shell's own placement exactly (resolveThemeRecordFor's doc comment).
     const themeRecord = await resolveThemeRecordFor(c.env, frameSourceOf(resolved));
+    // Rework M5 (§5, mini-round): cold-path only, mirrors the shell's own
+    // placement (same open cache-key concern noted at serveFunnelShell's
+    // call site — not fixed here, out of this mini-round's named scope).
+    const savedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(c.env.DB, resolved);
     // v2.5 §13.3: the config route carries the SAME design tokens the shell
     // bakes — the EFFECTIVE design on the frame path, the base design on the
     // legacy path (one resolver, no drift).
-    const composition = resolveFrameComposition(frameSourceOf(resolved), design, themeRecord);
+    const composition = resolveFrameComposition(frameSourceOf(resolved, savedTemplateDefaults), design, themeRecord);
     const effectiveDesign = composition === null ? design : composition.effectiveTokens.design;
     // buildPublicConfig is the RED-LINE strip point: it copies only whitelisted
     // public fields, so no provider endpoint / token ref / bid strategy / raw

@@ -335,6 +335,73 @@ export function validateValue(
   return out;
 }
 
+// LeadGen Rework — narrow object guard (props / validation specs arrive as
+// untyped JSON; kept local to this DOM-free module, no server import).
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+// §6.8: a from_to / dual_range slider records TWO number sub-fields
+// {base}_min / {base}_max (answers.ts fieldsOf M7 — the field universe), so
+// validateSection cannot gate it through the scalar validateValue(answers[base])
+// path (base itself is never recorded). base = the component's internal_field;
+// single / stepper / radial keep the scalar path. Returns [minField, maxField]
+// or null.
+function dualSliderFields(component: LgComponentConfig): [string, string] | null {
+  const st = (component.props ?? {})["slider_type"];
+  const base = component.internal_field;
+  if (
+    component.type === "NumberRangeQuestion" &&
+    (st === "dual_range" || st === "from_to") &&
+    typeof base === "string" &&
+    base !== ""
+  ) {
+    return [`${base}_min`, `${base}_max`];
+  }
+  return null;
+}
+
+// §6.10: one address field's own rule — required first, then the format rule
+// (none / zip5 / {regex,message}). A bad custom regex degrades to "no rule"
+// (never a runtime throw), the same defensive idiom validateValue's pattern leg
+// uses; the ≤200 length floor mirrors the phone contract's cheap guard.
+function validateAddressField(
+  spec: Record<string, unknown>,
+  value: unknown,
+): LgValidationFailure[] {
+  const out: LgValidationFailure[] = [];
+  if (!isAnswered(value)) {
+    if (spec["required"] === true) out.push({ code: "required", message: REQUIRED_MSG });
+    return out;
+  }
+  const text = typeof value === "string" ? value : String(value);
+  const validation = spec["validation"];
+  if (validation === "zip5") {
+    if (!ZIP_RE.test(text.trim())) {
+      out.push({ code: "zip_format", message: "Enter a valid 5-digit ZIP code." });
+    }
+  } else if (isRecord(validation)) {
+    const regex = validation["regex"];
+    if (typeof regex === "string" && regex !== "" && text.length <= 200) {
+      try {
+        if (!new RegExp(regex).test(text)) {
+          const message = validation["message"];
+          out.push({
+            code: "pattern",
+            message:
+              typeof message === "string" && message !== ""
+                ? message
+                : "The value has an invalid format.",
+          });
+        }
+      } catch {
+        /* unparseable authored regex → rule skipped */
+      }
+    }
+  }
+  return out;
+}
+
 // Validate the VISIBLE components of one section (§3.5.4): the caller passes
 // the dependency state so hidden components are never validated and
 // required-now semantics apply. Returns one failure list entry per failing
@@ -351,6 +418,67 @@ export function validateSection(
     const vis = visibility[i];
     if (component === undefined || vis === undefined) continue;
     if (!vis.visible) continue;
+
+    // LeadGen Rework §6.10: an Address with authored props.fields[] validates
+    // PER FIELD — positional fields[k] ↔ the k-th answer sub-field
+    // (groupSubfields = props.internal_fields, the SAME order answers.ts
+    // fieldsOf records under). Each field carries its own required + format
+    // rule; a hidden component is already skipped above, and a field kind not
+    // in fields[] is never validated. Absent props.fields ⇒ the pre-M9
+    // whole-group required check (the M9 seam, below).
+    if (component.type === "AddressAutocompleteQuestion") {
+      const specs = (component.props ?? {})["fields"];
+      if (Array.isArray(specs)) {
+        const subs = groupSubfields(component) ?? [];
+        for (let k = 0; k < specs.length; k++) {
+          const spec = specs[k];
+          const key = subs[k];
+          if (!isRecord(spec) || key === undefined) continue;
+          for (const failure of validateAddressField(spec, answers[key])) {
+            out.push({ ...failure, question_id: component.question_id, internal_field: key });
+          }
+        }
+        continue;
+      }
+    }
+
+    // LeadGen Rework §6.8: from_to / dual_range bounds — min ≤ from ≤ to ≤ max,
+    // both required when the node is required. Recorded under {base}_min /
+    // {base}_max (fieldsOf M7); the scalar validateValue path never sees them.
+    const dual = dualSliderFields(component);
+    if (dual !== null) {
+      const cvRec = (component.client_validation ?? {}) as Record<string, unknown>;
+      const required =
+        vis.required_now || cvRec["required"] === true || component.required === true;
+      const lo = answers[dual[0]];
+      const hi = answers[dual[1]];
+      if (required && (!isAnswered(lo) || !isAnswered(hi))) {
+        out.push({
+          code: "required",
+          message: REQUIRED_MSG,
+          question_id: component.question_id,
+          internal_field: dual[0],
+        });
+      } else {
+        const loNum = asFiniteNumber(lo);
+        const hiNum = asFiniteNumber(hi);
+        if (loNum !== null && hiNum !== null) {
+          const min = ruleNumber(cvRec, "min");
+          const max = ruleNumber(cvRec, "max");
+          if (min !== null && loNum < min) {
+            out.push({ code: "min", message: `Enter a value of at least ${min}.`, question_id: component.question_id, internal_field: dual[0] });
+          }
+          if (max !== null && hiNum > max) {
+            out.push({ code: "max", message: `Enter a value of at most ${max}.`, question_id: component.question_id, internal_field: dual[1] });
+          }
+          if (loNum > hiNum) {
+            out.push({ code: "invalid_value", message: "The first number must be less than or equal to the second.", question_id: component.question_id, internal_field: dual[0] });
+          }
+        }
+      }
+      continue;
+    }
+
     const field = component.internal_field;
     if (field === undefined || field === "") {
       // PC-A2 (P4b): a multi-subfield group (NameFieldsGroup/Address) has no

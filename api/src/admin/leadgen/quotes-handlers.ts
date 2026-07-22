@@ -118,7 +118,7 @@ import {
   renderQuoteFrame,
   LG_BANNERS_MOUNT_HTML,
 } from "../../public/leadgen/designs/frame";
-import { validateFrameConfig, effectiveFrame } from "../../public/leadgen/designs/frames";
+import { validateFrameConfig, effectiveFrame, parseSavedFrameTemplateDefaults } from "../../public/leadgen/designs/frames";
 import type { EffectiveFrameConfig } from "../../public/leadgen/designs/frames";
 import {
   contrastRatioAA,
@@ -5122,7 +5122,10 @@ export async function computeQuoteActivationPreflight(
     // variant-level rows per active variant). NEVER touches `blocks`/`ok`
     // (the historical report inputs); the activation PUT gates on blocks OR
     // error-severity problems (C2 LIVE, Phase D).
-    const funnelState = readFunnelV25State(funnel);
+    // M5: no variant is in scope yet at this point (the loop below iterates
+    // them) — precedence collapses to funnel.frame_template_id alone.
+    const savedFrameDefaults = await loadSavedFrameTemplateDefaults(db, funnel.frame_template_id);
+    const funnelState = readFunnelV25State(funnel, savedFrameDefaults);
     problems.push(...(await computeFunnelV25Problems(db, quote, funnel, funnelState, siteId)));
     for (const variant of variants) {
       const variantBlocks = await computeVariantPreflightBlocks(db, variant);
@@ -5289,7 +5292,30 @@ interface FunnelV25State {
   theme: ThemeJson | null; // validated theme (null when absent/invalid)
 }
 
-function readFunnelV25State(funnel: LeadgenFunnelRow): FunnelV25State {
+// Rework M5 (§5, S2.2 follow-up): resolves a saved frame-template row
+// (leadgen_frame_templates.frame_json) for readFunnelV25State's 4th
+// effectiveFrame arg. A small LOCAL query — this file's own D1 convention
+// (mirrors e.g. storeVariantPreflight's inline SELECT a few lines below)
+// rather than a cross-layer import of frame-handlers.ts's
+// resolveFrameTemplateRow (that module already imports FROM this one; the
+// reverse would cycle). NULL ftid or a since-deleted/corrupt row ⇒ null ⇒
+// readFunnelV25State omits effectiveFrame's 4th arg ⇒ byte-identical legacy.
+async function loadSavedFrameTemplateDefaults(
+  db: D1Database,
+  ftid: number | null,
+): Promise<EffectiveFrameConfig | null> {
+  if (ftid === null) return null;
+  const row = await db
+    .prepare("SELECT frame_json FROM leadgen_frame_templates WHERE id = ? LIMIT 1")
+    .bind(ftid)
+    .first<{ frame_json: string | null }>();
+  return row === null ? null : parseSavedFrameTemplateDefaults(row.frame_json);
+}
+
+function readFunnelV25State(
+  funnel: LeadgenFunnelRow,
+  savedTemplateDefaults: EffectiveFrameConfig | null = null,
+): FunnelV25State {
   const state: FunnelV25State = {
     frameConfigured: false,
     rawFrame: null,
@@ -5307,7 +5333,7 @@ function readFunnelV25State(funnel: LeadgenFunnelRow): FunnelV25State {
       state.allowSectionChrome = isRecord(compat) && compat["allow_section_chrome"] === true;
       const validation = validateFrameConfig(parsed);
       if (validation.config !== null) {
-        state.effectiveFrameConfig = effectiveFrame(validation.config, null, null).frame;
+        state.effectiveFrameConfig = effectiveFrame(validation.config, null, null, savedTemplateDefaults).frame;
       }
     }
   }
@@ -5835,7 +5861,13 @@ async function storeVariantPreflight(
   // (site-agnostic here — the site-logo row is the activation PUT's leg).
   let problems: Problem[] = [];
   if (funnel !== null) {
-    const funnelState = readFunnelV25State(funnel);
+    // M5: both variant and funnel are in scope here — the full precedence
+    // order applies (a variant-level saved template wins over the funnel's).
+    const savedFrameDefaults = await loadSavedFrameTemplateDefaults(
+      c.env.DB,
+      variant.frame_template_id ?? funnel.frame_template_id,
+    );
+    const funnelState = readFunnelV25State(funnel, savedFrameDefaults);
     problems = [
       ...(await computeFunnelV25Problems(c.env.DB, quote, funnel, funnelState, null)),
       ...(await computeVariantV25Problems(c.env.DB, quote, funnel, funnelState, variant)),

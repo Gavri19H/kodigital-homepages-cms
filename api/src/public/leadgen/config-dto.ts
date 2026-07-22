@@ -52,6 +52,7 @@ import {
   multiQuestionRowChoices,
   multiQuestionRowQuestionId,
   isPhoneTypedComponent,
+  parsePhoneMaskPattern,
 } from "./components/content-schema";
 import type {
   LeadgenComponentNode,
@@ -279,7 +280,19 @@ interface CompiledPhoneContract {
   regex: string;
   normalize: "digits" | "e164" | "none";
   message: string;
+  // Rework M8 (§6.9): a MASK contract also carries the display scaffold + the
+  // exact digit count. The runtime CHECKER (validation.ts) consumes only
+  // {regex, normalize, message} unchanged (byte-identical to P1); these two are
+  // additive — the S2.3 fill UX reads `scaffold`, and the studio's
+  // formatPhone-incoherence warning (sections-handlers.ts) reads `digit_count`
+  // to fire only when a mask pairs with formatPhone AND digit_count ≠ 10.
+  scaffold?: string;
+  digit_count?: number;
 }
+// Rework A-7 (strings.md) — the DEFAULT phone-incomplete message a mask
+// contract emits when the author sets none (§6.9 "Continue gates on
+// completeness … with the author's message (default: Appendix A-7)").
+const PHONE_INCOMPLETE_DEFAULT = "Enter a complete phone number.";
 const PHONE_PRESET_CONTRACTS: Readonly<Record<string, CompiledPhoneContract>> = {
   nanp: { regex: "^1?[2-9]\\d{2}[2-9]\\d{2}\\d{4}$", normalize: "digits", message: "Enter a valid US phone number." },
   e164_intl: { regex: "^\\+\\d{8,15}$", normalize: "e164", message: "Enter your phone number with the country code, like +972…" },
@@ -300,6 +313,28 @@ function buildPhoneContract(node: LeadgenComponentNode): CompiledPhoneContract |
   if (pf === undefined) return undefined;
   if (typeof pf === "string") return PHONE_PRESET_CONTRACTS[pf];
   if (pf !== null && typeof pf === "object") {
+    // Rework M8 (§6.9): compile the authored digit-group MASK — strip to
+    // digits, then test ^\d{digit_count}$ (the recorded answer is the raw digit
+    // string). Uses the SAME grammar parser the save gate does (one grammar,
+    // never two). A stale/corrupt mask parses to null → NO contract (the
+    // runtime falls to its NANP default, never throws). Default incomplete
+    // message = A-7 (author may override via mask.message).
+    const mask = (pf as { mask?: unknown }).mask;
+    if (mask !== null && typeof mask === "object") {
+      const parsed = parsePhoneMaskPattern((mask as { pattern?: unknown }).pattern);
+      if (parsed === null) return undefined;
+      const message = (mask as { message?: unknown }).message;
+      return {
+        regex: `^\\d{${parsed.digit_count}}$`,
+        normalize: "digits",
+        message: typeof message === "string" && message !== "" ? message : PHONE_INCOMPLETE_DEFAULT,
+        scaffold: parsed.scaffold,
+        digit_count: parsed.digit_count,
+      };
+    }
+    // Legacy custom raw-regex path — TOLERATED on read (contract M8 removes it
+    // from the editor only; the schema keeps validating stored/authored custom
+    // content). New authoring uses the mask above.
     const custom = (pf as { custom?: unknown }).custom;
     if (custom !== null && typeof custom === "object") {
       const regex = (custom as { regex?: unknown }).regex;
@@ -388,6 +423,25 @@ function isoToday(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Rework §6.5: the authored "Other" choice VALUES a single-select choice node
+// carries (props.other.choices[].value). Empty for any node without an Other
+// list — so a node without `other` is byte-identical. Defensive over stored
+// shapes (the save gate is content-schema.validateOtherEditor; this is a read).
+function otherChoiceValues(node: LeadgenComponentNode): Array<string | number | boolean> {
+  const other = node.props?.["other"];
+  if (other === null || typeof other !== "object") return [];
+  const choices = (other as { choices?: unknown }).choices;
+  if (!Array.isArray(choices)) return [];
+  const out: Array<string | number | boolean> = [];
+  for (const c of choices) {
+    if (c !== null && typeof c === "object") {
+      const v = (c as { value?: unknown }).value;
+      if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") out.push(v);
+    }
+  }
+  return out;
+}
+
 export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComponent {
   const component: PublicSectionComponent = {
     type: node.type,
@@ -400,6 +454,17 @@ export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComp
   if (node.required !== undefined) component.required = node.required;
   if (node.valid_values !== undefined) component.valid_values = node.valid_values;
   if (node.choices !== undefined) component.choices = node.choices;
+  // Rework §6.5: authored "Other" values share the node's ONE answer domain, so
+  // they join valid_values — the runtime accepts an "other" selection exactly
+  // like a base choice (the renderer paints base + other). Only when
+  // props.other.choices is authored; absent ⇒ byte-identical DTO.
+  const otherValues = otherChoiceValues(node);
+  if (otherValues.length > 0) {
+    const base = component.valid_values ?? (Array.isArray(node.choices) ? node.choices.map((c) => c.value) : []);
+    const merged: Array<string | number | boolean> = [...base];
+    for (const v of otherValues) if (!merged.includes(v)) merged.push(v);
+    component.valid_values = merged;
+  }
   if (node.conditional !== undefined) component.conditional = node.conditional;
   if (node.design_preset !== undefined) component.design_preset = node.design_preset;
   if (node.design_overrides !== undefined) component.design_overrides = node.design_overrides;

@@ -412,6 +412,49 @@ async function fetchAttemptWithRetry(funnelVariantId: string): Promise<LgAttempt
   return attempt;
 }
 
+// LeadGen Rework §6.9 — the compiled MASK contract a phone field carries when
+// the author set a digit-group format (config-dto buildPhoneContract →
+// client_validation.phone.{scaffold,digit_count}). Absent (legacy preset /
+// no phone_format) ⇒ null, so a legacy phone keeps its byte-identical E.164
+// path (L-192). Module-level (no `this`) so it is byte-cheap at each call.
+function phoneMask(component: LgComponentConfig | null): { scaffold: string; count: number } | null {
+  if (component === null) return null;
+  const cv = component.client_validation;
+  const phone = cv !== undefined && cv !== null ? (cv as Record<string, unknown>)["phone"] : undefined;
+  if (phone === null || typeof phone !== "object") return null;
+  const scaffold = (phone as Record<string, unknown>)["scaffold"];
+  const count = (phone as Record<string, unknown>)["digit_count"];
+  return typeof scaffold === "string" && scaffold !== "" && typeof count === "number"
+    ? { scaffold, count }
+    : null;
+}
+
+// Fill a mask scaffold ("(___) ___-____") left-to-right with `digits`: each
+// "_" is a digit slot (content-schema parsePhoneMaskPattern, M8), every other
+// char is a literal kept verbatim. Returns the display text + the caret index
+// of the FIRST still-empty slot (§6.9 "caret always at the first empty slot";
+// scaffold length when every slot is filled).
+function fillMaskScaffold(scaffold: string, digits: string): { text: string; caret: number } {
+  let text = "";
+  let di = 0;
+  let caret = -1;
+  for (let i = 0; i < scaffold.length; i++) {
+    const ch = scaffold.charAt(i);
+    if (ch === "_") {
+      if (di < digits.length) {
+        text += digits.charAt(di);
+        di++;
+      } else {
+        if (caret === -1) caret = text.length;
+        text += "_";
+      }
+    } else {
+      text += ch;
+    }
+  }
+  return { text, caret: caret === -1 ? text.length : caret };
+}
+
 // ---------------------------------------------------------------------------
 // Engine
 // ---------------------------------------------------------------------------
@@ -799,6 +842,12 @@ export class LgEngine {
         this.handleChoiceActivation(choice);
         return;
       }
+      // §6.8 stepper: a −/＋ button steps its sibling range input.
+      const step = target.closest("[data-lg-step]");
+      if (step !== null && this.root.contains(step)) {
+        this.handleStepper(step);
+        return;
+      }
       const other = target.closest("[data-lg-other-trigger]");
       if (other !== null) {
         render.openOtherPanel(other);
@@ -822,6 +871,27 @@ export class LgEngine {
     };
     this.root.addEventListener("input", onInput);
     this.root.addEventListener("change", onInput, true);
+
+    // §6.9 mask fill: Backspace on a masked phone clears the LAST FILLED DIGIT
+    // (never a mask literal sitting before the caret). Drop it from the current
+    // digits, rewrite the field, then route through the normal input path
+    // (records the raw digits + re-fills + re-parks the caret). Non-mask fields
+    // never match phoneMask → the browser's native Backspace is untouched.
+    this.root.addEventListener("keydown", (raw) => {
+      const ev = raw as { target?: unknown; key?: string; preventDefault?: () => void };
+      if (ev.key !== "Backspace" || !(ev.target instanceof Element)) return;
+      const input = ev.target.closest("[data-lg-input]");
+      if (input === null || !(input instanceof HTMLInputElement)) return;
+      const component = this.componentByQuestionId(
+        this.sectionConfigFor(input),
+        input.closest("[data-lg-question]")?.getAttribute("data-lg-question") ?? "",
+      );
+      const mask = phoneMask(component);
+      if (mask === null) return;
+      if (ev.preventDefault !== undefined) ev.preventDefault();
+      input.value = fillMaskScaffold(mask.scaffold, input.value.replace(/\D/g, "").slice(0, -1)).text;
+      this.handleInputEvent(input);
+    });
   }
 
   private replayPrehydrateQueue(): void {
@@ -974,7 +1044,14 @@ export class LgEngine {
 
     const meta = this.answerMeta(questionId, section);
     const write = this.store.recordUserAnswer(internalField, value, meta);
-    if (questionEl !== null) render.applySelectionClasses(questionEl, value);
+    if (questionEl !== null) {
+      render.applySelectionClasses(questionEl, value);
+      // §6.5: choosing a BASE choice clears any authored "Other" select — the
+      // two share ONE answer domain (mutual exclusion). No-op for a question
+      // with no [data-lg-other-panel].
+      const otherSel = questionEl.querySelector("[data-lg-other-panel] [data-lg-input]");
+      if (otherSel !== null && "value" in otherSel) (otherSel as { value: string }).value = "";
+    }
     this.afterAnswerMutation();
 
     this.beacons.enqueue("answer_click", {
@@ -1009,6 +1086,47 @@ export class LgEngine {
         this.advance();
       }
     }
+  }
+
+  // §6.9 mask fill: reformat `input` to the scaffold filled with the caller's
+  // `digits` (stripped to digits + truncated to the mask length), park the
+  // caret at the first empty slot, and RETURN the raw digit string to record.
+  // Direct DOM writes (value/caret): the fill UX is an engine concern —
+  // render.ts owns no mask helper.
+  private applyPhoneMask(
+    input: HTMLInputElement,
+    mask: { scaffold: string; count: number },
+    digits: string,
+  ): string {
+    const raw = digits.replace(/\D/g, "").slice(0, mask.count);
+    const filled = fillMaskScaffold(mask.scaffold, raw);
+    input.value = filled.text;
+    try {
+      input.setSelectionRange(filled.caret, filled.caret);
+    } catch {
+      /* setSelectionRange unsupported on this input — the value is still correct */
+    }
+    return raw;
+  }
+
+  // §6.8 stepper: the −/＋ buttons step their sibling range input by its
+  // REQUIRED `step` (clamped to min/max), then route through the normal input
+  // path so the value records + the value text/fill + aria-valuenow update
+  // exactly like a drag. data-lg-step = "dec" | "inc".
+  private handleStepper(stepEl: Element): void {
+    const input = stepEl.closest("[data-lg-question]")?.querySelector("[data-lg-input]");
+    if (input === null || input === undefined || !(input instanceof HTMLInputElement)) return;
+    const step = Number(input.getAttribute("step")) || 1;
+    const min = Number(input.getAttribute("min"));
+    const max = Number(input.getAttribute("max"));
+    const cur = Number(input.value);
+    let next =
+      (Number.isFinite(cur) ? cur : Number.isFinite(min) ? min : 0) +
+      (stepEl.getAttribute("data-lg-step") === "dec" ? -step : step);
+    if (Number.isFinite(min) && next < min) next = min;
+    if (Number.isFinite(max) && next > max) next = max;
+    input.value = String(next);
+    this.handleInputEvent(input);
   }
 
   // Round-4 P3a same-screen pages (D-3 operator amendment, 2026-07-20): every
@@ -1216,8 +1334,18 @@ export class LgEngine {
     // typed alongside the (now visible) error. Idempotent (E.164 re-normalizes
     // to itself); prior stored answers are untouched (never re-captured).
     if (component !== null && typeof value === "string" && formatKindFor(component) === "phone") {
-      const e164 = normalizePhoneE164(value);
-      if (e164 !== null) value = e164;
+      const mask = phoneMask(component);
+      if (mask !== null && input instanceof HTMLInputElement) {
+        // §6.9: an authored mask drives the FILL UX — reformat the scaffold,
+        // park the caret at the first empty slot, and RECORD THE RAW DIGITS
+        // (never the scaffold display, never E.164): the compiled ^\d{n}$
+        // contract gates completeness on exactly this raw digit string.
+        value = this.applyPhoneMask(input, mask, value);
+      } else {
+        // Legacy preset / no mask → byte-identical E.164 normalization (L-192).
+        const e164 = normalizePhoneE164(value);
+        if (e164 !== null) value = e164;
+      }
     }
 
     const meta = this.answerMeta(questionId, section);
@@ -1226,6 +1354,21 @@ export class LgEngine {
     // filled track live as it is dragged (input fires continuously).
     if (input instanceof HTMLInputElement && input.type === "range") {
       render.updateRangeDisplay(input);
+    }
+    // §6.8: keep aria-valuenow live on EVERY slider handle — updateRangeDisplay
+    // covers the single .lg-range case; a from_to/dual role=slider handle (incl.
+    // a number input outside a .lg-range) is stamped here so assistive tech
+    // always reads the current value (role=slider + aria-valuemin/max are
+    // server-static; aria-valuenow is the one dynamic axis the engine owns).
+    if (input.getAttribute("role") === "slider") {
+      input.setAttribute("aria-valuenow", String(value));
+    }
+    // §6.5: an authored "Other" select records like a base choice; picking it
+    // must DESELECT every base choice. The other value is unique vs the base
+    // values (save-gate), so applySelectionClasses(value) clears them all.
+    // Scoped to the panel's own question; no-op for any non-Other input.
+    if (questionEl !== null && input.closest("[data-lg-other-panel]") !== null) {
+      render.applySelectionClasses(questionEl, value);
     }
     // Editing clears the field's stale error immediately — the INPUT's own
     // section (same-screen pages: not necessarily this.si's anchor section).
@@ -1397,10 +1540,24 @@ export class LgEngine {
         const field = component.internal_field;
         if (field === undefined || field === "") continue;
         const entry = this.store.getAnswer(field);
-        if (entry === undefined) continue;
         const questionEl = sectionEl.querySelector(
           `[data-lg-question="${component.question_id.replace(/["\\\]]/g, "\\$&")}"]`,
         );
+        if (questionEl === null) continue;
+        // §6.9: a masked phone always shows the fill scaffold — the EMPTY
+        // template on first entry, or the recorded raw digits re-filled on
+        // restore/back-nav (the visitor sees "(215) ___-____", never a bare
+        // "215"). Legacy phones (no mask) fall through unchanged (L-192).
+        const mask = phoneMask(component);
+        if (mask !== null) {
+          const inputEl = questionEl.querySelector("[data-lg-input]");
+          if (inputEl instanceof HTMLInputElement) {
+            inputEl.value = fillMaskScaffold(
+              mask.scaffold,
+              String(entry?.value ?? "").replace(/\D/g, ""),
+            ).text;
+          }
+        }
         // E1-NEW-4 (register §E.2): paint the selected state for ANY answered
         // question on entry (restored OR default_applied). The old `component
         // .choices !== undefined` guard skipped TwoButtonYesNo — config-dto
@@ -1411,7 +1568,7 @@ export class LgEngine {
         // [data-lg-choice] children (text/select/range), so dropping the guard
         // is both the fix and byte-lean (no regression for choice-array types,
         // which already matched entry.value against their choices).
-        if (questionEl !== null) {
+        if (entry !== undefined) {
           render.applySelectionClasses(questionEl, entry.value);
         }
       }

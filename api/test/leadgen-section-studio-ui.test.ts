@@ -717,7 +717,7 @@ const EXPECTED_TILES: ReadonlyArray<[group: string, dataName: string, label: str
   ["answer-fields", "yes no", "Yes / No"],
   ["answer-fields", "dropdown", "Dropdown"],
   ["answer-fields", "multi-select", "Multi-select"],
-  ["answer-fields", "question grid multi driver", "Question grid"],
+  ["answer-fields", "questions on one screen starter", "Questions on one screen"],
   ["answer-fields", "short text", "Short text"],
   ["answer-fields", "number", "Number"],
   ["answer-fields", "amount money", "Amount"],
@@ -756,7 +756,7 @@ describeDb("section studio SSR — §5 component library (v3.1)", () => {
     expect(html).not.toMatch(/data-library-items="content"[^>]* hidden/);
   });
 
-  it("§5.5 the EXACT data-name synonym tiles ride the palette (20 v3.1 + P5 MultiQuestionGrid = 21 unique), in §5.2 order, each inside its correct group", async () => {
+  it("§5.5 the EXACT data-name synonym tiles ride the palette (20 v3.1 + the §4.1 'Questions on one screen' starter = 21 unique), in §5.2 order, each inside its correct group", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
@@ -773,9 +773,9 @@ describeDb("section studio SSR — §5 component library (v3.1)", () => {
       expect(block, `tile "${dataName}" label`).toContain(`>${label}<`);
       expect(block, `tile "${dataName}" is a data-tile`).toContain("data-tile");
     }
-    // 24 tile instances total (21 unique names incl. P5 Question grid;
-    // Buttons/Cards/Short text repeat once each across Suggested + Answer
-    // fields = 3 duplicates).
+    // 24 tile instances total (21 unique names incl. the §4.1 "Questions on one
+    // screen" starter; Buttons/Cards/Short text repeat once each across
+    // Suggested + Answer fields = 3 duplicates).
     expect((html.match(/data-tile /g) ?? []).length).toBe(EXPECTED_TILES.length);
   });
 
@@ -3373,14 +3373,15 @@ describeDb("P4 fix — B9 §6.4 choiceDisplay-only edits persist (EXECUTED wirin
     } as ListenerEl;
   }
 
-  it("the ONLY edit being the Other-group toggle/label still lands in the model (the registered listener runs the SAME collectChoices path)", async () => {
+  it("Rework §6.5: enabling authored Other + a value lands props.other = {enabled, label?, choices} in the model (collectOther) — the removed choiceDisplay/mainValues path is gone", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
     const island = studioIsland(html);
-    // the island WIRES the three [data-choicedisplay] controls at boot
-    expect(island).toContain("function wireChoiceDisplayControls(");
-    expect(island).toContain("wireChoiceDisplayControls();");
+    // the island wires the §6.5 Other editor; the choiceDisplay machinery is gone
+    expect(island).toContain("function collectOther(");
+    expect(island).toContain("function toggleOtherEnabled(");
+    expect(island).not.toContain("function collectChoiceDisplay(");
 
     const CHOICES_MODEL = {
       components: [
@@ -3396,81 +3397,67 @@ describeDb("P4 fix — B9 §6.4 choiceDisplay-only edits persist (EXECUTED wirin
         },
       ],
     };
-    // DOM stubs mirroring the served inspector: two choice ROWS (untouched by
-    // the operator) + the three group controls
-    const rowEl = (fields: Record<string, string>) => ({
+    // DOM stubs mirroring the served §6.5 Other editor: the enable toggle, the
+    // Other label, and a values list with ONE authored row (label/value/
+    // analytics_id — the base-choice anatomy).
+    const otherFieldInput = (f: string, v: string) => ({ getAttribute: () => f, value: v });
+    const otherRow = {
       querySelectorAll(sel: string) {
-        return sel === "[data-choice-field]"
-          ? Object.entries(fields).map(([f, v]) => ({ getAttribute: () => f, value: v }))
+        return sel === "[data-other-field]"
+          ? [otherFieldInput("label", "Diesel"), otherFieldInput("value", "diesel"), otherFieldInput("analytics_id", "c_diesel")]
           : [];
       },
-      querySelector(sel: string) {
-        return sel === "[data-choice-main]" ? { checked: false } : null;
-      },
-    });
-    const rows = [
-      rowEl({ label: "Toyota", value: "toyota", analytics_id: "c_toyota" }),
-      rowEl({ label: "Honda", value: "honda", analytics_id: "c_honda" }),
-    ];
-    const container = {
+    };
+    const otherList = {
       querySelectorAll(sel: string) {
-        return sel === "[data-choice-row]" ? rows : [];
+        return sel === "[data-other-row]" ? [otherRow] : [];
       },
     };
-    const enabledCb = listenerEl({ checked: false, type: "checkbox" });
-    const labelInput = listenerEl({ value: "", type: "text" });
-    const searchCb = listenerEl({ checked: false, type: "checkbox" });
+    const enabledCb = { checked: true, type: "checkbox" };
+    const fieldsWrap = { hidden: false };
+    const labelInput = { value: "Other brands" };
     const docStub = {
       getElementById() {
         return null;
       },
       querySelector(sel: string) {
-        if (sel === "[data-inspector-choices]") return container;
-        if (sel === '[data-choicedisplay="otherGroupEnabled"]') return enabledCb;
-        if (sel === '[data-choicedisplay="otherGroupLabel"]') return labelInput;
-        if (sel === '[data-choicedisplay="searchableOther"]') return searchCb;
+        if (sel === "[data-other-enabled]") return enabledCb;
+        if (sel === "[data-other-fields]") return fieldsWrap;
+        if (sel === "[data-other-label]") return labelInput;
+        if (sel === "[data-other-values]") return otherList;
         return null;
       },
-      querySelectorAll(sel: string) {
-        return sel === "[data-choicedisplay]" ? [enabledCb, labelInput, searchCb] : [];
+      querySelectorAll() {
+        return [];
       },
     };
     const probe = studioProbe(html, CHOICES_MODEL, docStub as unknown as Record<string, unknown>);
-    // add the DOM-side collectors the model core doesn't slice by default
+    // slice the §6.5 collector + its matrix-gating primitives (cap/capsOf read
+    // studioMeta.capabilities, projected by studioTypeMeta and carried in the
+    // served meta blob studioProbe loads into the sandbox).
     probe.run(
       [
-        sliceIslandFunction(island, "choiceContainer"),
-        sliceIslandFunction(island, "collectChoiceDisplay"),
-        sliceIslandFunction(island, "collectChoices"),
-        sliceIslandFunction(island, "wireChoiceDisplayControls"),
+        sliceIslandFunction(island, "capsOf"),
+        sliceIslandFunction(island, "cap"),
+        sliceIslandFunction(island, "collectOther"),
       ].join("\n"),
     );
     probe.sandbox.selectedQuestionId = "q_make";
-    probe.run("wireChoiceDisplayControls()");
-    // all three controls got BOTH events, bound to collectChoices
-    for (const el of [enabledCb, labelInput, searchCb]) {
-      expect(typeof el.listeners["change"]).toBe("function");
-      expect(typeof el.listeners["input"]).toBe("function");
-    }
-
-    // the operator's ONLY action: tick "Enable Other group" → change event
-    enabledCb.checked = true;
-    (enabledCb.listeners["change"] as () => void)();
-    let node = probe.run("findRef('q_make').node") as Record<string, unknown>;
-    expect(node["choiceDisplay"], "the toggle alone reached the model").toEqual({ otherGroupEnabled: true });
-    // the untouched rows survived the collect (read from the DOM rows)
+    probe.run("collectOther()");
+    const node = probe.run("findRef('q_make').node") as Record<string, unknown>;
+    // authored Other reaches props.other (NOT a top-level field, NOT choiceDisplay)
+    expect(node["choiceDisplay"], "choiceDisplay is retired").toBeUndefined();
+    expect((node["props"] as Record<string, unknown>)["other"], "authored Other reached props.other").toEqual({
+      enabled: true,
+      label: "Other brands",
+      choices: [{ label: "Diesel", value: "diesel", analytics_id: "c_diesel" }],
+    });
+    // base choices are UNTOUCHED — Other is a separate authored list, not a re-bucket
     expect((node["choices"] as Array<Record<string, unknown>>).map((c) => c["value"])).toEqual([
       "toyota",
       "honda",
     ]);
-
-    // a label-only follow-up edit rides the input event the same way
-    labelInput.value = "Other brands";
-    (labelInput.listeners["input"] as () => void)();
-    node = probe.run("findRef('q_make').node") as Record<string, unknown>;
-    expect(node["choiceDisplay"]).toEqual({ otherGroupEnabled: true, otherGroupLabel: "Other brands" });
-
-    // the mutated model is server-valid (choiceDisplay mirror rules)
+    // the mutated model is server-valid (the §6.5 props.other shape)
     expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
   });
 });
@@ -5985,7 +5972,6 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     probe.run(
       [
         sliceIslandFunction(island, "choiceContainer"),
-        sliceIslandFunction(island, "collectChoiceDisplay"),
         sliceIslandFunction(island, "collectChoices"),
       ].join("\n"),
     );
@@ -6056,7 +6042,7 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     expect(island).toContain("node.type !== 'RangeQuestion' && node.type !== 'NumberRangeQuestion' && node.type !== 'CurrencyRangeQuestion'");
   });
 
-  it("v3.1 §5.6 EXECUTED: Cards style (Icon/Image/Plain) + Slider Format $ + the Accept-swap rule are all pure round-trip TYPE swaps that preserve internal_field/choices", async () => {
+  it("v3.1 §5.6 EXECUTED: Cards style (Icon/Image/Plain) + the Accept-swap rule are pure round-trip TYPE swaps preserving internal_field/choices; §6.8 slider type/currency are PROPS (never a node.type flip)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
@@ -6077,7 +6063,6 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
         sliceIslandArray(island, "CARD_STYLE_FAMILY"),
         sliceIslandFunction(island, "cardStyleOf"),
         sliceIslandFunction(island, "setCardStyle"),
-        sliceIslandFunction(island, "toggleSliderFormat"),
         sliceIslandFunction(island, "acceptFormatOfNode"),
         sliceIslandFunction(island, "setAcceptFormat"),
       ].join("\n"),
@@ -6096,13 +6081,29 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     // non-card-family node is never swapped by this control
     expect(probe.run("setCardStyle(findRef('s1').node, 'icon')")).toBe(false);
 
-    // §5.6 Slider: NumberRangeQuestion <-> CurrencyRangeQuestion; props survive.
-    expect(probe.run("toggleSliderFormat(findRef('s1').node)")).toBe(true);
-    expect(probe.run("findRef('s1').node.type")).toBe("CurrencyRangeQuestion");
-    expect(probe.run("findRef('s1').node.props.max")).toBe(100);
-    expect(probe.run("toggleSliderFormat(findRef('s1').node)")).toBe(true);
+    // §6.8 Slider: the Format-$ TYPE flip (toggleSliderFormat) is REMOVED — the
+    // slider TYPE + currency affix are PROPS on the ONE NumberRangeQuestion
+    // (never a node.type flip; the eliminated Image9 answer_type_mismatch class).
+    probe.run("function populateInspector() {}");
+    probe.run(
+      [
+        sliceIslandFunction(island, "capsOf"),
+        sliceIslandFunction(island, "cap"),
+        sliceIslandFunction(island, "setSliderType"),
+        sliceIslandFunction(island, "setCurrencyAffix"),
+      ].join("\n"),
+    );
+    probe.sandbox.selectedQuestionId = "s1";
+    probe.run("setSliderType('dual_range')");
+    expect(probe.run("findRef('s1').node.type")).toBe("NumberRangeQuestion"); // type NEVER flips
+    expect(probe.run("findRef('s1').node.props.slider_type")).toBe("dual_range");
+    expect(probe.run("findRef('s1').node.props.max")).toBe(100); // props survive
+    probe.run("setCurrencyAffix(true)");
+    expect(probe.run("findRef('s1').node.props.currency_affix")).toBe(true);
     expect(probe.run("findRef('s1').node.type")).toBe("NumberRangeQuestion");
-    expect(probe.run("toggleSliderFormat(findRef('c1').node)")).toBe(false); // not a slider
+    // 'single' is the implicit default — clears the key, type stays put
+    probe.run("setSliderType('single')");
+    expect(probe.run("findRef('s1').node.props.slider_type")).toBeUndefined();
 
     // §5.6 the Accept-swap rule: every one of the 8 values round-trips
     // through setAcceptFormat, writing BOTH the concrete type AND
@@ -6129,14 +6130,18 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
   // TOOLBAR copy (data-toolbar-accept-wrap/#lg-tb-accept) was a pure
   // duplicate of the Content tab's PRE-EXISTING #lg-inspector-accept and is
   // REMOVED (not migrated — nothing to migrate).
-  it("v3.1 §5.6 SSR: the Content tab hosts the Card-style segmented, Slider Format $ toggle, and the Accept dropdown with the exact 8-option enumeration", async () => {
+  it("v3.1 §5.6 SSR: the Content tab hosts the Card-style segmented, the §6.8 Slider type picker (Format-$ toggle removed), and the Accept dropdown with the exact 8-option enumeration", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
     expect(html).toContain("data-toolbar-card-style-wrap");
     for (const style of ["icon", "image", "plain"]) expect(html).toContain(`data-card-style="${style}"`);
-    expect(html).toContain("data-toolbar-slider-format-wrap");
-    expect(html).toContain("data-toolbar-slider-format");
+    // Rework §6.8/§10: the Format-$ type-flip toggle is REPLACED by the slider
+    // type picker (single/dual_range/stepper/from_to/radial) + currency affix.
+    expect(html).not.toContain("data-toolbar-slider-format");
+    expect(html).toContain("data-slider-type-wrap");
+    for (const t of ["single", "dual_range", "stepper", "from_to", "radial"]) expect(html).toContain(`data-set-slider-type="${t}"`);
+    expect(html).toContain("data-slider-currency-affix");
     // the toolbar's OWN accept copy is gone
     expect(html).not.toContain("data-toolbar-accept-wrap");
     expect(html).not.toContain('id="lg-tb-accept"');
@@ -6875,6 +6880,12 @@ describeDb("review FIX 2 — the §9.5 editor never clobbers the legacy curated 
 
 describeDb("review FIX 4a — answer-group selected-state override renders back", () => {
   const DESIGN = defaultFunnelDesign;
+  // Rework §10 removal (test repair, P2): OtherGroupSelector's render leg is
+  // RETIRED to a fail-safe extinct-type box (conductor ruling) that consumes
+  // NO design_overrides at all — dropped from this map (own dedicated
+  // retirement coverage lives in leadgen-components-render.test.ts /
+  // leadgen-r1-answers.test.ts). "all three types" in the test title below
+  // is now the two remaining button-family types.
   const NODES: Record<string, Record<string, unknown>> = {
     ButtonAnswerGroup: {
       type: "ButtonAnswerGroup",
@@ -6883,29 +6894,24 @@ describeDb("review FIX 4a — answer-group selected-state override renders back"
       choices: [{ label: "A", value: "a", analytics_id: "a" }],
     },
     TwoButtonYesNo: { type: "TwoButtonYesNo", question_id: "q", internal_field: "insured" },
-    OtherGroupSelector: {
-      type: "OtherGroupSelector",
-      question_id: "q",
-      internal_field: "carrier",
-      choices: [{ label: "A", value: "a", analytics_id: "a" }],
-    },
   };
 
   it("override → the group ROOT carries --lg-sel-bg (role resolved via ovColor); absent → byte-identical markup (all three types)", () => {
     for (const [type, base] of Object.entries(NODES)) {
       const plain = renderComponent(base as never, DESIGN);
       expect(plain, `${type} absent override carries no var`).not.toContain("--lg-sel-bg");
-      expect(plain, `${type} absent override carries no style attr on the root`).not.toMatch(
-        /^<div class="lg-answer-group[^>]*style=/,
-      );
-      // a ROLE value resolves through the design (§9.4 role-or-hex)
+      // a ROLE value resolves through the design (§9.4 role-or-hex). Rework
+      // §6.7 (test repair, P2): ButtonAnswerGroup's 1-choice fixture now ALSO
+      // emits --lg-cols:1 in the SAME style attribute (min(design-default 2,
+      // choiceCount 1)=1) — assert the --lg-sel-bg substring, not the whole
+      // (now additionally --lg-cols-bearing) style value.
       const withRole = { ...base, design_overrides: { buttonBackground: "accent" } };
       const rendered = renderComponent(withRole as never, DESIGN);
-      expect(rendered, `${type} role override`).toContain('style="--lg-sel-bg:#E85D26"'); // accent
+      expect(rendered, `${type} role override`).toContain("--lg-sel-bg:#E85D26"); // accent
       // a legacy #hex is byte-preserved
       const withHex = { ...base, design_overrides: { buttonBackground: "#123456" } };
       expect(renderComponent(withHex as never, DESIGN), `${type} hex override`).toContain(
-        'style="--lg-sel-bg:#123456"',
+        "--lg-sel-bg:#123456",
       );
       // stripping the override reproduces the plain bytes exactly (ADDITIVE)
       const stripped = { ...base };
@@ -6922,7 +6928,12 @@ describeDb("review FIX 4a — answer-group selected-state override renders back"
       design_overrides: { palette: { button_primary_bg: "#0F2440" } },
     };
     const out = renderSectionComponents(nodes as never, DESIGN, ctx as never);
-    expect(out).toContain('style="--lg-sel-bg:#0F2440"');
+    // Rework §6.7 (test repair, P2): NODES.ButtonAnswerGroup carries only 1
+    // choice with no authored columns, so effective columns are now ALSO
+    // clamped (min(design-default 2, 1)=1) and ride the SAME style attribute
+    // — assert the --lg-sel-bg substring rather than the whole (now
+    // additionally --lg-cols:1-bearing) style value.
+    expect(out).toContain("--lg-sel-bg:#0F2440");
   });
 
   it("DEV-68: the consuming CSS rule rides the BASE sheet (frame-independent markup) — exactly once, AFTER the §14.6 selected rule; framed sheet inherits it without duplication", () => {
@@ -7005,20 +7016,29 @@ describeDb("review FIX 4b — dead-write controls are gated per type (executed i
         sliceIslandFunction(island, "overrideRowHidden"),
       ].join("\n"),
     );
-    // selIcon (the two card grids' icon slot) still keys off isCardGridType;
-    // P1a (register PC-1) re-gates the "Card layout" (columns/gap) control onto
-    // the WIDER answer-grid layout family — the two card grids AND
-    // MultiChoiceCardGroup / ButtonAnswerGroup / TwoButtonYesNo whose renderers
-    // now consume columns/gridGap (isAnswerLayoutType).
+    // selIcon (the two card grids' icon slot) still keys off isCardGridType.
+    // Rework §6.2: the "Card layout" (columns/gap) control is now gated on the
+    // MATRIX Columns capability — cap(node,'columns') — which drops it from
+    // TwoButtonYesNo (§6.2's YesNo Columns cell is BLANK — a fixed pair has no
+    // column count) while keeping it for the card grids + Buttons + MultiChoice.
     expect(island).toContain("selIcon.hidden = !isCardGridType(node);");
-    expect(island).toContain("choiceLayout.hidden = !isAnswerLayoutType(node);");
-    // P1a: the Card-layout control shows for every columns/gridGap consumer; a
-    // non-consumer (a bare input) and a null selection do not.
+    expect(island).toContain("choiceLayout.hidden = cap(node, 'columns') !== true;");
+    // isAnswerLayoutType itself is UNCHANGED (still used by showChoiceExtras) —
+    // it stays true for the answer-group family incl. YesNo; only the choiceLayout
+    // GATE moved to cap(node,'columns').
     for (const t of ["IconCardAnswerGrid", "ImageCardAnswerGrid", "MultiChoiceCardGroup", "ButtonAnswerGroup", "TwoButtonYesNo"]) {
       expect(probe.run(`isAnswerLayoutType({ type: '${t}' })`), `${t} answer-layout`).toBe(true);
     }
     expect(probe.run("isAnswerLayoutType({ type: 'FreeTextQuestion' })")).toBe(false);
     expect(probe.run("isAnswerLayoutType(null)")).toBe(false);
+    // §6.2 Columns capability: card grids + Buttons + MultiChoice YES; YesNo +
+    // Dropdown NO (BLANK cells) — the cap the choiceLayout control now reads.
+    probe.run([sliceIslandFunction(island, "capsOf"), sliceIslandFunction(island, "cap")].join("\n"));
+    for (const t of ["IconCardAnswerGrid", "ImageCardAnswerGrid", "MultiChoiceCardGroup", "ButtonAnswerGroup"]) {
+      expect(probe.run(`cap({ type: '${t}' }, 'columns')`), `${t} cap columns`).toBe(true);
+    }
+    expect(probe.run("cap({ type: 'TwoButtonYesNo' }, 'columns')"), "YesNo cap columns blank").toBe(false);
+    expect(probe.run("cap({ type: 'DropdownQuestion' }, 'columns')"), "Dropdown cap columns blank").toBe(false);
     for (const grid of ["IconCardAnswerGrid", "ImageCardAnswerGrid"]) {
       expect(probe.run(`isCardGridType({ type: '${grid}' })`), grid).toBe(true);
       expect(probe.run(`overrideRowHidden('columns', { type: '${grid}' })`), `${grid} columns`).toBe(false);
@@ -7336,8 +7356,10 @@ describeDb("review FIX 8 — §5.5 defaults + the AI media-picker affordance", (
     const probe = studioProbe(html, CONTENT);
     probe.run(
       [
-        sliceIslandArray(island, "RANGE_DEFAULT_TYPES"),
-        sliceIslandArray(island, "DROPDOWN_DEFAULT_TYPES"),
+        // Rework §6.4: defaultKindOf is matrix-driven now (cap → studioMeta
+        // capabilities.default_kind), not the removed RANGE/DROPDOWN arrays.
+        sliceIslandFunction(island, "capsOf"),
+        sliceIslandFunction(island, "cap"),
         sliceIslandFunction(island, "defaultKindOf"),
         sliceIslandFunction(island, "collectDefaultControl"),
       ].join("\n"),

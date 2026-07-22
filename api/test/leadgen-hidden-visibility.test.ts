@@ -275,27 +275,29 @@ const errorSlot: LeadgenComponentNode = {
   props: { text: "This field is required" },
 } as unknown as LeadgenComponentNode;
 
-// #6 other-panel: renderOtherGroupSelector's root is `.lg-answer-group
-// .lg-other-group`; `.lg-other-panel` is a CHILD emitted by
-// renderOtherGroupTail (presets.ts ~367-385) whenever choiceDisplay.
-// otherGroupEnabled is true — unconditionally, regardless of how the choices
-// split main/secondary.
+// #6 other-panel: Rework §6.5 (test repair, P2) — OtherGroupSelector's B9-era
+// render leg (choiceDisplay/renderOtherGroupTail) is RETIRED (§10) to a
+// fail-safe extinct-type box that carries no hideable panel at all; the
+// authored `props.other` affordance on ButtonAnswerGroup supersedes it.
+// renderButtonAnswerGroup's root is `.lg-answer-group`; `.lg-other-panel`
+// (alongside `.lg-other-select`) is the hidden native <select> CHILD
+// otherSelectMarkup (presets.ts) emits whenever props.other.enabled is true.
 const otherGroupSelector: LeadgenComponentNode = {
-  type: "OtherGroupSelector",
+  type: "ButtonAnswerGroup",
   question_id: "q_other",
   internal_field: "source",
   answer_type: "enum",
-  choiceDisplay: {
-    mainValues: ["a", "b"],
-    otherGroupEnabled: true,
-    otherGroupLabel: "Other",
-    searchableOther: false,
-  },
   choices: [
-    { value: "a", label: "A" },
-    { value: "b", label: "B" },
-    { value: "c", label: "C" },
+    { value: "a", label: "A", analytics_id: "a_a" },
+    { value: "b", label: "B", analytics_id: "a_b" },
   ],
+  props: {
+    other: {
+      enabled: true,
+      label: "Other",
+      choices: [{ value: "c", label: "C", analytics_id: "a_c" }],
+    },
+  },
 } as unknown as LeadgenComponentNode;
 
 // #9 disclosure-panel: renderDisclosureLink's root is `.lg-disclosure-wrap`;

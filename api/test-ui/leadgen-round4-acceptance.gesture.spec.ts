@@ -209,6 +209,22 @@ async function seedLiveFunnel(
     }),
     "variant sections",
   );
+  // LeadGen Rework §4.3-1/§4.3-15 (P1, own-hand-verified): activation now
+  // preflights "the shared first page needs at least one section" — this
+  // pre-M2 helper predates that requirement. Seed a TRIVIAL pass-through
+  // shared page (a single ContinueButton, no questions) so every live leg
+  // advances through it in one click (passSharedPage below) before reaching
+  // the funnel content under test — the SAME pattern already proven in
+  // leadgen-rework-p2-studio.gesture.spec.ts / __p2c-studio.spec.ts.
+  const trivialShared = await createStudioSection(request, `R4ACC shared ${tag} ${u}`, [
+    { type: "ContinueButton", question_id: "q_shared_cont", props: { label: "Continue" } },
+  ]);
+  await json(
+    await request.post(`${LG_API}/quotes/${quote.public_id}/shared-page`, {
+      data: { sections: [{ section_id: trivialShared.id }] },
+    }),
+    "shared page create",
+  );
   await json(
     await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, {
       data: { enabled: true, slug },
@@ -221,6 +237,14 @@ const shellUrl = (s: { host: string; slug: string }) => `http://${s.host}:${PORT
 
 async function ready(page: Page): Promise<void> {
   await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 10_000 });
+}
+
+// Click the trivial shared-page's Continue button once (see seedLiveFunnel's
+// own comment) so a live leg lands on the funnel content under test.
+async function passSharedPage(page: Page): Promise<void> {
+  const cont = page.locator("[data-lg-continue]").first();
+  await expect(cont, "the shared page's Continue is reachable").toBeVisible({ timeout: 8_000 });
+  await cont.click();
 }
 const sectionIndex = (page: Page): Promise<number> =>
   page.evaluate(
@@ -445,82 +469,22 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
   });
 
   // =========================================================================
-  // Item 3 — Question grid unusable from the picker (Image5 reference).
-  // Deeper gate: __p1a-studio.spec.ts (AC-1) + leadgen-p5-multi-question-grid
-  // .gesture.spec.ts. Journey: from the PICKER, insert a Question grid → rows
-  // render immediately (never an empty shell) → add a sub-question via the
-  // canvas affordance → per-row field mapping + default answer via the rows
-  // editor → save → the LIVE funnel renders labeled rows with default-selected
-  // pills (the B-4.1 MQG save-trap + the empty-picker-insert bug, both inverted).
+  // Item 3 — RETIRED (LeadGen Rework §10/§4.1): "insert a Question grid from
+  // the picker" is gone — the palette tile for MultiQuestionGrid is replaced
+  // by the §4.1 "Questions on one screen" starter (2 independent TwoButtonYesNo
+  // components, no shared-grid rows editor at all); M6 already migrated every
+  // STORED grid into independent components (own-hand-verified, P1). Own-hand-
+  // verified this session: `palette(page, "MultiQuestionGrid")` is still a
+  // resolvable locator (the catalog keeps a defensive entry until P5's removal
+  // sweep — registry.ts's own comment), but nothing in this item exercised a
+  // still-live surface beyond that dead insert path + the retired rows editor
+  // (data-mqg-*). Replacement coverage: the §4.1 starter is
+  // leadgen-rework-p2-studio.gesture.spec.ts's test (d); the full capability
+  // matrix (incl. MultiQuestionGrid's legacy defensive spec) is
+  // leadgen-rework-matrix.test.ts; the M6 grid->independent-components content
+  // migration is test/leadgen-rework-content-migrations.test.ts.
   // =========================================================================
-  test('Item 3 — "a multi-question grid, insert from the picker" (Image5): insert -> rows render -> add sub-question -> field mapping -> default -> save -> live labeled default-selected rows', async ({
-    page,
-    request,
-    browserName,
-  }) => {
-    const s = await createStudioSection(request, `R4ACC Item3 grid ${uniq}`, [
-      { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
-    ]);
-    await openEdit(page, s.public_id);
 
-    // REAL picker insert (never pre-seeded content_json): the picker-inserted
-    // grid renders its starter rows IMMEDIATELY (the A-3 seed-drop bug, inverted).
-    await palette(page, "MultiQuestionGrid").click();
-    await expect(canvasRender(page).locator(".lg-mqg-row"), "picker-inserted grid renders seeded rows, never an empty shell").toHaveCount(2);
-
-    // The canvas "Add a sub-question" affordance grows a REAL 3rd row.
-    await canvasRender(page).locator("[data-mqg-add-canvas]").click();
-    await expect(canvasRender(page).locator(".lg-mqg-row")).toHaveCount(3);
-
-    // Per-row field mapping + default answer, through the REAL rows editor —
-    // the operator's "Tell us about the driver" shape (Homeowner/Married/Gender).
-    const rowsBlock = page.locator("[data-mqg-rows-block]");
-    await expect(rowsBlock).toBeVisible();
-    const rows = rowsBlock.locator("[data-mqg-row]");
-    const rowSpec = [
-      { label: "Homeowner", field: "r4_homeowner", def: "yes" },
-      { label: "Married", field: "r4_married", def: "no" },
-      { label: "Gender", field: "r4_gender", def: "yes" },
-    ];
-    for (let i = 0; i < rowSpec.length; i++) {
-      const row = rows.nth(i);
-      await row.locator('input[data-mqg-field="label"]').fill(rowSpec[i]!.label);
-      await row.locator('input[data-mqg-field="internal_field"]').fill(rowSpec[i]!.field);
-      await row.locator('select[data-mqg-field="default"]').selectOption(rowSpec[i]!.def);
-    }
-    await saveStudioAwaitOk(page, s.public_id);
-
-    const saved = await fetchSection(request, s.public_id);
-    const gridNode = saved.content_json.components.find((c) => c["type"] === "MultiQuestionGrid") as {
-      props: { rows: Array<{ label: string; internal_field: string; default?: string }> };
-    };
-    expect(gridNode.props.rows, "3 rows persisted with label/field/default").toHaveLength(3);
-    for (let i = 0; i < rowSpec.length; i++) {
-      expect(gridNode.props.rows[i]).toMatchObject({ label: rowSpec[i]!.label, internal_field: rowSpec[i]!.field, default: rowSpec[i]!.def });
-    }
-
-    if (
-      !liveLegChromiumOnly(
-        browserName,
-        "Item 3 live render needs chromium --host-resolver-rules for the dynamic *.e2e.test host. The picker-insert + rows-editor + save-round-trip assertions above run engine-agnostically.",
-      )
-    )
-      return;
-
-    // LIVE: the picker-authored grid renders 3 stacked labeled rows with the
-    // authored default pill pre-selected on each — the operator's actual ask.
-    const seeded = await seedLiveFunnel(request, "item3", [s.id]);
-    await page.goto(shellUrl(seeded), { waitUntil: "load" });
-    await ready(page);
-    const qid = gridNode ? (saved.content_json.components.find((c) => c["type"] === "MultiQuestionGrid") as { question_id: string }).question_id : "";
-    for (const r of rowSpec) {
-      await expect(page.locator(".lg-mqg .lg-label", { hasText: r.label }), `row "${r.label}" renders live`).toBeVisible();
-      await expect(
-        page.locator(`[data-lg-question="${qid}::${r.field}"] [data-lg-choice="${r.def}"]`),
-        `row "${r.label}" default-selected pill (${r.def}) is pre-selected live`,
-      ).toHaveClass(/lg-selected/);
-    }
-  });
 
   // =========================================================================
   // Item 4A/4B/4C/4E — Rules: source above -> dependent below; a Question-grid
@@ -612,38 +576,18 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
     )
       return;
 
-    // REGRESSION FOUND HERE (report to conductor, not fixed in this slice —
-    // quotes-handlers.ts is outside this slice's exclusive ownership):
-    // seedLiveFunnel's activation PUT is expected to succeed (a bare
-    // conditional on a KNOWN, valid MQG-row field is exactly what the studio's
-    // own rule-source picker just offered and the save above just persisted).
-    // Instead the server 409s: {"error":"quote_activation_blocked",
-    // "blocks":[{"code":"dependency_missing_field","fields":["r4a_homeowner"]}]}.
-    // Root cause (own-hand read): quotes-handlers.ts's activation-time
-    // "knownFields" builder (~line 3748-3770) collects ONLY each flattened
-    // node's OWN top-level `internal_field` — flattenComponents (content-
-    // schema.ts:840) expands layout CONTAINERS only, never a
-    // MultiQuestionGrid's `props.rows[].internal_field` — so an MQG row field
-    // is NEVER in `knownFields`, and a BARE conditional naming one (this
-    // test's exact shape) is wrongly flagged "missing" at activation. Reference
-    // -compare (I8): __p2c-studio.spec.ts's OWN MQG-row-conditional live test
-    // (identical row shape) passes ONLY because it uses the COMPOSED
-    // {match,conditions} shape — the checker's guard
-    // (`typeof conditional["when"] === "string"`) is false for a group object,
-    // so composed conditionals skip this validation ENTIRELY (a second,
-    // independent coverage hole: a group referencing a truly-missing field
-    // would ALSO sail through unblocked). Net: the studio's rules picker
-    // (internalFieldsOf, ui-section-studio.ts) and the runtime engine both
-    // correctly treat MQG rows as first-class fields (round-3/round-4 P1a
-    // work), but this ONE server-side activation gate never learned that —
-    // the exact "source above -> dependent below" journey the operator asked
-    // for (item 4A/4B) cannot reach a LIVE site when authored as a single
-    // condition. Left as a live (expected-to-succeed) assertion below —
-    // currently FAILS — per the dispatch's "do not paper over it".
+    // A previously-documented regression here (quotes-handlers.ts's
+    // activation-time "knownFields" builder wrongly flagging a bare
+    // conditional naming an MQG row field as dependency_missing_field) no
+    // longer reproduces — own-hand-verified: this activation now succeeds and
+    // the live reveal below passes. Left un-annotated beyond this note since
+    // there is nothing further to report; quotes-handlers.ts is outside this
+    // round's grant regardless, so it was not touched here.
     const rulesNext = await createNextSection(request);
     const seeded = await seedLiveFunnel(request, "item4a", [s.id, rulesNext.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
+    await passSharedPage(page);
     const carrierEl = page.locator('[data-lg-question="q_carrier"]');
     await expect(carrierEl, "Carrier hidden until the source (above) is answered Yes").toBeHidden();
     await page.locator('[data-lg-field="r4a_homeowner"] [data-lg-choice="yes"]').click();
@@ -721,6 +665,7 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
     const seeded = await seedLiveFunnel(request, "item4d", [s.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
+    await passSharedPage(page);
     const target = page.locator('[data-lg-question="q_x"]');
     await expect(target, "hidden before any answer").toBeHidden();
     await page.locator('[data-lg-question="q_married"] [data-lg-choice="true"]').click();
@@ -765,6 +710,7 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
     const seeded2 = await seedLiveFunnel(request, "item4d-any", [s2.id]);
     await page.goto(shellUrl(seeded2), { waitUntil: "load" });
     await ready(page);
+    await passSharedPage(page);
     const target2 = page.locator('[data-lg-question="q_x"]');
     await expect(target2).toBeHidden();
     // hydration() stamps data-lg-question DIRECTLY on the <select> itself for
@@ -812,9 +758,15 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
     const seeded = await seedLiveFunnel(request, "item5", [s.id, next.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
-    expect(await sectionIndex(page)).toBe(0);
-    await liveSection(page, 0).locator('[data-lg-choice="true"]').click();
-    await expect.poll(() => sectionIndex(page), { timeout: 5_000 }).toBe(1);
+    // LeadGen Rework §4.3-1 (P1, own-hand-verified): seedLiveFunnel's trivial
+    // shared page now occupies section_index 0 — passSharedPage advances past
+    // it, landing on this funnel's own first page at index 1 (was 0), second
+    // at index 2 (was 1). A continuous shared+funnel index, not a per-funnel
+    // reset (matches §4.3-11's "progress = shared pages + funnel pages").
+    await passSharedPage(page);
+    expect(await sectionIndex(page)).toBe(1);
+    await liveSection(page, 1).locator('[data-lg-choice="true"]').click();
+    await expect.poll(() => sectionIndex(page), { timeout: 5_000 }).toBe(2);
   });
 
   // =========================================================================
@@ -903,83 +855,20 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
   });
 
   // =========================================================================
-  // Item 6B — phone format author-selectable (US/IL/intl) and enforced live.
-  // Deeper gates: __p2b-phone.spec.ts + __p2c-studio.spec.ts (AC-3). Journey:
-  // author the IL preset through the REAL picker -> save -> reload round-trips
-  // -> LIVE an IL-shaped number passes and a US-shaped one blocks with the
-  // Israeli message; repeat for the International E.164 preset.
+  // Item 6B — RETIRED (LeadGen Rework §10/§6.9): the phone-preset picker this
+  // item authored through (data-phone-format-preset, the US/IL/International
+  // country-list select) no longer exists — §6.9's mask builder replaced it
+  // (a digit-group Format pattern, no country list at all). Legacy preset
+  // CONTENT (nanp/e164_intl/il) still validates on the schema seam (no data
+  // migration, own-hand-verified content-schema.ts) but there is no studio UI
+  // left to author it through, so this item's "author the IL preset through
+  // the REAL picker" premise is gone. Replacement coverage: the mask builder's
+  // studio + live journey is leadgen-rework-p2-studio.gesture.spec.ts's test
+  // (b) and __p2c-studio.spec.ts's rewritten AC-3; the mask grammar + digit-
+  // count validation is test/leadgen-rework-schema.test.ts; the formatPhone
+  // incoherence warning (mask digit_count!==10) is
+  // test/leadgen-p2-phone-format-warning.test.ts.
   // =========================================================================
-  test("Item 6B — phone format author-selectable (US NANP default / IL / International E.164) and enforced live", async ({
-    page,
-    request,
-    browserName,
-  }) => {
-    const s = await createStudioSection(request, `R4ACC Item6B phone ${uniq}`, [
-      { type: "PhoneInputQuestion", question_id: "q_phone", internal_field: "r6b_phone", required: true },
-      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
-    ]);
-    await openEdit(page, s.public_id);
-    await canvasRender(page).locator('[data-component-type="PhoneInputQuestion"]').click();
-    await openInspectorTab(page, "content");
-    const preset = page.locator("[data-phone-format-preset]");
-    await expect(preset, "US NANP is the author-facing default").toHaveValue("nanp");
-
-    await preset.selectOption("il");
-    await saveStudioAwaitOk(page, s.public_id);
-    const savedIl = await fetchSection(request, s.public_id);
-    const phoneNodeIl = savedIl.content_json.components.find((c) => c["question_id"] === "q_phone") as { props?: { phone_format?: string } };
-    expect(phoneNodeIl.props?.phone_format, "IL preset persists").toBe("il");
-
-    await openEdit(page, s.public_id);
-    await canvasRender(page).locator('[data-component-type="PhoneInputQuestion"]').click();
-    await openInspectorTab(page, "content");
-    await expect(page.locator("[data-phone-format-preset]"), "IL preset round-trips on reload").toHaveValue("il");
-
-    if (
-      !liveLegChromiumOnly(
-        browserName,
-        "Item 6B live phone enforcement needs chromium --host-resolver-rules for the dynamic *.e2e.test host. The phone-format authoring + round-trip assertions above run engine-agnostically.",
-      )
-    )
-      return;
-
-    // LIVE: a US-shaped number blocks with the Israeli message; an IL-valid
-    // number advances. A trailing section is required so "advances" means
-    // section_index 0->1, not funnel completion (the phone section would
-    // otherwise be the LAST section).
-    const ilNext = await createNextSection(request);
-    const ilFunnel = await seedLiveFunnel(request, "item6b-il", [s.id, ilNext.id]);
-    await page.goto(shellUrl(ilFunnel), { waitUntil: "load" });
-    await ready(page);
-    await liveSection(page, 0).locator("[data-lg-input]").first().fill("4155551234");
-    await liveSection(page, 0).locator("[data-lg-continue]").first().click();
-    await page.waitForTimeout(300);
-    expect(await sectionIndex(page), "a US-shaped phone blocks under the IL preset").toBe(0);
-    const ilSlot = liveSection(page, 0).locator('[data-lg-error-for="r6b_phone"]');
-    await expect(ilSlot).toBeVisible();
-    await expect(ilSlot).toContainText("Israeli");
-    await liveSection(page, 0).locator("[data-lg-input]").first().fill("0541234567");
-    await liveSection(page, 0).locator("[data-lg-continue]").first().click();
-    await expect.poll(() => sectionIndex(page), { timeout: 5_000 }).toBe(1);
-
-    // A SECOND section on International E.164 (the operator's third named
-    // preset): a bare local number blocks; an E.164 '+'-prefixed one passes.
-    const s2 = await createStudioSection(request, `R4ACC Item6B intl ${uniq}`, [
-      { type: "PhoneInputQuestion", question_id: "q_phone", internal_field: "r6b2_phone", required: true, props: { phone_format: "e164_intl" } },
-      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
-    ]);
-    const intlNext = await createNextSection(request);
-    const intlFunnel = await seedLiveFunnel(request, "item6b-intl", [s2.id, intlNext.id]);
-    await page.goto(shellUrl(intlFunnel), { waitUntil: "load" });
-    await ready(page);
-    await liveSection(page, 0).locator("[data-lg-input]").first().fill("5551234");
-    await liveSection(page, 0).locator("[data-lg-continue]").first().click();
-    await page.waitForTimeout(300);
-    expect(await sectionIndex(page), "a non-E.164 number blocks under the International preset").toBe(0);
-    await liveSection(page, 0).locator("[data-lg-input]").first().fill("+442071234567");
-    await liveSection(page, 0).locator("[data-lg-continue]").first().click();
-    await expect.poll(() => sectionIndex(page), { timeout: 5_000 }).toBe(1);
-  });
 
   // =========================================================================
   // Item 7 — single-column (1) answer layout authorable + live (Images 26-27).
@@ -1178,7 +1067,17 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
 
     const group = canvasRender(page).locator('[data-component-type="ButtonAnswerGroup"]');
     await expect(group).toBeVisible();
-    await expect(group.locator("[data-choice-ghost]"), "the + Add choice ghost renders in studio").toHaveCount(1);
+    // LeadGen Rework §6.1 (own-hand-verified via diagnostic DOM dump): the
+    // ghost RELOCATED from an in-grid-cell descendant of the answer group to
+    // a SIBLING row inserted immediately after the component root (never a
+    // grid cell, never inside the component's border — the systemic #1/#3/#9
+    // fix; see leadgen-rework-matrix.test.ts's Layer-B other_editor/columns
+    // proofs and leadgen-rework-p2-studio.gesture.spec.ts's test (a), which
+    // pins this exact DOM relation). group.locator(...) (a descendant query)
+    // is now structurally unable to find it — confirmed by hand: the ghost
+    // exists exactly once in the canvas (data-add-ghost-row="q_pick"), zero
+    // times inside the group. Query at the canvas level instead.
+    await expect(canvasRender(page).locator('[data-choice-ghost="q_pick"]'), "the + Add choice ghost renders in studio").toHaveCount(1);
 
     const studioMetrics = await page.evaluate(() => {
       const doc = (document.getElementById("lg-studio-canvas-frame") as HTMLIFrameElement | null)?.contentDocument;

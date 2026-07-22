@@ -55,10 +55,13 @@ import {
   LEADGEN_NODE_CORNERS,
   multiQuestionRowChoices,
   multiQuestionRowQuestionId,
+  parsePhoneMaskPattern,
   readMultiQuestionRows,
   resolveFieldSize,
 } from "./content-schema";
 import type {
+  LeadgenAddressFieldKind,
+  LeadgenAddressFieldMode,
   LeadgenChoice,
   LeadgenChoiceSizePreset,
   LeadgenChoiceStyle,
@@ -69,6 +72,7 @@ import type {
   LeadgenPlacementAlign,
   LeadgenPlacementLayout,
   LeadgenResolvedSizeAxis,
+  LeadgenSelectedMarker,
   MultiQuestionRow,
 } from "./content-schema";
 // P1b (register PC-11): the §8.1 leading-icon / card-icon SVGs are the
@@ -439,46 +443,154 @@ export function readChoiceDisplay(node: LeadgenComponentNode): LeadgenChoiceDisp
   };
 }
 
-// Split a node's choices into main + secondary (Other-panel) per §6.4:
-// membership by String(choice.value) ∈ mainValues. Only meaningful when
-// otherGroupEnabled — callers gate on that.
-function splitChoicesForOtherGroup(
-  choices: LeadgenChoice[],
-  display: LeadgenChoiceDisplay,
-): { main: LeadgenChoice[]; secondary: LeadgenChoice[] } {
-  const mainSet = new Set(display.mainValues);
-  const main: LeadgenChoice[] = [];
-  const secondary: LeadgenChoice[] = [];
-  for (const c of choices) {
-    (mainSet.has(String(c.value)) ? main : secondary).push(c);
-  }
-  return { main, secondary };
+// ---------------------------------------------------------------------------
+// Rework §6.5 — authored "Other" affordance (REPLACES the choiceDisplay/
+// splitChoicesForOtherGroup/renderOtherGroupTail mechanism above, §10 removal).
+// ---------------------------------------------------------------------------
+// props.other = {enabled?, label?, choices} (content-schema.ts validateOtherEditor,
+// single-select choice groups only — the §6.2 matrix `other_editor` flag).
+// Base choices render UNCHANGED; ONE trailing affordance (styled as a choice of
+// the SAME family, with a chevron) reveals a hidden native <select> of the
+// authored values (first option placeholder "Choose…"). Absent/disabled/empty
+// `props.other` ⇒ "" ⇒ byte-identical (R4 A-6a).
+interface LeadgenOtherConfig {
+  label: string;
+  choices: LeadgenChoice[];
 }
 
-// The shared §6.4 Other-group tail: ONE trigger (deliberately NO data-lg-choice
-// / data-value — selecting "Other" itself never stores a value) + the hidden
-// panel of secondary REAL-value choices (each rendered by the caller's own
-// choice affordance so the family look is preserved), searchable when
-// `searchableOther`. The runtime (runtime/render.ts, another slice) expands
-// the panel; the literal "Other" is never a stored value (§6.4 RED LINE).
-function renderOtherGroupTail(
-  display: LeadgenChoiceDisplay,
-  triggerClass: string,
-  triggerInner: string,
-  secondaryHtml: string,
-): string {
-  const search = display.searchableOther
-    ? `<input class="lg-input lg-other-search" type="text" data-lg-other-search` +
-      ` placeholder="Search…" aria-label="${esc(display.otherGroupLabel)} — search options">`
-    : "";
+function readOtherConfig(node: LeadgenComponentNode): LeadgenOtherConfig | undefined {
+  const raw = node.props?.["other"];
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  if (r["enabled"] !== true) return undefined;
+  const choices = Array.isArray(r["choices"]) ? (r["choices"] as LeadgenChoice[]) : [];
+  if (choices.length === 0) return undefined;
+  const label = r["label"];
+  return { label: typeof label === "string" && label.trim() !== "" ? label : "Other", choices };
+}
+
+// The chevron affordance (tokens.dropdown.chevronSvgFill — reused, no new
+// color invented) marking the trailing choice as an opener, never a stored
+// value itself (deliberately NO data-lg-choice/data-value, §6.5's "Other"
+// affordance never records on its own click — activating it reveals the
+// <select> below, which IS the real answer control).
+function otherChevronSvg(design: DefaultFunnelDesign): string {
   return (
-    `<button type="button" class="${triggerClass}" data-lg-other-trigger` +
-    ` aria-expanded="false" aria-haspopup="true">${triggerInner}</button>` +
-    `<div class="lg-other-panel" data-lg-other-panel hidden>` +
-    search +
-    `<div class="lg-other-list">${secondaryHtml}</div>` +
-    `</div>`
+    `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">` +
+    `<path d="M6 9l6 6 6-6" stroke="${esc(design.dropdown.chevronSvgFill)}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` +
+    `</svg>`
   );
+}
+
+// The hidden native <select> revealed by the trigger — a REAL answer control
+// (data-lg-input, so the EXISTING generic dropdown-change recording mechanism
+// records an Other pick with ZERO new engine code; nests inside the group so
+// its `closest("[data-lg-field]")` resolves via the group root's hydration()).
+// Base-hidden via the native `hidden` attribute (S2.3 removes it on activation
+// — no new CSS needed, unlike the ✓-marker's selection-state visibility).
+function otherSelectMarkup(other: LeadgenOtherConfig): string {
+  const options = other.choices
+    .map(
+      (c) =>
+        `<option value="${esc(c.value)}"${attr("data-lg-choice", c.value)}${attr("data-analytics-id", c.analytics_id)}>${esc(c.label)}</option>`,
+    )
+    .join("");
+  return (
+    // "lg-other-panel" is kept as a class alongside "lg-other-select"
+    // (continuity with the pre-§6.5 B9 naming vocabulary — the hidden-
+    // visibility surface matrix test keys on it by class); the generic
+    // `[hidden]{display:none}` terminal CSS guard matches the ATTRIBUTE, not
+    // this class, so no dedicated stylesheet rule is required either way.
+    `<select class="lg-input lg-other-select lg-other-panel" data-lg-input data-lg-other-panel hidden` +
+    ` aria-label="${esc(other.label)} — choose one">` +
+    `<option value="" selected disabled>Choose…</option>` +
+    options +
+    `</select>`
+  );
+}
+
+// §6.6 ✓-in-selected marker resolution (per-choice style override > node
+// override > theme Selected axis). Returns 'mark' only when SOME layer
+// explicitly resolves to it; 'wash' (no marker span emitted) otherwise — so a
+// node/choice with none of the three layers set renders byte-identically to
+// pre-§6.6 (the theme's existing card-only markCheck ternary is the base case
+// this generalizes to buttons/YesNo too).
+function resolveSelectedMarker(
+  node: LeadgenComponentNode,
+  choiceStyle: LeadgenChoiceStyle | undefined,
+  design: DefaultFunnelDesign,
+): LeadgenSelectedMarker {
+  const choiceMarker = choiceStyle?.selected_marker;
+  if (choiceMarker !== undefined) return choiceMarker;
+  const nodeMarker = propStr(node, "selected_marker");
+  if (nodeMarker === "mark" || nodeMarker === "wash") return nodeMarker;
+  return readButtonStyle(design)?.selected === "mark" ? "mark" : "wash";
+}
+
+// The §6.6 mark-mode markup: a leading hollow circle on a RESTING item, a
+// filled ✓ badge revealed on a SELECTED item (mirrors the EXISTING card
+// markCheck ternary — presets.ts renderCardGrid — which relies on styles.ts
+// CSS keyed on the selection classes the runtime already toggles to show/hide
+// it; class names match the P0 golden pack pins 6.6-visitor-selected verbatim
+// so a sibling CSS pass has an exact, unambiguous target). "" when the
+// resolved marker is 'wash' (byte-identical to pre-§6.6 for every button/YesNo
+// choice — cards already had their own independent markCheck ternary, kept
+// as-is above).
+function selectedMarkerMarkup(marker: LeadgenSelectedMarker): string {
+  if (marker !== "mark") return "";
+  return (
+    `<span class="lg-check-hollow" aria-hidden="true"></span>` +
+    `<span class="lg-check-badge" aria-hidden="true">` +
+    `<svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4 10-11" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>` +
+    `</span>`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Rework §6.7 — effective columns = min(authored, choiceCount); wrapped last
+// row centered (L-195: explicit track/justify rules, never margin:auto).
+// ---------------------------------------------------------------------------
+
+// `emitOverride` mirrors today's exact semantics for WHEN an override is
+// worth emitting: an AUTHORED value always was (and still is, now additionally
+// clamped to choiceCount); an UNAUTHORED value newly emits ONLY when the
+// choiceCount actually pulls the effective count below the design default (the
+// #9 under-filled-grid fix) — so a node with enough choices to already fill
+// the default column count renders BYTE-IDENTICAL --lg-cols output to pre-§6.7
+// (R4 A-6a: this fix changes bytes only where the OLD output was the actual bug).
+// `hasPartialRow` is true only when the choices do NOT divide evenly into
+// `cols` — an exact-fit grid (incl. every P2a/P3a-backcompat frozen fixture)
+// gets neither a new --lg-cols nor a new justify-content, byte-identical.
+interface GridColumnsPlan {
+  cols: number;
+  emitOverride: boolean;
+  hasPartialRow: boolean;
+}
+function planGridColumns(authoredCols: number | undefined, defaultCols: number, choiceCount: number): GridColumnsPlan {
+  const base = authoredCols ?? defaultCols;
+  const clamped = choiceCount > 0 ? Math.min(base, choiceCount) : base;
+  const cols = clampInt(clamped, 1, 5);
+  const emitOverride = authoredCols !== undefined || cols !== defaultCols;
+  const hasPartialRow = choiceCount > 0 && cols > 1 && choiceCount % cols !== 0;
+  return { cols, emitOverride, hasPartialRow };
+}
+
+// The explicit grid-column-start for a WRAPPED (incomplete) last row's items so
+// they render CENTERED under the track's column count (L-195 — never
+// margin:auto on an inline-level box). undefined for every item NOT in a
+// partial trailing row (total is an exact multiple of cols, or this item is in
+// a full row) — the common/exact-fit case emits NOTHING new (byte-identical).
+// An odd leftover (e.g. 2 items in 3 columns) floors the offset — a
+// discrete-grid approximation that is at most half a column off literal
+// center; flagged in the phase report for P0 visual confirmation.
+function trailingRowCenterOffset(index: number, total: number, cols: number): number | undefined {
+  if (cols <= 1 || total <= 0) return undefined;
+  const remainder = total % cols;
+  if (remainder === 0) return undefined;
+  const rowStart = total - remainder;
+  if (index < rowStart) return undefined;
+  const offset = Math.floor((cols - remainder) / 2);
+  return offset + (index - rowStart) + 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -674,6 +786,7 @@ function renderRange(
   const minLabel = propStr(node, "minLabel") ?? formatRangeValue(min, format, currency);
   const maxLabel = propStr(node, "maxLabel") ?? formatRangeValue(max, format, currency);
   return (
+    labelLine(node) +
     // S2-3 (register §C): data-currency rides the wrapper so the runtime's
     // updateRangeDisplay can rebuild the live value text (`{currency}{grouped}`)
     // byte-identically to this server paint (formatRangeValue) as the slider
@@ -717,6 +830,9 @@ export function renderRangeQuestion(
   ctx?: LeadgenSectionRenderCtx,
   slot = "",
 ): string {
+  // v3.1 R3b legacy-only type (catalog note) — M7 NEVER adds slider_type to
+  // RangeQuestion itself (it migrates the NODE to NumberRangeQuestion); this
+  // render leg stays exactly the pre-§6.8 'single' shape unconditionally.
   return renderRange(node, design, propStr(node, "format") === "currency" ? "currency" : "number", ctx, slot);
 }
 export function renderCurrencyRangeQuestion(
@@ -725,15 +841,232 @@ export function renderCurrencyRangeQuestion(
   ctx?: LeadgenSectionRenderCtx,
   slot = "",
 ): string {
+  // Legacy-only (see renderRangeQuestion note) — unconditional 'single' shape.
   return renderRange(node, design, "currency", ctx, slot);
 }
+
+// ---------------------------------------------------------------------------
+// Rework §6.8 — Slider types (M7 collapse: ONE catalog entry, NumberRangeQuestion,
+// picked via props.slider_type). `single` is the pre-§6.8 shape (renderRange,
+// above) — byte-identical for the migrated-M7 fixture (slider_type absent or
+// 'single'). currency_affix is display-only (never touches node.type/
+// answer_type — the Image9 failure class dies at the generation side, §6.8).
+// The four NEW shapes each still emit a REAL native <input type="range">
+// per handle (data-lg-input, role=slider, aria-value*) so recording +
+// keyboard operability work via BROWSER-NATIVE semantics with zero required
+// engine code; S2.3 owns the interactive polish (drag visuals, stepper
+// click-to-increment, dual-handle track sync) — this SSR guarantees a
+// working, accessible baseline for all five types.
+// ---------------------------------------------------------------------------
+
+// dual_range / from_to share the M7 sub-field naming convention: {base}_min /
+// {base}_max (base = internal_field, else question_id — the SAME convention
+// content-schema.isDualRangeSlider / answers.ts fieldsOf expand). Each input
+// self-declares `data-lg-field` so the EXISTING generic handleInputEvent
+// mechanism (`closest("[data-lg-field]")` — engine.ts, resolves to the
+// element itself) records it with ZERO new engine code, the same technique
+// this slice's §6.10 address per-field inputs use.
+function rangeMinMaxFieldNames(node: LeadgenComponentNode): { min: string; max: string } {
+  const base =
+    typeof node.internal_field === "string" && node.internal_field.trim() !== ""
+      ? node.internal_field.trim()
+      : typeof node.question_id === "string" && node.question_id !== ""
+        ? node.question_id
+        : "range";
+  return { min: `${base}_min`, max: `${base}_max` };
+}
+
+// stepper = single + −/＋ buttons (step REQUIRED — content-schema save gate).
+function renderStepperRange(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  format: "number" | "currency",
+  ctx: LeadgenSectionRenderCtx | undefined,
+  slot: string,
+): string {
+  const rq = design.rangeQuestion;
+  const min = propNum(node, "min") ?? 0;
+  const max = propNum(node, "max") ?? 100;
+  const step = propNum(node, "step") ?? 1;
+  const value = propNum(node, "default") ?? min;
+  const span = max - min;
+  const pct = span > 0 ? clampInt(((value - min) / span) * 100, 0, 100) : 0;
+  const currency = propStr(node, "currency") ?? "$";
+  const filled = ovColor(node, "rangeColor", design, ctx) ?? rq.filledTrackColor;
+  return (
+    labelLine(node) +
+    `<div class="lg-range lg-range-stepper"${hydration(node)} data-format="${format}"${attr("data-currency", format === "currency" ? currency : undefined)} data-slider-type="stepper">` +
+    `<div class="lg-range-stepper-row">` +
+    `<button type="button" class="lg-range-stepper-btn lg-range-stepper-dec" data-lg-step="dec" aria-label="Decrease">&minus;</button>` +
+    `<div class="lg-range-value"${style({ color: rq.valueColor, "font-family": rq.valueFontFamily })}>${esc(formatRangeValue(value, format, currency))}</div>` +
+    `<button type="button" class="lg-range-stepper-btn lg-range-stepper-inc" data-lg-step="inc" aria-label="Increase">&#65291;</button>` +
+    `</div>` +
+    `<div class="lg-range-track"${style({ "background-color": rq.unfilledTrackColor, "margin-top": design.spacing.md })}>` +
+    `<div class="lg-range-fill"${style({ width: `${pct}%`, "background-color": filled })}></div>` +
+    `</div>` +
+    `<input class="lg-range-input" type="range" role="slider" data-lg-input` +
+    ` min="${min}" max="${max}" step="${step}" value="${value}"` +
+    ` aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}"` +
+    attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field) +
+    attr("data-internal-field", node.internal_field) +
+    `>` +
+    slot +
+    `</div>` +
+    fieldHelperLine(node)
+  );
+}
+
+// from_to = min,max,step, two NUMBER inputs synced to a track; sub-fields
+// {base}_min/{base}_max. No authored default (the §6.8 rail has no Default
+// control for this type) — the initial position is the full [min,max] span.
+function renderFromToRange(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  format: "number" | "currency",
+  ctx: LeadgenSectionRenderCtx | undefined,
+  slot: string,
+): string {
+  const rq = design.rangeQuestion;
+  const min = propNum(node, "min") ?? 0;
+  const max = propNum(node, "max") ?? 100;
+  const step = propNum(node, "step") ?? 1;
+  const currency = propStr(node, "currency") ?? "$";
+  const filled = ovColor(node, "rangeColor", design, ctx) ?? rq.filledTrackColor;
+  const fields = rangeMinMaxFieldNames(node);
+  return (
+    labelLine(node) +
+    `<div class="lg-range lg-range-from-to"${hydration(node)} data-format="${format}"${attr("data-currency", format === "currency" ? currency : undefined)} data-slider-type="from_to">` +
+    `<div class="lg-range-track"${style({ "background-color": rq.unfilledTrackColor })}>` +
+    `<div class="lg-range-fill"${style({ left: "0%", width: "100%", "background-color": filled })}></div>` +
+    `<div class="lg-range-handle" style="left:0%" role="presentation" aria-hidden="true"></div>` +
+    `<div class="lg-range-handle" style="left:100%" role="presentation" aria-hidden="true"></div>` +
+    `</div>` +
+    // S2.3 engine contract: each sub-field is a WRAPPING [data-lg-field]
+    // element containing its own [data-lg-input] (the SAME shape §6.10's
+    // address per-field wrapper uses) — not the attribute on the input itself.
+    `<div class="lg-range-from-to-inputs"${style({ display: "flex", gap: design.spacing.sm })}>` +
+    `<span${attr("data-lg-field", fields.min)}><input class="lg-input lg-range-from" type="number" data-lg-input` +
+    ` min="${min}" max="${max}" step="${step}" value="${min}" aria-label="From"></span>` +
+    `<span${attr("data-lg-field", fields.max)}><input class="lg-input lg-range-to" type="number" data-lg-input` +
+    ` min="${min}" max="${max}" step="${step}" value="${max}" aria-label="To"></span>` +
+    `</div>` +
+    slot +
+    `</div>` +
+    fieldHelperLine(node)
+  );
+}
+
+// dual_range = from_to with TWO drag handles instead of number inputs; SAME
+// data contract ({base}_min/{base}_max). Each handle is a REAL native
+// <input type="range"> (own data-lg-input + data-lg-field) so dragging OR
+// keyboard-focusing EITHER handle records natively; S2.3 may later overlay
+// them visually onto one track (drag-engine polish) — stacked-but-labeled is
+// the safe, fully-functional SSR baseline.
+function renderDualRangeRange(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  format: "number" | "currency",
+  ctx: LeadgenSectionRenderCtx | undefined,
+  slot: string,
+): string {
+  const rq = design.rangeQuestion;
+  const min = propNum(node, "min") ?? 0;
+  const max = propNum(node, "max") ?? 100;
+  const step = propNum(node, "step") ?? 1;
+  const currency = propStr(node, "currency") ?? "$";
+  const filled = ovColor(node, "rangeColor", design, ctx) ?? rq.filledTrackColor;
+  const fields = rangeMinMaxFieldNames(node);
+  // S2.3 engine contract: each handle is a WRAPPING [data-lg-field] element
+  // containing its own [data-lg-input] range (the SAME shape from_to/address
+  // per-field wrappers use) — not the attribute on the input itself.
+  const handle = (label: string, field: string, value: number): string =>
+    `<span${attr("data-lg-field", field)}>` +
+    `<div class="lg-range-track"${style({ "background-color": rq.unfilledTrackColor })}>` +
+    `<div class="lg-range-fill"${style({ width: "100%", "background-color": filled })}></div>` +
+    `</div>` +
+    `<input class="lg-range-input" type="range" role="slider" data-lg-input` +
+    ` min="${min}" max="${max}" step="${step}" value="${value}"` +
+    ` aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}" aria-label="${esc(label)}">` +
+    `</span>`;
+  return (
+    labelLine(node) +
+    `<div class="lg-range lg-range-dual"${hydration(node)} data-format="${format}"${attr("data-currency", format === "currency" ? currency : undefined)} data-slider-type="dual_range">` +
+    `<div class="lg-range-dual-handle lg-range-dual-min">${handle("Minimum", fields.min, min)}</div>` +
+    `<div class="lg-range-dual-handle lg-range-dual-max">${handle("Maximum", fields.max, max)}</div>` +
+    slot +
+    `</div>` +
+    fieldHelperLine(node)
+  );
+}
+
+// radial = single, circular rendering (min,max,step; defaultValue optional).
+// S2.3 engine contract: radial is the "single" SUBSTRATE — ONE real native
+// <input type="range"> carries role=slider + static aria-valuemin/valuemax
+// (the engine syncs aria-valuenow); the conic-gradient arc is PURELY
+// presentational server-side CSS (no engine pointer geometry, §6.8 "= single,
+// circular rendering"), so the decorative wrapper is aria-hidden and carries
+// NO role/aria-value* of its own — never two competing slider landmarks.
+function renderRadialRange(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  format: "number" | "currency",
+  ctx: LeadgenSectionRenderCtx | undefined,
+  slot: string,
+): string {
+  const rq = design.rangeQuestion;
+  const min = propNum(node, "min") ?? 0;
+  const max = propNum(node, "max") ?? 100;
+  const step = propNum(node, "step") ?? 1;
+  const value = propNum(node, "default") ?? min;
+  const span = max - min;
+  const pct = span > 0 ? clampInt(((value - min) / span) * 100, 0, 100) : 0;
+  const deg = (pct / 100) * 360;
+  const currency = propStr(node, "currency") ?? "$";
+  const filled = ovColor(node, "rangeColor", design, ctx) ?? rq.filledTrackColor;
+  return (
+    labelLine(node) +
+    `<div class="lg-range lg-range-radial"${hydration(node)} data-format="${format}"${attr("data-currency", format === "currency" ? currency : undefined)} data-slider-type="radial">` +
+    `<div class="lg-range-radial-outer" aria-hidden="true"${style({ background: `conic-gradient(${filled} 0deg ${deg}deg, ${rq.unfilledTrackColor} ${deg}deg 360deg)` })}>` +
+    `<div class="lg-range-radial-inner"${style({ color: rq.valueColor, "font-family": rq.valueFontFamily })}>${esc(formatRangeValue(value, format, currency))}</div>` +
+    `</div>` +
+    `<input class="lg-range-input" type="range" role="slider" data-lg-input` +
+    ` min="${min}" max="${max}" step="${step}" value="${value}"` +
+    ` aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}"` +
+    attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field) +
+    attr("data-internal-field", node.internal_field) +
+    `>` +
+    slot +
+    `</div>` +
+    fieldHelperLine(node)
+  );
+}
+
 export function renderNumberRangeQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
   slot = "",
 ): string {
-  return renderRange(node, design, "number", ctx, slot);
+  // M7 (§6.8): currency_affix is DISPLAY-ONLY and never touches node.type/
+  // answer_type (the Image9 failure class eliminated at the generation side).
+  // Absent ⇒ false ⇒ format 'number', byte-identical to pre-§6.8.
+  const format: "number" | "currency" = propBool(node, "currency_affix") ? "currency" : "number";
+  const sliderType = propStr(node, "slider_type");
+  switch (sliderType) {
+    case "stepper":
+      return renderStepperRange(node, design, format, ctx, slot);
+    case "from_to":
+      return renderFromToRange(node, design, format, ctx, slot);
+    case "dual_range":
+      return renderDualRangeRange(node, design, format, ctx, slot);
+    case "radial":
+      return renderRadialRange(node, design, format, ctx, slot);
+    case "single":
+    default:
+      // Absent/unrecognized slider_type ⇒ 'single' — M7's own normalization
+      // target, byte-identical to pre-§6.8 NumberRangeQuestion output.
+      return renderRange(node, design, format, ctx, slot);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -779,10 +1112,14 @@ function iconCardDepthSlots(design: DefaultFunnelDesign): LeadgenIconCardDepthSl
 // merge discipline). Width absent (or a non-grounded s/m/l preset) ⇒ omitted;
 // both concerns absent ⇒ "" (byte-identical to pre-R3). Per-BUTTON
 // height/corners/border ride choiceItemStyle (below).
+// Rework §6.7: `gridCols` is pre-computed by the caller (planGridColumns) from
+// the SAME choiceCount the per-button trailingRowCenterOffset loop uses, so the
+// --lg-cols value and the per-item centering offsets can never disagree.
 function answerGroupRootStyle(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx: LeadgenSectionRenderCtx | undefined,
+  gridCols: GridColumnsPlan,
 ): string {
   const width = sizeStyleEntries(node, ctx).width;
   // P1a (register PC-1): the group is a CSS grid now (.lg-answer-group,
@@ -798,10 +1135,16 @@ function answerGroupRootStyle(
   // group renders exactly what the studio offers; content-schema validates
   // `columns` 1..5 at save (design_overrides + props), so an out-of-range
   // authored value is rejected before it can reach this clamp.
-  const authoredCols = ovNum(node, "columns") ?? propNum(node, "columns");
+  // Rework §6.7: --lg-cols now reflects gridCols.cols (min(authored,
+  // choiceCount)), emitted only when gridCols.emitOverride (byte-identical for
+  // an unauthored, already-full grid). `justify-content:center` (L-195 "track
+  // list centered") rides ONLY alongside a wrapped partial last row — an
+  // exact-fit grid emits neither, so this is a no-op for every P2a/P3a
+  // backcompat fixture.
   return style({
     "--lg-sel-bg": ovColor(node, "buttonBackground", design, ctx),
-    "--lg-cols": authoredCols !== undefined ? String(clampInt(authoredCols, 1, 5)) : undefined,
+    "--lg-cols": gridCols.emitOverride ? String(gridCols.cols) : undefined,
+    "justify-content": gridCols.hasPartialRow ? "center" : undefined,
     gap: ov(node, "gridGap"),
     width: width,
     // R7 U11b: a fixed-width block-level grid centers via auto side-margins (no
@@ -838,37 +1181,49 @@ export function renderButtonAnswerGroup(
   slot = "",
 ): string {
   const autoAdvance = propBool(node, "auto_advance");
+  const choices = choiceList(node);
+  // Rework §6.7: min(authored, choiceCount) — see planGridColumns.
+  const gridCols = planGridColumns(ovNum(node, "columns") ?? propNum(node, "columns"), design.answerGrid.columns, choices.length);
+  // Rework §6.6: resolve choice > node > theme PER BUTTON (extends the
+  // pre-§6.6 theme-only ternary the exact same way renderCardGrid's
+  // markerResolutions/anyMark do) — a group with no per-choice/per-node
+  // override and a non-mark theme resolves every button to 'wash', byte-
+  // identical to before; a mark theme with no overrides resolves every
+  // button to 'mark', ALSO byte-identical.
+  const markerResolutions = choices.map((c) => resolveSelectedMarker(node, c.style, design));
+  const anyMark = markerResolutions.some((m) => m === "mark");
   // v3.1 R3 §7/§8.5b + P2a §R-A: each answer button carries the node's per-item
   // design_overrides (height→min-height, corners→radius, border_color→role
   // border) MERGED with the choice's OWN diff-only `style` overlay (per-element
   // height / resting bg / text color / emphasis). "" when neither the node nor
   // the choice authors any (byte-identical to pre-R3/pre-P2a).
-  const btn = (c: LeadgenChoice): string =>
-    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style)}` +
+  // Rework §6.7: `index` feeds trailingRowCenterOffset (L-195 wrapped-last-row
+  // centering) — undefined (no override) for every item outside a partial row.
+  const btn = (c: LeadgenChoice, index: number): string =>
+    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, { "grid-column-start": trailingRowCenterOffset(index, choices.length, gridCols.cols)?.toString() })}` +
     attr("data-value", c.value) +
     // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
     attr("data-lg-choice", c.value) +
     attr("data-analytics-id", c.analytics_id) +
-    `>${esc(c.label)}</button>`;
-  const display = readChoiceDisplay(node);
-  let body: string;
-  if (display !== undefined && display.otherGroupEnabled) {
-    // B9 (06 §6.4): main values as normal answer buttons + one Other trigger +
-    // the hidden panel of secondary REAL-value buttons.
-    const { main, secondary } = splitChoicesForOtherGroup(choiceList(node), display);
-    body =
-      main.map(btn).join("") +
-      renderOtherGroupTail(
-        display,
-        "lg-btn lg-btn-answer lg-other-trigger",
-        esc(display.otherGroupLabel),
-        secondary.map(btn).join(""),
-      );
-  } else {
-    body = choiceList(node).map(btn).join("");
-  }
+    `>${selectedMarkerMarkup(markerResolutions[index]!)}${esc(c.label)}</button>`;
+  // Rework §6.5: base choices UNCHANGED + ONE trailing "Other" affordance
+  // (same family, chevron) revealing a hidden <select> of the authored values.
+  // Absent/disabled props.other ⇒ "" ⇒ byte-identical (replaces the retired
+  // choiceDisplay/splitChoicesForOtherGroup/renderOtherGroupTail mechanism).
+  const other = readOtherConfig(node);
+  const otherHtml =
+    other === undefined
+      ? ""
+      : `<button type="button" class="lg-btn lg-btn-answer lg-other-trigger" data-lg-other-trigger` +
+        ` aria-expanded="false" aria-haspopup="listbox">${esc(other.label)}${otherChevronSvg(design)}</button>` +
+        otherSelectMarkup(other);
+  const body = choices.map(btn).join("") + otherHtml;
   return (
-    `<div class="lg-answer-group" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choiceList(node)))}${answerGroupRootStyle(node, design, ctx)}${buttonStyleAttrs(design, { fill: true, layout: true })} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
+    labelLine(node) +
+    // Rework §6.6: data-card-select is "mark" whenever ANY button resolves to
+    // mark (theme OR a per-choice/per-node override) — mirrors renderCardGrid;
+    // buttonStyleAttrs' theme-only `selected` axis stays unused here.
+    `<div class="lg-answer-group" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choices))}${answerGroupRootStyle(node, design, ctx, gridCols)}${buttonStyleAttrs(design, { fill: true, layout: true })}${attr("data-card-select", anyMark ? "mark" : undefined)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
     body +
     // CONDUCTOR FIX (P4b regression): the auto error slot nests as the LAST
     // CHILD of the group box, never a card-level sibling — "" is a no-op.
@@ -888,6 +1243,10 @@ export function renderTwoButtonYesNo(
   const yes = propStr(node, "yesLabel") ?? "Yes";
   const no = propStr(node, "noLabel") ?? "No";
   const autoAdvance = propBool(node, "auto_advance");
+  // YesNo is a fixed 2-choice pair; planGridColumns(2 choices, default 2) is a
+  // permanent no-op (min(2,2)=2, remainder 0) — included for uniformity with
+  // the other choice families, never emits an override or partial-row centering.
+  const gridCols = planGridColumns(ovNum(node, "columns") ?? propNum(node, "columns"), design.answerGrid.columns, 2);
   // Same discipline as renderButtonAnswerGroup: base + state chrome is fully
   // class-driven (.lg-btn.lg-btn-answer) so the §14.6 selected/hover states apply.
   // FIX 4a: the curated buttonBackground override rides the group root as
@@ -899,14 +1258,20 @@ export function renderTwoButtonYesNo(
   // per-item overlay. Absent ⇒ node-level-only ⇒ byte-identical to pre-P2a.
   const yesStyle = node.props?.["yesStyle"] as LeadgenChoiceStyle | undefined;
   const noStyle = node.props?.["noStyle"] as LeadgenChoiceStyle | undefined;
-  const btn = (label: string, value: boolean, cs: LeadgenChoiceStyle | undefined): string =>
+  // Rework §6.6: same choice > node > theme marker resolution as
+  // ButtonAnswerGroup, incl. the anyMark group-level gate.
+  const yesMarker = resolveSelectedMarker(node, yesStyle, design);
+  const noMarker = resolveSelectedMarker(node, noStyle, design);
+  const anyMark = yesMarker === "mark" || noMarker === "mark";
+  const btn = (label: string, value: boolean, cs: LeadgenChoiceStyle | undefined, marker: LeadgenSelectedMarker): string =>
     `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, cs)}` +
     // 03 §3.3: data-lg-choice mirrors data-value (the stored boolean).
-    ` data-value="${value ? "true" : "false"}" data-lg-choice="${value ? "true" : "false"}">${esc(label)}</button>`;
+    ` data-value="${value ? "true" : "false"}" data-lg-choice="${value ? "true" : "false"}">${selectedMarkerMarkup(marker)}${esc(label)}</button>`;
   return (
-    `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)}${choiceHeightsAttr(yesStyle?.size !== undefined || noStyle?.size !== undefined)}${answerGroupRootStyle(node, design, ctx)}${buttonStyleAttrs(design, { fill: true, layout: true })} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
-    btn(yes, true, yesStyle) +
-    btn(no, false, noStyle) +
+    labelLine(node) +
+    `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)}${choiceHeightsAttr(yesStyle?.size !== undefined || noStyle?.size !== undefined)}${answerGroupRootStyle(node, design, ctx, gridCols)}${buttonStyleAttrs(design, { fill: true, layout: true })}${attr("data-card-select", anyMark ? "mark" : undefined)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
+    btn(yes, true, yesStyle, yesMarker) +
+    btn(no, false, noStyle, noMarker) +
     // CONDUCTOR FIX (P4b regression): the auto error slot nests as the LAST
     // CHILD of the group box, never a card-level sibling — "" is a no-op.
     slot +
@@ -923,6 +1288,7 @@ function renderCardGrid(
   ctx?: LeadgenSectionRenderCtx,
   slot = "",
 ): string {
+  const choices = choiceList(node);
   // §9.5 layer 4: Section columnsDefault/gapDefault fill the slots the node
   // left unset — per-node (design_overrides/props) wins over Section wins
   // over the design tokens.
@@ -932,23 +1298,26 @@ function renderCardGrid(
   // Section-level columnsDefault of 1 (a "stack" preset) flows straight
   // through. content-schema validates `columns` 1..5 at save, so an
   // out-of-range value never reaches this clamp from authored content.
-  const cols = clampInt(
-    ovNum(node, "columns") ??
-      propNum(node, "columns") ??
-      sectionColumnsDefault(ctx) ??
-      design.iconCardGrid.columnsDesktop,
-    1,
-    5,
+  // Rework §6.7: min(authored, choiceCount) — see planGridColumns. Cards
+  // ALREADY always emitted --lg-cols (unlike the button group), so the value
+  // now reflects the clamp but the emission itself stays unconditional —
+  // byte-identical whenever choiceCount already meets/exceeds the resolved
+  // default (every P2a/P3a backcompat fixture authors columns:2 with exactly
+  // 2 choices, so min(2,2)=2 — same value as today).
+  const gridCols = planGridColumns(
+    ovNum(node, "columns") ?? propNum(node, "columns") ?? sectionColumnsDefault(ctx),
+    design.iconCardGrid.columnsDesktop,
+    choices.length,
   );
   const gap = ov(node, "gridGap") ?? sectionGapDefault(ctx) ?? design.iconCardGrid.gap;
-  // P6 (deliverable 3, Image 40): when the theme's selected style is "mark",
-  // each card carries a corner check badge — hidden by the base .lg-card-check
-  // rule, revealed by styles.ts's `[data-card-select="mark"] …selected…` rule.
-  // "" for every other theme (and all legacy content) ⇒ byte-identical.
-  const markCheck =
-    readButtonStyle(design)?.selected === "mark"
-      ? `<span class="lg-card-check" aria-hidden="true">✓</span>`
-      : "";
+  // Rework §6.6: resolve choice > node > theme PER CARD (extends the pre-§6.6
+  // theme-only ternary — a group with no per-choice/per-node override and a
+  // non-mark theme resolves every card to 'wash', byte-identical to before;
+  // a mark theme with no overrides resolves every card to 'mark', ALSO
+  // byte-identical — the override layers only change output for genuinely
+  // NEW per-choice/per-node authored content).
+  const markerResolutions = choices.map((c) => resolveSelectedMarker(node, c.style, design));
+  const anyMark = markerResolutions.some((m) => m === "mark");
   // §9.4 layer 5: role-valued iconColor resolves via the (possibly Section-
   // re-pointed) role; legacy `#hex` renders as-is.
   const iconColor = ovColor(node, "iconColor", design, ctx) ?? design.iconCard.iconColor;
@@ -965,7 +1334,13 @@ function renderCardGrid(
   // list omits image_fit).
   const nodeFitRaw = propStr(node, "image_fit");
   const nodeFit = nodeFitRaw === "cover" || nodeFitRaw === "contain" ? nodeFitRaw : undefined;
-  const card = (c: LeadgenChoice): string => {
+  const card = (c: LeadgenChoice, index: number): string => {
+    // P6 (deliverable 3, Image 40) + Rework §6.6: a corner check badge, hidden
+    // by the base .lg-card-check rule, revealed by styles.ts's
+    // `[data-card-select="mark"] …selected…` rule — now resolved PER CARD
+    // (markerResolutions[index]) instead of theme-only, so a per-choice/
+    // per-node override can turn it on/off independent of the theme axis.
+    const markCheck = markerResolutions[index] === "mark" ? `<span class="lg-card-check" aria-hidden="true">✓</span>` : "";
     // v2.5 08 §8.4 choice depth — every new field is ADDITIVE: a choice
     // carrying none of them renders byte-identically to the v2.4 markup
     // (attribute/class order unchanged; empty style()/attr() emit nothing).
@@ -1035,7 +1410,7 @@ function renderCardGrid(
     // §8.4 disabled rides the native attribute + aria-disabled (the §14.4
     // .lg-card:disabled/[aria-disabled] chrome rules style it).
     return (
-      `<button type="button" class="lg-card" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style)}` +
+      `<button type="button" class="lg-card" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, { "grid-column-start": trailingRowCenterOffset(index, choices.length, gridCols.cols)?.toString() })}` +
       (c.disabled === true ? ` disabled aria-disabled="true"` : "") +
       attr("data-value", c.value) +
       // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
@@ -1046,32 +1421,42 @@ function renderCardGrid(
       `>${markCheck}${badge}${media}<span class="lg-card-title">${esc(titleText)}</span>${desc}</button>`
     );
   };
-  const display = readChoiceDisplay(node);
-  let cards: string;
-  if (display !== undefined && display.otherGroupEnabled) {
-    // B9 (06 §6.4): main cards + one Other trigger card + the hidden panel of
-    // secondary REAL-value cards.
-    const { main, secondary } = splitChoicesForOtherGroup(choiceList(node), display);
-    cards =
-      main.map(card).join("") +
-      renderOtherGroupTail(
-        display,
-        "lg-card lg-other-trigger",
-        `<span class="lg-card-title">${esc(display.otherGroupLabel)}</span>`,
-        secondary.map(card).join(""),
-      );
-  } else {
-    cards = choiceList(node).map(card).join("");
-  }
+  // Rework §6.5: base cards UNCHANGED + one trailing "Other" card-styled
+  // affordance (replaces the retired choiceDisplay/splitChoicesForOtherGroup/
+  // renderOtherGroupTail mechanism, §10). Absent/disabled props.other ⇒ ""
+  // (byte-identical).
+  const other = readOtherConfig(node);
+  const otherHtml =
+    other === undefined
+      ? ""
+      : `<button type="button" class="lg-card lg-other-trigger" data-lg-other-trigger` +
+        ` aria-expanded="false" aria-haspopup="listbox"><span class="lg-card-title">${esc(other.label)}</span>${otherChevronSvg(design)}</button>` +
+        otherSelectMarkup(other);
+  const cards = choices.map(card).join("") + otherHtml;
   return (
-    `<div class="lg-card-grid" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choiceList(node)))}${buttonStyleAttrs(design, { fill: true, layout: true, selected: true })}` +
+    labelLine(node) +
+    // Rework §6.6: data-card-select is now "mark" whenever ANY card resolves to
+    // mark (theme OR a per-choice/per-node override) — the CSS gate must be
+    // OPEN for any card that wants to show its badge, not just when the theme
+    // itself is "mark" (buttonStyleAttrs' theme-only `selected` axis stays
+    // unused here; anyMark supersedes it for this one attribute).
+    `<div class="lg-card-grid" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choices))}${buttonStyleAttrs(design, { fill: true, layout: true })}${attr("data-card-select", anyMark ? "mark" : undefined)}` +
     // v3.1 R3 §7: width → the grid container's max-width (per the register's
     // "grid/container max-width for card grids"); "" when unauthored.
     ((): string => {
       const w = sizeStyleEntries(node, ctx).width;
       // R7 U11b: a fixed max-width grid centers via auto side-margins (the
       // grid is already block-level display:grid); {} for full/unauthored.
-      return style({ "--lg-cols": String(cols), gap, "max-width": w, ...widthCenteringEntries(w, { align: node.layout?.align }) });
+      // Rework §6.7: justify-content:center (L-195 "track list centered")
+      // rides ONLY alongside a wrapped partial last row — byte-identical
+      // otherwise (every exact-fit fixture, incl. P2a/P3a backcompat).
+      return style({
+        "--lg-cols": String(gridCols.cols),
+        gap,
+        "justify-content": gridCols.hasPartialRow ? "center" : undefined,
+        "max-width": w,
+        ...widthCenteringEntries(w, { align: node.layout?.align }),
+      });
     })() +
     // CONDUCTOR FIX (P4b regression): the auto error slot nests as the LAST
     // CHILD of the grid box, never a card-level sibling — "" is a no-op.
@@ -1116,7 +1501,16 @@ export function renderMultiChoiceCardGroup(
   // border) MERGED with the choice's OWN diff-only `style` overlay — computed
   // per-card in the closure below. "" when neither authors any (byte-identical
   // to pre-R3/pre-P2a).
-  const card = (c: LeadgenChoice): string => {
+  const choices = choiceList(node);
+  // Rework §6.7: min(authored, choiceCount) — see planGridColumns. This
+  // type's OWN unauthored default has always been 2 (NOT renderCardGrid's 3),
+  // preserved here so an un-authored multi with ≥2 choices stays byte-identical.
+  const gridCols = planGridColumns(
+    ovNum(node, "columns") ?? propNum(node, "columns") ?? sectionColumnsDefault(ctx),
+    2,
+    choices.length,
+  );
+  const card = (c: LeadgenChoice, index: number): string => {
     const titleText = typeof c.title === "string" && c.title !== "" ? c.title : c.label;
     const desc =
       typeof c.subtitle === "string" && c.subtitle !== ""
@@ -1128,7 +1522,7 @@ export function renderMultiChoiceCardGroup(
     // Base border/background live in the scoped chrome CSS (.lg-card) — not
     // inline — so the §14.4 selected/hover/focus state rules apply.
     return (
-      `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style)}` +
+      `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, { "grid-column-start": trailingRowCenterOffset(index, choices.length, gridCols.cols)?.toString() })}` +
       attr("data-value", c.value) +
       // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
       attr("data-lg-choice", c.value) +
@@ -1136,24 +1530,13 @@ export function renderMultiChoiceCardGroup(
       `><span class="lg-card-title">${esc(titleText)}</span>${desc}</button>`
     );
   };
-  const display = readChoiceDisplay(node);
-  let cards: string;
-  if (display !== undefined && display.otherGroupEnabled) {
-    // B9 (06 §6.4): main cards + one Other trigger + hidden secondary panel.
-    const { main, secondary } = splitChoicesForOtherGroup(choiceList(node), display);
-    cards =
-      main.map(card).join("") +
-      renderOtherGroupTail(
-        display,
-        "lg-card lg-card-multi lg-other-trigger",
-        `<span class="lg-card-title">${esc(display.otherGroupLabel)}</span>`,
-        secondary.map(card).join(""),
-      );
-  } else {
-    cards = choiceList(node).map(card).join("");
-  }
+  // §6.5 matrix: MultiChoiceCardGroup (multi-select) has NO Other editor — the
+  // choiceDisplay/Other-group mechanism never applied here beyond the shared
+  // helper; base cards render flat (retired mechanism removed, §10).
+  const cards = choices.map(card).join("");
   return (
-    `<div class="lg-card-grid lg-multi" role="group"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choiceList(node)))}` +
+    labelLine(node) +
+    `<div class="lg-card-grid lg-multi" role="group"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choices))}` +
     // P1a (register PC-1): honor the authored `columns` (killing the pre-P1a
     // hardcoded "2" that IGNORED the key) + `gridGap`, mirroring renderCardGrid's
     // §9.5 layer-4 resolution — per-node override wins over Section
@@ -1170,14 +1553,16 @@ export function renderMultiChoiceCardGroup(
     // value. The un-authored fallback stays 2 (unchanged, byte-identical).
     ((): string => {
       const w = sizeStyleEntries(node, ctx).width;
-      const cols = clampInt(
-        ovNum(node, "columns") ?? propNum(node, "columns") ?? sectionColumnsDefault(ctx) ?? 2,
-        1,
-        5,
-      );
       const gap = ov(node, "gridGap") ?? sectionGapDefault(ctx) ?? design.iconCardGrid.gap;
-      // R7 U11b: fixed max-width grid centers via auto side-margins.
-      return style({ "--lg-cols": String(cols), gap, "max-width": w, ...widthCenteringEntries(w, { align: node.layout?.align }) });
+      // R7 U11b: fixed max-width grid centers via auto side-margins. Rework
+      // §6.7: justify-content:center only alongside a wrapped partial row.
+      return style({
+        "--lg-cols": String(gridCols.cols),
+        gap,
+        "justify-content": gridCols.hasPartialRow ? "center" : undefined,
+        "max-width": w,
+        ...widthCenteringEntries(w, { align: node.layout?.align }),
+      });
     })() +
     attr("data-min", min) +
     attr("data-max", max) +
@@ -1331,8 +1716,8 @@ export function renderDropdownQuestion(
   // slot present → wrap in the SAME `.lg-field-boxed` box renderTextInput
   // already uses for its own icon/helper cases (one established "field box"
   // class, not a new one) so the slot has a valid, semantically-correct home.
-  if (slot === "") return select + fieldHelperLine(node);
-  return `<span class="lg-field-boxed" style="display:block">${select}${slot}</span>` + fieldHelperLine(node);
+  if (slot === "") return labelLine(node) + select + fieldHelperLine(node);
+  return labelLine(node) + `<span class="lg-field-boxed" style="display:block">${select}${slot}</span>` + fieldHelperLine(node);
 }
 
 // 08 §8.3/§8.10 SearchableDropdownQuestion: DropdownQuestion + a search input
@@ -1359,6 +1744,7 @@ export function renderSearchableDropdownQuestion(
     )
     .join("");
   return (
+    labelLine(node) +
     `<div class="lg-searchable-dropdown"${hydration(node)} data-lg-searchable>` +
     `<input class="lg-input lg-dropdown-search" type="text" data-lg-dropdown-search` +
     ` placeholder="Search…" aria-label="Search options">` +
@@ -1388,58 +1774,36 @@ export function renderSearchableDropdownQuestion(
   );
 }
 
-// 08 §8.3 OtherGroupSelector — the DEDICATED B9 (06 §6.4) renderer: main
-// choices as answer buttons + the shared Other tail (trigger + hidden panel of
-// secondary REAL-value choices), driven by the node's choiceDisplay through
-// the SAME readChoiceDisplay/splitChoicesForOtherGroup/renderOtherGroupTail
-// helpers ButtonAnswerGroup uses. Without grouping metadata (or with
-// otherGroupEnabled:false) it renders all choices flat — defensive, and the
-// §6.4 "literal 'Other' is never a stored value" invariant holds throughout.
-// Base + state chrome is fully class-driven (.lg-btn.lg-btn-answer) — no
-// inline style per button (the renderButtonAnswerGroup discipline). FIX 4a:
-// the curated buttonBackground override rides the group root as --lg-sel-bg
-// (additive — absent override renders byte-identically).
+// Rework §10 removal: OtherGroupSelector's B9-era render leg (choiceDisplay +
+// splitChoicesForOtherGroup + renderOtherGroupTail) is REMOVED — §6.5's
+// authored props.other on ButtonAnswerGroup/IconCardAnswerGrid/
+// ImageCardAnswerGrid supersedes it. The catalog type STAYS (conductor
+// ruling: unreachable-from-editor, tolerated for existing content) and MUST
+// NEVER 500, so it renders the SAME fail-safe extinct-type box as
+// renderMultiQuestionGrid's zero-row fallback — REUSING its exact class name
+// (`.lg-mqg-empty`) rather than inventing a new one: styles.ts already scopes
+// that class to `.lg-preview` (studio canvas / admin preview) with
+// `display:none` on the live `#lg-funnel-root` (no CSS change needed here, in
+// or out of this slice — this box is SILENT on any live session that somehow
+// still carries this retired type, and gives the studio an honest notice).
+// `produces:"enum"` stays true in the catalog (defensive/exhaustiveness only,
+// registry.ts) — this type is not reachable from the editor palette, so no
+// live content can be newly authored against it; the r1-answers "every
+// question type records" lockstep is updated to exclude it (test repair,
+// documented in the P2 report).
 export function renderOtherGroupSelector(
   node: LeadgenComponentNode,
-  design: DefaultFunnelDesign,
-  ctx?: LeadgenSectionRenderCtx,
-  slot = "",
+  _design: DefaultFunnelDesign,
+  _ctx?: LeadgenSectionRenderCtx,
+  _slot = "",
 ): string {
-  // v3.1 R3 §7/§8.5b + P2a §R-A: per-button node design_overrides (height/
-  // corners/border) MERGED with the choice's OWN diff-only `style` overlay
-  // (OtherGroupSelector shares ButtonAnswerGroup's choice-button idiom, so it
-  // gets the same per-choice freedom — main AND Other-panel secondary choices).
-  // "" when neither authors any (byte-identical to pre-R3/pre-P2a).
-  const btn = (c: LeadgenChoice): string =>
-    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style)}` +
-    attr("data-value", c.value) +
-    attr("data-lg-choice", c.value) +
-    attr("data-analytics-id", c.analytics_id) +
-    `>${esc(c.label)}</button>`;
-  const display = readChoiceDisplay(node);
-  let body: string;
-  if (display !== undefined && display.otherGroupEnabled) {
-    const { main, secondary } = splitChoicesForOtherGroup(choiceList(node), display);
-    body =
-      main.map(btn).join("") +
-      renderOtherGroupTail(
-        display,
-        "lg-btn lg-btn-answer lg-other-trigger",
-        esc(display.otherGroupLabel),
-        secondary.map(btn).join(""),
-      );
-  } else {
-    body = choiceList(node).map(btn).join("");
-  }
+  void _design;
+  void _ctx;
+  void _slot;
   return (
-    `<div class="lg-answer-group lg-other-group" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choiceList(node)))}${answerGroupRootStyle(node, design, ctx)}>` +
-    body +
-    // CONDUCTOR FIX (P4b regression): the auto error slot nests as the LAST
-    // CHILD of the group box, never a card-level sibling — "" is a no-op.
-    slot +
-    `</div>` +
-    // v3.1 R3 E1-NEW-8: helper line below the group ("" when no props.helper).
-    fieldHelperLine(node)
+    `<div class="lg-mqg-empty"${attr("data-component-type", node.type)}${attr("data-question-id", node.question_id)}>` +
+    `This question type is retired — replace it with Buttons/Cards and the &ldquo;Other&rdquo; editor (&sect;6.5).` +
+    `</div>`
   );
 }
 
@@ -1985,15 +2349,21 @@ function choiceStyleOverlayEntries(
 // overlay merged on top (diff-only). `choiceStyle` omitted (the pre-P2a call
 // shape) AND a node WITHOUT per-item design_overrides → "" — byte-identical to
 // pre-P2a for every un-styled item.
+// Rework §6.7: `extraEntries` merges in caller-computed one-off CSS (currently
+// only trailingRowCenterOffset's per-item grid-column-start) — LAST so it wins
+// over the node/choice layers on a shared key (none collide today). Omitted by
+// every pre-§6.7 call site ⇒ byte-identical.
 function choiceItemStyle(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx: LeadgenSectionRenderCtx | undefined,
   choiceStyle?: LeadgenChoiceStyle,
+  extraEntries?: Record<string, string | undefined>,
 ): string {
   return style({
     ...nodeItemStyleEntries(node, design, ctx),
     ...choiceStyleOverlayEntries(choiceStyle, design, ctx),
+    ...extraEntries,
   });
 }
 
@@ -2063,6 +2433,10 @@ function labelLine(node: LeadgenComponentNode): string {
   const label = propStr(node, "label");
   return label === undefined || label.trim() === "" ? "" : `<span class="lg-label">${esc(label)}</span>`;
 }
+// Rework §6.9: `fallbackPlaceholder` is consumed ONLY by renderPhoneInputQuestion
+// (the mask scaffold, e.g. "(___) ___-____") — used ONLY when the author left
+// props.placeholder unset, so an authored placeholder always still wins.
+// Every other call site omits it (undefined) ⇒ byte-identical to pre-§6.9.
 function renderTextInput(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
@@ -2070,8 +2444,9 @@ function renderTextInput(
   extra: string,
   ctx?: LeadgenSectionRenderCtx,
   slot = "",
+  fallbackPlaceholder?: string,
 ): string {
-  const placeholder = propStr(node, "placeholder");
+  const placeholder = propStr(node, "placeholder") ?? fallbackPlaceholder;
   const maxLen = propNum(node, "maxLen");
   const icon = fieldLeadingIcon(node);
   const helper = fieldHelperLine(node);
@@ -2245,13 +2620,41 @@ export function renderEmailInputQuestion(
 ): string {
   return renderTextInput(node, design, "email", ` inputmode="email" autocomplete="email"`, ctx, slot);
 }
+// Rework §6.9/M8: the compiled mask scaffold (e.g. "(___) ___-____") + digit
+// count off props.phone_format.mask.pattern — parsed through the SAME
+// parsePhoneMaskPattern grammar the save gate uses (content-schema.ts), so a
+// stale/corrupt mask (already rejected at save; tolerated on read like
+// config-dto's buildPhoneContract) yields undefined here too, never throws.
+// The legacy custom raw-regex path and the nanp/e164_intl/il presets carry NO
+// mask — undefined, so the renderer stays the plain pre-§6.9 <input> (byte-
+// identical) for every pre-M8 phone field.
+function phoneMaskScaffold(node: LeadgenComponentNode): { scaffold: string; digitCount: number } | undefined {
+  const pf = node.props?.["phone_format"];
+  if (pf === null || typeof pf !== "object" || Array.isArray(pf)) return undefined;
+  const mask = (pf as { mask?: unknown }).mask;
+  if (mask === null || typeof mask !== "object") return undefined;
+  const parsed = parsePhoneMaskPattern((mask as { pattern?: unknown }).pattern);
+  if (parsed === null) return undefined;
+  return { scaffold: parsed.scaffold, digitCount: parsed.digit_count };
+}
+
 export function renderPhoneInputQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
   slot = "",
 ): string {
-  return renderTextInput(node, design, "tel", ` inputmode="tel" autocomplete="tel"`, ctx, slot);
+  const mask = phoneMaskScaffold(node);
+  // Rework §6.9: the compiled scaffold rides as a fallback placeholder (an
+  // authored props.placeholder always wins — additive) + two data hooks
+  // (scaffold + digit count) S2.3's fill behavior reads directly off the DOM,
+  // mirroring the data-lg-maps convention of embedding what the runtime needs
+  // as attributes rather than re-deriving it. undefined mask ⇒ every `extra`/
+  // fallback argument below is "" / undefined ⇒ byte-identical to pre-§6.9.
+  const extra =
+    ` inputmode="tel" autocomplete="tel"` +
+    (mask !== undefined ? attr("data-lg-mask-scaffold", mask.scaffold) + attr("data-lg-mask-digits", mask.digitCount) : "");
+  return renderTextInput(node, design, "tel", extra, ctx, slot, mask?.scaffold);
 }
 export function renderDateQuestion(
   node: LeadgenComponentNode,
@@ -2373,12 +2776,169 @@ export function renderNameFieldsGroup(node: LeadgenComponentNode, design: Defaul
   );
 }
 
+// Rework §6.10/M9 — the per-field address renderer's own field-spec reading.
+// Returns undefined for ANY corrupt/legacy shape (absent props.fields, a
+// non-array, or a malformed entry) so the caller falls back to the EXACT
+// pre-M9 composite renderer — L-192 "absent fields[] ⇒ render exactly as
+// today". content-schema.validateAddressFields is the save-time gate; this
+// read is defensive (clampInt-at-render idiom), never throws.
+interface LeadgenAddressFieldSpec {
+  field: LeadgenAddressFieldKind;
+  label?: string;
+  mode: LeadgenAddressFieldMode;
+  required: boolean;
+  zip5: boolean;
+}
+
+const ADDRESS_FIELD_KINDS: readonly LeadgenAddressFieldKind[] = ["street", "city", "state", "zip", "full_address"];
+
+function readAddressFieldSpecs(node: LeadgenComponentNode): LeadgenAddressFieldSpec[] | undefined {
+  const raw = node.props?.["fields"];
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const out: LeadgenAddressFieldSpec[] = [];
+  for (const f of raw) {
+    if (f === null || typeof f !== "object" || Array.isArray(f)) return undefined;
+    const r = f as Record<string, unknown>;
+    const kind = r["field"];
+    if (typeof kind !== "string" || !ADDRESS_FIELD_KINDS.includes(kind as LeadgenAddressFieldKind)) return undefined;
+    out.push({
+      field: kind as LeadgenAddressFieldKind,
+      label: typeof r["label"] === "string" && r["label"].trim() !== "" ? r["label"] : undefined,
+      mode: r["mode"] === "manual" ? "manual" : "autofill",
+      required: r["required"] === true,
+      zip5: r["validation"] === "zip5",
+    });
+  }
+  return out;
+}
+
+const ADDRESS_FIELD_DEFAULT_LABEL: Record<Exclude<LeadgenAddressFieldKind, "full_address">, string> = {
+  street: "Street address",
+  city: "City",
+  state: "State",
+  zip: "ZIP code",
+};
+
+// Field-name resolution mirrors the pre-M9 addrRoleField convention below
+// (maps.fills.<slot> override, else {base}_{slot}) so a per-field input's
+// data-lg-field always agrees with what maps.ts's autofill fill-target
+// already expects — one derivation, never duplicated/drifted.
+function m9AddressFieldName(
+  base: string,
+  fillsObj: Record<string, unknown>,
+  kind: Exclude<LeadgenAddressFieldKind, "full_address">,
+): string {
+  const f = fillsObj[kind];
+  return typeof f === "string" && f.trim() !== "" ? f.trim() : `${base}_${kind}`;
+}
+
+// Rework §6.10/M9: N separate labeled inputs, ORDER/LABELS/MODE per
+// props.fields[]. Each self-declares data-lg-field (so the EXISTING generic
+// handleInputEvent `closest("[data-lg-field]")` records it — the SAME
+// technique the §6.8 from_to/dual_range sub-fields use, zero new engine code).
+// The first Maps-eligible (mode:'autofill', non-full_address) field carries
+// data-lg-maps + becomes the Places "own field" (maps.ts initMapsFields);
+// sibling autofill fields are its fill targets. Maps OFF/keyless degrades
+// gracefully with ZERO renderer branching — initMapsFields itself no-ops
+// silently (existing graceful path); every field is a plain, functional,
+// typeable input regardless.
+function renderAddressFieldSet(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+  slot: string,
+  specs: LeadgenAddressFieldSpec[],
+): string {
+  const provider = propStr(node, "provider") ?? "google";
+  const addressMapsRaw = node.props?.["maps"];
+  const addressMapsEnabled = isNewMapsShape(addressMapsRaw) ? addressMapsRaw.enabled === true : true;
+  const addrBase =
+    typeof node.internal_field === "string" && node.internal_field.trim() !== ""
+      ? node.internal_field.trim()
+      : typeof node.question_id === "string" && node.question_id !== ""
+        ? node.question_id
+        : "address";
+  const addrMapsObj = addressMapsRaw !== null && typeof addressMapsRaw === "object" ? (addressMapsRaw as Record<string, unknown>) : {};
+  const addrFillsObj =
+    addrMapsObj["fills"] !== null && typeof addrMapsObj["fills"] === "object" ? (addrMapsObj["fills"] as Record<string, unknown>) : {};
+  // full_address may only appear alone (content-schema save gate) — a single
+  // composite input, same semantics as the legacy renderer's one field.
+  if (specs.length === 1 && specs[0]!.field === "full_address") {
+    const f = specs[0]!;
+    const placeholder = f.label ?? "Start typing your address…";
+    return (
+      `<div class="lg-address"${hydration(node)}${fieldSizeStyle(node, ctx)} data-provider="${esc(provider)}"${addressMapsEnabled ? attr("data-lg-maps", mapsConfigJson(node)) : ""}>` +
+      `<input class="lg-input lg-address-input" type="text" data-lg-input` +
+      ` autocomplete="street-address"${attr("placeholder", placeholder)}` +
+      (node.required === true || f.required ? " required" : "") +
+      ` data-address-autocomplete="true">` +
+      slot +
+      `</div>` +
+      fieldHelperLine(node)
+    );
+  }
+  // Which field drives the Places autocomplete: the FIRST autofill-mode,
+  // non-full_address field, only when the master Maps toggle allows it.
+  const autocompleteIndex = addressMapsEnabled ? specs.findIndex((f) => f.mode === "autofill") : -1;
+  const fieldHtml = specs
+    .map((f, i) => {
+      const kind = f.field as Exclude<LeadgenAddressFieldKind, "full_address">;
+      const fieldName = m9AddressFieldName(addrBase, addrFillsObj, kind);
+      const label = f.label ?? ADDRESS_FIELD_DEFAULT_LABEL[kind];
+      const isAutocompleteField = i === autocompleteIndex;
+      // Fill targets: every OTHER autofill-mode field's resolved name (M9
+      // Google-Maps fill mapping — the SAME 4-key {street,city,state,zip}
+      // shape maps.ts's LeadgenNewMapsShape.fills already understands).
+      const fillsForMapsConfig: Record<string, string> = {};
+      if (isAutocompleteField) {
+        for (const other of specs) {
+          if (other === f || other.mode !== "autofill" || other.field === "full_address") continue;
+          fillsForMapsConfig[other.field] = m9AddressFieldName(addrBase, addrFillsObj, other.field as Exclude<LeadgenAddressFieldKind, "full_address">);
+        }
+      }
+      const mapsAttr = isAutocompleteField
+        ? attr(
+            "data-lg-maps",
+            JSON.stringify({ enabled: true, jobs: { validate: false, auction: false, autocomplete: true }, fills: fillsForMapsConfig }),
+          )
+        : "";
+      const zip5Attrs = kind === "zip" && f.zip5 ? ` inputmode="numeric" pattern="\\d{5}" maxlength="5"` : "";
+      return (
+        `<span class="lg-address-field-wrap"${attr("data-lg-field", fieldName)}${mapsAttr}>` +
+        `<input class="lg-input" type="text" data-lg-input` +
+        `${attr("placeholder", label)}${attr("aria-label", label)}` +
+        (isAutocompleteField ? ` autocomplete="street-address" data-address-autocomplete="true"` : "") +
+        zip5Attrs +
+        (f.required ? " required" : "") +
+        `>` +
+        `</span>`
+      );
+    })
+    .join("");
+  return (
+    `<div class="lg-address lg-address-fieldset"${hydration(node)}${fieldSizeStyle(node, ctx)} data-provider="${esc(provider)}">` +
+    `<div class="lg-address-fields"${style({ display: "flex", "flex-direction": "column", gap: design.spacing.sm })}>` +
+    fieldHtml +
+    `</div>` +
+    slot +
+    `</div>` +
+    fieldHelperLine(node)
+  );
+}
+
 export function renderAddressAutocompleteQuestion(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
   slot = "",
 ): string {
+  // Rework §6.10/M9: props.fields[] present ⇒ the NEW per-field renderer
+  // (order/labels/mode, full_address single-input). Absent/corrupt ⇒ L-192
+  // "render EXACTLY as today" — the unchanged legacy composite body below.
+  const fieldSpecs = readAddressFieldSpecs(node);
+  if (fieldSpecs !== undefined) {
+    return labelLine(node) + renderAddressFieldSet(node, design, ctx, slot, fieldSpecs);
+  }
   const provider = propStr(node, "provider") ?? "google";
   const placeholder = propStr(node, "placeholder") ?? "Start typing your address…";
   const addressMapsRaw = node.props?.["maps"];
@@ -2458,6 +3018,9 @@ export function renderAddressAutocompleteQuestion(
       .join("") +
     "</div></div>";
   return (
+    // Rework §6.3: extends labelLine to Address (additive — "" when no
+    // props.label, so the L-192 legacy byte-identity fixture is unaffected).
+    labelLine(node) +
     // 03 §3.3 / 08 §8.8: data-lg-maps carries the field-level props.maps
     // config (or the "{}" compat fallback for global-checkbox-era content).
     // The KEY itself never rides here — runtime/maps.ts no-ops gracefully

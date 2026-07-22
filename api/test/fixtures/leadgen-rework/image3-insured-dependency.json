@@ -1,0 +1,41 @@
+{
+  "components": [
+    {
+      "type": "TwoButtonYesNo",
+      "question_id": "q_insured",
+      "question_key": "insured_q",
+      "internal_field": "currently_insured",
+      "answer_type": "boolean",
+      "props": {
+        "label": "Are you currently insured?",
+        "yesLabel": "Yes",
+        "noLabel": "No"
+      }
+    },
+    {
+      "type": "DropdownQuestion",
+      "question_id": "q_insurer",
+      "question_key": "insurer_q",
+      "internal_field": "current_insurer",
+      "answer_type": "enum",
+      "required": true,
+      "props": {
+        "label": "Who is your insurer?",
+        "placeholder": "Select your insurer",
+        "default": "geico"
+      },
+      "choices": [
+        { "label": "GEICO", "value": "geico", "analytics_id": "insurer_geico" },
+        { "label": "Progressive", "value": "progressive", "analytics_id": "insurer_progressive" },
+        { "label": "State Farm", "value": "state_farm", "analytics_id": "insurer_state_farm" },
+        { "label": "Other", "value": "other_insurer", "analytics_id": "insurer_other" }
+      ],
+      "conditional": { "when": "currently_insured", "op": "eq", "value": true }
+    },
+    {
+      "type": "ContinueButton",
+      "question_id": "q_continue",
+      "props": { "label": "Continue" }
+    }
+  ]
+}

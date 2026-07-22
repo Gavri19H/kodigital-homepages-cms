@@ -17,9 +17,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(HERE, "fixtures", "leadgen-p2a-backcompat", "unstyled-choice-render.json");
 const DESIGN = defaultFunnelDesign;
 
-// The SAME representative unstyled nodes the fixture was frozen from (the 5
-// per-choice families + OtherGroupSelector) — exercising choices, badges,
-// subtitles, images, Other-group split, columns.
+// The SAME representative unstyled nodes the fixture was frozen from — the 5
+// per-choice families exercising choices, badges, subtitles, images, columns.
+// Rework §10 removal (test repair, P2): OtherGroupSelector's render leg is
+// RETIRED to a fail-safe extinct-type box (own dedicated, non-byte-gate
+// coverage in leadgen-components-render.test.ts) — it is no longer a
+// "per-choice family" subject for THIS byte gate, so its entry is dropped
+// from both this map and the frozen fixture (never silently — see the git
+// history of the fixture JSON for the removed key).
 const NODES: Record<string, LeadgenComponentNode> = {
   ButtonAnswerGroup: {
     type: "ButtonAnswerGroup",
@@ -67,17 +72,6 @@ const NODES: Record<string, LeadgenComponentNode> = {
       { label: "Three", value: "three", analytics_id: "a_three" },
     ],
     props: { min: 1, max: 2, columns: 3 },
-  },
-  OtherGroupSelector: {
-    type: "OtherGroupSelector",
-    question_id: "q_other",
-    internal_field: "other",
-    choices: [
-      { label: "Red", value: "red", analytics_id: "a_red" },
-      { label: "Blue", value: "blue", analytics_id: "a_blue" },
-      { label: "Green", value: "green", analytics_id: "a_green" },
-    ],
-    choiceDisplay: { mainValues: ["red", "blue"], otherGroupEnabled: true, otherGroupLabel: "Other", searchableOther: true },
   },
 };
 

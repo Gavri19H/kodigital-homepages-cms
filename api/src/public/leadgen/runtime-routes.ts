@@ -47,6 +47,7 @@ import {
   resolveFunnelEntryVariant,
   computeResumeSection,
   resolveEffectiveFrameOnly,
+  resolveSavedFrameTemplateDefaultsFor,
   buildFrameCtaCtx,
   computeCtaVerdict,
   deriveOs,
@@ -412,10 +413,14 @@ async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
   const answers = normalizeCheckpointAnswers(body.a, checkpointKnownFields(current));
   const entryCtx = requestEntryCtx(c, verified.landing_url, Date.now());
   const ctaCtx = { ...buildFrameCtaCtx(entryCtx, 0), ...answers };
+  // Rework M5 (mini-round): precedence variant.frame_template_id ?? funnel.
+  // frame_template_id, via the shared resolver.ts helper.
+  const currentSavedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(c.env.DB, current);
   const currentFrame = resolveEffectiveFrameOnly({
     frame_config_json: current.funnel.frame_config_json,
     theme_json: current.funnel.theme_json,
     frame_overrides_json: current.variant.frame_overrides_json,
+    saved_template_defaults: currentSavedTemplateDefaults,
   });
   const ccCurrent = currentFrame !== null ? computeCtaVerdict(currentFrame.cta_slots, ctaCtx) : [];
   const noSwitch = (): Response =>
@@ -497,10 +502,12 @@ async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
   // whole point of routing to another funnel name/variant), re-evaluated
   // against the SAME entry ctx UNION answers (reissued.cc from mintFunnelAttempt
   // above lacks the answers half, so it is not reused here).
+  const targetSavedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(c.env.DB, target);
   const targetFrame = resolveEffectiveFrameOnly({
     frame_config_json: target.funnel.frame_config_json,
     theme_json: target.funnel.theme_json,
     frame_overrides_json: target.variant.frame_overrides_json,
+    saved_template_defaults: targetSavedTemplateDefaults,
   });
   const ccTarget = targetFrame !== null ? computeCtaVerdict(targetFrame.cta_slots, ctaCtx) : [];
 

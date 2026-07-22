@@ -850,7 +850,11 @@ describe("events: ULID-shape id", () => {
 
 describe("bundle: committed engine-bundle.generated.ts", () => {
   it("is within the §3.1 budget and non-trivial", () => {
-    expect(LEADGEN_RUNTIME_JS_BYTES).toBeLessThanOrEqual(46080);
+    // LeadGen Rework owner decision D1 (P0 review, 2026-07-22): the visitor
+    // runtime cap is raised 46080 -> 51200 (50 KiB), FINAL for this program,
+    // to fund the §7 visitor-facing widgets (mask/sliders/other/address) —
+    // see docs/leadgen/rework/byte-ledger.md for the per-feature accounting.
+    expect(LEADGEN_RUNTIME_JS_BYTES).toBeLessThanOrEqual(51200);
     expect(LEADGEN_RUNTIME_JS_BYTES).toBeGreaterThan(1000);
   });
 

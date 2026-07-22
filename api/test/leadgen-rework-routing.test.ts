@@ -30,6 +30,8 @@ import {
   deriveQuoteCheckpointPages,
   loadSharedPages,
   deriveOs,
+  resolveEffectiveFrameOnly,
+  resolveSavedFrameTemplateDefaultsFor,
   type EntryKnownContext,
 } from "../src/public/leadgen/resolver";
 import { deriveRuleCheckpoint, ENTRY_KNOWN_ROUTING_FIELDS } from "../src/leadgen/rule-checkpoint";
@@ -862,5 +864,148 @@ describeDb("M10/D3 feed_name — the remaining contract legs (payload context no
     });
     expect(unroutedEvent.feed_name).toBe("");
     expect(unroutedEvent.routed_to_funnel).toBe("");
+  });
+});
+
+// ===========================================================================
+// Conductor mini-round — M5 saved-template threading on the LIVE serve path.
+// S2.2 landed frames.ts effectiveFrame's optional 4th arg + resolver.ts's
+// resolveEffectiveFrameOnly saved_template_defaults field (unit-tested there);
+// this slice's job is the 4 EXTERNAL call sites that must actually populate
+// it: runtime-routes.ts (x2), serve.ts (x1, internal to resolveFrameComposition
+// via renderFunnelShell + serveLeadgenConfig), attempt.ts (x1) — via the NEW
+// shared resolver.ts helper resolveSavedFrameTemplateDefaultsFor.
+// ===========================================================================
+
+// A full, valid EffectiveFrameConfig blob (the M5 seed "Centered card" shape,
+// migrations/0049) with a DISTINCTIVE header.secure_badge.text marker —
+// proves a live-served page's base layer came from THIS saved template, not
+// a built-in FRAME_TEMPLATES default (whose secure_badge starts disabled).
+function centeredFrameJsonWithMarker(secureBadgeText: string): string {
+  return JSON.stringify({
+    version: 1,
+    template: "centered",
+    compat: { allow_section_chrome: false },
+    header: {
+      enabled: true,
+      logo_source: "site",
+      logo_media_id: null,
+      logo_size: "m",
+      logo_align: "center",
+      tagline: null,
+      secure_badge: { enabled: true, text: secureBadgeText },
+      cta: { enabled: false, label: "", href: null, tel: null },
+      disclosure_link: false,
+      sticky: true,
+    },
+    progress: { style: "bar", position: "under_header", thickness: "m", width: "content", color_role: "brand_primary", show_label: false },
+    back: { style: "text", position: "in_card", label: "Back", history_fallback: true },
+    disclosure: { enabled: false, location: "footer", link_label: "Advertising Disclosure", text: "" },
+    footer: { enabled: true, show_on: "all", links_source: "site", links: [], trust_text: null, description: null, show_logo: false, hide_on_mobile: false },
+    trust_strip: { enabled: false, source: "manual", logos: [], placement: "below_unit", mobile: "wrap" },
+    benefit_bar: { enabled: false, items: [], placement: "below_unit" },
+    background: { role: "page_background", image_media_id: null, style: "flat" },
+    section_slot: { max_width: "m", align: "center", card: "card", padding: "m", offset_y: "none", allow_section_card: true, transition: "fade", continue_placement: "inside_unit", continue_style_role: "button_primary" },
+    mobile: {},
+  });
+}
+
+// A sparse, VALID funnel-level frame_config_json that never touches
+// header.secure_badge — mirrors leadgen-section-preview-frame.test.ts's own
+// FRAME_CONFIG shape (template + a couple of unrelated groups only) — so a
+// saved template's own secure_badge value survives mergeInto as the base layer.
+const SPARSE_FRAME_CONFIG = JSON.stringify({
+  version: 1,
+  template: "centered",
+  progress: { style: "bar", show_label: true },
+});
+
+function insertFrameTemplate(sdb: SqliteDb, name: string, frameJson: string): { id: number; public_id: string } {
+  const publicId = mintPublicId("frame_template");
+  sdb.prepare("INSERT INTO leadgen_frame_templates (public_id, name, frame_json, is_default) VALUES (?, ?, ?, 0)").run(publicId, name, frameJson);
+  return { id: (sdb.prepare("SELECT id FROM leadgen_frame_templates WHERE public_id = ?").get(publicId) as { id: number }).id, public_id: publicId };
+}
+
+describeDb("M5 saved-template threading — LIVE serve path (resolver.ts resolveSavedFrameTemplateDefaultsFor)", () => {
+  it("a live-served funnel with a SAVED custom template renders that template's distinctive default through the REAL serve path", async () => {
+    const { sdb, env } = newHarness();
+    const template = insertFrameTemplate(sdb, "Marker Template 1", centeredFrameJsonWithMarker("SAVED-TEMPLATE-MARKER-1"));
+    const q = insertQuote(sdb, "SavedTemplateLive");
+    const f = seedFunnelWithSections(sdb, q.id, "F1", 1, [{ field: "a1" }]);
+    sdb.prepare("UPDATE leadgen_funnels SET frame_config_json = ?, frame_template_id = ? WHERE id = ?").run(SPARSE_FRAME_CONFIG, template.id, f.funnel.id);
+    setDefault(sdb, q.id, f.funnel.id);
+    activate(sdb, q.id);
+
+    const res = await httpGet(env, "/lg");
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("SAVED-TEMPLATE-MARKER-1");
+    expect(html).toContain('<span class="lg-secure-badge-text">SAVED-TEMPLATE-MARKER-1</span>');
+  });
+
+  it("a variant-level frame_overrides_json wins over the saved template's default (precedence: template ⊕ funnel.frame_config ⊕ variant.overrides)", async () => {
+    const { sdb, env } = newHarness();
+    const template = insertFrameTemplate(sdb, "Marker Template 2", centeredFrameJsonWithMarker("SAVED-TEMPLATE-MARKER-2"));
+    const q = insertQuote(sdb, "SavedTemplateOverride");
+    const f = seedFunnelWithSections(sdb, q.id, "F1", 1, [{ field: "a1" }]);
+    sdb.prepare("UPDATE leadgen_funnels SET frame_config_json = ?, frame_template_id = ? WHERE id = ?").run(SPARSE_FRAME_CONFIG, template.id, f.funnel.id);
+    // the variant's OWN frame_overrides_json re-points secure_badge.text —
+    // this must win over the saved template's base-layer value.
+    const overrides = JSON.stringify({ header: { secure_badge: { enabled: true, text: "VARIANT-OVERRIDE-MARKER" } } });
+    sdb.prepare("UPDATE leadgen_funnel_variants SET frame_overrides_json = ? WHERE id = ?").run(overrides, f.variant.id);
+    setDefault(sdb, q.id, f.funnel.id);
+    activate(sdb, q.id);
+
+    const res = await httpGet(env, "/lg");
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("VARIANT-OVERRIDE-MARKER");
+    expect(html).not.toContain("SAVED-TEMPLATE-MARKER-2");
+  });
+
+  it("a funnel/variant with NO frame_template_id anywhere stays byte-identical to before (capture-compare: omitted vs explicit-null saved_template_defaults; no marker leaks into the live serve)", async () => {
+    const { sdb, env } = newHarness();
+    const q = insertQuote(sdb, "NoFtidLegacy");
+    const f = seedFunnelWithSections(sdb, q.id, "F1", 1, [{ field: "a1" }]);
+    // a REAL, ftid-less frame_config_json (same sparse shape as tests above) —
+    // this funnel takes the composed-frame branch, just with no saved template.
+    sdb.prepare("UPDATE leadgen_funnels SET frame_config_json = ? WHERE id = ?").run(SPARSE_FRAME_CONFIG, f.funnel.id);
+    setDefault(sdb, q.id, f.funnel.id);
+    activate(sdb, q.id);
+
+    // (a) resolveSavedFrameTemplateDefaultsFor returns null when neither the
+    // funnel nor the variant carries a frame_template_id.
+    const resolved = await resolveActivatedFunnel(env, { site_id: "site-1", session_id: "s1", entry_ctx: BASE });
+    expect(resolved).not.toBeNull();
+    const savedDefaults = await resolveSavedFrameTemplateDefaultsFor(env.DB, resolved!);
+    expect(savedDefaults).toBeNull();
+
+    // (b) capture-compare: resolveEffectiveFrameOnly with the field OMITTED
+    // entirely (the pre-round call shape) vs the SAME call with an EXPLICIT
+    // `saved_template_defaults: null` (what my new code now always passes)
+    // must produce byte-identical (deep-equal) results — proving "absent"
+    // and "resolved-to-null" degrade through the EXACT SAME legacy branch.
+    const frameSource = {
+      frame_config_json: resolved!.funnel.frame_config_json,
+      theme_json: resolved!.funnel.theme_json,
+      frame_overrides_json: resolved!.variant.frame_overrides_json,
+    };
+    const withoutField = resolveEffectiveFrameOnly(frameSource);
+    const withExplicitNull = resolveEffectiveFrameOnly({ ...frameSource, saved_template_defaults: null });
+    expect(withExplicitNull).toEqual(withoutField);
+    expect(withoutField).not.toBeNull();
+    // the legacy built-in "centered" template's secure_badge starts disabled —
+    // confirming this really is the untouched FRAME_TEMPLATES default, not a
+    // saved template (which this test never attached).
+    expect(withoutField!.header.secure_badge.enabled).toBe(false);
+
+    // (c) the REAL served HTML never leaks either other test's marker, and
+    // shows no secure badge at all (secure_badge.enabled is false here).
+    const res = await httpGet(env, "/lg");
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).not.toContain("SAVED-TEMPLATE-MARKER");
+    expect(html).not.toContain("VARIANT-OVERRIDE-MARKER");
+    expect(html).not.toContain("lg-secure-badge-text");
   });
 });

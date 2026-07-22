@@ -119,12 +119,17 @@ describe("R3 E1-NEW-2 — the per-type choice-field map is DERIVED from presets.
     });
   }
 
-  it("the register's shape holds: BAG/DDQ/SDQ/OGS = label/value/analytics_id only; MCG adds title/subtitle; card grids get all 12", () => {
+  it("the register's shape holds: BAG/DDQ/SDQ = label/value/analytics_id only; MCG adds title/subtitle; card grids get all 12", () => {
     const g = (t: string): string[] => [...(island[t] || [])].sort();
     expect(g("ButtonAnswerGroup")).toEqual(["analytics_id", "label", "value"]);
     expect(g("DropdownQuestion")).toEqual(["analytics_id", "label", "value"]);
     expect(g("SearchableDropdownQuestion")).toEqual(["analytics_id", "label", "value"]);
-    expect(g("OtherGroupSelector")).toEqual(["analytics_id", "label", "value"]);
+    // Rework §10 removal (test repair, P2): OtherGroupSelector's render leg is
+    // RETIRED to a fail-safe extinct-type box (conductor ruling) that consumes
+    // NO choice fields at all — it no longer belongs to this "label/value/
+    // analytics_id" group (own dedicated retirement coverage lives in
+    // leadgen-components-render.test.ts / leadgen-r1-answers.test.ts).
+    expect(g("OtherGroupSelector")).toEqual([]);
     expect(g("MultiChoiceCardGroup")).toEqual(["analytics_id", "label", "subtitle", "title", "value"]);
     expect(g("IconCardAnswerGrid")).toEqual([...CHOICE_FIELDS].sort());
     expect(g("ImageCardAnswerGrid")).toEqual([...CHOICE_FIELDS].sort());
@@ -201,14 +206,18 @@ describe("P2b R-A completion — CHOICE_STYLE_TYPES is DERIVED from presets.ts's
     expect(island).toEqual(derived);
   });
 
-  it("the register's shape holds: exactly the 6 per-choice families (incl. P5 MultiQuestionGrid, whose shared pills thread c.style); TwoButtonYesNo (yesStyle/noStyle, no choices array) and the 2 native-select dropdowns are excluded", () => {
+  // Rework §10 removal (test repair, P2): OtherGroupSelector's render leg is
+  // RETIRED to a fail-safe extinct-type box (conductor ruling) that no longer
+  // calls choiceItemStyle(..., c.style) at all — dropped from this list,
+  // leaving exactly 5 per-choice families (own dedicated retirement coverage
+  // lives in leadgen-components-render.test.ts / leadgen-r1-answers.test.ts).
+  it("the register's shape holds: exactly the 5 per-choice families (incl. P5 MultiQuestionGrid, whose shared pills thread c.style); TwoButtonYesNo (yesStyle/noStyle, no choices array) and the 2 native-select dropdowns are excluded", () => {
     expect(derivedChoiceStyleTypes()).toEqual([
       "ButtonAnswerGroup",
       "IconCardAnswerGrid",
       "ImageCardAnswerGrid",
       "MultiChoiceCardGroup",
       "MultiQuestionGrid",
-      "OtherGroupSelector",
     ]);
   });
 

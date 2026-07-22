@@ -48,7 +48,12 @@ function render(type: string, extra: Record<string, unknown> = {}): string {
   return renderComponent(node(type, extra), DESIGN);
 }
 
-const BUTTON_TYPES = ["ButtonAnswerGroup", "TwoButtonYesNo", "OtherGroupSelector"];
+// Rework §10 removal (test repair, P2): OtherGroupSelector's render leg is
+// RETIRED to a fail-safe extinct-type box (conductor ruling) that consumes
+// NEITHER design_overrides NOR props.helper any more — dropped from both
+// lists below (its own dedicated retirement coverage lives in
+// leadgen-components-render.test.ts / leadgen-r1-answers.test.ts).
+const BUTTON_TYPES = ["ButtonAnswerGroup", "TwoButtonYesNo"];
 const CARD_TYPES = ["IconCardAnswerGrid", "ImageCardAnswerGrid", "MultiChoiceCardGroup"];
 const DROPDOWN_TYPES = ["DropdownQuestion", "SearchableDropdownQuestion"];
 const HELPER_TYPES = [
@@ -58,7 +63,6 @@ const HELPER_TYPES = [
   "ImageCardAnswerGrid",
   "MultiChoiceCardGroup",
   "DropdownQuestion",
-  "OtherGroupSelector",
   // PC-A10 (drift honesty, register): CONTENT_PROP_FIELDS has always
   // advertised Helper text for SearchableDropdownQuestion (it shares
   // DropdownQuestion's own ["placeholder","helper"] row set) — the renderer

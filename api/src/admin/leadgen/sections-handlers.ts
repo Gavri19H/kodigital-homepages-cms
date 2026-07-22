@@ -56,6 +56,7 @@ import { getThemeRecord } from "../../public/leadgen/designs/theme-store";
 import {
   CURATED_DESIGN_OVERRIDE_KEYS,
   flattenComponents,
+  parsePhoneMaskPattern,
 } from "../../public/leadgen/components/content-schema";
 import { COMPONENT_CATALOG } from "../../public/leadgen/components/registry";
 import type {
@@ -360,6 +361,17 @@ function phoneFormatIncoherenceWarning(node: Record<string, unknown>, path: stri
   const props = isRecord(node["props"]) ? node["props"] : {};
   const phoneFormat = props["phone_format"];
   if (phoneFormat === undefined || phoneFormat === null || phoneFormat === "nanp") return null;
+  // Rework M8 (§6.9): a MASK phone format is COHERENT with the US-only
+  // formatPhone transform iff it collects exactly 10 digits (NANP). S2.1 exposed
+  // digit_count via parsePhoneMaskPattern (the single grammar source) — a
+  // 10-digit mask (e.g. the default "(3) 3-4") pairs cleanly, so it does NOT
+  // warn; any other digit_count would be silently dropped by transformFormatPhone
+  // exactly like a non-NANP preset, so it still warns. Preset strings
+  // (e164_intl/il) and the legacy {custom:{regex}} shape keep warning below.
+  if (isRecord(phoneFormat) && isRecord(phoneFormat["mask"])) {
+    const parsed = parsePhoneMaskPattern((phoneFormat["mask"] as Record<string, unknown>)["pattern"]);
+    if (parsed !== null && parsed.digit_count === 10) return null;
+  }
   return {
     path,
     scope: "mapping",

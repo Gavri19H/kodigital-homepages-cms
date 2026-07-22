@@ -102,13 +102,6 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // presets.ts server renderer a live funnel uses) — SAME cross-engine shape
   // as p2a/p3a/p4b/p4c.
   'leadgen-p4d-editor.gesture.spec.ts',
-  // P5 (register PC-10 / decision D2 — Image9 MultiQuestionGrid): studio-only
-  // authoring + canvas-parity + default pre-selection — SAME cross-engine shape
-  // as p2a/p3a/p4c/p4d (the studio's OWN canvas preview, the SAME presets.ts
-  // server renderer a live funnel uses; no e2e.test dynamic tenant host). The
-  // runtime seeding/recording + auction round-trip ride the deterministic
-  // server-pipeline gate test/leadgen-p5-multi-question-grid.test.ts.
-  'leadgen-p5-multi-question-grid.gesture.spec.ts',
   // P5b (register §A PC-1..12): the OPERATOR ACCEPTANCE suite — the operator's
   // 12 items re-scripted as live journeys (the P5 close's terminal artifact).
   // SAME cross-engine shape as p2a/p3a/p4b/p4c/p4d/p5: every studio / canvas /
@@ -146,6 +139,15 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   'leadgen-round4-acceptance.gesture.spec.ts',
   'leadgen-round4-quotes-acceptance.gesture.spec.ts',
   'leadgen-round4-funnel-acceptance.gesture.spec.ts',
+  // LeadGen Rework P2 (LEADGEN-REWORK-03, slice S2.5): the §6.1/§6.2 studio
+  // gesture gate (geometry/ghost-sibling, mask builder, address field-set,
+  // §4.1 starter, slider type picker). SAME cross-engine shape as p1-geometry/
+  // p2a-element-freedom/p3a-placement above: every action is plain click/
+  // fill/selectOption + a real mouse click on the studio canvas (no dynamic
+  // *.e2e.test tenant host except one liveLegChromiumOnly()-guarded leg in
+  // test (a), mirroring Item 9's own studio-vs-live pattern) — engine-
+  // agnostic, expected to run unmodified on both projects.
+  'leadgen-rework-p2-studio.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',
