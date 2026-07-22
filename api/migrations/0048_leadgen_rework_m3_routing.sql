@@ -35,13 +35,34 @@
 -- preserved; INSERT OR IGNORE keeps a re-run a no-op. Index inventory of the
 -- originals: leadgen_funnel_rules → idx_lg_funnel_rules_variant_type (recreated);
 -- leadgen_routing_outcomes → idx_lg_routing_outcomes_session (recreated).
+--
+-- RETRY SAFETY (adversarial-review fix round, P2-2): if the skip/show GUARD in
+-- (3) trips, this file has already run steps (1)-(2) — CREATE TABLE +
+-- INSERT…SELECT execute as ordinary auto-committing statements (no implicit
+-- transaction wraps the whole file), so those effects are NOT rolled back by
+-- the later failure. A byte-identical re-application (after the operator
+-- clears the blocking skip/show rows) must therefore be safe end-to-end:
+--   * (1)'s CREATE TABLE/INDEX are now `IF NOT EXISTS` so a retry doesn't
+--     hard-fail on "table already exists" (proven: without this, retry fails
+--     at the very FIRST statement, before ever reaching step 2 again).
+--   * (2)'s INSERT…SELECT now carries a NOT EXISTS guard keyed on the stable
+--     (quote_id, rule_name) marker this same statement writes — so a retry
+--     skips rows already migrated instead of re-inserting them under a fresh
+--     random public_id (proven: without this guard, retry produces TWO rows
+--     for the same source rule — see leadgen-rework-migrations.test.ts).
+--   * (3)'s guard-table CREATE is likewise `IF NOT EXISTS` (it lingers, empty,
+--     after an aborted attempt — the failing INSERT never populates it).
+-- Steps (4)-(5) are reached ONLY after the guard passes, and nothing between a
+-- passing guard and end-of-file is designed to fail under normal data, so they
+-- keep the existing single-shot recreate-then-rename convention (0043's
+-- precedent) unchanged.
 
 -- === (1) NEW leadgen_quote_routing_rules ====================================
 -- Column list is contract-M3 verbatim. `match_mode` mirrors 0043 (nullable
 -- TEXT; the §21.4 evaluator defaults to 'all' when NULL). The "≥1 action" save
 -- gate is an application check (P3 handler), not a DB CHECK — matching the
--- contract's "Save gate" framing.
-CREATE TABLE leadgen_quote_routing_rules (
+-- contract's "Save gate" framing. IF NOT EXISTS: retry-safe (see above).
+CREATE TABLE IF NOT EXISTS leadgen_quote_routing_rules (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   public_id TEXT NOT NULL UNIQUE,                    -- "lgqr_…"
   quote_id INTEGER NOT NULL REFERENCES leadgen_quotes(id) ON DELETE CASCADE,
@@ -64,7 +85,7 @@ CREATE TABLE leadgen_quote_routing_rules (
 );
 -- Hot path: a quote's rules read priority-ascending during entry/checkpoint
 -- evaluation (mirrors 0043's idx_lg_funnel_rules_variant_type).
-CREATE INDEX idx_lg_quote_routing_rules_quote
+CREATE INDEX IF NOT EXISTS idx_lg_quote_routing_rules_quote
   ON leadgen_quote_routing_rules(quote_id, priority);
 
 -- === (2) D2 row migration: route_funnel_variant → leadgen_quote_routing_rules
@@ -76,6 +97,18 @@ CREATE INDEX idx_lg_quote_routing_rules_quote
 -- a valid value (defensive over unknown prod data). public_id uses the proven
 -- 0042 idiom (upper(hex(randomblob(13))) = 26 Crockford-conformant chars ⇒
 -- passes isPublicId('...')). feed_name NULL (no feed concept in the old model).
+--
+-- IDEMPOTENCY (P2-2 fix): public_id is random, so a plain INSERT…SELECT would
+-- insert a SECOND copy of the same rule on a retry (e.g. after the skip/show
+-- guard below aborts THIS SAME apply attempt and the file is re-run once the
+-- operator clears the blocking rows — step (1)'s CREATE TABLE has already run
+-- and this INSERT has already committed by the time the guard trips, since no
+-- implicit transaction spans the whole file). The NOT EXISTS clause keys off
+-- the stable (quote_id, rule_name) marker this very statement writes — a
+-- source rule that already produced its "Migrated rule <id>" row in this
+-- quote is skipped on any later re-run, so the row count stays exactly one
+-- migrated row per source rule regardless of how many times this statement
+-- executes.
 INSERT INTO leadgen_quote_routing_rules
   (public_id, quote_id, rule_name, priority, status, match_mode, conditions_json,
    conditions_hash, checkpoint_page, target_funnel_id, feed_name, value_multiplier,
@@ -101,13 +134,21 @@ FROM leadgen_funnel_rules r
 JOIN leadgen_funnel_variants v ON v.id = r.variant_id
 JOIN leadgen_funnels f ON f.id = v.funnel_id
 WHERE r.rule_type = 'route_funnel_variant'
+  AND NOT EXISTS (
+    SELECT 1 FROM leadgen_quote_routing_rules already
+     WHERE already.quote_id = f.quote_id
+       AND already.rule_name = 'Migrated rule ' || r.id
+  )
 ORDER BY r.id;
 
 -- === (3) skip_section/show_section GUARD (see CONFLICT note at top) ==========
 -- Non-inventing safety: abort the migration if any skip/show rule exists, so
 -- the recreation below can NEVER silently drop them (the tightened CHECK would
 -- otherwise IGNORE them). CASE→0 trips the CHECK(ok=1). No-op when none exist.
-CREATE TABLE _lg_m3_skipshow_guard (ok INTEGER NOT NULL CHECK (ok = 1));
+-- IF NOT EXISTS: retry-safe — this table lingers EMPTY after an aborted
+-- attempt (the failing INSERT below never populates it, so re-creating it is
+-- never required, only re-permitted).
+CREATE TABLE IF NOT EXISTS _lg_m3_skipshow_guard (ok INTEGER NOT NULL CHECK (ok = 1));
 INSERT INTO _lg_m3_skipshow_guard (ok)
   SELECT CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END
   FROM leadgen_funnel_rules WHERE rule_type IN ('skip_section','show_section');

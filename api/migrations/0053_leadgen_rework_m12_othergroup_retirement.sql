@@ -25,6 +25,13 @@
 -- IDEMPOTENT: after this runs no OtherGroupSelector and no choiceDisplay remain,
 -- so the WHERE matches nothing on a second application. A section carrying
 -- neither is not rewritten (WHERE excludes it) -> byte-identical.
+--
+-- CACHE INVALIDATION (adversarial review P2-3): see 0050's header for the full
+-- investigation (content_html is nullable/no-DEFAULT, has NO live reader
+-- anywhere in src/ — the live shell / studio preview / builder preview all
+-- re-render fresh from content_json). Invalidated to NULL in the SAME
+-- statement/WHERE scope for the rows this migration rewrites, so an
+-- already-migrated row's stale rendered markup is never left behind.
 
 UPDATE leadgen_sections
 SET content_json = json_set(
@@ -43,7 +50,8 @@ SET content_json = json_set(
     ))
     FROM json_each(leadgen_sections.content_json, '$.components') comp
   )
-)
+),
+  content_html = NULL
 WHERE json_valid(content_json)
   AND EXISTS (
     SELECT 1 FROM json_each(content_json, '$.components') c

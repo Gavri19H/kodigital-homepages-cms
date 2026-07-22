@@ -19,8 +19,12 @@
 // conductor.)
 
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { validateSectionContent } from "../src/public/leadgen/components/content-schema";
 import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
+import { renderSectionComponents } from "../src/public/leadgen/components/presets";
+import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 import {
   loadDatabaseSync,
   createSectionsDb,
@@ -34,6 +38,7 @@ import {
   topLevelTargetSections,
   nestedTargetSections,
   migrationSpec,
+  MIGRATIONS_DIR,
   FIXTURE_SECTIONS,
   FIXTURE_ANSWER_MAPS,
   type SqliteDb,
@@ -68,6 +73,31 @@ function validateOk(db: SqliteDb, id: number): void {
 function fieldUniverseEmptyDiff(before: string, after: string): void {
   const d = diffSets(projectedFieldUniverse(before), projectedFieldUniverse(after));
   expect({ added: d.added, removed: d.removed }).toEqual({ added: [], removed: [] });
+}
+function runRawSql(db: SqliteDb, sql: string): void {
+  (db["exec"] as (s: string) => void)(sql);
+}
+function setContentHtml(db: SqliteDb, id: number, html: string): void {
+  db.prepare("UPDATE leadgen_sections SET content_html = ? WHERE id = ?").run(html, id);
+}
+function contentHtml(db: SqliteDb, id: number): string | null {
+  return (db.prepare("SELECT content_html AS h FROM leadgen_sections WHERE id = ?").get(id) as { h: string | null }).h;
+}
+// Reconstructs — byte for byte, derived from the REAL shipped file so there is
+// zero duplication/drift risk — the PRE-FIX SQL the adversarial review (P2-3)
+// caught: the content_json rewrite with no content_html invalidation. Strips
+// exactly the fragment this fix added. Throws loudly (rather than silently
+// testing nothing) if a migration file is ever reworded so the fragment no
+// longer matches verbatim.
+function deriveOldSqlWithoutHtmlInvalidation(file: string): string {
+  const sql = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
+  const FRAGMENT = ",\n  content_html = NULL\n";
+  if (!sql.includes(FRAGMENT)) {
+    throw new Error(
+      `fixture drift: '${file}' no longer contains the expected content_html invalidation fragment — update this test's derivation of the pre-fix SQL`,
+    );
+  }
+  return sql.split(FRAGMENT).join("\n");
 }
 const M6 = migrationSpec("m6").file;
 const M7 = migrationSpec("m7").file;
@@ -349,4 +379,107 @@ describeDb("cross-cutting invariants over the whole corpus", () => {
       db.close();
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// P2-3 (adversarial review, FIX-FIRST) — content_html cache invalidation.
+//
+// leadgen_sections.content_html is TEXT (nullable, no DEFAULT —
+// migrations/0036_leadgen_core.sql:93): a persisted render CACHE of
+// content_json (sections-handlers.ts renderContentHtml, computed on every
+// create/patch). Investigation (exhaustive grep of src/ for every
+// leadgen-scoped read of `.content_html`): the live shell (serve.ts), the
+// studio's own preview endpoint (previewSectionHandler), and the
+// funnel-builder preview ALL independently re-render fresh from content_json
+// on every request (three separate "the ONE shared renderer" comments in the
+// source); no admin UI script (ui-sections.ts, ui-section-studio.ts,
+// ui-quotes.ts, quotes-handlers.ts) ever reads `.content_html`; resolver.ts
+// SELECTs it into ResolvedFunnelSection but never consumes it after
+// selection. There is therefore no live reader for the invalidation to
+// mislead into a blank preview forever — but the column's own contract is
+// "content_html mirrors content_json", and the migrations broke that mirror
+// for exactly the rows they rewrite (the review's finding). Fixed by adding
+// `content_html = NULL` to the SAME UPDATE statement (same WHERE scope, same
+// idempotency).
+// ---------------------------------------------------------------------------
+describeDb("P2-3 — content_html cache invalidation on migrated rows", () => {
+  const cases = [
+    { key: "M6", file: M6, id: 601 },
+    { key: "M7", file: M7, id: 701 },
+    { key: "M9", file: M9, id: 901 },
+    { key: "M12", file: M12, id: 1201 },
+  ] as const;
+
+  it("fail-before: the PRE-FIX SQL (content_json rewrite only) leaves a migrated row's content_html stale", () => {
+    const db = freshDb();
+    const staleHtml = '<div class="lg-mqg-legacy">STALE: MultiQuestionGrid markup</div>';
+    setContentHtml(db, 601, staleHtml);
+
+    runRawSql(db, deriveOldSqlWithoutHtmlInvalidation(M6)); // the BUG the review caught, reconstructed byte-for-byte from the shipped file
+
+    const migratedComponents = components(db, 601);
+    expect(migratedComponents.some((c) => c.type === "MultiQuestionGrid")).toBe(false); // content_json DID move (the grid expanded)
+    expect(contentHtml(db, 601)).toBe(staleHtml); // ...but content_html is UNCHANGED — the exact staleness P2-3 flagged
+    db.close();
+  });
+
+  it("pass-after: the SHIPPED M6 migration invalidates content_html for the SAME migrated row", () => {
+    const db = freshDb();
+    setContentHtml(db, 601, '<div class="lg-mqg-legacy">STALE: MultiQuestionGrid markup</div>');
+
+    applyMigrationFile(db, M6); // the REAL, shipped migration file (content_html = NULL in the same statement)
+
+    expect(contentHtml(db, 601)).toBeNull();
+    db.close();
+  });
+
+  for (const { key, file, id } of cases) {
+    it(`${key}: content_html invalidated to NULL for its migrated fixture; an untouched section keeps content_html byte-identical`, () => {
+      const db = freshDb();
+      const staleHtml = `<div>stale rendered markup for ${id}</div>`;
+      const untouchedSentinel = "<div>untouched sentinel — must survive byte-identically</div>";
+      setContentHtml(db, id, staleHtml);
+      setContentHtml(db, 999, untouchedSentinel); // 999 carries no migration target for ANY of the four
+
+      applyMigrationFile(db, file);
+
+      expect(contentHtml(db, id)).toBeNull(); // invalidated — same WHERE scope as the content_json rewrite
+      expect(contentHtml(db, 999)).toBe(untouchedSentinel); // WHERE excluded it — byte-identical, not even touched
+      db.close();
+    });
+
+    it(`${key}: idempotent INCLUDING the content_html column — apply twice == once`, () => {
+      const db = freshDb();
+      setContentHtml(db, id, `<div>stale rendered markup for ${id}</div>`);
+
+      applyMigrationFile(db, file);
+      const once = { json: rawJson(db, id), html: contentHtml(db, id) };
+      expect(once.html).toBeNull();
+
+      applyMigrationFile(db, file); // second application — the row no longer matches WHERE
+      const twice = { json: rawJson(db, id), html: contentHtml(db, id) };
+      expect(twice).toEqual(once); // byte-equal on BOTH columns — not re-touched
+      db.close();
+    });
+  }
+
+  it("serve-path render for a migrated section is UNCHANGED by the content_html invalidation (renderSectionComponents takes content_json only — it has no parameter content_html could reach)", () => {
+    const db = freshDb();
+    applyMigrationFile(db, M6);
+    expect(contentHtml(db, 601)).toBeNull(); // the fix took effect
+
+    const renderWithNullHtml = renderSectionComponents(components(db, 601), defaultFunnelDesign);
+
+    // Same content_json (the fix never touches it), but pretend content_html
+    // had been left stale instead of invalidated (the pre-fix bug) — proves
+    // the LIVE-SHELL render is a pure function of content_json, indifferent to
+    // whatever content_html holds.
+    setContentHtml(db, 601, "<div>stale — must be irrelevant to the live render</div>");
+    const renderWithStaleHtml = renderSectionComponents(components(db, 601), defaultFunnelDesign);
+
+    expect(renderWithStaleHtml).toBe(renderWithNullHtml); // content_html has ZERO influence on the render
+    expect(renderWithNullHtml.length).toBeGreaterThan(0); // sanity: a real render happened, not an empty string
+    expect(renderWithNullHtml).not.toContain("MultiQuestionGrid"); // sanity: it reflects the MIGRATED shape
+    db.close();
+  });
 });

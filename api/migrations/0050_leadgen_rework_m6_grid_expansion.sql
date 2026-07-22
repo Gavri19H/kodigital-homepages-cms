@@ -35,6 +35,27 @@
 -- nothing on a second application. A section with no grid is not rewritten at all
 -- (WHERE excludes it), so untouched content stays byte-identical (no JSON1
 -- re-serialisation).
+--
+-- CACHE INVALIDATION (adversarial review P2-3): content_html is a persisted
+-- render CACHE of content_json (leadgen_sections.content_html TEXT — nullable,
+-- no DEFAULT, migrations/0036_leadgen_core.sql:93). Investigation (exhaustive
+-- grep of src/ for every leadgen-scoped read of `.content_html`): the live
+-- shell (serve.ts), the studio's own preview endpoint, and the funnel-builder
+-- preview ALL independently re-render fresh from content_json on every request
+-- (three separate "the ONE shared renderer" comments) — no admin UI script
+-- (ui-sections.ts, ui-section-studio.ts, ui-quotes.ts, quotes-handlers.ts) ever
+-- reads `.content_html`; resolver.ts SELECTs it into ResolvedFunnelSection but
+-- never consumes it after selection. So there is no live reader to mislead OR
+-- to crash on NULL — but the column's own contract (sections-handlers.ts
+-- renderContentHtml, asserted in leadgen-frame-serve.test.ts /
+-- leadgen-section-overrides-save.test.ts) is "content_html mirrors
+-- content_json"; leaving a rewritten row's old rendered markup in place would
+-- violate that contract for exactly the rows this migration touches. NULL is
+-- SET in the SAME statement (same WHERE scope, same idempotency: an
+-- already-migrated row no longer matches the WHERE, so a re-apply never
+-- re-touches it) — matching the nullable, no-DEFAULT schema and the
+-- `content_html: string | null` type already declared on
+-- LeadgenSectionRow/LeadgenSectionApi.
 
 UPDATE leadgen_sections
 SET content_json = json_set(
@@ -73,7 +94,8 @@ SET content_json = json_set(
       ORDER BY comp.key, coalesce(r.key, 0)
     )
   )
-)
+),
+  content_html = NULL
 WHERE json_valid(content_json)
   AND EXISTS (
     SELECT 1 FROM json_each(content_json, '$.components') c

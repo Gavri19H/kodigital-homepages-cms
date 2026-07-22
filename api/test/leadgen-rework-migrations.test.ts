@@ -328,6 +328,76 @@ describeDb("M3 — quote routing rules, funnel_rules CHECK, outcomes recreation,
     expect(outcome.feed_name).toBeNull();
     expect(outcome.routed_from_variant).toBe("lgn_rw1");
   });
+
+  // P2-2 (adversarial-review fix round): 0048's step-2 INSERT…SELECT (the D2
+  // migration) commits as an ordinary auto-committing statement — no implicit
+  // transaction spans the whole file — so if the skip/show guard trips LATER
+  // in the same apply attempt, step 2's effects are NOT rolled back. A
+  // byte-identical re-application of 0048 (after the operator removes the
+  // blocking skip/show rows) must not re-insert a second copy of an
+  // already-migrated rule. Fail-before/pass-after against the ACTUAL file on
+  // disk (not a simulation): this test would show 2 rows without the fix in
+  // 0048 (the NOT EXISTS guard on the D2 INSERT + IF NOT EXISTS on the new
+  // table/index/guard-table) and shows exactly 1 with it.
+  it("retry safety: a route_funnel_variant rule + a skip_section rule ⇒ 0048 aborts (guard trips) with the route rule already migrated; after the skip row is removed, RE-APPLYING THE SAME FILE succeeds with EXACTLY ONE migrated rule (no duplicate)", () => {
+    const db = new (DatabaseSync as DatabaseSyncCtor)(":memory:");
+    const files = migrationFiles();
+    const idx = files.indexOf(M3_FILE);
+    applyFiles(db, files.slice(0, idx)); // through 0047 — route_funnel_variant still valid here
+
+    db.prepare(
+      "INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json, status) VALUES ('lgq_retry', 'Retry Q', 'life', '[\"life\"]', 'active')",
+    ).run();
+    const quoteId = (db.prepare("SELECT id FROM leadgen_quotes WHERE public_id = 'lgq_retry'").get() as { id: number }).id;
+    db.prepare(
+      "INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name, status) VALUES ('lgf_retry', ?, 'Retry F', 'active')",
+    ).run(quoteId);
+    const funnelId = (db.prepare("SELECT id FROM leadgen_funnels WHERE public_id = 'lgf_retry'").get() as { id: number }).id;
+    db.prepare(
+      "INSERT INTO leadgen_funnel_variants (public_id, funnel_id) VALUES ('lgn_retry', ?)",
+    ).run(funnelId);
+    const variantId = (db.prepare("SELECT id FROM leadgen_funnel_variants WHERE public_id = 'lgn_retry'").get() as { id: number }).id;
+
+    // the rule to be migrated (D2)
+    db.prepare(
+      "INSERT INTO leadgen_funnel_rules (public_id, variant_id, rule_type, conditions_json, conditions_hash, priority) VALUES ('lgfr_retry_route', ?, 'route_funnel_variant', '{}', 'h_retry', 5)",
+    ).run(variantId);
+    const routeRuleId = (db.prepare("SELECT id FROM leadgen_funnel_rules WHERE public_id = 'lgfr_retry_route'").get() as { id: number }).id;
+    // the rule that trips the guard
+    db.prepare(
+      "INSERT INTO leadgen_funnel_rules (public_id, variant_id, rule_type, conditions_json, conditions_hash) VALUES ('lgfr_retry_skip', ?, 'skip_section', '{}', 'h_skip')",
+    ).run(variantId);
+
+    const sql0048 = readFileSync(join(MIGRATIONS_DIR, M3_FILE), "utf8");
+
+    // Attempt 1: skip row present ⇒ the guard must trip (migration aborts).
+    expect(() => runSql(db, sql0048)).toThrow(/CHECK constraint failed/i);
+    // Step 2 already committed before the guard ran — exactly one migrated row exists.
+    expect((db.prepare("SELECT COUNT(*) AS n FROM leadgen_quote_routing_rules").get() as { n: number }).n).toBe(1);
+
+    // Operator clears the blocker.
+    db.prepare("DELETE FROM leadgen_funnel_rules WHERE public_id = 'lgfr_retry_skip'").run();
+
+    // Attempt 2: RE-APPLY THE SAME FILE TEXT, unmodified, byte-identical.
+    expect(() => runSql(db, sql0048)).not.toThrow();
+
+    const migrated = db.prepare("SELECT public_id, rule_name, quote_id, target_funnel_id FROM leadgen_quote_routing_rules").all() as Array<{
+      public_id: string;
+      rule_name: string;
+      quote_id: number;
+      target_funnel_id: number;
+    }>;
+    expect(migrated).toHaveLength(1); // NOT 2 — the retry did not duplicate
+    expect(migrated[0]!.rule_name).toBe(`Migrated rule ${routeRuleId}`);
+    expect(migrated[0]!.quote_id).toBe(quoteId);
+    expect(migrated[0]!.target_funnel_id).toBe(funnelId);
+
+    // The rest of the file also completed on the successful retry (the guard
+    // no longer blocks steps (4)-(5)).
+    expect(tableSql(db, "leadgen_funnel_rules")).toMatch(
+      /rule_type TEXT NOT NULL CHECK \(rule_type IN \('eligibility','disqualification','auction_entry','redirect_direct_offer'\)\)/,
+    );
+  });
 });
 
 describeDb("M4 — default funnel + board order backfill", () => {
