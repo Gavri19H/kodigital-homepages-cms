@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P0 Golden Design Pack — Templates tab (contract §8.3)</title>
+<style>
+/* ==========================================================================
+   Reset — self-contained, no external assets/fonts/CDN (P0 rule). Font
+   stacks are the LITERAL studio-tokens.ts STUDIO_TYPE.family values, which
+   already carry system fallbacks (Inter,system-ui,Arial,sans-serif etc.).
+   ========================================================================== */
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:#D9DEE6;font-family:Inter,system-ui,Arial,sans-serif;color:#1A1F36;padding:40px 20px 140px;font-size:14px}
+h1,h2,h3,p,ul,ol,dl,dd{margin:0}
+:focus-visible{outline:2px solid #1B3A5C;outline-offset:2px}
+img,svg{display:block}
+
+/* ==========================================================================
+   Document chrome — intro banner + per-pin caption frames. NOT part of the
+   pinned studio surface itself (no data-pin on these wrappers).
+   ========================================================================== */
+.intro{max-width:1280px;margin:0 auto 34px;background:#fff;border-radius:12px;padding:26px 32px;box-shadow:0 2px 10px rgba(20,28,46,.10)}
+.intro h1{font-size:21px;font-weight:800;color:#111726;margin-bottom:8px}
+.intro p{font-size:13.5px;color:#41495B;line-height:1.6;margin-bottom:8px}
+.intro .tag{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#7C889A;background:#E5E9F0;padding:3px 9px;border-radius:20px;margin:2px 6px 2px 0}
+.intro .scope{font-size:12px;color:#8A93A3;border-top:1px solid #EEF1F6;padding-top:10px;margin-top:10px}
+
+.pin{max-width:1280px;margin:0 auto 44px}
+.pin.wide{max-width:1320px}
+.pin-cap{display:flex;align-items:baseline;flex-wrap:wrap;gap:9px;background:#111726;color:#fff;padding:9px 16px;border-radius:10px 10px 0 0;font-size:12px;line-height:1.5}
+.pin-cap b{font-weight:800}
+.pin-cap code{font-family:'Roboto Mono',monospace;background:rgba(255,255,255,.16);padding:2px 7px;border-radius:5px;font-size:11px;color:#F5C518}
+.pin-cap .anchor{color:#AEB9CF}
+.pin-body{border:1px solid #C4CCD9;border-top:0;border-radius:0 0 12px 12px;background:#fff;overflow:hidden}
+.pin-body.pad{padding:22px 24px}
+.pin-note{font-size:11.5px;color:#7C889A;background:#F6F8FB;border-top:1px solid #EEF1F6;padding:9px 16px;line-height:1.5}
+.pin-note b{color:#41495B}
+
+.row-2{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+
+/* ==========================================================================
+   Reusable STUDIO chrome atoms — values are the literal studio-tokens.ts
+   constants (see inline comments). Reused verbatim across every pinned
+   region so one edit here keeps all instances byte-consistent.
+   ========================================================================== */
+.eyebrow{font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#8A93A3} /* STUDIO_COLOR.faint */
+.eyebrow-panel{font-size:10.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#9BA3B1} /* STUDIO_COLOR.faintEyebrow */
+
+.seg{display:inline-flex;background:#EDF0F5;border-radius:8px;padding:2px} /* STUDIO_SPACE.segmented */
+.seg-item{padding:6px 12px;font-size:12px;font-weight:600;color:#6B7486;border-radius:6px;white-space:nowrap}
+.seg-item.active{background:#fff;color:#1B3A5C;font-weight:700;box-shadow:0 1px 2px rgba(16,24,40,.1)}
+
+.toggle{width:38px;height:22px;border-radius:20px;position:relative;display:inline-block;flex:0 0 auto} /* STUDIO_GEOMETRY.toggle 38x22 */
+.toggle.on{background:#1B3A5C}
+.toggle.off{background:#CBD3DF}
+.toggle i{position:absolute;top:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(16,24,40,.25)}
+.toggle.on i{right:2px}
+.toggle.off i{left:2px}
+
+.btn{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:12.5px;padding:9px 15px;border-radius:8px;border:1px solid transparent;white-space:nowrap}
+.btn-primary{background:#1B3A5C;color:#fff;box-shadow:0 1px 2px rgba(27,58,92,.28)}
+.btn-outline{background:#fff;border-color:#1B3A5C;color:#1B3A5C}
+.btn-secondary{background:#fff;border-color:#E1E6EE;color:#41495B}
+.btn-sm{padding:6px 11px;font-size:11.5px}
+
+.select-ctl{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 11px;border:1px solid #E1E6EE;border-radius:8px;font-size:12.5px;color:#41495B;font-weight:600;background:#fff}
+.select-ctl svg{flex:0 0 auto}
+
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#5A6470;background:#F1F3F7;padding:4px 10px;border-radius:20px}
+.chip-dashed{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;color:#78818F;background:#fff;border:1px dashed #D5DCE6;padding:4px 10px;border-radius:20px}
+
+.swatch{width:16px;height:16px;border-radius:5px;flex:0 0 auto;display:inline-block;border:1px solid rgba(0,0,0,.06)}
+
+.kebab{width:26px;height:26px;border-radius:6px;border:1px solid #E1E6EE;background:#fff;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+
+/* Progress-picker thumbnail radio group (§6.8 pattern reused for I·Progress) */
+.ptype{display:flex;flex-direction:column;align-items:center;gap:7px;padding:10px 6px 8px;border:1px solid #E4E8EF;border-radius:10px;background:#fff;flex:1 1 0;min-width:0}
+.ptype.active{border:2px solid #1B3A5C;background:#F7F9FC;padding:9px 5px 7px}
+.ptype .lbl{font-size:10px;font-weight:700;color:#2A3346;text-align:center;line-height:1.2}
+
+/* ==========================================================================
+   Templates-tab layout — §8.3 geometry: 292 left rail / fluid canvas /
+   344 right rail (STUDIO_GEOMETRY.leftLibraryWidth / rightInspectorWidth).
+   L-184: rails are 292/344 — never the drifted 280/380.
+   ========================================================================== */
+.tpl-shell{display:flex;min-height:640px}
+.tpl-left{flex:0 0 292px;background:#fff;border-right:1px solid #E4E8EF;padding:16px 14px}
+.tpl-center{flex:1 1 auto;background:#EDF0F4;background-image:radial-gradient(#DCE1EA 1px,transparent 1px);background-size:22px 22px;display:flex;flex-direction:column;min-width:0}
+.tpl-right{flex:0 0 344px;background:#fff;border-left:1px solid #E4E8EF;padding:18px}
+
+.tplbox-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tplbox-card{display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid #E1E6EE;border-radius:8px;padding:10px 8px;text-align:center;background:#fff} /* .lg-tplbox-card, ui-quotes.ts:789 */
+.tplbox-card.selected{border-color:#1B3A5C;border-width:1.5px;background:#EAF0F6} /* .lg-tplbox-card.selected, ui-quotes.ts:790 */
+.tplbox-letter{width:26px;height:26px;border-radius:50%;background:#F6F7F9;border:1px solid #E1E6EE;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#2A3346} /* .lg-tplbox-card-letter, ui-quotes.ts:791 */
+.tplbox-card.selected .tplbox-letter{background:#1B3A5C;border-color:#1B3A5C;color:#fff}
+.tplbox-label{font-size:11.5px;font-weight:600;color:#2A3346}
+
+.canvas-toolbar{flex:0 0 46px;display:flex;align-items:center;gap:10px;padding:0 16px;background:#fff;border-bottom:1px solid #E4E8EF} /* STUDIO_GEOMETRY.canvasToolbarHeight */
+.canvas-surface{flex:1 1 auto;display:flex;justify-content:center;padding:30px 20px;overflow:auto}
+.unit-col{width:600px;flex:0 0 auto} /* STUDIO_GEOMETRY.unitColumnWidth */
+
+.frame-hint{position:relative;opacity:.55;pointer-events:none}
+.frame-hint-tag{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#7C889A;background:#E5E9F0;padding:3px 8px;border-radius:20px}
+.frame-progress-track{height:5px;border-radius:4px;background:#D3DBE6;overflow:hidden}
+.frame-progress-fill{height:100%;background:#9DB0C6}
+.frame-logo-chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#78818F;background:#fff;border:1px dashed #D5DCE6;padding:5px 11px;border-radius:20px}
+
+.qcard{background:#fff;border-radius:16px;box-shadow:0 8px 28px rgba(20,32,54,.10);border:1px solid #E9EDF3;padding:44px 46px 40px} /* STUDIO_GEOMETRY.questionCard */
+.qcard h2{font-family:Newsreader,serif;font-size:31px;line-height:1.15;font-weight:600;color:#16324f;text-align:center}
+.qcard .sub{font-size:15px;color:#63707F;text-align:center;margin-top:9px}
+.answer-row{display:flex;gap:12px;margin-top:26px}
+.answer-btn{flex:1;padding:15px;text-align:center;border-radius:11px;font-size:15px;font-weight:700;border:1.6px solid #E1E6EE;color:#2A3346;background:#fff}
+.continue-btn{margin-top:14px;width:100%;padding:16px;background:#1B3A5C;color:#fff;font-size:16px;font-weight:700;text-align:center;border-radius:11px}
+
+/* legend */
+.legend table{border-collapse:collapse;width:100%;font-size:12.5px}
+.legend th,.legend td{border:1px solid #E4E8EF;padding:8px 11px;text-align:left;vertical-align:top}
+.legend th{background:#F7F9FB;font-weight:800;color:#41495B;font-size:11px;letter-spacing:.3px;text-transform:uppercase}
+.legend code{font-family:'Roboto Mono',monospace;font-size:11.5px;background:#F3F5F8;padding:1px 6px;border-radius:5px;color:#41495B}
+
+/* shared quote-chrome orientation strip — NOT itself pinned by this slice;
+   §11B: "No Template/Theme buttons in the builder; top tabs only" confirms
+   Templates/Themes are peer top-level tabs (Image22's own tab row), so this
+   thin strip exists only to show WHERE the pinned surface below sits. */
+.orient{display:flex;align-items:center;gap:18px;padding:10px 20px;background:#fff;border-bottom:1px solid #E4E8EF;font-size:12.5px}
+.orient .crumb{color:#8A93A3}
+.orient .crumb b{color:#41495B}
+.orient .tabs{display:flex;gap:18px;margin-left:20px}
+.orient .tabs span{color:#8A93A3;font-weight:600;padding:4px 0;border-bottom:2px solid transparent}
+.orient .tabs span.active{color:#1B3A5C;font-weight:700;border-bottom-color:#F5C518}
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <h1>P0 Golden Design Pack — Quotes → Templates tab</h1>
+  <span class="tag">Contract §8.3</span><span class="tag">§8.10</span><span class="tag">§6.6 (✓-in-selected on pills)</span><span class="tag">M5</span>
+  <p>Pins every geometry, token, string and state the fidelity harness will assert for the rebuilt Templates tab: elements-left (292px) / live-canvas-center (fluid) / settings-right (344px), the saved-template bar (create/save-as/rename/duplicate/delete-with-guard, Default toggle, Apply-to-funnel, A/B templates), and the new element <b>I · Progress</b> design box.</p>
+  <p class="scope">Not in scope here (owned by sibling P0 slices): the funnel board (S0.1), studio inspector panels — mask builder / field-set editor / slider thumbnails / other-values editor (S0.3). Themes tab is the companion file <code>themes.html</code>.</p>
+</div>
+
+<!-- ======================================================================
+     PIN 1 — full Templates tab layout at 1280 (primary desktop width)
+     ====================================================================== -->
+<div class="pin">
+  <div class="pin-cap"><b>PIN</b> <code>8.3-templates-tab-layout</code> <span class="anchor">— contract §8.3, geometry §8.10 (L-184: rails 292 / 344)</span></div>
+  <div class="pin-body">
+
+    <div class="orient">
+      <span class="crumb">Quotes / <b>car-new</b></span>
+      <span class="tabs"><span>Funnel builder</span><span class="active">Templates</span><span>Themes</span><span>A/B</span><span>Activation</span><span>Analytics</span></span>
+    </div>
+
+    <!-- Template bar -->
+    <div data-pin="8.3-template-bar" style="padding:22px 24px;border-bottom:1px solid #E4E8EF">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span class="eyebrow-panel" style="margin-right:2px">Saved templates</span>
+
+          <!-- 6 seeded templates — FRAME_TEMPLATE_IDS + FRAME_TEMPLATES[].label (frames.ts:29-36,588-655) -->
+          <span class="chip" style="background:#EAF0F6;color:#1B3A5C;font-weight:700;border:1.5px solid #1B3A5C">Centered card
+            <span style="display:inline-flex;align-items:center;gap:3px;background:#1B3A5C;color:#fff;font-size:9.5px;font-weight:800;letter-spacing:.3px;padding:1px 7px;border-radius:10px;margin-left:2px">DEFAULT</span>
+          </span>
+          <span class="chip">Site header + footer</span>
+          <span class="chip">Header + call CTA</span>
+          <span class="chip">Full background</span>
+
+          <!-- delete-in-use guard demonstrated on this chip — see callout below -->
+          <span class="chip" style="border:1px solid #F0DCA9;background:#FDF4E3;color:#8A6D00" title="Delete blocked — see guard callout" data-pin="8.3-template-delete-guard-trigger">White + trust bar
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l9 16H3z" stroke="#B8860B" stroke-width="2" stroke-linejoin="round"/><path d="M12 10v4" stroke="#B8860B" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="16.5" r="1" fill="#B8860B"/></svg>
+          </span>
+          <span class="chip">Minimal</span>
+
+          <button class="btn btn-outline btn-sm" type="button" aria-label="New template">+ New template</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex:0 0 auto">
+          <button class="btn btn-secondary btn-sm" type="button" data-pin="8.3-apply-flow-trigger">Apply to funnel…</button>
+          <button class="btn btn-secondary btn-sm" type="button" data-pin="8.3-ab-templates-affordance">A/B templates…</button>
+        </div>
+      </div>
+
+      <!-- delete-in-use guard callout (grounded in themes-handlers.ts:551's live "This theme is used by N funnels ... assign them a different theme first" pattern — §4.3-14 says templates use "the same pattern as theme presets") -->
+      <div data-pin="8.3-template-delete-guard" style="margin-top:10px;display:flex;align-items:flex-start;gap:8px;background:#FDF4E3;border:1px solid #F0DCA9;border-radius:9px;padding:10px 12px;max-width:640px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto;margin-top:1px" aria-hidden="true"><path d="M12 3l9 16H3z" stroke="#B8860B" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 10v4" stroke="#B8860B" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16.5" r="1" fill="#B8860B"/></svg>
+        <div style="font-size:12px;color:#8A6D00;line-height:1.5">This template is used by 2 funnels (<b>Auto Insurance — Funnel A</b>, <b>Home Insurance — Funnel B</b>) — assign them a different template first, then delete this one.</div>
+      </div>
+      <div class="pin-note" style="background:transparent;border:0;padding:6px 0 0">Delete-guard copy pattern reused verbatim from <code>themes-handlers.ts:551</code> ("This theme is used by N funnels (…) — assign them a different theme first, then delete this one.") per §4.3-14 "same pattern as theme presets" — <b>contract gap</b>: no Appendix A id covers this string; recommend adding it at owner review.</div>
+    </div>
+
+    <!-- 3-panel body -->
+    <div class="tpl-shell" data-pin="8.3-templates-tab-layout">
+
+      <!-- LEFT — elements list, 292px -->
+      <div class="tpl-left" data-pin="8.3-elements-list">
+        <div class="eyebrow-panel" style="margin-bottom:10px">Funnel-layout elements</div>
+        <div class="tplbox-grid">
+          <div class="tplbox-card"><span class="tplbox-letter">A</span><span class="tplbox-label">Background</span></div>
+          <div class="tplbox-card"><span class="tplbox-letter">B</span><span class="tplbox-label">Logo</span></div>
+          <div class="tplbox-card"><span class="tplbox-letter">C</span><span class="tplbox-label">Phone / URL</span></div>
+          <div class="tplbox-card"><span class="tplbox-letter">D</span><span class="tplbox-label">Disclosure</span></div>
+          <div class="tplbox-card"><span class="tplbox-letter">E</span><span class="tplbox-label">Free text</span></div>
+          <div class="tplbox-card"><span class="tplbox-letter">F</span><span class="tplbox-label">Brand logos</span></div>
+          <div class="tplbox-card"><span class="tplbox-letter">G</span><span class="tplbox-label">Footer</span></div>
+          <div class="tplbox-card"><span class="tplbox-letter">H</span><span class="tplbox-label">Images</span></div>
+          <div class="tplbox-card selected" data-pin="8.3-element-I-selected"><span class="tplbox-letter">I</span><span class="tplbox-label">Progress</span></div>
+        </div>
+        <div class="pin-note" style="background:transparent;border:0;padding:10px 0 0">A–H labels verbatim from <code>TPLBOX_CARDS</code> (ui-quotes.ts:2610-2618). <b>I · Progress</b> is the new box (§8.3); shown selected here (border 1.5px navy + tint fill, matching the existing <code>.lg-tplbox-card.selected</code> rule).</div>
+      </div>
+
+      <!-- CENTER — live canvas, fluid (644px at 1280 = exactly unit-col 600 + 22px pad each side) -->
+      <div class="tpl-center" data-pin="8.3-canvas">
+        <div class="canvas-toolbar">
+          <div class="select-ctl" style="width:180px" aria-label="Theme switcher" data-pin="8.3-canvas-theme-switcher">
+            <span>Theme: <b>Navy</b></span>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="#8A93A3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="select-ctl" style="width:220px" aria-label="Section picker" data-pin="8.3-canvas-section-picker">
+            <span>Section: <b>Are you insured?</b></span>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="#8A93A3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div style="margin-left:auto" class="chip">Live server preview</div>
+        </div>
+        <div class="canvas-surface">
+          <div class="unit-col">
+
+            <!-- frame hint: header w/ logo-placeholder chip (A-8, only shown because this canvas renders the header fallback) + progress at its configured position -->
+            <div class="frame-hint" style="padding:14px 0 16px">
+              <div style="position:absolute;top:4px;left:0"><span class="frame-hint-tag"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" stroke="#7C889A" stroke-width="2"/><path d="M8 11V8a4 4 0 018 0v3" stroke="#7C889A" stroke-width="2"/></svg>Funnel frame</span></div>
+              <div style="display:flex;justify-content:center;padding-top:20px" data-pin="8.8-logo-placeholder-chip">
+                <span class="frame-logo-chip"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" stroke="#78818F" stroke-width="1.6"/><circle cx="8.5" cy="9.5" r="1.6" stroke="#78818F" stroke-width="1.4"/><path d="M4 17l5-5 4 4 3-3 4 4" stroke="#78818F" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>No logo — set it in Site settings.</span>
+              </div>
+            </div>
+            <div class="frame-hint" style="margin-top:2px" data-pin="8.3-progress-in-context" role="progressbar" aria-valuenow="38" aria-valuemin="0" aria-valuemax="100" aria-label="Funnel progress preview (position: under header)">
+              <div class="frame-progress-track"><div class="frame-progress-fill" style="width:38%"></div></div>
+            </div>
+
+            <!-- the question unit -->
+            <div class="qcard" style="margin-top:22px">
+              <h2>Are you currently insured?</h2>
+              <div class="sub">Takes 10 seconds — helps us match the right rate</div>
+              <div class="answer-row">
+                <div class="answer-btn">Yes</div>
+                <div class="answer-btn">No</div>
+              </div>
+              <div class="continue-btn">Continue</div>
+            </div>
+
+            <div class="frame-hint" style="padding:18px 0 4px;text-align:center">
+              <div style="font-size:11px;color:#7C889A;line-height:1.6">Advertising disclosure · Terms · Privacy<br>© 2026 · Trusted partner network</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT — element I settings, 344px -->
+      <div class="tpl-right" data-pin="8.3-progress-settings">
+        <div class="eyebrow-panel" style="margin-bottom:4px">Editing</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <div style="width:34px;height:34px;border-radius:9px;background:#EAF0F6;display:flex;align-items:center;justify-content:center;flex:0 0 auto;font-weight:800;color:#1B3A5C;font-size:15px">I</div>
+          <div>
+            <div style="font-size:15.5px;font-weight:800;color:#1A1F36">Progress</div>
+            <div style="font-size:11.5px;color:#8A93A3">Shows visitors how far through the funnel they are</div>
+          </div>
+        </div>
+
+        <!-- type picker: 5 real distinct styles (FRAME_PROGRESS_STYLES minus "hidden", frames.ts:57) -->
+        <div class="eyebrow-panel" style="margin-bottom:8px">Style</div>
+        <div style="display:flex;gap:6px;margin-bottom:6px" data-pin="8.3-progress-type-picker" role="radiogroup" aria-label="Progress style">
+          <div class="ptype" data-progress-style="bar" role="radio" aria-checked="false" tabindex="-1">
+            <svg width="40" height="18" viewBox="0 0 40 18" aria-hidden="true"><rect x="2" y="7" width="36" height="4" rx="2" fill="#E1E6EE"/><rect x="2" y="7" width="22" height="4" rx="2" fill="#1B3A5C"/></svg>
+            <span class="lbl">Bar</span>
+          </div>
+          <div class="ptype active" data-progress-style="dots" role="radio" aria-checked="true" tabindex="0">
+            <svg width="40" height="18" viewBox="0 0 40 18" aria-hidden="true"><circle cx="6" cy="9" r="3.4" fill="#1B3A5C"/><circle cx="15" cy="9" r="3.4" fill="#1B3A5C"/><circle cx="24" cy="9" r="3.4" fill="none" stroke="#C2CCDA" stroke-width="1.6"/><circle cx="33" cy="9" r="3.4" fill="none" stroke="#C2CCDA" stroke-width="1.6"/></svg>
+            <span class="lbl">Dots</span>
+          </div>
+          <div class="ptype" data-progress-style="numbered" role="radio" aria-checked="false" tabindex="-1">
+            <svg width="40" height="18" viewBox="0 0 40 18" aria-hidden="true"><circle cx="7" cy="9" r="5" fill="#1B3A5C"/><text x="7" y="12" font-size="7" fill="#fff" text-anchor="middle" font-weight="700">1</text><circle cx="20" cy="9" r="5" fill="none" stroke="#C2CCDA" stroke-width="1.6"/><text x="20" y="12" font-size="7" fill="#9AA9BD" text-anchor="middle" font-weight="700">2</text><circle cx="33" cy="9" r="5" fill="none" stroke="#C2CCDA" stroke-width="1.6"/><text x="33" y="12" font-size="7" fill="#9AA9BD" text-anchor="middle" font-weight="700">3</text></svg>
+            <span class="lbl">Numbered</span>
+          </div>
+          <div class="ptype" data-progress-style="percent" role="radio" aria-checked="false" tabindex="-1">
+            <svg width="40" height="18" viewBox="0 0 40 18" aria-hidden="true"><text x="20" y="12" font-size="10" fill="#1B3A5C" text-anchor="middle" font-weight="800">38%</text></svg>
+            <span class="lbl">Percent</span>
+          </div>
+          <div class="ptype" data-progress-style="icon_on_track" role="radio" aria-checked="false" tabindex="-1">
+            <svg width="40" height="18" viewBox="0 0 40 18" aria-hidden="true"><rect x="2" y="8" width="36" height="3" rx="1.5" fill="#E1E6EE"/><rect x="2" y="8" width="15" height="3" rx="1.5" fill="#9DB0C6"/><circle cx="17" cy="9.5" r="4.5" fill="#1B3A5C"/></svg>
+            <span class="lbl">Icon on track</span>
+          </div>
+        </div>
+        <div class="pin-note" style="background:transparent;border:0;padding:0 0 14px">5 real styles = <code>FRAME_PROGRESS_STYLES</code> minus <code>hidden</code> (frames.ts:57), which is the separate "Show progress bar" toggle below. Thumbnail-radio pattern reused from §6.8's slider-type picker for the same "type over N distinct renderings" shape.</div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="font-size:13px;font-weight:600;color:#2A3346">Show progress bar</div>
+          <div class="toggle on" role="switch" aria-checked="true" aria-label="Show progress bar"><i></i></div>
+        </div>
+
+        <div style="height:1px;background:#EEF1F6;margin:0 0 14px"></div>
+        <div class="eyebrow-panel" style="margin-bottom:10px">Design — Dots</div>
+
+        <!-- per-type design box axes: position / alignment / thickness / width / color / label options — the axis list is contract §8.3 itself ("per-type design box (position/alignment/thickness/width/color/label options — exact controls pinned in P0)"), not SWITCH_LAYOUT_FIELDS.progress (frames.ts:1635, a template-switch RESET list that happens to omit color too — a different, narrower concern, not the design-box control inventory). -->
+        <label style="display:block;font-size:12px;font-weight:600;color:#5A6470;margin-bottom:5px" for="pin-progress-position">Position</label>
+        <div class="select-ctl" id="pin-progress-position" style="margin-bottom:13px">
+          <span>Above the question</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="#8A93A3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="pin-note" style="background:transparent;border:0;padding:0 0 9px;margin-top:-9px">4 options = <code>FRAME_PROGRESS_POSITIONS</code> (frames.ts:58): Top · Under header · Above the question · In the card. Canvas above shows <b>Under header</b> in context; this control's shown value (Above the question) demonstrates the dropdown's rest state independent of the live canvas render.</div>
+
+        <div style="font-size:12px;font-weight:600;color:#5A6470;margin-bottom:6px">Alignment</div>
+        <div class="seg" style="width:100%;margin-bottom:13px">
+          <div class="seg-item" style="flex:1;text-align:center">Left</div>
+          <div class="seg-item active" style="flex:1;text-align:center">Center</div>
+          <div class="seg-item" style="flex:1;text-align:center">Right</div>
+        </div>
+        <div class="pin-note" style="background:transparent;border:0;padding:0 0 9px;margin-top:-9px">3 options = <code>FRAME_PROGRESS_ALIGNS</code> (frames.ts:59): Left · Center · Right — <code>FrameProgressConfig.align</code> (frames.ts:172), optional, absent ⇒ "Center" (frame.ts fallback); shown selected here to match that default.</div>
+
+        <div style="font-size:12px;font-weight:600;color:#5A6470;margin-bottom:6px">Thickness</div>
+        <div class="seg" style="width:100%;margin-bottom:13px">
+          <div class="seg-item" style="flex:1;text-align:center">Small</div>
+          <div class="seg-item active" style="flex:1;text-align:center">Medium</div>
+          <div class="seg-item" style="flex:1;text-align:center">Large</div>
+        </div>
+
+        <div style="font-size:12px;font-weight:600;color:#5A6470;margin-bottom:6px">Width</div>
+        <div class="seg" style="width:100%;margin-bottom:13px">
+          <div class="seg-item" style="flex:1;text-align:center">Content width</div>
+          <div class="seg-item active" style="flex:1;text-align:center">Full width</div>
+        </div>
+
+        <label style="display:block;font-size:12px;font-weight:600;color:#5A6470;margin-bottom:5px" for="pin-progress-color">Color</label>
+        <div class="select-ctl" id="pin-progress-color" style="margin-bottom:13px">
+          <span style="display:flex;align-items:center;gap:8px"><span class="swatch" style="background:#1B3A5C"></span>Brand primary</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="#8A93A3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="pin-note" style="background:transparent;border:0;padding:0 0 9px;margin-top:-9px">Role picker over <code>FunnelTokenRole</code> (theme.ts:45-60, 14 roles) — Brand primary shown selected; same "leading swatch + label + chevron" control family as the golden's Accept/Icon dropdowns.</div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#2A3346">Show label</div>
+            <div style="font-size:11px;color:#96A0AF">e.g. "Step 2 of 5" next to the bar</div>
+          </div>
+          <div class="toggle off" role="switch" aria-checked="false" aria-label="Show label"><i></i></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pin-note">Rail widths asserted: left <b>292px</b>, right <b>344px</b> (STUDIO_GEOMETRY.leftLibraryWidth/rightInspectorWidth, studio-tokens.ts:206-207) — center canvas is fluid; at 1280 total that resolves to exactly 644px, i.e. the 600px unit column (STUDIO_GEOMETRY.unitColumnWidth) + 22px padding each side, matching the golden canvas convention exactly.</div>
+</div>
+
+<!-- ======================================================================
+     PIN 2 — no-sections fixture canvas (Appendix A-9 verbatim)
+     ====================================================================== -->
+<div class="pin">
+  <div class="pin-cap"><b>PIN</b> <code>8.3-canvas-fixture</code> <span class="anchor">— contract §8.3 "no sections → fixed sample fixture rendered through the real renderer"; Appendix A-9</span></div>
+  <div class="pin-body pad">
+    <div style="background:#EDF0F4;background-image:radial-gradient(#DCE1EA 1px,transparent 1px);background-size:22px 22px;border-radius:10px;padding:34px 20px;display:flex;justify-content:center">
+      <div class="unit-col">
+        <div class="qcard" style="opacity:.9;position:relative" data-pin="8.3-canvas-fixture">
+          <div style="position:absolute;top:-13px;left:50%;transform:translateX(-50%)"><span class="chip" style="background:#1B3A5C;color:#fff;font-weight:700">Fixture — no sections yet</span></div>
+          <h2 style="font-size:24px;color:#8A93A3">Sample question</h2>
+          <div class="sub" style="color:#96A0AF" data-pin="appendix-a-9">Sample section (add sections to preview your own).</div>
+          <div class="answer-row">
+            <div class="answer-btn" style="color:#9AA9BD;border-color:#EAEEF3">Option A</div>
+            <div class="answer-btn" style="color:#9AA9BD;border-color:#EAEEF3">Option B</div>
+          </div>
+          <div class="continue-btn">Continue</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pin-note">Appendix A-9 string rendered VERBATIM in a real, rendered element (not a comment) per L-196. This fixture renders through the same real renderer as a populated canvas — no separate "empty state" component.</div>
+</div>
+
+<!-- ======================================================================
+     PIN 3 — Apply-to-funnel: two states, side by side
+     ====================================================================== -->
+<div class="pin wide">
+  <div class="pin-cap"><b>PIN</b> <code>8.3-apply-flow</code> <span class="anchor">— contract §8.3 "keeps the existing preview-before-apply + confirmation naming affected regions (the pinned-⑥ behavior relocates here 1:1)"</span></div>
+  <div class="pin-body pad">
+    <div class="row-2">
+
+      <!-- state (a): pick a template -->
+      <div style="flex:1 1 420px;border:1px solid #E4E8EF;border-radius:10px;padding:18px" data-pin="8.3-apply-preview">
+        <div style="font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#8A93A3;margin-bottom:10px">State (a) — preview / choose</div>
+        <h3 style="font-size:15px;font-weight:700;color:#1A1F36;margin-bottom:6px">Funnel layout template</h3>
+        <p style="font-size:12px;color:#7C889A;line-height:1.5;margin-bottom:6px">Your copy, images and colors are kept. Layout comes from the template. Nothing changes until you Save.</p>
+        <div style="margin:12px 0 4px;font-size:11px;font-weight:700;color:#5A6470">Applying to <span style="color:#1B3A5C">Auto Insurance — Funnel A ▾</span> <span style="font-weight:500;color:#9BA3B1">(new: funnel target — the tab is quote-level, not canvas-scoped)</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px">
+          <div style="border:2px solid #1B3A5C;border-radius:8px;padding:8px;text-align:center;background:#F7F9FC">
+            <svg width="100%" height="34" viewBox="0 0 80 34" aria-hidden="true"><rect width="80" height="34" fill="#fff" stroke="#E4E8EF"/><rect x="30" y="4" width="20" height="6" fill="#1B3A5C"/><rect x="20" y="14" width="40" height="12" fill="#EAF0F6"/></svg>
+            <div style="font-size:10.5px;font-weight:700;color:#2A3346;margin-top:5px">Centered card</div>
+          </div>
+          <div style="border:1px solid #E4E8EF;border-radius:8px;padding:8px;text-align:center">
+            <svg width="100%" height="34" viewBox="0 0 80 34" aria-hidden="true"><rect width="80" height="34" fill="#fff" stroke="#E4E8EF"/><rect x="4" y="4" width="16" height="6" fill="#9AA9BD"/><rect x="6" y="14" width="68" height="12" fill="#F7F9FC" stroke="#E4E8EF"/><rect x="4" y="29" width="72" height="3" fill="#C2CCDA"/></svg>
+            <div style="font-size:10.5px;font-weight:600;color:#2A3346;margin-top:5px">Site header + footer</div>
+          </div>
+          <div style="border:1px solid #E4E8EF;border-radius:8px;padding:8px;text-align:center">
+            <svg width="100%" height="34" viewBox="0 0 80 34" aria-hidden="true"><rect width="80" height="34" fill="#fff" stroke="#E4E8EF"/><rect x="4" y="4" width="10" height="4" fill="#C2CCDA"/><rect x="30" y="9" width="20" height="6" fill="#9AA9BD"/><rect x="20" y="18" width="40" height="9" fill="#F7F9FC" stroke="#E4E8EF"/></svg>
+            <div style="font-size:10.5px;font-weight:600;color:#2A3346;margin-top:5px">Header + call CTA</div>
+          </div>
+        </div>
+        <div style="font-size:10.5px;color:#B0B8C5;margin-top:8px">(+3 more: Full background · White + trust bar · Minimal — same card pattern)</div>
+      </div>
+
+      <!-- state (b): confirm -->
+      <div style="flex:1 1 380px;border:1px solid #E4E8EF;border-radius:10px;padding:18px" data-pin="8.3-apply-confirm">
+        <div style="font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#8A93A3;margin-bottom:10px">State (b) — before you switch</div>
+        <h3 style="font-size:15px;font-weight:700;color:#1A1F36;margin-bottom:10px">Before you switch</h3>
+        <ul style="margin:0 0 16px;padding-left:18px;font-size:12.5px;color:#41495B;line-height:1.6">
+          <li><b>Trust strip</b> isn't part of 'Header + call CTA' — its settings are kept but won't show.</li>
+          <li>The question unit changes from <b>a card</b> to <b>a bare layout</b>.</li>
+        </ul>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-primary" type="button">Switch template</button>
+          <button class="btn btn-outline" type="button">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pin-note">Titles/copy/button labels reused VERBATIM from the existing canvas-embedded flow (<code>renderTemplatePicker</code>, ui-quotes.ts:1995-2026: "Funnel layout template" / helper line / "Before you switch" / "Switch template" / "Cancel"). Confirmation-list sentence grammar reused verbatim from <code>frames.ts:1733,1743</code> (<code>computeTemplateSwitch</code>) with representative substitutions. The "Applying to" funnel-target row is the one NEW element this relocation needs (quote-level tab vs. the old variant-scoped canvas) — flagged, not silently invented.</div>
+</div>
+
+<!-- ======================================================================
+     PIN 4 — visitor-facing canvas content at 375 (mobile)
+     ====================================================================== -->
+<div class="pin" style="max-width:375px">
+  <div class="pin-cap"><b>PIN</b> <code>8.3-canvas-mobile-375</code> <span class="anchor">— visitor-facing rendered section, 375px</span></div>
+  <div class="pin-body pad" data-pin="8.3-canvas-mobile-375" style="background:#EDF0F4">
+    <div class="frame-hint" style="padding:10px 0 12px">
+      <div style="display:flex;justify-content:center">
+        <span class="frame-logo-chip" style="font-size:9.5px;padding:4px 9px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" stroke="#78818F" stroke-width="1.6"/></svg>No logo — set it in Site settings.</span>
+      </div>
+    </div>
+    <div class="frame-hint" role="progressbar" aria-valuenow="38" aria-valuemin="0" aria-valuemax="100" aria-label="Funnel progress preview">
+      <div class="frame-progress-track"><div class="frame-progress-fill" style="width:38%"></div></div>
+    </div>
+    <div class="qcard" style="margin-top:16px;padding:28px 20px 24px;border-radius:14px">
+      <h2 style="font-size:22px">Are you currently insured?</h2>
+      <div class="sub" style="font-size:13px;margin-top:7px">Takes 10 seconds — helps us match the right rate</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:20px">
+        <div class="answer-btn" style="padding:14px">Yes</div>
+        <div class="answer-btn" style="padding:14px">No</div>
+      </div>
+      <div class="continue-btn" style="margin-top:16px;padding:14px;font-size:15px">Continue</div>
+    </div>
+  </div>
+  <div class="pin-note">Same content/behavior as the 1280 canvas, illustrative mobile proportions (stacked full-width answers). Exact runtime CSS breakpoints are engine/P2 scope — not admin-chrome tokens, so not asserted here as exact px.</div>
+</div>
+
+<!-- ======================================================================
+     LEGEND
+     ====================================================================== -->
+<div class="pin legend" data-pin="legend">
+  <div class="pin-cap"><b>LEGEND</b> <span class="anchor">— pin id → contract anchor</span></div>
+  <div class="pin-body pad">
+    <table>
+      <tr><th>data-pin id</th><th>Contract anchor</th><th>Notes</th></tr>
+      <tr><td><code>8.3-templates-tab-layout</code></td><td>§8.3, §8.10</td><td>Full 292/fluid/344 layout</td></tr>
+      <tr><td><code>8.3-template-bar</code></td><td>§8.3</td><td>Saved templates list, Default badge, create/save-as/rename/duplicate/delete</td></tr>
+      <tr><td><code>8.3-template-delete-guard</code>, <code>8.3-template-delete-guard-trigger</code></td><td>§4.3-14</td><td>In-use guard callout + the chip that triggers it — copy pattern from themes-handlers.ts:551 — Appendix A gap flagged</td></tr>
+      <tr><td><code>8.3-apply-flow-trigger</code> / <code>8.3-apply-preview</code> / <code>8.3-apply-confirm</code></td><td>§8.3 (pinned-⑥ relocation)</td><td>Two states — verbatim copy from ui-quotes.ts:1995-2026 + frames.ts:1733,1743</td></tr>
+      <tr><td><code>8.3-ab-templates-affordance</code></td><td>§4.3-10, M5</td><td>Affordance only, per tail scope</td></tr>
+      <tr><td><code>8.3-elements-list</code>, <code>8.3-element-I-selected</code></td><td>§8.3</td><td>A–H (TPLBOX_CARDS) + new I·Progress (shown selected), 292px, 2-col grid</td></tr>
+      <tr><td><code>8.3-canvas</code> / <code>8.3-canvas-fixture</code> / <code>8.3-canvas-mobile-375</code></td><td>§8.3</td><td>Live server-preview canvas, no-sections fixture (A-9), 375 visitor view</td></tr>
+      <tr><td><code>8.3-canvas-theme-switcher</code> / <code>8.3-canvas-section-picker</code></td><td>§8.3</td><td>Canvas toolbar controls</td></tr>
+      <tr><td><code>8.8-logo-placeholder-chip</code></td><td>§8.8, Appendix A-8</td><td>Shown because this canvas renders the header fallback</td></tr>
+      <tr><td><code>8.3-progress-in-context</code></td><td>§8.3</td><td>Progress rendered at its configured position, in the live canvas</td></tr>
+      <tr><td><code>8.3-progress-settings</code>, <code>8.3-progress-type-picker</code></td><td>§8.3</td><td>Element I: 5 styles (frames.ts:57) + design box axes per §8.3's own list — position/alignment/thickness/width/color/label options (alignment: frames.ts:59,172)</td></tr>
+      <tr><td><code>appendix-a-9</code></td><td>Appendix A-9</td><td>"Sample section (add sections to preview your own)." — verbatim</td></tr>
+    </table>
+  </div>
+</div>
+
+</body>
+</html>
