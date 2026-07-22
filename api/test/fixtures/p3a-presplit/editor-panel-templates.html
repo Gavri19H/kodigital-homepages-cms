@@ -1,0 +1,283 @@
+<div class="lg-qpanel" data-panel="templates">
+  <div class="lg-panel-card">
+  <h3>Funnel-layout elements</h3>
+  <p class="form-help">Choose a box to open its editor.</p>
+  <div class="lg-tplbox-grid" id="lg-tplbox-grid"><button type="button" class="lg-tplbox-card" data-tplbox-pick="background">
+    <span class="lg-tplbox-card-letter">A</span>
+    <span>Background</span>
+  </button><button type="button" class="lg-tplbox-card" data-tplbox-pick="logo">
+    <span class="lg-tplbox-card-letter">B</span>
+    <span>Logo</span>
+  </button><button type="button" class="lg-tplbox-card" data-tplbox-pick="cta">
+    <span class="lg-tplbox-card-letter">C</span>
+    <span>Phone / URL</span>
+  </button><button type="button" class="lg-tplbox-card" data-tplbox-pick="disclosure">
+    <span class="lg-tplbox-card-letter">D</span>
+    <span>Disclosure</span>
+  </button><button type="button" class="lg-tplbox-card" data-tplbox-pick="free_text">
+    <span class="lg-tplbox-card-letter">E</span>
+    <span>Free text</span>
+  </button><button type="button" class="lg-tplbox-card" data-tplbox-pick="brand_logos">
+    <span class="lg-tplbox-card-letter">F</span>
+    <span>Brand logos</span>
+  </button><button type="button" class="lg-tplbox-card" data-tplbox-pick="footer">
+    <span class="lg-tplbox-card-letter">G</span>
+    <span>Footer</span>
+  </button><button type="button" class="lg-tplbox-card" data-tplbox-pick="images">
+    <span class="lg-tplbox-card-letter">H</span>
+    <span>Images</span>
+  </button></div>
+  <div class="lg-tplbox-editor" id="lg-tplbox-editor">
+    <p class="form-help" id="lg-tplbox-hint">Choose a box above to edit it.</p>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="background">
+  <h3>A &middot; Background</h3>
+  <p class="form-help">The funnel's page background &mdash; color and an optional image.</p>
+  <div class="form-group"><label class="form-label">Color</label><div class="lg-role-strip" data-role-strip="background.role"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="background.role" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="background.role" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="background.role" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="background.role" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="background.role" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="background.role" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="background.role" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="background.role" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="background.role" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="background.role" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="background.role" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="background.role" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="background.role" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="background.role" title="Secondary button" aria-label="Secondary button"></button></div></div>
+  <div class="form-group"><label class="form-label">Background image (optional, from the Media library)</label><span class="lg-media-field" data-media-field>
+    <input type="hidden" data-frame-key="background.image_media_id" aria-label="Background image (optional, from the Media library)" />
+    <img class="lg-media-thumb lg-hidden" data-media-thumb alt="" />
+    <button type="button" class="btn btn-sm btn-secondary" data-media-choose aria-label="Choose Background image (optional, from the Media library) from the Media library">Choose&#8230;</button>
+    <button type="button" class="btn btn-sm btn-outline lg-hidden" data-media-clear aria-label="Clear Background image (optional, from the Media library)">Clear</button>
+  </span></div>
+  <div class="form-group"><label class="form-label">Style</label><select class="form-select" data-frame-key="background.style"><option value="flat">Flat</option><option value="brand">Brand</option><option value="brand_gradient">Brand gradient</option></select></div>
+</div>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="logo">
+  <h3>B &middot; Logo</h3>
+  <p class="form-help">The header logo &mdash; sourced from the selected preview site's branding by default (10 &sect;10.1).</p>
+  <div class="form-group"><label class="form-label">Logo source</label><select class="form-select" data-frame-key="header.logo_source"><option value="site">Site logo (auto)</option><option value="cms_fallback">CMS fallback</option></select></div>
+  <div class="form-group"><label class="form-label">Logo size</label><select class="form-select" data-frame-key="header.logo_size"><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select></div>
+  <div class="form-group"><label class="form-label">Alignment</label><select class="form-select" data-frame-key="header.logo_align"><option value="left">Left</option><option value="center">Center</option></select></div>
+  <p class="form-help">For a manual logo override, open the Header region on the canvas (Funnel builder tab) &rarr; Advanced.</p>
+</div>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="cta">
+  <h3>C &middot; Phone / URL</h3>
+  <p class="form-help">Placeable call/link buttons (header, under the header, bottom of the section, or the footer).</p>
+  <div data-tplbox-list="cta_slots"></div>
+  <template data-tplbox-tpl="cta_slots"><div class="lg-tplbox-row" data-cta-row>
+    <div class="lg-list-row">
+      <select class="form-select form-select-sm" data-cta-slot aria-label="CTA slot"><option value="header_right">Header (right)</option><option value="under_header">Under the header</option><option value="section_bottom">Bottom of the section</option><option value="footer">Footer</option></select>
+      <input class="form-input" data-cta-label placeholder="Label (e.g. Call now)" aria-label="CTA label" />
+      <input class="form-input" data-cta-tel placeholder="Phone, e.g. +1 555 123 4567" aria-label="CTA phone number" />
+      <input class="form-input" data-cta-href placeholder="Or a link (https://…)" aria-label="CTA link" />
+      <select class="form-select form-select-sm" data-cta-align aria-label="CTA alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
+      <button type="button" class="btn btn-sm btn-outline" data-cta-remove aria-label="Remove CTA slot">&#10005;</button>
+    </div>
+    <button type="button" class="btn btn-sm btn-secondary" data-cta-cond-toggle aria-expanded="false">+ Add a condition</button>
+    <div class="lg-tplbox-cond lg-hidden" data-cta-cond-box>
+      <p class="form-help">Shown only when this holds (a compiled condition &mdash; toggling isn't wired live yet, but the config authors and round-trips today).</p>
+      <div class="form-group"><label class="form-label">Match</label>
+        <select class="form-select form-select-sm" data-cta-cond-match aria-label="Match all or any of these">
+          <option value="all">All of these</option>
+          <option value="any">Any of these</option>
+        </select>
+      </div>
+      <div data-cta-cond-rows></div>
+      <button type="button" class="btn btn-sm btn-secondary" data-cta-cond-add>+ Add condition</button>
+    </div>
+  </div></template>
+  <template data-tplbox-tpl="cta_cond_row"><div class="lg-list-row" data-cta-cond-row>
+    <select class="form-select form-select-sm" data-cta-cond-field aria-label="Condition field"><optgroup label="Visitor info"><option value="__state" selected>State</option><option value="__device">Device</option><option value="__hour">Hour (UTC 0–23)</option><option value="__weekday">Weekday (UTC 0–6)</option><option value="__page">Page number</option></optgroup><optgroup label="Answers"><option value="f">Second · f</option></optgroup></select>
+    <select class="form-select form-select-sm" data-cta-cond-op aria-label="Condition comparison"><option value="eq" selected>is</option><option value="neq">is not</option></select>
+    <input class="form-input" data-cta-cond-value placeholder="value" aria-label="Condition value" />
+    <button type="button" class="btn btn-sm btn-outline" data-cta-cond-row-remove aria-label="Remove condition">&#10005;</button>
+  </div></template>
+  <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="cta_slots">+ Add a CTA slot</button>
+</div>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="disclosure">
+  <h3>D &middot; Disclosure</h3>
+  <p class="form-help">Per-location advertising-disclosure entries (top and bottom can coexist).</p>
+  <div data-tplbox-list="disclosure.entries"></div>
+  <template data-tplbox-tpl="disclosure.entries"><div class="lg-tplbox-row" data-disc-entry-row>
+    <div class="lg-list-row">
+      <select class="form-select form-select-sm" data-disc-location aria-label="Disclosure location"><option value="top">Top</option><option value="bottom">Bottom</option></select>
+      <select class="form-select form-select-sm" data-disc-mode aria-label="Disclosure mode"><option value="full">Always shown</option><option value="hover">Hover / focus trigger</option></select>
+      <input class="form-input" data-disc-link-label placeholder="Trigger label (hover mode)" aria-label="Disclosure trigger label" />
+      <select class="form-select form-select-sm" data-disc-align aria-label="Disclosure alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
+      <button type="button" class="btn btn-sm btn-outline" data-disc-entry-remove aria-label="Remove disclosure entry">&#10005;</button>
+    </div>
+    <textarea class="form-input" rows="2" data-disc-text placeholder="Disclosure copy for this entry" aria-label="Disclosure entry text"></textarea>
+  </div></template>
+  <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="disclosure.entries">+ Add a disclosure entry</button>
+</div>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="free_text">
+  <h3>E &middot; Free text</h3>
+  <p class="form-help">Author paragraph / heading / checklist blocks anywhere in the funnel chrome.</p>
+  <div data-tplbox-list="free_text"></div>
+  <template data-tplbox-tpl="free_text"><div class="lg-tplbox-row" data-ft-entry-row>
+    <input type="hidden" data-ft-entry-id />
+    <div class="lg-list-row">
+      <select class="form-select form-select-sm" data-ft-slot aria-label="Free-text slot"><option value="above_section">Above the section</option><option value="below_section">Below the section</option><option value="above_header">Above the header</option><option value="below_footer">Below the footer</option></select>
+      <select class="form-select form-select-sm" data-ft-align aria-label="Free-text alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
+      <button type="button" class="btn btn-sm btn-outline" data-ft-entry-remove aria-label="Remove free-text element">&#10005;</button>
+    </div>
+    <div class="lg-scalars">
+      <div class="form-group"><label class="form-label">Text size</label><select class="form-select form-select-sm" data-ft-typo-size aria-label="Text size"><option value="">Theme default</option><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option><option value="xl">Extra large</option></select></div>
+      <div class="form-group"><label class="form-label">Text color</label><select class="form-select form-select-sm" data-ft-typo-color aria-label="Text color role"><option value="">Theme default</option><option value="brand_primary">Brand primary</option><option value="brand_secondary">Brand secondary</option><option value="accent">Accent</option><option value="success">Success</option><option value="error">Error</option><option value="page_background">Page background</option><option value="card_background">Card background</option><option value="surface_wash">Soft fill</option><option value="border">Border</option><option value="text_primary">Text</option><option value="text_muted">Muted text</option><option value="button_primary_bg">Button</option><option value="button_primary_text">Button text</option><option value="button_secondary_bg">Secondary button</option></select></div>
+    </div>
+    <div class="lg-tplbox-pagetarget">
+    <div class="form-group"><label class="form-label">Show on</label>
+      <select class="form-select form-select-sm" data-pt-mode aria-label="Page targeting mode"><option value="all">Every page</option><option value="first">First page only</option><option value="range">A page range</option><option value="list">Specific pages</option></select>
+    </div>
+    <div class="lg-list-row">
+      <input class="form-input form-input-sm" type="number" min="1" data-pt-from placeholder="From page" aria-label="Page range start" />
+      <input class="form-input form-input-sm" type="number" min="1" data-pt-to placeholder="To page" aria-label="Page range end" />
+      <input class="form-input" data-pt-list placeholder="Pages, comma-separated (e.g. 1, 3)" aria-label="Specific pages" />
+    </div>
+  </div>
+    <div data-ft-blocks></div>
+    <button type="button" class="btn btn-sm btn-secondary" data-ft-block-add>+ Add a text block</button>
+  </div></template>
+  <template data-tplbox-tpl="free_text_block"><div class="lg-tplbox-block" data-ft-block-row>
+    <div class="lg-list-row">
+      <select class="form-select form-select-sm" data-ft-block-type aria-label="Text block type"><option value="paragraph">Paragraph</option><option value="heading">Heading</option><option value="list">List</option></select>
+      <select class="form-select form-select-sm lg-hidden" data-ft-block-liststyle aria-label="List style"><option value="unordered">Bulleted</option><option value="ordered">Numbered</option><option value="check">Checklist</option></select>
+      <button type="button" class="btn btn-sm btn-outline" data-ft-block-remove aria-label="Remove text block">&#10005;</button>
+    </div>
+    <div class="lg-tplbox-toolbar" data-ft-block-toolbar>
+      <button type="button" class="btn btn-sm btn-outline" data-ft-fmt="bold" aria-label="Bold" title="Bold"><strong>B</strong></button>
+      <button type="button" class="btn btn-sm btn-outline" data-ft-fmt="italic" aria-label="Italic" title="Italic"><em>I</em></button>
+      <button type="button" class="btn btn-sm btn-outline" data-ft-fmt="link" aria-label="Link" title="Link">Link</button>
+    </div>
+    <textarea class="form-input" rows="3" data-ft-block-text placeholder="Text for this block" aria-label="Text block content"></textarea>
+    <textarea class="form-input lg-hidden" rows="3" data-ft-block-items placeholder="One list item per line" aria-label="List items, one per line"></textarea>
+  </div></template>
+  <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="free_text">+ Add a free-text element</button>
+</div>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="brand_logos">
+  <h3>F &middot; Brand logos</h3>
+  <p class="form-help">A row or grid of partner/trust logos, placed at a slot.</p>
+  <label class="lg-check"><input type="checkbox" data-bl-enabled /> Show the brand-logos strip</label>
+  <div class="lg-scalars">
+    <div class="form-group"><label class="form-label">Layout</label><select class="form-select form-select-sm" data-bl-layout aria-label="Brand logos layout"><option value="row">Row</option><option value="grid">Grid</option></select></div>
+    <div class="form-group"><label class="form-label">Slot</label><select class="form-select form-select-sm" data-bl-slot aria-label="Brand logos slot"><option value="above_section">Above the section</option><option value="below_section">Below the section</option><option value="above_header">Above the header</option><option value="below_footer">Below the footer</option></select></div>
+    <div class="form-group"><label class="form-label">Alignment</label><select class="form-select form-select-sm" data-bl-align aria-label="Brand logos alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></div>
+  </div>
+  <div class="lg-tplbox-pagetarget">
+    <div class="form-group"><label class="form-label">Show on</label>
+      <select class="form-select form-select-sm" data-pt-mode aria-label="Page targeting mode"><option value="all">Every page</option><option value="first">First page only</option><option value="range">A page range</option><option value="list">Specific pages</option></select>
+    </div>
+    <div class="lg-list-row">
+      <input class="form-input form-input-sm" type="number" min="1" data-pt-from placeholder="From page" aria-label="Page range start" />
+      <input class="form-input form-input-sm" type="number" min="1" data-pt-to placeholder="To page" aria-label="Page range end" />
+      <input class="form-input" data-pt-list placeholder="Pages, comma-separated (e.g. 1, 3)" aria-label="Specific pages" />
+    </div>
+  </div>
+  <div data-tplbox-list="brand_logos.items"></div>
+  <template data-tplbox-tpl="brand_logos.items"><div class="lg-list-row" data-bl-item-row>
+    <span class="lg-media-field" data-media-field>
+    <input type="hidden" data-list-field="media_id" aria-label="Logo image (from the Media library)" />
+    <img class="lg-media-thumb lg-hidden" data-media-thumb alt="" />
+    <button type="button" class="btn btn-sm btn-secondary" data-media-choose aria-label="Choose Logo image (from the Media library) from the Media library">Choose&#8230;</button>
+    <button type="button" class="btn btn-sm btn-outline lg-hidden" data-media-clear aria-label="Clear Logo image (from the Media library)">Clear</button>
+  </span>
+    <input class="form-input" data-bl-item-url placeholder="Or a direct image URL (https://…)" aria-label="Logo image URL" />
+    <input class="form-input" data-bl-item-alt placeholder="Alt text (required)" aria-label="Logo alt text" />
+    <select class="form-select form-select-sm" data-bl-item-size aria-label="Logo size"><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select>
+    <span class="lg-row-rail">
+      <button type="button" class="btn btn-sm btn-outline" data-bl-item-up aria-label="Move logo up">&#8593;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-bl-item-down aria-label="Move logo down">&#8595;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-bl-item-remove aria-label="Remove logo">&#10005;</button>
+    </span>
+  </div></template>
+  <div class="toolbar">
+    <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="brand_logos.items">+ Add a logo</button>
+    <button type="button" class="btn btn-sm btn-outline" data-bl-upload-btn>Upload a logo file&#8230;</button>
+    <input type="file" class="lg-hidden" data-bl-upload-input accept="image/svg+xml,image/png,image/jpeg" aria-label="Upload a logo file (SVG, PNG or JPEG)" />
+  </div>
+  <p class="form-help lg-hidden" data-bl-upload-error role="alert"></p>
+</div>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="footer">
+  <h3>G &middot; Footer</h3>
+  <p class="form-help">Bottom-of-page blocks (about / links / disclosure / logo / address / socials), with their own palette and typography.</p>
+  <h4>Palette &amp; typography scope</h4>
+  <div class="lg-scalars">
+    <div class="form-group"><label class="form-label">Background</label><div class="lg-role-strip" data-role-strip="footer.palette_scope.background"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="footer.palette_scope.background" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="footer.palette_scope.background" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="footer.palette_scope.background" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="footer.palette_scope.background" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="footer.palette_scope.background" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="footer.palette_scope.background" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="footer.palette_scope.background" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="footer.palette_scope.background" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="footer.palette_scope.background" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="footer.palette_scope.background" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="footer.palette_scope.background" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="footer.palette_scope.background" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="footer.palette_scope.background" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="footer.palette_scope.background" title="Secondary button" aria-label="Secondary button"></button></div></div>
+    <div class="form-group"><label class="form-label">Text</label><div class="lg-role-strip" data-role-strip="footer.palette_scope.text"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="footer.palette_scope.text" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="footer.palette_scope.text" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="footer.palette_scope.text" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="footer.palette_scope.text" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="footer.palette_scope.text" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="footer.palette_scope.text" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="footer.palette_scope.text" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="footer.palette_scope.text" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="footer.palette_scope.text" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="footer.palette_scope.text" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="footer.palette_scope.text" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="footer.palette_scope.text" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="footer.palette_scope.text" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="footer.palette_scope.text" title="Secondary button" aria-label="Secondary button"></button></div></div>
+    <div class="form-group"><label class="form-label">Links</label><div class="lg-role-strip" data-role-strip="footer.palette_scope.link"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="footer.palette_scope.link" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="footer.palette_scope.link" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="footer.palette_scope.link" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="footer.palette_scope.link" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="footer.palette_scope.link" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="footer.palette_scope.link" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="footer.palette_scope.link" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="footer.palette_scope.link" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="footer.palette_scope.link" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="footer.palette_scope.link" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="footer.palette_scope.link" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="footer.palette_scope.link" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="footer.palette_scope.link" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="footer.palette_scope.link" title="Secondary button" aria-label="Secondary button"></button></div></div>
+  </div>
+  <div class="form-group"><label class="form-label">Text size</label><select class="form-select" data-frame-key="footer.typography_scope.size"><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option><option value="xl">Extra large</option></select></div>
+  <h4>Blocks</h4>
+  <div data-tplbox-list="footer.blocks"></div>
+  <template data-tplbox-tpl="footer.blocks"><div class="lg-tplbox-row" data-footer-block-row>
+    <div class="lg-list-row">
+      <select class="form-select form-select-sm" data-footer-block-type aria-label="Footer block type"><option value="about_paragraph">About paragraph</option><option value="link_row">Link row</option><option value="disclosure">Disclosure</option><option value="logo">Logo</option><option value="address">Address</option><option value="socials">Social links</option></select>
+      <select class="form-select form-select-sm" data-footer-block-align aria-label="Footer block alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
+      <span class="lg-row-rail">
+        <button type="button" class="btn btn-sm btn-outline" data-footer-block-up aria-label="Move block up">&#8593;</button>
+        <button type="button" class="btn btn-sm btn-outline" data-footer-block-down aria-label="Move block down">&#8595;</button>
+        <button type="button" class="btn btn-sm btn-outline" data-footer-block-remove aria-label="Remove block">&#10005;</button>
+      </span>
+    </div>
+    <textarea class="form-input" rows="2" data-footer-block-text placeholder="About / disclosure / address copy" aria-label="Footer block text"></textarea>
+    <div class="lg-hidden" data-footer-block-linkrow>
+      <div class="form-group"><label class="form-label">Links source</label>
+        <select class="form-select form-select-sm" data-footer-block-linksource aria-label="Footer link row source">
+          <option value="site">From site settings (legal links)</option>
+          <option value="manual">Manual list</option>
+        </select>
+      </div>
+      <div data-footer-block-links></div>
+      <button type="button" class="btn btn-sm btn-secondary" data-footer-block-link-add>+ Add link</button>
+    </div>
+  </div></template>
+  <template data-tplbox-tpl="footer_link_row"><div class="lg-list-row" data-footer-link-row>
+    <input class="form-input" data-footer-link-label placeholder="Label" aria-label="Footer link label" />
+    <input class="form-input" data-footer-link-href placeholder="https://… or /page" aria-label="Footer link address" />
+    <button type="button" class="btn btn-sm btn-outline" data-footer-link-remove aria-label="Remove link">&#10005;</button>
+  </div></template>
+  <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="footer.blocks">+ Add a footer block</button>
+</div>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="images">
+  <h3>H &middot; Images</h3>
+  <p class="form-help">Individually placed images (e.g. a persona portrait), each with its own slot, size, alignment and optional hover caption.</p>
+  <div data-tplbox-list="images"></div>
+  <template data-tplbox-tpl="images"><div class="lg-tplbox-row" data-img-item-row>
+    <input type="hidden" data-img-item-id />
+    <div class="lg-list-row">
+      <span class="lg-media-field" data-media-field>
+    <input type="hidden" data-list-field="media_id" aria-label="Image (from the Media library)" />
+    <img class="lg-media-thumb lg-hidden" data-media-thumb alt="" />
+    <button type="button" class="btn btn-sm btn-secondary" data-media-choose aria-label="Choose Image (from the Media library) from the Media library">Choose&#8230;</button>
+    <button type="button" class="btn btn-sm btn-outline lg-hidden" data-media-clear aria-label="Clear Image (from the Media library)">Clear</button>
+  </span>
+      <input class="form-input" data-img-item-url placeholder="Or a direct image URL (https://…)" aria-label="Image URL" />
+      <input class="form-input" data-img-item-alt placeholder="Alt text (required)" aria-label="Image alt text" />
+      <span class="lg-row-rail">
+        <button type="button" class="btn btn-sm btn-outline" data-img-item-up aria-label="Move image up">&#8593;</button>
+        <button type="button" class="btn btn-sm btn-outline" data-img-item-down aria-label="Move image down">&#8595;</button>
+        <button type="button" class="btn btn-sm btn-outline" data-img-item-remove aria-label="Remove image">&#10005;</button>
+      </span>
+    </div>
+    <div class="lg-scalars">
+      <div class="form-group"><label class="form-label">Slot</label><select class="form-select form-select-sm" data-img-item-slot aria-label="Image slot"><option value="above_section">Above the section</option><option value="below_section">Below the section</option><option value="above_header">Above the header</option><option value="below_footer">Below the footer</option></select></div>
+      <div class="form-group"><label class="form-label">Size</label><select class="form-select form-select-sm" data-img-item-size aria-label="Image size"><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select></div>
+      <div class="form-group"><label class="form-label">Alignment</label><select class="form-select form-select-sm" data-img-item-align aria-label="Image alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></div>
+    </div>
+    <input class="form-input" data-img-item-tooltip placeholder="Hover caption (optional)" aria-label="Image hover caption" />
+    <div class="lg-tplbox-pagetarget">
+    <div class="form-group"><label class="form-label">Show on</label>
+      <select class="form-select form-select-sm" data-pt-mode aria-label="Page targeting mode"><option value="all">Every page</option><option value="first">First page only</option><option value="range">A page range</option><option value="list">Specific pages</option></select>
+    </div>
+    <div class="lg-list-row">
+      <input class="form-input form-input-sm" type="number" min="1" data-pt-from placeholder="From page" aria-label="Page range start" />
+      <input class="form-input form-input-sm" type="number" min="1" data-pt-to placeholder="To page" aria-label="Page range end" />
+      <input class="form-input" data-pt-list placeholder="Pages, comma-separated (e.g. 1, 3)" aria-label="Specific pages" />
+    </div>
+  </div>
+    <div class="lg-tplbox-persona">
+      <p class="form-help">Or generate an AI persona portrait (P5c, quota-guarded):</p>
+      <div class="lg-list-row">
+        <select class="form-select form-select-sm" data-img-item-persona aria-label="Persona">
+          <option value="">Choose a persona&#8230;</option>
+          <option value="old_person">Older person</option><option value="young_salesman">Young salesman</option><option value="young_woman">Young woman</option><option value="mid_age_professional">Mid-age professional</option><option value="friendly_advisor">Friendly advisor</option><option value="senior_expert">Senior expert</option><option value="casual_millennial">Casual millennial</option><option value="warm_grandmother">Warm grandmother</option>
+        </select>
+        <button type="button" class="btn btn-sm btn-secondary" data-img-item-generate>Generate</button>
+      </div>
+      <p class="form-help lg-hidden" data-img-item-gen-error role="alert"></p>
+    </div>
+  </div></template>
+  <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="images">+ Add an image</button>
+</div>
+  </div>
+</div>
+</div>

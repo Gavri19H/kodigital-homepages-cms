@@ -1,0 +1,17 @@
+<div class="lg-qpanel" data-panel="activation">
+  <div class="card">
+    <h3>Activation preflight (§5.2)</h3>
+    <div id="lg-preflight-panel" data-preflight-state="blocked"><p class="lg-preflight-blocked-title">Cannot activate this Quote.</p><div id="lg-preflight-problems" data-problem-count="1"><div class="lg-problem-group" data-problem-scope="section"><h4 class="lg-problem-group-title">Slides</h4><div class="lg-problem-row" data-problem-severity="error" data-problem-path="activation.shared_page"><span class="lg-problem-chip" data-severity="error">Error</span><span class="lg-problem-msg">The shared first page needs at least one section.</span><a class="btn btn-sm btn-secondary" href="/admin/leadgen/quotes/lgq_01KY4Z3ANF3MDZP59JT8FF5HC0/edit">Open Quote Builder</a></div></div></div></div>
+  </div>
+  <div class="card">
+    <h3>Site activation (§17)</h3>
+    <p class="form-help">At most one enabled root (blank slug) per site (§17.1). Activating a second root while one is enabled is rejected — disable it or set a slug.</p>
+    <div id="lg-activation-list"><div class="lg-activation-row" data-site-id="site-1">
+  <label class="lg-check"><input type="checkbox" data-site-enabled /> Site One</label>
+  <input class="form-input" data-site-slug placeholder="slug (blank = root /lg)" value="" />
+  <a href="https://one.example.com/lg" class="form-help" data-preview-url target="_blank" rel="noopener">https://one.example.com/lg</a>
+  <button type="button" class="btn btn-sm btn-secondary" data-save-activation>Save</button>
+  <button type="button" class="btn btn-sm btn-outline" data-deactivate>Deactivate</button>
+</div></div>
+  </div>
+</div>
