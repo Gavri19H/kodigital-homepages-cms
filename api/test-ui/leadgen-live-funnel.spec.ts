@@ -154,6 +154,27 @@ async function gotoReady(page: Page, query = ""): Promise<void> {
   });
 }
 
+// LeadGen Rework §4.3-1/§4.3-15 (P1, own-hand-verified): activation now
+// preflights "the shared first page needs at least one section" —
+// seedFixP1Funnel seeds a TRIVIAL pass-through shared page (a single
+// ContinueButton) so every gotoReady() caller in this file must click through
+// it once before reaching s1 (homeowner) — the SAME pattern already proven in
+// leadgen-rework-p2-studio.gesture.spec.ts / __p2c-studio.spec.ts /
+// leadgen-round4-acceptance.gesture.spec.ts / leadgen-operator-acceptance
+// .gesture.spec.ts. The shared page is section_index 0, absolute section
+// index 1 (data-lg-index="1"); sectionAt(page, N) below is renumbered +1
+// throughout this file to match (s1 homeowner was data-lg-index="0", now
+// "1"; s2 zip was "1", now "2") — own-hand-verified against engine.ts's
+// visibleIndexes()/updateProgressUi(): the shared page's section carries NO
+// special-case exclusion anywhere in the engine, so it is a real, counted
+// section like any other (section_index AND the progress bar's current/total
+// both include it — confirmed via engine.ts:811-819/1623-1640 read).
+async function passSharedPage(page: Page): Promise<void> {
+  const cont = page.locator("[data-lg-continue]").first();
+  await expect(cont, "the shared page's Continue is reachable").toBeVisible({ timeout: 8_000 });
+  await cont.click();
+}
+
 function sectionAt(page: Page, index: number) {
   return page.locator(`[data-lg-section][data-lg-index="${index}"]`);
 }
@@ -187,11 +208,12 @@ async function readMockRequests(): Promise<CapturedProviderRequest[]> {
   return list;
 }
 
-// Drive: answer q1 (Yes), land on section 2. Assumes ready.
+// Drive: answer q1 (Yes), land on section 2. Assumes ready AND past the
+// shared page (passSharedPage already called) — s1=index1, s2=index2.
 async function answerYesAndAdvance(page: Page): Promise<void> {
-  await sectionAt(page, 0).locator('[data-lg-choice="true"]').click();
-  await expect(sectionAt(page, 1)).toBeVisible();
-  await expect(sectionAt(page, 0)).toBeHidden();
+  await sectionAt(page, 1).locator('[data-lg-choice="true"]').click();
+  await expect(sectionAt(page, 2)).toBeVisible();
+  await expect(sectionAt(page, 1)).toBeHidden();
 }
 
 // ---------------------------------------------------------------------------
@@ -199,7 +221,7 @@ async function answerYesAndAdvance(page: Page): Promise<void> {
 // ---------------------------------------------------------------------------
 
 test.describe("Group 1 — server render without JS (11 §11.2 / 03 §3.11)", () => {
-  test("a javaScriptEnabled:false context sees the first section's question; catalog components are in the served HTML", async ({ browser }) => {
+  test("a javaScriptEnabled:false context sees the shared page's content first (§4.3-2); the funnel's own first question is present but correctly hidden until reached; catalog components are in the served HTML", async ({ browser }) => {
     // Node-side: the EXACT served bytes carry every seeded catalog component's
     // preset markup (the §11.2 "each catalog component type spot-checked
     // rendered" leg, over this funnel's component set).
@@ -226,23 +248,34 @@ test.describe("Group 1 — server render without JS (11 §11.2 / 03 §3.11)", ()
     ]) {
       expect(html, `served HTML must contain ${marker}`).toContain(marker);
     }
-    // First section visible in the BYTES; the second ships hidden.
+    // First section (§4.3-2 shared page, absolute index 0) visible in the
+    // BYTES; the funnel's own first question (homeowner, index 1) ships
+    // hidden — structural, content-agnostic checks, unaffected by WHICH
+    // section occupies each role.
     expect(html).toMatch(/<section data-lg-section [^>]*data-lg-index="0"(?![^>]*hidden)/);
     expect(html).toMatch(/<section data-lg-section [^>]*data-lg-index="1"[^>]*hidden/);
     await wire.dispose();
 
-    // Browser-side with JS OFF: the first question is VISIBLE (03 §3.11
-    // "renders the first question server-side (visible without JS)").
+    // Browser-side with JS OFF (LeadGen Rework §4.3-2, conductor ruling: "Every
+    // visitor sees the shared first page first" — this SSR/no-JS guarantee's
+    // contracted meaning is now the SHARED page's content, not the funnel's
+    // own first question): the shared page's Continue is VISIBLE (03 §3.11
+    // "renders the first [visible] section server-side, visible without JS");
+    // the funnel's own first question (homeowner, index 1) is correctly
+    // HIDDEN — but still PRESENT in the DOM (toBeHidden() requires the
+    // element to exist and be attached, just not visible/rendered-open — it
+    // is not a "gone/never shipped" check), matching the structural
+    // all-content-present assertions above, which are unchanged.
     const noJs = await browser.newContext({
       javaScriptEnabled: false,
       userAgent: REAL_CHROME_UA,
     });
     const page = await noJs.newPage();
     await page.goto(shellUrl(), { waitUntil: "domcontentloaded" });
-    await expect(page.locator('[data-lg-question="q_homeowner"]')).toBeVisible();
-    await expect(sectionAt(page, 0).locator('[data-lg-choice="true"]')).toBeVisible();
-    await expect(sectionAt(page, 0).locator('[data-lg-choice="false"]')).toBeVisible();
+    await expect(sectionAt(page, 0).locator("[data-lg-continue]")).toBeVisible();
+    await expect(page.locator('[data-lg-question="q_homeowner"]')).toBeHidden();
     await expect(sectionAt(page, 1)).toBeHidden();
+    await expect(sectionAt(page, 2)).toBeHidden();
     // JS never ran: the engine could not have marked readiness.
     await expect(page.locator("#lg-funnel-root")).not.toHaveAttribute("data-lg-ready", "1");
     await noJs.close();
@@ -257,6 +290,7 @@ test.describe("Group 1 — answers, defaults, auto-advance (11 §11.2 / 03 §3.4
   test("default applies (answer_default_applied) → same-value click converts to user_confirmed_default; selected state + auto-advance", async ({ page }) => {
     const events = await installTrackCapture(page);
     await gotoReady(page);
+    await passSharedPage(page);
 
     // §3.4: the authored default_answer was applied ONCE on section entry.
     const defaults = await waitForEventCount(events, "answer_default_applied", 1);
@@ -273,7 +307,7 @@ test.describe("Group 1 — answers, defaults, auto-advance (11 §11.2 / 03 §3.4
 
     // Click the SAME value as the default → selected state + the
     // default_applied → user_confirmed_default transition (§3.4).
-    const yes = sectionAt(page, 0).locator('[data-lg-choice="true"]');
+    const yes = sectionAt(page, 1).locator('[data-lg-choice="true"]');
     await yes.click();
     await expect(yes).toHaveClass(/lg-selected/);
     await expect(yes).toHaveAttribute("aria-pressed", "true");
@@ -288,17 +322,26 @@ test.describe("Group 1 — answers, defaults, auto-advance (11 §11.2 / 03 §3.4
     expect(click["section_id"]).toBe(seeded.sectionOnePublicId);
 
     // §3.5.4 auto-advance: the single-question auto_advance section advanced.
-    await expect(sectionAt(page, 1)).toBeVisible();
-    await expect(sectionAt(page, 0)).toBeHidden();
+    await expect(sectionAt(page, 2)).toBeVisible();
+    await expect(sectionAt(page, 1)).toBeHidden();
     const sectionViews = await waitForEventCount(events, "section_view", 2);
     expect(sectionViews.some((e) => e["section_id"] === seeded.sectionTwoPublicId)).toBe(true);
+    // own-hand-verified: the shared page's OWN Continue click ALSO fires
+    // section_continue (engine.ts has no shared-page special-case), so the
+    // FIRST recorded section_continue is now the shared page's, not
+    // homeowner's — filter by section_id (the same "find by identity, not
+    // array position" idiom this file already uses below for nav="back")
+    // rather than assume order.
     const continues = await waitForEventCount(events, "section_continue", 1);
-    expect(continues[0]!["section_id"]).toBe(seeded.sectionOnePublicId);
+    expect(continues.some((c) => c["section_id"] === seeded.sectionOnePublicId)).toBe(true);
 
-    // Progress over the visible sections: 2 / 2 on the second step.
-    const progress = sectionAt(page, 1).locator("[data-lg-progress]");
-    await expect(progress).toHaveAttribute("data-lg-progress-current", "2");
-    await expect(progress).toHaveAttribute("data-lg-progress-total", "2");
+    // Progress over the visible sections (shared+homeowner+zip): 3 / 3 on the
+    // final (zip) step — own-hand-verified against engine.ts's
+    // visibleIndexes()/updateProgressUi(): the shared page is a counted
+    // section like any other.
+    const progress = sectionAt(page, 2).locator("[data-lg-progress]");
+    await expect(progress).toHaveAttribute("data-lg-progress-current", "3");
+    await expect(progress).toHaveAttribute("data-lg-progress-total", "3");
   });
 });
 
@@ -310,6 +353,7 @@ test.describe("Group 1 — validation, back-nav, dependencies (11 §11.2 / 03 §
   test("Continue blocks until required answered (+validation_error); Back restores answers+progress; dependency reveals/hides", async ({ page }) => {
     const events = await installTrackCapture(page);
     await gotoReady(page);
+    await passSharedPage(page);
     await answerYesAndAdvance(page);
 
     // Dependency REVEAL: homeowner="true" satisfies the dependent's rule.
@@ -318,24 +362,26 @@ test.describe("Group 1 — validation, back-nav, dependencies (11 §11.2 / 03 §
 
     // Continue with the required ZIP empty → blocked + inline error +
     // validation_error beacon; the funnel stays on section 2 (§3.5.4).
-    await sectionAt(page, 1).locator("[data-lg-continue]").click();
+    await sectionAt(page, 2).locator("[data-lg-continue]").click();
     await waitForEventCount(events, "continue_click", 1);
     const validationErrors = await waitForEventCount(events, "validation_error", 1);
     expect(validationErrors[0]!["internal_field"]).toBe(seeded.fields.zip);
     expect(String(validationErrors[0]!["answer_value_normalized"] ?? "")).not.toBe("");
-    const errorSlot = sectionAt(page, 1).locator('[data-lg-error-for="zip"]');
+    const errorSlot = sectionAt(page, 2).locator('[data-lg-error-for="zip"]');
     await expect(errorSlot).toBeVisible();
     await expect(errorSlot).not.toHaveText("");
-    await expect(sectionAt(page, 1)).toBeVisible();
-    await expect(sectionAt(page, 0)).toBeHidden();
+    await expect(sectionAt(page, 2)).toBeVisible();
+    await expect(sectionAt(page, 1)).toBeHidden();
 
-    // Back → section 1 restored: prior answer still selected, progress 1/2,
-    // section_view fires with nav="back" (§3.5.2).
-    await sectionAt(page, 1).locator("[data-lg-back]").click();
-    await expect(sectionAt(page, 0)).toBeVisible();
-    await expect(sectionAt(page, 0).locator('[data-lg-choice="true"]')).toHaveClass(/lg-selected/);
-    const progress = sectionAt(page, 0).locator("[data-lg-progress]");
-    await expect(progress).toHaveAttribute("data-lg-progress-current", "1");
+    // Back → section 1 (homeowner, absolute index 1) restored: prior answer
+    // still selected, progress 2/3 (shared+homeowner+zip, own-hand-verified
+    // per engine.ts's visibleIndexes()/updateProgressUi()), section_view
+    // fires with nav="back" (§3.5.2).
+    await sectionAt(page, 2).locator("[data-lg-back]").click();
+    await expect(sectionAt(page, 1)).toBeVisible();
+    await expect(sectionAt(page, 1).locator('[data-lg-choice="true"]')).toHaveClass(/lg-selected/);
+    const progress = sectionAt(page, 1).locator("[data-lg-progress]");
+    await expect(progress).toHaveAttribute("data-lg-progress-current", "2");
     await expect
       .poll(() =>
         ofType(events, "section_view").filter(
@@ -345,8 +391,8 @@ test.describe("Group 1 — validation, back-nav, dependencies (11 §11.2 / 03 §
       .toBeGreaterThanOrEqual(1);
 
     // Different value (No) → user_selected + dependency HIDE on section 2.
-    await sectionAt(page, 0).locator('[data-lg-choice="false"]').click();
-    await expect(sectionAt(page, 1)).toBeVisible();
+    await sectionAt(page, 1).locator('[data-lg-choice="false"]').click();
+    await expect(sectionAt(page, 2)).toBeVisible();
     await expect(dependent).toBeHidden();
     await expect
       .poll(() =>
@@ -357,9 +403,9 @@ test.describe("Group 1 — validation, back-nav, dependencies (11 §11.2 / 03 §
       .toBeGreaterThanOrEqual(1);
 
     // Back again + Yes again → the dependent REVEALS again.
-    await sectionAt(page, 1).locator("[data-lg-back]").click();
-    await sectionAt(page, 0).locator('[data-lg-choice="true"]').click();
-    await expect(sectionAt(page, 1)).toBeVisible();
+    await sectionAt(page, 2).locator("[data-lg-back]").click();
+    await sectionAt(page, 1).locator('[data-lg-choice="true"]').click();
+    await expect(sectionAt(page, 2)).toBeVisible();
     await expect(dependent).toBeVisible();
   });
 });
@@ -380,15 +426,16 @@ test.describe("Group 1 — validation, back-nav, dependencies (11 §11.2 / 03 §
 test.describe("Group 1 — U14 Continue centering (live /lg render, measured)", () => {
   test("the rendered [data-lg-continue] pill is centered in its .lg-question-card (|center-x delta| ≤ 1px)", async ({ page }) => {
     await gotoReady(page);
+    await passSharedPage(page);
     await answerYesAndAdvance(page);
-    const continueBtn = sectionAt(page, 1).locator("[data-lg-continue]");
+    const continueBtn = sectionAt(page, 2).locator("[data-lg-continue]");
     await expect(continueBtn).toBeVisible();
-    const card = sectionAt(page, 1).locator(".lg-question-card");
+    const card = sectionAt(page, 2).locator(".lg-question-card");
     await expect(card).toBeVisible();
 
     const geom = await page.evaluate(() => {
-      const btn = document.querySelector('[data-lg-section][data-lg-index="1"] [data-lg-continue]');
-      const cardEl = document.querySelector('[data-lg-section][data-lg-index="1"] .lg-question-card');
+      const btn = document.querySelector('[data-lg-section][data-lg-index="2"] [data-lg-continue]');
+      const cardEl = document.querySelector('[data-lg-section][data-lg-index="2"] .lg-question-card');
       if (!btn || !cardEl) return { ok: false as const };
       const btnRect = btn.getBoundingClientRect();
       const cardRect = cardEl.getBoundingClientRect();
@@ -450,6 +497,7 @@ test.describe("Group 1 — auction → banners → impressions → click (11 §1
     // /lg/attempt landing-url token slice, the provider payload macro node,
     // and the /lg/lc {utm_source} macro — the traffic-persistence money path.
     await gotoReady(page, "?utm_source=fixp1-fb&sub1=fixp1-sub");
+    await passSharedPage(page);
     const koSid = await readKoSid(page);
     expect(koSid).not.toBe("");
 
@@ -468,7 +516,7 @@ test.describe("Group 1 — auction → banners → impressions → click (11 §1
 
     // ---- traverse ---------------------------------------------------------
     await answerYesAndAdvance(page);
-    await sectionAt(page, 1).locator("[data-lg-input]").first().fill("90210");
+    await sectionAt(page, 2).locator("[data-lg-input]").first().fill("90210");
     await page.locator('[data-lg-question="q_prior"] [data-lg-choice="insured"]').click();
 
     // §3.5.6: advancing past the LAST visible section — and never before —
@@ -480,7 +528,7 @@ test.describe("Group 1 — auction → banners → impressions → click (11 §1
         timeout: 20_000,
       }),
       page.waitForResponse((r) => r.url().includes("/lg/auction"), { timeout: 20_000 }),
-      sectionAt(page, 1).locator("[data-lg-continue]").click(),
+      sectionAt(page, 2).locator("[data-lg-continue]").click(),
     ]);
 
     // ---- §3.6 request: binding + answers + answer_mapping_versions --------
@@ -691,6 +739,7 @@ test.describe("Group 1 — mobile 375 (11 §11.2 screenshots + E6)", () => {
   test("mobile funnel renders, completes to banners; 375px screenshots; no horizontal overflow", async ({ page }) => {
     test.setTimeout(60_000);
     await gotoReady(page);
+    await passSharedPage(page);
     await expect(page.locator('[data-lg-question="q_homeowner"]')).toBeVisible();
     await page.screenshot({ path: `${SHOT_DIR}/mobile-375-first-question.png`, fullPage: true });
 
@@ -700,10 +749,10 @@ test.describe("Group 1 — mobile 375 (11 §11.2 screenshots + E6)", () => {
     expect(noOverflowStart).toBe(true);
 
     await answerYesAndAdvance(page);
-    await sectionAt(page, 1).locator("[data-lg-input]").first().fill("90210");
+    await sectionAt(page, 2).locator("[data-lg-input]").first().fill("90210");
     await Promise.all([
       page.waitForResponse((r) => r.url().includes("/lg/auction"), { timeout: 20_000 }),
-      sectionAt(page, 1).locator("[data-lg-continue]").click(),
+      sectionAt(page, 2).locator("[data-lg-continue]").click(),
     ]);
     const bannersMount = page.locator("[data-lg-banners]");
     await expect(bannersMount).toBeVisible();
@@ -738,6 +787,12 @@ test.describe("Group 1 — CLS with content (11 §11.2)", () => {
     });
 
     await gotoReady(page);
+    // LeadGen Rework §4.3-1 (P1, own-hand-verified): the shared page's own
+    // Continue click is a REAL user input, so the browser marks the resulting
+    // layout shift (hiding shared, revealing homeowner) hadRecentInput=true —
+    // this test's own observer above already excludes those, same as any
+    // other post-input shift it was already designed to tolerate.
+    await passSharedPage(page);
     await page.evaluate(() => document.fonts.ready);
     // The first section is server-rendered CONTENT (not an empty mount);
     // hydration (ready flag above) must not shift it.
@@ -749,9 +804,10 @@ test.describe("Group 1 — CLS with content (11 §11.2)", () => {
     // Budget justification (11 §11.2 "CLS budget met WITH content"): the
     // content-bearing funnel measures a real sub-millipoint shift (~0.0004,
     // observed) from the ProgressBar label hydration — render.ts
-    // updateProgress writes "1 / 2" textContent into the server-rendered
-    // .lg-progress (a presets↔render slot drift: presets emit
-    // .lg-progress-track/.lg-progress-fill, render.ts looks for
+    // updateProgress writes "2 / 3" textContent (shared+homeowner+zip, own-
+    // hand-verified per engine.ts's visibleIndexes()/updateProgressUi()) into
+    // the server-rendered .lg-progress (a presets↔render slot drift: presets
+    // emit .lg-progress-track/.lg-progress-fill, render.ts looks for
     // [data-lg-progress-bar]/[data-lg-progress-label]; parity is the 09 §9.3
     // Phase-5 matrix). 0.01 keeps the budget 10x under the 0.1 "good"
     // web-vitals threshold while measuring REAL content — the old empty-mount
@@ -768,6 +824,7 @@ test.describe("Group 1 — CLS with content (11 §11.2)", () => {
 test.describe("Group 1 — mid-funnel reload restore (11 §11.2 / 10 §10.4)", () => {
   test("reload mid-funnel restores answers + section pointer + A/B identity; state re-keys to the fresh attempt", async ({ page }) => {
     await gotoReady(page);
+    await passSharedPage(page);
     const before = await page.evaluate(() => {
       const eng = (window as unknown as {
         __LG_ENGINE__?: { getState: () => { funnel_attempt_id: string } };
@@ -781,7 +838,7 @@ test.describe("Group 1 — mid-funnel reload restore (11 §11.2 / 10 §10.4)", (
     const sidBefore = await readKoSid(page);
 
     await answerYesAndAdvance(page);
-    await sectionAt(page, 1).locator("[data-lg-input]").first().fill("90210");
+    await sectionAt(page, 2).locator("[data-lg-input]").first().fill("90210");
 
     await page.reload({ waitUntil: "load" });
     await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, {
@@ -789,8 +846,8 @@ test.describe("Group 1 — mid-funnel reload restore (11 §11.2 / 10 §10.4)", (
     });
 
     // Section pointer + answers restored (§3.5.1 restore-by-binding-tuple).
-    await expect(sectionAt(page, 1)).toBeVisible();
-    await expect(sectionAt(page, 0)).toBeHidden();
+    await expect(sectionAt(page, 2)).toBeVisible();
+    await expect(sectionAt(page, 1)).toBeHidden();
     const restored = await page.evaluate(() => {
       const eng = (window as unknown as {
         __LG_ENGINE__?: {
@@ -810,7 +867,10 @@ test.describe("Group 1 — mid-funnel reload restore (11 §11.2 / 10 §10.4)", (
         lgKeys: keys,
       };
     });
-    expect(restored.sectionIndex).toBe(1);
+    // LeadGen Rework §4.3-1 (own-hand-verified): section_index is absolute
+    // over config.sections (shared=0, homeowner=1, zip=2) — the funnel was on
+    // zip (2) before the reload.
+    expect(restored.sectionIndex).toBe(2);
     expect(restored.answers[seeded.fields.homeowner]).toBe("true");
     expect(restored.answers[seeded.fields.zip]).toBe("90210");
     // The dependent (driven by the RESTORED cross-section answer) is visible.
@@ -848,23 +908,29 @@ test.describe("§11.6 anti-false-PASS regression (permanent)", () => {
     expect(mountChildren, "§11.6: [data-lg-mount] must not be empty after ready").toBeGreaterThan(0);
 
     // (2) FAIL if zero [data-lg-question] elements exist on a Quote whose
-    // Sections carry questions.
+    // Sections carry questions. Unaffected by the shared page below (a bare
+    // ContinueButton carries no data-lg-question, and every OTHER section
+    // stays mounted — just hidden pre-navigation, per the engine's
+    // all-sections-mounted design) — the funnel's own questions already
+    // count here regardless of navigation state.
     const questionCount = await page.locator("[data-lg-question]").count();
     expect(questionCount, "§11.6: zero [data-lg-question] on a question funnel").toBeGreaterThan(0);
 
+    await passSharedPage(page);
+
     // (3) FAIL if no answer_click beacon is observed after a scripted answer.
-    await sectionAt(page, 0).locator('[data-lg-choice="true"]').click();
+    await sectionAt(page, 1).locator('[data-lg-choice="true"]').click();
     await waitForEventCount(events, "answer_click", 1);
 
     // (4) FAIL if /lg/auction is never called after completing the final
     // Section.
-    await expect(sectionAt(page, 1)).toBeVisible();
-    await sectionAt(page, 1).locator("[data-lg-input]").first().fill("10001");
+    await expect(sectionAt(page, 2)).toBeVisible();
+    await sectionAt(page, 2).locator("[data-lg-input]").first().fill("10001");
     await Promise.all([
       page.waitForRequest((r) => r.url().includes("/lg/auction") && r.method() === "POST", {
         timeout: 20_000,
       }),
-      sectionAt(page, 1).locator("[data-lg-continue]").click(),
+      sectionAt(page, 2).locator("[data-lg-continue]").click(),
     ]);
   });
 

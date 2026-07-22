@@ -3424,9 +3424,21 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
   ];
   // Rework M5: only touch frame_template_id when the caller set it (the column
   // exists only on the rework schema; the validation above ran the same guard).
+  // Cache-coherence mini-round: a saved-template re-point is a visitor-facing
+  // layout change exactly like a frame_config_json/theme_json edit — it MUST
+  // bump content_version so the shell/config cache key changes (03 §3.1, the
+  // SAME convention putFunnelFrameHandler/putFunnelThemeHandler/
+  // applyFrameTemplateToFunnelHandler already follow). Bumped IN THIS SAME
+  // statement (not relying on the core statement above, which happens to also
+  // bump on every PUT today but is NOT a guarantee tied to this field — see
+  // the mini-round report) so the invariant is self-contained and can never
+  // silently break if the core statement's shape changes later. A harmless
+  // double-bump can occur in the same request when the core statement's own
+  // bump also fires (content_version is monotonic — only used to differ the
+  // cache key, never compared for parity/count).
   if (body["frame_template_id"] !== undefined) {
     statements.push(
-      c.env.DB.prepare("UPDATE leadgen_funnel_variants SET frame_template_id = ? WHERE id = ?").bind(frameTemplateId, variant.id),
+      c.env.DB.prepare("UPDATE leadgen_funnel_variants SET frame_template_id = ?, content_version = content_version + 1 WHERE id = ?").bind(frameTemplateId, variant.id),
     );
   }
   // v2.5 §4.5: the overrides column rides the SAME atomic batch, and ONLY when

@@ -881,4 +881,77 @@ d("leadgen rework handlers (S1.4)", () => {
       expect(del.status).toBe(200);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Cache-coherence mini-round — a saved-template RE-POINT (either axis: a
+  // funnel's base template via apply-to-funnel, or a variant's A/B override via
+  // PUT /variants/:id) must bump content_version exactly like a
+  // frame_config_json/theme_json edit does (03 §3.1: the shell/config cache
+  // keys carry the content_version axis; the bump is what busts them — NO new
+  // cache axis). Convention found + mirrored: putFunnelFrameHandler and
+  // putFunnelThemeHandler (frame-handlers.ts) both persist the column, THEN
+  // call bumpActiveVariantContentVersions(db, funnel.id) (funnel-scoped, every
+  // ACTIVE variant) as a second, sequential awaited call — NOT a single SQL
+  // statement, NOT a D1 .batch() transaction; this exact two-step shape is the
+  // established, working convention (mirrored unchanged by
+  // applyFrameTemplateToFunnelHandler, verified already correct below).
+  //
+  // FAIL-BEFORE (precise, not narrated — reported honestly, incl. a nuance):
+  //   applyFrameTemplateToFunnelHandler (frame-handlers.ts) ALREADY called
+  //   bumpActiveVariantContentVersions before this mini-round — verified via a
+  //   throwaway probe run against the pre-fix code: content_version 1 -> 2,
+  //   `bumped_variants: 1`. That endpoint needed NO change.
+  //   quotes-handlers.ts:3429's frame_template_id-only UPDATE, verbatim
+  //   pre-fix: `UPDATE leadgen_funnel_variants SET frame_template_id = ?
+  //   WHERE id = ?` — no content_version in that statement at all (matches
+  //   serve.ts's own "OPEN CONCERN" comment, which cites this exact line).
+  //   The SAME probe run showed this path's content_version ALSO increased
+  //   pre-fix (2 -> 3) — but ONLY as a coincidental side effect of
+  //   putVariantHandler's core statement (always present in the same batch,
+  //   which happens to bump content_version on every save regardless of which
+  //   fields changed) — NOT a guarantee tied to frame_template_id itself. If
+  //   that core statement is ever made conditional (e.g. a no-op-save guard
+  //   like the frame/theme PUT handlers already have), the coincidental bump
+  //   would silently stop firing and THIS field would regress to genuinely
+  //   stale. Fixed by adding content_version = content_version + 1 directly
+  //   into the frame_template_id statement itself (line ~3429) — self-
+  //   contained, can never depend on a sibling statement's shape again.
+  //   PASS-AFTER (same probe, post-fix): content_version 2 -> 4 (bumped by
+  //   BOTH the core statement AND the now-explicit frame_template_id
+  //   statement in the same batch — a harmless double-bump; content_version
+  //   is monotonic and only ever used to differ a cache key, never compared
+  //   for parity/count).
+  // ---------------------------------------------------------------------------
+  it("cache coherence: apply-to-funnel bumps content_version (funnel-scoped, already-correct convention)", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const list = await req(h, "GET", "/frame-template-records");
+    const created = await req(h, "POST", "/frame-template-records", { name: "Coherence Template A", frame_json: list.json.items[0].frame_json });
+    const before = h.sdb.prepare("SELECT content_version FROM leadgen_funnel_variants WHERE public_id = ?").get(q.variantPublic) as { content_version: number };
+
+    const applied = await req(h, "POST", `/funnels/${q.funnelPublic}/apply-template`, { template_id: created.json.public_id });
+    expect(applied.status, `apply-template: ${JSON.stringify(applied.json)}`).toBe(200);
+    expect(applied.json.bumped_variants).toBeGreaterThanOrEqual(1);
+
+    const after = h.sdb.prepare("SELECT content_version FROM leadgen_funnel_variants WHERE public_id = ?").get(q.variantPublic) as { content_version: number };
+    expect(after.content_version, "the serving cache key's content_version axis must change on re-point").toBeGreaterThan(before.content_version);
+  });
+
+  it("cache coherence: PUT /variants/:id {frame_template_id} bumps content_version — self-contained, not incidental", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const list = await req(h, "GET", "/frame-template-records");
+    const created = await req(h, "POST", "/frame-template-records", { name: "Coherence Template B", frame_json: list.json.items[0].frame_json });
+    const before = h.sdb.prepare("SELECT content_version FROM leadgen_funnel_variants WHERE public_id = ?").get(q.variantPublic) as { content_version: number };
+
+    // A body carrying ONLY frame_template_id (the minimal re-point call — no
+    // other field the core statement's coincidental bump could be "explained
+    // by" from the caller's perspective; the fix must hold regardless).
+    const ov = await req(h, "PUT", `/variants/${q.variantPublic}`, { frame_template_id: created.json.id });
+    expect(ov.status, `put frame_template_id: ${JSON.stringify(ov.json)}`).toBe(200);
+    expect(ov.json.frame_template_id).toBe(created.json.id);
+
+    const after = h.sdb.prepare("SELECT content_version FROM leadgen_funnel_variants WHERE public_id = ?").get(q.variantPublic) as { content_version: number };
+    expect(after.content_version, "the serving cache key's content_version axis must change on a variant-level re-point").toBeGreaterThan(before.content_version);
+  });
 });

@@ -1171,9 +1171,24 @@ describeDb("leadgen offers list — §7.1 row actions (kebab)", () => {
     const { env } = newHarness();
     const offer = await createOffer(env, "request_dynamic_bid", { offer_name: "Row Actions Offer" });
     const html = await getHtml(env, "/admin/leadgen/offers");
-    // kebab toggle + menu
-    expect(html).toContain(`data-offer-kebab-toggle="${offer.public_id}"`);
-    expect(html).toContain("data-offer-kebab-menu");
+    // Product-fix round (S2.4 admin-UI, root-cause): the row's kebab now
+    // renders via the SHARED renderKebabOpen/KEBAB_CLOSE + kebabMenuScript
+    // component (layout.ts) — the same portal-fixed mechanism every other
+    // admin list (sections/auctions/quotes/listicles) already uses — instead
+    // of a local, pre-portal-fix `data-offer-kebab-toggle`/
+    // `data-offer-kebab-menu` pair. Root cause: .table--sticky-edges makes
+    // every row's LAST td position:sticky (its own stacking context), so a
+    // position:absolute menu with a merely LOCAL z-index could never outrank
+    // a DIFFERENT row's own sticky td once its height overflowed past its
+    // row — a live Playwright click on a Delete button was intercepted by
+    // the NEXT row's td. kebabMenuScript fixes this by reparenting the open
+    // menu to <body> (position:fixed), so this assertion now proves the
+    // GENERIC, portal-capable markup + the toggle's per-offer aria-label
+    // (the public_id is no longer on the toggle itself — renderKebabOpen
+    // links toggle<->menu by a render-sequence id, not by entity id).
+    expect(html).toContain("data-kebab-toggle");
+    expect(html).toContain("data-kebab-menu");
+    expect(html).toContain(`aria-label="More actions for ${offer.offer_name}"`);
     // all five actions keyed to the offer (Delete always present — guarded, never hidden)
     expect(html).toContain(`data-offer-duplicate="${offer.public_id}"`);
     expect(html).toContain(`data-offer-archive="${offer.public_id}"`);

@@ -771,14 +771,16 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
 
   // =========================================================================
   // Item 6A/6C/6D — Address is a real composite (not a Contact clone), with a
-  // Maps tab mapping street/city/state/zip; Accept type-swap locked; helper
-  // chrome consistent. Deeper gates: __p1a-studio.spec.ts (AC-2) +
-  // leadgen-r4b-maps-tab.spec.ts. Journey: insert Address from the picker (its
-  // internal_field auto-seeds) -> the canvas renders a VISIBLE composite (not a
-  // bare input) -> Accept-swap is locked -> the Maps tab maps street/city/state
-  // /zip into sibling fields -> save -> reload round-trips.
+  // Maps tab mapping street/city/state/zip; Accept type-swap hidden (replaced
+  // by the §6.10 field-set editor, not a "locked" note — see the assertion
+  // below); helper chrome consistent. Deeper gates: __p1a-studio.spec.ts
+  // (AC-2) + leadgen-r4b-maps-tab.spec.ts. Journey: insert Address from the
+  // picker (its internal_field auto-seeds) -> the canvas renders a VISIBLE
+  // composite (not a bare input) -> Accept-swap is hidden and the field-set
+  // editor shows instead -> the Maps tab maps street/city/state/zip into
+  // sibling fields -> save -> reload round-trips.
   // =========================================================================
-  test("Item 6A/6C/6D — Address is a real composite (visible structure, seeded internal_field, locked Accept) with Maps field-mapping to siblings", async ({
+  test("Item 6A/6C/6D — Address is a real composite (visible structure, seeded internal_field, Accept hidden + field-set editor shown) with Maps field-mapping to siblings", async ({
     page,
     request,
   }) => {
@@ -799,11 +801,17 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
     await expect(addressNode.locator(".lg-address-composite"), "canvas renders the visible composite structure").toHaveCount(1);
     await expect(addressNode.locator(".lg-address-chip"), "the composite shows role chips (street/city/state/zip)").not.toHaveCount(0);
 
-    // Accept type-swap is LOCKED on Address (own-hand verified against
-    // ui-section-studio.ts:2504-2511/7727-7736 — data-accept-wrap hidden,
-    // data-accept-address-lock shown).
+    // LeadGen Rework §6.10/§10 (own-hand-verified, ui-section-studio.ts:7914-
+    // 7918 + :2345-2363/:11372-11376): the old "Address is a fixed type" lock
+    // NOTE is REMOVED — Accept-swap is now matrix-driven (cap accept_type_
+    // swap), Address is not in that family (accept_type_swap:false per
+    // registry.ts, mirrored in leadgen-rework-matrix.test.ts's Layer-B
+    // accept_type_swap row), so the dropdown simply doesn't render. Address
+    // gets the field-set editor instead (data-address-fieldset-block,
+    // field_set_maps:true) — that is the real replacement UI, not a lock
+    // explanation.
     await expect(page.locator("[data-accept-wrap]"), "Accept dropdown is hidden for Address").toBeHidden();
-    await expect(page.locator("[data-accept-address-lock]"), "the lock explanation is shown instead").toBeVisible();
+    await expect(page.locator("[data-address-fieldset-block]"), "the field-set editor is shown instead").toBeVisible();
 
     // internal_field auto-seeded on insert (never blank/invisible to rules).
     await saveStudioAwaitOk(page, s.public_id);
@@ -878,19 +886,15 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
   // probe, not routed through the broken UI), that is recorded too — the
   // per-layer table the investigation-protocol rules require (I8/E8).
   // =========================================================================
-  // REGRESSION FOUND HERE (report to conductor, not fixed in this slice —
-  // ui-section-studio.ts is outside this slice's exclusive ownership): own-
-  // hand read confirms BOTH real authoring controls still literally render
-  // `options([2, 3, 4, 5])` with no "1" —
-  // ui-section-studio.ts:2735 `data-inspector-override="columns"`
-  // (id="lg-style-choice-columns") and :2974 `data-section-columns-default`
-  // (id="lg-inspector-columns"); the shared TOKEN_CONTROL_LABELS literal at
-  // :1768 still reads "Card columns (2–5)". content-schema.ts:1950-1953 DOES
-  // validate props.columns in range 1-5 server-side (the schema/validation
-  // half of A-7 was fixed), but the operator's literal ask — pick "1" from
-  // the real dropdown — is still unreachable through either authoring
-  // surface. Register R4-12 ("P1b, PASS") claims this shipped; this
-  // assertion (matching the operator's literal words) currently FAILS.
+  // A previously-documented regression here (both real authoring controls
+  // rendering `options([2, 3, 4, 5])` with no "1") no longer reproduces —
+  // own-hand-verified: ui-section-studio.ts:2851 `data-inspector-override=
+  // "columns"` and :3090 `data-section-columns-default` both now render
+  // `options([1, 2, 3, 4, 5])`, and the shared TOKEN_CONTROL_LABELS literal at
+  // :1799 reads "Card columns (1–5)" (LeadGen Rework §6.2's columns cap,
+  // landed S2.4). The assertions below pass for real now. ui-section-
+  // studio.ts is outside this round's grant regardless, so it was not
+  // touched here.
   test('Item 7 — "offer a single-column (1) answer layout" authorable via the real Columns picker + honored live', async ({
     page,
     request,
@@ -996,6 +1000,11 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
     ) {
       const seeded = await seedLiveFunnel(request, "item7", [s.id]);
       await page.goto(shellUrl(seeded), { waitUntil: "load" });
+      // LeadGen Rework §4.3-1 (P1, own-hand-verified): seedLiveFunnel's trivial
+      // shared page now renders first — pass it before waiting on q_cards,
+      // same pattern as every other live leg in this file.
+      await ready(page);
+      await passSharedPage(page);
       await expect(page.locator('[data-question-id="q_cards"]').first()).toBeVisible({ timeout: 15_000 });
       const tracks = await page.evaluate(() => {
         const grid = document.querySelector('[data-question-id="q_cards"]');
@@ -1101,6 +1110,11 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
 
     const seeded = await seedLiveFunnel(request, "item9", [s.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
+    // LeadGen Rework §4.3-1 (P1, own-hand-verified): seedLiveFunnel's trivial
+    // shared page now renders first — pass it before waiting on q_pick, same
+    // pattern as every other live leg in this file.
+    await ready(page);
+    await passSharedPage(page);
     await expect(page.locator('[data-question-id="q_pick"]').first()).toBeVisible({ timeout: 15_000 });
     const liveMetrics = await page.evaluate(() => {
       const el = document.querySelector('[data-question-id="q_pick"]');

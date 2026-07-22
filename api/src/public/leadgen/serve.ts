@@ -915,15 +915,11 @@ export async function serveFunnelShell(
     const themeRecord = await resolveThemeRecordFor(c.env, frameSourceOf(resolved));
     // Rework M5 (§5, mini-round): the SAME cold-path-only discipline — a
     // cache hit already carries whatever saved template defaults were baked
-    // in at write time. OPEN CONCERN (verified, not fixed here): unlike a
-    // theme/frame_overrides edit, quotes-handlers.ts's PUT frame_template_id
-    // (verified at quotes-handlers.ts:3429) does NOT bump content_version in
-    // the same statement — so re-pointing a funnel/variant to a different
-    // saved template does not itself bust this shell's cache key; the new
-    // template only takes effect once the key changes for another reason
-    // (TTL expiry, a content_version-bumping edit, etc.). Flagged for the
-    // conductor; out of this mini-round's named scope (the 4 resolve call
-    // sites), not silently asserted as fine.
+    // in at write time. S1.4 bumps content_version at both re-point
+    // endpoints (quotes-handlers.ts PUT /variants/:id frame_template_id, and
+    // apply-to-funnel via bumpActiveVariantContentVersions), busting this
+    // shell's cache key — permanent coverage in leadgen-rework-handlers.
+    // test.ts's "cache coherence" tests.
     const savedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(c.env.DB, resolved);
     pristine = renderFunnelShell(resolved, design, answerMapVersions, themeRecord, savedTemplateDefaults);
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);
@@ -986,8 +982,8 @@ export async function serveLeadgenConfig(c: PublicContext): Promise<Response> {
     // shell's own placement exactly (resolveThemeRecordFor's doc comment).
     const themeRecord = await resolveThemeRecordFor(c.env, frameSourceOf(resolved));
     // Rework M5 (§5, mini-round): cold-path only, mirrors the shell's own
-    // placement (same open cache-key concern noted at serveFunnelShell's
-    // call site — not fixed here, out of this mini-round's named scope).
+    // placement (serveFunnelShell's call site) and the same content_version
+    // cache-busting coverage documented there.
     const savedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(c.env.DB, resolved);
     // v2.5 §13.3: the config route carries the SAME design tokens the shell
     // bakes — the EFFECTIVE design on the frame path, the base design on the
