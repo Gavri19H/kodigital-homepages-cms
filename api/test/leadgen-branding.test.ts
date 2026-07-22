@@ -144,12 +144,29 @@ function makeKvStub(): KVNamespace {
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 const TENANT_HOST = "one.example.com";
@@ -367,6 +384,7 @@ async function seedActivatedFunnel(env: Env, sdb: SqliteDb): Promise<{ variantId
   );
   expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
   const quote = (await createRes.json()) as {
+    id: number;
     public_id: string;
     funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
   };
@@ -379,6 +397,22 @@ async function seedActivatedFunnel(env: Env, sdb: SqliteDb): Promise<{ variantId
     env,
   );
   expect(putRes.status, `put sections: ${await putRes.clone().text()}`).toBe(200);
+
+  // Rework M2 (§4.3-1, §4.3-15): activation now also requires the quote's
+  // shared first page (leadgen_funnel_pages, quote_id-owned) to carry ≥1
+  // section. Route wiring for POST/PUT /quotes/:id/shared-page is mid-flight
+  // in another round, so this seeds the SQL shape directly.
+  const sharedSection = seedSection(sdb);
+  const sharedPagePublicId = mintPublicId("funnel_page");
+  sdb
+    .prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, NULL)")
+    .run(sharedPagePublicId, quote.id);
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+       VALUES (?, ?, 0, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+    )
+    .run(quote.id, sharedSection.id, sharedPagePublicId);
 
   const actRes = await admin.request(
     `${API}/quotes/${quote.public_id}/activation/site-1`,

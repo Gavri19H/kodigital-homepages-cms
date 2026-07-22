@@ -145,6 +145,10 @@ function makeKvStub(): KVNamespace {
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
@@ -153,6 +157,17 @@ const LEADGEN_MIGRATIONS = [
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 const TENANT_ORIGIN = "http://one.example.com";
@@ -272,6 +287,7 @@ async function seedFixture(): Promise<Fixture> {
   );
   expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
   const created = (await createRes.json()) as {
+    id: number;
     public_id: string;
     funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
   };
@@ -286,6 +302,32 @@ async function seedFixture(): Promise<Fixture> {
     env,
   );
   expect(putRes.status, `put sections: ${await putRes.clone().text()}`).toBe(200);
+
+  // Rework M2 (§4.3-1, §4.3-15): activation now also requires the quote's
+  // shared first page (leadgen_funnel_pages, quote_id-owned) to carry ≥1
+  // section — a section distinct from the funnel/variant's own (§4.3-13
+  // uniqueness). Route wiring for POST/PUT /quotes/:id/shared-page is
+  // mid-flight in another round, so this seeds the SQL shape directly
+  // (mirrors leadgen-rework-handlers.test.ts / leadgen-rework-routing.test.ts).
+  // §4.3-11: the live /lg serve path NOW composes shared-page content too
+  // (S1.3's resolver.ts slice) — this section rides both compared paths
+  // (see the section_count/blocks-length bumps + normalizeSectionPosition
+  // below), so the parity claim still holds, now over 3 sections not 2.
+  const sharedSectionPublicId = mintPublicId("section");
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, 'Shared', 'quote_funnel', 'life', 'Shared', ?, 'button', 'active')",
+    )
+    .run(sharedSectionPublicId, JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "qs1", question_key: "ks", internal_field: "fs", answer_type: "boolean" }] }));
+  const sharedSectionRow = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(sharedSectionPublicId) as { id: number };
+  const sharedPagePublicId = mintPublicId("funnel_page");
+  sdb.prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, NULL)").run(sharedPagePublicId, created.id);
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+       VALUES (?, ?, 0, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+    )
+    .run(created.id, sharedSectionRow.id, sharedPagePublicId);
 
   sdb
     .prepare("UPDATE leadgen_funnels SET frame_config_json = ?, theme_json = ? WHERE public_id = ?")
@@ -368,6 +410,21 @@ function splitSections(doc: string): { before: string; blocks: string[]; after: 
   return { before, blocks, after };
 }
 
+// §4.3-11: /sections/preview renders its ONE section SOLO — always position
+// 0, visible — regardless of where that SAME section sits in the wider
+// composed list (now index 1, hidden, since the shared-page section
+// composes first). Pure string normalization (no renderer import, matching
+// this file's own "zero renderer imports" design) of the 3 position-derived
+// attributes a solo render legitimately differs on, so the REST of the unit
+// subtree (content, bound headline, choices, everything) still compares
+// byte-for-byte.
+function normalizeSectionPosition(block: string): string {
+  return block
+    .replace(/data-lg-index="\d+"/, 'data-lg-index="N"')
+    .replace(/data-screen-label="\d+ · /, 'data-screen-label="N · ')
+    .replace(/ hidden>/, ">");
+}
+
 // ===========================================================================
 
 describeDb("endpoint parity (13 §13.5, Phase D) — item 1: variants/:id/preview ≡ served /lg", () => {
@@ -399,7 +456,9 @@ describeDb("endpoint parity (13 §13.5, Phase D) — item 1: variants/:id/previe
     // marker inside the body, so the equality is EXACT bytes.
     expect(preview.preview.html).toBe(servedRoot);
     expect(preview.preview.css).toBe(servedCss);
-    expect(preview.preview.section_count).toBe(2);
+    // §4.3-11: the composed count now includes the quote's shared-page
+    // section (this fixture seeds one) — 2 variant sections + 1 shared = 3.
+    expect(preview.preview.section_count).toBe(3);
 
     // The parity is over a REAL composition: frame regions + the variant's
     // numbered-progress override + the override palette in the css.
@@ -429,7 +488,9 @@ describeDb("endpoint parity (13 §13.5, Phase D) — item 2: sections/preview + 
     expect(served.status, await served.clone().text()).toBe(200);
     const servedHtml = await served.text();
     const servedSplit = splitSections(extractRootBody(servedHtml));
-    expect(servedSplit.blocks).toHaveLength(2);
+    // §4.3-11: the served shell now composes the quote's shared-page section
+    // FIRST, ahead of the variant's own 2 sections — 3 blocks total.
+    expect(servedSplit.blocks).toHaveLength(3);
 
     // --- REAL HTTP path 2: the section preview WITH frame_context ------------
     const section = fx.sections[0]!;
@@ -457,8 +518,11 @@ describeDb("endpoint parity (13 §13.5, Phase D) — item 2: sections/preview + 
 
     // §13.5 item 2 — node-for-node, byte-for-byte:
     //   * the UNIT SUBTREE: the previewed Section's wrapper+content equals the
-    //     served shell's block for the same Section;
-    expect(previewSplit.blocks[0]).toBe(servedSplit.blocks[0]);
+    //     served shell's block for the same Section (now servedSplit.blocks[1]
+    //     — the shared-page section composes first, §4.3-11) — modulo the 3
+    //     solo-vs-composed position attributes (index/screen-label-number/
+    //     hidden), normalized by pure string mechanics above.
+    expect(normalizeSectionPosition(previewSplit.blocks[0]!)).toBe(normalizeSectionPosition(servedSplit.blocks[1]!));
     //   * the FRAME REGIONS: everything around the section list is identical
     //     (header/progress/disclosure/footer/trust regions + banners mount).
     expect(previewSplit.before).toBe(servedSplit.before);

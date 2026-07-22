@@ -107,6 +107,17 @@ export interface LeadgenEvent {
   funnel_ab_test_revision: number;
   assignment_bucket: string;
   assignment_reason: string;
+  // LeadGen Rework M10/D3: the quote-scoped routing rule's stamped dims for
+  // this attempt — routed_to_funnel (the funnel a routing rule served; may
+  // differ from funnel_id above on a mid-funnel switch's later events) and
+  // feed_name (M10 "stamped on runtime events as an analytics dimension").
+  // Server-STAMPED ONLY (leadgen-events.ts stampAuctionIds, mirroring the
+  // auction_config_id family below — clients never claim these, there is no
+  // client-echo path for them); "" when no routing outcome exists for the
+  // attempt (never fabricated). Additive — existing consumers reading other
+  // columns are unaffected.
+  feed_name: string;
+  routed_to_funnel: string;
   funnel_attempt_id: string;
   section_order_hash: string;
   // Round-4 P3a (D-3 pages model): the resolved page/slot dims for the
@@ -351,6 +362,8 @@ export function blankLeadgenEvent(eventType: string, now: number): LeadgenEvent 
     funnel_ab_test_revision: 0,
     assignment_bucket: "",
     assignment_reason: "",
+    feed_name: "",
+    routed_to_funnel: "",
     funnel_attempt_id: "",
     section_order_hash: "",
     page_id: "",
@@ -452,6 +465,13 @@ export interface LeadgenAuctionEventStamp {
   // The ACTIVE payload schema version used for that Offer's build.
   payload_schema_version?: string;
   banner_render_id?: string;
+  // LeadGen Rework M10/D3: the recorded routing-outcome dims for this attempt
+  // (runtime-context.ts resolveRoutingOutcomeDims — same table s2s-dispatch.ts's
+  // resolveRoutingMultiplier reads). Same empty-string-skip discipline as
+  // every field above: a caller with no outcome (unrouted attempt, or an
+  // outcome with no feed_name set) omits these and the event's "" default stands.
+  feed_name?: string;
+  routed_to_funnel?: string;
 }
 
 // Stamp the §5.4 ids/versions onto an event IN PLACE (empty-string inputs are
@@ -466,6 +486,8 @@ export function stampAuctionIds(e: LeadgenEvent, stamp: LeadgenAuctionEventStamp
   if (stamp.provider_request_id !== undefined && stamp.provider_request_id !== "") e.provider_request_id = stamp.provider_request_id;
   if (stamp.payload_schema_version !== undefined && stamp.payload_schema_version !== "") e.payload_schema_version = stamp.payload_schema_version;
   if (stamp.banner_render_id !== undefined && stamp.banner_render_id !== "") e.banner_render_id = stamp.banner_render_id;
+  if (stamp.feed_name !== undefined && stamp.feed_name !== "") e.feed_name = stamp.feed_name;
+  if (stamp.routed_to_funnel !== undefined && stamp.routed_to_funnel !== "") e.routed_to_funnel = stamp.routed_to_funnel;
   return e;
 }
 

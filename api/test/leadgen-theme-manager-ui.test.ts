@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
+import { mintPublicId } from "../src/leadgen/ids";
 import type { Env } from "../src/env";
 import type { ThemeRecord } from "../src/public/leadgen/designs/theme";
 import {
@@ -116,6 +117,10 @@ function makeKvStub(): KVNamespace {
 }
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
@@ -124,6 +129,17 @@ const LEADGEN_MIGRATIONS = [
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -204,7 +220,7 @@ function themeBody(name: string, brand: string, accent: string, pageBg: string, 
 //   Navy       -> Auto Insurance/Variant A (control, 60%) AND Home Insurance/Variant A -> LIVE · A
 //   Bold Yellow-> Auto Insurance/Variant B (non-control, 40%)                          -> A/B · B
 //   Minimal    -> unused                                                              -> DRAFT
-async function seedFixture(env: Env): Promise<{
+async function seedFixture(sdb: SqliteDb, env: Env): Promise<{
   navy: ThemeRecord;
   bold: ThemeRecord;
   minimal: ThemeRecord;
@@ -243,11 +259,19 @@ async function seedFixture(env: Env): Promise<{
   const autoFunnelId = quote.funnels[0]!.public_id;
   const variantAId = quote.funnels[0]!.variants[0]!.public_id;
 
-  const variantB = await json<{ public_id: string }>(
-    await admin.request(`${API}/funnels/${autoFunnelId}/variants`, jsonInit("POST", {}), env),
-    "create variant B",
-  );
-  const variantBId = variantB.public_id;
+  // Rework M1 (§4.3-10): POST /funnels/:id/variants (createVariantUnderFunnel)
+  // now unconditionally refuses a 2nd active variant — see
+  // leadgen-quotes-api.test.ts's Σ-gate test for the full rationale. This
+  // fixture just needs a 2nd variant with a different theme override to
+  // exist, so it's seeded via raw SQL (leadgen-rework-handlers.test.ts's own
+  // equal-arms idiom) instead.
+  const autoFunnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(autoFunnelId) as { id: number }).id;
+  const variantBId = mintPublicId("funnel_variant");
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label, traffic_allocation_bp, funnel_design_id, status) VALUES (?, ?, 'B', 10000, 'default', 'active')",
+    )
+    .run(variantBId, autoFunnelRowId);
 
   await json(
     await admin.request(`${API}/funnels/${autoFunnelId}/theme`, jsonInit("PUT", { theme_json: { theme_id: navy.id } }), env),
@@ -346,8 +370,8 @@ describe("theme manager — pure usage classification (§10.5)", () => {
 
 describeDb("theme manager — scanVariantThemeUsage over real D1 (§10.1/§10.5)", () => {
   it("resolves the funnel-level default AND the variant-level A/B override, active-only", async () => {
-    const { env } = newHarness();
-    const fx = await seedFixture(env);
+    const { sdb, env } = newHarness();
+    const fx = await seedFixture(sdb, env);
 
     const usage = await scanVariantThemeUsage(env.DB);
     const auto = usage.filter((u) => u.funnelPublicId === fx.autoFunnelId);
@@ -369,7 +393,7 @@ describeDb("theme manager — scanVariantThemeUsage over real D1 (§10.1/§10.5)
 
   it("excludes archived funnels and archived variants from the live scan", async () => {
     const { env, sdb } = newHarness();
-    const fx = await seedFixture(env);
+    const fx = await seedFixture(sdb, env);
     sdb.prepare("UPDATE leadgen_funnel_variants SET status = 'archived' WHERE public_id = ?").run(fx.variantBId);
 
     const usage = await scanVariantThemeUsage(env.DB);
@@ -385,8 +409,8 @@ describeDb("theme manager — scanVariantThemeUsage over real D1 (§10.1/§10.5)
 
 describeDb("GET /admin/leadgen/themes — full page (§10.2/§10.3, Appendix A)", () => {
   it("renders the top bar, LEFT list with computed badges, defaults to the FIRST theme", async () => {
-    const { env } = newHarness();
-    const fx = await seedFixture(env);
+    const { sdb, env } = newHarness();
+    const fx = await seedFixture(sdb, env);
 
     const { status, html } = await getHtml(env, "/admin/leadgen/themes?from=lgs_zip123");
     expect(status).toBe(200);
@@ -414,8 +438,8 @@ describeDb("GET /admin/leadgen/themes — full page (§10.2/§10.3, Appendix A)"
   });
 
   it("CENTER editor: Colors/Typography/Buttons&Inputs sections, NO Spacing control", async () => {
-    const { env } = newHarness();
-    await seedFixture(env);
+    const { sdb, env } = newHarness();
+    await seedFixture(sdb, env);
 
     const { html } = await getHtml(env, "/admin/leadgen/themes");
     expect(html).toContain("Colors — semantic roles");
@@ -442,8 +466,8 @@ describeDb("GET /admin/leadgen/themes — full page (§10.2/§10.3, Appendix A)"
   });
 
   it("role sublabels + role note + size-language note render verbatim (Appendix A)", async () => {
-    const { env } = newHarness();
-    await seedFixture(env);
+    const { sdb, env } = newHarness();
+    await seedFixture(sdb, env);
     const { html } = await getHtml(env, "/admin/leadgen/themes");
     expect(html).toContain("buttons · progress · selected");
     expect(html).toContain("highlights · recommended");
@@ -457,8 +481,8 @@ describeDb("GET /admin/leadgen/themes — full page (§10.2/§10.3, Appendix A)"
   });
 
   it("Advanced discloses ALL 7 role hex chips as editable inputs, hidden by default", async () => {
-    const { env } = newHarness();
-    const fx = await seedFixture(env);
+    const { sdb, env } = newHarness();
+    const fx = await seedFixture(sdb, env);
     const { html } = await getHtml(env, "/admin/leadgen/themes");
     expect(html).toContain(`brand ${fx.navy.roles.brand_primary}`);
     expect(html).toContain('id="tm-adv-body" hidden');
@@ -468,8 +492,8 @@ describeDb("GET /admin/leadgen/themes — full page (§10.2/§10.3, Appendix A)"
   });
 
   it("selecting Bold Yellow via ?theme= shows the A/B badge + suffix + the SAME funnel's A/B box + no other funnels", async () => {
-    const { env } = newHarness();
-    const fx = await seedFixture(env);
+    const { sdb, env } = newHarness();
+    const fx = await seedFixture(sdb, env);
     const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${fx.bold.id}`);
     expect(html).toContain("Assigned to Auto Insurance · Variant B · A/B test");
     expect(html).toContain("In this quote");
@@ -488,15 +512,15 @@ describeDb("GET /admin/leadgen/themes — full page (§10.2/§10.3, Appendix A)"
   });
 
   it("selecting Navy shows 'Other funnels using this theme' -> Home Insurance · Variant A", async () => {
-    const { env } = newHarness();
-    const fx = await seedFixture(env);
+    const { sdb, env } = newHarness();
+    const fx = await seedFixture(sdb, env);
     const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${fx.navy.id}`);
     expect(html).toContain("Home Insurance · Variant A");
   });
 
   it("selecting the unused Minimal theme renders DRAFT + the empty-state copy, no crash", async () => {
-    const { env } = newHarness();
-    const fx = await seedFixture(env);
+    const { sdb, env } = newHarness();
+    const fx = await seedFixture(sdb, env);
     const { status, html } = await getHtml(env, `/admin/leadgen/themes?theme=${fx.minimal.id}`);
     expect(status).toBe(200);
     expect(html).toContain("Not assigned to a funnel yet");
@@ -504,15 +528,15 @@ describeDb("GET /admin/leadgen/themes — full page (§10.2/§10.3, Appendix A)"
   });
 
   it("an unknown ?theme= id falls back to the first theme rather than 404", async () => {
-    const { env } = newHarness();
-    await seedFixture(env);
+    const { sdb, env } = newHarness();
+    await seedFixture(sdb, env);
     const { status, html } = await getHtml(env, "/admin/leadgen/themes?theme=thm_does_not_exist");
     expect(status).toBe(200);
     expect(html).toContain("Assigned to Auto Insurance · Variant A");
   });
 
   it("an empty theme store renders a 200 empty state, not a crash", async () => {
-    const { env } = newHarness();
+    const { sdb, env } = newHarness();
     const { status, html } = await getHtml(env, "/admin/leadgen/themes");
     expect(status).toBe(200);
     expect(html).toContain("Your themes");
@@ -520,7 +544,7 @@ describeDb("GET /admin/leadgen/themes — full page (§10.2/§10.3, Appendix A)"
   });
 
   it("hostile theme name is escaped, never raw", async () => {
-    const { env } = newHarness();
+    const { sdb, env } = newHarness();
     await json(
       await admin.request(
         `${API}/themes`,

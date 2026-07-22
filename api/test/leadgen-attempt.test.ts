@@ -67,6 +67,7 @@ function buildResolved(): ResolvedActivatedFunnel {
     created_by: null,
     created_at: 0,
     updated_at: 0,
+    default_funnel_id: null,
   };
   const funnel: LeadgenFunnelRow = {
     id: 7,
@@ -79,14 +80,19 @@ function buildResolved(): ResolvedActivatedFunnel {
     updated_at: 0,
     frame_config_json: null,
     theme_json: null,
+    display_order: null,
+    frame_template_id: null,
   };
+  // Rework M1 (§5-M1, §4.3-10): is_control dropped; variant_label "A" is this
+  // fixture's single active variant (replacement semantics — no running test
+  // ⇒ exactly one active variant, deterministically first by variant_label
+  // ASC/id ASC). frame_template_id is new (M5); NULL = inherit the funnel's.
   const variant: LeadgenFunnelVariantRow = {
     id: 9,
     public_id: mintPublicId("funnel_variant"),
     funnel_id: 7,
     ab_test_id: null,
     variant_label: "A",
-    is_control: 1,
     traffic_allocation_bp: 10000,
     funnel_design_id: "default",
     auction_id: null,
@@ -101,6 +107,7 @@ function buildResolved(): ResolvedActivatedFunnel {
     status: "active",
     created_at: 0,
     frame_overrides_json: null,
+    frame_template_id: null,
   };
   const site_quote: LeadgenSiteQuoteRow = {
     id: 2,

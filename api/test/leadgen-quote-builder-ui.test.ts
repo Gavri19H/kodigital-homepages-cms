@@ -96,6 +96,10 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
 }
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
@@ -106,6 +110,15 @@ const LEADGEN_MIGRATIONS = [
   "0042_leadgen_pages.sql",
   "0043_leadgen_routing_rules.sql",
   "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -153,8 +166,34 @@ function seedSection(sdb: SqliteDb, opts: { activity: string; vertical: string; 
 }
 
 interface QuoteDetail {
+  id: number;
   public_id: string;
   funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
+}
+
+// Rework M2 (§4.3-1, §4.3-15): activation now also requires the quote's
+// shared first page (leadgen_funnel_pages, quote_id-owned) to carry ≥1
+// section — a section distinct from the funnel/variant's own (§4.3-13
+// uniqueness). Route wiring for POST/PUT /quotes/:id/shared-page is
+// mid-flight in another round, so this seeds the SQL shape directly
+// (mirrors leadgen-rework-handlers.test.ts / leadgen-rework-routing.test.ts).
+function seedSharedPageSection(sdb: SqliteDb, quoteId: number): void {
+  const sectionPublicId = mintPublicId("section");
+  const content = JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q1", question_key: "k", internal_field: "f", answer_type: "boolean" }] });
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, ?, 'quote_funnel', 'life', 'Shared', ?, 'button', 'active')",
+    )
+    .run(sectionPublicId, `Shared ${sectionPublicId.slice(-4)}`, content);
+  const sectionId = (sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(sectionPublicId) as { id: number }).id;
+  const pagePublicId = mintPublicId("funnel_page");
+  sdb.prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, NULL)").run(pagePublicId, quoteId);
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+       VALUES (?, ?, 0, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+    )
+    .run(quoteId, sectionId, pagePublicId);
 }
 
 interface Harness {
@@ -188,6 +227,7 @@ async function studioHarness(): Promise<Harness> {
     env,
   );
   expect(put.status, `seed variant: ${await put.clone().text()}`).toBe(200);
+  seedSharedPageSection(sdb, q.id);
   const activate = await admin.request(
     `${API}/quotes/${q.public_id}/activation/site-1`,
     jsonInit("PUT", { enabled: true, slug: "studio" }),
@@ -669,7 +709,12 @@ describeDb("Quote Builder frame studio — overrides, Rules mount, lint legs", (
     expect(h.html).toContain("data-arm-overrides");
     expect(h.html).toContain("Same layout as funnel (no overrides)");
 
-    // fork → non-control arm with stored overrides
+    // fork → non-control arm with stored overrides. Rework M1 (§4.3-10):
+    // forkVariantHandler now unconditionally refuses a 2nd active variant —
+    // archiving the source first is the minimal way to still exercise the
+    // real fork endpoint (this test's point is the FORKED page's rendering,
+    // not fork's own guard).
+    h.sdb.prepare("UPDATE leadgen_funnel_variants SET status = 'archived' WHERE public_id = ?").run(h.variantId);
     const fork = await admin.request(`${API}/variants/${h.variantId}/fork`, { method: "POST" }, h.env);
     expect(fork.status, await fork.clone().text()).toBe(201);
     const forked = (await fork.json()) as { public_id: string };
@@ -1019,6 +1064,7 @@ describeDb("Activation tab problems[] surfacing (14 §14.2, C2 LIVE)", () => {
       env,
     );
     expect(put.status, `seed variant: ${await put.clone().text()}`).toBe(200);
+    seedSharedPageSection(sdb, q.id);
     // Configure the frame through the REAL PUT (compat defaults OFF).
     const frame = await admin.request(
       `${API}/funnels/${funnelPublicId}/frame`,

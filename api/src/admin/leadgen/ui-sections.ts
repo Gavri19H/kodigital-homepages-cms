@@ -440,22 +440,49 @@ const SECTION_LIST_SCRIPT = `
         // SAME two legs deleteSectionHandler's guard checks, so Usage must
         // show both or an operator sees "not used" here while Delete still
         // 409s. Empty-state fires only when BOTH are empty.
+        //
+        // Rework M2 (§4.3-1 "shared first page"): body.usage.variants can ALSO
+        // carry quote-owned SHARED-PAGE rows (readSectionUsageRows,
+        // sections-handlers.ts) — a Section placed on a Quote's shared page
+        // directly rather than any one funnel variant's own order. Those rows
+        // have no funnel_public_id (there is no single owning funnel), so
+        // they are split out here into their own list instead of rendering a
+        // misleading "Funnel › Variant ?" line.
         var variants = (body && body.usage && body.usage.variants) ? body.usage.variants : [];
         var rules = (body && body.usage && body.usage.rules) ? body.usage.rules : [];
         clearChildren(panel);
         panel.setAttribute('data-loaded', 'true');
         if (variants.length === 0 && rules.length === 0) {
-          panel.appendChild(document.createTextNode('Not used by any funnel variant or rule.'));
+          panel.appendChild(document.createTextNode('Not used by any funnel variant, shared page, or rule.'));
           return;
         }
         var i, v, r, li;
-        if (variants.length > 0) {
+        var sharedPages = [];
+        var funnelVariants = [];
+        for (i = 0; i < variants.length; i++) {
+          if (variants[i] && !variants[i].funnel_public_id) { sharedPages.push(variants[i]); }
+          else { funnelVariants.push(variants[i]); }
+        }
+        if (sharedPages.length > 0) {
+          var shead = document.createElement('p');
+          shead.appendChild(document.createTextNode('Used by ' + sharedPages.length + ' shared first page(s):'));
+          panel.appendChild(shead);
+          var slist = document.createElement('ul');
+          for (i = 0; i < sharedPages.length; i++) {
+            v = sharedPages[i];
+            li = document.createElement('li');
+            li.appendChild(document.createTextNode((v.quote_name || 'Quote') + ' \\u203A shared first page'));
+            slist.appendChild(li);
+          }
+          panel.appendChild(slist);
+        }
+        if (funnelVariants.length > 0) {
           var vhead = document.createElement('p');
-          vhead.appendChild(document.createTextNode('Used by ' + variants.length + ' funnel variant(s):'));
+          vhead.appendChild(document.createTextNode('Used by ' + funnelVariants.length + ' funnel variant(s):'));
           panel.appendChild(vhead);
           var vlist = document.createElement('ul');
-          for (i = 0; i < variants.length; i++) {
-            v = variants[i];
+          for (i = 0; i < funnelVariants.length; i++) {
+            v = funnelVariants[i];
             li = document.createElement('li');
             li.appendChild(document.createTextNode(
               (v.quote_name || 'Quote') + ' \\u203A ' + (v.funnel_name || v.funnel_public_id || 'Funnel') + ' \\u203A Variant ' + (v.variant_label || '?')

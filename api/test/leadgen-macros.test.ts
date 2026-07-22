@@ -18,18 +18,22 @@ import {
 } from "../src/leadgen/macros";
 
 describe("macro registry — 32 canonical tokens + alias (04 §10.5 / 01 §3)", () => {
-  it("has exactly 32 canonical macros", () => {
-    expect(CANONICAL_MACROS).toHaveLength(32);
-    expect(new Set(CANONICAL_MACROS).size).toBe(32);
+  // Rework M10/D3: `feed_name` is registered as an additive 33rd canonical
+  // macro (macros.ts's own doc comment: "original 32 + LeadGen Rework's
+  // additive `feed_name`") — the listicles-parity set below is otherwise
+  // byte-identical.
+  it("has exactly 33 canonical macros (the original 32 + Rework M10's feed_name)", () => {
+    expect(CANONICAL_MACROS).toHaveLength(33);
+    expect(new Set(CANONICAL_MACROS).size).toBe(33);
   });
 
-  it("carries the exact listicles token set (identical re-implementation)", () => {
+  it("carries the exact listicles token set (identical re-implementation) plus Rework M10's feed_name", () => {
     const expected = [
       "click_id", "utm_medium", "utm_content", "utm_source", "traffic_source",
       "placement", "lander_v", "offer_id", "offer_name", "page", "device",
       "os", "os_version", "browser", "browser_version", "country", "state",
       "city", "ip", "ua", "sub1", "sub2", "sub3", "sub4", "sub5", "url",
-      "referer", "language", "cpc", "session_id", "fbc", "fbclid",
+      "referer", "language", "cpc", "session_id", "fbc", "fbclid", "feed_name",
     ];
     expect([...CANONICAL_MACROS].sort()).toEqual([...expected].sort());
   });

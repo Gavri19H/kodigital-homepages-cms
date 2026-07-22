@@ -4,8 +4,28 @@
 // ONE canonical builder assembles the runtime context every consumer uses
 // (provider payload build, Offer Test, click resolver, banner URL macros,
 // S2S/tracking enrichment — 04 §4.7). This module owns the TYPE, the
-// builder, and the 32-macro projection; the consumption sites are wired by
+// builder, and the canonical-macro projection (the original 32 + LeadGen
+// Rework's additive `feed_name`, M10/D3); the consumption sites are wired by
 // their own fix slices and MUST NOT re-derive any of these values.
+//
+// LeadGen Rework M10/D3 (stamp-only) ADDITION: `feed_name` — the quote-scoped
+// routing rule's feed action for this attempt. Registered as a canonical
+// macro in macros.ts's CANONICAL_MACROS (with a matching
+// ui-payload-builder.ts ADVANCED_MACRO_GROUPS entry, so that file's own
+// module-load drift guard holds), and carried on the context both as a
+// TOP-LEVEL `feed_name` field AND projected into the `macros` dict
+// (contextToMacros below) exactly like every other canonical macro. The
+// BUILDER stays pure/synchronous (per the PURITY note below);
+// `resolveRoutingOutcomeDims` is a SEPARATE, explicit async DB read a caller
+// with `env.DB` runs ONCE per attempt (mirroring s2s-dispatch.ts's
+// resolveRoutingMultiplier — same table, same fail-safe discipline) and
+// threads the result into `opts.feed_name` here (the payload leg — fetch.ts
+// ALSO bridges `ctx.feed_name` directly into buildPayload's
+// LEADGEN_FEED_NAME_CONTEXT_MACRO fallback, payload.ts, as a
+// belt-and-suspenders path for a caller that supplies feed_name without the
+// full macros object) and into leadgen-events.ts `stampAuctionIds` (the
+// event-dimension leg, §22.2) — never fabricated, "" / absent when no
+// routing rule matched.
 //
 // Reuse over duplication (04 §4.2 "bridged, not duplicated"):
 //   * `request.cf` geo/timezone is read through the SAME `readCfSignals` +
@@ -53,9 +73,14 @@ export type LeadGenRuntimeContext = {
              sub1?: string; sub2?: string; sub3?: string; sub4?: string; sub5?: string;
              cpc?: string; fbclid?: string; fbc?: string; };
   offer?: { offer_id?: string; offer_name?: string; placement_id?: string; };
+  // LeadGen Rework M10/D3 (stamp-only): the routing feed_name for this
+  // attempt (see the module-header note). Absent when the caller supplies
+  // none / no routing rule matched — ALSO joins the canonical macros as
+  // "feed_name" below (contextToMacros; never fabricated).
+  feed_name?: string;
 
   computed: Record<string, unknown>;   // populated from COMPUTED_REGISTRY (§4.4)
-  macros: Record<string, string>;      // the 32 canonical macros, resolved (§4.3)
+  macros: Record<string, string>;      // the canonical macros, resolved (§4.3)
 };
 
 // ---------------------------------------------------------------------------
@@ -130,6 +155,11 @@ export interface LeadgenRuntimeContextOpts {
   // §4.5 placement in scope: the PARTICIPATING auction placement / the
   // operator-selected Test placement. Wins over offer.placement_id.
   placement?: string;
+  // LeadGen Rework M10/D3 (stamp-only): the recorded routing outcome's
+  // feed_name for this attempt (the caller reads it via
+  // resolveRoutingOutcomeDims below, once per build). Absent → ctx.feed_name
+  // is absent and the "feed_name" macro resolves to "" (no fabrication).
+  feed_name?: string;
   // B5 Test-tool simulated context only — public routes must not pass this.
   overrides?: LeadgenRuntimeContextOverrides;
   // ms-epoch override for deterministic builds (tests / replay); defaults
@@ -309,6 +339,7 @@ export function buildLeadgenRuntimeContext(
     cloudflare,
     traffic,
     offer,
+    feed_name: opts.feed_name,
     // EAGER all-12 population (the contract permits lazy per-schema; eager
     // is chosen because the 12 resolvers are trivially cheap, every consumer
     // then sees an identical computed slice, and no schema needs threading
@@ -322,7 +353,8 @@ export function buildLeadgenRuntimeContext(
 }
 
 // ---------------------------------------------------------------------------
-// Macro projection — the 32 canonical macros from context (04 §4.3)
+// Macro projection — the canonical macros from context (04 §4.3; the
+// original 32 + LeadGen Rework's additive `feed_name`, M10/D3)
 // ---------------------------------------------------------------------------
 
 // parseClientUa maps an unrecognized NON-EMPTY UA to deterministic families
@@ -344,10 +376,11 @@ function pathnameOf(url: string): string {
   }
 }
 
-// Project the context onto the EXISTING 32-macro registry (macros.ts —
-// registry unchanged). Every canonical macro is present; a macro with no
-// runtime value is the EMPTY STRING (§4.3 unresolved-macro policy;
-// encodeURIComponent happens at substitution in resolveMacros).
+// Project the context onto the canonical-macro registry (macros.ts —
+// registry EXTENDED by LeadGen Rework M10/D3 with `feed_name`, additive).
+// Every canonical macro is present; a macro with no runtime value is the
+// EMPTY STRING (§4.3 unresolved-macro policy; encodeURIComponent happens at
+// substitution in resolveMacros).
 //
 //   * click_id is click-scoped — minted at /lg/lc only, EMPTY here (§4.3);
 //     the click resolver (§4.6 slice) merges the fresh value.
@@ -395,5 +428,45 @@ export function contextToMacros(
     session_id: ctx.session_id,
     fbc: ctx.traffic.fbc ?? "",
     fbclid: ctx.traffic.fbclid ?? "",
+    // LeadGen Rework M10/D3 (stamp-only): the routing feed_name, registered as
+    // a canonical macro (macros.ts CANONICAL_MACROS, with the matching
+    // ui-payload-builder.ts ADVANCED_MACRO_GROUPS entry) exactly like every
+    // other ctx field above — "" when absent (no routing rule matched / unset).
+    feed_name: ctx.feed_name ?? "",
   };
+}
+
+// ---------------------------------------------------------------------------
+// LeadGen Rework M10/D3 — recorded routing-outcome dims (async DB read)
+// ---------------------------------------------------------------------------
+
+// The recorded routing-outcome dims for one attempt (leadgen_routing_outcomes,
+// contract §5-M3/F-D). `feed_name` feeds ctx.feed_name (the payload/macro leg
+// above); `routed_to_funnel` additionally feeds the leadgen-events.ts event
+// dimension (§22.2). Read the SAME fail-safe way s2s-dispatch.ts's
+// resolveRoutingMultiplier reads value_multiplier from the SAME table: no
+// attempt id, no row, or a query failure all degrade to null (never throws) —
+// an unreadable outcome can only ever suppress a stamp, never fabricate one.
+export interface LeadgenRoutingOutcomeDims {
+  feed_name: string | null;
+  routed_to_funnel: string;
+}
+
+export async function resolveRoutingOutcomeDims(
+  db: D1Database,
+  funnelAttemptId: string,
+): Promise<LeadgenRoutingOutcomeDims | null> {
+  if (funnelAttemptId === "") return null;
+  try {
+    const row = await db
+      .prepare(
+        "SELECT feed_name, routed_to_funnel FROM leadgen_routing_outcomes WHERE funnel_attempt_id = ? LIMIT 1",
+      )
+      .bind(funnelAttemptId)
+      .first<{ feed_name: string | null; routed_to_funnel: string | null }>();
+    if (row === null) return null;
+    return { feed_name: row.feed_name, routed_to_funnel: row.routed_to_funnel ?? "" };
+  } catch {
+    return null;
+  }
 }

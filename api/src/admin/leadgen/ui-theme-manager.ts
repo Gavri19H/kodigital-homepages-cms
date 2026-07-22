@@ -28,7 +28,8 @@
 //   theme_json.theme_id — §10.1), so a card's badge/use-line/right-panel
 //   content is one single live computation, never a hardcode.
 // - The RIGHT A/B panel is scoped to the CENTER-selected theme's PRIMARY
-//   funnel (the first usage match, preferring an is_control/"LIVE" match),
+//   funnel (the first usage match, preferring a primary/"LIVE" match — §5-M1
+//   replacement semantics, VariantThemeUsage.isControl below),
 //   rendering THAT funnel's full active-variant set (§10.5 "Both variants
 //   share the same questions — only the theme differs"), then any OTHER
 //   funnels referencing the same theme_id below. This is an interpretation
@@ -210,6 +211,14 @@ function safeHex(value: string | undefined | null): string {
 // filter over ONE query result rather than N per-theme scans.
 // ---------------------------------------------------------------------------
 
+// Rework M1 (§5-M1, §4.3-10): `is_control` no longer exists on
+// leadgen_funnel_variants — "no control concept anywhere." Replacement
+// semantics: with no running test a funnel has exactly one active variant
+// (validation enforces this); the deterministic pick/tie-break order is
+// variant_label ASC, id ASC (labels A/B/C). `isControl` below keeps its NAME
+// (and every downstream badge/primary-usage consumer keeps working
+// unchanged) but is now DERIVED — true for whichever variant sorts first,
+// per funnel, under that order — rather than read off a DB column.
 export interface VariantThemeUsage {
   funnelId: number;
   funnelPublicId: string;
@@ -226,7 +235,6 @@ interface UsageScanRow {
   funnel_name: string;
   funnel_theme_json: string | null;
   variant_label: string;
-  is_control: number;
   traffic_allocation_bp: number;
   frame_overrides_json: string | null;
 }
@@ -236,23 +244,30 @@ export async function scanVariantThemeUsage(db: D1Database): Promise<VariantThem
     .prepare(
       `SELECT f.id AS funnel_id, f.public_id AS funnel_public_id, f.funnel_name AS funnel_name,
               f.theme_json AS funnel_theme_json, v.variant_label AS variant_label,
-              v.is_control AS is_control, v.traffic_allocation_bp AS traffic_allocation_bp,
+              v.traffic_allocation_bp AS traffic_allocation_bp,
               v.frame_overrides_json AS frame_overrides_json
          FROM leadgen_funnel_variants v
          JOIN leadgen_funnels f ON f.id = v.funnel_id
         WHERE f.status = 'active' AND v.status = 'active'
-        ORDER BY f.id ASC, v.is_control DESC, v.id ASC`,
+        ORDER BY f.id ASC, v.variant_label ASC, v.id ASC`,
     )
     .all<UsageScanRow>();
+  // Rows arrive pre-ordered (variant_label ASC, id ASC WITHIN each funnel) —
+  // the first row seen for a given funnel_id is that funnel's primary/
+  // "isControl" variant (§5-M1 replacement semantics); every later row for
+  // the same funnel_id is a non-primary A/B arm.
+  const seenFunnels = new Set<number>();
   return (result.results ?? []).map((row) => {
     const funnelTheme = parseJsonColumn(row.funnel_theme_json);
     const variantOverrides = parseJsonColumn(row.frame_overrides_json);
+    const isPrimary = !seenFunnels.has(row.funnel_id);
+    seenFunnels.add(row.funnel_id);
     return {
       funnelId: row.funnel_id,
       funnelPublicId: row.funnel_public_id,
       funnelName: row.funnel_name,
       variantLabel: row.variant_label,
-      isControl: row.is_control !== 0,
+      isControl: isPrimary,
       trafficAllocationBp: row.traffic_allocation_bp,
       themeId: winningThemeId(funnelTheme, variantOverrides),
     };
@@ -267,8 +282,9 @@ export function usageForTheme(all: VariantThemeUsage[], themeId: string): Varian
   return all.filter((e) => e.themeId === themeId);
 }
 
-// The "best" match for a badge/use-line: an is_control (LIVE) match wins over
-// any A/B match; ties break on scan order (funnel id asc, is_control desc).
+// The "best" match for a badge/use-line: the primary ("isControl", §5-M1
+// replacement semantics) match wins over any A/B match; ties break on scan
+// order (funnel id asc, then primary-before-arm).
 export function primaryUsage(matches: VariantThemeUsage[]): VariantThemeUsage | null {
   const live = matches.find((m) => m.isControl);
   return live ?? matches[0] ?? null;

@@ -1,6 +1,7 @@
 // LeadGen canonical runtime context (fix-contract v2.4 04 §4.1–§4.5 —
 // R2/R3/R8/B3/B5): ONE builder assembles request/cloudflare/traffic/offer/
-// computed slices and projects them onto the EXISTING 32-macro registry.
+// computed slices and projects them onto the EXISTING 33-macro registry
+// (Rework M10 added `feed_name`).
 // Covers the per-macro resolution table (every canonical macro → its
 // context source or documented-empty), the §4.5 placement precedence, the
 // M1 {referrer} alias, B5 overrides, builder purity, and the new
@@ -207,7 +208,7 @@ describe("buildLeadgenRuntimeContext — slice construction (§4.1/§4.2)", () =
   });
 });
 
-describe("contextToMacros — the 32-macro projection table (§4.3)", () => {
+describe("contextToMacros — the 33-macro projection table (§4.3)", () => {
   it("emits EVERY canonical macro with its expected context source", () => {
     const ctx = buildLeadgenRuntimeContext(fullRequest(), baseOpts());
 
@@ -245,6 +246,7 @@ describe("contextToMacros — the 32-macro projection table (§4.3)", () => {
       session_id: "sess_01H", // session
       fbc: `fb.1.${NOW}.CLICK123`, // traffic (derived)
       fbclid: "CLICK123", // traffic
+      feed_name: "", // M10 routing-outcome stamp: documented-empty here, baseOpts() passes no feed_name
     };
 
     // The table itself is TOTAL over the registry (no macro left unasserted).

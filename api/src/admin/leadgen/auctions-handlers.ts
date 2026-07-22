@@ -1637,25 +1637,30 @@ async function buildSimulateResolved(
     funnel = await db.prepare("SELECT * FROM leadgen_funnels WHERE id = ? LIMIT 1").bind(funnelId).first<LeadgenFunnelRow>();
   }
 
+  // Rework M1: no is_control column. Rework M5: frame_template_id (NULL = the
+  // funnel's template / legacy frame_config). A dry-run's synthetic variant is
+  // the single active variant of its funnel.
   const variantRow: LeadgenFunnelVariantRow = variant ?? {
-    id: 0, public_id: "", funnel_id: funnel?.id ?? 0, ab_test_id: null, variant_label: "A", is_control: 1,
+    id: 0, public_id: "", funnel_id: funnel?.id ?? 0, ab_test_id: null, variant_label: "A",
     traffic_allocation_bp: 10000, funnel_design_id: "default", auction_id: auction.id, lander_enabled: 0,
     lander_headline: null, lander_subheadline: null, lander_body_json: null, lander_hero_media_id: null,
     lander_hero_media_url: null, lander_cta_json: null, content_version: 1, status: "active", created_at: 0,
-    frame_overrides_json: null,
+    frame_overrides_json: null, frame_template_id: null,
   };
+  // Rework M4: display_order (board column order). Rework M5: frame_template_id.
   const funnelRow: LeadgenFunnelRow = funnel ?? {
     id: 0, public_id: "", quote_id: auction.quote_id ?? 0, funnel_name: auction.auction_name,
     active_ab_test_id: null, status: "active", created_at: 0, updated_at: 0,
-    frame_config_json: null, theme_json: null,
+    frame_config_json: null, theme_json: null, display_order: null, frame_template_id: null,
   };
   const siteQuote: LeadgenSiteQuoteRow = {
     id: 0, site_id: "", quote_id: funnelRow.quote_id, enabled: 1, slug: null, settings_overrides_json: null,
     created_at: 0, updated_at: 0,
   };
+  // Rework M4: default_funnel_id (unmatched-visitor funnel; NULL on the stub).
   const quote: LeadgenQuoteRow = {
     id: funnelRow.quote_id, public_id: "", quote_name: "", activity: "", verticals_json: "[]",
-    status: "active", created_by: null, created_at: 0, updated_at: 0,
+    status: "active", created_by: null, created_at: 0, updated_at: 0, default_funnel_id: null,
   };
   const assignment: FunnelAssignment = {
     funnel_ab_test_id: "", funnel_ab_test_revision: 0, variant_label: variantRow.variant_label,

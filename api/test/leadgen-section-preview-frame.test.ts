@@ -202,6 +202,23 @@ const LEADGEN_MIGRATIONS = [
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  // Rework P1 (§5 M1-M12): the full migration set — quotes-handlers.ts's
+  // createQuoteHandler/putVariantHandler already write the M4 columns
+  // (leadgen_funnels.display_order, leadgen_quotes.default_funnel_id)
+  // unconditionally, so this suite's fixture (POST /quotes + PUT
+  // /variants/:id) needs the schema they land in; the M2 owner axis is what
+  // this slice's sectionCount fix (resolveSectionPreviewFrame) reads.
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 const TENANT_ORIGIN = "http://one.example.com";
@@ -313,7 +330,12 @@ interface Fixture {
   quote: LeadgenQuoteRow;
   funnel: LeadgenFunnelRow;
   variant: LeadgenFunnelVariantRow;
-  sections: LeadgenSectionRow[]; // ordered
+  sections: LeadgenSectionRow[]; // ordered, THIS VARIANT's own sections only
+  // §4.3-11: the live serve path composes the quote's shared-page section
+  // FIRST, ahead of `sections` — this is that wider list, for comparisons
+  // against the served composed output (never used to pick "which section
+  // to preview" — that stays `sections[0]`, this variant's own first slide).
+  composedSections: LeadgenSectionRow[];
 }
 
 // Seed one activated framed funnel (2 sections, frame+theme+variant overrides,
@@ -328,6 +350,7 @@ async function seedFixture(opts?: { withFrame?: boolean }): Promise<Fixture> {
   );
   expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
   const created = (await createRes.json()) as {
+    id: number;
     public_id: string;
     funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
   };
@@ -342,6 +365,28 @@ async function seedFixture(opts?: { withFrame?: boolean }): Promise<Fixture> {
     env,
   );
   expect(putRes.status, `put sections: ${await putRes.clone().text()}`).toBe(200);
+
+  // Rework M2 (§4.3-1, §4.3-15): activation now also requires the quote's
+  // shared first page (leadgen_funnel_pages, quote_id-owned) to carry ≥1
+  // section — a section distinct from the funnel/variant's own (§4.3-13
+  // uniqueness). Route wiring for POST/PUT /quotes/:id/shared-page is
+  // mid-flight in another round, so this seeds the SQL shape directly
+  // (mirrors leadgen-rework-handlers.test.ts / leadgen-rework-routing.test.ts).
+  const sharedSectionPublicId = mintPublicId("section");
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, 'Shared', 'quote_funnel', 'life', 'Shared', ?, 'button', 'active')",
+    )
+    .run(sharedSectionPublicId, JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "qs1", question_key: "ks", internal_field: "fs", answer_type: "boolean" }] }));
+  const sharedSectionRow = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(sharedSectionPublicId) as { id: number };
+  const sharedPagePublicId = mintPublicId("funnel_page");
+  sdb.prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, NULL)").run(sharedPagePublicId, created.id);
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+       VALUES (?, ?, 0, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+    )
+    .run(created.id, sharedSectionRow.id, sharedPagePublicId);
 
   if (opts?.withFrame !== false) {
     sdb
@@ -377,7 +422,17 @@ async function seedFixture(opts?: { withFrame?: boolean }): Promise<Fixture> {
       )
       .all(variant.id) as unknown[]
   ) as LeadgenSectionRow[];
-  return { sdb, env, d1, quote, funnel, variant, sections };
+  const sharedSections = (
+    sdb
+      .prepare(
+        `SELECT s.* FROM leadgen_funnel_variant_sections fvs
+         JOIN leadgen_sections s ON s.id = fvs.section_id
+         WHERE fvs.quote_id = ? AND fvs.variant_id IS NULL ORDER BY fvs.position ASC`,
+      )
+      .all(quote.id) as unknown[]
+  ) as LeadgenSectionRow[];
+  const composedSections = [...sharedSections, ...sections];
+  return { sdb, env, d1, quote, funnel, variant, sections, composedSections };
 }
 
 // The §13.4 preview body for one seeded Section row: the row's own canonical
@@ -427,13 +482,6 @@ function extractRootBody(html: string): string {
   expect(start).toBeGreaterThan(-1);
   expect(end).toBeGreaterThan(start);
   return html.slice(start, end);
-}
-
-// First `<section data-lg-section …>…</section>` block of a sections list.
-function firstSectionBlock(sectionsHtml: string): string {
-  const end = sectionsHtml.indexOf("</section>");
-  expect(end).toBeGreaterThan(-1);
-  return sectionsHtml.slice(0, end + "</section>".length);
 }
 
 // ===========================================================================
@@ -997,7 +1045,11 @@ describeDb("POST /sections/preview — frame_context (13 §13.4 unit-in-frame)",
       design,
     );
     expect(composition).not.toBeNull();
-    const resolvedSections: ResolvedFunnelSection[] = fx.sections.map((section, index) => ({
+    // §4.3-11: the served shell now composes the shared-page section too
+    // (composedSections = shared + this variant's own, shared first) —
+    // proves servedRoot's real structure still matches renderVariantSectionsHtml
+    // over the full composed list.
+    const resolvedSections: ResolvedFunnelSection[] = fx.composedSections.map((section, index) => ({
       position: index,
       section,
     }));
@@ -1007,7 +1059,20 @@ describeDb("POST /sections/preview — frame_context (13 §13.4 unit-in-frame)",
       composition!.frame,
     );
     expect(servedRoot).toContain(servedSectionsHtml);
-    const expectedBody = servedRoot.replace(servedSectionsHtml, firstSectionBlock(servedSectionsHtml));
+    // The previewed unit itself (fx.sections[0]) is rendered SOLO by
+    // /sections/preview — position 0, visible — regardless of its real
+    // index/hidden state within the wider composed list (index 1, hidden,
+    // now that the shared section composes first). The "expected" comparison
+    // must use that SAME solo rendering (the same renderVariantSectionsHtml
+    // call, a one-element list), not a slice out of the multi-section
+    // composed html — those two representations of the SAME section are
+    // legitimately byte-different (index/hidden), by design, not a bug.
+    const soloSectionHtml = renderVariantSectionsHtml(
+      [{ position: 0, section: fx.sections[0]! }],
+      composition!.effectiveTokens.design,
+      composition!.frame,
+    );
+    const expectedBody = servedRoot.replace(servedSectionsHtml, soloSectionHtml);
     expect(body.preview.desktop).toBe(expectedBody);
     expect(body.preview.mobile).toBe(expectedBody); // composed body is viewport-invariant
 
@@ -1021,6 +1086,45 @@ describeDb("POST /sections/preview — frame_context (13 §13.4 unit-in-frame)",
     // css: the SAME resolveTokens+funnelChromeCss string the runtime embeds.
     expect(body.preview.css).toBe(servedCss);
     expect(body.preview.design_id).toBe(design.id);
+  });
+
+  // Rework §4.3-11 ("Progress bar total = shared pages + pages of the
+  // currently-known funnel") + §5-M2 P1 entry gate: resolveSectionPreviewFrame's
+  // sectionCount must add the QUOTE's shared-page (quote_id-owned) section
+  // count to the chosen variant's own count, not just the variant's own rows —
+  // otherwise the in-frame preview under-reports steps relative to what a live
+  // visitor of this funnel would eventually see once the shared page ships.
+  it("sectionCount adds the quote's shared-page sections to the chosen variant's own count (§4.3-11)", async () => {
+    const fx = await seedFixture();
+    // fx already carries 2 variant-owned sections (q1, q2) PLUS 1 shared-page
+    // section (seedFixture's own M2 activation prerequisite — see its
+    // doc comment). Add a SECOND section placed on the QUOTE's shared page
+    // directly — quote_id set, variant_id NULL (the M2 owner axis) — never
+    // referenced by fx.variant at all, to prove MULTIPLE shared-page
+    // sections all count, not just a single fixed one.
+    const shared = seedSection(fx.sdb, "Shared first page question", "q3");
+    // position 1 — position 0 is seedFixture's own shared-page section (its
+    // M2 activation prerequisite).
+    fx.sdb
+      .prepare("INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position) VALUES (?, ?, 1)")
+      .run(fx.quote.id, shared.id);
+
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit(
+        "POST",
+        previewBodyFor(fx.sections[0]!, {
+          funnel_public_id: fx.funnel.public_id,
+          variant_public_id: fx.variant.public_id,
+        }),
+      ),
+      fx.env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as PreviewResponse;
+    // 2 variant-owned + 2 shared-page (fixture's default + this test's own) = 4.
+    expect(body.preview.desktop).toContain('aria-valuemax="4"');
+    expect(body.preview.desktop).not.toContain('aria-valuemax="2"');
   });
 
   it("variant leg: variant_public_id applies the variant frame_overrides; absent variant → funnel-level frame only", async () => {

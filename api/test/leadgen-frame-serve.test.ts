@@ -166,7 +166,10 @@ function makeKvStub(): KVNamespace {
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 
-// 0041 included: the frame/theme columns are the fixture surface here.
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
@@ -175,6 +178,17 @@ const LEADGEN_MIGRATIONS = [
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 const TENANT_HOST = "one.example.com";
@@ -306,6 +320,7 @@ async function seedComposedFunnel(
   );
   expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
   const quote = (await createRes.json()) as {
+    id: number;
     public_id: string;
     funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
   };
@@ -320,6 +335,28 @@ async function seedComposedFunnel(
     h.env,
   );
   expect(putRes.status, `put sections: ${await putRes.clone().text()}`).toBe(200);
+
+  // Rework M2 (§4.3-1, §4.3-15): activation now also requires the quote's
+  // shared first page (leadgen_funnel_pages, quote_id-owned) to carry ≥1
+  // section — a section distinct from the funnel/variant's own (§4.3-13
+  // uniqueness). Route wiring for POST/PUT /quotes/:id/shared-page is
+  // mid-flight in another round, so this seeds the SQL shape directly
+  // (mirrors leadgen-rework-handlers.test.ts / leadgen-rework-routing.test.ts).
+  const sharedSectionPublicId = mintPublicId("section");
+  h.sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, 'Shared', 'quote_funnel', 'life', 'Shared', ?, 'button', 'active')",
+    )
+    .run(sharedSectionPublicId, JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "qs1", question_key: "ks", internal_field: "fs", answer_type: "boolean" }] }));
+  const sharedSectionRow = h.sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(sharedSectionPublicId) as { id: number };
+  const sharedPagePublicId = mintPublicId("funnel_page");
+  h.sdb.prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, NULL)").run(sharedPagePublicId, quote.id);
+  h.sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+       VALUES (?, ?, 0, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+    )
+    .run(quote.id, sharedSectionRow.id, sharedPagePublicId);
 
   // Frame + theme land via direct SQL (their PUT routes are Phase B).
   h.sdb
@@ -417,8 +454,14 @@ describeDb("A-exit: a frame-configured funnel serves a COMPOSED /lg page (13 §1
     expect(config["funnel_id"]).toBe(seeded.funnelPublicId);
     expect(config["funnel_variant_id"]).toBe(seeded.variantPublicId);
     const sections = config["sections"] as Array<Record<string, unknown>>;
-    expect(sections).toHaveLength(2);
-    expect(sections[0]).toMatchObject({ headline: BOUND_HEADLINE_1, section_index: 0 });
+    // §4.3-11: the live serve path now composes the quote's shared-page
+    // section into the resolved plan too (this fixture seeds one — see the
+    // shared-page seed block above), FIRST (it is the quote's shared FIRST
+    // page) — so 2 variant sections + 1 shared = 3, with the variant's own
+    // sections shifted one slot later.
+    expect(sections).toHaveLength(3);
+    expect(sections[0]).toMatchObject({ headline: "Shared", section_index: 0 });
+    expect(sections[1]).toMatchObject({ headline: BOUND_HEADLINE_1, section_index: 1 });
     const tokens = config["design_tokens"] as { color: { primary: string } };
     expect(tokens.color.primary).toBe("#123456");
 

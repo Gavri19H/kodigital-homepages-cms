@@ -132,7 +132,25 @@ const LEADGEN_MIGRATIONS = [
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  // Rework P1 (§5 M1-M12): the full migration set so leadgen_funnel_
+  // variant_sections carries the M2 owner axis (quote_id) — buildOfferUsage-
+  // Report's quotes_indirect check (offers-handlers.ts) now reads it
+  // unconditionally, which this file's "F1 (executed)" usage-report tests
+  // exercise via GET /offers/:id/usage.
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {

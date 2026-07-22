@@ -25,6 +25,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
+import { mintPublicId } from "../src/leadgen/ids";
 import type { Env } from "../src/env";
 import type { ThemeRecord } from "../src/public/leadgen/designs/theme";
 import {
@@ -178,6 +179,10 @@ function makeKvStub(): KVNamespace {
 }
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
@@ -186,6 +191,17 @@ const LEADGEN_MIGRATIONS = [
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -259,7 +275,7 @@ function themeBody(
 // golden's pal() function) assigned to Auto Insurance (Variant A/B, 60/40)
 // and Home Insurance (Variant A) — matches leadgen-theme-manager-ui.test.ts's
 // own seedFixture() 1:1.
-async function seedThemesFixture(env: Env): Promise<{ navy: ThemeRecord; bold: ThemeRecord; minimal: ThemeRecord }> {
+async function seedThemesFixture(sdb: SqliteDb, env: Env): Promise<{ navy: ThemeRecord; bold: ThemeRecord; minimal: ThemeRecord }> {
   const navy = (
     await jsonRes<{ item: ThemeRecord }>(
       await admin.request(
@@ -309,10 +325,19 @@ async function seedThemesFixture(env: Env): Promise<{ navy: ThemeRecord; bold: T
   );
   const autoFunnelId = quote.funnels[0]!.public_id;
   const variantAId = quote.funnels[0]!.variants[0]!.public_id;
-  const variantB = await jsonRes<{ public_id: string }>(
-    await admin.request(`${API}/funnels/${autoFunnelId}/variants`, jsonInit("POST", {}), env),
-    "create variant B",
-  );
+  // Rework M1 (§4.3-10): POST /funnels/:id/variants (createVariantUnderFunnel)
+  // now unconditionally refuses a 2nd active variant — see
+  // leadgen-quotes-api.test.ts's Σ-gate test for the full rationale. This
+  // fixture just needs a 2nd variant with a different theme override to
+  // exist, so it's seeded via raw SQL (leadgen-rework-handlers.test.ts's own
+  // equal-arms idiom) instead.
+  const autoFunnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(autoFunnelId) as { id: number }).id;
+  const variantBId = mintPublicId("funnel_variant");
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label, traffic_allocation_bp, funnel_design_id, status) VALUES (?, ?, 'B', 10000, 'default', 'active')",
+    )
+    .run(variantBId, autoFunnelRowId);
   await jsonRes(
     await admin.request(`${API}/funnels/${autoFunnelId}/theme`, jsonInit("PUT", { theme_json: { theme_id: navy.id } }), env),
     "set funnel theme",
@@ -323,7 +348,7 @@ async function seedThemesFixture(env: Env): Promise<{ navy: ThemeRecord; bold: T
   );
   await jsonRes(
     await admin.request(
-      `${API}/variants/${variantB.public_id}`,
+      `${API}/variants/${variantBId}`,
       jsonInit("PUT", { traffic_allocation_bp: 4000, frame_overrides_json: { theme_id: bold.id } }),
       env,
     ),
@@ -562,8 +587,8 @@ describe("Gate 3 geometry — studio SSR (renderSectionStudio, pure)", () => {
 
 describeDb("Gate 3 geometry — themes manager SSR (leadgenThemeManagerPage, D1+KV)", () => {
   it("theme list width 300 and A/B panel width 320 render (Appendix B: 'Themes list / A-B panel width 300 / 320')", async () => {
-    const { env } = newHarness();
-    await seedThemesFixture(env);
+    const { sdb, env } = newHarness();
+    await seedThemesFixture(sdb, env);
     const { status, html } = await getHtml(env, "/admin/leadgen/themes");
     expect(status).toBe(200);
     expect(STUDIO_GEOMETRY.themesListWidth).toBe(300);
@@ -573,8 +598,8 @@ describeDb("Gate 3 geometry — themes manager SSR (leadgenThemeManagerPage, D1+
   });
 
   it("theme swatch radius 10 renders (Appendix B radii: 'swatches 10')", async () => {
-    const { env } = newHarness();
-    await seedThemesFixture(env);
+    const { sdb, env } = newHarness();
+    await seedThemesFixture(sdb, env);
     const { html } = await getHtml(env, "/admin/leadgen/themes");
     expect(STUDIO_RADIUS.swatch).toBe(10);
     // the CENTER editor's role swatches are the big 40x40 radius-10 squares
@@ -582,8 +607,8 @@ describeDb("Gate 3 geometry — themes manager SSR (leadgenThemeManagerPage, D1+
   });
 
   it("active theme-card border matches the §3 navy token (2px solid)", async () => {
-    const { env } = newHarness();
-    const fx = await seedThemesFixture(env);
+    const { sdb, env } = newHarness();
+    const fx = await seedThemesFixture(sdb, env);
     const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${fx.navy.id}`);
     expect(html).toContain(`border:2px solid ${STUDIO_COLOR.navy}`);
   });

@@ -57,6 +57,18 @@ export const LEADGEN_PAYLOAD_SOURCES = [
 ] as const;
 export type LeadgenPayloadSource = (typeof LEADGEN_PAYLOAD_SOURCES)[number];
 
+// LeadGen Rework M10 / owner decision D3 (stamp-only): the reserved macro name
+// that exposes the routing feed_name to an offer payload as a CONTEXT node,
+// mirroring how the request macros (device/os/utm/…) reach a payload via the
+// `macro` source (ctx.macros). A macro:"feed_name" node resolves from the
+// dedicated build-context slot ctx.feed_name (resolveNode's `macro` case). This
+// is the payload-BUILD mechanism only; the NON-OWNED legs — registering
+// "feed_name" as a canonical macro so a schema SAVE accepts the node
+// (macros.ts) and populating ctx.feed_name from the recorded routing outcome at
+// build time (runtime-context.ts / the auction fetch path) — are reported by
+// this slice, not implemented here. No M11 formatCurrency (D3).
+export const LEADGEN_FEED_NAME_CONTEXT_MACRO = "feed_name";
+
 // §6.5 free-text pattern presets (B12) — the optional-constraint enum for
 // free-text string answer nodes. "none" = sanitize only (no pattern check);
 // "custom" requires free_text_pattern_custom.
@@ -1083,6 +1095,11 @@ export interface LeadgenPayloadBuildContext {
   // LeadGenRuntimeContext.offer slice (runtime-context.ts).
   offer?: Readonly<{ offer_id?: string; offer_name?: string; placement_id?: string }>;
   token?: LeadgenPayloadTokenContext;
+  // LeadGen Rework M10/D3 (stamp-only): the routing feed_name for this attempt,
+  // exposed as a payload context value so a macro:"feed_name" node can map it
+  // (resolveNode's `macro` case + LEADGEN_FEED_NAME_CONTEXT_MACRO). Populated by
+  // the caller from the recorded routing outcome; absent → the node cleans away.
+  feed_name?: string;
 }
 
 // CONDUCTOR FIX (register PC-12, 2026-07-17) — boolean/string equality-shape
@@ -1359,7 +1376,17 @@ function resolveNode(node: LeadgenPayloadNode, ctx: LeadgenPayloadBuildContext):
       raw = node.computed === undefined ? undefined : ctx.computed?.[node.computed];
       break;
     case "macro":
-      raw = node.macro === undefined ? undefined : ctx.macros?.[node.macro];
+      // The `macro` source resolves the canonical request macros from
+      // ctx.macros. LeadGen Rework M10/D3: the routing feed_name is exposed as a
+      // context node through this SAME mechanism — a macro:"feed_name" node
+      // resolves from ctx.feed_name (the dedicated build-context slot) when the
+      // caller has not folded it into ctx.macros. Stamp-only: the mechanism
+      // exists so an offer CAN map feed_name; no downstream consumer is wired.
+      raw =
+        node.macro === undefined
+          ? undefined
+          : ctx.macros?.[node.macro] ??
+            (node.macro === LEADGEN_FEED_NAME_CONTEXT_MACRO ? ctx.feed_name : undefined);
       break;
     case "placement": {
       // §4.5 Offer/Auction placement id. A missing OR empty id routes

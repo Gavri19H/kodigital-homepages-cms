@@ -357,6 +357,14 @@ function isChoicePrimitive(value: unknown): value is string | number | boolean {
 // ONE query via the join (a single bound param — no IN() list, trivially
 // inside the 100-binding limit); rows ordered by section_name for a
 // deterministic picker; per-Section duplicate internal_fields keep the first.
+//
+// Rework M2 reader sweep (examined, unchanged): this join goes through
+// leadgen_section_available_offers (the Section↔Offer mapping relationship)
+// straight to leadgen_sections — it never touches
+// leadgen_funnel_variant_sections/variant_id at all, so it already sees every
+// linked Section's fields regardless of WHERE (or whether) that Section is
+// placed — a shared-page Section's fields surface here exactly like a
+// variant-page Section's, with no code change needed.
 export async function readLinkedSectionFields(
   db: D1Database,
   offerId: number,
@@ -1818,6 +1826,11 @@ export async function buildOfferUsageReport(db: D1Database, offerId: number): Pr
   // BLOCKER (adversarial): a funnel redirect rule that targets this Offer
   // (§11 direct_offer_redirect) is a live wired reference — deleting the Offer
   // would break the redirect. Blocking.
+  // Rework M2 reader sweep (examined, unchanged): leadgen_funnel_rules.
+  // variant_id stays NOT NULL in this migration wave — M2 only re-axises
+  // leadgen_funnel_pages + leadgen_funnel_variant_sections. Quote-scoped
+  // routing (a NEW leadgen_quote_routing_rules table) is §5-M3, a separate,
+  // later migration — out of this slice's scope.
   add(
     "funnel_rules_targeting",
     await countRefs(
@@ -1847,6 +1860,17 @@ export async function buildOfferUsageReport(db: D1Database, offerId: number): Pr
   // (Quotes whose Sections select this Offer) is blocking; region_rules (own —
   // cascade-deleted on clean delete) is INFORMATIONAL (warning-only, never
   // blocks — the cascade handles it); revenue_attribution is warning-only.
+  // Rework M2 (§4.3-1 "shared first page"): a Section referencing this Offer
+  // can ALSO be placed directly on a Quote's shared page
+  // (leadgen_funnel_variant_sections.quote_id set, variant_id NULL) instead
+  // of via any funnel variant. The inner two joins go LEFT so a quote-owned
+  // row (no owning variant/funnel) still reaches the final join; COALESCE
+  // picks whichever owner axis is actually set (the table's CHECK constraint
+  // guarantees exactly one) to resolve the owning Quote. An unqualified
+  // INNER JOIN through `fv.id = fvs.variant_id` (the pre-rework shape) would
+  // silently drop quote-owned usage here — since this is a BLOCKING kind
+  // (see `add` below), that would wrongly let a still-referenced Offer's
+  // hard-delete guard pass.
   add(
     "quotes_indirect",
     await countRefs(
@@ -1854,9 +1878,9 @@ export async function buildOfferUsageReport(db: D1Database, offerId: number): Pr
       `SELECT DISTINCT q.id, q.public_id, q.quote_name AS name, '/admin/leadgen/quotes/' || q.public_id || '/edit' AS link
        FROM leadgen_section_available_offers sao
        JOIN leadgen_funnel_variant_sections fvs ON fvs.section_id = sao.section_id
-       JOIN leadgen_funnel_variants fv ON fv.id = fvs.variant_id
-       JOIN leadgen_funnels f ON f.id = fv.funnel_id
-       JOIN leadgen_quotes q ON q.id = f.quote_id
+       LEFT JOIN leadgen_funnel_variants fv ON fv.id = fvs.variant_id
+       LEFT JOIN leadgen_funnels f ON f.id = fv.funnel_id
+       JOIN leadgen_quotes q ON q.id = COALESCE(f.quote_id, fvs.quote_id)
        WHERE sao.offer_id = ? ORDER BY q.quote_name`,
       offerId,
     ),

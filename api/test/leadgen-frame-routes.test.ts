@@ -22,6 +22,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
+import { mintPublicId } from "../src/leadgen/ids";
 import type { Env } from "../src/env";
 import { FRAME_TEMPLATE_IDS } from "../src/public/leadgen/designs/frames";
 
@@ -149,6 +150,10 @@ function makeKvStub(): KVNamespace {
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
@@ -157,6 +162,17 @@ const LEADGEN_MIGRATIONS = [
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 const API = "/api/admin/leadgen";
@@ -293,13 +309,18 @@ describeDb("frame routes — GET/PUT /funnels/:id/frame (04 §4.8)", () => {
     const h = newHarness();
     const seed = await seedQuote(h);
     // A second ACTIVE variant + then archive it — the bump must skip it.
-    const extra = await admin.request(
-      `${API}/funnels/${seed.funnelPublicId}/variants`,
-      jsonInit("POST", { variant_label: "B" }),
-      h.env,
-    );
-    expect(extra.status).toBe(201);
-    const extraId = ((await extra.json()) as { public_id: string }).public_id;
+    // Rework M1 (§4.3-10): POST /funnels/:id/variants now unconditionally
+    // refuses a 2nd active variant — see leadgen-quotes-api.test.ts's
+    // Σ-gate test for the full rationale. This test's point is the frame
+    // bump skipping archived variants, so the 2nd (soon-archived) variant
+    // is seeded via raw SQL (leadgen-rework-handlers.test.ts's own
+    // equal-arms idiom) instead.
+    const extraId = mintPublicId("funnel_variant");
+    h.sdb
+      .prepare(
+        "INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label, traffic_allocation_bp, funnel_design_id, status) VALUES (?, ?, 'B', 10000, 'default', 'active')",
+      )
+      .run(extraId, seed.funnelId);
     h.sdb
       .prepare("UPDATE leadgen_funnel_variants SET status = 'archived' WHERE public_id = ?")
       .run(extraId);
@@ -791,6 +812,11 @@ describeDb("PUT /variants/:id — additive frame_overrides_json (04 §4.5/§4.7)
       h.env,
     );
     expect(put.status).toBe(200);
+    // Rework M1 (§4.3-10): forkVariantHandler now unconditionally refuses a
+    // 2nd active variant — archiving the source first is the minimal way to
+    // still exercise the real fork endpoint (this test's point is that the
+    // clone carries frame_overrides_json, not fork's own guard).
+    h.sdb.prepare("UPDATE leadgen_funnel_variants SET status = 'archived' WHERE public_id = ?").run(seed.controlPublicId);
     const fork = await admin.request(`${API}/variants/${seed.controlPublicId}/fork`, { method: "POST" }, h.env);
     expect(fork.status, await fork.clone().text()).toBe(201);
     const forked = (await fork.json()) as { public_id: string; frame_overrides_json: unknown };

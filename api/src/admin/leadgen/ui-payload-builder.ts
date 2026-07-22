@@ -130,9 +130,11 @@ const COMPUTED_MEMBERS: ReadonlyArray<PayloadSourceMember> = LEADGEN_COMPUTED_KE
   },
 );
 
-// Advanced-macro optgroups (M2): the full 32-canonical-macro list, grouped,
-// visible ONLY while the field's Advanced drawer is open. Membership is
-// asserted complete against CANONICAL_MACROS by the test suite.
+// Advanced-macro optgroups (M2): the full canonical-macro list (the original
+// 32 + LeadGen Rework's additive `feed_name`, M10/D3), grouped, visible ONLY
+// while the field's Advanced drawer is open. Membership is asserted complete
+// against CANONICAL_MACROS by this file's own module-load drift guard below
+// AND by the test suite.
 const ADVANCED_MACRO_GROUPS: ReadonlyArray<{ group: string; macros: ReadonlyArray<string> }> = [
   {
     group: "Advanced macro · Request / Device",
@@ -150,6 +152,12 @@ const ADVANCED_MACRO_GROUPS: ReadonlyArray<{ group: string; macros: ReadonlyArra
   },
   { group: "Advanced macro · Session / Page", macros: ["session_id", "click_id", "page", "lander_v"] },
   { group: "Advanced macro · Offer", macros: ["offer_id", "offer_name"] },
+  // LeadGen Rework M10/D3 (stamp-only): the quote-scoped routing rule's
+  // feed_name action — its own group (no existing bucket above fits: it is
+  // neither a request/device signal, a traffic/URL param, a session/page
+  // identity, nor an Offer field; it is the routing rule that matched this
+  // attempt). "" when no rule matched (never fabricated).
+  { group: "Advanced macro · Routing", macros: ["feed_name"] },
 ];
 
 // The 9 §6.2 UI groups. Members OMITTED because no storage-faithful route

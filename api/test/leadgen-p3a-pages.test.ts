@@ -154,14 +154,29 @@ function makeKvStub(): KVNamespace {
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
   "0040_leadgen_runtime_context.sql",
-  "0041_leadgen_frame_theme.sql", // leadgen_funnels.frame_config_json/theme_json (duplicateQuoteHandler clones both)
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 const TENANT_HOST = "p3a.example.com";
@@ -242,7 +257,7 @@ function seedSection(sdb: SqliteDb, name: string): { id: number; public_id: stri
 
 // Create a quote (-> active funnel + active control variant); the caller
 // attaches sections/pages + activates separately.
-async function seedQuote(env: Env): Promise<{ quotePublicId: string; variantId: string }> {
+async function seedQuote(env: Env): Promise<{ quoteId: number; quotePublicId: string; variantId: string }> {
   const createRes = await admin.request(
     `${API}/quotes`,
     jsonInit("POST", { quote_name: `P3a ${Date.now()}-${Math.random()}`, activity: "quote_funnel", verticals: ["life"] }),
@@ -250,15 +265,43 @@ async function seedQuote(env: Env): Promise<{ quotePublicId: string; variantId: 
   );
   expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
   const quote = (await createRes.json()) as {
+    id: number;
     public_id: string;
     funnels: Array<{ variants: Array<{ public_id: string }> }>;
   };
-  return { quotePublicId: quote.public_id, variantId: quote.funnels[0]!.variants[0]!.public_id };
+  return { quoteId: quote.id, quotePublicId: quote.public_id, variantId: quote.funnels[0]!.variants[0]!.public_id };
 }
 
-async function activate(env: Env, quotePublicId: string): Promise<void> {
+// Rework M2 (§4.3-1, §4.3-15): activation now also requires the quote's
+// shared first page (leadgen_funnel_pages, quote_id-owned) to carry ≥1
+// section — a section distinct from the funnel/variant's own (§4.3-13
+// uniqueness). Route wiring for POST/PUT /quotes/:id/shared-page is
+// mid-flight in another round, so this seeds the SQL shape directly
+// (mirrors leadgen-rework-handlers.test.ts / leadgen-rework-routing.test.ts).
+function seedSharedPageSection(sdb: SqliteDb, quoteId: number): { sectionPublicId: string } {
+  const sectionPublicId = mintPublicId("section");
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, 'Shared', 'quote_funnel', 'life', 'Shared', ?, 'button', 'active')",
+    )
+    .run(sectionPublicId, JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "qs1", question_key: "ks", internal_field: "fs", answer_type: "boolean" }] }));
+  const sectionId = (sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(sectionPublicId) as { id: number }).id;
+  const pagePublicId = mintPublicId("funnel_page");
+  sdb.prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, NULL)").run(pagePublicId, quoteId);
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+       VALUES (?, ?, 0, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+    )
+    .run(quoteId, sectionId, pagePublicId);
+  return { sectionPublicId };
+}
+
+async function activate(sdb: SqliteDb, env: Env, quoteId: number, quotePublicId: string): Promise<{ sharedSectionPublicId: string }> {
+  const { sectionPublicId: sharedSectionPublicId } = seedSharedPageSection(sdb, quoteId);
   const actRes = await admin.request(`${API}/quotes/${quotePublicId}/activation/site-1`, jsonInit("PUT", { enabled: true }), env);
   expect(actRes.status, `activate: ${await actRes.clone().text()}`).toBe(200);
+  return { sharedSectionPublicId };
 }
 
 async function get(env: Env, path: string): Promise<Response> {
@@ -283,7 +326,8 @@ describeDb("0042 migration — wrap correctness (D-3, behavior-preserving)", () 
     const quoteRow = sdb.prepare("SELECT id FROM leadgen_quotes WHERE public_id='lgq_wraptest'").get() as { id: number };
     sdb.prepare("INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name, status) VALUES ('lgf_wraptest', ?, 'Wrap Funnel', 'active')").run(quoteRow.id);
     const funnelRow = sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id='lgf_wraptest'").get() as { id: number };
-    sdb.prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label, is_control, status) VALUES ('lgn_wraptest', ?, 'A', 1, 'active')").run(funnelRow.id);
+    // Rework M1 (§5-M1, §4.3-10): is_control dropped from leadgen_funnel_variants.
+    sdb.prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label, status) VALUES ('lgn_wraptest', ?, 'A', 'active')").run(funnelRow.id);
     const variantRow = sdb.prepare("SELECT id FROM leadgen_funnel_variants WHERE public_id='lgn_wraptest'").get() as { id: number };
 
     const sections = ["s0", "s1", "s2"].map((n) => seedSection(sdb, n));
@@ -624,7 +668,7 @@ describe("sectionsFromPages — the flat session-independent candidate catalog",
 describeDb("P3a migration gate — byte-identical section/component HTML", () => {
   it("the SYNTHETIC (pre-backfill) and REAL (post-backfill) resolution paths render identical section HTML for the same rows", async () => {
     const { sdb, env } = newHarness();
-    const { quotePublicId, variantId } = await seedQuote(env);
+    const { quoteId, quotePublicId, variantId } = await seedQuote(env);
     const s1 = seedSection(sdb, "alpha");
     const s2 = seedSection(sdb, "beta");
     const putRes = await admin.request(
@@ -633,7 +677,7 @@ describeDb("P3a migration gate — byte-identical section/component HTML", () =>
       env,
     );
     expect(putRes.status, `put sections: ${await putRes.clone().text()}`).toBe(200);
-    await activate(env, quotePublicId);
+    await activate(sdb, env, quoteId, quotePublicId);
 
     // SYNTHETIC path: no real leadgen_funnel_pages rows exist yet for this
     // variant (putVariantHandler's `sections` contract never creates them —
@@ -654,7 +698,10 @@ describeDb("P3a migration gate — byte-identical section/component HTML", () =>
     // REAL path: leadgen_funnel_pages/_page_slots now exist for this variant.
     const resolvedReal = await resolveActivatedFunnelByVariant(env, "site-1", variantId);
     expect(resolvedReal).not.toBeNull();
-    expect(resolvedReal!.pages?.length).toBe(2); // wrap created 1 page per section
+    // Rework M2 (§4.3): the resolved plan is quote (shared) page + variant
+    // pages — 1 shared-page (this file's own activation prerequisite, seeded
+    // by activate()) + wrap's 1 page per section (2) = 3.
+    expect(resolvedReal!.pages?.length).toBe(3);
     const htmlReal = renderVariantSectionsHtml(resolvedReal!.sections, design, null);
 
     expect(htmlReal).toBe(htmlSynthetic);
@@ -670,7 +717,7 @@ describeDb("P3a migration gate — byte-identical section/component HTML", () =>
 describeDb("quotes-handlers pages PUT contract + end-to-end plan resolution", () => {
   it("page 1 = fixed section; page 2 = a ruled slot (CA -> X else Y) + an A/B slot — saves, resolves, mints an attempt with the plan echo", async () => {
     const { sdb, env } = newHarness();
-    const { quotePublicId, variantId } = await seedQuote(env);
+    const { quoteId, quotePublicId, variantId } = await seedQuote(env);
     const fixedSection = seedSection(sdb, "page1fixed");
     const ruledCA = seedSection(sdb, "ruledCA");
     const ruledElse = seedSection(sdb, "ruledElse");
@@ -705,7 +752,7 @@ describeDb("quotes-handlers pages PUT contract + end-to-end plan resolution", ()
     expect(detail.pages[1]!.slots).toHaveLength(2);
     expect(detail.pages[1]!.slots.map((s) => s.kind)).toEqual(["ruled", "ab"]);
 
-    await activate(env, quotePublicId);
+    const { sharedSectionPublicId } = await activate(sdb, env, quoteId, quotePublicId);
 
     const shellRes = await get(env, "/lg");
     expect(shellRes.status, `shell: ${await shellRes.clone().text()}`).toBe(200);
@@ -725,12 +772,21 @@ describeDb("quotes-handlers pages PUT contract + end-to-end plan resolution", ()
     };
     expect(attempt.funnel_attempt_id.startsWith("att_")).toBe(true);
     expect(attempt.page_plan).toBeDefined();
+    // §4.3-11: the resolved plan now also includes the quote's shared-page
+    // winner (activate() seeds one) — excluded here alongside page 1's own
+    // winner so "page 2 resolves EXACTLY 2 winners" still proves what it
+    // always proved (this variant's OWN page-2 slot resolution), unaffected
+    // by the shared page's now-present, separate winner entry.
+    const sharedWinner = attempt.page_plan!.find((w) => w.section_public_id === sharedSectionPublicId);
+    expect(sharedWinner).toBeDefined();
     // page 1's fixed slot always resolves to the fixed section.
     const page1Winner = attempt.page_plan!.find((w) => w.section_public_id === fixedSection.public_id);
     expect(page1Winner?.assignment_reason).toBe("fixed");
     // page 2 resolves EXACTLY 2 winners (one per slot): the ruled slot
     // (no state header in this harness -> falls to the default) + the A/B slot.
-    const page2Winners = attempt.page_plan!.filter((w) => w.page_id !== page1Winner!.page_id);
+    const page2Winners = attempt.page_plan!.filter(
+      (w) => w.page_id !== page1Winner!.page_id && w.page_id !== sharedWinner!.page_id,
+    );
     expect(page2Winners).toHaveLength(2);
     const ruledWinner = page2Winners.find((w) => w.assignment_reason === "slot_rule");
     expect(ruledWinner?.section_public_id).toBe(ruledElse.public_id); // no CA header -> default
@@ -929,6 +985,12 @@ describeDb("fork/duplicate page fidelity (Round-4 P3a review round minor-3)", ()
     const sourceSlot = sourcePage.slots[0]!;
     expect(sourceSlot.kind).toBe("ab");
 
+    // Rework M1 (§4.3-10): forkVariantHandler now unconditionally refuses a
+    // 2nd active variant — archiving the source first is the minimal way to
+    // still exercise the real fork endpoint (this test's point is the
+    // CLONED page/slot fidelity, not fork's own guard). "source untouched"
+    // still holds: only its status column changes, never its pages/slots.
+    sdb.prepare("UPDATE leadgen_funnel_variants SET status = 'archived' WHERE public_id = ?").run(variantId);
     const forkRes = await admin.request(`${API}/variants/${variantId}/fork`, jsonInit("POST", {}), env);
     expect(forkRes.status, `fork: ${await forkRes.clone().text()}`).toBe(201);
     const forked = (await forkRes.json()) as {

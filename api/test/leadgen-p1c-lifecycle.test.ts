@@ -25,10 +25,12 @@
 //      reachable regardless of usage (the guard is DELETE-only, status-
 //      independent).
 //   5. duplicateQuoteHandler — deep copy funnels/variants/sections/rules;
-//      site activations/analytics/ab-tests/non-control ("ab_variants")
-//      variants NOT copied — a duplicate copies ONLY each funnel's control
-//      variant, forced to is_control=1/traffic_allocation_bp=10000
-//      regardless of the source's own split (adversarial-review finding 4).
+//      site activations/analytics/ab-tests NOT copied — Rework M1 (§4.3-10,
+//      "no control concept anywhere") widened this: a duplicate now copies
+//      EVERY ACTIVE variant of each source funnel (readActiveFunnelVariants),
+//      each forced to traffic_allocation_bp=10000 regardless of the source's
+//      own split, since a fresh clone starts as a no-test draft
+//      (adversarial-review finding 4, rework).
 //   6. Quote archive->reactivate (PATCH status flip, already unrestricted)
 //      + guarded DELETE (409 plain-language with live history; 200 archived
 //      without).
@@ -136,10 +138,10 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 
-// 0040/0041 REQUIRED here (unlike the sibling 0036-0039-only harnesses):
-// duplicateQuoteHandler copies leadgen_funnels.frame_config_json/theme_json +
-// leadgen_funnel_variants.frame_overrides_json (0041) unconditionally in its
-// INSERT column list — the pattern already proven by leadgen-frame-routes.test.ts.
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
@@ -150,6 +152,15 @@ const LEADGEN_MIGRATIONS = [
   "0042_leadgen_pages.sql",
   "0043_leadgen_routing_rules.sql",
   "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -322,7 +333,7 @@ interface VariantJson {
   id: number;
   public_id: string;
   funnel_variant_id: string;
-  is_control: boolean;
+  variant_label: string;
   traffic_allocation_bp: number;
   auction_id: number | null;
   [key: string]: unknown;
@@ -672,9 +683,15 @@ describeDb("DELETE /sections/:id — guarded hard delete (P1d gap fix)", () => {
     // the variant's ordered `sections` list — the two references
     // (leadgen_funnel_variant_sections vs leadgen_funnel_rules.
     // target_section_id) are independent.
+    // Rework M3: skip_section is no longer a valid leadgen_funnel_rules type
+    // (CHECK tightened to the 4 auction-domain types) — swapped to
+    // eligibility. target_section_id is a generic, non-type-gated column
+    // (quotes-handlers.ts parses it the same for every rule_type), so this
+    // test's point (a rule referencing a section via target_section_id
+    // blocks deletion) is unaffected by which type carries it.
     const putRes = await admin.request(
       `${API}/variants/${variantId}`,
-      jsonInit("PUT", { rules: [{ rule_type: "skip_section", target_section_id: section.id }] }),
+      jsonInit("PUT", { rules: [{ rule_type: "eligibility", target_section_id: section.id }] }),
       env,
     );
     expect(putRes.status, await putRes.clone().text()).toBe(200);
@@ -817,14 +834,18 @@ describeDb("POST /quotes/:id/duplicate (A-2, row R4-02) — deep copy funnels/va
     expect(res.status, await res.clone().text()).toBe(201);
     const dup = (await res.json()) as QuoteJson & {
       duplicated_from: { public_id: string };
-      copied: { funnels: number; variants: number; sections: number; rules: number };
+      copied: { funnels: number; variants: number; sections: number; rules: number; routing_rules: number };
       not_copied: string[];
     };
 
     expect(dup.public_id).not.toBe(quote.public_id);
     expect(dup.quote_name).toBe("Life Quote (copy)");
     expect(dup.duplicated_from.public_id).toBe(quote.public_id);
-    expect(dup.copied).toEqual({ funnels: 1, variants: 1, sections: 1, rules: 1 });
+    // Rework M3: duplicateQuoteHandler now also copies quote-scoped
+    // leadgen_quote_routing_rules (a real, new copyable resource this
+    // fixture never seeds, so the count is 0 here — see the dedicated
+    // routing-rules duplication coverage elsewhere for the >0 case).
+    expect(dup.copied).toEqual({ funnels: 1, variants: 1, sections: 1, rules: 1, routing_rules: 0 });
     expect(dup.not_copied).toEqual(expect.arrayContaining(["site_activations", "analytics", "ab_tests"]));
 
     // the CLONE's variant carries the SAME section + rule type (structure tree).
@@ -869,30 +890,43 @@ describeDb("POST /quotes/:id/duplicate (A-2, row R4-02) — deep copy funnels/va
     expect(res.status).toBe(404);
   });
 
-  it("adversarial-review finding 4: a funnel with a 2-arm A/B copies ONLY the control variant, forced to is_control=1/bp=10000; the source stays untouched", async () => {
-    const { env } = newHarness();
+  // Rework M1 (§4.3-10): "no control concept anywhere" — duplicateQuoteHandler
+  // now copies EVERY ACTIVE variant of the funnel (readActiveFunnelVariants;
+  // verified against quotes-handlers.ts), not "only the control" (that concept
+  // is gone). With no running test a funnel has exactly one active variant
+  // (validation enforces this) — the ORIGINAL adversarial-review scenario
+  // (2 active arms under one funnel, no A/B test object) can only be built via
+  // raw SQL now, since createVariantUnderFunnel unconditionally refuses a 2nd
+  // active variant (see leadgen-quotes-api.test.ts's Σ-gate test for the full
+  // rationale) — same scenario (does duplicate correctly handle a
+  // multi-active-variant funnel), new axis (copies ALL of them, forced to
+  // equal bp, not "only one").
+  it("adversarial-review finding 4 (rework): a funnel with 2 ACTIVE arms (no A/B test object) has BOTH copied, each forced to bp=10000; the source stays untouched", async () => {
+    const { sdb, env } = newHarness();
     const quote = await createQuote(env);
     const funnelId = quote.funnels[0]!.public_id;
     const control = quote.funnels[0]!.variants[0]!;
-    expect(control.is_control).toBe(true);
+    expect(control.variant_label).toBe("A");
 
-    // build a REAL 2-arm 50/50 split: rebalance the control to 5000, then add
-    // a non-control "B" arm at the remaining 5000 (funnelHasRunningTest is
-    // false here — no leadgen_funnel_ab_tests row exists — so the PUT is
-    // unrestricted, matching the plain "two variants under one funnel"
-    // shape createVariantUnderFunnel produces before an A/B test object ever
-    // gets created over them).
+    // build a REAL 2-arm 50/50 split: rebalance "A" to 5000, then raw-SQL
+    // seed a "B" arm at the remaining 5000 (funnelHasRunningTest is false
+    // here — no leadgen_funnel_ab_tests row exists — but createVariantUnderFunnel
+    // now unconditionally refuses ANY 2nd active variant regardless of test
+    // state, so the arm is seeded directly — the SAME idiom
+    // leadgen-rework-handlers.test.ts's own equal-arms test uses).
     const rebalance = await admin.request(
       `${API}/variants/${control.public_id}`,
       jsonInit("PUT", { traffic_allocation_bp: 5000 }),
       env,
     );
     expect(rebalance.status, await rebalance.clone().text()).toBe(200);
-    const bRes = await admin.request(`${API}/funnels/${funnelId}/variants`, jsonInit("POST", { variant_label: "B" }), env);
-    expect(bRes.status, await bRes.clone().text()).toBe(201);
-    const variantB = (await bRes.json()) as VariantJson;
-    expect(variantB.is_control).toBe(false);
-    await admin.request(`${API}/variants/${variantB.public_id}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env);
+    const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(funnelId) as { id: number }).id;
+    const variantBPublicId = mintPublicId("funnel_variant");
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label, traffic_allocation_bp, funnel_design_id, status) VALUES (?, ?, 'B', 5000, 'default', 'active')",
+      )
+      .run(variantBPublicId, funnelRowId);
 
     const res = await admin.request(`${API}/quotes/${quote.public_id}/duplicate`, jsonInit("POST", {}), env);
     expect(res.status, await res.clone().text()).toBe(201);
@@ -901,22 +935,21 @@ describeDb("POST /quotes/:id/duplicate (A-2, row R4-02) — deep copy funnels/va
       not_copied: string[];
     };
     expect(dup.copied.funnels).toBe(1);
-    expect(dup.copied.variants).toBe(1); // ONLY the control — never the "B" arm
+    expect(dup.copied.variants).toBe(2); // BOTH active arms — no control concept to single one out
     expect(dup.not_copied).toContain("ab_variants");
 
     const dupFunnel = dup.funnels[0]!;
-    expect(dupFunnel.variants).toHaveLength(1);
-    const dupVariant = dupFunnel.variants[0]!;
-    expect(dupVariant.is_control).toBe(true);
-    // forced to the full-traffic control shape, NOT the source's 5000 split.
-    expect(dupVariant.traffic_allocation_bp).toBe(10000);
+    expect(dupFunnel.variants).toHaveLength(2);
+    // every clone forced to the full-traffic shape (10000), NOT the source's
+    // 5000/5000 split — a fresh no-test draft (§4.3-10: A/B tests never copy).
+    for (const v of dupFunnel.variants) expect(v.traffic_allocation_bp).toBe(10000);
+    expect(dupFunnel.variants.map((v) => v.variant_label).sort()).toEqual(["A", "B"]);
 
     // the SOURCE funnel is untouched: still 2 variants, still the 5000/5000 split.
     const sourceFunnels = await admin.request(`${API}/quotes/${quote.public_id}/funnels`, {}, env);
     const sourceFunnelsBody = (await sourceFunnels.json()) as { items: FunnelJson[] };
     expect(sourceFunnelsBody.items[0]!.variants).toHaveLength(2);
-    const sourceControl = sourceFunnelsBody.items[0]!.variants.find((v) => v.is_control === true)!;
-    expect(sourceControl.traffic_allocation_bp).toBe(5000);
+    for (const v of sourceFunnelsBody.items[0]!.variants) expect(v.traffic_allocation_bp).toBe(5000);
   });
 });
 

@@ -106,6 +106,10 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
 }
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
@@ -116,6 +120,15 @@ const LEADGEN_MIGRATIONS = [
   "0042_leadgen_pages.sql",
   "0043_leadgen_routing_rules.sql",
   "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -178,8 +191,34 @@ function seedSection(sdb: SqliteDb, name: string): { id: number; public_id: stri
 }
 
 interface QuoteCreateBody {
+  id: number;
   public_id: string;
   funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
+}
+
+// Rework M2 (§4.3-1, §4.3-15): activation now also requires the quote's
+// shared first page (leadgen_funnel_pages, quote_id-owned) to carry ≥1
+// section — a section distinct from the funnel/variant's own (§4.3-13
+// uniqueness). Route wiring for POST/PUT /quotes/:id/shared-page is
+// mid-flight in another round, so this seeds the SQL shape directly
+// (mirrors leadgen-rework-handlers.test.ts / leadgen-rework-routing.test.ts).
+function seedSharedPageSection(sdb: SqliteDb, quoteId: number): void {
+  const sectionPublicId = mintPublicId("section");
+  const content = JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q1", question_key: "k", internal_field: "f", answer_type: "boolean" }] });
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, ?, 'quote_funnel', 'life', 'Shared', ?, 'button', 'active')",
+    )
+    .run(sectionPublicId, `Shared ${sectionPublicId.slice(-4)}`, content);
+  const sectionId = (sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(sectionPublicId) as { id: number }).id;
+  const pagePublicId = mintPublicId("funnel_page");
+  sdb.prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, NULL)").run(pagePublicId, quoteId);
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+       VALUES (?, ?, 0, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+    )
+    .run(quoteId, sectionId, pagePublicId);
 }
 
 interface Harness {
@@ -211,6 +250,7 @@ async function studioHarness(): Promise<Harness> {
     env,
   );
   expect(put.status, `seed variant: ${await put.clone().text()}`).toBe(200);
+  seedSharedPageSection(sdb, q.id);
   const activate = await admin.request(
     `${API}/quotes/${q.public_id}/activation/site-1`,
     jsonInit("PUT", { enabled: true, slug: "seam" }),
@@ -673,7 +713,7 @@ interface StructureBody {
     public_id: string;
     variants: Array<{
       public_id: string;
-      is_control: boolean;
+      variant_label: string;
       funnel_design_id: string;
       frame_overrides_json: Record<string, unknown> | null;
       sections: Array<{ section_id: number; position: number }>;
@@ -924,6 +964,11 @@ describeDb("quote builder EXECUTED island — (b) edit → save path replays thr
 
   it("forked arm: an override-switch edit writes frame_overrides_json (badge derives client-side; PUT persists; server agrees)", async () => {
     const h = await studioHarness();
+    // Rework M1 (§4.3-10): forkVariantHandler now unconditionally refuses a
+    // 2nd active variant — archiving the source first is the minimal way to
+    // still exercise the real fork endpoint (this test's point is the
+    // FORKED arm's override-switch behavior, not fork's own guard).
+    h.sdb.prepare("UPDATE leadgen_funnel_variants SET status = 'archived' WHERE public_id = ?").run(h.variantId);
     const fork = await admin.request(`${API}/variants/${h.variantId}/fork`, { method: "POST" }, h.env);
     expect(fork.status, await fork.clone().text()).toBe(201);
     const forked = (await fork.json()) as { public_id: string };
@@ -1578,13 +1623,15 @@ describeDb("quote builder EXECUTED island — Phase D lazy all-slides stepper", 
     expect(first).toHaveLength(1);
     const firstBody = first[0]!.body as Record<string, unknown>;
     expect(firstBody["mode"]).toBe("all");
-    expect(firstBody["page"]).toBe(1); // 9 slides > the 8-slide threshold → lazy
+    expect(firstBody["page"]).toBe(1); // 10 slides > the 8-slide threshold → lazy
     const firstPreview = (first[0]!.response as { preview: Record<string, unknown> }).preview;
     expect(firstPreview["page"]).toBe(1);
-    expect(firstPreview["pages"]).toBeUndefined(); // ONE page, not all nine
-    expect(firstPreview["section_count"]).toBe(9);
-    expect(studio.byId("lg-preview-iframe").attrs["srcdoc"]).toContain("Step 1 of 9");
-    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 1 of 9");
+    expect(firstPreview["pages"]).toBeUndefined(); // ONE page, not all ten
+    // §4.3-11: studioHarness's 2 own sections + 7 extra (i=3..9) + the quote's
+    // 1 shared-page section (seeded by studioHarness too) = 10.
+    expect(firstPreview["section_count"]).toBe(10);
+    expect(studio.byId("lg-preview-iframe").attrs["srcdoc"]).toContain("Step 1 of 10");
+    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 1 of 10");
 
     // Next → a NEW lazy fetch for page 2 (the eager flow would swap locally)
     const mid = studio.calls.length;
@@ -1595,7 +1642,7 @@ describeDb("quote builder EXECUTED island — Phase D lazy all-slides stepper", 
     // the label still names the CURRENT step (it updates in renderPreview's
     // completion path, together with the canvas).
     expect(textOf(studio.byId("lg-step-label")), "label unchanged while the page-2 fetch is in flight").toBe(
-      "Slide 1 of 9",
+      "Slide 1 of 10",
     );
     await studio.settle();
     const second = studio.calls.slice(mid).filter((c) => c.url.endsWith("/preview"));
@@ -1604,13 +1651,15 @@ describeDb("quote builder EXECUTED island — Phase D lazy all-slides stepper", 
     const secondPreview = (second[0]!.response as { preview: Record<string, unknown> }).preview;
     expect(secondPreview["page"]).toBe(2);
     const srcdoc = studio.byId("lg-preview-iframe").attrs["srcdoc"] ?? "";
-    expect(srcdoc).toContain("Step 2 of 9");
+    expect(srcdoc).toContain("Step 2 of 10");
     expect(srcdoc).toContain(String(secondPreview["html"]).slice(0, 120)); // the canvas holds the served page
-    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 2 of 9");
+    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 2 of 10");
   });
 
   it("≤8 slides: the eager pages[] flow is untouched — no page param, Next steps LOCALLY with zero extra fetches", async () => {
-    const h = await studioHarness(); // 2 slides
+    // §4.3-11: studioHarness's 2 own sections + the quote's 1 shared-page
+    // section (studioHarness seeds one too) = 3 slides — still ≤8 (eager).
+    const h = await studioHarness();
     const putFrame = await admin.request(
       `${API}/funnels/${h.funnelPublicId}/frame`,
       jsonInit("PUT", { frame_config_json: STEP_FRAME }),
@@ -1628,16 +1677,16 @@ describeDb("quote builder EXECUTED island — Phase D lazy all-slides stepper", 
     expect(first).toHaveLength(1);
     expect((first[0]!.body as Record<string, unknown>)["page"]).toBeUndefined(); // eager — byte-identical Phase B
     const preview = (first[0]!.response as { preview: { pages?: string[] } }).preview;
-    expect(preview.pages).toHaveLength(2);
-    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 1 of 2");
+    expect(preview.pages).toHaveLength(3);
+    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 1 of 3");
 
     // Next swaps the LOCAL page — zero additional fetches
     const count = studio.calls.length;
     studio.fire(studio.byId("lg-step-next"), "click");
     await studio.settle();
     expect(studio.calls.length).toBe(count);
-    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 2 of 2");
-    expect(studio.byId("lg-preview-iframe").attrs["srcdoc"]).toContain("Step 2 of 2");
+    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 2 of 3");
+    expect(studio.byId("lg-preview-iframe").attrs["srcdoc"]).toContain("Step 2 of 3");
   });
 });
 

@@ -38,6 +38,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
+import { mintPublicId } from "../src/leadgen/ids";
 import type { Env } from "../src/env";
 import type { ThemeRecord } from "../src/public/leadgen/designs/theme";
 import {
@@ -480,6 +481,10 @@ function makeKvStub(): KVNamespace {
 }
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
@@ -488,6 +493,17 @@ const LEADGEN_MIGRATIONS = [
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -557,7 +573,7 @@ function themeBody(
   };
 }
 
-async function seedThemesFixture(env: Env): Promise<{ navy: ThemeRecord; bold: ThemeRecord; minimal: ThemeRecord }> {
+async function seedThemesFixture(sdb: SqliteDb, env: Env): Promise<{ navy: ThemeRecord; bold: ThemeRecord; minimal: ThemeRecord }> {
   const navy = (
     await jsonRes<{ item: ThemeRecord }>(
       await admin.request(
@@ -607,10 +623,19 @@ async function seedThemesFixture(env: Env): Promise<{ navy: ThemeRecord; bold: T
   );
   const autoFunnelId = quote.funnels[0]!.public_id;
   const variantAId = quote.funnels[0]!.variants[0]!.public_id;
-  const variantB = await jsonRes<{ public_id: string }>(
-    await admin.request(`${API}/funnels/${autoFunnelId}/variants`, jsonInit("POST", {}), env),
-    "create variant B",
-  );
+  // Rework M1 (§4.3-10): POST /funnels/:id/variants (createVariantUnderFunnel)
+  // now unconditionally refuses a 2nd active variant — see
+  // leadgen-quotes-api.test.ts's Σ-gate test for the full rationale. This
+  // fixture just needs a 2nd variant with a different theme override to
+  // exist, so it's seeded via raw SQL (leadgen-rework-handlers.test.ts's own
+  // equal-arms idiom) instead.
+  const autoFunnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(autoFunnelId) as { id: number }).id;
+  const variantBId = mintPublicId("funnel_variant");
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label, traffic_allocation_bp, funnel_design_id, status) VALUES (?, ?, 'B', 10000, 'default', 'active')",
+    )
+    .run(variantBId, autoFunnelRowId);
   await jsonRes(
     await admin.request(`${API}/funnels/${autoFunnelId}/theme`, jsonInit("PUT", { theme_json: { theme_id: navy.id } }), env),
     "set funnel theme",
@@ -621,7 +646,7 @@ async function seedThemesFixture(env: Env): Promise<{ navy: ThemeRecord; bold: T
   );
   await jsonRes(
     await admin.request(
-      `${API}/variants/${variantB.public_id}`,
+      `${API}/variants/${variantBId}`,
       jsonInit("PUT", { traffic_allocation_bp: 4000, frame_overrides_json: { theme_id: bold.id } }),
       env,
     ),
@@ -667,8 +692,8 @@ function stripThemesAdvanced(tmShellHtml: string): string {
 
 describeDb("Gate 2 strings — Themes manager (Appendix A, D1+KV)", () => {
   it("top bar + shell strings render verbatim", async () => {
-    const { env } = newHarness();
-    await seedThemesFixture(env);
+    const { sdb, env } = newHarness();
+    await seedThemesFixture(sdb, env);
     const { html } = await getHtml(env, "/admin/leadgen/themes");
     assertAllPresent(
       html,
@@ -679,8 +704,8 @@ describeDb("Gate 2 strings — Themes manager (Appendix A, D1+KV)", () => {
   });
 
   it("CENTER editor strings render verbatim", async () => {
-    const { env } = newHarness();
-    await seedThemesFixture(env);
+    const { sdb, env } = newHarness();
+    await seedThemesFixture(sdb, env);
     const { html } = await getHtml(env, "/admin/leadgen/themes");
     assertAllPresent(
       html,
@@ -706,8 +731,8 @@ describeDb("Gate 2 strings — Themes manager (Appendix A, D1+KV)", () => {
   });
 
   it("RIGHT A/B panel strings render verbatim (Navy selected — has an A/B box + cross-funnel reference)", async () => {
-    const { env } = newHarness();
-    await seedThemesFixture(env);
+    const { sdb, env } = newHarness();
+    await seedThemesFixture(sdb, env);
     const { html } = await getHtml(env, "/admin/leadgen/themes");
     assertAllPresent(
       html,
@@ -728,16 +753,16 @@ describeDb("Gate 2 strings — Themes manager (Appendix A, D1+KV)", () => {
   });
 
   it("60% / 40% fixture-value split renders (contract §10.5: 'fixture data, not hardcodes')", async () => {
-    const { env } = newHarness();
-    await seedThemesFixture(env);
+    const { sdb, env } = newHarness();
+    await seedThemesFixture(sdb, env);
     const { html } = await getHtml(env, "/admin/leadgen/themes");
     expect(html).toContain("60%");
     expect(html).toContain("40%");
   });
 
   it("selecting Navy shows 'Home Insurance · Variant A' is NOT asserted here (out of THIS fixture's scope — proven by leadgen-theme-manager-ui.test.ts's own 2-funnel fixture); 'No others yet.' renders for a theme with no cross-funnel usage", async () => {
-    const { env } = newHarness();
-    const fx = await seedThemesFixture(env);
+    const { sdb, env } = newHarness();
+    const fx = await seedThemesFixture(sdb, env);
     const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${fx.minimal.id}`);
     expect(html).toContain("Not assigned to a funnel yet");
     expect(html).toContain("No others yet.");
@@ -764,38 +789,38 @@ describeDb("Gate 2 strings — forbidden vocabulary on Themes manager (extends l
   }
 
   it("no raw ComponentType identifier (COMPONENT_CATALOG key) appears on the themes normal surface", async () => {
-    const { env } = newHarness();
-    await seedThemesFixture(env);
+    const { sdb, env } = newHarness();
+    await seedThemesFixture(sdb, env);
     const normal = await normalSurfaceHtml(env, "/admin/leadgen/themes");
     const leaked = Object.keys(COMPONENT_CATALOG).filter((type) => normal.includes(`>${type}<`));
     expect(leaked, `raw type identifier(s) leaked: ${leaked.join(", ")}`).toEqual([]);
   });
 
   it("no FUNNEL_TOKEN_ROLES key (the 14-role admin vocabulary, e.g. 'brand_primary') appears as VISIBLE text outside Advanced", async () => {
-    const { env } = newHarness();
-    await seedThemesFixture(env);
+    const { sdb, env } = newHarness();
+    await seedThemesFixture(sdb, env);
     const normal = await normalSurfaceHtml(env, "/admin/leadgen/themes");
     const leaked = FUNNEL_TOKEN_ROLES.filter((role) => normal.includes(`>${role}<`));
     expect(leaked, `raw role key(s) leaked as visible text outside Advanced: ${leaked.join(", ")}`).toEqual([]);
   });
 
   it("the word 'JSON' never appears on the themes normal surface (Advanced excluded — contract's own allowlist)", async () => {
-    const { env } = newHarness();
-    await seedThemesFixture(env);
+    const { sdb, env } = newHarness();
+    await seedThemesFixture(sdb, env);
     const normal = await normalSurfaceHtml(env, "/admin/leadgen/themes");
     expect(normal).not.toMatch(/\bJSON\b/);
   });
 
   it("the word 'slide' never appears on the themes normal surface (C6: banned Section-Builder synonym)", async () => {
-    const { env } = newHarness();
-    await seedThemesFixture(env);
+    const { sdb, env } = newHarness();
+    await seedThemesFixture(sdb, env);
     const normal = await normalSurfaceHtml(env, "/admin/leadgen/themes");
     expect(normal).not.toMatch(/\bslide\b/i);
   });
 
   it("public-id prefixes (lgs_/lgn_/lgq_/lgf_/lgo_/thm_) never appear in normal-mode visible text (outside Advanced)", async () => {
-    const { env } = newHarness();
-    const fx = await seedThemesFixture(env);
+    const { sdb, env } = newHarness();
+    const fx = await seedThemesFixture(sdb, env);
     const normal = await normalSurfaceHtml(env, `/admin/leadgen/themes?theme=${fx.navy.id}`);
     // the ?theme=thm_xxx QUERY STRING itself legitimately carries the
     // prefix (a URL, not operator-facing copy) — scoped out by only
@@ -806,8 +831,8 @@ describeDb("Gate 2 strings — forbidden vocabulary on Themes manager (extends l
   });
 
   it("calibration — stripping Advanced actually removed the 7 role-key data-role hooks (else the checks above would trivially pass on an already-empty page)", async () => {
-    const { env } = newHarness();
-    await seedThemesFixture(env);
+    const { sdb, env } = newHarness();
+    await seedThemesFixture(sdb, env);
     const { html } = await getHtml(env, "/admin/leadgen/themes");
     const tmShell = extractBalancedDivRegion(html, '<div class="tm-shell">');
     const stripped = stripThemesAdvanced(tmShell);

@@ -277,7 +277,8 @@ describe("frame-plus-unit-composition — renderLegacyShell reproduces the pinne
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     expect(pinnedBody.length).toBeGreaterThan(4000);
-    expect(pinnedBody.split("<section data-lg-section").length - 1).toBe(3);
+    // §4.3-11: the pin now composes the quote's shared-page section too (4 sections, not 3).
+    expect(pinnedBody.split("<section data-lg-section").length - 1).toBe(4);
     expect(pinnedBody).toContain(LG_BANNERS_MOUNT_HTML);
     // the pin's documented ULID placeholders (L is outside the Crockford set)
     expect(pinAttr("data-funnel-id")).toBe(`lgf_${"L".repeat(24)}01`);

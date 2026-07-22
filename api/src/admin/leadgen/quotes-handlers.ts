@@ -44,6 +44,13 @@ import {
   ROUTING_ENTRY_KNOWN_FIELDS,
   detectRoutingRuleConflicts,
   type RoutingConflictInput,
+  // §4.3-11 parity addendum: the SAME shared-page loader + page→sections
+  // flattener composeResolvedBundle (the live serve path, resolver.ts,
+  // unexported) uses — imported read-only so the composed variant preview
+  // (composedVariantPreviewResponse below) can never diverge from serve on
+  // section composition. No query is duplicated here.
+  loadSharedPages,
+  sectionsFromPages,
 } from "../../public/leadgen/resolver";
 import {
   auctionEntryPosition,
@@ -59,6 +66,12 @@ import {
   type FunnelRuleInput,
 } from "../../leadgen/funnel";
 import { sha256Hex } from "../../public/leadgen/auction/parse";
+// Rework §4.3-3: the ONE shared checkpoint-plane derivation (imported read-only;
+// the runtime resolver imports the SAME module — the admin advisory cache can
+// never diverge from the runtime's own partition). We build the field universes
+// from the SAME component expander the runtime uses; the derivation itself is
+// never re-implemented here.
+import { deriveRuleCheckpoint, type RuleCheckpointFunnel } from "../../leadgen/rule-checkpoint";
 import {
   rebuildDerivedIndexes,
   sectionValidationStatus,
@@ -159,6 +172,8 @@ import type {
   LeadgenFunnelRuleRow,
   LeadgenFunnelRuleType,
   LeadgenFunnelVariantRow,
+  LeadgenFrameTemplateRow,
+  LeadgenQuoteRoutingRuleRow,
   LeadgenQuoteRow,
   LeadgenRuleConditions,
   LeadgenQuoteStatus,
@@ -246,22 +261,22 @@ interface LeadgenFunnelRuleRowV2 extends Omit<LeadgenFunnelRuleRow, "rule_type">
   redirect_pct: number | null;
 }
 
+// Rework M3/D5 (§5-M3): leadgen_funnel_rules is RECREATED with its CHECK
+// tightened to EXACTLY the four auction-domain rule types (0048). Routing
+// (route_funnel_variant) moved to the quote-scoped leadgen_quote_routing_rules
+// table; skip_section/show_section are no longer persisted here (0048 aborts if
+// any exist). So the variant-rule replace-set accepts ONLY these four — anything
+// else is rejected at save with a clear rule_type error BEFORE the INSERT would
+// hit the DB CHECK. Their UI relocates to the Auction tab in a later phase.
 const FUNNEL_RULE_TYPES = [
   "redirect_direct_offer",
-  "skip_section",
-  "show_section",
   "eligibility",
   "disqualification",
   "auction_entry",
-  "route_funnel_variant",
 ] as const satisfies readonly FunnelRuleTypeV2[];
 
-// route_funnel_variant is a P4b-only rule_type: leadgen/funnel.ts's
-// validateFunnelRule (its OWN, unexported FUNNEL_RULE_TYPES Set) rejects it as
-// unknown_rule_type, and that file is outside this slice. So route_funnel_
-// variant rules are validated LOCALLY (validateRoutingConditionsShape below)
-// and never routed through validateFunnelRule; every other rule type is
-// UNCHANGED (still validated by the shared Stage-A validator, no drift).
+// The §21.4 condition-op vocabulary — reused by validateRoutingConditionsShape
+// below, which now validates the QUOTE routing rules' conditions_json (M3).
 const CONDITION_OPS_V2: ReadonlySet<string> = new Set([
   "eq",
   "neq",
@@ -457,8 +472,10 @@ function variantRowToApi(row: LeadgenFunnelVariantRow): Record<string, unknown> 
     ...row,
     // G4: the variant's public_id IS the funnel_variant_id (lgn_) — branded so
     // it can never be aliased into a funnel_id slot.
+    // Rework M1 (§4.3-10): no is_control axis — with no running test a funnel
+    // has exactly one active variant; the deterministic order is variant_label
+    // ASC. frame_template_id (M5 A/B override, NULL = inherit) rides `...row`.
     funnel_variant_id: toFunnelVariantId(row.public_id) as string,
-    is_control: row.is_control !== 0,
     lander_enabled: row.lander_enabled !== 0,
     lander_body_json: parseJsonColumn(row.lander_body_json),
     lander_cta_json: parseJsonColumn(row.lander_cta_json),
@@ -634,6 +651,429 @@ async function readVariantRules(db: D1Database, variantId: number): Promise<Lead
   return result.results ?? [];
 }
 
+// ---------------------------------------------------------------------------
+// Rework M3 (§4.3-3..9) — quote-scoped, multi-action routing rules
+// (leadgen_quote_routing_rules). Priority ascending (1 = highest, tie → lower
+// id first, §4.3-4). The reader is shared by the CRUD handlers + the quote
+// duplicate + the analytics/structure projections.
+// ---------------------------------------------------------------------------
+
+async function readQuoteRoutingRules(
+  db: D1Database,
+  quoteId: number,
+): Promise<LeadgenQuoteRoutingRuleRow[]> {
+  const result = await db
+    .prepare(
+      "SELECT * FROM leadgen_quote_routing_rules WHERE quote_id = ? ORDER BY priority ASC, id ASC",
+    )
+    .bind(quoteId)
+    .all<LeadgenQuoteRoutingRuleRow>();
+  return result.results ?? [];
+}
+
+// Row → API: conditions_json parsed; redirect_url_allowlisted → boolean; the
+// action columns (target_funnel_id / feed_name / value_multiplier / redirect_pct
+// / target_offer_id / redirect_url) ride the spread verbatim. The admin client
+// resolves target_funnel_id → a name against the quote's funnels list it already
+// loads (no server-side join, mirroring how target_offer_id already works).
+function quoteRoutingRuleRowToApi(row: LeadgenQuoteRoutingRuleRow): Record<string, unknown> {
+  return {
+    ...row,
+    conditions_json: parseJsonColumn(row.conditions_json),
+    redirect_url_allowlisted: row.redirect_url_allowlisted !== 0,
+  };
+}
+
+// Appendix A-11 (verbatim, asserted in CI): a rule with no action is rejected.
+const ROUTING_RULE_MIN_ACTION_MESSAGE = "Pick at least one action for this rule.";
+
+async function resolveQuoteRoutingRuleRow(
+  db: D1Database,
+  idParam: string,
+): Promise<LeadgenQuoteRoutingRuleRow | null> {
+  const selector = idSelector("quote_routing_rule", idParam);
+  if (selector === null) return null;
+  const sql =
+    selector.column === "id"
+      ? "SELECT * FROM leadgen_quote_routing_rules WHERE id = ? LIMIT 1"
+      : "SELECT * FROM leadgen_quote_routing_rules WHERE public_id = ? LIMIT 1";
+  return (await db.prepare(sql).bind(selector.value).first<LeadgenQuoteRoutingRuleRow>()) ?? null;
+}
+
+// The field names a rule's §21.4 conditions reference (groups[].field).
+function routingConditionFields(conditions: unknown): string[] {
+  if (!isRecord(conditions)) return [];
+  const groups = (conditions as { groups?: unknown }).groups;
+  if (!Array.isArray(groups)) return [];
+  const out: string[] = [];
+  for (const g of groups) {
+    if (isRecord(g) && typeof g["field"] === "string" && g["field"].trim() !== "") out.push(g["field"]);
+  }
+  return out;
+}
+
+// Advisory checkpoint_page cache (§4.3-3): the in-funnel page position at which a
+// rule can first apply, via the SHARED deriveRuleCheckpoint. NULL for the entry/
+// shared/unreachable planes — and the runtime + the (P3) builder display BOTH
+// re-derive with the same pure module, so nothing critical reads this cache. The
+// field universes are built from the SAME collectKnownAnswerFields expander the
+// runtime uses. Best-effort: any DB/shape error degrades to NULL.
+async function deriveRoutingRuleCheckpointPage(
+  db: D1Database,
+  quote: LeadgenQuoteRow,
+  conditionFields: readonly string[],
+): Promise<number | null> {
+  if (conditionFields.length === 0) return null;
+  try {
+    const sharedFields = new Set<string>();
+    const sharedRows = await db
+      .prepare(
+        "SELECT s.content_json AS content_json FROM leadgen_funnel_variant_sections fvs JOIN leadgen_sections s ON s.id = fvs.section_id WHERE fvs.quote_id = ?",
+      )
+      .bind(quote.id)
+      .all<{ content_json: string | null }>();
+    for (const r of sharedRows.results ?? []) {
+      for (const f of collectKnownAnswerFields(parseSectionComponents(r.content_json ?? ""))) sharedFields.add(f);
+    }
+    const funnels = (await readQuoteFunnels(db, quote.id))
+      .filter((f) => f.status === "active")
+      .sort((a, b) => (a.display_order ?? a.id) - (b.display_order ?? b.id));
+    const cpFunnels: RuleCheckpointFunnel[] = [];
+    for (const f of funnels) {
+      const variant = (await readActiveFunnelVariants(db, f.id))[0];
+      if (variant === undefined) continue;
+      const pages = await loadVariantPages(db, variant.id);
+      cpFunnels.push({
+        id: f.id,
+        publicId: f.public_id,
+        name: f.funnel_name,
+        pages: pages.map((p) => {
+          const fields = new Set<string>();
+          for (const slot of p.slots) {
+            for (const cand of slot.candidates) {
+              for (const cf of collectKnownAnswerFields(parseSectionComponents(cand.section.content_json ?? ""))) fields.add(cf);
+            }
+          }
+          return { position: p.position, fields };
+        }),
+      });
+    }
+    return deriveRuleCheckpoint(conditionFields, sharedFields, cpFunnels).pagePosition ?? null;
+  } catch {
+    return null;
+  }
+}
+
+interface RoutingRuleFields {
+  ruleName: string;
+  priority: number;
+  status: string;
+  matchMode: string | null;
+  conditionsJson: string;
+  conditionsHash: string;
+  checkpointPage: number | null;
+  targetFunnelId: number | null;
+  feedName: string | null;
+  valueMultiplier: number | null;
+  redirectPct: number | null;
+  targetOfferId: number | null;
+  redirectUrl: string | null;
+  redirectUrlAllowlisted: number;
+}
+
+// Validate + resolve a quote routing rule's columns (§4.3-3..9, M3). `existing`
+// null ⇒ create (defaults applied); set ⇒ PATCH (merge — an absent body key
+// keeps the stored value). Returns {value:null,errors} on any validation
+// failure. Action gate (§4.3-9 / A-11): ≥1 of {target funnel, feed name,
+// multiplier, a coherent redirect}. Redirect target = an Offer ref OR an
+// allowlisted raw URL (reuses the §15.5 redirectAllowlist), paired with a
+// redirect %. checkpoint_page is left NULL here (advisory cache; the runtime
+// re-derives per §4.3-3 — see the module note: S1.3's deriveRuleCheckpoint
+// populates the advisory cache once it lands).
+async function buildRoutingRuleFields(
+  db: D1Database,
+  quote: LeadgenQuoteRow,
+  body: Record<string, unknown>,
+  existing: LeadgenQuoteRoutingRuleRow | null,
+  allowlist: string[],
+): Promise<{ value: RoutingRuleFields | null; errors: FieldErrors }> {
+  const errors: FieldErrors = {};
+
+  // rule_name — required, ≤80 (§4.3 / M3).
+  let ruleName = existing?.rule_name ?? "";
+  if (existing === null || body["rule_name"] !== undefined) {
+    const v = trimmedString(body["rule_name"]);
+    if (v === null) errors["rule_name"] = "rule_name is required";
+    else if (v.length > 80) errors["rule_name"] = "rule_name must be at most 80 characters";
+    else ruleName = v;
+  }
+
+  // priority — 1..100 integer (1 = highest, §4.3-4); default 100.
+  let priority = existing?.priority ?? 100;
+  if (body["priority"] !== undefined) {
+    const p = body["priority"];
+    if (typeof p !== "number" || !Number.isInteger(p) || p < 1 || p > 100) {
+      errors["priority"] = "priority must be an integer between 1 and 100";
+    } else priority = p;
+  }
+
+  // status — active|disabled (enable/disable rides this key on PATCH).
+  let status = existing?.status ?? "active";
+  if (body["status"] !== undefined) {
+    const s = body["status"];
+    if (s !== "active" && s !== "disabled") errors["status"] = "status must be one of active|disabled";
+    else status = s;
+  }
+
+  // match_mode — all|any (NULL == all, the migration/evaluator convention).
+  let matchMode = existing?.match_mode ?? null;
+  if (body["match_mode"] !== undefined) {
+    const m = body["match_mode"];
+    if (m === "any") matchMode = "any";
+    else if (m === "all" || m === null || m === "") matchMode = null;
+    else errors["match_mode"] = "match_mode must be one of all|any";
+  }
+
+  // conditions_json — §21.4 shape + conditions_hash (same shape/hash as 0043).
+  let conditionsJson = existing?.conditions_json ?? JSON.stringify({ groups: [] });
+  let conditionsHash = existing?.conditions_hash ?? sha256Hex(conditionsJson);
+  if (existing === null || body["conditions_json"] !== undefined || body["conditions"] !== undefined) {
+    const conditions = body["conditions_json"] ?? body["conditions"] ?? { groups: [] };
+    const shapeError = validateRoutingConditionsShape(conditions);
+    if (shapeError !== null) errors["conditions_json"] = shapeError;
+    else {
+      conditionsJson = JSON.stringify(conditions);
+      conditionsHash = sha256Hex(conditionsJson);
+    }
+  }
+
+  // --- actions (each optional; ≥1 required, §4.3-9) -------------------------
+  // target_funnel_id accepts EITHER a numeric id or a funnel public id (lgf_…),
+  // the 03 §8.1 dual-id convention; it must belong to THIS quote.
+  let targetFunnelId = existing?.target_funnel_id ?? null;
+  if (body["target_funnel_id"] !== undefined) {
+    const raw = body["target_funnel_id"];
+    if (raw === null || raw === "") targetFunnelId = null;
+    else {
+      const f = await resolveFunnelRow(db, String(raw));
+      if (f === null || f.quote_id !== quote.id) errors["target_funnel_id"] = "target funnel does not belong to this quote";
+      else targetFunnelId = f.id;
+    }
+  }
+
+  let feedName = existing?.feed_name ?? null;
+  if (body["feed_name"] !== undefined) {
+    const raw = body["feed_name"];
+    if (raw === null || raw === "") feedName = null;
+    else {
+      const v = trimmedString(raw);
+      if (v === null || v.length > 64 || !/^[A-Za-z0-9_-]+$/.test(v)) {
+        errors["feed_name"] = "feed_name must be 1–64 chars of letters, digits, underscore or hyphen";
+      } else feedName = v;
+    }
+  }
+
+  let valueMultiplier = existing?.value_multiplier ?? null;
+  if (body["value_multiplier"] !== undefined) {
+    const raw = body["value_multiplier"];
+    if (raw === null || raw === "") valueMultiplier = null;
+    else if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
+      errors["value_multiplier"] = "value_multiplier must be a positive number";
+    } else valueMultiplier = raw;
+  }
+
+  let redirectPct = existing?.redirect_pct ?? null;
+  if (body["redirect_pct"] !== undefined) {
+    const raw = body["redirect_pct"];
+    if (raw === null || raw === "") redirectPct = null;
+    else if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0 || raw > 100) {
+      errors["redirect_pct"] = "redirect_pct must be a number between 0 and 100";
+    } else redirectPct = raw;
+  }
+
+  let targetOfferId = existing?.target_offer_id ?? null;
+  if (body["target_offer_id"] !== undefined) {
+    const parsed = asIntOrNull(body["target_offer_id"]);
+    if (parsed === INVALID) errors["target_offer_id"] = "target_offer_id must be an integer id";
+    else if (parsed === null) targetOfferId = null;
+    else {
+      const ex = await db.prepare("SELECT id FROM leadgen_offers WHERE id = ? LIMIT 1").bind(parsed).first<{ id: number }>();
+      if (!ex) errors["target_offer_id"] = `offer ${parsed} does not exist`;
+      else targetOfferId = parsed;
+    }
+  }
+
+  // redirect target = offer ref OR an allowlisted raw URL (§15.5 machinery).
+  let redirectUrl = existing?.redirect_url ?? null;
+  let redirectUrlAllowlisted = existing?.redirect_url_allowlisted ?? 0;
+  if (body["redirect_url"] !== undefined) {
+    const v = trimmedString(body["redirect_url"]);
+    if (v === null) {
+      redirectUrl = null;
+      redirectUrlAllowlisted = 0;
+    } else {
+      let host = "";
+      try {
+        host = new URL(v).hostname;
+      } catch {
+        host = "";
+      }
+      if (host === "" || !allowlist.includes(host)) {
+        errors["redirect_url"] = "redirect_url host is not on the admin redirect allowlist";
+      } else {
+        redirectUrl = v;
+        redirectUrlAllowlisted = 1;
+      }
+    }
+  }
+
+  // --- redirect coherence + ≥1-action gate ----------------------------------
+  if (targetOfferId !== null && redirectUrl !== null) {
+    errors["redirect_url"] = "provide a redirect Offer OR a raw URL, not both";
+  }
+  const hasRedirectTarget = targetOfferId !== null || redirectUrl !== null;
+  if (hasRedirectTarget !== (redirectPct !== null)) {
+    errors["redirect_pct"] = "a redirect needs both a target (offer/URL) and a percentage";
+  }
+  const anyAction = targetFunnelId !== null || feedName !== null || valueMultiplier !== null || hasRedirectTarget || redirectPct !== null;
+  if (!anyAction) errors["actions"] = ROUTING_RULE_MIN_ACTION_MESSAGE;
+
+  if (Object.keys(errors).length > 0) return { value: null, errors };
+  // Advisory §4.3-3 checkpoint cache via the shared deriveRuleCheckpoint (the
+  // runtime + builder display re-derive; this only accelerates the display).
+  let parsedConditions: unknown = {};
+  try {
+    parsedConditions = JSON.parse(conditionsJson);
+  } catch {
+    parsedConditions = {};
+  }
+  const checkpointPage = await deriveRoutingRuleCheckpointPage(db, quote, routingConditionFields(parsedConditions));
+  return {
+    value: {
+      ruleName,
+      priority,
+      status,
+      matchMode,
+      conditionsJson,
+      conditionsHash,
+      checkpointPage,
+      targetFunnelId,
+      feedName,
+      valueMultiplier,
+      redirectPct,
+      targetOfferId,
+      redirectUrl,
+      redirectUrlAllowlisted,
+    },
+    errors,
+  };
+}
+
+// GET /quotes/:id/routing-rules — the quote's routing rules, priority-ascending.
+export async function listQuoteRoutingRulesHandler(c: AdminContext): Promise<Response> {
+  const quote = await resolveQuoteRow(c.env.DB, c.req.param("id") ?? "");
+  if (quote === null) return c.json({ error: "Not Found" }, 404);
+  const rules = await readQuoteRoutingRules(c.env.DB, quote.id);
+  return c.json({ items: rules.map(quoteRoutingRuleRowToApi) });
+}
+
+// POST /quotes/:id/routing-rules — create a routing rule (§4.3-3..9, M3).
+export async function createQuoteRoutingRuleHandler(c: AdminContext): Promise<Response> {
+  const quote = await resolveQuoteRow(c.env.DB, c.req.param("id") ?? "");
+  if (quote === null) return c.json({ error: "Not Found" }, 404);
+  const body = (await readJsonBody(c)) ?? {};
+  const { value, errors } = await buildRoutingRuleFields(c.env.DB, quote, body, null, redirectAllowlist(c.env));
+  if (value === null) return c.json({ error: "Validation failed", fields: errors }, 400);
+
+  const publicId = mintPublicId("quote_routing_rule");
+  await c.env.DB.prepare(
+    `INSERT INTO leadgen_quote_routing_rules
+       (public_id, quote_id, rule_name, priority, status, match_mode, conditions_json, conditions_hash,
+        checkpoint_page, target_funnel_id, feed_name, value_multiplier, redirect_pct, target_offer_id,
+        redirect_url, redirect_url_allowlisted)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      publicId, quote.id, value.ruleName, value.priority, value.status, value.matchMode, value.conditionsJson,
+      value.conditionsHash, value.checkpointPage, value.targetFunnelId, value.feedName, value.valueMultiplier,
+      value.redirectPct, value.targetOfferId, value.redirectUrl, value.redirectUrlAllowlisted,
+    )
+    .run();
+  const row = await c.env.DB.prepare("SELECT * FROM leadgen_quote_routing_rules WHERE public_id = ? LIMIT 1")
+    .bind(publicId)
+    .first<LeadgenQuoteRoutingRuleRow>();
+  if (!row) return c.json({ error: "Insert failed" }, 500);
+  return c.json(quoteRoutingRuleRowToApi(row), 201);
+}
+
+// PATCH /routing-rules/:rule_id — update (incl. enable/disable via `status`).
+export async function updateQuoteRoutingRuleHandler(c: AdminContext): Promise<Response> {
+  const existing = await resolveQuoteRoutingRuleRow(c.env.DB, c.req.param("rule_id") ?? c.req.param("id") ?? "");
+  if (existing === null) return c.json({ error: "Not Found" }, 404);
+  const quote = await c.env.DB.prepare("SELECT * FROM leadgen_quotes WHERE id = ? LIMIT 1")
+    .bind(existing.quote_id)
+    .first<LeadgenQuoteRow>();
+  if (!quote) return c.json({ error: "Not Found" }, 404);
+  const body = await readJsonBody(c);
+  if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
+
+  const { value, errors } = await buildRoutingRuleFields(c.env.DB, quote, body, existing, redirectAllowlist(c.env));
+  if (value === null) return c.json({ error: "Validation failed", fields: errors }, 400);
+
+  await c.env.DB.prepare(
+    `UPDATE leadgen_quote_routing_rules SET
+       rule_name = ?, priority = ?, status = ?, match_mode = ?, conditions_json = ?, conditions_hash = ?,
+       checkpoint_page = ?, target_funnel_id = ?, feed_name = ?, value_multiplier = ?, redirect_pct = ?,
+       target_offer_id = ?, redirect_url = ?, redirect_url_allowlisted = ?
+     WHERE id = ?`,
+  )
+    .bind(
+      value.ruleName, value.priority, value.status, value.matchMode, value.conditionsJson, value.conditionsHash,
+      value.checkpointPage, value.targetFunnelId, value.feedName, value.valueMultiplier, value.redirectPct,
+      value.targetOfferId, value.redirectUrl, value.redirectUrlAllowlisted, existing.id,
+    )
+    .run();
+  const row = await c.env.DB.prepare("SELECT * FROM leadgen_quote_routing_rules WHERE id = ? LIMIT 1")
+    .bind(existing.id)
+    .first<LeadgenQuoteRoutingRuleRow>();
+  if (!row) return c.json({ error: "Update failed" }, 500);
+  return c.json(quoteRoutingRuleRowToApi(row));
+}
+
+// POST /routing-rules/:rule_id/duplicate — copy a rule (new lgqr_, name "(copy)").
+export async function duplicateQuoteRoutingRuleHandler(c: AdminContext): Promise<Response> {
+  const src = await resolveQuoteRoutingRuleRow(c.env.DB, c.req.param("rule_id") ?? c.req.param("id") ?? "");
+  if (src === null) return c.json({ error: "Not Found" }, 404);
+  const publicId = mintPublicId("quote_routing_rule");
+  const name = src.rule_name.length > 73 ? `${src.rule_name.slice(0, 73)} (copy)` : `${src.rule_name} (copy)`;
+  await c.env.DB.prepare(
+    `INSERT INTO leadgen_quote_routing_rules
+       (public_id, quote_id, rule_name, priority, status, match_mode, conditions_json, conditions_hash,
+        checkpoint_page, target_funnel_id, feed_name, value_multiplier, redirect_pct, target_offer_id,
+        redirect_url, redirect_url_allowlisted)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      publicId, src.quote_id, name, src.priority, src.status, src.match_mode, src.conditions_json,
+      src.conditions_hash, src.checkpoint_page, src.target_funnel_id, src.feed_name, src.value_multiplier,
+      src.redirect_pct, src.target_offer_id, src.redirect_url, src.redirect_url_allowlisted,
+    )
+    .run();
+  const row = await c.env.DB.prepare("SELECT * FROM leadgen_quote_routing_rules WHERE public_id = ? LIMIT 1")
+    .bind(publicId)
+    .first<LeadgenQuoteRoutingRuleRow>();
+  if (!row) return c.json({ error: "Duplicate failed" }, 500);
+  return c.json({ ...quoteRoutingRuleRowToApi(row), duplicated_from: src.public_id }, 201);
+}
+
+// DELETE /routing-rules/:rule_id — hard-delete (rules are cheap, no history).
+export async function deleteQuoteRoutingRuleHandler(c: AdminContext): Promise<Response> {
+  const existing = await resolveQuoteRoutingRuleRow(c.env.DB, c.req.param("rule_id") ?? c.req.param("id") ?? "");
+  if (existing === null) return c.json({ error: "Not Found" }, 404);
+  await c.env.DB.prepare("DELETE FROM leadgen_quote_routing_rules WHERE id = ?").bind(existing.id).run();
+  return c.json({ ok: true, id: existing.id, public_id: existing.public_id });
+}
+
 // Round-4 P3a: API-safe projection of a resolved page/slot/candidate tree
 // (loadVariantPages — the SAME loader the public runtime uses). A "fixed"
 // slot (exactly 1 candidate, no rules/allocations) surfaces kind:"fixed" so
@@ -688,15 +1128,17 @@ async function variantDetailJson(
   };
 }
 
-// EXPORTED (v2.5 04 §4.8): frame-handlers.ts reads the control variant (the
-// is_control DESC head) to resolve the theme editor's base design.
+// EXPORTED (v2.5 04 §4.8): frame-handlers.ts reads the funnel's base-design
+// head to resolve the theme editor's base design. Rework M1 (§4.3-10): the
+// deterministic order is variant_label ASC, id ASC (no is_control axis) — so
+// [0] is the A-labelled variant (the single active variant with no test).
 export async function readFunnelVariants(
   db: D1Database,
   funnelId: number,
 ): Promise<LeadgenFunnelVariantRow[]> {
   const result = await db
     .prepare(
-      "SELECT * FROM leadgen_funnel_variants WHERE funnel_id = ? ORDER BY is_control DESC, id ASC",
+      "SELECT * FROM leadgen_funnel_variants WHERE funnel_id = ? ORDER BY variant_label ASC, id ASC",
     )
     .bind(funnelId)
     .all<LeadgenFunnelVariantRow>();
@@ -712,22 +1154,43 @@ async function readActiveFunnelVariants(
 ): Promise<LeadgenFunnelVariantRow[]> {
   const result = await db
     .prepare(
-      "SELECT * FROM leadgen_funnel_variants WHERE funnel_id = ? AND status = 'active' ORDER BY is_control DESC, id ASC",
+      "SELECT * FROM leadgen_funnel_variants WHERE funnel_id = ? AND status = 'active' ORDER BY variant_label ASC, id ASC",
     )
     .bind(funnelId)
     .all<LeadgenFunnelVariantRow>();
   return result.results ?? [];
 }
 
+// The funnel's RUNNING A/B test ROW (0..1 per funnel, uq_leadgen_abtest_running),
+// or null. EXPORTED-shape reader (row, not boolean) — forkVariantHandler's new
+// arm-bootstrap branch (conductor extension round 2) needs the test's id to
+// bump its revision on a clean re-bucket; funnelHasRunningTest below is kept as
+// a thin boolean wrapper so its existing callers (the B1 arm-set/label freeze,
+// the allocation-PUT Σ guard) are unchanged.
+async function getRunningAbTest(db: D1Database, funnelId: number): Promise<LeadgenFunnelAbTestRow | null> {
+  return (
+    (await db
+      .prepare("SELECT * FROM leadgen_funnel_ab_tests WHERE funnel_id = ? AND status = 'running' LIMIT 1")
+      .bind(funnelId)
+      .first<LeadgenFunnelAbTestRow>()) ?? null
+  );
+}
+
 // True iff the funnel has a RUNNING A/B test (status='running',
 // uq_leadgen_abtest_running → 0..1 per funnel). The single running-test detection
 // reused by the allocation-PUT Σ guard AND the B1 arm-set/label freeze below.
 async function funnelHasRunningTest(db: D1Database, funnelId: number): Promise<boolean> {
-  const running = await db
-    .prepare("SELECT id FROM leadgen_funnel_ab_tests WHERE funnel_id = ? AND status = 'running' LIMIT 1")
-    .bind(funnelId)
-    .first<{ id: number }>();
-  return running !== null;
+  return (await getRunningAbTest(db, funnelId)) !== null;
+}
+
+// Even split of 10000 bp across n arms (§4.3-10 "equal arms, Σbp=10000"); any
+// remainder (10000 is not evenly divisible by n) goes to the FIRST arms in the
+// caller's iteration order — deterministic because every caller iterates the
+// file's established variant_label ASC, id ASC sort.
+function equalSplitBp(n: number): number[] {
+  const base = Math.floor(10000 / n);
+  const remainder = 10000 - base * n;
+  return Array.from({ length: n }, (_, i) => base + (i < remainder ? 1 : 0));
 }
 
 // B1 (contract 06 §16.2 line 35 / 09 §29 line 24): while a funnel has a RUNNING
@@ -743,6 +1206,14 @@ async function funnelHasRunningTest(db: D1Database, funnelId: number): Promise<b
 // Σ==10000 for allowed live allocation edits) is unchanged.
 const RUNNING_TEST_ARM_LOCK_MESSAGE =
   "stop the running A/B test before changing its variants/labels";
+
+// Rework M1 (§4.3-10): "with no running test a funnel has exactly one active
+// variant (validation enforces this)." A second active variant is legal ONLY
+// as an arm of a running A/B test — arms are added via the A/B tab, never a raw
+// variant create/fork. The mutating endpoints that could create that state
+// (createVariantUnderFunnel, forkVariantHandler) reject with this 409.
+const SINGLE_ACTIVE_VARIANT_MESSAGE =
+  "This funnel already has an active variant. A second active variant is only allowed as an arm of a running A/B test — set one up from the A/B tab.";
 
 // The funnel's A/B tests (newest first) — surfaced in the builder structure so
 // the A/B tab shows lifecycle status + drives start/stop + the §16.2 assignment
@@ -844,8 +1315,10 @@ export async function listQuotesHandler(c: AdminContext): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
-// POST /quotes — create (§15.1) + auto-seed one Funnel (lgf_) + one control
-// Variant (lgn_) so "every Quote has ≥1 funnel variant" holds on create.
+// POST /quotes — create (§15.1) + auto-seed one Funnel (lgf_) + its single
+// active Variant (lgn_, label 'A') so "every Quote has ≥1 funnel variant"
+// holds on create (Rework M1 §4.3-10: no control concept — the seed is the
+// one active variant, deterministic label 'A').
 // ---------------------------------------------------------------------------
 
 function validateQuoteCreate(body: Record<string, unknown>): {
@@ -886,8 +1359,9 @@ export async function createQuoteHandler(c: AdminContext): Promise<Response> {
   const funnelName = trimmedString(body["funnel_name"]) ?? `${value.quote_name} — Funnel A`;
 
   // One atomic batch: quote → funnel (linked by the just-inserted quote's
-  // public_id) → control variant (linked by the funnel's public_id). The
-  // public_id subquery link is the sections-handlers derived-insert idiom.
+  // public_id) → single active variant (linked by the funnel's public_id). This
+  // core batch touches ONLY pre-rework columns, so it applies on any leadgen
+  // schema (some money-path harnesses still replay only 0036–0044).
   await c.env.DB.batch([
     c.env.DB.prepare(
       `INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json, status)
@@ -899,10 +1373,25 @@ export async function createQuoteHandler(c: AdminContext): Promise<Response> {
     ).bind(funnelPublicId, quotePublicId, funnelName),
     c.env.DB.prepare(
       `INSERT INTO leadgen_funnel_variants
-         (public_id, funnel_id, variant_label, is_control, traffic_allocation_bp, funnel_design_id, status)
-       VALUES (?, (SELECT id FROM leadgen_funnels WHERE public_id = ?), 'A', 1, 10000, 'default', 'active')`,
+         (public_id, funnel_id, variant_label, traffic_allocation_bp, funnel_design_id, status)
+       VALUES (?, (SELECT id FROM leadgen_funnels WHERE public_id = ?), 'A', 10000, 'default', 'active')`,
     ).bind(variantPublicId, funnelPublicId),
   ]);
+  // Rework M4 (§4.3-1/§4.3-7): the seed funnel is the board's first column
+  // (display_order = 1) and the quote's default funnel — so a fresh single-funnel
+  // quote is activatable (mirrors the 0049 backfill). Best-effort: a pre-rework
+  // schema (no display_order / default_funnel_id column) rolls this back and the
+  // quote is created without them (the old behavior), never failing the create.
+  try {
+    await c.env.DB.batch([
+      c.env.DB.prepare("UPDATE leadgen_funnels SET display_order = 1 WHERE public_id = ?").bind(funnelPublicId),
+      c.env.DB.prepare(
+        "UPDATE leadgen_quotes SET default_funnel_id = (SELECT id FROM leadgen_funnels WHERE public_id = ?) WHERE public_id = ?",
+      ).bind(funnelPublicId, quotePublicId),
+    ]);
+  } catch {
+    /* pre-rework schema without the M4 columns — leave them unset */
+  }
 
   const quote = await c.env.DB.prepare("SELECT * FROM leadgen_quotes WHERE public_id = ? LIMIT 1")
     .bind(quotePublicId)
@@ -1071,22 +1560,20 @@ export async function quoteUsageHandler(c: AdminContext): Promise<Response> {
 
 // ---------------------------------------------------------------------------
 // POST /quotes/:id/duplicate (Round-4 A-2, row R4-02) — deep-copy the quote +
-// every funnel's CONTROL variant's ordered sections/rules (the SAME clone
-// shape forkVariantHandler already uses for one variant, looped over the
-// whole quote tree, plus the funnel's own frame_config_json/theme_json — a
-// "coherent, publishable draft quote" needs its visual template, not just
-// section order). NEVER copied: site activations, analytics/attempt history,
-// A/B tests, and (adversarial-review finding 4) any NON-control variant —
-// a duplicate is the funnel's CONTROL experience only. Copying every arm of
-// a running A/B test verbatim (ab_test_id forced NULL, but is_control/
-// traffic_allocation_bp left as-is) produced an INCOHERENT detached state: a
-// "B" variant at bp=5000 with no owning ab_test row and is_control=0 — two
-// variants that look like a live split but aren't wired to anything. The
-// clone's one variant is always is_control=1 at traffic_allocation_bp=10000
-// (the full-traffic control), regardless of what the source control
-// variant's own bp was (source A/B tests are re-created intentionally on
-// the copy, never copied — the SAME "never copied" discipline offers'
-// duplicateOfferHandler documents for analytics/cap-counters/test-results).
+// every funnel's single ACTIVE variant's ordered sections/rules (the SAME clone
+// shape forkVariantHandler already uses for one variant, looped over the whole
+// quote tree, plus the funnel's own frame_config_json/theme_json/display_order/
+// frame_template_id — a "coherent, publishable draft quote" needs its visual
+// template + board order, not just section order) + the quote-scoped routing
+// rules (Rework M3), with target_funnel_id + default_funnel_id remapped to the
+// CLONE's funnels. NEVER copied: site activations, analytics/attempt history,
+// A/B tests. Rework M1 (§4.3-10): with no running test a funnel has exactly ONE
+// active variant, so the clone copies that single active variant per funnel
+// (traffic_allocation_bp reset to 10000 — the full-traffic single variant); a
+// source funnel mid-test (>1 active) copies only its active arms' content, but
+// the copy is a fresh no-test draft (ab_test_id NULL; A/B is re-created on the
+// copy intentionally, the SAME "never copied" discipline duplicateOfferHandler
+// documents for analytics/cap-counters/test-results).
 // ---------------------------------------------------------------------------
 
 interface QuoteDuplicateCounts {
@@ -1094,6 +1581,9 @@ interface QuoteDuplicateCounts {
   variants: number;
   sections: number;
   rules: number;
+  // Rework M3: the quote-scoped routing rules copied (distinct from `rules`,
+  // which counts the per-variant auction-domain leadgen_funnel_rules).
+  routing_rules: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -1179,49 +1669,51 @@ export async function duplicateQuoteHandler(c: AdminContext): Promise<Response> 
     ).bind(newQuotePublicId, name, src.activity, src.verticals_json),
   ];
 
-  const counts: QuoteDuplicateCounts = { funnels: 0, variants: 0, sections: 0, rules: 0 };
+  const counts: QuoteDuplicateCounts = { funnels: 0, variants: 0, sections: 0, rules: 0, routing_rules: 0 };
+  // Rework M3/M4: source funnel id -> clone's new funnel public id (for the
+  // routing-rule target_funnel_id remap + the default_funnel_id remap below).
+  const newFunnelPublicIds = new Map<number, string>();
   for (const funnel of funnels) {
     const newFunnelPublicId = mintPublicId("funnel");
+    newFunnelPublicIds.set(funnel.id, newFunnelPublicId);
     statements.push(
       c.env.DB.prepare(
-        `INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name, status, frame_config_json, theme_json)
-         VALUES (?, (SELECT id FROM leadgen_quotes WHERE public_id = ?), ?, 'active', ?, ?)`,
-      ).bind(newFunnelPublicId, newQuotePublicId, funnel.funnel_name, funnel.frame_config_json, funnel.theme_json),
+        `INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name, status, frame_config_json, theme_json, display_order, frame_template_id)
+         VALUES (?, (SELECT id FROM leadgen_quotes WHERE public_id = ?), ?, 'active', ?, ?, ?, ?)`,
+      ).bind(
+        newFunnelPublicId, newQuotePublicId, funnel.funnel_name, funnel.frame_config_json, funnel.theme_json,
+        funnel.display_order, funnel.frame_template_id,
+      ),
     );
     counts.funnels += 1;
 
-    // Adversarial-review finding 4: copy ONLY the funnel's CONTROL variant
-    // (is_control=1) — never the other arms of a running/stopped A/B test.
-    // readFunnelVariants orders is_control DESC first, but a funnel could in
-    // principle carry more than one is_control=1 row (nothing in the schema
-    // enforces exactly one) — filter explicitly rather than index [0].
-    const variants = await readFunnelVariants(c.env.DB, funnel.id);
-    const controlVariants = variants.filter((v) => v.is_control !== 0);
-    // Round-4 P4b: pre-mint every control variant's NEW public id BEFORE any
-    // INSERT is pushed, so a route_funnel_variant rule that targets a SIBLING
-    // control variant (of this SAME funnel) can be remapped regardless of
-    // loop order (source variant.id -> the clone's new public_id).
+    // Rework M1 (§4.3-10): copy the funnel's ACTIVE variant(s) — with no running
+    // test that is exactly one (no is_control axis). A/B tests are never copied,
+    // so the clone is a fresh no-test draft. Pre-mint each clone's public id
+    // BEFORE any INSERT so a rule targeting a SIBLING variant of this SAME funnel
+    // remaps regardless of loop order.
+    const variants = await readActiveFunnelVariants(c.env.DB, funnel.id);
     const newControlVariantPublicIds = new Map<number, string>();
-    for (const variant of controlVariants) {
+    for (const variant of variants) {
       newControlVariantPublicIds.set(variant.id, mintPublicId("funnel_variant"));
     }
-    for (const variant of controlVariants) {
+    for (const variant of variants) {
       const newVariantPublicId = newControlVariantPublicIds.get(variant.id)!;
       statements.push(
         c.env.DB.prepare(
           `INSERT INTO leadgen_funnel_variants
-             (public_id, funnel_id, ab_test_id, variant_label, is_control, traffic_allocation_bp, funnel_design_id,
+             (public_id, funnel_id, ab_test_id, variant_label, traffic_allocation_bp, funnel_design_id,
               auction_id, lander_enabled, lander_headline, lander_subheadline, lander_body_json,
               lander_hero_media_id, lander_hero_media_url, lander_cta_json, content_version, status,
-              frame_overrides_json)
-           VALUES (?, (SELECT id FROM leadgen_funnels WHERE public_id = ?), NULL, ?, 1, 10000, ?, ?, ?, ?, ?, ?,
-                   ?, ?, ?, 1, 'active', ?)`,
+              frame_overrides_json, frame_template_id)
+           VALUES (?, (SELECT id FROM leadgen_funnels WHERE public_id = ?), NULL, ?, 10000, ?, ?, ?, ?, ?, ?,
+                   ?, ?, ?, 1, 'active', ?, ?)`,
         ).bind(
           newVariantPublicId, newFunnelPublicId, variant.variant_label,
           variant.funnel_design_id, variant.auction_id, variant.lander_enabled,
           variant.lander_headline, variant.lander_subheadline, variant.lander_body_json,
           variant.lander_hero_media_id, variant.lander_hero_media_url, variant.lander_cta_json,
-          variant.frame_overrides_json,
+          variant.frame_overrides_json, variant.frame_template_id,
         ),
       );
       counts.variants += 1;
@@ -1284,6 +1776,44 @@ export async function duplicateQuoteHandler(c: AdminContext): Promise<Response> 
     }
   }
 
+  // Rework M3: copy the quote-scoped routing rules, remapping target_funnel_id
+  // to the CLONE's funnel (impossible-sentinel '' → NULL when absent/undeivable,
+  // the same idiom the variant-target remap uses). target_offer_id + redirect_url
+  // are carried AS-IS (offers/URLs are shared entities, not cloned). feed_name +
+  // multiplier + redirect_pct + conditions + priority + status all preserved.
+  const srcRoutingRules = await readQuoteRoutingRules(c.env.DB, src.id);
+  for (const rr of srcRoutingRules) {
+    const remappedFunnelPublicId =
+      rr.target_funnel_id !== null ? (newFunnelPublicIds.get(rr.target_funnel_id) ?? "") : "";
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO leadgen_quote_routing_rules
+           (public_id, quote_id, rule_name, priority, status, match_mode, conditions_json, conditions_hash,
+            checkpoint_page, target_funnel_id, feed_name, value_multiplier, redirect_pct, target_offer_id,
+            redirect_url, redirect_url_allowlisted)
+         VALUES (?, (SELECT id FROM leadgen_quotes WHERE public_id = ?), ?, ?, ?, ?, ?, ?, ?,
+                 (SELECT id FROM leadgen_funnels WHERE public_id = ?), ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        mintPublicId("quote_routing_rule"), newQuotePublicId, rr.rule_name, rr.priority, rr.status, rr.match_mode,
+        rr.conditions_json, rr.conditions_hash, rr.checkpoint_page, remappedFunnelPublicId, rr.feed_name,
+        rr.value_multiplier, rr.redirect_pct, rr.target_offer_id, rr.redirect_url, rr.redirect_url_allowlisted,
+      ),
+    );
+    counts.routing_rules += 1;
+  }
+
+  // Rework M4: remap the clone's default_funnel_id to the clone of the source's
+  // default funnel (NULL when the source had none, or its default funnel was
+  // not among the cloned funnels — defensive).
+  const defaultFunnelClonePublicId =
+    src.default_funnel_id !== null ? (newFunnelPublicIds.get(src.default_funnel_id) ?? "") : "";
+  statements.push(
+    c.env.DB.prepare(
+      `UPDATE leadgen_quotes SET default_funnel_id = (SELECT id FROM leadgen_funnels WHERE public_id = ?)
+       WHERE public_id = ?`,
+    ).bind(defaultFunnelClonePublicId, newQuotePublicId),
+  );
+
   await c.env.DB.batch(statements);
 
   const dup = await c.env.DB.prepare("SELECT * FROM leadgen_quotes WHERE public_id = ? LIMIT 1")
@@ -1328,14 +1858,17 @@ export async function createQuoteFunnelHandler(c: AdminContext): Promise<Respons
 
   const funnelPublicId = mintPublicId("funnel");
   const variantPublicId = mintPublicId("funnel_variant");
+  // Rework M4 (§4.3-1): funnels are unlimited; a new funnel appends to the board
+  // (display_order = MAX+1). Rework M1: seed its single active variant (label 'A').
   await c.env.DB.batch([
     c.env.DB.prepare(
-      "INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name, status) VALUES (?, ?, ?, 'active')",
-    ).bind(funnelPublicId, quote.id, funnelName),
+      `INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name, status, display_order)
+       VALUES (?, ?, ?, 'active', (SELECT COALESCE(MAX(display_order), 0) + 1 FROM leadgen_funnels WHERE quote_id = ?))`,
+    ).bind(funnelPublicId, quote.id, funnelName, quote.id),
     c.env.DB.prepare(
       `INSERT INTO leadgen_funnel_variants
-         (public_id, funnel_id, variant_label, is_control, traffic_allocation_bp, funnel_design_id, status)
-       VALUES (?, (SELECT id FROM leadgen_funnels WHERE public_id = ?), 'A', 1, 10000, 'default', 'active')`,
+         (public_id, funnel_id, variant_label, traffic_allocation_bp, funnel_design_id, status)
+       VALUES (?, (SELECT id FROM leadgen_funnels WHERE public_id = ?), 'A', 10000, 'default', 'active')`,
     ).bind(variantPublicId, funnelPublicId),
   ]);
   const funnel = await c.env.DB.prepare("SELECT * FROM leadgen_funnels WHERE public_id = ? LIMIT 1")
@@ -1390,13 +1923,488 @@ export async function patchFunnelHandler(c: AdminContext): Promise<Response> {
   return c.json({ ...funnelRowToApi(updated), variants: variants.map(variantRowToApi) });
 }
 
+// Appendix A-5 (verbatim, asserted in CI): funnel-delete guard messages.
+const A5_DELETE_DEFAULT_FUNNEL = (funnel: string): string =>
+  `Can't delete '${funnel}': it is the default funnel.`;
+const A5_DELETE_RULE_TARGET = (funnel: string, rule: string): string =>
+  `Can't delete '${funnel}': it is the target of rule '${rule}'.`;
+
+// DELETE /funnels/:id — §4.3-14 delete guards + a real cascade. A funnel cannot
+// be deleted while it is the quote's default OR the target of any ENABLED
+// (status='active') quote routing rule; the 409 names EVERY blocker with the
+// Appendix A-5 strings verbatim. When allowed, the funnel + its variants/pages/
+// slots/sections/rules/tests are deleted EXPLICITLY (D1 runs FK OFF, so the
+// declared ON DELETE CASCADE does not fire in production — sections-handlers
+// documents this; explicit deletes are the deterministic path). Any DISABLED
+// routing rule still pointing at the funnel has its target_funnel_id nulled so
+// no dangling reference remains.
 export async function deleteFunnelHandler(c: AdminContext): Promise<Response> {
   const funnel = await resolveFunnelRow(c.env.DB, c.req.param("id") ?? "");
   if (funnel === null) return c.json({ error: "Not Found" }, 404);
-  await c.env.DB.prepare("UPDATE leadgen_funnels SET status = 'archived', updated_at = unixepoch() WHERE id = ?")
+  const quote = await c.env.DB.prepare("SELECT * FROM leadgen_quotes WHERE id = ? LIMIT 1")
+    .bind(funnel.quote_id)
+    .first<LeadgenQuoteRow>();
+
+  const blockers: string[] = [];
+  if (quote?.default_funnel_id === funnel.id) {
+    blockers.push(A5_DELETE_DEFAULT_FUNNEL(funnel.funnel_name));
+  }
+  const targeting = await c.env.DB.prepare(
+    "SELECT rule_name FROM leadgen_quote_routing_rules WHERE target_funnel_id = ? AND status = 'active' ORDER BY priority ASC, id ASC",
+  )
     .bind(funnel.id)
+    .all<{ rule_name: string }>();
+  for (const r of targeting.results ?? []) {
+    blockers.push(A5_DELETE_RULE_TARGET(funnel.funnel_name, r.rule_name));
+  }
+  if (blockers.length > 0) {
+    return c.json({ error: "funnel_delete_blocked", funnel: funnel.public_id, blockers }, 409);
+  }
+
+  // Allowed → explicit cascade (children first; each DELETE's subquery must
+  // still resolve, so page_slots/variant_sections precede pages/variants).
+  const vsub = "(SELECT id FROM leadgen_funnel_variants WHERE funnel_id = ?)";
+  const psub = `(SELECT id FROM leadgen_funnel_pages WHERE variant_id IN ${vsub})`;
+  await c.env.DB.batch([
+    c.env.DB.prepare(`DELETE FROM leadgen_funnel_page_slots WHERE page_id IN ${psub}`).bind(funnel.id),
+    c.env.DB.prepare(`DELETE FROM leadgen_funnel_variant_sections WHERE variant_id IN ${vsub}`).bind(funnel.id),
+    c.env.DB.prepare(`DELETE FROM leadgen_funnel_pages WHERE variant_id IN ${vsub}`).bind(funnel.id),
+    c.env.DB.prepare(`DELETE FROM leadgen_funnel_rules WHERE variant_id IN ${vsub}`).bind(funnel.id),
+    c.env.DB.prepare("DELETE FROM leadgen_funnel_variants WHERE funnel_id = ?").bind(funnel.id),
+    c.env.DB.prepare("DELETE FROM leadgen_funnel_ab_tests WHERE funnel_id = ?").bind(funnel.id),
+    // Disabled rules that still target this funnel: null the ref (enabled ones
+    // were blocked above, so only disabled remain).
+    c.env.DB.prepare("UPDATE leadgen_quote_routing_rules SET target_funnel_id = NULL WHERE target_funnel_id = ?").bind(funnel.id),
+    c.env.DB.prepare("DELETE FROM leadgen_funnels WHERE id = ?").bind(funnel.id),
+  ]);
+  return c.json({ ok: true, id: funnel.id, public_id: funnel.public_id, deleted: true });
+}
+
+// POST /funnels/:id/duplicate — clone a funnel WITHIN its quote (§8.2 kebab).
+// New funnel (name "(copy)", display_order appended) + its active variant(s)'
+// pages/rules (the SAME clone shape duplicateQuote uses). Quote routing rules
+// are NOT copied (they target the SOURCE funnel; a fresh clone is untargeted).
+export async function duplicateFunnelHandler(c: AdminContext): Promise<Response> {
+  const src = await resolveFunnelRow(c.env.DB, c.req.param("id") ?? "");
+  if (src === null) return c.json({ error: "Not Found" }, 404);
+  const body = (await readJsonBody(c)) ?? {};
+  const name = trimmedString(body["funnel_name"]) ?? `${src.funnel_name} (copy)`;
+
+  const newFunnelPublicId = mintPublicId("funnel");
+  const statements: D1PreparedStatement[] = [
+    c.env.DB.prepare(
+      `INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name, status, frame_config_json, theme_json, display_order, frame_template_id)
+       VALUES (?, ?, ?, 'active', ?, ?, (SELECT COALESCE(MAX(display_order), 0) + 1 FROM leadgen_funnels WHERE quote_id = ?), ?)`,
+    ).bind(newFunnelPublicId, src.quote_id, name, src.frame_config_json, src.theme_json, src.quote_id, src.frame_template_id),
+  ];
+  const variants = await readActiveFunnelVariants(c.env.DB, src.id);
+  for (const variant of variants) {
+    const newVariantPublicId = mintPublicId("funnel_variant");
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO leadgen_funnel_variants
+           (public_id, funnel_id, ab_test_id, variant_label, traffic_allocation_bp, funnel_design_id,
+            auction_id, lander_enabled, lander_headline, lander_subheadline, lander_body_json,
+            lander_hero_media_id, lander_hero_media_url, lander_cta_json, content_version, status,
+            frame_overrides_json, frame_template_id)
+         VALUES (?, (SELECT id FROM leadgen_funnels WHERE public_id = ?), NULL, ?, 10000, ?, ?, ?, ?, ?, ?,
+                 ?, ?, ?, 1, 'active', ?, ?)`,
+      ).bind(
+        newVariantPublicId, newFunnelPublicId, variant.variant_label,
+        variant.funnel_design_id, variant.auction_id, variant.lander_enabled,
+        variant.lander_headline, variant.lander_subheadline, variant.lander_body_json,
+        variant.lander_hero_media_id, variant.lander_hero_media_url, variant.lander_cta_json,
+        variant.frame_overrides_json, variant.frame_template_id,
+      ),
+    );
+    const pages = await loadVariantPages(c.env.DB, variant.id);
+    pushPageCloneStatements(c.env.DB, statements, newVariantPublicId, pages);
+    const rules = await readVariantRules(c.env.DB, variant.id);
+    for (const r of rules) {
+      statements.push(
+        insertRuleStatement(c.env.DB, "(SELECT id FROM leadgen_funnel_variants WHERE public_id = ?)", newVariantPublicId, {
+          publicId: mintPublicId("funnel_rule"),
+          ruleType: r.rule_type,
+          conditionsJson: r.conditions_json,
+          conditionsHash: r.conditions_hash,
+          targetOfferId: r.target_offer_id,
+          targetSectionId: r.target_section_id,
+          redirectUrl: r.redirect_url,
+          redirectAllowlisted: r.redirect_url_allowlisted,
+          priority: r.priority,
+          enabled: r.enabled,
+          targetFunnelVariantId: null,
+          valueMultiplier: r.value_multiplier,
+          checkpointPage: r.checkpoint_page,
+          matchMode: r.match_mode,
+          ruleName: r.rule_name,
+          status: r.status,
+          redirectPct: r.redirect_pct,
+        }),
+      );
+    }
+  }
+  await c.env.DB.batch(statements);
+  const funnel = await c.env.DB.prepare("SELECT * FROM leadgen_funnels WHERE public_id = ? LIMIT 1")
+    .bind(newFunnelPublicId)
+    .first<LeadgenFunnelRow>();
+  if (!funnel) return c.json({ error: "Duplicate failed" }, 500);
+  const newVariants = await readFunnelVariants(c.env.DB, funnel.id);
+  return c.json({ ...funnelRowToApi(funnel), variants: newVariants.map(variantRowToApi), duplicated_from: src.public_id }, 201);
+}
+
+// PUT /quotes/:id/funnel-order — reorder the board (§8.2, M4 display_order). The
+// body's `order` is a permutation of the quote's funnel ids (int or public);
+// display_order is reassigned 1..n in that order in ONE atomic batch.
+export async function reorderQuoteFunnelsHandler(c: AdminContext): Promise<Response> {
+  const quote = await resolveQuoteRow(c.env.DB, c.req.param("id") ?? "");
+  if (quote === null) return c.json({ error: "Not Found" }, 404);
+  const body = (await readJsonBody(c)) ?? {};
+  const rawOrder = body["order"] ?? body["funnel_ids"];
+  if (!Array.isArray(rawOrder)) {
+    return c.json({ error: "Validation failed", fields: { order: "order must be an array of funnel ids" } }, 400);
+  }
+  const funnels = await readQuoteFunnels(c.env.DB, quote.id);
+  const byId = new Map<number, LeadgenFunnelRow>();
+  const byPublic = new Map<string, LeadgenFunnelRow>();
+  for (const f of funnels) {
+    byId.set(f.id, f);
+    byPublic.set(f.public_id, f);
+  }
+  const orderedIds: number[] = [];
+  const seen = new Set<number>();
+  for (const raw of rawOrder) {
+    let f: LeadgenFunnelRow | undefined;
+    if (typeof raw === "number" && Number.isInteger(raw)) f = byId.get(raw);
+    else if (typeof raw === "string") f = /^\d+$/.test(raw.trim()) ? byId.get(parseInt(raw.trim(), 10)) : byPublic.get(raw.trim());
+    if (f === undefined) return c.json({ error: "Validation failed", fields: { order: `funnel '${String(raw)}' is not in this quote` } }, 400);
+    if (seen.has(f.id)) return c.json({ error: "Validation failed", fields: { order: "order must not repeat a funnel" } }, 400);
+    seen.add(f.id);
+    orderedIds.push(f.id);
+  }
+  if (orderedIds.length !== funnels.length) {
+    return c.json({ error: "Validation failed", fields: { order: "order must list every funnel of the quote exactly once" } }, 400);
+  }
+  await c.env.DB.batch(
+    orderedIds.map((id, idx) =>
+      c.env.DB.prepare("UPDATE leadgen_funnels SET display_order = ?, updated_at = unixepoch() WHERE id = ?").bind(idx + 1, id),
+    ),
+  );
+  const reordered = await readQuoteFunnels(c.env.DB, quote.id);
+  return c.json({ items: reordered.map(funnelRowToApi) });
+}
+
+// PUT /quotes/:id/default-funnel — set/unset the quote's default funnel (M4,
+// §4.3-7). Body {funnel_id} (int/public) sets it (must be an ACTIVE funnel of
+// this quote); {funnel_id:null} or absent unsets it. The activation preflight
+// (§4.3-15) is the hard gate; this endpoint keeps the pointer coherent.
+export async function setQuoteDefaultFunnelHandler(c: AdminContext): Promise<Response> {
+  const quote = await resolveQuoteRow(c.env.DB, c.req.param("id") ?? "");
+  if (quote === null) return c.json({ error: "Not Found" }, 404);
+  const body = (await readJsonBody(c)) ?? {};
+  const raw = body["funnel_id"] ?? body["default_funnel_id"] ?? null;
+  let defaultFunnelId: number | null = null;
+  if (raw !== null && raw !== undefined && raw !== "") {
+    const funnel = await resolveFunnelRow(c.env.DB, String(raw));
+    if (funnel === null || funnel.quote_id !== quote.id) {
+      return c.json({ error: "Validation failed", fields: { funnel_id: "funnel does not belong to this quote" } }, 400);
+    }
+    if (funnel.status !== "active") {
+      return c.json({ error: "Validation failed", fields: { funnel_id: "the default funnel must be active" } }, 400);
+    }
+    defaultFunnelId = funnel.id;
+  }
+  await c.env.DB.prepare("UPDATE leadgen_quotes SET default_funnel_id = ?, updated_at = unixepoch() WHERE id = ?")
+    .bind(defaultFunnelId, quote.id)
     .run();
-  return c.json({ ok: true, id: funnel.id, public_id: funnel.public_id, status: "archived" });
+  const updated = await c.env.DB.prepare("SELECT * FROM leadgen_quotes WHERE id = ? LIMIT 1")
+    .bind(quote.id)
+    .first<LeadgenQuoteRow>();
+  if (!updated) return c.json({ error: "Update failed" }, 500);
+  return c.json(await quoteDetailJson(c.env.DB, updated));
+}
+
+// ---------------------------------------------------------------------------
+// Rework §4.3-13 — section uniqueness (Appendix A-4, verbatim)
+// ---------------------------------------------------------------------------
+
+// A-4 (verbatim, CI-asserted): a section id may appear at most once within
+// {shared page ∪ any single funnel's plan}.
+const A4_SECTION_DUP = (section: string): string =>
+  `'${section}' is already in this funnel — a section can appear once per funnel.`;
+
+// Pure core: given the shared page's section ids and ONE funnel-variant's
+// section ids, return one A-4 message per section id that appears more than
+// once in their UNION (an internal repeat, or a section shared+funnel both).
+function sectionUniquenessMessages(
+  sharedIds: readonly number[],
+  variantIds: readonly number[],
+  nameOf: (id: number) => string,
+): string[] {
+  const counts = new Map<number, number>();
+  for (const id of [...sharedIds, ...variantIds]) counts.set(id, (counts.get(id) ?? 0) + 1);
+  const out: string[] = [];
+  for (const [id, n] of counts) if (n > 1) out.push(A4_SECTION_DUP(nameOf(id)));
+  return out;
+}
+
+// section_id → section_name for the involved ids (batched, ≤80 per IN chunk per
+// the D1 100-binding rule; these lists are tiny in practice).
+async function sectionNameMap(db: D1Database, ids: readonly number[]): Promise<Map<number, string>> {
+  const map = new Map<number, string>();
+  const unique = Array.from(new Set(ids));
+  for (let i = 0; i < unique.length; i += 80) {
+    const chunk = unique.slice(i, i + 80);
+    if (chunk.length === 0) continue;
+    const placeholders = chunk.map(() => "?").join(",");
+    const rows = await db
+      .prepare(`SELECT id, section_name FROM leadgen_sections WHERE id IN (${placeholders})`)
+      .bind(...chunk)
+      .all<{ id: number; section_name: string }>();
+    for (const r of rows.results ?? []) map.set(r.id, r.section_name);
+  }
+  return map;
+}
+
+// The quote-owned shared page's section ids, in position order.
+async function sharedPageSectionIds(db: D1Database, quoteId: number): Promise<number[]> {
+  const rows = await db
+    .prepare("SELECT section_id FROM leadgen_funnel_variant_sections WHERE quote_id = ? ORDER BY position ASC, id ASC")
+    .bind(quoteId)
+    .all<{ section_id: number }>();
+  return (rows.results ?? []).map((r) => r.section_id);
+}
+
+// A variant's section ids, in position order.
+async function variantSectionIds(db: D1Database, variantId: number): Promise<number[]> {
+  const rows = await db
+    .prepare("SELECT section_id FROM leadgen_funnel_variant_sections WHERE variant_id = ? ORDER BY position ASC, id ASC")
+    .bind(variantId)
+    .all<{ section_id: number }>();
+  return (rows.results ?? []).map((r) => r.section_id);
+}
+
+// ---------------------------------------------------------------------------
+// Rework §4.3-1 — the quote's ONE shared first page (M2 owner axis)
+// ---------------------------------------------------------------------------
+
+interface SharedPageRow {
+  id: number;
+  public_id: string;
+  position: number;
+  name: string | null;
+}
+
+async function readSharedPageRow(db: D1Database, quoteId: number): Promise<SharedPageRow | null> {
+  return (
+    (await db
+      .prepare("SELECT id, public_id, position, name FROM leadgen_funnel_pages WHERE quote_id = ? ORDER BY position ASC, id ASC LIMIT 1")
+      .bind(quoteId)
+      .first<SharedPageRow>()) ?? null
+  );
+}
+
+// The shared page's sections, in order (same projection shape readVariantSections
+// yields, keyed by the quote owner axis instead of variant_id).
+async function readSharedPageSections(db: D1Database, quoteId: number): Promise<OrderedVariantSection[]> {
+  const result = await db
+    .prepare(
+      `SELECT fvs.position AS position, s.id AS section_id, s.public_id AS section_public_id,
+              s.section_name AS section_name, s.activity AS activity, s.vertical AS vertical, s.status AS status,
+              (SELECT COUNT(*) FROM leadgen_section_available_offers sao WHERE sao.section_id = s.id) AS mapped_offer_count,
+              (SELECT COUNT(*) FROM leadgen_section_available_offers sao WHERE sao.section_id = s.id AND sao.mapping_state = 'invalid') AS invalid_offer_count,
+              (SELECT COUNT(*) FROM leadgen_section_available_offers sao WHERE sao.section_id = s.id AND sao.mapping_state IN ('incomplete','selected')) AS incomplete_offer_count,
+              (SELECT COUNT(*) FROM leadgen_section_answer_maps sam WHERE sam.section_id = s.id AND sam.mapping_status != 'complete') AS error_edge_count
+       FROM leadgen_funnel_variant_sections fvs
+       JOIN leadgen_sections s ON s.id = fvs.section_id
+       WHERE fvs.quote_id = ? ORDER BY fvs.position ASC`,
+    )
+    .bind(quoteId)
+    .all<VariantSectionRow>();
+  return (result.results ?? []).map((row) => {
+    const { mapped_offer_count, invalid_offer_count, incomplete_offer_count, error_edge_count, ...rest } = row;
+    void mapped_offer_count;
+    void invalid_offer_count;
+    void incomplete_offer_count;
+    void error_edge_count;
+    return { ...rest, mapping_status: variantSectionMappingStatus(row) };
+  });
+}
+
+async function sharedPageJson(db: D1Database, quote: LeadgenQuoteRow): Promise<Record<string, unknown> | null> {
+  const page = await readSharedPageRow(db, quote.id);
+  if (page === null) return null;
+  const sections = await readSharedPageSections(db, quote.id);
+  return { page_id: page.public_id, position: page.position, name: page.name, sections };
+}
+
+// GET /quotes/:id/shared-page — the quote's shared first page (or null).
+export async function getSharedPageHandler(c: AdminContext): Promise<Response> {
+  const quote = await resolveQuoteRow(c.env.DB, c.req.param("id") ?? "");
+  if (quote === null) return c.json({ error: "Not Found" }, 404);
+  return c.json({ shared_page: await sharedPageJson(c.env.DB, quote) });
+}
+
+// POST /quotes/:id/shared-page — create the ONE quote-owned shared page (§4.3-1:
+// at most one per quote; the schema permits more, the API refuses a second).
+// Optional `sections` seeds the page's section list (validated + uniqueness).
+export async function createSharedPageHandler(c: AdminContext): Promise<Response> {
+  const quote = await resolveQuoteRow(c.env.DB, c.req.param("id") ?? "");
+  if (quote === null) return c.json({ error: "Not Found" }, 404);
+  if ((await readSharedPageRow(c.env.DB, quote.id)) !== null) {
+    return c.json({ error: "This quote already has a shared first page — a quote has exactly one." }, 409);
+  }
+  const body = (await readJsonBody(c)) ?? {};
+  const name = trimmedString(body["name"]);
+
+  let sectionItems: SectionOrderItem[] = [];
+  if (body["sections"] !== undefined) {
+    const resolved = await resolveSectionOrder(c.env.DB, quote, body["sections"]);
+    if (Object.keys(resolved.errors).length > 0) return c.json({ error: "Validation failed", fields: resolved.errors }, 400);
+    sectionItems = resolved.items;
+    const uniq = await sharedPageUniquenessErrors(c.env.DB, quote, sectionItems.map((s) => s.section_id));
+    if (Object.keys(uniq).length > 0) return c.json({ error: "Validation failed", fields: uniq }, 400);
+  }
+
+  const pagePublicId = mintPublicId("funnel_page");
+  const statements: D1PreparedStatement[] = [
+    c.env.DB.prepare(
+      "INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, ?)",
+    ).bind(pagePublicId, quote.id, name),
+  ];
+  for (const s of sectionItems) {
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+         VALUES (?, ?, ?, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+      ).bind(quote.id, s.section_id, s.position, pagePublicId),
+    );
+  }
+  await c.env.DB.batch(statements);
+  return c.json({ shared_page: await sharedPageJson(c.env.DB, quote) }, 201);
+}
+
+// PUT /quotes/:id/shared-page — rename + replace-set the shared page's section
+// order (add/remove/reorder in one atomic operation). Creates the page if it
+// does not exist yet (idempotent authoring).
+export async function updateSharedPageHandler(c: AdminContext): Promise<Response> {
+  const quote = await resolveQuoteRow(c.env.DB, c.req.param("id") ?? "");
+  if (quote === null) return c.json({ error: "Not Found" }, 404);
+  const body = await readJsonBody(c);
+  if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
+
+  let sectionItems: SectionOrderItem[] = [];
+  const sectionsProvided = body["sections"] !== undefined;
+  if (sectionsProvided) {
+    const resolved = await resolveSectionOrder(c.env.DB, quote, body["sections"]);
+    if (Object.keys(resolved.errors).length > 0) return c.json({ error: "Validation failed", fields: resolved.errors }, 400);
+    sectionItems = resolved.items;
+    const uniq = await sharedPageUniquenessErrors(c.env.DB, quote, sectionItems.map((s) => s.section_id));
+    if (Object.keys(uniq).length > 0) return c.json({ error: "Validation failed", fields: uniq }, 400);
+  }
+  const name = body["name"] !== undefined ? trimmedString(body["name"]) : undefined;
+
+  const existing = await readSharedPageRow(c.env.DB, quote.id);
+  const pagePublicId = existing?.public_id ?? mintPublicId("funnel_page");
+  const statements: D1PreparedStatement[] = [];
+  if (existing === null) {
+    statements.push(
+      c.env.DB.prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, ?)").bind(
+        pagePublicId,
+        quote.id,
+        name ?? null,
+      ),
+    );
+  } else if (name !== undefined) {
+    statements.push(c.env.DB.prepare("UPDATE leadgen_funnel_pages SET name = ? WHERE id = ?").bind(name, existing.id));
+  }
+  if (sectionsProvided) {
+    statements.push(c.env.DB.prepare("DELETE FROM leadgen_funnel_variant_sections WHERE quote_id = ?").bind(quote.id));
+    for (const s of sectionItems) {
+      statements.push(
+        c.env.DB.prepare(
+          `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+           VALUES (?, ?, ?, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+        ).bind(quote.id, s.section_id, s.position, pagePublicId),
+      );
+    }
+  }
+  if (statements.length > 0) await c.env.DB.batch(statements);
+  return c.json({ shared_page: await sharedPageJson(c.env.DB, quote) });
+}
+
+// DELETE /quotes/:id/shared-page — remove the shared page + its sections.
+export async function deleteSharedPageHandler(c: AdminContext): Promise<Response> {
+  const quote = await resolveQuoteRow(c.env.DB, c.req.param("id") ?? "");
+  if (quote === null) return c.json({ error: "Not Found" }, 404);
+  const existing = await readSharedPageRow(c.env.DB, quote.id);
+  if (existing === null) return c.json({ error: "Not Found" }, 404);
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM leadgen_funnel_variant_sections WHERE quote_id = ?").bind(quote.id),
+    c.env.DB.prepare("DELETE FROM leadgen_funnel_pages WHERE quote_id = ?").bind(quote.id),
+  ]);
+  return c.json({ ok: true, quote_id: quote.public_id, deleted: true });
+}
+
+// §4.3-13 at a SHARED-PAGE save: the prospective shared ids must not collide
+// with themselves, nor with any active funnel-variant's plan (that funnel).
+async function sharedPageUniquenessErrors(
+  db: D1Database,
+  quote: LeadgenQuoteRow,
+  prospectiveSharedIds: readonly number[],
+): Promise<FieldErrors> {
+  const errors: FieldErrors = {};
+  const funnels = await readQuoteFunnels(db, quote.id);
+  const involved = new Set<number>(prospectiveSharedIds);
+  const perVariant: number[][] = [];
+  for (const f of funnels) {
+    if (f.status !== "active") continue;
+    for (const v of await readActiveFunnelVariants(db, f.id)) {
+      const ids = await variantSectionIds(db, v.id);
+      perVariant.push(ids);
+      for (const id of ids) involved.add(id);
+    }
+  }
+  const nameMap = await sectionNameMap(db, [...involved]);
+  const nameOf = (id: number): string => nameMap.get(id) ?? `section ${id}`;
+  const seen = new Set<string>();
+  // internal dup within the shared page itself
+  for (const m of sectionUniquenessMessages(prospectiveSharedIds, [], nameOf)) {
+    if (!seen.has(m)) { seen.add(m); errors[`sections.${seen.size}`] = m; }
+  }
+  // shared ∪ each funnel-variant plan
+  for (const ids of perVariant) {
+    for (const m of sectionUniquenessMessages(prospectiveSharedIds, ids, nameOf)) {
+      if (!seen.has(m)) { seen.add(m); errors[`sections.${seen.size}`] = m; }
+    }
+  }
+  return errors;
+}
+
+// §4.3-13 at a VARIANT save: the prospective variant plan must not repeat a
+// section within itself, nor collide with the quote's shared page (that funnel).
+async function variantSaveUniquenessErrors(
+  db: D1Database,
+  quote: LeadgenQuoteRow,
+  prospectiveVariantIds: readonly number[],
+): Promise<FieldErrors> {
+  const errors: FieldErrors = {};
+  try {
+    // sharedPageSectionIds probes leadgen_funnel_variant_sections.quote_id (a
+    // rework-only column). On a pre-rework schema it throws → there is no shared
+    // page, so uniqueness against it is vacuous: skip (no violations).
+    const sharedIds = await sharedPageSectionIds(db, quote.id);
+    const involved = new Set<number>([...sharedIds, ...prospectiveVariantIds]);
+    const nameMap = await sectionNameMap(db, [...involved]);
+    const nameOf = (id: number): string => nameMap.get(id) ?? `section ${id}`;
+    const seen = new Set<string>();
+    for (const m of sectionUniquenessMessages(sharedIds, prospectiveVariantIds, nameOf)) {
+      if (!seen.has(m)) { seen.add(m); errors[`sections.${seen.size}`] = m; }
+    }
+  } catch {
+    return {};
+  }
+  return errors;
 }
 
 // ---------------------------------------------------------------------------
@@ -1432,17 +2440,21 @@ async function createVariantUnderFunnel(
     return c.json({ error: RUNNING_TEST_ARM_LOCK_MESSAGE }, 409);
   }
   const existing = await readFunnelVariants(c.env.DB, funnel.id);
+  // Rework M1 (§4.3-10): forbid a SECOND active variant when there is no running
+  // test (there is none — the guard above returned early otherwise). A funnel
+  // with 0 active variants (all archived) may still get one.
+  if (existing.some((v) => v.status === "active")) {
+    return c.json({ error: SINGLE_ACTIVE_VARIANT_MESSAGE }, 409);
+  }
   const label = trimmedString(body["variant_label"]) ?? String.fromCharCode(65 + existing.length); // A, B, C…
-  // First variant of a funnel defaults to control; additional variants are not.
-  const isControl = asToggle(body["is_control"]) ?? existing.length === 0;
   const designId = trimmedString(body["funnel_design_id"]) ?? "default";
   const variantPublicId = mintPublicId("funnel_variant");
   await c.env.DB.prepare(
     `INSERT INTO leadgen_funnel_variants
-       (public_id, funnel_id, variant_label, is_control, traffic_allocation_bp, funnel_design_id, status)
-     VALUES (?, ?, ?, ?, ?, ?, 'active')`,
+       (public_id, funnel_id, variant_label, traffic_allocation_bp, funnel_design_id, status)
+     VALUES (?, ?, ?, ?, ?, 'active')`,
   )
-    .bind(variantPublicId, funnel.id, label, isControl ? 1 : 0, 10000, designId)
+    .bind(variantPublicId, funnel.id, label, 10000, designId)
     .run();
   const variant = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_variants WHERE public_id = ? LIMIT 1")
     .bind(variantPublicId)
@@ -1457,7 +2469,7 @@ export async function listQuoteVariantsHandler(c: AdminContext): Promise<Respons
   const result = await c.env.DB.prepare(
     `SELECT v.* FROM leadgen_funnel_variants v
        JOIN leadgen_funnels f ON f.id = v.funnel_id
-       WHERE f.quote_id = ? ORDER BY v.funnel_id ASC, v.is_control DESC, v.id ASC`,
+       WHERE f.quote_id = ? ORDER BY v.funnel_id ASC, v.variant_label ASC, v.id ASC`,
   )
     .bind(quote.id)
     .all<LeadgenFunnelVariantRow>();
@@ -1616,15 +2628,17 @@ async function prepareRules(
   raw: unknown,
   allowlist: string[],
 ): Promise<{ rules: PreparedRule[]; errors: FieldErrors }> {
+  // Rework M3/D5: variantId/funnelId are retained for signature stability (the
+  // save path passes them); routing-target + checkpoint derivation moved out to
+  // the quote routing rules, so no per-rule page lookup happens here anymore.
+  void variantId;
+  void funnelId;
   const errors: FieldErrors = {};
   if (!Array.isArray(raw)) {
     errors["rules"] = "rules must be an array";
     return { rules: [], errors };
   }
   const rules: PreparedRule[] = [];
-  const pages = await loadVariantPages(db, variantId);
-  const fieldToPage = computeFieldToPageIndex(pages);
-  const lastPageIndex = pages.length - 1;
 
   for (let i = 0; i < raw.length; i++) {
     const entry = raw[i];
@@ -1710,47 +2724,14 @@ async function prepareRules(
       redirectPct = redirectPctRaw;
     }
 
-    let targetFunnelVariantId: number | null = null;
-    let checkpointPage: number | null = null;
+    // Rework M3/D5: the four auction-domain rule types NEVER carry a routing
+    // target or a checkpoint (routing lives in leadgen_quote_routing_rules now)
+    // — target_funnel_variant_id / checkpoint_page stay NULL. Every accepted
+    // type is validated by the shared Stage-A validator (no local branch).
+    const targetFunnelVariantId: number | null = null;
+    const checkpointPage: number | null = null;
 
-    if (ruleType === "route_funnel_variant") {
-      if (!Number.isInteger(priority) || priority < 1 || priority > 100) {
-        errors[`rules.${i}.priority`] = "priority must be an integer between 1 and 100";
-        continue;
-      }
-      const shapeError = validateRoutingConditionsShape(conditions);
-      if (shapeError !== null) {
-        errors[`rules.${i}.conditions_json`] = shapeError;
-        continue;
-      }
-      const targetPublicId = trimmedString(entry["target_funnel_variant_id"]) ?? "";
-      if (targetPublicId === "") {
-        errors[`rules.${i}.target_funnel_variant_id`] = "route_funnel_variant requires a target funnel variant";
-        continue;
-      }
-      const resolvedTarget = await resolveRoutingTargetVariantId(db, funnelId, targetPublicId);
-      if (resolvedTarget === null) {
-        errors[`rules.${i}.target_funnel_variant_id`] = `target funnel variant '${targetPublicId}' does not exist on this funnel`;
-        continue;
-      }
-      targetFunnelVariantId = resolvedTarget;
-      const conditionsForCheckpoint = conditions as { groups?: Array<{ field: string }> };
-      const entryOnly = routingRuleIsEntryOnly(conditionsForCheckpoint);
-      checkpointPage = entryOnly
-        ? null
-        : deriveRuleCheckpointPage(
-            {
-              hash: "",
-              priority,
-              conditions: conditionsForCheckpoint as LeadgenRuleConditions,
-              target_funnel_variant_id: targetFunnelVariantId,
-              value_multiplier: valueMultiplier,
-              entry_only: entryOnly,
-            },
-            fieldToPage,
-            lastPageIndex,
-          );
-    } else {
+    {
       const ruleInput: FunnelRuleInput = {
         rule_type: ruleType,
         target_offer_id: targetOfferId,
@@ -2217,11 +3198,20 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
     const v = trimmedString(body["variant_label"]);
     if (v !== null) variantLabel = v;
   }
-  let isControl = variant.is_control;
-  if (body["is_control"] !== undefined) {
-    const v = asToggle(body["is_control"]);
-    if (v === null) errors["is_control"] = "is_control must be a boolean";
-    else isControl = v ? 1 : 0;
+  // Rework M1 (§4.3-10): no is_control axis — a variant is the funnel's single
+  // active variant (no test) or an A/B arm; there is no control flag to set.
+  // Rework M5: a variant's A/B frame_template_id override (NULL = inherit the
+  // funnel's template). Absent key = column untouched.
+  let frameTemplateId: number | null = variant.frame_template_id;
+  if (body["frame_template_id"] !== undefined) {
+    const parsed = asIntOrNull(body["frame_template_id"]);
+    if (parsed === INVALID) errors["frame_template_id"] = "frame_template_id must be an integer id";
+    else if (parsed === null) frameTemplateId = null;
+    else {
+      const ex = await c.env.DB.prepare("SELECT id FROM leadgen_frame_templates WHERE id = ? LIMIT 1").bind(parsed).first<{ id: number }>();
+      if (!ex) errors["frame_template_id"] = `frame template ${parsed} does not exist`;
+      else frameTemplateId = parsed;
+    }
   }
   let trafficBp = variant.traffic_allocation_bp;
   if (body["traffic_allocation_bp"] !== undefined) {
@@ -2347,6 +3337,17 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
     preparedPages = prep.pages;
   }
 
+  // --- §4.3-13 section uniqueness (save-time) -------------------------------
+  // The prospective plan for THIS variant (from either the `sections` list or
+  // the `pages` slots) must not repeat a section within itself nor collide with
+  // the quote's shared page — Appendix A-4 verbatim. Only when the plan changed.
+  if ((sectionsProvided || pagesProvided) && Object.keys(errors).length === 0) {
+    const prospectiveIds = sectionsProvided
+      ? sectionItems.map((s) => s.section_id)
+      : preparedPages.flatMap((p) => p.slots.flatMap((slot) => slot.candidateSectionIds));
+    Object.assign(errors, await variantSaveUniquenessErrors(c.env.DB, owner.quote, prospectiveIds));
+  }
+
   // --- funnel rules (§15.5 replace-set) -------------------------------------
   const rulesProvided = body["rules"] !== undefined;
   let preparedRules: PreparedRule[] = [];
@@ -2404,19 +3405,30 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
   }
 
   // --- one atomic replace-set batch -----------------------------------------
+  // Rework M1: no is_control column. frame_template_id (Rework M5 A/B override)
+  // is written as a SEPARATE conditional statement below — like frame_overrides_
+  // json — so a pre-rework schema (no such column) is byte-unaffected unless the
+  // caller actually sends the key.
   const statements: D1PreparedStatement[] = [
     c.env.DB.prepare(
       `UPDATE leadgen_funnel_variants SET
-         variant_label = ?, is_control = ?, traffic_allocation_bp = ?, funnel_design_id = ?, auction_id = ?,
+         variant_label = ?, traffic_allocation_bp = ?, funnel_design_id = ?, auction_id = ?,
          lander_enabled = ?, lander_headline = ?, lander_subheadline = ?, lander_body_json = ?,
          lander_hero_media_url = ?, lander_cta_json = ?, content_version = content_version + 1
        WHERE id = ?`,
     ).bind(
-      variantLabel, isControl, trafficBp, designId, auctionId,
+      variantLabel, trafficBp, designId, auctionId,
       landerEnabled, landerHeadline, landerSub, landerBody,
       landerHeroUrl, landerCta, variant.id,
     ),
   ];
+  // Rework M5: only touch frame_template_id when the caller set it (the column
+  // exists only on the rework schema; the validation above ran the same guard).
+  if (body["frame_template_id"] !== undefined) {
+    statements.push(
+      c.env.DB.prepare("UPDATE leadgen_funnel_variants SET frame_template_id = ? WHERE id = ?").bind(frameTemplateId, variant.id),
+    );
+  }
   // v2.5 §4.5: the overrides column rides the SAME atomic batch, and ONLY when
   // the body carried the key — pre-0041 databases never see the column name.
   if (overridesProvided) {
@@ -2532,23 +3544,66 @@ function jsonStringOrNull(value: unknown): string | null {
 }
 
 // POST /variants/:id/fork — clone a variant to a new editable copy (new lgn_).
-// P8-adjacent: fork produces an editable, non-control variant under the SAME
-// stable funnel, cloning lander/design/auction + the ordered sections + rules.
-// The running-allocation lifecycle (which variant serves what % of traffic)
+// Rework M1 (§4.3-10/§8.2): the "Fork this variant" affordance is REMOVED from
+// the builder UI; the handler is retained but enforces the single-active-variant
+// invariant (a fork's new active variant is refused unless the funnel has no
+// active variant — see the guard below). The running-allocation lifecycle
 // remains the P8 seam.
 export async function forkVariantHandler(c: AdminContext): Promise<Response> {
   const source = await resolveVariantRow(c.env.DB, c.req.param("id") ?? "");
   if (source === null) return c.json({ error: "Not Found" }, 404);
 
-  // B1: a fork inserts a new ACTIVE variant under the source's funnel → grows the
-  // running test's arm set silently. Refuse while that funnel has a running test
-  // (simplest + safest; the operator path is stop → fork → start).
-  if (await funnelHasRunningTest(c.env.DB, source.funnel_id)) {
-    return c.json({ error: RUNNING_TEST_ARM_LOCK_MESSAGE }, 409);
+  const runningTest = await getRunningAbTest(c.env.DB, source.funnel_id);
+  const existing = await readFunnelVariants(c.env.DB, source.funnel_id);
+  const activeExisting = existing.filter((v) => v.status === "active");
+
+  // Rework M1 (§4.3-10) + conductor extension round 2 (P1 regression fix): a
+  // fork adding a SECOND active variant is legal ONLY as the bootstrap of a
+  // RUNNING test's 2nd arm — exactly one active variant already exists AND a
+  // test is running on this funnel. Fork is the file's designated arm-creation
+  // path (not createVariantUnderFunnel — an arm should start as a COPY of the
+  // control's content, matching "fork clones the arm", §4.5). Every OTHER
+  // "already active" state still 409s with the SAME message as before:
+  //   * no running test at all (the pre-A/B-test state) — B1 test (d) after
+  //     stop: 2 active arms persist, no running test, fork stays blocked.
+  //   * a running test that ALREADY has ≥2 arms — adding a 3rd+ arm is NEVER
+  //     allowed (B1 test (c): forking a running arm when 2 already exist 409s;
+  //     the arm SET is frozen once it reaches its running shape — only the
+  //     bootstrap 1→2 transition is a sanctioned mutation).
+  // A funnel with ZERO active variants (all archived) forks freely — unaffected
+  // legacy path (e.g. leadgen-quotes-api.test.ts's clone-mechanics fork, which
+  // archives the source first).
+  const canBootstrapArm = runningTest !== null && activeExisting.length === 1;
+  if (activeExisting.length > 0 && !canBootstrapArm) {
+    return c.json({ error: SINGLE_ACTIVE_VARIANT_MESSAGE }, 409);
   }
 
-  const existing = await readFunnelVariants(c.env.DB, source.funnel_id);
-  const newLabel = `${source.variant_label}-fork-${existing.length}`;
+  // §4.3-10 "equal arms, Σbp=10000": bootstrapping the 2nd arm rebalances BOTH
+  // now-active arms to an even split (always a 1→2 transition here — a 3rd+ is
+  // refused above, so a general N-way split is future-proofing, not a live
+  // path) and bumps the running test's revision so every session cleanly
+  // re-buckets against the new arm set (B1's own "changing... bumps the
+  // revision and cleanly re-buckets" philosophy — the SAME idiom
+  // startExperimentHandler already uses when Σ is re-gated at start).
+  const rebalanceStatements: D1PreparedStatement[] = [];
+  let newVariantBp = source.traffic_allocation_bp;
+  if (canBootstrapArm) {
+    const shares = equalSplitBp(activeExisting.length + 1);
+    activeExisting.forEach((v, i) => {
+      rebalanceStatements.push(
+        c.env.DB.prepare("UPDATE leadgen_funnel_variants SET traffic_allocation_bp = ? WHERE id = ?").bind(shares[i], v.id),
+      );
+    });
+    newVariantBp = shares[shares.length - 1]!;
+    rebalanceStatements.push(
+      c.env.DB.prepare("UPDATE leadgen_funnel_ab_tests SET revision = revision + 1 WHERE id = ?").bind(runningTest!.id),
+    );
+  }
+
+  // Rework M1 ("Labels A/B/C"): the SAME deterministic-letter scheme
+  // createVariantUnderFunnel uses (was the pre-rework "-fork-N" suffix; no test
+  // asserts that string — verified — so the naming can align with M1 cleanly).
+  const newLabel = String.fromCharCode(65 + existing.length);
   const variantPublicId = mintPublicId("funnel_variant");
 
   // Read the source's ordered pages (loadVariantPages -- the SAME loader the
@@ -2573,30 +3628,23 @@ export async function forkVariantHandler(c: AdminContext): Promise<Response> {
   // the whole fork commits or rolls back together and a mid-failure can never
   // orphan a variant with no sections/rules. Each INSERT is single-row
   // (≤18 bindings) — 100-binding-safe.
+  // Rework M1: no is_control column. Rework M5: frame_template_id rides the
+  // clone (a fork clones the arm, §4.5). Both columns exist in the rework schema
+  // (0041/0049), so the fork writes them unconditionally.
   const statements: D1PreparedStatement[] = [
-    sourceFrameOverrides === null
-      ? c.env.DB.prepare(
-          `INSERT INTO leadgen_funnel_variants
-             (public_id, funnel_id, ab_test_id, variant_label, is_control, traffic_allocation_bp, funnel_design_id,
-              auction_id, lander_enabled, lander_headline, lander_subheadline, lander_body_json,
-              lander_hero_media_id, lander_hero_media_url, lander_cta_json, content_version, status)
-           VALUES (?, ?, NULL, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active')`,
-        ).bind(
-          variantPublicId, source.funnel_id, newLabel, source.traffic_allocation_bp, source.funnel_design_id,
-          source.auction_id, source.lander_enabled, source.lander_headline, source.lander_subheadline, source.lander_body_json,
-          source.lander_hero_media_id, source.lander_hero_media_url, source.lander_cta_json,
-        )
-      : c.env.DB.prepare(
-          `INSERT INTO leadgen_funnel_variants
-             (public_id, funnel_id, ab_test_id, variant_label, is_control, traffic_allocation_bp, funnel_design_id,
-              auction_id, lander_enabled, lander_headline, lander_subheadline, lander_body_json,
-              lander_hero_media_id, lander_hero_media_url, lander_cta_json, content_version, status, frame_overrides_json)
-           VALUES (?, ?, NULL, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?)`,
-        ).bind(
-          variantPublicId, source.funnel_id, newLabel, source.traffic_allocation_bp, source.funnel_design_id,
-          source.auction_id, source.lander_enabled, source.lander_headline, source.lander_subheadline, source.lander_body_json,
-          source.lander_hero_media_id, source.lander_hero_media_url, source.lander_cta_json, sourceFrameOverrides,
-        ),
+    c.env.DB.prepare(
+      `INSERT INTO leadgen_funnel_variants
+         (public_id, funnel_id, ab_test_id, variant_label, traffic_allocation_bp, funnel_design_id,
+          auction_id, lander_enabled, lander_headline, lander_subheadline, lander_body_json,
+          lander_hero_media_id, lander_hero_media_url, lander_cta_json, content_version, status,
+          frame_overrides_json, frame_template_id)
+       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?)`,
+    ).bind(
+      variantPublicId, source.funnel_id, newLabel, newVariantBp, source.funnel_design_id,
+      source.auction_id, source.lander_enabled, source.lander_headline, source.lander_subheadline, source.lander_body_json,
+      source.lander_hero_media_id, source.lander_hero_media_url, source.lander_cta_json,
+      sourceFrameOverrides, source.frame_template_id,
+    ),
   ];
   // Round-4 P3a review round (minor-3): clone the source's REAL page/slot
   // structure (fresh ids, rules/allocations preserved, slot_revision reset
@@ -2630,6 +3678,10 @@ export async function forkVariantHandler(c: AdminContext): Promise<Response> {
       }),
     );
   }
+  // The sibling-arm bp rebalance + running-test revision bump (only present
+  // when canBootstrapArm) ride the SAME atomic batch as the new variant's
+  // INSERT — the arm-add and the rebalance commit or roll back together.
+  statements.push(...rebalanceStatements);
   await c.env.DB.batch(statements);
 
   const forked = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_variants WHERE public_id = ? LIMIT 1")
@@ -2641,6 +3693,51 @@ export async function forkVariantHandler(c: AdminContext): Promise<Response> {
   // orphaned entries across its activated sites (courtesy). Non-blocking; fail-open.
   scheduleVariantPublishInvalidate(c, source);
   return c.json({ forked_from: source.public_id, ...(await variantDetailJson(c.env.DB, forked)) }, 201);
+}
+
+// DELETE /variants/:id — §8.5/AC #11C ("delete-variant exists") — closes the
+// known A/B-tab gap: after a test concludes, the operator deletes the losing
+// arm (or any stale non-last variant). Guards: (a) the funnel's ARM SET is
+// FROZEN while a test is RUNNING — the SAME B1 invariant every other arm-set
+// mutation already respects (relabel/add-variant/fork-of-a-running-arm,
+// §16.2/§29) — refused with the SAME message, so delete can never be the
+// endpoint that quietly bypasses the freeze the other three enforce; (b) a
+// funnel must always have something to serve — deleting its LAST ACTIVE
+// variant is refused. An ARCHIVED variant deletes freely (not part of the
+// live/frozen arm set). Cascade mirrors deleteFunnelHandler's explicit-delete
+// pattern (D1 does not enforce ON DELETE CASCADE in production — sections-
+// handlers.ts's own documented finding); leadgen_auctions rows referencing
+// this variant (0046's inbound-FK inventory) have funnel_variant_id nulled
+// rather than left dangling (buildSimulateResolved already degrades a null/
+// missing variant to its synthetic-stub path, so this is pure hygiene).
+export async function deleteVariantHandler(c: AdminContext): Promise<Response> {
+  const variant = await resolveVariantRow(c.env.DB, c.req.param("id") ?? "");
+  if (variant === null) return c.json({ error: "Not Found" }, 404);
+
+  if (variant.status === "active") {
+    if (await funnelHasRunningTest(c.env.DB, variant.funnel_id)) {
+      return c.json({ error: RUNNING_TEST_ARM_LOCK_MESSAGE }, 409);
+    }
+    const activeSiblings = await readActiveFunnelVariants(c.env.DB, variant.funnel_id);
+    if (activeSiblings.length <= 1) {
+      return c.json(
+        { error: "Can't delete this variant: a funnel must have at least one active variant." },
+        409,
+      );
+    }
+  }
+
+  const psub = "(SELECT id FROM leadgen_funnel_pages WHERE variant_id = ?)";
+  await c.env.DB.batch([
+    c.env.DB.prepare(`DELETE FROM leadgen_funnel_page_slots WHERE page_id IN ${psub}`).bind(variant.id),
+    c.env.DB.prepare("DELETE FROM leadgen_funnel_variant_sections WHERE variant_id = ?").bind(variant.id),
+    c.env.DB.prepare("DELETE FROM leadgen_funnel_pages WHERE variant_id = ?").bind(variant.id),
+    c.env.DB.prepare("DELETE FROM leadgen_funnel_rules WHERE variant_id = ?").bind(variant.id),
+    c.env.DB.prepare("UPDATE leadgen_funnel_rules SET target_funnel_variant_id = NULL WHERE target_funnel_variant_id = ?").bind(variant.id),
+    c.env.DB.prepare("UPDATE leadgen_auctions SET funnel_variant_id = NULL WHERE funnel_variant_id = ?").bind(variant.id),
+    c.env.DB.prepare("DELETE FROM leadgen_funnel_variants WHERE id = ?").bind(variant.id),
+  ]);
+  return c.json({ ok: true, id: variant.id, public_id: variant.public_id, deleted: true });
 }
 
 // --- POST /variants/:id/preview — server-render the whole funnel (no persist) -
@@ -3329,15 +4426,23 @@ async function composedVariantPreviewResponse(
     siteBranding = await resolveSiteBranding(c.env.DB, siteId);
   }
 
-  // Ordered sections — the same rows the legacy branch loads.
-  const orderedRefs = await readVariantSections(c.env.DB, variant.id);
-  const sections: LeadgenSectionRow[] = [];
-  for (const ref of orderedRefs) {
-    const row = await c.env.DB.prepare("SELECT * FROM leadgen_sections WHERE id = ? LIMIT 1")
-      .bind(ref.section_id)
-      .first<LeadgenSectionRow>();
-    if (row) sections.push(row);
+  // Ordered sections — §4.3-11 parity fix (conductor addendum round): the
+  // quote's shared first page FIRST, then this variant's own pages, EXACTLY
+  // the composeResolvedBundle order the live serve path uses (resolver.ts) —
+  // preview and serve must stay byte-parity twins. loadSharedPages is fail-
+  // safe on a pre-M2 DB (no quote_id column) and returns [] for a legacy quote
+  // with no shared page, so this is byte-identical to the prior variant-only
+  // read in that case (the SAME loadVariantPages call this handler already
+  // made via readVariantSections's underlying table, now read through the
+  // canonical page/slot loader instead of the flat admin-only projection).
+  let sharedPages: ResolvedFunnelPage[] = [];
+  try {
+    sharedPages = await loadSharedPages(c.env.DB, owner.quote.id);
+  } catch {
+    sharedPages = [];
   }
+  const variantPages = await loadVariantPages(c.env.DB, variant.id);
+  const sections: LeadgenSectionRow[] = sectionsFromPages([...sharedPages, ...variantPages]).map((rs) => rs.section);
 
   // section_public_id → the visible ordered index (mode:"section").
   let visibleIndex = 0;
@@ -4033,6 +5138,12 @@ export async function computeQuoteActivationPreflight(
       firstVariantId = variants[0]?.public_id ?? "";
     }
   }
+  // Rework §4.3-15: the additional activation checks (default funnel, shared
+  // page, per-funnel sections, enabled-rule targets, §4.3-13 uniqueness) ride as
+  // error-severity problems so the PUT gate blocks on them (same as the existing
+  // §14.1 error problems). A legacy quote (no shared page / no default funnel)
+  // REPORTS the missing pieces here rather than 500ing (L-192 seam).
+  problems.push(...(await computeReworkActivationProblems(db, quote)));
   return {
     ok: blocks.length === 0,
     quote_id: quote.public_id,
@@ -4042,6 +5153,83 @@ export async function computeQuoteActivationPreflight(
     computed_at: now,
     problems,
   };
+}
+
+// Rework §4.3-15 (§4.3-13 folded in) activation checks. Every failed check is
+// an error-severity Problem (blocks the PUT via the existing hasBlockingProblems
+// gate). Defensively wrapped: on ANY DB error (e.g. a pre-rework schema without
+// the M2/M3/M4 columns) it returns [] so the preflight never 500s (L-192) — the
+// rework checks simply do not apply to a non-rework schema.
+async function computeReworkActivationProblems(db: D1Database, quote: LeadgenQuoteRow): Promise<Problem[]> {
+  const out: Problem[] = [];
+  const fix = QUOTE_BUILDER_LINK(quote.public_id);
+  const mk = (path: string, message: string): Problem => ({ path, scope: "section", severity: "error", message, fix_url: fix });
+  try {
+    const funnels = await readQuoteFunnels(db, quote.id);
+    const activeFunnels = funnels.filter((f) => f.status === "active");
+    const sharedIds = await sharedPageSectionIds(db, quote.id); // probes leadgen_funnel_variant_sections.quote_id (rework-only)
+
+    // default funnel set + active (§4.3-15 / §4.3-7).
+    const defId = quote.default_funnel_id;
+    if (defId === null || defId === undefined) {
+      out.push(mk("activation.default_funnel", "Set a default funnel — unmatched visitors need one to enter."));
+    } else {
+      const df = funnels.find((f) => f.id === defId) ?? null;
+      if (df === null || df.status !== "active") {
+        out.push(mk("activation.default_funnel", "The default funnel must be an active funnel of this quote."));
+      }
+    }
+
+    // shared page exists with ≥1 section.
+    const sharedPage = await readSharedPageRow(db, quote.id);
+    if (sharedPage === null || sharedIds.length === 0) {
+      out.push(mk("activation.shared_page", "The shared first page needs at least one section."));
+    }
+
+    // every active funnel has ≥1 page with ≥1 section (its active variant).
+    const perVariant: number[][] = [];
+    const involved = new Set<number>(sharedIds);
+    for (const f of activeFunnels) {
+      const variants = await readActiveFunnelVariants(db, f.id);
+      let hasSections = false;
+      for (const v of variants) {
+        const ids = await variantSectionIds(db, v.id);
+        perVariant.push(ids);
+        for (const id of ids) involved.add(id);
+        if (ids.length > 0) hasSections = true;
+      }
+      if (variants.length === 0 || !hasSections) {
+        out.push(mk(`activation.funnel.${f.public_id}`, `Funnel '${f.funnel_name}' needs at least one page with a section.`));
+      }
+    }
+
+    // every ENABLED rule's target funnel is active.
+    const rules = await readQuoteRoutingRules(db, quote.id);
+    for (const r of rules) {
+      if (r.status !== "active" || r.target_funnel_id === null) continue;
+      const tf = funnels.find((f) => f.id === r.target_funnel_id) ?? null;
+      if (tf === null || tf.status !== "active") {
+        out.push(mk(`activation.rule.${r.public_id}`, `Rule '${r.rule_name}' targets a funnel that is not active.`));
+      }
+    }
+
+    // §4.3-13 uniqueness holds (shared ∪ each active funnel-variant plan).
+    const nameMap = await sectionNameMap(db, [...involved]);
+    const nameOf = (id: number): string => nameMap.get(id) ?? `section ${id}`;
+    const seen = new Set<string>();
+    const scopes = perVariant.length > 0 ? perVariant : [[]];
+    for (const ids of scopes) {
+      for (const m of sectionUniquenessMessages(sharedIds, ids, nameOf)) {
+        if (!seen.has(m)) {
+          seen.add(m);
+          out.push(mk("activation.section_uniqueness", m));
+        }
+      }
+    }
+  } catch {
+    return [];
+  }
+  return out;
 }
 
 // The EXACT normative report (05 §5.2) — its key set is BYTE-PINNED by test.
@@ -4807,6 +5995,24 @@ export async function deleteActivationHandler(c: AdminContext): Promise<Response
 // flip draft→running→stopped (guarded by uq_leadgen_abtest_running). The §16.2
 // traffic allocation (traffic_allocation_bp buckets, session assignment, the %
 // UI, the 100k-session distribution) is NOT implemented here — it ships in P8.
+//
+// Conductor extension round 2 (P1 regression fix) — design decision for "a
+// test's creation must yield a RUNNING test with coherent arms" (§4.3-10):
+// chose "validate arms exist" (the file's existing draft→running Σ==10000 gate
+// at startExperimentHandler below) over "createAbTest atomically forks the 2nd
+// arm itself". Rationale: the ab_tests table's OWN semantics are already an
+// explicit draft→running→stopped state machine with `start` as the dedicated,
+// separate transition that owns Σ-gating + the revision bump (§16.2 line 35);
+// collapsing create+fork+start into one call would duplicate/bypass that
+// existing machinery rather than compose with it. No code change was needed
+// here or in startExperimentHandler: a fresh funnel's single active variant is
+// ALREADY at bp=10000 (Σ trivially satisfied), so `start` can run immediately
+// on a 1-arm test — the REAL fix is forkVariantHandler's new arm-bootstrap
+// branch (below in this file), reachable ONLY once a test is running. The full
+// HTTP flow is: create (draft, 1 arm) → start (running, 1 arm, Σ=10000
+// trivially) → fork the running variant (NOW ALLOWED — creates the 2nd arm,
+// auto-rebalances BOTH to 5000/5000, bumps the test's revision for a clean
+// re-bucket) → 2 active variants, equal Σ=10000 arms, §4.3-10-valid.
 // ---------------------------------------------------------------------------
 
 async function createAbTest(c: AdminContext, funnel: LeadgenFunnelRow, body: Record<string, unknown>): Promise<Response> {
@@ -4821,10 +6027,15 @@ async function createAbTest(c: AdminContext, funnel: LeadgenFunnelRow, body: Rec
     .bind(publicId)
     .first<LeadgenFunnelAbTestRow>();
   if (!row) return c.json({ error: "Insert failed" }, 500);
-  // §16.2: set each active variant's traffic_allocation_bp so the per-test Σ ==
-  // 10000, then start (start enforces the sum). UI shows % (bp/100).
+  // §16.2: a fresh funnel's single active variant is already at bp=10000 (Σ
+  // trivially satisfied) — start immediately, then fork the running variant to
+  // bootstrap the 2nd arm (auto-rebalances to equal Σ==10000, §4.3-10).
   return c.json(
-    { ...abTestRowToApi(row), allocation_note: "set each variant's traffic_allocation_bp so the per-test Σ == 10000, then start (§16.2)" },
+    {
+      ...abTestRowToApi(row),
+      allocation_note:
+        "the single active variant is already at Σ=10000 — start the test, then fork it to bootstrap a 2nd equal arm (§4.3-10)",
+    },
     201,
   );
 }
@@ -4927,7 +6138,6 @@ export async function experimentAssignmentPreviewHandler(c: AdminContext): Promi
       funnel_variant_id: toFunnelVariantId(picked.variant.public_id) as string,
       variant_label: picked.variant.variant_label,
       traffic_allocation_bp: picked.variant.traffic_allocation_bp,
-      is_control: picked.variant.is_control !== 0,
     },
   });
 }

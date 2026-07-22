@@ -5,13 +5,17 @@
 // dispatchEvent):
 //   * open the funnel builder tab, confirm the rules panel is embedded there
 //     (right column) and the standalone "Rules" top tab is GONE;
-//   * "+ New rule" → the Image42-shaped modal → author a routing rule (name,
+//   * "+ New rule" → the Image42-shaped modal → author a rule (name,
 //     priority, ANY/ALL match mode default, conditions: UTM source is X AND
-//     an age answer at least 65, action: route to funnel variant B) → Save →
-//     the table row shows it with the checkpoint AUTO-DERIVED (the age
-//     condition maps to the age question's page — "Page 2");
+//     an age answer at least 65, action: eligibility — Rework M3 retired
+//     route_funnel_variant with no replacement action-type, so this vehicle
+//     exercises the same modal/conditions/save/toggle/duplicate machinery
+//     instead) → Save → the table row shows it (checkpoint auto-derivation
+//     was route_funnel_variant-only and is retired too — relocated to P3b's
+//     not-yet-built quote-scoped rules — so the checkpoint mirror/cell is
+//     always "—" for every surviving type);
 //   * SAVE the variant (the real §15.5/P4b replace-set PUT) → RELOAD → the
-//     rule (incl. the server-authoritative checkpoint_page) round-trips;
+//     rule round-trips;
 //   * toggle status → Disabled → Save → reload → persists;
 //   * Duplicate → a "(copy)"-suffixed row appears;
 //   * the legacy raw target_offer_id input is never VISIBLE anywhere in the
@@ -19,6 +23,12 @@
 //     quotes.ts renderRuleRow's P4b doc comment);
 //   * a redirect_direct_offer rule authored via the offer NAME picker
 //     persists the CORRECT target_offer_id (never a raw id the operator typed).
+//
+// Rework M3 also retired skip_section/show_section with no replacement
+// action-type and no surviving action-panel UI (see the removal note at the
+// bottom of this file) — this spec no longer seeds a second ("Variant B")
+// arm, since nothing left here targets one and forkVariantHandler's
+// single-active-variant guard (§4.3-10) would otherwise always 409 on it.
 //
 // chromium-only (playwright.config.ts: firefox testMatch is the gesture set;
 // this non-gesture admin-UI spec is picked up by chromium alone, like
@@ -47,11 +57,7 @@ async function json<T>(
 interface Seeded {
   quotePublicId: string;
   variantAId: string; // control — the one the editor opens on
-  variantBId: string; // fork target — the route_funnel_variant destination
-  variantBLabel: string;
   introSectionId: string;
-  ageSectionId: string;
-  ageSectionNumericId: string; // numeric id, as a string (the by-name section picker's <option value>)
   offerId: string; // numeric id, as a string (the by-name picker's <option value>)
   offerName: string;
 }
@@ -91,9 +97,10 @@ async function seedQuote(request: APIRequestContext, tag: string): Promise<Seede
     "age section create",
   );
 
-  // Two pages: page 1 = intro (entry-known-only checkpoint), page 2 = the age
-  // question — deriveRuleCheckpointPage maps a rule conditioned on `age` to
-  // page index 1 ("Page 2" in the operator-facing display).
+  // Two pages: page 1 = intro, page 2 = the age question — gives the
+  // condition-builder's field picker a real mid-funnel `age` field to select
+  // (checkpoint auto-derivation itself is retired post-rework; see the test
+  // body's comment on #lg-modal-checkpoint/[data-row-checkpoint]).
   const pagesPut = await request.put(`${LG_API}/variants/${variantAId}`, {
     data: {
       pages: [
@@ -104,13 +111,14 @@ async function seedQuote(request: APIRequestContext, tag: string): Promise<Seede
   });
   if (!pagesPut.ok()) throw new Error(`seed pages HTTP ${pagesPut.status()}: ${await pagesPut.text()}`);
 
-  // Variant B — the route_funnel_variant target (a fork of the control; forks
-  // land ACTIVE, satisfying resolver.ts's getActiveVariantByIdOnFunnel gate).
-  const fork = await json<{ public_id: string; variant_label: string }>(
-    await request.post(`${LG_API}/variants/${variantAId}/fork`),
-    "fork variant B",
-  );
-
+  // Rework M1 (§4.3-10)/M3: route_funnel_variant is retired from
+  // leadgen_funnel_rules (no replacement action-type — routing is now
+  // quote-scoped via leadgen_quote_routing_rules, a separate table/UI
+  // surface). Variant B existed ONLY as that removed rule type's target, so
+  // it is no longer seeded here — also sidesteps forkVariantHandler's
+  // single-active-variant guard (§4.3-10: "forbid a SECOND active variant
+  // when there is no running test"), which this quote's lone control
+  // variant would otherwise always trip.
   const offerName = `Kissterra Offer ${uniq}`;
   const offer = await json<{ id: number; public_id: string }>(
     await request.post(`${LG_API}/offers`, {
@@ -133,11 +141,7 @@ async function seedQuote(request: APIRequestContext, tag: string): Promise<Seede
   return {
     quotePublicId: quote.public_id,
     variantAId,
-    variantBId: fork.public_id,
-    variantBLabel: fork.variant_label,
     introSectionId: introSection.public_id,
-    ageSectionId: ageSection.public_id,
-    ageSectionNumericId: String(ageSection.id),
     offerId: String(offer.id),
     offerName,
   };
@@ -184,7 +188,7 @@ test.describe("P4b — unified routing-rules builder (Image42 modal + table)", (
     await expect(builderPanel.locator("#lg-inspector-column #lg-routing-rules-root")).toHaveCount(1);
   });
 
-  test("author a routing rule through the modal, save, reload, toggle status, duplicate — no raw target_offer_id input ever visible", async ({ page }) => {
+  test("author a rule through the modal, save, reload, toggle status, duplicate — no raw target_offer_id input ever visible", async ({ page }) => {
     // 3 save+reload round trips (initial / disable / re-enable) PLUS the
     // duplicate leg against a real wrangler-dev server — comfortably under
     // 120s individually, but the conductor's coherence + duplicate-endpoint
@@ -206,10 +210,16 @@ test.describe("P4b — unified routing-rules builder (Image42 modal + table)", (
 
     await modal.locator("#lg-modal-rule-name").fill("Kissterra 65+");
     await modal.locator("#lg-modal-priority").fill("2");
-    await modal.locator("#lg-modal-rule-type").selectOption("route_funnel_variant");
+    // Rework M3: route_funnel_variant no longer exists in leadgen_funnel_rules
+    // (CHECK narrowed to redirect_direct_offer|eligibility|disqualification|
+    // auction_entry) — eligibility is the vehicle here since this test's real
+    // point is the modal/conditions/checkpoint/save/toggle/duplicate MACHINERY,
+    // not the specific action type. eligibility's action panel has no extra
+    // fields ("the conditions below decide who is eligible" — ui-rules-builder.ts
+    // renderActionPanels), so there is no target picker to fill.
+    await modal.locator("#lg-modal-rule-type").selectOption("eligibility");
     // ANY/ALL default stays "ALL of the following" (match_mode -> NULL on
     // save, the migration's documented default) — left untouched here.
-    await modal.locator("[data-modal-target-variant]").selectOption(seed.variantBId);
 
     // --- conditions: UTM source is facebook AND age is at least 65 ----------
     const conditionsMount = modal.locator("#lg-modal-conditions-mount");
@@ -223,20 +233,25 @@ test.describe("P4b — unified routing-rules builder (Image42 modal + table)", (
     await conditionsMount.locator(".lg-rb-op").nth(1).selectOption("gte");
     await conditionsMount.locator(".lg-rb-value").nth(1).fill("65");
 
-    // The checkpoint mirror recomputes live (client-side, resolver.ts-parity
-    // formula) the instant the age condition names a mid-funnel field.
-    await expect(modal.locator("#lg-modal-checkpoint")).toHaveText("Page 2");
+    // Rework M3: checkpoint auto-derivation belonged ONLY to
+    // route_funnel_variant (ui-rules-builder.ts updateCheckpointDisplay
+    // gates on `ruleType === 'route_funnel_variant'`, an impossible value
+    // post-rework) — relocated off this table entirely to P3b's quote-scoped
+    // rules, not yet built. None of the 4 surviving types has ever had a
+    // checkpoint (checkpointLabel is now unconditionally "—"), so the mirror
+    // stays "—" even with a mid-funnel condition mounted.
+    await expect(modal.locator("#lg-modal-checkpoint")).toHaveText("—");
 
     await page.screenshot({ path: `${SHOT_DIR}/p4b-modal-authored.png`, fullPage: true });
     await modal.locator("#lg-modal-save").click();
     await expect(modal).toBeHidden();
 
-    // --- the table shows it, checkpoint auto-derived -------------------------
+    // --- the table shows it (checkpoint retired post-rework — always "—") ---
     const row = page.locator("#lg-rules-table-body [data-rules-table-row]").first();
     await expect(row.locator("[data-row-name]")).toHaveText("Kissterra 65+");
     await expect(row.locator("[data-row-priority]")).toHaveText("2");
-    await expect(row.locator("[data-row-checkpoint]")).toHaveText("Page 2");
-    await expect(row.locator("[data-row-type]")).toHaveText("Route to a different funnel");
+    await expect(row.locator("[data-row-checkpoint]")).toHaveText("—");
+    await expect(row.locator("[data-row-type]")).toHaveText("Eligibility");
     await expect(row.locator("[data-row-status-pill]")).toHaveText("Active");
 
     // --- SAVE the variant (the real §15.5/P4b replace-set PUT) --------------
@@ -248,9 +263,8 @@ test.describe("P4b — unified routing-rules builder (Image42 modal + table)", (
 
     const putBody = put.request().postDataJSON() as { rules: Array<Record<string, unknown>> };
     const sentRule = putBody.rules.find((r) => r["rule_name"] === "Kissterra 65+");
-    expect(sentRule, "the routing rule rode the PUT payload").toBeTruthy();
-    expect(sentRule!["rule_type"]).toBe("route_funnel_variant");
-    expect(sentRule!["target_funnel_variant_id"]).toBe(seed.variantBId);
+    expect(sentRule, "the rule rode the PUT payload").toBeTruthy();
+    expect(sentRule!["rule_type"]).toBe("eligibility");
     expect(sentRule!["priority"]).toBe(2);
 
     // --- the legacy raw target_offer_id input is never VISIBLE ---------------
@@ -267,12 +281,12 @@ test.describe("P4b — unified routing-rules builder (Image42 modal + table)", (
       await expect(legacyOfferInputs.nth(i), `legacy target_offer_id input #${i} must not be visible`).not.toBeVisible();
     }
 
-    // --- RELOAD → server-authoritative round-trip (incl. checkpoint_page) ---
+    // --- RELOAD → server-authoritative round-trip ---------------------------
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.locator("#lg-routing-rules-root")).toBeVisible();
     const row2 = page.locator("#lg-rules-table-body [data-rules-table-row]").first();
     await expect(row2.locator("[data-row-name]")).toHaveText("Kissterra 65+");
-    await expect(row2.locator("[data-row-checkpoint]")).toHaveText("Page 2");
+    await expect(row2.locator("[data-row-checkpoint]")).toHaveText("—");
     await expect(row2.locator("[data-row-status-pill]")).toHaveText("Active");
     await page.screenshot({ path: `${SHOT_DIR}/p4b-table-reloaded.png`, fullPage: true });
     let rulesNow = await fetchVariantRules(seed.quotePublicId, seed.variantAId);
@@ -396,52 +410,18 @@ test.describe("P4b — unified routing-rules builder (Image42 modal + table)", (
     expect(storedRule!["redirect_pct"]).toBe(50);
   });
 
-  test("a skip_section rule authored with a name round-trips it (conductor fix-round #1: full v2 persistence for every rule type)", async ({ page }) => {
-    test.setTimeout(60_000);
-    page.on("dialog", (d) => d.accept());
-    await page.goto(`/admin/leadgen/quotes/${seed.quotePublicId}/edit`, { waitUntil: "domcontentloaded" });
-
-    await page.locator("#lg-rule-new").click();
-    const modal = page.locator("#lg-rule-modal");
-    await expect(modal).toBeVisible();
-    await modal.locator("#lg-modal-rule-name").fill("Skip the age question");
-    await modal.locator("#lg-modal-rule-type").selectOption("skip_section");
-
-    // Section-to-skip picker — the operator sees/picks the section by its
-    // NAME (never types a raw id); the option's underlying value is the
-    // section's numeric id (the existing target_section_id wire format), so
-    // the test selects by that value for a robust, unambiguous match while
-    // first confirming the NAME is genuinely what's rendered in the option.
-    const sectionSelect = modal.locator("[data-modal-target-section]");
-    await expect(sectionSelect.locator(`option[value="${seed.ageSectionNumericId}"]`)).toHaveText(new RegExp("^Age question"));
-    await sectionSelect.selectOption(seed.ageSectionNumericId);
-
-    await modal.locator("#lg-modal-save").click();
-    await expect(modal).toBeHidden();
-
-    const row = page.locator("#lg-rules-table-body [data-row-name]", { hasText: "Skip the age question" });
-    await expect(row).toHaveCount(1);
-
-    const putPromise = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().includes(`/variants/${seed.variantAId}`));
-    await page.locator("#lg-variant-save").click();
-    const put = await putPromise;
-    expect(put.status(), `skip_section rule PUT: ${await put.text()}`).toBe(200);
-    const putBody = put.request().postDataJSON() as { rules: Array<Record<string, unknown>> };
-    const sentRule = putBody.rules.find((r) => r["rule_name"] === "Skip the age question");
-    expect(sentRule, "the skip_section rule rode the PUT payload").toBeTruthy();
-    expect(sentRule!["target_section_id"], "target_section_id (a NEW P4b collection — no admin picker existed for it before)").toBe(Number(seed.ageSectionNumericId));
-
-    // RELOAD → the name (previously silently dropped for non-routing types)
-    // now round-trips off the SSR'd table, straight from server data.
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.locator("#lg-rules-table-body [data-row-name]", { hasText: "Skip the age question" })).toHaveCount(1);
-
-    const rulesNow = await fetchVariantRules(seed.quotePublicId, seed.variantAId);
-    const stored = rulesNow.find((r) => r["rule_name"] === "Skip the age question");
-    expect(stored, `skip_section rule persisted with its name; all rules: ${JSON.stringify(rulesNow)}`).toBeTruthy();
-    expect(stored!["rule_type"]).toBe("skip_section");
-    expect(stored!["target_section_id"]).toBe(Number(seed.ageSectionNumericId));
-    expect(stored!["status"]).toBe("active");
-    expect(stored!["enabled"]).toBe(true);
-  });
+  // Rework M3: skip_section (and show_section) is retired from
+  // leadgen_funnel_rules with NO replacement action-type — the CHECK
+  // constraint narrows to redirect_direct_offer|eligibility|disqualification|
+  // auction_entry, none of which carry a target-section concept. The
+  // "Section-to-skip picker" this test drove ([data-modal-target-section])
+  // was part of skip_section/show_section's own action panel, which
+  // ui-rules-builder.ts's renderActionPanels no longer renders at all (see
+  // the 4 surviving `data-action-for` panels — none expose a section picker).
+  // There is no surviving UI surface for this test to exercise; removed
+  // rather than forced to pass against a mechanism that no longer exists.
+  // (target_section_id itself remains a generic, non-type-gated backend
+  // column — test/leadgen-p1c-lifecycle.test.ts's DELETE-guard coverage
+  // still exercises it directly via the API — but no admin-UI picker sets
+  // it post-rework.)
 });

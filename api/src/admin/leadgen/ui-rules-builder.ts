@@ -1704,32 +1704,25 @@ export const ROUTING_FIELD_OPTIONS: ReadonlyArray<{ internal_field: string; labe
   { internal_field: "hour", label: "Hour (UTC 0–23)" },
   { internal_field: "weekday", label: "Weekday (UTC 0–6)" },
 ];
-export type RoutingRuleType =
-  | "route_funnel_variant"
-  | "redirect_direct_offer"
-  | "skip_section"
-  | "show_section"
-  | "eligibility"
-  | "disqualification"
-  | "auction_entry";
+// Rework M3 (§5-M3, §4.3-9, D5): leadgen_funnel_rules' CHECK is now
+// tightened, via full-table recreation, to exactly these four auction-domain
+// types (migration 0048). `route_funnel_variant` rows were migrated to the
+// NEW quote-scoped leadgen_quote_routing_rules table (its own UI is P3b, per
+// §4.3 multi-action routing); `skip_section`/`show_section` rows are guarded
+// off entirely (the migration aborts if any exist — none do, pre-migration
+// data has zero such rows). Offering a removed type here would let a save
+// attempt hit the DB CHECK it can never satisfy again.
+export type RoutingRuleType = "redirect_direct_offer" | "eligibility" | "disqualification" | "auction_entry";
 
-// Order matches the dispatch's action-panel enumeration (routing first — the
-// D-2 mandated behavior — then the pre-existing five).
 export const ROUTING_RULE_TYPES: readonly RoutingRuleType[] = [
-  "route_funnel_variant",
   "redirect_direct_offer",
-  "skip_section",
-  "show_section",
   "eligibility",
   "disqualification",
   "auction_entry",
 ];
 
 const ROUTING_RULE_TYPE_LABELS: Record<RoutingRuleType, string> = {
-  route_funnel_variant: "Route to a different funnel",
   redirect_direct_offer: "Redirect to offer",
-  skip_section: "Skip a section",
-  show_section: "Show a section",
   eligibility: "Eligibility",
   disqualification: "Disqualification",
   auction_entry: "Auction entry",
@@ -1743,7 +1736,12 @@ export interface RoutingRuleRowData {
   status: "active" | "disabled";
   priority: number;
   match_mode: "all" | "any";
-  checkpoint_page: number | null; // null == Entry (or not-applicable off route_funnel_variant)
+  // Rework M3: the checkpoint concept belonged only to route_funnel_variant,
+  // now relocated off this table entirely (P3b's quote-scoped rules own it).
+  // None of the four remaining auction-domain types has a checkpoint; this
+  // field stays on the wire shape (server read compatibility) but is always
+  // not-applicable here.
+  checkpoint_page: number | null;
   conditions_json: unknown;
   target_offer_id: number | null;
   target_section_id: number | null;
@@ -1776,9 +1774,12 @@ export interface RoutingBuilderData {
   page_count: number;
 }
 
-function checkpointLabel(rule: Pick<RoutingRuleRowData, "rule_type" | "checkpoint_page">): string {
-  if (rule.rule_type !== "route_funnel_variant") return "—";
-  return rule.checkpoint_page === null ? "Entry" : `Page ${rule.checkpoint_page + 1}`;
+// Rework M3: route_funnel_variant (the only type with a checkpoint) is gone
+// from this table's CHECK — none of the four remaining auction-domain types
+// has ever had a checkpoint (this returned "—" for them before the rework
+// too); now it is unconditional.
+function checkpointLabel(_rule: Pick<RoutingRuleRowData, "rule_type" | "checkpoint_page">): string {
+  return "—";
 }
 
 function statusPillHtml(status: "active" | "disabled"): string {
@@ -1827,20 +1828,16 @@ function renderRuleTypeOptions(): string {
 
 // One action-panel section per rule type — the modal JS shows exactly one
 // via `data-action-for="<type>"`, matching the currently-selected rule type.
+// Rework M3: route_funnel_variant / skip_section / show_section panels
+// removed — those types no longer exist on leadgen_funnel_rules' CHECK (see
+// RoutingRuleType's doc comment). data.variants/data.sections stay on
+// RoutingBuilderData (the frozen wire contract with ui-quotes.ts) even
+// though the section-target pickers they fed are gone here — variantRef/
+// numericRefOptions helpers are left in place (harmless, unreferenced) per
+// "stub/drop only as far as needed for coherence"; the full rebuild onto
+// leadgen_quote_routing_rules is P3b.
 function renderActionPanels(data: RoutingBuilderData): string {
   return `
-  <div class="lg-rule-action-panel" data-action-for="route_funnel_variant">
-    <div class="form-group">
-      <label class="form-label">Route visitors to</label>
-      <select class="form-select" data-modal-target-variant aria-label="Target funnel variant">${variantRefOptions(data.variants)}</select>
-      <p class="form-help">Only this funnel's OTHER variants can be a target (Round-4 P4a anti-leak scoping).</p>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Value multiplier (optional)</label>
-      <input class="form-input" type="number" step="any" min="0" data-modal-value-multiplier aria-label="Value multiplier" />
-      <p class="form-help">Replaces the base S2S multiplier for a conversion routed by this rule. Leave blank for no change.</p>
-    </div>
-  </div>
   <div class="lg-rule-action-panel" data-action-for="redirect_direct_offer">
     <div class="form-group">
       <label class="form-label">Redirect to offer</label>
@@ -1856,18 +1853,6 @@ function renderActionPanels(data: RoutingBuilderData): string {
       <div class="form-group"><input class="form-input" type="text" data-modal-redirect-url aria-label="Raw redirect URL" /></div>
       <label class="lg-check"><input type="checkbox" data-modal-allowlisted /> Redirect URL is on the approved list</label>
     </details>
-  </div>
-  <div class="lg-rule-action-panel" data-action-for="skip_section">
-    <div class="form-group">
-      <label class="form-label">Section to skip</label>
-      <select class="form-select" data-modal-target-section aria-label="Section to skip">${numericRefOptions(data.sections, "— choose a section —")}</select>
-    </div>
-  </div>
-  <div class="lg-rule-action-panel" data-action-for="show_section">
-    <div class="form-group">
-      <label class="form-label">Section to show</label>
-      <select class="form-select" data-modal-target-section-show aria-label="Section to show">${numericRefOptions(data.sections, "— choose a section —")}</select>
-    </div>
   </div>
   <div class="lg-rule-action-panel" data-action-for="eligibility">
     <p class="form-help">No extra fields — the conditions below decide who is eligible.</p>
@@ -2156,8 +2141,7 @@ export const ROUTING_RULES_SCRIPT = `(function () {
     var cpCell = qs(tr, '[data-row-checkpoint]');
     if (cpCell) { cpCell.textContent = checkpointLabel(read.rule_type, checkpoint); }
     var typeLabels = {
-      route_funnel_variant: 'Route to a different funnel', redirect_direct_offer: 'Redirect to offer',
-      skip_section: 'Skip a section', show_section: 'Show a section', eligibility: 'Eligibility',
+      redirect_direct_offer: 'Redirect to offer', eligibility: 'Eligibility',
       disqualification: 'Disqualification', auction_entry: 'Auction entry'
     };
     var typeCell = qs(tr, '[data-row-type]');

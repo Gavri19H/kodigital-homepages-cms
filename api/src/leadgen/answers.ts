@@ -201,6 +201,27 @@ function fieldsOf(node: LeadgenComponentNode): FieldSpec[] {
   const answerType: LeadgenAnswerType =
     node.answer_type ?? (produces as LeadgenAnswerType);
 
+  // LeadGen Rework M7 (§6.8): a dual_range / from_to slider collects TWO sub-
+  // fields {internal_field}_min / {internal_field}_max (each a number), exactly
+  // like Address (§12.8) / NameFields sub-fields — so the field universe, rules
+  // pickers and per-offer mapping see them. This only makes the ALREADY-migrated
+  // content shape (NumberRangeQuestion + props.slider_type, M7) visible to
+  // normalization; schema-side validation of the slider props is P2. single /
+  // stepper / radial keep the single internal_field (the scalar branch below).
+  if (
+    node.type === "NumberRangeQuestion" &&
+    isNonEmptyString(node.internal_field) &&
+    (node.props?.["slider_type"] === "dual_range" || node.props?.["slider_type"] === "from_to")
+  ) {
+    const base = node.internal_field;
+    return [`${base}_min`, `${base}_max`].map((field) => ({
+      field,
+      answerType: "number" as LeadgenAnswerType,
+      hasDefault: false,
+      defaultValue: undefined,
+    }));
+  }
+
   if (isNonEmptyString(node.internal_field)) {
     return [
       {

@@ -63,8 +63,8 @@ import type { ResolvedActivatedFunnel } from "./resolver";
 import { computeSectionOrderHash } from "./config-dto";
 import {
   resolvePagePlan,
-  loadRoutingRules,
-  deriveCheckpointPages,
+  loadQuoteRoutingRules,
+  deriveQuoteCheckpointPages,
   checkpointPageAnchors,
   resolveEffectiveFrameOnly,
   buildFrameCtaCtx,
@@ -377,14 +377,15 @@ export async function mintFunnelAttempt(
     const resolved_plan = resolvePagePlan(resolved.pages, entryCtx, sessionId);
     pagePlanHash = resolved_plan.hash;
     pagePlan = resolved_plan.winners;
-    // Derive the checkpoint pages from the variant's routing rules. A degraded
-    // read (no DB in a unit harness) simply yields none → no /lg/checkpoint
-    // calls (fail-safe; the server still re-derives authoritatively).
+    // LeadGen Rework §4.3-3: derive the checkpoint pages from the QUOTE's
+    // routing rules over the RESOLVED (shared + variant) plan. A degraded read
+    // (no DB in a unit harness) yields none → no /lg/ck calls (fail-safe; the
+    // server still re-derives authoritatively at /lg/ck).
     const db = (env as { DB?: D1Database }).DB;
     if (db !== undefined) {
       try {
-        const rules = await loadRoutingRules(db, resolved.variant.id);
-        const pageNumbers = deriveCheckpointPages(resolved.pages, rules);
+        const rules = await loadQuoteRoutingRules(db, resolved.quote.id);
+        const pageNumbers = deriveQuoteCheckpointPages(resolved.pages, rules);
         checkpointPages = checkpointPageAnchors(pageNumbers, resolved_plan.pages);
       } catch {
         checkpointPages = [];

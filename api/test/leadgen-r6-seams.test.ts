@@ -134,6 +134,26 @@ const LEADGEN_MIGRATIONS = [
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql", // adds leadgen_funnels.frame_config_json + theme_json
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  // Rework P1 (§5 M1-M12): the full migration set. quotes-handlers.ts's
+  // createQuoteHandler/putVariantHandler already write the M4 columns
+  // (leadgen_funnels.display_order, leadgen_quotes.default_funnel_id)
+  // unconditionally — this suite's createQuoteWithSections/
+  // attachAuctionAndActivate fixtures 500'd against the pre-M1 schema before
+  // this bump (pre-existing test-harness staleness, unrelated to any single
+  // slice's own code). The M2 owner axis (leadgen_funnel_variant_sections.
+  // quote_id) is what sections-handlers.ts's findActiveFunnelsReferencing-
+  // Section / readSectionUsageRows now read.
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 const TENANT_HOST = "one.example.com";
@@ -298,6 +318,30 @@ async function createQuoteWithSections(h: Harness, name: string, sectionIds: num
   return { quotePublicId: created.public_id, funnelPublicId, funnelId: funnelRow.id, variantPublicId };
 }
 
+// Rework M2 (§4.3-1, §4.3-15): activation now also requires the quote's
+// shared first page (leadgen_funnel_pages, quote_id-owned) to carry ≥1
+// section — a section distinct from the funnel/variant's own (§4.3-13
+// uniqueness). Route wiring for POST/PUT /quotes/:id/shared-page is
+// mid-flight in another round, so this seeds the SQL shape directly
+// (mirrors leadgen-rework-handlers.test.ts / leadgen-rework-routing.test.ts).
+function seedSharedPageSection(sdb: SqliteDb, quoteId: number): void {
+  const sectionPublicId = mintPublicId("section");
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, 'Shared', 'quote_funnel', 'life', 'Shared', ?, 'button', 'active')",
+    )
+    .run(sectionPublicId, JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "qs1", question_key: "ks", internal_field: "fs", answer_type: "boolean" }] }));
+  const sectionId = (sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(sectionPublicId) as { id: number }).id;
+  const pagePublicId = mintPublicId("funnel_page");
+  sdb.prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, NULL)").run(pagePublicId, quoteId);
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+       VALUES (?, ?, 0, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+    )
+    .run(quoteId, sectionId, pagePublicId);
+}
+
 // Create an active dynamic auction on the quote's funnel + activate the quote
 // on site-1 under `slug`. Returns the activation Response (caller asserts).
 async function attachAuctionAndActivate(h: Harness, q: CreatedQuote, slug: string): Promise<Response> {
@@ -323,6 +367,7 @@ async function attachAuctionAndActivate(h: Harness, q: CreatedQuote, slug: strin
   expect(auctionRes.status, `create auction: ${await auctionRes.clone().text()}`).toBe(201);
   const auction = (await auctionRes.json()) as { id: number };
   await admin.request(`${API}/variants/${q.variantPublicId}`, jsonInit("PUT", { auction_id: auction.id }), h.env);
+  seedSharedPageSection(h.sdb, quoteRow.id);
   return admin.request(`${API}/quotes/${q.quotePublicId}/activation/site-1`, jsonInit("PUT", { enabled: true, slug }), h.env);
 }
 
@@ -391,6 +436,7 @@ describeDb("R6 SEAM 2 — activation preflight: maps_no_job block with a fix_url
       CONT,
     ]);
     const q = await createQuoteWithSections(h, "Seam2 Maps Fixed Quote", [section.id]);
+    seedSharedPageSection(h.sdb, (h.sdb.prepare("SELECT id FROM leadgen_quotes WHERE public_id = ?").get(q.quotePublicId) as { id: number }).id);
     const put = await admin.request(
       `${API}/quotes/${q.quotePublicId}/activation/site-1`,
       jsonInit("PUT", { enabled: true, slug: "seam2-maps-fixed" }),
@@ -527,6 +573,59 @@ describeDb("R6 SEAM 3 — publish a section edit → live /lg/:slug serve reflec
     // still serves its ORIGINAL headline (no incidental/global invalidation).
     const decoyAfter = await serveHtml(h.env, "seam3-bounded-decoy");
     expect(decoyAfter, "the decoy funnel's cache is completely untouched").toContain(ORIG);
+  });
+
+  // Rework M2 (§4.3-1/§4.3-2 "shared first page", §5-M2 P1 entry gate): a
+  // Section can ALSO be reached ONLY via a Quote's shared page
+  // (leadgen_funnel_variant_sections.quote_id set, variant_id NULL) rather
+  // than any funnel variant's own page order. findActiveFunnelsReferencing-
+  // Section must sweep that quote's active funnel too, or an edit to a
+  // shared-page Section would leave it silently stale — the SAME staleness
+  // class this SEAM exists to catch, on the axis this rework adds. (The live
+  // /lg/:slug serve path does not yet COMPOSE shared-page content — that is
+  // resolver.ts's own, separate P1 slice — so this proves the CACHE-BUSTING
+  // side effect directly, via the same instrumentDeletes probe the bounded-set
+  // test above uses, rather than asserting served HTML content.)
+  it("a section placed ONLY on the quote's shared page still invalidates the active funnel serving that page", async () => {
+    const h = newHarness();
+    await seedActivated(h, "seam3-shared-page", "Seam3 Shared Page Quote");
+    const quoteId = (h.sdb.prepare("SELECT id FROM leadgen_quotes ORDER BY id DESC LIMIT 1").get() as { id: number }).id;
+    // Warm the shell+config cache with a REAL serve first (the bounded-set
+    // test's convention above) — invalidateOnVariantPublish list-then-deletes
+    // by KV prefix, so nothing to invalidate would ALSO show zero deletes for
+    // a genuinely-working sweep; warming makes an empty `deletes` mean what
+    // it claims (nothing invalidated), not "nothing was ever cached".
+    await serveHtml(h.env, "seam3-shared-page");
+
+    // The SHARED-PAGE section: raw-inserted with quote_id set (NOT
+    // variant_id) — never placed in the variant's own `sections` list
+    // seedActivated/createQuoteWithSections already wrote.
+    const sharedSection = seedSectionRaw(h.sdb, [headlineNode(ORIG), ZIP, CONT], {
+      headline: COLUMN_HEADLINE_UNEDITED,
+    });
+    // position 1 — position 0 is seedActivated's own shared-page section (its
+    // M2 activation prerequisite, via attachAuctionAndActivate).
+    h.sdb
+      .prepare("INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position) VALUES (?, ?, 1)")
+      .run(quoteId, sharedSection.id);
+
+    const { kv: instrumented, deletes } = instrumentDeletes(h.env.CACHE);
+    h.env.CACHE = instrumented;
+    const captured = captureCtx();
+
+    const patch = await admin.request(
+      `${API}/sections/${sharedSection.public_id}`,
+      jsonInit("PATCH", { content_json: sectionContent(EDITED) }),
+      h.env,
+      captured.ctx,
+    );
+    expect(patch.status, `patch shared-page section: ${await patch.clone().text()}`).toBe(200);
+    await Promise.all(captured.promises);
+
+    expect(
+      deletes,
+      `a Section used ONLY via the quote's shared page must still invalidate the active funnel's cache (owner-axis sweep); got ${JSON.stringify(deletes)}`,
+    ).not.toEqual([]);
   });
 });
 

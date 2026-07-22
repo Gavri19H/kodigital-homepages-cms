@@ -129,6 +129,24 @@ const LEADGEN_MIGRATIONS = [
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  // Rework P1 (§5 M1-M12): the full migration set. quotes-handlers.ts's
+  // createQuoteHandler/putVariantHandler already write the M4 columns
+  // (leadgen_funnels.display_order, leadgen_quotes.default_funnel_id)
+  // unconditionally, so this suite's fixture creation needs the schema they
+  // land in; the M2 owner axis (leadgen_funnel_variant_sections.quote_id) is
+  // what sections-handlers.ts's readSectionUsageRows now reads (the "Used in
+  // N quotes" GET /usage tests below).
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {

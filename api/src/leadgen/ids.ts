@@ -35,6 +35,11 @@ export const PUBLIC_ID_PREFIXES = {
   // plain integer id, the same convention target_offer_id/target_section_id
   // already use on leadgen_funnel_rules.
   funnel_page: "lgpg_",
+  // Rework M3 (§5-M3): a quote-scoped, multi-action routing rule
+  // (leadgen_quote_routing_rules). Rework M5 (§5-M5): a saved frame template
+  // (leadgen_frame_templates). Both mint <prefix>+ULID like every other kind.
+  quote_routing_rule: "lgqr_",
+  frame_template: "lgft_",
 } as const;
 
 export type PublicIdKind = keyof typeof PUBLIC_ID_PREFIXES;
@@ -85,9 +90,10 @@ export function ulid(now: number = Date.now()): string {
   return encodeTime(now) + encodeRandom();
 }
 
-// Mint a prefixed public id for one of the fifteen leadgen entity kinds:
+// Mint a prefixed public id for one of the leadgen entity kinds:
 // lgo_ lgpl_ lgp_ lgrr_ lgs_ lgm_ lgq_ lgf_ lgx_ lgn_ lgfr_ lga_ lgar_ lgl_ lgpg_
-// (contract 02 §6.1 + §6.3; lgpg_ added round4 P3a, D-3 pages model).
+// lgqr_ lgft_ (contract 02 §6.1 + §6.3; lgpg_ added round4 P3a, D-3 pages model;
+// lgqr_/lgft_ added by the rework M3/M5 — quote routing rules + frame templates).
 export function mintPublicId(kind: PublicIdKind, now: number = Date.now()): string {
   return PUBLIC_ID_PREFIXES[kind] + ulid(now);
 }

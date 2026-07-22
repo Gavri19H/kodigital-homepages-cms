@@ -150,37 +150,48 @@ test.describe.serial("LeadGen v2.5 Quote Builder frame studio — §15.3 rows", 
     await expect(canvas(page).locator("[data-frame-region='progress'] .lg-progress")).toBeVisible({ timeout: 20_000 });
     await expect(canvas(page).locator("[data-frame-region='progress'] .lg-steps")).toHaveCount(0);
 
+    // §4.3-11: the composed denominator now includes the quote's shared-page
+    // section (this fixture seeds one) — 3 own slides + 1 shared = 4. "step
+    // through ALL slides" now means all 4.
     // step through ALL slides — the per-page progress values ADVANCE
     await page.locator('[data-preview-mode-btn="all"]').click();
-    await expect(page.locator("#lg-step-label")).toHaveText("Slide 1 of 3", { timeout: 20_000 });
+    await expect(page.locator("#lg-step-label")).toHaveText("Slide 1 of 4", { timeout: 20_000 });
     const bar = canvas(page).locator("[data-frame-region='progress'] [role='progressbar']").first();
     await expect(bar).toBeVisible({ timeout: 20_000 });
     const v1 = Number(await bar.getAttribute("aria-valuenow"));
 
     await page.locator("#lg-step-next").click();
-    await expect(page.locator("#lg-step-label")).toHaveText("Slide 2 of 3");
+    await expect(page.locator("#lg-step-label")).toHaveText("Slide 2 of 4");
     await expect(bar).toBeVisible({ timeout: 20_000 });
     const v2 = Number(await bar.getAttribute("aria-valuenow"));
     expect(v2, `progress advanced (${v1} → ${v2})`).toBeGreaterThan(v1);
     await page.screenshot({ path: `${SHOT_DIR}/leadgen-b-04b-all-slides-step2.png` });
 
     await page.locator("#lg-step-next").click();
-    await expect(page.locator("#lg-step-label")).toHaveText("Slide 3 of 3");
+    await expect(page.locator("#lg-step-label")).toHaveText("Slide 3 of 4");
     await expect(bar).toBeVisible({ timeout: 20_000 });
     const v3 = Number(await bar.getAttribute("aria-valuenow"));
     expect(v3, `progress advanced (${v2} → ${v3})`).toBeGreaterThan(v2);
+
+    await page.locator("#lg-step-next").click();
+    await expect(page.locator("#lg-step-label")).toHaveText("Slide 4 of 4");
+    await expect(bar).toBeVisible({ timeout: 20_000 });
+    const v4 = Number(await bar.getAttribute("aria-valuenow"));
+    expect(v4, `progress advanced (${v3} → ${v4})`).toBeGreaterThan(v3);
   });
 
   test("⑤ footer/disclosure/trust configured → appear around EVERY slide in all-slides mode", async ({ page }) => {
     test.setTimeout(120_000);
     await openEditor(page);
     await page.locator('[data-preview-mode-btn="all"]').click();
-    await expect(page.locator("#lg-step-label")).toHaveText("Slide 1 of 3", { timeout: 20_000 });
+    // §4.3-11: the composed denominator now includes the quote's shared-page
+    // section — 3 own slides + 1 shared = 4.
+    await expect(page.locator("#lg-step-label")).toHaveText("Slide 1 of 4", { timeout: 20_000 });
 
-    for (let slide = 1; slide <= 3; slide += 1) {
+    for (let slide = 1; slide <= 4; slide += 1) {
       if (slide > 1) {
         await page.locator("#lg-step-next").click();
-        await expect(page.locator("#lg-step-label")).toHaveText(`Slide ${slide} of 3`);
+        await expect(page.locator("#lg-step-label")).toHaveText(`Slide ${slide} of 4`);
       }
       const frame = canvas(page);
       // footer (manual links + trust text) rides EVERY composed page
@@ -239,12 +250,17 @@ test.describe.serial("LeadGen v2.5 Quote Builder frame studio — §15.3 rows", 
 
   test("⑦ the variant override badge appears when a non-control arm overrides progress (hidden on control)", async ({ page }) => {
     test.setTimeout(90_000);
+    // Rework M1 (§4.3-10) + conductor extension round 2: leadgen-b-seed.ts
+    // now bootstraps arm B through the sanctioned create-experiment ->
+    // start -> fork flow. armBVariantId is only null if that flow itself
+    // regresses — fail loud (not skip) so a real regression is never silent.
+    expect(seed.armBVariantId, seed.armBBlockedReason ?? "arm B was not created").toBeTruthy();
     // control arm: no overrides → badge hidden
     await openEditor(page);
     await expect(page.locator("#lg-override-badge")).toBeHidden();
 
     // arm B: stored progress override → badge visible, naming the group
-    await openEditor(page, seed.armBVariantId);
+    await openEditor(page, seed.armBVariantId!);
     const badge = page.locator("#lg-override-badge");
     await expect(badge).toBeVisible();
     await expect(badge).toContainText("Variant overrides:");
@@ -258,7 +274,9 @@ test.describe.serial("LeadGen v2.5 Quote Builder frame studio — §15.3 rows", 
 
   test("⑧ 04 §4.7: ONE Save persists frame + theme + overrides; the publish chip refreshes to the server verdict", async ({ page }) => {
     test.setTimeout(120_000);
-    await openEditor(page, seed.armBVariantId);
+    // Same arm-B bootstrap as row ⑦ above — see that test's comment.
+    expect(seed.armBVariantId, seed.armBBlockedReason ?? "arm B was not created").toBeTruthy();
+    await openEditor(page, seed.armBVariantId!);
 
     // FRAME edit (funnel-level): select the header via the canvas logo region
     // → tagline

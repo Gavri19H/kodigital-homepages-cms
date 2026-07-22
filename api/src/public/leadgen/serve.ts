@@ -62,6 +62,7 @@ import {
   resolveActivatedFunnelByVariant,
   parseUtmFromLandingUrl,
   resolveEffectiveFrameOnly,
+  deriveOs,
   type ResolvedActivatedFunnel,
   type ResolvedFunnelSection,
   type FunnelAssignment,
@@ -803,17 +804,23 @@ export async function serveFunnelShell(
   const sidWasAbsent = sid === "";
   if (sidWasAbsent) sid = genSessionId();
 
-  // P4a (D-2) entry-routing attributes: CF geo state + UA device + landing-URL
-  // UTM (the request URL carries the ad params) + the server UTC clock. When an
-  // entry-plane routing rule on the control variant matches these, the resolver
-  // serves its target variant (routing ≻ A/B) — and since variantId feeds the
-  // cache key below, each routed target caches its OWN shell (no poisoning).
+  // P4a (D-2) / LeadGen Rework §4.3-3a entry-routing attributes: CF geo state +
+  // UA device + M10 os (the SAME deriveOs bucket + the SAME User-Agent header
+  // /lg/attempt + /lg/ck derive it from — shell-serve parity so an os-
+  // conditioned entry rule selects the funnel identically whether the FIRST
+  // request is this shell or a later /lg/attempt) + landing-URL UTM (the
+  // request URL carries the ad params) + the server UTC clock. When an
+  // entry-plane routing rule matches these, the resolver serves its target
+  // funnel (routing ≻ A/B) — and since variantId feeds the cache key below,
+  // each routed target caches its OWN shell (no poisoning).
   const geo = geoFromCf(readCfSignals(c.req.raw));
-  const ua = parseClientUa(c.req.header("User-Agent"));
+  const userAgent = c.req.header("User-Agent");
+  const ua = parseClientUa(userAgent);
   const now = new Date();
   const entryCtx: EntryKnownContext = {
     hour: now.getUTCHours(),
     weekday: now.getUTCDay(),
+    os: deriveOs(userAgent),
     ...(geo.state !== "" ? { state: geo.state } : {}),
     ...(ua.device !== "" ? { device: ua.device } : {}),
     ...parseUtmFromLandingUrl(c.req.url),

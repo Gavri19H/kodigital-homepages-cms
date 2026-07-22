@@ -102,6 +102,7 @@ import { renderRulesBuilderPanel, RULES_BUILDER_SCRIPT } from "./ui-rules-builde
 import {
   renderRoutingRulesPanel,
   ROUTING_RULES_SCRIPT,
+  ROUTING_RULE_TYPES,
   type RoutingBuilderData,
   type RoutingRuleRowData,
   type RoutingRuleType,
@@ -168,7 +169,6 @@ interface VariantNode {
   funnel_id: string;
   funnel_variant_id: string;
   variant_label: string;
-  is_control: boolean;
   traffic_allocation_bp: number;
   funnel_design_id: string;
   auction_id: number | null;
@@ -1286,24 +1286,44 @@ export async function leadgenQuotesNewPage(c: UiContext): Promise<Response> {
 // Editor page (03 §9.4) — five-tab full-page editor
 // ---------------------------------------------------------------------------
 
+// Rework M1 (§5-M1, §4.3-10): `is_control` no longer exists on
+// leadgen_funnel_variants — "no control concept anywhere." Replacement
+// semantics: with no running test a funnel has exactly one active variant
+// (validation enforces this); the deterministic pick/tie-break order is
+// variant_label ASC, id ASC (labels A/B/C). This recovers, purely from data
+// already on hand, "the" variant a funnel edits directly — the same role
+// is_control played for the frame/theme override-target split (§4.5), the
+// A/B tab's diff baseline, and the default-variant fallback — without any
+// DB flag. Every one of ui-quotes.ts's verified is_control read-sites (§5-M1
+// inventory) is a caller of this one function.
+function primaryVariantOf(variants: readonly VariantNode[]): VariantNode | null {
+  let best: VariantNode | null = null;
+  for (const v of variants) {
+    if (best === null || v.variant_label < best.variant_label || (v.variant_label === best.variant_label && v.id < best.id)) {
+      best = v;
+    }
+  }
+  return best;
+}
+
 function findSelectedVariant(structure: StructureBody, wanted: string): VariantNode | null {
-  let firstControl: VariantNode | null = null;
   let firstAny: VariantNode | null = null;
   for (const f of structure.funnels) {
     for (const v of f.variants) {
       if (firstAny === null) firstAny = v;
-      if (firstControl === null && v.is_control) firstControl = v;
       if (v.public_id === wanted) return v;
     }
   }
-  return firstControl ?? firstAny;
+  const firstFunnel = structure.funnels[0] ?? null;
+  const primary = firstFunnel ? primaryVariantOf(firstFunnel.variants) : null;
+  return primary ?? firstAny;
 }
 
 function renderVariantSelector(structure: StructureBody, selected: VariantNode): string {
   const opts: string[] = [];
   for (const f of structure.funnels) {
     for (const v of f.variants) {
-      const label = `${f.funnel_name} · ${v.variant_label}${v.is_control ? " (control)" : ""}`;
+      const label = `${f.funnel_name} · ${v.variant_label}`;
       opts.push(
         `<option value="${escapeHtml(v.public_id)}"${v.public_id === selected.public_id ? " selected" : ""}>${escapeHtml(label)}</option>`,
       );
@@ -1937,7 +1957,7 @@ function renderStructurePanel(
       const pct = (v.traffic_allocation_bp / 100).toFixed(0);
       const current = v.public_id === variant.public_id;
       return `<div class="lg-structure-row${current ? " lg-slide-current" : ""}" data-arm-row="${escapeHtml(v.public_id)}">
-    <a class="lg-grow" href="/admin/leadgen/quotes/${escapeHtml(structure.quote.public_id)}/edit?variant=${escapeHtml(v.public_id)}">${escapeHtml(v.variant_label)}${v.is_control ? " (control)" : ""}</a>
+    <a class="lg-grow" href="/admin/leadgen/quotes/${escapeHtml(structure.quote.public_id)}/edit?variant=${escapeHtml(v.public_id)}">${escapeHtml(v.variant_label)}</a>
     <span class="form-help">${escapeHtml(pct)}%</span>
   </div>`;
     })
@@ -1956,7 +1976,7 @@ function renderStructurePanel(
   </div>
   <div class="lg-panel-card" id="lg-ab-switcher">
     <h3>A/B variants</h3>
-    ${armRows || `<p class="form-help">One arm (control).</p>`}
+    ${armRows || `<p class="form-help">One arm.</p>`}
     <button type="button" class="lg-qtab" data-goto-tab="ab">Manage allocation &amp; tests &#8594;</button>
     <button type="button" class="lg-qtab" data-goto-tab="rules">Rules for this variant &#8594;</button>
   </div>
@@ -2030,7 +2050,7 @@ function renderCanvasPanel(templates: FrameTemplateItem[], sites: PreviewSiteOpt
   for (const f of structure.funnels) {
     for (const v of f.variants) {
       variantOptions.push(
-        `<option value="${escapeHtml(v.public_id)}"${v.public_id === selected.public_id ? " selected" : ""}>${escapeHtml(v.variant_label)}${v.is_control ? " (control)" : ""}</option>`,
+        `<option value="${escapeHtml(v.public_id)}"${v.public_id === selected.public_id ? " selected" : ""}>${escapeHtml(v.variant_label)}</option>`,
       );
     }
   }
@@ -2668,11 +2688,14 @@ function renderBuilderPanel(
   sites: PreviewSiteOption[],
   routingData: RoutingBuilderData,
 ): string {
+  // Rework M1 replacement semantics — see primaryVariantOf's doc comment.
+  const ownFunnel = structure.funnels.find((f) => f.funnel_id === variant.funnel_id) ?? null;
+  const isControl = primaryVariantOf(ownFunnel?.variants ?? [variant])?.public_id === variant.public_id;
   return `<div class="lg-qpanel active" data-panel="builder">
   <div class="lg-studio" id="lg-frame-studio">
     ${renderStructurePanel(structure, variant, designs, auctions, available)}
     ${renderCanvasPanel(templates, sites, structure, variant)}
-    ${renderInspectorColumn(variant.is_control, variant, routingData)}
+    ${renderInspectorColumn(isControl, variant, routingData)}
   </div>
 </div>`;
 }
@@ -2701,7 +2724,13 @@ export type RulesBuilderData = Parameters<typeof renderRulesBuilderPanel>[0];
 // preservation list. NO operator ever sees or types a raw integer id: the
 // modal's by-NAME pickers are what actually drive these hidden values.
 function renderRuleRow(rule: RuleNode | null, index = -1, targetVariantPublicId = ""): string {
-  const ruleTypes = ["redirect_direct_offer", "skip_section", "show_section", "eligibility", "disqualification", "auction_entry", "route_funnel_variant"];
+  // Rework M3 (§5-M3, D5): leadgen_funnel_rules' CHECK is now tightened to
+  // exactly these four auction-domain types — route_funnel_variant rows
+  // migrated to the new quote-scoped leadgen_quote_routing_rules (P3b UI),
+  // skip_section/show_section rows are guarded off (never exist post-
+  // migration). Offering a removed type here would let a save attempt hit
+  // the DB CHECK.
+  const ruleTypes = ["redirect_direct_offer", "eligibility", "disqualification", "auction_entry"];
   const selectedType = rule?.rule_type ?? "eligibility";
   const typeOptions = ruleTypes
     .map((t) => `<option value="${t}"${t === selectedType ? " selected" : ""}>${t}</option>`)
@@ -2841,7 +2870,8 @@ function renderAbPanel(structure: StructureBody, selected: VariantNode): string 
   const funnel =
     structure.funnels.find((f) => f.funnel_id === selected.funnel_id) ?? structure.funnels[0] ?? null;
   const variants = funnel?.variants ?? [];
-  const control = variants.find((v) => v.is_control) ?? variants[0] ?? null;
+  // Rework M1 replacement semantics — see primaryVariantOf's doc comment.
+  const control = primaryVariantOf(variants);
   const tests = funnel?.ab_tests ?? [];
   const running = tests.find((t) => t.status === "running") ?? null;
   const activeTest = running ?? tests[0] ?? null; // ab_tests are newest-first
@@ -2862,7 +2892,7 @@ function renderAbPanel(structure: StructureBody, selected: VariantNode): string 
           ? `<p class="form-help" data-arm-variance="${escapeHtml(v.public_id)}">${escapeHtml(variantWhatVaries(control, v))}</p>`
           : "";
       return `<div class="lg-alloc-row" data-variant="${escapeHtml(v.public_id)}">
-    <span class="lg-alloc-label"><strong>${escapeHtml(v.variant_label)}</strong>${v.is_control ? " (control)" : ""}</span>
+    <span class="lg-alloc-label"><strong>${escapeHtml(v.variant_label)}</strong></span>
     <label class="lg-alloc-pct"><input type="number" class="form-input lg-alloc-input" data-alloc-input
       data-variant-id="${escapeHtml(v.public_id)}" data-variant-label="${escapeHtml(v.variant_label)}"
       min="0" max="100" step="0.01" value="${escapeHtml(String(pct))}" /> %</label>
@@ -3097,12 +3127,17 @@ function quoteDataBlob(
   sites: PreviewSiteOption[],
   activation: ActivationBody | null,
 ): string {
+  // Rework M1 replacement semantics — see primaryVariantOf's doc comment.
+  // The JSON key name stays `selected_variant_is_control` (the client island
+  // reads it verbatim) — only its source computation changes.
+  const ownFunnel = structure.funnels.find((f) => f.funnel_id === selected.funnel_id) ?? null;
+  const isControl = primaryVariantOf(ownFunnel?.variants ?? [selected])?.public_id === selected.public_id;
   const data = {
     quote_public_id: structure.quote.public_id,
     quote_id: structure.quote.quote_id,
     activity: structure.quote.activity,
     selected_variant: selected.public_id,
-    selected_variant_is_control: selected.is_control,
+    selected_variant_is_control: isControl,
     funnel_public_id: funnelPublicId,
     sections: selected.sections.map((s) => ({ public_id: s.section_public_id, name: s.section_name })),
     frame,
@@ -3142,6 +3177,9 @@ function quoteEditorHtml(
     structure.funnels.find((f) => f.funnel_id === selected.funnel_id)?.public_id ??
     structure.funnels[0]?.public_id ??
     "";
+  // Rework M1 replacement semantics — see primaryVariantOf's doc comment.
+  const ownFunnel = structure.funnels.find((f) => f.funnel_id === selected.funnel_id) ?? null;
+  const selectedIsControl = primaryVariantOf(ownFunnel?.variants ?? [selected])?.public_id === selected.public_id;
   const verticalChips = (Array.isArray(q.verticals_json) ? q.verticals_json : [])
     .map((v) => `<span class="lg-chip">${escapeHtml(v)}</span>`)
     .join("");
@@ -3206,8 +3244,8 @@ function quoteEditorHtml(
   ${variantBar}
   ${subtabs}
   ${renderBuilderPanel(structure, selected, designs, auctions, available, templates, sites, routingData)}
-  ${renderTemplatesTabPanel(selected.is_control, routingData.fields)}
-  ${renderThemesTabPanel(selected.is_control)}
+  ${renderTemplatesTabPanel(selectedIsControl, routingData.fields)}
+  ${renderThemesTabPanel(selectedIsControl)}
   ${renderAbPanel(structure, selected)}
   ${renderActivationPanel(activation)}
   ${renderAnalyticsPanel()}
@@ -3353,19 +3391,15 @@ type RoutingBuilderVariantRefLocal = RoutingBuilderData["variants"][number];
 
 // Round-4 P4b: RuleNode (the API/client rule shape) -> the unified builder's
 // table/modal seed shape. rule_type is widened from `string` defensively
-// (any legacy/corrupt value outside the 7 known types falls back to
+// (any legacy/corrupt value outside the known types falls back to
 // "eligibility" for DISPLAY only — the real stored value rides byte-exact in
 // the hidden [data-rule-type] carrier collectRules() reads, so a save never
-// silently changes an unrecognized type).
-const KNOWN_ROUTING_RULE_TYPES: ReadonlySet<string> = new Set([
-  "route_funnel_variant",
-  "redirect_direct_offer",
-  "skip_section",
-  "show_section",
-  "eligibility",
-  "disqualification",
-  "auction_entry",
-]);
+// silently changes an unrecognized type). Rework M3: derived from
+// ui-rules-builder.ts's ROUTING_RULE_TYPES (the single source of truth for
+// leadgen_funnel_rules' 4-type CHECK) instead of a hand-duplicated list, so
+// the two files can never drift apart again the way the pre-rework 7-value
+// literal did.
+const KNOWN_ROUTING_RULE_TYPES: ReadonlySet<string> = new Set(ROUTING_RULE_TYPES);
 function toRoutingRuleRowData(r: RuleNode, index: number): RoutingRuleRowData {
   return {
     index,
@@ -6166,6 +6200,29 @@ const QUOTE_EDITOR_SCRIPT = `
   // new arm's theme override (frame_overrides_json.theme_id) — the theme A/B
   // one-click path; null leaves the fork's own cloned theme untouched (the
   // generic "Add variant" path).
+  // §16.2 line 35 (quotes-handlers.ts putVariantHandler): a traffic_allocation_bp
+  // CHANGE on an ACTIVE variant whose funnel has a RUNNING test is refused
+  // (409) — "the operator rebalances via stop -> edit -> start, and START
+  // bumps the revision + re-gates Σ==10000 + cleanly re-buckets." fork's own
+  // precondition requires a running test to bootstrap the 2nd arm, so
+  // forkWithAllocation/saveAllocations always hit this guard when they try to
+  // set a CUSTOM split afterward — both ride that exact stop -> edit -> start
+  // cycle below rather than the old bare concurrent PUTs.
+  function findRunningExperimentId() {
+    var stopBtn = root.querySelector('[data-stop-experiment]');
+    return stopBtn ? stopBtn.getAttribute('data-stop-experiment') : null;
+  }
+  function stopExperimentReq(id) {
+    return fetch('/api/admin/leadgen/experiments/' + encodeURIComponent(id) + '/stop', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); });
+  }
+  function startExperimentReq(id) {
+    return fetch('/api/admin/leadgen/experiments/' + encodeURIComponent(id) + '/start', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); });
+  }
+
   function forkWithAllocation(themeIdOrNull) {
     var pctStr = window.prompt("New variant's share of traffic, in percent (the rest stays with the current variant):", '50');
     if (pctStr === null) { return; }
@@ -6184,26 +6241,41 @@ const QUOTE_EDITOR_SCRIPT = `
       var newVariantId = res.body.public_id;
       var newPatch = { traffic_allocation_bp: newBp };
       if (themeIdOrNull) { newPatch.frame_overrides_json = { theme_id: themeIdOrNull }; }
-      return Promise.all([
-        fetch('/api/admin/leadgen/variants/' + encodeURIComponent(newVariantId), {
-          method: 'PUT', credentials: 'same-origin',
-          headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify(newPatch)
-        }).then(function (r2) { return r2.json().then(function (j2) { return { ok: r2.ok, body: j2 }; }); }),
-        fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId), {
-          method: 'PUT', credentials: 'same-origin',
-          headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({ traffic_allocation_bp: keepBp })
-        }).then(function (r3) { return r3.json().then(function (j3) { return { ok: r3.ok, body: j3 }; }); })
-      ]).then(function (results) {
-        var failed = null;
-        var k;
-        for (k = 0; k < results.length; k++) { if (!results[k].ok) { failed = results[k].body; break; } }
-        if (failed) {
-          showMsg('lg-quote-error', (failed && failed.error) ? failed.error : 'The variant was added, but saving the traffic split failed — set it from the A/B tab.');
+      var runningTestId = findRunningExperimentId();
+      var stopStep = runningTestId ? stopExperimentReq(runningTestId) : Promise.resolve({ ok: true, body: null });
+      return stopStep.then(function (stopRes) {
+        if (!stopRes.ok) {
+          showMsg('lg-quote-error', (stopRes.body && stopRes.body.error) ? stopRes.body.error : 'The variant was added, but stopping the test to set its split failed — set it from the A/B tab.');
           return;
         }
-        window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(variantPublicId);
+        return Promise.all([
+          fetch('/api/admin/leadgen/variants/' + encodeURIComponent(newVariantId), {
+            method: 'PUT', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify(newPatch)
+          }).then(function (r2) { return r2.json().then(function (j2) { return { ok: r2.ok, body: j2 }; }); }),
+          fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId), {
+            method: 'PUT', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ traffic_allocation_bp: keepBp })
+          }).then(function (r3) { return r3.json().then(function (j3) { return { ok: r3.ok, body: j3 }; }); })
+        ]).then(function (results) {
+          var failed = null;
+          var k;
+          for (k = 0; k < results.length; k++) { if (!results[k].ok) { failed = results[k].body; break; } }
+          if (failed) {
+            showMsg('lg-quote-error', (failed && failed.error) ? failed.error : 'The variant was added, but saving the traffic split failed — set it from the A/B tab.');
+            return;
+          }
+          var startStep = runningTestId ? startExperimentReq(runningTestId) : Promise.resolve({ ok: true, body: null });
+          return startStep.then(function (startRes) {
+            if (!startRes.ok) {
+              showMsg('lg-quote-error', (startRes.body && startRes.body.fields && startRes.body.fields.traffic_allocation_bp) ? startRes.body.fields.traffic_allocation_bp : ((startRes.body && startRes.body.error) ? startRes.body.error : 'The split saved, but restarting the test failed — start it from the A/B tab.'));
+              return;
+            }
+            window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(variantPublicId);
+          });
+        });
       });
     }).catch(function () {
       showMsg('lg-quote-error', 'Network error while adding a variant.');
@@ -6562,33 +6634,59 @@ const QUOTE_EDITOR_SCRIPT = `
   if (saveAllocBtn) {
     saveAllocBtn.addEventListener('click', function () {
       var inputs = allocInputs();
-      var puts = [];
+      var edits = [];
       var i;
       for (i = 0; i < inputs.length; i++) {
         var vid = inputs[i].getAttribute('data-variant-id');
         var pct = parseFloat(inputs[i].value);
         if (!vid || !isFinite(pct)) { continue; }
-        var bp = Math.round(pct * 100);
-        puts.push(fetch('/api/admin/leadgen/variants/' + encodeURIComponent(vid), {
-          method: 'PUT', credentials: 'same-origin',
-          headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({ traffic_allocation_bp: bp })
-        }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }));
+        edits.push({ vid: vid, bp: Math.round(pct * 100) });
       }
       saveAllocBtn.disabled = true;
-      Promise.all(puts).then(function (results) {
-        saveAllocBtn.disabled = false;
-        var k;
-        var failed = null;
-        for (k = 0; k < results.length; k++) { if (!results[k].ok) { failed = results[k].body; break; } }
-        if (failed) { showMsg('lg-quote-error', (failed && failed.fields && failed.fields.traffic_allocation_bp) ? failed.fields.traffic_allocation_bp : 'Allocation save failed'); }
-        else {
-          // this side-save owns the allocation inputs' dirty contribution —
-          // a full success clears it (no spurious beforeunload afterwards)
-          allocDirty = false;
-          showMsg('lg-quote-ok', 'Allocations saved.');
-          recomputeAllocSum();
+      // §16.2 stop -> edit -> start (see forkWithAllocation's doc comment
+      // above): a traffic_allocation_bp CHANGE while the funnel's test is
+      // RUNNING is refused (409) — stop first when one is running, restart
+      // after the edits land (start re-gates Σ==10000 + bumps the revision).
+      var runningTestId = findRunningExperimentId();
+      var stopStep = runningTestId ? stopExperimentReq(runningTestId) : Promise.resolve({ ok: true, body: null });
+      stopStep.then(function (stopRes) {
+        if (!stopRes.ok) {
+          saveAllocBtn.disabled = false;
+          showMsg('lg-quote-error', (stopRes.body && stopRes.body.error) ? stopRes.body.error : 'Stopping the running test to edit allocations failed.');
+          return;
         }
+        var puts = [];
+        var j;
+        for (j = 0; j < edits.length; j++) {
+          puts.push(fetch('/api/admin/leadgen/variants/' + encodeURIComponent(edits[j].vid), {
+            method: 'PUT', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ traffic_allocation_bp: edits[j].bp })
+          }).then(function (r) { return r.json().then(function (j2) { return { ok: r.ok, body: j2 }; }); }));
+        }
+        return Promise.all(puts).then(function (results) {
+          var k;
+          var failed = null;
+          for (k = 0; k < results.length; k++) { if (!results[k].ok) { failed = results[k].body; break; } }
+          if (failed) {
+            saveAllocBtn.disabled = false;
+            showMsg('lg-quote-error', (failed && failed.fields && failed.fields.traffic_allocation_bp) ? failed.fields.traffic_allocation_bp : 'Allocation save failed');
+            return;
+          }
+          var startStep = runningTestId ? startExperimentReq(runningTestId) : Promise.resolve({ ok: true, body: null });
+          return startStep.then(function (startRes) {
+            saveAllocBtn.disabled = false;
+            if (!startRes.ok) {
+              showMsg('lg-quote-error', (startRes.body && startRes.body.fields && startRes.body.fields.traffic_allocation_bp) ? startRes.body.fields.traffic_allocation_bp : ((startRes.body && startRes.body.error) ? startRes.body.error : 'Allocations saved, but restarting the test failed — start it from the A/B tab.'));
+              return;
+            }
+            // this side-save owns the allocation inputs' dirty contribution —
+            // a full success clears it (no spurious beforeunload afterwards)
+            allocDirty = false;
+            showMsg('lg-quote-ok', 'Allocations saved.');
+            recomputeAllocSum();
+          });
+        });
       });
     });
   }
