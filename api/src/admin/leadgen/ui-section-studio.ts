@@ -1287,6 +1287,26 @@ html,body{margin:0;padding:0;background:#fff}
    geometry is identical with/without it (live == edit). */
 .studio-add-ghost-row{margin:8px 0 4px;text-align:left}
 .studio-add-ghost-btn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--c-border);border-radius:6px;background:var(--c-surface);color:var(--c-muted);font-size:11.5px;font-weight:600;padding:5px 11px;cursor:pointer;font-family:inherit;min-height:0}
+/* Product-fix round (S2.4): ROOT-CAUSE (live-measured, chromium) — the ghost
+   row is now a REAL DOM sibling inside .lg-question-card/.lg-card-panel/
+   .lg-bg-panel-inner, so the funnel's own rhythm mechanism in styles.ts (the
+   universal direct-child-adjacent-sibling selectors for those same three
+   container classes) was WINNING the cascade for margin-top specifically,
+   silently overriding the declared 8px above to 18px (spacing.stack) — an
+   unintended interaction between the section 6.1 ghost and a mechanism that
+   was never meant to space decorator chrome. That competing selector itself
+   carries a per-design scope ATTRIBUTE plus a class (specificity 0,2,0) and
+   loads AFTER this stylesheet in the srcdoc's document order, so a same-
+   specificity (0,2,0) override here still LOSES the tie on order alone — the
+   override below adds the data-add-ghost-row attribute the ghost row already
+   carries (see the island's insert site) as a THIRD selector component
+   (specificity 0,3,0: two classes plus one attribute), which is strictly
+   greater and wins regardless of load order. NOTE (L-185): no backticks in
+   this comment — this whole block is inside a backtick-delimited TS template
+   literal (SECTION_STUDIO_CANVAS_FRAME_CSS), and a literal backtick anywhere
+   inside it, even in a CSS comment, closes the outer literal early and
+   breaks the build. */
+.lg-question-card>.studio-add-ghost-row[data-add-ghost-row],.lg-card-panel>.studio-add-ghost-row[data-add-ghost-row],.lg-bg-panel-inner>.studio-add-ghost-row[data-add-ghost-row]{margin-top:8px}
 /* Round-4 A-3 (P1a): MultiQuestionGrid canvas affordances — the "Add a
    sub-question" strip (a studio-choice-ghost, no in-grid layout impact) and the
    zero-row legacy empty-state box (never a blank shell). */

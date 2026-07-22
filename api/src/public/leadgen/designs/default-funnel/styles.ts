@@ -868,6 +868,20 @@ export function funnelChromeCss(
   // the column count (buttons don't collapse like cards) and only narrows the
   // gutter. Pinned by leadgen-u11-centering (inline centering) + the new
   // leadgen-p1-geometry.gesture gate (equal cells, gap, centering, ≥52 height).
+  // FIX-FIRST (F1, §6.7 adversarial review, 2026-07-22): this rule's TEXT
+  // needs NO change at all — a partial trailing row's doubled track count is
+  // an INLINE `grid-template-columns` override presets.ts emits directly on
+  // that ONE instance (wins by cascade specificity over this class rule; see
+  // gridItemColumnEntries's own comment for the pixel-equivalence proof —
+  // the SAME gap token produces pixel-identical full-row cell widths whether
+  // the instance is doubled or not). This class rule, --lg-cols's own value,
+  // and every exact-fit instance are all COMPLETELY untouched — no new
+  // custom property, no changed rule text, byte-identical stylesheet output.
+  // A grid-based fix (not the P0 pack's flexbox `display:flex;flex-wrap:
+  // wrap;justify-content:center`) was chosen specifically because THIS class
+  // is measured via getComputedStyle(...).gridTemplateColumns by the pinned
+  // leadgen-p1-geometry.gesture.spec.ts (btnTracks, desktop AND mobile) —
+  // flexbox would report "none" and break that gate outright.
   out.push(
     rule(`${scope} .lg-answer-group`, {
       display: "grid",
@@ -1115,10 +1129,26 @@ export function funnelChromeCss(
   );
 
   // ---- icon/answer card grid + card + states (§14.2 iconCardGrid/iconCard) -
+  // FIX-FIRST (F1, §6.7 adversarial review, 2026-07-22): same note as
+  // .lg-answer-group above — this rule's TEXT needs NO change at all. A
+  // partial trailing row's doubled track count is an INLINE
+  // `grid-template-columns` override presets.ts emits directly on that ONE
+  // instance (wins by cascade specificity over this class rule; see
+  // gridItemColumnEntries's own comment for the pixel-equivalence proof).
+  // This class rule, --lg-cols's own value, and every exact-fit instance are
+  // all COMPLETELY untouched — no new custom property, no changed rule text,
+  // byte-identical stylesheet output. A grid-based fix (not the P0 pack's
+  // flexbox `display:flex;flex-wrap:wrap;justify-content:center`) was chosen
+  // specifically because THIS class is ALSO measured via
+  // getComputedStyle(...).gridTemplateColumns by the pinned leadgen-p1-
+  // geometry.gesture.spec.ts (multiTracks + mobile cardTracks) — flexbox
+  // would report "none" and break that gate outright.
   out.push(
     rule(`${scope} .lg-card-grid`, {
       display: "grid",
-      // per-instance column count arrives inline as --lg-cols (2..5); default 3.
+      // per-instance column count arrives inline as --lg-cols (2..5,
+      // unchanged); a partial trailing row's doubled track count rides a
+      // SEPARATE inline grid-template-columns override instead (presets.ts).
       "grid-template-columns": "repeat(var(--lg-cols, 3), minmax(0, 1fr))",
       gap: iconCardGrid.gap,
       "margin-bottom": iconCardGrid.marginBottom,

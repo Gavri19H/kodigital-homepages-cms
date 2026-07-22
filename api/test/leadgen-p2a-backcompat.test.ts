@@ -5,6 +5,23 @@
 // HEAD before the presets per-choice change; this test re-renders the SAME
 // unstyled nodes through the REAL renderComponent and asserts ZERO delta.
 // Any non-empty diff here = the additive contract was broken → STOP.
+//
+// EXCEPTION (2026-07-22, LeadGen Rework §6.7 FIX-FIRST F1): the
+// `ButtonAnswerGroup` key is NOT actually pre-P2a bytes any more, and — on
+// inspection — never cleanly was. Its 3-choice/unauthored-2-column shape has
+// a genuine partial trailing row (remainder 1), so the LATER §6.7 wrapped-
+// row-centering feature was always going to touch it once introduced; the
+// value already in this fixture (grid-column-start:1, the pre-F1 LEFT-LEAN
+// bug's exact output) shows §6.7's original slice had already silently
+// re-frozen this ONE key mid-phase, so "byte-identical to pre-P2a" had
+// already drifted to "byte-identical to pre-F1 §6.7" before this round ever
+// started. F1 (2026-07-22 adversarial review) fixed the centering math
+// (doubled-track half-offset via a per-instance inline grid-template-columns
+// override — presets.ts gridItemColumnEntries), so this key was regenerated
+// AGAIN via a fresh, live renderComponent capture (not hand-edited) to
+// reflect the new, CORRECTLY-centered output. Every other key in the fixture
+// is unaffected (all exact-fit shapes — no partial row, so §6.7/F1 never
+// executes their new code paths at all) and remains genuinely pre-P2a.
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -26,6 +43,9 @@ const DESIGN = defaultFunnelDesign;
 // from both this map and the frozen fixture (never silently — see the git
 // history of the fixture JSON for the removed key).
 const NODES: Record<string, LeadgenComponentNode> = {
+  // F1 EXCEPTION (see file header): 3 choices / unauthored 2-column default
+  // is a genuine partial row — this key's frozen value is §6.7/F1 output,
+  // not pre-P2a bytes (it never cleanly was; see header for the full story).
   ButtonAnswerGroup: {
     type: "ButtonAnswerGroup",
     question_id: "q_bag",

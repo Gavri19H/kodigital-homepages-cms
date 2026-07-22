@@ -24,6 +24,7 @@ import { dirname, join } from "node:path";
 import {
   renderComponent,
   renderSectionComponents,
+  gridItemColumnEntries,
 } from "../src/public/leadgen/components/presets";
 import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
@@ -478,7 +479,7 @@ describe("§6.7 — columns clamp + wrapped-last-row centering (L-195)", () => {
     expect(html).not.toContain("grid-column-start");
   });
 
-  it("5-card component at the design default (3 cols): wrapped last row (2 items) gets explicit centering", () => {
+  it("F1 FIX-FIRST: 5-card component at the design default (3 cols) — wrapped last row (2 items) is TRUE centered geometry, not just a start-attribute count", () => {
     const node: LeadgenComponentNode = {
       type: "IconCardAnswerGrid",
       question_id: "q",
@@ -486,14 +487,33 @@ describe("§6.7 — columns clamp + wrapped-last-row centering (L-195)", () => {
       choices: cardsOf(5),
     } as LeadgenComponentNode;
     const html = renderComponent(node, DESIGN);
+    // --lg-cols itself is UNCHANGED (still the logical column count, and
+    // styles.ts's shared class rule text is untouched — every pre-fix
+    // consumer of either keeps seeing exactly the pre-fix truth).
     expect(html).toContain("--lg-cols:3");
+    // F1 fix: a partial trailing row ADDITIONALLY carries a fully-computed
+    // INLINE grid-template-columns override — the DOUBLED track count (6),
+    // winning over the shared class rule by cascade specificity for THIS
+    // instance only. A half-track offset is what lets a centered EVEN
+    // remainder be expressed at all; see gridItemColumnEntries's own comment
+    // for the full pixel-equivalence proof. Pre-fix this override did not exist.
+    expect(html).toContain("grid-template-columns:repeat(6, minmax(0, 1fr))");
     // L-195: an EXPLICIT track/justify rule, never margin:auto on an inline box.
     expect(html).toContain("justify-content:center");
     expect(html).not.toMatch(/margin(-left|-right)?\s*:\s*auto/);
-    // the trailing 2 cards (indices 3,4) carry an explicit grid-column-start;
-    // the first 3 do not.
-    const starts = [...html.matchAll(/grid-column-start:(\d+)/g)].map((m) => m[1]);
-    expect(starts.length).toBe(2);
+    // EVERY card (full rows AND the trailing row alike) spans 2 of the
+    // doubled half-tracks — this is what keeps a full row's rendered width
+    // pixel-identical to the pre-fix single-track grid despite doubling.
+    const spans = [...html.matchAll(/grid-column-end:span 2/g)];
+    expect(spans.length).toBe(5);
+    // ONLY the trailing 2 cards (indices 3,4) carry an explicit
+    // grid-column-start — the TRUE, half-track-precise centered offsets (2
+    // and 4). Pre-fix, Math.floor((3-2)/2)=0 gave starts [1,2] (LEFT-ALIGNED,
+    // column 3 empty) — this exact assertion is what the pre-fix code FAILED
+    // (fail-before/pass-after, hand-verified: reverting gridItemColumnEntries
+    // to the old Math.floor formula makes this `toEqual` fail with [1,2]).
+    const starts = [...html.matchAll(/grid-column-start:(\d+)/g)].map((m) => Number(m[1]));
+    expect(starts).toEqual([2, 4]);
   });
 
   it("author override columns:1..5 clamped to choiceCount (min(authored, count))", () => {
@@ -507,7 +527,7 @@ describe("§6.7 — columns clamp + wrapped-last-row centering (L-195)", () => {
     expect(renderComponent(node, DESIGN)).toContain("--lg-cols:2");
   });
 
-  it("ButtonAnswerGroup: the SAME clamp + centering rule applies (unified with cards)", () => {
+  it("F1 FIX-FIRST: ButtonAnswerGroup — the SAME doubled-track centering rule applies (unified with cards), now WITH an explicit centered grid-column-start", () => {
     const node: LeadgenComponentNode = {
       type: "ButtonAnswerGroup",
       question_id: "q",
@@ -515,18 +535,83 @@ describe("§6.7 — columns clamp + wrapped-last-row centering (L-195)", () => {
       choices: cardsOf(5).map((c) => ({ label: c.label, value: c.value, analytics_id: c.analytics_id })),
     } as LeadgenComponentNode;
     const html = renderComponent(node, DESIGN);
-    // 5 choices, unauthored ⇒ effective cols = min(design-default 2, 5) = 2,
-    // which EQUALS the default — buttons (unlike cards) only emit --lg-cols
-    // when it differs from the CSS fallback, so no --lg-cols attribute is a
-    // byte-correct no-op here (the CSS default already resolves to 2).
+    // 5 choices, unauthored ⇒ effective (logical) cols = min(design-default 2,
+    // 5) = 2, remainder 1 ⇒ hasPartialRow true. --lg-cols itself is STILL not
+    // emitted (2 already equals the CSS default — the pre-fix, byte-identical
+    // emitOverride gate is completely untouched by F1). F1 fix: a partial row
+    // ADDITIONALLY carries a fully-computed INLINE grid-template-columns
+    // override — the DOUBLED value (4) — winning over the shared class rule
+    // by cascade specificity for THIS instance only.
     expect(html).not.toContain("--lg-cols");
-    // 5 choices / 2 cols ⇒ remainder 1 ⇒ a wrapped partial row STILL exists,
-    // and centering applies regardless of whether --lg-cols itself was emitted.
+    expect(html).toContain("grid-template-columns:repeat(4, minmax(0, 1fr))");
     expect(html).toContain("justify-content:center");
+    // every button spans 2 half-tracks (5 total, full row + trailing alike).
+    const spans = [...html.matchAll(/grid-column-end:span 2/g)];
+    expect(spans.length).toBe(5);
+    // ONLY the 1 trailing button (index 4) carries an explicit
+    // grid-column-start — centered at half-track line 2 (empty half-tracks =
+    // 2*(2-1)=2, split 1 each side ⇒ start = 1+1+0 = 2).
+    const starts = [...html.matchAll(/grid-column-start:(\d+)/g)].map((m) => Number(m[1]));
+    expect(starts).toEqual([2]);
   });
 
   it("mobile columns are unchanged (tokens.ts answerGrid/iconCardGrid mobile slots untouched by this slice)", () => {
     expect(DESIGN.iconCardGrid.columnsMobile).toBe(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // F1 FIX-FIRST (adversarial review, 2026-07-22) — gridItemColumnEntries
+  // direct unit proof. The reviewer's named boundary matrix: 5-in-3 and
+  // 2-in-3 (remainder 2, the EVEN case the pre-fix Math.floor formula got
+  // wrong) vs. 4-in-3 and 7-in-3 (remainder 1, the ODD/single-leftover case
+  // that "happened to work" pre-fix). "2-in-3" (2 TOTAL items forced into 3
+  // columns) can never actually reach renderComponent's pipeline —
+  // planGridColumns always clamps cols<=choiceCount, so a 2-choice grid's
+  // effective cols can never exceed 2 — this is a direct call of the
+  // exported pure function, proving the geometry math generalizes correctly
+  // independent of the CURRENT clamp's reachability, not just at the one
+  // total (5) the render pipeline can actually produce.
+  // -------------------------------------------------------------------------
+  describe("F1 FIX-FIRST — gridItemColumnEntries (direct unit proof, all 4 named boundary cases)", () => {
+    it("5-in-3 (remainder 2): full row spans-only, trailing pair centered at half-track lines 2 and 4", () => {
+      expect(gridItemColumnEntries(0, 5, 3)).toEqual({ "grid-column-end": "span 2" });
+      expect(gridItemColumnEntries(1, 5, 3)).toEqual({ "grid-column-end": "span 2" });
+      expect(gridItemColumnEntries(2, 5, 3)).toEqual({ "grid-column-end": "span 2" });
+      expect(gridItemColumnEntries(3, 5, 3)).toEqual({ "grid-column-start": "2", "grid-column-end": "span 2" });
+      expect(gridItemColumnEntries(4, 5, 3)).toEqual({ "grid-column-start": "4", "grid-column-end": "span 2" });
+    });
+
+    it("2-in-3 (remainder 2, the minimal boundary case — not reachable via the clamp pipeline): the SAME centered positions as 5-in-3's trailing pair", () => {
+      expect(gridItemColumnEntries(0, 2, 3)).toEqual({ "grid-column-start": "2", "grid-column-end": "span 2" });
+      expect(gridItemColumnEntries(1, 2, 3)).toEqual({ "grid-column-start": "4", "grid-column-end": "span 2" });
+    });
+
+    it("4-in-3 (remainder 1, single leftover — the parity that 'happened to work' pre-fix): still dead-center, now via the SAME doubled mechanism as every other remainder", () => {
+      expect(gridItemColumnEntries(0, 4, 3)).toEqual({ "grid-column-end": "span 2" });
+      expect(gridItemColumnEntries(1, 4, 3)).toEqual({ "grid-column-end": "span 2" });
+      expect(gridItemColumnEntries(2, 4, 3)).toEqual({ "grid-column-end": "span 2" });
+      expect(gridItemColumnEntries(3, 4, 3)).toEqual({ "grid-column-start": "3", "grid-column-end": "span 2" });
+    });
+
+    it("7-in-3 (remainder 1, a LATER wrapped row): the same single-leftover centering — index arithmetic stays correct past the first full row-of-rows", () => {
+      expect(gridItemColumnEntries(6, 7, 3)).toEqual({ "grid-column-start": "3", "grid-column-end": "span 2" });
+      // the 6 preceding items (two full rows of 3) are span-only, no start.
+      for (let i = 0; i < 6; i++) {
+        expect(gridItemColumnEntries(i, 7, 3)).toEqual({ "grid-column-end": "span 2" });
+      }
+    });
+
+    it("exact-fit (remainder 0) emits {} — byte-identical to pre-fix for every P2a/P3a backcompat fixture", () => {
+      expect(gridItemColumnEntries(0, 6, 3)).toEqual({});
+      expect(gridItemColumnEntries(5, 6, 3)).toEqual({});
+      expect(gridItemColumnEntries(0, 4, 2)).toEqual({});
+    });
+
+    it("guard clauses (cols<=1 or total<=0) — unchanged from the pre-fix function, always {}", () => {
+      expect(gridItemColumnEntries(0, 5, 1)).toEqual({});
+      expect(gridItemColumnEntries(0, 0, 3)).toEqual({});
+      expect(gridItemColumnEntries(0, -1, 3)).toEqual({});
+    });
   });
 });
 

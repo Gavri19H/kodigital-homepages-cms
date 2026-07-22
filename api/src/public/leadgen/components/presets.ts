@@ -575,22 +575,71 @@ function planGridColumns(authoredCols: number | undefined, defaultCols: number, 
   return { cols, emitOverride, hasPartialRow };
 }
 
-// The explicit grid-column-start for a WRAPPED (incomplete) last row's items so
-// they render CENTERED under the track's column count (L-195 — never
-// margin:auto on an inline-level box). undefined for every item NOT in a
-// partial trailing row (total is an exact multiple of cols, or this item is in
-// a full row) — the common/exact-fit case emits NOTHING new (byte-identical).
-// An odd leftover (e.g. 2 items in 3 columns) floors the offset — a
-// discrete-grid approximation that is at most half a column off literal
-// center; flagged in the phase report for P0 visual confirmation.
-function trailingRowCenterOffset(index: number, total: number, cols: number): number | undefined {
-  if (cols <= 1 || total <= 0) return undefined;
+// Rework §6.7 FIX-FIRST (adversarial review F1, 2026-07-22): the PRIOR
+// trailingRowCenterOffset used a SINGLE-track grid-column-start offset
+// (Math.floor((cols-remainder)/2)) which can only express WHOLE-track
+// shifts. For an EVEN remainder (5-in-3: cols=3, remainder=2) the empty
+// space is ONE track, and floor(1/2)=0 — the wrapped row rendered
+// LEFT-ALIGNED (columns 1-2 filled, column 3 empty), reproducing the exact
+// #9 complaint AC #9 names verbatim ("a 5-card 3-column component centers
+// its last row"). An ODD remainder (4-in-3, 7-in-3: a single leftover) only
+// happened to land dead-center because splitting exactly 2 empty tracks in
+// half gives a whole number either way — the old formula was never actually
+// centering, it was coincidentally correct for exactly one remainder parity.
+//
+// FIX: when (and ONLY when) a partial trailing row exists, the WHOLE grid's
+// track count doubles for THAT ONE INSTANCE via a fully-computed INLINE
+// `grid-template-columns:repeat(cols*2, minmax(0, 1fr))` override (see
+// answerGroupRootStyle / renderCardGrid / renderMultiChoiceCardGroup's
+// `hasPartialRow ? \`repeat(${"${cols*2}"}, ...)\` : undefined` emission) —
+// inline style wins over the shared class rule by CSS cascade specificity,
+// so styles.ts's OWN grid-template-columns rule text (and --lg-cols itself,
+// still the real logical column count) stay COMPLETELY UNTOUCHED; every
+// existing consumer of either (a test checking `--lg-cols:N`, or the shared
+// stylesheet's own byte-identity) keeps seeing exactly the pre-fix truth.
+// EVERY item spans 2 of these half-tracks (`grid-column-end:"span 2"`) so a
+// full row's rendered width stays PIXEL-EQUIVALENT
+// to the un-doubled grid for a FULL row: with N real 1fr tracks of computed
+// width W and N-1 gaps of size G, W = (100% - (N-1)*G) / N; doubling to 2N
+// half-tracks of width w with 2N-1 gaps of the SAME G gives
+// w = (100% - (2N-1)*G) / (2N), and a 2-track span's rendered width (2w+G,
+// since an item spanning multiple tracks includes the internal gap in its own
+// box per the CSS Grid spec — no visible seam) reduces ALGEBRAICALLY to the
+// SAME W (both equal 100%/N - (N-1)*G/N) — full rows are byte-for-byte pixel
+// identical to today. The trailing (partial) row's items ADDITIONALLY get an
+// EXPLICIT grid-column-start at HALF-TRACK granularity — the granularity a
+// single-track grid could never offer for an EVEN remainder (there is no
+// whole single-track offset that splits an ODD number of empty half-slots
+// symmetrically, e.g. 3-2=1 empty slot). Empty half-tracks to distribute =
+// 2*(cols-remainder); split evenly (cols-remainder) on each side (always a
+// whole half-track count, whatever the parity of cols-remainder) — verified
+// centered by direct pixel-position algebra (both margins reduce to the
+// identical expression; see the phase report for the worked 5-in-3 example).
+//
+// A GRID-based fix (not the P0 pack's flexbox `display:flex;flex-wrap:wrap;
+// justify-content:center`) was deliberately chosen: BOTH `.lg-answer-group`
+// and `.lg-card-grid` are measured via `getComputedStyle(...).
+// gridTemplateColumns` by the PRE-EXISTING pinned test-ui/leadgen-p1-
+// geometry.gesture.spec.ts (btnTracks/multiTracks/cardTracks assertions, on
+// both the studio canvas AND the live /lg funnel, desktop AND mobile —
+// e.g. "MultiChoiceCardGroup with columns:3 authored -> 3 grid tracks",
+// "mobile: card grid collapses to 1 track") — switching either class to
+// flexbox would report gridTemplateColumns:"none" and break that gate
+// outright. The doubled-track technique keeps display:grid throughout, so
+// that pinned gate (which only ever exercises EXACT-FIT fixtures — 2-in-2
+// buttons, 2-in-2 yes/no, 3-in-3 cards — never a partial row) is untouched.
+//
+// Returns {} for every item NOT in a partial-row grid (an exact-fit grid,
+// incl. every P2a/P3a backcompat frozen fixture, always takes this branch —
+// {} — so its output stays byte-identical to pre-fix).
+export function gridItemColumnEntries(index: number, total: number, cols: number): Record<string, string | undefined> {
+  if (cols <= 1 || total <= 0) return {};
   const remainder = total % cols;
-  if (remainder === 0) return undefined;
+  if (remainder === 0) return {};
   const rowStart = total - remainder;
-  if (index < rowStart) return undefined;
-  const offset = Math.floor((cols - remainder) / 2);
-  return offset + (index - rowStart) + 1;
+  if (index < rowStart) return { "grid-column-end": "span 2" };
+  const start = 1 + (cols - remainder) + (index - rowStart) * 2;
+  return { "grid-column-start": String(start), "grid-column-end": "span 2" };
 }
 
 // ---------------------------------------------------------------------------
@@ -1113,7 +1162,7 @@ function iconCardDepthSlots(design: DefaultFunnelDesign): LeadgenIconCardDepthSl
 // both concerns absent ⇒ "" (byte-identical to pre-R3). Per-BUTTON
 // height/corners/border ride choiceItemStyle (below).
 // Rework §6.7: `gridCols` is pre-computed by the caller (planGridColumns) from
-// the SAME choiceCount the per-button trailingRowCenterOffset loop uses, so the
+// the SAME choiceCount the per-button gridItemColumnEntries loop uses, so the
 // --lg-cols value and the per-item centering offsets can never disagree.
 function answerGroupRootStyle(
   node: LeadgenComponentNode,
@@ -1141,9 +1190,28 @@ function answerGroupRootStyle(
   // list centered") rides ONLY alongside a wrapped partial last row — an
   // exact-fit grid emits neither, so this is a no-op for every P2a/P3a
   // backcompat fixture.
+  // FIX-FIRST (F1): --lg-cols itself is COMPLETELY UNCHANGED (still the
+  // LOGICAL column count, same emitOverride gate, same static styles.ts
+  // grid-template-columns rule text) — every existing consumer that reads
+  // this property's VALUE (tests, and any future one) keeps seeing the real
+  // column count, and the shared STYLESHEET stays byte-identical (no new
+  // custom-property indirection there at all). A partial trailing row
+  // instead emits a fully-computed INLINE `grid-template-columns` override
+  // (below, alongside width/gap) carrying the DOUBLED track count as a
+  // literal `repeat(N, minmax(0, 1fr))` — inline style wins over the shared
+  // class rule by CSS cascade specificity, so ONLY this one instance's
+  // rendered track count changes; the class rule (and every OTHER instance
+  // relying on it) is untouched. See gridItemColumnEntries's own comment for
+  // the full pixel-equivalence proof of why doubling the track count is
+  // required for the grid-based centering fix. An exact-fit grid
+  // (hasPartialRow false) never emits this inline override at all —
+  // byte-identical to pre-fix in every respect.
   return style({
     "--lg-sel-bg": ovColor(node, "buttonBackground", design, ctx),
     "--lg-cols": gridCols.emitOverride ? String(gridCols.cols) : undefined,
+    "grid-template-columns": gridCols.hasPartialRow
+      ? `repeat(${gridCols.cols * 2}, minmax(0, 1fr))`
+      : undefined,
     "justify-content": gridCols.hasPartialRow ? "center" : undefined,
     gap: ov(node, "gridGap"),
     width: width,
@@ -1197,10 +1265,10 @@ export function renderButtonAnswerGroup(
   // border) MERGED with the choice's OWN diff-only `style` overlay (per-element
   // height / resting bg / text color / emphasis). "" when neither the node nor
   // the choice authors any (byte-identical to pre-R3/pre-P2a).
-  // Rework §6.7: `index` feeds trailingRowCenterOffset (L-195 wrapped-last-row
-  // centering) — undefined (no override) for every item outside a partial row.
+  // Rework §6.7: `index` feeds gridItemColumnEntries (L-195 wrapped-last-row
+  // centering) — {} (no override) for every item outside a partial-row grid.
   const btn = (c: LeadgenChoice, index: number): string =>
-    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, { "grid-column-start": trailingRowCenterOffset(index, choices.length, gridCols.cols)?.toString() })}` +
+    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, gridItemColumnEntries(index, choices.length, gridCols.cols))}` +
     attr("data-value", c.value) +
     // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
     attr("data-lg-choice", c.value) +
@@ -1410,7 +1478,7 @@ function renderCardGrid(
     // §8.4 disabled rides the native attribute + aria-disabled (the §14.4
     // .lg-card:disabled/[aria-disabled] chrome rules style it).
     return (
-      `<button type="button" class="lg-card" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, { "grid-column-start": trailingRowCenterOffset(index, choices.length, gridCols.cols)?.toString() })}` +
+      `<button type="button" class="lg-card" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, gridItemColumnEntries(index, choices.length, gridCols.cols))}` +
       (c.disabled === true ? ` disabled aria-disabled="true"` : "") +
       attr("data-value", c.value) +
       // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
@@ -1450,8 +1518,18 @@ function renderCardGrid(
       // Rework §6.7: justify-content:center (L-195 "track list centered")
       // rides ONLY alongside a wrapped partial last row — byte-identical
       // otherwise (every exact-fit fixture, incl. P2a/P3a backcompat).
+      // FIX-FIRST (F1): --lg-cols itself stays the LOGICAL, undoubled value
+      // (unconditionally emitted, exactly as pre-fix) and styles.ts's shared
+      // grid-template-columns RULE TEXT is untouched — a partial row instead
+      // gets a fully-computed INLINE grid-template-columns override (wins by
+      // cascade specificity over the class rule, ONLY for this instance; see
+      // gridItemColumnEntries's own comment for the pixel-equivalence proof).
+      // Exact-fit emits no inline override at all — byte-identical to pre-fix.
       return style({
         "--lg-cols": String(gridCols.cols),
+        "grid-template-columns": gridCols.hasPartialRow
+          ? `repeat(${gridCols.cols * 2}, minmax(0, 1fr))`
+          : undefined,
         gap,
         "justify-content": gridCols.hasPartialRow ? "center" : undefined,
         "max-width": w,
@@ -1522,7 +1600,7 @@ export function renderMultiChoiceCardGroup(
     // Base border/background live in the scoped chrome CSS (.lg-card) — not
     // inline — so the §14.4 selected/hover/focus state rules apply.
     return (
-      `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, { "grid-column-start": trailingRowCenterOffset(index, choices.length, gridCols.cols)?.toString() })}` +
+      `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, gridItemColumnEntries(index, choices.length, gridCols.cols))}` +
       attr("data-value", c.value) +
       // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
       attr("data-lg-choice", c.value) +
@@ -1556,8 +1634,18 @@ export function renderMultiChoiceCardGroup(
       const gap = ov(node, "gridGap") ?? sectionGapDefault(ctx) ?? design.iconCardGrid.gap;
       // R7 U11b: fixed max-width grid centers via auto side-margins. Rework
       // §6.7: justify-content:center only alongside a wrapped partial row.
+      // FIX-FIRST (F1): --lg-cols itself stays the LOGICAL, undoubled value
+      // (unconditionally emitted, exactly as pre-fix) and styles.ts's shared
+      // grid-template-columns RULE TEXT is untouched — a partial row instead
+      // gets a fully-computed INLINE grid-template-columns override (wins by
+      // cascade specificity over the class rule, ONLY for this instance; see
+      // gridItemColumnEntries's own comment for the pixel-equivalence proof).
+      // Exact-fit emits no inline override at all — byte-identical to pre-fix.
       return style({
         "--lg-cols": String(gridCols.cols),
+        "grid-template-columns": gridCols.hasPartialRow
+          ? `repeat(${gridCols.cols * 2}, minmax(0, 1fr))`
+          : undefined,
         gap,
         "justify-content": gridCols.hasPartialRow ? "center" : undefined,
         "max-width": w,
@@ -2350,9 +2438,9 @@ function choiceStyleOverlayEntries(
 // shape) AND a node WITHOUT per-item design_overrides → "" — byte-identical to
 // pre-P2a for every un-styled item.
 // Rework §6.7: `extraEntries` merges in caller-computed one-off CSS (currently
-// only trailingRowCenterOffset's per-item grid-column-start) — LAST so it wins
-// over the node/choice layers on a shared key (none collide today). Omitted by
-// every pre-§6.7 call site ⇒ byte-identical.
+// only gridItemColumnEntries's per-item grid-column-start/-end) — LAST so it
+// wins over the node/choice layers on a shared key (none collide today).
+// Omitted by every pre-§6.7 call site ⇒ byte-identical.
 function choiceItemStyle(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
