@@ -16,12 +16,35 @@
 // re-frozen this ONE key mid-phase, so "byte-identical to pre-P2a" had
 // already drifted to "byte-identical to pre-F1 §6.7" before this round ever
 // started. F1 (2026-07-22 adversarial review) fixed the centering math
-// (doubled-track half-offset via a per-instance inline grid-template-columns
-// override — presets.ts gridItemColumnEntries), so this key was regenerated
-// AGAIN via a fresh, live renderComponent capture (not hand-edited) to
-// reflect the new, CORRECTLY-centered output. Every other key in the fixture
-// is unaffected (all exact-fit shapes — no partial row, so §6.7/F1 never
-// executes their new code paths at all) and remains genuinely pre-P2a.
+// (doubled-track half-offset), so this key was regenerated AGAIN via a
+// fresh, live renderComponent capture (not hand-edited) to reflect the new,
+// CORRECTLY-centered output.
+//
+// F2 (2026-07-22, SAME-DAY adversarial review follow-up): F1's own first
+// shape emitted the doubled track count as a literal INLINE
+// `grid-template-columns` override, which out-ranked the mobile media-query
+// collapse rule by cascade specificity (`.lg-card-grid` stayed doubled at
+// 375px instead of collapsing to 1 column — reviewer-proved live in
+// Chromium). The fix moved the doubled value to an inline CUSTOM PROPERTY,
+// --lg-tracks, instead (presets.ts gridItemColumnEntries's own comment has
+// the full mechanism) — so this key was regenerated a THIRD time, again via
+// a fresh live capture, to swap `grid-template-columns:repeat(4, minmax(0,
+// 1fr))` for `--lg-tracks:repeat(4, minmax(0, 1fr))`.
+//
+// F2 FOLLOW-UP (same review pass, live-Chromium testing during THIS round's
+// OWN new geometry-gate coverage): the per-item grid-column-start/-end are
+// ALSO inline, so they ALSO kept demanding a 2-track span once a mobile
+// collapse reduced the container to 1 explicit column, forcing the grid to
+// fabricate implicit extra columns (live-measured: 5 tracks, "133px 38px
+// 38px 38px 38px", not one full-width column). Fixed the SAME way — the
+// SAME custom-property indirection, --lg-gc-start/--lg-gc-end — so this key
+// was regenerated a FOURTH time to swap `grid-column-end:span 2`/
+// `grid-column-start:2` for `--lg-gc-end:span 2`/`--lg-gc-start:2`. The
+// centering VALUES themselves (2 and 4, span 2 on every item) are IDENTICAL
+// across all 4 captures — only the emission mechanism (property vs custom
+// property) ever changed. Every other key in the fixture is unaffected (all
+// exact-fit shapes — no partial row, so §6.7/F1/F2 never execute their new
+// code paths at all) and remains genuinely pre-P2a.
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

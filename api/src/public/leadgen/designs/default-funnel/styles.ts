@@ -868,24 +868,31 @@ export function funnelChromeCss(
   // the column count (buttons don't collapse like cards) and only narrows the
   // gutter. Pinned by leadgen-u11-centering (inline centering) + the new
   // leadgen-p1-geometry.gesture gate (equal cells, gap, centering, ≥52 height).
-  // FIX-FIRST (F1, §6.7 adversarial review, 2026-07-22): this rule's TEXT
-  // needs NO change at all — a partial trailing row's doubled track count is
-  // an INLINE `grid-template-columns` override presets.ts emits directly on
-  // that ONE instance (wins by cascade specificity over this class rule; see
-  // gridItemColumnEntries's own comment for the pixel-equivalence proof —
-  // the SAME gap token produces pixel-identical full-row cell widths whether
-  // the instance is doubled or not). This class rule, --lg-cols's own value,
-  // and every exact-fit instance are all COMPLETELY untouched — no new
-  // custom property, no changed rule text, byte-identical stylesheet output.
-  // A grid-based fix (not the P0 pack's flexbox `display:flex;flex-wrap:
-  // wrap;justify-content:center`) was chosen specifically because THIS class
-  // is measured via getComputedStyle(...).gridTemplateColumns by the pinned
-  // leadgen-p1-geometry.gesture.spec.ts (btnTracks, desktop AND mobile) —
-  // flexbox would report "none" and break that gate outright.
+  // FIX-FIRST (F1, §6.7 adversarial review, 2026-07-22): a partial trailing
+  // row's doubled track count rides an inline custom property, --lg-tracks
+  // (presets.ts), which this rule prefers via a var() fallback — an
+  // exact-fit instance never emits --lg-tracks, so this resolves through to
+  // exactly the pre-fix value (see gridItemColumnEntries's own comment for
+  // the pixel-equivalence proof — the SAME gap token produces pixel-
+  // identical full-row cell widths whether an instance is doubled or not).
+  // FIX-FIRST (F2, adversarial review, 2026-07-22): the ORIGINAL F1 shape
+  // used a literal INLINE grid-template-columns override instead of a
+  // custom property — for `.lg-card-grid` that out-ranked the mobile
+  // collapse rule (see that rule's own comment below for the live-Chromium
+  // proof); `.lg-answer-group` was never actually broken by this (buttons
+  // have NO mobile grid-template-columns override to out-rank — "buttons
+  // don't collapse like cards" per this rule's own header comment), but the
+  // --lg-tracks custom-property shape is applied HERE TOO for consistency
+  // and to future-proof against a mobile collapse rule ever being added for
+  // buttons. A grid-based fix (not the P0 pack's flexbox `display:flex;
+  // flex-wrap:wrap;justify-content:center`) was chosen specifically because
+  // THIS class is measured via getComputedStyle(...).gridTemplateColumns by
+  // the pinned leadgen-p1-geometry.gesture.spec.ts (btnTracks, desktop AND
+  // mobile) — flexbox would report "none" and break that gate outright.
   out.push(
     rule(`${scope} .lg-answer-group`, {
       display: "grid",
-      "grid-template-columns": `repeat(var(--lg-cols, ${answerGrid.columns}), minmax(0, 1fr))`,
+      "grid-template-columns": `var(--lg-tracks, repeat(var(--lg-cols, ${answerGrid.columns}), minmax(0, 1fr)))`,
       gap: answerGrid.gap,
       width: "100%",
     }),
@@ -903,6 +910,18 @@ export function funnelChromeCss(
     // rule above, so it is additive-only, never a behavior change for content
     // that authors no per-choice size.
     rule(`${scope} .lg-answer-group[data-choice-heights="1"]`, { "align-items": "start" }),
+    // FIX-FIRST F2 FOLLOW-UP (§6.7 adversarial review, 2026-07-22): a
+    // partial-row item's per-item grid-column-start/-end (presets.ts
+    // gridItemColumnEntries) rides the SAME additive inline-custom-property
+    // shape as the container's own --lg-tracks fix, for the SAME reason —
+    // shared here since `.lg-answer-group`/`.lg-card-grid` use the identical
+    // mechanism (see gridItemColumnEntries's own comment). Exact-fit items
+    // never emit --lg-gc-start/--lg-gc-end, so both fall back to `auto` —
+    // grid's own default — byte-identical to pre-fix.
+    rule(`${scope} .lg-answer-group > *, ${scope} .lg-card-grid > *`, {
+      "grid-column-start": "var(--lg-gc-start, auto)",
+      "grid-column-end": "var(--lg-gc-end, auto)",
+    }),
   );
   mobile.push(rule(`${scope} .lg-answer-group`, { gap: answerGrid.gapMobile }));
 
@@ -1129,27 +1148,42 @@ export function funnelChromeCss(
   );
 
   // ---- icon/answer card grid + card + states (§14.2 iconCardGrid/iconCard) -
-  // FIX-FIRST (F1, §6.7 adversarial review, 2026-07-22): same note as
-  // .lg-answer-group above — this rule's TEXT needs NO change at all. A
-  // partial trailing row's doubled track count is an INLINE
-  // `grid-template-columns` override presets.ts emits directly on that ONE
-  // instance (wins by cascade specificity over this class rule; see
-  // gridItemColumnEntries's own comment for the pixel-equivalence proof).
-  // This class rule, --lg-cols's own value, and every exact-fit instance are
-  // all COMPLETELY untouched — no new custom property, no changed rule text,
-  // byte-identical stylesheet output. A grid-based fix (not the P0 pack's
-  // flexbox `display:flex;flex-wrap:wrap;justify-content:center`) was chosen
-  // specifically because THIS class is ALSO measured via
-  // getComputedStyle(...).gridTemplateColumns by the pinned leadgen-p1-
-  // geometry.gesture.spec.ts (multiTracks + mobile cardTracks) — flexbox
-  // would report "none" and break that gate outright.
+  // FIX-FIRST (F1, §6.7 adversarial review, 2026-07-22): a partial trailing
+  // row's doubled track count rides an inline custom property, --lg-tracks
+  // (presets.ts), which this rule prefers via a var() fallback — an
+  // exact-fit instance never emits --lg-tracks, so this resolves through to
+  // exactly the pre-fix value (see gridItemColumnEntries's own comment for
+  // the pixel-equivalence proof).
+  // FIX-FIRST (F2, adversarial review, 2026-07-22 — MAJOR, live-Chromium-
+  // proved): the ORIGINAL F1 shape emitted a literal INLINE
+  // `grid-template-columns` override instead of a custom property. Inline
+  // style ALWAYS wins over a class rule by cascade specificity — media
+  // query or not — so that override out-ranked the MOBILE COLLAPSE rule
+  // below (`mobile.push(... {"grid-template-columns":"1fr"})` at ≤480px): a
+  // 5-card partial-row grid stayed at 6 doubled tracks (3 cramped visual
+  // columns) at 375px instead of collapsing to 1, while an exact-fit control
+  // correctly collapsed — reproducing exactly the "mobile columns unchanged"
+  // regression §6.7 itself promises never to introduce. FIX: --lg-tracks is
+  // a custom property, not the real `grid-template-columns` property itself
+  // — declaring a variable inline cannot out-rank anything. The ACTUAL
+  // property is still set by THIS class rule (below), which the mobile
+  // rule — same specificity as this rule, later in source order, its own
+  // literal `1fr` never referencing --lg-tracks at all — continues to beat
+  // exactly as it always could for every other property on this element. A
+  // grid-based fix (not the P0 pack's flexbox `display:flex;flex-wrap:wrap;
+  // justify-content:center`) was chosen specifically because THIS class is
+  // ALSO measured via getComputedStyle(...).gridTemplateColumns by the
+  // pinned leadgen-p1-geometry.gesture.spec.ts (multiTracks + mobile
+  // cardTracks) — flexbox would report "none" and break that gate outright.
   out.push(
     rule(`${scope} .lg-card-grid`, {
       display: "grid",
       // per-instance column count arrives inline as --lg-cols (2..5,
-      // unchanged); a partial trailing row's doubled track count rides a
-      // SEPARATE inline grid-template-columns override instead (presets.ts).
-      "grid-template-columns": "repeat(var(--lg-cols, 3), minmax(0, 1fr))",
+      // unchanged); a partial trailing row's doubled track count rides the
+      // SEPARATE --lg-tracks inline custom property instead (presets.ts) —
+      // preferred here via the var() fallback so the mobile collapse rule
+      // below still applies normally (F2 fix).
+      "grid-template-columns": "var(--lg-tracks, repeat(var(--lg-cols, 3), minmax(0, 1fr)))",
       gap: iconCardGrid.gap,
       "margin-bottom": iconCardGrid.marginBottom,
     }),
@@ -1160,7 +1194,22 @@ export function funnelChromeCss(
     rule(`${scope} .lg-card-grid[data-choice-heights="1"]`, { "align-items": "start" }),
   );
   // Mobile collapse (§14.4 mobile 1..2 cols): the grid falls to 1 column.
-  mobile.push(rule(`${scope} .lg-card-grid`, { "grid-template-columns": "1fr" }));
+  // F2: this rule's own literal `1fr` never references --lg-tracks, so it
+  // continues to collapse a PARTIAL-ROW grid too, not just an exact-fit one
+  // — the whole point of the F2 fix (see the base rule's own comment above).
+  mobile.push(
+    rule(`${scope} .lg-card-grid`, { "grid-template-columns": "1fr" }),
+    // F2 FOLLOW-UP: a partial-row item's --lg-gc-start/--lg-gc-end (desktop
+    // half-track centering) must NOT keep demanding a 2-track span once the
+    // rule above collapses the container to a SINGLE explicit column — an
+    // over-spanning item would force the grid to fabricate implicit extra
+    // columns to satisfy it (live-measured: 5 tracks, "133px 38px 38px 38px
+    // 38px" instead of one full-width column). Reset to `auto` HERE, for
+    // cards ONLY (`.lg-answer-group`'s own children keep consuming the
+    // variables unchanged — buttons never collapse on mobile, "buttons keep
+    // their multi-track count" per the base rule's own header comment).
+    rule(`${scope} .lg-card-grid > *`, { "grid-column-start": "auto", "grid-column-end": "auto" }),
+  );
   out.push(
     rule(`${scope} .lg-card`, {
       display: "flex",

@@ -588,17 +588,31 @@ function planGridColumns(authoredCols: number | undefined, defaultCols: number, 
 // centering, it was coincidentally correct for exactly one remainder parity.
 //
 // FIX: when (and ONLY when) a partial trailing row exists, the WHOLE grid's
-// track count doubles for THAT ONE INSTANCE via a fully-computed INLINE
-// `grid-template-columns:repeat(cols*2, minmax(0, 1fr))` override (see
-// answerGroupRootStyle / renderCardGrid / renderMultiChoiceCardGroup's
-// `hasPartialRow ? \`repeat(${"${cols*2}"}, ...)\` : undefined` emission) —
-// inline style wins over the shared class rule by CSS cascade specificity,
-// so styles.ts's OWN grid-template-columns rule text (and --lg-cols itself,
-// still the real logical column count) stay COMPLETELY UNTOUCHED; every
-// existing consumer of either (a test checking `--lg-cols:N`, or the shared
-// stylesheet's own byte-identity) keeps seeing exactly the pre-fix truth.
-// EVERY item spans 2 of these half-tracks (`grid-column-end:"span 2"`) so a
-// full row's rendered width stays PIXEL-EQUIVALENT
+// track count doubles for THAT ONE INSTANCE. --lg-cols itself (the real
+// logical column count) stays COMPLETELY UNTOUCHED; the doubled value rides
+// a SEPARATE inline custom property, --lg-tracks (see answerGroupRootStyle /
+// renderCardGrid / renderMultiChoiceCardGroup's
+// `hasPartialRow ? \`repeat(${"${cols*2}"}, ...)\` : undefined` emission),
+// which styles.ts's shared class rule consumes via a var() fallback:
+// `grid-template-columns:var(--lg-tracks, repeat(var(--lg-cols, N),
+// minmax(0,1fr)))`.
+//
+// FIX-FIRST F2 (adversarial review, 2026-07-22): F1 originally emitted the
+// doubled value as a literal INLINE `grid-template-columns` override
+// instead of a custom property. That out-ranked the mobile media-query
+// collapse rule (`.lg-card-grid{grid-template-columns:1fr}` at ≤480px) by
+// CSS cascade specificity — inline ALWAYS beats a class selector, media
+// query or not — so a partial-row card grid stayed doubled (3 cramped
+// columns) at 375px instead of collapsing to 1, while an exact-fit control
+// correctly collapsed (reviewer-proved live in Chromium). Emitting the
+// value as a custom property instead fixes this: declaring a variable is
+// NOT declaring grid-template-columns, so it cannot out-rank anything — the
+// REAL property is still set by the class rule, which the mobile class rule
+// (same specificity, later source order, its own literal `1fr` never
+// references the variable) still beats exactly as it always could. --lg-cols
+// (and every OTHER consumer of it) is untouched either way. EVERY item
+// spans 2 of these half-tracks (`grid-column-end:"span 2"`) so a full row's
+// rendered width stays PIXEL-EQUIVALENT
 // to the un-doubled grid for a FULL row: with N real 1fr tracks of computed
 // width W and N-1 gaps of size G, W = (100% - (N-1)*G) / N; doubling to 2N
 // half-tracks of width w with 2N-1 gaps of the SAME G gives
@@ -632,14 +646,29 @@ function planGridColumns(authoredCols: number | undefined, defaultCols: number, 
 // Returns {} for every item NOT in a partial-row grid (an exact-fit grid,
 // incl. every P2a/P3a backcompat frozen fixture, always takes this branch —
 // {} — so its output stays byte-identical to pre-fix).
+//
+// FIX-FIRST F2 FOLLOW-UP (same review pass, 2026-07-22): a SECOND inline-vs-
+// mobile-collapse conflict, same root cause as the container-level one — a
+// per-item literal `grid-column-start`/`grid-column-end` is INLINE, so it
+// keeps demanding a 2-track span even once the CONTAINER'S mobile rule
+// collapses to a single explicit `1fr` column; a span that exceeds the
+// explicit template forces the grid to fabricate IMPLICIT extra columns to
+// satisfy it (live-measured: 5 tracks, "133px 38px 38px 38px 38px" — NOT the
+// intended single full-width column). FIX: the SAME custom-property
+// indirection as the container fix — emit `--lg-gc-start`/`--lg-gc-end`
+// (inline custom properties, cannot themselves out-rank anything) instead of
+// the literal properties; a shared class rule (styles.ts) consumes them via
+// var(), and `.lg-card-grid`'s mobile rule resets them to `auto` for its
+// children specifically (buttons never collapse, so their items keep
+// consuming the variables on mobile too, unchanged).
 export function gridItemColumnEntries(index: number, total: number, cols: number): Record<string, string | undefined> {
   if (cols <= 1 || total <= 0) return {};
   const remainder = total % cols;
   if (remainder === 0) return {};
   const rowStart = total - remainder;
-  if (index < rowStart) return { "grid-column-end": "span 2" };
+  if (index < rowStart) return { "--lg-gc-end": "span 2" };
   const start = 1 + (cols - remainder) + (index - rowStart) * 2;
-  return { "grid-column-start": String(start), "grid-column-end": "span 2" };
+  return { "--lg-gc-start": String(start), "--lg-gc-end": "span 2" };
 }
 
 // ---------------------------------------------------------------------------
@@ -1191,25 +1220,30 @@ function answerGroupRootStyle(
   // exact-fit grid emits neither, so this is a no-op for every P2a/P3a
   // backcompat fixture.
   // FIX-FIRST (F1): --lg-cols itself is COMPLETELY UNCHANGED (still the
-  // LOGICAL column count, same emitOverride gate, same static styles.ts
-  // grid-template-columns rule text) — every existing consumer that reads
-  // this property's VALUE (tests, and any future one) keeps seeing the real
-  // column count, and the shared STYLESHEET stays byte-identical (no new
-  // custom-property indirection there at all). A partial trailing row
-  // instead emits a fully-computed INLINE `grid-template-columns` override
-  // (below, alongside width/gap) carrying the DOUBLED track count as a
-  // literal `repeat(N, minmax(0, 1fr))` — inline style wins over the shared
-  // class rule by CSS cascade specificity, so ONLY this one instance's
-  // rendered track count changes; the class rule (and every OTHER instance
-  // relying on it) is untouched. See gridItemColumnEntries's own comment for
-  // the full pixel-equivalence proof of why doubling the track count is
-  // required for the grid-based centering fix. An exact-fit grid
-  // (hasPartialRow false) never emits this inline override at all —
-  // byte-identical to pre-fix in every respect.
+  // LOGICAL column count, same emitOverride gate) — every existing consumer
+  // that reads this property's VALUE (tests, and any future one) keeps
+  // seeing the real column count.
+  // FIX-FIRST (F2, adversarial review 2026-07-22): F1 originally emitted a
+  // literal INLINE `grid-template-columns` override here — inline style
+  // ALWAYS wins by cascade specificity over ANY class rule, including the
+  // mobile media-query collapse rule, so a partial-row grid stayed doubled
+  // even at 375px (buttons have no mobile collapse rule, so this specific
+  // bug didn't hit them — but the SAME mechanism would break one if ever
+  // added). FIX: emit the doubled value as an inline CUSTOM PROPERTY
+  // (--lg-tracks) instead of the real property — an inline custom-property
+  // declaration does NOT itself set grid-template-columns, so it cannot
+  // out-rank anything; the actual property is still set by the CLASS rule
+  // (styles.ts: `grid-template-columns:var(--lg-tracks, repeat(var(--lg-cols,
+  // N), minmax(0,1fr)))`), which the mobile media-query class rule can still
+  // beat normally (same specificity, later source order, its own literal
+  // `1fr` ignores the variable entirely). See gridItemColumnEntries's own
+  // comment for the pixel-equivalence proof of why doubling the track count
+  // is required at all. An exact-fit grid (hasPartialRow false) never emits
+  // --lg-tracks — byte-identical to pre-F1 in every respect.
   return style({
     "--lg-sel-bg": ovColor(node, "buttonBackground", design, ctx),
     "--lg-cols": gridCols.emitOverride ? String(gridCols.cols) : undefined,
-    "grid-template-columns": gridCols.hasPartialRow
+    "--lg-tracks": gridCols.hasPartialRow
       ? `repeat(${gridCols.cols * 2}, minmax(0, 1fr))`
       : undefined,
     "justify-content": gridCols.hasPartialRow ? "center" : undefined,
@@ -1519,15 +1553,26 @@ function renderCardGrid(
       // rides ONLY alongside a wrapped partial last row — byte-identical
       // otherwise (every exact-fit fixture, incl. P2a/P3a backcompat).
       // FIX-FIRST (F1): --lg-cols itself stays the LOGICAL, undoubled value
-      // (unconditionally emitted, exactly as pre-fix) and styles.ts's shared
-      // grid-template-columns RULE TEXT is untouched — a partial row instead
-      // gets a fully-computed INLINE grid-template-columns override (wins by
-      // cascade specificity over the class rule, ONLY for this instance; see
-      // gridItemColumnEntries's own comment for the pixel-equivalence proof).
-      // Exact-fit emits no inline override at all — byte-identical to pre-fix.
+      // (unconditionally emitted, exactly as pre-fix).
+      // FIX-FIRST (F2, adversarial review 2026-07-22): F1 originally emitted
+      // a literal INLINE grid-template-columns override here, which — being
+      // inline — out-ranked the mobile media-query collapse rule
+      // (`.lg-card-grid{grid-template-columns:1fr}` at ≤480px), so a
+      // partial-row card grid stayed doubled (cramped) on mobile instead of
+      // collapsing to 1 column. FIX: emit the doubled value as an inline
+      // CUSTOM PROPERTY (--lg-tracks) instead — it cannot out-rank anything,
+      // since setting a variable isn't setting grid-template-columns itself;
+      // the actual property is set by the CLASS rule (styles.ts:
+      // `grid-template-columns:var(--lg-tracks, repeat(var(--lg-cols, 3),
+      // minmax(0,1fr)))`), which the mobile rule still beats normally (same
+      // specificity, later source order, its own literal `1fr` ignores the
+      // variable). See gridItemColumnEntries's own comment for the
+      // pixel-equivalence proof of why doubling the track count is required
+      // at all. Exact-fit emits no --lg-tracks at all — byte-identical to
+      // pre-F1.
       return style({
         "--lg-cols": String(gridCols.cols),
-        "grid-template-columns": gridCols.hasPartialRow
+        "--lg-tracks": gridCols.hasPartialRow
           ? `repeat(${gridCols.cols * 2}, minmax(0, 1fr))`
           : undefined,
         gap,
@@ -1635,15 +1680,26 @@ export function renderMultiChoiceCardGroup(
       // R7 U11b: fixed max-width grid centers via auto side-margins. Rework
       // §6.7: justify-content:center only alongside a wrapped partial row.
       // FIX-FIRST (F1): --lg-cols itself stays the LOGICAL, undoubled value
-      // (unconditionally emitted, exactly as pre-fix) and styles.ts's shared
-      // grid-template-columns RULE TEXT is untouched — a partial row instead
-      // gets a fully-computed INLINE grid-template-columns override (wins by
-      // cascade specificity over the class rule, ONLY for this instance; see
-      // gridItemColumnEntries's own comment for the pixel-equivalence proof).
-      // Exact-fit emits no inline override at all — byte-identical to pre-fix.
+      // (unconditionally emitted, exactly as pre-fix).
+      // FIX-FIRST (F2, adversarial review 2026-07-22): F1 originally emitted
+      // a literal INLINE grid-template-columns override here, which — being
+      // inline — out-ranked the mobile media-query collapse rule
+      // (`.lg-card-grid{grid-template-columns:1fr}` at ≤480px), so a
+      // partial-row card grid stayed doubled (cramped) on mobile instead of
+      // collapsing to 1 column. FIX: emit the doubled value as an inline
+      // CUSTOM PROPERTY (--lg-tracks) instead — it cannot out-rank anything,
+      // since setting a variable isn't setting grid-template-columns itself;
+      // the actual property is set by the CLASS rule (styles.ts:
+      // `grid-template-columns:var(--lg-tracks, repeat(var(--lg-cols, 3),
+      // minmax(0,1fr)))`), which the mobile rule still beats normally (same
+      // specificity, later source order, its own literal `1fr` ignores the
+      // variable). See gridItemColumnEntries's own comment for the
+      // pixel-equivalence proof of why doubling the track count is required
+      // at all. Exact-fit emits no --lg-tracks at all — byte-identical to
+      // pre-F1.
       return style({
         "--lg-cols": String(gridCols.cols),
-        "grid-template-columns": gridCols.hasPartialRow
+        "--lg-tracks": gridCols.hasPartialRow
           ? `repeat(${gridCols.cols * 2}, minmax(0, 1fr))`
           : undefined,
         gap,

@@ -680,7 +680,37 @@ const P1A_STACK_BASE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-question-card > * + *
 // rule (P2B_ANSWER_GROUP_HEIGHTS_RULE, above), stripped separately below, so
 // an UNSTYLED group is byte-identical to pre-P2b again. Kept in lockstep with
 // styles.ts (a drift fails here).
-const P1A_ANSWER_GRID_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-answer-group{display:grid;grid-template-columns:repeat(var(--lg-cols, ${defaultFunnelDesign.answerGrid.columns}), minmax(0, 1fr));gap:${defaultFunnelDesign.answerGrid.gap};width:100%}`;
+// LeadGen Rework §6.7 FIX-FIRST F2 (adversarial review, 2026-07-22): the
+// grid-template-columns VALUE now reads `var(--lg-tracks, repeat(var(
+// --lg-cols, N), minmax(0,1fr)))` instead of the bare `repeat(...)` — the
+// doubled-track partial-row centering fix rides the additive --lg-tracks
+// inline custom property (presets.ts gridItemColumnEntries) so the mobile
+// collapse rule can still out-cascade it normally; a literal inline
+// grid-template-columns override (F1's original, WRONG shape) would have
+// out-ranked mobile collapse instead. Since this whole rule is
+// wholesale-stripped either way (pre-P1a had no .lg-answer-group at all),
+// only THIS constant needs updating to keep matching the live text —
+// updated in lockstep with styles.ts, same discipline as every other rule
+// here.
+const P1A_ANSWER_GRID_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-answer-group{display:grid;grid-template-columns:var(--lg-tracks, repeat(var(--lg-cols, ${defaultFunnelDesign.answerGrid.columns}), minmax(0, 1fr)));gap:${defaultFunnelDesign.answerGrid.gap};width:100%}`;
+// F2 (adversarial review, 2026-07-22): unlike .lg-answer-group (net-new,
+// wholesale-stripped), `.lg-card-grid`'s BASE rule already existed in the
+// pre-P1a fixture — only its grid-template-columns VALUE changed (F1/F2
+// added the --lg-tracks fallback chain), so this is a targeted fragment
+// reverse-map (the U14_OLD/NEW_CONTINUE_RULE idiom), not a whole-rule strip.
+// Kept in lockstep with styles.ts (a drift fails here).
+const F2_CARD_GRID_TRACKS_NEW = "grid-template-columns:var(--lg-tracks, repeat(var(--lg-cols, 3), minmax(0, 1fr)))";
+const F2_CARD_GRID_TRACKS_OLD = "grid-template-columns:repeat(var(--lg-cols, 3), minmax(0, 1fr))";
+// F2 FOLLOW-UP (same review pass, 2026-07-22): two NET-NEW rules (never
+// existed pre-P1a, wholesale-stripped like .lg-answer-group above) — the
+// desktop rule that lets .lg-answer-group's/.lg-card-grid's per-item
+// grid-column-start/-end consume the additive --lg-gc-start/--lg-gc-end
+// inline custom properties, and the mobile rule that resets them to `auto`
+// for cards once the container collapses to 1 column (buttons never
+// collapse, so only cards need the mobile reset). Kept in lockstep with
+// styles.ts (a drift fails here).
+const F2_GC_CONSUMER_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-answer-group > *, ${DEFAULT_FUNNEL_SCOPE} .lg-card-grid > *{grid-column-start:var(--lg-gc-start, auto);grid-column-end:var(--lg-gc-end, auto)}`;
+const F2_GC_MOBILE_RESET_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-card-grid > *{grid-column-start:auto;grid-column-end:auto}`;
 const P1A_STACK_MOBILE_RULE = `\n${DEFAULT_FUNNEL_SCOPE} .lg-question-card > * + *{margin-top:${defaultFunnelDesign.spacing.stackMobile}}`;
 const P1A_SUBHEAD_MOBILE_RESET = `\n${DEFAULT_FUNNEL_SCOPE} .lg-subheadline{margin-top:0}`;
 const P1A_CONTINUE_MOBILE_RESET = `\n${DEFAULT_FUNNEL_SCOPE} .lg-continue{margin-top:26px}`;
@@ -959,6 +989,20 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     .split(MINOR1_CARD_PANEL_FLOOR_MOBILE_RULE)
     .join("")
     .split(MINOR1_BG_PANEL_FLOOR_MOBILE_RULE)
+    .join("")
+    // LeadGen Rework §6.7 FIX-FIRST F2 (adversarial review, 2026-07-22):
+    // revert .lg-card-grid's grid-template-columns VALUE back to the
+    // pre-F1/F2 shape (the --lg-tracks fallback chain is the ONLY delta this
+    // fix adds to this rule — see F2_CARD_GRID_TRACKS_NEW/OLD's own comment).
+    .split(F2_CARD_GRID_TRACKS_NEW)
+    .join(F2_CARD_GRID_TRACKS_OLD)
+    // F2 FOLLOW-UP: strip the two NET-NEW --lg-gc-start/--lg-gc-end consumer
+    // rules (see F2_GC_CONSUMER_RULE/F2_GC_MOBILE_RESET_RULE's own comment) —
+    // neither existed pre-P1a, same wholesale-strip treatment as
+    // P1A_ANSWER_GRID_RULE above.
+    .split(F2_GC_CONSUMER_RULE)
+    .join("")
+    .split(F2_GC_MOBILE_RESET_RULE)
     .join("");
   // P3a (register PC-2 / D1 / R-B): strip the net-new .lg-el/.lg-el-row rules
   // (the ONLY additional legal delta this slice adds — the grid-follower table

@@ -628,3 +628,85 @@ test.describe("P1a geometry gate — CardPanel nesting (MINOR-1, adversarial rev
     expect(measured!.gap, "live: CardPanel-nested gap is spaced (not the MINOR-1 0px)").toBeGreaterThan(4);
   });
 });
+
+// ---------------------------------------------------------------------------
+// F2 (adversarial review, 2026-07-22): the gate gap the reviewer named — every
+// EXISTING mobile-leg fixture in this file (q_cards above) is an EXACT-FIT
+// card grid (3 choices / 3 authored columns, remainder 0), so it never
+// exercised F1's own bug: F1's original inline `grid-template-columns`
+// override (the wrapped-last-row centering fix, presets.ts
+// gridItemColumnEntries) out-ranked the mobile media-query collapse rule by
+// CSS cascade specificity, so a PARTIAL-ROW card grid (an authored/effective
+// remainder, e.g. 5-in-3) stayed doubled (6 tracks, 3 cramped columns) at
+// 375px instead of collapsing to 1 — while THIS file's own exact-fit control
+// correctly collapsed the whole time, masking the regression until the
+// reviewer specifically probed a partial-row shape live in Chromium. F2's
+// fix (the --lg-tracks inline CUSTOM PROPERTY, not a literal property
+// override — see gridItemColumnEntries's own comment) restores the mobile
+// collapse rule's ability to out-cascade it normally. Self-contained: its
+// own section/fixture/quote/host, so it cannot perturb any existing
+// assertion in this file — the SAME isolation discipline the CardPanel-
+// nesting describe block above already follows.
+// ---------------------------------------------------------------------------
+const PARTIAL_ROW_CARDS_COMPONENTS = [
+  {
+    type: "IconCardAnswerGrid",
+    question_id: "q_cards_f2",
+    internal_field: "biz_f2",
+    answer_type: "enum",
+    props: { columns: 3 },
+    choices: [
+      { label: "One", value: "one", analytics_id: "o1", icon: "home" },
+      { label: "Two", value: "two", analytics_id: "o2", icon: "car" },
+      { label: "Three", value: "three", analytics_id: "o3", icon: "shield" },
+      { label: "Four", value: "four", analytics_id: "o4", icon: "home" },
+      { label: "Five", value: "five", analytics_id: "o5", icon: "car" },
+    ],
+  },
+];
+
+test.describe("P1a geometry gate — F2 mobile partial-row card collapse (adversarial review, 2026-07-22)", () => {
+  test("live /lg: a PARTIAL-ROW card grid (5-in-3, remainder 2) ALSO collapses to 1 track at 375px, not just an exact-fit one", async ({ page, request, browserName }) => {
+    // Same dynamic-hostname constraint as every other live /lg leg in this
+    // file — firefox's network.dns.localDomains cannot resolve this test's
+    // dynamic `{uniq}.e2e.test` host.
+    test.skip(browserName === "firefox", "live /lg leg needs chromium --host-resolver-rules; firefox cannot resolve the dynamic e2e host — this fix is CSS cascade behavior, engine-agnostic in principle, but this repo's convention keeps the dynamic-hostname leg chromium-only (see every other live /lg test in this file)");
+    const host = `p1geo-f2-${uniq}.e2e.test`;
+    const siteId = await seedActiveSite(request, host, `P1a F2 Mobile ${uniq}`);
+    const s = await createSection(request, `p1geo-f2-${uniq}`, PARTIAL_ROW_CARDS_COMPONENTS);
+    const quote = await json<{ public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }> }>(
+      await request.post(`${LG_API}/quotes`, { data: { quote_name: `P1a F2 ${uniq}`, activity: "quote_funnel", verticals: ["life"] } }),
+      "quote create (f2)",
+    );
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: s.id }] } }), "variant sections (f2)");
+    await createTrivialSharedPage(request, quote.public_id, `f2-${uniq}`);
+    await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p1geo-f2" } }), "activation (f2)");
+
+    await page.setViewportSize({ width: 375, height: 1400 });
+    await page.goto(`http://${host}:8899/lg/p1geo-f2`, { waitUntil: "load" });
+    await passSharedPage(page);
+    await expect(page.locator('[data-question-id="q_cards_f2"]').first()).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(200);
+    const mobile = await page.evaluate(() => {
+      const view = window;
+      const cardGrid = document.querySelector('[data-question-id="q_cards_f2"]');
+      const cols = cardGrid ? view.getComputedStyle(cardGrid).gridTemplateColumns : "";
+      return {
+        cardTracks: cardGrid ? cols.trim().split(/\s+/).length : 0,
+        cardCols: cols,
+        scrollWidth: document.scrollingElement ? document.scrollingElement.scrollWidth : document.body.scrollWidth,
+        innerWidth: view.innerWidth,
+      };
+    });
+    // eslint-disable-next-line no-console
+    console.log(`[F2 mobile partial-row] cardTracks=${mobile.cardTracks} cardCols="${mobile.cardCols}" scrollW=${mobile.scrollWidth} innerW=${mobile.innerWidth}`);
+    // F2 fix proof: fail-before (F1's literal inline grid-template-columns
+    // override) measured 6 tracks here (3 cramped columns — the override
+    // out-ranked the mobile collapse rule); pass-after (this round's
+    // --lg-tracks custom-property fix) collapses to 1, matching the
+    // exact-fit control (the describe block above) exactly.
+    expect(mobile.cardTracks, `mobile: PARTIAL-ROW card grid collapses to 1 track (F2 fix), cols="${mobile.cardCols}"`).toBe(1);
+    expect(mobile.scrollWidth, `mobile: scrollWidth ${mobile.scrollWidth} ≤ innerWidth ${mobile.innerWidth}`).toBeLessThanOrEqual(mobile.innerWidth + 1);
+  });
+});

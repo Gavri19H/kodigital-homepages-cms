@@ -488,31 +488,39 @@ describe("§6.7 — columns clamp + wrapped-last-row centering (L-195)", () => {
     } as LeadgenComponentNode;
     const html = renderComponent(node, DESIGN);
     // --lg-cols itself is UNCHANGED (still the logical column count, and
-    // styles.ts's shared class rule text is untouched — every pre-fix
-    // consumer of either keeps seeing exactly the pre-fix truth).
+    // styles.ts's shared class rule text stays functionally the same shape
+    // for --lg-cols — every pre-fix consumer of it keeps seeing the truth).
     expect(html).toContain("--lg-cols:3");
-    // F1 fix: a partial trailing row ADDITIONALLY carries a fully-computed
-    // INLINE grid-template-columns override — the DOUBLED track count (6),
-    // winning over the shared class rule by cascade specificity for THIS
-    // instance only. A half-track offset is what lets a centered EVEN
-    // remainder be expressed at all; see gridItemColumnEntries's own comment
-    // for the full pixel-equivalence proof. Pre-fix this override did not exist.
-    expect(html).toContain("grid-template-columns:repeat(6, minmax(0, 1fr))");
+    // F2 fix (adversarial review, 2026-07-22): the doubled track count rides
+    // an inline CUSTOM PROPERTY, --lg-tracks — NOT a literal
+    // grid-template-columns override (F1's original shape out-ranked the
+    // mobile collapse rule via inline-style specificity; a custom property
+    // cannot out-rank anything, so the class rule — and the mobile rule that
+    // beats IT normally — stay in full control). A half-track offset is what
+    // lets a centered EVEN remainder be expressed at all; see
+    // gridItemColumnEntries's own comment for the full pixel-equivalence
+    // proof. Pre-F1 neither this property nor any override existed.
+    expect(html).toContain("--lg-tracks:repeat(6, minmax(0, 1fr))");
     // L-195: an EXPLICIT track/justify rule, never margin:auto on an inline box.
     expect(html).toContain("justify-content:center");
     expect(html).not.toMatch(/margin(-left|-right)?\s*:\s*auto/);
     // EVERY card (full rows AND the trailing row alike) spans 2 of the
     // doubled half-tracks — this is what keeps a full row's rendered width
-    // pixel-identical to the pre-fix single-track grid despite doubling.
-    const spans = [...html.matchAll(/grid-column-end:span 2/g)];
+    // pixel-identical to the pre-fix single-track grid despite doubling. F2
+    // FOLLOW-UP: this rides the SAME inline-custom-property shape as
+    // --lg-tracks (--lg-gc-end) — a literal inline grid-column-end would
+    // ALSO out-rank the mobile reset that neutralizes it once the container
+    // collapses to 1 column (live-measured before this fix: 5 implicit
+    // tracks, "133px 38px 38px 38px 38px", not one full-width column).
+    const spans = [...html.matchAll(/--lg-gc-end:span 2/g)];
     expect(spans.length).toBe(5);
-    // ONLY the trailing 2 cards (indices 3,4) carry an explicit
-    // grid-column-start — the TRUE, half-track-precise centered offsets (2
-    // and 4). Pre-fix, Math.floor((3-2)/2)=0 gave starts [1,2] (LEFT-ALIGNED,
-    // column 3 empty) — this exact assertion is what the pre-fix code FAILED
-    // (fail-before/pass-after, hand-verified: reverting gridItemColumnEntries
-    // to the old Math.floor formula makes this `toEqual` fail with [1,2]).
-    const starts = [...html.matchAll(/grid-column-start:(\d+)/g)].map((m) => Number(m[1]));
+    // ONLY the trailing 2 cards (indices 3,4) carry an explicit --lg-gc-start
+    // — the TRUE, half-track-precise centered offsets (2 and 4). Pre-fix,
+    // Math.floor((3-2)/2)=0 gave starts [1,2] (LEFT-ALIGNED, column 3 empty)
+    // — this exact assertion is what the pre-fix code FAILED (fail-before/
+    // pass-after, hand-verified: reverting gridItemColumnEntries to the old
+    // Math.floor formula makes this `toEqual` fail with [1,2]).
+    const starts = [...html.matchAll(/--lg-gc-start:(\d+)/g)].map((m) => Number(m[1]));
     expect(starts).toEqual([2, 4]);
   });
 
@@ -538,20 +546,25 @@ describe("§6.7 — columns clamp + wrapped-last-row centering (L-195)", () => {
     // 5 choices, unauthored ⇒ effective (logical) cols = min(design-default 2,
     // 5) = 2, remainder 1 ⇒ hasPartialRow true. --lg-cols itself is STILL not
     // emitted (2 already equals the CSS default — the pre-fix, byte-identical
-    // emitOverride gate is completely untouched by F1). F1 fix: a partial row
-    // ADDITIONALLY carries a fully-computed INLINE grid-template-columns
-    // override — the DOUBLED value (4) — winning over the shared class rule
-    // by cascade specificity for THIS instance only.
+    // emitOverride gate is completely untouched by F1/F2). F2 fix: a partial
+    // row carries the doubled value (4) as the inline CUSTOM PROPERTY
+    // --lg-tracks, not a literal grid-template-columns override — buttons
+    // have no mobile collapse rule to out-rank (this bug never actually hit
+    // them), but the same custom-property shape applies here too for
+    // consistency and to future-proof against one ever being added.
     expect(html).not.toContain("--lg-cols");
-    expect(html).toContain("grid-template-columns:repeat(4, minmax(0, 1fr))");
+    expect(html).toContain("--lg-tracks:repeat(4, minmax(0, 1fr))");
     expect(html).toContain("justify-content:center");
-    // every button spans 2 half-tracks (5 total, full row + trailing alike).
-    const spans = [...html.matchAll(/grid-column-end:span 2/g)];
+    // every button spans 2 half-tracks (5 total, full row + trailing alike) —
+    // via --lg-gc-end, the SAME F2-follow-up custom-property shape --lg-tracks
+    // uses (buttons never collapse on mobile, so this never actually broke
+    // for them, but the shape is shared for consistency).
+    const spans = [...html.matchAll(/--lg-gc-end:span 2/g)];
     expect(spans.length).toBe(5);
-    // ONLY the 1 trailing button (index 4) carries an explicit
-    // grid-column-start — centered at half-track line 2 (empty half-tracks =
-    // 2*(2-1)=2, split 1 each side ⇒ start = 1+1+0 = 2).
-    const starts = [...html.matchAll(/grid-column-start:(\d+)/g)].map((m) => Number(m[1]));
+    // ONLY the 1 trailing button (index 4) carries an explicit --lg-gc-start
+    // — centered at half-track line 2 (empty half-tracks = 2*(2-1)=2, split 1
+    // each side ⇒ start = 1+1+0 = 2).
+    const starts = [...html.matchAll(/--lg-gc-start:(\d+)/g)].map((m) => Number(m[1]));
     expect(starts).toEqual([2]);
   });
 
@@ -574,30 +587,30 @@ describe("§6.7 — columns clamp + wrapped-last-row centering (L-195)", () => {
   // -------------------------------------------------------------------------
   describe("F1 FIX-FIRST — gridItemColumnEntries (direct unit proof, all 4 named boundary cases)", () => {
     it("5-in-3 (remainder 2): full row spans-only, trailing pair centered at half-track lines 2 and 4", () => {
-      expect(gridItemColumnEntries(0, 5, 3)).toEqual({ "grid-column-end": "span 2" });
-      expect(gridItemColumnEntries(1, 5, 3)).toEqual({ "grid-column-end": "span 2" });
-      expect(gridItemColumnEntries(2, 5, 3)).toEqual({ "grid-column-end": "span 2" });
-      expect(gridItemColumnEntries(3, 5, 3)).toEqual({ "grid-column-start": "2", "grid-column-end": "span 2" });
-      expect(gridItemColumnEntries(4, 5, 3)).toEqual({ "grid-column-start": "4", "grid-column-end": "span 2" });
+      expect(gridItemColumnEntries(0, 5, 3)).toEqual({ "--lg-gc-end": "span 2" });
+      expect(gridItemColumnEntries(1, 5, 3)).toEqual({ "--lg-gc-end": "span 2" });
+      expect(gridItemColumnEntries(2, 5, 3)).toEqual({ "--lg-gc-end": "span 2" });
+      expect(gridItemColumnEntries(3, 5, 3)).toEqual({ "--lg-gc-start": "2", "--lg-gc-end": "span 2" });
+      expect(gridItemColumnEntries(4, 5, 3)).toEqual({ "--lg-gc-start": "4", "--lg-gc-end": "span 2" });
     });
 
     it("2-in-3 (remainder 2, the minimal boundary case — not reachable via the clamp pipeline): the SAME centered positions as 5-in-3's trailing pair", () => {
-      expect(gridItemColumnEntries(0, 2, 3)).toEqual({ "grid-column-start": "2", "grid-column-end": "span 2" });
-      expect(gridItemColumnEntries(1, 2, 3)).toEqual({ "grid-column-start": "4", "grid-column-end": "span 2" });
+      expect(gridItemColumnEntries(0, 2, 3)).toEqual({ "--lg-gc-start": "2", "--lg-gc-end": "span 2" });
+      expect(gridItemColumnEntries(1, 2, 3)).toEqual({ "--lg-gc-start": "4", "--lg-gc-end": "span 2" });
     });
 
     it("4-in-3 (remainder 1, single leftover — the parity that 'happened to work' pre-fix): still dead-center, now via the SAME doubled mechanism as every other remainder", () => {
-      expect(gridItemColumnEntries(0, 4, 3)).toEqual({ "grid-column-end": "span 2" });
-      expect(gridItemColumnEntries(1, 4, 3)).toEqual({ "grid-column-end": "span 2" });
-      expect(gridItemColumnEntries(2, 4, 3)).toEqual({ "grid-column-end": "span 2" });
-      expect(gridItemColumnEntries(3, 4, 3)).toEqual({ "grid-column-start": "3", "grid-column-end": "span 2" });
+      expect(gridItemColumnEntries(0, 4, 3)).toEqual({ "--lg-gc-end": "span 2" });
+      expect(gridItemColumnEntries(1, 4, 3)).toEqual({ "--lg-gc-end": "span 2" });
+      expect(gridItemColumnEntries(2, 4, 3)).toEqual({ "--lg-gc-end": "span 2" });
+      expect(gridItemColumnEntries(3, 4, 3)).toEqual({ "--lg-gc-start": "3", "--lg-gc-end": "span 2" });
     });
 
     it("7-in-3 (remainder 1, a LATER wrapped row): the same single-leftover centering — index arithmetic stays correct past the first full row-of-rows", () => {
-      expect(gridItemColumnEntries(6, 7, 3)).toEqual({ "grid-column-start": "3", "grid-column-end": "span 2" });
+      expect(gridItemColumnEntries(6, 7, 3)).toEqual({ "--lg-gc-start": "3", "--lg-gc-end": "span 2" });
       // the 6 preceding items (two full rows of 3) are span-only, no start.
       for (let i = 0; i < 6; i++) {
-        expect(gridItemColumnEntries(i, 7, 3)).toEqual({ "grid-column-end": "span 2" });
+        expect(gridItemColumnEntries(i, 7, 3)).toEqual({ "--lg-gc-end": "span 2" });
       }
     });
 

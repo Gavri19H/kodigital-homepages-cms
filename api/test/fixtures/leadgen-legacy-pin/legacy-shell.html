@@ -45,8 +45,9 @@
 [data-funnel-design="default-funnel"] .lg-btn-spinner{display:none}
 [data-funnel-design="default-funnel"] .lg-btn[data-loading="true"] .lg-btn-spinner{display:inline-block;width:1em;height:1em;border:2px solid #FFFFFF;border-top-color:transparent;border-radius:9999px;animation:lg-spin 0.6s linear infinite}
 @keyframes lg-spin{to{transform:rotate(360deg)}}
-[data-funnel-design="default-funnel"] .lg-answer-group{display:grid;grid-template-columns:repeat(var(--lg-cols, 2), minmax(0, 1fr));gap:24px;width:100%}
+[data-funnel-design="default-funnel"] .lg-answer-group{display:grid;grid-template-columns:var(--lg-tracks, repeat(var(--lg-cols, 2), minmax(0, 1fr)));gap:24px;width:100%}
 [data-funnel-design="default-funnel"] .lg-answer-group[data-choice-heights="1"]{align-items:start}
+[data-funnel-design="default-funnel"] .lg-answer-group > *, [data-funnel-design="default-funnel"] .lg-card-grid > *{grid-column-start:var(--lg-gc-start, auto);grid-column-end:var(--lg-gc-end, auto)}
 [data-funnel-design="default-funnel"] .lg-btn.lg-btn-answer{background:var(--lg-answer-bg, #FFFFFF);color:#1A1F36;border:2px solid #D2D9E5;border-color:var(--lg-field-border, #D2D9E5);transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}
 [data-funnel-design="default-funnel"] .lg-btn.lg-btn-answer:hover{border-color:#1B3A5C;background:var(--lg-answer-bg, #F2F6FA)}
 [data-funnel-design="default-funnel"] .lg-btn.lg-btn-answer[aria-checked="true"], [data-funnel-design="default-funnel"] .lg-btn.lg-btn-answer[data-selected="true"], [data-funnel-design="default-funnel"] .lg-btn.lg-btn-answer.lg-selected{border-color:#1B3A5C;background:#E8EEF4;font-weight:700}
@@ -69,7 +70,7 @@
 [data-funnel-design="default-funnel"] .lg-steps{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:1.5rem}
 [data-funnel-design="default-funnel"] .lg-step{width:10px;height:10px;border-radius:9999px;background:#E8EEF4}
 [data-funnel-design="default-funnel"] .lg-step[data-active="true"]{background:#1B3A5C}
-[data-funnel-design="default-funnel"] .lg-card-grid{display:grid;grid-template-columns:repeat(var(--lg-cols, 3), minmax(0, 1fr));gap:0.5rem;margin-bottom:1.5rem}
+[data-funnel-design="default-funnel"] .lg-card-grid{display:grid;grid-template-columns:var(--lg-tracks, repeat(var(--lg-cols, 3), minmax(0, 1fr)));gap:0.5rem;margin-bottom:1.5rem}
 [data-funnel-design="default-funnel"] .lg-card-grid[data-choice-heights="1"]{align-items:start}
 [data-funnel-design="default-funnel"] .lg-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.25rem;border:2px solid #D2D9E5;border-color:var(--lg-field-border, #D2D9E5);border-radius:10px;background:var(--lg-answer-bg, #FFFFFF);min-height:140px;padding:1rem;cursor:pointer;text-align:center;transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}
 [data-funnel-design="default-funnel"] .lg-card:hover{border-color:#1B3A5C;background:var(--lg-answer-bg, #F2F6FA)}
@@ -165,6 +166,7 @@
 [data-funnel-design="default-funnel"] .lg-continue{width:100%}
 [data-funnel-design="default-funnel"] .lg-answer-group{gap:12px}
 [data-funnel-design="default-funnel"] .lg-card-grid{grid-template-columns:1fr}
+[data-funnel-design="default-funnel"] .lg-card-grid > *{grid-column-start:auto;grid-column-end:auto}
 [data-funnel-design="default-funnel"] .lg-stack[data-direction="horizontal"]{flex-direction:column}
 [data-funnel-design="default-funnel"] .lg-grid-container{grid-template-columns:repeat(var(--lg-gc-cols-m, 1), minmax(0, 1fr))}
 [data-funnel-design="default-funnel"] .lg-grid-container[data-sizing="auto"]{grid-template-columns:repeat(var(--lg-gc-cols-m, 1), auto)}
