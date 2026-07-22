@@ -90,8 +90,16 @@ function runSql(db: SqliteDb, sql: string): void {
 }
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// HERE = <repo-root>/api/src/scripts. MIGRATIONS_DIR stays inside api/ (two
+// levels up: src/scripts -> src -> api). REPORTS_DIR is the PROGRAM'S
+// documentation home at the REPO ROOT (three levels up: src/scripts -> src ->
+// api -> repo root), where traceability.md / strings.md / the design pack
+// already live — anchored on the script's own location (import.meta.url), NOT
+// process.cwd(), so the output path is identical regardless of invocation cwd
+// (conductor integration finding: a two-level join resolved to api/docs/...
+// when run from the api/ cwd — wrong; this is the fix).
 export const MIGRATIONS_DIR = join(HERE, "..", "..", "migrations");
-export const REPORTS_DIR = join(HERE, "..", "..", "docs", "leadgen", "rework", "migration-reports");
+export const REPORTS_DIR = join(HERE, "..", "..", "..", "docs", "leadgen", "rework", "migration-reports");
 
 // --- migration specs -------------------------------------------------------
 
