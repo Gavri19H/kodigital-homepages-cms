@@ -82,6 +82,72 @@ function richSection(name: string, field: string, label: string): Record<string,
   };
 }
 
+// §8.4 follow-up round (P3b union at 7a12ee7 landed the Card render axis): a
+// ButtonAnswerGroup with title/subtitle choices — the proven-valid real-API
+// shape __p6a-theme.spec.ts's own fixture already uses (question_id/
+// question_key/internal_field/choices[].{label,value,analytics_id}), with
+// title/subtitle added (LeadgenChoice's existing additive fields, content-
+// schema.ts) so the tscard anatomy (presets.ts buttonInnerContent) has real
+// text to render.
+function richButtonGroupSection(name: string, field: string, label: string): Record<string, unknown> {
+  return {
+    section_name: name,
+    headline_text: name,
+    activity: "quote_funnel",
+    vertical: "auto",
+    status: "active",
+    content_json: JSON.stringify({
+      components: [
+        {
+          type: "ButtonAnswerGroup",
+          question_id: `q_${field}`,
+          question_key: field,
+          internal_field: field,
+          props: { label },
+          choices: [
+            { label: "Construction", value: "construction", analytics_id: `${field}_construction`, title: "Construction", subtitle: "Contractors, Home Builders" },
+            { label: "Retail", value: "retail", analytics_id: `${field}_retail`, title: "Retail", subtitle: "Shops, Stores" },
+          ],
+        },
+        { type: "ContinueButton", question_id: `q_${field}_cont`, props: { label: "Continue" } },
+      ],
+    }),
+  };
+}
+
+async function seedThemeOnFunnelWithButtonGroup(request: APIRequestContext, tag: string): Promise<SeededTheme> {
+  const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+  const safe = tag.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");
+
+  const theme = await json<{ item: { id: string } }>(
+    await request.post(`${LG_API}/themes`, { data: themePayload(`P4S4.2 ${safe} ${uniq}`, "#1B3A5C") }),
+    "theme create",
+  );
+
+  const quote = await json<{ public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }> }>(
+    await request.post(`${LG_API}/quotes`, { data: { quote_name: `P4S4.2 ${safe} ${uniq}`, activity: "quote_funnel", verticals: ["auto"] } }),
+    "quote create",
+  );
+  const funnelPublicId = quote.funnels[0]!.public_id;
+  const variantPublicId = quote.funnels[0]!.variants[0]!.public_id;
+
+  const field = `f${uniq}`;
+  const section = await json<{ public_id: string }>(
+    await request.post(`${LG_API}/sections`, { data: richButtonGroupSection(`p4s42-card-${safe}`, field, "What's your business type?") }),
+    "button-group section create",
+  );
+  await json(
+    await request.put(`${LG_API}/variants/${variantPublicId}`, { data: { sections: [{ section_id: section.public_id }] } }),
+    "attach section to variant",
+  );
+  await json(
+    await request.put(`${LG_API}/funnels/${funnelPublicId}/theme`, { data: { theme_json: { theme_id: theme.item.id } } }),
+    "assign funnel theme",
+  );
+
+  return { themePublicId: theme.item.id, quotePublicId: quote.public_id, funnelPublicId, variantPublicId };
+}
+
 async function seedThemeOnFunnel(request: APIRequestContext, tag: string): Promise<SeededTheme> {
   const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
   const safe = tag.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");
@@ -204,6 +270,34 @@ test.describe("Rework P4 S4.2 — §8.4 Themes tab live canvas", () => {
     // Appendix A-9 fixture (proves the switch actually re-resolved the
     // section-picker per theme, not just re-painting the SAME canvas).
     await expect(page.getByText("Sample section (add sections to preview your own).")).toBeVisible();
+  });
+
+  // §8.4 follow-up round (P3b union at 7a12ee7 landed the Card render axis):
+  // picking "Card" in the Answer-layout segmented control re-renders the
+  // canvas showing the real title+subtitle tscard anatomy (presets.ts
+  // buttonInnerContent), proven through the SAME real preview route every
+  // other canvas test above already drives.
+  test("picking Card in Answer layout re-renders the canvas showing title/subtitle cards", async ({ page }) => {
+    const seed = await seedThemeOnFunnelWithButtonGroup(apiCtx, "card-pick");
+    await openThemesManager(page, seed.themePublicId);
+
+    await expect(canvasFrame(page).locator(".lg-tscard")).toHaveCount(0);
+
+    const patchRes = page.waitForResponse(
+      (r) => r.request().method() === "PATCH" && r.url().includes("/api/admin/leadgen/themes/"),
+    );
+    await page.locator('[data-tm-seg][data-group="layout"][data-value="card"]').click();
+    expect((await patchRes).status(), "theme PATCH saved").toBe(200);
+    // Playwright-native re-navigation (proven-reliable cross-engine pattern,
+    // same as the ✓-in-selected test above) rather than trusting the page's
+    // own JS-triggered window.location.reload() alone.
+    await page.goto(page.url(), { waitUntil: "load" });
+    await expect(page.locator(".tm-canvas-frame")).toBeVisible({ timeout: 20_000 });
+
+    await expect(canvasFrame(page).locator(".lg-tscard-title", { hasText: "Construction" })).toBeVisible();
+    await expect(canvasFrame(page).locator(".lg-tscard-subtitle", { hasText: "Contractors, Home Builders" })).toBeVisible();
+    await expect(canvasFrame(page).locator(".lg-tscard-title", { hasText: "Retail" })).toBeVisible();
+    await expect(canvasFrame(page).locator(".lg-tscard-subtitle", { hasText: "Shops, Stores" })).toBeVisible();
   });
 
   test("1280 + 375 screenshots of the live canvas", async ({ page }) => {

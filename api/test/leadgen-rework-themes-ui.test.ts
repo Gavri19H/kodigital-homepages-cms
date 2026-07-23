@@ -16,14 +16,15 @@
 //      plumbing for the "Open Site settings" link.
 //   4. L-196: assertions read RENDERED strings, never template-literal
 //      source artifacts.
-//
-// BLOCKED (reported, not implemented — cross-file, outside this slice):
-// the NEW "Card" (full-width title+subtitle) Answer-layout value needs
-// THEME_BUTTON_LAYOUTS/ThemeButtonLayout widened (public/leadgen/designs/
-// theme.ts) plus a presets.ts/styles.ts render branch for
-// renderButtonAnswerGroup/renderTwoButtonYesNo — none of those three files
-// are owned by this slice (themes.ts/ui-theme-manager.ts/frame.ts). No test
-// below exercises "Card" because the feature does not exist yet.
+//   5. §8.4 Card answer-layout (follow-up round, P3b union at 7a12ee7):
+//      previously BLOCKED here (needed theme.ts/presets.ts/styles.ts outside
+//      this slice) — now landed by that merge (THEME_BUTTON_LAYOUTS =
+//      ["grid","list","card"]; presets.ts renders lg-tscard/lg-tscard-title/
+//      lg-tscard-subtitle for ButtonAnswerGroup under layout==="card").
+//      ui-theme-manager.ts's BUTTON_LAYOUT_OPTS now exposes it as the third
+//      segment; proven here: the option renders, PATCH round-trips it, and
+//      the live canvas shows the real tscard anatomy through the real
+//      preview route for a section with title/subtitle choices.
 //
 // Harness: node:sqlite + a KV stub, the SAME repo pattern as
 // test/leadgen-theme-manager-ui.test.ts (duplicated per that file's own
@@ -245,6 +246,19 @@ async function createTheme(env: Env, name: string, selected?: "wash" | "mark"): 
   return patched.item;
 }
 
+// §8.4 follow-up round: PATCH button_style.layout (Grid/List/Card) — a
+// SEPARATE small helper (not folded into createTheme) since it is an
+// independent axis, matching how the REAL editor PATCHes each segmented
+// control independently (segmentedControl/wireSegments, ui-theme-manager.ts).
+async function patchThemeLayout(env: Env, themeId: string, layout: "grid" | "list" | "card"): Promise<ThemeRecord> {
+  return (
+    await json<ThemeCreateResponse>(
+      await admin.request(`${API}/themes/${themeId}`, jsonInit("PATCH", { button_style: { layout } }), env),
+      "patch theme button_style.layout",
+    )
+  ).item;
+}
+
 async function createQuote(env: Env, funnelName: string): Promise<QuoteCreateResponse> {
   return json<QuoteCreateResponse>(
     await admin.request(
@@ -267,6 +281,38 @@ function seedSection(sdb: SqliteDb, headline: string): { id: number; public_id: 
   const content = JSON.stringify({
     components: [
       { type: "TwoButtonYesNo", question_id: "q1", question_key: "k", internal_field: "f", answer_type: "boolean", props: { label: headline } },
+    ],
+  });
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, ?, 'quote_funnel', 'auto', ?, ?, 'button', 'active')",
+    )
+    .run(publicId, headline, headline, content);
+  const row = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(publicId) as { id: number };
+  return { id: row.id, public_id: publicId };
+}
+
+// §8.4 follow-up round: a ButtonAnswerGroup with title/subtitle choices —
+// TwoButtonYesNo (seedSection's fixed boolean pair) has NO title/subtitle
+// fields at all (presets.ts's own doc comment), so a real tscard-anatomy
+// proof (title span + subtitle span, not just a title-only degrade) needs
+// THIS component type specifically.
+function seedButtonGroupSection(sdb: SqliteDb, headline: string): { id: number; public_id: string } {
+  const publicId = mintPublicId("section");
+  const content = JSON.stringify({
+    components: [
+      {
+        type: "ButtonAnswerGroup",
+        question_id: "q_biz",
+        question_key: "biz",
+        internal_field: "business_type",
+        answer_type: "enum",
+        props: { label: headline },
+        choices: [
+          { label: "Construction", value: "construction", title: "Construction", subtitle: "Contractors, Home Builders, Renovation" },
+          { label: "Retail", value: "retail", title: "Retail", subtitle: "Shops, Stores, Specialty Retail" },
+        ],
+      },
     ],
   });
   sdb
@@ -498,6 +544,91 @@ describeDb("Rework P4 S4.2 — §6.6 ✓-in-selected reaches the canvas (existin
     const doc = extractCanvasSrcdoc(html) as string;
     expect(doc).not.toContain("lg-check-hollow");
     expect(doc).not.toContain("lg-check-badge");
+  });
+});
+
+// ===========================================================================
+// 2b. §8.4 follow-up round — "Card" Answer-layout (P3b union at 7a12ee7):
+//    the option renders, PATCH round-trips it, and the live canvas shows the
+//    real tscard anatomy (title+subtitle) through the real preview route.
+// ===========================================================================
+
+describeDb("Rework P4 S4.2 — §8.4 follow-up: 'Card' Answer-layout axis", () => {
+  it("the Answer-layout segmented control exposes Grid/List/Card (three options, not two)", async () => {
+    const { env } = newHarness();
+    const theme = await createTheme(env, "Layout Options");
+    const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${theme.id}`);
+    expect(html).toContain('data-group="layout"');
+    expect(html).toContain('data-value="grid"');
+    expect(html).toContain('data-value="list"');
+    expect(html).toContain('data-value="card"');
+    // The segmented control's OWN label text (escapeHtml(opt.label)) — L-196:
+    // asserting the RENDERED label, not just the stored enum value.
+    expect(html).toMatch(/data-value="card"[^>]*>Card</);
+  });
+
+  it("PATCH button_style.layout='card' round-trips: it persists and reloads as the ACTIVE segment", async () => {
+    const { env } = newHarness();
+    const theme = await createTheme(env, "Layout Roundtrip");
+    await patchThemeLayout(env, theme.id, "card");
+
+    const refetched = await json<ThemeCreateResponse>(
+      await admin.request(`${API}/themes/${theme.id}`, { method: "GET" }, env),
+      "re-fetch theme",
+    );
+    expect(refetched.item.button_style?.layout).toBe("card");
+
+    const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${theme.id}`);
+    // segmentedControl's active-segment style is the ONLY visual differentiator
+    // (data-value carries the value regardless of active state) — assert the
+    // "card" segment specifically got the ACTIVE style block (segActiveText),
+    // not the inactive one (segInactiveText), by checking which one bounds it.
+    const cardSegMatch = html.match(/<div data-tm-seg data-top="button_style" data-group="layout" data-value="card"[^>]*style="([^"]*)"/);
+    expect(cardSegMatch, "the card segment renders at all").not.toBeNull();
+    expect(cardSegMatch![1]).toContain("font-weight:700"); // active-segment style (segmentedControl's own ternary)
+  });
+
+  it("a theme with layout='card' renders the REAL tscard anatomy (title+subtitle) in the live canvas via the real preview route", async () => {
+    const { sdb, env } = newHarness();
+    const theme = await createTheme(env, "Card Canvas");
+    await patchThemeLayout(env, theme.id, "card");
+    const quote = await createQuote(env, "Auto Insurance");
+    const funnelId = quote.funnels[0]!.public_id;
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    await assignFunnelTheme(env, funnelId, theme.id);
+    const section = seedButtonGroupSection(sdb, "Card layout headline");
+    await attachToVariant(env, variantId, section.id);
+
+    const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${theme.id}`);
+    const doc = extractCanvasSrcdoc(html) as string;
+    // presets.ts buttonInnerContent's exact tscard anatomy (verified by direct
+    // read: lg-tscard on the button, lg-tscard-title / lg-tscard-subtitle
+    // spans carrying the choice's OWN title/subtitle text).
+    expect(doc).toContain("lg-tscard");
+    expect(doc).toContain('<span class="lg-tscard-title">Construction</span>');
+    expect(doc).toContain('<span class="lg-tscard-subtitle">Contractors, Home Builders, Renovation</span>');
+    expect(doc).toContain('<span class="lg-tscard-title">Retail</span>');
+    expect(doc).toContain('<span class="lg-tscard-subtitle">Shops, Stores, Specialty Retail</span>');
+    expect(doc).toContain('data-btn-layout="card"');
+  });
+
+  it("a theme with layout left at 'grid' (default) does NOT render tscard markup for the SAME section (calibration: proves the axis, not the section, drives the anatomy)", async () => {
+    const { sdb, env } = newHarness();
+    const theme = await createTheme(env, "Grid Canvas"); // no layout PATCH -> stays default 'grid'
+    const quote = await createQuote(env, "Auto Insurance");
+    const funnelId = quote.funnels[0]!.public_id;
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    await assignFunnelTheme(env, funnelId, theme.id);
+    const section = seedButtonGroupSection(sdb, "Grid layout headline");
+    await attachToVariant(env, variantId, section.id);
+
+    const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${theme.id}`);
+    const doc = extractCanvasSrcdoc(html) as string;
+    expect(doc).not.toContain("lg-tscard");
+    expect(doc).not.toContain('data-btn-layout="card"');
+    // The SAME choices still render — just as plain buttons, not tscards.
+    expect(doc).toContain("Construction");
+    expect(doc).toContain("Retail");
   });
 });
 

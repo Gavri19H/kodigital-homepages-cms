@@ -757,9 +757,18 @@ const BUTTON_FILL_OPTS: ReadonlyArray<{ value: ThemeButtonStyle; label: string }
   { value: "outline", label: "Outline" },
   { value: "soft", label: "Soft" },
 ];
+// Rework §8.4 follow-up round (conductor-granted, P3b union at 7a12ee7): the
+// THIRD Answer-layout value — theme.ts's THEME_BUTTON_LAYOUTS now carries
+// "card" (presets.ts renders title/subtitle tscards for button groups under
+// layout==="card"; themes-handlers.ts's write-time validator already accepts
+// it, since it re-reads THEME_BUTTON_LAYOUTS itself, no separate change
+// needed there). Same segmentedControl mechanism as Grid/List — the pack's
+// 8.4-editor-controls region pins this as a plain third segment (its "NEW"
+// pill is pack-authoring chrome for the P0 mock, not a persisted value).
 const BUTTON_LAYOUT_OPTS: ReadonlyArray<{ value: ThemeButtonLayout; label: string }> = [
   { value: "grid", label: "Grid" },
   { value: "list", label: "List" },
+  { value: "card", label: "Card" },
 ];
 const BUTTON_SELECTED_OPTS: ReadonlyArray<{ value: ThemeButtonSelectedStyle; label: string }> = [
   { value: "wash", label: "Wash" },

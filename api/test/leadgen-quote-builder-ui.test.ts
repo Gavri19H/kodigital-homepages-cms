@@ -542,6 +542,29 @@ describeDb("Quote Builder frame studio — §4.1 panels", () => {
   });
 });
 
+// A minimal, balanced slice of the Templates tab panel (from
+// `data-panel="templates"` to its matching closing </div>), so a Progress-
+// control assertion can never accidentally match a same-named string from a
+// sibling tab panel. Test-file-local (this codebase's own convention — no
+// shared export exists for it); the identical pattern lives in
+// test/leadgen-rework-templates-ui.test.ts (P4/S4.1's own SSR coverage).
+function templatesPanelSlice(html: string): string {
+  const start = html.indexOf('data-panel="templates"');
+  expect(start, "templates panel present").toBeGreaterThan(-1);
+  const openTagStart = html.lastIndexOf("<div", start);
+  const rest = html.slice(openTagStart);
+  const tagRe = /<div\b|<\/div>/g;
+  let depth = 0;
+  let end = -1;
+  for (const match of rest.matchAll(tagRe)) {
+    if (match[0] === "<div") depth++;
+    else depth--;
+    if (depth === 0) { end = openTagStart + (match.index ?? 0) + match[0].length; break; }
+  }
+  expect(end, "templates panel has a balanced closing </div>").toBeGreaterThan(-1);
+  return html.slice(openTagStart, end);
+}
+
 // ===========================================================================
 // §4.4 — region inspectors, control-by-control (spot asserts)
 // ===========================================================================
@@ -575,10 +598,19 @@ describeDb("Quote Builder frame studio — §4.4 region inspectors [RETIRED: §8
   //           (footer.enabled/show_on/links_source; disclosure.enabled/
   //           location/link_label/text) are genuinely gone (not merely
   //           renamed 1:1), so their absence-check stands.
-  //         Progress / Back / TrustStrip / BenefitBar / SectionSlot /
-  //           Compatibility — ZERO presence anywhere; a REAL, program-level
-  //           gap (P4's "after P3a's split" sequencing has not reached these
-  //           groups yet). Flagged prominently in the phase report.
+  //         Progress — FULLY landed (P4/S4.1, contract §8.3, merged into this
+  //           tree at the P3b union): the Templates tab's NEW box I·Progress
+  //           carries all six §8.3 controls (position/align/thickness/width/
+  //           color_role/show_label) over the SAME progress.* frame keys,
+  //           plus a 5-real-style thumbnail picker (style:'hidden' is a
+  //           "Show progress bar" toggle, not a 6th visible style) — asserted
+  //           as a PRESENT replacement below, not a gap. This falsified the
+  //           P3b-authored "no current admin surface" gap-pin that predated
+  //           S4.1 landing in this tree; re-pinned to the new truth here.
+  //         Back / TrustStrip / BenefitBar / SectionSlot / Compatibility —
+  //           ZERO presence anywhere; a REAL, program-level gap (P4's "after
+  //           P3a's split" sequencing has not reached these groups yet).
+  //           Flagged prominently in the phase report.
   // Each test below is retained (not deleted) as a verified-absence OR
   // verified-replacement guard so a future P4 landing has a precise,
   // per-group starting point instead of a blanket "everything's missing."
@@ -601,12 +633,22 @@ describeDb("Quote Builder frame studio — §4.4 region inspectors [RETIRED: §8
     }
   });
 
-  it("Progress region-inspector controls have no current admin surface (see describe-block citation)", async () => {
+  it("Progress: landed in the Templates tab's box I (contract §8.3, S4.1 coverage — see describe-block citation), all six controls + the 5-real-style picker via the real rendered panel", async () => {
     const { html } = await harness();
-    expect(html).not.toContain('name="lg-progress-style" value="hidden"');
-    for (const key of ["progress.position", "progress.thickness", "progress.width", "progress.show_label"]) {
-      expect(html, `progress control ${key} absent`).not.toContain(`data-frame-key="${key}"`);
+    const panel = templatesPanelSlice(html);
+    expect(panel).toContain('data-tplbox-panel="progress"');
+    // the 5 real styles (thumbnail radios) + the "hidden" proxy the Show-
+    // progress-bar toggle drives (never rendered as a 6th visible thumbnail)
+    for (const style of ["bar", "dots", "numbered", "percent", "icon_on_track"]) {
+      expect(panel, `progress style option ${style} present`).toContain(`value="${style}" data-frame-key="progress.style"`);
     }
+    expect(panel).toContain('id="lg-tpl-progress-hidden-radio"');
+    expect(panel).toContain('id="lg-tpl-progress-show-checkbox"');
+    // ALL SIX §8.3 controls: Position/Alignment/Thickness/Width/Color/Show label
+    for (const key of ["progress.position", "progress.align", "progress.thickness", "progress.width", "progress.show_label"]) {
+      expect(panel, `progress control ${key} present`).toContain(`data-frame-key="${key}"`);
+    }
+    expect(panel).toContain('data-role-strip="progress.color_role"');
   });
 
   it("Back region-inspector controls have no current admin surface (see describe-block citation)", async () => {
