@@ -98,6 +98,11 @@ function pushButtonStyleRules(
   design: DefaultFunnelDesign | EffectiveFunnelDesign,
   bs: EffectiveButtonStyle,
   out: string[],
+  // §8.4 gap round (2026-07-23): the "card" layout's mobile-375 shrink
+  // (title/subtitle font-size + padding + mark-glyph offset, P0 pack data-pin
+  // 8.4-mobile-title-subtitle-cards) is the FIRST button-style rule needing
+  // the mobile array — every prior axis (fill/list/mark) was desktop-only.
+  mobile: string[],
 ): void {
   const { radius, shadow, color, spacing } = design;
 
@@ -153,6 +158,132 @@ function pushButtonStyleRules(
         "align-items": "flex-start",
         "justify-content": "center",
         "text-align": "left",
+      }),
+    );
+  }
+  // LAYOUT — card (Image23, §8.4 gap round 2026-07-23): the theme's NEW
+  // Answer-layout value — full-width title+subtitle cards, ONE per row
+  // (P0 pack docs/leadgen/rework/design-pack/themes.html data-pin
+  // 8.4-title-subtitle-card-rest/8.4-tscard-hover/8.4-tscard-selected/
+  // 8.4-tscard-selected-wash/8.4-tscard-error). presets.ts stamps
+  // .lg-tscard ONLY on buttons/YesNo when this theme axis resolves "card"
+  // (buttonInnerContent), so every rule below is unambiguously scoped by
+  // that ONE class — no container-attribute qualifier needed on the item
+  // rules. Every color/radius value below reuses this design's EXISTING
+  // measured tokens 1:1 (the pack's own tscard hex values are close-but-not
+  // -byte-identical to this palette; each mapped to its numerically closest
+  // existing token — the SAME "no new value invented" discipline
+  // iconCardDepthSlots, above the base .lg-card-grid rules, already
+  // established for a different §8.4 feature):
+  //   background #fff -> color.card (EXACT); title color #1A1F36 ->
+  //   page.textColor (EXACT); rest subtitle color #8A93A3 -> page.
+  //   textLightColor (#718096, the lightest/most-muted existing text
+  //   color); rest border #E1E6EE -> color.borderLight (#E8ECF2, closest);
+  //   hover border #C7D6E6 -> color.border (#D2D9E5, closest); hover/mark-
+  //   selected background #F7F9FC -> color.primaryGhost (#F2F6FA,
+  //   closest); mark-selected border #1B3A5C = color.primary (EXACT — the
+  //   wash-selected background/border ALREADY comes for free from the
+  //   EXISTING generic .lg-btn.lg-btn-answer[aria-checked="true"] rule
+  //   below in this same file, which already resolves to color.primaryWash
+  //   #E8EEF4, itself the closest existing token to the pack's wash bg
+  //   #EAF0F6 — .lg-tscard needs NO new wash-selected border/background
+  //   rule at all); wash-selected subtitle color #41495B -> page.
+  //   textSecondaryColor (#4A5568, closest); error border #B23A2C ->
+  //   color.error (#D32F2F, same red family, the only error role this
+  //   palette has); radius 14px = radius.lg (EXACT); title/subtitle
+  //   font-size 17px/12.5px -> iconCard.titleFontSize (1rem) / subheadline.
+  //   fontSize (0.825rem) — both ~1px tolerance, the SAME tolerance the
+  //   §6.6 marker reuse below already takes (17px/19px hollow/badge vs the
+  //   pack's own 20px mark-glyph). subtitle margin-top 4px = spacing.xs
+  //   (EXACT). Genuinely NEW measurements (no existing token to reuse —
+  //   the same category as iconCardDepthSlots.badgePadding "2px 8px"
+  //   introducing a new precise measurement for ITS new component):
+  //   desktop padding "18px 20px", the inter-card gap "8px" (spacing.sm,
+  //   closest to the pack's 10px — no exact scale step exists either side),
+  //   and the mobile-only sizes below.
+  if (bs.layout === "card") {
+    out.push(
+      // container: ONE column, full-width stack (never a multi-column
+      // grid — Image23's own anatomy is always a vertical list of cards).
+      rule(`${scope} .lg-answer-group[data-btn-layout="card"]`, {
+        "grid-template-columns": "1fr",
+        gap: spacing.sm,
+      }),
+      // base (rest) tscard.
+      rule(`${scope} .lg-tscard`, {
+        display: "block",
+        width: "100%",
+        "text-align": "left",
+        "border-radius": radius.lg,
+        padding: "18px 20px",
+        background: color.card,
+        border: `1.6px solid ${color.borderLight}`,
+        position: "relative", // anchors the §6.6 marker's corner reposition below.
+      }),
+      rule(`${scope} .lg-tscard-title`, {
+        display: "block",
+        "font-size": design.iconCard.titleFontSize,
+        "font-weight": "700",
+        color: design.page.textColor,
+      }),
+      rule(`${scope} .lg-tscard-subtitle`, {
+        display: "block",
+        "font-size": design.subheadline.fontSize,
+        color: design.page.textLightColor,
+        "margin-top": spacing.xs,
+      }),
+      // hover.
+      rule(`${scope} .lg-tscard:hover`, {
+        "border-color": color.border,
+        background: color.primaryGhost,
+      }),
+      // error (mirrors the EXISTING .lg-card[data-error="true"] idiom).
+      rule(`${scope} .lg-tscard[data-error="true"]`, { "border-color": color.error }),
+      // the "Other" trigger's ONLY anatomy delta from a plain choice card —
+      // title left, chevron right (the pack's own trailing-affordance row).
+      rule(`${scope} .lg-tscard.lg-other-trigger`, {
+        display: "flex",
+        "align-items": "center",
+        "justify-content": "space-between",
+      }),
+      // §6.6 marker interplay: the SAME .lg-check-hollow/.lg-check-badge
+      // pair every other layout already renders (selectedMarkerMarkup) —
+      // repositioned to the pack's corner-badge placement ONLY inside a
+      // tscard (elsewhere it stays the existing leading-inline position).
+      // Orthogonal to the base mark rules above (those set display:none/
+      // flex for the resting/selected SWAP; these set position/top/right),
+      // so no specificity conflict — both apply together.
+      rule(`${scope} .lg-tscard .lg-check-hollow, ${scope} .lg-tscard .lg-check-badge`, {
+        position: "absolute",
+        top: "14px",
+        right: "16px",
+      }),
+      // wash-selected subtitle darkens for readability against the wash
+      // background — ONLY when this SPECIFIC card resolved to 'wash' (no
+      // mark badge present), never when it resolved to 'mark' (the pack's
+      // 8.4-tscard-selected example keeps the subtitle muted; only
+      // 8.4-tscard-selected-wash darkens it). `:has()` is already in this
+      // file's support baseline (see .lg-mqg:has(...) / .lg-el[data-el-
+      // leaf]:has(...) elsewhere in this stylesheet).
+      rule(
+        [
+          `${scope} .lg-tscard.lg-selected:not(:has(.lg-check-badge)) .lg-tscard-subtitle`,
+          `${scope} .lg-tscard[aria-checked="true"]:not(:has(.lg-check-badge)) .lg-tscard-subtitle`,
+          `${scope} .lg-tscard[data-selected="true"]:not(:has(.lg-check-badge)) .lg-tscard-subtitle`,
+        ].join(", "),
+        { color: design.page.textSecondaryColor },
+      ),
+    );
+    // mobile 375 (P0 pack data-pin 8.4-mobile-title-subtitle-cards): smaller
+    // padding/type + a tighter marker offset — genuinely new, pack-pinned
+    // measurements (no existing token covers a mobile-only card shrink).
+    mobile.push(
+      rule(`${scope} .lg-tscard`, { padding: "14px 16px" }),
+      rule(`${scope} .lg-tscard-title`, { "font-size": "14.5px" }),
+      rule(`${scope} .lg-tscard-subtitle`, { "font-size": "11px" }),
+      rule(`${scope} .lg-tscard .lg-check-hollow, ${scope} .lg-tscard .lg-check-badge`, {
+        top: "12px",
+        right: "14px",
       }),
     );
   }
@@ -1909,7 +2040,7 @@ export function funnelChromeCss(
   // no button look) ⇒ nothing pushed ⇒ byte-identical to pre-P6.
   const buttonStyle = readButtonStyle(design);
   if (buttonStyle !== undefined) {
-    pushButtonStyleRules(scope, design, buttonStyle, out);
+    pushButtonStyleRules(scope, design, buttonStyle, out, mobile);
   }
 
   // ---- v2.5 frame-region rules (13 §13.1, opt-in — see FunnelChromeCssOpts).

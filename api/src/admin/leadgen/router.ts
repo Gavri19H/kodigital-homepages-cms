@@ -99,12 +99,14 @@ import {
   createQuoteRoutingRuleHandler,
   createQuoteVariantHandler,
   createSharedPageHandler,
+  createVariantRuleHandler,
   deleteActivationHandler,
   deleteFunnelHandler,
   deleteQuoteHandler,
   deleteQuoteRoutingRuleHandler,
   deleteSharedPageHandler,
   deleteVariantHandler,
+  deleteVariantRuleHandler,
   duplicateFunnelHandler,
   duplicateQuoteHandler,
   duplicateQuoteRoutingRuleHandler,
@@ -119,6 +121,7 @@ import {
   listQuoteRoutingRulesHandler,
   listQuotesHandler,
   listQuoteVariantsHandler,
+  listVariantRulesHandler,
   patchFunnelHandler,
   patchQuoteHandler,
   previewVariantHandler,
@@ -134,6 +137,7 @@ import {
   stopExperimentHandler,
   updateQuoteRoutingRuleHandler,
   updateSharedPageHandler,
+  updateVariantRuleHandler,
 } from "./quotes-handlers";
 import {
   auctionAnalyticsHandler,
@@ -294,14 +298,25 @@ routes.post("/experiments/:id/start", startExperimentHandler);
 routes.post("/experiments/:id/stop", stopExperimentHandler);
 routes.get("/experiments/:id/assignment-preview", experimentAssignmentPreviewHandler);
 
-// Variants — static/deeper suffixes (/fork, /preview, /rules/:rule_id/duplicate)
+// Variants — static/deeper suffixes (/fork, /preview, /rules[/:rule_id[/duplicate]])
 // BEFORE the bare /variants/:id PUT (03 §8.1 static-before-param discipline).
 routes.post("/variants/:id/fork", forkVariantHandler);
 routes.post("/variants/:id/preview", previewVariantHandler);
-// Round-4 P4b: a rule's only independent CRUD verb (rules otherwise live
-// inside the variant's §15.5 replace-set PUT below) — param name is
-// `variant_id` here (distinct from the outer `:id`) so duplicateRuleHandler
-// reads BOTH ids unambiguously via c.req.param.
+// D5 mini-round: variant-scoped rule CRUD (leadgen_funnel_rules, the four
+// auction-domain types only) — the Auction-tab editor's real REST surface,
+// added ALONGSIDE the variant-PUT `rules` replace-set (unchanged, still
+// works). Bare PATCH/DELETE before the deeper /duplicate suffix (mirrors
+// /offers/:id vs /offers/:id/duplicate — Hono disambiguates by segment count
+// either way). The existing duplicate route (below) keeps its own `variant_id`
+// param name (distinct from the outer `:id` on ITS route) — unaffected.
+routes.get("/variants/:id/rules", listVariantRulesHandler);
+routes.post("/variants/:id/rules", createVariantRuleHandler);
+routes.patch("/variants/:id/rules/:rule_id", updateVariantRuleHandler);
+routes.delete("/variants/:id/rules/:rule_id", deleteVariantRuleHandler);
+// Round-4 P4b: mirrors the quote-scoped /routing-rules/:rule_id/duplicate
+// precedent — param name is `variant_id` here (distinct from the outer `:id`
+// convention above) so duplicateRuleHandler reads BOTH ids unambiguously via
+// c.req.param.
 routes.post("/variants/:variant_id/rules/:rule_id/duplicate", duplicateRuleHandler);
 routes.put("/variants/:id", putVariantHandler);
 // AC #11C ("delete-variant exists") — conductor extension round 2.

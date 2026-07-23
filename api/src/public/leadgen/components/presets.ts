@@ -546,6 +546,38 @@ function selectedMarkerMarkup(marker: LeadgenSelectedMarker): string {
   );
 }
 
+// LeadGen Rework §8.4 gap round (2026-07-23): the theme "Answer layout:
+// Card" NEW enum value (Image23, P0 pack data-pin 8.4-title-subtitle-card-*)
+// — a full-width title+subtitle card replaces the plain grid/list button.
+// choice.title (bold) / choice.subtitle (muted) are ALREADY additive
+// LeadgenChoice fields (the P2 card-grid title/subtitle depth work,
+// content-schema.ts) — this is a NEW RENDERING TREATMENT for the SAME data,
+// not new content. A choice without title falls back to its label (so a
+// Card-themed group with only label-only choices — incl. TwoButtonYesNo,
+// which has no title/subtitle fields on its fixed Yes/No pair at all —
+// still renders title-only, never blank); a choice without subtitle omits
+// the subtitle span entirely (byte-minimal, no empty span). The §6.6 marker
+// rides the EXACT SAME selectedMarkerMarkup() call every other layout uses —
+// "the marker interplay" is exactly this: ONE marker mechanism, repositioned
+// for the card context by a dedicated styles.ts rule (gridItemColumnEntries-
+// style separation of concerns), never a second, parallel marker system.
+function buttonInnerContent(
+  isCard: boolean,
+  marker: LeadgenSelectedMarker,
+  label: string,
+  title: string | undefined,
+  subtitle: string | undefined,
+): string {
+  const markerHtml = selectedMarkerMarkup(marker);
+  if (!isCard) return `${markerHtml}${esc(label)}`;
+  const t = typeof title === "string" && title !== "" ? title : label;
+  const s = typeof subtitle === "string" && subtitle !== "" ? subtitle : undefined;
+  return (
+    `${markerHtml}<span class="lg-tscard-title">${esc(t)}</span>` +
+    (s !== undefined ? `<span class="lg-tscard-subtitle">${esc(s)}</span>` : "")
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Rework §6.7 — effective columns = min(authored, choiceCount); wrapped last
 // row centered (L-195: explicit track/justify rules, never margin:auto).
@@ -1272,6 +1304,9 @@ function buttonStyleAttrs(
   let out = "";
   if (axes.fill === true && bs.fill !== "fill") out += ` data-btn-fill="${bs.fill}"`;
   if (axes.layout === true && bs.layout === "list") out += ` data-btn-layout="list"`;
+  // §8.4 gap round: "card" (Image23) is a THIRD, mutually-exclusive layout
+  // value alongside "list" above — never both attributes at once.
+  if (axes.layout === true && bs.layout === "card") out += ` data-btn-layout="card"`;
   if (axes.selected === true && bs.selected === "mark") out += ` data-card-select="mark"`;
   return out;
 }
@@ -1294,6 +1329,10 @@ export function renderButtonAnswerGroup(
   // button to 'mark', ALSO byte-identical.
   const markerResolutions = choices.map((c) => resolveSelectedMarker(node, c.style, design));
   const anyMark = markerResolutions.some((m) => m === "mark");
+  // §8.4 gap round: the theme's Answer-layout:'card' value (Image23) — see
+  // buttonInnerContent's own comment. Resolved ONCE per group (a theme axis,
+  // not per-choice), matching how every other button-style axis resolves.
+  const isCard = readButtonStyle(design)?.layout === "card";
   // v3.1 R3 §7/§8.5b + P2a §R-A: each answer button carries the node's per-item
   // design_overrides (height→min-height, corners→radius, border_color→role
   // border) MERGED with the choice's OWN diff-only `style` overlay (per-element
@@ -1302,22 +1341,25 @@ export function renderButtonAnswerGroup(
   // Rework §6.7: `index` feeds gridItemColumnEntries (L-195 wrapped-last-row
   // centering) — {} (no override) for every item outside a partial-row grid.
   const btn = (c: LeadgenChoice, index: number): string =>
-    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, gridItemColumnEntries(index, choices.length, gridCols.cols))}` +
+    `<button type="button" class="lg-btn lg-btn-answer${isCard ? " lg-tscard" : ""}" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, gridItemColumnEntries(index, choices.length, gridCols.cols))}` +
     attr("data-value", c.value) +
     // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
     attr("data-lg-choice", c.value) +
     attr("data-analytics-id", c.analytics_id) +
-    `>${selectedMarkerMarkup(markerResolutions[index]!)}${esc(c.label)}</button>`;
+    `>${buttonInnerContent(isCard, markerResolutions[index]!, c.label, c.title, c.subtitle)}</button>`;
   // Rework §6.5: base choices UNCHANGED + ONE trailing "Other" affordance
   // (same family, chevron) revealing a hidden <select> of the authored values.
   // Absent/disabled props.other ⇒ "" ⇒ byte-identical (replaces the retired
   // choiceDisplay/splitChoicesForOtherGroup/renderOtherGroupTail mechanism).
+  // §8.4 gap round: under card layout the trigger is ALSO a full-width
+  // tscard (the pack's "Other" row anatomy — title span + chevron, no
+  // subtitle span at all, matching the pack's own trailing-affordance shape).
   const other = readOtherConfig(node);
   const otherHtml =
     other === undefined
       ? ""
-      : `<button type="button" class="lg-btn lg-btn-answer lg-other-trigger" data-lg-other-trigger` +
-        ` aria-expanded="false" aria-haspopup="listbox">${esc(other.label)}${otherChevronSvg(design)}</button>` +
+      : `<button type="button" class="lg-btn lg-btn-answer${isCard ? " lg-tscard" : ""} lg-other-trigger" data-lg-other-trigger` +
+        ` aria-expanded="false" aria-haspopup="listbox">${isCard ? `<span class="lg-tscard-title">${esc(other.label)}</span>` : esc(other.label)}${otherChevronSvg(design)}</button>` +
         otherSelectMarkup(other);
   const body = choices.map(btn).join("") + otherHtml;
   return (
@@ -1365,10 +1407,16 @@ export function renderTwoButtonYesNo(
   const yesMarker = resolveSelectedMarker(node, yesStyle, design);
   const noMarker = resolveSelectedMarker(node, noStyle, design);
   const anyMark = yesMarker === "mark" || noMarker === "mark";
+  // §8.4 gap round: TwoButtonYesNo is a FIXED boolean pair with NO title/
+  // subtitle fields at all (unlike LeadgenChoice) — buttonInnerContent's
+  // fallback-to-label rule means this always degrades to title-only (yes/no
+  // label as the tscard title, no subtitle span), a natural, non-special-
+  // cased consequence of the SAME shared helper every layout uses.
+  const isCard = readButtonStyle(design)?.layout === "card";
   const btn = (label: string, value: boolean, cs: LeadgenChoiceStyle | undefined, marker: LeadgenSelectedMarker): string =>
-    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, cs)}` +
+    `<button type="button" class="lg-btn lg-btn-answer${isCard ? " lg-tscard" : ""}" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, cs)}` +
     // 03 §3.3: data-lg-choice mirrors data-value (the stored boolean).
-    ` data-value="${value ? "true" : "false"}" data-lg-choice="${value ? "true" : "false"}">${selectedMarkerMarkup(marker)}${esc(label)}</button>`;
+    ` data-value="${value ? "true" : "false"}" data-lg-choice="${value ? "true" : "false"}">${buttonInnerContent(isCard, marker, label, undefined, undefined)}</button>`;
   return (
     labelLine(node) +
     `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)}${choiceHeightsAttr(yesStyle?.size !== undefined || noStyle?.size !== undefined)}${answerGroupRootStyle(node, design, ctx, gridCols)}${buttonStyleAttrs(design, { fill: true, layout: true })}${attr("data-card-select", anyMark ? "mark" : undefined)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +

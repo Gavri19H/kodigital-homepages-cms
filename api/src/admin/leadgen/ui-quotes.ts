@@ -39,9 +39,17 @@ import {
   RULES_BUILDER_SCRIPT,
   ROUTING_RULES_SCRIPT,
   ROUTING_RULE_TYPES,
+  // P3b follow-up (§8.2 RIGHT rail, S3b.2's MOUNT CONTRACT): the composer
+  // assembles QuoteRulesRailData (the "tab payload" this file already builds
+  // routingData/quoteDataBlob from) and adds QUOTE_RULES_SCRIPT to the page's
+  // scripts bundle; renderQuoteRulesRail itself is called by the board
+  // (quotes-tabs/funnel.ts renderBuilderPanel), not here.
+  QUOTE_RULES_SCRIPT,
   type RoutingBuilderData,
   type RoutingRuleRowData,
   type RoutingRuleType,
+  type QuoteRulesRailData,
+  type QuoteRulesRailFunnel,
 } from "./ui-rules-builder";
 import {
   type QuoteListItem,
@@ -53,6 +61,7 @@ import {
   type PageSlotNode,
   type PageNode,
   type StructureBody,
+  type BoardPage,
   type AvailableSection,
   type AuctionListItem,
   type ActivationBody,
@@ -65,7 +74,6 @@ import {
   LG_QUOTES_STYLES,
   primaryVariantOf,
   findSelectedVariant,
-  renderVariantSelector,
   renderSiteSelect,
   renderTemplatePicker,
   quoteDataBlob,
@@ -672,6 +680,10 @@ function quoteEditorHtml(
   theme: ThemeGetBody | null,
   templates: FrameTemplateItem[],
   routingData: RoutingBuilderData,
+  // P3b follow-up (§8.2 RIGHT rail) — S3b.2's renderQuoteRulesRail input,
+  // assembled by leadgenQuoteEditorPage (the SAME "tab payload" function that
+  // already builds routingData/quoteDataBlob) and threaded to the board.
+  railData: QuoteRulesRailData,
   brand: { userEmail?: string },
   // FIX 8c: whether POST /api/admin/ai/image is usable — false hides the
   // picker's "Generate with AI" affordance (§8.4).
@@ -691,9 +703,11 @@ function quoteEditorHtml(
     .join("");
 
   // §4.1 top bar: name · status pill · Activity chip · verticals chips ·
-  // funnel/variant selector (+ fork) · publish chip · preview-site selector ·
-  // Save · Publish (opens the Activation tab, where the per-site preflight-
-  // gated activate lives).
+  // publish chip · preview-site selector · Save · Publish (opens the
+  // Activation tab, where the per-site preflight-gated activate lives). P3b
+  // follow-up (§8.2/§10): the variant selector + "Fork this variant" are
+  // REMOVED from this bar — the A/B tab (renderAbPanel) now owns variant
+  // switching + creation, and the funnel board never exposes a raw variant.
   const head = `<div class="lg-editor-head">
     <a href="/admin/leadgen/quotes" class="btn btn-outline">&#8592; Quotes</a>
     <h2 class="lg-editor-title" id="lg-quote-title">${escapeHtml(q.quote_name)}</h2>
@@ -737,19 +751,13 @@ function quoteEditorHtml(
   <button type="button" class="lg-qtab" data-tab="analytics">Analytics</button>
 </nav>`;
 
-  const variantBar = `<div class="lg-editor-head">
-  ${renderVariantSelector(structure, selected)}
-  <button type="button" class="btn btn-sm btn-outline" data-fork-variant="${escapeHtml(selected.public_id)}">Fork this variant</button>
-</div>`;
-
   const content = `${renderLeadgenTabs("quotes")}
 <div id="lg-quote-editor" data-quote-id="${q.id}" data-quote-public-id="${escapeHtml(q.public_id)}" data-variant-public-id="${escapeHtml(selected.public_id)}" data-variant-funnel-id="${escapeHtml(selected.funnel_id)}" data-variant-funnel-variant-id="${escapeHtml(selected.funnel_variant_id)}" data-funnel-public-id="${escapeHtml(funnelPublicId)}">
   ${head}
   <p id="lg-quote-error" class="alert alert-error" hidden role="alert"></p>
   <p id="lg-quote-ok" class="alert alert-success" hidden role="status"></p>
-  ${variantBar}
   ${subtabs}
-  ${renderBuilderPanel(structure, selected, designs, auctions, available, templates, sites, routingData)}
+  ${renderBuilderPanel(structure, selected, designs, auctions, available, templates, sites, routingData, railData)}
   ${renderTemplatesTabPanel(selectedIsControl, routingData.fields)}
   ${renderThemesTabPanel(selectedIsControl)}
   ${renderAbPanel(structure, selected)}
@@ -764,7 +772,16 @@ function quoteEditorHtml(
     userEmail: brand.userEmail,
     content,
     styles: LG_QUOTES_STYLES,
-    scripts: QUOTE_EDITOR_SCRIPT + RULES_BUILDER_SCRIPT + ROUTING_RULES_SCRIPT,
+    // P3b follow-up: QUOTE_RULES_SCRIPT (§8.2 RIGHT rail island) added.
+    // RULES_BUILDER_SCRIPT stays — renderQuoteRulesRail's own doc comment
+    // documents it as a REQUIRED shared dependency (its Conditions section
+    // mounts window.lgRulesBuilder). ROUTING_RULES_SCRIPT/renderRoutingRulesPanel
+    // targeted the OLD per-variant rules panel this phase removed from render
+    // (renderInspectorColumn/renderRulesPanel, deleted with the board rewrite);
+    // its script text is now unreachable dead code bound to absent DOM —
+    // flagged for the P5 orphan-scan removal sweep, not touched here (out of
+    // this round's granted scope: composer + the 3 test files + one config line).
+    scripts: QUOTE_EDITOR_SCRIPT + RULES_BUILDER_SCRIPT + ROUTING_RULES_SCRIPT + QUOTE_RULES_SCRIPT,
   });
 }
 
@@ -830,6 +847,12 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
   const themeRes = await apiJson<ThemeGetBody>(c.env, `/api/admin/leadgen/funnels/${encodedFunnel}/theme`);
   const templatesRes = await apiJson<{ items: FrameTemplateItem[] }>(c.env, "/api/admin/leadgen/frame-templates");
   const offersRes = await apiJson<ListBody<OfferListItem>>(c.env, "/api/admin/leadgen/offers?page_size=200");
+  // P3b follow-up (§8.2 RIGHT rail) — the quote's routing rules, for
+  // QuoteRulesRailData (S3b.2's renderQuoteRulesRail input, assembled below).
+  const routingRulesRes = await apiJson<{ items: QuoteRulesRailRuleWire[] }>(
+    c.env,
+    `/api/admin/leadgen/quotes/${encodedQuote}/routing-rules`,
+  );
 
   // B3 rules-builder data: this variant's rules + the internal fields of the
   // activity's Sections (from their content_json components) + Offers.
@@ -875,6 +898,51 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
     page_count: Math.max(1, (selected.pages ?? []).length),
   };
 
+  // P3b follow-up (§8.2 RIGHT rail) — QuoteRulesRailData, the SAME "tab
+  // payload assembly" point routingData/quoteDataBlob already build from
+  // (structure/available/offersRes all already loaded above; the ONLY new
+  // fetch is the quote's routing rules).
+  const quoteRoutingRules: QuoteRulesRailRuleWire[] = routingRulesRes.ok ? routingRulesRes.body.items : [];
+  const sectionFieldsMap = sectionFieldsByPublicId(available);
+  const sharedFieldSet = new Set<string>();
+  for (const s of structure.shared_page?.sections ?? []) {
+    for (const f of sectionFieldsMap.get(s.section_public_id) ?? []) sharedFieldSet.add(f);
+  }
+  const railFunnels: QuoteRulesRailFunnel[] = structure.funnels
+    .slice()
+    .sort((a, b) => (a.display_order ?? a.id) - (b.display_order ?? b.id))
+    .map((f) => ({
+      id: f.id,
+      public_id: f.public_id,
+      name: f.funnel_name,
+      is_default: structure.quote.default_funnel_id !== null && structure.quote.default_funnel_id !== undefined && f.id === structure.quote.default_funnel_id,
+      pages: funnelPageFieldSets(f.active_variant_pages, sectionFieldsMap),
+    }));
+  const railData: QuoteRulesRailData = {
+    quote_public_id: structure.quote.public_id,
+    rules: quoteRoutingRules.map((r) => ({
+      public_id: r.public_id,
+      rule_name: r.rule_name,
+      priority: r.priority,
+      status: r.status === "disabled" ? "disabled" : "active",
+      match_mode: r.match_mode,
+      conditions_json: r.conditions_json,
+      target_funnel_id: r.target_funnel_id,
+      feed_name: r.feed_name,
+      value_multiplier: r.value_multiplier,
+      redirect_pct: r.redirect_pct,
+      target_offer_id: r.target_offer_id,
+      redirect_url: r.redirect_url,
+      redirect_url_allowlisted: r.redirect_url_allowlisted,
+    })),
+    funnels: railFunnels,
+    default_funnel_id: structure.quote.default_funnel_id ?? null,
+    shared_page_fields: Array.from(sharedFieldSet),
+    answer_fields: fields,
+    offers: (offersRes.ok ? offersRes.body.items : []).map((o) => ({ id: o.id, name: o.offer_name })),
+    feed_values: Array.from(new Set(quoteRoutingRules.map((r) => r.feed_name).filter((v): v is string => typeof v === "string" && v !== ""))).sort(),
+  };
+
   return c.html(
     quoteEditorHtml(
       structure,
@@ -887,6 +955,7 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
       themeRes.ok ? themeRes.body : null,
       templatesRes.ok ? templatesRes.body.items : [],
       routingData,
+      railData,
       branding(c),
       typeof c.env.OPENAI_API_KEY === "string" && c.env.OPENAI_API_KEY !== "",
     ),
@@ -967,4 +1036,74 @@ function buildFieldPageMap(pages: readonly PageNode[], available: readonly Avail
     }
   });
   return out;
+}
+
+
+// ---------------------------------------------------------------------------
+// P3b follow-up (§8.2 RIGHT rail) — assembling S3b.2's QuoteRulesRailData.
+// ---------------------------------------------------------------------------
+
+// The wire shape /quotes/:id/routing-rules returns (quoteRoutingRuleRowToApi,
+// quotes-handlers.ts): every LeadgenQuoteRoutingRuleRow column rides the
+// `...row` spread verbatim except conditions_json (parsed) and
+// redirect_url_allowlisted (boolean) — status stays the raw DB string (the
+// CHECK-constrained 'active'|'disabled', narrowed below the SAME defensive way
+// toRoutingRuleRowData already narrows RuleNode.status).
+interface QuoteRulesRailRuleWire {
+  public_id: string;
+  rule_name: string;
+  priority: number;
+  status: string;
+  match_mode: string | null;
+  conditions_json: unknown;
+  target_funnel_id: number | null;
+  feed_name: string | null;
+  value_multiplier: number | null;
+  redirect_pct: number | null;
+  target_offer_id: number | null;
+  redirect_url: string | null;
+  redirect_url_allowlisted: boolean;
+}
+
+// The SAME content_json → internal_field walk buildFieldPageMap performs,
+// factored so the rail's per-funnel per-page fields AND its shared-page-fields
+// projection can share ONE pass over `available` instead of a third
+// hand-rolled copy of the same extraction.
+function sectionFieldsByPublicId(available: readonly AvailableSection[]): Map<string, string[]> {
+  const sectionFields = new Map<string, string[]>();
+  for (const s of available) {
+    const content = s.content_json;
+    const components =
+      content !== null && typeof content === "object" && Array.isArray((content as { components?: unknown }).components)
+        ? ((content as { components: unknown[] }).components)
+        : [];
+    const names: string[] = [];
+    for (const node of components) {
+      if (node === null || typeof node !== "object") continue;
+      const f = (node as { internal_field?: unknown }).internal_field;
+      if (typeof f === "string" && f !== "") names.push(f);
+    }
+    sectionFields.set(s.public_id, names);
+  }
+  return sectionFields;
+}
+
+// One funnel's per-page field universe (RuleCheckpointFunnel's caller-built
+// shape, rule-checkpoint.ts deriveRuleCheckpoint — QUOTE_RULES_SCRIPT mirrors
+// it 1:1 client-side). Unions EVERY slot's candidate sections per page (fixed/
+// ab/ruled alike — a page "could" collect a field if ANY resolution collects
+// it), matching buildFieldPageMap's own refs union for the flat per-variant map.
+function funnelPageFieldSets(
+  pages: readonly BoardPage[] | undefined,
+  sectionFields: Map<string, string[]>,
+): QuoteRulesRailFunnel["pages"] {
+  return (pages ?? []).map((page, idx) => {
+    const fields = new Set<string>();
+    for (const slot of page.slots) {
+      for (const cand of slot.candidates) {
+        for (const f of sectionFields.get(cand.section_id) ?? []) fields.add(f);
+      }
+    }
+    return { position: idx, fields: Array.from(fields) };
+  });
 }

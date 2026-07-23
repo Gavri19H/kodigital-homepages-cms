@@ -34,8 +34,15 @@ import {
 } from "../../../public/leadgen/designs/frames";
 import { FUNNEL_TOKEN_ROLES } from "../../../public/leadgen/designs/theme";
 import {
-  renderRulesBuilderPanel,
-  renderRoutingRulesPanel,
+  // P3b S3b.1 follow-up: the funnel-tab RIGHT rail is S3b.2's (§8.2 RIGHT,
+  // MOUNT CONTRACT documented at renderQuoteRulesRail's own doc comment). The
+  // board renders it at the pack's 344px right-rail mount point; the composer
+  // (ui-quotes.ts) assembles QuoteRulesRailData and threads it here + adds
+  // QUOTE_RULES_SCRIPT to the page's scripts bundle. `RoutingBuilderData` is
+  // the now-unused-here wire type renderBuilderPanel's signature still
+  // carries (kept — the composer's call site is unchanged shape).
+  renderQuoteRulesRail,
+  type QuoteRulesRailData,
   type RoutingBuilderData,
 } from "../ui-rules-builder";
 import {
@@ -47,6 +54,9 @@ import {
   type PageSlotNode,
   type PageNode,
   type StructureBody,
+  type FunnelNode,
+  type BoardPage,
+  type SharedPageBody,
   type AvailableSection,
   type AuctionListItem,
   type FrameTemplateItem,
@@ -73,237 +83,26 @@ import {
 } from "./shared";
 
 
-// --- the ten §4.4 region inspectors ------------------------------------------
+// ============================================================================
+// P3b (§8.2) — Funnel-builder BOARD. Replaces the removed canvas / variant /
+// structure / region-inspector / old-rules chrome (§10): the operator sees a
+// library-left / board-center / rules-right builder. Left = a draggable
+// section library (292px). Center = a pinned "Shared first page" column then
+// one column per funnel by display_order, h-scroll INSIDE the board only.
+// Right = a clean 344px mount the routing-rules rail (S3b.2,
+// ui-rules-builder.renderRoutingRulesPanel) fills — this slice builds NO rules
+// UI. Geometry/classes/strings pinned to docs/leadgen/rework/design-pack/
+// board.html; Appendix A strings (A-1/A-2/A-3) are rendered verbatim; A-4/A-5
+// are emitted by the server and rendered by the island as returned.
+// ----------------------------------------------------------------------------
 
-function renderHeaderInspector(isControl: boolean): string {
-  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="header">
-  ${scopeHead("Header", false)}
-  ${renderOverrideSwitch("header", isControl)}
-  ${frameCheck("Show the header", "header.enabled")}
-  ${frameSelect("Logo source", "header.logo_source", ["site", "cms_fallback"], { site: "Site logo (auto)", cms_fallback: "CMS fallback" })}
-  ${frameSelect("Logo size", "header.logo_size", FRAME_SIZES, { s: "Small", m: "Medium", l: "Large" })}
-  ${frameSelect("Alignment", "header.logo_align", FRAME_LOGO_ALIGNS, { left: "Left", center: "Center" })}
-  ${frameInput("Tagline", "header.tagline", "e.g. Compare quotes in minutes")}
-  ${frameCheck("Show the secure badge", "header.secure_badge.enabled")}
-  ${frameInput("Secure badge text", "header.secure_badge.text", "Safe, secure & confidential")}
-  ${frameCheck("Show a call button", "header.cta.enabled")}
-  ${frameInput("Call button label", "header.cta.label", "Call now")}
-  ${frameInput("Phone number", "header.cta.tel", "+1 555 123 4567")}
-  ${frameInput("Link (instead of a phone number)", "header.cta.href", "https://…")}
-  ${frameCheck("Show the disclosure link in the header", "header.disclosure_link")}
-  ${frameCheck("Keep the header visible while scrolling (sticky)", "header.sticky")}
-  <details class="lg-advanced"><summary>Advanced</summary>
-    <label class="lg-check"><input type="checkbox" data-manual-logo /> Use a manual logo instead of site branding</label>
-    <p class="form-help">Manual logo overrides site branding.</p>
-    ${mediaPickerControl("Manual logo image (from the Media library)", "header.logo_media_id")}
-  </details>
-</div>`;
-}
-
-
-// Round-4 P5b (Image15 ruling): every FRAME_PROGRESS_STYLES value gets its own
-// operator label — the previous nested-ternary chain silently mislabeled the
-// P5a-added `icon_on_track` style as "Percent" (it fell through the ternary's
-// final else). A lookup map makes every style's label explicit and keeps a
-// future style addition a one-line diff instead of another ternary link.
-const PROGRESS_STYLE_LABELS: Readonly<Record<string, string>> = {
-  hidden: "Hidden",
-  bar: "Bar",
-  dots: "Dots",
-  numbered: "Numbered",
-  percent: "Percent",
-  icon_on_track: "Icon on track",
-};
-
-
-function renderProgressInspector(isControl: boolean): string {
-  // Image15 ruling: aligned rows, the selection mark RIGHT of the label (kills
-  // the previous orphaned-circle-above-bar layout — `.lg-tpl-band` is
-  // `display:block`, so the radio + thumbnail + text used to wrap onto their
-  // own lines inside the inline <label>). The main content (thumbnail + text)
-  // renders FIRST, the radio LAST, inside a flex row (`.lg-progress-style-opt`,
-  // `justify-content:space-between`) so the mark's x is always to the right of
-  // the label's x and every option is one aligned row in a vertical stack
-  // (`.lg-progress-style-radios{flex-direction:column}`).
-  const styleRadios = FRAME_PROGRESS_STYLES.map((s) => {
-    const label = PROGRESS_STYLE_LABELS[s] ?? s;
-    return `<label class="lg-check lg-progress-style-opt">
-      <span class="lg-progress-style-main">
-        <span class="lg-tpl-band lg-progress-thumb lg-progress-thumb--${escapeHtml(s)}" aria-hidden="true"></span>
-        <span class="lg-progress-style-label">${escapeHtml(label)}</span>
-      </span>
-      <input type="radio" name="lg-progress-style" value="${escapeHtml(s)}" data-frame-key="progress.style" data-frame-radio="1" />
-    </label>`;
-  }).join("");
-  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="progress">
-  ${scopeHead("Progress", false)}
-  ${renderOverrideSwitch("progress", isControl)}
-  ${frameControl("Style", `<div class="lg-progress-style-radios">${styleRadios}</div>`)}
-  ${frameSelect("Position", "progress.position", FRAME_PROGRESS_POSITIONS, { top: "Top of page", under_header: "Under the header", above_unit: "Above the question unit", in_card: "Inside the card" })}
-  ${frameSelect("Thickness", "progress.thickness", FRAME_SIZES, { s: "Thin", m: "Medium", l: "Thick" })}
-  ${frameSelect("Width", "progress.width", FRAME_PROGRESS_WIDTHS, { content: "Content width", full: "Full width" })}
-  ${frameControl("Color", renderRoleStrip("progress.color_role"))}
-  ${frameCheck("Show a label", "progress.show_label")}
-  ${frameSelect("Alignment", "progress.align", ["center", ...FRAME_PROGRESS_ALIGNS.filter((a) => a !== "center")], { left: "Left", center: "Center", right: "Right" }, "Round-4 P5a: aligns the progress unit within its width band (defaults to Center).")}
-  <p class="lg-region-note">Progress counts the slides of this funnel variant automatically.</p>
-</div>`;
-}
-
-
-function renderBackInspector(isControl: boolean): string {
-  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="back">
-  ${scopeHead("Back", false)}
-  ${renderOverrideSwitch("back", isControl)}
-  ${frameSelect("Style", "back.style", FRAME_BACK_STYLES, { hidden: "Hidden", text: "Text link", icon_text: "Icon + text", button: "Button" })}
-  ${frameSelect("Position", "back.position", FRAME_BACK_POSITIONS, { under_header_left: "Under the header (left)", in_card: "Inside the card", below_card: "Below the card", footer: "In the footer" })}
-  ${frameInput("Label", "back.label", "Back")}
-  <p class="lg-region-note">Hidden automatically on the first slide.</p>
-</div>`;
-}
-
-
-function renderDisclosureInspector(isControl: boolean): string {
-  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="disclosure">
-  ${scopeHead("Disclosure", false)}
-  ${renderOverrideSwitch("disclosure", isControl)}
-  ${frameCheck("Show the advertising disclosure", "disclosure.enabled")}
-  ${frameSelect("Location", "disclosure.location", FRAME_DISCLOSURE_LOCATIONS, { top_bar: "Top bar", header: "Header", footer: "Footer", modal: "Pop-up panel" })}
-  ${frameInput("Link label", "disclosure.link_label", "Advertising Disclosure")}
-  ${frameControl("Panel text", `<textarea class="form-input" rows="4" data-frame-key="disclosure.text" placeholder="The disclosure copy shown to visitors"></textarea>`)}
-</div>`;
-}
-
-
-function renderFooterInspector(isControl: boolean): string {
-  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="footer">
-  ${scopeHead("Footer", false)}
-  ${renderOverrideSwitch("footer", isControl)}
-  ${frameCheck("Show the footer", "footer.enabled")}
-  ${frameSelect("Show on", "footer.show_on", FRAME_FOOTER_SHOW_ON, { all: "Every slide", first: "First slide", final: "Final slide", never: "Never" })}
-  ${frameSelect("Links source", "footer.links_source", ["site", "manual"], { site: "From site settings", manual: "Manual list" })}
-  ${frameControl("Manual links", renderFrameList("footer.links", "+ Add link", [
-    { field: "label", label: "Label" },
-    { field: "href", label: "Link", placeholder: "https://… or /page" },
-  ]))}
-  ${frameInput("Trust text", "footer.trust_text", "e.g. Licensed in all 50 states")}
-  ${frameInput("Description", "footer.description", "Short legal description")}
-  ${frameCheck("Show the logo in the footer", "footer.show_logo")}
-  ${frameCheck("Hide on mobile", "footer.hide_on_mobile")}
-</div>`;
-}
-
-
-function renderTrustStripInspector(isControl: boolean): string {
-  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="trust_strip">
-  ${scopeHead("Trust strip", true)}
-  ${renderOverrideSwitch("trust_strip", isControl)}
-  ${frameCheck("Show the trust strip", "trust_strip.enabled")}
-  ${frameSelect("Source", "trust_strip.source", ["manual", "site_logo_set"], { manual: "Manual logos", site_logo_set: "Site logo set" })}
-  ${frameControl("Logos", renderFrameList("trust_strip.logos", "+ Add logo", [
-    { field: "media_id", label: "Image (from the Media library)", kind: "media" },
-    { field: "alt", label: "Alt text (required)", placeholder: "Alt text (required)" },
-  ]))}
-  ${frameSelect("Placement", "trust_strip.placement", FRAME_TRUST_PLACEMENTS, { below_unit: "Below the question unit", footer: "In the footer", between_progress_and_unit: "Between progress and the question unit" })}
-  ${frameSelect("Mobile behavior", "trust_strip.mobile", FRAME_TRUST_MOBILE_MODES, { wrap: "Wrap", scroll: "Scroll", hide: "Hide" })}
-</div>`;
-}
-
-
-function renderBenefitBarInspector(isControl: boolean): string {
-  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="benefit_bar">
-  ${scopeHead("Benefit bar", true)}
-  ${renderOverrideSwitch("benefit_bar", isControl)}
-  ${frameCheck("Show the benefit bar", "benefit_bar.enabled")}
-  ${frameControl("Items", renderFrameList("benefit_bar.items", "+ Add item", [
-    { field: "icon", label: "Icon", kind: "icon_select" },
-    { field: "text", label: "Text" },
-  ]))}
-  ${frameSelect("Placement", "benefit_bar.placement", ["bottom", "below_unit"], { bottom: "Bottom of page", below_unit: "Below the question unit" })}
-</div>`;
-}
-
-
-function renderBackgroundInspector(isControl: boolean): string {
-  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="background">
-  ${scopeHead("Background", false)}
-  ${renderOverrideSwitch("background", isControl)}
-  ${frameControl("Color", renderRoleStrip("background.role"))}
-  ${mediaPickerControl("Background image (optional, from the Media library)", "background.image_media_id")}
-  ${frameSelect("Style", "background.style", FRAME_BACKGROUND_STYLES, { flat: "Flat", brand: "Brand", brand_gradient: "Brand gradient" })}
-</div>`;
-}
-
-
-function renderSectionSlotInspector(isControl: boolean): string {
-  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="section_slot">
-  ${scopeHead("Section slot", false)}
-  ${renderOverrideSwitch("section_slot", isControl)}
-  ${frameSelect("Max width", "section_slot.max_width", FRAME_SIZES, { s: "Narrow", m: "Medium", l: "Wide" })}
-  ${frameSelect("Card", "section_slot.card", FRAME_SLOT_CARDS, { card: "Card", bare: "Bare" })}
-  ${frameSelect("Padding", "section_slot.padding", FRAME_SIZES, { s: "Compact", m: "Medium", l: "Roomy" })}
-  ${frameSelect("Vertical offset", "section_slot.offset_y", FRAME_SLOT_OFFSETS, { none: "None", s: "Small", m: "Medium" })}
-  ${frameCheck("Allow a Section-local card", "section_slot.allow_section_card")}
-  ${frameSelect("Transition", "section_slot.transition", FRAME_SLOT_TRANSITIONS, { fade: "Fade", none: "None" })}
-  ${frameSelect("Continue placement", "section_slot.continue_placement", ["inside_unit", "below_unit"], { inside_unit: "Inside the question unit", below_unit: "Below the question unit" })}
-  ${frameControl("Continue style", renderRoleStrip("section_slot.continue_style_role"))}
-  <p class="lg-region-note">Continue is only shown when the current Section uses button mode.</p>
-</div>`;
-}
-
-
-// C2 — Compatibility, its own Advanced-collapsed group (§4.4 last row), with
-// the EXACT consequence sentence inline.
-function renderCompatibilityInspector(): string {
-  return `<details class="lg-advanced" data-region-panel-compat>
-  <summary>Advanced</summary>
-  <div class="lg-panel-card" style="border:0;padding:8px 0 0">
-    <h3>Compatibility</h3>
-    ${frameCheck("Allow slides to keep their own page chrome (legacy)", "compat.allow_section_chrome")}
-    <p class="form-help">ON: publishing warns instead of blocking when slides contain their own header/progress/footer — the live page may show them twice.</p>
-  </div>
-</details>`;
-}
-
-
-// Round-4 P4b: `routingData`/`variant` are optional so every OTHER existing
-// caller of this function stays byte-identical (none currently pass them);
-// `renderBuilderPanel` below is the ONE caller that does, embedding the
-// unified routing-rules table+modal at the BOTTOM of this right-hand column
-// per the operator's restructure spec ("rules panel surfaced INSIDE the
-// funnel-builder tab, right side") — the standalone Rules top tab is removed
-// (see quoteEditorHtml/leadgenQuoteEditorPage).
-function renderInspectorColumn(isControl: boolean, variant?: VariantNode, routingData?: RoutingBuilderData): string {
-  return `<div class="lg-studio-right" id="lg-inspector-column">
-  <p class="form-help" id="lg-inspector-hint">Click a region of the page on the canvas to edit it.</p>
-  ${renderHeaderInspector(isControl)}
-  ${renderProgressInspector(isControl)}
-  ${renderBackInspector(isControl)}
-  ${renderDisclosureInspector(isControl)}
-  ${renderFooterInspector(isControl)}
-  ${renderTrustStripInspector(isControl)}
-  ${renderBenefitBarInspector(isControl)}
-  ${renderBackgroundInspector(isControl)}
-  ${renderSectionSlotInspector(isControl)}
-  ${renderCompatibilityInspector()}
-  ${variant && routingData ? renderRulesPanel(variant, routingData) : ""}
-</div>`;
-}
-
-
-// --- left structure panel (§4.1) ---------------------------------------------
-
-// DEV-59: the structure-panel mapping dot decodes to a tri-state in operator
-// words — REAL data from the structure body (quotes-handlers
-// variantSectionMappingStatus, the mappingSummaryOf/sectionValidationStatus
-// parity aggregate), never a placeholder. The list API's 4-state
-// `completeness` (add-picker leg) folds invalid→incomplete: both mean "not
-// ready to publish" and the dot vocabulary is the DEV-59 tri-state.
+// DEV-59 mapping-dot tri-state (kept — EXPORTED, re-exported by ui-quotes.ts;
+// the board's section-chip dot reuses it).
 export function mappingDotStatus(raw: string | undefined | null): "complete" | "incomplete" | "none" {
   if (raw === "complete") return "complete";
   if (raw === "incomplete" || raw === "invalid") return "incomplete";
   return "none";
 }
-
 
 export const MAPPING_DOT_TITLES: Readonly<Record<"complete" | "incomplete" | "none", string>> = {
   complete: "Offer mapping complete",
@@ -312,400 +111,352 @@ export const MAPPING_DOT_TITLES: Readonly<Record<"complete" | "incomplete" | "no
 };
 
 
-// Round-4 P3b entry-known slot-rule vocabulary (mirrors resolver.ts
-// ENTRY_KNOWN_SLOT_FIELDS — a ruled slot may branch ONLY on these). The
-// operator sees plain labels; the value goes out verbatim as the condition
-// group's `value` (the §21.4 composed-group evaluator conditionsMatch reads
-// {field, op, value}). `eq`/`neq` are the two ops the builder exposes.
-const RULED_FIELD_OPTIONS: ReadonlyArray<readonly [string, string]> = [
-  ["state", "State"],
-  ["device", "Device"],
-  ["utm_source", "UTM source"],
-  ["utm_medium", "UTM medium"],
-  ["utm_content", "UTM content"],
-  ["hour", "Hour (UTC 0–23)"],
-  ["weekday", "Weekday (UTC 0–6)"],
-];
-
-const RULED_OP_OPTIONS: ReadonlyArray<readonly [string, string]> = [
-  ["eq", "is"],
-  ["neq", "is not"],
-];
+// --- inline icons (studio-vocabulary SVG, ~0 engine bytes; admin-only) -------
+const BOARD_ICON = {
+  grip: `<svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg>`,
+  kebab: `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>`,
+  plus: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`,
+  x: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  search: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.2-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  star: `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2l2 5 5 .4-3.8 3.3 1.2 5L12 18l-4.6 2.7 1.2-5L4.8 7.4l5-.4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`,
+  arrow: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+};
 
 
-function ruledFieldOptions(selected: string): string {
-  return RULED_FIELD_OPTIONS.map(
-    ([v, label]) => `<option value="${v}"${v === selected ? " selected" : ""}>${escapeHtml(label)}</option>`,
-  ).join("");
-}
-
-function ruledOpOptions(selected: string): string {
-  return RULED_OP_OPTIONS.map(
-    ([v, label]) => `<option value="${v}"${v === selected ? " selected" : ""}>${escapeHtml(label)}</option>`,
-  ).join("");
-}
-
-
-// Section <option>s addressed by PUBLIC id — for the A/B candidate + ruled
-// case/default selects (preparePages.resolveRef accepts a public_id string).
-function sectionRefOptions(available: AvailableSection[], selectedPublicId: string): string {
-  const opts = available
-    .map(
-      (s) =>
-        `<option value="${escapeHtml(s.public_id)}"${s.public_id === selectedPublicId ? " selected" : ""}>${escapeHtml(s.section_name)} (${escapeHtml(s.vertical)})</option>`,
-    )
-    .join("");
-  return `<option value="">— choose a section —</option>${opts}`;
+// Section usage across the quote: public_id -> the set of funnel public_ids
+// (funnel plans) that reference it, + whether the shared page uses it. Drives
+// the library "in use" badge (§8.2 LEFT).
+function computeSectionUsage(structure: StructureBody): Map<string, Set<string>> {
+  const usage = new Map<string, Set<string>>();
+  const add = (pub: string, funnelKey: string): void => {
+    const set = usage.get(pub) ?? new Set<string>();
+    set.add(funnelKey);
+    usage.set(pub, set);
+  };
+  for (const s of structure.shared_page?.sections ?? []) add(s.section_public_id, "__shared__");
+  for (const f of structure.funnels) {
+    for (const page of f.active_variant_pages ?? []) {
+      for (const slot of page.slots) {
+        for (const cand of slot.candidates) add(cand.section_id, f.public_id);
+      }
+    }
+  }
+  return usage;
 }
 
 
-// The fixed-slot ADD picker <option>s (numeric value == the existing add
-// contract; data-* mirror the section name/vertical/mapping so a client-side
-// add stamps a truthful row WITHOUT a reload). The public id rides as
-// `data-section-public` — deliberately NOT `data-section-public-id`, so the
-// DEV-59 mapping-dot probe's `data-section-public-id="…"` row search never
-// matches an <option> before the rendered .lg-section-row. fixedSlotFromOption
-// copies it onto the row's data-section-public-id (needed so a fixed→A/B switch
-// can seed the A/B candidate, whose select is keyed by public id).
-function sectionAddOptions(available: AvailableSection[]): string {
-  return available
-    .map(
-      (s) =>
-        `<option value="${s.id}" data-section-public="${escapeHtml(s.public_id)}" data-section-name="${escapeHtml(s.section_name)}" data-vertical="${escapeHtml(s.vertical)}" data-mapping-status="${mappingDotStatus(s.completeness)}">${escapeHtml(s.section_name)} (${escapeHtml(s.vertical)})</option>`,
-    )
-    .join("");
-}
-
-
-function slotKindSelect(kind: string): string {
-  return `<select class="form-select form-select-sm lg-slot-kind-select" data-slot-kind-select aria-label="How this slot resolves">
-      <option value="fixed"${kind === "fixed" ? " selected" : ""}>One section</option>
-      <option value="ruled"${kind === "ruled" ? " selected" : ""}>Rule&#8230;</option>
-      <option value="ab"${kind === "ab" ? " selected" : ""}>A/B&#8230;</option>
-    </select>`;
-}
-
-
-// The shared right-rail controls every slot body carries: kind switch, move
-// across pages, reorder within the page, remove.
-function slotRail(kind: string): string {
-  return `<span class="lg-row-rail">
-    ${slotKindSelect(kind)}
-    <button type="button" class="btn btn-sm btn-outline" data-slot-move-prev aria-label="Move to previous page" title="Move to previous page">&#9668;</button>
-    <button type="button" class="btn btn-sm btn-outline" data-slot-move-next aria-label="Move to next page" title="Move to next page">&#9658;</button>
-    <button type="button" class="btn btn-sm btn-outline" data-move-up aria-label="Move up">&#8593;</button>
-    <button type="button" class="btn btn-sm btn-outline" data-move-down aria-label="Move down">&#8595;</button>
-    <button type="button" class="btn btn-sm btn-danger" data-remove-section aria-label="Remove">Remove</button>
-  </span>`;
-}
-
-
-// The FIXED-slot inner row. Its opening tag is byte-preserved from v2.4
-// (`<div class="lg-section-row lg-structure-row" data-section-id data-section-
-// public-id>`) — the collectSections()/slideStillPresent() readers + the seam
-// harness's SSR-row regex both anchor on it, and the preview click-select reads
-// data-section-public-id off it.
-function renderSectionRow(
-  sectionId: number | string,
-  sectionPublicId: string,
-  name: string,
-  vertical: string,
-  position: number,
-  _isAuctionEntry: boolean,
-  mappingStatus?: string,
+function renderLibraryCard(
+  section: AvailableSection,
+  usage: Map<string, Set<string>>,
+  currentFunnelPublicId: string,
 ): string {
-  const dot = mappingDotStatus(mappingStatus);
-  return `<div class="lg-section-row lg-structure-row" data-section-id="${sectionId}" data-section-public-id="${escapeHtml(sectionPublicId)}">
-  <div class="lg-slot-line">
-  <span class="lg-drag-handle" data-drag-handle draggable="true" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
-  <span class="lg-pos" data-pos>${position}</span>
-  <span class="lg-map-dot" data-mapping-status="${dot}" title="${escapeHtml(MAPPING_DOT_TITLES[dot])}"></span>
-  <span class="lg-grow lg-name-cell" data-name-cell><button type="button" data-select-slide data-section-name>${escapeHtml(name)}</button></span>
-  <span class="form-help lg-vertical" data-vertical>${escapeHtml(vertical)}</span>
-  </div>
-  ${slotRail("fixed")}
-</div>`;
-}
-
-
-// A/B candidate row: a section ref + a percent (bp/100). Σ across a slot's
-// candidates must be 100% (validated at save; the live sum note updates client-
-// side). data-ab-cand marks the row for collectPages.
-function renderAbCandidate(available: AvailableSection[], entry: AbEntryNode | null): string {
-  const pct = entry !== null ? (entry.bp / 100).toString() : "50";
-  return `<div class="lg-ab-cand" data-ab-cand>
-    <select class="form-select form-select-sm lg-grow" data-ab-section aria-label="A/B candidate section">${sectionRefOptions(available, entry?.section_id ?? "")}</select>
-    <input type="number" class="form-input form-input-sm lg-pct" data-ab-pct min="0" max="100" step="1" value="${escapeHtml(pct)}" aria-label="Percent of traffic" />
-    <span class="lg-pct-unit">%</span>
-    <button type="button" class="btn btn-sm btn-outline" data-ab-cand-remove aria-label="Remove candidate">&#215;</button>
+  const funnelsUsing = usage.get(section.public_id) ?? new Set<string>();
+  const inCurrent = funnelsUsing.has(currentFunnelPublicId);
+  const funnelCount = Array.from(funnelsUsing).filter((k) => k !== "__shared__").length;
+  let badge = "";
+  if (inCurrent) {
+    badge = `<span class="lg-chip-inuse-here" data-pin="8.2-library-inuse-badge">In this funnel</span>`;
+  } else if (funnelCount > 0) {
+    badge = `<span class="lg-chip-inuse">In ${funnelCount} funnel${funnelCount === 1 ? "" : "s"}</span>`;
+  }
+  const activityVert = `${section.activity} · ${section.vertical}`;
+  return `<div class="lg-lib-card${inCurrent ? " in-current" : ""}" data-lib-card data-section-public-id="${escapeHtml(section.public_id)}" data-section-name="${escapeHtml(section.section_name)}" data-vertical-key="${escapeHtml(section.vertical.toLowerCase())}" data-activity-key="${escapeHtml(section.activity.toLowerCase())}" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section ${escapeHtml(section.section_name)} to a page">
+    <div class="lg-lc-top"><span class="lg-grip" aria-hidden="true">${BOARD_ICON.grip}</span><span class="lg-lc-name">${escapeHtml(section.section_name)}</span></div>
+    <div class="lg-lc-meta"><span class="lg-chip-activity">${escapeHtml(activityVert)}</span>${badge}</div>
   </div>`;
 }
 
 
-// A/B slot body: the summary chip + the split editor. data-slot-kind="ab".
-function renderAbSlot(available: AvailableSection[], entries: AbEntryNode[], slotRevision: number): string {
-  const rows = (entries.length > 0 ? entries : [null, null])
-    .map((e) => renderAbCandidate(available, e))
+function renderBoardLibrary(available: AvailableSection[], structure: StructureBody, currentFunnelPublicId: string): string {
+  const usage = computeSectionUsage(structure);
+  const verticals: string[] = [];
+  const seen = new Set<string>();
+  for (const s of available) {
+    const key = s.vertical.toLowerCase();
+    if (key !== "" && !seen.has(key)) { seen.add(key); verticals.push(s.vertical); }
+  }
+  const filters = [`<button type="button" class="lg-filter-pill active" data-lib-filter="">All</button>`]
+    .concat(verticals.map((v) => `<button type="button" class="lg-filter-pill" data-lib-filter="${escapeHtml(v.toLowerCase())}">${escapeHtml(v)}</button>`))
     .join("");
-  const sum = entries.reduce((acc, e) => acc + e.bp, 0);
-  return `<div class="lg-slot" data-slot data-slot-kind="ab" data-slot-revision="${slotRevision}">
-    <div class="lg-slot-row lg-structure-row">
-      <div class="lg-slot-line">
-        <span class="lg-slot-badge">A/B</span>
-        <span class="lg-grow lg-name-cell lg-slot-summary" data-slot-summary>Split traffic between sections</span>
-      </div>
-      ${slotRail("ab")}
+  const cards = available.map((s) => renderLibraryCard(s, usage, currentFunnelPublicId)).join("");
+  return `<div class="lg-board-left" data-pin="8.2-left-library">
+    <div class="lg-lib-head">
+      <div class="lg-lib-title">Section library</div>
+      <div class="lg-lib-search" data-pin="8.2-library-search"><span class="lg-lib-search-ico" aria-hidden="true">${BOARD_ICON.search}</span><input type="search" data-lib-search placeholder="Search sections" aria-label="Search sections" /></div>
+      <div class="lg-lib-filters" data-lib-filters>${filters}</div>
     </div>
-    <div class="lg-slot-config" data-ab-editor>
-      <p class="form-help">Each visitor sticks to one section for their whole session. Percentages must add up to 100%.</p>
-      <div data-ab-cands>${rows}</div>
-      <div class="toolbar">
-        <button type="button" class="btn btn-sm btn-secondary" data-ab-add>+ Add candidate</button>
-        <span class="form-help" data-ab-sum>Total: ${entries.length > 0 ? (sum / 100).toString() : "0"}%</span>
-      </div>
+    <div class="lg-lib-list" data-lib-list>
+      ${cards || `<p class="lg-col-help" style="padding:8px 4px">No sections for this activity yet.</p>`}
     </div>
   </div>`;
 }
 
 
-// Ruled case row: one entry-known condition (field/op/value) → a section.
-function renderRuledCase(available: AvailableSection[], c: RuledCaseNode | null): string {
-  const g = c !== null && Array.isArray(c.conditions.groups) ? (c.conditions.groups[0] as { field?: string; op?: string; value?: string } | undefined) : undefined;
-  return `<div class="lg-ruled-case" data-ruled-case>
-    <span class="lg-ruled-if">If</span>
-    <select class="form-select form-select-sm" data-ruled-field aria-label="Condition field">${ruledFieldOptions(g?.field ?? "state")}</select>
-    <select class="form-select form-select-sm" data-ruled-op aria-label="Condition operator">${ruledOpOptions(g?.op ?? "eq")}</select>
-    <input type="text" class="form-input form-input-sm" data-ruled-value value="${escapeHtml(g?.value ?? "")}" aria-label="Condition value" placeholder="value" />
-    <span class="lg-ruled-then">show</span>
-    <select class="form-select form-select-sm lg-grow" data-ruled-section aria-label="Section for this branch">${sectionRefOptions(available, c?.section_id ?? "")}</select>
-    <button type="button" class="btn btn-sm btn-outline" data-ruled-case-remove aria-label="Remove branch">&#215;</button>
+// One section chip inside a page card. `variant` distinguishes the shared-page
+// chip (kebab menu {A/B this slot, Slot rule, Remove}) from a funnel-page chip
+// (kebab menu {Move up, Move down, Remove} — the a11y menu-equivalent of the
+// move drag, §8.2). data-slot-id/data-slot-kind ride when known (funnel chips).
+function renderSectionChip(
+  name: string,
+  sectionPublicId: string,
+  opts: { scope: "shared" | "funnel"; slotId?: number; slotKind?: string; mappingStatus?: string },
+): string {
+  const menuName = opts.scope === "shared" ? "shared-chip" : "funnel-chip";
+  const slotAttrs = opts.slotId !== undefined ? ` data-slot-id="${opts.slotId}" data-slot-kind="${escapeHtml(opts.slotKind ?? "fixed")}"` : "";
+  const dot = mappingDotStatus(opts.mappingStatus);
+  return `<div class="lg-sec-chip" data-sec-chip data-chip-scope="${opts.scope}" data-section-public-id="${escapeHtml(sectionPublicId)}"${slotAttrs}${opts.scope === "shared" ? ' data-pin="8.2-shared-chip"' : ""}>
+    <span class="lg-grip lg-chip-grip" data-chip-grip aria-hidden="true">${BOARD_ICON.grip}</span>
+    <span class="lg-map-dot" data-mapping-status="${dot}" title="${escapeHtml(MAPPING_DOT_TITLES[dot])}"></span>
+    <span class="lg-sc-name">${escapeHtml(name)}</span>
+    <span class="lg-kebab-btn lg-chip-kebab" data-chip-kebab data-chip-menu="${menuName}" role="button" tabindex="0" aria-label="Section options">${BOARD_ICON.kebab}</span>
   </div>`;
 }
 
 
-// Ruled slot body: ordered cases (first match wins) + a REQUIRED default.
-function renderRuledSlot(available: AvailableSection[], ruled: { cases: RuledCaseNode[]; default_section: SectionRef } | null, slotRevision: number): string {
-  const cases = (ruled !== null && ruled.cases.length > 0 ? ruled.cases : [null])
-    .map((c) => renderRuledCase(available, c))
+function renderSharedColumn(sharedPage: SharedPageBody | null | undefined): string {
+  const sections = sharedPage?.sections ?? [];
+  const chips = sections
+    .map((s) => renderSectionChip(s.section_name, s.section_public_id, { scope: "shared", mappingStatus: s.mapping_status }))
     .join("");
-  return `<div class="lg-slot" data-slot data-slot-kind="ruled" data-slot-revision="${slotRevision}">
-    <div class="lg-slot-row lg-structure-row">
-      <div class="lg-slot-line">
-        <span class="lg-slot-badge">Rule</span>
-        <span class="lg-grow lg-name-cell lg-slot-summary" data-slot-summary>Show a section by visitor condition</span>
-      </div>
-      ${slotRail("ruled")}
+  return `<div class="lg-col lg-col-shared" data-shared-col data-page-public-id="${escapeHtml(sharedPage?.page_id ?? "")}" data-pin="8.2-shared-first-page">
+    <div class="lg-col-head">
+      <span class="lg-col-tag">${BOARD_ICON.star} Shared · quote-owned</span>
+      <div class="lg-col-title-row"><span class="lg-col-title">Shared first page</span></div>
+      <div class="lg-col-meta"><span class="lg-col-help">Every visitor sees this first — entry rules only pre-select the funnel (§4.3-2).</span></div>
     </div>
-    <div class="lg-slot-config" data-ruled-editor>
-      <p class="form-help">Branch on what's known at entry (state, device, UTM, time). Answer-based visibility lives on the section's own show/hide rules.</p>
-      <div data-ruled-cases>${cases}</div>
-      <div class="toolbar"><button type="button" class="btn btn-sm btn-secondary" data-ruled-add>+ Add branch</button></div>
-      <div class="lg-ruled-default">
-        <span class="lg-ruled-otherwise">Otherwise show</span>
-        <select class="form-select form-select-sm lg-grow" data-ruled-default aria-label="Default section">${sectionRefOptions(available, ruled?.default_section.section_id ?? "")}</select>
+    <div class="lg-col-body" data-shared-body>
+      <div class="lg-page-card" data-shared-page-card>
+        <div class="lg-page-head"><span class="lg-page-num">Page 1</span></div>
+        <div class="lg-chip-list" data-chip-list>${chips}</div>
+        <span class="lg-add-section" data-add-shared-section role="button" tabindex="0">${BOARD_ICON.plus} ＋ section</span>
       </div>
+      <div class="lg-hint-neutral">Only one shared page — its sections can be A/B'd per slot.</div>
     </div>
   </div>`;
 }
 
 
-// A FIXED slot: the section row wrapped so the island reads its kind off the
-// wrapper (data-slot). The mapping dot on the inner row comes from the picker's
-// per-section verdict on a client-side add.
-function renderFixedSlot(ref: SectionRef, slotRevision: number, mappingStatus?: string): string {
-  return `<div class="lg-slot" data-slot data-slot-kind="fixed" data-slot-revision="${slotRevision}">${renderSectionRow(
-    ref.num_id === undefined ? "" : ref.num_id,
-    ref.section_id,
-    ref.section_name,
-    "",
-    0,
-    false,
-    mappingStatus,
-  )}</div>`;
-}
-
-
-function renderSlot(available: AvailableSection[], slot: PageSlotNode, mappingByPublic: Map<string, string>): string {
-  if (slot.kind === "ab" && slot.ab !== null) return renderAbSlot(available, slot.ab, slot.slot_revision);
-  if (slot.kind === "ruled" && slot.ruled !== null) return renderRuledSlot(available, slot.ruled, slot.slot_revision);
-  const ref = slot.fixed ?? { section_id: "", section_name: "" };
-  return renderFixedSlot(ref, slot.slot_revision, mappingByPublic.get(ref.section_id));
-}
-
-
-function renderPageCard(available: AvailableSection[], page: PageNode, index: number, mappingByPublic: Map<string, string>): string {
-  const slots = page.slots.map((s) => renderSlot(available, s, mappingByPublic)).join("");
-  return `<div class="lg-page" data-page>
+function renderBoardPageCard(page: BoardPage, index: number): string {
+  const chips = page.slots
+    .map((slot) => {
+      const primary = slot.candidates[0];
+      const name = slot.kind === "ab"
+        ? `A/B: ${slot.candidates.map((c) => c.section_name).join(" / ") || "empty"}`
+        : slot.kind === "ruled"
+          ? `Rule: ${primary?.section_name ?? "empty"}`
+          : (primary?.section_name ?? "empty");
+      return renderSectionChip(name, primary?.section_id ?? "", { scope: "funnel", slotId: slot.slot_id, slotKind: slot.kind, mappingStatus: primary?.mapping_status });
+    })
+    .join("");
+  return `<div class="lg-page-card" data-page-card data-page-public-id="${escapeHtml(page.page_id)}" data-page-index="${index}" data-pin="8.2-page-card">
     <div class="lg-page-head">
-      <span class="lg-page-num" data-page-num>${index + 1}</span>
-      <input class="form-input lg-page-name" data-page-name value="${escapeHtml(page.name ?? "")}" placeholder="Page name (optional)" aria-label="Page name" />
-      <span class="lg-row-rail">
-        <button type="button" class="btn btn-sm btn-outline" data-page-up aria-label="Move page up">&#8593;</button>
-        <button type="button" class="btn btn-sm btn-outline" data-page-down aria-label="Move page down">&#8595;</button>
-        <button type="button" class="btn btn-sm btn-danger" data-page-remove aria-label="Remove page">Remove</button>
-      </span>
+      <span class="lg-grip lg-page-grip" data-page-grip aria-hidden="true">${BOARD_ICON.grip}</span>
+      <span class="lg-page-num">Page ${index + 1}</span>
+      <span class="lg-kebab-btn lg-page-kebab" data-page-kebab data-chip-menu="page" role="button" tabindex="0" aria-label="Page options">${BOARD_ICON.kebab}</span>
     </div>
-    <div class="lg-page-slots" data-page-slots>${slots}</div>
-    <div class="lg-page-add toolbar">
-      <select class="form-select form-select-sm lg-grow" data-add-slot-select aria-label="Add a section to this page">${sectionAddOptions(available)}</select>
-      <button type="button" class="btn btn-sm btn-secondary" data-add-slot>+ Add section</button>
-    </div>
+    <div class="lg-chip-list" data-chip-list>${chips}</div>
+    <span class="lg-add-section" data-add-section role="button" tabindex="0">${BOARD_ICON.plus} ＋ section</span>
   </div>`;
 }
 
 
-// A plain single-section-per-page funnel (no page names, every slot a single
-// fixed section) still reads as a flat list of "slides"; the "page" vocabulary
-// only earns its place once a page holds more than one slot or a ruled / A/B
-// slot. Drives the auction-marker copy (mirrored by the client renumber()).
-function pagesAreFlat(pages: PageNode[]): boolean {
-  if (pages.length === 0) return false;
-  return pages.every((p) => (p.name === null || p.name === "") && p.slots.length === 1 && (p.slots[0]?.kind ?? "fixed") === "fixed");
+function renderDefaultChip(): string {
+  // Appendix A-3 (verbatim): chip label "Default" + tooltip copy.
+  return `<span class="lg-badge-default" data-default-chip data-pin="4.3-default-chip" tabindex="0" aria-label="Default funnel">Default<span class="lg-tip" role="tooltip" data-pin="A-3-tooltip">Visitors who match no rule see this funnel.</span></span>`;
 }
 
 
-// Funnel structure (left): ordered PAGES, each a first-class row holding its
-// nested section slots (fixed / ruled / A/B). Progress counts pages; the
-// auction runs after the LAST page. The A/B arms mini switcher + Rules link +
-// the PRESERVED variant scalars (lander / base design / auction FK) ride below,
-// their ids + the §4.7 save path unchanged.
-function renderStructurePanel(
+function templateLabelFor(funnel: FunnelNode, templates: FrameTemplateItem[]): string {
+  // M5: the funnel's base template. FrameTemplateItem ids are the built-in
+  // arrangement ids; a saved-record numeric id is best-effort resolved by the
+  // island against the fuller record list — here the SSR shows the label if a
+  // built-in matches, else a neutral "Template" the picker refines.
+  const idStr = funnel.frame_template_id === null || funnel.frame_template_id === undefined ? "" : String(funnel.frame_template_id);
+  const match = templates.find((t) => t.id === idStr);
+  return match ? match.label : "Template";
+}
+
+
+function renderFunnelColumn(
+  funnel: FunnelNode,
   structure: StructureBody,
-  variant: VariantNode,
+  templates: FrameTemplateItem[],
+): string {
+  const isDefault = structure.quote.default_funnel_id !== null && structure.quote.default_funnel_id !== undefined && funnel.id === structure.quote.default_funnel_id;
+  const pages = funnel.active_variant_pages ?? [];
+  const runningArms = funnel.variants.filter((v) => v.traffic_allocation_bp > 0).length;
+  const activeArms = funnel.variants.length;
+  const abLabel = activeArms > 1 ? `A/B · ${activeArms} arms` : "A/B";
+  void runningArms;
+  const templateName = templateLabelFor(funnel, templates);
+
+  const body = pages.length > 0
+    ? pages.map((p, i) => renderBoardPageCard(p, i)).join("") +
+      `<div class="lg-add-page" data-add-page role="button" tabindex="0">${BOARD_ICON.plus} + Add page</div>`
+    // Appendix A-1 (verbatim): empty funnel column.
+    : `<div class="lg-empty-col-body"><div class="lg-empty-hint" data-pin="A-1-empty-funnel">No pages yet — drag a section here or click + Add page.</div><div class="lg-add-page" data-add-page role="button" tabindex="0">${BOARD_ICON.plus} + Add page</div></div>`;
+
+  return `<div class="lg-col lg-col-funnel${isDefault ? " is-default" : ""}" data-funnel-col data-funnel-public-id="${escapeHtml(funnel.public_id)}" data-funnel-id="${funnel.id}" data-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" data-pin="8.2-funnel-column">
+    <div class="lg-col-head" data-pin="8.2-funnel-header">
+      <div class="lg-col-title-row">
+        <span class="lg-col-title" data-funnel-name data-pin="8.2-inline-rename" tabindex="0" role="textbox" aria-label="Funnel name (click to rename)">${escapeHtml(funnel.funnel_name)}</span>
+        ${isDefault ? renderDefaultChip() : ""}
+        <span class="lg-kebab-btn lg-funnel-kebab" data-funnel-kebab data-chip-menu="funnel" role="button" tabindex="0" aria-label="Funnel options">${BOARD_ICON.kebab}</span>
+      </div>
+      <div class="lg-col-meta">
+        <span class="lg-pickchip" data-theme-picker data-pin="8.2-theme-picker" role="button" tabindex="0">Theme</span>
+        <span class="lg-pickchip" data-template-picker data-pin="8.2-template-picker" role="button" tabindex="0">${escapeHtml(templateName)}</span>
+      </div>
+      <div class="lg-col-actions">
+        <span class="lg-badge-ab" data-ab-badge data-pin="4.3-ab-badge" role="button" tabindex="0">${escapeHtml(abLabel)}</span>
+        <span class="lg-btn-ghost lg-col-preview" data-preview data-pin="8.2-preview" role="button" tabindex="0">Preview${BOARD_ICON.arrow}</span>
+      </div>
+    </div>
+    <div class="lg-col-body" data-funnel-body>${body}</div>
+  </div>`;
+}
+
+
+function renderAddFunnelStub(): string {
+  // Appendix A-2 (verbatim): "+ Add funnel" / sub.
+  return `<div class="lg-stub-col" data-add-funnel data-pin="8.2-add-funnel-stub" role="button" tabindex="0" aria-label="Add funnel">
+    <span class="lg-plus-ring">${BOARD_ICON.plus}</span>
+    <span class="lg-stub-title">+ Add funnel</span>
+    <span class="lg-stub-sub">Visitors reach it through routing rules.</span>
+  </div>`;
+}
+
+
+// Menu popovers + the delete-guard dialog. Rendered ONCE (hidden); the island
+// clones/positions a menu anchored to the clicked control and fills the guard
+// dialog from the server's A-5 `blockers` (rendered verbatim, §8.2 clause 5).
+function renderBoardMenus(): string {
+  const item = (action: string, label: string, danger = false): string =>
+    `<div class="lg-menu-item${danger ? " danger" : ""}" data-menu-action="${action}" role="menuitem" tabindex="-1">${escapeHtml(label)}</div>`;
+  const menu = (name: string, inner: string): string =>
+    `<div class="lg-menu lg-hidden" data-board-menu="${name}" role="menu">${inner}</div>`;
+  return `<div class="lg-board-menus" data-board-menus>
+    ${menu("funnel", item("funnel-settings", "Funnel settings") + `<div class="lg-menu-sep"></div>` + item("duplicate", "Duplicate") + item("set-default", "Set as default") + item("move-left", "Move left") + item("move-right", "Move right") + `<div class="lg-menu-sep"></div>` + item("delete", "Delete", true))}
+    ${menu("shared-chip", item("ab-slot", "A/B this slot") + item("slot-rule", "Slot rule") + `<div class="lg-menu-sep"></div>` + item("remove", "Remove", true))}
+    ${menu("funnel-chip", item("chip-up", "Move up") + item("chip-down", "Move down") + `<div class="lg-menu-sep"></div>` + item("remove", "Remove", true))}
+    ${menu("page", item("page-up", "Move up") + item("page-down", "Move down") + `<div class="lg-menu-sep"></div>` + item("page-delete", "Delete page", true))}
+  </div>
+  <div class="lg-board-guard lg-hidden" data-board-guard role="dialog" aria-modal="true" aria-labelledby="lg-board-guard-title">
+    <div class="lg-board-guard-panel">
+      <div class="lg-board-guard-head"><h3 id="lg-board-guard-title">Can't delete this funnel</h3></div>
+      <div class="lg-board-guard-body" data-board-guard-body></div>
+      <div class="lg-board-guard-foot"><button type="button" class="btn btn-outline" data-board-guard-close>Close</button></div>
+    </div>
+  </div>
+  <div class="lg-template-menu lg-hidden" data-template-menu role="menu"></div>`;
+}
+
+
+// P3b relocation (§8.2 CONDUCTOR RULING) — the funnel-builder rebuild dropped
+// the old structure panel's "Funnel settings" <details>; that was NOT a
+// sanctioned §10 removal. The six controls (opening-lander enable + headline +
+// subheadline + hero; the base funnel-design picker; the per-variant auction
+// picker) are relocated VERBATIM — same ids, labels, and the SAME existing
+// PUT /variants/:id fields — into a dialog opened from the funnel column's
+// kebab, in the board's delete-guard dialog vocabulary. Rendered ONCE (hidden);
+// the board island re-populates it per-funnel on open from the blob's per-funnel
+// `settings` (funnelSettingsForBlob) and PUTs the clicked funnel's ACTIVE
+// variant. SSR seeds it from the current (default/first) funnel's active variant
+// so the controls carry real current values on first paint. Provenance:
+// 5ccf40e:quotes-tabs/funnel.ts (renderStructurePanel <details id=lg-funnel-
+// settings>) / 4c9b534:ui-quotes.ts.
+function renderFunnelSettingsDialog(
   designs: Array<{ id: string; label: string }>,
   auctions: AuctionListItem[],
-  available: AvailableSection[],
+  current: VariantNode | null,
 ): string {
   const designOptions = designs
-    .map((d) => `<option value="${escapeHtml(d.id)}"${d.id === variant.funnel_design_id ? " selected" : ""}>${escapeHtml(d.label)}</option>`)
+    .map((d) => `<option value="${escapeHtml(d.id)}"${current !== null && d.id === current.funnel_design_id ? " selected" : ""}>${escapeHtml(d.label)}</option>`)
     .join("");
   const auctionOptions = [`<option value="">— none —</option>`]
     .concat(
       auctions.map(
-        (a) => `<option value="${a.id}"${variant.auction_id === a.id ? " selected" : ""}>${escapeHtml(a.auction_name)}</option>`,
+        (a) => `<option value="${a.id}"${current !== null && current.auction_id === a.id ? " selected" : ""}>${escapeHtml(a.auction_name)}</option>`,
       ),
     )
     .join("");
-  const addOptions = sectionAddOptions(available);
-
-  // The mapping verdict is a per-section list attribute; index it by public id
-  // so a rendered fixed slot shows the same dot the old flat list did.
-  const mappingByPublic = new Map<string, string>();
-  for (const s of variant.sections) if (s.mapping_status !== undefined) mappingByPublic.set(s.section_public_id, s.mapping_status);
-
-  const pages = variant.pages ?? [];
-  const pageCards = pages.map((p, i) => renderPageCard(available, p, i, mappingByPublic)).join("");
-  // §15.3 honesty copy: exactly ONE auction-entry marker, after the LAST page
-  // (progress counts pages, so the auction fires once every page is passed).
-  // A plain single-section-per-page funnel keeps the historical "slide"
-  // vocabulary (a page IS one slide there); the "last page" copy takes over
-  // once the funnel genuinely branches into multi-slot / ruled / A/B pages. The
-  // client renumber() mirrors this EXACT decision (structureIsFlatDom), so the
-  // SSR and post-mutation marker never disagree.
-  const auctionMark = pages.length > 0
-    ? `<div class="lg-auction-entry-mark" data-auction-entry="1">${pagesAreFlat(pages) ? "Auction runs after this slide" : "Auction runs after the last page"}</div>`
-    : "";
-  const listBody = pageCards
-    ? pageCards + auctionMark
-    : `<p class="form-help" data-empty-sections>No pages yet — add a page to start building the funnel.</p>`;
-
-  const funnel =
-    structure.funnels.find((f) => f.funnel_id === variant.funnel_id) ?? structure.funnels[0] ?? null;
-  const armRows = (funnel?.variants ?? [])
-    .map((v) => {
-      const pct = (v.traffic_allocation_bp / 100).toFixed(0);
-      const current = v.public_id === variant.public_id;
-      return `<div class="lg-structure-row${current ? " lg-slide-current" : ""}" data-arm-row="${escapeHtml(v.public_id)}">
-    <a class="lg-grow" href="/admin/leadgen/quotes/${escapeHtml(structure.quote.public_id)}/edit?variant=${escapeHtml(v.public_id)}">${escapeHtml(v.variant_label)}</a>
-    <span class="form-help">${escapeHtml(pct)}%</span>
-  </div>`;
-    })
-    .join("");
-
-  return `<div class="lg-studio-left">
-  <div class="lg-panel-card" id="lg-structure-panel">
-    <h3>Funnel structure</h3>
-    <p class="form-help lg-structure-hint">Each page is one step of the funnel. Progress counts pages, and the auction runs once every page is passed.</p>
-    <div id="lg-section-list" data-max-position="${variant.auction_entry_position === null ? "" : variant.auction_entry_position}">${listBody}</div>
-    <div class="toolbar">
-      <select id="lg-add-section-select" class="form-select" aria-label="Add a section as a new page">${addOptions || `<option value="">No sections for this activity</option>`}</select>
-      <button type="button" id="lg-add-section" class="btn btn-secondary">+ Add section</button>
-      <button type="button" id="lg-add-page" class="btn btn-outline">+ Add page</button>
+  const variantAttr = current !== null ? escapeHtml(current.public_id) : "";
+  return `<div class="lg-board-guard lg-hidden" data-funnel-settings role="dialog" aria-modal="true" aria-labelledby="lg-funnel-settings-title" data-settings-variant="${variantAttr}">
+    <div class="lg-board-guard-panel">
+      <div class="lg-board-guard-head"><h3 id="lg-funnel-settings-title">Funnel settings</h3></div>
+      <div class="lg-fsettings-body">
+        <label class="lg-check"><input type="checkbox" id="lg-lander-enabled"${current !== null && current.lander_enabled ? " checked" : ""} /> Enable opening lander</label>
+        <div class="form-group"><label class="form-label" for="lg-lander-headline">Lander headline</label><input id="lg-lander-headline" class="form-input" value="${escapeHtml(current?.lander_headline ?? "")}" /></div>
+        <div class="form-group"><label class="form-label" for="lg-lander-sub">Lander subheadline</label><input id="lg-lander-sub" class="form-input" value="${escapeHtml(current?.lander_subheadline ?? "")}" /></div>
+        <div class="form-group"><label class="form-label" for="lg-lander-hero">Lander hero image URL</label><input id="lg-lander-hero" class="form-input" value="${escapeHtml(current?.lander_hero_media_url ?? "")}" /></div>
+        <div class="form-group"><label class="form-label" for="lg-funnel-design">Base visual design</label><select id="lg-funnel-design" class="form-select" aria-label="Funnel design">${designOptions}</select></div>
+        <div class="form-group"><label class="form-label" for="lg-auction-id">Auction</label><select id="lg-auction-id" class="form-select" aria-label="Auction">${auctionOptions}</select></div>
+      </div>
+      <div class="lg-board-guard-foot"><button type="button" class="btn btn-outline" data-funnel-settings-close>Cancel</button><button type="button" class="btn btn-primary" data-funnel-settings-save>Save</button></div>
     </div>
-  </div>
-  <div class="lg-panel-card" id="lg-ab-switcher">
-    <h3>A/B variants</h3>
-    ${armRows || `<p class="form-help">One arm.</p>`}
-    <button type="button" class="lg-qtab" data-goto-tab="ab">Manage allocation &amp; tests &#8594;</button>
-    <button type="button" class="lg-qtab" data-goto-tab="rules">Rules for this variant &#8594;</button>
-  </div>
-  <details class="lg-advanced" id="lg-funnel-settings">
-    <summary>Funnel settings</summary>
-    <label class="lg-check"><input type="checkbox" id="lg-lander-enabled"${variant.lander_enabled ? " checked" : ""} /> Enable opening lander</label>
-    <div class="form-group"><label class="form-label" for="lg-lander-headline">Lander headline</label><input id="lg-lander-headline" class="form-input" value="${escapeHtml(variant.lander_headline ?? "")}" /></div>
-    <div class="form-group"><label class="form-label" for="lg-lander-sub">Lander subheadline</label><input id="lg-lander-sub" class="form-input" value="${escapeHtml(variant.lander_subheadline ?? "")}" /></div>
-    <div class="form-group"><label class="form-label" for="lg-lander-hero">Lander hero image URL</label><input id="lg-lander-hero" class="form-input" value="${escapeHtml(variant.lander_hero_media_url ?? "")}" /></div>
-    <div class="form-group"><label class="form-label" for="lg-funnel-design">Base visual design</label><select id="lg-funnel-design" class="form-select" aria-label="Funnel design">${designOptions}</select></div>
-    <div class="form-group"><label class="form-label" for="lg-auction-id">Auction</label><select id="lg-auction-id" class="form-select" aria-label="Auction">${auctionOptions}</select></div>
-  </details>
-  <template id="lg-page-tpl">${renderPageCard(available, { name: null, slots: [] }, 0, new Map())}</template>
-  <template id="lg-slot-fixed-tpl">${renderFixedSlot({ section_id: "", section_name: "" }, 0)}</template>
-  <template id="lg-slot-ab-tpl">${renderAbSlot(available, [], 0)}</template>
-  <template id="lg-slot-ruled-tpl">${renderRuledSlot(available, null, 0)}</template>
-  <template id="lg-ab-cand-tpl">${renderAbCandidate(available, null)}</template>
-  <template id="lg-ruled-case-tpl">${renderRuledCase(available, null)}</template>
-</div>`;
+  </div>`;
 }
 
 
-function renderCanvasPanel(templates: FrameTemplateItem[], sites: PreviewSiteOption[], structure: StructureBody, selected: VariantNode): string {
-  const variantOptions: string[] = [];
-  for (const f of structure.funnels) {
-    for (const v of f.variants) {
-      variantOptions.push(
-        `<option value="${escapeHtml(v.public_id)}"${v.public_id === selected.public_id ? " selected" : ""}>${escapeHtml(v.variant_label)}</option>`,
-      );
-    }
-  }
-  return `<div class="lg-studio-center">
-  <div class="lg-canvas-toolbar" id="lg-canvas-toolbar">
-    <button type="button" class="btn btn-sm btn-secondary" id="lg-template-btn">Template</button>
-    <button type="button" class="btn btn-sm btn-secondary" id="lg-theme-btn">Theme</button>
-    <span class="lg-toolbar-sep" aria-hidden="true"></span>
-    <span class="lg-step-controls" role="group" aria-label="Viewport">
-      <button type="button" class="btn btn-sm btn-outline" data-viewport-btn="desktop" aria-pressed="true">Desktop 1280</button>
-      <button type="button" class="btn btn-sm btn-outline" data-viewport-btn="mobile" aria-pressed="false">Mobile 375</button>
-    </span>
-    <span class="lg-toolbar-sep" aria-hidden="true"></span>
-    <span class="lg-step-controls" role="group" aria-label="Preview mode">
-      <button type="button" class="btn btn-sm btn-outline" data-preview-mode-btn="section" aria-pressed="true">Current slide</button>
-      <button type="button" class="btn btn-sm btn-outline" data-preview-mode-btn="all" aria-pressed="false">Step through all slides</button>
-    </span>
-    <span class="lg-step-controls lg-hidden" id="lg-step-controls">
-      <button type="button" class="btn btn-sm btn-outline" id="lg-step-prev" aria-label="Previous slide">&#8592;</button>
-      <span class="form-help" id="lg-step-label">Slide 1</span>
-      <button type="button" class="btn btn-sm btn-outline" id="lg-step-next" aria-label="Next slide">&#8594;</button>
-    </span>
-    <span class="lg-toolbar-sep" aria-hidden="true"></span>
-    ${renderSiteSelect("lg-canvas-site-select", sites)}
-    <select id="lg-canvas-variant-select" class="form-select" aria-label="Preview variant">${variantOptions.join("")}</select>
-  </div>
-  ${renderTemplatePicker(templates)}
-  <div class="lg-chip lg-override-badge lg-hidden" id="lg-override-badge">Variant overrides: <strong id="lg-override-badge-list"></strong></div>
-  <div class="lg-slot-banner lg-hidden" id="lg-slot-banner" role="status">
-    <span>This area is the Section&#8217;s question unit &#8212; edit it in the Section Builder</span>
-    <a class="btn btn-sm btn-secondary" id="lg-slot-banner-open" href="#">Open Section</a>
-  </div>
-  <div class="lg-canvas-wrap" id="lg-canvas-wrap">
-    <iframe id="lg-preview-iframe" class="lg-frame-canvas" title="Funnel layout preview" sandbox="allow-same-origin"></iframe>
-  </div>
-  <p class="form-help" id="lg-canvas-status" role="status"></p>
-</div>`;
+// The active-variant scalars the relocated "Funnel settings" dialog edits, per
+// funnel, so the island can re-populate the shared dialog on open. Mirrors the
+// funnel.active_variant_public_id resolution the board projection uses.
+function funnelSettingsForBlob(f: FunnelNode): Record<string, unknown> | null {
+  const vs = f.variants ?? [];
+  const activePub = f.active_variant_public_id ?? (primaryVariantOf(vs)?.public_id ?? null);
+  const av = vs.find((v) => v.public_id === activePub) ?? primaryVariantOf(vs);
+  if (av === null) return null;
+  return {
+    variant_public_id: av.public_id,
+    lander_enabled: av.lander_enabled,
+    lander_headline: av.lander_headline ?? "",
+    lander_subheadline: av.lander_subheadline ?? "",
+    lander_hero_media_url: av.lander_hero_media_url ?? "",
+    funnel_design_id: av.funnel_design_id,
+    auction_id: av.auction_id,
+  };
 }
 
 
-// --- the assembled §4.1 Funnel-builder panel ----------------------------------
+function boardDataBlob(structure: StructureBody, available: AvailableSection[], templates: FrameTemplateItem[]): string {
+  const data = {
+    quote_public_id: structure.quote.public_id,
+    default_funnel_id: structure.quote.default_funnel_id ?? null,
+    shared_page_id: structure.shared_page?.page_id ?? null,
+    shared_sections: (structure.shared_page?.sections ?? []).map((s) => s.section_public_id),
+    funnels: structure.funnels.map((f) => ({
+      public_id: f.public_id,
+      id: f.id,
+      name: f.funnel_name,
+      display_order: f.display_order ?? f.id,
+      is_default: structure.quote.default_funnel_id === f.id,
+      active_variant_public_id: f.active_variant_public_id ?? (primaryVariantOf(f.variants)?.public_id ?? null),
+      arms: f.variants.length,
+      frame_template_id: f.frame_template_id ?? null,
+      // P3b relocation: the active-variant scalars the kebab "Funnel settings"
+      // dialog edits (opening-lander / base design / auction), so the island
+      // re-populates the shared dialog per-funnel on open.
+      settings: funnelSettingsForBlob(f),
+      pages: (f.active_variant_pages ?? []).map((p) => ({
+        page_id: p.page_id,
+        // Full slot detail so a section add/reorder/remove can rebuild the
+        // variant PUT `pages` payload faithfully — ab allocations + ruled
+        // cases are preserved (candidates are index-aligned with allocations
+        // and follow the [unique cases…, default] order the loader emits).
+        slots: p.slots.map((s) => ({ slot_id: s.slot_id, kind: s.kind, section_ids: s.candidates.map((c) => c.section_id), allocations: s.allocations ?? null, rules: s.rules ?? null })),
+      })),
+    })),
+    sections: available.map((s) => ({ public_id: s.public_id, name: s.section_name, activity: s.activity, vertical: s.vertical })),
+    templates: templates.map((t) => ({ id: t.id, label: t.label })),
+  };
+  return JSON.stringify(data).replace(/</g, "\\u003c");
+}
 
+
+// --- the assembled §8.2 Funnel-builder BOARD ---------------------------------
+// Signature preserved (ui-quotes.ts composer call site is byte-stable); the
+// board reads structure/available/templates/routingData. `variant`/`designs`/
+// `auctions`/`sites` are legacy composer args no longer used by the board.
 export function renderBuilderPanel(
   structure: StructureBody,
   variant: VariantNode,
@@ -715,120 +466,45 @@ export function renderBuilderPanel(
   templates: FrameTemplateItem[],
   sites: PreviewSiteOption[],
   routingData: RoutingBuilderData,
+  railData: QuoteRulesRailData,
 ): string {
-  // Rework M1 replacement semantics — see primaryVariantOf's doc comment.
-  const ownFunnel = structure.funnels.find((f) => f.funnel_id === variant.funnel_id) ?? null;
-  const isControl = primaryVariantOf(ownFunnel?.variants ?? [variant])?.public_id === variant.public_id;
+  void variant; void sites; void routingData;
+  const funnels = structure.funnels
+    .slice()
+    .sort((a, b) => (a.display_order ?? a.id) - (b.display_order ?? b.id));
+  // The "current" funnel drives the library "In this funnel" badge — the
+  // default funnel if set, else the first column.
+  const currentFunnelPublicId =
+    funnels.find((f) => f.id === structure.quote.default_funnel_id)?.public_id ?? funnels[0]?.public_id ?? "";
+  // P3b relocation: SSR-seed the (single, shared) Funnel-settings dialog from
+  // the current funnel's ACTIVE variant so the six controls carry real current
+  // values on first paint; the island re-populates it per-funnel on kebab open.
+  const currentFunnel = funnels.find((f) => f.public_id === currentFunnelPublicId) ?? null;
+  const currentSettingsVariant = currentFunnel === null
+    ? null
+    : (currentFunnel.variants.find((v) => v.public_id === (currentFunnel.active_variant_public_id ?? "")) ?? primaryVariantOf(currentFunnel.variants));
+  const funnelCols = funnels.map((f) => renderFunnelColumn(f, structure, templates)).join("");
   return `<div class="lg-qpanel active" data-panel="builder">
-  <div class="lg-studio" id="lg-frame-studio">
-    ${renderStructurePanel(structure, variant, designs, auctions, available)}
-    ${renderCanvasPanel(templates, sites, structure, variant)}
-    ${renderInspectorColumn(isControl, variant, routingData)}
+  <div class="lg-board-shell" data-pin="8.2-tab-geometry">
+    ${renderBoardLibrary(available, structure, currentFunnelPublicId)}
+    <div class="lg-board-center">
+      <div class="lg-board" data-board data-pin="8.2-board">
+        <div class="lg-board-cols" data-board-cols>
+          ${renderSharedColumn(structure.shared_page ?? null)}
+          ${funnelCols}
+          ${renderAddFunnelStub()}
+        </div>
+      </div>
+    </div>
+    <div class="lg-board-right" data-rules-rail>
+      ${renderQuoteRulesRail(railData)}
+    </div>
   </div>
+  ${renderBoardMenus()}
+  ${renderFunnelSettingsDialog(designs, auctions, currentSettingsVariant)}
+  <script type="application/json" id="lg-board-data">${boardDataBlob(structure, available, templates)}</script>
 </div>`;
 }
-
-
-// Round-4 P4b: this row is now a HIDDEN wire-format carrier — the unified
-// routing-rules table/modal (ui-rules-builder.ts renderRoutingRulesPanel +
-// ROUTING_RULES_SCRIPT) is the operator-facing surface, reading/writing these
-// SAME fields by row index. The legacy VISIBLE grid (raw rule-type select +
-// bare integer target_offer_id input) is wrapped `lg-hidden` rather than
-// deleted, so byte-for-byte the SAME [data-rule-*] selectors + Advanced/
-// textarea structure survive for collectRules() and the pre-existing pinned
-// tests (test/leadgen-quotes-ui.test.ts, test/leadgen-quote-builder-ui.test.ts,
-// test/leadgen-quote-builder-seam.test.ts) — see the P4b report's re-pin/
-// preservation list. NO operator ever sees or types a raw integer id: the
-// modal's by-NAME pickers are what actually drive these hidden values.
-function renderRuleRow(rule: RuleNode | null, index = -1, targetVariantPublicId = ""): string {
-  // Rework M3 (§5-M3, D5): leadgen_funnel_rules' CHECK is now tightened to
-  // exactly these four auction-domain types — route_funnel_variant rows
-  // migrated to the new quote-scoped leadgen_quote_routing_rules (P3b UI),
-  // skip_section/show_section rows are guarded off (never exist post-
-  // migration). Offering a removed type here would let a save attempt hit
-  // the DB CHECK.
-  const ruleTypes = ["redirect_direct_offer", "eligibility", "disqualification", "auction_entry"];
-  const selectedType = rule?.rule_type ?? "eligibility";
-  const typeOptions = ruleTypes
-    .map((t) => `<option value="${t}"${t === selectedType ? " selected" : ""}>${t}</option>`)
-    .join("");
-  const conditions = rule ? JSON.stringify(rule.conditions_json ?? { groups: [] }) : `{"groups":[]}`;
-  // The FIRST SSR'd row's conditions carrier gets the stable id the B3 panel's
-  // data-target-input names (template clones carry only the data attribute).
-  const condId = index === 0 ? ' id="lg-rule-conditions"' : "";
-  const status = rule?.status === "disabled" ? "disabled" : "active";
-  const matchMode = rule?.match_mode === "any" ? "any" : "all";
-  return `<div class="lg-rule-row" data-rule-row>
-  <div class="lg-rule-grid lg-hidden">
-    <div class="form-group"><label class="form-label">Rule type</label><select class="form-select" data-rule-type>${typeOptions}</select></div>
-    <div class="form-group"><label class="form-label">Target offer id (redirect_direct_offer)</label><input class="form-input" data-rule-target-offer value="${rule?.target_offer_id ?? ""}" /></div>
-    <div class="form-group"><label class="form-label">Priority</label><input class="form-input" data-rule-priority value="${rule?.priority ?? 100}" /></div>
-  </div>
-  <div class="lg-rule-grid lg-hidden">
-    <div class="form-group"><label class="form-label">Raw redirect URL (allowlist-gated)</label><input class="form-input" data-rule-redirect-url value="${escapeHtml(rule?.redirect_url ?? "")}" /></div>
-    <div class="form-group"><label class="lg-check"><input type="checkbox" data-rule-allowlisted${rule?.redirect_url_allowlisted ? " checked" : ""} /> Redirect URL is on the approved list</label></div>
-    <div class="form-group"><label class="lg-check"><input type="checkbox" data-rule-enabled${rule === null || rule.enabled ? " checked" : ""} /> enabled</label></div>
-  </div>
-  <div class="lg-rule-grid lg-hidden">
-    <input class="form-input" type="text" data-rule-name value="${escapeHtml(rule?.rule_name ?? "")}" />
-    <input class="form-input" type="text" data-rule-status value="${escapeHtml(status)}" />
-    <input class="form-input" type="text" data-rule-match-mode value="${escapeHtml(matchMode)}" />
-    <input class="form-input" type="text" data-rule-target-section value="${rule?.target_section_id ?? ""}" />
-    <input class="form-input" type="text" data-rule-target-variant value="${escapeHtml(targetVariantPublicId)}" />
-    <input class="form-input" type="text" data-rule-value-multiplier value="${rule?.value_multiplier ?? ""}" />
-    <input class="form-input" type="text" data-rule-redirect-pct value="${rule?.redirect_pct ?? ""}" />
-  </div>
-  <details class="lg-advanced"><summary>Advanced &#8212; raw conditions (visual builder pending)</summary>
-    <textarea class="form-input"${condId} data-rule-conditions rows="2">${escapeHtml(conditions)}</textarea>
-  </details>
-  <button type="button" class="btn btn-sm btn-danger" data-remove-rule>Remove rule</button>
-</div>`;
-}
-
-
-// Round-4 P4b: renders the unified routing-rules table + Image42-shaped
-// modal (ui-rules-builder.ts renderRoutingRulesPanel) alongside the hidden
-// per-rule wire-format rows (renderRuleRow) collectRules() reads. `data`
-// carries the SAME funnel's variants (route-target picker scope), the
-// activity's Sections/Offers (by-NAME action pickers), the combined field
-// registry, and the field->page checkpoint-mirror map (buildFieldPageMap).
-function renderRulesPanel(variant: VariantNode, routingData: RoutingBuilderData): string {
-  // target_funnel_variant_id (an internal numeric id, per ruleRowToApi's read
-  // shape) is resolved here to its PUBLIC id so the hidden data-rule-target-
-  // variant carrier round-trips through the modal's by-NAME <select> (whose
-  // <option> values ARE public ids — see numericRefOptions/variantRefOptions
-  // in ui-rules-builder.ts) — never a raw integer the operator could see.
-  const variantIdToPublic = new Map<number, string>(routingData.variants.map((v) => [v.id, v.public_id]));
-  const rows = variant.rules
-    .map((r, i) => renderRuleRow(r, i, r.target_funnel_variant_id != null ? (variantIdToPublic.get(r.target_funnel_variant_id) ?? "") : ""))
-    .join("");
-  // The ORIGINAL B3 condition-cluster builder (renderRulesBuilderPanel/
-  // RULES_BUILDER_SCRIPT) is kept mounted, HIDDEN, purely for wire/test
-  // compatibility: test/leadgen-quote-builder-ui.test.ts pins id="lg-rules-
-  // builder-root" / id="lg-rules-builder-data" / data-target-input="lg-rule-
-  // conditions" being present in the SSR'd HTML (a raw substring check, not a
-  // visibility check) — a file outside this slice's ownership. The operator
-  // never sees or uses this instance; the unified modal above mounts its OWN
-  // FRESH window.lgRulesBuilder.mount() call per edit (ui-rules-builder.ts
-  // ROUTING_RULES_SCRIPT openModalFor), targeting the SAME [data-rule-
-  // conditions] carrier directly. `offers` is deliberately [] here (this
-  // hidden instance's decorative offer-name chip is inert — ui-quotes.ts
-  // never fed it real offer names even before P4b).
-  const legacyBuilderData: RulesBuilderData = {
-    rules: variant.rules.map((r) => r.conditions_json ?? { groups: [] }),
-    fields: routingData.fields,
-    offers: [],
-  };
-  return `${renderRoutingRulesPanel(routingData)}
-  <div class="lg-hidden" data-rules-hidden-rows>
-    ${renderRulesBuilderPanel(legacyBuilderData)}
-    <div class="toolbar"><button type="button" id="lg-add-rule" class="btn btn-secondary">+ Add rule</button></div>
-    <p class="form-help">redirect_direct_offer uses a target offer (governed URL). A raw redirect URL is honored only when allowlisted AND its host is on the admin allowlist (§15.5).</p>
-    <div id="lg-rule-list">${rows || `<p class="form-help" data-empty-rules>No rules.</p>`}</div>
-  </div>
-  <template id="lg-rule-row-tpl">${renderRuleRow(null)}</template>`;
-}
-
 
 // ---------------------------------------------------------------------------
 // Editor inline script (strict ES5) — tabs, section-order, rules, save,
@@ -1121,12 +797,13 @@ export const QUOTE_EDITOR_SCRIPT = `
   for (ti = 0; ti < tabs.length; ti++) {
     tabs[ti].addEventListener('click', function () { activate(this.getAttribute('data-tab')); });
   }
-  // §4.1 structure-panel links into the A/B tab (and the head Publish button
-  // into Activation). Round-4 P4b: "rules" is no longer its OWN top tab (the
-  // routing-rules table+modal moved INSIDE the Funnel builder tab's right
-  // column — renderInspectorColumn/renderRulesPanel) — a data-goto-tab="rules"
-  // link (the structure panel's "Rules for this variant" shortcut) now
-  // activates 'builder' and scrolls the embedded panel into view instead.
+  // Generic data-goto-tab click delegation (the head's Publish button jumps
+  // into Activation; the board's A/B badge / theme pickchip jump into A/B /
+  // Themes via this SAME mechanism, gotoTab() in the board island below).
+  // Historical note (Round-4 P4b, since superseded by the P3b board rebuild):
+  // routing rules were briefly a standalone top tab, then moved inside the
+  // Funnel builder tab's right column; that link + its embedding are both
+  // long gone (§10) — the §8.2 RIGHT rail is the current routing-rules home.
   document.addEventListener('click', function (ev) {
     var el = ev.target;
     while (el && el.getAttribute && !el.getAttribute('data-goto-tab')) { el = el.parentNode; }
@@ -1624,29 +1301,37 @@ export const QUOTE_EDITOR_SCRIPT = `
     return out;
   }
   function collectPayload() {
+    // P3b (S3b.1) money-path guard: the funnel-builder BOARD removed the old
+    // structure/rules/lander DOM (lg-section-list, lg-lander-*, lg-funnel-
+    // design, lg-auction-id, lg-rule-list). This function is only reached when
+    // (variantDirty || overridesDirty) — flags the board never sets — but it is
+    // hardened regardless: every field is included ONLY when its control is
+    // present, and sections/pages/rules are OMITTED when their DOM is absent so
+    // a stray Save can never crash (null.checked) NOR replace-set the variant's
+    // pages/rules to empty (which would wipe auction_entry rules + the plan).
+    var payload = {};
+    var landerEn = byId('lg-lander-enabled');
+    if (landerEn) { payload.lander_enabled = landerEn.checked; }
+    var landerHl = byId('lg-lander-headline');
+    if (landerHl) { payload.lander_headline = landerHl.value; }
+    var landerSub = byId('lg-lander-sub');
+    if (landerSub) { payload.lander_subheadline = landerSub.value; }
+    var landerHero = byId('lg-lander-hero');
+    if (landerHero) { payload.lander_hero_media_url = landerHero.value; }
+    var designSel = byId('lg-funnel-design');
+    if (designSel) { payload.funnel_design_id = designSel.value; }
     var auctionSel = byId('lg-auction-id');
-    var auctionVal = auctionSel && auctionSel.value ? Number(auctionSel.value) : null;
-    var payload = {
-      lander_enabled: byId('lg-lander-enabled').checked,
-      lander_headline: byId('lg-lander-headline').value,
-      lander_subheadline: byId('lg-lander-sub').value,
-      lander_hero_media_url: byId('lg-lander-hero').value,
-      funnel_design_id: byId('lg-funnel-design').value,
-      auction_id: auctionVal,
-      rules: collectRules()
-    };
-    // Round-4 P3b: pages-first replace-set. When the panel rendered page cards
-    // (the production path — loadVariantPages ALWAYS yields >=1 page, real or
-    // its synthetic per-section wrap) the variant PUT carries pages (mutually
-    // exclusive with sections). A page-LESS DOM (a legacy / harness mount
-    // with flat rows and no [data-page]) falls back to the byte-equivalent
-    // sections replace-set. Sending pages for a real (incl. migrated)
-    // variant is REQUIRED: the sections path would leave the migrated
-    // leadgen_funnel_pages rows orphaned and the loader renders them empty.
-    if (sectionList && sectionList.querySelectorAll('[data-page]').length > 0) {
-      payload.pages = collectPages();
-    } else {
-      payload.sections = collectSections();
+    if (auctionSel) { payload.auction_id = auctionSel.value ? Number(auctionSel.value) : null; }
+    if (ruleList) { payload.rules = collectRules(); }
+    // pages-first replace-set (mutually exclusive with sections), ONLY when the
+    // old structure DOM is present. Absent DOM (the board) omits both keys so
+    // the variant PUT touches neither (putVariantHandler: absent == no change).
+    if (sectionList) {
+      if (sectionList.querySelectorAll('[data-page]').length > 0) {
+        payload.pages = collectPages();
+      } else {
+        payload.sections = collectSections();
+      }
     }
     // 4.5/4.7 — the sparse per-arm overrides ride the SAME variant PUT, and
     // ONLY when the operator touched them (additive contract; {} clears).
@@ -4252,6 +3937,684 @@ export const QUOTE_EDITOR_SCRIPT = `
   window.addEventListener('beforeunload', function (e) {
     if (dirty || variantDirty || allocDirty || frameDirty || themeDirty || overridesDirty) { e.preventDefault(); e.returnValue = ''; return ''; }
   });
+}());
+
+/* ======================================================================== */
+/* P3b (S3b.1) funnel-builder BOARD island. Strict ES5: var and function only */
+/* -- no arrow functions, no ES6 block-scoped declarations, no backtick       */
+/* template strings (layout.ts + the ES5 parse gate). Drag = the in-house    */
+/* mouse engine (studio precedent; no native HTML5 DnD, so page.mouse drives */
+/* it on BOTH engines). Persistence = the landed P1 endpoints + a reload (the */
+/* SSR /structure is the source of truth). A-4/A-5 are rendered VERBATIM     */
+/* from the server response. The RIGHT rail is S3b.2's.                      */
+/* ======================================================================== */
+(function () {
+  'use strict';
+  var board = document.querySelector('[data-board]');
+  if (!board) { return; }
+  var shell = document.querySelector('.lg-board-shell');
+  var dataEl = document.getElementById('lg-board-data');
+  var BOARD = {};
+  try { BOARD = JSON.parse((dataEl && (dataEl.textContent || dataEl.innerText)) || '{}'); } catch (eBoard) { BOARD = {}; }
+  var quoteId = BOARD.quote_public_id || '';
+  var API = '/api/admin/leadgen';
+
+  function reloadPage() { window.location.reload(); }
+  function req(method, url, body) {
+    return fetch(url, {
+      method: method, credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body)
+    }).then(function (r) {
+      return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+    });
+  }
+  function firstFieldError(body) {
+    if (body && body.fields) { var k; for (k in body.fields) { if (Object.prototype.hasOwnProperty.call(body.fields, k)) { return body.fields[k]; } } }
+    return (body && body.error) ? body.error : 'Something went wrong. Please try again.';
+  }
+  function funnelByPublic(pub) {
+    var fs = BOARD.funnels || []; var i;
+    for (i = 0; i < fs.length; i++) { if (fs[i].public_id === pub) { return fs[i]; } }
+    return null;
+  }
+  function orderedFunnels() {
+    var fs = (BOARD.funnels || []).slice();
+    fs.sort(function (a, b) { return (a.display_order || a.id) - (b.display_order || b.id); });
+    return fs;
+  }
+
+  /* ---- inline error (A-4 uniqueness on drop, etc.) ---- */
+  function clearInlineErrs() {
+    var errs = board.querySelectorAll('.lg-board-inline-err'); var i;
+    for (i = 0; i < errs.length; i++) { if (errs[i].parentNode) { errs[i].parentNode.removeChild(errs[i]); } }
+  }
+  function showInlineErr(nearEl, msg) {
+    clearInlineErrs();
+    var p = document.createElement('div');
+    p.className = 'lg-board-inline-err';
+    p.setAttribute('role', 'alert');
+    p.appendChild(document.createTextNode(msg));
+    if (nearEl && nearEl.parentNode) { nearEl.parentNode.insertBefore(p, nearEl.nextSibling); }
+    else { board.insertBefore(p, board.firstChild); }
+    if (p.scrollIntoView) { p.scrollIntoView({ block: 'nearest' }); }
+  }
+
+  /* ---- variant pages -> PUT pages-array shape (faithful fixed/ab/ruled) ---- */
+  function slotToPut(slot) {
+    if (slot.kind === 'ab' && slot.allocations) {
+      var allocs = []; var k;
+      for (k = 0; k < slot.allocations.length; k++) { allocs.push({ section_id: slot.section_ids[k], bp: slot.allocations[k].bp }); }
+      return { kind: 'ab', allocations: allocs };
+    }
+    if (slot.kind === 'ruled' && slot.rules) {
+      var cs = slot.rules.cases || []; var order = []; var seen = {}; var i;
+      for (i = 0; i < cs.length; i++) { var sid = cs[i].section_id; if (!seen[sid]) { seen[sid] = 1; order.push(sid); } }
+      var def = slot.rules.default_section_id;
+      if (def !== null && def !== undefined && !seen[def]) { order.push(def); }
+      var map = {}; var j; for (j = 0; j < order.length; j++) { map[order[j]] = slot.section_ids[j]; }
+      var cases = []; var m; for (m = 0; m < cs.length; m++) { cases.push({ conditions: cs[m].conditions, section_id: map[cs[m].section_id] }); }
+      var out = { kind: 'ruled', cases: cases };
+      if (def !== null && def !== undefined) { out.default_section_id = map[def]; }
+      return out;
+    }
+    return { kind: 'fixed', section_id: slot.section_ids[0] };
+  }
+  function funnelPagesToPut(funnel) {
+    var pages = funnel.pages || []; var out = []; var i, j;
+    for (i = 0; i < pages.length; i++) {
+      var slots = []; var ps = pages[i].slots || [];
+      for (j = 0; j < ps.length; j++) { slots.push(slotToPut(ps[j])); }
+      out.push({ name: null, slots: slots });
+    }
+    return out;
+  }
+  function saveFunnel(funnel, nearEl) {
+    var variantPub = funnel.active_variant_public_id;
+    if (!variantPub) { showInlineErr(nearEl, 'This funnel has no active variant to save into.'); return; }
+    req('PUT', API + '/variants/' + encodeURIComponent(variantPub), { pages: funnelPagesToPut(funnel) }).then(function (res) {
+      if (!res.ok) { showInlineErr(nearEl, firstFieldError(res.body)); return; }
+      reloadPage();
+    });
+  }
+  function saveShared(ids, nearEl) {
+    var sections = []; var i; for (i = 0; i < ids.length; i++) { sections.push({ section_id: ids[i] }); }
+    req('PUT', API + '/quotes/' + encodeURIComponent(quoteId) + '/shared-page', { sections: sections }).then(function (res) {
+      if (!res.ok) { showInlineErr(nearEl, firstFieldError(res.body)); return; }
+      reloadPage();
+    });
+  }
+
+  /* ================= MENUS ================= */
+  var menusRoot = document.querySelector('[data-board-menus]');
+  var openMenuEl = null;
+  var menuCtx = null;
+  function hide(el) { if (el) { el.className = el.className.replace(/\\s*lg-hidden/g, '') + ' lg-hidden'; } }
+  function show(el) { if (el) { el.className = el.className.replace(/\\s*lg-hidden/g, ''); } }
+  function closeMenus() {
+    if (openMenuEl) { hide(openMenuEl); openMenuEl = null; }
+    menuCtx = null;
+  }
+  function positionAt(menuEl, anchor) {
+    var r = anchor.getBoundingClientRect();
+    menuEl.style.top = (r.bottom + 4) + 'px';
+    var left = r.left;
+    var mw = menuEl.offsetWidth || 190;
+    if (left + mw > window.innerWidth - 8) { left = window.innerWidth - mw - 8; }
+    if (left < 8) { left = 8; }
+    menuEl.style.left = left + 'px';
+  }
+  function openMenu(name, anchor, ctx) {
+    closeMenus();
+    var menuEl = menusRoot ? menusRoot.querySelector('[data-board-menu="' + name + '"]') : null;
+    if (!menuEl) { return; }
+    menuCtx = ctx || {};
+    show(menuEl);
+    positionAt(menuEl, anchor);
+    openMenuEl = menuEl;
+  }
+
+  /* ================= FUNNEL CRUD ================= */
+  function addFunnel() {
+    // Add with a default name (no blocking prompt); the operator renames inline
+    // on the fresh column via the pinned inline-rename affordance.
+    req('POST', API + '/quotes/' + encodeURIComponent(quoteId) + '/funnels', { funnel_name: 'New funnel' }).then(function (res) {
+      if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
+      reloadPage();
+    });
+  }
+  function duplicateFunnel(pub) {
+    req('POST', API + '/funnels/' + encodeURIComponent(pub) + '/duplicate', {}).then(function (res) {
+      if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
+      reloadPage();
+    });
+  }
+  function setDefaultFunnel(pub) {
+    req('PUT', API + '/quotes/' + encodeURIComponent(quoteId) + '/default-funnel', { funnel_id: pub }).then(function (res) {
+      if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
+      reloadPage();
+    });
+  }
+  function moveFunnel(pub, dir) {
+    var fs = orderedFunnels(); var idx = -1; var i;
+    for (i = 0; i < fs.length; i++) { if (fs[i].public_id === pub) { idx = i; break; } }
+    if (idx < 0) { return; }
+    var to = dir === 'left' ? idx - 1 : idx + 1;
+    if (to < 0 || to >= fs.length) { return; }
+    var order = []; for (i = 0; i < fs.length; i++) { order.push(fs[i].public_id); }
+    var tmp = order[idx]; order[idx] = order[to]; order[to] = tmp;
+    req('PUT', API + '/quotes/' + encodeURIComponent(quoteId) + '/funnel-order', { order: order }).then(function (res) {
+      if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
+      reloadPage();
+    });
+  }
+  function renderGuard(blockers) {
+    var guard = document.querySelector('[data-board-guard]');
+    var bodyEl = document.querySelector('[data-board-guard-body]');
+    if (!guard || !bodyEl) { return; }
+    while (bodyEl.firstChild) { bodyEl.removeChild(bodyEl.firstChild); }
+    var list = blockers && blockers.length ? blockers : ['This funnel can\\u2019t be deleted right now.'];
+    var i;
+    for (i = 0; i < list.length; i++) {
+      var row = document.createElement('div');
+      row.className = 'lg-guard-blocker';
+      row.appendChild(document.createTextNode(list[i]));
+      bodyEl.appendChild(row);
+    }
+    show(guard);
+  }
+  function closeGuard() { hide(document.querySelector('[data-board-guard]')); }
+  function deleteFunnel(pub) {
+    req('DELETE', API + '/funnels/' + encodeURIComponent(pub)).then(function (res) {
+      if (res.status === 409 && res.body && res.body.blockers) { renderGuard(res.body.blockers); return; }
+      if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
+      reloadPage();
+    });
+  }
+
+  /* ===== FUNNEL SETTINGS DIALOG (relocated §8.2) ===== */
+  // The single shared dialog rendered by renderFunnelSettingsDialog. On kebab
+  // open it is re-populated from the clicked funnel's blob settings object and
+  // its Save PUTs that funnel's ACTIVE variant through the EXISTING
+  // /variants/:id fields. collectFunnelSettings carries ONLY the six scalar
+  // fields (never pages/rules/sections) so this save can never wipe the money
+  // path -- the field-present hardening collectPayload documents, dedicated path.
+  var fsettingsEl = document.querySelector('[data-funnel-settings]');
+  var fsettingsVariant = fsettingsEl ? (fsettingsEl.getAttribute('data-settings-variant') || '') : '';
+  function fsById(id) { return document.getElementById(id); }
+  function openFunnelSettings(pub) {
+    if (!fsettingsEl) { return; }
+    var f = funnelByPublic(pub);
+    var s = f ? f.settings : null;
+    if (!s || !s.variant_public_id) { showInlineErr(null, 'This funnel has no active variant to configure.'); return; }
+    fsettingsVariant = s.variant_public_id;
+    var en = fsById('lg-lander-enabled'); if (en) { en.checked = !!s.lander_enabled; }
+    var hl = fsById('lg-lander-headline'); if (hl) { hl.value = s.lander_headline || ''; }
+    var sub = fsById('lg-lander-sub'); if (sub) { sub.value = s.lander_subheadline || ''; }
+    var hero = fsById('lg-lander-hero'); if (hero) { hero.value = s.lander_hero_media_url || ''; }
+    var des = fsById('lg-funnel-design'); if (des) { des.value = s.funnel_design_id || ''; }
+    var auc = fsById('lg-auction-id'); if (auc) { auc.value = (s.auction_id === null || s.auction_id === undefined) ? '' : String(s.auction_id); }
+    show(fsettingsEl);
+  }
+  function closeFunnelSettings() { hide(fsettingsEl); }
+  function collectFunnelSettings() {
+    var payload = {};
+    var en = fsById('lg-lander-enabled'); if (en) { payload.lander_enabled = en.checked; }
+    var hl = fsById('lg-lander-headline'); if (hl) { payload.lander_headline = hl.value; }
+    var sub = fsById('lg-lander-sub'); if (sub) { payload.lander_subheadline = sub.value; }
+    var hero = fsById('lg-lander-hero'); if (hero) { payload.lander_hero_media_url = hero.value; }
+    var des = fsById('lg-funnel-design'); if (des) { payload.funnel_design_id = des.value; }
+    var auc = fsById('lg-auction-id'); if (auc) { payload.auction_id = auc.value ? Number(auc.value) : null; }
+    return payload;
+  }
+  function saveFunnelSettings() {
+    if (!fsettingsVariant) { showInlineErr(null, 'No funnel selected to save.'); return; }
+    var btn = fsettingsEl ? fsettingsEl.querySelector('[data-funnel-settings-save]') : null;
+    if (btn) { btn.disabled = true; }
+    req('PUT', API + '/variants/' + encodeURIComponent(fsettingsVariant), collectFunnelSettings()).then(function (res) {
+      if (btn) { btn.disabled = false; }
+      if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
+      reloadPage();
+    });
+  }
+
+  /* ================= INLINE RENAME ================= */
+  function beginRename(nameEl, funnelPub) {
+    if (nameEl.getAttribute('data-editing') === '1') { return; }
+    nameEl.setAttribute('data-editing', '1');
+    nameEl.className = nameEl.className.replace(/\\s*is-editing/g, '') + ' is-editing';
+    nameEl.setAttribute('contenteditable', 'true');
+    nameEl.focus();
+    var original = nameEl.textContent;
+    function finish(commit) {
+      nameEl.removeAttribute('contenteditable');
+      nameEl.setAttribute('data-editing', '0');
+      nameEl.className = nameEl.className.replace(/\\s*is-editing/g, '');
+      nameEl.removeEventListener('blur', onBlur);
+      nameEl.removeEventListener('keydown', onKey);
+      var next = nameEl.textContent.replace(/^\\s+|\\s+$/g, '');
+      if (!commit || next === '' || next === original) { nameEl.textContent = original; return; }
+      req('PATCH', API + '/funnels/' + encodeURIComponent(funnelPub), { funnel_name: next }).then(function (res) {
+        if (!res.ok) { nameEl.textContent = original; showInlineErr(null, firstFieldError(res.body)); return; }
+        reloadPage();
+      });
+    }
+    function onBlur() { finish(true); }
+    function onKey(e) {
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    }
+    nameEl.addEventListener('blur', onBlur);
+    nameEl.addEventListener('keydown', onKey);
+  }
+
+  /* ============ SECTION PICKER (＋ section — the a11y/click add path) ======= */
+  function openPopoverList(anchor, items, onPick) {
+    closeMenus();
+    var tm = document.querySelector('[data-template-menu]');
+    if (!tm) { return; }
+    while (tm.firstChild) { tm.removeChild(tm.firstChild); }
+    if (items.length === 0) {
+      var none = document.createElement('div'); none.className = 'lg-menu-item'; none.appendChild(document.createTextNode('Nothing available.')); tm.appendChild(none);
+    }
+    var i;
+    for (i = 0; i < items.length; i++) {
+      (function (it) {
+        var el = document.createElement('div');
+        el.className = 'lg-menu-item';
+        el.setAttribute('role', 'menuitem');
+        el.setAttribute('tabindex', '-1');
+        el.appendChild(document.createTextNode(it.label));
+        el.addEventListener('click', function (ev) { ev.stopPropagation(); closeMenus(); onPick(it.value); });
+        tm.appendChild(el);
+      }(items[i]));
+    }
+    show(tm);
+    positionAt(tm, anchor);
+    openMenuEl = tm;
+  }
+  function sectionItems() {
+    var secs = BOARD.sections || []; var out = []; var i;
+    for (i = 0; i < secs.length; i++) { out.push({ label: secs[i].name, value: secs[i].public_id }); }
+    return out;
+  }
+  function templateItems() {
+    var tpls = BOARD.templates || []; var out = []; var i;
+    for (i = 0; i < tpls.length; i++) { out.push({ label: tpls[i].label, value: tpls[i].id }); }
+    return out;
+  }
+
+  /* ================= TEMPLATE PICKER (M5 apply) ================= */
+  function applyTemplate(funnelPub, templateId) {
+    req('POST', API + '/funnels/' + encodeURIComponent(funnelPub) + '/apply-template', { template_id: templateId }).then(function (res) {
+      if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
+      reloadPage();
+    });
+  }
+
+  /* ============ PREVIEW (POST /variants/:id/preview -> new tab, Blob) ======= */
+  function previewFunnel(funnel) {
+    var variantPub = funnel.active_variant_public_id;
+    if (!variantPub) { return; }
+    var w = window.open('about:blank', '_blank');
+    req('POST', API + '/variants/' + encodeURIComponent(variantPub) + '/preview', {}).then(function (res) {
+      var html = (res.body && (res.body.html || res.body.preview_html)) || '';
+      if (!res.ok || !html) { if (w) { w.close(); } showInlineErr(null, firstFieldError(res.body)); return; }
+      var url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+      if (w) { w.location = url; } else { window.open(url, '_blank'); }
+    });
+  }
+
+  /* ================= tab jump (A/B badge, theme picker) ================= */
+  function gotoTab(name) {
+    var btn = document.querySelector('.lg-qtab[data-tab="' + name + '"]');
+    if (btn) { btn.click(); }
+  }
+
+  /* ================= chip / page mutation helpers ================= */
+  function funnelOfEl(el) {
+    var col = el.closest ? el.closest('[data-funnel-col]') : null;
+    if (!col) { return null; }
+    return { pub: col.getAttribute('data-funnel-public-id'), model: funnelByPublic(col.getAttribute('data-funnel-public-id')), col: col };
+  }
+  function pageIndexOfEl(el) {
+    var card = el.closest ? el.closest('[data-page-card]') : null;
+    if (!card) { return -1; }
+    return Number(card.getAttribute('data-page-index'));
+  }
+  function removeFunnelChip(chip) {
+    var f = funnelOfEl(chip); if (!f || !f.model) { return; }
+    var pi = pageIndexOfEl(chip); if (pi < 0) { return; }
+    var slotId = Number(chip.getAttribute('data-slot-id'));
+    var page = f.model.pages[pi]; if (!page) { return; }
+    var kept = []; var i;
+    for (i = 0; i < page.slots.length; i++) { if (page.slots[i].slot_id !== slotId) { kept.push(page.slots[i]); } }
+    page.slots = kept;
+    saveFunnel(f.model, chip);
+  }
+  function moveFunnelChip(chip, dir) {
+    var f = funnelOfEl(chip); if (!f || !f.model) { return; }
+    var pi = pageIndexOfEl(chip); if (pi < 0) { return; }
+    var slotId = Number(chip.getAttribute('data-slot-id'));
+    var page = f.model.pages[pi]; if (!page) { return; }
+    var idx = -1; var i;
+    for (i = 0; i < page.slots.length; i++) { if (page.slots[i].slot_id === slotId) { idx = i; break; } }
+    var to = dir === 'up' ? idx - 1 : idx + 1;
+    if (idx < 0 || to < 0 || to >= page.slots.length) { return; }
+    var tmp = page.slots[idx]; page.slots[idx] = page.slots[to]; page.slots[to] = tmp;
+    saveFunnel(f.model, chip);
+  }
+  function removeSharedChip(chip) {
+    var ids = (BOARD.shared_sections || []).slice();
+    var pub = chip.getAttribute('data-section-public-id'); var out = []; var i;
+    for (i = 0; i < ids.length; i++) { if (ids[i] !== pub) { out.push(ids[i]); } }
+    saveShared(out, chip);
+  }
+  function moveSharedChip(chip, dir) {
+    var ids = (BOARD.shared_sections || []).slice();
+    var pub = chip.getAttribute('data-section-public-id');
+    var idx = -1; var i; for (i = 0; i < ids.length; i++) { if (ids[i] === pub) { idx = i; break; } }
+    var to = dir === 'up' ? idx - 1 : idx + 1;
+    if (idx < 0 || to < 0 || to >= ids.length) { return; }
+    var tmp = ids[idx]; ids[idx] = ids[to]; ids[to] = tmp;
+    saveShared(ids, chip);
+  }
+  function movePage(pageCard, dir) {
+    var f = funnelOfEl(pageCard); if (!f || !f.model) { return; }
+    var pi = Number(pageCard.getAttribute('data-page-index'));
+    var to = dir === 'up' ? pi - 1 : pi + 1;
+    if (pi < 0 || to < 0 || to >= f.model.pages.length) { return; }
+    var tmp = f.model.pages[pi]; f.model.pages[pi] = f.model.pages[to]; f.model.pages[to] = tmp;
+    saveFunnel(f.model, pageCard);
+  }
+  function deletePage(pageCard) {
+    var f = funnelOfEl(pageCard); if (!f || !f.model) { return; }
+    var pi = Number(pageCard.getAttribute('data-page-index'));
+    if (pi < 0 || pi >= f.model.pages.length) { return; }
+    f.model.pages.splice(pi, 1);
+    saveFunnel(f.model, pageCard);
+  }
+  function addPage(funnelCol) {
+    var f = funnelOfEl(funnelCol); if (!f || !f.model) { return; }
+    f.model.pages.push({ page_id: '', slots: [] });
+    saveFunnel(f.model, funnelCol);
+  }
+  function addSectionToFunnelPage(funnelModel, pageIndex, sectionPublicId, nearEl) {
+    var page = funnelModel.pages[pageIndex];
+    if (!page) { funnelModel.pages.push({ page_id: '', slots: [] }); page = funnelModel.pages[funnelModel.pages.length - 1]; }
+    page.slots.push({ slot_id: -1, kind: 'fixed', section_ids: [sectionPublicId], allocations: null, rules: null });
+    saveFunnel(funnelModel, nearEl);
+  }
+  function addSectionToShared(sectionPublicId, nearEl) {
+    var ids = (BOARD.shared_sections || []).slice();
+    ids.push(sectionPublicId);
+    saveShared(ids, nearEl);
+  }
+
+  /* ================= DRAG ENGINE (in-house mouse; both engines) ============= */
+  var drag = null;
+  function clearDropTargets() {
+    var els = board.querySelectorAll('.lg-drop-target'); var i;
+    for (i = 0; i < els.length; i++) { els[i].className = els[i].className.replace(/\\s*lg-drop-target/g, ''); }
+  }
+  function dropTargetUnder(x, y) {
+    var el = document.elementFromPoint(x, y);
+    if (!el || !el.closest) { return null; }
+    var pageCard = el.closest('[data-page-card]');
+    var sharedCard = el.closest('[data-shared-page-card]');
+    var funnelCol = el.closest('[data-funnel-col]');
+    var sharedCol = el.closest('[data-shared-col]');
+    if (sharedCard || sharedCol) { return { scope: 'shared', pageEl: sharedCard, colEl: sharedCol || (sharedCard ? sharedCard.closest('[data-shared-col]') : null) }; }
+    if (pageCard) { return { scope: 'funnel', pageEl: pageCard, colEl: funnelCol }; }
+    if (funnelCol) { return { scope: 'funnel', pageEl: null, colEl: funnelCol }; }
+    return null;
+  }
+  function startDrag(kind, sourceEl, ev) {
+    if (ev.button !== undefined && ev.button !== 0) { return; }
+    ev.preventDefault();
+    var nameEl = sourceEl.querySelector('.lg-sc-name') || sourceEl.querySelector('.lg-lc-name') || sourceEl.querySelector('.lg-page-num');
+    drag = { kind: kind, el: sourceEl, startX: ev.clientX, startY: ev.clientY, moved: false, ghost: null, label: nameEl ? nameEl.textContent : 'Section' };
+    document.addEventListener('mousemove', onDragMove, true);
+    document.addEventListener('mouseup', onDragUp, true);
+  }
+  function ensureGhost() {
+    if (drag.ghost) { return; }
+    var g = document.createElement('div');
+    g.className = 'lg-drag-ghost';
+    g.appendChild(document.createTextNode(drag.label || 'Section'));
+    document.body.appendChild(g);
+    drag.ghost = g;
+    if (drag.el.className.indexOf('lg-dragging') < 0) { drag.el.className = drag.el.className + ' lg-dragging'; }
+  }
+  function onDragMove(ev) {
+    if (!drag) { return; }
+    if (!drag.moved) {
+      if (Math.abs(ev.clientX - drag.startX) < 5 && Math.abs(ev.clientY - drag.startY) < 5) { return; }
+      drag.moved = true;
+      ensureGhost();
+    }
+    if (drag.ghost) { drag.ghost.style.left = (ev.clientX + 8) + 'px'; drag.ghost.style.top = (ev.clientY + 8) + 'px'; }
+    clearDropTargets();
+    var t = dropTargetUnder(ev.clientX, ev.clientY);
+    if (t) {
+      var hi = t.pageEl || t.colEl;
+      if (hi && hi.className.indexOf('lg-drop-target') < 0) { hi.className = hi.className + ' lg-drop-target'; }
+    }
+  }
+  function endDrag() {
+    document.removeEventListener('mousemove', onDragMove, true);
+    document.removeEventListener('mouseup', onDragUp, true);
+    if (drag && drag.ghost && drag.ghost.parentNode) { drag.ghost.parentNode.removeChild(drag.ghost); }
+    if (drag && drag.el) { drag.el.className = drag.el.className.replace(/\\s*lg-dragging/g, ''); }
+    clearDropTargets();
+    drag = null;
+  }
+  function onDragUp(ev) {
+    if (!drag) { return; }
+    if (!drag.moved) { endDrag(); return; }
+    var t = dropTargetUnder(ev.clientX, ev.clientY);
+    var d = drag; endDrag();
+    if (!t) { return; }
+    if (d.kind === 'lib') {
+      var pub = d.el.getAttribute('data-section-public-id');
+      if (t.scope === 'shared') { addSectionToShared(pub, t.pageEl || t.colEl); return; }
+      var f = funnelByPublic(t.colEl ? t.colEl.getAttribute('data-funnel-public-id') : '');
+      if (!f) { return; }
+      var pi = t.pageEl ? Number(t.pageEl.getAttribute('data-page-index')) : (f.pages.length - 1);
+      addSectionToFunnelPage(f, pi, pub, t.pageEl || t.colEl);
+      return;
+    }
+    if (d.kind === 'chip') {
+      var srcScope = d.el.getAttribute('data-chip-scope');
+      if (srcScope === 'shared') {
+        if (t.scope !== 'shared') { showInlineErr(t.pageEl || t.colEl, 'Shared-page sections stay on the shared page.'); }
+        return;
+      }
+      if (t.scope === 'shared') { showInlineErr(t.pageEl || t.colEl, 'Sections can\\u2019t move into the shared page \\u2014 drag from the library.'); return; }
+      var srcF = funnelOfEl(d.el);
+      var destPub = t.colEl ? t.colEl.getAttribute('data-funnel-public-id') : '';
+      if (!srcF || !srcF.model || srcF.pub !== destPub) {
+        showInlineErr(t.pageEl || t.colEl, 'Sections can\\u2019t move between funnels \\u2014 drag from the library instead.');
+        return;
+      }
+      var srcPi = pageIndexOfEl(d.el); var slotId = Number(d.el.getAttribute('data-slot-id'));
+      var destPi = t.pageEl ? Number(t.pageEl.getAttribute('data-page-index')) : srcPi;
+      if (srcPi < 0) { return; }
+      var srcPage = srcF.model.pages[srcPi]; var moved = null; var kept = []; var i;
+      for (i = 0; i < srcPage.slots.length; i++) { if (srcPage.slots[i].slot_id === slotId) { moved = srcPage.slots[i]; } else { kept.push(srcPage.slots[i]); } }
+      if (!moved) { return; }
+      srcPage.slots = kept;
+      var destPage = srcF.model.pages[destPi] || srcPage;
+      destPage.slots.push(moved);
+      saveFunnel(srcF.model, t.pageEl || t.colEl);
+      return;
+    }
+    if (d.kind === 'page') {
+      var pf = funnelOfEl(d.el); if (!pf || !pf.model) { return; }
+      if (t.scope !== 'funnel' || !t.colEl || t.colEl.getAttribute('data-funnel-public-id') !== pf.pub) { return; }
+      var from = Number(d.el.getAttribute('data-page-index'));
+      var toIdx = t.pageEl ? Number(t.pageEl.getAttribute('data-page-index')) : (pf.model.pages.length - 1);
+      if (from < 0 || toIdx < 0 || from === toIdx) { return; }
+      var pg = pf.model.pages.splice(from, 1)[0];
+      pf.model.pages.splice(toIdx, 0, pg);
+      saveFunnel(pf.model, t.pageEl || t.colEl);
+      return;
+    }
+  }
+
+  /* ================= SEARCH + FILTER (client-side, no persist) ============== */
+  var searchInput = document.querySelector('[data-lib-search]');
+  var activeFilter = '';
+  function applyLibFilter() {
+    var q = (searchInput && searchInput.value ? searchInput.value : '').toLowerCase().replace(/^\\s+|\\s+$/g, '');
+    var cards = document.querySelectorAll('[data-lib-card]'); var i;
+    for (i = 0; i < cards.length; i++) {
+      var name = (cards[i].getAttribute('data-section-name') || '').toLowerCase();
+      var vert = cards[i].getAttribute('data-vertical-key') || '';
+      var okQ = q === '' || name.indexOf(q) >= 0;
+      var okF = activeFilter === '' || vert === activeFilter;
+      cards[i].style.display = (okQ && okF) ? '' : 'none';
+    }
+  }
+  if (searchInput) { searchInput.addEventListener('input', applyLibFilter); }
+
+  /* ================= DELEGATED EVENTS ================= */
+  (shell || document).addEventListener('mousedown', function (ev) {
+    var t = ev.target;
+    if (!t || !t.closest) { return; }
+    if (t.closest('[data-chip-kebab],[data-page-kebab],[data-funnel-kebab],[data-add-section],[data-add-shared-section],[data-add-page],[data-preview],[data-ab-badge],[data-theme-picker],[data-template-picker],[data-funnel-name],[data-lib-search],[data-lib-filter]')) { return; }
+    var chipGrip = t.closest('[data-chip-grip]');
+    if (chipGrip) { var chip = chipGrip.closest('[data-sec-chip]'); if (chip) { startDrag('chip', chip, ev); } return; }
+    var pageGrip = t.closest('[data-page-grip]');
+    if (pageGrip) { var pc = pageGrip.closest('[data-page-card]'); if (pc) { startDrag('page', pc, ev); } return; }
+    var lib = t.closest('[data-lib-card]');
+    if (lib) { startDrag('lib', lib, ev); return; }
+  }, true);
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target;
+    if (!t || !t.closest) { return; }
+
+    var actEl = t.closest('[data-menu-action]');
+    if (actEl && openMenuEl && openMenuEl.contains(actEl)) {
+      ev.stopPropagation();
+      var action = actEl.getAttribute('data-menu-action');
+      var ctx = menuCtx || {};
+      closeMenus();
+      dispatchMenuAction(action, ctx);
+      return;
+    }
+
+    if (t.closest('[data-board-guard-close]')) { closeGuard(); return; }
+    var guardEl = t.closest('[data-board-guard]');
+    if (guardEl && t === guardEl) { closeGuard(); return; }
+
+    // Relocated Funnel-settings dialog: Save / Cancel / backdrop-dismiss.
+    if (t.closest('[data-funnel-settings-close]')) { ev.stopPropagation(); closeFunnelSettings(); return; }
+    if (t.closest('[data-funnel-settings-save]')) { ev.stopPropagation(); saveFunnelSettings(); return; }
+    var fsEl = t.closest('[data-funnel-settings]');
+    if (fsEl && t === fsEl) { closeFunnelSettings(); return; }
+
+    // §8.5 A/B tab: delete-variant (DELETE /variants/:id). Renders the server's
+    // running-test / last-active-variant 409 message verbatim inline.
+    var dv = t.closest('[data-delete-variant]');
+    if (dv) {
+      ev.stopPropagation();
+      var vpub = dv.getAttribute('data-delete-variant');
+      var vlabel = dv.getAttribute('data-variant-label') || 'this variant';
+      var vErr = document.querySelector('[data-delete-variant-err="' + vpub + '"]');
+      hide(vErr);
+      if (!window.confirm('Delete variant ' + vlabel + '?')) { return; }
+      req('DELETE', API + '/variants/' + encodeURIComponent(vpub)).then(function (res) {
+        if (!res.ok) {
+          if (vErr) { while (vErr.firstChild) { vErr.removeChild(vErr.firstChild); } vErr.appendChild(document.createTextNode(firstFieldError(res.body))); show(vErr); }
+          return;
+        }
+        reloadPage();
+      });
+      return;
+    }
+
+    var fk = t.closest('[data-funnel-kebab]');
+    if (fk) { ev.stopPropagation(); var fcol = fk.closest('[data-funnel-col]'); openMenu('funnel', fk, { funnelPub: fcol.getAttribute('data-funnel-public-id') }); return; }
+    var ck = t.closest('[data-chip-kebab]');
+    if (ck) { ev.stopPropagation(); var chip2 = ck.closest('[data-sec-chip]'); var which = ck.getAttribute('data-chip-menu'); openMenu(which, ck, { chip: chip2 }); return; }
+    var pk = t.closest('[data-page-kebab]');
+    if (pk) { ev.stopPropagation(); var pcard = pk.closest('[data-page-card]'); openMenu('page', pk, { pageCard: pcard }); return; }
+
+    var addSec = t.closest('[data-add-section]');
+    if (addSec) {
+      ev.stopPropagation();
+      var f2 = funnelOfEl(addSec); var pi2 = pageIndexOfEl(addSec);
+      if (f2 && f2.model) { openPopoverList(addSec, sectionItems(), function (pub) { addSectionToFunnelPage(f2.model, pi2, pub, addSec); }); }
+      return;
+    }
+    var addShared = t.closest('[data-add-shared-section]');
+    if (addShared) { ev.stopPropagation(); openPopoverList(addShared, sectionItems(), function (pub) { addSectionToShared(pub, addShared); }); return; }
+    var addPageEl = t.closest('[data-add-page]');
+    if (addPageEl) { ev.stopPropagation(); addPage(addPageEl); return; }
+    if (t.closest('[data-add-funnel]')) { ev.stopPropagation(); addFunnel(); return; }
+    var pv = t.closest('[data-preview]');
+    if (pv) { ev.stopPropagation(); var pf2 = funnelOfEl(pv); if (pf2 && pf2.model) { previewFunnel(pf2.model); } return; }
+    if (t.closest('[data-ab-badge]')) { ev.stopPropagation(); gotoTab('ab'); return; }
+    if (t.closest('[data-theme-picker]')) { ev.stopPropagation(); gotoTab('themes'); return; }
+    var tp = t.closest('[data-template-picker]');
+    if (tp) { ev.stopPropagation(); var tcol = tp.closest('[data-funnel-col]'); var tpub = tcol.getAttribute('data-funnel-public-id'); openPopoverList(tp, templateItems(), function (tid) { applyTemplate(tpub, tid); }); return; }
+    var nm = t.closest('[data-funnel-name]');
+    if (nm) { ev.stopPropagation(); var ncol = nm.closest('[data-funnel-col]'); beginRename(nm, ncol.getAttribute('data-funnel-public-id')); return; }
+    var fp = t.closest('[data-lib-filter]');
+    if (fp) {
+      ev.stopPropagation();
+      activeFilter = fp.getAttribute('data-lib-filter') || '';
+      var pills = document.querySelectorAll('[data-lib-filter]'); var i;
+      for (i = 0; i < pills.length; i++) { pills[i].className = pills[i].className.replace(/\\s*active/g, ''); }
+      fp.className = fp.className + ' active';
+      applyLibFilter();
+      return;
+    }
+    if (openMenuEl && !openMenuEl.contains(t)) { closeMenus(); }
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') { closeMenus(); closeGuard(); closeFunnelSettings(); return; }
+    if (ev.key !== 'Enter' && ev.key !== ' ') { return; }
+    var t = ev.target;
+    if (!t || !t.closest) { return; }
+    if (t.closest('[data-add-funnel]')) { ev.preventDefault(); addFunnel(); return; }
+    var lib = t.closest('[data-lib-card]');
+    if (lib) {
+      ev.preventDefault();
+      var fs = orderedFunnels(); var target = null; var i;
+      for (i = 0; i < fs.length; i++) { if (fs[i].is_default) { target = fs[i]; break; } }
+      if (!target) { target = fs[0]; }
+      if (target) { addSectionToFunnelPage(target, (target.pages.length - 1), lib.getAttribute('data-section-public-id'), lib); }
+      return;
+    }
+  });
+
+  function dispatchMenuAction(action, ctx) {
+    if (action === 'duplicate') { duplicateFunnel(ctx.funnelPub); return; }
+    if (action === 'set-default') { setDefaultFunnel(ctx.funnelPub); return; }
+    if (action === 'move-left') { moveFunnel(ctx.funnelPub, 'left'); return; }
+    if (action === 'move-right') { moveFunnel(ctx.funnelPub, 'right'); return; }
+    if (action === 'delete') { deleteFunnel(ctx.funnelPub); return; }
+    if (action === 'funnel-settings') { openFunnelSettings(ctx.funnelPub); return; }
+    if (action === 'remove') {
+      if (ctx.chip && ctx.chip.getAttribute('data-chip-scope') === 'shared') { removeSharedChip(ctx.chip); }
+      else if (ctx.chip) { removeFunnelChip(ctx.chip); }
+      return;
+    }
+    if (action === 'chip-up') { if (ctx.chip) { moveFunnelChip(ctx.chip, 'up'); } return; }
+    if (action === 'chip-down') { if (ctx.chip) { moveFunnelChip(ctx.chip, 'down'); } return; }
+    if (action === 'ab-slot') { gotoTab('ab'); return; }
+    if (action === 'slot-rule') { gotoTab('ab'); return; }
+    if (action === 'page-up') { if (ctx.pageCard) { movePage(ctx.pageCard, 'up'); } return; }
+    if (action === 'page-down') { if (ctx.pageCard) { movePage(ctx.pageCard, 'down'); } return; }
+    if (action === 'page-delete') { if (ctx.pageCard) { deletePage(ctx.pageCard); } return; }
+  }
+
+  window.addEventListener('resize', closeMenus);
+  window.addEventListener('scroll', closeMenus, true);
 }());
 `;
 

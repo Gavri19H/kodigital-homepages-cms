@@ -119,9 +119,14 @@ describe("R3 E1-NEW-2 — the per-type choice-field map is DERIVED from presets.
     });
   }
 
-  it("the register's shape holds: BAG/DDQ/SDQ = label/value/analytics_id only; MCG adds title/subtitle; card grids get all 12", () => {
+  it("the register's shape holds: DDQ/SDQ = label/value/analytics_id only; BAG (§8.4 Card render axis) + MCG add title/subtitle; card grids get all 12", () => {
     const g = (t: string): string[] => [...(island[t] || [])].sort();
-    expect(g("ButtonAnswerGroup")).toEqual(["analytics_id", "label", "value"]);
+    // §8.4 (Card render axis, product-fix round): THEME_BUTTON_LAYOUTS gained
+    // "card" — renderButtonAnswerGroup's buttonInnerContent(isCard, marker,
+    // c.label, c.title, c.subtitle) reads title/subtitle from every choice
+    // under that theme layout (presets.ts), so ButtonAnswerGroup now needs
+    // the SAME authoring fields MultiChoiceCardGroup already exposes below.
+    expect(g("ButtonAnswerGroup")).toEqual(["analytics_id", "label", "subtitle", "title", "value"]);
     expect(g("DropdownQuestion")).toEqual(["analytics_id", "label", "value"]);
     expect(g("SearchableDropdownQuestion")).toEqual(["analytics_id", "label", "value"]);
     // Rework §10 removal (test repair, P2): OtherGroupSelector's render leg is

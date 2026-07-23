@@ -1,8 +1,12 @@
-// LeadGen admin UI — Quotes editor, A/B tab module (LEADGEN-REWORK-03 §12
-// P3a mechanical split of ui-quotes.ts). The per-funnel A/B test view
-// (allocation rows + "what varies" diff between a variant and its control).
-// PURE MOVE from ui-quotes.ts — zero logic/behavior change (P3a phase gate:
-// test/leadgen-p3a-split-parity.test.ts asserts byte-identical SSR output).
+// LeadGen admin UI — Quotes editor, A/B tab module. LEADGEN-REWORK-03 §8.5:
+// the consolidated per-funnel test view (traffic allocation + template A/B +
+// lifecycle). Rework M1 (§4.3-10): NO control concept — with no running test a
+// funnel has exactly one active variant; the deterministic head (variant_label
+// ASC) is just the "base" arm, never a "control". All "(control)" / "Differs
+// from control" / "Same as control" copy is REMOVED (plain variant labels +
+// what each arm overrides). §8.5 also ADDS the delete-variant affordance
+// (DELETE /variants/:id + its running-test / last-active guards → the island
+// renders the server's 409 message); this closes the known gap.
 
 import { escapeHtml } from "../../templates/layout";
 import {
@@ -13,9 +17,10 @@ import {
 } from "./shared";
 
 
-// §4.5 — the operator labels of the groups a sparse frame_overrides_json
-// patch overrides (frame groups + `theme` palette; version/template are
-// funnel-level and never listed).
+// §4.5 — the operator labels of the groups a sparse frame_overrides_json patch
+// overrides (frame groups + `theme` palette; version/template are funnel-level
+// and never listed). No control comparison — this is purely "what THIS arm
+// changes from the funnel baseline".
 function overriddenGroupLabels(overrides: Record<string, unknown> | null): string[] {
   if (overrides === null || typeof overrides !== "object") return [];
   const labels: string[] = [];
@@ -29,81 +34,62 @@ function overriddenGroupLabels(overrides: Record<string, unknown> | null): strin
 }
 
 
-// P6b (deliverable 5) — per-variant "what varies" summary: the SAME per-arm
-// override groups overriddenGroupLabels already exposes (theme/frame keys),
-// PLUS whether this arm's template (funnel_design_id), ordered sections, or
-// rule set differ from the CONTROL arm — the "whole-quote template-level
-// testing" reframe's promised template/theme/sections/rules comparison.
-// Structural signature compares only (never content), so a re-ordered
-// section list or a renamed rule that changes nothing meaningful still
-// reads as "differs" — a coarse but honest (no false-negative) summary.
-function sectionSignature(v: VariantNode): string {
-  return v.sections.map((s) => s.section_public_id).join(",");
-}
-
-
-function ruleSignature(v: VariantNode): string {
-  return v.rules
-    .map((r) => `${r.rule_type}:${r.target_offer_id ?? ""}:${r.target_section_id ?? ""}:${r.redirect_url ?? ""}`)
-    .sort()
-    .join("|");
-}
-
-
-function variantWhatVaries(control: VariantNode, variant: VariantNode): string {
-  if (variant.public_id === control.public_id) return "Control";
+// One arm's "what this arm changes" line — plain, no control vocabulary. Lists
+// this arm's frame/theme override groups and whether it carries an A/B template
+// override (M5 frame_template_id). The base (first-by-label) arm just reads
+// "Base variant".
+function variantVariesLine(primary: VariantNode | null, variant: VariantNode): string {
   const parts: string[] = [];
-  if (variant.funnel_design_id !== control.funnel_design_id) parts.push("template");
-  const overrideGroups = overriddenGroupLabels(variant.frame_overrides_json);
-  if (overrideGroups.length > 0) parts.push(overrideGroups.join(" & "));
-  if (sectionSignature(variant) !== sectionSignature(control)) parts.push("sections");
-  if (ruleSignature(variant) !== ruleSignature(control)) parts.push("rules");
-  return parts.length > 0 ? `Differs from control: ${parts.join(", ")}` : "Same as control (no differences yet)";
+  const groups = overriddenGroupLabels(variant.frame_overrides_json);
+  if (groups.length > 0) parts.push(groups.join(" & "));
+  if (variant.frame_template_id !== null && variant.frame_template_id !== undefined) {
+    if (primary === null || variant.frame_template_id !== primary.frame_template_id) parts.push("template");
+  }
+  if (primary !== null && variant.public_id === primary.public_id && parts.length === 0) return "Base variant";
+  return parts.length > 0 ? `Varies: ${parts.join(", ")}` : "No layout or template changes yet";
 }
 
 
-// A/B panel (§16.2) — per-variant percent allocation (stored as basis points),
-// a live Σ indicator, the test lifecycle (create / start / stop), and an
-// assignment preview. Scoped to the SELECTED variant's funnel (its arms).
-//
-// P6b reframe (operator restructure spec): this tab is now presented as
-// WHOLE-QUOTE template-level testing, not just a "fork this variant" arm
-// manager — "Add variant" (below) forks + immediately prompts the traffic
-// split (the SAME §16.2 fork+allocation mechanism "Fork this variant" and
-// the Themes tab's "A/B this theme" both use), and every row's what-varies
-// line (variantWhatVaries) names what actually differs from control.
+// A/B panel (§8.5) — per-variant percent allocation (stored as basis points), a
+// live Σ indicator, the test lifecycle (create / start / stop), per-arm
+// delete, and an assignment preview. Scoped to the SELECTED variant's funnel
+// (its arms). No control label anywhere; the funnel's single active variant
+// with no running test is just its one arm.
 export function renderAbPanel(structure: StructureBody, selected: VariantNode): string {
   const funnel =
     structure.funnels.find((f) => f.funnel_id === selected.funnel_id) ?? structure.funnels[0] ?? null;
   const variants = funnel?.variants ?? [];
-  // Rework M1 replacement semantics — see primaryVariantOf's doc comment.
-  const control = primaryVariantOf(variants);
+  const primary = primaryVariantOf(variants);
   const tests = funnel?.ab_tests ?? [];
   const running = tests.find((t) => t.status === "running") ?? null;
   const activeTest = running ?? tests[0] ?? null; // ab_tests are newest-first
+  const canDeleteArm = variants.length > 1 && running === null;
 
-  // Per-variant percent input. UI shows % (bp/100); the client stores bp (%*100).
   const allocRows = variants
     .map((v) => {
       const pct = v.traffic_allocation_bp / 100;
-      // §4.5 — the overridden frame/theme groups of this arm (sparse
-      // frame_overrides_json keys → operator labels).
       const groups = overriddenGroupLabels(v.frame_overrides_json);
       const overridesLine =
         groups.length > 0
           ? `<p class="form-help" data-arm-overrides="${escapeHtml(v.public_id)}">Funnel-layout overrides: ${escapeHtml(groups.join(", "))}</p>`
           : `<p class="form-help" data-arm-overrides="${escapeHtml(v.public_id)}">Same layout as funnel (no overrides)</p>`;
-      const varianceLine =
-        control !== null
-          ? `<p class="form-help" data-arm-variance="${escapeHtml(v.public_id)}">${escapeHtml(variantWhatVaries(control, v))}</p>`
-          : "";
+      const variesLine = `<p class="form-help" data-arm-varies="${escapeHtml(v.public_id)}">${escapeHtml(variantVariesLine(primary, v))}</p>`;
+      // §8.5 delete-variant: hard-guarded server-side (running test → 409; the
+      // funnel's last active variant → 409). Offered only when a delete could
+      // possibly succeed; the island still renders the server's message if the
+      // race loses. Absent (not disabled) when it can't apply — no dead control.
+      const deleteBtn = canDeleteArm
+        ? `<button type="button" class="btn btn-sm btn-danger" data-delete-variant="${escapeHtml(v.public_id)}" data-variant-label="${escapeHtml(v.variant_label)}">Delete variant</button>`
+        : "";
       return `<div class="lg-alloc-row" data-variant="${escapeHtml(v.public_id)}">
     <span class="lg-alloc-label"><strong>${escapeHtml(v.variant_label)}</strong></span>
     <label class="lg-alloc-pct"><input type="number" class="form-input lg-alloc-input" data-alloc-input
       data-variant-id="${escapeHtml(v.public_id)}" data-variant-label="${escapeHtml(v.variant_label)}"
       min="0" max="100" step="0.01" value="${escapeHtml(String(pct))}" /> %</label>
     ${overridesLine}
-    ${varianceLine}
+    ${variesLine}
+    ${deleteBtn}
+    <p class="form-help lg-hidden" data-delete-variant-err="${escapeHtml(v.public_id)}" role="alert"></p>
   </div>`;
     })
     .join("");
@@ -135,13 +121,12 @@ export function renderAbPanel(structure: StructureBody, selected: VariantNode): 
   return `<div class="lg-qpanel" data-panel="ab">
   <div class="card">
     <h3>Traffic allocation (§16.2)</h3>
-    <p class="form-help">Test this whole quote against a variant of itself — a different template, theme, sections, or rules. Add a variant, decide what changes on it, then split the traffic below (must sum to <strong>100%</strong>; stored as basis points, per-test Σ == 10000) before a test can start.</p>
+    <p class="form-help">Test this funnel against variants of itself — a different template, theme, sections, or rules. Add a variant, change what you want on it, then split the traffic below (must sum to <strong>100%</strong>; stored as basis points, per-test Σ == 10000) before a test can start. Equal arms; no control.</p>
     <div id="lg-ab-variant-list" class="lg-alloc-list">${allocRows || `<p class="form-help">No variants.</p>`}</div>
     <p class="lg-alloc-summary">Σ = <strong data-alloc-sum>&mdash;</strong> <span data-alloc-sum-note class="form-help"></span></p>
     <div class="toolbar">
       <button type="button" id="lg-save-allocations" class="btn btn-primary">Save allocations</button>
       <button type="button" id="lg-add-variant" class="btn btn-secondary">Add variant&#8230;</button>
-      <button type="button" class="btn btn-outline" data-fork-variant="${escapeHtml(selected.public_id)}">Fork this variant</button>
       ${lifecycle}
     </div>
   </div>

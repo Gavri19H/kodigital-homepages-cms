@@ -36,17 +36,21 @@ import {
   createQuoteHandler,
   createQuoteRoutingRuleHandler,
   createSharedPageHandler,
+  createVariantRuleHandler,
   deleteFunnelHandler,
   deleteQuoteRoutingRuleHandler,
   deleteSharedPageHandler,
   deleteVariantHandler,
+  deleteVariantRuleHandler,
   duplicateFunnelHandler,
   duplicateQuoteHandler,
   duplicateQuoteRoutingRuleHandler,
+  duplicateRuleHandler,
   forkVariantHandler,
   getQuoteHandler,
   getSharedPageHandler,
   listQuoteRoutingRulesHandler,
+  listVariantRulesHandler,
   previewVariantHandler,
   putActivationHandler,
   putVariantHandler,
@@ -57,6 +61,7 @@ import {
   stopExperimentHandler,
   updateQuoteRoutingRuleHandler,
   updateSharedPageHandler,
+  updateVariantRuleHandler,
 } from "../src/admin/leadgen/quotes-handlers";
 import {
   applyFrameTemplateToFunnelHandler,
@@ -190,6 +195,11 @@ function buildApp(): Hono<{ Bindings: Env }> {
   app.put("/variants/:id", putVariantHandler);
   app.post("/variants/:id/fork", forkVariantHandler);
   app.post("/variants/:id/preview", previewVariantHandler);
+  app.get("/variants/:id/rules", listVariantRulesHandler);
+  app.post("/variants/:id/rules", createVariantRuleHandler);
+  app.patch("/variants/:id/rules/:rule_id", updateVariantRuleHandler);
+  app.delete("/variants/:id/rules/:rule_id", deleteVariantRuleHandler);
+  app.post("/variants/:variant_id/rules/:rule_id/duplicate", duplicateRuleHandler);
   app.delete("/variants/:id", deleteVariantHandler);
   app.post("/experiments/:id/start", startExperimentHandler);
   app.post("/experiments/:id/stop", stopExperimentHandler);
@@ -953,5 +963,200 @@ d("leadgen rework handlers (S1.4)", () => {
 
     const after = h.sdb.prepare("SELECT content_version FROM leadgen_funnel_variants WHERE public_id = ?").get(q.variantPublic) as { content_version: number };
     expect(after.content_version, "the serving cache key's content_version axis must change on a variant-level re-point").toBeGreaterThan(before.content_version);
+  });
+
+  // ---------------------------------------------------------------------------
+  // D5 mini-round — variant-scoped rule CRUD (leadgen_funnel_rules, the four
+  // auction-domain types). Real REST endpoints for the relocated Auction-tab
+  // editor, added ALONGSIDE the variant-PUT `rules` hidden-carrier chain (still
+  // works, unchanged). Both paths share prepareOneRule (quotes-handlers.ts) so
+  // they can never diverge on validation.
+  // ---------------------------------------------------------------------------
+  const ELIGIBLE_CONDITIONS = { groups: [{ field: "state", op: "eq", value: "CA" }] };
+
+  it("full CRUD lifecycle through the REAL router: list -> create -> patch -> delete", async () => {
+    const h = harness();
+    const q = await newQuoteReal(h);
+
+    // GET — empty to start.
+    const empty = await reqReal(h, "GET", `/variants/${q.variantPublic}/rules`);
+    expect(empty.status).toBe(200);
+    expect(empty.json.items).toHaveLength(0);
+
+    // POST — create (eligibility, a real §21.4 conditions shape).
+    const created = await reqReal(h, "POST", `/variants/${q.variantPublic}/rules`, {
+      rule_type: "eligibility",
+      rule_name: "CA only",
+      priority: 10,
+      conditions_json: ELIGIBLE_CONDITIONS,
+    });
+    expect(created.status, `create: ${JSON.stringify(created.json)}`).toBe(201);
+    expect(created.json.rule_type).toBe("eligibility");
+    expect(created.json.rule_name).toBe("CA only");
+    expect(created.json.conditions_json).toEqual(ELIGIBLE_CONDITIONS);
+    expect(created.json).not.toHaveProperty("is_control");
+
+    // GET — one row now.
+    const afterCreate = await reqReal(h, "GET", `/variants/${q.variantPublic}/rules`);
+    expect(afterCreate.json.items).toHaveLength(1);
+
+    // PATCH — partial update (status only); OTHER fields survive unchanged.
+    const patched = await reqReal(h, "PATCH", `/variants/${q.variantPublic}/rules/${created.json.public_id}`, { status: "disabled" });
+    expect(patched.status, `patch: ${JSON.stringify(patched.json)}`).toBe(200);
+    expect(patched.json.status).toBe("disabled");
+    expect(patched.json.enabled).toBe(false); // status:disabled derives enabled=false (the P4b fix-round rule)
+    expect(patched.json.rule_name).toBe("CA only"); // unchanged field survives the partial PATCH
+    expect(patched.json.priority).toBe(10); // unchanged field survives the partial PATCH
+    expect(patched.json.conditions_json).toEqual(ELIGIBLE_CONDITIONS); // unchanged field survives
+
+    // DELETE.
+    const deleted = await reqReal(h, "DELETE", `/variants/${q.variantPublic}/rules/${created.json.public_id}`);
+    expect(deleted.status).toBe(200);
+    expect(deleted.json.deleted).toBe(true);
+    const afterDelete = await reqReal(h, "GET", `/variants/${q.variantPublic}/rules`);
+    expect(afterDelete.json.items).toHaveLength(0);
+  });
+
+  it("validation parity lockstep: the SAME payload accepted/rejected identically by the variant-PUT chain and the new CRUD endpoint", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+
+    // --- ACCEPT case: eligibility with a valid §21.4 shape -------------------
+    const viaPut = await req(h, "PUT", `/variants/${q.variantPublic}`, {
+      rules: [{ rule_type: "eligibility", priority: 5, conditions_json: ELIGIBLE_CONDITIONS }],
+    });
+    expect(viaPut.status, `put accept: ${JSON.stringify(viaPut.json)}`).toBe(200);
+    const viaPutRule = viaPut.json.rules[0];
+    expect(viaPutRule.rule_type).toBe("eligibility");
+
+    const viaCrud = await req(h, "POST", `/variants/${q.variantPublic}/rules`, {
+      rule_type: "eligibility",
+      priority: 5,
+      conditions_json: ELIGIBLE_CONDITIONS,
+    });
+    expect(viaCrud.status, `crud accept: ${JSON.stringify(viaCrud.json)}`).toBe(201);
+    // conditions_hash is derived identically by BOTH paths — same shared
+    // sha256Hex(JSON.stringify(conditions)) — for the IDENTICAL conditions
+    // shape (proves shared validation, not independently-computed hashes).
+    expect(viaCrud.json.conditions_hash).toBe(viaPutRule.conditions_hash);
+
+    // --- REJECT case: redirect_direct_offer with NEITHER target_offer_id NOR
+    // an allowlisted redirect_url — validateFunnelRule's redirect_offer_
+    // missing_target — identical message via BOTH paths. ---------------------
+    const badViaPut = await req(h, "PUT", `/variants/${q.variantPublic}`, {
+      rules: [{ rule_type: "redirect_direct_offer", conditions_json: { groups: [] } }],
+    });
+    expect(badViaPut.status).toBe(400);
+    const putErrorMsg = Object.values(badViaPut.json.fields)[0] as string;
+    expect(putErrorMsg).toContain("redirect_offer_missing_target");
+
+    const badViaCrud = await req(h, "POST", `/variants/${q.variantPublic}/rules`, {
+      rule_type: "redirect_direct_offer",
+      conditions_json: { groups: [] },
+    });
+    expect(badViaCrud.status).toBe(400);
+    const crudErrorMsg = Object.values(badViaCrud.json.fields)[0] as string;
+    expect(crudErrorMsg).toContain("redirect_offer_missing_target");
+    // the SAME underlying Stage-A verdict message, modulo the array-index key
+    // prefix (rules.0 vs rule) — proves ONE shared validator, not two.
+    expect(crudErrorMsg).toBe(putErrorMsg);
+  });
+
+  it("the 3 removed rule types (route_funnel_variant/skip_section/show_section) are rejected the same way as an unknown type", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    for (const removedType of ["route_funnel_variant", "skip_section", "show_section"]) {
+      const res = await req(h, "POST", `/variants/${q.variantPublic}/rules`, {
+        rule_type: removedType,
+        conditions_json: ELIGIBLE_CONDITIONS,
+      });
+      expect(res.status, `${removedType}: ${JSON.stringify(res.json)}`).toBe(400);
+      expect(res.json.fields.rule_type).toContain("rule_type must be one of");
+      // the DB CHECK's own 4-type set is exactly what the message enumerates —
+      // never a raw CHECK-constraint 500 (the JS validator rejects first).
+      expect(res.json.fields.rule_type).not.toContain(removedType);
+    }
+  });
+
+  it("cross-variant scoping: a rule_id from a DIFFERENT variant's URL 404s (never leaks/mutates across variants)", async () => {
+    const h = harness();
+    const q1 = await newQuote(h);
+    const funnel2 = await req(h, "POST", `/quotes/${q1.quotePublic}/funnels`, { funnel_name: "Funnel B" });
+    const variant2Public = funnel2.json.variants[0].public_id;
+
+    const created = await req(h, "POST", `/variants/${q1.variantPublic}/rules`, {
+      rule_type: "eligibility",
+      conditions_json: ELIGIBLE_CONDITIONS,
+    });
+    expect(created.status).toBe(201);
+
+    // the SAME rule_id, addressed through the OTHER variant's URL.
+    const patchForeign = await req(h, "PATCH", `/variants/${variant2Public}/rules/${created.json.public_id}`, { priority: 1 });
+    expect(patchForeign.status).toBe(404);
+    const deleteForeign = await req(h, "DELETE", `/variants/${variant2Public}/rules/${created.json.public_id}`);
+    expect(deleteForeign.status).toBe(404);
+    // the rule is UNTOUCHED — still resolvable (and unchanged) via its OWN variant.
+    const stillThere = await req(h, "GET", `/variants/${q1.variantPublic}/rules`);
+    expect(stillThere.json.items).toHaveLength(1);
+    expect(stillThere.json.items[0].priority).toBe(100); // default, NOT the foreign PATCH's 1
+  });
+
+  it("cache coherence: create/update/delete on a variant rule each bump content_version (matches the variant-PUT rules chain's own behavior)", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const v0 = h.sdb.prepare("SELECT content_version FROM leadgen_funnel_variants WHERE public_id = ?").get(q.variantPublic) as { content_version: number };
+
+    const created = await req(h, "POST", `/variants/${q.variantPublic}/rules`, { rule_type: "eligibility", conditions_json: ELIGIBLE_CONDITIONS });
+    expect(created.status).toBe(201);
+    const v1 = h.sdb.prepare("SELECT content_version FROM leadgen_funnel_variants WHERE public_id = ?").get(q.variantPublic) as { content_version: number };
+    expect(v1.content_version, "create must bump content_version").toBeGreaterThan(v0.content_version);
+
+    const patched = await req(h, "PATCH", `/variants/${q.variantPublic}/rules/${created.json.public_id}`, { priority: 20 });
+    expect(patched.status).toBe(200);
+    const v2 = h.sdb.prepare("SELECT content_version FROM leadgen_funnel_variants WHERE public_id = ?").get(q.variantPublic) as { content_version: number };
+    expect(v2.content_version, "update must bump content_version").toBeGreaterThan(v1.content_version);
+
+    const deleted = await req(h, "DELETE", `/variants/${q.variantPublic}/rules/${created.json.public_id}`);
+    expect(deleted.status).toBe(200);
+    const v3 = h.sdb.prepare("SELECT content_version FROM leadgen_funnel_variants WHERE public_id = ?").get(q.variantPublic) as { content_version: number };
+    expect(v3.content_version, "delete must bump content_version").toBeGreaterThan(v2.content_version);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Micro-round (found-issue-fixed-now): duplicateRuleHandler was the lone
+  // rule-mutating verb that did NOT bump content_version (flagged as an OPEN
+  // CONCERN in the D5 mini-round report, now fixed — the INSERT and the bump
+  // ride the SAME atomic batch via bumpVariantContentVersionStatement, the
+  // identical helper create/update/delete already use).
+  //
+  // FAIL-BEFORE (verbatim, from the code read moments before this fix, not
+  // narrated): duplicateRuleHandler's ENTIRE body ran exactly ONE write —
+  //   `await insertRuleStatement(c.env.DB, "?", variant.id, {...}).run();`
+  // — a single, standalone `.run()` with NO sibling statement of any kind (no
+  // `.batch()`, nothing else touching leadgen_funnel_variants at all). Unlike
+  // the variant-PUT replace-set (which has an always-present core UPDATE that
+  // coincidentally bumps content_version on ANY save), duplicateRuleHandler
+  // had NO statement anywhere in its body capable of changing content_version
+  // — so a duplicate could NEVER have bumped it, coincidentally or otherwise;
+  // this was a real, unconditional gap (not just a fragile-but-working
+  // coincidence like the frame_template_id/rules-via-PUT cases).
+  // ---------------------------------------------------------------------------
+  it("cache coherence: duplicating a rule ALSO bumps content_version (was the lone unbumped verb — micro-round fix)", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const created = await req(h, "POST", `/variants/${q.variantPublic}/rules`, { rule_type: "eligibility", conditions_json: ELIGIBLE_CONDITIONS });
+    expect(created.status).toBe(201);
+    const before = h.sdb.prepare("SELECT content_version FROM leadgen_funnel_variants WHERE public_id = ?").get(q.variantPublic) as { content_version: number };
+
+    const dup = await req(h, "POST", `/variants/${q.variantPublic}/rules/${created.json.public_id}/duplicate`, {});
+    expect(dup.status, `duplicate: ${JSON.stringify(dup.json)}`).toBe(201);
+    expect(dup.json.rule_name).toBeNull(); // src.rule_name was never set (POST /rules above didn't set one) — the "(copy)" suffix only applies when a rule_name exists
+
+    const after = h.sdb.prepare("SELECT content_version FROM leadgen_funnel_variants WHERE public_id = ?").get(q.variantPublic) as { content_version: number };
+    expect(after.content_version, "duplicate must bump content_version (was previously the ONLY rule verb that didn't)").toBeGreaterThan(before.content_version);
+
+    // both rows now exist, scoped to the same variant.
+    const list = await req(h, "GET", `/variants/${q.variantPublic}/rules`);
+    expect(list.json.items).toHaveLength(2);
   });
 });
