@@ -261,8 +261,8 @@ function requestEntryCtx(c: PublicContext, landingUrl: string, now: number): Ent
 // expandPublicComponents over each candidate section's content_json); a
 // dedicated collectKnownFields exists too (content-schema.ts, ~2424) but it
 // is a PRIVATE nested helper inside validateSectionContent's save-time gate,
-// not exported, so it is not reusable here. expandPublicComponents already
-// covers the MultiQuestionGrid per-row expansion this needs; it does not
+// not exported, so it is not reusable here. expandPublicComponents is a 1:1
+// projection (§10/M6 retired the grid's per-row expansion); it does not
 // walk layout-container children the way content-schema.ts's SAVE-time
 // walker does (checkpoint rules are authored on top-level answer fields, and
 // resolver.ts's OWN existing checkpoint-page derivation makes the same

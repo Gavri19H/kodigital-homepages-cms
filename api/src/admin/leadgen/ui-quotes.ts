@@ -37,17 +37,13 @@ import { type Paging } from "./router";
 import { loadVariantPages, type ResolvedFunnelPage } from "../../public/leadgen/resolver";
 import {
   RULES_BUILDER_SCRIPT,
-  ROUTING_RULES_SCRIPT,
-  ROUTING_RULE_TYPES,
   // P3b follow-up (§8.2 RIGHT rail, S3b.2's MOUNT CONTRACT): the composer
   // assembles QuoteRulesRailData (the "tab payload" this file already builds
-  // routingData/quoteDataBlob from) and adds QUOTE_RULES_SCRIPT to the page's
+  // answerFields/quoteDataBlob from) and adds QUOTE_RULES_SCRIPT to the page's
   // scripts bundle; renderQuoteRulesRail itself is called by the board
   // (quotes-tabs/funnel.ts renderBuilderPanel), not here.
   QUOTE_RULES_SCRIPT,
-  type RoutingBuilderData,
-  type RoutingRuleRowData,
-  type RoutingRuleType,
+  type QuoteRulesRailAnswerField,
   type QuoteRulesRailData,
   type QuoteRulesRailFunnel,
 } from "./ui-rules-builder";
@@ -69,13 +65,11 @@ import {
   type ThemeGetBody,
   type FrameTemplateItem,
   type OfferListItem,
-  type RoutingBuilderVariantRefLocal,
   previewSiteOptions,
   LG_QUOTES_STYLES,
   primaryVariantOf,
   findSelectedVariant,
   renderSiteSelect,
-  renderTemplatePicker,
   quoteDataBlob,
   renderMediaPickerModal,
 } from "./quotes-tabs/shared";
@@ -679,10 +673,16 @@ function quoteEditorHtml(
   frame: FrameGetBody | null,
   theme: ThemeGetBody | null,
   templates: FrameTemplateItem[],
-  routingData: RoutingBuilderData,
+  // §10/S5.1: this used to be `routingData: RoutingBuilderData` (rules/offers/
+  // sections/variants/field_pages/page_count) — every field EXCEPT `.fields`
+  // fed ONLY the now-deleted renderRoutingRulesPanel (verified 0 other
+  // consumers: renderBuilderPanel voided the whole object). `.fields` is the
+  // one genuinely-consumed piece (renderTemplatesTabPanel's CTA condition
+  // picker), so it is threaded directly under its real shape's name.
+  answerFields: readonly QuoteRulesRailAnswerField[],
   // P3b follow-up (§8.2 RIGHT rail) — S3b.2's renderQuoteRulesRail input,
   // assembled by leadgenQuoteEditorPage (the SAME "tab payload" function that
-  // already builds routingData/quoteDataBlob) and threaded to the board.
+  // already builds answerFields/quoteDataBlob) and threaded to the board.
   railData: QuoteRulesRailData,
   brand: { userEmail?: string },
   // FIX 8c: whether POST /api/admin/ai/image is usable — false hides the
@@ -737,11 +737,12 @@ function quoteEditorHtml(
   // seven box pickers) and "Themes" (the moved theme editor) are promoted to
   // TOP tabs beside Funnel builder/A/B/Activation/Analytics — inserted right
   // after Funnel builder. The canvas toolbar's "Theme" quick-access button
-  // JUMPS to the Themes tab (deliverable 1's explicit instruction); "Template"
-  // keeps its EXISTING inline toggle — the 6-arrangement picker stays
-  // canvas-embedded (a REPORTED, deliberate deviation: see
-  // renderTemplatePicker's doc comment for the VERIFIED test-ui/leadgen-
-  // quote-builder.spec.ts regression this avoids).
+  // JUMPS to the Themes tab (deliverable 1's explicit instruction). §10/S5.1:
+  // the OLD canvas-embedded 6-arrangement template picker (renderTemplatePicker,
+  // ONCE kept here as a "reported, deliberate deviation" to avoid a canvas-
+  // visibility regression) is REMOVED — confirmed zero real callers anywhere;
+  // the board's own §8.2 M5 per-funnel-column template picker is the current,
+  // live mechanism (quotes-tabs/funnel.ts's `data-template-picker` pickchip).
   const subtabs = `<nav class="lg-qtabs" aria-label="Quote editor tabs">
   <button type="button" class="lg-qtab active" data-tab="builder">Funnel builder</button>
   <button type="button" class="lg-qtab" data-tab="templates">Templates</button>
@@ -757,8 +758,8 @@ function quoteEditorHtml(
   <p id="lg-quote-error" class="alert alert-error" hidden role="alert"></p>
   <p id="lg-quote-ok" class="alert alert-success" hidden role="status"></p>
   ${subtabs}
-  ${renderBuilderPanel(structure, selected, designs, auctions, available, templates, sites, routingData, railData)}
-  ${renderTemplatesTabPanel(selectedIsControl, routingData.fields)}
+  ${renderBuilderPanel(structure, selected, designs, auctions, available, templates, sites, railData)}
+  ${renderTemplatesTabPanel(selectedIsControl, answerFields)}
   ${renderThemesTabPanel(selectedIsControl)}
   ${renderAbPanel(structure, selected)}
   ${renderActivationPanel(activation)}
@@ -775,13 +776,13 @@ function quoteEditorHtml(
     // P3b follow-up: QUOTE_RULES_SCRIPT (§8.2 RIGHT rail island) added.
     // RULES_BUILDER_SCRIPT stays — renderQuoteRulesRail's own doc comment
     // documents it as a REQUIRED shared dependency (its Conditions section
-    // mounts window.lgRulesBuilder). ROUTING_RULES_SCRIPT/renderRoutingRulesPanel
-    // targeted the OLD per-variant rules panel this phase removed from render
-    // (renderInspectorColumn/renderRulesPanel, deleted with the board rewrite);
-    // its script text is now unreachable dead code bound to absent DOM —
-    // flagged for the P5 orphan-scan removal sweep, not touched here (out of
-    // this round's granted scope: composer + the 3 test files + one config line).
-    scripts: QUOTE_EDITOR_SCRIPT + RULES_BUILDER_SCRIPT + ROUTING_RULES_SCRIPT + QUOTE_RULES_SCRIPT,
+    // mounts window.lgRulesBuilder). §10/S5.1: ROUTING_RULES_SCRIPT/
+    // renderRoutingRulesPanel (the OLD per-variant rules panel this phase
+    // removed from render — renderInspectorColumn/renderRulesPanel, deleted
+    // with the board rewrite) were CONFIRMED unreachable dead code bound to
+    // absent DOM (0 real call sites anywhere) and DELETED entirely, including
+    // this concatenation.
+    scripts: QUOTE_EDITOR_SCRIPT + RULES_BUILDER_SCRIPT + QUOTE_RULES_SCRIPT,
   });
 }
 
@@ -873,33 +874,17 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
       fields.push({ internal_field: internalField, label: `${section.section_name} · ${internalField}` });
     }
   }
-  // Round-4 P4b: the SAME funnel's OTHER variants are the route_funnel_variant
-  // target scope (P4a resolver.ts anti-leak: same-funnel only — see the
-  // dispatch's "SAME quote's variants" phrasing, corrected here against the
-  // VERIFIED runtime constraint, which is same-FUNNEL, not same-quote; a
-  // quote can have multiple funnels and a cross-funnel target would silently
-  // never match at runtime). Self (the CURRENTLY edited variant) is NOT
-  // excluded from the picker (the action panel's own label is "Route to a
-  // DIFFERENT funnel" — a self-route is a meaningless no-op, so it is never
-  // offered as a choice; renderRuleRow's target_funnel_variant_id -> public_id
-  // resolution is a best-effort display lookup only, over this SAME list).
-  const ownFunnel = structure.funnels.find((f) => f.funnel_id === selected.funnel_id) ?? null;
-  const routingVariants: RoutingBuilderVariantRefLocal[] = (ownFunnel?.variants ?? [])
-    .filter((v) => v.public_id !== selected.public_id)
-    .map((v) => ({ id: v.id, public_id: v.public_id, name: v.variant_label }));
-
-  const routingData: RoutingBuilderData = {
-    rules: selected.rules.map((r, i) => toRoutingRuleRowData(r, i)),
-    fields,
-    offers: (offersRes.ok ? offersRes.body.items : []).map((o) => ({ id: o.id, name: o.offer_name })),
-    sections: available.map((s) => ({ id: s.id, name: s.section_name })),
-    variants: routingVariants,
-    field_pages: buildFieldPageMap(selected.pages ?? [], available),
-    page_count: Math.max(1, (selected.pages ?? []).length),
-  };
+  // §10/S5.1: `fields` (QuoteRulesRailAnswerField[]) is threaded directly —
+  // it used to ride inside a `RoutingBuilderData` wrapper object whose OTHER
+  // six fields (rules/offers/sections/variants/field_pages/page_count) fed
+  // ONLY the now-deleted renderRoutingRulesPanel (verified: renderBuilderPanel
+  // voided the whole object; nothing else ever read them). The route_funnel_
+  // variant same-funnel-anti-leak comment that used to live here described the
+  // deleted panel's OWN variant-target picker — no longer applicable.
+  const answerFields: QuoteRulesRailAnswerField[] = fields;
 
   // P3b follow-up (§8.2 RIGHT rail) — QuoteRulesRailData, the SAME "tab
-  // payload assembly" point routingData/quoteDataBlob already build from
+  // payload assembly" point answerFields/quoteDataBlob already build from
   // (structure/available/offersRes all already loaded above; the ONLY new
   // fetch is the quote's routing rules).
   const quoteRoutingRules: QuoteRulesRailRuleWire[] = routingRulesRes.ok ? routingRulesRes.body.items : [];
@@ -954,88 +939,12 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
       frameRes.ok ? frameRes.body : null,
       themeRes.ok ? themeRes.body : null,
       templatesRes.ok ? templatesRes.body.items : [],
-      routingData,
+      answerFields,
       railData,
       branding(c),
       typeof c.env.OPENAI_API_KEY === "string" && c.env.OPENAI_API_KEY !== "",
     ),
   );
-}
-
-
-// Round-4 P4b: RuleNode (the API/client rule shape) -> the unified builder's
-// table/modal seed shape. rule_type is widened from `string` defensively
-// (any legacy/corrupt value outside the known types falls back to
-// "eligibility" for DISPLAY only — the real stored value rides byte-exact in
-// the hidden [data-rule-type] carrier collectRules() reads, so a save never
-// silently changes an unrecognized type). Rework M3: derived from
-// ui-rules-builder.ts's ROUTING_RULE_TYPES (the single source of truth for
-// leadgen_funnel_rules' 4-type CHECK) instead of a hand-duplicated list, so
-// the two files can never drift apart again the way the pre-rework 7-value
-// literal did.
-const KNOWN_ROUTING_RULE_TYPES: ReadonlySet<string> = new Set(ROUTING_RULE_TYPES);
-
-function toRoutingRuleRowData(r: RuleNode, index: number): RoutingRuleRowData {
-  return {
-    index,
-    public_id: r.public_id,
-    rule_type: (KNOWN_ROUTING_RULE_TYPES.has(r.rule_type) ? r.rule_type : "eligibility") as RoutingRuleType,
-    rule_name: r.rule_name ?? null,
-    status: r.status === "disabled" ? "disabled" : "active",
-    priority: r.priority,
-    match_mode: r.match_mode === "any" ? "any" : "all",
-    checkpoint_page: r.checkpoint_page ?? null,
-    conditions_json: r.conditions_json ?? { groups: [] },
-    target_offer_id: r.target_offer_id,
-    target_section_id: r.target_section_id,
-    target_funnel_variant_id: r.target_funnel_variant_id ?? null,
-    value_multiplier: r.value_multiplier ?? null,
-    redirect_url: r.redirect_url,
-    redirect_url_allowlisted: r.redirect_url_allowlisted,
-    redirect_pct: r.redirect_pct ?? null,
-  };
-}
-
-
-// Round-4 P4b: mirrors resolver.ts's private fieldToPageIndex / quotes-
-// handlers.ts's computeFieldToPageIndex (SAME "later page overwrites -> max"
-// rule) using data already loaded for this page render (the variant's
-// PageNode[] tree + the activity's Sections' content_json) — the checkpoint-
-// display mirror input ROUTING_RULES_SCRIPT reads. A field absent here falls
-// back to the LAST page at derive-time, matching the server exactly.
-function buildFieldPageMap(pages: readonly PageNode[], available: readonly AvailableSection[]): Record<string, number> {
-  const sectionFields = new Map<string, string[]>();
-  for (const s of available) {
-    const content = s.content_json;
-    const components =
-      content !== null && typeof content === "object" && Array.isArray((content as { components?: unknown }).components)
-        ? ((content as { components: unknown[] }).components)
-        : [];
-    const names: string[] = [];
-    for (const node of components) {
-      if (node === null || typeof node !== "object") continue;
-      const f = (node as { internal_field?: unknown }).internal_field;
-      if (typeof f === "string" && f !== "") names.push(f);
-    }
-    sectionFields.set(s.public_id, names);
-  }
-  const out: Record<string, number> = {};
-  pages.forEach((page, idx) => {
-    for (const slot of page.slots) {
-      const refs: SectionRef[] = [];
-      if (slot.fixed) refs.push(slot.fixed);
-      if (slot.ab) for (const a of slot.ab) refs.push(a);
-      if (slot.ruled) {
-        for (const c of slot.ruled.cases) refs.push(c);
-        refs.push(slot.ruled.default_section);
-      }
-      for (const ref of refs) {
-        const names = sectionFields.get(ref.section_id) ?? [];
-        for (const f of names) out[f] = idx; // later page overwrites -> max
-      }
-    }
-  });
-  return out;
 }
 
 
@@ -1047,8 +956,7 @@ function buildFieldPageMap(pages: readonly PageNode[], available: readonly Avail
 // quotes-handlers.ts): every LeadgenQuoteRoutingRuleRow column rides the
 // `...row` spread verbatim except conditions_json (parsed) and
 // redirect_url_allowlisted (boolean) — status stays the raw DB string (the
-// CHECK-constrained 'active'|'disabled', narrowed below the SAME defensive way
-// toRoutingRuleRowData already narrows RuleNode.status).
+// CHECK-constrained 'active'|'disabled'), narrowed below the SAME defensive way.
 interface QuoteRulesRailRuleWire {
   public_id: string;
   rule_name: string;

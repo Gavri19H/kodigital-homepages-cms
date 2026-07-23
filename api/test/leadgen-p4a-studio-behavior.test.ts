@@ -39,9 +39,9 @@ describe("P4a Behavior honesty — SSR meta projection lockstep", () => {
       expect(meta[type]?.auto_advance_click, `${type} auto_advance_click flag`).toBe(AUTO_ADVANCE_CLICK_TYPES.has(type));
     }
   });
-  it("the click set is EXACTLY the 5 single-select click controls", () => {
+  it("the click set is EXACTLY the 4 single-select click controls (§10 retired OtherGroupSelector)", () => {
     expect([...AUTO_ADVANCE_CLICK_TYPES].sort()).toEqual(
-      ["ButtonAnswerGroup", "IconCardAnswerGrid", "ImageCardAnswerGrid", "OtherGroupSelector", "TwoButtonYesNo"],
+      ["ButtonAnswerGroup", "IconCardAnswerGrid", "ImageCardAnswerGrid", "TwoButtonYesNo"],
     );
   });
 });

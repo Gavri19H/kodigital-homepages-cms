@@ -417,18 +417,14 @@ const NODE_SPECS: Record<ComponentType, LeadgenComponentNode> = {
   CategoryLabel: { type: "CategoryLabel", question_id: "q", props: { text: "BUSINESS LOAN" } },
   QuestionHeadline: { type: "QuestionHeadline", question_id: "q", props: { text: "How much?" } },
   Subheadline: { type: "Subheadline", question_id: "q", props: { text: "Why we ask" } },
-  RangeQuestion: { type: "RangeQuestion", question_id: "q", internal_field: "amt", props: { min: 0, max: 100, default: 50 } },
-  CurrencyRangeQuestion: { type: "CurrencyRangeQuestion", question_id: "q", internal_field: "loan", props: { min: 10000, max: 1000000, default: 330000, currency: "$" } },
-  NumberRangeQuestion: { type: "NumberRangeQuestion", question_id: "q", internal_field: "count", props: { min: 1, max: 9, default: 3 } },
+  NumberRangeQuestion: { type: "NumberRangeQuestion", question_id: "q", internal_field: "count", props: { min: 1, max: 9, default: 3, currency_affix: true } },
   ButtonAnswerGroup: { type: "ButtonAnswerGroup", question_id: "q", internal_field: "pick", choices: CHOICES },
   TwoButtonYesNo: { type: "TwoButtonYesNo", question_id: "q", internal_field: "insured", props: { auto_advance: true } },
   IconCardAnswerGrid: { type: "IconCardAnswerGrid", question_id: "q", internal_field: "biz", choices: ICON_CHOICES, props: { columns: 3 } },
   ImageCardAnswerGrid: { type: "ImageCardAnswerGrid", question_id: "q", internal_field: "carrier", choices: IMAGE_CHOICES, props: { columns: 4 } },
   MultiChoiceCardGroup: { type: "MultiChoiceCardGroup", question_id: "q", internal_field: "features", choices: CHOICES, props: { min: 1, max: 2 } },
-  MultiQuestionGrid: { type: "MultiQuestionGrid", question_id: "q", choices: CHOICES, props: { rows: [{ label: "Homeowner", internal_field: "mqg_home", default: "sole_prop" }, { label: "Married", internal_field: "mqg_married" }] } },
   DropdownQuestion: { type: "DropdownQuestion", question_id: "q", internal_field: "insurer", choices: CHOICES, props: { placeholder: "Pick one" } },
   SearchableDropdownQuestion: { type: "SearchableDropdownQuestion", question_id: "q", internal_field: "make", choices: CHOICES, props: { placeholder: "Pick one" } },
-  OtherGroupSelector: { type: "OtherGroupSelector", question_id: "q", internal_field: "carrier", choices: CHOICES, choiceDisplay: { mainValues: ["sole_prop"], otherGroupEnabled: true, otherGroupLabel: "Other", searchableOther: false } },
   FreeTextQuestion: { type: "FreeTextQuestion", question_id: "q", internal_field: "note", props: { placeholder: "Type…", maxLen: 100 } },
   NumberInputQuestion: { type: "NumberInputQuestion", question_id: "q", internal_field: "age", props: { min: 18, max: 99, step: 1, placeholder: "Your age" } },
   CurrencyInputQuestion: { type: "CurrencyInputQuestion", question_id: "q", internal_field: "income", props: { currency: "$", min: 0, max: 1000000, placeholder: "Annual income" } },
@@ -574,7 +570,7 @@ describeDb("§9.3 parity matrix — every catalog type × default design (deskto
   // Design-token application spot checks (grounded in the REAL design object,
   // not magic strings) — proves the style facet is non-vacuous AND identical.
   it("design tokens are applied identically (range fill, icon grid, badge)", async () => {
-    const range = { node: NODE_SPECS.CurrencyRangeQuestion, token: DESIGN.rangeQuestion.filledTrackColor };
+    const range = { node: NODE_SPECS.NumberRangeQuestion, token: DESIGN.rangeQuestion.filledTrackColor };
     const icon = { node: NODE_SPECS.IconCardAnswerGrid, token: DESIGN.iconCard.iconColor };
     const badge = { node: NODE_SPECS.ReassuranceBadge, token: DESIGN.reassuranceBadge.background };
     for (const { node, token } of [range, icon, badge]) {

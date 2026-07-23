@@ -34,9 +34,6 @@ import {
   QR_ENTRY_FIELD_OPTIONS,
   QUOTE_RULES_SCRIPT,
   renderQuoteRulesRail,
-  // the four-type editor stays DEFINED here (§13-D5 relocation is an import-mount
-  // in ui-auctions, not a physical move — see the module note there)
-  renderRoutingRulesPanel,
   type QuoteRulesRailData,
   type QuoteRulesRailRule,
 } from "../src/admin/leadgen/ui-rules-builder";
@@ -381,26 +378,15 @@ describe("P3b quote-rules rail — the island is strict ES5 + mirrors deriveRule
 describe("P3b §13-D5 (pure SSR) — the relocated editor's static shell + quote-rules-rail exclusion", () => {
   const FOUR_TYPES = ["eligibility", "disqualification", "auction_entry", "redirect_direct_offer"];
 
-  // renderRelocatedFunnelRulesPanel's own picker + four-type-label rendering is
-  // asserted below in "P3b §13-D5 wiring round — real router + D1" (through the
-  // REAL /admin/leadgen/auction/:id/edit page with REAL data) instead of a
-  // synthetic direct call here — see the import-graph note above this
-  // describe's imports (ui-auctions.ts cannot be imported directly in this
-  // file alongside `admin`).
-
-  it("renderRoutingRulesPanel (byte-identical, still the quote/variant editor's OWN condition-envelope editor) still renders its four-type table shell", () => {
-    const html = renderRoutingRulesPanel({
-      rules: [],
-      fields: [],
-      offers: [],
-      sections: [],
-      variants: [],
-      field_pages: {},
-      page_count: 0,
-    });
-    expect(html).toContain('id="lg-routing-rules-root"');
-    expect(html).toContain("No rules yet.");
-  });
+  // §10/S5.1: the OLD per-variant renderRoutingRulesPanel (formerly tested here
+  // via a synthetic direct call, its four-type table shell rendering
+  // 'id="lg-routing-rules-root"') was DELETED — confirmed 0 real call sites in
+  // any served page (the quote/variant editor's own ROUTING_RULES_SCRIPT
+  // concatenation targeted DOM the board rewrite had already removed).
+  // renderRelocatedFunnelRulesPanel's own picker + four-type-label rendering
+  // (the LIVE replacement) is asserted below in "P3b §13-D5 wiring round — real
+  // router + D1" through the REAL /admin/leadgen/auction/:id/edit page with
+  // REAL data — a strictly stronger proof than the retired synthetic call.
 
   it("the quote-rules rail output contains none of the four auction-domain rule-type tokens (L-196)", () => {
     const html = renderQuoteRulesRail(railData([RULE_ENTRY, RULE_SHARED, RULE_INFUNNEL, RULE_UNREACHABLE]));

@@ -507,9 +507,9 @@ describeDb("leadgen section editor — M1 authoring wired", () => {
     });
     // A yes/no question seeds internal_field + boolean answer_type.
     expect(seeds["TwoButtonYesNo"]).toMatchObject({ internal_field: "", answer_type: "boolean" });
-    // A choice question seeds a choices array; a range question seeds internal_field.
+    // A choice question seeds a choices array; the slider seeds internal_field.
     expect(seeds["ButtonAnswerGroup"]).toHaveProperty("choices");
-    expect(seeds["RangeQuestion"]).toMatchObject({ internal_field: "", answer_type: "number" });
+    expect(seeds["NumberRangeQuestion"]).toMatchObject({ internal_field: "", answer_type: "number" });
     // chrome with no authorable answer fields seeds an empty (but present) object.
     expect(seeds["ProgressBar"]).toEqual({});
   });

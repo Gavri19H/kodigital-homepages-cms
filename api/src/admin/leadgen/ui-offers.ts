@@ -727,7 +727,6 @@ const LG_OFFERS_STYLES = `
 .lg-fallback-result{display:block;width:100%;text-align:left;padding:8px 12px;border:0;background:none;font-size:13px;cursor:pointer}
 .lg-fallback-result:hover{background:var(--c-bg-alt)}
 .lg-fallback-selected{margin-top:6px;font-size:13px}
-.lg-metric-null{color:var(--c-muted)}
 .lg-eligibility-banner{border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:13px;border:1px solid transparent}
 .lg-eligibility-banner.lg-eligible{background:var(--c-success-bg,#e8f7ee);color:var(--c-success,#186a3b);border-color:var(--c-success,#7dcb9a)}
 .lg-eligibility-banner.lg-blocked{background:var(--c-danger-bg,#fdecea);color:var(--c-danger,#8a1f11);border-color:var(--c-danger,#e5a49a)}
@@ -769,7 +768,6 @@ const LG_OFFERS_STYLES = `
 .lg-region-paste[hidden]{display:none}
 .lg-region-invalid{color:var(--c-danger,#8a1f11);font-size:12px}
 .lg-region-invalid[hidden]{display:none}
-.lg-region-help{color:var(--c-muted);font-size:12px}
 .lg-region-order{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--c-muted)}
 .lg-region-order input{width:90px}
 `;

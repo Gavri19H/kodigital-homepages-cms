@@ -42,18 +42,14 @@ const IMAGE_CHOICES = CHOICES.map((c, i) => ({ ...c, imageMediaId: `m${i + 1}` }
 // type not covered here — so the recording-hook enumeration can never silently
 // skip a new type.
 const ANSWER_NODE_SPECS: Partial<Record<ComponentType, LeadgenComponentNode>> = {
-  RangeQuestion: { type: "RangeQuestion", question_id: "q", internal_field: "amt", props: { min: 0, max: 100, default: 50 } },
-  CurrencyRangeQuestion: { type: "CurrencyRangeQuestion", question_id: "q", internal_field: "loan", props: { min: 10000, max: 1000000, default: 330000, currency: "$" } },
   NumberRangeQuestion: { type: "NumberRangeQuestion", question_id: "q", internal_field: "count", props: { min: 1, max: 9, default: 3 } },
   ButtonAnswerGroup: { type: "ButtonAnswerGroup", question_id: "q", internal_field: "pick", choices: CHOICES },
   TwoButtonYesNo: { type: "TwoButtonYesNo", question_id: "q", internal_field: "insured", props: {} },
   IconCardAnswerGrid: { type: "IconCardAnswerGrid", question_id: "q", internal_field: "biz", choices: ICON_CHOICES, props: { columns: 3 } },
   ImageCardAnswerGrid: { type: "ImageCardAnswerGrid", question_id: "q", internal_field: "carrier", choices: IMAGE_CHOICES, props: { columns: 4 } },
   MultiChoiceCardGroup: { type: "MultiChoiceCardGroup", question_id: "q", internal_field: "features", choices: CHOICES, props: { min: 1, max: 2 } },
-  MultiQuestionGrid: { type: "MultiQuestionGrid", question_id: "q", choices: CHOICES, props: { rows: [{ label: "Homeowner", internal_field: "mqg_home", default: "sole_prop" }, { label: "Married", internal_field: "mqg_married" }] } },
   DropdownQuestion: { type: "DropdownQuestion", question_id: "q", internal_field: "insurer", choices: CHOICES, props: { placeholder: "Pick one" } },
   SearchableDropdownQuestion: { type: "SearchableDropdownQuestion", question_id: "q", internal_field: "make", choices: CHOICES, props: { placeholder: "Pick one" } },
-  OtherGroupSelector: { type: "OtherGroupSelector", question_id: "q", internal_field: "carrier2", choices: CHOICES, choiceDisplay: { mainValues: ["sole_prop"], otherGroupEnabled: true, otherGroupLabel: "Other", searchableOther: false } },
   FreeTextQuestion: { type: "FreeTextQuestion", question_id: "q", internal_field: "note", props: { placeholder: "Type…" } },
   NumberInputQuestion: { type: "NumberInputQuestion", question_id: "q", internal_field: "age", props: { min: 18, max: 99 } },
   CurrencyInputQuestion: { type: "CurrencyInputQuestion", question_id: "q", internal_field: "income", props: { currency: "$" } },
@@ -71,7 +67,7 @@ const ANSWER_NODE_SPECS: Partial<Record<ComponentType, LeadgenComponentNode>> = 
 // the <select> change (data-lg-input) even though their <option>s also carry
 // data-lg-choice for selection-class restore.
 const INPUT_MECHANISM = new Set<ComponentType>([
-  "RangeQuestion", "CurrencyRangeQuestion", "NumberRangeQuestion",
+  "NumberRangeQuestion",
   "DropdownQuestion", "SearchableDropdownQuestion",
   "FreeTextQuestion", "NumberInputQuestion", "CurrencyInputQuestion",
   "EmailInputQuestion", "PhoneInputQuestion", "NameFieldsGroup",
@@ -80,25 +76,16 @@ const INPUT_MECHANISM = new Set<ComponentType>([
 const CHOICE_MECHANISM = new Set<ComponentType>([
   "ButtonAnswerGroup", "TwoButtonYesNo", "IconCardAnswerGrid",
   "ImageCardAnswerGrid", "MultiChoiceCardGroup",
-  // P5 (PC-10): each row is a click-to-answer pill pair — records via
-  // data-lg-choice (per-row [data-lg-question] wrapper), like the other choice
-  // families.
-  "MultiQuestionGrid",
 ]);
 
-// Rework §10 removal (test repair, P2): OtherGroupSelector's render leg is
-// RETIRED to a fail-safe extinct-type box (conductor ruling — the catalog
-// type stays, unreachable from the editor palette; §6.5's authored
-// props.other on Buttons/Cards supersedes it) that carries NEITHER
-// data-lg-input NOR data-lg-choice, by design. Excluded from the strict
-// recording-hook lockstep below (never silently — its own dedicated
-// retirement proof is the "R1 test repair" describe block further down), so
-// this exclusion can never mask a genuinely NEW answer type forgetting to
-// wire a recording hook.
-const RETIRED_NONRECORDING_TYPES = new Set<ComponentType>(["OtherGroupSelector"]);
-
+// Rework §10 removal: the grid / OtherGroupSelector / Range / CurrencyRange
+// types are removed from the catalog entirely (a stored node of one validates
+// with unknown_component_type + renders the fail-safe box — L-192 seam, proven
+// in leadgen-rework-schema.test.ts). They are simply absent from the catalog,
+// so the lockstep below (derived from COMPONENT_CATALOG) never expects a spec
+// for them — no exclusion set is needed.
 const ANSWER_TYPES = (Object.keys(COMPONENT_CATALOG) as ComponentType[]).filter(
-  (t) => COMPONENT_CATALOG[t].category === "question" && !RETIRED_NONRECORDING_TYPES.has(t),
+  (t) => COMPONENT_CATALOG[t].category === "question",
 );
 
 function comp(partial: Partial<LgComponentConfig>): LgComponentConfig {
@@ -122,22 +109,9 @@ describe("R1 Test A — every answer-producing type exposes a recording hook", (
     }
     // and the specs/sets carry no stale non-question entries
     expect(new Set([...INPUT_MECHANISM, ...CHOICE_MECHANISM])).toEqual(new Set(ANSWER_TYPES));
-    // ANSWER_NODE_SPECS additionally carries the RETIRED non-recording types
-    // (OtherGroupSelector) — its own dedicated retirement proof (below) reuses
-    // the same fixture map rather than duplicating a node definition.
-    expect(Object.keys(ANSWER_NODE_SPECS).sort()).toEqual(
-      [...ANSWER_TYPES, ...RETIRED_NONRECORDING_TYPES].sort(),
-    );
-  });
-
-  // Rework §10 removal (test repair, P2): the retired type's OWN proof — it
-  // renders the fail-safe extinct-type box, records via NEITHER mechanism,
-  // and (unlike a forgotten-hook regression) this is BY DESIGN.
-  it.each([...RETIRED_NONRECORDING_TYPES])("%s (retired) renders the fail-safe box, records via NEITHER mechanism", (t) => {
-    const html = renderComponent(ANSWER_NODE_SPECS[t]!, DESIGN);
-    expect(html).toContain('class="lg-mqg-empty"');
-    expect(html).not.toContain("data-lg-input");
-    expect(html).not.toContain("data-lg-choice");
+    // ANSWER_NODE_SPECS covers EXACTLY the catalog's question types (no stale
+    // §10-retired entries; a new type without a spec fails the loop above).
+    expect(Object.keys(ANSWER_NODE_SPECS).sort()).toEqual([...ANSWER_TYPES].sort());
   });
 
   it.each(ANSWER_TYPES)(
@@ -190,12 +164,17 @@ describe("R1 E1-NEW-1 — dropdowns record via a data-lg-input <select>", () => 
 
 describe("R1 S2-3 — slider records + carries the live-format hook", () => {
   it("range input carries data-lg-input", () => {
-    const html = renderComponent(ANSWER_NODE_SPECS.RangeQuestion!, DESIGN);
+    const html = renderComponent(ANSWER_NODE_SPECS.NumberRangeQuestion!, DESIGN);
     expect(/<input[^>]*type="range"[^>]*\bdata-lg-input\b/.test(html)).toBe(true);
   });
 
-  it("currency range wrapper carries data-currency; number range does not", () => {
-    const cur = renderComponent(ANSWER_NODE_SPECS.CurrencyRangeQuestion!, DESIGN);
+  // §10/M7: currency is a DISPLAY-ONLY props.currency_affix on the ONE slider
+  // type now (no separate CurrencyRangeQuestion — the Image9 type-flip is gone).
+  it("a currency_affix slider wrapper carries data-currency; a plain slider does not", () => {
+    const cur = renderComponent(
+      { type: "NumberRangeQuestion", question_id: "q", internal_field: "loan", props: { min: 0, max: 100, currency_affix: true, currency: "$" } },
+      DESIGN,
+    );
     expect(/<div class="lg-range"[^>]*data-currency="\$"/.test(cur)).toBe(true);
     const num = renderComponent(ANSWER_NODE_SPECS.NumberRangeQuestion!, DESIGN);
     expect(num).not.toContain("data-currency");

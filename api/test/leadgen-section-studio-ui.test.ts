@@ -1385,7 +1385,7 @@ describeDb("section studio EXECUTED island — §8.4 model mutations (vm-probe o
 
   it("add-from-library appends a validateSectionContent-CLEAN node (validity-ready defaults from the REQUIRED_FIELDS projection)", async () => {
     const probe = await probeHarness({ components: [] });
-    for (const type of ["TwoButtonYesNo", "IconCardAnswerGrid", "QuestionHeadline", "RangeQuestion", "HeaderLogo"]) {
+    for (const type of ["TwoButtonYesNo", "IconCardAnswerGrid", "QuestionHeadline", "NumberRangeQuestion", "HeaderLogo"]) {
       const node = probe.run(`addComponentAt(${JSON.stringify(type)}, null, null)`) as Record<string, unknown>;
       expect(node, `${type} added`).not.toBeNull();
       expect(node["type"]).toBe(type);
@@ -6039,7 +6039,7 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     // §5.5 range provider-format note ships + gates island-side
     expect(html).toContain("data-range-format-note");
     expect(html).toContain("Provider output format is set per Offer in the Offers tab");
-    expect(island).toContain("node.type !== 'RangeQuestion' && node.type !== 'NumberRangeQuestion' && node.type !== 'CurrencyRangeQuestion'");
+    expect(island).toContain("node.type !== 'NumberRangeQuestion'"); // §10: the ONE slider type gates the range note
   });
 
   it("v3.1 §5.6 EXECUTED: Cards style (Icon/Image/Plain) + the Accept-swap rule are pure round-trip TYPE swaps preserving internal_field/choices; §6.8 slider type/currency are PROPS (never a node.type flip)", async () => {
@@ -6989,7 +6989,7 @@ describeDb("review FIX 4a — answer-group selected-state override renders back"
     expect(renderComponent(unmatched as never, DESIGN)).toBe(plain);
     // range presets already consume props.default (§5.5) — the slider starts there
     const range = {
-      type: "RangeQuestion",
+      type: "NumberRangeQuestion",
       question_id: "q",
       internal_field: "amount",
       props: { min: 0, max: 100, step: 1, default: 40 },
@@ -7048,7 +7048,7 @@ describeDb("review FIX 4b — dead-write controls are gated per type (executed i
     // stay card-grid-gated — overrideRowHidden is UNCHANGED; P1a routes the
     // answer groups' columns/gridGap authoring through the "Card layout" control
     // (choiceLayout, above) instead, so these generic rows remain hidden for them.
-    for (const t of ["ButtonAnswerGroup", "TwoButtonYesNo", "DropdownQuestion", "SearchableDropdownQuestion", "MultiChoiceCardGroup", "OtherGroupSelector"]) {
+    for (const t of ["ButtonAnswerGroup", "TwoButtonYesNo", "DropdownQuestion", "SearchableDropdownQuestion", "MultiChoiceCardGroup"]) {
       expect(probe.run(`isCardGridType({ type: '${t}' })`), t).toBe(false);
       expect(probe.run(`overrideRowHidden('columns', { type: '${t}' })`), `${t} columns hidden`).toBe(true);
       expect(probe.run(`overrideRowHidden('gridGap', { type: '${t}' })`), `${t} gridGap hidden`).toBe(true);
@@ -7065,7 +7065,8 @@ describeDb("review FIX 4b — dead-write controls are gated per type (executed i
     // (was ungated/always-visible — another wrong-axis dead-write row the
     // rail removal fixed).
     expect(probe.run("overrideRowHidden('rangeColor', { type: 'ButtonAnswerGroup' })")).toBe(true);
-    for (const rangeType of ["RangeQuestion", "CurrencyRangeQuestion", "NumberRangeQuestion"]) {
+    // §10: the ONE surviving slider type keeps the rangeColor row visible.
+    for (const rangeType of ["NumberRangeQuestion"]) {
       expect(probe.run(`overrideRowHidden('rangeColor', { type: '${rangeType}' })`), rangeType).toBe(false);
     }
     // R3b S2-7/S4-A4: featureColor/buttonBackground/buttonText no longer have
@@ -7343,7 +7344,7 @@ describeDb("review FIX 8 — §5.5 defaults + the AI media-picker affordance", (
     const CONTENT = {
       components: [
         { type: "TwoButtonYesNo", question_id: "q1", question_key: "insured_q", internal_field: "currently_insured", answer_type: "boolean" },
-        { type: "RangeQuestion", question_id: "q2", internal_field: "amount", answer_type: "number", props: { min: 0, max: 100, step: 1 } },
+        { type: "NumberRangeQuestion", question_id: "q2", internal_field: "amount", answer_type: "number", props: { min: 0, max: 100, step: 1 } },
         {
           type: "DropdownQuestion",
           question_id: "q3",

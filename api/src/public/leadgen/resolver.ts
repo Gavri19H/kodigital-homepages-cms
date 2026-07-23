@@ -1056,83 +1056,33 @@ export function parseUtmFromLandingUrl(landingUrl: string): Pick<EntryKnownConte
 }
 
 // ---------------------------------------------------------------------------
-// Round-4 P4a (D-2, operator-locked) — funnel ROUTING rules (rule model v2)
+// §10/S5.1 removal note — Round-4 P4a (D-2) funnel ROUTING rules (rule model v2)
 // ---------------------------------------------------------------------------
 //
-// The reference's core behavior the §15.5 model lacked: condition-driven
-// routing to a funnel NAME/variant ("rules of which funnel name each user
-// sees", Image42). A `route_funnel_variant` rule = §21.4 condition groups over
-// a FIELD REGISTRY + { target_funnel_variant_id, value_multiplier, priority
-// (1 high..100), status }. Two evaluation PLANES, auto-partitioned by the
-// rule's condition fields (the CHECKPOINT is auto-derived, never authored):
-//   * ENTRY plane      — every condition field is ENTRY-KNOWN. Evaluated in
-//                        resolveActivatedFunnel BEFORE §16 A/B (precedence
-//                        ladder: entry routing ≻ A/B).
-//   * CHECKPOINT plane — >=1 condition field is an ANSWER field (e.g. `age`).
-//                        Evaluated server-side at /lg/checkpoint when the engine
-//                        crosses the rule's derived checkpoint page.
-//
-// FIELD REGISTRY (the D-2 "ANY answer field + state/geo + device + UTM +
-// age + hour/weekday"): the ENTRY-KNOWN attribute set is CLOSED (below);
-// EVERYTHING ELSE is an answer internal_field (open set — any section field,
-// incl. MQG rows / Address roles / a `age` question's field). Per the dispatch,
-// `age` is entry-known ONLY if a mapped entry attribute exists — this codebase
-// has none, so `age` is simply an answer field (a rule on it is CHECKPOINT-plane).
-//
-// UTM VOCABULARY (binding note): the operator's phrasing is "UTM source/medium/
-// campaign", but this codebase's established 3-dim taxonomy is utm_source/
-// utm_medium/utm_CONTENT (ab-hash.ts / runtime-context.ts / parseUtmFromLandingUrl).
-// BOTH `utm_campaign` and `utm_content` are registry fields; the evaluation
-// context binds them to the SAME parsed value (utm_content), so a rule authored
-// with either name resolves against the one dimension the resolver actually parses.
-export const ROUTING_ENTRY_KNOWN_FIELDS: ReadonlySet<string> = new Set([
-  "state",
-  "device",
-  "utm_source",
-  "utm_medium",
-  "utm_content",
-  "utm_campaign", // documented alias of utm_content
-  "hour",
-  "weekday",
-]);
-
-// A route_funnel_variant rule as READ for server evaluation. A LOCAL type (not
-// db-types.ts's LeadgenFunnelRuleRow, which P4b extends for the admin API) so
-// this slice's server reads are self-contained over the 0043 columns.
-export interface RoutingRuleRow {
-  public_id: string;
-  variant_id: number;
-  conditions_json: string;
-  conditions_hash: string;
-  target_funnel_variant_id: number | null;
-  value_multiplier: number | null;
-  priority: number;
-  status: string;
-  // Optional (not just nullable): loadRoutingRules' SELECT always returns it,
-  // but OTHER in-repo callers construct a RoutingRuleRow-shaped literal by
-  // hand (e.g. admin save-time validation, pre-INSERT) without a column value
-  // yet to hand — parseRoutingRule treats absent exactly like null ("all").
-  match_mode?: string | null;
-}
-
-export interface ParsedRoutingRule {
-  hash: string;
-  priority: number;
-  conditions: LeadgenRuleConditions;
-  target_funnel_variant_id: number | null;
-  value_multiplier: number | null;
-  // true iff EVERY condition field is entry-known (=> ENTRY plane); false iff
-  // any condition field is an answer field (=> CHECKPOINT plane).
-  entry_only: boolean;
-  // P4b persists 'any'|NULL on the row; NULL/absent/anything else normalizes
-  // to "all" here (§21.4's existing AND-across-fields default) so a rule
-  // saved before this column meant anything, or with a corrupt value,
-  // evaluates exactly as it always has. Optional so a caller building this
-  // shape by hand for a match_mode-irrelevant purpose (e.g. admin save-time
-  // checkpoint-page derivation, which only reads `conditions`) need not name
-  // it; parseRoutingRule (the only DB-row constructor) always sets it.
-  match_mode?: "any" | "all";
-}
+// This section used to hold the FIRST-generation per-VARIANT routing-rule model
+// (`route_funnel_variant` rows in leadgen_funnel_rules, condition groups over an
+// ENTRY-known field registry + CHECKPOINT auto-derivation, two evaluation planes,
+// Image42's "rules of which funnel name each user sees"). Migration M3 moved
+// every such row OUT of leadgen_funnel_rules into the quote-scoped
+// leadgen_quote_routing_rules table (§4.3-4/§4.3-9 below) and tightened
+// leadgen_funnel_rules' rule_type CHECK to forbid it going forward — the ENTIRE
+// evaluation chain this comment used to introduce (RoutingRuleRow/
+// ParsedRoutingRule/RoutingMatch, isEntryOnly/parseRoutingRule/loadRoutingRules,
+// byPriorityAsc/evaluateEntryRouting/evaluateCheckpointRouting,
+// deriveRuleCheckpointPage/deriveCheckpointPages, detectRoutingRuleConflicts,
+// isActiveRoutingTargetOnFunnel, and this ROUTING_ENTRY_KNOWN_FIELDS registry)
+// was verified to have ZERO live callers left anywhere (every caller either had
+// none at all, or — isActiveRoutingTargetOnFunnel / detectRoutingRuleConflicts —
+// queried/filtered on `rule_type = 'route_funnel_variant'`, a value the schema
+// can no longer produce, making the branch permanently unreachable) and was
+// deleted. The M3 replacement (ParsedQuoteRule / loadQuoteRoutingRules /
+// evaluateQuoteEntryRouting / evaluateQuoteCheckpointRouting /
+// deriveQuoteCheckpointPages, below) is the live mechanism; it reuses this
+// section's SHARED helpers that survive unchanged: `parseRoutingConditions`,
+// `entryFlatCtx`, `fieldToPageIndex`, `computeResumeSection`,
+// `checkpointPageAnchors`. rule-checkpoint.ts's OWN os-inclusive
+// `ENTRY_KNOWN_ROUTING_FIELDS` (not this file's registry) is what the live
+// quote-rule model uses for entry-plane classification.
 
 // D1 JSON-parse safety: a corrupt/absent blob degrades to "no conditions"
 // (never throws). Empty groups = a catch-all rule (matches all traffic).
@@ -1146,64 +1096,6 @@ function parseRoutingConditions(raw: string): LeadgenRuleConditions {
     /* fall through */
   }
   return { groups: [] };
-}
-
-// A rule is ENTRY-plane iff every condition field is entry-known. A rule with
-// NO conditions is a catch-all → ENTRY plane (matches all entry traffic; a
-// useful lowest-priority default route).
-function isEntryOnly(conditions: LeadgenRuleConditions): boolean {
-  for (const g of conditions.groups ?? []) {
-    if (!ROUTING_ENTRY_KNOWN_FIELDS.has(g.field)) return false;
-  }
-  return true;
-}
-
-export function parseRoutingRule(row: RoutingRuleRow): ParsedRoutingRule {
-  const conditions = parseRoutingConditions(row.conditions_json);
-  return {
-    hash: row.conditions_hash,
-    priority: row.priority,
-    conditions,
-    target_funnel_variant_id: row.target_funnel_variant_id,
-    value_multiplier: row.value_multiplier,
-    entry_only: isEntryOnly(conditions),
-    match_mode: row.match_mode === "any" ? "any" : "all",
-  };
-}
-
-// A variant's ACTIVE route_funnel_variant rules, priority ASC (1 = highest).
-// Dedicated try/catch (D1 safety discipline, matching computeAttemptBindingExtras):
-// this is called from `resolveActivatedFunnel`'s ENTRY-ROUTING branch, which
-// EVERY /lg shell-serve now reaches — a query failure (e.g. a DB not yet on
-// migration 0043's target_funnel_variant_id column, a transient rolling-
-// deploy window, or any other read hiccup) must degrade to "no routing rules"
-// rather than 500 the ENTIRE funnel shell for every visitor. Fail-safe, never
-// fail-closed here: an unreadable rule set is NOT a security concern (it can
-// only ever suppress a routing effect, never fabricate one).
-//
-// `enabled = 1 AND status != 'disabled'` — TWO independently-writable "is
-// this rule on" signals (enabled: 0036 legacy INTEGER; status: 0043 additive
-// TEXT), unified the same way as the auction-layer §19-step-4 SELECT
-// (auction/engine.ts). The admin save path can leave `enabled` at its
-// stale/default value while the rules-builder UI's Disable/Enable button
-// writes ONLY {status} — so a rule must be affirmatively on by BOTH to
-// route; either axis being "off" excludes it.
-export async function loadRoutingRules(db: D1Database, variantId: number): Promise<ParsedRoutingRule[]> {
-  try {
-    const res = await db
-      .prepare(
-        `SELECT public_id, variant_id, conditions_json, conditions_hash,
-                target_funnel_variant_id, value_multiplier, priority, status, match_mode
-         FROM leadgen_funnel_rules
-         WHERE variant_id = ? AND rule_type = 'route_funnel_variant' AND enabled = 1 AND status != 'disabled'
-         ORDER BY priority ASC, id ASC`,
-      )
-      .bind(variantId)
-      .all<RoutingRuleRow>();
-    return (res.results ?? []).map(parseRoutingRule);
-  } catch {
-    return [];
-  }
 }
 
 // The entry-attribute evaluation map (bare field names — "state"/"utm_source"/
@@ -1221,66 +1113,6 @@ function entryFlatCtx(ctx: EntryKnownContext): Record<string, unknown> {
     hour: ctx.hour,
     weekday: ctx.weekday,
   };
-}
-
-export interface RoutingMatch {
-  target_funnel_variant_id: number;
-  hash: string;
-  value_multiplier: number | null;
-}
-
-// Priority ASC (1 = highest precedence) is an INTRINSIC guarantee of the
-// evaluators below, not an implicit contract with the caller's SQL ordering
-// (loadRoutingRules ALSO orders by priority — this is a defensive, cheap
-// re-sort so a future/alternate caller can never silently break "priority
-// (1 high..100)" by handing over an unsorted array). A stable sort (Array.
-// prototype.sort is stable since ES2019) preserves relative order for a
-// genuine priority TIE, which detectRoutingRuleConflicts flags at save-time
-// as non-deterministic — the evaluator does not need its own tie-break rule.
-function byPriorityAsc(rules: readonly ParsedRoutingRule[]): ParsedRoutingRule[] {
-  return [...rules].sort((a, b) => a.priority - b.priority);
-}
-
-// ENTRY plane: the highest-priority entry-only rule matching the request
-// attributes AND naming a target — or null (a null-target rule can never route).
-export function evaluateEntryRouting(
-  rules: readonly ParsedRoutingRule[],
-  ctx: EntryKnownContext,
-): RoutingMatch | null {
-  const flat = entryFlatCtx(ctx);
-  for (const r of byPriorityAsc(rules)) {
-    if (!r.entry_only || r.target_funnel_variant_id === null) continue;
-    if (conditionsMatch(r.conditions, flat, r.match_mode)) {
-      return {
-        target_funnel_variant_id: r.target_funnel_variant_id,
-        hash: r.hash,
-        value_multiplier: r.value_multiplier,
-      };
-    }
-  }
-  return null;
-}
-
-// CHECKPOINT plane: the highest-priority checkpoint rule (>=1 answer field)
-// matching the entry attributes UNION the server-re-normalized posted answers
-// AND naming a target — or null.
-export function evaluateCheckpointRouting(
-  rules: readonly ParsedRoutingRule[],
-  ctx: EntryKnownContext,
-  answers: Readonly<Record<string, unknown>>,
-): RoutingMatch | null {
-  const flat = { ...entryFlatCtx(ctx), ...answers };
-  for (const r of byPriorityAsc(rules)) {
-    if (r.entry_only || r.target_funnel_variant_id === null) continue;
-    if (conditionsMatch(r.conditions, flat, r.match_mode)) {
-      return {
-        target_funnel_variant_id: r.target_funnel_variant_id,
-        hash: r.hash,
-        value_multiplier: r.value_multiplier,
-      };
-    }
-  }
-  return null;
 }
 
 // internal_field -> page index (0-based, page.position order) over a variant's
@@ -1304,41 +1136,6 @@ function fieldToPageIndex(pages: readonly ResolvedFunnelPage[]): Map<string, num
     }
   });
   return out;
-}
-
-// The auto-derived checkpoint page for ONE checkpoint rule: the MAX page over
-// its ANSWER-field conditions (entry-known fields are always known → skipped);
-// an answer field absent from every page falls back to the LAST page (safe:
-// the rule still gets exactly one evaluation, at the end, and a condition on a
-// missing field simply won't match). Entry-only rules never reach here.
-export function deriveRuleCheckpointPage(
-  rule: ParsedRoutingRule,
-  fieldToPage: ReadonlyMap<string, number>,
-  lastPageIndex: number,
-): number {
-  let max = -1;
-  for (const g of rule.conditions.groups ?? []) {
-    if (ROUTING_ENTRY_KNOWN_FIELDS.has(g.field)) continue;
-    const p = fieldToPage.get(g.field);
-    max = Math.max(max, p === undefined ? lastPageIndex : p);
-  }
-  return max === -1 ? lastPageIndex : max;
-}
-
-// The DISTINCT set of checkpoint page indexes (server-computed) the /lg/attempt
-// echo carries so the engine knows WHICH page-completions to POST at. Empty
-// when the variant has no checkpoint-plane routing rules.
-export function deriveCheckpointPages(
-  pages: readonly ResolvedFunnelPage[],
-  rules: readonly ParsedRoutingRule[],
-): number[] {
-  const checkpointRules = rules.filter((r) => !r.entry_only && r.target_funnel_variant_id !== null);
-  if (checkpointRules.length === 0 || pages.length === 0) return [];
-  const f2p = fieldToPageIndex(pages);
-  const lastPage = pages.length - 1;
-  const set = new Set<number>();
-  for (const r of checkpointRules) set.add(deriveRuleCheckpointPage(r, f2p, lastPage));
-  return [...set].filter((p) => p >= 0).sort((a, b) => a - b);
 }
 
 // P4a: the prefix-rule RESUME point after a mid-funnel switch — the target
@@ -1395,7 +1192,7 @@ export function computeResumeSection(
   return "";
 }
 
-// Convert checkpoint PAGE NUMBERS (deriveCheckpointPages) to their ANCHOR
+// Convert checkpoint PAGE NUMBERS (deriveQuoteCheckpointPages) to their ANCHOR
 // (first winning) section_public_id, over the RESOLVED plan's page entries —
 // the wire form the engine echo carries. Byte-lean by design: the client can
 // then gate on `currentSection().section_public_id` membership directly (it
@@ -1416,87 +1213,10 @@ export function checkpointPageAnchors(
   return out;
 }
 
-// Save-time CONFLICT flagging (exported for P4b's Problems mechanism): two
-// rules at the SAME checkpoint (both entry, or same derived page) with the
-// SAME priority and OVERLAPPING condition fields have no deterministic winner.
-// A DISTINCT priority resolves the order → no conflict. Plain-language output.
-export interface RoutingConflictInput {
-  rule_name: string;
-  checkpoint_page: number | null; // null == entry plane
-  priority: number;
-  fields: readonly string[]; // condition field names
-}
-export function detectRoutingRuleConflicts(rules: readonly RoutingConflictInput[]): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < rules.length; i++) {
-    for (let j = i + 1; j < rules.length; j++) {
-      const a = rules[i]!;
-      const b = rules[j]!;
-      if (a.priority !== b.priority) continue; // distinct priority => deterministic
-      const ca = a.checkpoint_page === null ? "entry" : String(a.checkpoint_page);
-      const cb = b.checkpoint_page === null ? "entry" : String(b.checkpoint_page);
-      if (ca !== cb) continue; // different evaluation points never race
-      if (!a.fields.some((f) => b.fields.includes(f))) continue; // no overlap
-      out.push(
-        `Rules "${a.rule_name || "(unnamed)"}" and "${b.rule_name || "(unnamed)"}" evaluate at the same point with the same priority and overlapping conditions — the winner is not deterministic. Give one a higher priority (a lower number wins).`,
-      );
-    }
-  }
-  return out;
-}
-
-// P4a (D-2): is `variantId` the ACTIVE target of an ACTIVE route_funnel_variant
-// rule belonging to ANY variant of THIS funnel? Used to WIDEN
-// resolveActivatedFunnelByVariant's anti-leak servability check (below): a
-// routing rule's target is an author-approved serving destination — it must
-// be reachable even when it is not the funnel's control variant and no §16
-// A/B test is running (the entry/checkpoint routing PLANE is its own
-// authorization, orthogonal to the §16 arm-set check). This does NOT weaken
-// the anti-leak invariant's real purpose (hiding draft/non-participating
-// variants): an ACTIVE variant named by an ACTIVE rule is, by construction,
-// an intended destination — the only thing bypassed by knowing its `lgn_` id
-// directly is the CONDITION MATCH, which is a targeting mechanism, not an
-// access-control boundary (entry conditions are themselves client-observable
-// signals like UTM params).
-// Dedicated try/catch (see loadRoutingRules): this gates a SERVABILITY check
-// inside resolveActivatedFunnelByVariant, reached by every /lg/config +
-// /lg/attempt + /lg/auction reverse lookup. A query failure (e.g. pre-0043
-// schema) must degrade to "not a routing target" — i.e. fall through to the
-// PRE-EXISTING anti-leak reject — never 500 the whole reverse lookup.
-async function isActiveRoutingTargetOnFunnel(db: D1Database, funnelId: number, variantId: number): Promise<boolean> {
-  try {
-    const row = await db
-      .prepare(
-        `SELECT 1 FROM leadgen_funnel_rules r
-         JOIN leadgen_funnel_variants v ON v.id = r.variant_id
-         WHERE v.funnel_id = ? AND r.rule_type = 'route_funnel_variant' AND r.status = 'active'
-           AND r.target_funnel_variant_id = ? LIMIT 1`,
-      )
-      .bind(funnelId, variantId)
-      .first();
-    return row !== null;
-  } catch {
-    return false;
-  }
-}
-
-// Resolve a specific target variant by its internal id, constrained to an
-// ACTIVE variant of THIS funnel (a routing rule can only route within its own
-// funnel's variants — anti-leak: never serves a foreign/inactive variant).
-export async function getActiveVariantByIdOnFunnel(
-  db: D1Database,
-  funnelId: number,
-  variantId: number,
-): Promise<LeadgenFunnelVariantRow | null> {
-  const row = await db
-    .prepare(
-      `SELECT ${VARIANT_COLUMNS} FROM leadgen_funnel_variants
-       WHERE id = ? AND funnel_id = ? AND status = 'active' LIMIT 1`,
-    )
-    .bind(variantId, funnelId)
-    .first<LeadgenFunnelVariantRow>();
-  return row ?? null;
-}
+// §10/S5.1: getActiveVariantByIdOnFunnel deleted — its sole caller,
+// isActiveRoutingTargetOnFunnel (the OLD per-variant routing widening this
+// sweep removed from resolveActivatedFunnelByVariant), is gone, leaving this
+// helper with 0 references anywhere (P5 orphan-scan tier-1 GATING).
 
 // ---------------------------------------------------------------------------
 // LeadGen Rework §4.3-4/§4.3-9 — QUOTE-scoped multi-action routing (rule v3)
@@ -1878,10 +1598,14 @@ export async function resolveActivatedFunnelByVariant(
   if (quote === null) return null;
 
   // Servability + §16.3 dims. A running test makes every active variant a served
-  // arm (ab_hash); otherwise the control variant is served (single_control) OR
-  // — P4a (D-2) — an ACTIVE route_funnel_variant rule on this funnel names
-  // `variant` as its target (isActiveRoutingTargetOnFunnel) — a non-control
-  // draft/fork variant NOT named by any rule still never leaks.
+  // arm (ab_hash); otherwise ONLY the control variant is served (single_control).
+  // §10/S5.1: the P4a (D-2) widening that ALSO served a non-control variant
+  // named as an ACTIVE route_funnel_variant rule's target (isActiveRoutingTarget
+  // OnFunnel) is REMOVED — that rule_type was migrated OUT of leadgen_funnel_rules
+  // by M3 (its CHECK now forbids it), so the widening's own query could never
+  // match a row again; it was a permanently-unreachable branch, proven by the
+  // schema, not merely unobserved. A non-control variant now always falls
+  // through to `return null` exactly as it did before this widening existed.
   const abTest = await getRunningAbTestForFunnel(db, funnel.id);
   let assignment: FunnelAssignment;
   if (abTest !== null) {
@@ -1889,13 +1613,6 @@ export async function resolveActivatedFunnelByVariant(
   } else {
     const control = await getControlVariantForFunnel(db, funnel.id);
     if (control !== null && control.id === variant.id) {
-      assignment = singleControlAssignmentDims(variant);
-    } else if (await isActiveRoutingTargetOnFunnel(db, funnel.id, variant.id)) {
-      // Servable as a routing target; single_control-shaped dims (no A/B
-      // bucket to draw — there is no running test). The caller (the
-      // checkpoint endpoint / a future direct /lg/config probe) does not read
-      // `assignment_reason` for this path; the per-request routing_rule:<hash>
-      // attribution is stamped separately, keyed by the ACTUAL matched rule.
       assignment = singleControlAssignmentDims(variant);
     } else {
       return null;

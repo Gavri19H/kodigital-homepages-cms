@@ -50,7 +50,7 @@ describe("P4a auto_advance eligibility — the VALID single-choice case saves", 
   });
 
   it("every eligible node type validates clean under auto_advance", () => {
-    for (const t of ["ButtonAnswerGroup", "TwoButtonYesNo", "IconCardAnswerGrid", "ImageCardAnswerGrid", "OtherGroupSelector"]) {
+    for (const t of ["ButtonAnswerGroup", "TwoButtonYesNo", "IconCardAnswerGrid", "ImageCardAnswerGrid"]) {
       const node: Record<string, unknown> = { type: t, question_id: "q", internal_field: "q", choices: [choice("a")] };
       if (t === "IconCardAnswerGrid") node["choices"] = [{ ...choice("a"), icon: "check" }];
       if (t === "ImageCardAnswerGrid") node["choices"] = [{ ...choice("a"), imageMediaId: "m1", image_alt: "alt" }];

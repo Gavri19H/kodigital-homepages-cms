@@ -31,7 +31,7 @@ import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funne
 import { funnelChromeCss } from "../src/public/leadgen/designs/default-funnel/styles";
 import { resolveTokens, validateTheme } from "../src/public/leadgen/designs/theme";
 import type { ThemeJson } from "../src/public/leadgen/designs/theme";
-import { effectiveFrame, FRAME_TEMPLATES, parseSavedFrameTemplateDefaults } from "../src/public/leadgen/designs/frames";
+import { effectiveFrame, FRAME_TEMPLATES, DEFAULT_FRAME_TEMPLATE_ID, parseSavedFrameTemplateDefaults } from "../src/public/leadgen/designs/frames";
 import type { EffectiveFrameConfig } from "../src/public/leadgen/designs/frames";
 import { resolveEffectiveFrameOnly } from "../src/public/leadgen/resolver";
 
@@ -698,13 +698,18 @@ describe("§6.8 — slider_type dispatch (5 markups)", () => {
     expect(without).toContain('data-format="number"');
   });
 
-  it("legacy RangeQuestion/CurrencyRangeQuestion: unconditional 'single' shape regardless of any slider_type prop (M7 never adds it to these legacy types)", () => {
-    const html = renderComponent(
-      { type: "RangeQuestion", question_id: "q", internal_field: "amt", props: { min: 0, max: 100, default: 50 } } as LeadgenComponentNode,
-      DESIGN,
-    );
-    expect(html).not.toContain("data-slider-type");
-    expect(html).toContain('class="lg-range"');
+  it("§10 seam: a stored node of ANY extinct type (RangeQuestion/CurrencyRangeQuestion/MultiQuestionGrid/OtherGroupSelector) renders the fail-safe box, NEVER its old widget or a 500 (L-192)", () => {
+    for (const type of ["RangeQuestion", "CurrencyRangeQuestion", "MultiQuestionGrid", "OtherGroupSelector"]) {
+      let html = "";
+      expect(() => {
+        html = renderComponent(
+          { type, question_id: "q", internal_field: "amt", choices: [], props: { min: 0, max: 100, default: 50 } } as unknown as LeadgenComponentNode,
+          DESIGN,
+        );
+      }, type).not.toThrow();
+      expect(html, type).toContain('class="lg-mqg-empty"'); // the fail-safe box (hidden live, shown in preview)
+      expect(html, type).not.toContain('class="lg-range"'); // no slider render for an extinct type
+    }
   });
 });
 
@@ -944,6 +949,69 @@ describe("M5 — effectiveFrame accepts a saved-template defaults override", () 
     const custom = FRAME_TEMPLATES["centered"]!.defaults;
     const result = effectiveFrame("not-a-real-template-id", null, null, custom);
     expect(result.problems).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // PRODUCT-BUG FIX (P5 sweep, 2026-07-23): frame.template (and therefore
+  // designs/frame.ts's `.lg-frame--{template}` class + `data-frame-template`
+  // attribute, lines ~1162/1168) derived its identity from `requested` — the
+  // FUNNEL's own (pre-ftid) frame_config_json.template — even inside this
+  // savedTemplateDefaults branch. Applying a saved "Minimal" template over a
+  // "Centered" funnel correctly flipped every FIELD (savedTemplateDefaults
+  // was ALWAYS the base layer — cloneJson(savedTemplateDefaults) never
+  // changed), but the live frame's identity class/attribute stayed stuck on
+  // "centered": the WRONG CSS class family for what's actually rendering.
+  // Investigated before fixing: no existing CSS rule is keyed on
+  // `.lg-frame--{builtinId}` itself today (only the unrelated mobile
+  // modifier classes — lg-frame--m-logo-*/m-trust-*/m-progress-* — are ever
+  // styled; confirmed via a full grep of styles.ts/frame.ts). The chosen
+  // identity: the SAVED TEMPLATE's own recorded arrangement family
+  // (savedTemplateDefaults.template) — validateFrameConfig's `template` key
+  // check already guarantees any AUTHORED value there is a real
+  // FrameTemplateId, and a saved template is always derived from one of the
+  // 6 built-in arrangements (studio "Save template" flows customize FIELDS,
+  // never invent a 7th arrangement family) — so this is the HONEST identity:
+  // coherent with any future `.lg-frame--minimal` custom CSS applying
+  // uniformly to the built-in Minimal AND every saved template sharing that
+  // arrangement, and distinct for a genuinely different one.
+  // -------------------------------------------------------------------------
+  it("PRODUCT-BUG FIX: applying a saved 'Minimal' template over a 'Centered' funnel stamps the SAVED template's OWN identity — fail-before this fix, frame.template stayed stuck on the funnel's stale 'centered'", () => {
+    const minimalDefaults = FRAME_TEMPLATES["minimal"]!.defaults;
+    // The FUNNEL's own stored frame_config_json.template says "centered"
+    // (requested, the 1st positional arg below) — but a "Minimal" SAVED
+    // TEMPLATE is applied via the 4th arg (the ftid resolution).
+    const result = effectiveFrame("centered", null, null, minimalDefaults);
+    // The FIELDS were ALREADY correct pre-fix (savedTemplateDefaults was
+    // always the base layer) — back.position/footer.enabled correctly
+    // reflect Minimal's OWN patch (frames.ts's makeTemplate registry),
+    // proving this was never a field-merge bug, only an identity-string one.
+    expect(result.frame.back.position).toBe("under_header_left"); // Minimal's own override
+    expect(result.frame.footer.enabled).toBe(false); // Minimal's own override ("no footer")
+    // THE FIX: frame.template must ALSO reflect "minimal" — not stay stuck
+    // on "centered" (hand-verified fail-before/pass-after: reverting
+    // frames.ts's templateId line back to reading `requested` instead of
+    // `savedTemplateDefaults.template` makes this exact assertion fail with
+    // "centered").
+    expect(result.frame.template).toBe("minimal");
+  });
+
+  it("A-6a byte-identity: OMITTED savedTemplateDefaults (no ftid at all) — the identity fix changes NOTHING for the legacy path; a 'centered' funnel keeps stamping 'centered', byte-identical to the pre-existing omitted-4th-arg proof above", () => {
+    const legacy = effectiveFrame("centered", null, null);
+    expect(legacy.frame.template).toBe("centered");
+    expect(legacy.frame.back.position).toBe("in_card"); // centered's OWN base default, unchanged
+    expect(legacy.frame.footer.enabled).toBe(true); // centered's OWN base default, unchanged
+    const withUndefined = effectiveFrame("centered", null, null, undefined);
+    expect(withUndefined).toEqual(legacy);
+    const withNull = effectiveFrame("centered", null, null, null);
+    expect(withNull).toEqual(legacy);
+  });
+
+  it("a saved template whose OWN frame_json genuinely omits `template` (a legal sparse patch, despite parseSavedFrameTemplateDefaults's EffectiveFrameConfig cast at the read boundary) falls back to DEFAULT_FRAME_TEMPLATE_ID silently — no new 'unknown template' warning path invented", () => {
+    const sparseCustom = { ...FRAME_TEMPLATES["minimal"]!.defaults } as Partial<EffectiveFrameConfig>;
+    delete (sparseCustom as { template?: unknown }).template;
+    const result = effectiveFrame("centered", null, null, sparseCustom as EffectiveFrameConfig);
+    expect(result.frame.template).toBe(DEFAULT_FRAME_TEMPLATE_ID);
+    expect(result.problems).toEqual([]); // still never "unknown" — the M5 contract holds
   });
 });
 

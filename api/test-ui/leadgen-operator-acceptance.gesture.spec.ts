@@ -1034,181 +1034,59 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
   // Sub-questions (rows) editor block is removed with the grid rows-editor.
   // The §4.1 palette starter inserts independent components instead.").
   // populateMqgRows/collectMqgRows are now no-ops (their [data-mqg-rows] host
-  // is gone), left in place only until P5's orphan sweep. Replacement
-  // authoring coverage: leadgen-rework-p2-studio.gesture.spec.ts's test (d)
-  // (the §4.1 "Questions on one screen" starter, the new authoring path);
-  // leadgen-rework-matrix.test.ts's §6.2 capability matrix. Replacement
-  // canvas/render-structure + auction-pipeline coverage (byte-equivalent to
-  // what the deleted reload-parity block checked, proven at the render-
-  // function/schema layer instead of a live browser): test/leadgen-p5-multi-
-  // question-grid.test.ts's "render structure" and "defaults record + the
-  // normalize→payload round-trip" describe blocks.
+  // is gone), left in place only until P5's orphan sweep.
   //
-  // STILL LIVE (own-hand-verified ui-section-studio.ts:6600 "MultiQuestion
-  // Grid STAYS — renderMultiQuestion..."): the catalog type + its presets
-  // render survive until P5, so a MultiQuestionGrid authored directly via
-  // content_json (bypassing the retired editor — exactly how the live/
-  // auction leg below already worked) still renders and behaves correctly on
-  // a live funnel. That backward-compat behavior is still-live, not retired,
-  // so it is KEPT below: defaults pre-select, per-row required blocks, a
-  // different pill updates, and THE AUCTION LEG — per-row answers arriving in
-  // the live /lg/auction request (the R1 real-POST pattern). Both legs are
-  // chromium-only (dynamic *.e2e.test host); on firefox this item now records
-  // only the liveLegChromiumOnly skip annotation below and asserts nothing
-  // (the both-engine assertions it used to run belonged entirely to the
-  // retired rows-editor authoring above).
+  // §10/S5.1 RETIREMENT — the "STILL LIVE" premise below is now FALSE:
+  // MultiQuestionGrid has been fully removed from the catalog (confirmed 0
+  // references anywhere, P5 orphan-scan) — ui-section-studio.ts no longer
+  // contains the "MultiQuestion Grid STAYS" comment this block used to cite,
+  // and presets.ts/registry.ts carry no MultiQuestionGrid renderer/entry at
+  // all anymore. Both createStudioSection(...) calls below (the "live grid"
+  // leg and "the auction leg") now 400 (unknown_component_type) before any of
+  // their real assertions run.
+  // CORRECTED CITATION (the previous note here pointed at
+  // test/leadgen-p5-multi-question-grid.test.ts, which does not exist in this
+  // repository under that or any similar name — a stale, never-fulfilled
+  // cross-reference, corrected here rather than propagated): the real
+  // replacement is test/leadgen-rework-render.test.ts's "§10 seam: a stored
+  // node of ANY extinct type (RangeQuestion/CurrencyRangeQuestion/
+  // MultiQuestionGrid/OtherGroupSelector) renders the fail-safe box, NEVER
+  // its old widget or a 500 (L-192)" test.
+  // HONEST GAP (not silently papered over): that fail-safe-box test proves
+  // only "doesn't crash / doesn't 500" for a stored extinct-type node — it
+  // does NOT re-prove the RICH per-row behavior this Item 10 test used to
+  // exercise (defaults pre-selecting per row including a per-row choices
+  // override, per-row `required` blocking Continue independently, and the
+  // auction-pipeline leg where each grid row's default answer arrives in the
+  // live /lg/auction POST body with answer_source: "default_applied"). No
+  // other test in this suite currently proves that same per-row default/
+  // required/auction-integration behavior for any live multi-answer
+  // component. Rebuilding an equivalent proof (there is no direct successor
+  // component — the catalog has no other single-question-id/multi-row
+  // component) is a legitimate follow-up, out of scope for this removal-
+  // sweep pass.
   // =========================================================================
-  test('Item 10 — "a multi-question grid with default answers, like Homeowner/Married/Gender" (Image9)', async ({
-    page,
+  test('Item 10 — "a multi-question grid with default answers, like Homeowner/Married/Gender" (Image9) [RETIRED: §10/S5.1, MultiQuestionGrid removed]', async ({
     request,
-    browserName,
   }) => {
-    if (
-      !liveLegChromiumOnly(
-        browserName,
-        "Item 10 live grid behavior + the /lg/auction leg need chromium --host-resolver-rules; test/leadgen-p5-multi-question-grid.test.ts pins the deterministic render-structure + auction pipeline (both engines, no browser needed). This item's own both-engine authoring assertions were retired with the rows editor (§10) — see the header comment above — so nothing runs here on firefox beyond this annotation.",
-      )
-    )
-      return;
-
-    // LIVE behavior: the FULL Image9 grid (Gender = Male/Female per-row override
-    // included via the component's config path) with Homeowner REQUIRED but
-    // UN-defaulted → defaults pre-select (incl. Gender male), per-row required
-    // blocks, a different pill updates, and answering the required row advances.
-    const liveGrid = await createStudioSection(request, `ACC Item10 live grid ${uniq}`, [
-      {
-        type: "MultiQuestionGrid",
-        question_id: "q_g",
-        choices: YESNO,
-        props: {
-          rows: [
-            { label: "Homeowner", internal_field: "homeowner", required: true },
-            { label: "Married", internal_field: "married", default: "no" },
-            {
-              label: "Gender",
-              internal_field: "gender",
-              default: "male",
-              choices: [
-                { label: "Male", value: "male", analytics_id: "male" },
-                { label: "Female", value: "female", analytics_id: "female" },
-              ],
-            },
-            { label: "Military Affiliation", internal_field: "military", default: "no" },
+    // The retired type is rejected at creation — confirms it truly has no
+    // remaining authoring surface (never silently accepted, never a 500).
+    const res = await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: `ACC Item10 retired-type probe ${uniq}`,
+        activity: "quote_funnel",
+        vertical: "life",
+        headline_text: "probe",
+        continue_mode: "button",
+        status: "active",
+        content_json: {
+          components: [
+            { type: "MultiQuestionGrid", question_id: "q_g", choices: YESNO, props: { rows: [{ label: "Homeowner", internal_field: "homeowner" }] } },
           ],
         },
       },
-      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
-    ]);
-    const gridNext = await createNextSection(request);
-    const seededLive = await seedLiveFunnel(request, "item10", [liveGrid.id, gridNext.id]);
-    await page.goto(shellUrl(seededLive), { waitUntil: "load" });
-    await ready(page);
-    // LeadGen Rework §4.3-1 (P1, own-hand-verified): seedLiveFunnel's trivial
-    // shared page now occupies section_index 0 — passSharedPage advances past
-    // it, landing on this funnel's own first page (the grid) at index 1 (was
-    // 0), gridNext at index 2 (was 1).
-    await passSharedPage(page);
-    // Defaults pre-selected live for the defaulted rows — incl. Gender's Male/
-    // Female per-row override (the Image9 composition, rendered live).
-    await expect(liveSection(page, 1).locator('[data-lg-question="q_g::married"] [data-lg-choice="no"]')).toHaveClass(/lg-selected/);
-    await expect(liveSection(page, 1).locator('[data-lg-question="q_g::gender"] [data-lg-choice="male"]')).toHaveClass(/lg-selected/);
-    // Per-row required blocks: the un-answered required Homeowner row stops Continue.
-    await liveSection(page, 1).locator("[data-lg-continue]").first().click();
-    await page.waitForTimeout(300);
-    expect(await sectionIndex(page), "an unanswered per-row required must block").toBe(1);
-    await expect(liveSection(page, 1).locator('[data-lg-error-for="homeowner"]')).toBeVisible();
-    // A DIFFERENT pill updates the answer (Married no → yes).
-    await liveSection(page, 1).locator('[data-lg-question="q_g::married"] [data-lg-choice="yes"]').click();
-    await expect(liveSection(page, 1).locator('[data-lg-question="q_g::married"] [data-lg-choice="yes"]')).toHaveClass(/lg-selected/);
-    await expect(liveSection(page, 1).locator('[data-lg-question="q_g::married"] [data-lg-choice="no"]')).not.toHaveClass(/lg-selected/);
-    // Answer the required Homeowner row → the grid now advances.
-    await liveSection(page, 1).locator('[data-lg-question="q_g::homeowner"] [data-lg-choice="yes"]').click();
-    await liveSection(page, 1).locator("[data-lg-continue]").first().click();
-    await expect.poll(() => sectionIndex(page), { timeout: 5_000 }).toBe(2);
-
-    // THE AUCTION LEG (R1 real-POST): reuse the proven filling offer+auction
-    // funnel (leadgen-fix-p1-seed) and APPEND an all-defaulted grid (grid-scoped
-    // fields, no collision with s1 homeowner / s2 zip) as the LAST section. The
-    // grid's per-row defaults ride the answer store and ARRIVE in the live
-    // /lg/auction request context — a ZERO-CLICK advance past the grid (defaults
-    // satisfy the required row) fires the auction.
-    const auctCtx = await playwrightRequest.newContext({ baseURL: `http://127.0.0.1:${PORT}`, extraHTTPHeaders: {} });
-    const seededAuct = await seedFixP1Funnel(auctCtx, { hostPrefix: "acc-item10-auct", slug: "acc-item10-auct" });
-    const mqgAuct = await createStudioSection(auctCtx, `ACC Item10 auction grid ${uniq}`, [
-      {
-        type: "MultiQuestionGrid",
-        question_id: "q_grid",
-        choices: YESNO,
-        props: {
-          rows: [
-            { label: "Homeowner", internal_field: "g_homeowner", default: "yes", required: true },
-            { label: "Married", internal_field: "g_married", default: "no" },
-            {
-              label: "Gender",
-              internal_field: "g_gender",
-              default: "male",
-              choices: [
-                { label: "Male", value: "male", analytics_id: "male" },
-                { label: "Female", value: "female", analytics_id: "female" },
-              ],
-            },
-            { label: "Military Affiliation", internal_field: "g_military", default: "no" },
-          ],
-        },
-      },
-      { type: "ContinueButton", question_id: "q_grid_cont", props: { label: "See my quotes" } },
-    ]);
-    await json(
-      await auctCtx.put(`${LG_API}/variants/${seededAuct.variantId}`, {
-        data: {
-          auction_id: seededAuct.auctionId,
-          sections: [
-            { section_id: seededAuct.sectionOneId, position: 0 },
-            { section_id: seededAuct.sectionTwoId, position: 1 },
-            { section_id: mqgAuct.id, position: 2 },
-          ],
-        },
-      }),
-      "append MQG to auction variant",
-    );
-    // Re-activate (idempotent) so the funnel serves the 3-section order.
-    await json(
-      await auctCtx.put(`${LG_API}/quotes/${seededAuct.quotePublicId}/activation/${seededAuct.siteId}`, {
-        data: { enabled: true, slug: seededAuct.slug },
-      }),
-      "re-activate auction quote",
-    );
-    await auctCtx.dispose();
-
-    await page.goto(`http://${seededAuct.host}:${PORT}/lg/${seededAuct.slug}`, { waitUntil: "load" });
-    await ready(page);
-    // LeadGen Rework §4.3-1 (P1, own-hand-verified): seedFixP1Funnel's trivial
-    // shared page now occupies section_index 0 — passSharedPage advances past
-    // it, landing on s1 (homeowner) at index 1 (was 0), s2 (zip) at index 2
-    // (was 1), the appended MQG grid at index 3 (was 2).
-    await passSharedPage(page);
-    // s1 homeowner (default yes) → auto-advance to s2.
-    await liveSection(page, 1).locator('[data-lg-choice="true"]').click();
-    await expect(liveSection(page, 2)).toBeVisible();
-    // s2 zip + dependent → Continue advances to the grid (NOT the auction yet).
-    await liveSection(page, 2).locator("[data-lg-input]").first().fill("90210");
-    await page.locator('[data-lg-question="q_prior"] [data-lg-choice="insured"]').click();
-    await liveSection(page, 2).locator("[data-lg-continue]").first().click();
-    await expect(liveSection(page, 3)).toBeVisible();
-    // The grid: defaults satisfy the required row → a ZERO-CLICK Continue fires
-    // the /lg/auction POST; its answers carry every grid row.
-    const [auctionReq] = await Promise.all([
-      page.waitForRequest((r) => r.url().includes("/lg/auction") && r.method() === "POST", { timeout: 20_000 }),
-      liveSection(page, 3).locator("[data-lg-continue]").first().click(),
-    ]);
-    const body = auctionReq.postDataJSON() as { answers: Record<string, { value: unknown; answer_source: string }> };
-    expect(body.answers["g_homeowner"], "the grid Homeowner default arrives in the auction request").toEqual({
-      value: "yes",
-      answer_source: "default_applied",
     });
-    expect(body.answers["g_married"]).toEqual({ value: "no", answer_source: "default_applied" });
-    expect(body.answers["g_gender"]).toEqual({ value: "male", answer_source: "default_applied" });
-    expect(body.answers["g_military"]).toEqual({ value: "no", answer_source: "default_applied" });
+    expect(res.status(), "MultiQuestionGrid is rejected, never silently accepted").toBe(400);
   });
 
   // =========================================================================

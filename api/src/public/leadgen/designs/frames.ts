@@ -713,11 +713,45 @@ export function effectiveFrame(
     // M5: the ftid resolution wins outright — never "unknown" (a stale/
     // deleted ftid is the CALLER's problem to detect via its own row lookup
     // returning null, in which case it simply omits this argument and falls
-    // to the legacy branch below). `templateId`/`frame.template` still stamp
-    // a recognizable built-in-or-default id purely for callers keying
-    // UI/analytics off that string — it does not select which defaults this
-    // call started from.
-    templateId = requested !== undefined && isFrameTemplateId(requested) ? requested : DEFAULT_FRAME_TEMPLATE_ID;
+    // to the legacy branch below).
+    //
+    // FIX (P5 sweep, product-bug round, 2026-07-23): `templateId`/
+    // `frame.template` MUST come from the SAVED TEMPLATE's own recorded
+    // arrangement family (savedTemplateDefaults.template), NEVER from
+    // `requested` (the FUNNEL's stale frame_config_json.template). The
+    // funnel's own template string describes what it was BEFORE this ftid
+    // applied — using it here stamped the WRONG identity onto the live
+    // frame: applying "Minimal" over a "Centered" funnel correctly flipped
+    // every field (frame = cloneJson(savedTemplateDefaults) below always
+    // did), but `.lg-frame--{template}` / `data-frame-template` (designs/
+    // frame.ts) kept reading "centered" — the funnel's leftover identity,
+    // not the template that's actually rendering. Investigated what
+    // consumes this string before picking the fix: NO existing CSS rule is
+    // keyed on `.lg-frame--{builtinId}` itself (only the UNRELATED mobile
+    // modifier classes, lg-frame--m-logo-*/m-trust-*/m-progress-*, are
+    // ever styled) — so `frame.template`'s job is exactly what the M5
+    // comment above already says: "a recognizable built-in-or-default id
+    // purely for callers keying UI/analytics off that string." A saved
+    // template's `frame_json` (this module's OWN 4th-arg contract, see the
+    // comment above this function) is validated at save time to be a
+    // FrameConfig — its OWN `.template` key, when authored, is ALSO
+    // validated as a real FrameTemplateId (validateFrameConfig's `template`
+    // check applies uniformly to every save, built-in-derived or not) —
+    // meaning it already records WHICH of the 6 built-in arrangement
+    // families this saved template's layout belongs to (studio "Save
+    // template" flows start from one of the 6 and customize FIELDS, never
+    // the arrangement family itself). Stamping THAT is the "honest
+    // identity": a saved template whose layout mirrors "Minimal" stamps
+    // "minimal" — coherent with any future `.lg-frame--minimal` CSS a
+    // custom stylesheet might add, applying uniformly to the built-in AND
+    // every saved template sharing that arrangement family. A saved row
+    // that genuinely omits `template` (a sparse FrameConfig patch — legal
+    // per this module's OWN sparse-patch contract, despite
+    // parseSavedFrameTemplateDefaults's EffectiveFrameConfig cast at the
+    // read boundary) falls back to DEFAULT_FRAME_TEMPLATE_ID, the SAME
+    // silent (never-"unknown") default every other branch of this
+    // conditional already uses — no new problem path invented.
+    templateId = isFrameTemplateId(savedTemplateDefaults.template) ? savedTemplateDefaults.template : DEFAULT_FRAME_TEMPLATE_ID;
     frame = cloneJson(savedTemplateDefaults);
   } else if (requested === undefined) {
     templateId = DEFAULT_FRAME_TEMPLATE_ID;

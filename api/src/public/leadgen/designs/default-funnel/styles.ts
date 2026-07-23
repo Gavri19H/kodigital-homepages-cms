@@ -1537,16 +1537,6 @@ export function funnelChromeCss(
     rule(`${scope} .lg-currency-input`, { "padding-left": spacing.xl }),
   );
 
-  // P5 (register PC-10, operator Image9) — MultiQuestionGrid needs NO new CSS:
-  // each row REUSES `.lg-field` (block + inter-row margin), `.lg-label` (the
-  // sub-question label above the pills), `.lg-answer-group` (the P1 equal-cell
-  // pill grid, --lg-cols = the pill count), `.lg-btn.lg-btn-answer`/`.lg-selected`
-  // (the default-selected pill paint) and `.lg-error` (the per-row slot). The
-  // `.lg-mqg` wrapper is a plain block (div default); the last row's `.lg-field`
-  // bottom margin collapses through it into the next card element's `> * + *`
-  // stack, so no wrapper rule is needed — the shared chrome sheet stays
-  // byte-identical (the §13.1 legacy byte-pins hold unchanged).
-
   // ---- validation: error / helper / legal (§14.2 validation) --------------
   out.push(
     rule(`${scope} .lg-error`, {
@@ -2013,12 +2003,12 @@ export function funnelChromeCss(
     }),
     rule(`${scope}.lg-preview .lg-address-chip-role`, { "font-weight": "700", color: page.textColor }),
     rule(`${scope}.lg-preview .lg-address-chip-field`, { color: page.textSecondaryColor, "font-family": "monospace" }),
-    // A-3 (renderer leg): a zero-row grid's SSR placeholder. Hidden by default
-    // (LIVE renders nothing, as today); shown under `.lg-preview` — EXCEPT when
-    // P1a's client-side canvas decoration has already injected its own
-    // `.studio-mqg-empty` into this `.lg-mqg` (a :has() de-dup, so the studio
-    // canvas never doubles; the admin preview drawer, which runs the engine not
-    // the decoration, shows this SSR one).
+    // §10 fail-safe box: a stored node of a RETIRED/unknown component type
+    // (the §10-removed grid / OtherGroupSelector / Range / CurrencyRange, or
+    // any corrupt type) renders `.lg-mqg-empty` from presets' default case —
+    // NEVER a 500 (L-192 seam). Hidden by default (a LIVE funnel renders
+    // nothing for it — silent); shown as an honest notice under `.lg-preview`
+    // (studio canvas + admin preview).
     rule(`${scope} .lg-mqg-empty`, { display: "none" }),
     rule(`${scope}.lg-preview .lg-mqg-empty`, {
       display: "block",
@@ -2029,7 +2019,6 @@ export function funnelChromeCss(
       color: page.textSecondaryColor,
       "font-size": "13px",
     }),
-    rule(`${scope}.lg-preview .lg-mqg:has(.studio-mqg-empty) .lg-mqg-empty`, { display: "none" }),
   );
 
   // ---- P6 theme button-style rules (deliverable 3) ------------------------

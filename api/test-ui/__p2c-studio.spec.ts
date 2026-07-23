@@ -10,8 +10,9 @@
 // mechanics in isolation; this spec is the STUDIO's first authoring surface.
 //
 //   AC-1  author a 2-condition ALL group on a Dropdown's show/hide (a Yes/No
-//         answer + an MQG row), save 2xx, reload round-trips both rows + the
-//         ALL toggle; LIVE the Dropdown stays hidden until BOTH hold.
+//         answer + a second yes/no-choice source, §10/S5.1: was an MQG row),
+//         save 2xx, reload round-trips both rows + the ALL toggle; LIVE the
+//         Dropdown stays hidden until BOTH hold.
 //   AC-2  flip the group to ANY, persists; LIVE either answer alone reveals
 //         the Dropdown.
 //   AC-3  [LeadGen Rework §10/§6.9 rewrite] the phone-preset picker (Israel/
@@ -150,21 +151,26 @@ test.beforeAll(() => {
 });
 
 // The shared section shape for AC-1/AC-2's LIVE legs: a boolean Yes/No
-// ("insured"), an MQG row ("prior_claims", sharing a Yes/No pill set), a
-// target Dropdown whose show/hide is the composed group under test, and a
+// ("insured"), a SECOND independent yes/no-choice source ("prior_claims",
+// sharing the SAME "yes"/"no" value vocabulary a MultiQuestionGrid row once
+// used — §10/S5.1: MultiQuestionGrid is retired, replaced here with a
+// ButtonAnswerGroup carrying the identical choices; data-lg-field/
+// data-lg-choice render the same way, so every selector below is unaffected),
+// a target Dropdown whose show/hide is the composed group under test, and a
 // Continue. Only the target's `conditional` differs between callers.
 function groupTargetContent(conditional: unknown) {
   return {
     components: [
       { type: "TwoButtonYesNo", question_id: "q_yn", internal_field: "insured", answer_type: "boolean", props: { yesLabel: "Yes", noLabel: "No" } },
       {
-        type: "MultiQuestionGrid",
+        type: "ButtonAnswerGroup",
         question_id: "q_mqg",
+        internal_field: "prior_claims",
+        answer_type: "enum",
         choices: [
           { label: "Yes", value: "yes", analytics_id: "mqg_yes" },
           { label: "No", value: "no", analytics_id: "mqg_no" },
         ],
-        props: { rows: [{ label: "Prior claims?", internal_field: "prior_claims" }] },
       },
       {
         type: "DropdownQuestion",
@@ -225,7 +231,11 @@ test.describe("P2c AC-1 — ANY/ALL group builder: author a 2-condition ALL grou
     await expect(page.locator('[data-set-rules-match="all"]')).toHaveClass(/active/);
     const sentence = page.locator("[data-cond-sentence]");
     await expect(sentence).toContainText("AND");
-    await expect(sentence).toContainText("Prior claims?");
+    // §10/S5.1: the second source's label — a plain ButtonAnswerGroup carries
+    // NO custom per-field label (unlike the retired MQG row's own "Prior
+    // claims?" text) — sectionFieldLabels falls back to the component's OWN
+    // type label ("Simple answer buttons") here, not an arbitrary string.
+    await expect(sentence).toContainText("Simple answer buttons");
     await page.screenshot({ path: `${SHOT_DIR}/ac1-authored-all.png` });
 
     await saveStudio(page);

@@ -12,7 +12,8 @@
 // leadgen-fix-p1-seed / leadgen-p14-seed convention) with a single rich
 // Section whose content is buildVisualSectionContent() — the §14.10 component
 // set (header/logo/progress/category/headline/subheadline · IconCardAnswerGrid
-// · TwoButtonYesNo · CurrencyRangeQuestion · MultiChoiceCardGroup · Dropdown ·
+// · TwoButtonYesNo · NumberRangeQuestion (currency_affix; §10/S5.1: was
+// CurrencyRangeQuestion) · MultiChoiceCardGroup · Dropdown ·
 // FreeText/Email/Phone/Name/ZIP PII · Continue · ReassuranceBadge · Helper).
 // This proves the LIVE runtime (server render + funnelChromeCss + engine
 // hydration) applies the design tokens — not merely the admin preview
@@ -806,7 +807,7 @@ test.describe("§14.10(c) no arbitrary-CSS escapes (save-time + render-path sani
       const nodeCss = {
         components: [
           {
-            type: "CurrencyRangeQuestion",
+            type: "NumberRangeQuestion",
             question_id: "q_bad_range",
             internal_field: "bad_range",
             props: { min: 0, max: 10 },
@@ -866,7 +867,10 @@ test("§14.10(d) operator-screenshot capability checklist — every pattern pres
     // Icon cards (§14.4 Sole-Proprietor/…/S-Corp).
     ["icon cards (IconCardAnswerGrid)", has('data-component-type="IconCardAnswerGrid"') && has("lg-card-icon") && has("Sole Proprietor") && has("S Corporation")],
     // Currency range (§14.5 BUSINESS LOAN / $330,000 / $10,000 / $1M+).
-    ["currency range (CurrencyRangeQuestion)", has('data-component-type="CurrencyRangeQuestion"') && has('data-format="currency"') && has("$330,000") && has("$10,000") && has("$1M+")],
+    // §10/S5.1: was CurrencyRangeQuestion, collapsed into the ONE
+    // NumberRangeQuestion Slider catalog entry (data-format="currency" is
+    // unchanged, driven by props.currency_affix).
+    ["currency range (NumberRangeQuestion, currency_affix)", has('data-component-type="NumberRangeQuestion"') && has('data-format="currency"') && has("$330,000") && has("$10,000") && has("$1M+")],
     // Navy pill (was "blue pill" in the screenshots) — the Continue button.
     ["navy pill Continue (ContinueButton — renders NAVY, §14.6)", has('data-component-type="ContinueButton"') && has("lg-continue")],
     // Green reassurance badge (§14.7).

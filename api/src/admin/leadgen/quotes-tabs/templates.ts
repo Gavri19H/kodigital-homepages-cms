@@ -80,7 +80,7 @@ import {
   FRAME_TYPO_SIZES,
 } from "../../../public/leadgen/designs/frames";
 import { FUNNEL_TOKEN_ROLES } from "../../../public/leadgen/designs/theme";
-import { type RoutingBuilderData } from "../ui-rules-builder";
+import { type QuoteRulesRailAnswerField } from "../ui-rules-builder";
 import {
   roleLabel,
   enumOptions,
@@ -158,7 +158,7 @@ const CTA_CONDITION_OPS: ReadonlyArray<readonly [string, string]> = [
   ["neq", "is not"],
 ];
 
-function ctaConditionFieldOptions(answerFields: RoutingBuilderData["fields"], selected: string): string {
+function ctaConditionFieldOptions(answerFields: readonly QuoteRulesRailAnswerField[], selected: string): string {
   const ctx = CTA_CONDITION_CTX_FIELDS.map(
     ([v, label]) => `<option value="${escapeHtml(v)}"${v === selected ? " selected" : ""}>${escapeHtml(label)}</option>`,
   ).join("");
@@ -181,7 +181,7 @@ function ctaConditionOpOptions(selected: string): string {
 // island clones it for "+ Add condition"; SSR never emits an initial row, the
 // island fills from the loaded config exactly like the pre-existing
 // footer.links/trust_strip.logos/benefit_bar.items lists).
-function renderCtaConditionRowTemplate(answerFields: RoutingBuilderData["fields"]): string {
+function renderCtaConditionRowTemplate(answerFields: readonly QuoteRulesRailAnswerField[]): string {
   return `<div class="lg-list-row" data-cta-cond-row>
     <select class="form-select form-select-sm" data-cta-cond-field aria-label="Condition field">${ctaConditionFieldOptions(answerFields, "__state")}</select>
     <select class="form-select form-select-sm" data-cta-cond-op aria-label="Condition comparison">${ctaConditionOpOptions("eq")}</select>
@@ -190,7 +190,7 @@ function renderCtaConditionRowTemplate(answerFields: RoutingBuilderData["fields"
   </div>`;
 }
 
-function renderCtaSlotRowTemplate(answerFields: RoutingBuilderData["fields"]): string {
+function renderCtaSlotRowTemplate(answerFields: readonly QuoteRulesRailAnswerField[]): string {
   return `<div class="lg-tplbox-row" data-cta-row>
     <div class="lg-list-row">
       <select class="form-select form-select-sm" data-cta-slot aria-label="CTA slot">${enumOptions(FRAME_CTA_SLOTS, { header_right: "Header (right)", under_header: "Under the header", section_bottom: "Bottom of the section", footer: "Footer" })}</select>
@@ -215,7 +215,7 @@ function renderCtaSlotRowTemplate(answerFields: RoutingBuilderData["fields"]): s
   </div>`;
 }
 
-function renderTplBoxCta(answerFields: RoutingBuilderData["fields"]): string {
+function renderTplBoxCta(answerFields: readonly QuoteRulesRailAnswerField[]): string {
   return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="cta">
   <h3>C &middot; Phone / URL</h3>
   <p class="form-help">Placeable call/link buttons (header, under the header, bottom of the section, or the footer).</p>
@@ -635,7 +635,7 @@ function renderElementsList(): string {
 }
 
 
-function renderSettingsColumn(answerFields: RoutingBuilderData["fields"]): string {
+function renderSettingsColumn(answerFields: readonly QuoteRulesRailAnswerField[]): string {
   return `<div class="lg-tplbox-editor" id="lg-tplbox-editor">
     <p class="form-help" id="lg-tplbox-hint" hidden>Choose a box above to edit it.</p>
     ${renderTplBoxBackground()}
@@ -796,7 +796,6 @@ const TPL_STYLES = `
 .lg-tpl2-tpl-menu{position:absolute;top:100%;left:0;z-index:5;background:var(--c-card,#fff);border:1px solid var(--c-border);border-radius:6px;box-shadow:0 4px 14px rgba(16,24,40,.16);padding:4px;display:flex;flex-direction:column;min-width:140px;margin-top:4px}
 .lg-tpl2-tpl-menu button{display:block;width:100%;text-align:left;padding:6px 8px;font-size:12px;color:var(--c-text);white-space:nowrap}
 .lg-tpl2-tpl-menu button:hover{background:var(--c-bg,#f6f7f9)}
-.lg-tpl2-tpl-rename-row{display:inline-flex;gap:4px;align-items:center}
 .lg-tpl2-new-form{align-items:center}
 .lg-tpl2-ptype-grid{display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap}
 .lg-tpl2-ptype{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 6px;border:1px solid var(--c-border);border-radius:8px;background:var(--c-card,#fff);flex:1 1 0;min-width:56px;cursor:pointer;position:relative}
@@ -1548,7 +1547,7 @@ const TPL_SCRIPT = `
 // embedded in the Funnel builder tab (`renderTemplatePicker`, quotes-tabs/
 // shared.ts — unchanged, out of this slice); `#lg-template-btn` keeps its own
 // unchanged inline toggle into that canvas-embedded card.
-export function renderTemplatesTabPanel(isControl: boolean, answerFields: RoutingBuilderData["fields"]): string {
+export function renderTemplatesTabPanel(isControl: boolean, answerFields: readonly QuoteRulesRailAnswerField[]): string {
   void isControl; // reserved: no per-arm override switch on the box-picker element groups (funnel-wide only) — see the section header doc comment.
   return `<div class="lg-qpanel" data-panel="templates">
   <style>${TPL_STYLES}</style>

@@ -308,7 +308,9 @@ describe("§4.1 palette starter", () => {
     expect(starter, "starter tile present").toBeTruthy();
     expect(starter!.defaultType).toBe("TwoButtonYesNo");
     expect(starter!.starter).toBe("questions_one_screen");
-    expect(allTiles.some((t) => t.defaultType === "MultiQuestionGrid")).toBe(false);
+    // §10: the grid catalog type is removed, so `defaultType` (a ComponentType)
+    // can never be it — String() to compare against the extinct id.
+    expect(allTiles.some((t) => String(t.defaultType) === "MultiQuestionGrid")).toBe(false);
     expect(allTiles.some((t) => t.label === "Question grid")).toBe(false);
     // the tile renders the starter marker so click/keyboard/drag resolve to it.
     expect(LIBRARY).toContain('data-add-starter="questions_one_screen"');

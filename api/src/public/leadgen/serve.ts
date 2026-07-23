@@ -84,7 +84,6 @@ import { flattenComponents } from "./components/content-schema";
 // below applies at serve time — same catalog the content-schema save-time
 // warning (frame_scope_component) already reads.
 import { COMPONENT_CATALOG } from "./components/registry";
-import { mintFunnelAttempt } from "./attempt";
 import { getFunnelDesign, type FunnelDesign } from "./designs/registry";
 import { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "./designs/default-funnel/styles";
 // 03 §3.2a / 09 §9.1: the ONE shared renderer — the same presets that power
@@ -1001,24 +1000,9 @@ export async function serveLeadgenConfig(c: PublicContext): Promise<Response> {
   return new Response(body, { status: 200, headers: leadgenConfigCacheHeaders(etag) });
 }
 
-// GET /lg/attempt?funnel_variant_id=lgn_… — mint a per-session funnel_attempt_id
-// + HMAC-signed signed_config_token (Stage-A mintFunnelAttempt). no-store
-// (§4.3 / §8.3 — session-specific, never cached, never in /lg/config). The
-// funnel is resolved from the funnel_variant_id query param (same anti-leak
-// reverse lookup as /lg/config; a foreign/unactivated variant → 404).
-export async function serveLeadgenAttempt(c: PublicContext): Promise<Response> {
-  const siteContext = c.get("siteContext");
-  const variantId = c.req.query("funnel_variant_id") ?? "";
-  const resolved = await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, variantId);
-  if (resolved === null) {
-    return new Response(JSON.stringify({ error: "Not Found" }), {
-      status: 404,
-      headers: leadgenNoStoreHeaders(),
-    });
-  }
-  const attempt = await mintFunnelAttempt(c.env, resolved);
-  return new Response(JSON.stringify(attempt), {
-    status: 200,
-    headers: leadgenNoStoreHeaders(),
-  });
-}
+// §10/S5.1: serveLeadgenAttempt (the OLD /lg/attempt V1 handler) deleted —
+// confirmed 0 references anywhere (P5 orphan-scan tier-1 GATING; not
+// registered on any route). serveLeadgenAttemptV2 (runtime-routes.ts) is the
+// LIVE handler actually mounted at leadgenPublicRouter.get("/lg/attempt", …)
+// and carries its own mintFunnelAttempt call + full test coverage
+// (leadgen-attempt.test.ts, leadgen-auction-runtime.test.ts, leadgen-gates.test.ts).

@@ -14,9 +14,9 @@
 // NOTE ON SEED: `npm run seed:local` (scripts/seed/seed-sql.ts) seeds NO leadgen
 // sections at all (only the homepage/articles corpus — 0 `leadgen` references),
 // so there is no real grid/other/slider/address seed content to draw a fixture
-// from; the fixtures below are hand-built to the shapes verified in
-// content-schema.ts + leadgen-p5-multi-question-grid.test.ts. (Reported to the
-// conductor.)
+// from; the fixtures below are hand-built to the pre-migration shapes verified
+// against the shipped content-schema.ts (and, for the §10-retired grid input,
+// the migration SQL itself). (Reported to the conductor.)
 
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -70,9 +70,55 @@ function validateOk(db: SqliteDb, id: number): void {
   const res = validateSectionContent(JSON.parse(rawJson(db, id)));
   expect(res.errors, `section ${id} must validate clean; errors: ${JSON.stringify(res.errors)}`).toEqual([]);
 }
-function fieldUniverseEmptyDiff(before: string, after: string): void {
-  const d = diffSets(projectedFieldUniverse(before), projectedFieldUniverse(after));
-  expect({ added: d.added, removed: d.removed }).toEqual({ added: [], removed: [] });
+// LeadGen Rework §10 removal (S5.1) — FROZEN pre-migration field universes.
+//
+// The M6 invariant used to be proven by `diffSets(projectedFieldUniverse(before),
+// projectedFieldUniverse(after))` — comparing the projected answer-field universe
+// computed LIVE on BOTH the pre- and post-migration content. Computing it on the
+// PRE-migration content required the live grid-expansion code (config-dto
+// expandPublicComponents + content-schema collectKnownAnswerFields' MultiQuestionGrid
+// leg). §10 removes MultiQuestionGrid/OtherGroupSelector/Range/CurrencyRange from the
+// catalog and deletes that expansion, so `projectedFieldUniverse(<a grid/other/range
+// node>)` can no longer reconstruct the pre-migration universe.
+//
+// Fix (per the S5.1 contract, "freeze the expected projected universes as literals"):
+// these constants ARE the projected field universes of the pre-migration fixtures,
+// captured 2026-07-23 from the shipped expansion (config-dto/content-schema at
+// 60972fc) — the exact values the OLD `projectedFieldUniverse(before)` returned. Each
+// migration MUST preserve its section's universe, so the test now asserts
+// `projectedFieldUniverse(<POST-migration content>)` (all real, catalog-known types —
+// still computed live) EQUALS the frozen pre-migration value. after == FROZEN == before
+// proves the same invariant WITHOUT re-expanding extinct pre-migration content.
+const PRE_REMOVAL_PROJECTED_UNIVERSE: Readonly<Record<number, readonly string[]>> = {
+  // M6 grids — the only universes whose PRE-migration computation needed grid expansion.
+  601: ["grade", "homeowner", "m6a_cont", "m6a_grid::grade", "m6a_grid::homeowner", "m6a_grid::married", "m6a_head", "m6a_prequal", "married", "prequal"],
+  602: ["insured", "m6b_grid::insured", "m6b_grid::owner", "owner"],
+  // M7 sliders / M9 address / M12 other-group — captured for uniformity (their pre-
+  // migration universes never needed grid expansion, but freezing keeps the whole
+  // suite off any pre-migration extinct-type projection).
+  701: ["age", "loan", "m7_c", "m7_n", "m7_r", "years"],
+  901: ["home_city", "home_zip", "m9_a1", "m9_a1_state", "m9_a1_street", "m9_a2", "m9_a2_city", "m9_a2_state", "m9_a2_street", "m9_a2_zip"],
+  1201: ["insurer", "m12c_ins"],
+  1202: ["color", "m12d_col"],
+};
+
+// The pre-migration RAW (as-authored) universe of section 601 — the grid node's own
+// node-id plus its rows' fields, exactly as the shipped collectKnownAnswerFields (with
+// its MultiQuestionGrid leg) reported it. Frozen for the same reason: post-§10 the raw
+// walk no longer expands a grid node's rows. Test (h) diffs THIS against the live
+// post-migration raw universe to prove the grid-node-id → per-row-id retirement.
+const PRE_REMOVAL_RAW_601: readonly string[] = ["grade", "homeowner", "m6a_cont", "m6a_grid", "m6a_head", "m6a_prequal", "married", "prequal"];
+
+// Assert a migrated section's LIVE projected universe (post-migration content is all
+// catalog-known types, so projectedFieldUniverse still computes it) equals the frozen
+// pre-migration universe — i.e. the migration preserved every answer field.
+function expectProjectedUniversePreserved(db: SqliteDb, id: number): void {
+  const expected = PRE_REMOVAL_PROJECTED_UNIVERSE[id];
+  if (expected === undefined) throw new Error(`no frozen pre-migration universe for section ${id}`);
+  expect(
+    projectedFieldUniverse(rawJson(db, id)),
+    `section ${id}: projected field universe must be preserved across its migration`,
+  ).toEqual([...expected]);
 }
 function runRawSql(db: SqliteDb, sql: string): void {
   (db["exec"] as (s: string) => void)(sql);
@@ -105,12 +151,25 @@ const M9 = migrationSpec("m9").file;
 const M12 = migrationSpec("m12").file;
 
 // ---------------------------------------------------------------------------
-// Fixtures are valid stored content BEFORE any migration (a migration's precondition).
+// Fixtures are the migration's real INPUT shapes. §10 note: a fixture carrying a
+// NOW-EXTINCT type (the grid / OtherGroupSelector / the Range pair) is LEGACY
+// stored content — the post-§10 validator rejects it with unknown_component_type
+// (that is exactly WHY the migration exists to retire it). The migration's
+// POST-condition (migrated output validates clean) is proven per migration below
+// via validateOk after applyMigrationFile.
 // ---------------------------------------------------------------------------
-describeDb("rework content migrations — fixtures are valid stored content", () => {
-  it("every golden fixture passes the REAL validateSectionContent before migration", () => {
+const EXTINCT_INPUT_SECTIONS = new Set([601, 602, 701, 1201]);
+describeDb("rework content migrations — fixtures are the migration's real input shapes", () => {
+  it("non-extinct fixtures validate clean; extinct-type fixtures fail with unknown_component_type (legacy content the migration retires)", () => {
     const db = freshDb();
-    for (const s of FIXTURE_SECTIONS) validateOk(db, s.id);
+    for (const s of FIXTURE_SECTIONS) {
+      const res = validateSectionContent(JSON.parse(rawJson(db, s.id)));
+      if (EXTINCT_INPUT_SECTIONS.has(s.id)) {
+        expect(res.errors.map((e) => e.code), `section ${s.id} (legacy extinct-type input)`).toContain("unknown_component_type");
+      } else {
+        expect(res.errors, `section ${s.id} must validate clean; errors: ${JSON.stringify(res.errors)}`).toEqual([]);
+      }
+    }
     db.close();
   });
 });
@@ -121,7 +180,6 @@ describeDb("rework content migrations — fixtures are valid stored content", ()
 describeDb("M6 — MultiQuestionGrid → independent components", () => {
   it("(a) mixed grid: Yes/No-override row → TwoButtonYesNo; inherited-choice rows → ButtonAnswerGroup; label/default/required/conditional carried; `<nodeQid>::<field>` ids preserved", () => {
     const db = freshDb();
-    const before = rawJson(db, 601);
     applyMigrationFile(db, M6);
 
     const ids = components(db, 601).map((c) => `${c.type} ${c.question_id}`);
@@ -156,13 +214,12 @@ describeDb("M6 — MultiQuestionGrid → independent components", () => {
     expect(married.conditional).toEqual({ when: "prequal", op: "eq", value: "yes" });
 
     validateOk(db, 601); // output still passes the REAL schema
-    fieldUniverseEmptyDiff(before, rawJson(db, 601)); // projected field universe preserved
+    expectProjectedUniversePreserved(db, 601); // projected field universe preserved (frozen)
     db.close();
   });
 
   it("(b) grid whose node choices are [Yes,No] and rows without overrides → all TwoButtonYesNo", () => {
     const db = freshDb();
-    const before = rawJson(db, 602);
     applyMigrationFile(db, M6);
     const comps = components(db, 602);
     expect(comps.map((c) => `${c.type} ${c.question_id}`)).toEqual([
@@ -170,15 +227,16 @@ describeDb("M6 — MultiQuestionGrid → independent components", () => {
       "TwoButtonYesNo m6b_grid::owner",
     ]);
     validateOk(db, 602);
-    fieldUniverseEmptyDiff(before, rawJson(db, 602));
+    expectProjectedUniversePreserved(db, 602);
     db.close();
   });
 
   it("(h) projected field-universe diff is empty and the raw diff is EXACTLY the grid-node-id → per-row-id retirement (no answer field lost)", () => {
     const db = freshDb();
-    const before601 = rawJson(db, 601);
     applyMigrationFile(db, M6);
-    const raw = diffSets(rawFieldUniverse(before601), rawFieldUniverse(rawJson(db, 601)));
+    // before = the frozen pre-migration raw universe (§10 removed the grid-row raw walk);
+    // after = the live post-migration raw universe (all real types).
+    const raw = diffSets(PRE_REMOVAL_RAW_601, rawFieldUniverse(rawJson(db, 601)));
     expect(raw.removed).toEqual(["m6a_grid"]); // the grid's own (non-producing) node id
     expect(raw.added).toEqual(["m6a_grid::grade", "m6a_grid::homeowner", "m6a_grid::married"]); // the projected ids answer-maps already key on
     db.close();
@@ -209,7 +267,6 @@ describeDb("M6 — MultiQuestionGrid → independent components", () => {
 describeDb("M7 — slider triplet → NumberRangeQuestion", () => {
   it("(e) Range + CurrencyRange + pre-existing NumberRange → all NumberRangeQuestion, answer_type 'number', slider_type 'single', currency_affix true/false/absent", () => {
     const db = freshDb();
-    const before = rawJson(db, 701);
     applyMigrationFile(db, M7);
 
     const range = byId(db, 701, "m7_r");
@@ -231,7 +288,7 @@ describeDb("M7 — slider triplet → NumberRangeQuestion", () => {
     expect("currency_affix" in (number.props as Record<string, unknown>)).toBe(false); // absent, not false
 
     validateOk(db, 701);
-    fieldUniverseEmptyDiff(before, rawJson(db, 701));
+    expectProjectedUniversePreserved(db, 701);
     db.close();
   });
 
@@ -251,7 +308,6 @@ describeDb("M7 — slider triplet → NumberRangeQuestion", () => {
 describeDb("M9 — explicit Address field set", () => {
   it("(f) address with and without maps.fills → explicit props.fields[]; maps.fills + node.required untouched; no per-field label/required", () => {
     const db = freshDb();
-    const before = rawJson(db, 901);
     applyMigrationFile(db, M9);
 
     const expected = [
@@ -273,7 +329,7 @@ describeDb("M9 — explicit Address field set", () => {
     expect((a2.props as Record<string, unknown>).fields).toEqual(expected);
 
     validateOk(db, 901);
-    fieldUniverseEmptyDiff(before, rawJson(db, 901));
+    expectProjectedUniversePreserved(db, 901);
     db.close();
   });
 
@@ -293,27 +349,25 @@ describeDb("M9 — explicit Address field set", () => {
 describeDb("M12 — OtherGroupSelector + choiceDisplay retirement", () => {
   it("(c) OtherGroupSelector with mainValues split → ButtonAnswerGroup with ALL choices as base; choiceDisplay stripped", () => {
     const db = freshDb();
-    const before = rawJson(db, 1201);
     applyMigrationFile(db, M12);
     const node = byId(db, 1201, "m12c_ins");
     expect(node.type).toBe("ButtonAnswerGroup");
     expect("choiceDisplay" in node).toBe(false);
     expect((node.choices as Array<{ value: string }>).map((c) => c.value)).toEqual(["sf", "geico", "other_co"]); // ALL choices base
     validateOk(db, 1201);
-    fieldUniverseEmptyDiff(before, rawJson(db, 1201));
+    expectProjectedUniversePreserved(db, 1201);
     db.close();
   });
 
   it("(d) a ButtonAnswerGroup carrying choiceDisplay → prop stripped, choices intact, type unchanged", () => {
     const db = freshDb();
-    const before = rawJson(db, 1202);
     applyMigrationFile(db, M12);
     const node = byId(db, 1202, "m12d_col");
     expect(node.type).toBe("ButtonAnswerGroup"); // unchanged
     expect("choiceDisplay" in node).toBe(false);
     expect((node.choices as Array<{ value: string }>).map((c) => c.value)).toEqual(["red", "blue"]); // intact
     validateOk(db, 1202);
-    fieldUniverseEmptyDiff(before, rawJson(db, 1202));
+    expectProjectedUniversePreserved(db, 1202);
     db.close();
   });
 
@@ -369,11 +423,11 @@ describeDb("cross-cutting invariants over the whole corpus", () => {
       // no nested targets in the corpus the two sets are equal.
       const nested = nestedTargetSections(db, spec);
       for (const id of affected) expect(nested).toContain(id);
-      const before = new Map(affected.map((id) => [id, { c: rawJson(db, id), m: answerMapCount(db, id) }]));
+      const beforeCounts = new Map(affected.map((id) => [id, answerMapCount(db, id)]));
       applyMigrationFile(db, file);
       for (const id of affected) {
-        fieldUniverseEmptyDiff(before.get(id)!.c, rawJson(db, id));
-        expect(answerMapCount(db, id)).toBe(before.get(id)!.m);
+        expectProjectedUniversePreserved(db, id); // live post-migration universe == frozen pre-migration
+        expect(answerMapCount(db, id)).toBe(beforeCounts.get(id)!);
         validateOk(db, id);
       }
       db.close();
@@ -418,7 +472,9 @@ describeDb("P2-3 — content_html cache invalidation on migrated rows", () => {
     runRawSql(db, deriveOldSqlWithoutHtmlInvalidation(M6)); // the BUG the review caught, reconstructed byte-for-byte from the shipped file
 
     const migratedComponents = components(db, 601);
-    expect(migratedComponents.some((c) => c.type === "MultiQuestionGrid")).toBe(false); // content_json DID move (the grid expanded)
+    // `type` is the (post-§10) ComponentType union that no longer includes the
+    // retired grid; String() the stored value to compare against the extinct id.
+    expect(migratedComponents.some((c) => String(c.type) === "MultiQuestionGrid")).toBe(false); // content_json DID move (the grid expanded)
     expect(contentHtml(db, 601)).toBe(staleHtml); // ...but content_html is UNCHANGED — the exact staleness P2-3 flagged
     db.close();
   });

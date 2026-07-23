@@ -32,14 +32,7 @@ import type { FunnelDesign } from "./designs/registry";
 import type { EffectiveFunnelDesign } from "./designs/theme";
 import type { LeadgenAssignmentReason } from "./ab-hash";
 import { sha256Hex } from "./auction/parse";
-// B9 (fix-contract v2.4 06 §6.4): the DTO and the server renderer share ONE
-// normalizing choiceDisplay reader so /lg/config metadata and the rendered
-// Other-group markup can never disagree (09 §9.1 parity by construction).
-import {
-  readChoiceDisplay,
-  type LeadgenChoiceDisplay,
-  type LeadgenSectionDesignOverrides,
-} from "./components/presets";
+import { type LeadgenSectionDesignOverrides } from "./components/presets";
 // §8.5 layout containers: the config projects the canonical FLATTENED
 // component list — containers are a server-side rendering concern and never
 // appear in /lg/config (the client engine keeps consuming a flat list; the
@@ -48,9 +41,6 @@ import {
 import {
   flattenComponents,
   resolveDateBound,
-  readMultiQuestionRows,
-  multiQuestionRowChoices,
-  multiQuestionRowQuestionId,
   isPhoneTypedComponent,
   parsePhoneMaskPattern,
 } from "./components/content-schema";
@@ -85,10 +75,6 @@ export interface PublicSectionComponent {
   conditional?: LeadgenComponentConditional;
   design_preset?: string;
   design_overrides?: LeadgenDesignOverrides;
-  // B9 (06 §6.4) Other-group display metadata — ADDITIVE passthrough, present
-  // only when the content_json node carries it (normalized through the shared
-  // readChoiceDisplay projection; unknown keys inside it are dropped).
-  choiceDisplay?: LeadgenChoiceDisplay;
   props: Record<string, unknown>;
   client_validation?: Record<string, unknown>;
   default_answer?: { value: unknown; answer_source: "default_applied" };
@@ -469,11 +455,6 @@ export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComp
   if (node.design_preset !== undefined) component.design_preset = node.design_preset;
   if (node.design_overrides !== undefined) component.design_overrides = node.design_overrides;
 
-  // B9 (06 §6.4): additive choiceDisplay passthrough — only when the node
-  // carries it, normalized through the SAME reader the server renderer uses.
-  const choiceDisplay = readChoiceDisplay(node);
-  if (choiceDisplay !== undefined) component.choiceDisplay = choiceDisplay;
-
   const clientValidation = buildClientValidation(node, isoToday());
   if (clientValidation !== undefined) component.client_validation = clientValidation;
 
@@ -485,45 +466,14 @@ export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComp
   return component;
 }
 
-// P5 (PC-10): a MultiQuestionGrid node projects into ONE synthetic single-field
-// choice component PER ROW — each carrying the row's internal_field, effective
-// pill set, optional required, and (crucially) the row's `default` as
-// `default_answer`. The runtime then seeds + paints + records + validates every
-// row through its EXISTING per-component machinery (applySectionDefaults /
-// enterSection / handleChoiceActivation / validateSection) with ZERO new engine
-// bytes — the rows ARE standard answer fields. presets.ts stamps the SAME
-// per-row question_id (multiQuestionRowQuestionId) on each row's
-// [data-lg-question] wrapper, so #lg-config and the DOM always agree. The parent
-// grid node itself projects to NOTHING (it carries no single answer). A
-// whole-grid `conditional` copies onto every row so they show/hide together
-// (row-level conditionals are not a v1 feature). Every other node projects 1:1
-// through toPublicComponent, so non-grid content is byte-identical.
+// Rework §10 / M6: the MultiQuestionGrid 1→N row expansion is REMOVED (the grid
+// type is retired; migration M6 rewrites stored grids to independent components,
+// which project 1:1). This is now a 1:1 projection seam kept as a named function
+// because many call sites flatMap over it (sections/quotes/runtime-routes/resolver
+// + the /lg/config builder); every node projects through toPublicComponent, so
+// the projected component list is byte-identical to the migrated content.
 export function expandPublicComponents(node: LeadgenComponentNode): PublicSectionComponent[] {
-  if (node.type !== "MultiQuestionGrid") return [toPublicComponent(node)];
-  return readMultiQuestionRows(node).map((row) => {
-    const choices = multiQuestionRowChoices(node, row);
-    const component: PublicSectionComponent = {
-      type: node.type,
-      question_id: multiQuestionRowQuestionId(node.question_id, row.internal_field),
-      internal_field: row.internal_field,
-      answer_type: "enum",
-      choices,
-      props: {},
-    };
-    if (row.required === true) {
-      component.required = true;
-      component.client_validation = { required: true };
-    }
-    // Enum domain = the row's pill values (membership parity with the other
-    // choice questions' valid_values leg).
-    const values = choices.map((c) => c.value).filter((v) => v !== undefined && v !== null);
-    if (values.length > 0) component.valid_values = values;
-    if (node.conditional !== undefined) component.conditional = node.conditional;
-    if (row.default !== undefined) {
-      component.default_answer = { value: row.default, answer_source: "default_applied" };
-    }
-    return component;
-  });
+  return [toPublicComponent(node)];
 }
 
 // The chunk ceiling for IN(?) lists — D1's 100-binding-per-statement limit,
@@ -606,9 +556,8 @@ export function buildPublicConfig(
     // §8.5: flatten-then-project. For flat legacy content flattenComponents is
     // the identity, so the projected shape is byte-identical to pre-§8.5; for
     // nested content the config lists every LEAF (questions/chrome/affordances
-    // in depth-first render order) and no container node.
-    // P5 (PC-10): flatMap so a MultiQuestionGrid expands to its per-row
-    // synthetic components (expandPublicComponents); every other node is 1:1.
+    // in depth-first render order) and no container node. expandPublicComponents
+    // is a 1:1 projection (§10/M6 retired the grid's per-row expansion).
     const components = flattenComponents(parseSectionComponents(rs.section.content_json)).flatMap(
       expandPublicComponents,
     );

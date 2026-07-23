@@ -1,28 +1,36 @@
 // LeadGen Round-4 P4a (D-2, operator decision, reference-faithful funnel
 // routing) — contract-delta coverage over REAL sqlite (node:sqlite harness,
-// the leadgen-runtime-api.test.ts / leadgen-p3a-pages.test.ts pattern):
-//   * pure routing-model functions (resolver.ts): entry-known field
-//     classification (utm_campaign alias), priority ordering, entry-only vs
-//     checkpoint-plane partitioning, auto-CHECKPOINT derivation (answer-field
-//     page mapping) incl. entry-only rules producing NO checkpoint page,
-//     save-time conflict flagging, the prefix-rule resume computation;
-//   * DB-integration: entry routing precedence over §16 A/B (a RUNNING test
-//     that would otherwise bucket a visitor elsewhere is bypassed by a
-//     matched entry rule);
-//   * the full /lg/ck HTTP endpoint: a matched switch (re-issued
-//     binding + target plan + resume), a non-match (zero effects), the ≤1-hop
-//     guard (a second checkpoint POST on the same attempt after a switch is
-//     refused), and binding validation (a forged/tampered signed_config_token
-//     is rejected 422 with ZERO effects — no outcome row written, no rule
-//     evaluated);
-//   * §19-step-4 plane reconciliation: a target variant's OWN non-routing
-//     leadgen_funnel_rules are a DISTINCT set from the origin's, keyed by
-//     whichever funnel_variant_id resolveActivatedFunnelByVariant resolves —
-//     proving the (untouched) /lg/auction pipeline naturally evaluates the
-//     TARGET's rules once the engine re-points funnel_variant_id post-switch;
+// the leadgen-runtime-api.test.ts / leadgen-p3a-pages.test.ts pattern).
+//
+// STALE HEADER NOTICE (§10/S5.1): this header originally described a much
+// wider scope — the full /lg/ck HTTP endpoint, §19-step-4 plane
+// reconciliation, and DB-integration entry-routing-vs-A/B precedence, ALL over
+// the FIRST-generation per-VARIANT `route_funnel_variant` routing model. Those
+// ~31 tests were ALREADY removed in an earlier conductor-consolidated round
+// (see the in-file note below, "REMOVED (conductor-consolidated test-repair
+// round, S1.6 bug-class)") once contract §5-M3/§4.3 replaced per-variant
+// routing with quote-scoped multi-action routing (leadgen_quote_routing_rules)
+// — full replacement coverage lives in test/leadgen-rework-routing.test.ts's
+// R-01..R-15 suite. THIS phase went one step further: the pure resolver.ts
+// functions that earlier round called "unaffected, remain green"
+// (evaluateEntryRouting/evaluateCheckpointRouting/deriveCheckpointPages/
+// detectRoutingRuleConflicts/parseRoutingRule/ROUTING_ENTRY_KNOWN_FIELDS) were
+// proven to ALSO have zero live production callers (their sole producer,
+// loadRoutingRules, itself had zero callers) and were deleted from resolver.ts
+// entirely — see the corresponding test removals below. What ACTUALLY remains
+// covered in this file today:
+//   * pure routing-model functions (resolver.ts) still LIVE: checkpointPageAnchors
+//     (mintFunnelAttempt, /lg/attempt + /lg/ck), the prefix-rule resume
+//     computation (computeResumeSection, /lg/ck);
 //   * the S2S value_multiplier graft (s2s-dispatch.ts): a recorded routing
 //     outcome's multiplier REPLACES the platform base (no stacking); no
-//     outcome (or a NULL recorded multiplier) falls back to the base.
+//     outcome (or a NULL recorded multiplier) falls back to the base — over
+//     leadgen_routing_outcomes directly, a table both routing generations write;
+//   * redirect_pct pure helpers (funnel.ts) backing the surviving
+//     redirect_direct_offer rule type; buildFrameCtaCtx/computeCtaVerdict
+//     (runtime-routes.ts's /lg/ck handler); rule status/enabled coherence and
+//     0043 migration-replay byte-fidelity reviews, both exercised over the
+//     four SURVIVING auction-domain rule types.
 
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -34,20 +42,13 @@ import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
 import { redirectPctBucket, shouldRedirectForSession } from "../src/leadgen/funnel";
 import {
-  ROUTING_ENTRY_KNOWN_FIELDS,
-  parseRoutingRule,
-  evaluateEntryRouting,
-  evaluateCheckpointRouting,
-  deriveCheckpointPages,
   checkpointPageAnchors,
-  detectRoutingRuleConflicts,
   computeResumeSection,
   resolveActivatedFunnel,
   resolveActivatedFunnelByVariant,
   resolveEffectiveFrameOnly,
   buildFrameCtaCtx,
   computeCtaVerdict,
-  type RoutingRuleRow,
   type EntryKnownContext,
   type ResolvedFunnelPage,
   type ResolvedPagePlanEntry,
@@ -332,13 +333,29 @@ async function get(env: Env, path: string): Promise<Response> {
 // no honest re-expression here. Full replacement coverage (first-match-wins,
 // entry/checkpoint/in-funnel planes, sticky outcomes, S2S multiplier graft
 // via the new table, OS/feed conditions, etc.) lives in
-// test/leadgen-rework-routing.test.ts's R-01..R-15 suite. The pure-function
-// tests above this line (field registry/rule parsing, evaluateEntryRouting,
-// evaluateCheckpointRouting, deriveCheckpointPages, detectRoutingRuleConflicts,
-// computeResumeSection, redirect_pct pure helpers, buildFrameCtaCtx,
-// computeCtaVerdict) test evaluator/helper functions that are unaffected by
-// the routing-target axis change and remain green. The S2S value_multiplier
-// graft (resolveRoutingMultiplier/dispatchMatchedConversionS2S over
+// test/leadgen-rework-routing.test.ts's R-01..R-15 suite.
+//
+// §10/S5.1 ADDENDUM — a SECOND, deeper retirement: this note originally said
+// "the pure-function tests above this line (field registry/rule parsing,
+// evaluateEntryRouting, evaluateCheckpointRouting, deriveCheckpointPages,
+// detectRoutingRuleConflicts, computeResumeSection, ...) test evaluator/helper
+// functions that are unaffected by the routing-target axis change and remain
+// green." That was true at the time (the functions still existed, correctly,
+// as pure code) but NOT the same claim as "still reachable from production."
+// This phase proved the opposite for five of them: `evaluateEntryRouting`,
+// `evaluateCheckpointRouting`, `deriveCheckpointPages`, `parseRoutingRule`, and
+// `ROUTING_ENTRY_KNOWN_FIELDS` had ZERO live callers ANYWHERE (their sole
+// producer, `loadRoutingRules`, itself had zero callers — proven by exhaustive
+// grep, not assumed), and `detectRoutingRuleConflicts`'s sole caller
+// (quotes-handlers.ts's computeRoutingRuleConflictProblems) pre-filtered on
+// `rule_type === 'route_funnel_variant'`, a value the tightened schema (0048)
+// can never produce again — a permanently unreachable, always-empty branch.
+// All six were DELETED from resolver.ts/quotes-handlers.ts; their describe
+// blocks here are retired accordingly (see the header note at the top of this
+// file). `computeResumeSection` and `checkpointPageAnchors` are NOT part of
+// this retirement — both are genuinely LIVE (the /lg/ck handler) and keep
+// their own coverage below. The S2S value_multiplier graft
+// (resolveRoutingMultiplier/dispatchMatchedConversionS2S over
 // leadgen_routing_outcomes directly) and reviews minor-4/minor-6 (rule
 // status/enabled coherence and 0043 migration-replay byte-fidelity, both
 // exercised over the four SURVIVING rule types) test mechanisms the rework
@@ -351,190 +368,6 @@ const BASE_CTX: EntryKnownContext = { hour: 12, weekday: 3 };
 // ===========================================================================
 // Pure routing-model functions (resolver.ts) — no DB
 // ===========================================================================
-
-describe("P4a field registry + rule parsing (pure)", () => {
-  it("ROUTING_ENTRY_KNOWN_FIELDS carries the closed entry-known set incl. the utm_campaign alias", () => {
-    expect([...ROUTING_ENTRY_KNOWN_FIELDS].sort()).toEqual(
-      ["device", "hour", "state", "utm_campaign", "utm_content", "utm_medium", "utm_source", "weekday"].sort(),
-    );
-    expect(ROUTING_ENTRY_KNOWN_FIELDS.has("age")).toBe(false); // an answer field, not entry-known
-  });
-
-  function row(overrides: Partial<RoutingRuleRow> = {}): RoutingRuleRow {
-    return {
-      public_id: "lgfr_x",
-      variant_id: 1,
-      conditions_json: JSON.stringify({ groups: [] }),
-      conditions_hash: "h",
-      target_funnel_variant_id: 2,
-      value_multiplier: null,
-      priority: 100,
-      status: "active",
-      ...overrides,
-    };
-  }
-
-  it("a rule whose conditions reference ONLY entry-known fields parses entry_only=true", () => {
-    const r = parseRoutingRule(row({ conditions_json: JSON.stringify({ groups: [{ field: "utm_source", op: "eq", value: "facebook" }] }) }));
-    expect(r.entry_only).toBe(true);
-  });
-
-  it("a rule referencing an answer field (e.g. age) parses entry_only=false", () => {
-    const r = parseRoutingRule(row({ conditions_json: JSON.stringify({ groups: [{ field: "age", op: "gte", value: 65 }] }) }));
-    expect(r.entry_only).toBe(false);
-  });
-
-  it("a rule with NO conditions (catch-all) parses entry_only=true", () => {
-    const r = parseRoutingRule(row({ conditions_json: JSON.stringify({ groups: [] }) }));
-    expect(r.entry_only).toBe(true);
-  });
-
-  it("a corrupt conditions_json blob degrades to an empty catch-all (D1 JSON-parse safety) — never throws", () => {
-    const r = parseRoutingRule(row({ conditions_json: "{not json" }));
-    expect(r.conditions.groups).toEqual([]);
-    expect(r.entry_only).toBe(true);
-  });
-});
-
-describe("P4a evaluateEntryRouting (pure)", () => {
-  it("priority ordering: TWO matching rules, the LOWER priority number (higher precedence) wins", () => {
-    const low = parseRoutingRule({
-      public_id: "r_low", variant_id: 1, conditions_json: JSON.stringify({ groups: [] }), conditions_hash: "hlow",
-      target_funnel_variant_id: 10, value_multiplier: null, priority: 5, status: "active",
-    });
-    const high = parseRoutingRule({
-      public_id: "r_high", variant_id: 1, conditions_json: JSON.stringify({ groups: [] }), conditions_hash: "hhigh",
-      target_funnel_variant_id: 20, value_multiplier: null, priority: 50, status: "active",
-    });
-    // loadRoutingRules ORDER BY priority ASC — simulate that ordering here.
-    const match = evaluateEntryRouting([low, high], BASE_CTX);
-    expect(match?.target_funnel_variant_id).toBe(10);
-    expect(match?.hash).toBe("hlow");
-    // Reversed input order — priority (not array order) must still decide.
-    const match2 = evaluateEntryRouting([high, low], BASE_CTX);
-    expect(match2?.target_funnel_variant_id).toBe(10);
-  });
-
-  it("no matching rule -> null (falls through to normal §16 A/B)", () => {
-    const rule = parseRoutingRule({
-      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }] }),
-      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 10, status: "active",
-    });
-    expect(evaluateEntryRouting([rule], { ...BASE_CTX, state: "NY" })).toBeNull();
-  });
-
-  it("a rule with a NULL target can never route (skipped even if its conditions match)", () => {
-    const rule = parseRoutingRule({
-      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [] }), conditions_hash: "h1",
-      target_funnel_variant_id: null, value_multiplier: null, priority: 1, status: "active",
-    });
-    expect(evaluateEntryRouting([rule], BASE_CTX)).toBeNull();
-  });
-
-  it("a CHECKPOINT-plane rule (answer field) never matches at the entry plane", () => {
-    const rule = parseRoutingRule({
-      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "age", op: "gte", value: 65 }] }),
-      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
-    });
-    expect(evaluateEntryRouting([rule], BASE_CTX)).toBeNull();
-  });
-
-  it("utm_campaign is a documented alias of utm_content — a rule authored on either name matches the SAME parsed value", () => {
-    const onCampaign = parseRoutingRule({
-      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "utm_campaign", op: "eq", value: "spring" }] }),
-      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
-    });
-    expect(evaluateEntryRouting([onCampaign], { ...BASE_CTX, utm_content: "spring" })?.target_funnel_variant_id).toBe(10);
-  });
-
-  // match_mode ANY/ALL (fix round: P4b persists match_mode but nothing read
-  // it — an operator's ANY choice silently behaved as ALL on the money path).
-  // TWO distinct-field groups (state, device); a context satisfying only ONE.
-  it("match_mode='all' (default/unset): a context satisfying only ONE of TWO field groups does NOT match (AND across fields, unchanged)", () => {
-    const twoFieldRule = parseRoutingRule({
-      public_id: "r1", variant_id: 1,
-      conditions_json: JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }, { field: "device", op: "eq", value: "mobile" }] }),
-      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
-      // match_mode omitted entirely — the RoutingRuleRow shape a bare INSERT
-      // without the column produces (or a corrupt/legacy value) must behave
-      // EXACTLY like "all", never silently becoming ANY.
-    });
-    expect(evaluateEntryRouting([twoFieldRule], { ...BASE_CTX, state: "CA", device: "desktop" })).toBeNull();
-    expect(evaluateEntryRouting([twoFieldRule], { ...BASE_CTX, state: "NY", device: "mobile" })).toBeNull();
-    expect(evaluateEntryRouting([twoFieldRule], { ...BASE_CTX, state: "CA", device: "mobile" })?.target_funnel_variant_id).toBe(10);
-  });
-
-  it("match_mode='any': a context satisfying EITHER ONE of TWO field groups matches (OR across fields) — routes ONLY because of the fix", () => {
-    const anyRule = parseRoutingRule({
-      public_id: "r1", variant_id: 1,
-      conditions_json: JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }, { field: "device", op: "eq", value: "mobile" }] }),
-      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active", match_mode: "any",
-    });
-    // state matches, device does not — under match_mode='all' this would be
-    // null (proved above); under 'any' it routes.
-    expect(evaluateEntryRouting([anyRule], { ...BASE_CTX, state: "CA", device: "desktop" })?.target_funnel_variant_id).toBe(10);
-    // device matches, state does not — the OTHER field alone is sufficient.
-    expect(evaluateEntryRouting([anyRule], { ...BASE_CTX, state: "NY", device: "mobile" })?.target_funnel_variant_id).toBe(10);
-    // NEITHER matches — ANY still requires at least one.
-    expect(evaluateEntryRouting([anyRule], { ...BASE_CTX, state: "NY", device: "desktop" })).toBeNull();
-  });
-});
-
-describe("P4a evaluateCheckpointRouting (pure)", () => {
-  it("matches over answers UNION entry ctx (an AND across an entry field + an answer field)", () => {
-    const rule = parseRoutingRule({
-      public_id: "r1", variant_id: 1,
-      conditions_json: JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }, { field: "age", op: "gte", value: 65 }] }),
-      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: 2.5, priority: 1, status: "active",
-    });
-    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "CA" }, { age: 70 })?.target_funnel_variant_id).toBe(10);
-    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "NY" }, { age: 70 })).toBeNull(); // entry field fails
-    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "CA" }, { age: 10 })).toBeNull(); // answer field fails
-  });
-
-  it("an ENTRY-only rule never matches at the checkpoint plane (planes are disjoint)", () => {
-    const rule = parseRoutingRule({
-      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "utm_source", op: "eq", value: "fb" }] }),
-      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
-    });
-    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, utm_source: "fb" }, {})).toBeNull();
-  });
-
-  it("value_multiplier rides the match (single value, no stacking at the evaluator level)", () => {
-    const rule = parseRoutingRule({
-      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "age", op: "gte", value: 65 }] }),
-      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: 3, priority: 1, status: "active",
-    });
-    expect(evaluateCheckpointRouting([rule], BASE_CTX, { age: 70 })?.value_multiplier).toBe(3);
-  });
-
-  // match_mode ANY/ALL at the CHECKPOINT plane (an entry field UNION an
-  // answer field — proves the fix applies across BOTH planes, not just entry).
-  it("match_mode='all' (default/unset) at checkpoint: satisfying only ONE of {state, age} does NOT match", () => {
-    const rule = parseRoutingRule({
-      public_id: "r1", variant_id: 1,
-      conditions_json: JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }, { field: "age", op: "gte", value: 65 }] }),
-      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
-    });
-    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "CA" }, { age: 10 })).toBeNull();
-    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "NY" }, { age: 70 })).toBeNull();
-    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "CA" }, { age: 70 })?.target_funnel_variant_id).toBe(10);
-  });
-
-  it("match_mode='any' at checkpoint: satisfying EITHER ONE of {state, age} matches — routes ONLY because of the fix", () => {
-    const rule = parseRoutingRule({
-      public_id: "r1", variant_id: 1,
-      conditions_json: JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }, { field: "age", op: "gte", value: 65 }] }),
-      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active", match_mode: "any",
-    });
-    // state matches, age does not (proved null under 'all' above).
-    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "CA" }, { age: 10 })?.target_funnel_variant_id).toBe(10);
-    // age matches, state does not.
-    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "NY" }, { age: 70 })?.target_funnel_variant_id).toBe(10);
-    // neither matches.
-    expect(evaluateCheckpointRouting([rule], { ...BASE_CTX, state: "NY" }, { age: 10 })).toBeNull();
-  });
-});
 
 // A minimal 3-page ResolvedFunnelPage fixture (age question on page 0, a
 // middle marker on page 1, a final section on page 2) for the checkpoint-page
@@ -551,103 +384,31 @@ function threePageFixture(): { pages: ResolvedFunnelPage[]; ids: { age: string; 
   return { pages, ids: { age: "lgs_age", mid: "lgs_mid", fin: "lgs_fin" } };
 }
 
-describe("P4a deriveCheckpointPages + checkpointPageAnchors (pure, answer-field page mapping)", () => {
-  it("a rule on `age` derives to page 0 (where `age` is answered) — anchor is lgs_age", () => {
-    const { pages } = threePageFixture();
-    const rule = parseRoutingRule({
-      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "age", op: "gte", value: 65 }] }),
-      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
-    });
-    const pageNumbers = deriveCheckpointPages(pages, [rule]);
-    expect(pageNumbers).toEqual([0]);
+// §10/S5.1: this used to be TWO describe blocks — "P4a deriveCheckpointPages +
+// checkpointPageAnchors (pure, answer-field page mapping)" and "P4a
+// detectRoutingRuleConflicts (pure, save-time Problems mechanism)". Both
+// `deriveCheckpointPages`/`parseRoutingRule` (the fixture-construction this
+// block's tests all shared) and `detectRoutingRuleConflicts` were REMOVED from
+// resolver.ts — proven zero live callers: `deriveCheckpointPages` was replaced
+// by `deriveQuoteCheckpointPages` (attempt.ts), and `detectRoutingRuleConflicts`'s
+// sole caller (quotes-handlers.ts's computeRoutingRuleConflictProblems, also
+// removed) pre-filtered on `rule_type === 'route_funnel_variant'`, a value the
+// schema can no longer produce (migration 0048's CHECK) — a permanently
+// unreachable, always-empty branch. `checkpointPageAnchors` itself is LIVE
+// (mintFunnelAttempt, /lg/attempt + /lg/ck) and survives with its own minimal,
+// self-contained pure test below (no longer riding the retired fixture chain).
+describe("P4a checkpointPageAnchors (pure — converts checkpoint page numbers to their anchor section_public_id)", () => {
+  it("maps page numbers to each page's first (anchor) section_public_id, skipping an out-of-range index", () => {
     const planPages: ResolvedPagePlanEntry[] = [
       { page_id: "lgpg_0", section_public_ids: ["lgs_age"] },
-      { page_id: "lgpg_1", section_public_ids: ["lgs_mid"] },
+      { page_id: "lgpg_1", section_public_ids: ["lgs_mid", "lgs_mid_b"] },
       { page_id: "lgpg_2", section_public_ids: ["lgs_fin"] },
     ];
-    expect(checkpointPageAnchors(pageNumbers, planPages)).toEqual(["lgs_age"]);
-  });
-
-  it("a rule on `mid_field` derives to page 1 (a LATER page than a rule on `age`)", () => {
-    const { pages } = threePageFixture();
-    const rule = parseRoutingRule({
-      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "mid_field", op: "eq", value: true }] }),
-      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
-    });
-    expect(deriveCheckpointPages(pages, [rule])).toEqual([1]);
-  });
-
-  it("an ENTRY-only rule contributes NO checkpoint page (it's evaluated at entry, not mid-funnel)", () => {
-    const { pages } = threePageFixture();
-    const rule = parseRoutingRule({
-      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }] }),
-      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
-    });
-    expect(deriveCheckpointPages(pages, [rule])).toEqual([]);
-  });
-
-  it("TWO checkpoint rules on DIFFERENT pages produce a DISTINCT, sorted set of pages", () => {
-    const { pages } = threePageFixture();
-    const onAge = parseRoutingRule({
-      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "age", op: "gte", value: 65 }] }),
-      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
-    });
-    const onMid = parseRoutingRule({
-      public_id: "r2", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "mid_field", op: "eq", value: true }] }),
-      conditions_hash: "h2", target_funnel_variant_id: 20, value_multiplier: null, priority: 1, status: "active",
-    });
-    expect(deriveCheckpointPages(pages, [onAge, onMid])).toEqual([0, 1]);
-  });
-
-  it("a rule referencing an answer field NOT present on any page falls back to the LAST page (never unevaluated)", () => {
-    const { pages } = threePageFixture();
-    const rule = parseRoutingRule({
-      public_id: "r1", variant_id: 1, conditions_json: JSON.stringify({ groups: [{ field: "no_such_field", op: "eq", value: 1 }] }),
-      conditions_hash: "h1", target_funnel_variant_id: 10, value_multiplier: null, priority: 1, status: "active",
-    });
-    expect(deriveCheckpointPages(pages, [rule])).toEqual([2]);
-  });
-
-  it("no checkpoint-plane rules at all -> empty (the common, non-routing-funnel case)", () => {
-    const { pages } = threePageFixture();
-    expect(deriveCheckpointPages(pages, [])).toEqual([]);
-  });
-});
-
-describe("P4a detectRoutingRuleConflicts (pure, save-time Problems mechanism)", () => {
-  it("SAME priority + SAME checkpoint (both entry) + OVERLAPPING fields -> a plain-language conflict message", () => {
-    const msgs = detectRoutingRuleConflicts([
-      { rule_name: "Facebook route", checkpoint_page: null, priority: 10, fields: ["utm_source"] },
-      { rule_name: "Google route", checkpoint_page: null, priority: 10, fields: ["utm_source", "state"] },
-    ]);
-    expect(msgs).toHaveLength(1);
-    expect(msgs[0]).toContain("Facebook route");
-    expect(msgs[0]).toContain("Google route");
-    expect(msgs[0]?.toLowerCase()).not.toMatch(/error|exception|null|undefined/); // jargon-free
-  });
-
-  it("a DISTINCT priority resolves the order deterministically -> NO conflict", () => {
-    const msgs = detectRoutingRuleConflicts([
-      { rule_name: "A", checkpoint_page: null, priority: 1, fields: ["utm_source"] },
-      { rule_name: "B", checkpoint_page: null, priority: 2, fields: ["utm_source"] },
-    ]);
-    expect(msgs).toHaveLength(0);
-  });
-
-  it("the SAME priority at DIFFERENT checkpoints never race (different evaluation points) -> NO conflict", () => {
-    const msgs = detectRoutingRuleConflicts([
-      { rule_name: "A", checkpoint_page: 0, priority: 5, fields: ["age"] },
-      { rule_name: "B", checkpoint_page: 1, priority: 5, fields: ["age"] },
-    ]);
-    expect(msgs).toHaveLength(0);
-  });
-
-  it("the SAME priority + checkpoint but NO overlapping fields -> NO conflict", () => {
-    const msgs = detectRoutingRuleConflicts([
-      { rule_name: "A", checkpoint_page: 0, priority: 5, fields: ["age"] },
-      { rule_name: "B", checkpoint_page: 0, priority: 5, fields: ["homeowner"] },
-    ]);
-    expect(msgs).toHaveLength(0);
+    expect(checkpointPageAnchors([0], planPages)).toEqual(["lgs_age"]);
+    expect(checkpointPageAnchors([1], planPages)).toEqual(["lgs_mid"]); // the FIRST (anchor) section only
+    expect(checkpointPageAnchors([0, 2], planPages)).toEqual(["lgs_age", "lgs_fin"]);
+    expect(checkpointPageAnchors([99], planPages)).toEqual([]); // out-of-range index defensively skipped
+    expect(checkpointPageAnchors([], planPages)).toEqual([]);
   });
 });
 

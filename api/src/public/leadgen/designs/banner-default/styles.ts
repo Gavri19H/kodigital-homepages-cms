@@ -16,7 +16,9 @@ import type { BannerDefaultDesign } from "./tokens";
 // tokens → scoped banner chrome CSS
 // ---------------------------------------------------------------------------
 
-export const BANNER_DESIGN_SCOPE_ATTR = "data-banner-design";
+// §10/S5.1: BANNER_DESIGN_SCOPE_ATTR deleted — 0 references anywhere (P5
+// orphan-scan tier-1 GATING); DEFAULT_BANNER_SCOPE below inlines the same
+// "data-banner-design" attribute name literally and is the live consumer.
 export const DEFAULT_BANNER_SCOPE = '[data-banner-design="banner-default"]';
 
 function decls(pairs: Record<string, string>): string {

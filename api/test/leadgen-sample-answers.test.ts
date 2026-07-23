@@ -317,7 +317,7 @@ function linkSectionWithComponents(h: Harness): void {
       { type: "ZIPInputQuestion", question_id: "q-zip", internal_field: "zip" },
       { type: "EmailInputQuestion", question_id: "q-email", internal_field: "email" },
       { type: "PhoneInputQuestion", question_id: "q-phone", internal_field: "phone" },
-      { type: "RangeQuestion", question_id: "q-age", internal_field: "age", props: { min: 18, max: 99 } },
+      { type: "NumberRangeQuestion", question_id: "q-age", internal_field: "age", props: { min: 18, max: 99 } },
     ],
   };
   h.sdb

@@ -160,6 +160,52 @@ export interface PatternScaffold {
   variantPublicId: string;
 }
 
+// LEADGEN-REWORK-03 S5.2 follow-up (§4.3-1/§4.3-15): activation now requires
+// the quote's OWN shared first page to carry ≥1 section, distinct from any
+// section already placed on a variant (§4.3-13 uniqueness) — the SAME
+// "trivial shared page" precedent already established in
+// leadgen-fix-p1-seed.ts (a bare ContinueButton, no real question — the
+// shared page's ONLY job here is satisfying the activation precondition,
+// never testing shared-page authoring itself) and leadgen-b-seed.ts (POST
+// /quotes/:id/shared-page with one freshly-created section). Every
+// seedPatternQuote call gets its OWN shared section (unique per quote, no
+// cross-quote reuse) so activateQuoteOnSite stops 409ing on
+// "activation.shared_page: needs at least one section" — confirmed live
+// this phase (reproduced + root-caused: this precondition post-dates the
+// pre-rework version of this helper, which never needed it).
+async function seedTrivialSharedPage(
+  request: APIRequestContext,
+  quotePublicId: string,
+  opts: { activity: string; vertical: string; uniq: string },
+): Promise<void> {
+  // The shared-page section's activity/vertical MUST match the quote's own
+  // (validateSection rejects a mismatch — confirmed live this phase: a
+  // hardcoded "quote_funnel"/"life" 400'd against every pattern's own
+  // per-file ACT/VERT values).
+  const shared = await json<{ id: number; public_id: string }>(
+    await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: `E1 shared ${opts.uniq}`,
+        activity: opts.activity,
+        vertical: opts.vertical,
+        headline_text: "Continue",
+        continue_mode: "button",
+        status: "active",
+        content_json: {
+          components: [{ type: "ContinueButton", question_id: "shared_continue", props: { label: "Continue" } }],
+        },
+      },
+    }),
+    "e1 shared page section create",
+  );
+  await json(
+    await request.post(`${LG_API}/quotes/${quotePublicId}/shared-page`, {
+      data: { sections: [{ section_id: shared.id }] },
+    }),
+    "e1 shared page create",
+  );
+}
+
 export async function seedPatternQuote(
   request: APIRequestContext,
   opts: {
@@ -194,6 +240,14 @@ export async function seedPatternQuote(
     }),
     `e1 bootstrap frame (${opts.name})`,
   );
+  // A per-quote-unique shared-section name derives from the quote's own
+  // public_id (always unique) rather than threading a new "uniq" parameter
+  // through every existing call site.
+  await seedTrivialSharedPage(request, quote.public_id, {
+    activity: opts.activity,
+    vertical: opts.vertical,
+    uniq: quote.public_id,
+  });
   return { quotePublicId: quote.public_id, funnelPublicId, variantPublicId };
 }
 

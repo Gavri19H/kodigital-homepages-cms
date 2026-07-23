@@ -469,8 +469,6 @@ interface Studio {
   registry: Map<string, FakeNode>;
   root: FakeNode;
   calls: CapturedCall[];
-  issued: Array<{ url: string; body: string }>; // fetch ISSUANCE order (calls[] records completion order)
-  setResponseDelay: (fn: ((url: string, init?: RequestInit) => number) | null) => void;
   windowObj: Record<string, unknown>;
   probe: IslandProbe;
   settle: () => Promise<void>;
@@ -548,16 +546,17 @@ async function bootStudio(env: Env, html: string, opts: { rulesIsland?: boolean 
   // collectPayload's null-guards exist to prevent in production.
   // NOTE: lg-preview-iframe/lg-canvas-toolbar/lg-inspector-column are
   // DELIBERATELY NOT added here even though they are ALSO gone from the
-  // real page — several OTHER seams in this file (FIX 9 stale-preview, the
-  // Phase D lazy stepper, DEV-66 mobile toggle, E4 click-delegation) drive
-  // the island's OWN canvas-interaction FUNCTIONS in isolation via this
-  // executed-VM harness and depend on a fake node existing at those ids to
-  // observe the island's writes (srcdoc, aria-pressed, etc.) — those
-  // functions are unreachable dead code in a real browser today (no canvas
-  // DOM to click into) but their INTERNAL LOGIC is still real, tested code;
-  // nullifying those three ids broke those OTHER tests when tried (verified
-  // by running with them included, then reverting) and is out of this
-  // repair's scope.
+  // real page — several OTHER seams in this file (the Phase D lazy stepper,
+  // DEV-66 mobile toggle, E4 click-delegation) drive the island's OWN
+  // canvas-interaction FUNCTIONS in isolation via this executed-VM harness
+  // and depend on a fake node existing at those ids to observe the island's
+  // writes (srcdoc, aria-pressed, etc.) — those functions are unreachable
+  // dead code in a real browser today (no canvas DOM to click into) but
+  // their INTERNAL LOGIC is still real, tested code; nullifying those three
+  // ids broke those OTHER tests when tried (verified by running with them
+  // included, then reverting) and is out of this repair's scope. (§10/S5.1:
+  // FIX 9, formerly also in this list, is RETIRED — its dead-template-pick
+  // trigger is gone, see that describe block's own retirement note.)
   const explicitNull = new Set([
     "lg-rules-builder-root",
     "lg-section-list",
@@ -640,18 +639,10 @@ async function bootStudio(env: Env, html: string, opts: { rulesIsland?: boolean 
   };
 
   const calls: CapturedCall[] = [];
-  const issued: Array<{ url: string; body: string }> = [];
-  // Optional per-response delay (ms) — lets a test hold ONE response back so
-  // two live-router requests genuinely resolve out of order (the FIX 9 stale-
-  // response race). null = no delays.
-  let responseDelay: ((url: string, init?: RequestInit) => number) | null = null;
   const fetchImpl = (url: string, init?: RequestInit): Promise<Response> => {
     pendingFetches += 1;
-    issued.push({ url, body: init !== undefined && typeof init.body === "string" ? init.body : "" });
     return Promise.resolve(admin.request(url, init ?? {}, env)).then(
       async (res: Response) => {
-        const delayMs = responseDelay === null ? 0 : responseDelay(url, init);
-        if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
         let parsedResponse: unknown = null;
         try { parsedResponse = await res.clone().json(); } catch { /* non-JSON */ }
         let parsedBody: unknown = null;
@@ -704,24 +695,12 @@ async function bootStudio(env: Env, html: string, opts: { rulesIsland?: boolean 
     registry,
     root,
     calls,
-    issued,
-    setResponseDelay: (fn) => { responseDelay = fn; },
     windowObj,
     probe: probeRef!,
     settle,
     fire,
     byId,
   };
-}
-
-// Poll until `cond` holds (the FIX 9 test waits for a specific request to be
-// ISSUED before firing the competing one — never a blind sleep).
-async function waitFor(cond: () => boolean, label: string): Promise<void> {
-  for (let i = 0; i < 400; i += 1) {
-    if (cond()) return;
-    await new Promise((r) => setTimeout(r, 5));
-  }
-  expect(cond(), label).toBe(true);
 }
 
 // A minimal event target for delegated root handlers: answers ONE attribute.
@@ -1085,72 +1064,35 @@ describeDb("quote builder EXECUTED island — (b) edit → save path replays thr
 //     Apply adopts the server merge; Cancel touches nothing
 // ===========================================================================
 
-describeDb("quote builder EXECUTED island — (c) template-switch flow equals the server's ?switch_to= truth", () => {
-  it("pick → live ?switch_to= fetch; dialog lines == server confirmations verbatim; preview carries the merged draft; nothing persists", async () => {
+// §10/S5.1 RETIREMENT: this ENTIRE seam drove the OLD canvas-embedded
+// 6-arrangement template picker (togglePanel/#lg-template-btn/
+// #lg-template-picker, the data-template-pick card click handler,
+// showTemplateConfirm/hideTemplateConfirm/#lg-template-confirm(-list),
+// #lg-template-apply/#lg-template-cancel, the pendingSwitch state) —
+// renderTemplatePicker (its ONLY render source, quotes-tabs/shared.ts) had
+// ZERO real callers anywhere in the admin/leadgen namespace (confirmed by
+// exhaustive grep, same discipline as the (e) rules-builder retirement
+// above), so none of its trigger/target elements, nor the JS that used to
+// wire them, exist in the product anymore — deleted in the same sweep.
+// test/leadgen-quote-builder-ui.test.ts ALREADY carried (and still passes) a
+// dedicated absence-proof for this exact retirement — "the OLD
+// canvas-embedded template picker is gone (§10: 'canvas template picker'
+// explicitly removed)" — whose own citation is the authoritative pointer:
+// "the board's own per-funnel template pickchip (data-template-picker) opens
+// a popover of the quote's SAVED templates — a different control entirely,
+// proven by the board gesture spec." The underlying SERVER endpoint
+// (GET /funnels/:id/frame?switch_to=) keeps its OWN direct, unaffected proof
+// in that same file's "GET /funnels/:id/frame?switch_to (04 §4.3, C5)"
+// describe block — the C5 read-only projection + confirmations mechanism
+// this seam used to drive through the retired client is still verified,
+// just no longer through a dead client trigger.
+describeDb("quote builder EXECUTED island — (c) template-switch flow [RETIRED: §10/S5.1, OLD canvas-embedded picker gone]", () => {
+  it("the OLD template-pick DOM/state has no current admin surface (see describe-block citation)", async () => {
     const h = await studioHarness();
-    const put = await admin.request(
-      `${API}/funnels/${h.funnelPublicId}/frame`,
-      jsonInit("PUT", { frame_config_json: { ...RICH_FRAME_CONFIG, template: "centered" } }),
-      h.env,
-    );
-    expect(put.status, await put.clone().text()).toBe(200);
-
-    // independent server truth for the same switch
-    const serverSwitch = await getJson<{ merged: Record<string, unknown>; confirmations: string[] }>(
-      h.env,
-      `${API}/funnels/${h.funnelPublicId}/frame?switch_to=minimal`,
-    );
-    expect(serverSwitch.confirmations.length).toBeGreaterThan(0);
-
     const html = await editorPage(h.env, h.quotePublicId);
-    const studio = await bootStudio(h.env, html);
-    const before = studio.calls.length;
-
-    // CLICK the template card through the island's delegated handler
-    studio.fire(studio.root, "click", fakeTarget("data-template-pick", "minimal"));
-    await studio.settle();
-
-    const switchCall = studio.calls.slice(before).find((c) => c.url.includes("switch_to=minimal"));
-    expect(switchCall, "island fetched the ?switch_to= projection").toBeDefined();
-    expect(switchCall!.url).toBe(`/api/admin/leadgen/funnels/${h.funnelPublicId}/frame?switch_to=minimal`);
-
-    // the island's pending switch IS the server merge
-    expect(studio.probe.pendingSwitch).toEqual({ id: "minimal", merged: serverSwitch.merged });
-
-    // dialog lines: VERBATIM server confirmations (C5 — the dialog names what
-    // stops rendering, e.g. the trust strip + benefit bar lines)
-    const list = studio.byId("lg-template-confirm-list");
-    expect(list.children.map((li) => textOf(li))).toEqual(serverSwitch.confirmations);
-    expect(studio.byId("lg-template-confirm").className).toBe(""); // shown
-
-    // preview-before-apply: the canvas POST rendered the WOULD-BE merged
-    // config (draft param), server-side, 200
-    const previewCall = studio.calls.slice(before).find((c) => c.url.endsWith("/preview"));
-    expect(previewCall, "preview-before-apply POST").toBeDefined();
-    expect(previewCall!.status).toBe(200);
-    expect((previewCall!.body as Record<string, unknown>)["draft_frame_config"]).toEqual(serverSwitch.merged);
-
-    // READ-ONLY: the stored column is untouched until Save
-    const stored = await getJson<FrameGetBody>(h.env, `${API}/funnels/${h.funnelPublicId}/frame`);
-    expect(stored.frame_config!["template"]).toBe("centered");
-    expect((stored.frame_config!["trust_strip"] as Record<string, unknown>)["enabled"]).toBe(true);
-
-    // APPLY: the island adopts the server merge as its working config
-    studio.fire(studio.byId("lg-template-apply"), "click");
-    await studio.settle();
-    expect(studio.probe.workingFrame).toEqual(serverSwitch.merged);
-    expect(studio.probe.frameDirty).toBe(true);
-    expect(studio.probe.pendingSwitch).toBeNull();
-    expect(studio.byId("lg-template-confirm").className).toBe("lg-hidden");
-
-    // CANCEL leaves the working config untouched (second pick, then cancel)
-    studio.fire(studio.root, "click", fakeTarget("data-template-pick", "white-trust"));
-    await studio.settle();
-    expect(studio.probe.pendingSwitch?.id).toBe("white-trust");
-    studio.fire(studio.byId("lg-template-cancel"), "click");
-    await studio.settle();
-    expect(studio.probe.pendingSwitch).toBeNull();
-    expect(studio.probe.workingFrame).toEqual(serverSwitch.merged); // still the APPLIED minimal merge
+    expect(html).not.toContain('id="lg-template-picker"');
+    expect(html).not.toContain('id="lg-template-confirm"');
+    expect(html).not.toContain('data-template-pick="centered"');
   });
 });
 
@@ -1294,55 +1236,40 @@ describeDb("quote builder EXECUTED island — (e) rules builder [RETIRED: M3/§1
 // back); the canvas must reflect the LAST-ISSUED request, never the stale one.
 // ===========================================================================
 
-describeDb("quote builder EXECUTED island — FIX 9: overlapping preview responses land last-issued-wins", () => {
-  it("a stale (slower) preview response is dropped — the canvas shows the LAST-issued render", async () => {
+// §10/S5.1 RETIREMENT: this test's ONLY trigger was two `data-template-pick`
+// clicks driving two DIRECT renderPreview(draftF) calls through the OLD
+// canvas-embedded template-switch dialog's preview-before-apply step — the
+// SAME dead mechanism retired in describe-block (c) above (renderTemplatePicker
+// had zero real callers; deleted from quotes-tabs/shared.ts in this sweep).
+// IMPORTANT — this is NOT a claim that the thing under test is gone: the
+// `previewSeq` monotonic-sequence guard inside renderPreview() (quotes-tabs/
+// funnel.ts, "Monotonic render-request sequence...") is UNTOUCHED, still
+// shipped, and still runs on EVERY schedulePreview()/renderPreview() call
+// site that remains live today (viewport toggle, slide selection, theme
+// edits, the Phase D lazy stepper, etc. — all still real, still tested for
+// their OWN basic behavior elsewhere in this file/suite). What is gone is
+// only the ONE trigger this specific test used to manufacture a genuine
+// out-of-order interleave (setResponseDelay + two data-template-pick clicks).
+// HONEST GAP (not silently dropped): grep across test/ and test-ui/ at the
+// time of this retirement found NO other test that drives two overlapping
+// preview requests through a LIVE trigger and asserts last-issued-wins — the
+// previewSeq guard's stale-response-rejection behavior itself is currently
+// UNVERIFIED by any live-triggered test after this retirement. Reintroducing
+// this exact interleaving proof through a live trigger (e.g. two rapid
+// `data-viewport-btn` clicks, which also call schedulePreview() with a
+// distinguishable `viewport` field per request) is a legitimate follow-up,
+// out of scope for this removal-sweep pass. The Studio harness's dedicated
+// `issued`/`setResponseDelay` fields and the standalone `waitFor` poller
+// (both ONLY ever consumed by this test) were removed with it — a future
+// interleaving test re-adds the same shape (issuance-order array + a
+// per-response delay hook + a poll-until helper) rather than resurrecting
+// unused scaffolding now.
+describeDb("quote builder EXECUTED island — FIX 9: overlapping preview responses [RETIRED: §10/S5.1, dead data-template-pick trigger — see coverage-gap note]", () => {
+  it("the OLD template-pick trigger this race depended on has no current admin surface, though the previewSeq guard code itself still ships", async () => {
     const h = await studioHarness();
     const html = await editorPage(h.env, h.quotePublicId);
-    const studio = await bootStudio(h.env, html);
-
-    // Hold back ONLY the minimal-draft preview response, so it resolves AFTER
-    // the later-issued white-trust one (a genuine out-of-order interleave).
-    studio.setResponseDelay((url, init) => {
-      if (!url.endsWith("/preview")) return 0;
-      const body = init !== undefined && typeof init.body === "string" ? init.body : "";
-      return body.includes('"template":"minimal"') ? 150 : 0;
-    });
-
-    // Two template picks drive two DIRECT renderPreview calls through the
-    // island's real ?switch_to= flow (no debounce between them). Fire the
-    // second pick only after the first preview request is genuinely ISSUED.
-    studio.fire(studio.root, "click", fakeTarget("data-template-pick", "minimal"));
-    await waitFor(
-      () => studio.issued.some((i) => i.url.endsWith("/preview") && i.body.includes('"template":"minimal"')),
-      "minimal preview request issued",
-    );
-    studio.fire(studio.root, "click", fakeTarget("data-template-pick", "white-trust"));
-    await studio.settle();
-
-    // issuance order: minimal FIRST, white-trust SECOND (last-issued)
-    const issueIdx = (template: string): number =>
-      studio.issued.findIndex((i) => i.url.endsWith("/preview") && i.body.includes(`"template":"${template}"`));
-    expect(issueIdx("minimal")).toBeGreaterThan(-1);
-    expect(issueIdx("white-trust"), "white-trust preview issued after minimal").toBeGreaterThan(issueIdx("minimal"));
-
-    // completion order: the DELAYED minimal response resolved LAST — the
-    // overlap really happened (calls[] records completion order)
-    const completionIdx = (template: string): number =>
-      studio.calls.findIndex((c) => {
-        if (!c.url.endsWith(`/variants/${h.variantId}/preview`) || c.method !== "POST") return false;
-        const draft = (c.body as Record<string, unknown>)["draft_frame_config"] as Record<string, unknown> | undefined;
-        return draft !== undefined && draft["template"] === template;
-      });
-    expect(completionIdx("white-trust")).toBeGreaterThan(-1);
-    expect(completionIdx("minimal"), "stale minimal response resolved AFTER white-trust").toBeGreaterThan(
-      completionIdx("white-trust"),
-    );
-
-    // last-ISSUED wins: the canvas holds the white-trust document; the stale
-    // minimal response that landed last was dropped by the seq guard.
-    const srcdoc = studio.byId("lg-preview-iframe").attrs["srcdoc"] ?? "";
-    expect(srcdoc).toContain('data-frame-template="white-trust"');
-    expect(srcdoc).not.toContain('data-frame-template="minimal"');
+    expect(html).not.toContain('data-template-pick="minimal"');
+    expect(html).toContain("previewSeq"); // the guard mechanism itself is untouched
   });
 });
 

@@ -20,15 +20,14 @@
 //   data-lg-progress (+ data-mode)     on the progress bar
 //   data-lg-error-for="{internal_field}" on error slots
 //   data-lg-maps="{configJSON}"        on Maps-enabled address/ZIP components
-//   data-lg-other-trigger / data-lg-other-panel  B9 Other-group markup
-// The B9 Other grouping (06 §6.4) renders when a choice node carries
-// `choiceDisplay.otherGroupEnabled`: main values as normal choices + ONE
-// "Other" trigger (NOT a choice — it never stores a value) + a hidden panel of
-// the secondary REAL-value choices (searchable per `searchableOther`). A
-// secondary selection stores the REAL internal value — the literal string
-// "Other" is never a stored value. Without choiceDisplay metadata the markup
-// is byte-identical to the pre-v2.4 render (attributes only, no visual change
-// under the default design).
+//   data-lg-other-trigger / data-lg-other-panel  §6.5 authored-Other markup
+// The Rework §6.5 "Other" affordance renders when a single-select choice node
+// carries `props.other = {enabled, label, choices}`: the base choices UNCHANGED
+// + ONE trailing "Other" trigger (NOT a choice — it never stores a value) that
+// reveals a hidden native <select> of the AUTHORED other values. Selecting one
+// stores its REAL value (which also joins valid_values). Absent/disabled/empty
+// `props.other` ⇒ byte-identical render (attributes only, no visual change).
+// (The §10-retired choiceDisplay/Other-group mechanism is fully removed.)
 //
 // Every interpolated author value is escaped (editor/sanitize.escapeHtml).
 // Author content NEVER flows into a `style` attribute — only token values do.
@@ -53,10 +52,7 @@ import {
   LEADGEN_MAX_CONTAINER_DEPTH,
   LEADGEN_NODE_BORDER_COLOR_ROLES,
   LEADGEN_NODE_CORNERS,
-  multiQuestionRowChoices,
-  multiQuestionRowQuestionId,
   parsePhoneMaskPattern,
-  readMultiQuestionRows,
   resolveFieldSize,
 } from "./content-schema";
 import type {
@@ -73,7 +69,6 @@ import type {
   LeadgenPlacementLayout,
   LeadgenResolvedSizeAxis,
   LeadgenSelectedMarker,
-  MultiQuestionRow,
 } from "./content-schema";
 // P1b (register PC-11): the §8.1 leading-icon / card-icon SVGs are the
 // build-time-vendored Tabler (MIT) subset (scripts/build-icons.mjs output) —
@@ -408,44 +403,8 @@ function sectionGapDefault(ctx: LeadgenSectionRenderCtx | undefined): string | u
 }
 
 // ---------------------------------------------------------------------------
-// B9 choiceDisplay (06 §6.4) — Other-group metadata on choice nodes
-// ---------------------------------------------------------------------------
-
-// The §6.4 choiceDisplay metadata shape. content-schema.ts gains the typed
-// node field in the Phase-2 authoring leg; until then the runtime render leg
-// reads it DEFENSIVELY off the raw node (content_json accepts the extra key
-// today — validateSectionContent does not reject unknown node-level keys).
-export interface LeadgenChoiceDisplay {
-  mainValues: string[];
-  otherGroupEnabled: boolean;
-  otherGroupLabel: string;
-  searchableOther: boolean;
-}
-
-// Defensive, normalizing extractor — the SINGLE reader both the renderer and
-// the public config DTO (config-dto.ts) share, so runtime markup and
-// /lg/config metadata can never disagree on what the node's choiceDisplay
-// means. Returns undefined unless the node carries an object-shaped
-// choiceDisplay; unknown keys are dropped (explicit projection).
-export function readChoiceDisplay(node: LeadgenComponentNode): LeadgenChoiceDisplay | undefined {
-  const raw = (node as { choiceDisplay?: unknown }).choiceDisplay;
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
-  const r = raw as Record<string, unknown>;
-  const mainValues = Array.isArray(r["mainValues"])
-    ? (r["mainValues"] as unknown[]).filter((v): v is string => typeof v === "string")
-    : [];
-  const label = r["otherGroupLabel"];
-  return {
-    mainValues,
-    otherGroupEnabled: r["otherGroupEnabled"] === true,
-    otherGroupLabel: typeof label === "string" && label.trim() !== "" ? label : "Other",
-    searchableOther: r["searchableOther"] === true,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Rework §6.5 — authored "Other" affordance (REPLACES the choiceDisplay/
-// splitChoicesForOtherGroup/renderOtherGroupTail mechanism above, §10 removal).
+// Rework §6.5 — authored "Other" affordance (the §10-retired choiceDisplay /
+// splitChoicesForOtherGroup / renderOtherGroupTail mechanism is fully removed).
 // ---------------------------------------------------------------------------
 // props.other = {enabled?, label?, choices} (content-schema.ts validateOtherEditor,
 // single-select choice groups only — the §6.2 matrix `other_editor` flag).
@@ -923,36 +882,13 @@ function renderRange(
     // is a no-op concatenation, byte-identical to pre-fix.
     slot +
     `</div>` +
-    // PC-A10 (drift honesty): CONTENT_PROP_FIELDS has always advertised a
-    // Helper text control for all 3 Range-family types, but none of them ever
-    // called fieldHelperLine — wire it here (the ONE shared bespoke renderer
-    // behind renderRangeQuestion/renderCurrencyRangeQuestion/
-    // renderNumberRangeQuestion), the same fieldHelperLine pattern the 8
+    // PC-A10 (drift honesty): CONTENT_PROP_FIELDS advertises a Helper text
+    // control for the Slider (NumberRangeQuestion) — wire it here (the ONE
+    // shared bespoke range renderer), the same fieldHelperLine pattern the
     // wired button/dropdown/text-input types already use ("" when unauthored
     // — byte-additive).
     fieldHelperLine(node)
   );
-}
-
-export function renderRangeQuestion(
-  node: LeadgenComponentNode,
-  design: DefaultFunnelDesign,
-  ctx?: LeadgenSectionRenderCtx,
-  slot = "",
-): string {
-  // v3.1 R3b legacy-only type (catalog note) — M7 NEVER adds slider_type to
-  // RangeQuestion itself (it migrates the NODE to NumberRangeQuestion); this
-  // render leg stays exactly the pre-§6.8 'single' shape unconditionally.
-  return renderRange(node, design, propStr(node, "format") === "currency" ? "currency" : "number", ctx, slot);
-}
-export function renderCurrencyRangeQuestion(
-  node: LeadgenComponentNode,
-  design: DefaultFunnelDesign,
-  ctx?: LeadgenSectionRenderCtx,
-  slot = "",
-): string {
-  // Legacy-only (see renderRangeQuestion note) — unconditional 'single' shape.
-  return renderRange(node, design, "currency", ctx, slot);
 }
 
 // ---------------------------------------------------------------------------
@@ -1511,8 +1447,8 @@ function renderCardGrid(
     const hasImage = typeof c.imageMediaId === "string" && c.imageMediaId !== "";
     // §8.4/A6 image fit (cover|contain — the 05 §5.5 grid control): the
     // COMPONENT prop (nodeFit above) is canonical; a legacy PER-CHOICE
-    // image_fit read DEFENSIVELY off the raw choice (the readChoiceDisplay
-    // idiom) applies only when no component prop is authored. A curated enum,
+    // image_fit read DEFENSIVELY off the raw choice (the defensive raw-node
+    // read idiom) applies only when no component prop is authored. A curated enum,
     // not author CSS; both absent → today's attribute-free <img>
     // byte-identically.
     const fitRaw = (c as unknown as Record<string, unknown>)["image_fit"];
@@ -1766,89 +1702,6 @@ export function renderMultiChoiceCardGroup(
   );
 }
 
-// P5 (register PC-10, operator Image9) — the STACKED multi-question grid. Each
-// ROW is a self-contained, standard single-field CHOICE question: its own
-// [data-lg-question]/[data-lg-field] wrapper (so the runtime's enterSection
-// paint / handleChoiceActivation / validateSection / applyComponentVisibility
-// treat it exactly like a scalar question — ZERO new engine logic), a label
-// above a shared/overridable pill pair (the P1 answer-grid), and its own hidden
-// error slot. A row's `default` pill is pre-selected SERVER-SIDE (aria-checked +
-// the .lg-selected paint); config-dto ALSO seeds it as the row component's
-// default_answer, so the runtime records it without a click. The per-row
-// question_id is the SHARED multiQuestionRowQuestionId, byte-identical to the
-// config-dto row projection, so #lg-config and this DOM always agree.
-export function renderMultiQuestionGrid(
-  node: LeadgenComponentNode,
-  design: DefaultFunnelDesign,
-  ctx?: LeadgenSectionRenderCtx,
-  _slot = "",
-): string {
-  // A MultiQuestionGrid has no single internal_field, so autoErrorFieldFor
-  // returns undefined and the threaded node-level `slot` is always "" — each
-  // ROW renders its OWN error slot below.
-  void _slot;
-  const rows = readMultiQuestionRows(node);
-  const pill = (c: LeadgenChoice, isDefault: boolean): string =>
-    `<button type="button" class="lg-btn lg-btn-answer${isDefault ? " lg-selected" : ""}" role="radio" aria-checked="${isDefault ? "true" : "false"}"${choiceItemStyle(node, design, ctx, c.style)}` +
-    attr("data-value", c.value) +
-    // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
-    attr("data-lg-choice", c.value) +
-    attr("data-analytics-id", c.analytics_id) +
-    `>${esc(c.label)}</button>`;
-  const rowHtml = (row: MultiQuestionRow): string => {
-    const choices = multiQuestionRowChoices(node, row);
-    const rowQid = multiQuestionRowQuestionId(node.question_id, row.internal_field);
-    // A safe, section-unique id for the label↔radiogroup aria binding (the row
-    // internal_field is section-unique; strip anything not id-legal).
-    const labelId = `mqg-${row.internal_field}-label`.replace(/[^A-Za-z0-9_-]/g, "-");
-    const hasDefault = row.default !== undefined;
-    const pills = choices
-      .map((c) => pill(c, hasDefault && String(c.value) === String(row.default)))
-      .join("");
-    // Pill pair → the pills sit side-by-side; --lg-cols = the pill count (1-4).
-    const cols = clampInt(choices.length > 0 ? choices.length : 2, 1, 4);
-    // The row carries ONLY the runtime hooks — data-lg-question/-field/
-    // -answer-type — never the studio-IDENTITY attrs (data-question-id /
-    // data-component-type). Those live on the wrapper alone, so a canvas click's
-    // closest("[data-question-id]") resolves to the ONE real MQG node (never a
-    // row), keeping studio selection intact. The row wrapper (label + pills +
-    // error) is the hideable [data-lg-question] unit, so a whole-grid
-    // conditional hides each row cleanly (runtime toggles `hidden` on it).
-    const rowHydration =
-      attr("data-answer-type", "enum") +
-      attr("data-lg-question", rowQid) +
-      attr("data-lg-field", row.internal_field);
-    return (
-      `<div class="lg-field lg-mqg-row"${rowHydration}>` +
-      `<span class="lg-label"${attr("id", labelId)}>${esc(row.label)}</span>` +
-      `<div class="lg-answer-group" role="radiogroup"${attr("aria-labelledby", labelId)}${choiceHeightsAttr(anyChoiceHasHeight(choices))}${style({ "--lg-cols": String(cols) })}>` +
-      pills +
-      `</div>` +
-      `<p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden${attr("data-lg-error-for", row.internal_field)}${style({ color: design.validation.errorTextColor })}></p>` +
-      `</div>`
-    );
-  };
-  // The parent wrapper carries the node IDENTITY (studio selection) but NO
-  // [data-lg-question] — the rows own those. flatten/config never project the
-  // parent as an answer; each row IS the answer.
-  return (
-    `<div class="lg-mqg"${attr("data-component-type", node.type)}${attr("data-question-id", node.question_id)}>` +
-    // Round-4 A-3 (P1b, renderer leg): a zero-row grid emits a minimal
-    // placeholder instead of a blank shell. styles.ts scopes `.lg-mqg-empty`
-    // to `.lg-preview` ONLY (studio canvas + admin preview), and hides it again
-    // whenever P1a's client-side canvas decoration has injected its own
-    // `.studio-mqg-empty` (a :has() de-dup) so the two never double. On the
-    // LIVE funnel (#lg-funnel-root, no `.lg-preview`) it stays display:none —
-    // a zero-row grid renders NOTHING visible, exactly as today.
-    (rows.length === 0
-      ? `<div class="lg-mqg-empty">No sub-questions yet &mdash; add one in the rows editor.</div>`
-      : rows.map(rowHtml).join("")) +
-    `</div>` +
-    // node-level helper below the grid ("" when no props.helper).
-    fieldHelperLine(node)
-  );
-}
-
 // §5.5 (FIX 8b): the authored dropdown default — `props.default` names a
 // choice VALUE; the matching <option> gets the `selected` marker and the
 // placeholder loses it. Unmatched/absent default → undefined → the legacy
@@ -1869,10 +1722,8 @@ export function renderDropdownQuestion(
   const placeholder = propStr(node, "placeholder") ?? "Select…";
   const def = dropdownDefaultValue(node);
   // 03 §3.3: each <option> is a selectable choice → data-lg-choice. A dropdown
-  // with B9 choiceDisplay renders ALL values flat (main + secondary as plain
-  // options — real values only, so the §6.4 "never literal Other" invariant
-  // holds trivially); the panel-style Other UX for dropdowns arrives with the
-  // Phase-2 SearchableDropdownQuestion/OtherGroupSelector presets (08 §8.4).
+  // renders every authored choice as a plain option (real values only). §6.5's
+  // "Other" affordance is single-select choice-group / card only, not dropdowns.
   const options = choiceList(node)
     .map(
       (c) =>
@@ -1963,39 +1814,6 @@ export function renderSearchableDropdownQuestion(
     // pin used to assert it explicitly; now it asserts the opposite). Wired
     // to match DropdownQuestion exactly ("" when unauthored — byte-additive).
     fieldHelperLine(node)
-  );
-}
-
-// Rework §10 removal: OtherGroupSelector's B9-era render leg (choiceDisplay +
-// splitChoicesForOtherGroup + renderOtherGroupTail) is REMOVED — §6.5's
-// authored props.other on ButtonAnswerGroup/IconCardAnswerGrid/
-// ImageCardAnswerGrid supersedes it. The catalog type STAYS (conductor
-// ruling: unreachable-from-editor, tolerated for existing content) and MUST
-// NEVER 500, so it renders the SAME fail-safe extinct-type box as
-// renderMultiQuestionGrid's zero-row fallback — REUSING its exact class name
-// (`.lg-mqg-empty`) rather than inventing a new one: styles.ts already scopes
-// that class to `.lg-preview` (studio canvas / admin preview) with
-// `display:none` on the live `#lg-funnel-root` (no CSS change needed here, in
-// or out of this slice — this box is SILENT on any live session that somehow
-// still carries this retired type, and gives the studio an honest notice).
-// `produces:"enum"` stays true in the catalog (defensive/exhaustiveness only,
-// registry.ts) — this type is not reachable from the editor palette, so no
-// live content can be newly authored against it; the r1-answers "every
-// question type records" lockstep is updated to exclude it (test repair,
-// documented in the P2 report).
-export function renderOtherGroupSelector(
-  node: LeadgenComponentNode,
-  _design: DefaultFunnelDesign,
-  _ctx?: LeadgenSectionRenderCtx,
-  _slot = "",
-): string {
-  void _design;
-  void _ctx;
-  void _slot;
-  return (
-    `<div class="lg-mqg-empty"${attr("data-component-type", node.type)}${attr("data-question-id", node.question_id)}>` +
-    `This question type is retired — replace it with Buttons/Cards and the &ldquo;Other&rdquo; editor (&sect;6.5).` +
-    `</div>`
   );
 }
 
@@ -2616,8 +2434,8 @@ function fieldHelperLine(node: LeadgenComponentNode, key: string = "helper"): st
     : `<div class="lg-field-help" style="font-size:12.5px;color:#96A0AF;margin-top:7px;padding-left:2px">${esc(helper)}</div>`;
 }
 // Round-4 A-6a (P1b): the field label line for text-like inputs — the SAME
-// `.lg-label` block-above chrome renderNameFieldsGroup + MultiQuestionGrid rows
-// already use, so a Contact stack reads consistently. Sourced from props.label
+// `.lg-label` block-above chrome renderNameFieldsGroup
+// already uses, so a Contact stack reads consistently. Sourced from props.label
 // (an ADDITIVE prop: absent/empty/whitespace ⇒ "" ⇒ NO <span> node at all, so
 // a component WITHOUT a label renders byte-identically to pre-P1b — never an
 // empty label element).
@@ -2646,7 +2464,7 @@ function renderTextInput(
   // text-like input (FreeText/Number/Email/Phone/Date/ZIP share this renderer),
   // so a Contact stack no longer mixes labeled NameFields with label-less
   // inputs — the label reuses the SAME `.lg-label` block-above chrome
-  // renderNameFieldsGroup/MultiQuestionGrid rows use. Sourced from props.label.
+  // renderNameFieldsGroup uses. Sourced from props.label.
   // ADDITIVE: absent/empty ⇒ "" ⇒ no <label> node at all, so every field
   // WITHOUT an authored label renders byte-identically to pre-P1b (the fast
   // path below still returns the bare input; the boxed path concatenates "").
@@ -4180,10 +3998,6 @@ export function renderComponent(
       return renderQuestionHeadline(node, design, state?.ctx);
     case "Subheadline":
       return renderSubheadline(node, design, state?.ctx);
-    case "RangeQuestion":
-      return renderRangeQuestion(node, design, state?.ctx, slot);
-    case "CurrencyRangeQuestion":
-      return renderCurrencyRangeQuestion(node, design, state?.ctx, slot);
     case "NumberRangeQuestion":
       return renderNumberRangeQuestion(node, design, state?.ctx, slot);
     case "ButtonAnswerGroup":
@@ -4196,16 +4010,10 @@ export function renderComponent(
       return renderTwoButtonYesNo(node, design, state?.ctx, slot);
     case "MultiChoiceCardGroup":
       return renderMultiChoiceCardGroup(node, design, state?.ctx, slot);
-    case "MultiQuestionGrid":
-      // P5 (PC-10): renders its OWN per-row error slots (the node has no single
-      // field), so the threaded card-level `slot` is intentionally unused.
-      return renderMultiQuestionGrid(node, design, state?.ctx, slot);
     case "DropdownQuestion":
       return renderDropdownQuestion(node, design, state?.ctx, slot);
     case "SearchableDropdownQuestion":
       return renderSearchableDropdownQuestion(node, design, state?.ctx, slot);
-    case "OtherGroupSelector":
-      return renderOtherGroupSelector(node, design, state?.ctx, slot);
     case "FreeTextQuestion":
       return renderFreeTextQuestion(node, design, state?.ctx, slot);
     case "NumberInputQuestion":
@@ -4292,10 +4100,24 @@ export function renderComponent(
     case "FooterBar":
       return renderFooterBar(node, design);
     default: {
-      // Exhaustiveness guard + defensive empty render for a corrupt node.
+      // Compile-time exhaustiveness guard: a NEW catalog type without a case
+      // above trips this `never` assignment. At RUNTIME this branch also catches
+      // a stored node of a §10-RETIRED type (MultiQuestionGrid / OtherGroupSelector
+      // / RangeQuestion / CurrencyRangeQuestion) or any otherwise-unknown type —
+      // validateSectionContent already flags it with a clear unknown_component_type
+      // error, and here it renders the fail-safe box, NEVER a 500 (L-192 seam).
+      // The `.lg-mqg-empty` box is scoped by styles.ts to `.lg-preview` (studio
+      // canvas / admin preview) and display:none on the live `#lg-funnel-root`,
+      // so a live session that somehow still carries a retired type renders
+      // nothing (silent) while the studio gets an honest notice.
       const _exhaustive: never = node.type;
       void _exhaustive;
-      return "";
+      const retiredNode = node as unknown as LeadgenComponentNode;
+      return (
+        `<div class="lg-mqg-empty"${attr("data-component-type", retiredNode.type)}${attr("data-question-id", retiredNode.question_id)}>` +
+        `This question type is retired or unknown — re-create it from the palette.` +
+        `</div>`
+      );
     }
   }
 }

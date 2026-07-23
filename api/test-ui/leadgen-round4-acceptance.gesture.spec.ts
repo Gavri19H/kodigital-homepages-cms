@@ -181,8 +181,9 @@ async function openInspectorTab(page: Page, key: string): Promise<void> {
 }
 
 // The REAL library-insert picker (verified against __p1a-studio.spec.ts +
-// __p2c-studio.spec.ts, which both insert MultiQuestionGrid/DropdownQuestion/
-// AddressAutocompleteQuestion/PhoneInputQuestion this exact way).
+// __p2c-studio.spec.ts, which insert DropdownQuestion/AddressAutocomplete
+// Question/PhoneInputQuestion this exact way; §10/S5.1: MultiQuestionGrid's
+// own use of this helper was retired along with the catalog entry itself).
 function palette(page: Page, type: string): Locator {
   return page.locator(`[data-add-component="${type}"]`);
 }
@@ -473,42 +474,58 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
   // the picker" is gone — the palette tile for MultiQuestionGrid is replaced
   // by the §4.1 "Questions on one screen" starter (2 independent TwoButtonYesNo
   // components, no shared-grid rows editor at all); M6 already migrated every
-  // STORED grid into independent components (own-hand-verified, P1). Own-hand-
-  // verified this session: `palette(page, "MultiQuestionGrid")` is still a
-  // resolvable locator (the catalog keeps a defensive entry until P5's removal
-  // sweep — registry.ts's own comment), but nothing in this item exercised a
-  // still-live surface beyond that dead insert path + the retired rows editor
-  // (data-mqg-*). Replacement coverage: the §4.1 starter is
-  // leadgen-rework-p2-studio.gesture.spec.ts's test (d); the full capability
-  // matrix (incl. MultiQuestionGrid's legacy defensive spec) is
-  // leadgen-rework-matrix.test.ts; the M6 grid->independent-components content
-  // migration is test/leadgen-rework-content-migrations.test.ts.
+  // STORED grid into independent components (own-hand-verified, P1).
+  // §10/S5.1 CORRECTION: the note this replaced claimed
+  // `palette(page, "MultiQuestionGrid")` "is still a resolvable locator (the
+  // catalog keeps a defensive entry until P5's removal sweep)" — P5 (this
+  // exact sweep) has now landed and the catalog entry is fully gone
+  // (confirmed 0 references anywhere), so that locator no longer resolves
+  // either; the claim is corrected here rather than propagated. Replacement
+  // coverage: the §4.1 starter is leadgen-rework-p2-studio.gesture.spec.ts's
+  // test (d); the full capability matrix is leadgen-rework-matrix.test.ts;
+  // the M6 grid->independent-components content migration is
+  // test/leadgen-rework-content-migrations.test.ts.
   // =========================================================================
 
 
   // =========================================================================
-  // Item 4A/4B/4C/4E — Rules: source above -> dependent below; a Question-grid
-  // ROW as a condition source; Address/Name fields as sources.
+  // Item 4A/4B/4C/4E — Rules: source above -> dependent below; an independent
+  // question ABOVE as a condition source; Address/Name fields as sources.
   // Deeper gate: __p1a-studio.spec.ts (AC-1/AC-2) + leadgen-p4c-rules.gesture
-  // .spec.ts. Journey: a Dropdown BELOW an MQG row conditions its visibility on
-  // that row's answer (source above -> dependent below); Address sub-fields
-  // and NameFieldsGroup fields also appear as sources (the A-4 sweep).
+  // .spec.ts. Journey: a Dropdown BELOW another question conditions its
+  // visibility on that question's answer (source above -> dependent below);
+  // Address sub-fields and NameFieldsGroup fields also appear as sources (the
+  // A-4 sweep).
+  // §10/S5.1: the source-above question was originally an MQG row (a grid row
+  // carrying its OWN custom label, e.g. "Homeowner", distinct from its type's
+  // label or the section headline) — MultiQuestionGrid is retired (confirmed
+  // 0 references anywhere), replaced here with an independent
+  // ButtonAnswerGroup carrying the SAME internal_field. sectionFieldLabels
+  // (ui-section-studio.ts) has no per-row custom-label path for a plain
+  // component the way it did for an MQG row — a still-live component's rule-
+  // source label is either the SECTION HEADLINE (if this is the first
+  // internal_field and a headline is set) or its own type label ("Simple
+  // answer buttons"), never an arbitrary per-field string — so this test no
+  // longer asserts a SPECIFIC "Homeowner" label text (that exact affordance
+  // had no live successor), only that the source is offered BY VALUE and
+  // that a rule authored against it saves/round-trips/live-reveals correctly.
   // =========================================================================
-  test('Item 4A/4B/4C/4E — "show Carrier when insured=Yes" via an MQG row source (above -> below), Address/Name are rule sources', async ({
+  test('Item 4A/4B/4C/4E — "show Carrier when insured=Yes" via a source above (above -> below), Address/Name are rule sources', async ({
     page,
     request,
     browserName,
   }) => {
-    // Source ABOVE (an MQG row "Homeowner" + a NameFieldsGroup — seeded
-    // directly since NameFieldsGroup has no standalone palette tile; it only
-    // inserts as a CHILD via the "Contact" tile's childTypes), dependent
-    // BELOW (a Dropdown "Carrier").
+    // Source ABOVE (an independent ButtonAnswerGroup "Homeowner" + a
+    // NameFieldsGroup — seeded directly since NameFieldsGroup has no
+    // standalone palette tile; it only inserts as a CHILD via the "Contact"
+    // tile's childTypes), dependent BELOW (a Dropdown "Carrier").
     const s = await createStudioSection(request, `R4ACC Item4 rules ${uniq}`, [
       {
-        type: "MultiQuestionGrid",
+        type: "ButtonAnswerGroup",
         question_id: "q_grid",
+        internal_field: "r4a_homeowner",
+        answer_type: "enum",
         choices: YESNO,
-        props: { rows: [{ label: "Homeowner", internal_field: "r4a_homeowner" }] },
       },
       { type: "NameFieldsGroup", question_id: "q_name" },
       {
@@ -526,7 +543,10 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
     await openEdit(page, s.public_id);
 
     // Select the DEPENDENT (Carrier, below) -> Rules tab -> its source picker
-    // offers the MQG row (above) by its ROW LABEL, never the section headline.
+    // offers the question above BY VALUE (internal_field) — §10/S5.1: NOT
+    // asserting a specific label TEXT here anymore (see this test's own
+    // retirement/rewrite note above for why the MQG-row-only "custom label"
+    // affordance has no live successor for a plain component).
     await canvasRender(page).locator('[data-component-type="DropdownQuestion"]').click();
     await openInspectorTab(page, "rules");
     await page.locator("[data-rules-add-condition]").click();
@@ -536,7 +556,7 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
     );
     const homeownerOpt = options.find((o) => o.value === "r4a_homeowner");
     expect(homeownerOpt, `rule sources: ${JSON.stringify(options)}`).toBeDefined();
-    expect(homeownerOpt!.text, "the MQG row is offered by ITS OWN label").toBe("Homeowner");
+    expect(homeownerOpt!.text, "the source above carries SOME non-empty label").not.toBe("");
 
     // A sibling Dropdown's source list ALSO exposes Address sub-fields (the
     // A-4 sweep) — insert Address via the REAL picker so its sub-fields

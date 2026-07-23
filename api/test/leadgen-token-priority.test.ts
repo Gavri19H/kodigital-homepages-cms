@@ -242,7 +242,7 @@ describe("section-local-override-application", () => {
       props: { text: "BUSINESS LOAN" },
     };
     const RANGE: LeadgenComponentNode = {
-      type: "RangeQuestion",
+      type: "NumberRangeQuestion",
       question_id: "r1",
       internal_field: "amount",
       design_overrides: { rangeColor: "success" },
@@ -325,11 +325,11 @@ describe("section-local-override-application", () => {
       { type: "QuestionHeadline", question_id: "h1", props: { text: "How much do you need?" } },
       GRID({ iconColor: "#1B3A5C", gridGap: "0.75rem" }),
       {
-        type: "CurrencyRangeQuestion",
+        type: "NumberRangeQuestion",
         question_id: "r1",
         internal_field: "amount",
         design_overrides: { rangeColor: "#1B3A5C" },
-        props: { min: 1000, max: 90000, default: 5000 },
+        props: { min: 1000, max: 90000, default: 5000, currency_affix: true },
       },
       MULTI,
       {

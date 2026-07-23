@@ -106,7 +106,7 @@ const ALIGN_TYPES: Array<{ qid: string; node: Record<string, unknown> }> = [
   { qid: "q_zip", node: ZIP },
   { qid: "q_email", node: { type: "EmailInputQuestion", question_id: "q_email", internal_field: "email", answer_type: "string", props: { placeholder: "you@example.com", helper: "We never share it" } } },
   { qid: "q_drop", node: { type: "DropdownQuestion", question_id: "q_drop", internal_field: "us_state", answer_type: "enum", choices: [{ label: "California", value: "ca", analytics_id: "ca" }, { label: "New York", value: "ny", analytics_id: "ny" }], props: { placeholder: "Select a state" } } },
-  { qid: "q_range", node: { type: "RangeQuestion", question_id: "q_range", internal_field: "coverage_amt", answer_type: "number", props: { min: 0, max: 100000, step: 5000, default: 0, currency: "$", format: "currency" } } },
+  { qid: "q_range", node: { type: "NumberRangeQuestion", question_id: "q_range", internal_field: "coverage_amt", answer_type: "number", props: { min: 0, max: 100000, step: 5000, default: 0, currency_affix: true } } },
   { qid: "q_btn", node: { type: "ButtonAnswerGroup", question_id: "q_btn", internal_field: "coverage", answer_type: "enum", choices: [{ label: "Basic", value: "basic", analytics_id: "b" }, { label: "Full", value: "full", analytics_id: "f" }] } },
   { qid: "q_cur", node: { type: "CurrencyInputQuestion", question_id: "q_cur", internal_field: "income", answer_type: "currency", props: { placeholder: "0", currency: "$" } } },
   { qid: "q_addr", node: { type: "AddressAutocompleteQuestion", question_id: "q_addr", internal_field: "street", answer_type: "object", props: { placeholder: "Street address" } } },

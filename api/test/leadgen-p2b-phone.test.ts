@@ -367,25 +367,9 @@ describe("P2b review-round minor-4 — __ prefix reservation", () => {
     expect(r.errors.some((e) => e.code === "reserved_internal_field")).toBe(false);
   });
 
-  it("a MultiQuestionGrid row internal_field starting with __ is rejected", () => {
-    const r = validateSectionContent({
-      components: [
-        {
-          type: "MultiQuestionGrid",
-          question_id: "q_grid",
-          choices: [
-            { label: "Yes", value: "yes", analytics_id: "yes" },
-            { label: "No", value: "no", analytics_id: "no" },
-          ],
-          props: { rows: [{ label: "Row 1", internal_field: "__hour" }] },
-        },
-      ],
-    });
-    expect(r.ok).toBe(false);
-    const err = r.errors.find((e) => e.code === "reserved_internal_field");
-    expect(err?.message).toBe("Field names starting with __ are reserved");
-    expect(err?.path).toContain("rows[0].internal_field");
-  });
+  // §10: the MultiQuestionGrid row-internal_field reserved-field check retired
+  // with the grid; the component-internal_field + Maps-fill reserved-field
+  // checks (above/below) still hold.
 
   it("a Maps fill-target name starting with __ is rejected", () => {
     const r = validateSectionContent({

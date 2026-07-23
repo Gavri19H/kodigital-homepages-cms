@@ -36,19 +36,19 @@ import { BANNER_DESIGNS } from "../../public/leadgen/designs/registry";
 import { LEADGEN_ELIGIBILITY_REASON_LABELS } from "./ui-offers";
 import type { LeadgenAuctionApi, LeadgenAuctionRuleApi } from "./db-types";
 // Rework §13-D5: the four auction-domain funnel-rule types' editor is RELOCATED
-// to the Auction tab. Its ORIGINAL condition-envelope editor (renderRoutingRules
-// Panel + ROUTING_RULES_SCRIPT) stays DEFINED + UNCHANGED in ui-rules-builder.ts
-// (a physical move OUT is blocked — the composer ui-quotes.ts accesses
-// ROUTING_RULE_TYPES at module-eval, so a re-export bridge TDZ-crashes the
-// worker; see the P3b report) AND stays bundled there for the quote/variant
-// editor page — but that script's persistence model writes HOST-ROW hidden
-// carriers for a surrounding big variant-PUT Save button, which this per-
-// AUCTION page does not have. §13-D5 wiring round (S1.4 variant-rule REST
-// landed): this file instead imports the NEW self-contained, REST-driven
-// renderRelocatedRulesEditor/RELOCATED_RULES_SCRIPT (ui-rules-builder.ts) —
-// same file, same reusable §21.4 condition-builder mount, its OWN quote/
-// funnel/variant picker + CRUD wiring against GET/POST /variants/:id/rules,
-// PATCH/DELETE /variants/:id/rules/:rule_id, POST .../duplicate.
+// to the Auction tab via the NEW self-contained, REST-driven
+// renderRelocatedRulesEditor/RELOCATED_RULES_SCRIPT (ui-rules-builder.ts) — its
+// OWN quote/funnel/variant picker + CRUD wiring against GET/POST
+// /variants/:id/rules, PATCH/DELETE /variants/:id/rules/:rule_id, POST
+// .../duplicate, reusing the SAME reusable §21.4 condition-builder mount
+// (window.lgRulesBuilder / RULES_BUILDER_SCRIPT). §10/S5.1: the ORIGINAL
+// per-variant condition-envelope editor this comment used to describe
+// (renderRoutingRulesPanel + ROUTING_RULES_SCRIPT) had ZERO real callers left
+// in any served page by the time of this removal sweep (the quote/variant
+// editor's own concatenation of it targeted DOM the board rewrite had already
+// deleted) — it was removed entirely, not "kept because a physical move was
+// TDZ-blocked." The relocated editor here was ALREADY the real §13-D5
+// replacement; nothing in this file changes as a result.
 import {
   RULES_BUILDER_SCRIPT,
   renderRelocatedRulesEditor,
@@ -133,7 +133,6 @@ const LG_AUCTIONS_STYLES = `
 .lg-fieldmap-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .lg-fieldmap-row .lg-fieldmap-key{min-width:140px;font-weight:600}
 .lg-num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-.lg-sim-note{color:var(--c-muted);font-size:14px;margin:8px 0}
 .lg-sim-summary{font-weight:600;margin:10px 0 4px}
 .lg-sim-offer{border:1px solid var(--c-border);border-radius:6px;padding:10px 12px;margin:8px 0}
 .lg-sim-offer-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px}

@@ -45,9 +45,7 @@ const SINGLE_FIELD_PRODUCERS: ComponentType[] = (
   return (
     p !== null &&
     t !== "NameFieldsGroup" &&
-    t !== "AddressAutocompleteQuestion" &&
-    t !== "MultiQuestionGrid" &&
-    t !== "OtherGroupSelector"
+    t !== "AddressAutocompleteQuestion"
   );
 });
 

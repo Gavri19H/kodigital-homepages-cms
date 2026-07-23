@@ -162,7 +162,6 @@ export const LEADGEN_STYLES = `
 .leadgen-tab:hover{color:var(--c-text);text-decoration:none}
 .leadgen-tab.active{color:var(--c-primary);border-bottom-color:var(--c-primary)}
 .lg-num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-.lg-phase-note{align-self:center}
 `;
 
 // One adminLayout wrapper for every LeadGen page (title + base styles) —

@@ -15,8 +15,6 @@ import {
   CURATED_DESIGN_OVERRIDE_KEYS,
   flattenComponents,
   LEADGEN_CONTAINER_TYPES,
-  readMultiQuestionRows,
-  multiQuestionRowQuestionId,
 } from "../src/public/leadgen/components/content-schema";
 import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 import {
@@ -69,18 +67,19 @@ describe("validateSectionContent — accepts a well-formed Section", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("accepts a currency-range Section with a curated design_override", () => {
+  it("accepts a currency-affix slider Section with a curated design_override", () => {
     const content = {
       components: [
         { type: "CategoryLabel", question_id: "c1", props: { text: "BUSINESS LOAN" } },
         { type: "QuestionHeadline", question_id: "h1", props: { text: "How much do you need?" } },
         {
-          type: "CurrencyRangeQuestion",
+          // §10/M7: the ONE slider type; currency is display-only props.currency_affix.
+          type: "NumberRangeQuestion",
           question_id: "q_amt",
           internal_field: "loan_amount",
-          answer_type: "currency",
+          answer_type: "number",
           design_overrides: { rangeColor: "#1B3A5C", columns: 3 },
-          props: { min: 10000, max: 1000000, default: 330000, currency: "$" },
+          props: { min: 10000, max: 1000000, default: 330000, currency: "$", currency_affix: true },
         },
       ],
     };
@@ -139,8 +138,8 @@ describe("validateSectionContent — per-node rejects", () => {
     expect(codes(c)).toContain("duplicate_question_key");
   });
 
-  it("missing required internal_field (RangeQuestion)", () => {
-    const c = { components: [{ type: "RangeQuestion", question_id: "r", props: { min: 0, max: 9 } }] };
+  it("missing required internal_field (NumberRangeQuestion)", () => {
+    const c = { components: [{ type: "NumberRangeQuestion", question_id: "r", props: { min: 0, max: 9 } }] };
     expect(codes(c)).toContain("missing_required_field");
   });
 
@@ -311,18 +310,14 @@ const NODE_SPECS: Record<ComponentType, LeadgenComponentNode> = {
   CategoryLabel: { type: "CategoryLabel", question_id: "q", props: { text: "BUSINESS LOAN" } },
   QuestionHeadline: { type: "QuestionHeadline", question_id: "q", props: { text: "How much?" } },
   Subheadline: { type: "Subheadline", question_id: "q", props: { text: "Why we ask" } },
-  RangeQuestion: { type: "RangeQuestion", question_id: "q", internal_field: "amt", props: { min: 0, max: 100, default: 50 } },
-  CurrencyRangeQuestion: { type: "CurrencyRangeQuestion", question_id: "q", internal_field: "loan", props: { min: 10000, max: 1000000, default: 330000, currency: "$" } },
-  NumberRangeQuestion: { type: "NumberRangeQuestion", question_id: "q", internal_field: "count", props: { min: 1, max: 9, default: 3 } },
+  NumberRangeQuestion: { type: "NumberRangeQuestion", question_id: "q", internal_field: "count", props: { min: 1, max: 9, default: 3, currency_affix: true } },
   ButtonAnswerGroup: { type: "ButtonAnswerGroup", question_id: "q", internal_field: "pick", choices: CHOICES },
   TwoButtonYesNo: { type: "TwoButtonYesNo", question_id: "q", internal_field: "insured", props: { auto_advance: true } },
   IconCardAnswerGrid: { type: "IconCardAnswerGrid", question_id: "q", internal_field: "biz", choices: ICON_CHOICES, props: { columns: 3 } },
   ImageCardAnswerGrid: { type: "ImageCardAnswerGrid", question_id: "q", internal_field: "carrier", choices: IMAGE_CHOICES, props: { columns: 4 } },
   MultiChoiceCardGroup: { type: "MultiChoiceCardGroup", question_id: "q", internal_field: "features", choices: CHOICES, props: { min: 1, max: 2 } },
-  MultiQuestionGrid: { type: "MultiQuestionGrid", question_id: "q", choices: CHOICES, props: { rows: [{ label: "Homeowner", internal_field: "mqg_home", default: "sole_prop" }, { label: "Married", internal_field: "mqg_married" }] } },
   DropdownQuestion: { type: "DropdownQuestion", question_id: "q", internal_field: "insurer", choices: CHOICES, props: { placeholder: "Pick one" } },
   SearchableDropdownQuestion: { type: "SearchableDropdownQuestion", question_id: "q", internal_field: "make", choices: CHOICES, props: { placeholder: "Pick one" } },
-  OtherGroupSelector: { type: "OtherGroupSelector", question_id: "q", internal_field: "carrier", choices: CHOICES, choiceDisplay: { mainValues: ["sole_prop"], otherGroupEnabled: true, otherGroupLabel: "Other", searchableOther: false } },
   FreeTextQuestion: { type: "FreeTextQuestion", question_id: "q", internal_field: "note", props: { placeholder: "Type…", maxLen: 100 } },
   NumberInputQuestion: { type: "NumberInputQuestion", question_id: "q", internal_field: "age", props: { min: 18, max: 99, step: 1, placeholder: "Your age" } },
   CurrencyInputQuestion: { type: "CurrencyInputQuestion", question_id: "q", internal_field: "income", props: { currency: "$", min: 0, max: 1000000, placeholder: "Annual income" } },
@@ -399,7 +394,6 @@ const NO_INLINE_STYLE_TYPES = new Set<ComponentType>([
   "NumberInputQuestion",
   "CurrencyInputQuestion",
   "SearchableDropdownQuestion",
-  "OtherGroupSelector",
   // …and the structural affordances/chrome are fully class-driven too
   // (layout via modifier class / [data-active] state — no per-instance value).
   "TrustBar",
@@ -447,9 +441,9 @@ describe("renderComponent — every catalog type", () => {
   }
 
   it("question nodes carry data-internal-field + data-answer-type", () => {
-    const html = renderComponent(NODE_SPECS.CurrencyRangeQuestion, DESIGN);
-    expect(html).toContain('data-internal-field="loan"');
-    expect(html).toContain('data-answer-type="currency"'); // catalog produces
+    const html = renderComponent(NODE_SPECS.NumberRangeQuestion, DESIGN);
+    expect(html).toContain('data-internal-field="count"');
+    expect(html).toContain('data-answer-type="number"'); // catalog produces
   });
 
   it("choice nodes carry per-choice data-value + data-analytics-id", () => {
@@ -460,7 +454,7 @@ describe("renderComponent — every catalog type", () => {
 
   it("renderSectionComponents renders a whole ordered Section", () => {
     const html = renderSectionComponents(
-      [NODE_SPECS.CategoryLabel, NODE_SPECS.QuestionHeadline, NODE_SPECS.CurrencyRangeQuestion],
+      [NODE_SPECS.CategoryLabel, NODE_SPECS.QuestionHeadline, NODE_SPECS.NumberRangeQuestion],
       DESIGN,
     );
     expect(html.indexOf("lg-category")).toBeLessThan(html.indexOf("lg-headline"));
@@ -734,10 +728,10 @@ describe("ButtonAnswerGroup + TwoButtonYesNo (§14.6 answer-button state)", () =
 // §14.5 range — filled/remaining track + slider a11y + currency format
 // ---------------------------------------------------------------------------
 
-describe("RangeQuestion / CurrencyRangeQuestion (§14.5)", () => {
+describe("Slider — NumberRangeQuestion (§14.5 / §6.8; currency via props.currency_affix, §10/M7)", () => {
   it("emits role=slider + aria-valuemin/max/now + filled/remaining track", () => {
     const html = renderComponent(
-      { type: "CurrencyRangeQuestion", question_id: "q", internal_field: "loan", props: { min: 10000, max: 1000000, default: 330000, minLabel: "$10,000", maxLabel: "$1M+" } },
+      { type: "NumberRangeQuestion", question_id: "q", internal_field: "loan", props: { min: 10000, max: 1000000, default: 330000, minLabel: "$10,000", maxLabel: "$1M+", currency_affix: true } },
       DESIGN,
     );
     expect(html).toContain('role="slider"');
@@ -865,28 +859,6 @@ describe("v2.4 03 §3.3 — data-lg-* hydration hooks", () => {
     for (const type of QUESTION_TYPES) {
       const spec = NODE_SPECS[type];
       const html = renderComponent(spec, DESIGN);
-      if (type === "MultiQuestionGrid") {
-        // P5 (PC-10): a MultiQuestionGrid is a MULTI-question node — each ROW is
-        // the answer-producing unit, so its [data-lg-question] hooks are the
-        // per-row synthetic ids (the SAME ids config-dto's expandPublicComponents
-        // projects as the row components — preview/live/runtime agree by
-        // construction), NOT a single node-level hook. Assert every row is hooked.
-        for (const row of readMultiQuestionRows(spec)) {
-          expect(html, `${type} row ${row.internal_field}`).toContain(
-            `data-lg-question="${multiQuestionRowQuestionId(spec.question_id, row.internal_field)}"`,
-          );
-        }
-        continue;
-      }
-      if (type === "OtherGroupSelector") {
-        // Rework §10 removal (test repair, P2): OtherGroupSelector's render
-        // leg is retired to a fail-safe extinct-type box (conductor ruling —
-        // the catalog type stays, unreachable from the editor palette; §6.5's
-        // authored props.other on Buttons/Cards supersedes it). It carries NO
-        // [data-lg-question] by design — never an answer-producing hook again.
-        expect(html, type).not.toContain("data-lg-question");
-        continue;
-      }
       expect(html, type).toContain(`data-lg-question="${spec.question_id}"`);
     }
   });
@@ -912,7 +884,7 @@ describe("v2.4 03 §3.3 — data-lg-* hydration hooks", () => {
   it("data-lg-field mirrors internal_field on question components that carry one", () => {
     expect(renderComponent(NODE_SPECS.TwoButtonYesNo, DESIGN)).toContain('data-lg-field="insured"');
     expect(renderComponent(NODE_SPECS.FreeTextQuestion, DESIGN)).toContain('data-lg-field="note"');
-    expect(renderComponent(NODE_SPECS.CurrencyRangeQuestion, DESIGN)).toContain('data-lg-field="loan"');
+    expect(renderComponent(NODE_SPECS.NumberRangeQuestion, DESIGN)).toContain('data-lg-field="count"');
     // NameFieldsGroup / AddressAutocomplete have no single internal_field → no data-lg-field.
     expect(renderComponent(NODE_SPECS.NameFieldsGroup, DESIGN)).not.toContain("data-lg-field");
     expect(renderComponent(NODE_SPECS.AddressAutocompleteQuestion, DESIGN)).not.toContain("data-lg-field");
@@ -1403,28 +1375,10 @@ describe("v2.4 08 §8.3/§8.10 — new leaf components", () => {
     expect(html).not.toContain("<script");
   });
 
-  // Rework §10 removal (test repair, P2): OtherGroupSelector's render leg is
-  // RETIRED to a fail-safe extinct-type box (conductor ruling — the catalog
-  // type stays for tolerated legacy content, unreachable from the editor
-  // palette; §6.5's authored props.other on Buttons/Cards supersedes it).
-  // Never a 500; reuses the SAME `.lg-mqg-empty` class the MultiQuestionGrid
-  // zero-row fallback uses (styles.ts already scopes it to `.lg-preview`,
-  // display:none on the live funnel — no CSS change needed).
-  it("OtherGroupSelector renders the fail-safe extinct-type box (never 500, no answer markup)", () => {
-    const html = renderComponent(NODE_SPECS.OtherGroupSelector, DESIGN);
-    expect(html).toContain('class="lg-mqg-empty"');
-    expect(html).toContain('data-question-id="q"');
-    expect(html).not.toContain("lg-btn-answer");
-    expect(html).not.toContain("data-lg-choice");
-    expect(html).not.toContain("data-lg-other-trigger");
-    // choiceDisplay metadata (if any survived unmigrated) makes no difference
-    // — the render leg no longer reads it at all.
-    const flat = renderComponent(
-      { type: "OtherGroupSelector", question_id: "q", internal_field: "carrier", choices: CHOICES },
-      DESIGN,
-    );
-    expect(flat).toBe(html);
-  });
+  // §10 removal: the extinct-type render seam (OtherGroupSelector / the grid /
+  // Range / CurrencyRange → the `.lg-mqg-empty` fail-safe box, never a 500 — the
+  // L-192 seam) is proven once, for ALL four extinct types, in
+  // leadgen-rework-render.test.ts ("§10 seam"); not duplicated here.
 
   it("SuccessState renders icon + heading + message in the success-green family; role=status", () => {
     const html = renderComponent(NODE_SPECS.SuccessState, DESIGN);

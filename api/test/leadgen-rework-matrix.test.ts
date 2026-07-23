@@ -398,9 +398,7 @@ export const EXPECTED_MATRIX: Record<ComponentType, ComponentCapabilitySpec> = {
   CategoryLabel: NONE,
   QuestionHeadline: NONE,
   Subheadline: NONE,
-  // §6.2 column "Slider" (the M7-collapsed entry + the still-cataloged legacy pair).
-  RangeQuestion: SLIDER,
-  CurrencyRangeQuestion: SLIDER,
+  // §6.2 column "Slider" (the ONE M7-collapsed entry, §10).
   NumberRangeQuestion: SLIDER,
   // §6.2 column "Buttons".
   ButtonAnswerGroup: CHOICE_SINGLE,
@@ -432,21 +430,9 @@ export const EXPECTED_MATRIX: Record<ComponentType, ComponentCapabilitySpec> = {
     selected_marker: true,
     columns: true,
   },
-  // LEGACY, §10-removal-deferred-to-P5 (NOT a §6.2 column — the table only
-  // covers the post-M6 independent-component model; M6 already migrated every
-  // STORED node of this type away in P1). Mirrors registry.ts's own
-  // "defensive spec ... until the type is removed in the coordinated
-  // cross-slice removal pass" comment verbatim — an explicit, documented
-  // exception to "transcribe independently", not a silent guess, because
-  // there is nothing in §6.2 to transcribe for a type the table does not name.
-  MultiQuestionGrid: { ...NONE, choices_editor: true, columns: true },
   // §6.2 column "Dropdown / Searchable".
   DropdownQuestion: DROPDOWN,
   SearchableDropdownQuestion: DROPDOWN,
-  // LEGACY, §10-removal-deferred-to-P5 (NOT a §6.2 column — superseded by any
-  // choice type's own "Enable Other group" toggle per registry.ts's comment).
-  // Mirrors registry.ts's "a single-select choice group shape" defensive spec.
-  OtherGroupSelector: CHOICE_SINGLE,
   // §6.2 column "FreeText / Email / Number / Currency / Date / ZIP".
   FreeTextQuestion: TEXT_INPUT,
   NumberInputQuestion: TEXT_INPUT,
@@ -644,7 +630,6 @@ const LAYER_B_STUBS = [
   "function populateImageBlockControls() {}",
   "function populateNameFieldsGroupControls() {}",
   "function refreshPhoneMaskPreview() {}", // mask scaffold/A-10-error internals — only the mask_builder wrap's hidden-state is tracked here (populatePhoneFormatControls, real below)
-  "function populateMqgRows() {}", // legacy MultiQuestionGrid rows editor — not a tracked control here
   "function renderChoiceEditor() {}", // choices_editor's HIDDEN-STATE gate is inline in populateInspector, independent of this function's row-building internals (own-hand-verified)
   "function populateChoiceDisplay() {}", // the OLD (pre-§6.5) choiceDisplay editor — a DIFFERENT, still-coexisting mechanism from the NEW other_editor (populateOtherEditor, real below)
   "function renderOverrideDecorations() {}",
@@ -755,16 +740,6 @@ describeDb("§6.2 matrix — Layer A: registry -> studioTypeMeta -> served boots
   });
 
   it.each(ALL_TYPES)("%s — content_props includes 'helper' iff label_helper===true (§6.3 cross-check)", (type) => {
-    // MultiQuestionGrid/OtherGroupSelector (LEGACY, §10-removal-deferred —
-    // see EXPECTED_MATRIX's own note) each carry a PRE-EXISTING, UNRELATED
-    // node-level `helper` content-prop (own-hand-verified, CONTENT_PROP_FIELDS:
-    // "Only the node-level `helper` (rendered below the grid) is a generic
-    // content prop" for MultiQuestionGrid) that predates and is independent
-    // of the NEW §6.3 label_helper mechanism this cross-check targets — their
-    // label_helper capability is correctly `false` (outside the §6.2 table),
-    // so asserting the cross-check on them would conflate two unrelated
-    // "helper" concepts, not catch a real transcription error.
-    if (type === "MultiQuestionGrid" || type === "OtherGroupSelector") return;
     const contentProps = studioMetaTypes[type]?.content_props ?? [];
     const expectHelper = EXPECTED_MATRIX[type].label_helper === true;
     expect(contentProps.includes("helper"), `${type} content_props=${JSON.stringify(contentProps)}`).toBe(expectHelper);
@@ -797,27 +772,11 @@ describeDb("§6.2 matrix — Layer B: rendered studio inspector controls (execut
     const { forSelector, contentPropEls } = runLayerBProbe(island, studioMeta, type);
     const labelWrap = forSelector("[data-field-label-wrap]");
     expect(labelWrap.hidden, `${type} data-field-label-wrap`).toBe(!expected);
-    // MultiQuestionGrid (LEGACY, §10-removal-deferred) carries a PRE-EXISTING,
-    // UNRELATED node-level `helper` content-prop (own-hand-verified,
-    // CONTENT_PROP_FIELDS's own comment: "Only the node-level `helper`
-    // (rendered below the grid) is a generic content prop") that predates and
-    // is independent of this NEW §6.3 mechanism — see the identical exception
-    // on the Layer A cross-check above.
-    if (type === "MultiQuestionGrid") return;
     const helperProp = contentPropEls.find((e) => e.attrs["data-content-prop"] === "helper")!;
     expect(helperProp.hidden, `${type} helper content-prop`).toBe(!expected);
   });
 
   it.each(ALL_TYPES)("%s — Required row (data-content-behavior-section)", (type) => {
-    // MultiQuestionGrid (LEGACY, §10-removal-deferred): its Required checkbox
-    // has ALWAYS been gated on the pre-existing `!meta.produces` check (own-
-    // hand-verified — produces:"object" for this type, unrelated to §6.2's
-    // NEW capability model), a mechanism that predates this rework and is not
-    // being migrated for a type slated for P5 removal — registry.ts's own
-    // defensive spec (required:false, mirrored in EXPECTED_MATRIX) reflects
-    // the CAPABILITY-MATRIX placeholder value, not this type's actual
-    // (unrelated, unmigrated) DOM behavior.
-    if (type === "MultiQuestionGrid") return;
     // §6.2's "per-field" cells (Address/NameFields) still show SOME
     // required-related affordance (their own per-sub-field controls) — this
     // probe only proves the generic section is visible whenever required is

@@ -77,143 +77,35 @@ async function ruleSourceLabels(page: Page): Promise<string[]> {
     Array.from((el as HTMLSelectElement).options).map((o) => o.textContent ?? ""),
   );
 }
-// Select a Rules-tab condition source by its VISIBLE label substring (never a
-// hand-guessed internal_field) and return the option's real VALUE — the same
-// pattern test-ui/__p1b-render.spec.ts's selectRuleSource uses for an Address
-// role — so the round-trip assertion below compares against what was actually
-// picked, not an assumed field name.
-async function selectRuleSourceByLabel(page: Page, labelSubstring: string): Promise<string> {
-  const when = page.locator('[data-inspector-cond="when"]');
-  const value = await when.evaluate((el, word) => {
-    const opt = Array.from((el as HTMLSelectElement).options).find((o) => (o.textContent ?? "").includes(word));
-    return opt ? opt.value : "";
-  }, labelSubstring);
-  if (!value) throw new Error(`no rule-source option matching "${labelSubstring}"`);
-  await when.selectOption(value);
-  return value;
-}
 async function openEdit(page: Page, publicId: string) {
   await page.goto(`/admin/leadgen/sections/${publicId}/edit`, { waitUntil: "domcontentloaded" });
   await expect(page.locator("#lg-section-name")).toBeVisible();
 }
-// The live-equivalent render MARKUP (no studio decoration) straight from the
-// shared preview producer — the SAME renderSectionComponents the live funnel
-// uses (mirrors test-ui/__p1b-render.spec.ts's previewHtml exactly, duplicated
-// per this repo's per-file self-containment convention for vm-probe-adjacent
-// Playwright specs).
-async function previewHtml(request: APIRequestContext, components: unknown[]): Promise<string> {
-  const body = await json<Record<string, unknown>>(
-    await request.post(`${LG_API}/sections/preview`, {
-      data: { content_json: JSON.stringify({ components }), viewport: "desktop" },
-    }),
-    "p1a preview",
-  );
-  const preview = (body["preview"] as Record<string, unknown> | undefined) ?? body;
-  return String(preview["html"] ?? preview["desktop"] ?? preview["mobile"] ?? "");
-}
 
-test.describe("P1a — MultiQuestionGrid usable from the picker + rules + save (AC-1)", () => {
-  test("picker grid renders seeded rows, canvas add-sub-question grows them, a sibling Dropdown's rule sources use ROW labels (not the headline), a rule authored ON a row saves + round-trips after reload, and the grid renders rows + a default-selected pill on the LIVE preview", async ({
-    page,
-  }) => {
+// §10/S5.1: selectRuleSourceByLabel + previewHtml (a comment-through-preview
+// helper mirroring test-ui/__p1b-render.spec.ts's own) were deleted here —
+// both were ONLY ever called by the retired AC-1 MultiQuestionGrid journey
+// below (see its own retirement note).
+
+// §10/S5.1 RETIREMENT: MultiQuestionGrid has no catalog entry anymore
+// (confirmed 0 references, P5 orphan-scan) — the picker tile this whole AC-1
+// journey opened with (`palette(page, "MultiQuestionGrid")`) no longer
+// exists, so nothing below it (rows editor, canvas add-sub-question, rule
+// sourcing off row labels, save/round-trip, live-preview row rendering) is
+// reachable through the Studio anymore. Replacement coverage: a stored node
+// of this (or any other) extinct type renders the fail-safe box, never its
+// old widget or a 500 — proved in test/leadgen-rework-render.test.ts's "§10
+// seam: a stored node of ANY extinct type (RangeQuestion/CurrencyRangeQuestion
+// /MultiQuestionGrid/OtherGroupSelector) renders the fail-safe box" test. The
+// picker-insertion + rule-authoring-off-row-labels BEHAVIOR this AC-1 journey
+// proved has no current equivalent for any live multi-row-question type (the
+// catalog has no other multi-answer-per-question component) — a genuine,
+// undocumented-elsewhere gap, not silently dropped.
+test.describe("P1a — MultiQuestionGrid usable from the picker + rules + save (AC-1) [RETIRED: §10/S5.1]", () => {
+  test("the retired MultiQuestionGrid tile has no current picker surface (see describe-block citation)", async ({ page }) => {
     const section = await createSection(page.request, `P1a grid ${uniq}`, [BOUND_HEADLINE]);
     await openEdit(page, section.public_id);
-
-    // Insert the grid through the REAL library tile.
-    await palette(page, "MultiQuestionGrid").click();
-
-    // A2z A-3 seed fix: a picker-inserted grid renders its starter rows on
-    // canvas IMMEDIATELY (never an empty shell).
-    await expect(canvas(page).locator(".lg-mqg-row")).toHaveCount(2);
-
-    // The canvas "Add a sub-question" affordance (deliverable 2) adds a row via
-    // the SAME addMqgRow the rows editor uses → 3 rows.
-    await canvas(page).locator("[data-mqg-add-canvas]").click();
-    await expect(canvas(page).locator(".lg-mqg-row")).toHaveCount(3);
-
-    // Name the new sub-question through the real rows editor so the grid stays
-    // save-valid (each row needs a label), and give IT a default pill — the
-    // live-render leg below proves this specific row+default round-trips into
-    // the LIVE output, not just the studio canvas.
-    const rowsEditor = page.locator("[data-mqg-rows-block]");
-    await expect(rowsEditor).toBeVisible();
-    const newRow = page.locator("[data-mqg-rows] [data-mqg-row]").nth(2);
-    await newRow.locator('input[data-mqg-field="label"]').fill("Question 3");
-    await newRow.locator('select[data-mqg-field="default"]').selectOption("no");
-
-    // Add a sibling Dropdown through the picker → it becomes the selection.
-    await palette(page, "DropdownQuestion").click();
-
-    // Its Rules source list offers every grid row BY ITS ROW LABEL — and row 1
-    // is "Question 1", NOT the section headline (the A-4/P-4 mislabel bug).
-    const labels = await ruleSourceLabels(page);
-    expect(labels, `rule sources = ${JSON.stringify(labels)}`).toEqual(
-      expect.arrayContaining(["Question 1", "Question 2", "Question 3"]),
-    );
-    expect(labels.join(" | ")).not.toContain(HEADLINE);
-
-    // --- REVIEW ROUND leg 1: author a REAL show/hide condition on the Dropdown
-    // whose `when` IS an MQG row's internal_field (Question 1 / "answer1") ---
-    await page.locator('[data-studio-inspector-tab="rules"]').click();
-    await page.locator("[data-rules-add-condition]").click();
-    const ruleField = await selectRuleSourceByLabel(page, "Question 1");
-    await page.locator('[data-inspector-cond="op"]').selectOption("eq");
-    // Question 1 has no per-row choices override — its effective set is the
-    // grid's shared Yes/No pills, so the "eq" value control is the ENUM select
-    // (never the free-text input) with "yes"/"no" options.
-    await expect(page.locator('[data-inspector-cond="value-enum"]')).toBeVisible();
-    await page.locator('[data-inspector-cond="value-enum"]').selectOption("yes");
-
-    // The whole section (grid + the new rule) saves 2xx (the shared-choices
-    // save-trap is gone, and the row field is a KNOWN condition source). The
-    // response predicate is scoped to a PATCH on THIS section's OWN url (never
-    // a bare "/sections/" substring match) so it cannot pick up the debounced
-    // live-preview refresher's POST to the SIBLING /sections/preview endpoint,
-    // which shares that same substring and also returns 2xx.
-    const saveUrl = `${LG_API}/sections/${section.public_id}`;
-    const [saveResp] = await Promise.all([
-      page.waitForResponse((r) => r.url().includes(saveUrl) && r.request().method() === "PATCH"),
-      // A clean (0-problems) save ALWAYS hard-navigates back to this SAME edit
-      // URL once the PATCH succeeds (ui-section-studio.ts saveBtn handler) —
-      // waiting for `load` alongside the response (rather than an explicit
-      // page.reload() afterward, which would race that in-flight navigation)
-      // is the SAME pattern test-ui/leadgen-p5-multi-question-grid.gesture.spec.ts's
-      // saveStudio() helper uses.
-      page.waitForEvent("load"),
-      page.locator("#lg-section-save").click(),
-    ]);
-    const saveBody = await saveResp.text().catch(() => "(body unavailable)");
-    expect(saveResp.status(), `save status (${saveBody})`).toBeLessThan(300);
-
-    // --- REVIEW ROUND leg 1 (cont'd): the save's own redirect already reloaded
-    // the studio fresh from the server — confirm the rule ROUND-TRIPS (the
-    // source is still selected and the value is intact) ---
-    await expect(page.locator("#lg-section-name")).toBeVisible();
-    await canvas(page).locator('[data-component-type="DropdownQuestion"]').click();
-    await page.locator('[data-studio-inspector-tab="rules"]').click();
-    await expect(page.locator('[data-inspector-cond="when"]'), "rule source round-trips").toHaveValue(ruleField);
-    const valueEnum = page.locator('[data-inspector-cond="value-enum"]');
-    await expect(valueEnum, "value control re-derives as the enum select").toBeVisible();
-    await expect(valueEnum, "rule value round-trips").toHaveValue("yes");
-
-    // --- REVIEW ROUND leg 2: the picker-authored grid renders its rows AND a
-    // row's default-selected pill on the LIVE preview render, not just canvas ---
-    const persisted = await json<{ content_json?: { components?: unknown[] } }>(
-      await page.request.get(`${LG_API}/sections/${section.id}`),
-      "p1a fetch persisted section",
-    );
-    const persistedComponents = persisted.content_json?.components ?? [];
-    const live = await previewHtml(page.request, persistedComponents);
-    expect((live.match(/class="lg-field lg-mqg-row"/g) ?? []).length, "3 rows render on the LIVE output").toBe(3);
-    // Exactly one default-selected pill overall (only "Question 3" has one) —
-    // and it sits inside THAT row's own markup slice, on the "no" pill.
-    expect((live.match(/lg-selected/g) ?? []).length, "exactly one default-selected pill").toBe(1);
-    const q3LabelIdx = live.indexOf(">Question 3<");
-    expect(q3LabelIdx, "Question 3's row present in the LIVE output").toBeGreaterThan(-1);
-    const nextRowIdx = live.indexOf('class="lg-field lg-mqg-row"', q3LabelIdx + 1);
-    const q3RowSlice = nextRowIdx === -1 ? live.slice(q3LabelIdx) : live.slice(q3LabelIdx, nextRowIdx);
-    expect(q3RowSlice, "Question 3's own pill carries the selected class").toContain("lg-selected");
-    expect(q3RowSlice, "Question 3's selected pill is the 'no' value").toContain('data-lg-choice="no"');
+    await expect(palette(page, "MultiQuestionGrid")).toHaveCount(0);
   });
 });
 
@@ -228,10 +120,15 @@ test.describe("P1a — Address sub-fields are rule sources + Accept is locked (A
     await palette(page, "AddressAutocompleteQuestion").click();
     await expect(canvas(page).locator('[data-component-type="AddressAutocompleteQuestion"]')).toHaveCount(1);
 
-    // Deliverable 9a: the Accept type-swap dropdown is LOCKED (hidden) on an
-    // Address, with a one-line explanation shown instead.
+    // Deliverable 9a, §10/S5.1 CORRECTED: the Accept type-swap dropdown is
+    // hidden on an Address (Address is not in the accept_type_swap-capable
+    // family — ui-section-studio.ts's populateInspector). The old "Address is
+    // a fixed type" lock NOTE (data-accept-address-lock) is itself a §10
+    // removal — Address instead gets the field-set editor in its place
+    // (ui-section-studio.ts's own comment: "Rework §6.10 / §10: the Address
+    // type-lock is REMOVED... Address instead gets the field-set editor").
     await expect(page.locator("[data-accept-wrap]")).toBeHidden();
-    await expect(page.locator("[data-accept-address-lock]")).toBeVisible();
+    await expect(page.locator("[data-address-fieldset-block]")).toBeVisible();
 
     // Insert a sibling Dropdown → it becomes the selection; its Rules source
     // list now enumerates the Address role sub-fields (deliverable 8).

@@ -34,16 +34,6 @@ import {
   loadVariantPages,
   validateSlotRuleFieldScope,
   type ResolvedFunnelPage,
-  // Round-4 P4b: the P4a (D-2) routing-rule primitives this module's CRUD
-  // reuses so the admin-side checkpoint derivation + conflict detection can
-  // never diverge from the runtime's own (deriveRuleCheckpointPage,
-  // ROUTING_ENTRY_KNOWN_FIELDS are EXPORTED from resolver.ts for exactly this
-  // reuse — its own module-header comment: "conditions_hash + save-time
-  // conflict flagging" / "exported for P4b's Problems mechanism").
-  deriveRuleCheckpointPage,
-  ROUTING_ENTRY_KNOWN_FIELDS,
-  detectRoutingRuleConflicts,
-  type RoutingConflictInput,
   // §4.3-11 parity addendum: the SAME shared-page loader + page→sections
   // flattener composeResolvedBundle (the live serve path, resolver.ts,
   // unexported) uses — imported read-only so the composed variant preview
@@ -236,17 +226,28 @@ const QUOTE_STATUSES = ["draft", "active", "archived"] as const satisfies readon
 // ---------------------------------------------------------------------------
 // db-types.ts's LeadgenFunnelRuleType/LeadgenFunnelRuleRow/LeadgenFunnelRuleApi
 // and leadgen/funnel.ts's validateFunnelRule/FunnelRuleInput do NOT know the
-// route_funnel_variant rule type or the migration-0043 v2 columns
-// (target_funnel_variant_id, value_multiplier, checkpoint_page, match_mode,
-// rule_name, status) -- neither file is in the P4b slice's file ownership
-// (its dispatch lists only ui-rules-builder.ts / ui-quotes.ts /
-// quotes-handlers.ts / router.ts). resolver.ts's own P4a comment anticipated
-// this ("db-types.ts's LeadgenFunnelRuleRow, which P4b extends for the admin
-// API") but the widening was never added to either shared file. Rather than
-// touch two files outside this slice, the v2 surface is expressed with local,
-// additive types here (SEAM -- reported to the conductor rather than silently
-// widening db-types.ts/leadgen/funnel.ts).
-type FunnelRuleTypeV2 = LeadgenFunnelRuleType | "route_funnel_variant";
+// migration-0043 v2 columns (target_funnel_variant_id, value_multiplier,
+// checkpoint_page, match_mode, rule_name, status) -- neither file is in the
+// P4b slice's file ownership (its dispatch lists only ui-rules-builder.ts /
+// ui-quotes.ts / quotes-handlers.ts / router.ts). resolver.ts's own P4a
+// comment anticipated this ("db-types.ts's LeadgenFunnelRuleRow, which P4b
+// extends for the admin API") but the widening was never added to either
+// shared file. Rather than touch two files outside this slice, the v2
+// surface is expressed with local, additive types here (SEAM -- reported to
+// the conductor rather than silently widening db-types.ts/leadgen/funnel.ts).
+//
+// §10/S5.1: this used to be `LeadgenFunnelRuleType | "route_funnel_variant"`.
+// That extra union member is REMOVED — proven dead: leadgen_funnel_rules'
+// CHECK (migration 0048/M3) forbids the value going forward, and M3's own
+// table recreation excluded every such row up front (they were migrated to
+// leadgen_quote_routing_rules), so a read of this column can never actually
+// produce it. Narrowed the union rather than deleting the type name (still
+// used at LeadgenFunnelRuleRowV2.rule_type / PreparedRule.ruleType / the
+// ruleType-as-cast below). NOTE (out of this slice's file ownership, flagged
+// not fixed): db-types.ts's OWN LeadgenFunnelRuleType still includes
+// "skip_section"/"show_section", which the SAME M3 CHECK also forbids now —
+// a pre-existing, separate staleness in a file this slice does not own.
+type FunnelRuleTypeV2 = LeadgenFunnelRuleType;
 
 interface LeadgenFunnelRuleRowV2 extends Omit<LeadgenFunnelRuleRow, "rule_type"> {
   rule_type: FunnelRuleTypeV2;
@@ -319,56 +320,13 @@ function validateRoutingConditionsShape(value: unknown): string | null {
   return null;
 }
 
-// Mirrors resolver.ts's private fieldToPageIndex (same "later page overwrites
-// -> max" derivation) using the SAME exported component parser/expander, so
-// the P4b builder's checkpoint_page can never drift from the runtime's own
-// per-rule derivation (deriveRuleCheckpointPage, imported above, is reused
-// verbatim -- only this field->page map is a local mirror).
-function computeFieldToPageIndex(pages: readonly ResolvedFunnelPage[]): Map<string, number> {
-  const out = new Map<string, number>();
-  pages.forEach((page, idx) => {
-    for (const slot of page.slots) {
-      for (const c of slot.candidates) {
-        for (const node of parseSectionComponents(c.section.content_json ?? "")) {
-          for (const comp of expandPublicComponents(node)) {
-            const f = comp.internal_field;
-            if (f !== undefined && f !== "") out.set(f, idx);
-          }
-        }
-      }
-    }
-  });
-  return out;
-}
-
-// A route_funnel_variant rule is "entry-only" (no checkpoint_page -- evaluated
-// at entry) iff every condition field is entry-known. Mirrors resolver.ts's
-// private isEntryOnly using the SAME exported ROUTING_ENTRY_KNOWN_FIELDS set.
-function routingRuleIsEntryOnly(conditions: { groups?: Array<{ field: string }> }): boolean {
-  for (const g of conditions.groups ?? []) {
-    if (!ROUTING_ENTRY_KNOWN_FIELDS.has(g.field)) return false;
-  }
-  return true;
-}
-
-// Resolve a route_funnel_variant target: a funnel_variant PUBLIC id (lgn_...),
-// constrained to the SAME FUNNEL as the rule's own variant (P4a's resolver.ts
-// anti-leak invariant -- getActiveVariantByIdOnFunnel/isActiveRoutingTargetOnFunnel
-// both scope by funnel_id; a routing rule can only route within its own
-// funnel's variants). Returns the target's internal id, or null when absent/
-// not-found/foreign-funnel (caller surfaces a field error on not-found).
-async function resolveRoutingTargetVariantId(
-  db: D1Database,
-  funnelId: number,
-  targetPublicId: string,
-): Promise<number | null> {
-  if (targetPublicId === "") return null;
-  const row = await db
-    .prepare("SELECT id FROM leadgen_funnel_variants WHERE public_id = ? AND funnel_id = ? LIMIT 1")
-    .bind(targetPublicId, funnelId)
-    .first<{ id: number }>();
-  return row ? row.id : null;
-}
+// §10/S5.1: three route_funnel_variant-era local mirrors were removed here
+// (computeFieldToPageIndex, routingRuleIsEntryOnly, resolveRoutingTargetVariantId)
+// — confirmed ZERO callers anywhere in this file. They existed to serve the
+// P4a per-variant routing-rule admin CRUD (rule_type='route_funnel_variant'
+// rows in leadgen_funnel_rules), which migration M3 moved entirely to the
+// quote-scoped leadgen_quote_routing_rules table + its own dedicated admin
+// handlers; these three were stranded scaffolding, never wired to it.
 
 type FieldErrors = Record<string, string>;
 
@@ -5994,53 +5952,6 @@ async function computeMapsNoJobProblems(
 // the funnel HAS a configured frame (§14.4) — the per-section chrome
 // (error/warning per compat, C2) · local progress/back · duplicate Continue ·
 // missing headline · legacy-hex rows.
-// Round-4 P4b: surface P4a's save-time routing-rule conflict flags (resolver.ts
-// detectRoutingRuleConflicts, exported "for P4b's Problems mechanism") through
-// the SAME activation-preflight Problems list every other variant-level
-// advisory already rides (storeVariantPreflight -> computeVariantV25Problems
-// -> the Activation tab's publish badge). `scope` is drawn from theme.ts's
-// CLOSED ProblemScope union ("frame"|"theme"|"section"|"component"|"choice"|
-// "mapping") -- none of those literals actually fit "two routing rules race"
-// semantically, and widening that union is out of this slice's file
-// ownership (theme.ts is not in the P4b file list). "section" is the least-
-// wrong existing bucket (routing rules are authored on the same funnel-
-// variant surface as section-scoped problems); flagged to the conductor as a
-// SEAM rather than silently adding a new ProblemScope literal.
-async function computeRoutingRuleConflictProblems(
-  db: D1Database,
-  variant: LeadgenFunnelVariantRow,
-): Promise<Problem[]> {
-  const rules = await readVariantRules(db, variant.id);
-  // Mirrors resolver.ts loadRoutingRules' own gate exactly (commit 32990e8):
-  // `enabled = 1 AND status != 'disabled'` — a rule off by EITHER axis never
-  // actually evaluates at runtime, so it can never actually conflict.
-  const routingRules = rules.filter(
-    (r) => r.rule_type === "route_funnel_variant" && r.enabled !== 0 && r.status !== "disabled",
-  );
-  if (routingRules.length === 0) return [];
-  const inputs: RoutingConflictInput[] = routingRules.map((r) => {
-    const conditions = parseJsonColumn(r.conditions_json);
-    const fields =
-      isRecord(conditions) && Array.isArray((conditions as { groups?: unknown }).groups)
-        ? ((conditions as { groups: Array<{ field?: unknown }> }).groups)
-            .map((g) => g.field)
-            .filter((f): f is string => typeof f === "string")
-        : [];
-    return {
-      rule_name: r.rule_name ?? "",
-      checkpoint_page: r.checkpoint_page,
-      priority: r.priority,
-      fields,
-    };
-  });
-  return detectRoutingRuleConflicts(inputs).map((message) => ({
-    path: "rules",
-    scope: "section",
-    severity: "warning",
-    message,
-  }));
-}
-
 async function computeVariantV25Problems(
   db: D1Database,
   quote: LeadgenQuoteRow,
@@ -6050,7 +5961,10 @@ async function computeVariantV25Problems(
 ): Promise<Problem[]> {
   const problems: Problem[] = [];
   problems.push(...(await computeMapsNoJobProblems(db, variant)));
-  problems.push(...(await computeRoutingRuleConflictProblems(db, variant)));
+  // §10/S5.1: the route_funnel_variant save-time conflict-flag row
+  // (computeRoutingRuleConflictProblems) was removed — its own rule_type
+  // filter always emptied (that rule_type was migrated out of
+  // leadgen_funnel_rules by M3), so it had been a silent, permanent no-op.
   const fixQuote = QUOTE_BUILDER_LINK(quote.public_id);
 
   // --- variant frame_overrides_json invalid (row 3, error — per-variant) ----

@@ -2062,9 +2062,9 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
           section_mapping_version: 0,
           answer_mapping_version: "",
           // The FULL flattened component list (the engine applies dependency
-          // visibility itself, exactly as on the live shell). P5 (PC-10):
-          // flatMap so a MultiQuestionGrid row-expands identically to the live
-          // config (expandPublicComponents) — preview and live never disagree.
+          // visibility itself, exactly as on the live shell). flatMap over
+          // expandPublicComponents (a 1:1 projection since §10/M6) keeps preview
+          // and live config byte-identical.
           components: flattenComponents(nodes).flatMap(expandPublicComponents),
         },
       ],

@@ -19,10 +19,19 @@
 // (Fontsource repackages the upstream OFL/Apache Google Fonts; the Latin
 // subset is already built — no local fonttools/woff2 tooling needed), base64-
 // encodes it, and writes:
-//   export const LEADGEN_FONT_FAMILIES        (metadata: family/category/weights/license)
 //   export const LEADGEN_SELF_HOSTED_FONT_FAMILIES: readonly string[]  (CSS family names)
 //   export const LEADGEN_FONT_FACE_CSS: Record<string,string>          (family -> @font-face blocks)
 //   export function selfHostedFontFaceCss(families): string            (dedup, deterministic emit)
+// LEADGEN-REWORK-03 P5 (S5.2 durability fix): this generator PREVIOUSLY also
+// emitted `export interface LeadgenFontFamilyMeta` + `export const
+// LEADGEN_FONT_FAMILIES` (a metadata table — family/category/weights/
+// license/pkg) — confirmed dead (zero references anywhere outside this
+// generator and fonts.generated.ts itself, per the leadgen-orphan-scan gate)
+// and removed from the committed fonts.generated.ts. Removed HERE too, so a
+// future `npm run build:fonts` re-run does not resurrect them — the
+// per-family license provenance this metadata used to carry still lives in
+// the generated file's own header COMMENT (licenseNotes, below), which never
+// needed the exported const to exist.
 //
 // SAME-ORIGIN GUARANTEE: every @font-face `src` is a `data:font/woff2;base64,…`
 // URL — same-origin by construction. styles.ts scans the RESOLVED design's
@@ -155,13 +164,6 @@ async function main() {
     );
   }
 
-  const familyMetaTs = CURATED.map(
-    (f) =>
-      `  { family: ${tsStringLiteral(f.family)}, category: ${tsStringLiteral(f.category)}, ` +
-      `weights: [${f.weights.join(", ")}], license: ${tsStringLiteral(f.license)}, ` +
-      `pkg: ${tsStringLiteral(`@fontsource/${f.pkg}@${FONTSOURCE_VERSION}`)} },`,
-  ).join("\n");
-
   const familyNamesTs = families.map((f) => `  ${tsStringLiteral(f)},`).join("\n");
 
   const faceEntriesTs = CURATED.map(
@@ -195,18 +197,6 @@ ${licenseNotes.join("\n")}
 `;
 
   const body = `
-export interface LeadgenFontFamilyMeta {
-  readonly family: string;
-  readonly category: string;
-  readonly weights: readonly number[];
-  readonly license: string;
-  readonly pkg: string;
-}
-
-export const LEADGEN_FONT_FAMILIES: readonly LeadgenFontFamilyMeta[] = [
-${familyMetaTs}
-];
-
 // The CSS family names styles.ts scans the resolved design's font slots for.
 export const LEADGEN_SELF_HOSTED_FONT_FAMILIES: readonly string[] = [
 ${familyNamesTs}

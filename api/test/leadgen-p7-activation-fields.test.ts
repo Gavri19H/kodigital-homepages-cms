@@ -303,40 +303,9 @@ const CONTINUE = { type: "ContinueButton", question_id: "q_cont", props: { label
 // ===========================================================================
 
 describeDb("leadgen-p7 activation dependency field-set + composed shape", () => {
-  // Test 1 — the operator's exact journey: a Dropdown conditioned on a
-  // MultiQuestionGrid ROW field. FAIL-BEFORE: activation 409s
-  // (dependency_missing_field ["mqg row field"]); PASS-AFTER: activates clean.
-  it("a rule conditioning a component on an MQG row field activates (no dependency block)", async () => {
-    const h = newHarness();
-    const s = seedSection(
-      h.sdb,
-      JSON.stringify({
-        components: [
-          {
-            type: "MultiQuestionGrid",
-            question_id: "q_grid",
-            choices: YESNO,
-            props: { rows: [{ label: "Homeowner", internal_field: "p7_homeowner" }] },
-          },
-          {
-            type: "DropdownQuestion",
-            question_id: "q_carrier",
-            internal_field: "p7_carrier",
-            answer_type: "enum",
-            choices: ONE_CHOICE,
-            conditional: { when: "p7_homeowner", op: "eq", value: "yes" },
-          },
-          CONTINUE,
-        ],
-      }),
-    );
-    const quoteRow = await seedQuote(h, "P7 MQG-row rule", [s.id]);
-    const preflight = await computeQuoteActivationPreflight(h.d1, quoteRow);
-    expect(
-      dependencyMissingFields(preflight),
-      `MQG row 'p7_homeowner' must be a known activation field; blocks: ${JSON.stringify(preflight.blocks)}`,
-    ).toEqual([]);
-  });
+  // §10: the former Test 1 — a Dropdown conditioned on a MultiQuestionGrid ROW
+  // field — retired with the grid. Multi-subfield activation (the general proof
+  // it embodied) is still covered by Test 3's Address-role + Name-field case.
 
   // Test 2 — a COMPOSED-shape rule naming a field that exists NOWHERE must be
   // REJECTED at activation. FAIL-BEFORE: composed shape skipped the check, so it
@@ -411,9 +380,10 @@ describeDb("leadgen-p7 activation dependency field-set + composed shape", () => 
 
   // Test 4 — back-compat: the pre-existing bare single-field path is byte-for-
   // byte unchanged. A known internal_field activates; an unknown one still
-  // blocks (identical before and after the fix). Plus: a composed rule over
-  // KNOWN MQG rows activates (composed + expanded field-set together).
-  it("bare single-field rules validate identically (known activates, unknown blocks); composed over known MQG rows activates", async () => {
+  // blocks (identical before and after the fix). (§10: the former "composed over
+  // known MQG rows" leg retired with the grid; composed-over-multi-subfield
+  // activation is still covered by Test 3's Address-role + Name-field case.)
+  it("bare single-field rules validate identically (known activates, unknown blocks)", async () => {
     const h = newHarness();
 
     const known = seedSection(
@@ -455,46 +425,5 @@ describeDb("leadgen-p7 activation dependency field-set + composed shape", () => 
     );
     const unknownPreflight = await computeQuoteActivationPreflight(h.d1, await seedQuote(h, "P7 bare-unknown", [unknown.id]));
     expect(dependencyMissingFields(unknownPreflight), "bare unknown field must still block").toContain("p7_missing");
-
-    const composedKnown = seedSection(
-      h.sdb,
-      JSON.stringify({
-        components: [
-          {
-            type: "MultiQuestionGrid",
-            question_id: "q_grid",
-            choices: YESNO,
-            props: {
-              rows: [
-                { label: "Married", internal_field: "p7_married" },
-                { label: "Gender", internal_field: "p7_gender" },
-              ],
-            },
-          },
-          {
-            type: "FreeTextQuestion",
-            question_id: "q_x2",
-            internal_field: "p7_x2",
-            answer_type: "string",
-            conditional: {
-              match: "all",
-              conditions: [
-                { when: "p7_married", op: "eq", value: "yes" },
-                { when: "p7_gender", op: "eq", value: "male" },
-              ],
-            },
-          },
-          CONTINUE,
-        ],
-      }),
-    );
-    const composedPreflight = await computeQuoteActivationPreflight(
-      h.d1,
-      await seedQuote(h, "P7 composed-known", [composedKnown.id]),
-    );
-    expect(
-      dependencyMissingFields(composedPreflight),
-      `composed rule over known MQG rows must activate; blocks: ${JSON.stringify(composedPreflight.blocks)}`,
-    ).toEqual([]);
   });
 });

@@ -20,12 +20,14 @@
 // No import from resolver.ts (which imports THIS module) — the entry-known set
 // is defined here to keep the dependency edge one-directional.
 
-// The entry-known ROUTING field universe (§4.3-3a). It is the legacy
-// ROUTING_ENTRY_KNOWN_FIELDS (resolver.ts — utm_source/utm_medium/utm_content +
-// the utm_campaign alias / device / state / hour / weekday) UNION the new M10
-// `os` dimension. Defined here (not imported) so the quote-rule model and the
-// checkpoint derivation share ONE os-inclusive set while the legacy per-variant
-// constant in resolver.ts stays byte-stable for its existing consumers.
+// The entry-known ROUTING field universe (§4.3-3a): utm_source/utm_medium/
+// utm_content + the utm_campaign alias / device / state / hour / weekday,
+// UNION the M10 `os` dimension. §10/S5.1: resolver.ts's OWN parallel
+// ROUTING_ENTRY_KNOWN_FIELDS (the pre-M3, non-os-inclusive per-variant
+// registry) was removed — it had zero live consumers left once the
+// route_funnel_variant evaluation chain it fed was deleted. This set (defined
+// here, not imported, per the one-directional dependency edge above) is now
+// the ONLY entry-known field registry in the leadgen namespace.
 export const OS_ROUTING_FIELD = "os";
 
 export const ENTRY_KNOWN_ROUTING_FIELDS: ReadonlySet<string> = new Set([

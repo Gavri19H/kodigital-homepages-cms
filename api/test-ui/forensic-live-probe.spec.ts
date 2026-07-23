@@ -516,7 +516,7 @@ test('P10DRAG a real slider drag on the LIVE funnel moves the value + fill AND r
         section_name: `R6 P10 slider ${uniq}`, activity: ACT, vertical: VERT, headline_text: 'Loan amount', continue_mode: 'button', status: 'active',
         content_json: { components: [
           { type: 'QuestionHeadline', question_id: 's_head', props: { text: 'Loan amount' } },
-          { type: 'RangeQuestion', question_id: 'q_loan', question_key: 'loan_q', internal_field: 'loan_amount', answer_type: 'number', props: { min: 0, max: 100000, step: 5000, default: 0, currency: '$', format: 'currency' } },
+          { type: 'NumberRangeQuestion', question_id: 'q_loan', question_key: 'loan_q', internal_field: 'loan_amount', answer_type: 'number', props: { min: 0, max: 100000, step: 5000, default: 0, currency_affix: true } },
           { type: 'ContinueButton', question_id: 's_cont', props: { label: 'See my quotes' } },
         ] },
       },

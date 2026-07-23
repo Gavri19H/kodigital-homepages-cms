@@ -38,12 +38,9 @@ import {
   // MOUNT CONTRACT documented at renderQuoteRulesRail's own doc comment). The
   // board renders it at the pack's 344px right-rail mount point; the composer
   // (ui-quotes.ts) assembles QuoteRulesRailData and threads it here + adds
-  // QUOTE_RULES_SCRIPT to the page's scripts bundle. `RoutingBuilderData` is
-  // the now-unused-here wire type renderBuilderPanel's signature still
-  // carries (kept — the composer's call site is unchanged shape).
+  // QUOTE_RULES_SCRIPT to the page's scripts bundle.
   renderQuoteRulesRail,
   type QuoteRulesRailData,
-  type RoutingBuilderData,
 } from "../ui-rules-builder";
 import {
   type RuleNode,
@@ -79,7 +76,6 @@ import {
   scopeHead,
   renderFrameList,
   renderSiteSelect,
-  renderTemplatePicker,
 } from "./shared";
 
 
@@ -455,8 +451,12 @@ function boardDataBlob(structure: StructureBody, available: AvailableSection[], 
 
 // --- the assembled §8.2 Funnel-builder BOARD ---------------------------------
 // Signature preserved (ui-quotes.ts composer call site is byte-stable); the
-// board reads structure/available/templates/routingData. `variant`/`designs`/
-// `auctions`/`sites` are legacy composer args no longer used by the board.
+// board reads structure/available/templates. `variant`/`designs`/`auctions`/
+// `sites` are legacy composer args no longer used by the board. §10/S5.1: the
+// `routingData: RoutingBuilderData` param (ALSO always-voided here — verified
+// the ENTIRE object, not just this board, had zero live consumers besides the
+// now-deleted renderRoutingRulesPanel) is removed; the composer's call site
+// dropped the argument in lockstep.
 export function renderBuilderPanel(
   structure: StructureBody,
   variant: VariantNode,
@@ -465,10 +465,9 @@ export function renderBuilderPanel(
   available: AvailableSection[],
   templates: FrameTemplateItem[],
   sites: PreviewSiteOption[],
-  routingData: RoutingBuilderData,
   railData: QuoteRulesRailData,
 ): string {
-  void variant; void sites; void routingData;
+  void variant; void sites;
   const funnels = structure.funnels
     .slice()
     .sort((a, b) => (a.display_order ?? a.id) - (b.display_order ?? b.id));
@@ -710,13 +709,12 @@ export const QUOTE_EDITOR_SCRIPT = `
     appendProblemGroups(panel, problems);
   }
 
-  // --- variant switch: reload the editor scoped to the chosen variant -------
-  var variantSelect = byId('lg-variant-select');
-  if (variantSelect) {
-    variantSelect.addEventListener('change', function () {
-      window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(this.value);
-    });
-  }
+  // §10/S5.1: the "variant switch: reload the editor scoped to the chosen
+  // variant" wiring (a #lg-variant-select change listener) was removed —
+  // confirmed dead: the P3b board rewrite dropped the variant-selector
+  // dropdown from the rendered HTML entirely (contract §8.2 "REMOVED: variant
+  // selector"), so byId('lg-variant-select') returned null and the guarded
+  // body never executed.
 
   // --- 4.1 quote-name inline edit (DEV-60 b) --------------------------------
   // Its OWN save path: PATCH /quotes/:id {quote_name} the moment the operator
@@ -800,21 +798,19 @@ export const QUOTE_EDITOR_SCRIPT = `
   // Generic data-goto-tab click delegation (the head's Publish button jumps
   // into Activation; the board's A/B badge / theme pickchip jump into A/B /
   // Themes via this SAME mechanism, gotoTab() in the board island below).
-  // Historical note (Round-4 P4b, since superseded by the P3b board rebuild):
-  // routing rules were briefly a standalone top tab, then moved inside the
-  // Funnel builder tab's right column; that link + its embedding are both
-  // long gone (§10) — the §8.2 RIGHT rail is the current routing-rules home.
+  // §10/S5.1: the special-case for the retired routing-rules top-tab target
+  // (scrolling to #lg-routing-rules-root) was removed — confirmed dead on
+  // BOTH ends: no template renders that data-goto-tab value anymore
+  // (routing rules moved to the §8.2 RIGHT rail, which needs no tab-jump
+  // target), and lg-routing-rules-root itself no longer exists (its render —
+  // renderRoutingRulesPanel — was deleted entirely, having zero real
+  // callers). Every other data-goto-tab value still falls through to the
+  // unconditional activate(target) below.
   document.addEventListener('click', function (ev) {
     var el = ev.target;
     while (el && el.getAttribute && !el.getAttribute('data-goto-tab')) { el = el.parentNode; }
     if (el && el.getAttribute) {
       var target = el.getAttribute('data-goto-tab');
-      if (target === 'rules') {
-        activate('builder');
-        var rulesPanel = document.getElementById('lg-routing-rules-root');
-        if (rulesPanel && rulesPanel.scrollIntoView) { rulesPanel.scrollIntoView({ block: 'start' }); }
-        return;
-      }
       activate(target);
     }
   });
@@ -1505,7 +1501,6 @@ export const QUOTE_EDITOR_SCRIPT = `
   var lastCss = '';
   var selectedRegion = null;
   var siteId = '';
-  var pendingSwitch = null;
 
   function templateDefaults(id) {
     var i;
@@ -3537,14 +3532,10 @@ export const QUOTE_EDITOR_SCRIPT = `
     }
     for (i = 0; i < selects.length; i++) { selects[i].addEventListener('change', onSiteChange); }
   }());
-  (function () {
-    var mirror = byId('lg-canvas-variant-select');
-    if (mirror) {
-      mirror.addEventListener('change', function () {
-        window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(this.value);
-      });
-    }
-  }());
+  // §10/S5.1: the #lg-canvas-variant-select change-listener mirror was
+  // removed — confirmed dead for the SAME reason as #lg-variant-select
+  // above (the P3b board rewrite removed the canvas's own variant-select
+  // mirror along with the canvas that hosted it).
 
   // --- structure panel: slide selection --------------------------------------
   root.addEventListener('click', function (ev) {
@@ -3563,92 +3554,20 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (previewMode === 'section') { schedulePreview(); }
   });
 
-  // --- template picker (§4.3, C5 preview-before-apply) -----------------------
-  // Round-4 P5b: #lg-template-btn keeps its ORIGINAL inline toggle — the
-  // 6-arrangement picker stays canvas-embedded (reported conflict: moving it
-  // behind the Templates tab hides the canvas mid preview-before-apply,
-  // breaking test-ui/leadgen-quote-builder.spec.ts rows (2) and (6), VERIFIED
-  // failing — see renderTemplatePicker's doc comment + the P5b report).
-  // #lg-theme-btn DOES jump to the new "Themes" tab per the operator
-  // restructure spec's explicit, unambiguous instruction for that surface
-  // (deliverable 1) — activate() does the mini-preview kick for 'themes'.
-  function togglePanel(id) {
-    var panel = byId(id);
-    if (!panel) { return false; }
-    var open = String(panel.className).indexOf('lg-hidden') >= 0;
-    panel.className = open ? 'lg-panel-card' : 'lg-panel-card lg-hidden';
-    return open;
-  }
+  // §10/S5.1: the OLD canvas-embedded "6-arrangement template picker" wiring
+  // (togglePanel/#lg-template-btn/#lg-template-picker/showTemplateConfirm/
+  // hideTemplateConfirm/#lg-template-confirm/the data-template-pick card
+  // handler/#lg-template-apply/#lg-template-cancel) was removed — confirmed
+  // dead: renderTemplatePicker (its ONLY render source, shared.ts) has ZERO
+  // real callers anywhere in the admin/leadgen namespace, so none of its
+  // trigger/target elements ever render. The board's OWN, LIVE per-funnel-
+  // column template picker (§8.2 M5 — the data-template-picker pickchip in
+  // this file's own renderColumnHeader-shaped markup + its applyTemplate
+  // handler below) is a SEPARATE, unrelated, still-live mechanism — NOT
+  // touched. #lg-theme-btn also stays (jumps to the Themes tab, unrelated).
   (function () {
-    var btn = byId('lg-template-btn');
-    if (btn) { btn.addEventListener('click', function () { togglePanel('lg-template-picker'); }); }
     var themeBtn = byId('lg-theme-btn');
     if (themeBtn) { themeBtn.addEventListener('click', function () { activate('themes'); }); }
-  }());
-  function showTemplateConfirm(confirmations) {
-    var box = byId('lg-template-confirm');
-    var list = byId('lg-template-confirm-list');
-    if (!box || !list) { return; }
-    clearChildren(list);
-    var lines = confirmations.length > 0 ? confirmations : ['Your content is unaffected by this switch.'];
-    var i;
-    for (i = 0; i < lines.length; i++) {
-      var li = document.createElement('li');
-      li.appendChild(document.createTextNode(lines[i]));
-      list.appendChild(li);
-    }
-    box.className = '';
-  }
-  function hideTemplateConfirm() {
-    var box = byId('lg-template-confirm');
-    if (box) { box.className = 'lg-hidden'; }
-  }
-  root.addEventListener('click', function (ev) {
-    var el = ev.target;
-    while (el && el.getAttribute && el.getAttribute('data-template-pick') === null) { el = el.parentNode; }
-    if (!el || !el.getAttribute) { return; }
-    var id = el.getAttribute('data-template-pick');
-    var cards = root.querySelectorAll('[data-template-pick]');
-    var i;
-    for (i = 0; i < cards.length; i++) {
-      cards[i].className = cards[i] === el ? 'lg-template-card selected' : 'lg-template-card';
-    }
-    fetch('/api/admin/leadgen/funnels/' + encodeURIComponent(funnelPublicId) + '/frame?switch_to=' + encodeURIComponent(id), {
-      credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
-      if (!res.ok || !res.body || !res.body.merged) {
-        canvasStatus('Template preview failed.');
-        return;
-      }
-      pendingSwitch = { id: id, merged: res.body.merged };
-      showTemplateConfirm(res.body.confirmations || []);
-      // C5: preview-before-apply — the canvas shows the WOULD-BE result;
-      // nothing persists (and Cancel restores the working config).
-      renderPreview(res.body.merged);
-    });
-  });
-  (function () {
-    var apply = byId('lg-template-apply');
-    var cancel = byId('lg-template-cancel');
-    if (apply) {
-      apply.addEventListener('click', function () {
-        if (!pendingSwitch) { return; }
-        workingFrame = deepClone(pendingSwitch.merged);
-        frameDirty = true;
-        markDirty();
-        pendingSwitch = null;
-        hideTemplateConfirm();
-        populateAllControls();
-        schedulePreview();
-      });
-    }
-    if (cancel) {
-      cancel.addEventListener('click', function () {
-        pendingSwitch = null;
-        hideTemplateConfirm();
-        schedulePreview();
-      });
-    }
   }());
 
   // --- studio boot ------------------------------------------------------------
@@ -4000,7 +3919,9 @@ export const QUOTE_EDITOR_SCRIPT = `
   // …plus the DEV-60 widgets with their OWN save paths: the quote-rename
   // input PATCHes immediately via its Save-name button; the media-upload file
   // input persists through the upload POST.
-  var NON_PERSISTED_IDS = { 'lg-variant-select': 1, 'lg-canvas-variant-select': 1, 'lg-ab-preview-session': 1, 'lg-add-section-select': 1, 'lg-theme-hex-role': 1, 'lg-theme-hex-value': 1, 'lg-quote-rename-input': 1, 'lg-media-upload-file': 1 };
+  // §10/S5.1: 'lg-variant-select'/'lg-canvas-variant-select' dropped — both
+  // elements were removed from the rendered HTML with the P3b board rewrite.
+  var NON_PERSISTED_IDS = { 'lg-ab-preview-session': 1, 'lg-add-section-select': 1, 'lg-theme-hex-role': 1, 'lg-theme-hex-value': 1, 'lg-quote-rename-input': 1, 'lg-media-upload-file': 1 };
   function markDirtyFor(el) {
     if (!el || !el.getAttribute) { return; }
     var id = el.id || '';

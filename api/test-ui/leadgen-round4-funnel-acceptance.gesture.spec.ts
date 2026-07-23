@@ -256,147 +256,29 @@ test.describe("Round-4 acceptance — Funnel builder: structure/pages/routing/th
   });
 
   // =========================================================================
-  // D-2 routing rules — the reference-shaped unified builder: name/priority
-  // /status, conditions over the field registry, an AUTO-DERIVED checkpoint,
-  // route-to-funnel-variant BY NAME, Duplicate, no raw target_offer_id ever
-  // visible. Deeper gate: __p4b-rules.spec.ts. Journey: author a rule through
-  // the REAL "+ New rule" modal (UTM source is X AND age >= 65 -> route to
-  // variant B) -> save -> reload round-trips (incl. server-derived checkpoint)
-  // -> toggle status -> Duplicate -> a redirect rule via the offer NAME picker.
+  // D-2 routing rules [RETIRED: §10/S5.1] — this test drove the FIRST-
+  // generation per-variant routing-rules PANEL (#lg-routing-rules-root/
+  // #lg-rule-new/#lg-rule-modal/#lg-modal-*/#lg-rules-table-body), rendered
+  // by ui-rules-builder.ts's renderRoutingRulesPanel/ROUTING_RULES_SCRIPT —
+  // confirmed 0 real callers (P5 orphan-scan) and deleted this sweep, along
+  // with its whole server-side evaluation chain in public/leadgen/resolver.ts
+  // (evaluateEntryRouting/evaluateCheckpointRouting/parseRoutingRule/
+  // loadRoutingRules/etc.) and the route_funnel_variant rule_type itself
+  // (migration 0048/M3's CHECK now forbids it). None of this test's DOM ids
+  // exist in any served page anymore. The RELOCATED four-type rules editor
+  // (renderRelocatedRulesEditor/RELOCATED_RULES_SCRIPT, ui-rules-builder.ts)
+  // is the current live mechanism — its modal/table behavior (live-updating
+  // checkpoint, redirect_direct_offer authored via the offer NAME picker,
+  // toggle/duplicate) is proven in test-ui/leadgen-rework-p3b-rules.gesture
+  // .spec.ts (e.g. its "edit -> the read-only checkpoint updates live" and
+  // "#lg-frr-type"/redirect_direct_offer tests) — the successor to this one.
   // =========================================================================
-  test("Routing rules (D-2) — named/prioritized rule via the modal (checkpoint auto-derived, route by NAME) -> save/reload/toggle/duplicate; redirect by offer NAME (never a raw id)", async ({ page }) => {
-    page.on("dialog", (d) => d.accept());
-    const u = Date.now();
-    const quote = await json<{ public_id: string; funnels: Array<{ variants: Array<{ public_id: string }> }> }>(
-      await apiCtx.post(`${LG_API}/quotes`, { data: { quote_name: `R4F rules ${u}`, activity: "quote_funnel", verticals: [VERTICAL] } }),
-      "quote create",
-    );
-    const variantAId = quote.funnels[0]!.variants[0]!.public_id;
-    const introSection = await createSection(apiCtx, `R4F Intro ${u}`, `r4fintro_${u}`);
-    const ageSection = await createSection(apiCtx, `R4F Age ${u}`, "age");
-    await json(
-      await apiCtx.put(`${LG_API}/variants/${variantAId}`, {
-        data: {
-          pages: [
-            { name: "Intro", slots: [{ kind: "fixed", section_id: introSection.public_id }] },
-            { name: "Age", slots: [{ kind: "fixed", section_id: ageSection.public_id }] },
-          ],
-        },
-      }),
-      "seed pages",
-    );
-    const fork = await json<{ public_id: string }>(await apiCtx.post(`${LG_API}/variants/${variantAId}/fork`), "fork variant B");
-    const offerName = `R4F Offer ${u}`;
-    const offer = await json<{ id: number }>(
-      await apiCtx.post(`${LG_API}/offers`, {
-        data: {
-          offer_name: offerName,
-          provider: "fxprov",
-          activity: "quote_funnel",
-          vertical: VERTICAL,
-          conversion_tracking_method: "s2s_postback",
-          offer_type: "cpc",
-          placements: [`r4f-${u}`],
-          calls_provider_api: false,
-          bid_source: "static",
-          cap_enabled: false,
-        },
-      }),
-      "offer create",
-    );
-
-    await page.goto(`/admin/leadgen/quotes/${quote.public_id}/edit`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#lg-routing-rules-root")).toBeVisible();
-    // The standalone Rules tab is GONE — rules are embedded in Funnel builder.
-    await expect(page.locator(".lg-qtabs [data-tab='rules']")).toHaveCount(0);
-
-    await page.locator("#lg-rule-new").click();
-    const modal = page.locator("#lg-rule-modal");
-    await expect(modal).toBeVisible();
-    await modal.locator("#lg-modal-rule-name").fill("R4F 65+ Facebook");
-    await modal.locator("#lg-modal-priority").fill("2");
-    await modal.locator("#lg-modal-rule-type").selectOption("route_funnel_variant");
-    await modal.locator("[data-modal-target-variant]").selectOption(fork.public_id);
-    const conditionsMount = modal.locator("#lg-modal-conditions-mount");
-    await conditionsMount.getByRole("button", { name: "+ Add condition" }).click();
-    await conditionsMount.locator(".lg-rb-field").nth(0).selectOption("utm_source");
-    await conditionsMount.locator(".lg-rb-op").nth(0).selectOption("eq");
-    await conditionsMount.locator(".lg-rb-value").nth(0).fill("facebook");
-    await conditionsMount.getByRole("button", { name: "+ Add condition" }).click();
-    await conditionsMount.locator(".lg-rb-field").nth(1).selectOption("age");
-    await conditionsMount.locator(".lg-rb-op").nth(1).selectOption("gte");
-    await conditionsMount.locator(".lg-rb-value").nth(1).fill("65");
-    // Checkpoint AUTO-DERIVED from the conditions (the age field's page).
-    await expect(modal.locator("#lg-modal-checkpoint")).toHaveText("Page 2");
-    await modal.locator("#lg-modal-save").click();
-    await expect(modal).toBeHidden();
-
-    const row = page.locator("#lg-rules-table-body [data-rules-table-row]").first();
-    await expect(row.locator("[data-row-name]")).toHaveText("R4F 65+ Facebook");
-    await expect(row.locator("[data-row-checkpoint]")).toHaveText("Page 2");
-    await expect(row.locator("[data-row-type]")).toHaveText("Route to a different funnel");
-    await expect(row.locator("[data-row-status-pill]")).toHaveText("Active");
-
-    const putPromise = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().includes(`/variants/${variantAId}`));
-    await page.locator("#lg-variant-save").click();
-    const put = await putPromise;
-    expect(put.status(), `variant PUT: ${await put.text()}`).toBe(200);
-    const putBody = put.request().postDataJSON() as { rules: Array<Record<string, unknown>> };
-    const sentRule = putBody.rules.find((r) => r["rule_name"] === "R4F 65+ Facebook");
-    expect(sentRule).toBeTruthy();
-    expect(sentRule!["target_funnel_variant_id"]).toBe(fork.public_id);
-
-    // No raw target_offer_id input ever VISIBLE (a hidden wire-format carrier
-    // is acceptable — never a DOM-visible raw-id field).
-    const legacyInputs = page.locator("[data-rule-target-offer]");
-    const legacyCount = await legacyInputs.count();
-    for (let i = 0; i < legacyCount; i++) await expect(legacyInputs.nth(i)).not.toBeVisible();
-
-    // Reload -> server-authoritative round-trip (incl. checkpoint_page).
-    await page.reload({ waitUntil: "domcontentloaded" });
-    const row2 = page.locator("#lg-rules-table-body [data-rules-table-row]").first();
-    await expect(row2.locator("[data-row-checkpoint]")).toHaveText("Page 2");
-
-    // Toggle status -> Disabled -> save -> reload -> persists.
-    await row2.locator("[data-rule-toggle-status]").click();
-    await expect(row2.locator("[data-row-status-pill]")).toHaveText("Disabled");
-    const putPromise2 = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().includes(`/variants/${variantAId}`));
-    await page.locator("#lg-variant-save").click();
-    expect((await putPromise2).status()).toBe(200);
-    await page.reload({ waitUntil: "domcontentloaded" });
-    const row3 = page.locator("#lg-rules-table-body [data-rules-table-row]").first();
-    await expect(row3.locator("[data-row-status-pill]"), "Disabled persists after reload").toHaveText("Disabled");
-
-    // Duplicate -> the SERVER endpoint ran (a reload with no further Save
-    // still shows the copy).
-    const beforeCount = await page.locator("#lg-rules-table-body [data-rules-table-row]").count();
-    const dupPromise = page.waitForResponse((r) => r.request().method() === "POST" && /\/rules\/.+\/duplicate$/.test(r.url()));
-    await row3.locator("[data-rule-duplicate]").click();
-    const dupRes = await dupPromise;
-    if (dupRes.status() !== 201) throw new Error(`duplicate expected 201, got ${dupRes.status()}: ${await dupRes.text()}`);
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.locator("#lg-rules-table-body [data-rules-table-row]")).toHaveCount(beforeCount + 1);
-    await expect(page.locator("#lg-rules-table-body [data-row-name]", { hasText: "R4F 65+ Facebook (copy)" })).toHaveCount(1);
-
-    // A redirect rule authored via the offer NAME picker (never a raw id typed).
-    await page.locator("#lg-rule-new").click();
-    const modal2 = page.locator("#lg-rule-modal");
-    await modal2.locator("#lg-modal-rule-name").fill("R4F Redirect");
-    await modal2.locator("#lg-modal-rule-type").selectOption("redirect_direct_offer");
-    const offerSelect = modal2.locator("[data-modal-target-offer]");
-    await expect(offerSelect.locator(`option:text("${offerName}")`)).toHaveCount(1);
-    await offerSelect.selectOption({ label: offerName });
-    await modal2.locator("[data-modal-redirect-pct]").fill("50");
-    await modal2.locator("#lg-modal-save").click();
-    await expect(modal2).toBeHidden();
-    const putPromise3 = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().includes(`/variants/${variantAId}`));
-    await page.locator("#lg-variant-save").click();
-    const put3 = await putPromise3;
-    expect(put3.status(), `redirect rule PUT: ${await put3.text()}`).toBe(200);
-    const putBody3 = put3.request().postDataJSON() as { rules: Array<Record<string, unknown>> };
-    const redirectRule = putBody3.rules.find((r) => r["rule_name"] === "R4F Redirect");
-    expect(redirectRule!["target_offer_id"], "the by-NAME picker persists the CORRECT numeric id").toBe(offer.id);
-    expect(redirectRule!["redirect_pct"]).toBe(50);
+  test("Routing rules (D-2) [RETIRED: §10/S5.1] — the OLD per-variant routing panel has no current admin surface (see describe-block citation)", async ({ page }) => {
+    const seed = await seedQuote(apiCtx, "routingretired");
+    await openEditor(page, seed.quotePublicId);
+    await expect(page.locator("#lg-routing-rules-root")).toHaveCount(0);
+    await expect(page.locator("#lg-rule-new")).toHaveCount(0);
+    await expect(page.locator("#lg-rules-table-body")).toHaveCount(0);
   });
 
   // =========================================================================

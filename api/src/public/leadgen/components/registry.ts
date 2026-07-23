@@ -74,40 +74,33 @@ export const COMPONENT_CATALOG = {
   QuestionHeadline: { category: "affordance", scope: "both", produces: null, props: ["text"], validation: [], events: [], tokenSlots: ["headline"] },
   Subheadline:   { category: "affordance", scope: "both", produces: null, props: ["text"], validation: [], events: [], tokenSlots: ["subheadline"] },
 
-  // v3.1 R3b E1-NEW-10 (catalog hygiene): legacy-only — NOT reachable from the
-  // palette or the canvas toolbar's Format-$ switch (that switch toggles
-  // ONLY between NumberRangeQuestion/CurrencyRangeQuestion, its documented
-  // 2-type family). Existing stored content of this exact type keeps
-  // rendering/validating; new authoring should use the Slider tile instead.
-  RangeQuestion:         { category: "question", scope: "unit", produces: "number",   props: ["internal_field","min","max","step","default","format(number|currency)","minLabel","maxLabel","required"], validation: ["min<=value<=max"], events: ["answer_click","answer_change"], tokenSlots: ["rangeQuestion"], capabilityExample: "screenshot: 'How much do you need?' $10k–$1M+ slider, value $330,000" },
-  CurrencyRangeQuestion: { category: "question", scope: "unit", produces: "currency", props: ["...RangeQuestion","currency"], validation: ["min<=value<=max"], events: ["answer_click","answer_change"], tokenSlots: ["rangeQuestion"], capabilityExample: "screenshot: BUSINESS LOAN currency range" },
-  NumberRangeQuestion:   { category: "question", scope: "unit", produces: "number",   props: ["...RangeQuestion"], validation: ["min<=value<=max"], events: ["answer_click","answer_change"], tokenSlots: ["rangeQuestion"] },
+  // Rework §10 / M7: the slider triplet collapsed to this ONE catalog entry. The
+  // legacy RangeQuestion / CurrencyRangeQuestion types are REMOVED — migration M7
+  // (0051) rewrites stored nodes to NumberRangeQuestion + props.slider_type/
+  // currency_affix; a stray stored node of an extinct type validates with a clear
+  // unknown_component_type error and renders the fail-safe box (never 500). §6.8
+  // slider variants ride props.slider_type; the currency "$" is display-only via
+  // props.currency_affix (never touches node.type/answer_type — the Image9 fix).
+  NumberRangeQuestion:   { category: "question", scope: "unit", produces: "number",   props: ["internal_field","min","max","step","default","minLabel","maxLabel","required","slider_type","currency_affix"], validation: ["min<=value<=max"], events: ["answer_click","answer_change"], tokenSlots: ["rangeQuestion"], capabilityExample: "screenshot: 'How much do you need?' $10k–$1M+ slider (single/stepper/from_to/dual_range/radial, §6.8)" },
 
   ButtonAnswerGroup:  { category: "question", scope: "unit", produces: "enum", props: ["internal_field","choices[{label,value,analytics_id,style?}]","required","auto_advance"], validation: ["one selected if required"], events: ["answer_click"], tokenSlots: ["primaryButton","input"] },
   TwoButtonYesNo:     { category: "question", scope: "unit", produces: "boolean", props: ["internal_field","yesLabel","noLabel","auto_advance","default?","yesStyle?","noStyle?"], validation: [], events: ["answer_click","answer_default_applied"], tokenSlots: ["primaryButton"], capabilityExample: "spec: 'Are you insured?' [Yes][No]" },
   IconCardAnswerGrid: { category: "question", scope: "unit", produces: "enum", props: ["internal_field","columns(1..5)","choices[{icon,label,description?,value,analytics_id,style?}]","required"], validation: ["one selected if required"], events: ["answer_click"], tokenSlots: ["iconCardGrid","iconCard"], capabilityExample: "screenshot: 'What type of business?' Sole Proprietor/Partnership/LLC/C-Corp/S-Corp icon cards" },
   ImageCardAnswerGrid:{ category: "question", scope: "unit", produces: "enum", props: ["internal_field","columns","choices[{imageMediaId,label,value,style?}]","searchable?","required"], validation: ["one selected if required"], events: ["answer_click"], tokenSlots: ["iconCardGrid","iconCard"], capabilityExample: "reference-funnel: brand-logo make/carrier grid + card-search" },
   MultiChoiceCardGroup:{ category: "question", scope: "unit", produces: "array", props: ["internal_field","choices[]","min","max"], validation: ["min<=count<=max"], events: ["answer_click"], tokenSlots: ["iconCard","multiChoice"] },
-  // P5 (register PC-10, operator decision D2 — Image9 "a good explanation for
-  // multi-choice including default answers"): the STACKED multi-QUESTION grid.
-  // One node renders SEVERAL labeled sub-questions, each a shared (or per-row-
-  // overridden) pill pair with an optional pre-selected DEFAULT. Unlike
-  // MultiChoiceCardGroup (multi-SELECT of one field's options → produces
-  // "array"), each ROW is its OWN answer field: `produces: "object"` + a
-  // per-row `internal_field`, following the NameFieldsGroup/Address multi-
-  // subfield pattern (answers.ts fieldsOf, config-dto row projection) so
-  // flatten/answers/rules/mapping/auction see the rows as ordinary fields with
-  // ZERO new runtime-engine logic. Always Continue (never auto-advance — it
-  // records several answers; see AUTO_ADVANCE_CLICK_TYPES / isMultiSelectNode).
-  MultiQuestionGrid:{ category: "question", scope: "unit", produces: "object", props: ["choices[{label,value,analytics_id,style?}]","rows[{label,internal_field,default?,required?,choices?}]","required"], validation: ["1-8 rows","unique internal_field per row","2-4 shared choices","row default in effective choices"], events: ["answer_click","answer_default_applied"], tokenSlots: ["primaryButton","input"], capabilityExample: "Image9: 'Tell us about the driver' — stacked labeled sub-questions (Homeowner/Married/Gender/Military Affiliation), each a default-selected pill pair, one Continue" },
+  // Rework §10 / M6: the one-unit MultiQuestionGrid is REMOVED (owner intent —
+  // §3.2 — independent components win). Migration M6 (0050) expands each stored
+  // grid in place to N independent components (TwoButtonYesNo / ButtonAnswerGroup),
+  // preserving every row field + the `<nodeQid>::<field>` ids. A stray stored grid
+  // node validates with a clear unknown_component_type error and renders the
+  // fail-safe box. The "Questions on one screen" palette starter (§4.1) replaces it.
   DropdownQuestion:   { category: "question", scope: "unit", produces: "enum", props: ["internal_field","choices[]","placeholder","required","conditional?"], validation: ["value in choices"], events: ["answer_click"], tokenSlots: ["dropdown"], capabilityExample: "spec: insurer dropdown shown when 'insured=yes'" },
   SearchableDropdownQuestion: { category: "question", scope: "unit", produces: "enum", props: ["internal_field","choices[]","placeholder?","required?"], validation: ["value in choices"], events: ["answer_click"], tokenSlots: ["dropdown","input"], capabilityExample: "08 §8.3/§8.10: DropdownQuestion plus a search input above the options (runtime filters client-side)" },
-  // v3.1 R3b E1-C7 (catalog hygiene): fully rendered + labeled, but has no
-  // palette tile/swap path of its own — ButtonAnswerGroup's own "Enable
-  // Other group" toggle (choiceDisplay.otherGroupEnabled) produces the
-  // identical B9 behavior on any choice type, superseding the need to
-  // insert this dedicated type directly. Kept for existing content.
-  OtherGroupSelector: { category: "question", scope: "unit", produces: "enum", props: ["internal_field","choices[]","required?"], validation: ["value in choices"], events: ["answer_click"], tokenSlots: ["primaryButton","input"], capabilityExample: "08 §8.3 (B9 §6.4): main choices as answer buttons + the Other tail; auto-applied when a mapped field has choiceDisplay.otherGroupEnabled" },
+  // Rework §10 / M12: OtherGroupSelector is REMOVED — §6.5's authored props.other
+  // on the single-select choice groups supersedes the B9 choiceDisplay mechanism.
+  // Migration M12 (0053) rewrites stored nodes to ButtonAnswerGroup (all choices
+  // become base choices); a stray stored node validates with a clear
+  // unknown_component_type error and renders the fail-safe box.
 
   FreeTextQuestion:   { category: "question", scope: "unit", produces: "string", props: ["internal_field","placeholder","maxLen","required","pii?"], validation: ["required","maxLen"], events: ["answer_change"], tokenSlots: ["input"] },
   NumberInputQuestion:   { category: "question", scope: "unit", produces: "number",   props: ["internal_field","min?","max?","step?","placeholder?","required?"], validation: ["numeric","min<=value<=max when set"], events: ["answer_change","validation_error"], tokenSlots: ["input"], capabilityExample: "08 §8.3/§8.10: plain number input (inputmode=numeric) — NOT a Range variant" },
@@ -272,9 +265,8 @@ const CAP_DROPDOWN: ComponentCapabilitySpec = {
   placeholder: true,
 };
 
-// Slider (NumberRangeQuestion + the legacy Range/CurrencyRange still in the
-// catalog): Label+helper ✓, Required ✓, Default ✓ 'range' (existing),
-// Slider type ✓.
+// Slider (the ONE NumberRangeQuestion catalog entry, §10/M7 collapse):
+// Label+helper ✓, Required ✓, Default ✓ 'range' (existing), Slider type ✓.
 const CAP_SLIDER: ComponentCapabilitySpec = {
   ...CAP_NONE,
   label_helper: true,
@@ -299,9 +291,7 @@ export const COMPONENT_CAPABILITIES = {
   QuestionHeadline: CAP_NONE,
   Subheadline: CAP_NONE,
 
-  // range family (the collapsed Slider + legacy triplet members).
-  RangeQuestion: CAP_SLIDER,
-  CurrencyRangeQuestion: CAP_SLIDER,
+  // range family (the ONE collapsed Slider, §10/M7).
   NumberRangeQuestion: CAP_SLIDER,
 
   // choice questions.
@@ -328,15 +318,8 @@ export const COMPONENT_CAPABILITIES = {
     selected_marker: true,
     columns: true,
   },
-  // MultiQuestionGrid (legacy, slated for §10 removal): a choice grid shape —
-  // a defensive spec so the exhaustive matrix compiles until the type is
-  // removed in the coordinated cross-slice removal pass.
-  MultiQuestionGrid: { ...CAP_NONE, choices_editor: true, columns: true },
   DropdownQuestion: CAP_DROPDOWN,
   SearchableDropdownQuestion: CAP_DROPDOWN,
-  // OtherGroupSelector (legacy, slated for §10 removal): a single-select
-  // choice group shape.
-  OtherGroupSelector: CAP_CHOICE_SINGLE,
 
   // free-form + PII inputs.
   FreeTextQuestion: CAP_TEXT_INPUT,

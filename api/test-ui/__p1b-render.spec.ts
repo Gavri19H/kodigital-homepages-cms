@@ -14,8 +14,10 @@
 //   AC-4  add an Address, then a Dropdown with a show/hide rule on the Address's
 //         STATE role → SAVE 2xx (no conditional_unknown_field) → the rule
 //         round-trips on reload (closes P1a seam #1).
-//   AC-5  an MQG whose shared choices number 6 (with 2 rows) SAVES (2xx) — the
-//         orphans are pruned, never the raw 2-4 "pill set" 400 (R4-34).
+//   AC-5  [RETIRED §10/S5.1: MultiQuestionGrid removed from the catalog, no
+//         successor for its shared-choices-across-rows shape] — used to
+//         prove an MQG whose shared choices number 6 (with 2 rows) SAVES
+//         (2xx), orphans pruned, never the raw 2-4 "pill set" 400 (R4-34).
 //   AC-6  review-round finding 3: the studio/preview-only markup
 //         (.lg-address-composite / .lg-mqg-empty) is truly INVISIBLE on the
 //         REAL live /lg/:slug route (serve.ts's serveFunnelShell — NOT
@@ -328,33 +330,25 @@ test.describe("P1b AC-4 — Address-role rule saves + round-trips", () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC-5 — the MQG save trap is dead (R4-34)
+// AC-5 — the MQG save trap is dead (R4-34) [RETIRED: §10/S5.1]
 // ---------------------------------------------------------------------------
-test.describe("P1b AC-5 — MQG with 6 shared choices saves (orphans pruned)", () => {
-  test("seeding an MQG whose shared choices number 6 SAVES 2xx and persists pruned (never the 2-4 pill-set 400)", async ({
-    page,
-  }) => {
-    const mqg = {
-      type: "MultiQuestionGrid",
-      question_id: "q_grid",
-      choices: [
-        { label: "Yes", value: "yes", analytics_id: "yes" },
-        { label: "No", value: "no", analytics_id: "no" },
-        { label: "X3", value: "x3", analytics_id: "x3" },
-        { label: "X4", value: "x4", analytics_id: "x4" },
-        { label: "X5", value: "x5", analytics_id: "x5" },
-        { label: "X6", value: "x6", analytics_id: "x6" },
-      ],
-      props: {
-        rows: [
-          { label: "Homeowner", internal_field: "homeowner", default: "yes" },
-          { label: "Married", internal_field: "married", default: "no" },
-        ],
-      },
-    };
-
-    // The API save IS the save-prep path: pre-P1b this 400'd ("shared choices
-    // must number 2-4"); now the orphans prune and it returns 2xx.
+// MultiQuestionGrid is fully removed from the catalog (confirmed 0
+// references anywhere, P5 orphan-scan) — this test's entire premise (a
+// SHARED choices array spanning multiple rows, pruned to a 2-4 pill bound at
+// save) has no successor concept: MultiQuestionGrid was the ONLY component
+// type with a shared-choices-across-rows shape, so there is no other live
+// type to port this "orphan pruning" journey to. A stored MQG node (from
+// before this removal) rendering the fail-safe box rather than crashing is
+// proven in test/leadgen-rework-render.test.ts's "§10 seam: a stored node of
+// ANY extinct type (RangeQuestion/CurrencyRangeQuestion/MultiQuestionGrid/
+// OtherGroupSelector) renders the fail-safe box, NEVER its old widget or a
+// 500 (L-192)" test. The save-time "orphans prune, never 400" VALIDATION
+// BEHAVIOR itself (content-schema.ts) has no proof anywhere else in this
+// suite now that its only consumer (MQG) is gone — a genuine gap, not
+// silently dropped, since no other component shape currently exercises that
+// code path.
+test.describe("P1b AC-5 — MQG with 6 shared choices saves (orphans pruned) [RETIRED: §10/S5.1, MultiQuestionGrid removed]", () => {
+  test("the retired MultiQuestionGrid type is rejected at save, never silently accepted", async ({ page }) => {
     const res = await page.request.post(`${LG_API}/sections`, {
       data: {
         section_name: `P1b mqg6 ${uniq}`,
@@ -363,32 +357,22 @@ test.describe("P1b AC-5 — MQG with 6 shared choices saves (orphans pruned)", (
         headline_text: "P1b",
         continue_mode: "button",
         status: "active",
-        content_json: { components: [mqg] },
+        content_json: {
+          components: [
+            {
+              type: "MultiQuestionGrid",
+              question_id: "q_grid",
+              choices: [
+                { label: "Yes", value: "yes", analytics_id: "yes" },
+                { label: "No", value: "no", analytics_id: "no" },
+              ],
+              props: { rows: [{ label: "Homeowner", internal_field: "homeowner", default: "yes" }] },
+            },
+          ],
+        },
       },
     });
-    const bodyText = await res.text();
-    expect(res.status(), `MQG-6 save status (${bodyText})`).toBeLessThan(300);
-    const created = JSON.parse(bodyText) as { id: number; public_id: string };
-
-    // Persisted PRUNED to the pill bound; the two rows survive.
-    const fetched = await json<{ content_json?: { components?: Array<{ type: string; choices?: unknown[]; props?: { rows?: unknown[] } }> } }>(
-      await page.request.get(`${LG_API}/sections/${created.id}`),
-      "p1b fetch mqg",
-    );
-    const grid = (fetched.content_json?.components ?? []).find((c) => c.type === "MultiQuestionGrid");
-    expect((grid?.choices ?? []).length, "shared choices pruned to <= 4").toBeLessThanOrEqual(4);
-    expect((grid?.props?.rows ?? []).length, "rows preserved").toBe(2);
-
-    // The studio opens the persisted grid and re-saves 2xx (idempotent).
-    await openEdit(page, created.public_id);
-    await expect(canvas(page).locator(".lg-mqg-row")).toHaveCount(2);
-    const [reSave] = await Promise.all([
-      page.waitForResponse(
-        (r) => /\/api\/admin\/leadgen\/sections\//.test(r.url()) && ["PUT", "PATCH", "POST"].includes(r.request().method()),
-      ),
-      page.locator("#lg-section-save").click(),
-    ]);
-    expect(reSave.status(), "studio re-save status").toBeLessThan(300);
+    expect(res.status(), "MultiQuestionGrid is rejected, never silently accepted").toBe(400);
   });
 });
 

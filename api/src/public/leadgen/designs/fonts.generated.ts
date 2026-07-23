@@ -30,25 +30,6 @@
 // here — a legacy/v1 funnel never matches a self-hosted family, so it emits no
 // @font-face and renders byte-identically to pre-P6.
 
-export interface LeadgenFontFamilyMeta {
-  readonly family: string;
-  readonly category: string;
-  readonly weights: readonly number[];
-  readonly license: string;
-  readonly pkg: string;
-}
-
-export const LEADGEN_FONT_FAMILIES: readonly LeadgenFontFamilyMeta[] = [
-  { family: "Poppins", category: "display", weights: [400, 600, 700], license: "OFL-1.1", pkg: "@fontsource/poppins@5.3.0" },
-  { family: "Space Grotesk", category: "display", weights: [400, 700], license: "OFL-1.1", pkg: "@fontsource/space-grotesk@5.3.0" },
-  { family: "Fraunces", category: "display-serif", weights: [400, 700], license: "OFL-1.1", pkg: "@fontsource/fraunces@5.3.0" },
-  { family: "Playfair Display", category: "display-serif", weights: [400, 700], license: "OFL-1.1", pkg: "@fontsource/playfair-display@5.3.0" },
-  { family: "Manrope", category: "body", weights: [400, 700], license: "OFL-1.1", pkg: "@fontsource/manrope@5.3.0" },
-  { family: "DM Sans", category: "body", weights: [400, 700], license: "OFL-1.1", pkg: "@fontsource/dm-sans@5.3.0" },
-  { family: "Work Sans", category: "body", weights: [400, 600], license: "OFL-1.1", pkg: "@fontsource/work-sans@5.3.0" },
-  { family: "Lexend", category: "body", weights: [400, 600], license: "OFL-1.1", pkg: "@fontsource/lexend@5.3.0" },
-];
-
 // The CSS family names styles.ts scans the resolved design's font slots for.
 export const LEADGEN_SELF_HOSTED_FONT_FAMILIES: readonly string[] = [
   "Poppins",

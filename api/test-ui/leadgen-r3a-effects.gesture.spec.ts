@@ -94,7 +94,11 @@ async function clickAndAssert(page: Page, targetSelector: string, clickSelector:
 const MATRIX: Array<{ type: string; qid: string; node: Record<string, unknown>; item: string }> = [
   { type: "ButtonAnswerGroup", qid: "q_bag", node: { type: "ButtonAnswerGroup", question_id: "q_bag", internal_field: "cov", answer_type: "enum", choices: CH }, item: '[data-question-id="q_bag"] .lg-btn-answer' },
   { type: "TwoButtonYesNo", qid: "q_yn", node: { type: "TwoButtonYesNo", question_id: "q_yn", internal_field: "ins", answer_type: "boolean", props: { yesLabel: "Yes", noLabel: "No" } }, item: '[data-question-id="q_yn"] .lg-btn-answer' },
-  { type: "OtherGroupSelector", qid: "q_ogs", node: { type: "OtherGroupSelector", question_id: "q_ogs", internal_field: "brand", answer_type: "enum", choices: CH }, item: '[data-question-id="q_ogs"] .lg-btn-answer' },
+  // §10/S5.1: OtherGroupSelector deleted here — the catalog type is retired
+  // (confirmed 0 references anywhere), with no successor concept to swap in
+  // (unlike RangeQuestion's collapse into NumberRangeQuestion). The remaining
+  // 7 rows already exercise the SAME size-consuming choice-family effect
+  // class (corners/border), so no replacement row is needed.
   { type: "IconCardAnswerGrid", qid: "q_icg", node: { type: "IconCardAnswerGrid", question_id: "q_icg", internal_field: "kind", answer_type: "enum", choices: [{ label: "Home", value: "home", icon: "home", analytics_id: "h" }, { label: "Car", value: "car", icon: "car", analytics_id: "c" }] }, item: '[data-question-id="q_icg"] .lg-card' },
   { type: "ImageCardAnswerGrid", qid: "q_img", node: { type: "ImageCardAnswerGrid", question_id: "q_img", internal_field: "look", answer_type: "enum", choices: [{ label: "A", value: "a", imageMediaId: "https://example.com/a.png", image_alt: "A", analytics_id: "a" }] }, item: '[data-question-id="q_img"] .lg-card' },
   { type: "MultiChoiceCardGroup", qid: "q_mcg", node: { type: "MultiChoiceCardGroup", question_id: "q_mcg", internal_field: "extras", answer_type: "array", choices: CH }, item: '[data-question-id="q_mcg"] .lg-card' },

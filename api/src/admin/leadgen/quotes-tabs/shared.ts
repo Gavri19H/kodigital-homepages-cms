@@ -15,7 +15,7 @@
 import { escapeHtml } from "../../templates/layout";
 import { resolveTokens, type Problem } from "../../../public/leadgen/designs/theme";
 import { getFunnelDesign } from "../../../public/leadgen/designs/registry";
-import { renderRulesBuilderPanel, type RoutingBuilderData } from "../ui-rules-builder";
+import { renderRulesBuilderPanel } from "../ui-rules-builder";
 
 
 // ---------------------------------------------------------------------------
@@ -507,20 +507,6 @@ export const OVERRIDE_GROUP_LABELS: Readonly<Record<string, string>> = {
 };
 
 
-// The frame groups a Variant may override (§4.5) — every §4.4 region group.
-export const OVERRIDABLE_GROUPS = [
-  "header",
-  "progress",
-  "back",
-  "disclosure",
-  "footer",
-  "trust_strip",
-  "benefit_bar",
-  "background",
-  "section_slot",
-] as const;
-
-
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
@@ -538,7 +524,6 @@ export const LG_QUOTES_STYLES = `
 .lg-scalars{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
 @media (max-width:640px){.lg-scalars{grid-template-columns:1fr}}
 .lg-section-row{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--c-border);border-radius:6px;margin-bottom:6px}
-.lg-section-row .lg-pos{font-variant-numeric:tabular-nums;color:var(--c-muted);min-width:2em}
 .lg-section-row .lg-grow{flex:1}
 .lg-auction-entry-mark{background:var(--c-warn-bg,#fff4e5);color:var(--c-warn,#8a5300);border:1px dashed var(--c-warn,#e0a04a);border-radius:6px;padding:8px;margin:6px 0;font-size:13px}
 .lg-rule-row{border:1px solid var(--c-border);border-radius:6px;padding:10px;margin-bottom:8px}
@@ -558,17 +543,13 @@ export const LG_QUOTES_STYLES = `
 .lg-problem-row[data-problem-severity=warning]{background:#fff8e1;border-color:#e6c229;color:#664d03}
 .lg-problem-chip{border-radius:999px;padding:0 8px;font-size:11px;font-weight:600;border:1px solid currentColor;text-transform:uppercase;letter-spacing:.02em}
 .lg-problem-msg{flex:1;min-width:200px}
-.lg-ab-note{color:var(--c-muted);font-size:13px;margin:8px 0}
 .lg-preview-frame{width:100%;height:640px;border:1px solid var(--c-border);border-radius:8px;background:#fff}
 .lg-num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 /* --- v2.5 04 §4.1 frame studio ------------------------------------------- */
 .lg-studio{display:grid;grid-template-columns:260px minmax(0,1fr) 320px;gap:12px;align-items:start}
 @media (max-width:1100px){.lg-studio{grid-template-columns:1fr}}
-.lg-studio-left,.lg-studio-right{display:flex;flex-direction:column;gap:12px}
+.lg-studio-left{display:flex;flex-direction:column;gap:12px}
 .lg-canvas-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px;border:1px solid var(--c-border);border-radius:8px;margin-bottom:8px}
-.lg-canvas-wrap{overflow:auto;border:1px solid var(--c-border);border-radius:8px;padding:8px;background:var(--c-bg,#f6f7f9)}
-.lg-canvas-wrap iframe{display:block;margin:0 auto;border:0;background:#fff;height:640px}
-.lg-toolbar-sep{width:1px;align-self:stretch;background:var(--c-border)}
 .lg-chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--c-border);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--c-muted);background:var(--c-bg,#f6f7f9)}
 .lg-chip strong{color:var(--c-text)}
 .lg-publish-chip[data-publish-verdict=blocked]{background:var(--c-danger-bg,#fdecea);color:var(--c-danger,#8a1f11);border-color:var(--c-danger,#e5a49a)}
@@ -585,11 +566,8 @@ export const LG_QUOTES_STYLES = `
    child (incl. a block-level .lg-tpl-band thumbnail span) in a single row
    regardless of the child's own display type, which is what kills the old
    orphaned-circle-above-bar wrap. */
-.lg-progress-style-radios{display:flex;flex-direction:column;gap:6px;margin:4px 0}
 .lg-progress-style-opt{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--c-border);border-radius:6px;cursor:pointer}
-.lg-progress-style-main{display:flex;align-items:center;gap:8px;min-width:0}
 .lg-progress-style-label{white-space:nowrap}
-.lg-progress-thumb{width:34px;flex:none}
 .lg-advanced{border:1px dashed var(--c-border);border-radius:6px;padding:6px 10px;margin-top:10px}
 .lg-advanced summary{cursor:pointer;color:var(--c-muted);font-size:12px}
 .lg-role-strip{display:flex;flex-wrap:wrap;gap:4px}
@@ -601,46 +579,29 @@ export const LG_QUOTES_STYLES = `
 .lg-structure-row button[data-select-slide]{background:none;border:0;padding:0;cursor:pointer;color:var(--c-text);text-align:left;font:inherit}
 .lg-structure-row.lg-slide-current{border-color:var(--c-primary)}
 /* --- Round-4 P3b: pages-first structure panel (fixes 10J/Image41) ----------
-   ONE grid/stack model for the section + slot rows replaces the old
-   .lg-section-row / .lg-structure-row flex SPLIT that wrapped and crowded at
-   the 260px rail. Every slot row now STACKS an identity line (drag/pos/dot +
-   an ellipsizing name cell that never wraps) above a controls rail — so no
-   control overlaps the name and nothing overflows the sidebar. Arm rows (plain
-   .lg-structure-row, no .lg-section-row/.lg-slot-row) keep the flex layout. */
-.lg-structure-hint{margin:0 0 8px}
+   ONE grid/stack model for the section rows replaces the old .lg-section-row
+   / .lg-structure-row flex SPLIT that wrapped and crowded at the 260px rail.
+   Arm rows (plain .lg-structure-row) keep the flex layout; a row carrying
+   BOTH .lg-section-row and .lg-structure-row switches to the stacked layout.
+   (§10/S5.1: the identity-line classes this rule once stacked — drag handle/
+   position dot/ellipsizing name cell — and the sibling .lg-slot-row variant
+   of this same compound rule were deleted as confirmed dead; only the
+   .lg-section-row.lg-structure-row combination above still ships.) */
 .lg-page{border:1px solid var(--c-border);border-radius:8px;padding:8px;margin-bottom:10px;background:var(--c-bg,#f6f7f9)}
 .lg-page-head{display:flex;align-items:center;gap:6px;margin-bottom:6px;min-width:0}
 .lg-page-num{font-variant-numeric:tabular-nums;font-weight:600;font-size:12px;background:var(--c-card,#fff);border:1px solid var(--c-border);border-radius:999px;min-width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;flex:none}
-.lg-page-name{flex:1;min-width:0}
-.lg-page-slots{display:flex;flex-direction:column;gap:6px}
-.lg-page-add{margin-top:6px}
 .lg-slot{background:var(--c-card,#fff);border:1px solid var(--c-border);border-radius:6px;overflow:hidden}
-.lg-section-row.lg-structure-row,.lg-slot-row.lg-structure-row{display:flex;flex-direction:column;align-items:stretch;gap:4px;padding:6px;margin-bottom:0;border:0;border-radius:0;min-width:0}
-.lg-slot-line{display:flex;align-items:center;gap:6px;min-width:0}
-.lg-name-cell{flex:1;min-width:0;overflow:hidden}
-.lg-name-cell button[data-select-slide],.lg-name-cell.lg-slot-summary{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lg-vertical{flex:none;color:var(--c-muted);font-size:11px;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lg-section-row.lg-structure-row{display:flex;flex-direction:column;align-items:stretch;gap:4px;padding:6px;margin-bottom:0;border:0;border-radius:0;min-width:0}
 .lg-row-rail{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px}
 .lg-row-rail .btn{flex:none}
-.lg-slot-kind-select{max-width:104px}
-.lg-slot-badge{flex:none;font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#fff;background:var(--c-primary,#2563eb);border-radius:4px;padding:1px 6px}
-.lg-slot-config{border-top:1px dashed var(--c-border);padding:8px;display:flex;flex-direction:column;gap:6px}
-.lg-slot-config .form-help{margin:0}
 .lg-ab-cand,.lg-ruled-case{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
 .lg-ab-cand .lg-grow,.lg-ruled-case .lg-grow{flex:1;min-width:80px}
-.lg-pct{width:54px;flex:none}
-.lg-pct-unit{color:var(--c-muted);font-size:12px}
-.lg-ruled-if,.lg-ruled-then,.lg-ruled-otherwise{color:var(--c-muted);font-size:12px;flex:none}
-.lg-ruled-default{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:4px}
 .form-select-sm,.form-input-sm{padding:2px 6px;font-size:12px;height:auto;min-height:0}
 .lg-map-dot{width:10px;height:10px;border-radius:50%;display:inline-block;background:var(--c-border);flex:none}
 /* DEV-59 real tri-state: green complete · amber incomplete · gray none */
 .lg-map-dot[data-mapping-status="complete"]{background:#198754}
 .lg-map-dot[data-mapping-status="incomplete"]{background:#ffc107}
 .lg-map-dot[data-mapping-status="none"]{background:var(--c-border)}
-.lg-template-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
-.lg-template-card{border:1px solid var(--c-border);border-radius:8px;padding:8px;cursor:pointer;background:none;text-align:center}
-.lg-template-card.selected{border-color:var(--c-primary)}
 .lg-tpl-thumb{display:flex;flex-direction:column;gap:3px;padding:6px;border-radius:6px;background:var(--c-bg,#f6f7f9);min-height:64px;justify-content:center}
 .lg-tpl-band{display:block;height:6px;border-radius:3px;background:var(--c-border)}
 .lg-tpl-logo{width:40%;margin:0 auto}
@@ -667,7 +628,6 @@ export const LG_QUOTES_STYLES = `
 .lg-media-item{border:1px solid var(--c-border);border-radius:8px;background:none;cursor:pointer;padding:6px;display:flex;flex-direction:column;gap:4px;align-items:center}
 .lg-media-item img{max-width:100%;height:64px;object-fit:contain}
 .lg-media-item span{font-size:11px;color:var(--c-muted);word-break:break-all}
-.lg-drag-handle{cursor:grab;color:var(--c-muted);font-size:13px;letter-spacing:-3px;flex:none;padding:0 2px;user-select:none}
 .lg-section-row.lg-drag-over{outline:2px dashed var(--c-primary,#2563eb);outline-offset:-2px}
 .lg-rename-editor{display:inline-flex;gap:6px;align-items:center}
 .lg-list-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
@@ -768,8 +728,7 @@ export const LG_QUOTES_STYLES = `
 .lg-lib-card .lg-grip{color:#C2CACF;flex:0 0 auto;display:inline-flex}
 /* board drag ghost + drop insertion line */
 .lg-drag-ghost{position:fixed;z-index:60;pointer-events:none;width:220px;padding:10px 12px;border:1px solid var(--c-primary,#1B3A5C);border-radius:9px;background:#fff;box-shadow:0 12px 28px rgba(20,32,54,.22);font-size:13px;font-weight:700;color:var(--c-primary,#1B3A5C);opacity:.96}
-.lg-drop-indicator{height:0;border-top:2px solid var(--c-primary,#1B3A5C);margin:3px 0;position:relative}
-.lg-drop-indicator::before{content:"";position:absolute;left:-4px;top:-4px;width:8px;height:8px;border-radius:50%;background:var(--c-primary,#1B3A5C)}
+/* §10/S5.1: .lg-drop-indicator(+::before) deleted — 0 references (P5 CSS orphan-scan). */
 /* menus + guard dialog */
 .lg-board-menus{position:relative}
 .lg-menu{position:fixed;z-index:70;background:#fff;border:1px solid var(--c-border);border-radius:10px;box-shadow:0 12px 30px rgba(20,32,54,.18);padding:5px;min-width:186px}
@@ -978,38 +937,15 @@ export function renderSiteSelect(id: string, sites: PreviewSiteOption[]): string
 }
 
 
-export function renderTemplatePicker(templates: FrameTemplateItem[]): string {
-  const cards = templates
-    .map(
-      (t) => `<button type="button" class="lg-template-card" data-template-pick="${escapeHtml(t.id)}" title="${escapeHtml(t.arrangement)}">
-    ${t.thumbnail_html}
-    <span>${escapeHtml(t.label)}</span>
-  </button>`,
-    )
-    .join("");
-  // Round-4 P5b DELIBERATE NON-MOVE (reported conflict — see the phase
-  // report): the operator restructure spec's "Templates tab" is defined
-  // (deliverable 2) as the SEVEN box pickers only. Moving THIS pre-existing
-  // 6-arrangement picker out of the canvas toolbar breaks the PROVEN
-  // "preview-before-apply shows on the SAME visible canvas" contract two
-  // rows of test-ui/leadgen-quote-builder.spec.ts depend on (② and ⑥ —
-  // verified failing when this card is hidden behind an inactive tab). It
-  // stays canvas-embedded, `#lg-template-btn` keeps its EXISTING inline
-  // toggle (unchanged) — only the SEVEN NEW boxes live in the Templates tab.
-  return `<div class="lg-panel-card lg-hidden" id="lg-template-picker">
-  <h3>Funnel layout template</h3>
-  <p class="form-help">Your copy, images and colors are kept. Layout comes from the template. Nothing changes until you Save.</p>
-  <div class="lg-template-grid">${cards || `<p class="form-help">No templates available.</p>`}</div>
-  <div class="lg-hidden" id="lg-template-confirm">
-    <h3>Before you switch</h3>
-    <ul id="lg-template-confirm-list"></ul>
-    <div class="toolbar">
-      <button type="button" class="btn btn-primary" id="lg-template-apply">Switch template</button>
-      <button type="button" class="btn btn-outline" id="lg-template-cancel">Cancel</button>
-    </div>
-  </div>
-</div>`;
-}
+// §10/S5.1: renderTemplatePicker (the OLD canvas-embedded 6-arrangement
+// template picker — id="lg-template-picker"/"lg-template-confirm"/
+// "lg-template-apply"/"lg-template-cancel", data-template-pick cards) was
+// REMOVED — confirmed ZERO real callers anywhere in the admin/leadgen
+// namespace (its own P5b "deliberate non-move" comment's premise, that moving
+// it would break a live Playwright regression, could not be re-verified
+// against a function nothing calls). The board's own §8.2 M5 per-funnel-
+// column template picker (quotes-tabs/funnel.ts's `data-template-picker`
+// pickchip + `applyTemplate`) is the current, live, unrelated mechanism.
 
 
 // ---------------------------------------------------------------------------
@@ -1095,8 +1031,3 @@ export function quoteDataBlob(
   };
   return JSON.stringify(data).replace(/</g, "\\u003c");
 }
-
-
-// Local alias (ui-rules-builder.ts's RoutingBuilderVariantRef, re-exported by
-// name here only to keep the array-literal construction above readable).
-export type RoutingBuilderVariantRefLocal = RoutingBuilderData["variants"][number];

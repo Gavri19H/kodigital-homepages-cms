@@ -29,7 +29,7 @@
 // undefined` guard fails the rule the instant the field is dropped) fires
 // only when the selection count survived normalizeAnswers' bounds check.
 //
-// One shared funnel: DropdownQuestion(coverage) + RangeQuestion(loan_amount)
+// One shared funnel: DropdownQuestion(coverage) + NumberRangeQuestion(loan_amount)
 // + MultiChoiceCardGroup(features, min:2/max:3, 6 choices a..f) in one
 // Section, plus THREE disqualification rules (priority-ordered, isolated per
 // test by choosing values that can only trip ONE rule at a time):
@@ -268,7 +268,7 @@ const FEATURE_CHOICES = ["a", "b", "c", "d", "e", "f"].map((v) => ({
 
 const SECTION_COMPONENTS = [
   { type: "DropdownQuestion", question_id: "q_cov", internal_field: "coverage", answer_type: "enum", choices: COVERAGE_CHOICES, props: {} },
-  { type: "RangeQuestion", question_id: "q_loan", internal_field: "loan_amount", answer_type: "number", props: { min: 0, max: 100000, step: 5000 } },
+  { type: "NumberRangeQuestion", question_id: "q_loan", internal_field: "loan_amount", answer_type: "number", props: { min: 0, max: 100000, step: 5000 } },
   { type: "MultiChoiceCardGroup", question_id: "q_features", internal_field: "features", answer_type: "array", props: { min: 2, max: 3 }, choices: FEATURE_CHOICES },
 ];
 

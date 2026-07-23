@@ -71,11 +71,9 @@ const HELPER_TYPES = [
   // folded into this set — the honest resolution was to render it, not to
   // keep excluding it.
   "SearchableDropdownQuestion",
-  // PC-A10: the Range family shares ONE bespoke renderer (renderRange) that
-  // also never called fieldHelperLine despite CONTENT_PROP_FIELDS
-  // advertising Helper text for all 3 — same drift class, same fix.
-  "RangeQuestion",
-  "CurrencyRangeQuestion",
+  // PC-A10: the Slider (the ONE NumberRangeQuestion, §10/M7) shares the bespoke
+  // renderRange renderer that also never called fieldHelperLine despite
+  // CONTENT_PROP_FIELDS advertising Helper text — same drift class, same fix.
   "NumberRangeQuestion",
 ];
 

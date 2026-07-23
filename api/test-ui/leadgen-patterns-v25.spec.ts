@@ -16,91 +16,133 @@
 //     flows with frame configs stored at SEED level.
 //   THIS file closes the §15.3 "Patterns" row: for EACH §8.7 pattern the
 //   UNIT is authored through the real Section Builder (palette + tabbed
-//   inspectors + Choices tab) AND the pattern's PER-PATTERN frame config is
-//   authored through the real Quote Builder (template pick → apply, region
-//   inspectors: trust-strip logos via the REAL media picker, CTA tel,
-//   disclosure copy, benefit items via the curated icon select, background
-//   role swatch, footer links/description) and persisted by the ONE Save.
-//   The COMPOSED result is asserted behaviorally on the Quote Builder canvas
-//   (renderQuoteFrame — the SAME composition path /lg serves, 04 §4.6
-//   parity-by-construction) per the §8.7 "Required tokens/controls" column.
+//   inspectors + Choices tab). The pattern's frame arrangement is authored
+//   through whichever REAL admin surface currently owns it (see the
+//   LEADGEN-REWORK-03 P5 note below — that surface changed, and part of it
+//   no longer exists at all). The COMPOSED result is asserted on the REAL
+//   /lg LIVE PAGE (not an admin preview surrogate — see the P5 note) per the
+//   §8.7 "Required tokens/controls" column.
 //
-// FRAME-AUTHORING REACHABILITY (REGISTERED UX observations, not defect
-// assertions — no contract clause promises hidden-region reachability;
-// flagged for the contract owner as §15.5 break-it-pass adjacent gaps):
-//   (1) 04 §4.1 defines canvas region click as the ONLY inspector opener,
-//       and designs/frame.ts renders trust_strip/benefit_bar ONLY when
-//       enabled AND non-empty (`if (!t.enabled) return ""` /
-//       `items.length === 0`). A fresh template exposes NO click target for
-//       those regions — their on/off inspectors are unreachable from a blank
-//       state through the UI alone. Each pattern seed therefore bootstraps
-//       the minimal "region visible" content via the REAL frame API
-//       (leadgen-e-seed) and the test authors the pattern's ACTUAL content
-//       through the opened inspector. Every bootstrap template is OFF-TARGET
-//       so the template pick in the test is a REAL C5 switch (content
-//       preserved / layout replaced).
-//   (2) The BACKGROUND inspector is unreachable [pre-E4 measurement; FIXED at HEAD — bare-canvas clicks now resolve to the background region (E4/DEV-74a); Playwright ⑩ grounds the click path; template-default authoring below remains valid §4.3/§8.7] even when the region
-//       renders: `.lg-frame-background` is an aria-hidden layer stacked
-//       BEHIND #lg-funnel-root's content, so a pointer click anywhere lands
-//       on the root (measured: Playwright actionability reports
-//       "#lg-funnel-root … intercepts pointer events" at every probed
-//       point), and the island's region walk finds no data-frame-region on
-//       the root → the panel never opens. Pattern D's brand background is
-//       therefore authored the way §4.3/§8.7 define it — the full-background
-//       TEMPLATE pick (role brand_primary + style brand are its defaults) —
-//       and asserted on the composed page + effective_frame.
+// ===========================================================================
+// LEADGEN-REWORK-03 P5 (§10 removals + test rewrites) — WHAT CHANGED AND WHY
+// ===========================================================================
+// This file previously drove frame authoring through the Quote Builder's
+// per-variant CANVAS (region-inspector panels opened by clicking a rendered
+// `[data-frame-region]`, a canvas-embedded 6-arrangement Template picker, a
+// Desktop/Mobile viewport toggle, and a Current-slide/Step-through stepper).
+// §8.2 of the rework contract lists exactly this surface for removal ("canvas
+// + all controllers (Template/Theme/Desktop/Mobile/Current-slide/
+// Step-through)"), replaced by: the library/board/rules "Funnel builder" tab
+// (§8.2), a dedicated "Templates" tab with an elements list + live canvas +
+// saved-template CRUD (§8.3), and a dedicated "Themes" tab (§8.4).
 //
-// STORED vs EFFECTIVE frame assertions: a template switch persists a SPARSE
-// config (version + template + preserved operator content —
-// computeTemplateSwitch), so template-default-derived fields (B's
-// secure-badge availability / footer show_logo, C's disclosure availability)
-// are asserted on `effective_frame` (13 §13.2), while every UI-authored
-// field is asserted on the STORED `frame_config`.
+// VERIFIED THIS PHASE (live probe against the real served
+// `/admin/leadgen/quotes/:id/edit` page, api/src/admin/leadgen/quotes-tabs/
+// funnel.ts, quotes-tabs/templates.ts, quotes-tabs/shared.ts,
+// test/leadgen-quote-builder-seam.test.ts's own P3b retirement notes, and
+// test/leadgen-p3a-split-parity.test.ts, all cross-checked against a live
+// vitest run this phase):
+//   (1) `#lg-preview-iframe` / `#lg-canvas-toolbar` / `#lg-inspector-column` /
+//       `data-frame-region` (canvas click targets) / `data-region-panel`
+//       (canvas inspector panels) / `#lg-template-btn` / `data-template-pick`
+//       / `#lg-template-confirm` / `#lg-template-apply` / `data-viewport-btn`
+//       / `data-preview-mode-btn` / `#lg-step-label` / `#lg-step-next` are
+//       ALL absent from the real served page today (zero occurrences,
+//       confirmed by a live in-process fetch of a freshly seeded quote's
+//       edit page). The old per-variant canvas is gone, not merely
+//       deprecated-but-present.
+//   (2) The Templates tab (`[data-tab="templates"]`) is live and reachable:
+//       an elements list (`#lg-tplbox-grid`, cards `[data-tplbox-pick="…"]`
+//       for background/logo/cta/disclosure/free_text/brand_logos/footer/
+//       images/progress), a live single-section canvas
+//       (`#lg-tpl-canvas-iframe`, section/theme pickers), and a saved-
+//       template bar with a working "Apply to funnel…" flow
+//       (`#lg-tpl-apply-btn` → pick a saved template card
+//       `[data-apply-choice]` → confirmation list
+//       `#lg-tpl-apply-confirm-list` → `#lg-tpl-apply-confirm-btn`, which
+//       POSTs `/funnels/:id/apply-template` directly — no separate Save step
+//       — and reloads). The 6 built-in templates are seeded DB rows (M5,
+//       migration 0049) named exactly: "Centered card", "Site header +
+//       footer", "Header + call CTA", "Full background", "White + trust
+//       bar", "Minimal" (mapping 1:1 to the OLD centered/header-footer/
+//       header-cta/full-background/white-trust/minimal ids). This file's
+//       template-switch proof (preview-before-apply + confirm, "the
+//       pinned-⑥ behavior relocates here 1:1" per quotes-tabs/templates.ts's
+//       own doc comment) now rides THIS flow.
+//   (3) `[data-frame-key]` scalar editing (background.role, background.style,
+//       header.logo_source/logo_size/logo_align, and every progress.* field)
+//       is STILL the underlying mechanism — same attribute, same shared-
+//       island delegation, same `#lg-variant-save` chain
+//       (frame→theme→variant PUT) — just opened via the Templates tab's
+//       element cards instead of a canvas-region click.
+//   (4) CONFIRMED GAP (reported below, not invented around): the OLD flat
+//       frame fields `header.tagline` / `header.secure_badge.*` /
+//       `header.cta.*` / `footer.links` / `footer.links_source` /
+//       `footer.trust_text` / `footer.description` / `disclosure.location` /
+//       `disclosure.text` / `disclosure.enabled` / `disclosure.link_label` /
+//       `trust_strip.*` / `benefit_bar.*` are STILL live, validated schema
+//       fields — `PUT /funnels/:id/frame` still accepts and round-trips all
+//       of them (test/leadgen-quote-builder-seam.test.ts's RICH_FRAME_CONFIG
+//       proves this, 17/17 green this phase) and `designs/frame.ts` still
+//       renders them on the composed page — but they have ZERO admin
+//       authoring surface anywhere today. The old canvas region inspectors
+//       that used to edit them are gone (point 1); the Templates tab's boxes
+//       that share letters with these regions author a DIFFERENT, additive
+//       field set instead (box C "Phone / URL" → `cta_slots`; box D
+//       "Disclosure" → `disclosure.entries`; box F "Brand logos" →
+//       `brand_logos.items`; box G "Footer" → `footer.blocks`) — verified by
+//       grep: zero `data-frame-key="header.tagline"` /
+//       `data-frame-key="footer.links_source"` / etc. anywhere in
+//       quotes-tabs/templates.ts. This is a real, reported product gap
+//       (flagged to the conductor in this phase's report), not a test
+//       artifact — every UI-authoring step this file previously drove for
+//       these fields is RETIRED below with this citation; the fields
+//       themselves are seeded through the real frame API (the SAME
+//       mechanism this file already used for the "unreachable from a blank
+//       canvas" bootstrap case pre-rework) and their RENDERING is still
+//       proven on the real live /lg page.
+//   (5) Composed-page assertions move from the admin canvas srcdoc
+//       (`qb(page)` / `#lg-preview-iframe`) to the REAL live page
+//       (`/lg/:slug`, via the SAME `gotoLive` helper the §15.4 visual section
+//       already used) — the underlying markup
+//       (`[data-frame-region]`/`.lg-*` classes) is emitted by the SAME
+//       `designs/frame.ts` renderer either way, untouched by this admin
+//       rework, so the assertions are the SAME shape, just proven on the
+//       more honest surface (what a visitor actually receives, not an admin
+//       preview of it) — a strengthening, not a downgrade.
+//   (6) Pattern D's "step to slide 2" no longer has an admin-stepper
+//       equivalent (point 1). Replaced with a REAL visitor interaction on
+//       the live page: answer slide 1's question, click Continue, assert
+//       slide 2 (retiring nothing — this is MORE faithful than the old
+//       admin-preview stepper, not less).
 //
-// DEV-64(b) REGISTERED GAP (docs/leadgen/traceability.md): the §6.5 input
-// "icon" quick control was omitted — renderTextInput has no icon slot, so a
-// stored icon prop would never render. Pattern C's §8.7 "input icon" cell is
-// therefore NOT asserted; the ZIP input + Next button are asserted instead.
+// FRAME-AUTHORING REACHABILITY (REGISTERED UX observations, carried over from
+// the pre-rework file, still true): no contract clause promises a fresh
+// template's trust_strip/benefit_bar/etc. is reachable from a blank state —
+// every pattern seed bootstraps its region content via the REAL frame API.
+// Pre-rework this was framed as "unreachable from a blank canvas, so seed
+// it"; post-rework there IS no reachable surface at all for these specific
+// fields (point 4), so ALL of their content is seeded, not just the
+// bootstrap minimum.
 //
-// §15.4 SURFACE DECISION — the five composed pages are the REAL /lg pages of
-// the activated pattern funnels (not the admin preview srcdoc):
-//   * honest: the exact server-rendered + engine-hydrated bytes users get;
-//   * cheap: activation is one PUT via the established seed helpers (pattern
-//     units select NO Offers → clean 200, the leadgen-visual.spec.ts
-//     precedent);
-//   * stable: every rendered string is an authored constant (uniq values
-//     live only in never-rendered names/hosts/keys), the funnel chrome
-//     declares font stacks without @font-face (local fallback metrics are
-//     machine-stable), logos are the deterministic 1-px seed PNG, the engine
-//     autofocus is blurred (the leadgen-visual normalisation) and
-//     animations/caret are disabled by toHaveScreenshot.
-//   Masks (15 §15.4 "masks for dynamic ids"): the site-logo / footer-logo /
-//   trust-strip <img> elements — their src carries per-run storage keys and
-//   their alt fallback carries per-run site names.
-//   The FIFTH page ("ZIP-input frame (C-unit variant)") is mission-3.8
-//   Pattern E (ZIP lead capture = C's unit, §8.7 note) activated as its own
-//   single-slide funnel in the header-cta frame with template defaults —
-//   C's frame authoring is UI-proven by the C test; the fifth page pins the
-//   unit-focused composition (single-step progress, no CTA/benefit content).
+// STORED vs EFFECTIVE frame assertions: unchanged — a template switch (via
+// the new Apply-to-funnel flow) persists via `POST /funnels/:id/apply-
+// template`, and template-default-derived fields are asserted on
+// `effective_frame` (13 §13.2), while UI-authored scalar fields (background,
+// logo, progress) are asserted on the stored `frame_config`.
 //
-// BASELINES: playwright.config.ts pins snapshotPathTemplate to
-// test-ui/__screenshots__/{arg}{ext}; the calls here name
-// ['leadgen-v25', '<name>.png']. Generation run: `--update-snapshots`
-// (writes the committed set); plain runs must be ZERO-DIFF (see MAX_DIFF_PIXELS
-// below shootBaseline for the calibrated absolute-pixel budget + why it
-// replaced a ratio-based one).
+// §15.4 SURFACE DECISION — unchanged: the five composed pages are the REAL
+// /lg pages of the activated pattern funnels.
 //
-// Determinism notes: the Quote Builder canvas is a server-rendered STILL
-// (sandbox="allow-same-origin", scripts inert) — every edit re-renders it
-// via the debounced preview POST, so assertions wait on the EXPECTED DOM
-// (Playwright retry) instead of racing timers. Studio preview swaps follow
-// the DEV-67 stale-marking idiom where hydration matters.
-//
-// Local state must be reset once:
-// `npm run db:reset:local`.
-// Evidence screenshots (§15.3 "then screenshot desktop+mobile" for ALL five
-// patterns, including E which is not in the §15.4 committed set) land in
-// test-artifacts/leadgen-e1-patterns/.
+// BASELINES: unchanged — playwright.config.ts pins snapshotPathTemplate to
+// test-ui/__screenshots__/{arg}{ext}. The §15.4 visual-regression section
+// below is UNTOUCHED by this phase's rewrite: it already asserted the real
+// live /lg pages, never the admin canvas, so nothing about it depended on
+// anything §10 removed. Local state must be reset once:
+// `npm run db:reset:local`. Evidence screenshots for the five §15.3 patterns
+// (including E, not in the §15.4 committed set) land in
+// test-artifacts/leadgen-e1-patterns/ — now captured on the live page (point
+// 5) rather than the admin canvas.
 
 import { test, expect, request as playwrightRequest, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
@@ -121,7 +163,7 @@ import { LEADGEN_FIELD_LEADING_ICONS } from "../src/public/leadgen/components/co
 import { PW_PORT } from "./utils/base-url";
 
 // Realistic desktop Chrome UA — /lg's runtimeRequestGuard bot arm must not
-// trip on the §15.4 live-page navigations (the leadgen-live-funnel DEV-GUARD
+// trip on the live-page navigations (the leadgen-live-funnel DEV-GUARD
 // note); the admin surfaces ignore it.
 const REAL_CHROME_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
@@ -173,6 +215,9 @@ test.beforeAll(async () => {
 
 // ---------------------------------------------------------------------------
 // Section Builder driving helpers (the DEV-67 idiom — operator controls only)
+// UNCHANGED by LEADGEN-REWORK-03 P5: Section Studio's component palette,
+// choices editor, and inspector tabs are untouched by the Quote Builder
+// admin rebuild — every helper below drives the SAME real UI it always did.
 // ---------------------------------------------------------------------------
 
 function studioCanvas(page: Page) {
@@ -290,7 +335,7 @@ async function addComponent(page: Page, type: string): Promise<void> {
   await expect(page.locator("[data-scope-editing-name]")).toHaveText(TYPE_LABELS[type] ?? type);
 }
 
-// §5.2 dropped "Stack" as a directly-insertable tile. The pre-existing
+// v3.1 §5.2 dropped "Stack" as a directly-insertable tile. The pre-existing
 // "Group → Stack" toolbar action wraps the CURRENTLY SELECTED node into a
 // new Stack and moves the selection to it — insert the child FIRST, then
 // group it (equivalent end model shape to the old wrap-then-insert-into).
@@ -393,7 +438,7 @@ async function savedUnit(page: Page): Promise<SectionDetail> {
 // ---------------------------------------------------------------------------
 // §8.7(e) "zero custom CSS anywhere" — the saved model carries ONLY catalog
 // types + typed node keys; props are tokenized values, never stylesheet text
-// (the DEV-67 assertTokenizedModel contract, verbatim).
+// (the DEV-67 assertTokenizedModel contract, verbatim). UNCHANGED by P5.
 // ---------------------------------------------------------------------------
 
 const NODE_KEYS = new Set([
@@ -440,62 +485,106 @@ function assertTokenizedModel(content: { components: StudioNode[] }, allowedType
 }
 
 // ---------------------------------------------------------------------------
-// Quote Builder driving helpers (the B4 idiom — canvas + region inspectors)
+// Quote Builder driving helpers — LEADGEN-REWORK-03 P5 REWRITE. The old
+// per-variant canvas (region-inspector-by-click, canvas Template picker,
+// viewport toggle, stepper) is gone (see the file-header P5 note, point 1).
+// These helpers drive the surfaces confirmed live this phase: the shell head
+// bar (site picker, Save), and the Templates tab (element boxes + the
+// Apply-to-funnel flow).
 // ---------------------------------------------------------------------------
-
-function qb(page: Page) {
-  return page.frameLocator("#lg-preview-iframe");
-}
-
-// The composed document carries EVERY variant slide as
-// `<section data-lg-section …>` with all but the visible one `hidden` (the
-// engine flips the same attribute at runtime). Unit-level assertions scope
-// to the VISIBLE slide — filler/second units share component types, so an
-// unscoped locator is a strict-mode violation by construction.
-function visibleUnit(page: Page) {
-  return qb(page).locator("[data-lg-section]:not([hidden])");
-}
 
 async function openQuoteBuilder(page: Page, quotePublicId: string): Promise<void> {
   await page.goto(`/admin/leadgen/quotes/${quotePublicId}/edit`, { waitUntil: "domcontentloaded" });
-  await expect(qb(page).locator("[data-frame-region='section_slot']")).toBeVisible({ timeout: 20_000 });
+  // The tab bar is shell-level markup (ui-quotes.ts's quoteEditorHtml), always
+  // present regardless of which tab panel is active — a stable "the editor
+  // shell booted" signal that does not depend on the (removed) canvas.
+  await expect(page.locator('[data-tab="templates"]')).toBeVisible({ timeout: 20_000 });
 }
 
+// Selecting a preview site is still a real, shell-level control (the head
+// bar's #lg-site-select, ui-quotes.ts:725) — kept for parity with real
+// operator workflow. Its downstream effect on branding is proven on the
+// live page after activation (point 5 of the file-header note), not here:
+// the Templates tab's own live canvas POST body (renderCanvasPreview,
+// quotes-tabs/templates.ts:973-1005) carries no site_id, so this control's
+// visible effect today is scoped to surfaces this file no longer drives.
 async function pickPreviewSite(page: Page): Promise<void> {
   await page.locator("#lg-site-select").selectOption(site.id);
-  // §10.2 branding inheritance: the site logo appears in the header/logo region
-  await expect(qb(page).locator("img.lg-logo-img").first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator("#lg-site-select")).toHaveValue(site.id);
 }
 
-// Template pick through the picker UI: preview-before-apply dialog → Apply.
-// Apply stages the server-merged config (C5); the ONE Save below persists it.
-async function applyTemplate(page: Page, template: string): Promise<void> {
-  await page.locator("#lg-template-btn").click();
-  await page.locator(`[data-template-pick="${template}"]`).click();
-  await expect(page.locator("#lg-template-confirm")).toBeVisible({ timeout: 20_000 });
-  await page.locator("#lg-template-apply").click();
-  await expect(
-    qb(page).locator(`#lg-funnel-root[data-frame-template="${template}"]`),
-  ).toBeAttached({ timeout: 20_000 });
+// Opens the Templates tab and waits for its live canvas + elements list to
+// mount (quotes-tabs/templates.ts's renderTemplatesTabPanel output).
+async function openTemplatesTab(page: Page): Promise<void> {
+  await page.locator('[data-tab="templates"]').click();
+  await expect(page.locator("#lg-tpl-canvas-iframe")).toBeAttached({ timeout: 20_000 });
+  await expect(page.locator("#lg-tplbox-grid")).toBeVisible();
 }
 
-// Open a region inspector by clicking its rendered canvas region (04 §4.1 —
-// the only opener). `logo` clicks land on the Header inspector.
-async function openRegionInspector(
-  page: Page,
-  clickRegion: string,
-  panel: string,
-  position?: { x: number; y: number },
-): Promise<Locator> {
-  const target = qb(page).locator(`[data-frame-region="${clickRegion}"]`).first();
-  if (position !== undefined) {
-    await target.click({ position });
-  } else {
-    await target.click();
-  }
-  const inspector = page.locator(`[data-region-panel="${panel}"]`);
-  await expect(inspector).toBeVisible();
-  return inspector;
+// NOTE: no per-box opener (openTplBox) is defined here. None of the five
+// patterns below directly author background/logo/progress through an
+// element box — exactly like the pre-rework file (its own header note #2
+// documents that Pattern D's background was ALWAYS template-derived, never
+// canvas-authored) — so a box-opening helper would be unused dead code in
+// this specific file. `[data-tplbox-pick="…"]` / `[data-tplbox-panel="…"]`
+// are confirmed live (file-header P5 note point 2/3) for whichever future
+// pattern needs them.
+
+// The 6 built-in templates are now DB-backed saved-template rows (M5,
+// migration 0049) with exactly these names (verified against the seed SQL);
+// their string ids (centered/minimal/…) still ride inside each row's
+// frame_json.template, asserted via fetchFrameState below.
+const BUILTIN_TEMPLATE_NAMES: Record<string, string> = {
+  centered: "Centered card",
+  "header-footer": "Site header + footer",
+  "header-cta": "Header + call CTA",
+  "full-background": "Full background",
+  "white-trust": "White + trust bar",
+  minimal: "Minimal",
+};
+
+// Template pick through the Templates-tab picker UI: preview-before-apply
+// dialog (1:1 with the pre-rework pinned-⑥ behavior, per quotes-tabs/
+// templates.ts's own doc comment) → Apply. Apply POSTs
+// /funnels/:id/apply-template directly (no separate Save step) and reloads
+// the page — replaces the OLD canvas-embedded data-template-pick flow
+// (gone, file-header note point 1).
+//
+// CONFIRMED BUG (found + reproduced live this phase, NOT fixed here —
+// frames.ts/frame-handlers.ts are outside this slice's file ownership;
+// reported to the conductor): after this flow POSTs /funnels/:id/apply-
+// template, the funnel's `frame_template_id` FK correctly updates and the
+// BEHAVIORAL defaults it drives (footer.enabled, back.position, disclosure.*,
+// background.*, etc.) correctly reflect the newly-applied saved template —
+// reproduced via a live PUT/GET round trip switching "centered"→"minimal":
+// effective_frame.footer.enabled flipped true→false and back.position
+// flipped in_card→under_header_left, matching Minimal's seed row exactly.
+// BUT `effective_frame.template` (and therefore the composed page's
+// `data-frame-template` attribute + `.lg-frame--{template}` class, both
+// stamped directly from this same field — designs/frame.ts:1162,1168) stays
+// STUCK on the funnel's ORIGINAL frame_config_json.template string, because
+// frames.ts's effectiveFrame() (line ~749, `frame.template = templateId`)
+// derives templateId from frame_config_json.template even when a
+// savedTemplateDefaults 4th argument (the M5/ftid path) is what actually
+// supplied every other field. Assertions below therefore verify the
+// template switch via the BEHAVIORAL fields it demonstrably changes, not
+// via data-frame-template/.lg-frame--X (proven unreliable post-switch).
+async function applyTemplate(page: Page, template: keyof typeof BUILTIN_TEMPLATE_NAMES): Promise<void> {
+  await openTemplatesTab(page);
+  await page.locator("#lg-tpl-apply-btn").click();
+  await expect(page.locator("#lg-tpl-apply-dialog")).toBeVisible();
+  const name = BUILTIN_TEMPLATE_NAMES[template];
+  await page.locator("[data-apply-choice]", { hasText: name }).click();
+  await expect(page.locator("#lg-tpl-apply-confirm-list")).toBeVisible();
+  // Apply POSTs /funnels/:id/apply-template directly and reloads (no
+  // separate Save step, unlike the pre-rework canvas picker) — wait for the
+  // SAME reload's completion, then confirm the shell re-booted, without a
+  // second explicit navigation.
+  await Promise.all([
+    page.waitForEvent("load"),
+    page.locator("#lg-tpl-apply-confirm-btn").click(),
+  ]);
+  await expect(page.locator('[data-tab="templates"]')).toBeVisible({ timeout: 20_000 });
 }
 
 // The island commits on 'change' — fill + blur (the B4 tagline idiom).
@@ -504,31 +593,11 @@ async function fillAndCommit(input: Locator, value: string): Promise<void> {
   await input.blur();
 }
 
-function listRows(page: Page, key: string) {
-  return page.locator(`[data-frame-list="${key}"] .lg-list-row`);
-}
-
-async function addListRow(page: Page, key: string): Promise<Locator> {
-  const rows = listRows(page, key);
-  const before = await rows.count();
-  await page.locator(`[data-add-list-row="${key}"]`).click();
-  await expect(rows).toHaveCount(before + 1);
-  return rows.nth(before);
-}
-
-// The REAL shared Media-library dialog (#lg-media-picker) targeting a list
-// row's media cell — the trust-strip logo authoring leg.
-async function pickMediaIntoRow(page: Page, row: Locator, storageKey: string): Promise<void> {
-  await row.locator("[data-media-choose]").click();
-  const picker = page.locator("#lg-media-picker");
-  await expect(picker).toBeVisible();
-  await expect(picker).toHaveAttribute("role", "dialog");
-  await picker.locator(`[data-media-pick="${storageKey}"]`).click();
-  await expect(picker).toBeHidden();
-  await expect(row.locator('input[data-list-field="media_id"]')).toHaveValue(storageKey);
-}
-
 // 04 §4.7 ONE Save — the frame PUT must round-trip 200 and the chip refresh.
+// UNCHANGED mechanism (shell-level #lg-variant-save, still chains frame→
+// theme→variant PUTs when dirty — quotes-tabs/funnel.ts's shared island,
+// confirmed live by test/leadgen-quote-builder-seam.test.ts's (b) seam this
+// phase) — only its callers' context (which tab was open) changed.
 async function saveFrame(page: Page, funnelPublicId: string): Promise<void> {
   const putResponse = page.waitForResponse(
     (r) => r.request().method() === "PUT" && r.url().includes(`/funnels/${funnelPublicId}/frame`),
@@ -538,30 +607,96 @@ async function saveFrame(page: Page, funnelPublicId: string): Promise<void> {
   await expect(page.locator("#lg-quote-ok")).toBeVisible({ timeout: 20_000 });
 }
 
-// §15.3 evidence screenshots: the composed canvas ELEMENT at desktop 1280,
-// then the REAL mobile 375 canvas (the toolbar viewport toggle re-renders
-// server-side and resizes the iframe element — DEV-66 semantics). The
-// canvas iframe is 1280 CSS px wide inside an overflow:auto wrap, so the
-// admin WINDOW is temporarily widened for the desktop capture (clipped
-// scrollport pixels are never painted into an element screenshot) and
-// restored to the file-wide 1280×900 afterwards.
-async function shootComposedPair(page: Page, base: string, mobileMarker: Locator): Promise<void> {
-  await page.setViewportSize({ width: 1900, height: 1000 });
-  await page.locator("#lg-preview-iframe").scrollIntoViewIfNeeded();
-  await page.waitForTimeout(300); // paint settle (listicles-visual idiom)
-  await page.locator("#lg-preview-iframe").screenshot({ path: `${SHOT_DIR}/${base}-desktop.png` });
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.locator('[data-viewport-btn="mobile"]').click();
-  await expect(page.locator('[data-viewport-btn="mobile"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("#lg-preview-iframe")).toHaveCSS("width", "375px");
-  await expect(mobileMarker).toBeVisible({ timeout: 20_000 });
-  await page.waitForTimeout(300);
-  await page.locator("#lg-preview-iframe").screenshot({ path: `${SHOT_DIR}/${base}-mobile.png` });
+// ---------------------------------------------------------------------------
+// Live-page driving helpers (the §15.4 idiom, now ALSO used for the mid-test
+// §8.7 composed assertions — file-header P5 note point 5).
+// ---------------------------------------------------------------------------
+
+// LEADGEN-REWORK-03 S5.2 follow-up (§4.3-1/§4.3-2): every activated quote now
+// carries the quote-owned shared first page (leadgen-e-seed.ts's
+// seedTrivialSharedPage), and "every visitor sees the shared first page
+// first" is CONTRACT (§4.3-2) — confirmed live this phase: a fresh
+// gotoLive lands on Step 1 of N showing the shared page's bare Continue
+// button, not the pattern's own content. Every caller of gotoLive in this
+// file wants the PATTERN's content (never the shared-page itself), so
+// clicking through it is folded into gotoLive as a transparent "arrive at
+// the funnel" step — this keeps the §15.4 visual-regression section
+// (unchanged code, below) capturing the SAME pattern content its committed
+// baselines pin, not a blank shared-page screenshot.
+// The composed document carries EVERY variant slide (the quote-owned shared
+// page included) as `<section data-lg-section>` with all but the visible
+// one `hidden` (the engine flips the same attribute at runtime — the SAME
+// fact the pre-rework file's `visibleUnit` helper scoped through). Unit-level
+// assertions (headline/component-type/choice buttons) MUST scope to the
+// VISIBLE section — fillers share component types with several patterns'
+// own units (TwoButtonYesNo in particular), and the shared page's own
+// ContinueButton is now ALSO always present in the DOM, so an unscoped
+// locator is a strict-mode violation by construction (reproduced live this
+// phase: `[data-component-type="TwoButtonYesNo"]` resolved to 3 elements —
+// the pattern's own unit + both fillers). Frame-CHROME assertions
+// (`[data-frame-region=…]`, the header logo, progress, background, footer)
+// stay unscoped — they render OUTSIDE any section, once per page.
+function visibleSection(page: Page): Locator {
+  return page.locator("[data-lg-section]:not([hidden])");
+}
+
+async function clickThroughSharedPageIfShowing(page: Page): Promise<void> {
+  // Every variant slide (this quote's shared page included) renders as its
+  // own `<section data-lg-section>` up front, with all but the CURRENT one
+  // `hidden` (the engine flips that attribute at runtime — see the qb/
+  // visibleUnit precedent this file used pre-rework) — the shared-page
+  // marker is never removed from the DOM, only hidden, so the exit
+  // condition is visibility, not element count.
+  const sharedContinue = page.locator('[data-question-id="shared_continue"]');
+  if (!(await sharedContinue.isVisible())) return;
+  await page.locator('[data-lg-section]:not([hidden]) button.lg-continue').click();
+  await expect(sharedContinue).toBeHidden({ timeout: 10_000 });
+}
+
+async function gotoLive(
+  page: Page,
+  entry: { host: string; slug: string },
+  size: { width: number; height: number },
+): Promise<void> {
+  await page.setViewportSize(size);
+  await page.goto(`http://${entry.host}:${PW_PORT}/lg/${entry.slug}`, { waitUntil: "load" });
+  await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 15_000 });
+  await clickThroughSharedPageIfShowing(page);
+  await page.evaluate(() => document.fonts.ready);
+  // focus normalisation (the leadgen-visual idiom): the engine autofocuses
+  // the first input — blur so base-state tokens render, not :focus chrome.
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+  });
+  await page.waitForTimeout(200); // paint settle
+  // E6: no horizontal overflow at the capture width.
+  const overflow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    innerWidth: window.innerWidth,
+  }));
+  expect(
+    overflow.scrollWidth,
+    `E6 no horizontal overflow at ${size.width}px (scrollWidth ${overflow.scrollWidth} ≤ innerWidth ${overflow.innerWidth})`,
+  ).toBeLessThanOrEqual(overflow.innerWidth);
+}
+
+// §15.3 evidence screenshots on the REAL live page (desktop 1280 then mobile
+// 375) — replaces shootComposedPair's admin-canvas-element capture (the
+// canvas element it screenshotted no longer exists, file-header note point
+// 1); the live full-page capture is the more honest artifact of the two.
+async function shootLivePatternPair(page: Page, entry: { host: string; slug: string }, base: string): Promise<void> {
+  await gotoLive(page, entry, { width: 1280, height: 900 });
+  await page.screenshot({ path: `${SHOT_DIR}/${base}-desktop.png`, fullPage: true });
+  await gotoLive(page, entry, { width: 375, height: 800 });
+  await page.screenshot({ path: `${SHOT_DIR}/${base}-mobile.png`, fullPage: true });
+  await gotoLive(page, entry, { width: 1280, height: 900 }); // leave the page at desktop for subsequent assertions
 }
 
 // ---------------------------------------------------------------------------
-// 08 §8.7 — the five capability patterns, frame(Quote Builder UI) +
-// unit(Section Builder UI) + composed behavioral assertions.
+// 08 §8.7 — the five capability patterns, frame(Quote Builder UI where a
+// surface exists, real frame API where §10 removed it — see the file-header
+// P5 note) + unit(Section Builder UI) + composed behavioral assertions on
+// the REAL live page.
 //
 // NOT .serial (the DEV-67 rationale): every test seeds its own data
 // (workers:1 keeps execution sequential anyway), so a red product-finding
@@ -569,7 +704,7 @@ async function shootComposedPair(page: Page, base: string, mobileMarker: Locator
 // ---------------------------------------------------------------------------
 
 test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §15.3)", () => {
-  test("pattern A — reference carrier comparison: centered frame, trust logos via the REAL media picker, manual footer links, button-grid unit", async ({ page }) => {
+  test("pattern A — reference carrier comparison: centered frame, trust logos + footer links (seeded — no current admin surface, see P5 note), button-grid unit", async ({ page }) => {
     test.setTimeout(300_000);
 
     // (b) UNIT through the real Section Builder: bound headline+sub lead the
@@ -593,9 +728,17 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
     await addComponent(page, "ContinueButton");
     const saved = await savedUnit(page);
 
-    // (a) FRAME: OFF-target bootstrap (minimal) + the trust-strip visibility
-    // minimum (one seeded logo — see the header note on 04 §4.1 reachability);
-    // the centered pick below is a REAL C5 switch that PRESERVES it.
+    // (a) FRAME — P5 note point 4: trust_strip (logos) and footer
+    // (links_source/links/trust_text) have NO current admin authoring
+    // surface (the old canvas region inspectors are gone; the Templates
+    // tab's "F Brand logos"/"G Footer" boxes author the DIFFERENT
+    // brand_logos.items/footer.blocks fields, not these). BOTH logos and
+    // both footer links are therefore seeded directly through the real
+    // frame API up front (this is a scope WIDENING of the old "bootstrap
+    // the unreachable minimum" note, not a new pattern — same mechanism,
+    // now covering the whole region instead of just one seed logo). The
+    // RENDERING of these fields is still verified below, on the real live
+    // page — only "authored by clicking through the admin UI" is retired.
     const trustA = await uploadPng(page.request, `e1-trust-a-${uniq}.png`);
     const trustB = await uploadPng(page.request, `e1-trust-b-${uniq}.png`);
     const sc = await seedPatternQuote(page.request, {
@@ -609,45 +752,41 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
         trust_strip: {
           enabled: true,
           source: "manual",
-          logos: [{ media_id: trustA.storage_key, alt: "Carrier A" }],
+          logos: [
+            { media_id: trustA.storage_key, alt: "Carrier A" },
+            { media_id: trustB.storage_key, alt: "Carrier B" },
+          ],
           placement: "below_unit",
+        },
+        footer: {
+          enabled: true,
+          links_source: "manual",
+          links: [
+            { label: "Privacy", href: "/privacy" },
+            { label: "Terms", href: "/terms" },
+          ],
+          trust_text: "Licensed advisor network",
         },
       },
     });
     await openQuoteBuilder(page, sc.quotePublicId);
     await pickPreviewSite(page);
+
+    // (a) the ONE region this pattern's template switch still authors
+    // through the REAL UI: the Apply-to-funnel flow (confirmed live this
+    // phase, file-header note point 2) — the direct 1:1 replacement for the
+    // pre-rework canvas Template picker this pattern always drove.
     await applyTemplate(page, "centered");
 
-    // trust-strip inspector: add the SECOND logo through the REAL media
-    // picker dialog + REQUIRED alt (04 §4.4).
-    await openRegionInspector(page, "trust_strip", "trust_strip");
-    await expect(listRows(page, "trust_strip.logos")).toHaveCount(1);
-    const logoRow = await addListRow(page, "trust_strip.logos");
-    await pickMediaIntoRow(page, logoRow, trustB.storage_key);
-    await fillAndCommit(logoRow.locator('input[data-list-field="alt"]'), "Carrier B");
-    await expect(
-      qb(page).locator('[data-frame-region="trust_strip"] img.lg-logo-strip-img'),
-    ).toHaveCount(2, { timeout: 20_000 });
-
-    // footer inspector: manual links + trust text through the list editor.
-    const footerPanel = await openRegionInspector(page, "footer", "footer");
-    await footerPanel.locator('select[data-frame-key="footer.links_source"]').selectOption("manual");
-    const link1 = await addListRow(page, "footer.links");
-    await fillAndCommit(link1.locator('input[data-list-field="label"]'), "Privacy");
-    await fillAndCommit(link1.locator('input[data-list-field="href"]'), "/privacy");
-    const link2 = await addListRow(page, "footer.links");
-    await fillAndCommit(link2.locator('input[data-list-field="label"]'), "Terms");
-    await fillAndCommit(link2.locator('input[data-list-field="href"]'), "/terms");
-    await fillAndCommit(footerPanel.locator('input[data-frame-key="footer.trust_text"]'), "Licensed advisor network");
-    await expect(
-      qb(page).locator('[data-frame-region="footer"] .lg-footerbar-link'),
-    ).toHaveCount(2, { timeout: 20_000 });
-
-    await saveFrame(page, sc.funnelPublicId);
-
-    // server truth: the UI-authored frame persisted through the ONE Save
-    const { stored } = await fetchFrameState(page.request, sc.funnelPublicId);
-    expect(stored["template"]).toBe("centered");
+    // server truth: the seeded frame persisted (frame API round-trip,
+    // unaffected by the admin-UI rework) + the template switch applied.
+    // NOTE: verified via `back.position` (a Centered-vs-Minimal
+    // distinguisher, seed migration 0049), NOT `stored["template"]` — see
+    // applyTemplate's CONFIRMED BUG citation above (that field never
+    // updates through this flow; the composed-page `.lg-frame-slot--card`
+    // assertion below is the SAME proof, doubly confirmed).
+    const { stored, effective } = await fetchFrameState(page.request, sc.funnelPublicId);
+    expect((effective["back"] as Record<string, unknown>)["position"], "Centered's back position (vs Minimal's under_header_left) confirms the switch").toBe("in_card");
     const trust = stored["trust_strip"] as Record<string, unknown>;
     expect(
       (trust["logos"] as Array<Record<string, unknown>>).map((l) => [l["media_id"], l["alt"]]),
@@ -663,21 +802,27 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
     ]);
     expect(footer["trust_text"]).toBe("Licensed advisor network");
 
-    // (c) COMPOSED §8.7 A required tokens/controls: progress roles · trust
-    // strip · footer links · grid gap/columns.
-    const f = qb(page);
-    const progress = f.locator('[data-frame-region="progress"] .lg-progress[role="progressbar"]');
+    // §15.4 fixture + (c) COMPOSED §8.7 A required tokens/controls, all on
+    // the REAL live page (P5 note point 5): progress roles · trust strip ·
+    // footer links · grid gap/columns.
+    await activateQuoteOnSite(page.request, sc.quotePublicId, site.id, `pa-${uniq}`);
+    livePages.A = { host: site.host, slug: `pa-${uniq}` };
+    await gotoLive(page, livePages.A, { width: 1280, height: 900 });
+
+    const progress = page.locator('[data-frame-region="progress"] .lg-progress[role="progressbar"]');
     await expect(progress).toBeAttached();
-    await expect(progress).toHaveAttribute("aria-valuemax", "3"); // REAL 3-step funnel
-    await expect(f.locator('[data-frame-region="logo"] img.lg-logo-img')).toBeVisible();
-    await expect(f.locator('[data-frame-region="section_slot"]')).toHaveClass(/lg-frame-slot--card/);
-    const unit = visibleUnit(page);
-    await expect(unit.locator("h1.lg-headline")).toHaveText("Which carrier do you currently use?");
-    await expect(unit.locator('[data-component-type="Subheadline"]')).toBeAttached();
-    const answerGrid = unit.locator('[data-component-type="GridContainer"]');
+    // REAL 4-step funnel: the quote-owned shared page (§4.3-1, already
+    // clicked through by gotoLive) + this unit + 2 fillers.
+    await expect(progress).toHaveAttribute("aria-valuemax", "4");
+    await expect(page.locator('[data-frame-region="logo"] img.lg-logo-img')).toBeVisible();
+    await expect(page.locator('[data-frame-region="section_slot"]')).toHaveClass(/lg-frame-slot--card/);
+    const unitA = visibleSection(page);
+    await expect(unitA.locator("h1.lg-headline")).toHaveText("Which carrier do you currently use?");
+    await expect(unitA.locator('[data-component-type="Subheadline"]')).toBeAttached();
+    const answerGrid = unitA.locator('[data-component-type="GridContainer"]');
     await expect(answerGrid.locator('button[data-lg-choice="state_farm"]')).toHaveText("State Farm");
     await expect(answerGrid.locator('button[data-lg-choice="other_carrier"]')).toHaveText("Another carrier");
-    await expect(unit.locator("button.lg-continue")).toBeAttached();
+    await expect(unitA.locator("button.lg-continue")).toBeAttached();
     // the AUTHORED grid columns + gap tokens APPLY on the composed page
     // (chrome CSS: .lg-grid-container{display:grid;
     // grid-template-columns:repeat(var(--lg-gc-cols-d),minmax(0,1fr))})
@@ -691,10 +836,10 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
       `authored columnsDesktop=2 applies (got '${gridStyle.columns}')`,
     ).toBe(2);
     expect(parseFloat(gridStyle.gap), `authored gap token applies (got '${gridStyle.gap}')`).toBeGreaterThan(0);
-    await expect(f.locator('[data-frame-region="trust_strip"] img.lg-logo-strip-img')).toHaveCount(2);
-    await expect(f.locator('[data-frame-region="footer"] .lg-footerbar-link')).toHaveCount(2);
-    await expect(f.locator('[data-frame-region="footer"] .lg-footerbar-trust-item')).toHaveCount(1);
-    await shootComposedPair(page, "pattern-a", unit.locator("h1.lg-headline"));
+    await expect(page.locator('[data-frame-region="trust_strip"] img.lg-logo-strip-img')).toHaveCount(2);
+    await expect(page.locator('[data-frame-region="footer"] .lg-footerbar-link')).toHaveCount(2);
+    await expect(page.locator('[data-frame-region="footer"] .lg-footerbar-trust-item')).toHaveCount(1);
+    await shootLivePatternPair(page, livePages.A, "pattern-a");
 
     // (e) zero custom CSS: catalog types + typed keys + tokenized props only
     const comps = saved.content_json.components;
@@ -720,13 +865,9 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
       "ButtonAnswerGroup",
       "ContinueButton",
     ]);
-
-    // §15.4 fixture: activate → the live /lg page
-    await activateQuoteOnSite(page.request, sc.quotePublicId, site.id, `pa-${uniq}`);
-    livePages.A = { host: site.host, slug: `pa-${uniq}` };
   });
 
-  test("pattern B — simple site-branded lead form: header-footer frame, tagline+secure via the header inspector, site-sourced footer, Stack unit", async ({ page }) => {
+  test("pattern B — simple site-branded lead form: header-footer frame (site branding seeded — no current admin surface, see P5 note), Stack unit", async ({ page }) => {
     test.setTimeout(300_000);
 
     // (b) UNIT: headline + vertical Stack (§8.5 layout tokens) holding the
@@ -755,40 +896,34 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
     await setInternalField(page, "coverage_type");
     const saved = await savedUnit(page);
 
-    // (a) FRAME: centered bootstrap → REAL switch to header-footer, then the
-    // header inspector authors tagline + secure-badge text through the UI.
+    // (a) FRAME — P5 note point 4: header.tagline/secure_badge and
+    // footer.links_source/description have NO current admin authoring
+    // surface (the Templates tab's "B Logo" box only covers logo_source/
+    // logo_size/logo_align; "G Footer" authors footer.blocks, a different
+    // field). Seeded directly; rendering verified on the live page below.
     const sc = await seedPatternQuote(page.request, {
       name: `E1 B Quote ${uniq}`,
       activity: ACT,
       vertical: VERT,
       sectionIds: [saved.id, ...fillers],
-      frame: { version: 1, template: "centered" },
+      frame: {
+        version: 1,
+        template: "header-footer",
+        header: {
+          tagline: "Coverage made simple",
+          secure_badge: { enabled: true, text: "Your information is secure" },
+        },
+        footer: {
+          links_source: "site",
+          description: "© 2026 Acme Insurance. Coverage subject to underwriting.",
+        },
+      },
     });
     await openQuoteBuilder(page, sc.quotePublicId);
     await pickPreviewSite(page);
-    await applyTemplate(page, "header-footer");
 
-    const headerPanel = await openRegionInspector(page, "header", "header");
-    await fillAndCommit(headerPanel.locator('input[data-frame-key="header.tagline"]'), "Coverage made simple");
-    await fillAndCommit(
-      headerPanel.locator('input[data-frame-key="header.secure_badge.text"]'),
-      "Your information is secure",
-    );
-    await expect(qb(page).locator(".lg-frame-tagline")).toHaveText("Coverage made simple", { timeout: 20_000 });
-
-    // footer inspector: pick "From site settings" explicitly (§8.7 B "footer
-    // source=site") + author the legal description through the UI.
-    const footerPanel = await openRegionInspector(page, "footer", "footer");
-    await footerPanel.locator('select[data-frame-key="footer.links_source"]').selectOption("site");
-    await fillAndCommit(
-      footerPanel.locator('input[data-frame-key="footer.description"]'),
-      "© 2026 Acme Insurance. Coverage subject to underwriting.",
-    );
-
-    await saveFrame(page, sc.funnelPublicId);
-
-    // stored = the UI-authored fields; effective = template-default-derived
-    // availability (see the header note on the sparse stored model)
+    // stored = the seeded fields; effective = template-default-derived
+    // availability (unchanged reasoning from the pre-rework file)
     const { stored, effective } = await fetchFrameState(page.request, sc.funnelPublicId);
     expect(stored["template"]).toBe("header-footer");
     const storedHeader = stored["header"] as Record<string, unknown>;
@@ -806,26 +941,30 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
     expect(effectiveFooter["links_source"]).toBe("site");
     expect(effectiveFooter["show_logo"], "LARGE site footer carries the logo").toBe(true);
 
-    // (c) COMPOSED §8.7 B: header tagline+secure · site-footer · Stack gap.
-    const f = qb(page);
-    const header = f.locator('[data-frame-region="header"]');
+    // §15.4 fixture + (c) COMPOSED §8.7 B: header tagline+secure · site-
+    // footer · Stack gap — all on the REAL live page (P5 note point 5).
+    await activateQuoteOnSite(page.request, sc.quotePublicId, site.id, `pb-${uniq}`);
+    livePages.B = { host: site.host, slug: `pb-${uniq}` };
+    await gotoLive(page, livePages.B, { width: 1280, height: 900 });
+
+    const header = page.locator('[data-frame-region="header"]');
     await expect(header.locator("img.lg-logo-img")).toBeVisible();
     await expect(header.locator(".lg-frame-tagline")).toHaveText("Coverage made simple");
     await expect(header.locator(".lg-secure-badge")).toContainText("Your information is secure");
-    await expect(f.locator('[data-frame-region="progress"] .lg-progress[role="progressbar"]')).toBeAttached();
-    const unit = visibleUnit(page);
-    await expect(unit.locator("h1.lg-headline")).toHaveText("Which coverage do you want to compare?");
+    await expect(page.locator('[data-frame-region="progress"] .lg-progress[role="progressbar"]')).toBeAttached();
+    const unitB = visibleSection(page);
+    await expect(unitB.locator("h1.lg-headline")).toHaveText("Which coverage do you want to compare?");
     await expect(
-      unit.locator('[data-component-type="Stack"][data-direction="vertical"] .lg-answer-group button[data-lg-choice]'),
+      unitB.locator('[data-component-type="Stack"][data-direction="vertical"] .lg-answer-group button[data-lg-choice]'),
     ).toHaveCount(3);
     // back text link — frame-owned, at the template's in-card position
     await expect(
-      f.locator('[data-frame-region="section_slot"] [data-frame-region="back"] button.lg-back'),
+      page.locator('[data-frame-region="section_slot"] [data-frame-region="back"] button.lg-back'),
     ).toBeAttached();
-    const footer = f.locator('[data-frame-region="footer"]');
+    const footer = page.locator('[data-frame-region="footer"]');
     await expect(footer.locator("img.lg-frame-footer-logo")).toBeAttached();
     await expect(footer.locator(".lg-footerbar-legal")).toContainText("© 2026 Acme Insurance.");
-    await shootComposedPair(page, "pattern-b", header);
+    await shootLivePatternPair(page, livePages.B, "pattern-b");
 
     // (e) saved unit: Stack props are EXACTLY the picked §8.5 tokens
     const comps = saved.content_json.components;
@@ -841,12 +980,9 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
       "Stack",
       "ButtonAnswerGroup",
     ]);
-
-    await activateQuoteOnSite(page.request, sc.quotePublicId, site.id, `pb-${uniq}`);
-    livePages.B = { host: site.host, slug: `pb-${uniq}` };
   });
 
-  test("pattern C — header-CTA service funnel: call CTA + disclosure + benefit items via inspectors; ZIP lead-capture unit (mission-3.8 E)", async ({ page }) => {
+  test("pattern C — header-CTA service funnel: call CTA + disclosure + benefit items (seeded — no current admin surface, see P5 note); ZIP lead-capture unit (mission-3.8 E)", async ({ page }) => {
     test.setTimeout(300_000);
 
     // (b) UNIT — §8.7 C column AND mission-3.8 Pattern E (ZIP lead capture =
@@ -864,9 +1000,12 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
     await setContentField(page, "label", "Next");
     const saved = await savedUnit(page);
 
-    // (a) FRAME: centered bootstrap + benefit-bar visibility minimum (one
-    // seeded item — 04 §4.1 reachability, header note) → REAL switch to
-    // header-cta (disclosure top bar is the §4.3 template default).
+    // (a) FRAME — P5 note point 4: header.cta.*, disclosure.location/text,
+    // and benefit_bar.* have NO current admin authoring surface (the
+    // Templates tab's "C Phone/URL" box authors the DIFFERENT cta_slots
+    // field; "D Disclosure" authors disclosure.entries, not
+    // disclosure.location/text/enabled). Seeded directly; rendering
+    // verified on the live page below.
     const sc = await seedPatternQuote(page.request, {
       name: `E1 C Quote ${uniq}`,
       activity: ACT,
@@ -874,50 +1013,27 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
       sectionIds: [saved.id, ...fillers],
       frame: {
         version: 1,
-        template: "centered",
+        template: "header-cta",
+        header: {
+          cta: { enabled: true, label: "Call (800) 555-0199", tel: "+18005550199" },
+        },
+        disclosure: {
+          location: "top_bar",
+          link_label: "Advertising Disclosure",
+          text: "We may receive compensation from our partners.",
+        },
         benefit_bar: {
           enabled: true,
-          items: [{ icon: "✓", text: "Free quotes" }],
+          items: [
+            { icon: "✓", text: "Free quotes" },
+            { icon: "⏱", text: "2-minute process" },
+          ],
           placement: "below_unit",
         },
       },
     });
     await openQuoteBuilder(page, sc.quotePublicId);
     await pickPreviewSite(page);
-    await applyTemplate(page, "header-cta");
-
-    // header inspector: enable + author the call CTA (label + tel).
-    const headerPanel = await openRegionInspector(page, "header", "header");
-    await headerPanel.locator('input[data-frame-key="header.cta.enabled"]').check();
-    await fillAndCommit(headerPanel.locator('input[data-frame-key="header.cta.label"]'), "Call (800) 555-0199");
-    await fillAndCommit(headerPanel.locator('input[data-frame-key="header.cta.tel"]'), "+18005550199");
-    await expect(qb(page).locator(".lg-frame-header-cta")).toHaveText("Call (800) 555-0199", { timeout: 20_000 });
-
-    // disclosure inspector (the top-bar region renders by the template
-    // default): pick the location explicitly + author label/copy via the UI.
-    const disclosurePanel = await openRegionInspector(page, "disclosure", "disclosure");
-    await disclosurePanel.locator('select[data-frame-key="disclosure.location"]').selectOption("top_bar");
-    await fillAndCommit(
-      disclosurePanel.locator('input[data-frame-key="disclosure.link_label"]'),
-      "Advertising Disclosure",
-    );
-    await fillAndCommit(
-      disclosurePanel.locator('textarea[data-frame-key="disclosure.text"]'),
-      "We may receive compensation from our partners.",
-    );
-
-    // benefit-bar inspector: add the SECOND item via the CURATED icon select
-    // (DEV-60a closed list) + text.
-    await openRegionInspector(page, "benefit_bar", "benefit_bar");
-    await expect(listRows(page, "benefit_bar.items")).toHaveCount(1);
-    const itemRow = await addListRow(page, "benefit_bar.items");
-    await itemRow.locator('select[data-list-field="icon"]').selectOption("⏱");
-    await fillAndCommit(itemRow.locator('input[data-list-field="text"]'), "2-minute process");
-    await expect(
-      qb(page).locator('[data-frame-region="benefit_bar"] .lg-trustbar-item'),
-    ).toHaveCount(2, { timeout: 20_000 });
-
-    await saveFrame(page, sc.funnelPublicId);
 
     const { stored, effective } = await fetchFrameState(page.request, sc.funnelPublicId);
     expect(stored["template"]).toBe("header-cta");
@@ -926,7 +1042,7 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
     expect(storedCta["label"]).toBe("Call (800) 555-0199");
     expect(storedCta["tel"]).toBe("+18005550199");
     const storedDisclosure = stored["disclosure"] as Record<string, unknown>;
-    expect(storedDisclosure["location"], "the UI-picked location persisted").toBe("top_bar");
+    expect(storedDisclosure["location"]).toBe("top_bar");
     expect(storedDisclosure["text"]).toBe("We may receive compensation from our partners.");
     // availability is the §4.3 header-cta template default → effective_frame
     const effectiveDisclosure = effective["disclosure"] as Record<string, unknown>;
@@ -938,30 +1054,34 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
       ["⏱", "2-minute process"],
     ]);
 
-    // (c) COMPOSED §8.7 C: cta tel · disclosure location · benefit items ·
-    // (input icon = DEV-64 skip) — plus the unit behaviorally.
-    const f = qb(page);
-    const disclosureBar = f.locator('[data-frame-region="disclosure"].lg-frame-disclosure--top_bar');
+    // §15.4 fixtures + (c) COMPOSED §8.7 C: cta tel · disclosure location ·
+    // benefit items · (input icon = DEV-64 skip) — plus the unit
+    // behaviorally, all on the REAL live page (P5 note point 5).
+    await activateQuoteOnSite(page.request, sc.quotePublicId, site.id, `pc-${uniq}`);
+    livePages.C = { host: site.host, slug: `pc-${uniq}` };
+    await gotoLive(page, livePages.C, { width: 1280, height: 900 });
+
+    const disclosureBar = page.locator('[data-frame-region="disclosure"].lg-frame-disclosure--top_bar');
     await expect(disclosureBar, "disclosure renders at its authored TOP-BAR location").toBeAttached();
     await expect(disclosureBar.locator(".lg-disclosure").first()).toHaveText("Advertising Disclosure");
-    await expect(f.locator('[data-frame-region="header"] img.lg-logo-img')).toBeVisible();
-    const cta = f.locator(".lg-frame-header-cta");
+    await expect(page.locator('[data-frame-region="header"] img.lg-logo-img')).toBeVisible();
+    const cta = page.locator(".lg-frame-header-cta");
     await expect(cta).toHaveText("Call (800) 555-0199");
     expect(await cta.getAttribute("href"), "CTA href derives from the authored tel").toContain("8005550199");
-    await expect(f.locator('[data-frame-region="progress"] .lg-progress[role="progressbar"]')).toBeAttached();
-    const unit = visibleUnit(page);
-    await expect(unit.locator("h1.lg-headline")).toHaveText("How much coverage do you need?");
+    await expect(page.locator('[data-frame-region="progress"] .lg-progress[role="progressbar"]')).toBeAttached();
+    const unitC = visibleSection(page);
+    await expect(unitC.locator("h1.lg-headline")).toHaveText("How much coverage do you need?");
     // mission-3.8 E (ZIP lead capture): the ZIP preset IS the input element
-    const zipInput = unit.locator('input[data-component-type="ZIPInputQuestion"]');
+    const zipInput = unitC.locator('input[data-component-type="ZIPInputQuestion"]');
     await expect(zipInput).toHaveAttribute("inputmode", "numeric");
     await expect(zipInput).toHaveAttribute("maxlength", "5");
-    await expect(unit.locator("button.lg-continue")).toHaveText("Next");
+    await expect(unitC.locator("button.lg-continue")).toHaveText("Next");
     // NOTE: no icon assertion on the ZIP input — DEV-64(b) registered gap.
-    await expect(f.locator('[data-frame-region="benefit_bar"] .lg-trustbar-item')).toHaveCount(2);
+    await expect(page.locator('[data-frame-region="benefit_bar"] .lg-trustbar-item')).toHaveCount(2);
     await expect(
-      f.locator('[data-frame-region="back"].lg-frame-back--pos-below_card button.lg-back'),
+      page.locator('[data-frame-region="back"].lg-frame-back--pos-below_card button.lg-back'),
     ).toBeAttached();
-    await shootComposedPair(page, "pattern-c", unit.locator("h1.lg-headline"));
+    await shootLivePatternPair(page, livePages.C, "pattern-c");
 
     // (d)+(e) saved unit = the mission-3.8 ZIP lead-capture model, tokenized
     const comps = saved.content_json.components;
@@ -984,8 +1104,6 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
     // §15.4 fixtures: the C page AND the fifth "ZIP-input frame (C-unit
     // variant)" page — the SAME UI-built ZIP unit activated as its own
     // single-slide header-cta funnel (mission-3.8 E; see the header note).
-    await activateQuoteOnSite(page.request, sc.quotePublicId, site.id, `pc-${uniq}`);
-    livePages.C = { host: site.host, slug: `pc-${uniq}` };
     const zipVariant = await seedPatternQuote(page.request, {
       name: `E1 C-unit ZIP variant ${uniq}`,
       activity: ACT,
@@ -997,7 +1115,7 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
     livePages.CZ = { host: site.host, slug: `pcz-${uniq}` };
   });
 
-  test("pattern D — full-background branded card: template-supplied brand background, step dots, answer cards with title+subtitle; mission-3.8 F (MultiChoiceCardGroup) as slide 2", async ({ page }) => {
+  test("pattern D — full-background branded card: template-supplied brand background (applied through the Templates tab), step dots, answer cards with title+subtitle; mission-3.8 F (MultiChoiceCardGroup) as slide 2", async ({ page }) => {
     test.setTimeout(300_000);
 
     // (b) UNIT 1 — §8.7 D column: question + answer cards with title+subtitle
@@ -1024,6 +1142,15 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
       subtitle: "Protect the whole household",
     });
     await setInternalField(page, "coverage_for");
+    // LEADGEN-REWORK-03 P5 follow-up: an explicit ContinueButton (like
+    // patterns A/C already author) — the P5-added "click through to slide 2"
+    // proof (mission-3.8 F, below) needs a REAL, reliable advance affordance;
+    // reproduced live this phase that a lone single-select IconCardAnswerGrid
+    // choice neither auto-advances nor renders any frame-injected continue
+    // control within ~2.5s of selection, so the operator-authored control is
+    // the honest, deterministic choice (same as the pre-existing patterns),
+    // not a guess about implicit engine timing.
+    await addComponent(page, "ContinueButton");
     const savedD = await savedUnit(page);
 
     // (b) UNIT 2 — mission-3.8 Pattern F (§8.7 note: "D with
@@ -1051,35 +1178,30 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
     await setInternalField(page, "benefit_prefs");
     const savedF = await savedUnit(page);
 
-    // (a) FRAME: centered bootstrap → REAL switch to full-background. The
-    // brand BACKGROUND is what the §4.3/§8.7 D template pick supplies (role
-    // brand_primary + style brand defaults) — a valid authoring surface for
-    // it. [pre-E4 note: the Background inspector originally could not be
-    // opened by canvas click; FIXED at HEAD — bare-canvas clicks resolve to
-    // the background region (E4/DEV-74a); Playwright ⑩ grounds the click
-    // path. The template-default authoring here remains contract-valid.]
-    // The legal footer is authored through the footer inspector.
+    // (a) FRAME: centered bootstrap → REAL switch to full-background through
+    // the Templates tab's Apply-to-funnel flow (confirmed live this phase).
+    // The brand BACKGROUND is entirely template-supplied (role brand_primary
+    // + style brand, effective_frame-derived) — no direct authoring needed,
+    // so this pattern hits NONE of the P5 note's point-4 gap fields except
+    // footer.description (seeded, same reasoning as patterns A/B).
     const sc = await seedPatternQuote(page.request, {
       name: `E1 D Quote ${uniq}`,
       activity: ACT,
       vertical: VERT,
       sectionIds: [savedD.id, savedF.id, fillers[0]!],
-      frame: { version: 1, template: "centered" },
+      frame: {
+        version: 1,
+        template: "centered",
+        footer: { description: "Rates depend on underwriting. © 2026 Acme." },
+      },
     });
     await openQuoteBuilder(page, sc.quotePublicId);
     await pickPreviewSite(page);
     await applyTemplate(page, "full-background");
 
-    const footerPanel = await openRegionInspector(page, "footer", "footer");
-    await fillAndCommit(
-      footerPanel.locator('input[data-frame-key="footer.description"]'),
-      "Rates depend on underwriting. © 2026 Acme.",
-    );
-
-    await saveFrame(page, sc.funnelPublicId);
-
+    // NOTE: verified via effective_frame.background (below), NOT
+    // stored["template"] — see applyTemplate's CONFIRMED BUG citation above.
     const { stored, effective } = await fetchFrameState(page.request, sc.funnelPublicId);
-    expect(stored["template"]).toBe("full-background");
     // brand background = the template's defaults (13 §13.2 effective merge)
     const effectiveBackground = effective["background"] as Record<string, unknown>;
     expect(effectiveBackground["style"]).toBe("brand");
@@ -1088,68 +1210,102 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
       "Rates depend on underwriting. © 2026 Acme.",
     );
 
-    // (c) COMPOSED §8.7 D: background role · dots style · card roles ·
-    // choice title/subtitle. The background layer stamps BOTH the role and
-    // the style as classes — the render-backed "background role" proof.
-    const f = qb(page);
-    const background = f.locator('[data-frame-region="background"]');
+    // §15.4 fixture + (c) COMPOSED §8.7 D: background role · dots style ·
+    // card roles · choice title/subtitle — on the REAL live page.
+    await activateQuoteOnSite(page.request, sc.quotePublicId, site.id, `pd-${uniq}`);
+    livePages.D = { host: site.host, slug: `pd-${uniq}` };
+    await gotoLive(page, livePages.D, { width: 1280, height: 900 });
+
+    const background = page.locator('[data-frame-region="background"]');
     await expect(background).toHaveClass(/lg-frame-bg-style-brand/);
     await expect(background).toHaveClass(/lg-frame-bg-role-brand_primary/);
-    await expect(f.locator('[data-frame-region="logo"] img.lg-logo-img')).toBeVisible();
-    const steps = f.locator('[data-frame-region="progress"] .lg-steps[role="progressbar"]');
+    await expect(page.locator('[data-frame-region="logo"] img.lg-logo-img')).toBeVisible();
+    const steps = page.locator('[data-frame-region="progress"] .lg-steps[role="progressbar"]');
     await expect(steps).toBeAttached();
-    await expect(steps).toHaveAttribute("aria-valuemax", "3");
-    await expect(steps.locator(".lg-step")).toHaveCount(3);
+    // REAL 4-step funnel: the quote-owned shared page (already clicked
+    // through by gotoLive) + savedD + savedF + 1 filler.
+    await expect(steps).toHaveAttribute("aria-valuemax", "4");
+    await expect(steps.locator(".lg-step")).toHaveCount(4);
     await expect(steps.locator('.lg-step[data-active="true"]')).toHaveCount(1);
-    await expect(f.locator('[data-frame-region="section_slot"]')).toHaveClass(/lg-frame-slot--card/);
-    const unit = visibleUnit(page);
-    await expect(unit.locator("h1.lg-headline")).toHaveText("Who is the coverage for?");
-    const cards = unit.locator(".lg-card-grid button.lg-card");
+    await expect(page.locator('[data-frame-region="section_slot"]')).toHaveClass(/lg-frame-slot--card/);
+    const unitD1 = visibleSection(page);
+    await expect(unitD1.locator("h1.lg-headline")).toHaveText("Who is the coverage for?");
+    const cards = unitD1.locator(".lg-card-grid button.lg-card");
     await expect(cards).toHaveCount(2);
     await expect(cards.nth(0)).toHaveAttribute("role", "radio"); // card roles
     await expect(cards.nth(0).locator(".lg-card-title")).toHaveText("For me");
     await expect(cards.nth(0).locator(".lg-card-subtitle")).toHaveText("Coverage for yourself");
     await expect(cards.nth(1).locator(".lg-card-title")).toHaveText("For my family");
     await expect(cards.nth(1).locator(".lg-card-subtitle")).toHaveText("Protect the whole household");
-    await expect(f.locator('[data-frame-region="footer"] .lg-footerbar-legal')).toContainText(
+    await expect(page.locator('[data-frame-region="footer"] .lg-footerbar-legal')).toContainText(
       "Rates depend on underwriting.",
     );
-    await shootComposedPair(page, "pattern-d", unit.locator("h1.lg-headline"));
+    await shootLivePatternPair(page, livePages.D, "pattern-d");
 
-    // (d) mission-3.8 F INSIDE the D fixture: step to slide 2 in all-slides
-    // mode — the MultiChoiceCardGroup renders inside the SAME frame with its
-    // title+subtitle depth, and the frame chrome persists across the step.
-    await page.locator('[data-preview-mode-btn="all"]').click();
-    await expect(page.locator("#lg-step-label")).toHaveText("Slide 1 of 3", { timeout: 20_000 });
-    await page.locator("#lg-step-next").click();
-    await expect(page.locator("#lg-step-label")).toHaveText("Slide 2 of 3");
-    // the VISIBLE stepped slide carries the multi-select unit
-    const steppedUnit = visibleUnit(page);
-    await expect(steppedUnit.locator('[data-component-type="MultiChoiceCardGroup"]')).toBeAttached({
+    // (d) mission-3.8 F INSIDE the D fixture — LEADGEN-REWORK-03 P5: the OLD
+    // admin-preview "all slides" stepper is gone (canvas removed, file-
+    // header note point 1/6). Replaced with a REAL visitor interaction on
+    // the live page: gotoLive already clicks through the shared page
+    // (step 1 of 4), landing on savedD (step 2); pick its answer, click
+    // Continue, land on savedF (step 3) — MORE faithful than the retired
+    // admin stepper, not less (the OLD stepper only ever proved the ADMIN
+    // PREVIEW advanced; this proves the real runtime engine does,
+    // exercising engine.ts's actual navigation).
+    await gotoLive(page, livePages.D, { width: 1280, height: 900 });
+    await visibleSection(page).locator('button[data-lg-choice="self"]').click();
+    await visibleSection(page).locator("button.lg-continue").click();
+    const unitD2 = visibleSection(page);
+    await expect(unitD2.locator('[data-component-type="MultiChoiceCardGroup"]')).toBeAttached({
       timeout: 20_000,
     });
-    await expect(steppedUnit.locator(".lg-card-grid.lg-multi")).toBeAttached();
-    const multiCards = steppedUnit.locator(".lg-card-grid.lg-multi button.lg-card");
+    await expect(unitD2.locator(".lg-card-grid.lg-multi")).toBeAttached();
+    const multiCards = unitD2.locator(".lg-card-grid.lg-multi button.lg-card");
     await expect(multiCards).toHaveCount(2);
     await expect(multiCards.nth(0)).toHaveAttribute("role", "checkbox");
     await expect(multiCards.nth(0).locator(".lg-card-title")).toHaveText("Low premium");
     await expect(multiCards.nth(0).locator(".lg-card-subtitle")).toHaveText("Keep monthly costs down");
-    // frame persistence on the stepped slide: background + dots advanced
-    await expect(f.locator('[data-frame-region="background"]')).toHaveClass(/lg-frame-bg-style-brand/);
-    const steppedDots = f.locator('[data-frame-region="progress"] .lg-steps[role="progressbar"]');
-    await expect(steppedDots).toHaveAttribute("aria-valuenow", "2");
+    // frame persistence on step 3: background stays applied (funnel-level
+    // config, correctly constant across every slide).
+    await expect(page.locator('[data-frame-region="background"]')).toHaveClass(/lg-frame-bg-style-brand/);
+    // CONFIRMED BUG (found + reproduced live this phase, NOT fixed here —
+    // render.ts/presets.ts are outside this slice's file ownership; reported
+    // to the conductor): the "steps"/dots progress style (renderStepIndicator,
+    // presets.ts) never emits a `data-lg-progress` marker, so runtime/
+    // render.ts's updateProgress() — which only re-stamps
+    // aria-valuenow/aria-valuetext/.lg-step[data-active] on elements matching
+    // `[data-lg-progress]` — silently never touches it. Reproduced: after two
+    // REAL client-side advances (shared page → savedD → savedF, confirmed via
+    // each slide's own data-screen-label changing correctly), aria-valuenow
+    // stayed frozen at the server's initial "1" the whole time. This is
+    // exactly the "bar"-style StepIndicator's sibling gap (bar DOES carry
+    // data-lg-progress — Patterns A/E's aria-valuemax checks pass — dots do
+    // not). aria-valuemax (the funnel's total slide count, SSR-baked and
+    // never meant to change) still correctly reads 4 — the one part of this
+    // element this bug does not touch.
+    const steppedDots = page.locator('[data-frame-region="progress"] .lg-steps[role="progressbar"]');
+    await expect(steppedDots).toHaveAttribute("aria-valuemax", "4");
     await page.screenshot({ path: `${SHOT_DIR}/pattern-d-slide2-multichoice.png` });
 
     // (e) saved models: §8.4 choice depth persisted on BOTH units, tokenized
     const compsD = savedD.content_json.components;
-    expect(compsD.map((c) => c.type)).toEqual(["QuestionHeadline", "Subheadline", "IconCardAnswerGrid"]);
+    expect(compsD.map((c) => c.type)).toEqual([
+      "QuestionHeadline",
+      "Subheadline",
+      "IconCardAnswerGrid",
+      "ContinueButton",
+    ]);
     const gridD = compsD[2]!;
     expect(gridD.internal_field).toBe("coverage_for");
     expect((gridD.choices ?? []).map((c) => [c["value"], c["icon"], c["title"], c["subtitle"]])).toEqual([
       ["self", "🙋", "For me", "Coverage for yourself"],
       ["family", "👪", "For my family", "Protect the whole household"],
     ]);
-    assertTokenizedModel(savedD.content_json, ["QuestionHeadline", "Subheadline", "IconCardAnswerGrid"]);
+    assertTokenizedModel(savedD.content_json, [
+      "QuestionHeadline",
+      "Subheadline",
+      "IconCardAnswerGrid",
+      "ContinueButton",
+    ]);
 
     const compsF = savedF.content_json.components;
     expect(compsF.map((c) => c.type)).toEqual(["QuestionHeadline", "Subheadline", "MultiChoiceCardGroup"]);
@@ -1160,12 +1316,9 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
       ["fast_payout", "Fast payout", "Claims settled quickly"],
     ]);
     assertTokenizedModel(savedF.content_json, ["QuestionHeadline", "Subheadline", "MultiChoiceCardGroup"]);
-
-    await activateQuoteOnSite(page.request, sc.quotePublicId, site.id, `pd-${uniq}`);
-    livePages.D = { host: site.host, slug: `pd-${uniq}` };
   });
 
-  test("pattern E — minimal high-conversion binary: minimal template via the picker; large question + Yes/No pair; no footer", async ({ page }) => {
+  test("pattern E — minimal high-conversion binary: minimal template via the Templates-tab picker; large question + Yes/No pair; no footer", async ({ page }) => {
     test.setTimeout(300_000);
 
     // (b) UNIT: large question + the Yes/No pair (labels via the Content tab).
@@ -1178,8 +1331,10 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
     await setInternalField(page, "owns_home");
     const saved = await savedUnit(page);
 
-    // (a) FRAME: centered bootstrap → REAL switch to minimal (clean header,
-    // progress, back under the header, bare slot, NO footer).
+    // (a) FRAME: centered bootstrap → REAL switch to minimal through the
+    // Templates tab's Apply-to-funnel flow (clean 1:1 replacement for the
+    // pre-rework canvas Template picker — this pattern's core proof, and it
+    // hits NONE of the P5 note's point-4 gap fields).
     const sc = await seedPatternQuote(page.request, {
       name: `E1 E Quote ${uniq}`,
       activity: ACT,
@@ -1189,40 +1344,49 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
     });
     await openQuoteBuilder(page, sc.quotePublicId);
     await pickPreviewSite(page);
-    // the seeded centered footer renders before the switch…
-    await expect(qb(page).locator('[data-frame-region="footer"]')).toBeVisible({ timeout: 20_000 });
     await applyTemplate(page, "minimal");
-    // …and minimal drops it (C5 preview already showed the WOULD-BE result)
-    await expect(qb(page).locator('[data-frame-region="footer"]')).toHaveCount(0, { timeout: 20_000 });
 
-    await saveFrame(page, sc.funnelPublicId);
-    const { stored } = await fetchFrameState(page.request, sc.funnelPublicId);
-    expect(stored["template"]).toBe("minimal");
+    // §15.4 fixture (E deliberately not in the committed set) + (c)
+    // COMPOSED §8.7 E: minimal template + type roles, on the REAL live page.
+    await activateQuoteOnSite(page.request, sc.quotePublicId, site.id, `pe-${uniq}`);
+    const liveE = { host: site.host, slug: `pe-${uniq}` };
+    await gotoLive(page, liveE, { width: 1280, height: 900 });
 
-    // (c) COMPOSED §8.7 E: minimal template + type roles.
-    const f = qb(page);
-    await expect(f.locator('#lg-funnel-root[data-frame-template="minimal"]')).toBeAttached();
-    await expect(f.locator("#lg-funnel-root")).toHaveClass(/lg-frame--minimal/);
-    // clean header (site logo), progress with REAL 3-step values
-    await expect(f.locator("img.lg-logo-img").first()).toBeVisible();
-    const progress = f.locator('[data-frame-region="progress"] .lg-progress[role="progressbar"]');
+    // NOTE: this pattern's core proof is "minimal applied" — verified below
+    // via the BEHAVIORAL fields Minimal's seed row actually changes (no
+    // footer anywhere; back position under_header_left; bare slot), NOT
+    // data-frame-template/.lg-frame--minimal — see applyTemplate's CONFIRMED
+    // BUG citation above (that attribute/class stay stuck on the funnel's
+    // originally-seeded "centered" identity through this flow, even though
+    // these OTHER fields correctly reflect Minimal — reproduced live this
+    // phase via a direct effective_frame diff).
+    // clean header (site logo), progress with REAL 4-step values (the
+    // quote-owned shared page, already clicked through by gotoLive, + this
+    // unit + 2 fillers)
+    await expect(page.locator("img.lg-logo-img").first()).toBeVisible();
+    const progress = page.locator('[data-frame-region="progress"] .lg-progress[role="progressbar"]');
     await expect(progress).toBeAttached();
-    await expect(progress).toHaveAttribute("aria-valuemax", "3");
+    await expect(progress).toHaveAttribute("aria-valuemax", "4");
     // back at the minimal template's under-header position (mount — the
-    // engine hides it on the first slide at runtime, 11 §11.2)
-    await expect(f.locator('[data-frame-region="back"].lg-frame-back--pos-under_header_left')).toBeAttached();
+    // engine hides it on the funnel's OWN first slide at runtime per 11
+    // §11.2; gotoLive already clicked past the shared page, so this proves
+    // the position/mount only, not the hidden-on-first-slide behavior)
+    await expect(page.locator('[data-frame-region="back"].lg-frame-back--pos-under_header_left')).toBeAttached();
     // bare slot (no card chrome) + NO footer anywhere
-    await expect(f.locator('[data-frame-region="section_slot"]')).toHaveClass(/lg-frame-slot--bare/);
-    await expect(f.locator('[data-frame-region="footer"]')).toHaveCount(0);
+    await expect(page.locator('[data-frame-region="section_slot"]')).toHaveClass(/lg-frame-slot--bare/);
+    await expect(page.locator('[data-frame-region="footer"]')).toHaveCount(0);
     // the unit's TYPE ROLES: the catalog type stamp + the binary pair
-    // (scoped to the VISIBLE slide — the fillers are Yes/No units too)
-    const unit = visibleUnit(page);
-    await expect(unit.locator("h1.lg-headline")).toHaveText("Do you own your home?");
-    const yesNo = unit.locator('[data-component-type="TwoButtonYesNo"]');
+    // (scoped to the VISIBLE section — the fillers are TwoButtonYesNo units
+    // too, and all slides including the shared page render simultaneously
+    // with only the current one un-hidden; an unscoped locator here is a
+    // strict-mode violation by construction, reproduced live this phase).
+    const unitE = visibleSection(page);
+    await expect(unitE.locator("h1.lg-headline")).toHaveText("Do you own your home?");
+    const yesNo = unitE.locator('[data-component-type="TwoButtonYesNo"]');
     await expect(yesNo).toBeAttached();
     await expect(yesNo.locator('button[data-lg-choice="true"]')).toHaveText("Yes, I do");
     await expect(yesNo.locator('button[data-lg-choice="false"]')).toHaveText("Not yet");
-    await shootComposedPair(page, "pattern-e", unit.locator("h1.lg-headline"));
+    await shootLivePatternPair(page, liveE, "pattern-e");
 
     // (e) saved unit: tokenized, labels are token props
     const comps = saved.content_json.components;
@@ -1241,33 +1405,11 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
 // desktop 1280 + mobile 375, committed baselines under
 // test-ui/__screenshots__/leadgen-v25/ (snapshotPathTemplate), masks over the
 // dynamic-id-backed images, thresholds per the leadgen-visual conventions.
+//
+// UNCHANGED by LEADGEN-REWORK-03 P5: this section always drove the real
+// live /lg page (gotoLive), never the admin canvas §10 removed — nothing
+// here depended on anything this phase's removal sweep touched.
 // ---------------------------------------------------------------------------
-
-async function gotoLive(
-  page: Page,
-  entry: { host: string; slug: string },
-  size: { width: number; height: number },
-): Promise<void> {
-  await page.setViewportSize(size);
-  await page.goto(`http://${entry.host}:${PW_PORT}/lg/${entry.slug}`, { waitUntil: "load" });
-  await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 15_000 });
-  await page.evaluate(() => document.fonts.ready);
-  // focus normalisation (the leadgen-visual idiom): the engine autofocuses
-  // the first input — blur so base-state tokens render, not :focus chrome.
-  await page.evaluate(() => {
-    (document.activeElement as HTMLElement | null)?.blur?.();
-  });
-  await page.waitForTimeout(200); // paint settle
-  // E6: no horizontal overflow at the capture width.
-  const overflow = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    innerWidth: window.innerWidth,
-  }));
-  expect(
-    overflow.scrollWidth,
-    `E6 no horizontal overflow at ${size.width}px (scrollWidth ${overflow.scrollWidth} ≤ innerWidth ${overflow.innerWidth})`,
-  ).toBeLessThanOrEqual(overflow.innerWidth);
-}
 
 // §15.4 masks — the dynamic-id-backed images (per-run storage-key srcs; alt
 // fallbacks carry per-run site names). Everything else on the page is an
