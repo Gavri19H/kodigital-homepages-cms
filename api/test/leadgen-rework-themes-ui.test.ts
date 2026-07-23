@@ -38,6 +38,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
+import { renderThemesTabPanel } from "../src/admin/leadgen/quotes-tabs/themes";
 import { mintPublicId } from "../src/leadgen/ids";
 import type { Env } from "../src/env";
 import type { ThemeRecord } from "../src/public/leadgen/designs/theme";
@@ -436,6 +437,54 @@ describeDb("Rework P4 S4.2 — §8.4 Themes tab live canvas (ui-theme-manager.ts
     const theme = await createTheme(env, "Calibration");
     const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${theme.id}`);
     expect(html).not.toContain("Preview unavailable.");
+  });
+});
+
+// ===========================================================================
+// 1a. P2-4 (conductor review round): the Quotes Themes TAB's embed actually
+//    surfaces the §8.4 canvas — a composition proof, not just each piece in
+//    isolation. themes.ts's renderThemesTabPanel mounts an iframe pointed at
+//    /admin/leadgen/themes?embed=1 (verified: quotes-tabs/themes.ts:205);
+//    that EXACT route is ui-theme-manager.ts's own leadgenThemeManagerPage,
+//    which is what actually renders the canvas. Proves the wiring between
+//    the two files this slice owns, not just each file's own output alone.
+// ===========================================================================
+
+describeDb("Rework P4 S4.2 — tab -> embed -> canvas composition (P2-4)", () => {
+  it("the Quotes Themes tab panel's iframe points at the embed route that renders the canvas", () => {
+    // renderThemesTabPanel is a pure string builder (no DB) — the SAME
+    // function ui-quotes.ts's quoteEditorHtml mounts as the Themes tab panel.
+    const tabHtml = renderThemesTabPanel(true);
+    expect(tabHtml).toContain('data-panel="themes"');
+    expect(tabHtml).toContain('src="/admin/leadgen/themes?embed=1"');
+    expect(tabHtml).toContain('id="lg-theme-presets-frame"');
+  });
+
+  it("hitting that EXACT embedded route (?embed=1) renders the §8.4 live canvas, not just the standalone (non-embed) page", async () => {
+    const { sdb, env } = newHarness();
+    const theme = await createTheme(env, "Embed Composition");
+    const quote = await createQuote(env, "Auto Insurance");
+    const funnelId = quote.funnels[0]!.public_id;
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    await assignFunnelTheme(env, funnelId, theme.id);
+    const section = seedSection(sdb, "Embed composition headline");
+    await attachToVariant(env, variantId, section.id);
+
+    // The exact URL themes.ts's iframe src carries (embed=1, theme selected).
+    const { status, html } = await getHtml(env, `/admin/leadgen/themes?embed=1&theme=${theme.id}`);
+    expect(status).toBe(200);
+    expect(html).toContain('data-pin="8.4-live-canvas"');
+    expect(html).toContain('class="tm-canvas-frame"');
+    const doc = extractCanvasSrcdoc(html) as string;
+    expect(doc).toContain("Embed composition headline");
+    // Embed mode uses leadgenStandalonePageShell (adminStandalonePage, layout.ts)
+    // not leadgenPageShell (adminLayout, the full admin nav) — each stamps its
+    // OWN deliberate, hidden marker paragraph (verified by direct read of
+    // layout.ts:312/358); asserting the standalone one (and the FULL layout's
+    // absence) confirms this is really the embedded render, not an accidental
+    // fall-through to the standalone (non-embed) page's own chrome.
+    expect(html).toContain('data-marker="kodigital-admin-standalone"');
+    expect(html).not.toContain('data-marker="kodigital-admin-shell"');
   });
 });
 

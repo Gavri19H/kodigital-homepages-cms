@@ -3865,6 +3865,88 @@ export const QUOTE_EDITOR_SCRIPT = `
   function fmtPct(v) { var n = Number(v); if (!isFinite(n)) { return '\\u2014'; } return (n * 100).toFixed(2) + '%'; }
   function orDash(v) { if (v === null || v === undefined) { return '\\u2014'; } var n = Number(v); return isFinite(n) ? String(n) : '\\u2014'; }
   function money(v) { var n = Number(v); if (!isFinite(n)) { return '\\u2014'; } return n.toFixed(2); }
+  // §8.7 ("routed_to_funnel and feed_name join the drilldown dimensions") —
+  // ONE shared table builder for every breakdowns.by_* array (§15.6's own
+  // funnel table above is server-rendered with a static shell + this same
+  // "filled after paint" discipline; these 4 breakdown tables have NO SSR
+  // shell at all — built ENTIRELY client-side and appended once, so the
+  // panel's SSR bytes stay untouched (test/leadgen-p3a-split-parity.test.ts's
+  // byte-identity pin on quotes-tabs/analytics.ts's renderAnalyticsPanel
+  // output is unaffected by this round). dimKey names the row's dimension
+  // field (site_id / traffic_source / routed_to_funnel / feed_name); an
+  // empty/null dimension value prints as —, matching orDash elsewhere.
+  function buildBreakdownCard(title, dimKey, rows) {
+    var card = document.createElement('div');
+    card.className = 'card';
+    var h4 = document.createElement('h4');
+    h4.appendChild(document.createTextNode(title));
+    card.appendChild(h4);
+    var wrap = document.createElement('div');
+    wrap.className = 'table-wrapper';
+    var table = document.createElement('table');
+    table.className = 'table';
+    table.setAttribute('aria-label', title);
+    var thead = document.createElement('thead');
+    var htr = document.createElement('tr');
+    var headers = [title, 'Views', 'Clicks', 'Conversions', 'Revenue'];
+    var hi;
+    for (hi = 0; hi < headers.length; hi++) {
+      var th = document.createElement('th');
+      th.setAttribute('scope', 'col');
+      if (hi > 0) { th.className = 'lg-num'; }
+      th.appendChild(document.createTextNode(headers[hi]));
+      htr.appendChild(th);
+    }
+    thead.appendChild(htr);
+    table.appendChild(thead);
+    var tbody = document.createElement('tbody');
+    if (!rows || rows.length === 0) {
+      var tr0 = document.createElement('tr');
+      var td0 = document.createElement('td');
+      td0.setAttribute('colspan', '5');
+      td0.className = 'form-help';
+      td0.appendChild(document.createTextNode('No data for this timeframe.'));
+      tr0.appendChild(td0);
+      tbody.appendChild(tr0);
+    } else {
+      var ri;
+      for (ri = 0; ri < rows.length; ri++) {
+        var row = rows[ri];
+        var dimVal = row[dimKey];
+        var label = (dimVal === null || dimVal === undefined || dimVal === '') ? '\\u2014' : String(dimVal);
+        var tr = document.createElement('tr');
+        var cells = [label, orDash(row.views), orDash(row.clicks), orDash(row.conversions), money(row.revenue)];
+        var ci;
+        for (ci = 0; ci < cells.length; ci++) {
+          var td = document.createElement('td');
+          if (ci > 0) { td.className = 'lg-num'; }
+          td.appendChild(document.createTextNode(String(cells[ci])));
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+    }
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    card.appendChild(wrap);
+    return card;
+  }
+  function renderBreakdowns(breakdowns) {
+    var panel = document.querySelector('[data-panel="analytics"]');
+    if (!panel) { return; }
+    var host = byId('lg-analytics-breakdowns');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'lg-analytics-breakdowns';
+      panel.appendChild(host);
+    }
+    while (host.firstChild) { host.removeChild(host.firstChild); }
+    var b = breakdowns || {};
+    host.appendChild(buildBreakdownCard('Site', 'site_id', b.by_site));
+    host.appendChild(buildBreakdownCard('Traffic source', 'traffic_source', b.by_traffic_source));
+    host.appendChild(buildBreakdownCard('Routed funnel', 'routed_to_funnel', b.by_routed_funnel));
+    host.appendChild(buildBreakdownCard('Feed name', 'feed_name', b.by_feed_name));
+  }
   function loadAnalytics() {
     if (analyticsLoaded) { return; }
     analyticsLoaded = true;
@@ -3883,22 +3965,23 @@ export const QUOTE_EDITOR_SCRIPT = `
         td0.appendChild(document.createTextNode('No analytics for this timeframe.'));
         tr0.appendChild(td0);
         tbody.appendChild(tr0);
-        return;
-      }
-      var i;
-      for (i = 0; i < funnels.length; i++) {
-        var f = funnels[i];
-        var tr = document.createElement('tr');
-        var cells = [f.funnel_id, orDash(f.visits), fmtPct(f.bounce_rate), fmtPct(f.completion_rate), fmtPct(f.cvr_clicks), fmtPct(f.cvr_completed), money(f.avg_rpc), money(f.avg_rps), fmtPct(f.unfilled_rate), money(f.revenue)];
-        var k;
-        for (k = 0; k < cells.length; k++) {
-          var td = document.createElement('td');
-          if (k > 0) { td.className = 'lg-num'; }
-          td.appendChild(document.createTextNode(String(cells[k])));
-          tr.appendChild(td);
+      } else {
+        var i;
+        for (i = 0; i < funnels.length; i++) {
+          var f = funnels[i];
+          var tr = document.createElement('tr');
+          var cells = [f.funnel_id, orDash(f.visits), fmtPct(f.bounce_rate), fmtPct(f.completion_rate), fmtPct(f.cvr_clicks), fmtPct(f.cvr_completed), money(f.avg_rpc), money(f.avg_rps), fmtPct(f.unfilled_rate), money(f.revenue)];
+          var k;
+          for (k = 0; k < cells.length; k++) {
+            var td = document.createElement('td');
+            if (k > 0) { td.className = 'lg-num'; }
+            td.appendChild(document.createTextNode(String(cells[k])));
+            tr.appendChild(td);
+          }
+          tbody.appendChild(tr);
         }
-        tbody.appendChild(tr);
       }
+      renderBreakdowns(body && body.analytics ? body.analytics.breakdowns : null);
     });
   }
 

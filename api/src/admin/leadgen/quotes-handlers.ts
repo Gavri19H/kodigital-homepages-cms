@@ -5039,6 +5039,30 @@ export async function quoteAnalyticsHandler(c: AdminContext): Promise<Response> 
     .bind(quote.public_id, range.from, range.to)
     .all<{ traffic_source: string | null; views: number | null; clicks: number | null; conversions: number | null; revenue: number | null }>();
 
+  // §8.7 ("routed_to_funnel and feed_name join the drilldown dimensions") —
+  // the SAME breakdown shape as by_site/by_traffic_source, just above, over
+  // the migration-0054 columns. routed_to_funnel/feed_name read "" (never
+  // fabricated) until mirror-sync.ts's CH-side column mapping + the
+  // ops-owned ClickHouse DDL land (see 0054's own note) — an honest "no
+  // routing rule matched yet" state, not a broken one.
+  const byRoutedFunnel = await c.env.DB.prepare(
+    `SELECT routed_to_funnel, SUM(views) AS views, SUM(clicks) AS clicks, SUM(conversions) AS conversions, SUM(revenue) AS revenue
+     FROM leadgen_analytics_quote_drilldown
+     WHERE quote_public_id = ? AND date BETWEEN ? AND ?
+     GROUP BY routed_to_funnel ORDER BY routed_to_funnel ASC`,
+  )
+    .bind(quote.public_id, range.from, range.to)
+    .all<{ routed_to_funnel: string | null; views: number | null; clicks: number | null; conversions: number | null; revenue: number | null }>();
+
+  const byFeedName = await c.env.DB.prepare(
+    `SELECT feed_name, SUM(views) AS views, SUM(clicks) AS clicks, SUM(conversions) AS conversions, SUM(revenue) AS revenue
+     FROM leadgen_analytics_quote_drilldown
+     WHERE quote_public_id = ? AND date BETWEEN ? AND ?
+     GROUP BY feed_name ORDER BY feed_name ASC`,
+  )
+    .bind(quote.public_id, range.from, range.to)
+    .all<{ feed_name: string | null; views: number | null; clicks: number | null; conversions: number | null; revenue: number | null }>();
+
   return c.json({
     analytics: {
       from: range.from,
@@ -5065,6 +5089,8 @@ export async function quoteAnalyticsHandler(c: AdminContext): Promise<Response> 
       breakdowns: {
         by_site: bySite.results ?? [],
         by_traffic_source: bySource.results ?? [],
+        by_routed_funnel: byRoutedFunnel.results ?? [],
+        by_feed_name: byFeedName.results ?? [],
       },
     },
   });

@@ -9,20 +9,19 @@
 //     per P2's landed renderer fix — this proves it end-to-end through the
 //     rebuilt tab, not just in isolation);
 //   * picking a DIFFERENT theme card in the LEFT list switches the canvas;
+//   * picking "Card" in the Answer-layout segmented control re-renders the
+//     canvas showing the real title+subtitle tscard anatomy (§8.4 follow-up
+//     round, P3b union at 7a12ee7: theme.ts's THEME_BUTTON_LAYOUTS carries
+//     "card"; presets.ts renders lg-tscard/lg-tscard-title/lg-tscard-subtitle
+//     for button groups under layout==="card");
 //   * 1280 + 375 screenshots of the canvas region.
 //
-// NOT covered (reported, not faked): the NEW "Card" (full-width title+
-// subtitle) Answer-layout value does not exist yet — implementing it needs
-// THEME_BUTTON_LAYOUTS widened (public/leadgen/designs/theme.ts) plus a
-// presets.ts/styles.ts render branch, none of which this slice owns. No
-// gesture below picks a "Card" option because there is none to pick.
-//
-// chromium-only (a non-gesture admin-UI spec, matching __p6b-theme-mgr.spec's
-// own "admin UI, not a visitor funnel" classification — no canvas-gesture
-// engine split applies here since nothing on this page is a drag/pointer
-// gesture). Admin UI on 127.0.0.1, no tenant host needed (no live-funnel
-// assertion in this file — the canvas is a static real-section PREVIEW
-// embedded server-side, not the running visitor engine).
+// Cross-engine (chromium + firefox — registered in playwright.config.ts's
+// CROSS_ENGINE_GESTURE_SPECS, the S2.5 precedent): every action here is
+// plain click/navigate against the admin Themes-manager page, no drag/
+// pointer gesture and no dynamic *.e2e.test tenant host (the canvas is a
+// static server-rendered preview iframe, not the running visitor engine),
+// so both engines run the full suite unmodified.
 
 import { test, expect, request as playwrightRequest, type APIRequestContext, type Page } from "@playwright/test";
 import { PW_PORT } from "./utils/base-url";
