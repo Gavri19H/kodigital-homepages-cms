@@ -598,16 +598,61 @@ type VariantSectionRow = Omit<OrderedVariantSection, "mapping_status"> & {
 // started is a workflow nudge, and one section must show ONE color across
 // both admin surfaces (corner pinned by the DEV-59 dot tests). No linked
 // Offers at all → `none`.
-function variantSectionMappingStatus(row: VariantSectionRow): OrderedVariantSection["mapping_status"] {
-  if (Number(row.mapped_offer_count ?? 0) === 0) return "none";
+// Pure decode, factored out of variantSectionMappingStatus (P3b follow-up)
+// so the board's per-candidate mapping-status projection (sectionMappingStatusMap
+// below) can share the SAME tri-state logic instead of a second copy —
+// output-identical, no behavior change for any existing caller.
+function mappingStatusFromCounts(counts: {
+  mapped_offer_count: number;
+  invalid_offer_count: number;
+  incomplete_offer_count: number;
+  error_edge_count: number;
+}): OrderedVariantSection["mapping_status"] {
+  if (Number(counts.mapped_offer_count ?? 0) === 0) return "none";
   if (
-    Number(row.invalid_offer_count ?? 0) > 0 ||
-    Number(row.incomplete_offer_count ?? 0) > 0 ||
-    Number(row.error_edge_count ?? 0) > 0
+    Number(counts.invalid_offer_count ?? 0) > 0 ||
+    Number(counts.incomplete_offer_count ?? 0) > 0 ||
+    Number(counts.error_edge_count ?? 0) > 0
   ) {
     return "incomplete";
   }
   return "complete";
+}
+
+function variantSectionMappingStatus(row: VariantSectionRow): OrderedVariantSection["mapping_status"] {
+  return mappingStatusFromCounts(row);
+}
+
+// P3b follow-up (§8.2 board, DEV-59 parity) — the SAME per-section mapping-
+// status aggregate readVariantSections/readSharedPageSections compute, keyed
+// by an explicit section-id set instead of a variant/quote owner axis: the
+// board's funnel-page chips resolve a slot's CANDIDATE sections (fixed/ab/
+// ruled alike) straight from loadVariantPages, which carries no mapping-status
+// join. Chunked at 80 ids per the D1 100-binding-per-statement rule.
+async function sectionMappingStatusMap(
+  db: D1Database,
+  sectionIds: readonly number[],
+): Promise<Map<number, OrderedVariantSection["mapping_status"]>> {
+  const out = new Map<number, OrderedVariantSection["mapping_status"]>();
+  const unique = Array.from(new Set(sectionIds));
+  for (let i = 0; i < unique.length; i += 80) {
+    const chunk = unique.slice(i, i + 80);
+    if (chunk.length === 0) continue;
+    const placeholders = chunk.map(() => "?").join(",");
+    const rows = await db
+      .prepare(
+        `SELECT s.id AS section_id,
+                (SELECT COUNT(*) FROM leadgen_section_available_offers sao WHERE sao.section_id = s.id) AS mapped_offer_count,
+                (SELECT COUNT(*) FROM leadgen_section_available_offers sao WHERE sao.section_id = s.id AND sao.mapping_state = 'invalid') AS invalid_offer_count,
+                (SELECT COUNT(*) FROM leadgen_section_available_offers sao WHERE sao.section_id = s.id AND sao.mapping_state IN ('incomplete','selected')) AS incomplete_offer_count,
+                (SELECT COUNT(*) FROM leadgen_section_answer_maps sam WHERE sam.section_id = s.id AND sam.mapping_status != 'complete') AS error_edge_count
+         FROM leadgen_sections s WHERE s.id IN (${placeholders})`,
+      )
+      .bind(...chunk)
+      .all<{ section_id: number; mapped_offer_count: number; invalid_offer_count: number; incomplete_offer_count: number; error_edge_count: number }>();
+    for (const row of rows.results ?? []) out.set(row.section_id, mappingStatusFromCounts(row));
+  }
+  return out;
 }
 
 async function readVariantSections(
@@ -1094,9 +1139,60 @@ function pageToApi(page: ResolvedFunnelPage): Record<string, unknown> {
       candidates: slot.candidates.map((c) => ({
         section_id: c.section.public_id,
         section_name: c.section.section_name,
+        // P3b follow-up (§8.2 board, DEV-59 parity): the section's numeric id,
+        // server-internal — quoteStructureHandler's board projection batches
+        // these to attach mapping_status (below), then this key is stripped
+        // (never a public wire field; VariantSectionNode already exposes a
+        // numeric section_id elsewhere, but this candidate shape's `section_id`
+        // is the PUBLIC id by established convention — kept distinct to avoid
+        // overloading that key with two different types).
+        section_num_id: c.section.id,
       })),
     })),
   };
+}
+
+// P3b follow-up (§8.2 board, DEV-59 parity) — attach each page-slot candidate's
+// mapping_status (sectionMappingStatusMap) onto the ALREADY-BUILT pageToApi
+// JSON in place, then strip the server-internal section_num_id carrier. Pages
+// is the loosely-typed Record<string, unknown>[] readVariantPagesApi returns;
+// walked defensively (a shape drift here degrades to "no dot" it never throws).
+function attachMappingStatusToPages(
+  pages: Record<string, unknown>[],
+  statusMap: Map<number, OrderedVariantSection["mapping_status"]>,
+): void {
+  for (const page of pages) {
+    const slots = (page as { slots?: unknown }).slots;
+    if (!Array.isArray(slots)) continue;
+    for (const slot of slots as Record<string, unknown>[]) {
+      const candidates = (slot as { candidates?: unknown }).candidates;
+      if (!Array.isArray(candidates)) continue;
+      for (const cand of candidates as Record<string, unknown>[]) {
+        const numId = cand["section_num_id"];
+        delete cand["section_num_id"];
+        if (typeof numId === "number") cand["mapping_status"] = statusMap.get(numId) ?? "none";
+      }
+    }
+  }
+}
+
+// Every candidate section's numeric id across a set of pages (pageToApi
+// shape) — the collection half of attachMappingStatusToPages's batch query.
+function collectCandidateSectionIds(pages: Record<string, unknown>[]): number[] {
+  const ids: number[] = [];
+  for (const page of pages) {
+    const slots = (page as { slots?: unknown }).slots;
+    if (!Array.isArray(slots)) continue;
+    for (const slot of slots as Record<string, unknown>[]) {
+      const candidates = (slot as { candidates?: unknown }).candidates;
+      if (!Array.isArray(candidates)) continue;
+      for (const cand of candidates as Record<string, unknown>[]) {
+        const numId = (cand as { section_num_id?: unknown }).section_num_id;
+        if (typeof numId === "number") ids.push(numId);
+      }
+    }
+  }
+  return ids;
 }
 
 // EXPORTED (Round-4 P3a item 5, P3b request): the structure panel's builder
@@ -2607,149 +2703,142 @@ interface PreparedRule {
   redirectPct: number | null;
 }
 
-// Validate + prepare the funnel-rule replace-set (§15.5 + Round-4 P4b rule-
-// model v2). Every LEGACY rule type still runs through the Stage-A
-// validateFunnelRule with the admin raw-redirect allowlist (byte-identical to
-// pre-P4b); route_funnel_variant is validated LOCALLY (see the FUNNEL_RULE_
-// TYPES comment above) since leadgen/funnel.ts does not know this rule_type
-// and is outside this slice. conditions_json + conditions_hash (both NOT
-// NULL) are computed here, as before. `funnelId` scopes a route_funnel_
-// variant target to the SAME funnel (P4a's resolver.ts anti-leak invariant).
-// checkpoint_page is SERVER-DERIVED (never client-accepted) from the
-// variant's CURRENT pages (loaded once, before this save's own page replace-
-// set commits -- a same-request page-reorder + rule-add can leave the stored
-// display value one save behind; the RUNTIME always re-derives fresh from
-// live pages per resolver.ts's own doc comment, so this is a display-only,
-// self-correcting edge case, not a functional gap).
-async function prepareRules(
-  db: D1Database,
-  variantId: number,
-  funnelId: number,
-  raw: unknown,
+// D5 mini-round: the SINGLE-rule validation core, extracted out of the array
+// loop below so the variant-scoped rule CRUD (list/create/update/delete,
+// mirroring the quote-routing-rules conventions — buildRoutingRuleFields) and
+// the variant-PUT replace-set share the EXACT SAME validation and can never
+// diverge. Pure (no DB reads — this module's routing-target resolution moved
+// to quote_routing_rules in M3, so nothing here needs `db`/`variantId`/
+// `funnelId` any more). Mechanical extraction only: identical short-circuit-
+// per-field behavior (the FIRST error wins, matching the original loop's
+// `continue`-on-first-error semantics byte-for-byte), identical Stage-A
+// validateFunnelRule call, identical conditions_hash computation. Returns
+// UNPREFIXED field-error keys (rule_type/target_offer_id/target_section_id/
+// status/match_mode/value_multiplier/redirect_pct, plus `rule` for the whole-
+// rule Stage-A verdict or a non-object entry) — prepareRules (below) prefixes
+// them `rules.${i}.…`/`rules.${i}` for its array context; the CRUD handlers
+// (createVariantRuleHandler/updateVariantRuleHandler) use them as-is. Verified
+// behaviorally neutral for the array/replace-set path by re-running every
+// existing covering suite after this extraction (leadgen-quotes-api.test.ts
+// etc. — see the mini-round report), not asserted by reasoning alone.
+function prepareOneRule(
+  entry: unknown,
   allowlist: string[],
-): Promise<{ rules: PreparedRule[]; errors: FieldErrors }> {
-  // Rework M3/D5: variantId/funnelId are retained for signature stability (the
-  // save path passes them); routing-target + checkpoint derivation moved out to
-  // the quote routing rules, so no per-rule page lookup happens here anymore.
-  void variantId;
-  void funnelId;
+): { rule: PreparedRule | null; errors: FieldErrors } {
   const errors: FieldErrors = {};
-  if (!Array.isArray(raw)) {
-    errors["rules"] = "rules must be an array";
-    return { rules: [], errors };
+  if (!isRecord(entry)) {
+    errors["rule"] = "each rule must be an object";
+    return { rule: null, errors };
   }
-  const rules: PreparedRule[] = [];
+  const ruleType = entry["rule_type"];
+  if (typeof ruleType !== "string" || !(FUNNEL_RULE_TYPES as readonly string[]).includes(ruleType)) {
+    errors["rule_type"] = `rule_type must be one of ${FUNNEL_RULE_TYPES.join("|")}`;
+    return { rule: null, errors };
+  }
+  const targetOfferId = asIntOrNull(entry["target_offer_id"]);
+  if (targetOfferId === INVALID) {
+    errors["target_offer_id"] = "target_offer_id must be an integer id";
+    return { rule: null, errors };
+  }
+  const targetSectionId = asIntOrNull(entry["target_section_id"]);
+  if (targetSectionId === INVALID) {
+    errors["target_section_id"] = "target_section_id must be an integer id";
+    return { rule: null, errors };
+  }
+  const conditions = entry["conditions_json"] ?? entry["conditions"] ?? { groups: [] };
+  const redirectUrl = trimmedString(entry["redirect_url"]);
+  const redirectAllowlisted = asToggle(entry["redirect_url_allowlisted"]) ?? false;
+  const priorityRaw = entry["priority"];
+  const priority = typeof priorityRaw === "number" ? priorityRaw : 100;
 
-  for (let i = 0; i < raw.length; i++) {
-    const entry = raw[i];
-    if (!isRecord(entry)) {
-      errors[`rules.${i}`] = "each rule must be an object";
-      continue;
+  // --- v2 envelope (rule_name / status / match_mode) — every rule type ---
+  const ruleName = trimmedString(entry["rule_name"]);
+  const statusRaw = entry["status"];
+  const statusProvided = statusRaw === "active" || statusRaw === "disabled";
+  if (statusRaw !== undefined && statusRaw !== null && statusRaw !== "" && !statusProvided) {
+    errors["status"] = "status must be one of active|disabled";
+    return { rule: null, errors };
+  }
+  const enabledRaw = entry["enabled"];
+  const enabledExplicit = enabledRaw !== undefined && enabledRaw !== null && enabledRaw !== "";
+  let status: string;
+  let enabled: boolean;
+  if (statusProvided) {
+    status = statusRaw as string;
+    // Round-4 P4b fix round (P4a's cited save-side bug, resolver.ts/
+    // auction/engine.ts commits eb1969c/32990e8): BOTH evaluation planes
+    // now gate on `enabled = 1 AND status != 'disabled'` — two
+    // independently-writable axes over the SAME "is this rule on" concept.
+    // When the envelope carries status WITHOUT an explicit enabled, derive
+    // enabled FROM status (never default enabled=true independent of what
+    // status says — the prior bug: an operator's Disable click could
+    // persist status='disabled' while enabled stayed true/default, an
+    // incoherent stored row).
+    enabled = enabledExplicit ? (asToggle(enabledRaw) ?? true) : status !== "disabled";
+  } else {
+    enabled = asToggle(enabledRaw) ?? true;
+    status = enabled ? "active" : "disabled";
+  }
+  const matchModeRaw = entry["match_mode"];
+  let matchMode: string | null;
+  if (matchModeRaw === "any") {
+    matchMode = "any";
+  } else if (matchModeRaw === "all" || matchModeRaw === undefined || matchModeRaw === null || matchModeRaw === "") {
+    matchMode = null; // migration convention: NULL == 'all' (the default)
+  } else {
+    errors["match_mode"] = "match_mode must be one of all|any";
+    return { rule: null, errors };
+  }
+  const valueMultiplierRaw = entry["value_multiplier"];
+  let valueMultiplier: number | null = null;
+  if (valueMultiplierRaw !== undefined && valueMultiplierRaw !== null && valueMultiplierRaw !== "") {
+    if (typeof valueMultiplierRaw !== "number" || !Number.isFinite(valueMultiplierRaw) || valueMultiplierRaw <= 0) {
+      errors["value_multiplier"] = "value_multiplier must be a positive number";
+      return { rule: null, errors };
     }
-    const ruleType = entry["rule_type"];
-    if (typeof ruleType !== "string" || !(FUNNEL_RULE_TYPES as readonly string[]).includes(ruleType)) {
-      errors[`rules.${i}.rule_type`] = `rule_type must be one of ${FUNNEL_RULE_TYPES.join("|")}`;
-      continue;
+    valueMultiplier = valueMultiplierRaw;
+  }
+  // §15.5 redirect_pct (0044, REAL NULL) — funnel.ts's resolveRedirectPct/
+  // shouldRedirectForSession treat `redirect_pct ?? 0` as authoritative:
+  // NULL/absent -> never redirect; an explicit 0 ALSO never redirects (both
+  // legitimate, not errors); 100 -> always; anything outside 0..100 or
+  // non-numeric is rejected. Meaningful only for redirect_direct_offer, but
+  // parsed uniformly (harmless/unused by the runtime for other types).
+  const redirectPctRaw = entry["redirect_pct"];
+  let redirectPct: number | null = null;
+  if (redirectPctRaw !== undefined && redirectPctRaw !== null && redirectPctRaw !== "") {
+    if (typeof redirectPctRaw !== "number" || !Number.isFinite(redirectPctRaw) || redirectPctRaw < 0 || redirectPctRaw > 100) {
+      errors["redirect_pct"] = "redirect_pct must be a number between 0 and 100";
+      return { rule: null, errors };
     }
-    const targetOfferId = asIntOrNull(entry["target_offer_id"]);
-    if (targetOfferId === INVALID) { errors[`rules.${i}.target_offer_id`] = "target_offer_id must be an integer id"; continue; }
-    const targetSectionId = asIntOrNull(entry["target_section_id"]);
-    if (targetSectionId === INVALID) { errors[`rules.${i}.target_section_id`] = "target_section_id must be an integer id"; continue; }
-    const conditions = entry["conditions_json"] ?? entry["conditions"] ?? { groups: [] };
-    const redirectUrl = trimmedString(entry["redirect_url"]);
-    const redirectAllowlisted = asToggle(entry["redirect_url_allowlisted"]) ?? false;
-    const priorityRaw = entry["priority"];
-    const priority = typeof priorityRaw === "number" ? priorityRaw : 100;
+    redirectPct = redirectPctRaw;
+  }
 
-    // --- v2 envelope (rule_name / status / match_mode) — every rule type ---
-    const ruleName = trimmedString(entry["rule_name"]);
-    const statusRaw = entry["status"];
-    const statusProvided = statusRaw === "active" || statusRaw === "disabled";
-    if (statusRaw !== undefined && statusRaw !== null && statusRaw !== "" && !statusProvided) {
-      errors[`rules.${i}.status`] = "status must be one of active|disabled";
-      continue;
-    }
-    const enabledRaw = entry["enabled"];
-    const enabledExplicit = enabledRaw !== undefined && enabledRaw !== null && enabledRaw !== "";
-    let status: string;
-    let enabled: boolean;
-    if (statusProvided) {
-      status = statusRaw as string;
-      // Round-4 P4b fix round (P4a's cited save-side bug, resolver.ts/
-      // auction/engine.ts commits eb1969c/32990e8): BOTH evaluation planes
-      // now gate on `enabled = 1 AND status != 'disabled'` — two
-      // independently-writable axes over the SAME "is this rule on" concept.
-      // When the envelope carries status WITHOUT an explicit enabled, derive
-      // enabled FROM status (never default enabled=true independent of what
-      // status says — the prior bug: an operator's Disable click could
-      // persist status='disabled' while enabled stayed true/default, an
-      // incoherent stored row).
-      enabled = enabledExplicit ? (asToggle(enabledRaw) ?? true) : status !== "disabled";
-    } else {
-      enabled = asToggle(enabledRaw) ?? true;
-      status = enabled ? "active" : "disabled";
-    }
-    const matchModeRaw = entry["match_mode"];
-    let matchMode: string | null;
-    if (matchModeRaw === "any") {
-      matchMode = "any";
-    } else if (matchModeRaw === "all" || matchModeRaw === undefined || matchModeRaw === null || matchModeRaw === "") {
-      matchMode = null; // migration convention: NULL == 'all' (the default)
-    } else {
-      errors[`rules.${i}.match_mode`] = "match_mode must be one of all|any";
-      continue;
-    }
-    const valueMultiplierRaw = entry["value_multiplier"];
-    let valueMultiplier: number | null = null;
-    if (valueMultiplierRaw !== undefined && valueMultiplierRaw !== null && valueMultiplierRaw !== "") {
-      if (typeof valueMultiplierRaw !== "number" || !Number.isFinite(valueMultiplierRaw) || valueMultiplierRaw <= 0) {
-        errors[`rules.${i}.value_multiplier`] = "value_multiplier must be a positive number";
-        continue;
-      }
-      valueMultiplier = valueMultiplierRaw;
-    }
-    // §15.5 redirect_pct (0044, REAL NULL) — funnel.ts's resolveRedirectPct/
-    // shouldRedirectForSession treat `redirect_pct ?? 0` as authoritative:
-    // NULL/absent -> never redirect; an explicit 0 ALSO never redirects (both
-    // legitimate, not errors); 100 -> always; anything outside 0..100 or
-    // non-numeric is rejected. Meaningful only for redirect_direct_offer, but
-    // parsed uniformly (harmless/unused by the runtime for other types).
-    const redirectPctRaw = entry["redirect_pct"];
-    let redirectPct: number | null = null;
-    if (redirectPctRaw !== undefined && redirectPctRaw !== null && redirectPctRaw !== "") {
-      if (typeof redirectPctRaw !== "number" || !Number.isFinite(redirectPctRaw) || redirectPctRaw < 0 || redirectPctRaw > 100) {
-        errors[`rules.${i}.redirect_pct`] = "redirect_pct must be a number between 0 and 100";
-        continue;
-      }
-      redirectPct = redirectPctRaw;
-    }
+  // Rework M3/D5: the four auction-domain rule types NEVER carry a routing
+  // target or a checkpoint (routing lives in leadgen_quote_routing_rules now)
+  // — target_funnel_variant_id / checkpoint_page stay NULL. Every accepted
+  // type is validated by the shared Stage-A validator (no local branch).
+  const targetFunnelVariantId: number | null = null;
+  const checkpointPage: number | null = null;
 
-    // Rework M3/D5: the four auction-domain rule types NEVER carry a routing
-    // target or a checkpoint (routing lives in leadgen_quote_routing_rules now)
-    // — target_funnel_variant_id / checkpoint_page stay NULL. Every accepted
-    // type is validated by the shared Stage-A validator (no local branch).
-    const targetFunnelVariantId: number | null = null;
-    const checkpointPage: number | null = null;
+  const ruleInput: FunnelRuleInput = {
+    rule_type: ruleType,
+    target_offer_id: targetOfferId,
+    target_section_id: targetSectionId,
+    redirect_url: redirectUrl,
+    redirect_url_allowlisted: redirectAllowlisted,
+    conditions_json: conditions,
+    priority,
+  };
+  const verdict = validateFunnelRule(ruleInput, allowlist);
+  if (!verdict.ok) {
+    errors["rule"] = verdict.errors.map((e) => `${e.code}: ${e.message}`).join("; ");
+    return { rule: null, errors };
+  }
 
-    {
-      const ruleInput: FunnelRuleInput = {
-        rule_type: ruleType,
-        target_offer_id: targetOfferId,
-        target_section_id: targetSectionId,
-        redirect_url: redirectUrl,
-        redirect_url_allowlisted: redirectAllowlisted,
-        conditions_json: conditions,
-        priority,
-      };
-      const verdict = validateFunnelRule(ruleInput, allowlist);
-      if (!verdict.ok) {
-        errors[`rules.${i}`] = verdict.errors.map((e) => `${e.code}: ${e.message}`).join("; ");
-        continue;
-      }
-    }
-
-    const conditionsJson = JSON.stringify(conditions);
-    rules.push({
+  const conditionsJson = JSON.stringify(conditions);
+  return {
+    rule: {
       publicId: mintPublicId("funnel_rule"),
       ruleType: ruleType as FunnelRuleTypeV2,
       conditionsJson,
@@ -2767,7 +2856,46 @@ async function prepareRules(
       targetFunnelVariantId,
       valueMultiplier,
       checkpointPage,
-    });
+    },
+    errors: {},
+  };
+}
+
+// Validate + prepare the funnel-rule replace-set (§15.5 + Round-4 P4b rule-
+// model v2). Every rule type runs through prepareOneRule (the shared Stage-A
+// validateFunnelRule core, above); `funnelId`/`variantId`/`db` are retained for
+// signature stability (the save path passes them) though unused — routing-
+// target + checkpoint derivation moved out to the quote routing rules, so no
+// per-rule page lookup happens here any more.
+async function prepareRules(
+  db: D1Database,
+  variantId: number,
+  funnelId: number,
+  raw: unknown,
+  allowlist: string[],
+): Promise<{ rules: PreparedRule[]; errors: FieldErrors }> {
+  void variantId;
+  void funnelId;
+  void db;
+  const errors: FieldErrors = {};
+  if (!Array.isArray(raw)) {
+    errors["rules"] = "rules must be an array";
+    return { rules: [], errors };
+  }
+  const rules: PreparedRule[] = [];
+
+  for (let i = 0; i < raw.length; i++) {
+    const { rule, errors: oneErrors } = prepareOneRule(raw[i], allowlist);
+    if (Object.keys(oneErrors).length > 0) {
+      for (const [key, message] of Object.entries(oneErrors)) {
+        // "rule" (whole-entry/whole-rule errors) -> `rules.${i}`; every other
+        // (field-specific) key -> `rules.${i}.${key}` — byte-identical to the
+        // ORIGINAL loop's own prefixing before this extraction.
+        errors[key === "rule" ? `rules.${i}` : `rules.${i}.${key}`] = message;
+      }
+      continue;
+    }
+    rules.push(rule!);
   }
   return { rules, errors };
 }
@@ -3807,14 +3935,210 @@ function renderLanderHtml(variant: LeadgenFunnelVariantRow): string {
 </div>`;
 }
 
-// POST /variants/:variant_id/rules/:rule_id/duplicate — Round-4 P4b. Rules
-// have no OTHER independent CRUD surface (they live inside the §15.5/P4b
-// replace-set the variant PUT owns), but each carries its own stable id/
-// public_id (migration 0043), so a single-row clone is a safe, isolated
-// INSERT that persists IMMEDIATELY -- mirrors the existing
-// duplicateSectionHandler/duplicateOfferHandler precedent (instant 201 + the
-// new row, never touching sibling rows, never requiring the operator to hit
-// the variant's main Save first).
+// ---------------------------------------------------------------------------
+// D5 mini-round — variant-scoped rule CRUD (leadgen_funnel_rules, the FOUR
+// auction-domain types only: eligibility/disqualification/auction_entry/
+// redirect_direct_offer). The relocated Auction-tab editor (P3b) needs real
+// REST endpoints instead of the variant-PUT hidden-carrier chain (`rules` on
+// the §15.5 replace-set) — added ALONGSIDE that chain, not replacing it (the
+// variant PUT's `rules` array key keeps working byte-identically for any
+// caller still using it). Both paths share prepareOneRule (above) for
+// validation, so they can never diverge. Mirrors this file's established
+// quote-routing-rules CRUD conventions (buildRoutingRuleFields/
+// resolveQuoteRoutingRuleRow/list-create-update-delete) at the SAME
+// granularity, scoped to a variant instead of a quote. The existing
+// POST /variants/:variant_id/rules/:rule_id/duplicate (below, unchanged) is
+// now this surface's 5th verb.
+// ---------------------------------------------------------------------------
+
+// Resolve a rule by dual-id (numeric or public lgfr_), SCOPED to the given
+// variant — mirrors duplicateRuleHandler's own WHERE ... AND variant_id = ?
+// scoping (below), so a rule_id can never be read/mutated through a foreign
+// variant's URL.
+async function resolveVariantRuleRow(
+  db: D1Database,
+  variantId: number,
+  ruleIdParam: string,
+): Promise<LeadgenFunnelRuleRowV2 | null> {
+  const selector = idSelector("funnel_rule", ruleIdParam);
+  if (selector === null) return null;
+  const sql =
+    selector.column === "id"
+      ? "SELECT * FROM leadgen_funnel_rules WHERE id = ? AND variant_id = ? LIMIT 1"
+      : "SELECT * FROM leadgen_funnel_rules WHERE public_id = ? AND variant_id = ? LIMIT 1";
+  return (await db.prepare(sql).bind(selector.value, variantId).first<LeadgenFunnelRuleRowV2>()) ?? null;
+}
+
+// An existing rule ROW, reshaped into the same "entry" fields prepareOneRule
+// accepts (conditions_json PARSED back to a structural value, booleans as
+// booleans) — the PATCH merge baseline. Used ONLY to build `{...candidate,
+// ...body}` before re-validating through prepareOneRule; never persisted
+// directly (prepareOneRule always re-derives conditions_hash + re-runs the
+// Stage-A verdict, so a PATCH can never drift from a POST's validation).
+function ruleRowToCandidateEntry(row: LeadgenFunnelRuleRowV2): Record<string, unknown> {
+  return {
+    rule_type: row.rule_type,
+    target_offer_id: row.target_offer_id,
+    target_section_id: row.target_section_id,
+    conditions_json: parseJsonColumn(row.conditions_json) ?? { groups: [] },
+    redirect_url: row.redirect_url,
+    redirect_url_allowlisted: row.redirect_url_allowlisted !== 0,
+    priority: row.priority,
+    rule_name: row.rule_name,
+    status: row.status,
+    enabled: row.enabled !== 0,
+    match_mode: row.match_mode,
+    value_multiplier: row.value_multiplier,
+    redirect_pct: row.redirect_pct,
+  };
+}
+
+// FK existence for a single prepared rule's target_offer_id/target_section_id
+// (leadgen_funnel_rules FKs are enforced by D1) — mirrors putVariantHandler's
+// own per-target existence check (§15.5 replace-set) so a dangling id 400s
+// cleanly here too, never a raw FK-constraint 500.
+async function ruleTargetFkErrors(db: D1Database, rule: PreparedRule): Promise<FieldErrors> {
+  const errors: FieldErrors = {};
+  if (rule.targetOfferId !== null) {
+    const ex = await db.prepare("SELECT id FROM leadgen_offers WHERE id = ? LIMIT 1").bind(rule.targetOfferId).first<{ id: number }>();
+    if (!ex) errors["target_offer_id"] = `offer ${rule.targetOfferId} does not exist`;
+  }
+  if (rule.targetSectionId !== null) {
+    const ex = await db.prepare("SELECT id FROM leadgen_sections WHERE id = ? LIMIT 1").bind(rule.targetSectionId).first<{ id: number }>();
+    if (!ex) errors["target_section_id"] = `section ${rule.targetSectionId} does not exist`;
+  }
+  return errors;
+}
+
+// D5 cache-coherence mini-round precedent (frame_template_id): rule edits via
+// the variant-PUT replace-set bump content_version TODAY (verified empirically
+// — the replace-set's own core UPDATE statement always bumps it, on ANY save
+// including a rules-only one), so these NEW standalone endpoints must too —
+// self-contained (not relying on a sibling statement's incidental behavior),
+// matching the SAME §3.1 convention putFunnelFrameHandler/putFunnelThemeHandler/
+// applyFrameTemplateToFunnelHandler/the frame_template_id PUT statement all
+// follow (the shell/config cache keys carry the content_version axis; the
+// bump is what busts them — no new cache axis). Returns a D1PreparedStatement
+// (not an awaited run) so create/update/delete below can include the bump IN
+// THE SAME ATOMIC BATCH as the rule write — mirrors the frame_template_id
+// fix's "same statement/transaction" discipline, one shared helper so all
+// three call sites can never drift apart on the exact SQL text.
+function bumpVariantContentVersionStatement(db: D1Database, variantId: number): D1PreparedStatement {
+  return db.prepare("UPDATE leadgen_funnel_variants SET content_version = content_version + 1 WHERE id = ?").bind(variantId);
+}
+
+// GET /variants/:id/rules — list (the four auction-domain types only; the
+// table itself carries no other type post-M3/D5, so no filter is needed).
+export async function listVariantRulesHandler(c: AdminContext): Promise<Response> {
+  const variant = await resolveVariantRow(c.env.DB, c.req.param("id") ?? "");
+  if (variant === null) return c.json({ error: "Not Found" }, 404);
+  const rules = await readVariantRules(c.env.DB, variant.id);
+  return c.json({ items: rules.map(ruleRowToApi) });
+}
+
+// POST /variants/:id/rules — create one rule via the SAME prepareOneRule the
+// variant-PUT replace-set uses (never a locally-diverging validator).
+export async function createVariantRuleHandler(c: AdminContext): Promise<Response> {
+  const variant = await resolveVariantRow(c.env.DB, c.req.param("id") ?? "");
+  if (variant === null) return c.json({ error: "Not Found" }, 404);
+  const body = (await readJsonBody(c)) ?? {};
+
+  const { rule, errors } = prepareOneRule(body, redirectAllowlist(c.env));
+  if (rule === null) return c.json({ error: "Validation failed", fields: errors }, 400);
+  const fkErrors = await ruleTargetFkErrors(c.env.DB, rule);
+  if (Object.keys(fkErrors).length > 0) return c.json({ error: "Validation failed", fields: fkErrors }, 400);
+
+  await c.env.DB.batch([
+    insertRuleStatement(c.env.DB, "?", variant.id, rule),
+    bumpVariantContentVersionStatement(c.env.DB, variant.id),
+  ]);
+  const created = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_rules WHERE public_id = ? LIMIT 1")
+    .bind(rule.publicId)
+    .first<LeadgenFunnelRuleRowV2>();
+  if (!created) return c.json({ error: "Insert failed" }, 500);
+  return c.json(ruleRowToApi(created), 201);
+}
+
+// PATCH /variants/:id/rules/:rule_id — partial update: merge the body over the
+// EXISTING row's fields (mirrors buildRoutingRuleFields's merge-over-existing
+// convention), then re-validate the FULL merged candidate through the SAME
+// prepareOneRule a POST uses — conditions_hash + the Stage-A verdict are
+// always freshly re-derived from the merged shape, never carried over stale.
+export async function updateVariantRuleHandler(c: AdminContext): Promise<Response> {
+  const variant = await resolveVariantRow(c.env.DB, c.req.param("id") ?? "");
+  if (variant === null) return c.json({ error: "Not Found" }, 404);
+  const existing = await resolveVariantRuleRow(c.env.DB, variant.id, c.req.param("rule_id") ?? "");
+  if (existing === null) return c.json({ error: "Not Found" }, 404);
+  const body = await readJsonBody(c);
+  if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
+
+  const merged: Record<string, unknown> = { ...ruleRowToCandidateEntry(existing), ...body };
+  // P4b status/enabled coherence (the SAME rule prepareOneRule enforces on
+  // CREATE): a PATCH that sets `status` WITHOUT ALSO setting `enabled` means
+  // "derive enabled from the NEW status" — not "keep the row's OLD enabled".
+  // The blanket merge above always fills `enabled` (from the body or from
+  // `existing`), which would make prepareOneRule see it as "explicitly
+  // provided" either way and skip the derivation. Deleting the carried-over
+  // value here (ONLY in this one case) restores "absent" so prepareOneRule
+  // re-derives fresh, exactly as a POST with the same body would.
+  if (body["status"] !== undefined && body["enabled"] === undefined) {
+    delete merged["enabled"];
+  }
+  const { rule, errors } = prepareOneRule(merged, redirectAllowlist(c.env));
+  if (rule === null) return c.json({ error: "Validation failed", fields: errors }, 400);
+  const fkErrors = await ruleTargetFkErrors(c.env.DB, rule);
+  if (Object.keys(fkErrors).length > 0) return c.json({ error: "Validation failed", fields: fkErrors }, 400);
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE leadgen_funnel_rules SET
+         rule_type = ?, conditions_json = ?, conditions_hash = ?, target_offer_id = ?, target_section_id = ?,
+         redirect_url = ?, redirect_url_allowlisted = ?, priority = ?, enabled = ?, value_multiplier = ?,
+         match_mode = ?, rule_name = ?, status = ?, redirect_pct = ?
+       WHERE id = ?`,
+    ).bind(
+      rule.ruleType, rule.conditionsJson, rule.conditionsHash, rule.targetOfferId, rule.targetSectionId,
+      rule.redirectUrl, rule.redirectAllowlisted, rule.priority, rule.enabled, rule.valueMultiplier,
+      rule.matchMode, rule.ruleName, rule.status, rule.redirectPct, existing.id,
+    ),
+    bumpVariantContentVersionStatement(c.env.DB, variant.id),
+  ]);
+  const updated = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_rules WHERE id = ? LIMIT 1")
+    .bind(existing.id)
+    .first<LeadgenFunnelRuleRowV2>();
+  if (!updated) return c.json({ error: "Update failed" }, 500);
+  return c.json(ruleRowToApi(updated));
+}
+
+// DELETE /variants/:id/rules/:rule_id — hard-delete (rules are cheap, no
+// history) + the SAME content_version bump (removing a rule changes auction/
+// eligibility behavior exactly like adding/editing one).
+export async function deleteVariantRuleHandler(c: AdminContext): Promise<Response> {
+  const variant = await resolveVariantRow(c.env.DB, c.req.param("id") ?? "");
+  if (variant === null) return c.json({ error: "Not Found" }, 404);
+  const existing = await resolveVariantRuleRow(c.env.DB, variant.id, c.req.param("rule_id") ?? "");
+  if (existing === null) return c.json({ error: "Not Found" }, 404);
+
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM leadgen_funnel_rules WHERE id = ?").bind(existing.id),
+    bumpVariantContentVersionStatement(c.env.DB, variant.id),
+  ]);
+  return c.json({ ok: true, id: existing.id, public_id: existing.public_id, deleted: true });
+}
+
+// POST /variants/:variant_id/rules/:rule_id/duplicate — Round-4 P4b, this
+// surface's 5th verb (D5 mini-round: list/create/update/delete added above,
+// unchanged here per the dispatch — "the existing POST .../duplicate stays").
+// Each rule carries its own stable id/public_id (migration 0043), so a
+// single-row clone is a safe, isolated INSERT that persists IMMEDIATELY --
+// mirrors the existing duplicateSectionHandler/duplicateOfferHandler
+// precedent (instant 201 + the new row, never touching sibling rows, never
+// requiring the operator to hit the variant's main Save first). Micro-round
+// fix (found-issue-fixed-now, was an OPEN CONCERN in the D5 mini-round): a
+// duplicated rule is a NEW active rule affecting auction/eligibility behavior
+// exactly like create/update/delete — now bumps content_version atomically in
+// the SAME batch as the INSERT, via the SAME bumpVariantContentVersionStatement
+// helper the other 3 mutating verbs use (no longer the lone unbumped verb).
 export async function duplicateRuleHandler(c: AdminContext): Promise<Response> {
   const variant = await resolveVariantRow(c.env.DB, c.req.param("variant_id") ?? "");
   if (variant === null) return c.json({ error: "Not Found" }, 404);
@@ -3830,25 +4154,28 @@ export async function duplicateRuleHandler(c: AdminContext): Promise<Response> {
 
   const newPublicId = mintPublicId("funnel_rule");
   const newName = src.rule_name !== null && src.rule_name !== "" ? `${src.rule_name} (copy)` : src.rule_name;
-  await insertRuleStatement(c.env.DB, "?", variant.id, {
-    publicId: newPublicId,
-    ruleType: src.rule_type,
-    conditionsJson: src.conditions_json,
-    conditionsHash: src.conditions_hash,
-    targetOfferId: src.target_offer_id,
-    targetSectionId: src.target_section_id,
-    redirectUrl: src.redirect_url,
-    redirectAllowlisted: src.redirect_url_allowlisted,
-    priority: src.priority,
-    enabled: src.enabled,
-    targetFunnelVariantId: src.target_funnel_variant_id,
-    valueMultiplier: src.value_multiplier,
-    checkpointPage: src.checkpoint_page,
-    matchMode: src.match_mode,
-    ruleName: newName,
-    status: src.status,
-    redirectPct: src.redirect_pct,
-  }).run();
+  await c.env.DB.batch([
+    insertRuleStatement(c.env.DB, "?", variant.id, {
+      publicId: newPublicId,
+      ruleType: src.rule_type,
+      conditionsJson: src.conditions_json,
+      conditionsHash: src.conditions_hash,
+      targetOfferId: src.target_offer_id,
+      targetSectionId: src.target_section_id,
+      redirectUrl: src.redirect_url,
+      redirectAllowlisted: src.redirect_url_allowlisted,
+      priority: src.priority,
+      enabled: src.enabled,
+      targetFunnelVariantId: src.target_funnel_variant_id,
+      valueMultiplier: src.value_multiplier,
+      checkpointPage: src.checkpoint_page,
+      matchMode: src.match_mode,
+      ruleName: newName,
+      status: src.status,
+      redirectPct: src.redirect_pct,
+    }),
+    bumpVariantContentVersionStatement(c.env.DB, variant.id),
+  ]);
 
   const dup = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_rules WHERE public_id = ? LIMIT 1")
     .bind(newPublicId)
@@ -4597,6 +4924,14 @@ export async function quoteStructureHandler(c: AdminContext): Promise<Response> 
       });
     }
     const abTests = await readFunnelAbTests(c.env.DB, funnel.id);
+    // P3b (§8.2 board): the funnel column renders the ACTIVE variant's PAGES as
+    // section-chip cards. With no running test a funnel has exactly one active
+    // variant (M1 replacement semantics); the deterministic primary is the
+    // variant_label-ASC head of readActiveFunnelVariants. `active_variant_pages`
+    // is ADDITIVE — the flat per-variant `sections` projection above is
+    // untouched, so every pre-P3b consumer reads exactly what it always did.
+    const activeVariants = await readActiveFunnelVariants(c.env.DB, funnel.id);
+    const primaryActive = activeVariants[0] ?? variants[0] ?? null;
     funnelTree.push({
       ...funnelRowToApi(funnel),
       funnel_id: toFunnelId(funnel.public_id) as string,
@@ -4604,12 +4939,29 @@ export async function quoteStructureHandler(c: AdminContext): Promise<Response> 
       // §16 A/B tests for this funnel (newest first); the running one (0..1)
       // drives the A/B tab's start/stop + the §16.2 assignment preview.
       ab_tests: abTests.map(abTestRowToApi),
+      active_variant_public_id: primaryActive?.public_id ?? null,
+      active_variant_pages: primaryActive === null ? [] : await readVariantPagesApi(c.env.DB, primaryActive.id),
     });
   }
+
+  // P3b follow-up (§8.2 board, DEV-59 parity): batch-attach each page-slot
+  // candidate's mapping_status — ONE query across every funnel's pages rather
+  // than N+1 — then strip the internal section_num_id carrier pageToApi added.
+  const allPages: Record<string, unknown>[] = [];
+  for (const f of funnelTree) {
+    const pages = (f as { active_variant_pages?: unknown }).active_variant_pages;
+    if (Array.isArray(pages)) allPages.push(...(pages as Record<string, unknown>[]));
+  }
+  const candidateIds = collectCandidateSectionIds(allPages);
+  const statusMap = await sectionMappingStatusMap(c.env.DB, candidateIds);
+  attachMappingStatusToPages(allPages, statusMap);
 
   return c.json({
     quote: { ...quoteRowToApi(quote), quote_id: toQuoteId(quote.public_id) as string },
     funnels: funnelTree,
+    // P3b (§4.3-1 / §8.2 board): the quote-owned shared first page (or null) —
+    // ADDITIVE top-level key the pinned "Shared first page" column renders.
+    shared_page: await sharedPageJson(c.env.DB, quote),
   });
 }
 

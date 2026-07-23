@@ -225,10 +225,7 @@ describeDb("Quotes editor — the six sub-tabs (03 §9.4 / 06 §15–§17)", () 
   //
   // Round-4 P4b DELIBERATE RE-PIN (conductor-granted, operator restructure):
   // the standalone "Rules" top tab is REMOVED — routing rules now live
-  // INSIDE the Funnel builder tab's right column (ui-quotes.ts
-  // renderInspectorColumn -> renderRulesPanel -> ui-rules-builder.ts
-  // renderRoutingRulesPanel); the rules experience is proven embedded via
-  // its unified panel's root marker (id="lg-routing-rules-root") instead.
+  // INSIDE the Funnel builder tab's right column.
   //
   // Round-4 P5b DELIBERATE RE-PIN (conductor-granted, operator restructure):
   // "Templates" and "Themes" are promoted to top-level tabs (ui-quotes.ts
@@ -238,7 +235,19 @@ describeDb("Quotes editor — the six sub-tabs (03 §9.4 / 06 §15–§17)", () 
   // have always covered — templates/themes are proven by test-ui/__p5b-
   // quotes-ia.spec.ts instead (this file's assertions stay untouched, only
   // this comment + the two titles change).
-  it("renders the (four of six) editor sub-tabs it covers + Save + the frame canvas; the rules experience is embedded in the builder panel", async () => {
+  //
+  // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10): the funnel-builder tab was
+  // rebuilt into the library/board/rules-rail (contract §8.2) — the OLD frame
+  // canvas (id="lg-preview-iframe", sandbox="allow-same-origin") and the OLD
+  // embedded rules panel (id="lg-routing-rules-root", ui-rules-builder.ts
+  // renderRoutingRulesPanel) are REMOVED, replaced by the board's own Preview
+  // action (opens the real composed preview route in a new tab) and the §8.2
+  // RIGHT quote-scoped routing-rules rail (id="lg-qr-rail",
+  // ui-rules-builder.ts renderQuoteRulesRail). Replacement coverage: SSR —
+  // test/leadgen-rework-board.test.ts + test/leadgen-rework-rules-ui.test.ts;
+  // live gestures — test-ui/leadgen-rework-p3b-board.gesture.spec.ts (Preview
+  // action) + test-ui/leadgen-rework-p3b-rules.gesture.spec.ts (rail).
+  it("renders the (four of six) editor sub-tabs it covers + Save + the §8.2 board + its routing-rules rail", async () => {
     const { html } = await editorHtmlWithContent();
     for (const tab of ["builder", "ab", "activation", "analytics"]) {
       expect(html, `tab ${tab}`).toContain(`data-tab="${tab}"`);
@@ -247,50 +256,107 @@ describeDb("Quotes editor — the six sub-tabs (03 §9.4 / 06 §15–§17)", () 
     // the removed standalone Rules tab/panel no longer exist
     expect(html).not.toContain('data-tab="rules"');
     expect(html).not.toContain('data-panel="rules"');
-    // the unified routing-rules table+modal is embedded in the builder panel
-    expect(html).toContain('id="lg-routing-rules-root"');
+    // §8.2: the board + its routing-rules rail are embedded in the builder panel
+    expect(html).toContain("data-board");
+    expect(html).toContain('id="lg-qr-rail"');
     expect(html).toContain('id="lg-variant-save"');
-    expect(html).toContain('id="lg-preview-iframe"'); // the §4.1 frame canvas
-    expect(html).toContain('sandbox="allow-same-origin"');
+    // the OLD frame canvas is gone (§8.2/§10) — the board's per-funnel
+    // Preview action (data-pin="8.2-preview", quotes-tabs/funnel.ts) replaces
+    // it. NOTE: a bare "data-preview" substring check would collide with the
+    // Activation panel's ALWAYS-rendered data-preview-url attribute (a
+    // different feature) — data-pin="8.2-preview" is the collision-free marker.
+    expect(html).not.toContain('id="lg-preview-iframe"');
+    expect(html).toContain('data-pin="8.2-preview"');
   });
 
-  it("Funnel builder: opening-lander editor + design selector + auction picker + ordered section list", async () => {
+  // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10): the §15.3 ordered flat
+  // section list (id="lg-section-list"/"lg-add-section", data-section-id rows)
+  // is REPLACED by the §8.2 board's library + per-page section chips —
+  // replacement coverage: test/leadgen-rework-board.test.ts ("section chips
+  // render...") + test-ui/leadgen-rework-p3b-board.gesture.spec.ts (library
+  // drag + the "+ section" menu path).
+  //
+  // CONTRACT GAP — flagged in the P3b follow-up report, NOT authorized by any
+  // §8.2/§10 citation, UPDATED per conductor ruling (§8.9): the §15.2 opening-
+  // lander toggle/headline/subheadline/hero (id="lg-lander-enabled"/
+  // "lg-lander-headline"/"lg-lander-sub"/"lg-lander-hero"), the §15.4 base
+  // funnel-design selector (id="lg-funnel-design"), and the per-variant
+  // auction FK picker (id="lg-auction-id") lost their ONLY admin surface
+  // when the old structure panel (renderStructurePanel's "Funnel settings"
+  // <details> block) was deleted with the board rebuild. The conductor RULED
+  // this was NOT a sanctioned §10 removal (unlike the canvas/inspectors/old
+  // rules grid, which §8.2/§10 explicitly call out) and ordered a pure
+  // relocation: the SAME six controls, SAME ids, SAME PUT /variants/:id
+  // fields, now live behind a "Funnel settings" item on the funnel column's
+  // kebab, opening a dialog in the board's delete-guard dialog vocabulary
+  // (data-funnel-settings). See test/leadgen-rework-board.test.ts for the
+  // deeper coverage (kebab item + all-six-current-values from real seeded
+  // data + the save-round-trip / no-wipe proof).
+  it("Funnel builder: §8.2 board section chips replace the old section list; lander/design/auction controls relocated to the funnel kebab's Funnel settings dialog (conductor ruling, §8.9)", async () => {
     const { html } = await editorHtmlWithContent();
-    // §15.2 opening lander
+    expect(html).not.toContain('id="lg-section-list"');
+    expect(html).not.toContain('id="lg-add-section"');
+    // relocated: the funnel kebab menu lists "Funnel settings"...
+    expect(html).toContain('data-menu-action="funnel-settings"');
+    expect(html).toContain("Funnel settings");
+    // ...opening a dialog in the board's delete-guard dialog vocabulary...
+    expect(html).toContain("data-funnel-settings");
+    // ...carrying the SAME six controls (SAME ids) the old builder had.
     expect(html).toContain('id="lg-lander-enabled"');
     expect(html).toContain('id="lg-lander-headline"');
-    // §15.4 design selector (registry option present)
+    expect(html).toContain('id="lg-lander-sub"');
+    expect(html).toContain('id="lg-lander-hero"');
     expect(html).toContain('id="lg-funnel-design"');
-    expect(html).toContain('value="default-funnel"');
-    // auction FK picker
     expect(html).toContain('id="lg-auction-id"');
-    // §15.3 ordered section list + the add-section control
-    expect(html).toContain('id="lg-section-list"');
-    expect(html).toContain('id="lg-add-section"');
-    expect(html).toContain("data-section-id");
+    // the board's own section-chip anatomy proves the replacement is real
+    expect(html).toContain("data-sec-chip");
+    expect(html).toContain("data-add-section");
   });
 
-  it("marks the auction-entry on the MAX-position section only (no 'final' flag)", async () => {
+  // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10): the OLD structure panel's
+  // "Auction runs after this slide" INDICATOR (data-auction-entry="1", a
+  // builder-only informational hint) was rendered by renderStructurePanel,
+  // which the §8.2 board rebuild replaces. Neither the contract nor the P0
+  // pack specifies an equivalent visual indicator anywhere on the board — a
+  // contract-silent gap (purely cosmetic; UNLIKE the lander/design/auction
+  // controls above, no DATA or CAPABILITY is lost). The underlying §4.3-12
+  // auction-timing BEHAVIOR ("Auction fires after the last page of the served
+  // variant's plan") is unaffected and proven elsewhere — this file never
+  // asserted the runtime behavior itself, only this SSR hint — see
+  // test/leadgen-rework-routing.test.ts / test/leadgen-rework-runtime.test.ts
+  // / test/leadgen-funnel.test.ts for the live-behavior proofs. There is
+  // still NO "final" flag control anywhere (§15.3 invariant unchanged).
+  it("the old auction-entry SSR hint is gone (§8.2 board replaces the structure panel; no 'final' flag control anywhere)", async () => {
     const { html } = await editorHtmlWithContent();
-    // exactly ONE server-rendered auction-entry marker (the last/max section).
-    const markers = html.match(/data-auction-entry="1"/g) ?? [];
-    expect(markers.length).toBe(1);
-    // v2.5 B2 ADJUSTED: §2.4 Quote-Builder vocabulary — "slide" (was
-    // "…after this section (§15.3 max position)").
-    expect(html).toContain("Auction runs after this slide");
-    // there is NO "final" flag control anywhere (§15.3).
+    expect(html).not.toContain('data-auction-entry="1"');
     expect(html.toLowerCase()).not.toContain('name="final"');
     expect(html.toLowerCase()).not.toContain("mark final");
   });
 
-  it("Rules builder: add-rule control + a pre-existing rule row + redirect-safety fields", async () => {
+  // LEADGEN-REWORK-03 M3/§13-D5 RETIREMENT: the OLD per-variant hidden rule
+  // grid (id="lg-add-rule", data-rule-row/-type/-target-offer/-redirect-url/
+  // -allowlisted — renderRuleRow/renderRulesPanel, deleted with the §8.2 board
+  // rebuild) covered leadgen_funnel_rules, whose CHECK is now tightened to
+  // exactly the four auction-domain types (eligibility/disqualification/
+  // redirect_direct_offer/auction_entry); their UI RELOCATES to the Auction
+  // tab per contract §5-M3/§13-D5 (ui-auctions.ts, "Funnel eligibility rules"
+  // panel, data-pin="d5-funnel-eligibility-rules") — a DIFFERENT file, proven
+  // by test/leadgen-rework-rules-ui.test.ts (§13-D5's own coverage) +
+  // test-ui/leadgen-rework-p3b-rules.gesture.spec.ts. The quote-SCOPED
+  // routing-rules rail (§8.2 RIGHT, this page's replacement chrome) is
+  // asserted above (id="lg-qr-rail").
+  it("the old per-variant hidden rule grid is gone (§5-M3/§13-D5: relocated to the Auction tab)", async () => {
     const { html } = await editorHtmlWithContent();
-    expect(html).toContain('id="lg-add-rule"');
-    expect(html).toContain("data-rule-row");
-    expect(html).toContain("data-rule-type");
-    expect(html).toContain("data-rule-target-offer");
-    expect(html).toContain("data-rule-redirect-url");
-    expect(html).toContain("data-rule-allowlisted");
+    // Element-FORM checks (L-196 discipline — the shared QUOTE_EDITOR_SCRIPT
+    // island still carries INERT byId()/querySelector('[data-rule-row]')-
+    // style string literals referencing these now-absent ids/attributes;
+    // flagged for the P5 orphan-scan removal sweep, not rendered chrome. A
+    // bare substring check on the ATTRIBUTE NAME ALONE would false-positive
+    // on those dead JS strings — these check the actual RENDERED opening-tag
+    // forms renderRuleRow/renderRulesPanel used to emit.)
+    expect(html).not.toContain('id="lg-add-rule"');
+    expect(html).not.toContain('class="lg-rule-row" data-rule-row');
+    expect(html).not.toContain('class="form-input" data-rule-target-offer');
   });
 
   it("A/B panel renders the §16.2 allocation UI (percent inputs + Σ indicator + save) — no P8 placeholder", async () => {
@@ -301,7 +367,16 @@ describeDb("Quotes editor — the six sub-tabs (03 §9.4 / 06 §15–§17)", () 
     expect(html).toContain("data-alloc-sum");
     expect(html).toContain('id="lg-ab-variant-list"');
     expect(html).toContain('id="lg-save-allocations"');
-    expect(html).toContain('data-fork-variant="');
+    // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10): the "Fork this variant"
+    // BUTTON (data-fork-variant="…") is REMOVED — the variant selector + Fork
+    // bar above the tabs is gone; ab.ts's own "Add variant…" affordance
+    // (asserted just above via lg-ab-variant-list context) is the
+    // replacement, per §8.5. NOTE: a substring check on the bare text "Fork
+    // this variant" would collide with themes.ts's UNRELATED "A/B this theme"
+    // button's title tooltip ("Fork this variant with the picked preset…",
+    // a different feature, not this slice's file) — the attribute is the
+    // precise, collision-free marker for the REMOVED button specifically.
+    expect(html).not.toContain('data-fork-variant="');
     // the P8 "ships in P8" seam placeholder is GONE.
     expect(html).not.toContain("data-p8-seam");
     expect(html).not.toMatch(/ship[s]? in P8/i);

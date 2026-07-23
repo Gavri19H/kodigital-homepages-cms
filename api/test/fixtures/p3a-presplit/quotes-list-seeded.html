@@ -293,6 +293,102 @@ html,body{height:100%;overflow-x:hidden}
 .lg-preset-apply-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
 .lg-preset-apply-row select{flex:1 1 220px;min-width:160px}
 .lg-theme-presets-frame{display:block;width:100%;height:820px;border:1px solid var(--c-border);border-radius:8px;margin-top:10px}
+/* === P3b (§8.2) — Funnel-builder BOARD ==================================== */
+/* Geometry pinned to docs/leadgen/rework/design-pack/board.html: 292px left
+   library rail / fluid center board (h-scroll INSIDE .lg-board only) / 344px
+   right routing-rules mount. navy = --c-primary (#1B3A5C golden master). */
+.lg-board-shell{display:flex;min-height:620px;border:1px solid var(--c-border);border-radius:10px;overflow:hidden;background:#EDF0F4;align-items:stretch}
+.lg-board-left{flex:0 0 292px;width:292px;background:#fff;border-right:1px solid var(--c-border);display:flex;flex-direction:column;min-height:0}
+.lg-board-center{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;min-height:0}
+.lg-board-right{flex:0 0 344px;width:344px;background:#fff;border-left:1px solid var(--c-border);display:flex;flex-direction:column;min-height:0;overflow-y:auto}
+/* the board is the ONLY horizontal scroller (AC: board h-scroll internal) */
+.lg-board{flex:1 1 auto;min-height:0;overflow:auto;padding:16px}
+.lg-board-cols{display:flex;gap:14px;align-items:flex-start;min-height:100%}
+.lg-col{flex:0 0 288px;width:288px;background:#F7F9FB;border:1px solid var(--c-border);border-radius:12px;display:flex;flex-direction:column;max-height:560px}
+.lg-col-shared{position:sticky;left:0;z-index:3;background:#fff;border:1.5px solid #C7D6E6;box-shadow:6px 0 14px -8px rgba(20,32,54,.18)}
+.lg-col-funnel.is-default{border-color:var(--c-primary)}
+.lg-col-funnel.lg-drop-target,.lg-page-card.lg-drop-target,.lg-col-shared.lg-drop-target{outline:2px dashed var(--c-primary,#1B3A5C);outline-offset:-2px;background:#EAF0F6}
+.lg-col-head{flex:0 0 auto;padding:12px;border-bottom:1px solid var(--c-border)}
+.lg-col-shared .lg-col-head{background:#EAF0F6;border-radius:11px 11px 0 0}
+.lg-col-tag{display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--c-primary,#1B3A5C);margin-bottom:6px}
+.lg-col-title-row{display:flex;align-items:center;gap:8px}
+.lg-col-title{font-size:14px;font-weight:800;color:var(--c-text);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-bottom:1.5px dashed transparent;padding:1px 2px;cursor:text}
+.lg-col-title.is-editing{border-bottom-color:var(--c-primary);white-space:normal;overflow:visible}
+.lg-col-help{font-size:11.5px;color:#8A93A3;line-height:1.45}
+.lg-col-meta{display:flex;align-items:center;gap:6px;margin-top:9px;flex-wrap:wrap}
+.lg-col-actions{display:flex;align-items:center;gap:8px;margin-top:10px}
+.lg-col-body{flex:1 1 auto;overflow-y:auto;padding:12px}
+.lg-pickchip{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--c-text);background:#fff;border:1px solid var(--c-border);border-radius:7px;padding:4px 8px;cursor:pointer}
+.lg-badge-default{position:relative;display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#fff;background:var(--c-primary,#1B3A5C);padding:2px 8px;border-radius:20px;cursor:default}
+.lg-badge-default .lg-tip{display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:20;background:#111726;color:#fff;font-size:11.5px;font-weight:500;letter-spacing:0;text-transform:none;line-height:1.4;padding:7px 10px;border-radius:7px;width:200px;box-shadow:0 6px 18px rgba(20,32,54,.28)}
+.lg-badge-default:hover .lg-tip,.lg-badge-default:focus .lg-tip,.lg-badge-default:focus-within .lg-tip{display:block}
+.lg-badge-ab{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:800;color:#fff;background:#2E6BB0;padding:2px 8px;border-radius:6px;cursor:pointer;border:0}
+.lg-col-preview{display:inline-flex;align-items:center;gap:5px;margin-left:auto;padding:5px 10px;font-size:12px;font-weight:600;color:var(--c-muted);background:#fff;border:1px solid var(--c-border);border-radius:8px;cursor:pointer}
+.lg-page-card{background:#fff;border:1px solid #E9EDF3;border-radius:10px;padding:10px 11px 12px;margin-bottom:10px;position:relative}
+.lg-page-card.lg-dragging{box-shadow:0 14px 30px rgba(20,32,54,.20);opacity:.9;border-color:var(--c-primary)}
+.lg-page-head{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.lg-page-num{font-size:10px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#8A93A3;flex:1 1 auto}
+.lg-chip-list{display:flex;flex-direction:column}
+.lg-sec-chip{display:flex;align-items:center;gap:7px;background:#EAF0F6;border:1px solid #C7D6E6;border-radius:8px;padding:7px 8px;margin-bottom:6px}
+.lg-sec-chip.lg-dragging{opacity:.6}
+.lg-sec-chip .lg-sc-name{font-size:12.5px;font-weight:600;color:var(--c-primary,#1B3A5C);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lg-chip-grip,.lg-page-grip{cursor:grab;color:#5E799B;flex:0 0 auto;display:inline-flex}
+.lg-chip-kebab,.lg-page-kebab{cursor:pointer;flex:0 0 auto;color:#5E799B;display:inline-flex;padding:1px;border-radius:4px}
+.lg-add-section{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--c-primary,#1B3A5C);cursor:pointer;padding:6px 4px 2px}
+.lg-add-page{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;padding:10px;border:1px dashed #D5DCE6;border-radius:10px;color:var(--c-muted);font-size:12.5px;font-weight:600;cursor:pointer;background:#fff}
+.lg-empty-col-body{flex:1 1 auto;display:flex;flex-direction:column;gap:12px;padding:16px}
+.lg-empty-hint{border:1.5px dashed #D5DCE6;border-radius:10px;padding:20px 14px;text-align:center;font-size:12.5px;color:#78818F;line-height:1.5}
+.lg-hint-neutral{display:block;background:#F6F8FB;border-radius:8px;padding:10px 12px;font-size:11.5px;color:#7C889A;line-height:1.45;margin-top:2px}
+.lg-stub-col{flex:0 0 250px;width:250px;align-self:stretch;min-height:220px;border:1.5px dashed #D5DCE6;border-radius:12px;background:rgba(255,255,255,.5);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:20px;cursor:pointer;text-align:center}
+.lg-plus-ring{width:40px;height:40px;border-radius:50%;background:#EAF0F6;display:inline-flex;align-items:center;justify-content:center;color:var(--c-primary,#1B3A5C)}
+.lg-stub-title{font-size:14px;font-weight:800;color:var(--c-primary,#1B3A5C)}
+.lg-stub-sub{font-size:11.5px;color:#8A93A3;line-height:1.45;max-width:180px}
+/* left library */
+.lg-lib-head{flex:0 0 auto;padding:15px 16px 10px}
+.lg-lib-title{font-size:13px;font-weight:800;color:var(--c-text);margin-bottom:11px}
+.lg-lib-search{position:relative;margin-bottom:10px}
+.lg-lib-search input{width:100%;padding:9px 12px 9px 34px;font-size:13px;border:1px solid var(--c-border);border-radius:8px;outline:none;background:#F8FAFC;font-family:inherit;color:var(--c-text)}
+.lg-lib-search-ico{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#9AA3B2;display:inline-flex}
+.lg-lib-filters{display:flex;gap:6px;flex-wrap:wrap}
+.lg-filter-pill{display:inline-flex;align-items:center;font-size:11.5px;font-weight:600;color:var(--c-muted);background:#fff;border:1px solid var(--c-border);border-radius:20px;padding:5px 10px;cursor:pointer}
+.lg-filter-pill.active{color:var(--c-primary,#1B3A5C);background:#EAF0F6;border-color:#C7D6E6;font-weight:700}
+.lg-lib-list{flex:1 1 auto;overflow-y:auto;padding:4px 16px 18px}
+.lg-lib-card{display:block;width:100%;padding:11px 12px;border:1px solid var(--c-border);border-radius:9px;background:#fff;cursor:grab;margin-bottom:8px;position:relative;text-align:left}
+.lg-lib-card:hover{border-color:var(--c-primary);background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)}
+.lg-lib-card.in-current{opacity:.72}
+.lg-lib-card.lg-dragging{opacity:.5}
+.lg-lc-top{display:flex;align-items:center;gap:8px}
+.lg-lc-name{font-size:13px;font-weight:700;color:var(--c-text);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lg-lc-meta{display:flex;align-items:center;gap:6px;margin-top:7px;flex-wrap:wrap;padding-left:20px}
+.lg-chip-activity{display:inline-flex;align-items:center;font-size:11px;font-weight:600;color:#8A93A3;background:#F3F5F8;border-radius:20px;padding:3px 9px}
+.lg-chip-inuse{display:inline-flex;align-items:center;font-size:9.5px;letter-spacing:.3px;padding:2px 7px;font-weight:700;color:#98A1B0;background:#EEF1F6;border-radius:20px}
+.lg-chip-inuse-here{display:inline-flex;align-items:center;font-size:9.5px;letter-spacing:.3px;padding:2px 7px;font-weight:700;color:var(--c-primary,#1B3A5C);background:#EAF0F6;border-radius:20px}
+.lg-lib-card .lg-grip{color:#C2CACF;flex:0 0 auto;display:inline-flex}
+/* board drag ghost + drop insertion line */
+.lg-drag-ghost{position:fixed;z-index:60;pointer-events:none;width:220px;padding:10px 12px;border:1px solid var(--c-primary,#1B3A5C);border-radius:9px;background:#fff;box-shadow:0 12px 28px rgba(20,32,54,.22);font-size:13px;font-weight:700;color:var(--c-primary,#1B3A5C);opacity:.96}
+.lg-drop-indicator{height:0;border-top:2px solid var(--c-primary,#1B3A5C);margin:3px 0;position:relative}
+.lg-drop-indicator::before{content:"";position:absolute;left:-4px;top:-4px;width:8px;height:8px;border-radius:50%;background:var(--c-primary,#1B3A5C)}
+/* menus + guard dialog */
+.lg-board-menus{position:relative}
+.lg-menu{position:fixed;z-index:70;background:#fff;border:1px solid var(--c-border);border-radius:10px;box-shadow:0 12px 30px rgba(20,32,54,.18);padding:5px;min-width:186px}
+.lg-menu-item{display:flex;align-items:center;gap:9px;font-size:12.5px;font-weight:600;color:var(--c-text);padding:8px 10px;border-radius:6px;cursor:pointer}
+.lg-menu-item:hover,.lg-menu-item:focus{background:#EAF0F6;color:var(--c-primary,#1B3A5C);outline:none}
+.lg-menu-item.danger{color:#B23A2C}
+.lg-menu-sep{height:1px;background:#EEF1F6;margin:4px 6px}
+.lg-template-menu{position:fixed;z-index:70;background:#fff;border:1px solid var(--c-border);border-radius:10px;box-shadow:0 12px 30px rgba(20,32,54,.18);padding:5px;min-width:180px}
+.lg-board-guard{position:fixed;inset:0;z-index:80;background:rgba(20,28,46,.42);display:flex;align-items:center;justify-content:center;padding:24px}
+/* .lg-hidden is defined earlier; this display-setting overlay needs an explicit
+   compound override so the SSR-hidden guard stays hidden until the island opens it. */
+.lg-board-guard.lg-hidden{display:none}
+.lg-board-guard-panel{width:460px;max-width:100%;background:#fff;border-radius:14px;box-shadow:0 24px 64px rgba(20,28,46,.34);overflow:hidden}
+.lg-board-guard-head{padding:16px 18px 12px;border-bottom:1px solid #EEF1F6}
+.lg-board-guard-head h3{margin:0;font-size:16px;font-weight:800;color:var(--c-text)}
+.lg-board-guard-body{padding:16px 18px;font-size:13px;color:#B23A2C;line-height:1.5}
+.lg-board-guard-body .lg-guard-blocker{display:flex;gap:8px;align-items:flex-start;background:#FBEEEC;border:1px solid rgba(178,58,44,.28);border-radius:10px;padding:11px 13px;margin-bottom:8px}
+.lg-board-guard-foot{padding:12px 18px;border-top:1px solid #EEF1F6;display:flex;justify-content:flex-end;gap:10px;background:#FBFCFD}
+.lg-fsettings-body{padding:16px 18px;color:var(--c-text);font-size:13px;max-height:70vh;overflow-y:auto}
+.lg-board-inline-err{color:#B23A2C;font-size:12px;font-weight:600;margin:6px 0 0;padding:8px 10px;background:#FBEEEC;border:1px solid rgba(178,58,44,.28);border-radius:8px}
+@media (max-width:1100px){.lg-board-shell{flex-direction:column}.lg-board-left,.lg-board-right{flex:1 1 auto;width:auto;border:0;border-bottom:1px solid var(--c-border)}}
 </style>
 </head>
 <body data-area="admin">
@@ -324,9 +420,9 @@ html,body{height:100%;overflow-x:hidden}
 </div>
 <div class="card">
   <div class="table-wrapper">
-    <table class="table table--sticky-edges leadgen-quotes-list" aria-label="Quotes list" data-lg-analytics data-analytics-from="2026-06-23" data-analytics-to="2026-07-22">
+    <table class="table table--sticky-edges leadgen-quotes-list" aria-label="Quotes list" data-lg-analytics data-analytics-from="2026-06-24" data-analytics-to="2026-07-23">
       <thead><tr><th scope="col">Name</th><th scope="col">Activity</th><th scope="col">Verticals</th><th scope="col" class="lg-num">Variants</th><th scope="col">A/B status</th><th scope="col" class="lg-num">Active sites</th><th scope="col" class="lg-num">Visits</th><th scope="col" class="lg-num">Completion rate</th><th scope="col" class="lg-num">Avg RPS</th><th scope="col" class="lg-num">Unfilled rate</th><th scope="col" class="lg-num">Revenue</th><th scope="col">Actions</th></tr></thead>
-      <tbody><tr data-entity-id="lgq_01KY4Z3AMDK4SFTSF8MQPG0GGQ" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">
+      <tbody><tr data-entity-id="lgq_01KY7HSFD1PG693Z0R5EFNEASV" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">
   <td>&lt;img src=x onerror=alert(1)&gt;</td>
   <td>quote_funnel</td>
   <td>life, health</td>
@@ -339,14 +435,14 @@ html,body{height:100%;overflow-x:hidden}
   <td class="lg-num" data-metric="unfilled_rate"><span class="skel" aria-hidden="true"></span></td>
   <td class="lg-num" data-metric="revenue"><span class="skel" aria-hidden="true"></span></td>
   <td><div class="table-actions">
-    <a href="/admin/leadgen/quotes/lgq_01KY4Z3AMDK4SFTSF8MQPG0GGQ/edit" class="btn btn-sm btn-secondary">Edit</a>
-    <div class="lg-kebab" data-kebab><button type="button" class="btn btn-sm btn-outline lg-kebab-btn" data-kebab-toggle data-kebab-target="lg-kebab-menu-1" aria-haspopup="true" aria-expanded="false" aria-label="More actions for &amp;lt;img src=x onerror=alert(1)&amp;gt;">&#8942;</button><div class="lg-kebab-menu" id="lg-kebab-menu-1" data-kebab-menu hidden role="menu"><button type="button" class="lg-kebab-item" role="menuitem" data-quote-duplicate="lgq_01KY4Z3AMDK4SFTSF8MQPG0GGQ" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Duplicate</button>
-    <button type="button" class="lg-kebab-item" role="menuitem" data-quote-usage="lgq_01KY4Z3AMDK4SFTSF8MQPG0GGQ" aria-expanded="false">Usage</button>
-    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-archive="lgq_01KY4Z3AMDK4SFTSF8MQPG0GGQ" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Archive</button>
-    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-delete="lgq_01KY4Z3AMDK4SFTSF8MQPG0GGQ" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Delete</button></div></div>
+    <a href="/admin/leadgen/quotes/lgq_01KY7HSFD1PG693Z0R5EFNEASV/edit" class="btn btn-sm btn-secondary">Edit</a>
+    <div class="lg-kebab" data-kebab><button type="button" class="btn btn-sm btn-outline lg-kebab-btn" data-kebab-toggle data-kebab-target="lg-kebab-menu-1" aria-haspopup="true" aria-expanded="false" aria-label="More actions for &amp;lt;img src=x onerror=alert(1)&amp;gt;">&#8942;</button><div class="lg-kebab-menu" id="lg-kebab-menu-1" data-kebab-menu hidden role="menu"><button type="button" class="lg-kebab-item" role="menuitem" data-quote-duplicate="lgq_01KY7HSFD1PG693Z0R5EFNEASV" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Duplicate</button>
+    <button type="button" class="lg-kebab-item" role="menuitem" data-quote-usage="lgq_01KY7HSFD1PG693Z0R5EFNEASV" aria-expanded="false">Usage</button>
+    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-archive="lgq_01KY7HSFD1PG693Z0R5EFNEASV" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Archive</button>
+    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-delete="lgq_01KY7HSFD1PG693Z0R5EFNEASV" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Delete</button></div></div>
   </div></td>
 </tr>
-<tr class="lg-usage-row" data-quote-usage-row="lgq_01KY4Z3AMDK4SFTSF8MQPG0GGQ" hidden>
+<tr class="lg-usage-row" data-quote-usage-row="lgq_01KY7HSFD1PG693Z0R5EFNEASV" hidden>
   <td colspan="12"><div class="lg-usage-panel" data-quote-usage-panel role="status" aria-live="polite"></div></td>
 </tr></tbody>
     </table>

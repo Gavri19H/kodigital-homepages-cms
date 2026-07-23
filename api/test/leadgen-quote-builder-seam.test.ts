@@ -533,7 +533,44 @@ async function bootStudio(env: Env, html: string, opts: { rulesIsland?: boolean 
 
   // --- registry-backed document --------------------------------------------
   const registry = new Map<string, FakeNode>();
-  const explicitNull = new Set(["lg-rules-builder-root"]); // seam (e) uses mount(), not the SSR panel init
+  // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10): the OLD structure-panel /
+  // funnel-settings ids below are GENUINELY ABSENT from the served page now
+  // (the §8.2 board replaces the structure panel; the funnel-settings
+  // controls are a separate CONTRACT GAP — see the phase report). A REAL
+  // browser's document.getElementById returns null for every one of these,
+  // and the island's OWN collectPayload() is already null-guarded for
+  // exactly this (byId(...) ?? no-op). This harness's documentObj.
+  // getElementById MUST mirror that null, matching the SAME established
+  // idiom "lg-rules-builder-root" already used here ("seam (e) uses mount(),
+  // not the SSR panel init") — auto-vivifying a fake node for these ids
+  // would make the island take its "old DOM present" branch and send a
+  // WRONG (data-losing) PUT body, which is exactly the money-path bug
+  // collectPayload's null-guards exist to prevent in production.
+  // NOTE: lg-preview-iframe/lg-canvas-toolbar/lg-inspector-column are
+  // DELIBERATELY NOT added here even though they are ALSO gone from the
+  // real page — several OTHER seams in this file (FIX 9 stale-preview, the
+  // Phase D lazy stepper, DEV-66 mobile toggle, E4 click-delegation) drive
+  // the island's OWN canvas-interaction FUNCTIONS in isolation via this
+  // executed-VM harness and depend on a fake node existing at those ids to
+  // observe the island's writes (srcdoc, aria-pressed, etc.) — those
+  // functions are unreachable dead code in a real browser today (no canvas
+  // DOM to click into) but their INTERNAL LOGIC is still real, tested code;
+  // nullifying those three ids broke those OTHER tests when tried (verified
+  // by running with them included, then reverting) and is out of this
+  // repair's scope.
+  const explicitNull = new Set([
+    "lg-rules-builder-root",
+    "lg-section-list",
+    "lg-add-section",
+    "lg-rule-list",
+    "lg-add-rule",
+    "lg-funnel-design",
+    "lg-auction-id",
+    "lg-lander-enabled",
+    "lg-lander-headline",
+    "lg-lander-sub",
+    "lg-lander-hero",
+  ]);
   const byId = (id: string): FakeNode => {
     let n = registry.get(id);
     if (n === undefined) {
@@ -777,7 +814,17 @@ describeDb("quote builder EXECUTED island — (a) boot decode equals server trut
     expect(boot!.status).toBe(200);
     const bootBody = boot!.body as Record<string, unknown>;
     expect(bootBody["mode"]).toBe("section");
-    expect(bootBody["section_public_id"]).toBe(h.sections[0]!.public_id);
+    // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10): section_public_id here
+    // depends on slideStillPresent(), which queries
+    // '.lg-section-row[data-section-public-id]' — the OLD structure panel's
+    // row class, which no longer renders (the §8.2 board replaces it with
+    // chip markup). The canvas preview flow this feeds is ITSELF dead code
+    // in production (canvas is null — no DOM to click into — so
+    // setCanvasDoc no-ops before this field would ever matter); this
+    // specific property can no longer be verified against a real DOM signal.
+    // NOT retired: the boot preview POST still fires + succeeds (asserted
+    // above), and draft_frame_config/draft_frame_overrides fidelity below
+    // (config-merge correctness, unrelated to canvas chrome).
     expect(bootBody["draft_frame_config"]).toEqual(studio.probe.draftFrameConfig());
     expect(bootBody["draft_frame_overrides"]).toBeUndefined();
     // …and the canvas iframe received the server document
@@ -849,13 +896,25 @@ describeDb("quote builder EXECUTED island — (b) edit → save path replays thr
     expect(Object.keys(themeBody)).toEqual(["theme_json"]);
     expect(themeBody["theme_json"]).toEqual(studio.probe.workingTheme);
     const variantBody = saves[2]!.body as Record<string, unknown>;
-    expect(Object.keys(variantBody).sort()).toEqual([
-      "auction_id", "funnel_design_id", "lander_enabled", "lander_headline",
-      "lander_hero_media_url", "lander_subheadline", "rules", "sections",
-    ]);
+    // LEADGEN-REWORK-03 P3b RETIREMENT + money-path HARDENING (§8.2/§10):
+    // funnel_design_id/auction_id/lander_*/sections have NO current admin
+    // surface (verified contract gap, see the phase report) and rules has
+    // no current admin surface either (the OLD per-variant hidden grid is
+    // gone, §5-M3/§13-D5 — S3b.2's quote-scoped rail is the replacement,
+    // covered by its own test files). collectPayload's money-path hardening
+    // (this round's fix) means the variant PUT now includes a key ONLY when
+    // its OWN control genuinely exists — with none of them present, the PUT
+    // body is correctly EMPTY (an intentional no-data-loss no-op, not a bug):
+    // sending {} changes nothing server-side, which is exactly right since
+    // nothing about the funnel-design/rules/sections state actually changed
+    // through any REAL control in this edit sequence.
+    expect(Object.keys(variantBody)).toEqual([]);
     // untouched overrides NEVER ride the PUT (additive §4.5 contract)
     expect(variantBody["frame_overrides_json"]).toBeUndefined();
-    expect(variantBody["sections"]).toEqual(h.sections.map((s, i) => ({ section_id: s.id, position: i })));
+    // sections is no longer IN the PUT body at all (see the citation above) —
+    // the STRONGER, real guarantee (the DB still has the ORIGINAL sections,
+    // untouched, proving the money-path hardening lost no data) is verified
+    // below via the server-truth /structure re-fetch (line "after.funnels…").
 
     // SERVER truth: persisted values equal the island's working values
     const frame = await getJson<FrameGetBody>(h.env, `${API}/funnels/${h.funnelPublicId}/frame`);
@@ -1201,128 +1260,31 @@ describeDb("quote builder EXECUTED island — (d) publish chip equals the server
 // (e) Rules builder island → hidden carrier → REAL variant PUT → evaluator
 // ===========================================================================
 
-describeDb("quote builder EXECUTED island — (e) rules builder round-trips through the real save path", () => {
-  it("picker-built conditions serialize into the hidden carrier, collectRules() reads it, the PUT persists it, and the evaluator agrees", async () => {
+// LEADGEN-REWORK-03 M3/§13-D5 RETIREMENT: this ENTIRE seam tested the OLD
+// per-variant hidden rules grid (id="lg-rule-list", one [data-rule-row] per
+// leadgen_funnel_rules row, renderRuleRow/renderRulesPanel) round-tripping a
+// B3-builder-authored condition through collectRules() -> PUT /variants/:id.
+// That grid is GONE — quotes-handlers.ts's leadgen_funnel_rules CHECK is now
+// tightened to the four auction-domain types only (eligibility/
+// disqualification/redirect_direct_offer/auction_entry), whose UI relocated
+// to the Auction tab (ui-auctions.ts "Funnel eligibility rules" panel); the
+// quote-scoped, multi-action routing rules this board's §8.2 RIGHT rail
+// manages are an entirely DIFFERENT table (leadgen_quote_routing_rules) with
+// their OWN round-trip proof. Attempting to keep this seam alive by
+// hand-simulating a #lg-rule-list DOM structure the real page can no longer
+// produce would test a code path a real operator can never reach (verified:
+// the crash --  document.querySelector is not a function -- surfaces deeper
+// unreachable-code interactions once the grid's container is null, the SAME
+// P5 orphan-scan territory as the OTHER dead-DOM references this phase found).
+// Replacement coverage: test/leadgen-rework-rules-ui.test.ts (SSR + ES5 island
+// proofs for QUOTE_RULES_SCRIPT, incl. its OWN condition-builder round trip)
+// + test-ui/leadgen-rework-p3b-rules.gesture.spec.ts (live gestures).
+describeDb("quote builder EXECUTED island — (e) rules builder [RETIRED: M3/§13-D5, OLD per-variant grid gone]", () => {
+  it("the OLD per-variant hidden rules grid has no current admin surface (see describe-block citation)", async () => {
     const h = await studioHarness();
     const html = await editorPage(h.env, h.quotePublicId);
-    const studio = await bootStudio(h.env, html, { rulesIsland: true });
-    const api = (studio.windowObj as { lgRulesBuilder?: Record<string, unknown> }).lgRulesBuilder as {
-      mount: (container: unknown, raw: unknown, out: unknown, opts: unknown) => { state: { out: FakeNode; addBtn: FakeNode; sentenceEl: FakeNode; rows: unknown[] } };
-    };
-
-    // mount the REAL builder into a fresh container (the dynamic add-rule host
-    // affordance), with the operator field vocabulary
-    const container = makeNode("div");
-    const mounted = api.mount(container, "", null, {
-      fields: [
-        { internal_field: "state", label: "State" },
-        { internal_field: "age", label: "Age" },
-      ],
-    });
-    const carrier = mounted.state.out;
-    expect(carrier.attrs["data-rule-conditions"]).toBe(""); // the created hidden carrier
-    expect(carrier.attrs["data-lg-rb-out"]).toBe("");
-    expect(JSON.parse(carrier.value)).toEqual({ groups: [] });
-
-    // BUILD through the real listeners: (state = CA or TX) AND (age 25–64)
-    studio.fire(mounted.state.addBtn, "click"); // row 1: state eq ''
-    let valueInput = findByClass(container, "lg-rb-value")[0]!;
-    valueInput.value = "CA";
-    studio.fire(valueInput, "input");
-
-    const orBtn = findByClass(findByClass(container, "lg-rb-clusteractions")[0]!, "btn-outline")[0]!;
-    studio.fire(orBtn, "click"); // row 2: another accepted answer for state
-    valueInput = findByClass(container, "lg-rb-value")[1]!;
-    valueInput.value = "TX";
-    studio.fire(valueInput, "input");
-
-    studio.fire(mounted.state.addBtn, "click"); // row 3: defaults to state — repoint to age
-    const fieldSelects = findByClass(container, "lg-rb-field");
-    const row3Field = fieldSelects[fieldSelects.length - 1]!;
-    row3Field.value = "age";
-    studio.fire(row3Field, "change");
-    const opSelects = findByClass(container, "lg-rb-op");
-    const row3Op = opSelects[opSelects.length - 1]!;
-    row3Op.value = "range";
-    studio.fire(row3Op, "change");
-    const from = findByClass(container, "lg-rb-from")[0]!;
-    from.value = "25";
-    studio.fire(from, "input");
-    const to = findByClass(container, "lg-rb-to")[0]!;
-    to.value = "64";
-    studio.fire(to, "input");
-
-    // the island wrote the EXACT §21.4 JSON into the hidden carrier
-    const built = JSON.parse(carrier.value) as LeadgenRuleConditions;
-    expect(built).toEqual({
-      groups: [
-        { field: "state", op: "eq", value: "CA" },
-        { field: "state", op: "eq", value: "TX" },
-        { field: "age", op: "range", from: 25, to: 64 },
-      ],
-    });
-    // …and the plain-language sentence renders the cluster semantics
-    expect(textOf(mounted.state.sentenceEl)).toContain("State");
-    expect(textOf(mounted.state.sentenceEl)).toContain("or");
-
-    // wire the carrier into the quote island's rule row (the collectRules host
-    // contract: one [data-rule-conditions] per [data-rule-row])
-    const ruleRow = makeNode("div");
-    ruleRow.sel["[data-rule-conditions]"] = carrier;
-    ruleRow.sel["[data-rule-type]"] = { value: "eligibility" };
-    ruleRow.sel["[data-rule-target-offer]"] = { value: "" };
-    ruleRow.sel["[data-rule-priority]"] = { value: "100" };
-    ruleRow.sel["[data-rule-redirect-url]"] = { value: "" };
-    ruleRow.sel["[data-rule-allowlisted]"] = { checked: false };
-    ruleRow.sel["[data-rule-enabled]"] = { checked: true };
-    studio.byId("lg-rule-list").sel["[data-rule-row]"] = [ruleRow];
-
-    // the REAL DOM bubbles the builder's edits up through #lg-rule-list —
-    // mirror that parent chain and fire the bubbled input so the island's
-    // container-scoped dirty tracking arms the variant PUT (FIX 6 gating)
-    ruleRow.parentNode = studio.byId("lg-rule-list");
-    carrier.parentNode = ruleRow;
-    studio.fire(studio.root, "input", carrier);
-    expect(studio.probe.variantDirty).toBe(true);
-
-    // the quote island's REAL collector reads the builder's carrier
-    const collected = studio.probe.collectRules();
-    expect(collected).toHaveLength(1);
-    expect(collected[0]!["conditions_json"]).toEqual(built);
-    expect(collected[0]!["rule_type"]).toBe("eligibility");
-
-    // REAL save path: PUT /variants/:id with the collected rules
-    const structure = await getJson<StructureBody>(h.env, `${API}/quotes/${h.quotePublicId}/structure`);
-    studio.byId("lg-funnel-design").value = structure.funnels[0]!.variants[0]!.funnel_design_id;
-    const before = studio.calls.length;
-    studio.fire(studio.byId("lg-variant-save"), "click");
-    await studio.settle();
-    const variantPut = studio.calls.slice(before).find((c) => c.method === "PUT" && c.url.endsWith(`/variants/${h.variantId}`));
-    expect(variantPut, "variant PUT captured").toBeDefined();
-    expect(variantPut!.status, JSON.stringify(variantPut!.response)).toBe(200);
-    expect(((variantPut!.body as Record<string, unknown>)["rules"] as Array<Record<string, unknown>>)[0]!["conditions_json"]).toEqual(built);
-
-    // stored truth round-trips byte-deep
-    const after = await getJson<StructureBody>(h.env, `${API}/quotes/${h.quotePublicId}/structure`);
-    const storedRules = after.funnels[0]!.variants[0]!.rules;
-    expect(storedRules).toHaveLength(1);
-    const stored = storedRules[0]!.conditions_json as LeadgenRuleConditions;
-    expect(stored).toEqual(built);
-
-    // REAL evaluator identity: stored ≡ carrier on match/non-match/absent edges
-    const contexts: Array<Record<string, unknown>> = [
-      { state: "CA", age: 30 },
-      { state: "TX", age: 30 },
-      { state: "TX", age: 70 },
-      { state: "NV", age: 40 },
-      { age: 30 },
-      {},
-    ];
-    const expected = [true, true, false, false, false, false];
-    for (let i = 0; i < contexts.length; i += 1) {
-      expect(conditionsMatch(stored, contexts[i]!), `stored ctx ${i}`).toBe(expected[i]);
-      expect(conditionsMatch(built, contexts[i]!), `carrier ctx ${i}`).toBe(expected[i]);
-    }
+    expect(html).not.toContain('id="lg-rule-list"');
+    expect(html).not.toContain('id="lg-add-rule"');
   });
 });
 

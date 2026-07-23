@@ -10340,7 +10340,18 @@ export const SECTION_STUDIO_SCRIPT = `
   // consume only label/value/analytics_id; MCG adds title/subtitle; the two card
   // grids consume every field (renderCardGrid references all 12).
   var CHOICE_FIELD_CONSUMPTION = {
-    ButtonAnswerGroup: ['label', 'value', 'analytics_id'],
+    // §8.4 (Card render axis): buttonInnerContent(isCard, marker, c.label,
+    // c.title, c.subtitle) reads title/subtitle from EVERY ButtonAnswerGroup
+    // choice under the theme's card Answer-layout — the same fields
+    // MultiChoiceCardGroup already exposes below. Without these here the
+    // renderer supports content nobody can author. TwoButtonYesNo does NOT
+    // get this: it is a FIXED boolean pair with no choices array at all
+    // (choices_editor:'labels_only' in the §6.2 matrix) — its own
+    // buttonInnerContent call passes title/subtitle as undefined,undefined
+    // unconditionally, degrading to a title-only tscard from yesLabel/
+    // noLabel (presets.ts's own comment: "a natural, non-special-cased
+    // consequence of the SAME shared helper every layout uses").
+    ButtonAnswerGroup: ['label', 'value', 'analytics_id', 'title', 'subtitle'],
     DropdownQuestion: ['label', 'value', 'analytics_id'],
     SearchableDropdownQuestion: ['label', 'value', 'analytics_id'],
     MultiChoiceCardGroup: ['label', 'value', 'analytics_id', 'title', 'subtitle'],

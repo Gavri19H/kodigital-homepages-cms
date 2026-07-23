@@ -157,6 +157,23 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // preview iframe, not the running visitor engine) — engine-agnostic,
   // expected to run unmodified on both projects.
   'leadgen-rework-p4-themes.gesture.spec.ts',
+  // LeadGen Rework P3b slice S3b.2 (§8.2 RIGHT rail + §13-D5 relocation): the
+  // quote-rules rail/modal + the relocated four-type editor's live journeys.
+  // SAME cross-engine shape as p2-studio/p2a/p3a/p4b above: every action is
+  // plain click/fill/selectOption/select against a REAL served page (the
+  // rail's own mounted island + the auction editor's picker+CRUD island) — no
+  // dynamic *.e2e.test tenant host, engine-agnostic, expected to run
+  // unmodified on both projects.
+  'leadgen-rework-p3b-rules.gesture.spec.ts',
+  // LeadGen Rework P3b slice S3b.1 (§8.2 the funnel-builder BOARD): library-
+  // left/board-center/rules-rail-mount, the in-house mouse drag engine
+  // (library->page, chip reorder, page reorder), menu-equivalent a11y paths,
+  // funnel CRUD (add/duplicate/set-default/delete-guard/rename), the A/B
+  // badge jump, and the 1280/375 responsive screenshots. Main-document
+  // pointer streams (no srcdoc-canvas caveats, no dynamic *.e2e.test tenant
+  // host) — engine-agnostic, SAME cross-engine shape as the entries above,
+  // expected to run unmodified on both projects.
+  'leadgen-rework-p3b-board.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',

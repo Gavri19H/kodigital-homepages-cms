@@ -250,37 +250,58 @@ async function harness(): Promise<Harness> {
 // ===========================================================================
 
 describeDb("Quote Builder frame studio — §4.1 panels", () => {
-  it("renders the studio grid: structure panel, canvas mount, inspector column", async () => {
+  // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10): the ENTIRE §4.1 studio grid
+  // (structure panel / canvas mount / inspector column, `lg-studio` 260/1fr/320
+  // three-column layout) is REPLACED by the §8.2 board's OWN three-column
+  // anatomy (292px library / fluid board / 344px rules rail — a DIFFERENT
+  // right column with a DIFFERENT purpose). Replacement coverage:
+  // test/leadgen-rework-board.test.ts ("renders the 3-panel board shell") +
+  // test-ui/leadgen-rework-p3b-board.gesture.spec.ts.
+  it("renders the §8.2 board's 3-panel shell (library / board / rules rail) — the OLD studio grid is gone", async () => {
     const { html } = await harness();
-    expect(html).toContain('id="lg-frame-studio"');
-    expect(html).toContain('id="lg-structure-panel"');
-    expect(html).toContain('id="lg-canvas-toolbar"');
-    expect(html).toContain('id="lg-preview-iframe"');
-    expect(html).toContain('sandbox="allow-same-origin"');
-    expect(html).toContain('id="lg-inspector-column"');
-    expect(html).toContain('id="lg-inspector-hint"');
+    expect(html).not.toContain('id="lg-frame-studio"');
+    expect(html).not.toContain('id="lg-structure-panel"');
+    expect(html).not.toContain('id="lg-canvas-toolbar"');
+    expect(html).not.toContain('id="lg-preview-iframe"');
+    expect(html).not.toContain('id="lg-inspector-column"');
+    expect(html).toContain('class="lg-board-shell"');
+    expect(html).toContain('class="lg-board-left"');
+    expect(html).toContain("data-board");
+    expect(html).toContain('id="lg-qr-rail"');
   });
 
-  it("left structure panel: ordered slides (name/vertical/reorder/remove), add picker, REAL mapping dot (DEV-59), slide-vocabulary auction marker", async () => {
+  // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10): the OLD flat structure panel
+  // (id="lg-section-list"/"lg-add-section", data-select-slide/-move-up/-down/
+  // -remove-section) is REPLACED by the board's library + per-page section
+  // chips (data-sec-chip, with per-chip kebab {Move up, Move down, Remove} —
+  // the a11y menu-equivalent of the chip-reorder drag). The auction-entry SSR
+  // hint and the "Rules for this variant" goto-link are contract-silent
+  // GAPS/removals — see test/leadgen-quotes-ui.test.ts's own retirements for
+  // the detailed disposition of each (auction-entry hint = cosmetic-only gap;
+  // "Rules for this variant" link = §10-sanctioned removal, superseded by the
+  // §8.2 RIGHT rail). data-goto-tab="ab" no longer exists as a structure-panel
+  // link — the board's own A/B badge (data-ab-badge) is the replacement,
+  // proven by test-ui/leadgen-rework-p3b-board.gesture.spec.ts's "A/B badge
+  // navigates to the A/B tab".
+  it("§8.2 board: section chips (with menu-equivalent reorder) replace the old flat structure-panel rows", async () => {
     const { html } = await harness();
-    expect(html).toContain('id="lg-section-list"');
-    expect(html).toContain('id="lg-add-section"');
-    expect(html).toContain("data-select-slide");
-    expect(html).toContain("data-move-up");
-    expect(html).toContain("data-move-down");
-    expect(html).toContain("data-remove-section");
-    // DEV-59: the dot shows REAL per-section mapping status from the
-    // structure body — these sections have no linked Offers → "none", in
-    // operator words; the placeholder "unknown" state is GONE.
+    expect(html).not.toContain('id="lg-section-list"');
+    expect(html).not.toContain('id="lg-add-section"');
+    // NOTE: a bare "data-select-slide" substring check is NOT used here — the
+    // shared island still carries a dead el.getAttribute('data-select-slide')
+    // JS reference (P5 orphan-scan territory, unreachable since the row
+    // markup that carried this attribute is deleted), which would
+    // false-positive a bare substring check the same way data-move-up/-down
+    // did above.
+    expect(html).not.toContain('data-goto-tab="rules"');
+    expect(html).toContain("data-sec-chip");
+    expect(html).toContain('data-menu-action="chip-up"');
+    expect(html).toContain('data-menu-action="chip-down"');
+    expect(html).toContain("data-ab-badge");
+    // DEV-59: the dot still shows REAL per-section mapping status (now on the
+    // board's chips) — these sections have no linked Offers → "none".
     expect(html).not.toContain('data-mapping-status="unknown"');
     expect(html).toMatch(/lg-map-dot" data-mapping-status="none" title="No Offers selected yet"/);
-    // §2.4: "slide" is Quote-Builder vocabulary; the §15.3 max-position rule
-    // keeps exactly one marker.
-    expect(html).toContain("Auction runs after this slide");
-    expect((html.match(/data-auction-entry="1"/g) ?? []).length).toBe(1);
-    // A/B switcher + Rules link out of the structure panel
-    expect(html).toContain('data-goto-tab="ab"');
-    expect(html).toContain('data-goto-tab="rules"');
   });
 
   it("DEV-59: the mapping dot decodes the section's REAL Offer-mapping verdict (complete/incomplete/none) end-to-end from the DB aggregates", async () => {
@@ -320,13 +341,21 @@ describeDb("Quote Builder frame studio — §4.1 panels", () => {
     expect(sections.find((s) => s.section_id === s1.id)!.mapping_status).toBe("complete");
     expect(sections.find((s) => s.section_id === s2.id)!.mapping_status).toBe("incomplete");
 
-    // …and the SSR structure panel paints them (green/amber via the status
-    // attribute; titles in operator words)
+    // …and the §8.2 board paints them (green/amber via the status attribute;
+    // titles in operator words) on its per-page section CHIP. P3b follow-up
+    // FIX (not a retirement — the underlying data wiring IS correct,
+    // quotes-handlers.ts attachMappingStatusToPages): a section's public id
+    // now appears TWICE in the rendered page (once on the LEFT library card,
+    // which carries no mapping-status dot at all, and once on its board
+    // CHIP, which does) — data-section-public-id="X" alone is no longer a
+    // unique locator the way it was in the OLD flat structure panel, so this
+    // targets the chip specifically via its data-chip-scope="funnel" sibling
+    // attribute (renderSectionChip's exact attribute order).
     const page = await admin.request(`/admin/leadgen/quotes/${h.quotePublicId}/edit`, {}, h.env);
     const html = await page.text();
     const rowOf = (publicId: string): string => {
-      const at = html.indexOf(`data-section-public-id="${publicId}"`);
-      expect(at, `structure row for ${publicId}`).toBeGreaterThan(-1);
+      const at = html.indexOf(`data-chip-scope="funnel" data-section-public-id="${publicId}"`);
+      expect(at, `board chip for ${publicId}`).toBeGreaterThan(-1);
       return html.slice(at, html.indexOf("</div>", at));
     };
     expect(rowOf(s1.public_id)).toContain('data-mapping-status="complete" title="Offer mapping complete"');
@@ -350,9 +379,15 @@ describeDb("Quote Builder frame studio — §4.1 panels", () => {
     };
     expect(body2.funnels[0]!.variants[0]!.sections.find((s) => s.section_id === s1.id)!.mapping_status).toBe("incomplete");
 
-    // the add-picker options carry the tri-state for client-side adds (the
-    // island copies it onto the cloned row's dot — wiring below)
-    expect(html).toMatch(/<option value="\d+"[^>]*data-mapping-status="(complete|incomplete|none)"/);
+    // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10, contract-silent GAP): the
+    // OLD <select id="lg-add-section-select"> add-picker's per-<option>
+    // live mapping-status hint is gone — the board's own "+ section" add
+    // flow is a plain-list popover (openPopoverList, quotes-tabs/funnel.ts)
+    // with no mapping-status shown at add-time (the P0 pack's library card
+    // itself shows no mapping-dot either — only "in this funnel"/"in N
+    // funnels" badges). The core DEV-59 guarantee (one section, one color,
+    // both admin surfaces) is unaffected — proven above via the CHIP's OWN
+    // dot once a section is placed on a page.
     const island = html.match(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)!.join("\n");
     expect(island).toContain("opt.getAttribute('data-mapping-status')");
     expect(island).toContain("'Offer mapping complete'");
@@ -418,41 +453,44 @@ describeDb("Quote Builder frame studio — §4.1 panels", () => {
     expect(activate.status, await activate.clone().text()).toBe(200);
   });
 
-  it("canvas toolbar: template picker, theme button, 1280/375 toggle, current-slide/all-slides modes, stepper, site + variant mirrors", async () => {
+  // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10): "canvas + all controllers
+  // (Template/Theme/Desktop/Mobile/Current-slide/Step-through)" is EXPLICITLY
+  // named in the contract's REMOVED list — the entire canvas toolbar
+  // (viewport toggle, preview-mode toggle, stepper, site/variant mirrors) is
+  // gone with no replacement in the funnel-builder tab (the board has its own
+  // per-funnel Preview action instead — data-pin="8.2-preview", proven in
+  // test/leadgen-quotes-ui.test.ts + the gesture spec).
+  it("the OLD canvas toolbar is gone (§8.2/§10: canvas + ALL controllers explicitly removed)", async () => {
     const { html } = await harness();
-    expect(html).toContain('id="lg-template-btn"');
-    expect(html).toContain('id="lg-theme-btn"');
-    expect(html).toContain('data-viewport-btn="desktop"');
-    expect(html).toContain('data-viewport-btn="mobile"');
-    expect(html).toContain("Desktop 1280");
-    expect(html).toContain("Mobile 375");
-    expect(html).toContain('data-preview-mode-btn="section"');
-    expect(html).toContain('data-preview-mode-btn="all"');
-    expect(html).toContain("Current slide");
-    expect(html).toContain("Step through all slides");
-    expect(html).toContain('id="lg-step-prev"');
-    expect(html).toContain('id="lg-step-next"');
-    expect(html).toContain('id="lg-canvas-site-select"');
-    expect(html).toContain('id="lg-canvas-variant-select"');
+    expect(html).not.toContain('id="lg-canvas-toolbar"');
+    expect(html).not.toContain('id="lg-template-btn"');
+    expect(html).not.toContain('id="lg-theme-btn"');
+    expect(html).not.toContain('data-viewport-btn="desktop"');
+    expect(html).not.toContain('id="lg-canvas-site-select"');
+    expect(html).not.toContain('id="lg-canvas-variant-select"');
   });
 
-  it("template picker: one thumbnail card per registry template + the C5 confirm dialog shell", async () => {
+  // LEADGEN-REWORK-03 P3b RETIREMENT (§10 explicit): "canvas template picker"
+  // is named VERBATIM in the removal inventory. M5's SAVED templates
+  // (leadgen_frame_templates) replace the old hardcoded 6-arrangement
+  // registry this test pinned; the board's own per-funnel template pickchip
+  // (data-template-picker) opens a popover of the quote's SAVED templates —
+  // a different control entirely, proven by the board gesture spec (no
+  // dedicated SSR test needed: the popover is populated client-side from the
+  // #lg-board-data blob, not server-rendered per-template markup).
+  it("the OLD canvas-embedded template picker is gone (§10: 'canvas template picker' explicitly removed)", async () => {
     const { html } = await harness();
-    for (const id of ["centered", "header-footer", "header-cta", "full-background", "white-trust", "minimal"]) {
-      expect(html, `template card ${id}`).toContain(`data-template-pick="${id}"`);
-      expect(html, `template thumb ${id}`).toContain(`data-template-thumb="${id}"`);
-    }
-    expect(html).toContain('id="lg-template-confirm"');
-    expect(html).toContain('id="lg-template-apply"');
-    expect(html).toContain('id="lg-template-cancel"');
+    expect(html).not.toContain('id="lg-template-picker"');
+    expect(html).not.toContain('data-template-pick="centered"');
+    expect(html).not.toContain('id="lg-template-confirm"');
   });
 
-  it("section-slot interior banner: exact §4.1 copy + Open Section affordance", async () => {
+  // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10): the slot-interior banner was
+  // canvas-only chrome (the click-to-select region model no longer exists
+  // without the canvas) — gone with the canvas.
+  it("the OLD section-slot interior banner is gone (canvas-only chrome, §8.2/§10)", async () => {
     const { html } = await harness();
-    expect(html).toContain('id="lg-slot-banner"');
-    expect(html).toContain("This area is the Section&#8217;s question unit &#8212; edit it in the Section Builder");
-    expect(html).toContain('id="lg-slot-banner-open"');
-    expect(html).toContain(">Open Section</a>");
+    expect(html).not.toContain('id="lg-slot-banner"');
   });
 
   it("E4: the island's click-walk resolves a no-region canvas click to `background` (the served layer is pointer-events:none behind #lg-funnel-root and can never be the click target)", async () => {
@@ -508,133 +546,130 @@ describeDb("Quote Builder frame studio — §4.1 panels", () => {
 // §4.4 — region inspectors, control-by-control (spot asserts)
 // ===========================================================================
 
-describeDb("Quote Builder frame studio — §4.4 region inspectors", () => {
-  it("renders one inspector shell per clickable region with the §7.1 scope header", async () => {
+describeDb("Quote Builder frame studio — §4.4 region inspectors [RETIRED: §8.2/§10; PARTIALLY replaced in Templates tab]", () => {
+  // LEADGEN-REWORK-03 P3b RETIREMENT — ALL NINE region-inspector SHELLS below
+  // (Header/Progress/Back/Disclosure/Footer/TrustStrip/BenefitBar/Background/
+  // SectionSlot + Compatibility) are gone from the funnel-builder tab.
+  // Disposition, verified precisely by CALL-SITE grep against
+  // quotes-tabs/templates.ts (frameSelect/frameCheck/mediaPickerControl/
+  // renderRoleStrip/renderFrameList argument literals — NOT a rendered-
+  // attribute-text grep, which under-counts since these are constructed via
+  // shared helper functions):
+  //   (1) STRUCTURALLY SANCTIONED by §8.2/§10: the funnel-builder tab's right
+  //       column is REPURPOSED from "region-settings editor" to "routing
+  //       rules" (§8.2 RIGHT) — the click-a-canvas-region-to-edit-it model
+  //       this whole panel family depended on cannot exist without the canvas
+  //       ("canvas + ALL controllers", §10, explicitly removed).
+  //   (2) REPLACEMENT STATUS IN THE TEMPLATES TAB (§8.3), VERIFIED PER GROUP
+  //       (grep -oE '"(header|progress|back|disclosure|footer|trust_strip|
+  //       benefit_bar|background|section_slot|compat)\.[a-z_.]*"'
+  //       quotes-tabs/templates.ts):
+  //         Background — FULLY landed: role/image_media_id/style all present
+  //           (asserted as a PRESENT replacement below, not a gap).
+  //         Header — PARTIALLY landed: logo_source/logo_size/logo_align
+  //           present; enabled/tagline/secure_badge.*/cta.*/disclosure_link/
+  //           sticky/logo_media_id have NO current surface anywhere.
+  //         Footer / Disclosure — a DIFFERENT, redesigned shape is present
+  //           (footer.blocks/palette_scope.*/typography_scope.size;
+  //           disclosure.entries) — the OLD flat keys this test pinned
+  //           (footer.enabled/show_on/links_source; disclosure.enabled/
+  //           location/link_label/text) are genuinely gone (not merely
+  //           renamed 1:1), so their absence-check stands.
+  //         Progress / Back / TrustStrip / BenefitBar / SectionSlot /
+  //           Compatibility — ZERO presence anywhere; a REAL, program-level
+  //           gap (P4's "after P3a's split" sequencing has not reached these
+  //           groups yet). Flagged prominently in the phase report.
+  // Each test below is retained (not deleted) as a verified-absence OR
+  // verified-replacement guard so a future P4 landing has a precise,
+  // per-group starting point instead of a blanket "everything's missing."
+  it("the OLD per-region inspector shells are gone (§8.2/§10 structural — replacement status is per-group, see below)", async () => {
     const { html } = await harness();
     for (const region of ["header", "progress", "back", "disclosure", "footer", "trust_strip", "benefit_bar", "background", "section_slot"]) {
-      expect(html, `panel ${region}`).toContain(`data-region-panel="${region}"`);
+      expect(html, `panel ${region} absent`).not.toContain(`data-region-panel="${region}"`);
     }
-    // §7.1 scope-header pattern (frame-region example, verbatim shape)
-    // U15 operator-ordered clarity erratum (2026-07-15): the Quote-Builder
-    // frame-region heading "Funnel frame — X" -> "Funnel layout — X" (matching
-    // the Section Builder's renamed scope pill; the screen the studio's
-    // "Edit in Quote Builder ->" deep links land on).
-    expect(html).toContain("Editing: <strong>Funnel layout — Progress</strong>");
-    expect(html).toContain("Editing: <strong>Funnel layout — Footer</strong>");
-    expect(html).toMatch(/Editing: <strong>Funnel layout — [^<]+<\/strong>[^·]*· affects every slide of this funnel/);
   });
 
-  it("Header: on/off, logo source (site/CMS fallback), size, alignment, tagline, secure badge, call CTA (label+tel+href), disclosure link, sticky + Advanced-gated manual logo w/ warning", async () => {
+  it("Header: logo controls (source/size/align) are landed in the Templates tab; enabled/tagline/CTA/secure-badge/sticky/manual-logo are NOT (see describe-block citation)", async () => {
     const { html } = await harness();
-    for (const key of [
-      "header.enabled", "header.logo_source", "header.logo_size", "header.logo_align", "header.tagline",
-      "header.secure_badge.enabled", "header.secure_badge.text",
-      "header.cta.enabled", "header.cta.label", "header.cta.tel", "header.cta.href",
-      "header.disclosure_link", "header.sticky", "header.logo_media_id",
-    ]) {
-      expect(html, `header control ${key}`).toContain(`data-frame-key="${key}"`);
+    // still-missing keys (verified absent everywhere)
+    for (const key of ["header.enabled", "header.cta.enabled", "header.logo_media_id"]) {
+      expect(html, `header control ${key} absent`).not.toContain(`data-frame-key="${key}"`);
     }
-    expect(html).toContain(">Site logo (auto)</option>");
-    expect(html).toContain(">CMS fallback</option>");
-    expect(html).toContain("data-manual-logo");
-    expect(html).toContain("Manual logo overrides site branding.");
+    // landed replacement (Templates tab, quotes-tabs/templates.ts frameSelect calls)
+    for (const key of ["header.logo_source", "header.logo_size", "header.logo_align"]) {
+      expect(html, `header control ${key} landed in Templates tab`).toContain(`data-frame-key="${key}"`);
+    }
   });
 
-  it("Progress: 5 visual style radios, position, thickness, width, color role swatches, show label + the automatic-count note", async () => {
+  it("Progress region-inspector controls have no current admin surface (see describe-block citation)", async () => {
     const { html } = await harness();
-    for (const style of ["hidden", "bar", "dots", "numbered", "percent"]) {
-      expect(html, `progress style ${style}`).toContain(`name="lg-progress-style" value="${style}"`);
-    }
+    expect(html).not.toContain('name="lg-progress-style" value="hidden"');
     for (const key of ["progress.position", "progress.thickness", "progress.width", "progress.show_label"]) {
-      expect(html, `progress control ${key}`).toContain(`data-frame-key="${key}"`);
+      expect(html, `progress control ${key} absent`).not.toContain(`data-frame-key="${key}"`);
     }
-    expect(html).toContain('data-role-strip="progress.color_role"');
-    expect(html).toContain("Progress counts the slides of this funnel variant automatically.");
   });
 
-  it("Back: style, position, label + the first-slide note", async () => {
+  it("Back region-inspector controls have no current admin surface (see describe-block citation)", async () => {
     const { html } = await harness();
     for (const key of ["back.style", "back.position", "back.label"]) {
-      expect(html, `back control ${key}`).toContain(`data-frame-key="${key}"`);
+      expect(html, `back control ${key} absent`).not.toContain(`data-frame-key="${key}"`);
     }
-    expect(html).toContain("Hidden automatically on the first slide.");
   });
 
-  it("Disclosure: on/off, location, link label, panel textarea", async () => {
+  it("Disclosure region-inspector controls have no current admin surface (see describe-block citation)", async () => {
     const { html } = await harness();
     for (const key of ["disclosure.enabled", "disclosure.location", "disclosure.link_label", "disclosure.text"]) {
-      expect(html, `disclosure control ${key}`).toContain(`data-frame-key="${key}"`);
+      expect(html, `disclosure control ${key} absent`).not.toContain(`data-frame-key="${key}"`);
     }
   });
 
-  it("Footer: on/off, show-on, links source (site/manual), manual links editor, trust text, description, show logo, hide on mobile", async () => {
+  it("Footer region-inspector controls have no current admin surface (see describe-block citation)", async () => {
     const { html } = await harness();
-    for (const key of [
-      "footer.enabled", "footer.show_on", "footer.links_source",
-      "footer.trust_text", "footer.description", "footer.show_logo", "footer.hide_on_mobile",
-    ]) {
-      expect(html, `footer control ${key}`).toContain(`data-frame-key="${key}"`);
+    for (const key of ["footer.enabled", "footer.show_on", "footer.links_source"]) {
+      expect(html, `footer control ${key} absent`).not.toContain(`data-frame-key="${key}"`);
     }
-    expect(html).toContain('data-frame-list="footer.links"');
-    expect(html).toContain('data-add-list-row="footer.links"');
-    expect(html).toContain(">From site settings</option>");
-    expect(html).toContain(">Manual list</option>");
+    expect(html).not.toContain('data-frame-list="footer.links"');
   });
 
-  it("Trust strip (C7 'funnel-wide'): on/off, source, logo rows w/ REQUIRED alt, placement, mobile behavior", async () => {
+  it("Trust-strip region-inspector controls have no current admin surface (see describe-block citation)", async () => {
     const { html } = await harness();
     for (const key of ["trust_strip.enabled", "trust_strip.source", "trust_strip.placement", "trust_strip.mobile"]) {
-      expect(html, `trust control ${key}`).toContain(`data-frame-key="${key}"`);
+      expect(html, `trust control ${key} absent`).not.toContain(`data-frame-key="${key}"`);
     }
-    expect(html).toContain('data-frame-list="trust_strip.logos"');
-    expect(html).toContain('data-list-field="alt"');
-    expect(html).toContain("Alt text (required)");
-    // C7: the trust-strip scope header carries the funnel-wide chip
-    expect(html).toMatch(/Funnel layout — Trust strip<\/strong><span class="lg-scope-chip">funnel-wide<\/span>/);
+    expect(html).not.toContain('data-frame-list="trust_strip.logos"');
   });
 
-  it("Benefit bar (C7 'funnel-wide'): on/off, item rows (icon+text), placement", async () => {
+  it("Benefit-bar region-inspector controls have no current admin surface (see describe-block citation)", async () => {
     const { html } = await harness();
     for (const key of ["benefit_bar.enabled", "benefit_bar.placement"]) {
-      expect(html, `benefit control ${key}`).toContain(`data-frame-key="${key}"`);
+      expect(html, `benefit control ${key} absent`).not.toContain(`data-frame-key="${key}"`);
     }
-    expect(html).toContain('data-frame-list="benefit_bar.items"');
-    expect(html).toContain('data-list-field="icon"');
-    expect(html).toMatch(/Funnel layout — Benefit bar<\/strong><span class="lg-scope-chip">funnel-wide<\/span>/);
+    expect(html).not.toContain('data-frame-list="benefit_bar.items"');
   });
 
-  it("Background: role swatches, optional image, flat/brand/gradient style", async () => {
+  // CORRECTION: Background is the ONE group FULLY landed in the Templates
+  // tab already (the contract's §10 text explicitly named ONLY "funnel-layout
+  // Background inspector" for removal — consistent with Background's
+  // replacement having landed in the SAME coordinated effort). This is a
+  // verified PRESENT-elsewhere proof, not a gap.
+  it("Background: role/image/style controls are FULLY landed in the Templates tab (§10's one explicitly-named region, not a gap)", async () => {
     const { html } = await harness();
     expect(html).toContain('data-role-strip="background.role"');
     expect(html).toContain('data-frame-key="background.image_media_id"');
     expect(html).toContain('data-frame-key="background.style"');
-    expect(html).toContain(">Brand gradient</option>");
   });
 
-  it("Section slot: max width, card/bare, padding, offset, allow-local-card, transition, Continue placement + style role + the button-mode note", async () => {
+  it("Section-slot region-inspector controls have no current admin surface (see describe-block citation)", async () => {
     const { html } = await harness();
-    for (const key of [
-      "section_slot.max_width", "section_slot.card", "section_slot.padding", "section_slot.offset_y",
-      "section_slot.allow_section_card", "section_slot.transition", "section_slot.continue_placement",
-    ]) {
-      expect(html, `slot control ${key}`).toContain(`data-frame-key="${key}"`);
+    for (const key of ["section_slot.max_width", "section_slot.card", "section_slot.continue_placement"]) {
+      expect(html, `slot control ${key} absent`).not.toContain(`data-frame-key="${key}"`);
     }
-    expect(html).toContain('data-role-strip="section_slot.continue_style_role"');
-    expect(html).toContain(">Inside the question unit</option>");
-    expect(html).toContain(">Below the question unit</option>");
-    expect(html).toContain("Continue is only shown when the current Section uses button mode.");
   });
 
-  it("Compatibility (C2): Advanced-collapsed group with the EXACT consequence sentence", async () => {
+  it("Compatibility (C2) region-inspector controls have no current admin surface (see describe-block citation)", async () => {
     const { html } = await harness();
-    expect(html).toContain("data-region-panel-compat");
-    expect(html).toContain('data-frame-key="compat.allow_section_chrome"');
-    expect(html).toContain("Allow slides to keep their own page chrome (legacy)");
-    expect(html).toContain(
-      "ON: publishing warns instead of blocking when slides contain their own header/progress/footer — the live page may show them twice.",
-    );
-    // it sits inside a collapsed Advanced disclosure (a <details class="lg-advanced">)
-    expect(html).toMatch(/<details class="lg-advanced" data-region-panel-compat>\s*<summary>Advanced<\/summary>/);
+    expect(html).not.toContain("data-region-panel-compat");
+    expect(html).not.toContain('data-frame-key="compat.allow_section_chrome"');
   });
 });
 
@@ -727,34 +762,48 @@ describeDb("Quote Builder frame studio — overrides, Rules mount, lint legs", (
     const html2 = await (
       await admin.request(`/admin/leadgen/quotes/${h.quotePublicId}/edit?variant=${forked.public_id}`, {}, h.env)
     ).text();
-    expect(html2).toContain('data-override-switch="progress"');
+    // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10 + P4 sequencing, same
+    // disposition as the §4.4 region-inspectors describe block above): the
+    // PROGRESS region's override switch (renderOverrideSwitch("progress",…),
+    // called from the now-deleted renderProgressInspector) has no current
+    // admin surface. The GENERIC "Same as funnel (default)"/"Override for
+    // this variant" copy and the switch mechanism itself are UNCHANGED and
+    // still verified below via the THEME group (themes.ts still calls
+    // renderOverrideSwitch("theme", …), untouched by this rebuild).
+    expect(html2).not.toContain('data-override-switch="progress"');
+    // theme override switch in the theme editor still renders (untouched)
+    expect(html2).toContain('data-override-switch="theme"');
     expect(html2).toContain("Same as funnel (default)");
     expect(html2).toContain("Override for this variant");
-    // theme override switch in the theme editor too (§4.5 palette overrides)
-    expect(html2).toContain('data-override-switch="theme"');
-    // the canvas override badge shell
-    expect(html2).toContain('id="lg-override-badge"');
-    // A/B tab lists the overridden group for the forked arm
+    // the canvas override badge shell is gone with the canvas (§8.2/§10)
+    expect(html2).not.toContain('id="lg-override-badge"');
+    // A/B tab's overridden-group label (ab.ts overriddenGroupLabels) reads
+    // frame_overrides_json DIRECTLY — set via the API PUT above, independent
+    // of any funnel-tab UI — so the ORIGINAL, stronger assertion still holds
+    // unchanged: ab.ts is untouched by this rebuild.
     expect(html2).toMatch(/data-arm-overrides="[^"]+">Funnel-layout overrides: Progress</);
   });
 
-  it("Rules tab: the B3 builder mount replaces the raw conditions textarea on the normal surface (textarea only behind Advanced)", async () => {
+  // LEADGEN-REWORK-03 M3/§13-D5 RETIREMENT: the LEGACY persistent B3
+  // condition-cluster builder mount (id="lg-rules-builder-root", a
+  // PERSISTENT always-in-DOM root the OLD renderRulesPanel embedded via
+  // renderRulesBuilderPanel) is gone — the §8.2 RIGHT rail's NEW rule modal
+  // (S3b.2, ui-rules-builder.ts renderQuoteRulesRail) mounts window.
+  // lgRulesBuilder DYNAMICALLY, scoped per-rule, only while its modal is
+  // open (no persistent root at all). RULES_BUILDER_SCRIPT (the
+  // window.lgRulesBuilder library itself) is STILL bundled — it is a
+  // documented REQUIRED dependency of the new rail's modal, per
+  // renderQuoteRulesRail's own doc comment. Replacement coverage:
+  // test/leadgen-rework-rules-ui.test.ts (S3b.2's own SSR/ES5 proofs) +
+  // test-ui/leadgen-rework-p3b-rules.gesture.spec.ts.
+  it("the OLD persistent B3 rules-builder mount is gone (M3/§13-D5: the §8.2 rail mounts it dynamically instead)", async () => {
     const { html } = await harness();
-    expect(html).toContain('id="lg-rules-builder-root"');
-    expect(html).toContain('id="lg-rules-builder-data"');
-    expect(html).toContain('data-target-input="lg-rule-conditions"');
-    // the old normal-surface label is gone
-    expect(html).not.toContain("Conditions JSON");
-    // every conditions TEXTAREA sits inside an Advanced <details> disclosure
-    // (the island's collectRules selector legitimately names the bare
-    // attribute — count rendered textareas, not attribute mentions)
-    const textareaCount = (html.match(/<textarea[^>]*data-rule-conditions/g) ?? []).length;
-    expect(textareaCount).toBeGreaterThan(0);
-    const advancedTextareas = html.match(/<details class="lg-advanced"><summary>Advanced[^<]*<\/summary>\s*<textarea[^>]*data-rule-conditions/g) ?? [];
-    expect(advancedTextareas.length).toBe(textareaCount);
+    expect(html).not.toContain('id="lg-rules-builder-root"');
+    expect(html).not.toContain('data-target-input="lg-rule-conditions"');
+    expect(html).toContain('id="lg-qr-rail"');
   });
 
-  it("JSON data blobs are `<`-escaped (quote data + rules-builder data)", async () => {
+  it("JSON data blobs are `<`-escaped (quote data + the §8.2 rail's data)", async () => {
     const h = await studioHarness();
     // hostile name flows into the quote blob
     const hostile = await admin.request(
@@ -765,7 +814,11 @@ describeDb("Quote Builder frame studio — overrides, Rules mount, lint legs", (
     expect(hostile.status).toBe(201);
     const hq = (await hostile.json()) as QuoteDetail;
     const html = await (await admin.request(`/admin/leadgen/quotes/${hq.public_id}/edit`, {}, h.env)).text();
-    for (const blobId of ["lg-quote-data", "lg-rules-builder-data"]) {
+    // P3b RETIREMENT: id="lg-rules-builder-data" was the OLD persistent B3
+    // mount's own blob (gone with it, see the test above); id="lg-qr-data"
+    // is the §8.2 rail's own JSON blob (renderQuoteRulesRail) — the SAME
+    // `<`-escaping guarantee, proven against its real replacement.
+    for (const blobId of ["lg-quote-data", "lg-qr-data"]) {
       const at = html.indexOf(`id="${blobId}"`);
       expect(at, `${blobId} present`).toBeGreaterThan(-1);
       const body = html.slice(html.indexOf(">", at) + 1, html.indexOf("</script>", at));
@@ -795,22 +848,26 @@ describeDb("Quote Builder frame studio — overrides, Rules mount, lint legs", (
 // ===========================================================================
 
 describeDb("Quote Builder studio — DEV-60 Phase C polish", () => {
-  it("(a) media fields are picker affordances, not raw text inputs: hidden carrier + Choose… + thumb + Clear (manual logo, background image, trust-logo rows)", async () => {
+  // LEADGEN-REWORK-03 P3b RETIREMENT + CORRECTION (§8.2/§10 + P4 sequencing,
+  // same disposition as the §4.4 region-inspectors describe block):
+  // header.logo_media_id (the MANUAL-logo override, distinct from the
+  // logo_source/size/align landed above) lived in the now-deleted Header
+  // inspector and has no current admin surface anywhere.
+  // background.image_media_id is NOT checked here — it IS present, via the
+  // Templates tab (see the "Background: … FULLY landed" test above).
+  // The bare data-list-field="media_id" attribute is ALSO NOT checked here:
+  // it is a GENERIC marker mediaFieldMarkup emits for EVERY media-kind list
+  // field, and templates.ts's OWN "Brand logos"/"Images" boxes use the
+  // IDENTICAL attribute for an unrelated feature (verified via grep) — so a
+  // bare substring check can't isolate "the trust-strip's copy" from "some
+  // other box's copy" one way or the other; asserting either presence or
+  // absence here would be a false claim. The shared media-picker MECHANISM
+  // itself (the modal, data-media-choose/-thumb/-clear affordance shell) is
+  // UNTOUCHED and still SSRs once — proven by the very next test ("the
+  // shared Media-library chooser SSRs once…", unaffected, still passing).
+  it("Header's manual-logo media-picker field has no current admin surface (see §4.4 describe-block citation)", async () => {
     const { html } = await harness();
-    // hidden carriers keep the exact save keys
-    expect(html).toContain('<input type="hidden" data-frame-key="header.logo_media_id"');
-    expect(html).toContain('<input type="hidden" data-frame-key="background.image_media_id"');
-    expect(html).toContain('<input type="hidden" data-list-field="media_id"');
-    // no bare text input remains for any media path
-    expect(html).not.toMatch(/<input class="form-input" data-frame-key="header\.logo_media_id"/);
-    expect(html).not.toMatch(/<input class="form-input" data-frame-key="background\.image_media_id"/);
-    expect(html).not.toMatch(/<input class="form-input" data-list-field="media_id"/);
-    // the affordance shell: field span + Choose… + thumb + Clear per field
-    expect((html.match(/data-media-field/g) ?? []).length).toBeGreaterThanOrEqual(3);
-    expect(html).toContain("data-media-choose");
-    expect(html).toContain("data-media-thumb");
-    expect(html).toContain("data-media-clear");
-    expect(html).toContain(">Choose&#8230;</button>");
+    expect(html).not.toContain('<input type="hidden" data-frame-key="header.logo_media_id"');
   });
 
   it("(a) the shared Media-library chooser SSRs once; the island reuses the EXISTING media endpoints (list + upload) — no new API surface", async () => {
@@ -825,19 +882,14 @@ describeDb("Quote Builder studio — DEV-60 Phase C polish", () => {
     expect(script).toContain("'/api/admin/media/upload'");
   });
 
-  it("(a) benefit-bar icon is a curated CLOSED dropdown — exactly the exported vocabulary, no free-text input", async () => {
+  // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10 + P4 sequencing): the
+  // benefit-bar icon dropdown lived INSIDE the now-deleted Benefit-bar region
+  // inspector (see the §4.4 describe-block citation above). BENEFIT_BAR_ICONS
+  // itself (the curated closed vocabulary) is UNCHANGED and still exported.
+  it("the OLD benefit-bar icon dropdown has no current admin surface (see §4.4 describe-block citation)", async () => {
     const { html } = await harness();
-    expect(html).toMatch(/<select class="form-select" data-list-field="icon"/);
-    expect(html).not.toMatch(/<input[^>]*data-list-field="icon"/);
-    const selectAt = html.indexOf('data-list-field="icon"');
-    expect(selectAt).toBeGreaterThan(-1);
-    const select = html.slice(html.lastIndexOf("<select", selectAt), html.indexOf("</select>", selectAt));
-    expect(select).toContain('<option value="" disabled>Choose an icon</option>');
-    const values = [...select.matchAll(/<option value="([^"]*)"/g)].map((m) => m[1]);
-    expect(values).toEqual(["", ...BENEFIT_BAR_ICONS.map((i) => i.value)]);
-    for (const icon of BENEFIT_BAR_ICONS) {
-      expect(select, `icon ${icon.label}`).toContain(`${icon.value} ${icon.label}</option>`);
-    }
+    expect(html).not.toMatch(/<select class="form-select" data-list-field="icon"/);
+    expect(BENEFIT_BAR_ICONS.length).toBeGreaterThan(0);
   });
 
   it("(b) quote-name inline edit: pencil affordance beside the title + editor controls; the island saves via the real rename PATCH", async () => {
@@ -853,17 +905,28 @@ describeDb("Quote Builder studio — DEV-60 Phase C polish", () => {
     expect(script).toContain("quote_name: name");
   });
 
-  it("(c) drag handles on Section rows (slides + template clone) with the ↑/↓ buttons INTACT as the keyboard path", async () => {
+  // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§9 DELIBERATE mechanism change,
+  // not a gap): the OLD structure panel's per-row native-HTML5-DnD drag
+  // handles (draggable="true" + dragstart/dragover/drop/dragend) are GONE
+  // along with the structure panel itself — replaced by the board's in-house
+  // MOUSE-EVENT drag engine (§9: "in-house engine over SortableJS", the SAME
+  // U13/studio pointer-drag pattern this rebuild reuses, NOT native HTML5
+  // DnD). The board's chip/page menus (data-menu-action="chip-up"/"chip-
+  // down"/"page-up"/"page-down") are the keyboard-accessible a11y path,
+  // proven by test/leadgen-rework-board.test.ts ("menus present…") + the
+  // gesture spec's real mouse-drag journeys.
+  it("the OLD native-HTML5-DnD drag handles are gone (§8.2/§9: replaced by the in-house mouse engine, not native DnD)", async () => {
     const { html } = await harness();
-    // 2 seeded slides + the SSR <template> clone row
-    expect((html.match(/data-drag-handle draggable="true"/g) ?? []).length).toBe(3);
-    expect(html).toContain("data-move-up");
-    expect(html).toContain("data-move-down");
-    const script = extractScripts(html).join("\n");
-    expect(script).toContain("'dragstart'");
-    expect(script).toContain("'dragover'");
-    expect(script).toContain("'drop'");
-    expect(script).toContain("'dragend'");
+    // NOTE: bare "data-move-up"/"data-move-down" substrings are NOT checked
+    // here — the shared island still carries dead
+    // el.hasAttribute('data-move-up') JS references (P5 orphan-scan territory,
+    // unreachable since the rendering that created those attributes is
+    // gone), which would false-positive a bare substring check. The rendered
+    // TAG form (renderSectionRow's own markup) is fully deleted, so there is
+    // no rendered form left to search for either way.
+    expect(html).not.toContain('data-drag-handle draggable="true"');
+    expect(html).toContain('data-menu-action="chip-up"');
+    expect(html).toContain('data-menu-action="chip-down"');
   });
 
   it("(d) §9.3 harmonies: every role edit offers base/wash/darker/lighter steps as LABELS (chips painted client-side; base writes the ROLE alias, derived steps route through the Advanced hex path)", async () => {
@@ -1136,15 +1199,19 @@ describeDb("Activation tab problems[] surfacing (14 §14.2, C2 LIVE)", () => {
 // media-query legs live in leadgen-quote-builder-seam.test.ts.
 // ===========================================================================
 
-describeDb("Quote Builder canvas mobile = real 375 iframe (DEV-66 routing)", () => {
-  it("the canvas is a REAL <iframe> (not inline injection) and the 1280/375 toggle SSRs beside it", async () => {
+// LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10): "canvas + ALL controllers
+// (Template/Theme/Desktop/Mobile/Current-slide/Step-through)" is the
+// contract's own verbatim removal text — the entire DEV-66 mobile-canvas
+// mechanism (the srcdoc iframe + its 1280/375 viewport toggle) is gone with
+// it. The board's OWN 1280/375 responsive proof is a DIFFERENT mechanism
+// (the admin page itself, not a canvas iframe) — pinned by
+// test-ui/leadgen-rework-p3b-board.gesture.spec.ts's "board renders library /
+// board / rules-mount + responsive screenshots (1280 & 375)" test (both
+// widths, no page-body horizontal scroll).
+describeDb("Quote Builder canvas mobile = real 375 iframe [RETIRED: §8.2/§10, canvas removed]", () => {
+  it("the OLD canvas iframe + viewport toggle are gone (§8.2/§10)", async () => {
     const { html } = await harness();
-    // one real iframe canvas — srcdoc-driven, same-origin (scripts inert)
-    expect(html).toMatch(/<iframe id="lg-preview-iframe"[^>]*sandbox="allow-same-origin"/);
-    // never an inline-injection mount for the composed page
-    expect(html).not.toContain('id="lg-preview-inline"');
-    // the toggle pair
-    expect(html).toContain('data-viewport-btn="mobile"');
-    expect(html).toContain("Mobile 375");
+    expect(html).not.toMatch(/<iframe id="lg-preview-iframe"/);
+    expect(html).not.toContain('data-viewport-btn="mobile"');
   });
 });

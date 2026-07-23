@@ -15,7 +15,7 @@
 // just test the code against itself); the expected bytes are the pre-split
 // fixtures on disk, captured once, before this phase touched ui-quotes.ts.
 
-import { describe, expect, it, beforeAll } from "vitest";
+import { describe, expect, it, beforeAll, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -216,6 +216,15 @@ const ID_RE = /\blg[a-z]{0,4}_[0-9A-Z]{26}\b/g;
 // JSON, matched). Normalized the same way as the ids: fixed placeholder, not
 // derived from either side, so a real future difference here still fails.
 const COMPUTED_AT_RE = /"computed_at":\d+/g;
+// P1 MAJOR fix (adversarial review): the two quotes-list-*.html fixtures
+// embed resolveTimeframe's rolling last-30-days window (data-analytics-from
+// / -to, ui-shared.ts's `new Date()` read AT REQUEST TIME — see the
+// durability proof below). Same third source of wall-clock non-determinism
+// as computed_at above (isolated to exactly these two attributes; direct
+// diff showed nothing else moves) — normalized the identical way: a fixed
+// placeholder, not derived from either side, so a real future difference
+// (e.g. the from/to pairing itself going wrong) still fails the comparison.
+const ANALYTICS_DATE_RE = /(data-analytics-(?:from|to))="[^"]*"/g;
 function normalizeIds(html: string): string {
   const seen = new Map<string, string>();
   return html
@@ -227,7 +236,8 @@ function normalizeIds(html: string): string {
       }
       return placeholder;
     })
-    .replace(COMPUTED_AT_RE, `"computed_at":0`);
+    .replace(COMPUTED_AT_RE, `"computed_at":0`)
+    .replace(ANALYTICS_DATE_RE, '$1="0000-00-00"');
 }
 
 function expectByteIdenticalModuloIds(actual: string, expected: string): void {
@@ -241,6 +251,33 @@ describeDb("P3a split parity — post-split render == pre-split captured fixture
     const { env } = newHarness();
     const html = await getHtml(env, "/admin/leadgen/quotes");
     expectByteIdenticalModuloIds(html, fixture("quotes-list-empty.html"));
+  });
+
+  // Durability proof for the ANALYTICS_DATE_RE normalizer above. resolveTimeframe
+  // (ui-shared.ts) calls `new Date()` INSIDE the function body, at request time —
+  // not a module-scope read — so faking the system clock around the SAME render
+  // call the other list-page tests make proves the gate survives indefinitely,
+  // not just today. Renders under a wall-clock date FAR past this fixture's
+  // capture day (2026-07-23) and still asserts byte-parity against the
+  // untouched, frozen fixture — proving the normalizer, not luck-of-the-day,
+  // is what keeps this gate green.
+  it("List page, empty state: parity survives a faked future wall-clock (rolling analytics window normalized, not luck-of-the-day)", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2027-03-15T12:00:00.000Z"));
+      const { env } = newHarness();
+      const html = await getHtml(env, "/admin/leadgen/quotes");
+      // Sanity: the faked clock actually took effect (else this test would
+      // vacuously pass without ever exercising the normalizer).
+      expect(html).toContain('data-analytics-to="2027-03-15"');
+      expect(html).toContain('data-analytics-from="2027-02-14"'); // 29 days back
+      expect(html).not.toContain('data-analytics-to="2026-07-23"');
+      // Yet still byte-identical (modulo ids/computed_at/analytics-dates) to
+      // the fixture captured on a DIFFERENT wall-clock day entirely.
+      expectByteIdenticalModuloIds(html, fixture("quotes-list-empty.html"));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("List page, one hostile-named quote seeded", async () => {

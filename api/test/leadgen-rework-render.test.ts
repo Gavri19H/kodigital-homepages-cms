@@ -29,7 +29,7 @@ import {
 import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { funnelChromeCss } from "../src/public/leadgen/designs/default-funnel/styles";
-import { resolveTokens } from "../src/public/leadgen/designs/theme";
+import { resolveTokens, validateTheme } from "../src/public/leadgen/designs/theme";
 import type { ThemeJson } from "../src/public/leadgen/designs/theme";
 import { effectiveFrame, FRAME_TEMPLATES, parseSavedFrameTemplateDefaults } from "../src/public/leadgen/designs/frames";
 import type { EffectiveFrameConfig } from "../src/public/leadgen/designs/frames";
@@ -1053,5 +1053,155 @@ describe("M5 follow-up — resolveEffectiveFrameOnly's saved_template_defaults f
     // case, distinct from "neither set at all" above).
     const funnelWins = resolveEffectiveFrameOnly({ ...richSource, saved_template_defaults: funnelDefaults });
     expect(funnelWins?.header.secure_badge.text).toBe("FUNNEL-LEVEL ROW");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §8.4 gap round (2026-07-23) — theme "Answer layout: Card" (Image23, P0
+// pack docs/leadgen/rework/design-pack/themes.html data-pin 8.4-title-
+// subtitle-card-*/8.4-mobile-title-subtitle-cards). ButtonAnswerGroup/
+// TwoButtonYesNo render full-width title+subtitle cards when the theme
+// resolves button_defaults.layout==="card"; every other theme (incl. no
+// theme, "grid", "list") is completely unaffected.
+// ---------------------------------------------------------------------------
+
+describe("§8.4 gap round — theme Answer-layout:'card' (Image23)", () => {
+  const CARD_THEME: ThemeJson = { button_defaults: { layout: "card" } };
+  type CardChoice = { label: string; value: string; analytics_id: string; title?: string; subtitle?: string };
+  const cardsNode = (choices: CardChoice[], props?: Record<string, unknown>): LeadgenComponentNode =>
+    ({
+      type: "ButtonAnswerGroup",
+      question_id: "q",
+      internal_field: "biz",
+      choices,
+      ...(props !== undefined ? { props } : {}),
+    }) as LeadgenComponentNode;
+
+  it("theme_json round-trips the save path: button_defaults.layout:'card' validates with ZERO error-severity problems", () => {
+    const { theme, problems } = validateTheme({ button_defaults: { layout: "card" } });
+    expect(theme).not.toBeNull();
+    expect(problems.filter((p) => p.severity === "error")).toEqual([]);
+    expect(theme?.button_defaults?.layout).toBe("card");
+  });
+
+  it("an unrecognized layout value is STILL rejected (the enum widened, not opened) — proves 'card' is a real, closed-set addition, not a validation bypass", () => {
+    const { theme, problems } = validateTheme({ button_defaults: { layout: "not-a-real-layout" } });
+    expect(theme).toBeNull();
+    expect(problems.some((p) => p.severity === "error")).toBe(true);
+  });
+
+  it("rendered anatomy — rest state: full-width tscard button with title+subtitle spans, container carries data-btn-layout=\"card\"", () => {
+    const design = effDesign(CARD_THEME);
+    const html = renderComponent(
+      cardsNode([
+        {
+          label: "Construction",
+          value: "construction",
+          analytics_id: "a1",
+          title: "Construction",
+          subtitle: "Contractors, Home Builders, Renovation Services",
+        },
+      ]),
+      design as never,
+    );
+    expect(html).toContain('data-btn-layout="card"');
+    expect(html).toContain('class="lg-btn lg-btn-answer lg-tscard"');
+    expect(html).toContain('<span class="lg-tscard-title">Construction</span>');
+    expect(html).toContain('<span class="lg-tscard-subtitle">Contractors, Home Builders, Renovation Services</span>');
+  });
+
+  it("fallback — a choice with NO title/subtitle authored renders title-only (label as title), never a blank/empty subtitle span", () => {
+    const design = effDesign(CARD_THEME);
+    const html = renderComponent(cardsNode([{ label: "Plain Label Only", value: "plain", analytics_id: "a1" }]), design as never);
+    expect(html).toContain('<span class="lg-tscard-title">Plain Label Only</span>');
+    expect(html).not.toContain("lg-tscard-subtitle");
+  });
+
+  it("fallback — TwoButtonYesNo (no title/subtitle fields at all on its fixed pair) ALSO renders title-only under card layout, using the yes/no labels as the title", () => {
+    const design = effDesign(CARD_THEME);
+    const node: LeadgenComponentNode = { type: "TwoButtonYesNo", question_id: "q_yn", internal_field: "insured" } as LeadgenComponentNode;
+    const html = renderComponent(node, design as never);
+    expect(html).toContain('<span class="lg-tscard-title">Yes</span>');
+    expect(html).toContain('<span class="lg-tscard-title">No</span>');
+    expect(html).not.toContain("lg-tscard-subtitle");
+  });
+
+  it('the "Other" trigger renders as a tscard too — title span + chevron, no subtitle span (the pack\'s own trailing-affordance anatomy)', () => {
+    const design = effDesign(CARD_THEME);
+    const node = cardsNode([{ label: "A", value: "a", analytics_id: "a1" }], {
+      other: { enabled: true, label: "Other", choices: [{ label: "X", value: "x", analytics_id: "ox" }] },
+    });
+    const html = renderComponent(node, design as never);
+    expect(html).toContain('class="lg-btn lg-btn-answer lg-tscard lg-other-trigger"');
+    expect(html).toMatch(/lg-other-trigger"[^>]*><span class="lg-tscard-title">Other<\/span><svg/);
+    expect(html).not.toContain("lg-tscard-subtitle");
+  });
+
+  it("CSS: the card layout emits the pack's rest/hover/error rules + mobile-375 shrink, and the container forces a single-column stack", () => {
+    const sheet = css(effDesign(CARD_THEME));
+    expect(sheet).toContain('.lg-answer-group[data-btn-layout="card"]{grid-template-columns:1fr');
+    expect(sheet).toContain(
+      '.lg-tscard{display:block;width:100%;text-align:left;border-radius:14px;padding:18px 20px',
+    );
+    expect(sheet).toMatch(/\.lg-tscard:hover\{border-color:[^;]+;background:[^}]+\}/);
+    expect(sheet).toContain('.lg-tscard[data-error="true"]');
+    expect(sheet).toContain(".lg-tscard.lg-other-trigger{display:flex");
+    // mobile-375 shrink (P0 pack data-pin 8.4-mobile-title-subtitle-cards) —
+    // fail-before this gap round: this block did not exist at all.
+    expect(sheet).toMatch(/@media \(max-width: 480px\)\{[\s\S]*\.lg-tscard\{padding:14px 16px\}/);
+    expect(sheet).toContain(".lg-tscard-title{font-size:14.5px}");
+    expect(sheet).toContain(".lg-tscard-subtitle{font-size:11px}");
+  });
+
+  it("§6.6 marker interplay — a card+mark theme renders the SAME .lg-check-hollow/.lg-check-badge pair every other layout uses (NOT a second marker mechanism), repositioned to the corner by a dedicated CSS rule", () => {
+    const design = effDesign({ button_defaults: { layout: "card", selected: "mark" } });
+    const html = renderComponent(
+      cardsNode([{ label: "Sedan", value: "sedan", analytics_id: "a1", title: "Sedan", subtitle: "4-door" }]),
+      design as never,
+    );
+    expect(html).toContain('data-card-select="mark"');
+    expect(html).toContain('<span class="lg-check-hollow" aria-hidden="true"></span>');
+    expect(html).toContain('<span class="lg-check-badge" aria-hidden="true">');
+    // the marker renders BEFORE the title span, inside the SAME tscard button.
+    expect(html).toMatch(/lg-check-badge"[^>]*>.*?<\/span><span class="lg-tscard-title">Sedan<\/span>/);
+    const sheet = css(design);
+    // repositioned to the pack's corner-badge placement, scoped to .lg-tscard
+    // — orthogonal to (never overrides) the existing show/hide toggle rules.
+    expect(sheet).toMatch(/\.lg-tscard \.lg-check-hollow, [^{]*\.lg-tscard \.lg-check-badge\{position:absolute;top:14px;right:16px\}/);
+  });
+
+  it("§6.6 marker interplay — wash-selected (default, no mark) subtitle darkens for readability; the CSS scopes this to a card WITHOUT a mark badge present, so it never fires on a mark-resolved card", () => {
+    const sheet = css(effDesign(CARD_THEME)); // no selected:'mark' authored -> wash is the resolved axis
+    expect(sheet).toMatch(/\.lg-tscard\.lg-selected:not\(:has\(\.lg-check-badge\)\) \.lg-tscard-subtitle/);
+    expect(sheet).toMatch(/:not\(:has\(\.lg-check-badge\)\) \.lg-tscard-subtitle[^{]*\{color:[^}]+\}$/m);
+  });
+
+  it("byte-identity — a theme WITHOUT layout:'card' (unauthored, 'grid', or 'list') never emits ANY tscard class/span/rule; the SAME node renders byte-identically to pre-gap-round output", () => {
+    const node = cardsNode([
+      {
+        label: "Construction",
+        value: "construction",
+        analytics_id: "a1",
+        title: "Construction",
+        subtitle: "Contractors, Home Builders, Renovation Services",
+      },
+    ]);
+    const unthemed = renderComponent(node, DESIGN);
+    const gridThemed = renderComponent(node, effDesign({ button_defaults: { layout: "grid" } }) as never);
+    const listThemed = renderComponent(node, effDesign({ button_defaults: { layout: "list" } }) as never);
+    for (const html of [unthemed, gridThemed, listThemed]) {
+      expect(html).not.toContain("lg-tscard");
+      expect(html).not.toContain('data-btn-layout="card"');
+      // the title/subtitle DATA is present on the choice but never rendered
+      // outside card layout — the choice's OWN label still renders bare,
+      // proving the fallback-to-label path never leaks a title/subtitle span.
+      expect(html).toContain(">Construction<");
+      expect(html).not.toContain("Contractors, Home Builders");
+    }
+    expect(gridThemed).toBe(unthemed); // 'grid' IS the pre-existing default -> byte-identical
+    const sheetUnthemed = css(DESIGN);
+    const sheetGrid = css(effDesign({ button_defaults: { layout: "grid" } }));
+    expect(sheetUnthemed).not.toContain("tscard");
+    expect(sheetGrid).not.toContain("tscard");
   });
 });

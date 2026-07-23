@@ -353,7 +353,17 @@ export type ThemeButtonCasing = (typeof THEME_BUTTON_CASINGS)[number];
 export const THEME_BUTTON_STYLES = ["fill", "outline", "soft"] as const;
 export type ThemeButtonStyle = (typeof THEME_BUTTON_STYLES)[number];
 
-export const THEME_BUTTON_LAYOUTS = ["grid", "list"] as const;
+// LeadGen Rework §8.4 gap round (2026-07-23): "card" is the NEW Answer-layout
+// value (Image23, P0 pack docs/leadgen/rework/design-pack/themes.html
+// data-pin 8.4-title-subtitle-card-* — the pack's own "Card as a new enum
+// value" note, owner-signed). Widening this ONE array is the WHOLE theme.ts
+// change: every consumer (readButtonStyle's own re-validation below,
+// safeRecordButtonStyle, and the theme_json `btn_layout` validator) is
+// already keyed generically off THEME_BUTTON_LAYOUTS membership, so "card"
+// round-trips the theme editor's save path (validation + the stash) with
+// zero additional wiring. Render (presets.ts) and CSS (styles.ts) are the
+// ONLY places that need a NEW branch for the new value.
+export const THEME_BUTTON_LAYOUTS = ["grid", "list", "card"] as const;
 export type ThemeButtonLayout = (typeof THEME_BUTTON_LAYOUTS)[number];
 
 export const THEME_BUTTON_SELECTED_STYLES = ["wash", "mark"] as const;
@@ -438,7 +448,7 @@ export interface ThemeButtonDefaults {
   // P6 (deliverable 3) — the button-style vocabulary (Images 38-40). All
   // OPTIONAL; each absent ⇒ its `default` member ⇒ byte-identical to pre-P6.
   fill?: ThemeButtonStyle; // fill (default) | outline | soft (Image 39)
-  layout?: ThemeButtonLayout; // grid (default) | list (Image 38)
+  layout?: ThemeButtonLayout; // grid (default) | list (Image 38) | card (Image23, §8.4)
   selected?: ThemeButtonSelectedStyle; // wash (default) | mark (Image 40)
 }
 
