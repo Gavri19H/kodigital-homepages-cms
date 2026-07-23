@@ -100,6 +100,26 @@ async function createOffer(request: APIRequestContext, name: string): Promise<Cr
   }), `offer schema ${name}`);
   return offer;
 }
+// P5 rework (LEADGEN-REWORK-03 §4.3): every quote now carries a mandatory
+// SHARED first page — activation 409s "activation.shared_page" until it
+// carries ≥1 section. Only P10DRAG and U14 (below) activate a quote onto a
+// live site in this file; seed the SAME trivial single-ContinueButton shared
+// page used across this phase's other live-funnel probes
+// (__p5a-frame.spec.ts's seedTrivialSharedPage/passSharedPage precedent).
+async function seedTrivialSharedPage(request: APIRequestContext, quotePublicId: string): Promise<void> {
+  const shared = await json<Created>(await request.post(`${LG_API}/sections`, {
+    data: {
+      section_name: `fx shared ${uniq}${Math.floor(Math.random() * 1000)}`,
+      activity: ACT, vertical: VERT, headline_text: 'Continue', continue_mode: 'button', status: 'active',
+      content_json: { components: [{ type: 'ContinueButton', question_id: 'shared_cont', props: { label: 'Continue' } }] },
+    },
+  }), 'fx shared page section');
+  await json(await request.post(`${LG_API}/quotes/${quotePublicId}/shared-page`, { data: { sections: [{ section_id: shared.id }] } }), 'fx shared page create');
+}
+async function passSharedPage(page: Page): Promise<void> {
+  await page.locator('[data-lg-continue]:visible').click();
+}
+
 const canvas = (page: Page) => page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render');
 const frameBody = (page: Page) => page.frameLocator('#lg-studio-canvas-frame').locator('body');
 const frame = (page: Page) => page.frameLocator('#lg-studio-canvas-frame');
@@ -528,13 +548,19 @@ test('P10DRAG a real slider drag on the LIVE funnel moves the value + fill AND r
       data: { auction_name: `R6 P10 Auction ${uniq}`, quote_id: quote.id, auction_type: 'dynamic', winner_logic: 'highest_bid', floor_type: 'percentage_of_max', floor_value: 10, multi_offer: 'enabled', banner_slots_count: 5, max_carriers_per_offer: 3, max_total_carriers: 10, timeout_ms: 2500, status: 'active' },
     }), 'p10 auction');
     await json(await page.request.put(`${LG_API}/variants/${variantId}`, { data: { auction_id: auction.id, sections: [{ section_id: section.id, position: 0 }] } }), 'p10 variant');
+    // The mandatory shared first page — must exist BEFORE activation or
+    // computeReworkActivationProblems blocks with activation.shared_page.
+    await seedTrivialSharedPage(page.request, quote.public_id);
     const slug = `r6-p10-${test.info().project.name}-${uniq}`;
     const act = await page.request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug } });
     if (!act.ok()) throw new Error(`p10 activation HTTP ${act.status()}: ${await act.text()}`);
 
-    // Live funnel — wait for the engine to hydrate (data-lg-ready=1).
+    // Live funnel — wait for the engine to hydrate (data-lg-ready=1), then
+    // click through the mandatory shared page (composed position 1 of 2) so
+    // the funnel's own slider section becomes the active/shown page.
     await page.goto(`http://${RT_HOST}:${PW_PORT}/lg/${slug}`, { waitUntil: 'load' });
     await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 15_000 });
+    await passSharedPage(page);
     const wrap = page.locator('.lg-range').first();
     const range = wrap.locator('input[type="range"]');
     const valueEl = wrap.locator('.lg-range-value');
@@ -603,16 +629,28 @@ test('R7 U14 — the LIVE funnel Continue pill is centered in the question card 
       data: { auction_name: `U14 Auction ${uniq}`, quote_id: quote.id, auction_type: 'dynamic', winner_logic: 'highest_bid', floor_type: 'percentage_of_max', floor_value: 10, multi_offer: 'enabled', banner_slots_count: 5, max_carriers_per_offer: 3, max_total_carriers: 10, timeout_ms: 2500, status: 'active' },
     }), 'u14 auction');
     await json(await page.request.put(`${LG_API}/variants/${variantId}`, { data: { auction_id: auction.id, sections: [{ section_id: section.id, position: 0 }] } }), 'u14 variant');
+    // The mandatory shared first page — must exist BEFORE activation or
+    // computeReworkActivationProblems blocks with activation.shared_page.
+    await seedTrivialSharedPage(page.request, quote.public_id);
     const slug = `u14-ctr-${test.info().project.name}-${uniq}`;
     const act = await page.request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug } });
     if (!act.ok()) throw new Error(`u14 activation HTTP ${act.status()}: ${await act.text()}`);
 
     await page.goto(`http://${RT_HOST}:${PW_PORT}/lg/${slug}`, { waitUntil: 'load' });
     await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 15_000 });
-    await expect(page.locator('.lg-continue').first(), 'the live Continue pill rendered').toBeVisible({ timeout: 8000 });
+    // Click through the mandatory shared page (composed position 1 of 2) so
+    // the funnel's own section becomes the active/shown page. `hidden`
+    // (serve.ts: every non-first composed <section data-lg-section> ships
+    // the boolean hidden attribute) leaves the shared page's OWN
+    // .lg-continue/.lg-question-card nodes in the DOM — a raw
+    // document.querySelector below would otherwise silently grab THAT
+    // (zero-rect) instance instead of the funnel's own, since it precedes it
+    // in DOM order.
+    await passSharedPage(page);
+    await expect(page.locator('.lg-continue:visible').first(), 'the live Continue pill rendered').toBeVisible({ timeout: 8000 });
     const geom = await page.evaluate(() => {
-      const btn = document.querySelector('.lg-continue');
-      const card = document.querySelector('.lg-question-card');
+      const btn = document.querySelector('[data-lg-section]:not([hidden]) .lg-continue');
+      const card = document.querySelector('[data-lg-section]:not([hidden]) .lg-question-card');
       if (!btn || !card) return { ok: false as const, hasBtn: !!btn, hasCard: !!card };
       const btnRect = btn.getBoundingClientRect();
       const cardRect = card.getBoundingClientRect();

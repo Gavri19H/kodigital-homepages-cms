@@ -268,15 +268,31 @@ test.describe("R3 effect matrix (firefox real input)", () => {
     ]);
     await boot(page, s);
 
-    // ButtonAnswerGroup: ONLY label / value / analytics_id cells (gated); labeled.
+    // ButtonAnswerGroup: label / value / analytics_id / title / subtitle cells
+    // (gated); labeled. §8.4 Card render axis (ui-section-studio.ts's
+    // CHOICE_FIELD_CONSUMPTION.ButtonAnswerGroup, own header comment): "the
+    // Card render axis: buttonInnerContent(isCard, marker, c.label, c.title,
+    // c.subtitle) reads title/subtitle from EVERY ButtonAnswerGroup choice
+    // under the theme's card Answer-layout ... Without these here the
+    // renderer supports content nobody can author" — title/subtitle were
+    // deliberately ADDED to BAG's gated field set (was label/value/
+    // analytics_id only pre-§8.4; a vitest set-equality pin,
+    // test/leadgen-r3a-choice-fields.test.ts, re-derives this list from
+    // presets.ts so future drift fails there, not here) — 5 cells is the
+    // CURRENT correct count, not a regression.
     await selectNode(page, "q_bag");
     await page.locator('[data-studio-inspector-tab="content"]').click();
     const bagRow = page.locator("[data-inspector-choices] [data-choice-row]").first();
-    await expect(bagRow.locator("[data-choice-cell]")).toHaveCount(3);
+    await expect(bagRow.locator("[data-choice-cell]")).toHaveCount(5);
     await expect(bagRow.locator('.lg-choice-cell-label', { hasText: "Label" })).toHaveCount(1);
     await expect(bagRow.locator('.lg-choice-cell-label', { hasText: "Saved value" })).toHaveCount(1);
     await expect(bagRow.locator('.lg-choice-cell-label', { hasText: "Analytics ID" })).toHaveCount(1);
-    // gated OUT: no emoji/icon/image cells for a plain button group
+    // exact-anchored: a plain "Title" substring match also hits "Subtitle".
+    await expect(bagRow.locator('.lg-choice-cell-label', { hasText: /^Title$/ })).toHaveCount(1);
+    await expect(bagRow.locator('.lg-choice-cell-label', { hasText: /^Subtitle$/ })).toHaveCount(1);
+    // gated OUT: no emoji/icon/image cells for a plain button group (icon/
+    // emoji/image remain card-grid-only — unaffected by the §8.4 title/
+    // subtitle addition, which is specific to the Card render axis).
     await expect(bagRow.locator('[data-choice-cell="emoji"]')).toHaveCount(0);
     await expect(bagRow.locator('[data-choice-icon-select]')).toHaveCount(0);
 

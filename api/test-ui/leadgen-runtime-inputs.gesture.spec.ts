@@ -41,6 +41,33 @@ async function json<T>(res: { ok(): boolean; status(): number; json(): Promise<u
   return (await res.json()) as T;
 }
 
+// P5 rework (LEADGEN-REWORK-03 §4.3): every quote now carries a mandatory
+// SHARED first page — activation 409s "activation.shared_page" until it
+// carries ≥1 section. Seed the SAME trivial single-ContinueButton shared
+// page used across this phase's other live-funnel probes
+// (__p5a-frame.spec.ts's seedTrivialSharedPage/passSharedPage precedent);
+// it becomes composed position 0, shifting s1/s2 to indices 1/2.
+async function seedTrivialSharedPage(request: APIRequestContext, quotePublicId: string): Promise<void> {
+  const shared = await json<{ id: number }>(
+    await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: `r1 shared ${Date.now()}${Math.floor(Math.random() * 1000)}`,
+        activity: "quote_funnel", vertical: "life", status: "active",
+        headline_text: "Continue", continue_mode: "button",
+        content_json: { components: [{ type: "ContinueButton", question_id: "shared_cont", props: { label: "Continue" } }] },
+      },
+    }),
+    "r1 shared page section create",
+  );
+  await json(
+    await request.post(`${LG_API}/quotes/${quotePublicId}/shared-page`, { data: { sections: [{ section_id: shared.id }] } }),
+    "r1 shared page create",
+  );
+}
+async function passSharedPage(page: Page): Promise<void> {
+  await page.locator("[data-lg-continue]:visible").click();
+}
+
 interface SeededInputsFunnel { host: string; slug: string; variantId: string; }
 
 // Seed a funnel with (s1) a TwoButtonYesNo DEFAULT section + (s2) a dropdown +
@@ -123,6 +150,10 @@ async function seedInputsFunnel(request: APIRequestContext): Promise<SeededInput
   await json(await request.put(`${LG_API}/auctions/${auction.id}/offers`, { data: { offers: [{ offer_placement_id: placement.id, static_order: 0 }] } }), "auction offers");
   await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { auction_id: auction.id, sections: [{ section_id: s1.id, position: 0 }, { section_id: s2.id, position: 1 }] } }), "variant");
 
+  // The mandatory shared first page — must exist BEFORE activation or
+  // computeReworkActivationProblems blocks with activation.shared_page.
+  await seedTrivialSharedPage(request, quote.public_id);
+
   const slug = `r1-inputs-${uniq}`;
   const act = await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug } });
   if (!act.ok()) throw new Error(`seed: activation blocked HTTP ${act.status()} — ${await act.text()}`);
@@ -159,6 +190,10 @@ function ofType(events: TrackedEvent[], type: string): TrackedEvent[] { return e
 async function gotoReady(page: Page): Promise<void> {
   await page.goto(shellUrl(), { waitUntil: "load" });
   await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 10_000 });
+  // Click through the mandatory shared page (composed position 0 of 3) so
+  // s1 (the TwoButtonYesNo default section) — now composed position 1 —
+  // becomes the active/shown page.
+  await passSharedPage(page);
 }
 function answers(page: Page): Promise<Record<string, unknown>> {
   return page.evaluate(() => (window as unknown as { __LG_ENGINE__?: { getAnswers(): Record<string, unknown> } }).__LG_ENGINE__?.getAnswers() ?? {});
@@ -167,22 +202,22 @@ function answers(page: Page): Promise<Record<string, unknown>> {
 test.describe("R1 Test C — real-input runtime answer integrity (firefox)", () => {
   test("E1-NEW-4: the TwoButtonYesNo default renders SELECTED on section entry (no click)", async ({ page }) => {
     await gotoReady(page);
-    const yes = sectionAt(page, 0).locator('[data-lg-choice="true"]');
+    const yes = sectionAt(page, 1).locator('[data-lg-choice="true"]');
     await expect(yes).toBeVisible();
     // The default_applied answer paints the button selected on entry.
     await expect(yes).toHaveClass(/lg-selected/);
     await expect(yes).toHaveAttribute("aria-pressed", "true");
-    await expect(sectionAt(page, 0).locator('[data-lg-choice="false"]')).not.toHaveClass(/lg-selected/);
+    await expect(sectionAt(page, 1).locator('[data-lg-choice="false"]')).not.toHaveClass(/lg-selected/);
   });
 
   test("E1-NEW-1: selecting a dropdown option RECORDS the answer + fires answer_change", async ({ page }) => {
     const events = await installTrackCapture(page);
     await gotoReady(page);
     // advance to s2 (real click on the default yes → auto_advance)
-    await sectionAt(page, 0).locator('[data-lg-choice="true"]').click();
-    await expect(sectionAt(page, 1)).toBeVisible();
+    await sectionAt(page, 1).locator('[data-lg-choice="true"]').click();
+    await expect(sectionAt(page, 2)).toBeVisible();
 
-    const select = sectionAt(page, 1).locator("select.lg-dropdown");
+    const select = sectionAt(page, 2).locator("select.lg-dropdown");
     await expect(select).toBeVisible();
     await select.selectOption("home"); // trusted native selection (real change)
 
@@ -196,10 +231,10 @@ test.describe("R1 Test C — real-input runtime answer integrity (firefox)", () 
 
   test("S2-3: a REAL page.mouse slider drag moves the visible value + fill AND records the value", async ({ page }) => {
     await gotoReady(page);
-    await sectionAt(page, 0).locator('[data-lg-choice="true"]').click();
-    await expect(sectionAt(page, 1)).toBeVisible();
+    await sectionAt(page, 1).locator('[data-lg-choice="true"]').click();
+    await expect(sectionAt(page, 2)).toBeVisible();
 
-    const wrap = sectionAt(page, 1).locator(".lg-range");
+    const wrap = sectionAt(page, 2).locator(".lg-range");
     const rangeInput = wrap.locator('input[type="range"]');
     await expect(rangeInput).toBeVisible();
 

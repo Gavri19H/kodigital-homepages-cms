@@ -371,6 +371,12 @@ test.describe("P5a — authorable frame elements v2 on the live funnel", () => {
     const wrap = img.locator(".lg-frame-image-wrap");
     const tip = wrap.locator(".lg-frame-image-tip");
     await expect(tip).toHaveText("Secured & verified");
+    // the passSharedPage() click above can leave the cursor resting over
+    // this image's hover-trigger area (page-position-dependent) — reset it
+    // to a neutral corner first so the CSS-only hover transition genuinely
+    // starts from 0, not mid-flight (reproduced live this phase: 0.0446…
+    // instead of "0" without this reset).
+    await page.mouse.move(0, 0);
     expect(await tip.evaluate((el) => getComputedStyle(el).opacity)).toBe("0");
     await wrap.hover();
     await expect.poll(async () => tip.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");

@@ -107,6 +107,43 @@ async function previewHtml(request: APIRequestContext, components: unknown[]): P
   return String(preview["html"] ?? preview["desktop"] ?? preview["mobile"] ?? "");
 }
 
+// P5 rework (LEADGEN-REWORK-03 §4.3): every quote now carries a mandatory
+// SHARED first page — activation 409s "activation.shared_page" until it
+// carries ≥1 section (computeReworkActivationProblems). AC-6 is the only
+// test in this file that activates a quote onto a live site; seed the SAME
+// trivial single-ContinueButton shared page used across this phase's other
+// live-funnel probes (__p5a-frame.spec.ts's seedTrivialSharedPage/
+// passSharedPage precedent) and click through it once hydrated so the
+// composed-page-1 shared page never masks the funnel's own section — AC-6's
+// invisibility proof (getComputedStyle/offsetParent on .lg-address-composite/
+// .lg-mqg-empty) must read the funnel's section while it is the ACTIVE
+// (shown) page, not merely display:none because a [hidden] ancestor (the
+// still-unpassed shared page) forces it — that would prove the wrong thing.
+async function seedTrivialSharedPage(request: APIRequestContext, quotePublicId: string, activity: string, vertical: string): Promise<void> {
+  const shared = await json<{ id: number; public_id: string }>(
+    await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: `P1b shared ${uniq}`,
+        activity,
+        vertical,
+        status: "active",
+        headline_text: "Continue",
+        continue_mode: "button",
+        content_json: { components: [{ type: "ContinueButton", question_id: "shared_cont", props: { label: "Continue" } }] },
+      },
+    }),
+    "p1b shared page section create",
+  );
+  await json(
+    await request.post(`${LG_API}/quotes/${quotePublicId}/shared-page`, { data: { sections: [{ section_id: shared.id }] } }),
+    "p1b shared page create",
+  );
+}
+async function passSharedPage(page: Page): Promise<void> {
+  await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 15_000 });
+  await page.locator("[data-lg-continue]:visible").click();
+}
+
 function canvas(page: Page) {
   return page.frameLocator("#lg-studio-canvas-frame").locator("#lg-studio-canvas-render");
 }
@@ -153,46 +190,67 @@ const CARD_GRID = {
 // AC-1 — the ghost is out of the answer track (A-9)
 // ---------------------------------------------------------------------------
 test.describe("P1b AC-1 — '+ Add choice' ghost out of the grid track", () => {
-  test("real cells fill the row as equal columns; the ghost is a full-width strip below (both families); live render has no ghost", async ({
+  test("real cells fill the row as equal columns; the ghost is a studio-only SIBLING row below — never a grid cell (both families); live render has no ghost", async ({
     page,
   }) => {
     const section = await createSection(page.request, `P1b ghost ${uniq}`, [BUTTON_GROUP, CARD_GRID]);
     await openEdit(page, section.public_id);
 
-    // The studio injects the ghosts on canvas render — wait for BOTH families.
-    await expect(canvas(page).locator(".lg-answer-group .studio-choice-ghost")).toBeVisible();
-    await expect(canvas(page).locator(".lg-card-grid .studio-choice-ghost")).toBeVisible();
+    // Product-fix round §6.1 ruling (post-dates this test): the "+ Add
+    // choice" ghost is now a studio-only SIBLING row
+    // (.studio-add-ghost-row[data-add-ghost-row="<question_id>"], containing
+    // a .studio-add-ghost-btn) inserted immediately AFTER the component's own
+    // root element — "never a grid cell, never inside the component's
+    // border" (ui-section-studio.ts's insertion-loop comment). The OLD
+    // .lg-answer-group/.lg-card-grid .studio-choice-ghost grid-cell locator
+    // this test used to key off is confirmed DEAD: grep shows the class is
+    // never assigned by the current injector anywhere (only a legacy CSS
+    // rule + a defensive stale-cleanup querySelectorAll entry survive it).
+    // Wait for BOTH families' ghost rows by their precise per-question keys.
+    await expect(canvas(page).locator('[data-add-ghost-row="b1"]')).toBeVisible();
+    await expect(canvas(page).locator('[data-add-ghost-row="g1"]')).toBeVisible();
+
+    // Structural proof — STRONGER than the retired grid-cell-width claim: the
+    // ghost is NEVER a descendant of the answer-group/card-grid it follows,
+    // so it is structurally impossible (by construction, not a width
+    // heuristic) for it to consume a grid track or distort cell geometry.
+    expect(
+      await canvas(page).locator(".lg-answer-group .studio-add-ghost-row").count(),
+      "the ghost row is never a descendant of the answer-group",
+    ).toBe(0);
+    expect(
+      await canvas(page).locator(".lg-card-grid .studio-add-ghost-row").count(),
+      "the ghost row is never a descendant of the card-grid",
+    ).toBe(0);
 
     // --- button group (2 equal-track cols): cells equal + same row; the two
-    //     cells FILL the 2-col row (no track consumed); ghost = full-width strip
-    //     below, spanning BOTH tracks (grid-column 1/-1), never a single cell ---
+    //     cells FILL the 2-col row — unaffected by the SIBLING ghost row ---
     const btnCells = await boxes(page, ".lg-answer-group .lg-btn-answer");
     const [btnGroup] = await boxes(page, ".lg-answer-group");
-    const [btnGhost] = await boxes(page, ".lg-answer-group .studio-choice-ghost");
+    const [btnGhostRow] = await boxes(page, '[data-add-ghost-row="b1"]');
     expect(btnCells.length, "2 real button cells").toBe(2);
     expect(Math.abs(btnCells[0].width - btnCells[1].width)).toBeLessThanOrEqual(2);
     expect(Math.abs(btnCells[0].y - btnCells[1].y)).toBeLessThanOrEqual(2);
     expect(btnCells[0].width + btnCells[1].width).toBeGreaterThan(btnGroup.width * 0.85);
-    expect(btnGhost.width).toBeGreaterThan(btnGroup.width * 0.85); // full row, not one track
-    expect(btnGhost.width).toBeGreaterThan(btnCells[0].width * 1.5); // spans > one cell
-    expect(btnGhost.y).toBeGreaterThan(btnCells[0].y + btnCells[0].height - 2); // below
+    // §6.1: "left-aligned under the box" — below the row, flush to the
+    // group's own left edge, never centered/full-width.
+    expect(btnGhostRow.y).toBeGreaterThan(btnCells[0].y + btnCells[0].height - 2); // below
+    expect(btnGhostRow.x, "left-aligned under the box, not centered/full-width").toBeLessThanOrEqual(btnGroup.x + 2);
 
-    // --- card grid (default 3 equal tracks; 2 cards occupy 2 tracks, unchanged
-    //     by the ghost): cards equal + same row; ghost = full-width strip below,
-    //     spanning ALL tracks — decisively WIDER than a single card (the old bug
-    //     made the ghost a peer 1-track card) ---
-    const cardCells = await boxes(page, ".lg-card-grid .lg-card:not(.studio-choice-ghost)");
+    // --- card grid (default 3 equal tracks; 2 cards occupy 2 tracks) —
+    //     unaffected by the SIBLING ghost row ---
+    const cardCells = await boxes(page, ".lg-card-grid .lg-card");
     const [cardGrid] = await boxes(page, ".lg-card-grid");
-    const [cardGhost] = await boxes(page, ".lg-card-grid .studio-choice-ghost");
+    const [cardGhostRow] = await boxes(page, '[data-add-ghost-row="g1"]');
     expect(cardCells.length, "2 real cards").toBe(2);
     expect(Math.abs(cardCells[0].width - cardCells[1].width)).toBeLessThanOrEqual(2);
     expect(Math.abs(cardCells[0].y - cardCells[1].y)).toBeLessThanOrEqual(2);
-    expect(cardGhost.width).toBeGreaterThan(cardGrid.width * 0.85); // spans the full grid
-    expect(cardGhost.width).toBeGreaterThan(cardCells[0].width * 1.5); // not a peer 1-track card
-    expect(cardGhost.y).toBeGreaterThan(cardCells[0].y + cardCells[0].height - 2); // below
+    expect(cardGhostRow.y).toBeGreaterThan(cardCells[0].y + cardCells[0].height - 2); // below
+    expect(cardGhostRow.x, "left-aligned under the grid, not centered/full-width").toBeLessThanOrEqual(cardGrid.x + 2);
 
-    // --- live render carries the SAME cells and NO ghost ---
+    // --- live render carries the SAME cells and NO ghost (studio-only) ---
     const live = await previewHtml(page.request, [BUTTON_GROUP, CARD_GRID]);
+    expect(live).not.toContain("studio-add-ghost-row");
     expect(live).not.toContain("studio-choice-ghost");
     expect((live.match(/lg-btn-answer/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((live.match(/class="lg-card"/g) ?? []).length).toBeGreaterThanOrEqual(2);
@@ -430,6 +488,11 @@ test.describe("P1b AC-6 — studio-only markup is truly invisible on the live /l
       }),
       "p1b live variant sections",
     );
+
+    // The mandatory shared first page — must exist BEFORE activation or
+    // computeReworkActivationProblems blocks with activation.shared_page.
+    await seedTrivialSharedPage(page.request, quote.public_id, "p1b_live_quote_funnel", "p1b_live");
+
     const slug = `p1b-live-${uniq}`;
     await json(
       await page.request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, {
@@ -447,6 +510,14 @@ test.describe("P1b AC-6 — studio-only markup is truly invisible on the live /l
     const root = page.locator("#lg-funnel-root");
     await expect(root).toBeVisible();
     expect(await root.evaluate((el) => el.classList.contains("lg-preview")), "live root has no .lg-preview").toBe(false);
+
+    // Click through the mandatory shared page (composed position 1 of 2) so
+    // the funnel's own section — carrying the Address composite + corrupted
+    // MQG — becomes the ACTIVE (shown) page. Reading the invisibility proof
+    // below while that section sits BEHIND the unpassed shared page ([hidden]
+    // ancestor) would prove the wrong thing (parent-hidden, not the specific
+    // scoped CSS rule this test targets).
+    await passSharedPage(page);
 
     // Both studio/preview-only elements are PRESENT in the live DOM (the
     // renderer emits them unconditionally) …
