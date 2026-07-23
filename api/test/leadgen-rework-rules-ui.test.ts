@@ -717,3 +717,68 @@ describeDb("P3b §13-D5 wiring round — real router + D1", () => {
     expect(Object.keys(body2.fields).length).toBeGreaterThan(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// P3b adversarial review finding P2-C — the composer's DB-row -> rail map
+// (ui-quotes.ts ~L923-937, feeding renderQuoteRulesRail) exercised through the
+// REAL editor route with a NON-EMPTY rail: seed 2+ routing rules via the real
+// POST /quotes/:id/routing-rules, GET the real /admin/leadgen/quotes/:id/edit
+// page, and assert the rail renders BOTH cards in priority order with correct
+// summaries — never asserted before through the real route (only an empty
+// rail was exercised there).
+// ---------------------------------------------------------------------------
+
+async function createRoutingRule(env: Env, quotePublicId: string, body: Record<string, unknown>): Promise<{ public_id: string }> {
+  const res = await admin.request(`${API}/quotes/${quotePublicId}/routing-rules`, jsonInit("POST", body), env);
+  expect(res.status, `create routing rule ${JSON.stringify(body)}`).toBe(201);
+  return (await res.json()) as { public_id: string };
+}
+
+describeDb("P3b quote-rules rail — SSR through the REAL editor route, non-empty (finding P2-C)", () => {
+  it("GET /admin/leadgen/quotes/:id/edit renders BOTH seeded rule cards, in priority order, with correct summaries", async () => {
+    const { env } = newHarness();
+    const quote = await createQuote(env, "Rail SSR Quote");
+
+    // seed 2 routing rules OUT OF priority order, so a naive unsorted render
+    // would fail this test — proves the composer's map preserves the rail's
+    // own priority-ascending contract, not just "both rows present somewhere."
+    await createRoutingRule(env, quote.public_id, {
+      rule_name: "Low priority number rule",
+      priority: 2,
+      conditions_json: { groups: [{ field: "device", op: "eq", value: "desktop" }] },
+      feed_name: "short",
+    });
+    await createRoutingRule(env, quote.public_id, {
+      rule_name: "High priority number rule",
+      priority: 8,
+      conditions_json: { groups: [{ field: "utm_source", op: "eq", value: "google" }] },
+      value_multiplier: 1.5,
+    });
+
+    const html = await getHtml(env, `/admin/leadgen/quotes/${quote.public_id}/edit`);
+    expect(html).toContain('id="lg-qr-rail"');
+    expect(html).toContain('data-pin="8.2-rules-table"');
+
+    // both names present
+    expect(html).toContain("Low priority number rule");
+    expect(html).toContain("High priority number rule");
+
+    // priority order: card order in the DOM matches priority ascending (2, 8),
+    // regardless of DB insertion order (rule 2 — "High priority number rule",
+    // priority 8 — was created SECOND but must render SECOND too since 2 < 8).
+    const lowIdx = html.indexOf("Low priority number rule");
+    const highIdx = html.indexOf("High priority number rule");
+    expect(lowIdx).toBeGreaterThan(-1);
+    expect(highIdx).toBeGreaterThan(-1);
+    expect(lowIdx, "priority 2 card must render BEFORE priority 8 card").toBeLessThan(highIdx);
+    const priorities = cardPriorities(html);
+    expect(priorities).toEqual(["2", "8"]);
+
+    // per-card condition + action summaries (the DB-row -> rail-row mapping,
+    // not just names) — device/utm_source labels + the feed/multiplier chips.
+    expect(html).toContain("Device is desktop");
+    expect(html).toContain("UTM Source is google");
+    expect(html).toContain("Feed short");
+    expect(html).toContain("×1.5");
+  });
+});

@@ -2,21 +2,32 @@
 // with REAL browser input (L-189) on the ACTUAL island (QUOTE_RULES_SCRIPT) +
 // the ACTUAL condition builder (RULES_BUILDER_SCRIPT / window.lgRulesBuilder).
 //
-// The rail renders behind an interface (quotes-tabs/funnel.ts, S3b.1, mounts it
-// at the board's 344px [data-rules-rail]). To PROVE the island's gestures for
-// THIS slice without coupling to that in-flight board, the spec builds the rail
-// with the real renderQuoteRulesRail() SSR, injects the two real island scripts
-// via setContent, and stands up an in-memory mock of the LANDED CRUD API
-// (GET/POST /quotes/:id/routing-rules, PATCH/DELETE + duplicate
-// /routing-rules/:rule_id). Every click/fill/select is real input; only the
-// D1-backed API is mocked (it is proven server-side by the quotes-handlers
-// suites). Runs on both configured engines.
+// TWO layers of proof, per the P3b adversarial review (finding P2-A):
+//   1. UI-BEHAVIOR tests (mock-backed, fast): the rail is built with the real
+//      renderQuoteRulesRail() SSR, the two real island scripts are injected via
+//      setContent, and an in-memory mock stands in for the CRUD API (GET/POST
+//      /quotes/:id/routing-rules, PATCH/DELETE + duplicate /routing-rules/
+//      :rule_id). Every click/fill/select is real input against the real
+//      islands — these prove modal/table BEHAVIOR (validation, live checkpoint,
+//      reordering, toggles) fast and deterministically. They do NOT by
+//      themselves prove browser<->server persistence (the mock echoes back
+//      whatever the island sends, so a bug that silently drops a field before
+//      the real POST would not be caught here).
+//   2. REAL round-trip journey (persistence proof): navigates to the REAL quote
+//      editor board page (the rail mounted for real, live API, live D1),
+//      creates a rule through the actual modal, RELOADS the page, and asserts
+//      the card still shows the SAME values — i.e. read back from the SERVER,
+//      not the client's in-memory state. This is the one that proves "the
+//      modal drives the REAL quote-rules CRUD" (§8.2).
+// Runs on both configured engines.
 //
-// Proves: create a rule with ALL FIVE actions -> saves -> row appears with its
-// plain-language sentence; edit -> checkpoint updates live as conditions change
-// (entry -> shared -> in-funnel -> unreachable A-6); duplicate; enable/disable;
-// delete; priority change reorders; A-11 on zero actions; the rail fits 1280
-// (no horizontal overflow) with 1280 + 375 screenshots.
+// Layer 1 proves: create a rule with ALL FIVE actions -> saves -> row appears
+// with its plain-language sentence; edit -> checkpoint updates live as
+// conditions change (entry -> shared -> in-funnel -> unreachable A-6);
+// duplicate; enable/disable; delete; priority change reorders; A-11 on zero
+// actions; the rail fits 1280 (no horizontal overflow) with 1280 + 375
+// screenshots. Layer 2 proves: name/priority/one condition/two actions
+// survive a full page reload (server-side truth).
 
 import { test, expect, type Page, type Route } from "@playwright/test";
 import { mkdirSync } from "node:fs";
@@ -181,7 +192,7 @@ async function setAction(page: Page, pin: string, on: boolean): Promise<void> {
   if (isOn !== on) await sw.click();
 }
 
-test.describe("P3b quote-rules rail — real-input gestures", () => {
+test.describe("P3b quote-rules rail — UI-behavior gestures (mock-backed CRUD; fast, deterministic modal/table behavior — persistence is proven separately below)", () => {
   test("create a rule with ALL FIVE actions → saves → row appears with its sentence", async ({ page }) => {
     const { store } = await mountRail(page, []);
     await expect(page.locator("[data-qr-card]")).toHaveCount(0);
@@ -330,6 +341,87 @@ test.describe("P3b quote-rules rail — real-input gestures", () => {
 
     await page.setViewportSize({ width: 375, height: 720 });
     await page.screenshot({ path: join(SHOT_DIR, "rail-375.png"), fullPage: true });
+  });
+});
+
+// ===========================================================================
+// P3b adversarial review finding P2-A — REAL round-trip persistence proof.
+// Navigates to the REAL quote editor board page (quotes-tabs/funnel.ts mounts
+// renderQuoteRulesRail/QUOTE_RULES_SCRIPT for real there — no setContent, no
+// page.route mock); the browser's fetch calls hit the LIVE
+// GET/POST/PATCH/DELETE /quotes/:id/routing-rules(+/:rule_id) endpoints
+// against the LIVE D1. Creates a rule (name, priority, one condition, two
+// actions) through the actual modal, then RELOADS the page — a fresh SSR from
+// the server, not client memory — and asserts the card renders the SAME
+// values. This is the persistence claim §8.2 requires; the mock-backed suite
+// above proves modal/table BEHAVIOR, not this.
+// ===========================================================================
+
+async function seedQuoteForRail(page: Page): Promise<{ quotePub: string; quoteName: string }> {
+  const uniq = Date.now() % 100000;
+  const quoteName = `Rail Round-Trip Quote ${uniq}`;
+  const quote = await page.request
+    .post("/api/admin/leadgen/quotes", { data: { quote_name: quoteName, activity: "quote_funnel", verticals: ["life"] } })
+    .then((r) => r.json() as Promise<{ id: number; public_id: string }>);
+  return { quotePub: quote.public_id, quoteName };
+}
+
+test.describe("P3b quote-rules rail — REAL round-trip persistence (finding P2-A)", () => {
+  test("create through the real modal -> reload -> the card renders the persisted, server-side values", async ({ page }) => {
+    const { quotePub } = await seedQuoteForRail(page);
+    await page.goto(`/admin/leadgen/quotes/${quotePub}/edit`);
+
+    const rail = page.locator("#lg-qr-rail");
+    await expect(rail).toBeVisible();
+    await expect(page.locator("[data-qr-card]")).toHaveCount(0);
+
+    // open + fill the REAL modal
+    await page.locator("[data-qr-new]").click();
+    await expect(page.locator("#lg-qr-modal")).toBeVisible();
+    await page.locator("[data-qr-modal-name]").fill("Live Round-Trip Rule");
+    await page.locator("[data-qr-modal-priority]").fill("3");
+
+    // one condition: Device is Desktop, via the REAL §21.4 condition builder
+    const condMount = page.locator("#lg-qr-cond-mount");
+    await condMount.getByRole("button", { name: "+ Add condition" }).click();
+    const fieldSel = condMount.locator(".lg-rb-field").first();
+    await expect(fieldSel).toHaveCount(1);
+    await fieldSel.selectOption("device");
+    await condMount.locator(".lg-rb-value").first().fill("desktop");
+
+    // two actions: Feed name + FB multiplier (no funnel/offer dependency needed)
+    const setActionOn = async (pin: string, on: boolean): Promise<void> => {
+      const row = page.locator(`[data-pin="${pin}"]`);
+      const sw = row.locator("[data-qr-action-toggle]");
+      const isOn = (await sw.getAttribute("aria-checked")) === "true";
+      if (isOn !== on) await sw.click();
+    };
+    await setActionOn("action-feed-name", true);
+    await page.locator("[data-qr-feed-name]").fill("long_pii");
+    await setActionOn("action-fb-multiplier", true);
+    await page.locator("[data-qr-multiplier]").fill("0.5");
+
+    await page.locator("[data-qr-save]").click();
+    await expect(page.locator("#lg-qr-modal")).toBeHidden();
+
+    // sanity: the client-side card reflects the save immediately
+    const cardBeforeReload = page.locator("[data-qr-card]");
+    await expect(cardBeforeReload).toHaveCount(1);
+    await expect(cardBeforeReload.locator("[data-qr-name]")).toHaveText("Live Round-Trip Rule");
+
+    // --- THE PERSISTENCE PROOF: reload discards all client state -------------
+    await page.reload();
+    await expect(page.locator("#lg-qr-rail")).toBeVisible();
+    const cardAfterReload = page.locator("[data-qr-card]");
+    await expect(cardAfterReload).toHaveCount(1);
+    await expect(cardAfterReload.locator("[data-qr-name]")).toHaveText("Live Round-Trip Rule");
+    await expect(cardAfterReload.locator("[data-qr-prio]")).toHaveText("3");
+    const condSumm = cardAfterReload.locator("[data-qr-cond-summ]");
+    await expect(condSumm).toContainText("Device");
+    await expect(condSumm).toContainText("desktop");
+    const actSumm = cardAfterReload.locator("[data-qr-act-summ]");
+    await expect(actSumm).toContainText("Feed long_pii");
+    await expect(actSumm).toContainText("×0.5");
   });
 });
 

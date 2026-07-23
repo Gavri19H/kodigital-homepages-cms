@@ -34,19 +34,32 @@ async function json<T>(res: { ok(): boolean; status(): number; json(): Promise<u
   return (await res.json()) as T;
 }
 
-async function createSection(request: APIRequestContext, name: string): Promise<{ id: number; public_id: string }> {
-  return json(
+// P2-B fix (adversarial review): a unique per-invocation name — the SAME
+// Date.now()+rand pattern seedQuote already uses below — so the default
+// BOTH-project Playwright invocation (chromium then firefox, ONE process, ONE
+// persisted wrangler-dev D1, no inter-project reset) never leaves two
+// identically-named sections sitting in the activity's GLOBAL library/popover
+// pickers. Callers that query those GLOBAL surfaces (the section-library
+// popover, unlike a quote's own funnel/shared column which is naturally
+// scoped to sections actually attached to IT) must locate by the returned
+// exact `name`, not the bare base label passed in — a substring `hasText`
+// match on the base label alone would still resolve multiple elements once a
+// same-labeled leftover from a prior/other-project run persists.
+async function createSection(request: APIRequestContext, name: string): Promise<{ id: number; public_id: string; name: string }> {
+  const uniqueName = `${name} ${Date.now()}${Math.floor(Math.random() * 1000)}`;
+  const section = await json<{ id: number; public_id: string }>(
     await request.post(`${LG_API}/sections`, {
       data: {
-        activity: "quote_funnel", vertical: "car", status: "active", section_name: name, headline_text: name,
+        activity: "quote_funnel", vertical: "car", status: "active", section_name: uniqueName, headline_text: uniqueName,
         content_json: JSON.stringify({ components: [
           { type: "TwoButtonYesNo", question_id: "q", question_key: "f", internal_field: "f", answer_type: "boolean", required: true },
           { type: "ContinueButton", question_id: "cont", props: { label: "Continue" } },
         ] }),
       },
     }),
-    `section (${name})`,
+    `section (${uniqueName})`,
   );
+  return { ...section, name: uniqueName };
 }
 
 interface Quote { public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>; }
@@ -127,11 +140,13 @@ test.describe("P3b Funnel-builder board — live journeys (§8.2)", () => {
     const pageCard = page.locator(".lg-col-funnel [data-page-card]").first();
     const libCard = page.locator(`[data-lib-card][data-section-public-id="${extra.public_id}"]`);
     await expect(libCard).toBeVisible();
-    await expect(pageCard.locator(".lg-sc-name", { hasText: "Vehicle Year" })).toHaveCount(0);
+    // exact generated name (not the bare "Vehicle Year" label) — safe even if
+    // a same-labeled leftover section persists from an earlier project's run.
+    await expect(pageCard.locator(".lg-sc-name", { hasText: extra.name })).toHaveCount(0);
 
     await dragCenterToCenter(page, libCard, pageCard);
     // island PUT /variants/:id -> reload; the chip is present after reload
-    await expect(page.locator(".lg-col-funnel [data-sec-chip] .lg-sc-name", { hasText: "Vehicle Year" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".lg-col-funnel [data-sec-chip] .lg-sc-name", { hasText: extra.name })).toBeVisible({ timeout: 20_000 });
   });
 
   test("＋ section menu path (a11y equivalent) adds a chip to the shared page", async ({ page }) => {
@@ -142,8 +157,13 @@ test.describe("P3b Funnel-builder board — live journeys (§8.2)", () => {
     await page.locator("[data-add-shared-section]").click();
     const picker = page.locator("[data-template-menu]");
     await expect(picker).toBeVisible();
-    await picker.locator(".lg-menu-item", { hasText: "ZIP Code" }).click();
-    await expect(page.locator('.lg-col-shared [data-sec-chip] .lg-sc-name', { hasText: "ZIP Code" })).toBeVisible({ timeout: 20_000 });
+    // exact generated name: this popover lists the GLOBAL activity/vertical
+    // section library (not scoped to this quote) — a bare "ZIP Code" substring
+    // match would resolve multiple elements once a same-labeled leftover
+    // section from an earlier/other-project run persists (the strict-mode
+    // violation this fix closes).
+    await picker.locator(".lg-menu-item", { hasText: s.name }).click();
+    await expect(page.locator('.lg-col-shared [data-sec-chip] .lg-sc-name', { hasText: s.name })).toBeVisible({ timeout: 20_000 });
   });
 
   test("+ Add funnel creates a new column", async ({ page }) => {
@@ -209,6 +229,42 @@ test.describe("P3b Funnel-builder board — live journeys (§8.2)", () => {
     // rejected: an inline hint shows and the chip did NOT move into the other funnel
     await expect(page.locator(".lg-board-inline-err")).toBeVisible({ timeout: 5_000 });
     await expect(page.locator(".lg-col-funnel").nth(1).locator("[data-sec-chip]")).toHaveCount(0);
+  });
+
+  // P3b adversarial-review finding (P2-D): §4.3-13 section uniqueness
+  // (Appendix A-4, verbatim) — a section id may appear at most once within a
+  // single funnel's plan. The board has NO client-side duplicate guard for a
+  // library->page drop (addSectionToFunnelPage pushes the slot unconditionally
+  // — see funnel.ts's onDragUp 'lib' branch); the server is the ONLY gate
+  // (quotes-handlers.ts variantSaveUniquenessErrors / A4_SECTION_DUP), and its
+  // 400 `fields` message is rendered inline via showInlineErr(firstFieldError).
+  // Dropping a library card for a section ALREADY on this funnel (even onto
+  // the SAME page it's already on) reaches the server and must render that
+  // EXACT verbatim message — proving the rejection round-trips through a real
+  // PUT, not merely that the server API returns it in isolation.
+  test("dropping a duplicate section onto its own funnel renders the server's A-4 message inline (no duplicate chip)", async ({ page }) => {
+    const dup = await createSection(apiCtx, "Dup Section");
+    const quote = await seedQuote(apiCtx);
+    await json(await apiCtx.put(`${LG_API}/variants/${quote.funnels[0]!.variants[0]!.public_id}`, {
+      data: { pages: [{ name: null, slots: [{ kind: "fixed", section_id: dup.public_id }] }] },
+    }), "seed page");
+    await openEditor(page, quote.public_id);
+
+    const libCard = page.locator(`[data-lib-card][data-section-public-id="${dup.public_id}"]`);
+    const pageCard = page.locator(".lg-col-funnel [data-page-card]").first();
+    await expect(libCard).toBeVisible();
+    await expect(pageCard.locator("[data-sec-chip]")).toHaveCount(1);
+
+    // Drop the SAME (already-in-this-funnel) library card onto its own page —
+    // the client sends the PUT unconditionally; the server's A-4 uniqueness
+    // check (§4.3-13) rejects it.
+    await dragCenterToCenter(page, libCard, pageCard);
+    const err = page.locator(".lg-board-inline-err");
+    await expect(err).toBeVisible({ timeout: 20_000 });
+    await expect(err).toContainText("is already in this funnel");
+    await expect(err).toContainText(dup.name);
+    // rejected: the page still shows exactly the ONE original chip, never two.
+    await expect(pageCard.locator("[data-sec-chip]")).toHaveCount(1);
   });
 
   // P3b relocation round (§8.2 CONDUCTOR RULING): the funnel column's kebab now

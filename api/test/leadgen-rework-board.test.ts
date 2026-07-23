@@ -406,3 +406,189 @@ describeDb("P3b Funnel settings relocation — kebab dialog (§8.2, conductor ru
     expect(after).toContain("data-sec-chip");
   });
 });
+
+// P3b adversarial-review finding (P2-D): slot-preservation proof for the
+// board's page-mutation save path (funnel.ts ~4004-4046 — slotToPut /
+// funnelPagesToPut / saveFunnel). saveFunnel ALWAYS full-replaces a variant's
+// `pages` from the board's CURRENT in-memory model on every mutating action
+// (add/reorder/remove a chip or page) — never a partial diff — so an A/B
+// slot's allocations and a ruled slot's per-condition cases + default must
+// round-trip through that full-replace with the SAME section pairing every
+// time, or a routine board edit would silently re-shuffle who sees what.
+//
+// The board blob (boardDataBlob) hands the ES5 island each slot's candidates
+// as an ORDERED array of PUBLIC section ids, alongside the RAW, numeric-
+// section-id-keyed `rules`/`allocations` JSON the DB stores untouched
+// (quotes-handlers.ts pageToApi). slotToPut recovers the public-id pairing by
+// POSITION: for an "ab" slot, candidate[k] <-> allocation[k]; for a "ruled"
+// slot, candidate[j] <-> the j-th distinct numeric id in "cases-in-order, then
+// default" (its own `order`/`seen` construction, mirrored by preparePages'
+// OWN `candidateIds` Set on save — case order then default — which is why
+// `ORDER BY fvs.id ASC` on read reproduces the same correspondence). This test
+// does not assume that invariant — it proves it, end to end, through the
+// real router.
+//
+// The real slotToPut/funnelPagesToPut are ES5 functions embedded inside a
+// template-literal string (QUOTE_EDITOR_SCRIPT) with no standalone export —
+// they cannot be executed outside a browser. This proof ports the algorithm
+// faithfully (byte-for-byte the same branching) and drives it through the
+// REAL PUT /variants/:id — the actual code under test is the SERVER'S
+// round-trip of whatever payload that algorithm produces, exercised via a
+// REAL board blob (producer) rather than a hand-built one.
+describeDb("P3b board page-mutation save — slot-preservation proof (funnel.ts saveFunnel/slotToPut, adversarial review)", () => {
+  interface BoardBlobSlot {
+    slot_id: number;
+    kind: string;
+    section_ids: string[];
+    allocations: { section_id: number; bp: number }[] | null;
+    rules: { cases: { conditions: { groups: { field: string; op: string; value: string }[] }; section_id: number }[]; default_section_id: number } | null;
+  }
+  interface BoardBlobFunnel {
+    public_id: string;
+    pages: { page_id: string; slots: BoardBlobSlot[] }[];
+  }
+  interface BoardBlob {
+    funnels: BoardBlobFunnel[];
+  }
+
+  function extractBoardBlob(html: string): BoardBlob {
+    const marker = 'id="lg-board-data">';
+    const start = html.indexOf(marker);
+    expect(start, "lg-board-data blob present in the SSR'd editor page").toBeGreaterThan(-1);
+    const jsonStart = start + marker.length;
+    const end = html.indexOf("</script>", jsonStart);
+    return JSON.parse(html.slice(jsonStart, end)) as BoardBlob;
+  }
+
+  // --- faithful port of funnel.ts's slotToPut/funnelPagesToPut (~4004-4031) --
+  function slotToPut(slot: BoardBlobSlot): Record<string, unknown> {
+    if (slot.kind === "ab" && slot.allocations) {
+      const allocs: { section_id: string; bp: number }[] = [];
+      for (let k = 0; k < slot.allocations.length; k++) {
+        allocs.push({ section_id: slot.section_ids[k]!, bp: slot.allocations[k]!.bp });
+      }
+      return { kind: "ab", allocations: allocs };
+    }
+    if (slot.kind === "ruled" && slot.rules) {
+      const cs = slot.rules.cases || [];
+      const order: number[] = [];
+      const seen: Record<number, 1> = {};
+      for (let i = 0; i < cs.length; i++) {
+        const sid = cs[i]!.section_id;
+        if (!seen[sid]) { seen[sid] = 1; order.push(sid); }
+      }
+      const def = slot.rules.default_section_id;
+      if (def !== null && def !== undefined && !seen[def]) order.push(def);
+      const map: Record<number, string> = {};
+      for (let j = 0; j < order.length; j++) map[order[j]!] = slot.section_ids[j]!;
+      const cases = cs.map((c) => ({ conditions: c.conditions, section_id: map[c.section_id]! }));
+      const out: Record<string, unknown> = { kind: "ruled", cases };
+      if (def !== null && def !== undefined) out.default_section_id = map[def];
+      return out;
+    }
+    return { kind: "fixed", section_id: slot.section_ids[0] };
+  }
+  function funnelPagesToPut(funnel: BoardBlobFunnel): Array<{ name: null; slots: Record<string, unknown>[] }> {
+    return (funnel.pages || []).map((p) => ({ name: null, slots: (p.slots || []).map(slotToPut) }));
+  }
+
+  it("an in-page A/B slot + a ruled slot survive a board full-replace save with correct index remap", async () => {
+    const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+    const env = buildEnv(d1FromSqlite(sdb));
+    const abX = seedSection(sdb, "AB Section X", "car");
+    const abY = seedSection(sdb, "AB Section Y", "car");
+    const ruledMobile = seedSection(sdb, "Ruled Mobile", "car");
+    const ruledDesktop = seedSection(sdb, "Ruled Desktop", "car");
+    const ruledDefault = seedSection(sdb, "Ruled Default", "car");
+
+    const cq = await admin.request(`${API}/quotes`, jsonInit("POST", { quote_name: "Slot Preservation", activity: "quote_funnel", verticals: ["car"] }), env);
+    expect(cq.status, `create quote: ${await cq.clone().text()}`).toBe(201);
+    const quote = (await cq.json()) as QuoteDetail;
+    const variant = quote.funnels[0]!.variants[0]!.public_id;
+
+    // Seed ONE page: an A/B slot (70/30 split) + a ruled slot (2 device cases
+    // + a default) — through the real PUT (the SAME "pages" replace-set the
+    // board's own saveFunnel uses).
+    const seed = await admin.request(
+      `${API}/variants/${variant}`,
+      jsonInit("PUT", {
+        pages: [
+          {
+            name: null,
+            slots: [
+              { kind: "ab", allocations: [{ section_id: abX.public_id, bp: 7000 }, { section_id: abY.public_id, bp: 3000 }] },
+              {
+                kind: "ruled",
+                cases: [
+                  { conditions: { groups: [{ field: "device", op: "eq", value: "mobile" }] }, section_id: ruledMobile.public_id },
+                  { conditions: { groups: [{ field: "device", op: "eq", value: "desktop" }] }, section_id: ruledDesktop.public_id },
+                ],
+                default_section_id: ruledDefault.public_id,
+              },
+            ],
+          },
+        ],
+      }),
+      env,
+    );
+    expect(seed.status, `seed pages: ${await seed.clone().text()}`).toBe(200);
+
+    // Read the REAL board blob — exactly what the ES5 island receives
+    // (producer -> consumer; not a hand-built structure).
+    const html1 = await (await admin.request(`/admin/leadgen/quotes/${quote.public_id}/edit`, {}, env)).text();
+    const blob1 = extractBoardBlob(html1);
+    const funnel1 = blob1.funnels[0]!;
+    const page1 = funnel1.pages[0]!;
+    const abSlot1 = page1.slots.find((s) => s.kind === "ab");
+    const ruledSlot1 = page1.slots.find((s) => s.kind === "ruled");
+    expect(abSlot1, "seeded A/B slot present in the board blob").toBeTruthy();
+    expect(ruledSlot1, "seeded ruled slot present in the board blob").toBeTruthy();
+
+    // Drive the board page-mutation save: build the PUT payload via the EXACT
+    // client remap algorithm from the real board-blob-shaped input.
+    const putBody = { pages: funnelPagesToPut(funnel1) };
+    type PutAbSlot = { kind: string; allocations: { section_id: string; bp: number }[] };
+    type PutRuledSlot = {
+      kind: string;
+      cases: { conditions: { groups: { field: string; op: string; value: string }[] }; section_id: string }[];
+      default_section_id: string;
+    };
+    const putSlots = putBody.pages[0]!.slots as Array<PutAbSlot | PutRuledSlot>;
+    const putAbSlot = putSlots.find((s) => s.kind === "ab") as PutAbSlot;
+    const putRuledSlot = putSlots.find((s) => s.kind === "ruled") as PutRuledSlot;
+
+    // Remap correctness (PRE-send): the client's index remap must recover the
+    // ORIGINAL public-id pairing from the raw numeric rules/allocations plus
+    // the candidate-order section_ids — the exact concern under review.
+    const abByPub = new Map(putAbSlot.allocations.map((a) => [a.section_id, a.bp]));
+    expect(abByPub.get(abX.public_id)).toBe(7000);
+    expect(abByPub.get(abY.public_id)).toBe(3000);
+    const mobileCase = putRuledSlot.cases.find((c) => c.conditions.groups[0]!.value === "mobile")!;
+    const desktopCase = putRuledSlot.cases.find((c) => c.conditions.groups[0]!.value === "desktop")!;
+    expect(mobileCase.section_id).toBe(ruledMobile.public_id);
+    expect(desktopCase.section_id).toBe(ruledDesktop.public_id);
+    expect(putRuledSlot.default_section_id).toBe(ruledDefault.public_id);
+
+    // Drive the save through the REAL router (funnel.ts saveFunnel's own PUT).
+    const resave = await admin.request(`${API}/variants/${variant}`, jsonInit("PUT", putBody), env);
+    expect(resave.status, `board page-mutation resave: ${await resave.clone().text()}`).toBe(200);
+
+    // Read back AGAIN (fresh SSR render -> fresh board blob) and assert both
+    // slots' allocations/rules SURVIVED the full-replace with the SAME
+    // section pairing — proving the round trip (blob -> client remap -> PUT
+    // -> DB -> blob) never silently swaps or misassigns a section.
+    const html2 = await (await admin.request(`/admin/leadgen/quotes/${quote.public_id}/edit`, {}, env)).text();
+    const blob2 = extractBoardBlob(html2);
+    const page2 = blob2.funnels[0]!.pages[0]!;
+    const abSlot2 = page2.slots.find((s) => s.kind === "ab")!;
+    const ruledSlot2 = page2.slots.find((s) => s.kind === "ruled")!;
+    const abByNumId = new Map(abSlot2.allocations!.map((a) => [a.section_id, a.bp]));
+    expect(abByNumId.get(abX.id)).toBe(7000);
+    expect(abByNumId.get(abY.id)).toBe(3000);
+    const mobileCase2 = ruledSlot2.rules!.cases.find((c) => c.conditions.groups[0]!.value === "mobile")!;
+    const desktopCase2 = ruledSlot2.rules!.cases.find((c) => c.conditions.groups[0]!.value === "desktop")!;
+    expect(mobileCase2.section_id).toBe(ruledMobile.id);
+    expect(desktopCase2.section_id).toBe(ruledDesktop.id);
+    expect(ruledSlot2.rules!.default_section_id).toBe(ruledDefault.id);
+  });
+});

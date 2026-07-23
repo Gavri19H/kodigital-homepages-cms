@@ -2371,21 +2371,22 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     if (disabled) { card.setAttribute('data-pin', '8.2-rule-disabled'); }
 
     var top = el('div', 'lg-qr-top');
-    top.appendChild(txt(el('span', 'lg-qr-prio'), rule.priority));
+    var prio = el('span', 'lg-qr-prio'); prio.setAttribute('data-qr-prio', ''); txt(prio, rule.priority); top.appendChild(prio);
     var nm = el('span', 'lg-qr-name'); nm.setAttribute('data-qr-name', ''); txt(nm, (rule.rule_name && rule.rule_name.replace(/^\\s+|\\s+$/g, '') !== '') ? rule.rule_name : '(unnamed rule)'); top.appendChild(nm);
-    var st = el('span', 'lg-qr-status ' + (disabled ? 'disabled' : 'active')); st.appendChild(el('span', 'lg-qr-dot')); st.appendChild(document.createTextNode(disabled ? 'Disabled' : 'Active')); top.appendChild(st);
+    var st = el('span', 'lg-qr-status ' + (disabled ? 'disabled' : 'active')); st.setAttribute('data-qr-status', ''); st.appendChild(el('span', 'lg-qr-dot')); st.appendChild(document.createTextNode(disabled ? 'Disabled' : 'Active')); top.appendChild(st);
     card.appendChild(top);
 
-    var ck = el('div', 'lg-qr-ckpt');
+    var ck = el('div', 'lg-qr-ckpt'); ck.setAttribute('data-qr-ckpt', '');
     var cki = el('span', 'lg-qr-ckico'); cki.setAttribute('aria-hidden', 'true'); txt(cki, '\\u25f7'); ck.appendChild(cki);
-    ck.appendChild(txt(el('span'), checkpointLabelOf(cp))); card.appendChild(ck);
+    var ckText = el('span'); ckText.setAttribute('data-qr-ckpt-text', ''); txt(ckText, checkpointLabelOf(cp));
+    ck.appendChild(ckText); card.appendChild(ck);
 
     card.appendChild(fieldBlock('Conditions \\u00b7 ' + matchWord(rule), conditionChips(rule), matchWord(rule) === 'any' ? 'or' : 'and', false));
     var acts = actionChips(rule);
     card.appendChild(fieldBlock('Actions', acts.length > 0 ? acts : ['No actions yet'], '', true));
 
     if (unreachable) {
-      var call = el('div', 'lg-qr-callout warn'); call.setAttribute('data-pin', 'A-6-inline');
+      var call = el('div', 'lg-qr-callout warn'); call.setAttribute('data-pin', 'A-6-inline'); call.setAttribute('role', 'note');
       var wi = el('span', 'lg-qr-warnico'); wi.setAttribute('aria-hidden', 'true'); txt(wi, '\\u26a0'); call.appendChild(wi);
       call.appendChild(txt(el('span'), 'This rule can never apply before a visitor enters a funnel that asks these questions.'));
       card.appendChild(call);
@@ -2395,7 +2396,7 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     foot.appendChild(footAct('\\u270e Edit', 'data-qr-edit'));
     foot.appendChild(footAct('\\u2398 Duplicate', 'data-qr-duplicate'));
     var tw = el('span', 'lg-qr-toggle-wrap');
-    var sw = el('span', 'lg-qr-swi' + (disabled ? '' : ' on')); sw.setAttribute('role', 'switch'); sw.setAttribute('tabindex', '0'); sw.setAttribute('aria-checked', disabled ? 'false' : 'true'); sw.setAttribute('data-qr-toggle', ''); sw.appendChild(el('span', 'lg-qr-knob')); tw.appendChild(sw); foot.appendChild(tw);
+    var sw = el('span', 'lg-qr-swi' + (disabled ? '' : ' on')); sw.setAttribute('role', 'switch'); sw.setAttribute('tabindex', '0'); sw.setAttribute('aria-checked', disabled ? 'false' : 'true'); sw.setAttribute('aria-label', 'Enabled'); sw.setAttribute('data-qr-toggle', ''); sw.appendChild(el('span', 'lg-qr-knob')); tw.appendChild(sw); foot.appendChild(tw);
     var del = el('span', 'lg-qr-act del'); del.setAttribute('role', 'button'); del.setAttribute('tabindex', '0'); del.setAttribute('data-qr-delete', ''); del.setAttribute('aria-label', 'Delete rule'); txt(del, '\\u2716'); foot.appendChild(del);
     card.appendChild(foot);
     return card;
