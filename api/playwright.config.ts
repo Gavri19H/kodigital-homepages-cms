@@ -148,6 +148,15 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // test (a), mirroring Item 9's own studio-vs-live pattern) — engine-
   // agnostic, expected to run unmodified on both projects.
   'leadgen-rework-p2-studio.gesture.spec.ts',
+  // LeadGen Rework P4 (LEADGEN-REWORK-03, slice S4.2): the §8.4 Themes tab
+  // live-canvas gate (canvas presence, ✓-in-selected re-render on a
+  // segmented-control click, theme-card switch, siteSettingsHref link). SAME
+  // cross-engine shape as p2-studio above: every action is plain click/
+  // navigate against the admin Themes-manager page (no drag, no dynamic
+  // *.e2e.test tenant host at all — the canvas is a static server-rendered
+  // preview iframe, not the running visitor engine) — engine-agnostic,
+  // expected to run unmodified on both projects.
+  'leadgen-rework-p4-themes.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',

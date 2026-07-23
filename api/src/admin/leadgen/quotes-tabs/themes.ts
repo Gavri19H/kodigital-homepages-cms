@@ -1,9 +1,33 @@
 // LeadGen admin UI — Quotes editor, THEMES tab module (LEADGEN-REWORK-03 §12
 // P3a mechanical split of ui-quotes.ts). The theme editor panel (09 §9.3
 // harmony steps + button/answer style axes) + the theme presets list.
-// P4 (Templates + Themes tabs, §8.3-8.4) owns this file next.
 // PURE MOVE from ui-quotes.ts — zero logic/behavior change (P3a phase gate:
 // test/leadgen-p3a-split-parity.test.ts asserts byte-identical SSR output).
+//
+// P4 S4.2 (§8.4) audit — deliberately UNCHANGED in this phase, comment-only:
+// Ground truth #11E pins the "swatch-only preview" this §8.4 rebuild
+// replaces to `ui-theme-manager.ts:39-46,568-655` (its OWN standalone page —
+// LEFT theme list / CENTER editor / RIGHT A-B panel, all at the SAME
+// 300/320 rails the P0 pack's 8.4-themes-tab-layout pins), NOT this file's
+// funnel-scoped override panel or its ALREADY-live mini-preview iframe
+// (`lg-theme-minipreview-frame`, wired in quotes-tabs/funnel.ts — a REAL,
+// debounced preview, just not this file's target). The §8.4 live canvas
+// (a REAL section through the REAL renderer, section-picker "shared first →
+// funnel first → A-9 fixture") is now built in ui-theme-manager.ts, which
+// THIS file's `renderThemePresetsPanel` already embeds full-bleed via its
+// existing `?embed=1` iframe — so the rebuilt canvas surfaces here without
+// any markup change to this file (which would otherwise break this file's
+// OWN P3a byte-identical pin above, entangled with the OTHER 5 tab panels'
+// shared `editor-full.html`/per-panel fixtures this same parity test also
+// covers). Two items are BLOCKED here for the same reason they are blocked
+// in ui-theme-manager.ts (see that file's own note): the NEW "Card" answer-
+// layout value needs `THEME_BUTTON_LAYOUTS`/`ThemeButtonLayout`
+// (../../public/leadgen/designs/theme.ts) widened plus a presets.ts/
+// styles.ts render branch — none of those three files are in this slice.
+// The existing Fill/Answer-layout(Grid/List)/Selected(Wash/Mark) axes below
+// (THEME_BUTTON_STYLES/THEME_BUTTON_LAYOUTS/THEME_BUTTON_SELECTED_STYLES)
+// and all other theme-v2 machinery (fonts/ramp/presets+delete/per-funnel/
+// A-B) are KEPT verbatim, per the phase's own "extend, never rebuild" scope.
 
 import { escapeHtml } from "../../templates/layout";
 import {

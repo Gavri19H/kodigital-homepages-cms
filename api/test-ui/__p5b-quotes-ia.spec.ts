@@ -434,7 +434,7 @@ test.describe("P5b — 10B admin leg: the builder/Templates preview resolves the
     await ctx.dispose();
   });
 
-  test("a site WITH a logo shows the real logo img; a logo-less site shows the no-logo hint", async ({ page }) => {
+  test("a site WITH a logo shows the real logo img; a logo-less site shows the A-8 fallback chip", async ({ page }) => {
     await openEditor(page, seed.quotePublicId);
 
     await page.locator("#lg-site-select").selectOption(seed.siteWithLogo.id);
@@ -446,13 +446,15 @@ test.describe("P5b — 10B admin leg: the builder/Templates preview resolves the
     );
     await page.screenshot({ path: `${SHOT_DIR}/preview-real-logo.png` });
 
-    // Round-4 P5a's admin-preview-only no-logo hint (frame.ts renderNoLogoHint,
-    // `[data-admin-preview-hint="1"]`) requires the composition call to pass
-    // `adminPreview: true` into renderQuoteFrame — see the P5b report's cited
-    // seam (quotes-handlers.ts renderComposedVariantPreview's renderBody).
+    // Rework §8.8 (P4 S4.2): REPAIRED — the admin-preview-only no-logo hint
+    // this used to check (frame.ts's OLD renderNoLogoHint,
+    // `[data-admin-preview-hint="1"]`) is retired, superseded by the
+    // ALWAYS-rendered (live+preview) honest placeholder chip — see frame.ts's
+    // renderLogoFallbackChip doc comment. The chip's own class proves the
+    // SAME "never a bare unexplained mark" guarantee, unconditionally.
     await page.locator("#lg-site-select").selectOption(seed.siteNoLogo.id);
-    const hint = canvas(page).locator('[data-admin-preview-hint="1"]');
-    await expect(hint).toBeVisible({ timeout: 20_000 });
+    const chip = canvas(page).locator(".lg-frame-logo-fallback");
+    await expect(chip).toBeVisible({ timeout: 20_000 });
     await page.screenshot({ path: `${SHOT_DIR}/preview-no-logo-hint.png` });
   });
 });

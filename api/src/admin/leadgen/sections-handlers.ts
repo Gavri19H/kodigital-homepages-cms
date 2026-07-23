@@ -1474,6 +1474,22 @@ type SectionPreviewFrameResult =
   | { kind: "invalid"; fields: FieldErrors }
   | { kind: "not_found" };
 
+// Rework §8.8 (follow-up round): the SAME real admin route quotes-handlers.ts's
+// own SITE_SETTINGS_LINK / activation-preflight fix_url already builds
+// (ui.ts's GET /admin/settings?site_id=<id> — the per-site settings editor,
+// verified by grep, not invented). Duplicated as a small local helper rather
+// than imported (this repo's own harness-duplication convention for a
+// one-line, self-contained string builder) — reads the RAW, not-yet-resolved
+// frame_context body param directly (no SectionPreviewFrame type widening
+// needed just to carry a site_id through one render call). Absent/malformed
+// frame_context or site_id -> null, never a fabricated href.
+function siteSettingsHrefFromFrameContext(rawFrameContext: unknown): string | null {
+  if (!isRecord(rawFrameContext)) return null;
+  const rawSiteId = rawFrameContext["site_id"];
+  if (typeof rawSiteId !== "string" || rawSiteId.trim() === "") return null;
+  return `/admin/settings?site_id=${encodeURIComponent(rawSiteId.trim())}`;
+}
+
 // Parse + resolve the §13.4 frame_context body param. `explicitDesignId` is
 // the request's own design_id (when sent it stays the layer-1 base in-frame —
 // "existing design_id honored"); otherwise the funnel's variant design drives
@@ -1916,6 +1932,18 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
             effectiveTokens: themeTokens ?? frame.composition.effectiveTokens,
             frame: frame.composition.frame,
             siteBranding: frame.branding,
+            // Rework §8.8 (follow-up round, conductor-granted): this whole
+            // endpoint (POST /api/admin/leadgen/sections/preview) is ONLY
+            // ever reached from admin-side code (the Section Studio canvas,
+            // the Themes-manager live canvas, the Templates canvas, the
+            // funnel-theme mini-preview) — never a live visitor path (that is
+            // serve.ts, a wholly separate module) — so it is unconditionally
+            // an admin preview leg. siteSettingsHref uses the SAME
+            // SITE_SETTINGS_LINK(siteId) pattern quotes-handlers.ts's own
+            // activation-preflight fix_url already establishes; null when no
+            // frame_context.site_id was supplied (never a fabricated href).
+            adminPreview: true,
+            siteSettingsHref: siteSettingsHrefFromFrameContext(body["frame_context"]),
             sectionsHtml,
             bannersMountHtml: LG_BANNERS_MOUNT_HTML,
             sectionCount: frame.sectionCount,

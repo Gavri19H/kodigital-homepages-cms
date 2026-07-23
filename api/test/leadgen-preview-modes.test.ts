@@ -23,6 +23,7 @@ import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
 import { renderComposedVariantPreview } from "../src/admin/leadgen/quotes-handlers";
+import { LOGO_FALLBACK_CHIP_TEXT } from "../src/public/leadgen/designs/frame";
 import type {
   LeadgenFunnelRow,
   LeadgenFunnelVariantRow,
@@ -488,16 +489,26 @@ describeDb("preview modes — POST /variants/:id/preview (13 §13.4)", () => {
     const oneBody = (await one.json()) as V25Preview;
     expect(oneBody.preview.html).toContain(SITE_LOGO_URL); // §10.2 logo leg
 
-    // site-2 has NO settings and NO activation — the §10.4 text-mark leg.
+    // site-2 has NO settings and NO activation — the §10.4 ladder floor.
+    // Rework §8.8 (#11A): REPAIRED (P4 S4.2) — this used to assert the bare
+    // hostname-as-text-mark leg; that bare-text rendering IS ground truth
+    // #11A's real defect (ONE audited baseline hex is not the point here —
+    // "'cc' is the site's name" on an actual page was). The fallback is now
+    // the honest A-8 chip whenever no logo resolves, regardless of which
+    // site_name/hostname the branding ladder would otherwise have shown.
     const two = await postPreview(fx, { mode: "section", site_id: "site-2" });
     expect(two.status).toBe(200);
     const twoBody = (await two.json()) as V25Preview;
-    expect(twoBody.preview.html).toContain("two.example.com");
+    expect(twoBody.preview.html).toContain(LOGO_FALLBACK_CHIP_TEXT);
+    expect(twoBody.preview.html).not.toContain("two.example.com</span>");
     expect(twoBody.preview.html).not.toContain(SITE_LOGO_URL);
 
-    // No site_id → the CMS fallback branding entry (ladder floor).
+    // No site_id → the CMS fallback branding entry (ladder floor) — SAME A-8
+    // chip, not the bare "Kodigital" CMS mark.
     const none = await postPreview(fx, { mode: "section" });
-    expect(((await none.json()) as V25Preview).preview.html).toContain("Kodigital");
+    const noneHtml = ((await none.json()) as V25Preview).preview.html;
+    expect(noneHtml).toContain(LOGO_FALLBACK_CHIP_TEXT);
+    expect(noneHtml).not.toContain(">Kodigital</span>");
 
     // Unknown site → 404 (the selector lists real CMS sites only).
     const missing = await postPreview(fx, { mode: "section", site_id: "site-nope" });

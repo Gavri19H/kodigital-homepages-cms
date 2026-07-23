@@ -4003,6 +4003,12 @@ export interface ComposedVariantPreviewInput {
   // defaults off). ONLY composedVariantPreviewResponse (the REAL admin
   // builder/Templates preview route) opts in.
   adminPreview?: boolean;
+  // Rework §8.8 (follow-up round, conductor-granted): the admin "Open Site
+  // settings" link frame.ts renders ONLY when adminPreview AND this are both
+  // set (never a guessed/fabricated href). Same pass-through discipline as
+  // adminPreview — absent/undefined for the byte-parity test caller, so its
+  // live-serve-identical contract is unaffected.
+  siteSettingsHref?: string | null;
 }
 
 export interface ComposedVariantPreview {
@@ -4190,6 +4196,7 @@ export function renderComposedVariantPreview(
       // hardcoded, so this function's OTHER caller (the byte-parity test)
       // keeps its live-serve-identical contract when it omits the flag.
       adminPreview: input.adminPreview === true,
+      siteSettingsHref: input.siteSettingsHref ?? null,
       sectionsHtml,
       bannersMountHtml: LG_BANNERS_MOUNT_HTML,
       sectionCount: input.sections.length,
@@ -4429,6 +4436,10 @@ async function composedVariantPreviewResponse(
   // data; previewing under a site's branding needs NO activation and creates
   // none. Unknown site → 404.
   let siteBranding: SiteBranding | null = null;
+  // Rework §8.8 (follow-up round): the SAME SITE_SETTINGS_LINK(siteId) helper
+  // this file's own activation-preflight "fix_url" already uses (below) — no
+  // new URL invented. Only ever set when a real site_id resolved.
+  let siteSettingsHref: string | null = null;
   if (typeof siteIdRaw === "string" && siteIdRaw.trim() !== "") {
     const siteId = siteIdRaw.trim();
     const site = await c.env.DB.prepare("SELECT id FROM sites WHERE id = ? LIMIT 1")
@@ -4436,6 +4447,7 @@ async function composedVariantPreviewResponse(
       .first<{ id: string }>();
     if (site === null) return c.json({ error: "Not Found" }, 404);
     siteBranding = await resolveSiteBranding(c.env.DB, siteId);
+    siteSettingsHref = SITE_SETTINGS_LINK(siteId);
   }
 
   // Ordered sections — §4.3-11 parity fix (conductor addendum round): the
@@ -4503,6 +4515,10 @@ async function composedVariantPreviewResponse(
     // builder/Templates preview route — the one caller that should show the
     // no-logo hint (see ComposedVariantPreviewInput.adminPreview's comment).
     adminPreview: true,
+    // Rework §8.8 (follow-up round): the previewed site's real Site-settings
+    // admin URL, when a site_id was given (null when none was — no fabricated
+    // href).
+    siteSettingsHref,
   });
   // With `mode` set the renderer never yields null (legacy funnels compose
   // through the pinned legacy shell) — this guard is type narrowing only.

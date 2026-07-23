@@ -1127,7 +1127,24 @@ describeDb("POST /sections/preview — frame_context (13 §13.4 unit-in-frame)",
       composition!.effectiveTokens.design,
       composition!.frame,
     );
-    const expectedBody = servedRoot.replace(servedSectionsHtml, soloSectionHtml);
+    // Rework §8.8 (follow-up round, conductor-granted): previewSectionHandler
+    // is UNCONDITIONALLY an admin preview leg (never a live visitor path —
+    // that is serve.ts, the SEPARATE call `served` above already made), so it
+    // now also passes adminPreview:true + a real siteSettingsHref (built from
+    // this test's OWN frame_context.site_id:"site-1") into renderQuoteFrame.
+    // frame.ts's renderLogoFallbackChip renders the "Open Site settings" link
+    // ONLY on that admin leg — servedRoot (the LIVE path) never gets it. This
+    // is the CONTRACT'S OWN "live serve passes nothing" distinction, not a
+    // parity bug: splice in the ONE known, deterministic admin-only fragment
+    // before comparing, so the assertion still proves byte-parity for
+    // EVERYTHING else.
+    const siteSettingsLink =
+      '<div class="lg-frame-logo-fallback-link" data-admin-preview-hint="1" style="text-align:center;margin-top:8px">' +
+      '<a href="/admin/settings?site_id=site-1" style="font-size:11.5px;font-weight:700;color:#1B3A5C;' +
+      'border-bottom:1px solid #9DBCDD;text-decoration:none">Open Site settings &rarr;</a></div>';
+    const expectedBodyLive = servedRoot.replace(servedSectionsHtml, soloSectionHtml);
+    expect(expectedBodyLive).not.toContain("lg-frame-logo-fallback-link"); // calibration: the live shell truly never carries it
+    const expectedBody = expectedBodyLive.replace('<div class="lg-frame-header-extras">', siteSettingsLink + '<div class="lg-frame-header-extras">');
     expect(body.preview.desktop).toBe(expectedBody);
     expect(body.preview.mobile).toBe(expectedBody); // composed body is viewport-invariant
 

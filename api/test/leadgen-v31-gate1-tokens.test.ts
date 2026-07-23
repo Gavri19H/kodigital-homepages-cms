@@ -605,7 +605,16 @@ describeDb("Gate 1b token audit — themes manager (leadgenThemeManagerPage, D1+
     const { status, html } = await getHtml(env, "/admin/leadgen/themes");
     expect(status).toBe(200);
 
-    const tmShellHtml = extractBalancedDivRegion(html, '<div class="tm-shell">');
+    // Rework §8.4 (P4 S4.2): the CENTER editor now renders a live canvas —
+    // a REAL section previewed through the REAL renderer inside a
+    // `srcdoc="…"` iframe. Its content is the SAME kind of funnel-design-
+    // token-scoped preview content as the STUDIO'S OWN canvas iframe
+    // (this file's header scoping decision #1, `stripCanvasSrcdoc` above,
+    // already established for `.tm-shell`'s sibling STUDIO_CHROME_HTML
+    // audit) — a SEPARATE, legitimate namespace resolved from the theme
+    // BEING PREVIEWED, not admin chrome, so it is stripped here the exact
+    // same way before the off-palette scan, never widening the allowlist.
+    const tmShellHtml = stripCanvasSrcdoc(extractBalancedDivRegion(html, '<div class="tm-shell">'));
     const authoredRoleHexes = [fx.navy, fx.bold, fx.minimal].flatMap((t) => Object.values(t.roles));
     const offenders = hexesNotIn(tmShellHtml, [...authoredRoleHexes, ...extractHexes(GOLDEN_HTML)]);
     expect(offenders, `off-palette / unaccounted hex(es) inside .tm-shell: ${offenders.join(", ")}`).toEqual([]);

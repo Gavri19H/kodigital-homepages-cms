@@ -56,6 +56,16 @@ import type { Env } from "../../env";
 import { escapeHtml } from "../templates/layout";
 import { apiJson, leadgenPageShell, leadgenStandalonePageShell, branding, type UiContext } from "./ui";
 import { parseJsonColumn } from "./offers-handlers";
+// §8.4 live canvas: an in-process self-request to the SAME existing
+// POST /sections/preview endpoint apiJson (above) already reaches for GET —
+// leadgenApi.request(path, init, env) is the identical mechanism ui.ts's
+// apiJson wraps, just with an explicit method/body for this POST. No new
+// route, no new handler — sections-handlers.ts's previewSectionHandler is
+// consumed exactly as authored (its existing `theme_id` preview-override
+// body param, §10.6/§12, already resolves an ARBITRARY saved ThemeRecord
+// independent of any funnel, which is exactly this page's "preview a
+// preset that may not be assigned to any funnel yet" situation).
+import leadgenApi from "./router";
 import {
   THEME_BUTTON_LAYOUTS,
   THEME_BUTTON_SELECTED_STYLES,
@@ -343,6 +353,216 @@ export function otherFunnelsUsing(
 }
 
 // ---------------------------------------------------------------------------
+// §8.4 live canvas — replaces the swatch-only preview (ground truth #11E:
+// "swatches are a labelled NON-INTERACTIVE preview", THIS file). A REAL
+// section rendered through the REAL renderer (studio server-preview
+// pattern), beside the editor, for the theme currently selected in CENTER.
+// Section-picker default rule (§8.4, "same rule as Templates"): the owning
+// quote's shared-page first section → else the theme's primary funnel's own
+// first section → else the Appendix A-9 fixture. SERVER-COMPUTED per page
+// load/reload: "editing a theme re-renders the canvas" holds because every
+// control here already PATCHes-then-reloads (THEME_MGR_SCRIPT's patchTheme,
+// unchanged) — the very next render recomputes this canvas from the freshly
+// PERSISTED theme. No per-keystroke fetch loop exists to debounce (every
+// control fires on a discrete `change`, not per-character), so there is
+// nothing this SSR-computed canvas needs its own timer for; the "beside the
+// editor" plumbing itself reuses the SAME existing POST /sections/preview
+// endpoint the studio's OWN debounced client-side canvas calls (P2/funnel.ts
+// precedent), just invoked server-side here via one in-process request.
+// ---------------------------------------------------------------------------
+
+// Appendix A-9 fallback fixture ("Sample section (add sections to preview
+// your own).") — a REAL, minimal, already-proven component pair (mirrors the
+// shipped test/fixtures/leadgen-rework/image2-two-questions.json shape: one
+// answer-producing component + a ContinueButton) so the "through the REAL
+// renderer" guardrail holds even with zero real sections reachable (a brand
+// new/unassigned theme preset, or a funnel/quote with no sections yet).
+const CANVAS_FIXTURE_LABEL = "Sample section (add sections to preview your own).";
+const CANVAS_FIXTURE_CONTENT_JSON = JSON.stringify({
+  components: [
+    {
+      type: "TwoButtonYesNo",
+      question_id: "q_tm_canvas_sample",
+      question_key: "tm_canvas_sample_q",
+      internal_field: "tm_canvas_sample",
+      answer_type: "boolean",
+      props: { label: "Are you currently insured?", yesLabel: "Yes", noLabel: "No" },
+    },
+    { type: "ContinueButton", question_id: "q_tm_canvas_continue", props: { label: "Continue" } },
+  ],
+});
+
+// The section-picker's resolved seed: which content to render, and the
+// frame_context to compose it inside. sections-handlers.ts's own doc comment
+// (previewSectionHandler, §10.6/§12) is explicit: the theme_id preview
+// override "applies ONLY inside the composed frame_context branch... it just
+// has no visual effect" without one — so a REAL funnel/variant frame_context
+// is used when reachable, and the EXISTING §5.3 mode-5 empty-state
+// `{default:true}` frame_context (no funnel needed at all) otherwise, NEVER
+// the unit-only (no frame_context) path, or the selected theme's button
+// style/roles would silently fail to apply — an inert, fake-looking canvas.
+interface CanvasSeed {
+  contentJson: string;
+  frameContext: { default: true } | { funnel_public_id: string; variant_public_id: string; site_id?: string };
+  isFixture: boolean;
+}
+
+interface CanvasPrimaryVariantRow {
+  variant_id: number;
+  variant_public_id: string;
+  funnel_public_id: string;
+  quote_id: number;
+}
+
+// Rework §8.8 (follow-up round, conductor-granted): "Open Site settings"
+// needs an unambiguous site to link to. A quote MAY be activated on several
+// sites (leadgen_site_quotes) — there is no single canonical "the" site in
+// general, so this picks the first ENABLED activation (deterministic
+// site_id ASC order) ONLY as a best-effort preview convenience; it never
+// invents one when the quote has zero activations (siteId stays undefined,
+// frame_context carries no site_id, the chip still always renders — only
+// the OPTIONAL link is absent).
+async function firstActivatedSiteId(db: D1Database, quoteId: number): Promise<string | undefined> {
+  const row = await db
+    .prepare(
+      `SELECT site_id AS site_id FROM leadgen_site_quotes
+        WHERE quote_id = ? AND enabled = 1
+        ORDER BY site_id ASC LIMIT 1`,
+    )
+    .bind(quoteId)
+    .first<{ site_id: string }>();
+  return row?.site_id;
+}
+
+// One row's `content_json` at the lowest `position` for either owner axis
+// (§5-M2: quote-owned = the shared page, variant-owned = a funnel's own
+// plan) — both tables carry the SAME shape post-M2 (0047 migration).
+async function firstSectionContentByOwner(
+  db: D1Database,
+  ownerColumn: "quote_id" | "variant_id",
+  ownerId: number,
+): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT s.content_json AS content_json
+         FROM leadgen_funnel_variant_sections vs
+         JOIN leadgen_sections s ON s.id = vs.section_id
+        WHERE vs.${ownerColumn} = ?
+        ORDER BY vs.position ASC
+        LIMIT 1`,
+    )
+    .bind(ownerId)
+    .first<{ content_json: string }>();
+  return row?.content_json ?? null;
+}
+
+const CANVAS_FIXTURE_FRAME_CONTEXT = { default: true } as const;
+
+// §8.4 section-picker default rule, resolved for ONE theme's primary usage
+// (primaryUsage's funnelId, or null when the theme is unassigned to any
+// funnel yet — a brand-new/never-applied preset has no quote/funnel to pick
+// a section from at all, so it falls straight to the fixture).
+async function pickCanvasSeed(db: D1Database, primaryFunnelId: number | null): Promise<CanvasSeed> {
+  if (primaryFunnelId !== null) {
+    const variant = await db
+      .prepare(
+        `SELECT v.id AS variant_id, v.public_id AS variant_public_id, f.public_id AS funnel_public_id, f.quote_id AS quote_id
+           FROM leadgen_funnel_variants v
+           JOIN leadgen_funnels f ON f.id = v.funnel_id
+          WHERE v.funnel_id = ? AND v.status = 'active'
+          ORDER BY v.variant_label ASC, v.id ASC
+          LIMIT 1`,
+      )
+      .bind(primaryFunnelId)
+      .first<CanvasPrimaryVariantRow>();
+    if (variant !== null) {
+      const siteId = await firstActivatedSiteId(db, variant.quote_id);
+      const frameContext: CanvasSeed["frameContext"] = {
+        funnel_public_id: variant.funnel_public_id,
+        variant_public_id: variant.variant_public_id,
+        ...(siteId !== undefined ? { site_id: siteId } : {}),
+      };
+      const shared = await firstSectionContentByOwner(db, "quote_id", variant.quote_id);
+      if (shared !== null) {
+        return { contentJson: shared, frameContext, isFixture: false };
+      }
+      const own = await firstSectionContentByOwner(db, "variant_id", variant.variant_id);
+      if (own !== null) {
+        return { contentJson: own, frameContext, isFixture: false };
+      }
+      return { contentJson: CANVAS_FIXTURE_CONTENT_JSON, frameContext, isFixture: true };
+    }
+  }
+  return { contentJson: CANVAS_FIXTURE_CONTENT_JSON, frameContext: CANVAS_FIXTURE_FRAME_CONTEXT, isFixture: true };
+}
+
+interface CanvasPreviewBody {
+  preview?: { html?: unknown; css?: unknown };
+}
+
+// One in-process POST to the EXISTING, unmodified previewSectionHandler
+// (sections-handlers.ts) — the SAME self-request mechanism apiJson (./ui)
+// already uses for GET. `theme_id` is the §10.6/§12 preview override: it
+// resolves and applies the NAMED ThemeRecord's tokens regardless of whether
+// any funnel's OWN theme_json/frame_overrides_json currently references it —
+// exactly this page's situation (the CENTER-selected theme may be unassigned,
+// or a DIFFERENT theme than the picked section's owning funnel/variant
+// naturally resolves to; the explicit override always wins either way) —
+// PROVIDED a frame_context rides along (see CanvasSeed's doc comment).
+async function fetchCanvasPreview(env: Env, seed: CanvasSeed, themeId: string): Promise<{ html: string; css: string } | null> {
+  const body: Record<string, unknown> = {
+    content_json: seed.contentJson,
+    theme_id: themeId,
+    frame_context: seed.frameContext,
+    viewport: "desktop",
+  };
+  let res: Response;
+  try {
+    res = await leadgenApi.request(
+      "/api/admin/leadgen/sections/preview",
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+      env,
+    );
+  } catch {
+    return null;
+  }
+  if (res.status !== 200) return null;
+  let parsed: CanvasPreviewBody;
+  try {
+    parsed = (await res.json()) as CanvasPreviewBody;
+  } catch {
+    return null;
+  }
+  const preview = parsed.preview;
+  if (preview === undefined || typeof preview.html !== "string" || typeof preview.css !== "string") return null;
+  return { html: preview.html, css: preview.css };
+}
+
+// The canvas mount: a real, isolated iframe rendering the REAL renderer's
+// output for the current theme (mirrors themes.ts/funnel.ts's OWN mini-
+// preview `srcdoc` technique — the established pattern for a live admin
+// preview surface in this codebase). `escapeHtml` safely embeds the nested
+// document as the outer attribute value (it escapes both quote characters).
+function renderCanvasFrame(preview: { html: string; css: string } | null, isFixture: boolean): string {
+  if (preview === null) {
+    return (
+      `<div class="lg-theme-canvas-error" style="padding:16px;font-size:12px;color:${TM_COLOR.footerText};` +
+      `background:${TM_COLOR.footerBg};border-radius:10px;text-align:center">Preview unavailable.</div>`
+    );
+  }
+  const srcdoc = `<!doctype html><html><head><meta charset="utf-8"><style>${preview.css}</style></head><body>${preview.html}</body></html>`;
+  const fixtureLabel = isFixture
+    ? `<div style="font-size:10.5px;color:${TM_COLOR.subtitle};margin-top:6px;text-align:center">${escapeHtml(CANVAS_FIXTURE_LABEL)}</div>`
+    : "";
+  return (
+    `<iframe class="tm-canvas-frame" title="Live theme preview" sandbox="allow-same-origin"` +
+    ` style="width:100%;min-height:360px;border:0;background:${TM_COLOR.appBg};border-radius:12px"` +
+    ` srcdoc="${escapeHtml(srcdoc)}"></iframe>` +
+    fixtureLabel
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Small render helpers
 // ---------------------------------------------------------------------------
 
@@ -581,7 +801,7 @@ function advancedHexRow(topGroup: "roles" | "extra_roles", key: string, hex: str
   return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0"><span style="font-size:12px;color:${TM_COLOR.segInactiveText}">${escapeHtml(key)}</span><input data-tm-hex data-top="${topGroup}" data-role="${key}" data-theme-id="${escapeHtml(themeId)}" value="${escapeHtml(hex)}" spellcheck="false" style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:${TM_COLOR.monoTextStrong};background:${TM_COLOR.monoBg};padding:2px 8px;border-radius:5px;border:1px solid transparent;width:88px;text-align:right" /></div>`;
 }
 
-function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[]): string {
+function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], canvasHtml: string): string {
   const colorRows = ROLE_META.map(
     (meta) =>
       `<div style="display:flex;align-items:center;gap:12px;cursor:pointer">${bigSwatch(theme.roles[meta.key], meta.border)}<div><div style="font-size:13px;font-weight:600;color:${TM_COLOR.roleLabel}">${escapeHtml(meta.label)}</div><div style="font-size:11px;color:${TM_COLOR.roleSub}">${escapeHtml(meta.sub)}</div></div></div>`,
@@ -609,7 +829,14 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[]): s
 
   const buttonStyle = theme.button_style ?? {};
 
+  // §8.4: editor controls (LEFT-of-center) beside the live canvas (RIGHT-of-
+  // center) — pack regions 8.4-editor-controls / 8.4-live-canvas, both
+  // nested INSIDE the SAME outer flex:1 1 auto CENTER column (rails stay
+  // 300/320, unchanged — only this column's OWN internal layout gains a
+  // second child). All EXISTING editor content below is UNCHANGED.
   return `<div style="flex:1 1 auto;overflow-y:auto;padding:24px 28px;min-width:0">
+    <div style="display:flex;gap:26px;align-items:flex-start">
+    <div style="flex:1 1 320px;min-width:0" data-pin="8.4-editor-controls">
       <div style="display:flex;align-items:center;gap:13px;margin-bottom:5px">
         ${bigSwatch(theme.roles.brand_primary, false)}
         <!-- R4a E3-NEW-6: the server already supports PATCH {name}
@@ -694,7 +921,16 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[]): s
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m2 0v13a1 1 0 01-1 1H8a1 1 0 01-1-1V7h10z" stroke="${TM_COLOR.errText}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Delete theme
       </button>
-    </div>`;
+    </div>
+    <div style="flex:0 0 340px" data-pin="8.4-live-canvas">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span style="font-size:11px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:${TM_COLOR.sectionEyebrow}">Live preview — this theme</span>
+        <span style="font-size:10.5px;color:${TM_COLOR.roleSub};font-weight:600">server-rendered</span>
+      </div>
+      ${canvasHtml}
+    </div>
+    </div>
+  </div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1048,9 +1284,20 @@ export async function leadgenThemeManagerPage(c: UiContext): Promise<Response> {
   const selected = pickSelectedTheme(themes, requestedTheme);
   const themesById = new Map(themes.map((t) => [t.id, t]));
 
+  // §8.4 live canvas: resolved ONLY for a selected theme (no theme selected
+  // ⇒ nothing to preview, same as the pre-existing empty-state leg below).
+  let canvasHtml = "";
+  if (selected !== null) {
+    const matches = usageForTheme(usage, selected.id);
+    const primary = primaryUsage(matches);
+    const seed = await pickCanvasSeed(env.DB, primary?.funnelId ?? null);
+    const preview = await fetchCanvasPreview(env, seed, selected.id);
+    canvasHtml = renderCanvasFrame(preview, seed.isFixture);
+  }
+
   const centerHtml =
     selected !== null
-      ? renderCenterEditor(selected, usageForTheme(usage, selected.id))
+      ? renderCenterEditor(selected, usageForTheme(usage, selected.id), canvasHtml)
       : `<div style="flex:1 1 auto;padding:28px;color:${TM_COLOR.footerText};font-size:13px">Create a theme to get started.</div>`;
   const rightHtml =
     selected !== null
