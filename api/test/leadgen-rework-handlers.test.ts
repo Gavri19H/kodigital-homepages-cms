@@ -1307,14 +1307,28 @@ d("shared-page slot authoring (§8.2 shared-chip editors, S5.3)", () => {
     expect(JSON.stringify(both.json.fields)).toContain("cannot both be provided");
   });
 
-  it("a shared-page plan change bumps the quote's active variants' content_version (cache coherence)", async () => {
+  it("a shared-page plan change bumps the quote's active variants' content_version (cache coherence — BOTH the `slots` and legacy `sections` branches)", async () => {
     const h = harness();
     const q = await newQuote(h);
     const s = seedSection(h.sdb, "Shared");
-    const before = variantContentVersion(h.sdb, q.variantPublic);
-    const save = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, { slots: [{ kind: "fixed", section_id: s.public_id }] });
-    expect(save.status).toBe(200);
-    expect(variantContentVersion(h.sdb, q.variantPublic)).toBeGreaterThan(before);
+    const s2 = seedSection(h.sdb, "Shared2");
+
+    // `slots` branch (§8.2 shared-chip editors — the new authoring path).
+    const before1 = variantContentVersion(h.sdb, q.variantPublic);
+    const save1 = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, { slots: [{ kind: "fixed", section_id: s.public_id }] });
+    expect(save1.status, JSON.stringify(save1.json)).toBe(200);
+    const after1 = variantContentVersion(h.sdb, q.variantPublic);
+    expect(after1, "slots: save must bump content_version").toBeGreaterThan(before1);
+
+    // legacy flat `sections` branch — the pre-existing replace-set path, which
+    // rewrites the SAME shared-page rows and therefore needs the SAME cache-
+    // invalidation guarantee (P5 adversarial review: this branch's bump was
+    // asserted only implicitly before; covered directly here on its own).
+    const before2 = after1;
+    const save2 = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, { sections: [{ section_id: s2.id, position: 0 }] });
+    expect(save2.status, JSON.stringify(save2.json)).toBe(200);
+    const after2 = variantContentVersion(h.sdb, q.variantPublic);
+    expect(after2, "sections: save must ALSO bump content_version").toBeGreaterThan(before2);
   });
 
   it("an authored A/B shared slot resolves to EXACTLY ONE allocation per session (both arms appear across sessions)", async () => {

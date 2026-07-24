@@ -8,13 +8,13 @@
 // and A-5 (funnel delete guard) are rendered from the server response and
 // asserted VERBATIM.
 //
-// Run (per-file, worktree-isolated, fresh D1; PW_PORT=8899 per this worktree):
+// Run (per-file, worktree-isolated, fresh D1; PW_PORT per this worktree):
 //   cd api && npm run db:reset:local
-//   PW_PORT=8899 npx playwright test test-ui/leadgen-rework-p3b-board.gesture.spec.ts \
+//   PW_PORT=8901 npx playwright test test-ui/leadgen-rework-p3b-board.gesture.spec.ts \
 //     --project=chromium --workers=1 --reporter=line
-// BOTH ENGINES: engine-agnostic (main-document pointer streams); firefox runs
-// once this file is added to playwright.config.ts's CROSS_ENGINE_GESTURE_SPECS
-// (that config is outside this slice's file ownership — flagged in the report).
+// BOTH ENGINES: engine-agnostic (main-document pointer streams); this file IS
+// in playwright.config.ts's CROSS_ENGINE_GESTURE_SPECS, so it runs on BOTH
+// chromium and firefox (swap --project=firefox above to run the second leg).
 
 import { test, expect, request as playwrightRequest, type APIRequestContext, type Page, type Locator } from "@playwright/test";
 import { PW_PORT } from "./utils/base-url";

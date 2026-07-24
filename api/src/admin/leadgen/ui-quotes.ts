@@ -734,15 +734,16 @@ function quoteEditorHtml(
   // is REMOVED — routing rules now live INSIDE the Funnel builder tab's
   // right-hand column (renderInspectorColumn -> renderRulesPanel). Four tabs,
   // not five. Round-4 P5b (operator restructure spec): "Templates" (the
-  // seven box pickers) and "Themes" (the moved theme editor) are promoted to
-  // TOP tabs beside Funnel builder/A/B/Activation/Analytics — inserted right
-  // after Funnel builder. The canvas toolbar's "Theme" quick-access button
-  // JUMPS to the Themes tab (deliverable 1's explicit instruction). §10/S5.1:
-  // the OLD canvas-embedded 6-arrangement template picker (renderTemplatePicker,
-  // ONCE kept here as a "reported, deliberate deviation" to avoid a canvas-
-  // visibility regression) is REMOVED — confirmed zero real callers anywhere;
-  // the board's own §8.2 M5 per-funnel-column template picker is the current,
-  // live mechanism (quotes-tabs/funnel.ts's `data-template-picker` pickchip).
+  // per-element box-picker panels) and "Themes" (the moved theme editor) are
+  // promoted to TOP tabs beside Funnel builder/A/B/Activation/Analytics —
+  // inserted right after Funnel builder. The canvas toolbar's "Theme" quick-
+  // access button JUMPS to the Themes tab (deliverable 1's explicit
+  // instruction). §10/S5.1: the OLD canvas-embedded 6-arrangement template
+  // picker (renderTemplatePicker, ONCE kept here as a "reported, deliberate
+  // deviation" to avoid a canvas-visibility regression) is REMOVED —
+  // confirmed zero real callers anywhere; the board's own §8.2 M5 per-
+  // funnel-column template picker is the current, live mechanism (quotes-
+  // tabs/funnel.ts's `data-template-picker` pickchip).
   const subtabs = `<nav class="lg-qtabs" aria-label="Quote editor tabs">
   <button type="button" class="lg-qtab active" data-tab="builder">Funnel builder</button>
   <button type="button" class="lg-qtab" data-tab="templates">Templates</button>

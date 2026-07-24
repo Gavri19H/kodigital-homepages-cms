@@ -638,7 +638,7 @@ export const LG_QUOTES_STYLES = `
 .lg-panel-card{border:1px solid var(--c-border);border-radius:8px;padding:12px;background:var(--c-card,#fff)}
 .lg-panel-card h3{margin:0 0 8px;font-size:14px}
 .lg-panel-card h4{margin:14px 0 8px;font-size:13px}
-/* --- Round-4 P5b: Templates-tab seven box pickers -------------------------- */
+/* --- Round-4 P5b: Templates-tab per-element dynamic-list styles ------------ */
 .lg-tplbox-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-bottom:12px}
 .lg-tplbox-card{display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid var(--c-border);border-radius:8px;padding:10px 8px;cursor:pointer;background:none;text-align:center}
 .lg-tplbox-card.selected{border-color:var(--c-primary)}

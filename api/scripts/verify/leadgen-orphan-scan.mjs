@@ -185,11 +185,18 @@ function collectExportedSymbols(text) {
 // pattern-based blanket excludes — every row names one symbol/handler/class
 // and says why it is not dead, verified by hand this phase.
 const ALLOWLIST_A = new Map([
-  // --- documented public surface: imported/consumed only via the
-  // generated-bundle pipeline or a dynamic (non-textual) path, not a plain
-  // named import, so the generic text-reference search cannot see the use.
-  ['LEADGEN_RUNTIME_JS_BYTES', 'src/public/leadgen/runtime/engine-bundle.generated.ts — read by build/verify scripts OUTSIDE the api/src tree (scripts/build-leadgen-runtime.ts, scripts/verify/leadgen-runtime.ts), which this scan intentionally does not treat as part of the leadgen SOURCE namespace; both call sites verified live by hand this phase.'],
-  ['LEADGEN_RUNTIME_JS', 'src/public/leadgen/runtime/engine-bundle.generated.ts — same as LEADGEN_RUNTIME_JS_BYTES: consumed from scripts/build-leadgen-runtime.ts, outside the scanned namespace.'],
+  // (LEADGEN_RUNTIME_JS_BYTES / LEADGEN_RUNTIME_JS were allowlisted here on
+  // the theory that their only consumers were build/verify scripts OUTSIDE
+  // this scan's usage corpus, unreachable by a plain text search. The P5
+  // adversarial review proved that theory wrong: both are plain named
+  // imports squarely INSIDE the scanned corpus —
+  // src/public/leadgen/runtime-routes.ts:66 + src/admin/leadgen/sections-
+  // handlers.ts:88 import LEADGEN_RUNTIME_JS directly, and
+  // test/leadgen-runtime-engine.test.ts + test/leadgen-runtime-routes.test.ts
+  // import/use both symbols — so the scan's own `\bNAME\b` reference search
+  // already resolves them as used without any allowlist entry. Removed as
+  // unnecessary this round; see the per-entry reasons below for anything
+  // that IS a genuine non-textual/generated-pipeline exception.)
 ]);
 
 const ALLOWLIST_B = new Map([

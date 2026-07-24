@@ -1780,7 +1780,8 @@ export const QUOTE_EDITOR_SCRIPT = `
     fillList('footer.links', eff.footer ? eff.footer.links : []);
     fillList('trust_strip.logos', eff.trust_strip ? eff.trust_strip.logos : []);
     fillList('benefit_bar.items', eff.benefit_bar ? eff.benefit_bar.items : []);
-    // Round-4 P5b — the Templates-tab seven box pickers' dynamic lists.
+    // Round-4 P5b — the Templates-tab per-element dynamic lists (CTA slots,
+    // disclosure entries, free text, brand logos, footer blocks, images).
     fillCtaSlots(eff.cta_slots || []);
     fillDisclosureEntries((eff.disclosure && eff.disclosure.entries) || []);
     fillFreeText(eff.free_text || []);
@@ -1798,8 +1799,8 @@ export const QUOTE_EDITOR_SCRIPT = `
   }
 
   // ==========================================================================
-  // Round-4 P5b — Templates-tab seven box pickers. Each dynamic list follows
-  // the SAME <template> clone + querySelectorAll collect idiom the pre-
+  // Round-4 P5b — Templates-tab per-element dynamic lists. Each dynamic list
+  // follows the SAME <template> clone + querySelectorAll collect idiom the pre-
   // existing footer.links/trust_strip.logos/benefit_bar.items lists use
   // (renderFrameList/fillList/collectList above), generalized for richer row
   // shapes (selects, nested condition/block sub-lists) those flat helpers

@@ -1541,7 +1541,8 @@ const TPL_SCRIPT = `
 `;
 
 
-// Round-4 P5b: the Templates tab was the seven box pickers; §8.3 rebuild adds
+// Round-4 P5b: before this rebuild, the Templates tab was the retired v2.x
+// box-picker panels; §8.3 rebuild adds
 // the I·Progress box, a live real-section canvas, and the saved-template bar
 // — the pre-existing 6-arrangement frame-template picker stays canvas-
 // embedded in the Funnel builder tab (`renderTemplatePicker`, quotes-tabs/
