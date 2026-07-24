@@ -39,7 +39,7 @@ import {
   abBucket,
   type LeadgenAssignmentReason,
 } from "./ab-hash";
-import { isFunnelVariantId } from "../../leadgen/funnel";
+import { isFunnelVariantId, shouldRedirectForSession } from "../../leadgen/funnel";
 import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
 // Round-4 P3a (D-3 pages model): slot RULES reuse the EXISTING §21.4
 // composed-group evaluator (07 §21.4; the same one funnel offer/carrier
@@ -1315,7 +1315,17 @@ export async function loadQuoteRoutingRules(db: D1Database, quoteId: number): Pr
 
 // The matched rule's ENTIRE action set (§4.3-9) — never a partial merge.
 export interface QuoteRoutingMatch {
-  target_funnel_id: number;
+  // S6.2 fix round: NULLABLE. §4.3-4/§4.3-9 — the winner is the first
+  // condition-matching rule REGARDLESS of which actions it carries (M3's
+  // ≥1-action save gate permits a redirect-only or feed-only rule; it is a
+  // valid authored winner). null means the winner carries no funnel action —
+  // callers fall through to the default-funnel semantics (§4.3-7), NEVER to a
+  // lower-priority rule (that would violate first-match-wins).
+  target_funnel_id: number | null;
+  // The rule's own identity — the §4.3-9 redirect leg's session-sticky bucket
+  // is keyed on it (shouldRedirectForSession(ruleKey=public_id)) so one rule's
+  // redirect split never correlates with another rule's or an A/B test's.
+  public_id: string;
   hash: string;
   feed_name: string | null;
   value_multiplier: number | null;
@@ -1327,7 +1337,8 @@ export interface QuoteRoutingMatch {
 
 function quoteMatch(r: ParsedQuoteRule): QuoteRoutingMatch {
   return {
-    target_funnel_id: r.target_funnel_id as number, // caller guards target_funnel_id !== null
+    target_funnel_id: r.target_funnel_id, // may be null (S6.2: a valid, action-carrying winner)
+    public_id: r.public_id,
     hash: r.hash,
     feed_name: r.feed_name,
     value_multiplier: r.value_multiplier,
@@ -1339,20 +1350,58 @@ function quoteMatch(r: ParsedQuoteRule): QuoteRoutingMatch {
 }
 
 // ENTRY plane (§4.3-3a): the highest-priority entry-only rule matching the
-// request attributes AND naming a target funnel — or null. Rules already arrive
-// priority-sorted from loadQuoteRoutingRules; the defensive re-sort keeps §4.3-4
-// intact for a future/alternate caller handing over an unsorted array (a stable
-// sort preserves id-order for a genuine priority tie).
+// request attributes — or null. Rules already arrive priority-sorted from
+// loadQuoteRoutingRules; the defensive re-sort keeps §4.3-4 intact for a
+// future/alternate caller handing over an unsorted array (a stable sort
+// preserves id-order for a genuine priority tie).
+//
+// S6.2 fix round: the winner is the first CONDITION match, full stop — it is
+// NO LONGER required to carry a target_funnel_id. §4.3-4 "first match wins
+// entirely" and M3's ≥1-action save gate together mean a redirect-only or
+// feed-only rule is a legitimate, higher-priority winner that must PREEMPT a
+// lower-priority funnel-carrying rule (the prior `|| r.target_funnel_id ===
+// null` skip let such a winner go invisible, so a lower-priority rule's
+// funnel incorrectly won — a first-match-wins violation). Every caller
+// (resolveActivatedFunnel below, runtime-routes.ts's /lg/attempt outcome
+// re-confirmation, resolveEntryRedirect) already treats a null
+// target_funnel_id as "no funnel action → fall through to the default-funnel
+// semantics (§4.3-7)" rather than "no match" — so this is safe to widen here,
+// the single shared evaluation point every entry-plane caller shares.
 export function evaluateQuoteEntryRouting(
   rules: readonly ParsedQuoteRule[],
   ctx: EntryKnownContext,
 ): QuoteRoutingMatch | null {
   const flat = entryFlatCtx(ctx);
   for (const r of [...rules].sort((a, b) => a.priority - b.priority)) {
-    if (!r.entry_only || r.target_funnel_id === null) continue;
+    if (!r.entry_only) continue;
     if (conditionsMatch(r.conditions, flat, r.match_mode)) return quoteMatch(r);
   }
   return null;
+}
+
+// S6.2 fix round — shared by every caller that must re-CONFIRM an entry-plane
+// match's implied funnel choice against a funnel that was ALREADY served
+// (rather than re-deriving it): runtime-routes.ts's /lg/attempt independently
+// re-evaluates entry routing over a fresh entryCtx (a SEPARATE HTTP request
+// from the shell-serve that already chose `servedFunnelId`, the documented
+// "OPEN CONCERN" clock-boundary caveat) and must decide whether to trust that
+// re-evaluation's match enough to record its feed_name/value_multiplier.
+//   • A funnel-carrying winner (target_funnel_id set) agrees iff it names the
+//     EXACT served funnel — unchanged from pre-S6.2 behavior.
+//   • A winner with NO funnel action (redirect-only/feed-only, target_funnel_id
+//     null) implies its funnel choice fell through to the quote's DEFAULT
+//     funnel (§4.3-7) — so it agrees iff the served funnel IS that default.
+//     When the quote has no default set, there is no further signal available
+//     without an extra funnels query; trusted (best-effort, matches the
+//     existing non-blocking attribution posture — the outcome recording this
+//     guards is itself wrapped in a swallow-all try/catch).
+export function entryMatchImpliesFunnel(
+  match: QuoteRoutingMatch,
+  servedFunnelId: number,
+  quoteDefaultFunnelId: number | null,
+): boolean {
+  if (match.target_funnel_id !== null) return match.target_funnel_id === servedFunnelId;
+  return quoteDefaultFunnelId === null || servedFunnelId === quoteDefaultFunnelId;
 }
 
 // CHECKPOINT plane (§4.3-3b/c): the highest-priority checkpoint rule (>=1 answer
@@ -1360,6 +1409,14 @@ export function evaluateQuoteEntryRouting(
 // naming a target funnel — or null. Evaluating over the CURRENTLY-answered
 // fields scopes a class-(c) in-funnel rule to a visitor whose current funnel
 // actually collects those fields (an unanswered field never matches).
+//
+// UNCHANGED by the S6.2 fix round (scoped to the ENTRY plane — the coordinator's
+// grounding questions, required regressions, and #11C's own worked example are
+// all entry-plane; a checkpoint-plane winner with no funnel action would need
+// NEW recording semantics /lg/ck does not have today — a "matched, no switch,
+// but still record feed/multiplier" outcome shape the contract does not define
+// — so this filter is deliberately left in place rather than invented; see the
+// S6.2 follow-up report's open concern).
 export function evaluateQuoteCheckpointRouting(
   rules: readonly ParsedQuoteRule[],
   ctx: EntryKnownContext,
@@ -1370,6 +1427,54 @@ export function evaluateQuoteCheckpointRouting(
     if (r.entry_only || r.target_funnel_id === null) continue;
     if (conditionsMatch(r.conditions, flat, r.match_mode)) return quoteMatch(r);
   }
+  return null;
+}
+
+// LeadGen Rework §4.3-9 — the live ENTRY-plane REDIRECT leg. Evaluated at the
+// /lg shell serve (serve.ts, the visitor's entry point). The matched entry rule
+// (the SAME first-match-wins rule that pre-selected the funnel) may carry a
+// `redirect_pct`: its share of matched sessions is redirected to the redirect
+// TARGET *instead of* our funnel; the remainder fall through to the served
+// funnel (feed/multiplier recorded when the engine then calls /lg/attempt).
+//
+// The split is the EXISTING gated + sticky machinery (funnel.ts
+// shouldRedirectForSession, keyed on the rule's public_id): pure function of
+// (rule, session) — deterministic, so a redirected session stays redirected on
+// reload (§4.3-6 sticky) and the ~pct% split holds across sessions. `?? 0`
+// semantics: NULL/0 pct ⇒ never; 100 ⇒ always.
+//
+// Destination (returns the URL to 302 to, else null = no redirect → continue):
+//   • target_offer_id → the OFFER-GOVERNED URL: the same-origin governed click
+//     route /lg/lc/<offer_public_id> — click.ts re-resolves the offer's
+//     destination + governs the click ("through the existing offer-url
+//     resolution used by /lg/lc"). A missing/deleted offer ⇒ null.
+//   • redirect_url → the raw URL, honored ONLY when redirect_url_allowlisted is
+//     true — a RUNTIME fail-closed re-check independent of the admin save gate,
+//     so a saved-flag mismatch can never 302 to a non-allowlisted host.
+// No redirect target, this session outside the bucket, or an unresolvable /
+// non-allowlisted target all ⇒ null (fail CLOSED — never a broken redirect).
+export async function resolveEntryRedirect(
+  db: D1Database,
+  quoteId: number,
+  ctx: EntryKnownContext,
+  sessionId: string,
+): Promise<string | null> {
+  const match = evaluateQuoteEntryRouting(await loadQuoteRoutingRules(db, quoteId), ctx);
+  if (match === null || match.redirect_pct === null) return null;
+  if (!shouldRedirectForSession(match.redirect_pct, match.public_id, sessionId)) return null;
+  if (match.target_offer_id !== null) {
+    try {
+      const offer = await db
+        .prepare("SELECT public_id FROM leadgen_offers WHERE id = ? LIMIT 1")
+        .bind(match.target_offer_id)
+        .first<{ public_id: string }>();
+      if (offer === null || offer.public_id === "") return null;
+      return `/lg/lc/${encodeURIComponent(offer.public_id)}`;
+    } catch {
+      return null; // fail-safe: an unreadable offer row never redirects
+    }
+  }
+  if (match.redirect_url !== null && match.redirect_url_allowlisted) return match.redirect_url;
   return null;
 }
 
@@ -1527,6 +1632,15 @@ export async function resolveActivatedFunnel(
   if (args.entry_ctx !== undefined) {
     const entryMatch = evaluateQuoteEntryRouting(await loadQuoteRoutingRules(db, quote.id), args.entry_ctx);
     if (entryMatch !== null) {
+      // S6.2 fix round: entryMatch.target_funnel_id may now be null (a valid
+      // redirect-only/feed-only winner, §4.3-9). `funnels.find(f => f.id ===
+      // null)` never matches a real funnel row, so `target` is correctly
+      // `undefined` and falls straight through to the (2) default-funnel
+      // fallback below — the SAME fallthrough an inactive/foreign funnel
+      // target already uses. No lower-priority rule is ever consulted here
+      // (that would violate §4.3-4 first-match-wins): the winner is fixed by
+      // evaluateQuoteEntryRouting; only ITS funnel choice (present or absent)
+      // is applied.
       const target = funnels.find((f) => f.id === entryMatch.target_funnel_id);
       // §4.3-15 activation guarantees the target is active; defensively ignore a
       // rule pointing at an inactive/foreign funnel (fall through to default).
@@ -1537,7 +1651,8 @@ export async function resolveActivatedFunnel(
     }
   }
 
-  // (2) Unmatched → the quote's default funnel (§4.3-7), else the first active.
+  // (2) Unmatched, OR the winner carried no funnel action → the quote's
+  // default funnel (§4.3-7), else the first active.
   if (servedFunnel === null) {
     servedFunnel = funnels.find((f) => f.id === quote.default_funnel_id) ?? funnels[0]!;
   }

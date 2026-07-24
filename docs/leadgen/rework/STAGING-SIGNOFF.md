@@ -93,7 +93,30 @@ surface in a follow-up): `header.tagline`, `header.secure_badge`, `header.cta`,
 `disclosure.text`, `trust_strip.*`, `benefit_bar.*`, per-arm frame-group override,
 `compat.allow_section_chrome` (all in `api/src/public/leadgen/designs/frames.ts`).
 
-## 6. CI facts (verified)
+## 6. Decisions surfaced for the owner at acceptance (no code blocked on these)
+
+- **Entry-plane redirect recording.** Routing-rule redirects now EXECUTE live (sticky
+  per-session 302 to the governed offer click-URL or a fail-closed allowlisted URL).
+  The contract's M3 outcome table deliberately has no redirect fields and no recording
+  mechanism is specified for a visitor redirected at shell-serve time (no attempt row
+  exists yet) — so redirected sessions are not counted in funnel outcomes/analytics.
+  If you want redirect counts, that is a small follow-up contract amendment (an event or
+  outcome column), not a bug.
+- **Checkpoint-plane action-only rules.** At the ENTRY plane, first-match-wins is now
+  fully action-agnostic (a feed-only or redirect-only rule wins and its actions apply;
+  funnel choice falls through to the default). At the CHECKPOINT plane (in-funnel rules),
+  a rule carrying only feed/multiplier/redirect still cannot win — the contract defines
+  checkpoint matches around funnel switching, one-outcome-per-attempt blocks a second
+  recording, and mid-funnel redirect semantics are unspecified. Authoring such a rule is
+  possible; it silently no-ops at checkpoints. Options if you care: define the semantics
+  (contract amendment) or block that shape at save. Surfaced, not invented.
+- **Default-template seeding scope.** "Default template seeds new funnels" is live for
+  funnels created via the board's "+ Add funnel". The quote's auto-created FIRST funnel
+  is not seeded — extending the seed there changes frame composition for every existing
+  quote-creation flow (verified: it shifts 8 frozen frame fixtures), so it ships as a
+  deliberate scope line; say the word and it becomes a coordinated follow-up.
+
+## 7. CI facts (verified)
 
 - deploy.yml runs on `pull_request` → the full vitest suite (`npm test` = `vitest run`,
   421 files / 6,920 tests incl. every rework suite) executes on Node 22 as the PR check

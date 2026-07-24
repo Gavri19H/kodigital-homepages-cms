@@ -618,6 +618,38 @@ d("leadgen rework handlers (S1.4)", () => {
     expect(ov.json.frame_template_id).toBe(duped.json.id);
   });
 
+  // --- M5 / §11D "the default template SEEDS new funnels" (S6.2) -------------
+  // createQuoteFunnelHandler now stamps the current is_default template id at
+  // funnel-create (create-time seed, not a resolve-time fallback).
+  it("§11D default template SEEDS a new funnel with the current is_default template id (create-time, not resolve-time)", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const list = await req(h, "GET", "/frame-template-records");
+    const centered = list.json.items.find((t: any) => t.name === "Centered card");
+    // make a FRESH template the single default (atomic swap off the seeded one)
+    const t = await req(h, "POST", "/frame-template-records", { name: "Seed Me", frame_json: centered.frame_json });
+    await req(h, "PUT", `/frame-template-records/${t.json.public_id}/default`, {});
+    // + Add funnel → seeded with THAT default's id
+    const funnel = await req(h, "POST", `/quotes/${q.quotePublic}/funnels`, { funnel_name: "Seeded Funnel" });
+    expect(funnel.status).toBe(201);
+    expect(funnel.json.frame_template_id, "new funnel seeded with the is_default template id").toBe(t.json.id);
+    // create-time SEED (not resolve-time fallback): changing the default AFTER
+    // create must NOT re-skin the existing funnel (read the persisted row).
+    const t2 = await req(h, "POST", "/frame-template-records", { name: "Later Default", frame_json: centered.frame_json });
+    await req(h, "PUT", `/frame-template-records/${t2.json.public_id}/default`, {});
+    const row = h.sdb.prepare("SELECT frame_template_id FROM leadgen_funnels WHERE public_id = ?").get(funnel.json.public_id) as { frame_template_id: number };
+    expect(row.frame_template_id, "seed is captured at create — a later default swap never re-skins it").toBe(t.json.id);
+  });
+
+  it("§11D no default template → a new funnel is created with frame_template_id null (unchanged pre-rework behavior)", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    h.sdb.prepare("UPDATE leadgen_frame_templates SET is_default = 0").run(); // clear the seeded default
+    const funnel = await req(h, "POST", `/quotes/${q.quotePublic}/funnels`, { funnel_name: "No Default Funnel" });
+    expect(funnel.status).toBe(201);
+    expect(funnel.json.frame_template_id, "no default set ⇒ null, exactly as before").toBeNull();
+  });
+
   // --- equal-arms Σbp=10000 at start (existing gate, post-rework) ------------
   it("equal-arms: start refuses Σbp≠10000, accepts Σbp=10000 (no control axis)", async () => {
     const h = harness();

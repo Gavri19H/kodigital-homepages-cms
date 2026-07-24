@@ -60,6 +60,7 @@ import { escapeHtml } from "../../editor/sanitize";
 import {
   resolveActivatedFunnel,
   resolveActivatedFunnelByVariant,
+  resolveEntryRedirect,
   parseUtmFromLandingUrl,
   resolveEffectiveFrameOnly,
   resolveSavedFrameTemplateDefaultsFor,
@@ -883,6 +884,25 @@ export async function serveFunnelShell(
     if (sidWasAbsent) headers.append("Set-Cookie", sessionCookie("ko_sid", sid));
     return headers;
   };
+
+  // LeadGen Rework §4.3-9 (entry plane): the matched entry rule's redirect_pct
+  // sends its sticky per-session share to the redirect target (the offer-
+  // governed /lg/lc URL or an allowlisted raw URL) INSTEAD of our funnel. The
+  // remainder fall through to the shell below (the funnel is already pre-
+  // selected by resolveActivatedFunnel; feed/multiplier are recorded when the
+  // engine then calls /lg/attempt). Runs BEFORE the If-None-Match/cache legs so
+  // a redirected visitor never gets a 304/shell. The 302 is no-store and rides
+  // the freshly-minted ko_sid so the decision is sticky across a reload (§4.3-6)
+  // — the SAME session hash always lands the same verdict. No funnel_attempt_id
+  // exists at shell-serve, so the redirect decision is not recorded here.
+  const redirectTo = await resolveEntryRedirect(c.env.DB, resolved.quote.id, entryCtx, sid);
+  if (redirectTo !== null) {
+    const rh = new Headers();
+    rh.set("Location", redirectTo);
+    rh.set("Cache-Control", "no-store");
+    rh.set(NOSNIFF_HEADER, NOSNIFF_VALUE);
+    return new Response(null, { status: 302, headers: withSession(rh) });
+  }
 
   const ifNoneMatch = c.req.header("If-None-Match") ?? null;
   if (matchesIfNoneMatch(ifNoneMatch, etag)) {

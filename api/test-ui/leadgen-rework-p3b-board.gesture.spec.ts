@@ -214,6 +214,48 @@ test.describe("P3b Funnel-builder board — live journeys (§8.2)", () => {
     await expect(page.locator("[data-panel='ab']")).toBeVisible({ timeout: 10_000 });
   });
 
+  // §11C/M5 (S6.2): the column template picker MUST offer the SAVED (DB) frame-
+  // template RECORDS — the same source (+ public ids) the Templates tab lists
+  // and POST /funnels/:id/apply-template resolves. Fail-before repro: the picker
+  // fed apply the built-in CODE ids (e.g. "centered") → 400 "template does not
+  // exist" (the retired §10 code-catalog axis). Runs on both engines.
+  test("template picker offers the SAVED DB records and apply succeeds (fail-before = the code-id 400)", async ({ page }) => {
+    const quote = await seedQuote(apiCtx);
+    const funnelPub = quote.funnels[0]!.public_id;
+    // the DB records the picker MUST offer (seeded built-ins) — Templates-tab source.
+    const records = await json<{ items: Array<{ id: number; public_id: string; name: string; is_default: boolean }> }>(
+      await apiCtx.get(`${LG_API}/frame-template-records`),
+      "frame-template-records",
+    );
+    expect(records.items.length, "seeded frame-template records exist").toBeGreaterThan(0);
+    // pick a NON-default record so the applied id is observably different from
+    // the create-time seeded default (M5/§11D).
+    const pick = records.items.find((t) => !t.is_default) ?? records.items[0]!;
+
+    await openEditor(page, quote.public_id);
+    await page.locator(".lg-col-funnel [data-template-picker]").first().click();
+    const menu = page.locator("[data-template-menu]");
+    await expect(menu).toBeVisible({ timeout: 10_000 });
+    // items are DB records (their names) — NOT built-in code ids.
+    const item = menu.getByText(pick.name, { exact: false }).first();
+    await expect(item, "the picker lists the DB record by name").toBeVisible();
+    await item.click();
+    // apply resolved the DB public_id → 200; the funnel row now references it
+    // (fail-before: a code id → 400 → frame_template_id never becomes pick.id).
+    await expect
+      .poll(
+        async () => {
+          const f = await json<{ frame_template_id: number | null }>(
+            await apiCtx.get(`${LG_API}/funnels/${funnelPub}`),
+            "funnel after apply",
+          );
+          return f.frame_template_id;
+        },
+        { timeout: 15_000, message: "apply-template persisted the picked DB record id" },
+      )
+      .toBe(pick.id);
+  });
+
   test("cross-funnel chip drag is rejected (no move; inline hint)", async ({ page }) => {
     const a = await createSection(apiCtx, "Chip A");
     const quote = await seedQuote(apiCtx);

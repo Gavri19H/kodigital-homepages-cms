@@ -3942,10 +3942,22 @@ export const QUOTE_EDITOR_SCRIPT = `
     for (i = 0; i < secs.length; i++) { out.push({ label: secs[i].name, value: secs[i].public_id }); }
     return out;
   }
-  function templateItems() {
-    var tpls = BOARD.templates || []; var out = []; var i;
-    for (i = 0; i < tpls.length; i++) { out.push({ label: tpls[i].label, value: tpls[i].id }); }
+  function frameTemplateRecordItems(body) {
+    /* §11C/M5: the SAVED (DB) frame-template records — {public_id,name,
+       is_default} — the SAME source (+ public ids) the Templates tab lists and
+       POST /funnels/:id/apply-template resolves. The old BOARD.templates fed the
+       picker built-in CODE ids (e.g. "centered") that apply-template rejects
+       ("template does not exist") — the retired §10 code-catalog axis. */
+    var recs = (body && body.items) || []; var out = []; var i;
+    for (i = 0; i < recs.length; i++) {
+      out.push({ label: recs[i].name + (recs[i].is_default ? ' (default)' : ''), value: recs[i].public_id });
+    }
     return out;
+  }
+  function openTemplatePicker(anchor, funnelPub) {
+    req('GET', API + '/frame-template-records').then(function (res) {
+      openPopoverList(anchor, frameTemplateRecordItems(res && res.ok ? res.body : null), function (pub) { applyTemplate(funnelPub, pub); });
+    });
   }
 
   /* ================= TEMPLATE PICKER (M5 apply) ================= */
@@ -4447,7 +4459,7 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (t.closest('[data-ab-badge]')) { ev.stopPropagation(); gotoTab('ab'); return; }
     if (t.closest('[data-theme-picker]')) { ev.stopPropagation(); gotoTab('themes'); return; }
     var tp = t.closest('[data-template-picker]');
-    if (tp) { ev.stopPropagation(); var tcol = tp.closest('[data-funnel-col]'); var tpub = tcol.getAttribute('data-funnel-public-id'); openPopoverList(tp, templateItems(), function (tid) { applyTemplate(tpub, tid); }); return; }
+    if (tp) { ev.stopPropagation(); var tcol = tp.closest('[data-funnel-col]'); var tpub = tcol.getAttribute('data-funnel-public-id'); openTemplatePicker(tp, tpub); return; }
     var nm = t.closest('[data-funnel-name]');
     if (nm) { ev.stopPropagation(); var ncol = nm.closest('[data-funnel-col]'); beginRename(nm, ncol.getAttribute('data-funnel-public-id')); return; }
     var fp = t.closest('[data-lib-filter]');

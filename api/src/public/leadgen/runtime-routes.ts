@@ -44,6 +44,7 @@ import {
   loadQuoteRoutingRules,
   evaluateQuoteEntryRouting,
   evaluateQuoteCheckpointRouting,
+  entryMatchImpliesFunnel,
   resolveFunnelEntryVariant,
   computeResumeSection,
   resolveEffectiveFrameOnly,
@@ -182,9 +183,17 @@ async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
   // requests; only an hour/weekday-conditioned rule straddling a clock boundary
   // could disagree — a narrow attribution-only edge (never the served content,
   // which the shell locked in). A shell→attempt rule-hash channel would close it.
+  //
+  // S6.2 fix round: entryMatchImpliesFunnel (not a raw `===`) — the winner may
+  // now carry NO funnel action (redirect-only/feed-only, §4.3-9); such a
+  // winner implies its funnel choice fell through to the quote's default
+  // funnel (§4.3-7), so the outcome is recorded when the served funnel IS that
+  // default, not only when the match names it directly (a raw `match.
+  // target_funnel_id === resolved.funnel.id` would always be false for a null
+  // target_funnel_id and silently drop this winner's feed_name/multiplier).
   try {
     const match = evaluateQuoteEntryRouting(await loadQuoteRoutingRules(c.env.DB, resolved.quote.id), entryCtx);
-    if (match !== null && match.target_funnel_id === resolved.funnel.id) {
+    if (match !== null && entryMatchImpliesFunnel(match, resolved.funnel.id, resolved.quote.default_funnel_id)) {
       await recordRoutingOutcome(c.env.DB, {
         funnel_attempt_id: attempt.funnel_attempt_id,
         session_id: sessionId,
@@ -451,7 +460,17 @@ async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
     entryCtx,
     answers,
   );
-  if (match === null) return noSwitch();
+  // S6.2: QuoteRoutingMatch.target_funnel_id widened to `number | null` (the
+  // ENTRY evaluator now returns action-only winners too) — but
+  // evaluateQuoteCheckpointRouting's OWN filter is UNCHANGED (still requires
+  // target_funnel_id !== null to be a checkpoint-plane candidate at all), so
+  // this narrow is a pure type-safety statement, never reachable at runtime.
+  // The checkpoint-plane analogue (a feed/redirect-only winner pre-empting a
+  // lower-priority funnel-carrying checkpoint rule) is a real, structurally
+  // identical latent gap but is OUT OF SCOPE for this fix round — see the
+  // S6.2 follow-up report's open concern (no defined "matched, no switch, but
+  // still record" outcome shape for /lg/ck today).
+  if (match === null || match.target_funnel_id === null) return noSwitch();
 
   // §4.3-8: resolve the target FUNNEL's entry variant (A/B applies at funnel
   // entry), then its full bundle (shared page + variant pages). Same-quote

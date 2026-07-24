@@ -1401,6 +1401,24 @@ function validateQuoteCreate(body: Record<string, unknown>): {
   return { errors, value: { quote_name: quoteName, activity, verticals, status } };
 }
 
+// Rework M5 / §11D — "the default template seeds new funnels": the current
+// is_default saved frame template's numeric id, or null. This is a CREATE-TIME
+// seed (not a resolve-time fallback — "seeds" is creation vocabulary): a funnel
+// captures the default AT CREATION, so a later "Set as default" swap never
+// retroactively re-skins an existing funnel. Fail-safe: any read error (a
+// pre-M5 money-path harness with no leadgen_frame_templates table) ⇒ null ⇒ the
+// funnel is created with NO template, exactly as before.
+async function resolveDefaultFrameTemplateId(db: D1Database): Promise<number | null> {
+  try {
+    const row = await db
+      .prepare("SELECT id FROM leadgen_frame_templates WHERE is_default = 1 LIMIT 1")
+      .first<{ id: number }>();
+    return row?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function createQuoteHandler(c: AdminContext): Promise<Response> {
   const body = await readJsonBody(c);
   if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
@@ -1912,13 +1930,18 @@ export async function createQuoteFunnelHandler(c: AdminContext): Promise<Respons
 
   const funnelPublicId = mintPublicId("funnel");
   const variantPublicId = mintPublicId("funnel_variant");
+  // Rework M5 / §11D: the current is_default template SEEDS this new funnel
+  // (create-time). null when no default set / pre-M5 schema ⇒ frame_template_id
+  // stays null (the pre-rework behavior). The variant stays NULL (inherits the
+  // funnel's template per M5 effectiveFrame: variant.ftid ?? funnel.ftid).
+  const defaultTemplateId = await resolveDefaultFrameTemplateId(c.env.DB);
   // Rework M4 (§4.3-1): funnels are unlimited; a new funnel appends to the board
   // (display_order = MAX+1). Rework M1: seed its single active variant (label 'A').
   await c.env.DB.batch([
     c.env.DB.prepare(
-      `INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name, status, display_order)
-       VALUES (?, ?, ?, 'active', (SELECT COALESCE(MAX(display_order), 0) + 1 FROM leadgen_funnels WHERE quote_id = ?))`,
-    ).bind(funnelPublicId, quote.id, funnelName, quote.id),
+      `INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name, status, display_order, frame_template_id)
+       VALUES (?, ?, ?, 'active', (SELECT COALESCE(MAX(display_order), 0) + 1 FROM leadgen_funnels WHERE quote_id = ?), ?)`,
+    ).bind(funnelPublicId, quote.id, funnelName, quote.id, defaultTemplateId),
     c.env.DB.prepare(
       `INSERT INTO leadgen_funnel_variants
          (public_id, funnel_id, variant_label, traffic_allocation_bp, funnel_design_id, status)
