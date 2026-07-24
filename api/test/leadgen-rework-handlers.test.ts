@@ -72,6 +72,9 @@ import {
   setDefaultFrameTemplateHandler,
   updateFrameTemplateHandler,
 } from "../src/admin/leadgen/frame-handlers";
+// S5.3: the REAL resolver composition path — proves an empty page composes as a
+// no-op (runtime safety) + shared-page slots resolve, not just that rows persist.
+import { loadVariantPages, sectionsFromPages, loadSharedPages, resolvePagePlan } from "../src/public/leadgen/resolver";
 
 // --- node:sqlite harness (repo pattern, mirrors leadgen-quotes-api.test.ts) --
 
@@ -1158,5 +1161,186 @@ d("leadgen rework handlers (S1.4)", () => {
     // both rows now exist, scoped to the same variant.
     const list = await req(h, "GET", `/variants/${q.variantPublic}/rules`);
     expect(list.json.items).toHaveLength(2);
+  });
+});
+
+// ===========================================================================
+// S5.3 — empty pages authorable (§4.3-15) + shared-page SLOT authoring (§8.2)
+// ===========================================================================
+function variantNumId(sdb: SqliteDb, variantPublic: string): number {
+  return (sdb.prepare("SELECT id FROM leadgen_funnel_variants WHERE public_id = ?").get(variantPublic) as { id: number }).id;
+}
+function variantContentVersion(sdb: SqliteDb, variantPublic: string): number {
+  return (sdb.prepare("SELECT content_version FROM leadgen_funnel_variants WHERE public_id = ?").get(variantPublic) as { content_version: number }).content_version;
+}
+
+d("empty pages are authorable (§4.3-15, S5.3)", () => {
+  it("PUT /variants saves a page with ZERO slots (200), and the resolver composes it as a no-op", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const s = seedSection(h.sdb, "First");
+    // page 1 = a real section; page 2 = EMPTY (the '+ Add page' shape). Pre-S5.3
+    // this 400'd ("a page requires at least one slot").
+    const save = await req(h, "PUT", `/variants/${q.variantPublic}`, {
+      pages: [{ name: null, slots: [{ kind: "fixed", section_id: s.public_id }] }, { name: null, slots: [] }],
+    });
+    expect(save.status, JSON.stringify(save.json)).toBe(200);
+    // Through the REAL resolver: 2 pages, the empty one contributes ZERO sections
+    // (no crash, denominator = composed sections only).
+    const pages = await loadVariantPages(h.env.DB, variantNumId(h.sdb, q.variantPublic));
+    expect(pages).toHaveLength(2);
+    expect(pages[1]!.slots).toHaveLength(0);
+    expect(sectionsFromPages(pages)).toHaveLength(1);
+  });
+
+  it("a fresh '+ Add page' (ONE empty page, no section) persists but activation preflight BLOCKS it", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    // '+ Add page' on a fresh funnel -> one empty page.
+    const save = await req(h, "PUT", `/variants/${q.variantPublic}`, { pages: [{ name: null, slots: [] }] });
+    expect(save.status, JSON.stringify(save.json)).toBe(200);
+    // §4.3-15 preflight: the funnel has a page but NO section -> a blocking
+    // problem (GET surfaces the stored verdict under activation_preflight).
+    const pf = await req(h, "GET", `/quotes/${q.quotePublic}/activation`);
+    const msgs = (pf.json.activation_preflight?.problems ?? []).map((p: { message: string }) => p.message);
+    expect(msgs.some((m: string) => m.includes("needs at least one page with a section"))).toBe(true);
+    // Add a section to that page -> the funnel-section problem clears (a variant
+    // PUT recomputes + stores the verdict).
+    const s = seedSection(h.sdb, "Now filled");
+    await req(h, "PUT", `/variants/${q.variantPublic}`, { pages: [{ name: null, slots: [{ kind: "fixed", section_id: s.public_id }] }] });
+    const pf2 = await req(h, "GET", `/quotes/${q.quotePublic}/activation`);
+    const msgs2 = (pf2.json.activation_preflight?.problems ?? []).map((p: { message: string }) => p.message);
+    expect(msgs2.some((m: string) => m.includes("needs at least one page with a section"))).toBe(false);
+  });
+
+  it("a non-array slots value is still rejected (only [] is legal, not a non-array)", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const bad = await req(h, "PUT", `/variants/${q.variantPublic}`, { pages: [{ name: null, slots: "nope" }] });
+    expect(bad.status).toBe(400);
+    expect(JSON.stringify(bad.json.fields)).toContain("slots must be an array");
+  });
+});
+
+d("shared-page slot authoring (§8.2 shared-chip editors, S5.3)", () => {
+  it("create fixed -> convert to A/B (Σbp!=10000 rejected) -> convert to ruled (no default rejected) -> revert to fixed", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const a = seedSection(h.sdb, "Shared A");
+    const b = seedSection(h.sdb, "Shared B");
+
+    // create the shared page as ONE fixed slot (the board's default add).
+    const fixed = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, { slots: [{ kind: "fixed", section_id: a.public_id }] });
+    expect(fixed.status, JSON.stringify(fixed.json)).toBe(200);
+    expect(fixed.json.shared_page.slots).toHaveLength(1);
+    expect(fixed.json.shared_page.slots[0].kind).toBe("fixed");
+
+    // Σbp != 10000 -> rejected with the exact preparePages message.
+    const bad = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, {
+      slots: [{ kind: "ab", allocations: [{ section_id: a.public_id, bp: 5000 }, { section_id: b.public_id, bp: 4999 }] }],
+    });
+    expect(bad.status).toBe(400);
+    expect(JSON.stringify(bad.json.fields)).toContain("must sum to 10000");
+
+    // valid A/B (5000/5000) -> kind flips to ab, two candidates.
+    const ab = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, {
+      slots: [{ kind: "ab", allocations: [{ section_id: a.public_id, bp: 5000 }, { section_id: b.public_id, bp: 5000 }] }],
+    });
+    expect(ab.status, JSON.stringify(ab.json)).toBe(200);
+    expect(ab.json.shared_page.slots[0].kind).toBe("ab");
+    expect(ab.json.shared_page.slots[0].candidates).toHaveLength(2);
+
+    // ruled WITHOUT a default -> rejected (default_section_id is required).
+    const noDefault = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, {
+      slots: [{ kind: "ruled", cases: [{ conditions: { groups: [{ field: "state", op: "eq", value: "CA" }] }, section_id: a.public_id }] }],
+    });
+    expect(noDefault.status).toBe(400);
+
+    // valid ruled (state=CA -> A, default B) -> kind flips to ruled.
+    const ruled = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, {
+      slots: [{ kind: "ruled", cases: [{ conditions: { groups: [{ field: "state", op: "eq", value: "CA" }] }, section_id: a.public_id }], default_section_id: b.public_id }],
+    });
+    expect(ruled.status, JSON.stringify(ruled.json)).toBe(200);
+    expect(ruled.json.shared_page.slots[0].kind).toBe("ruled");
+
+    // an entry-known-scope violation (an answer field) is rejected (grounded in
+    // resolver.validateSlotRuleFieldScope, not invented here).
+    const badField = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, {
+      slots: [{ kind: "ruled", cases: [{ conditions: { groups: [{ field: "some_answer", op: "eq", value: "x" }] }, section_id: a.public_id }], default_section_id: b.public_id }],
+    });
+    expect(badField.status).toBe(400);
+
+    // revert to a single fixed section.
+    const back = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, { slots: [{ kind: "fixed", section_id: a.public_id }] });
+    expect(back.status).toBe(200);
+    expect(back.json.shared_page.slots[0].kind).toBe("fixed");
+  });
+
+  it("slot_revision carries forward for an UNCHANGED slot and bumps for a CHANGED one (A/B re-bucket note)", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const a = seedSection(h.sdb, "A");
+    const b = seedSection(h.sdb, "B");
+    const c = seedSection(h.sdb, "C");
+    const abAlloc = (secBp: Array<[string, number]>) => ({ kind: "ab", allocations: secBp.map(([id, bp]) => ({ section_id: id, bp })) });
+
+    const first = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, { slots: [abAlloc([[a.public_id, 5000], [b.public_id, 5000]])] });
+    const rev0 = first.json.shared_page.slots[0].slot_revision;
+
+    // identical re-save -> revision UNCHANGED.
+    const same = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, { slots: [abAlloc([[a.public_id, 5000], [b.public_id, 5000]])] });
+    expect(same.json.shared_page.slots[0].slot_revision).toBe(rev0);
+
+    // changed allocations (re-bucket) -> revision BUMPS.
+    const changed = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, { slots: [abAlloc([[a.public_id, 3000], [c.public_id, 7000]])] });
+    expect(changed.json.shared_page.slots[0].slot_revision).toBe(rev0 + 1);
+  });
+
+  it("`slots` and `sections` cannot both be provided in one save", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const s = seedSection(h.sdb, "X");
+    const both = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, {
+      sections: [{ section_id: s.id, position: 0 }], slots: [{ kind: "fixed", section_id: s.public_id }],
+    });
+    expect(both.status).toBe(400);
+    expect(JSON.stringify(both.json.fields)).toContain("cannot both be provided");
+  });
+
+  it("a shared-page plan change bumps the quote's active variants' content_version (cache coherence)", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const s = seedSection(h.sdb, "Shared");
+    const before = variantContentVersion(h.sdb, q.variantPublic);
+    const save = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, { slots: [{ kind: "fixed", section_id: s.public_id }] });
+    expect(save.status).toBe(200);
+    expect(variantContentVersion(h.sdb, q.variantPublic)).toBeGreaterThan(before);
+  });
+
+  it("an authored A/B shared slot resolves to EXACTLY ONE allocation per session (both arms appear across sessions)", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const a = seedSection(h.sdb, "AllocA");
+    const b = seedSection(h.sdb, "AllocB");
+    const quoteNumId = (h.sdb.prepare("SELECT id FROM leadgen_quotes WHERE public_id = ?").get(q.quotePublic) as { id: number }).id;
+    await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, {
+      slots: [{ kind: "ab", allocations: [{ section_id: a.public_id, bp: 5000 }, { section_id: b.public_id, bp: 5000 }] }],
+    });
+    // The REAL per-session resolver (the SAME resolveSlot the live /lg serve
+    // path uses): every session gets EXACTLY ONE of the two arms for that slot.
+    const shared = await loadSharedPages(h.env.DB, quoteNumId);
+    expect(shared).toHaveLength(1);
+    expect(shared[0]!.slots[0]!.ab_allocations).toHaveLength(2);
+    const served = new Set<string>();
+    for (let i = 0; i < 40; i++) {
+      const plan = resolvePagePlan(shared, { hour: 0, weekday: 0 }, `sess-${i}`);
+      // one page, one slot -> exactly one served section id.
+      expect(plan.pages[0]!.section_public_ids).toHaveLength(1);
+      served.add(plan.pages[0]!.section_public_ids[0]!);
+    }
+    // both arms are reachable across sessions (the allocation is honored, not
+    // one arm dead) — and only the two authored arms are ever served.
+    expect(served.has(a.public_id) && served.has(b.public_id)).toBe(true);
+    expect(served.size).toBe(2);
   });
 });

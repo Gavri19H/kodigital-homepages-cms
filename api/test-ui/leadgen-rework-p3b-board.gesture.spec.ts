@@ -300,4 +300,125 @@ test.describe("P3b Funnel-builder board — live journeys (§8.2)", () => {
     await expect(page.locator("#lg-lander-headline")).toHaveValue("Persisted Headline");
     await expect(page.locator("#lg-lander-enabled")).toBeChecked();
   });
+
+  // === S5.3 ===============================================================
+
+  // Item 1 (§4.3-15): "+ Add page" on a fresh funnel persists an EMPTY page.
+  // Pre-S5.3 this ALWAYS 400'd — addPage() saved the freshly-pushed empty page
+  // (slots:[]) and preparePages rejected it ("a page requires at least one
+  // slot"), contradicting the A-1 empty-state copy ("...or click + Add page.").
+  test("S5.3 item 1 — '+ Add page' on a fresh funnel persists an empty page across reload (was HTTP 400)", async ({ page }) => {
+    const quote = await seedQuote(apiCtx); // fresh funnel, no pages
+    await openEditor(page, quote.public_id);
+    const col = page.locator(".lg-col-funnel").first();
+    await expect(col.locator("[data-page-card]")).toHaveCount(0);
+    await col.locator("[data-add-page]").first().click();
+    // island PUT /variants/:id { pages:[{slots:[]}] } -> reload; the page card
+    // is present AFTER the reload (proves it PERSISTED, not just an optimistic add).
+    await expect(page.locator(".lg-col-funnel [data-page-card]")).toHaveCount(1, { timeout: 20_000 });
+    await expect(page.locator(".lg-board-inline-err")).toHaveCount(0);
+  });
+
+  // Item 2 (§8.2): the funnel-page "+ section" popover STAYS OPEN (root-caused:
+  // opening focus-scrolled the horizontally-scrolled board, and the global
+  // scroll handler closed the just-opened menu; now it REPOSITIONS instead). We
+  // scroll the board so the click reproduces the fail-before condition.
+  test("S5.3 item 2 — funnel-page '+ section' popover stays open, picks a section, persists across reload", async ({ page }) => {
+    const extra = await createSection(apiCtx, "Popover Sec");
+    const quote = await seedQuote(apiCtx);
+    // extra funnels so the board horizontally scrolls at a narrow width
+    for (let i = 0; i < 3; i++) await json(await apiCtx.post(`${LG_API}/quotes/${quote.public_id}/funnels`, { data: { funnel_name: `Extra ${i}` } }), "funnel");
+    // the target funnel needs a page card (that is where [data-add-section] lives)
+    await json(await apiCtx.put(`${LG_API}/variants/${quote.funnels[0]!.variants[0]!.public_id}`, {
+      data: { pages: [{ name: null, slots: [{ kind: "fixed", section_id: (await createSection(apiCtx, "Seed")).public_id }] }] },
+    }), "seed page");
+    await openEditor(page, quote.public_id);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    // scroll the board fully right, then open the last funnel's "+ section"
+    await page.evaluate(() => { const c = document.querySelector("[data-board-cols]"); if (c) c.scrollLeft = c.scrollWidth; });
+    const pageCard = page.locator(".lg-col-funnel [data-page-card]").first();
+    await pageCard.locator("[data-add-section]").click();
+    const picker = page.locator("[data-template-menu]");
+    await expect(picker).toBeVisible(); // pre-fix this closed within the same tick
+    await picker.locator(".lg-menu-item", { hasText: extra.name }).click();
+    await expect(page.locator(".lg-col-funnel [data-sec-chip] .lg-sc-name", { hasText: extra.name })).toBeVisible({ timeout: 20_000 });
+  });
+
+  // Item 3 (§8.2 + M2): author an A/B slot on a shared-page chip via the menu,
+  // save, reload -> the chip honestly reflects kind ("A/B: ..."), AND the public
+  // composed route still serves the page with exactly ONE allocation resolved.
+  test("S5.3 item 3 — author an A/B slot on the shared page via the chip menu; chip shows kind; composed route serves one allocation", async ({ page }) => {
+    const armA = await createSection(apiCtx, "ArmA");
+    const armB = await createSection(apiCtx, "ArmB");
+    const quote = await seedQuote(apiCtx);
+    await json(await apiCtx.put(`${LG_API}/quotes/${quote.public_id}/shared-page`, { data: { slots: [{ kind: "fixed", section_id: armA.public_id }] } }), "seed shared");
+    await openEditor(page, quote.public_id);
+
+    await page.locator(".lg-col-shared [data-sec-chip]").first().locator("[data-chip-kebab]").click();
+    await page.locator('[data-board-menu="shared-chip"] [data-menu-action="ab-slot"]').click();
+    await expect(page.locator("[data-shared-ab-dialog]")).toBeVisible();
+    // arm 1 = the current section; arm 2 blank -> pick armB (50/50 default)
+    await page.locator("[data-shared-ab-dialog] [data-ab-arm]").nth(1).locator("[data-ab-arm-section]").selectOption(armB.public_id);
+    await expect(page.locator("[data-ab-sum]")).toHaveText("100%");
+    await page.locator("[data-shared-ab-save]").click();
+    // reload -> the shared chip reflects the ab kind
+    await expect(page.locator('.lg-col-shared [data-sec-chip] .lg-sc-name', { hasText: "A/B:" })).toBeVisible({ timeout: 20_000 });
+
+    // composed route non-breakage: the §13.4 composed preview (mode:"all" —
+    // the SAME serve-owned composition the live /lg path uses) renders the shared
+    // page's authored A/B slot without error; section_count reflects both arms
+    // composed into the plan and both render. (Per-session resolution to ONE
+    // arm — "one allocation actually served" — is proven through the REAL
+    // resolvePagePlan in leadgen-rework-handlers.test.ts, which the browser
+    // cannot call.)
+    const preview = await json<{ preview?: { html?: string; pages?: string[]; section_count?: number } }>(
+      await apiCtx.post(`${LG_API}/variants/${quote.funnels[0]!.variants[0]!.public_id}/preview`, { data: { mode: "all" } }),
+      "preview",
+    );
+    const body = (preview.preview?.pages ?? []).join(" ") + (preview.preview?.html ?? "");
+    expect(body.length, "composed route renders the page").toBeGreaterThan(0);
+    expect(preview.preview?.section_count, "the A/B slot's two arms compose into the served plan").toBe(2);
+    expect(body.includes(armA.name) && body.includes(armB.name), "both A/B arms are present in the composed plan").toBe(true);
+  });
+
+  // Item 4a (§8.2 "every drag has a menu path"): chip-up/chip-down ROLL OVER a
+  // page boundary within the same funnel (menu equivalent of the cross-page move
+  // drag). Move the only chip on page 1 DOWN -> it becomes the first chip of
+  // page 2; page 1 is left empty. Persists across reload.
+  test("S5.3 item 4a — menu 'Move down' rolls a chip across the page boundary (persists across reload)", async ({ page }) => {
+    const x = await createSection(apiCtx, "PageOne");
+    const y = await createSection(apiCtx, "PageTwo");
+    const quote = await seedQuote(apiCtx);
+    await json(await apiCtx.put(`${LG_API}/variants/${quote.funnels[0]!.variants[0]!.public_id}`, {
+      data: { pages: [{ name: null, slots: [{ kind: "fixed", section_id: x.public_id }] }, { name: null, slots: [{ kind: "fixed", section_id: y.public_id }] }] },
+    }), "seed 2 pages");
+    await openEditor(page, quote.public_id);
+
+    const p1 = page.locator(".lg-col-funnel [data-page-card]").nth(0);
+    await p1.locator("[data-sec-chip]").first().locator("[data-chip-kebab]").click();
+    await page.locator('[data-board-menu="funnel-chip"] [data-menu-action="chip-down"]').click();
+    // reload -> page 2 now leads with the moved chip; page 1 is empty.
+    await expect(page.locator(".lg-col-funnel [data-page-card]").nth(1).locator(".lg-sc-name").first()).toHaveText(x.name, { timeout: 20_000 });
+    await expect(page.locator(".lg-col-funnel [data-page-card]").nth(0).locator("[data-sec-chip]")).toHaveCount(0);
+  });
+
+  // Item 4b (§8.2): POSITIVE cross-page MOVE via DRAG (the drag path existed but
+  // had no positive coverage — only the cross-funnel REJECT was tested).
+  test("S5.3 item 4b — dragging a chip from page 1 to page 2 within a funnel moves it (persists across reload)", async ({ page }) => {
+    const x = await createSection(apiCtx, "DragOne");
+    const y = await createSection(apiCtx, "DragTwo");
+    const quote = await seedQuote(apiCtx);
+    await json(await apiCtx.put(`${LG_API}/variants/${quote.funnels[0]!.variants[0]!.public_id}`, {
+      data: { pages: [{ name: null, slots: [{ kind: "fixed", section_id: x.public_id }] }, { name: null, slots: [{ kind: "fixed", section_id: y.public_id }] }] },
+    }), "seed 2 pages");
+    await openEditor(page, quote.public_id);
+
+    const p1 = page.locator(".lg-col-funnel [data-page-card]").nth(0);
+    const p2 = page.locator(".lg-col-funnel [data-page-card]").nth(1);
+    await expect(p2.locator("[data-sec-chip]")).toHaveCount(1);
+    await dragCenterToCenter(page, p1.locator("[data-sec-chip] [data-chip-grip]").first(), p2);
+    // reload -> page 2 has both chips; page 1 is empty.
+    await expect(page.locator(".lg-col-funnel [data-page-card]").nth(1).locator("[data-sec-chip]")).toHaveCount(2, { timeout: 20_000 });
+    await expect(page.locator(".lg-col-funnel [data-page-card]").nth(0).locator("[data-sec-chip]")).toHaveCount(0);
+  });
 });

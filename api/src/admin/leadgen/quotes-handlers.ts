@@ -2289,7 +2289,20 @@ async function sharedPageJson(db: D1Database, quote: LeadgenQuoteRow): Promise<R
   const page = await readSharedPageRow(db, quote.id);
   if (page === null) return null;
   const sections = await readSharedPageSections(db, quote.id);
-  return { page_id: page.public_id, position: page.position, name: page.name, sections };
+  // Rework §8.2 (S5.3): the shared page's SLOTS in the SAME BoardPageSlot shape
+  // the funnel columns use (pageToApi), resolved through the SAME loader the
+  // runtime serves (loadSharedPages) so kind / A-B allocations / slot rules match
+  // exactly what the visitor gets — this powers the board's shared-chip menu
+  // editors ("A/B this slot" / "Slot rule"). The flat `sections` list stays for
+  // pre-slot consumers (rules-rail field derivation, uniqueness probes).
+  const resolvedShared = await loadSharedPages(db, quote.id);
+  const slots = resolvedShared.length > 0 ? (pageToApi(resolvedShared[0]!).slots as Record<string, unknown>[]) : [];
+  // Attach each candidate's Offer-mapping dot + strip the internal
+  // section_num_id carrier (the SAME batch quoteStructureHandler runs for funnel
+  // pages), so the shared chips carry a real mapping status on first paint.
+  const wrap = [{ slots }];
+  attachMappingStatusToPages(wrap, await sectionMappingStatusMap(db, collectCandidateSectionIds(wrap)));
+  return { page_id: page.public_id, position: page.position, name: page.name, sections, slots };
 }
 
 // GET /quotes/:id/shared-page — the quote's shared first page (or null).
@@ -2347,19 +2360,44 @@ export async function updateSharedPageHandler(c: AdminContext): Promise<Response
   const body = await readJsonBody(c);
   if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
 
-  let sectionItems: SectionOrderItem[] = [];
   const sectionsProvided = body["sections"] !== undefined;
+  const slotsProvided = body["slots"] !== undefined;
+  // §8.2 (S5.3): `slots` (full fixed/ab/ruled descriptors — the board's shared-
+  // chip menu editors) and the legacy flat `sections` replace-set both rewrite
+  // the SAME shared-page rows; accepting both in one call would let the atomic
+  // batch order silently pick a winner (the SAME guard putVariantHandler applies
+  // to its pages-vs-sections pair).
+  if (sectionsProvided && slotsProvided) {
+    return c.json({ error: "Validation failed", fields: { slots: "slots and sections cannot both be provided in the same save" } }, 400);
+  }
+  const name = body["name"] !== undefined ? trimmedString(body["name"]) : undefined;
+  const existing = await readSharedPageRow(c.env.DB, quote.id);
+  const pagePublicId = existing?.public_id ?? mintPublicId("funnel_page");
+
+  // Validate the prospective plan (either shape) fully BEFORE any statement.
+  let sectionItems: SectionOrderItem[] = [];
+  let preparedSharedSlots: PreparedSlot[] = [];
   if (sectionsProvided) {
     const resolved = await resolveSectionOrder(c.env.DB, quote, body["sections"]);
     if (Object.keys(resolved.errors).length > 0) return c.json({ error: "Validation failed", fields: resolved.errors }, 400);
     sectionItems = resolved.items;
     const uniq = await sharedPageUniquenessErrors(c.env.DB, quote, sectionItems.map((s) => s.section_id));
     if (Object.keys(uniq).length > 0) return c.json({ error: "Validation failed", fields: uniq }, 400);
+  } else if (slotsProvided) {
+    // Reuse the variant page/slot validator over the ONE shared page (§4.3-1):
+    // fixed/ruled/ab shape checks, ruled default-required + entry-known field
+    // scope, A/B Sigma==10000, AND slot_revision carry-forward (an unchanged
+    // slot keeps its revision; an edited one bumps — the A/B re-bucket note
+    // machinery, :2880-2889). oldPages = the shared page's CURRENT resolved slots.
+    const oldShared = await loadSharedPages(c.env.DB, quote.id);
+    const prep = await preparePages(c.env.DB, quote, [{ name: name ?? existing?.name ?? null, slots: body["slots"] }], oldShared);
+    if (Object.keys(prep.errors).length > 0) return c.json({ error: "Validation failed", fields: prep.errors }, 400);
+    preparedSharedSlots = prep.pages[0]?.slots ?? [];
+    const prospectiveIds = preparedSharedSlots.flatMap((s) => s.candidateSectionIds);
+    const uniq = await sharedPageUniquenessErrors(c.env.DB, quote, prospectiveIds);
+    if (Object.keys(uniq).length > 0) return c.json({ error: "Validation failed", fields: uniq }, 400);
   }
-  const name = body["name"] !== undefined ? trimmedString(body["name"]) : undefined;
 
-  const existing = await readSharedPageRow(c.env.DB, quote.id);
-  const pagePublicId = existing?.public_id ?? mintPublicId("funnel_page");
   const statements: D1PreparedStatement[] = [];
   if (existing === null) {
     statements.push(
@@ -2373,7 +2411,12 @@ export async function updateSharedPageHandler(c: AdminContext): Promise<Response
     statements.push(c.env.DB.prepare("UPDATE leadgen_funnel_pages SET name = ? WHERE id = ?").bind(name, existing.id));
   }
   if (sectionsProvided) {
+    // Flat replace-set: clear every quote-owned candidate AND any slot rows a
+    // prior slotted save left, so the two representations never coexist.
     statements.push(c.env.DB.prepare("DELETE FROM leadgen_funnel_variant_sections WHERE quote_id = ?").bind(quote.id));
+    statements.push(
+      c.env.DB.prepare("DELETE FROM leadgen_funnel_page_slots WHERE page_id = (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?)").bind(pagePublicId),
+    );
     for (const s of sectionItems) {
       statements.push(
         c.env.DB.prepare(
@@ -2382,6 +2425,51 @@ export async function updateSharedPageHandler(c: AdminContext): Promise<Response
         ).bind(quote.id, s.section_id, s.position, pagePublicId),
       );
     }
+  } else if (slotsProvided) {
+    // Slotted replace-set — the SAME atomic idiom putVariantHandler uses for a
+    // variant's pages (pre-minted page public_id + slot-position subquery link),
+    // keyed by quote_id instead of variant_id. Clears then reinserts slot rows +
+    // slot_id-linked candidate rows; loadSharedPages resolves them via its real-
+    // slot path (in-page A/B, slot rules) unchanged.
+    statements.push(c.env.DB.prepare("DELETE FROM leadgen_funnel_variant_sections WHERE quote_id = ?").bind(quote.id));
+    statements.push(
+      c.env.DB.prepare("DELETE FROM leadgen_funnel_page_slots WHERE page_id = (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?)").bind(pagePublicId),
+    );
+    let sectionRowPosition = 0;
+    for (let si = 0; si < preparedSharedSlots.length; si++) {
+      const slot = preparedSharedSlots[si]!;
+      statements.push(
+        c.env.DB.prepare(
+          `INSERT INTO leadgen_funnel_page_slots (page_id, position, slot_revision, rules_json, ab_allocations_json)
+           VALUES ((SELECT id FROM leadgen_funnel_pages WHERE public_id = ?), ?, ?, ?, ?)`,
+        ).bind(pagePublicId, si, slot.slotRevision, slot.rulesJson, slot.abAllocationsJson),
+      );
+      for (const sectionId of slot.candidateSectionIds) {
+        statements.push(
+          c.env.DB.prepare(
+            `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id, slot_id)
+             VALUES (?, ?, ?,
+               (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?),
+               (SELECT s.id FROM leadgen_funnel_page_slots s
+                  JOIN leadgen_funnel_pages p ON p.id = s.page_id
+                 WHERE p.public_id = ? AND s.position = ?))`,
+          ).bind(quote.id, sectionId, sectionRowPosition++, pagePublicId, pagePublicId, si),
+        );
+      }
+    }
+  }
+  // §3.1 cache coherence (S5.3): the shared page is part of EVERY active funnel-
+  // variant's resolved plan, but the shell/config cache key carries the VARIANT's
+  // content_version (serve.ts leadgenShellKey/leadgenConfigKey) — so a shared-page
+  // plan change must bump the quote's active variants or visitors keep serving the
+  // stale composition. Bump like the sibling mutating verbs (putVariantHandler).
+  if (sectionsProvided || slotsProvided) {
+    statements.push(
+      c.env.DB.prepare(
+        `UPDATE leadgen_funnel_variants SET content_version = content_version + 1
+         WHERE status = 'active' AND funnel_id IN (SELECT id FROM leadgen_funnels WHERE quote_id = ?)`,
+      ).bind(quote.id),
+    );
   }
   if (statements.length > 0) await c.env.DB.batch(statements);
   return c.json({ shared_page: await sharedPageJson(c.env.DB, quote) });
@@ -2937,8 +3025,22 @@ async function preparePages(
     }
     const name = trimmedString(pageRaw["name"]);
     const slotsRaw = pageRaw["slots"];
-    if (!Array.isArray(slotsRaw) || slotsRaw.length === 0) {
-      errors[`${pagePath}.slots`] = "a page requires at least one slot";
+    if (!Array.isArray(slotsRaw)) {
+      errors[`${pagePath}.slots`] = "slots must be an array";
+      continue;
+    }
+    // Rework §4.3-15 (S5.3): an EMPTY page (slots: []) is a LEGAL authoring
+    // state, not a save-time error. The board's "+ Add page" persists an empty
+    // placeholder the operator fills next (its A-1 empty-state copy literally
+    // says "...or click + Add page."), and the ">=1 page with >=1 section"
+    // guarantee is an ACTIVATION-preflight check (computeReworkActivationProblems
+    // — "Funnel '<name>' needs at least one page with a section."), NOT a
+    // per-save rejection. The old `slotsRaw.length === 0 -> 400` 400'd every
+    // "+ Add page" on a fresh funnel. An empty page persists as a page row with
+    // zero slot rows; the resolver composes it as a no-op (sectionsFromPages
+    // skips slotless pages — no empty step, progress denominator unchanged).
+    if (slotsRaw.length === 0) {
+      pages.push({ name, slots: [] });
       continue;
     }
     const slots: PreparedSlot[] = [];

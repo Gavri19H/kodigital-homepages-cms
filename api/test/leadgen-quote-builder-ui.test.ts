@@ -335,7 +335,12 @@ describeDb("Quote Builder frame studio — §4.1 panels", () => {
     const structure = await admin.request(`${API}/quotes/${h.quotePublicId}/structure`, {}, h.env);
     expect(structure.status).toBe(200);
     const body = (await structure.json()) as {
-      funnels: Array<{ variants: Array<{ sections: Array<{ section_id: number; mapping_status: string }> }> }>;
+      funnels: Array<{
+        variants: Array<{ sections: Array<{ section_id: number; mapping_status: string }> }>;
+        // §10/S5.3: the board's OWN data source — quoteStructureHandler's
+        // attachMappingStatusToPages attaches this per candidate (asserted below).
+        active_variant_pages?: Array<{ slots: Array<{ candidates: Array<{ section_id: string; mapping_status?: string }> }> }>;
+      }>;
     };
     const sections = body.funnels[0]!.variants[0]!.sections;
     expect(sections.find((s) => s.section_id === s1.id)!.mapping_status).toBe("complete");
@@ -379,20 +384,34 @@ describeDb("Quote Builder frame studio — §4.1 panels", () => {
     };
     expect(body2.funnels[0]!.variants[0]!.sections.find((s) => s.section_id === s1.id)!.mapping_status).toBe("incomplete");
 
-    // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10, contract-silent GAP): the
-    // OLD <select id="lg-add-section-select"> add-picker's per-<option>
-    // live mapping-status hint is gone — the board's own "+ section" add
-    // flow is a plain-list popover (openPopoverList, quotes-tabs/funnel.ts)
-    // with no mapping-status shown at add-time (the P0 pack's library card
-    // itself shows no mapping-dot either — only "in this funnel"/"in N
-    // funnels" badges). The core DEV-59 guarantee (one section, one color,
-    // both admin surfaces) is unaffected — proven above via the CHIP's OWN
-    // dot once a section is placed on a page.
-    const island = html.match(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)!.join("\n");
-    expect(island).toContain("opt.getAttribute('data-mapping-status')");
-    expect(island).toContain("'Offer mapping complete'");
-    expect(island).toContain("'Offer mapping incomplete'");
-    expect(island).toContain("'No Offers selected yet'");
+    // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10) — UPDATED §10/S5.3: the OLD
+    // <select id="lg-add-section-select"> add-picker DOM was already gone since
+    // P3b (the board's "+ section" is a plain-list popover, openPopoverList,
+    // with no mapping-status shown at add-time), but its per-<option> live dot-
+    // copy JS (fixedSlotFromOption, reading opt.getAttribute('data-mapping-
+    // status') off the vanished <option> and painting it onto a freshly cloned
+    // row) survived as UNREACHABLE dead code until S5.3 deleted it (the §10/§8.9
+    // orphan-scan sweep) — this test's substring assertions on that dead JS are
+    // what broke, not the guarantee itself. There is no separate client-side
+    // add-time decode step to assert any more: every board mutation (add/move/
+    // remove) round-trips a PUT then reloadPage(), so a chip's dot is ALWAYS
+    // freshly server-rendered, never client-painted.
+    //
+    // The end-to-end mechanism is now asserted directly at its two REAL
+    // server-side layers, both already exercised by REAL admin.request() calls
+    // above (never injected markup, never a bare unit call on MAPPING_DOT_TITLES
+    // alone): (1) "the board blob" — quoteStructureHandler's
+    // attachMappingStatusToPages attaches the SAME per-section verdict onto
+    // EACH board-page candidate in the /structure response
+    // (funnels[].active_variant_pages[].slots[].candidates[].mapping_status —
+    // what renderBoardPageCard's chips are actually built from); (2)
+    // renderSectionChip + MAPPING_DOT_TITLES (quotes-tabs/funnel.ts) paint that
+    // SAME verdict into the chip's data-mapping-status/title at SSR time —
+    // proven above (lines 356-362) against the REAL rendered admin HTML.
+    const candidatesFor = (publicId: string): Array<{ section_id: string; mapping_status?: string }> =>
+      (body.funnels[0]!.active_variant_pages ?? []).flatMap((p) => p.slots).flatMap((s) => s.candidates).filter((c) => c.section_id === publicId);
+    expect(candidatesFor(s1.public_id)[0]?.mapping_status, "board-blob candidate for s1").toBe("complete");
+    expect(candidatesFor(s2.public_id)[0]?.mapping_status, "board-blob candidate for s2").toBe("incomplete");
   });
 
   it("DEV-59 corner: a SELECTED Offer with ZERO required fields keeps the Sections-list amber (dot == list badge) while the §12.11 publish gate passes it", async () => {

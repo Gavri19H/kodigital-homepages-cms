@@ -156,20 +156,17 @@ function boxesIntersect(a: { x: number; y: number; width: number; height: number
   return !(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
 }
 
-// NOTE: the retired addSectionToPage (the OLD #lg-section-list-scoped
-// <select>+button pair) has no board-native equivalent usable from a test —
-// [data-add-section] (a FUNNEL page's board "+ section" popover) is a
-// CONFIRMED product bug this investigation isolated: it opens then
-// immediately self-closes within the SAME synchronous click
-// (MutationObserver-confirmed "lg-template-menu" -> "lg-template-menu
-// lg-hidden" with no intervening event; reproduced 100% across repeated
-// fresh-DB runs; ruled out a load-timing race via an explicit pre-click
-// settle wait). The SAME popover driven from the shared page's
-// [data-add-shared-section] instead works correctly, isolating the bug to
-// the funnel-page-specific handler (quotes-tabs/funnel.ts) — see Item 10J's
-// own citation below. Item 10J seeds its slots directly via the variant PUT
-// instead (its proof intent — chip-name ellipsis/no-overlap — does not
-// depend on how a slot was authored).
+// NOTE: the OLD #lg-section-list-scoped <select>+button add pair is removed
+// (§10/§8.9). The FUNNEL page's board "+ section" popover ([data-add-section])
+// WAS a product bug (it opened then self-closed within the same synchronous
+// click — the tabindex=0 control's focus scroll-into-view of the horizontally-
+// scrolled board fired the global scroll->closeMenus). S5.3 root-caused and
+// FIXED it (the open menu now REPOSITIONS on scroll instead of closing); proven
+// live in test-ui/leadgen-rework-p3b-board.gesture.spec.ts ("S5.3 item 2 —
+// funnel-page '+ section' popover stays open …"). Item 10J below still seeds its
+// slots directly via the variant PUT because its proof intent — chip-name
+// ellipsis/no-overlap — does not depend on HOW a slot was authored, not because
+// the popover is broken.
 
 // The dynamic-host live leg (a *.e2e.test tenant host, resolved via
 // chromium's --host-resolver-rules launch arg above) is chromium-only —
@@ -218,34 +215,13 @@ test.describe("Round-4 acceptance — Funnel builder: structure/pages/routing/th
     const s1 = await createSection(apiCtx, longName, `r4f10j_${Date.now()}`);
 
     // Seed the page (incl. the long-named section's slot) directly via the
-    // variant PUT — TWO confirmed product bugs in the board's click-driven
-    // authoring flow, both outside this slice's ownership (quotes-tabs/
-    // funnel.ts), reported to the P6 owner package rather than worked around
-    // silently:
-    //   1. [data-add-page] alone ALWAYS 400s: addPage() immediately calls
-    //      saveFunnel() with the freshly-pushed EMPTY page (slots:[]), and
-    //      the server's OWN validator unconditionally rejects it — PUT
-    //      /variants/:id -> 400 {"fields":{"pages.0.slots":"a page requires
-    //      at least one slot"}} — contradicting the empty-state's own copy
-    //      ("...or click + Add page.").
-    //   2. [data-add-section] (a FUNNEL page's "+ section") opens its
-    //      popover then IMMEDIATELY self-closes within the SAME synchronous
-    //      click (MutationObserver-confirmed: class toggles
-    //      "lg-template-menu" -> "lg-template-menu lg-hidden" with no
-    //      intervening event) — reproduced 100% across repeated fresh-DB
-    //      runs, unaffected by an explicit pre-click settle wait (rules out
-    //      a load-timing race). THE SAME popover mechanism, driven from the
-    //      shared page's [data-add-shared-section] instead, works correctly
-    //      (stays open, item clickable) — isolating the bug to the funnel-
-    //      page-specific handler (quotes-tabs/funnel.ts's addSec branch:
-    //      funnelOfEl/pageIndexOfEl or the addSectionToFunnelPage onPick
-    //      path), not the shared openPopoverList/sectionItems machinery
-    //      itself. This means a funnel PAGE can currently only ever gain a
-    //      section via seeding (this test's own PUT, or the initially-empty
-    //      state's DRAG affordance — leadgen-rework-p3b-board.gesture.spec.ts
-    //      proves drag works — never the "+ section" BUTTON+popover path.
-    // Item 10J's OWN proof intent (chip-name ellipsis/no-overlap) does not
-    // depend on how the slots were authored, so seed both directly here.
+    // variant PUT. Item 10J's proof intent is chip-name ellipsis/no-overlap,
+    // which does not depend on HOW the slots were authored, so a direct PUT is
+    // the terse setup. (The two authoring bugs this comment used to flag —
+    // "+ Add page" 400ing on an empty page, and the funnel "+ section" popover
+    // self-closing — were both root-caused and FIXED in S5.3 and are proven live
+    // in leadgen-rework-p3b-board.gesture.spec.ts: "S5.3 item 1 — '+ Add page' …"
+    // and "S5.3 item 2 — funnel-page '+ section' popover stays open …".)
     const filler = await createSection(apiCtx, `R4F 10j filler ${Date.now()}`, `r4f10jfill_${Date.now()}`);
     await json(
       await apiCtx.put(`${LG_API}/variants/${seed.variantPublicId}`, {
@@ -309,28 +285,22 @@ test.describe("Round-4 acceptance — Funnel builder: structure/pages/routing/th
   //     sibling reorder affordances (chip-up/chip-down, funnel move-left/
   //     move-right) using the SAME kebab-menu pattern.
   //
-  // Two of this test's SPECIFIC claims have NO current re-proof anywhere —
-  // a genuine gap, confirmed via precise source trace, not silently dropped:
-  //   1. "move a section from page 1 -> page 2" ([data-slot-move-next]): the
-  //      board's replacement (chip-up/chip-down -> moveFunnelChip) is
-  //      confined to `page.slots` — `if (... to >= page.slots.length)
-  //      { return; }` (funnel.ts) — it explicitly REFUSES to cross a page
-  //      boundary. There is no drag-and-drop or menu path that moves a chip
-  //      to a DIFFERENT page card. This capability is REMOVED, not relocated.
-  //   2. "an in-page RULED slot (state=CA -> X, default Y)" AUTHORED via the
-  //      UI: the funnel-chip kebab menu offers ONLY {chip-up, chip-down,
-  //      remove} — no ab-slot/slot-rule actions (those exist ONLY on the
-  //      shared-page's chip menu, and even there they just `gotoTab('ab')` —
-  //      a navigation, not an inline case/default editor). addSectionToFunnelPage
-  //      always creates `{ kind: 'fixed', ... }` — there is no UI path to
-  //      create a ruled slot from scratch, nor to convert an existing fixed
-  //      slot to ruled, on a FUNNEL page. The DATA MODEL and RENDER still
-  //      support it (a pre-existing ruled slot renders its "Rule: <name>"
-  //      chip label correctly — renderBoardPageCard's `kind === "ruled"`
-  //      branch — provable only by seeding it directly via `PUT
-  //      /variants/:id`, never through any admin control), but authoring one
-  //      has no live UI surface today. This is a product-fidelity gap for the
-  //      P6 owner package, not a test-authoring gap.
+  // Both of this test's remaining claims are now COVERED live by S5.3 (they
+  // were open gaps when this test retired; the successor tests are in
+  // test-ui/leadgen-rework-p3b-board.gesture.spec.ts + the §8.2 shared-chip
+  // editor handler tests in test/leadgen-rework-handlers.test.ts):
+  //   1. "move a section from page 1 -> page 2": chip-up/chip-down now ROLL OVER
+  //      the page boundary within the funnel (moveFunnelChip, funnel.ts), and
+  //      the cross-page MOVE drag has positive coverage too — "S5.3 item 4a —
+  //      menu 'Move down' rolls a chip across the page boundary …" + "S5.3 item
+  //      4b — dragging a chip from page 1 to page 2 …".
+  //   2. "an in-page RULED slot (state=CA -> X, default Y)" AUTHORED via the UI:
+  //      the shared-page chip menu's "A/B this slot" / "Slot rule" now open real
+  //      in-board editors (funnel.ts renderSharedSlotAbDialog / RuledDialog — the
+  //      old gotoTab('ab') dead-end stub is gone, U-09), and slot authoring lives
+  //      in the §8.2 board's shared-chip editors. Proven by "S5.3 item 3 — author
+  //      an A/B slot on the shared page via the chip menu …" + the handler tests
+  //      "shared-page slot authoring (§8.2 shared-chip editors, S5.3)".
   // =========================================================================
 
   // =========================================================================
