@@ -521,17 +521,22 @@ describe("§6.8 sliders — stepper / from_to / dual / aria / bounds through the
 // ---------------------------------------------------------------------------
 
 describe("§6.5 Other-select — record + deselect both directions through the real engine", () => {
+  // FAITHFUL to presets otherSelectMarkup: data-lg-input AND data-lg-other-panel
+  // ride the SAME <select> (NOT a wrapper div around it — the pre-fix false-green
+  // structure), each option carries data-lg-choice, and the first option is the
+  // "" placeholder. The old wrapper-div DOM let the base-click reset's DESCENDANT
+  // selector "[data-lg-other-panel] [data-lg-input]" match; on the real
+  // single-element select it never did, so the Other value kept displaying.
   function otherDom(): { root: FakeElement; yes: FakeElement; no: FakeElement; sel: FakeSelectElement } {
     DOC = fakeDocument();
     const yes = mk("button", { "data-lg-choice": "yes" });
     const no = mk("button", { "data-lg-choice": "no" });
-    const sel = mk("select", { "data-lg-input": "" }) as FakeSelectElement;
+    const sel = mk("select", { "data-lg-input": "", "data-lg-other-panel": "", hidden: "" }) as FakeSelectElement;
     sel.appendChild(mk("option", { value: "" }));
-    sel.appendChild(mk("option", { value: "maybe" }));
-    sel.appendChild(mk("option", { value: "unsure" }));
-    const panel = mk("div", { "data-lg-other-panel": "" }, [sel]);
+    sel.appendChild(mk("option", { value: "maybe", "data-lg-choice": "maybe" }));
+    sel.appendChild(mk("option", { value: "unsure", "data-lg-choice": "unsure" }));
     const trigger = mk("button", { "data-lg-other-trigger": "", "aria-expanded": "false" });
-    const q = mk("div", { "data-lg-question": "q_o", "data-lg-field": "pick" }, [yes, no, trigger, panel]);
+    const q = mk("div", { "data-lg-question": "q_o", "data-lg-field": "pick" }, [yes, no, trigger, sel]);
     const sec = mk("section", { "data-lg-section": "", "data-lg-section-id": "lgs_1", "data-lg-index": "0" }, [q, mk("button", { "data-lg-continue": "" })]);
     const root = mk("div", { id: "lg-funnel-root" }, [mk("main", { "data-lg-mount": "" }, [sec])]);
     return { root, yes, no, sel };
@@ -570,10 +575,11 @@ describe("§6.5 Other-select — record + deselect both directions through the r
     const dom = otherDom();
     await boot(otherConfig(), dom.root, { preview: true });
     const trigger = dom.root.querySelector("[data-lg-other-trigger]") as FakeElement;
-    const panel = dom.root.querySelector("[data-lg-other-panel]") as FakeElement;
-    expect(panel.hidden).toBe(false); // fake default; assert the reveal flips aria
+    // The revealed panel IS the <select> (same element carries data-lg-other-panel).
+    expect(dom.root.querySelector("[data-lg-other-panel]")).toBe(dom.sel);
     dom.root.dispatch("click", trigger);
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(dom.sel.hidden).toBe(false); // openOtherPanel toggled the hidden attr off
   });
 });
 
@@ -582,9 +588,23 @@ describe("§6.5 Other-select — record + deselect both directions through the r
 // ---------------------------------------------------------------------------
 
 describe("§6.10 address — per-field required + none/zip5/{regex,message} through the real engine", () => {
+  // FAITHFUL to the real producer path (config-dto compile + presets render):
+  //  * the compiled config carries props.fields[] and NO props.internal_fields
+  //    (the M9 studio writes only props.fields — ui-section-studio collectAddressFields;
+  //    config-dto copies props verbatim), and the address node carries its own
+  //    internal_field (the addrBase source);
+  //  * the DOM keys each field's data-lg-field / data-lg-error-for by the RECORDER's
+  //    own convention `{base}_{kind}` (presets m9AddressFieldName), NOT the bare kind.
+  // The producer↔consumer coherence of these two keys (renderer data-lg-field ==
+  // validator-derived key) is proven end-to-end, over the REAL presets render, in
+  // test/leadgen-rework-routing.test.ts ("§6.10/M9 address key coherence"). Keying the
+  // DOM on the bare kind (the pre-fix false-green) hid that the validator read a store
+  // slot the recorder never wrote, so every authored address failed `required`.
+  const ADDR_BASE = "mailing_address";
+  const fieldKey = (kind: string): string => `${ADDR_BASE}_${kind}`;
   function addrConfig(): LgPublicConfig {
     return baseConfig([section("lgs_1", 0, [
-      { type: "AddressAutocompleteQuestion", question_id: "q_addr", props: { internal_fields: ["street", "city", "state", "zip"], fields: [
+      { type: "AddressAutocompleteQuestion", question_id: "q_addr", internal_field: ADDR_BASE, props: { fields: [
         { field: "street", required: true },
         { field: "city" },
         { field: "state", validation: { regex: "^[A-Z]{2}$", message: "Use the 2-letter state code." } },
@@ -600,10 +620,10 @@ describe("§6.10 address — per-field required + none/zip5/{regex,message} thro
     for (const f of ["street", "city", "state", "zip"]) {
       const inp = mk("input", { "data-lg-input": "" }) as FakeInputElement;
       inputs[f] = inp;
-      errs[f] = mk("p", { "data-lg-error-for": f });
-      kids.push(mk("div", { "data-lg-field": f }, [inp, errs[f]]));
+      errs[f] = mk("p", { "data-lg-error-for": fieldKey(f) });
+      kids.push(mk("span", { "data-lg-field": fieldKey(f) }, [inp, errs[f]]));
     }
-    const q = mk("div", { "data-lg-question": "q_addr" }, kids);
+    const q = mk("div", { "data-lg-question": "q_addr", "data-lg-field": ADDR_BASE }, kids);
     const cont = mk("button", { "data-lg-continue": "" });
     const sec = mk("section", { "data-lg-section": "", "data-lg-section-id": "lgs_1", "data-lg-index": "0" }, [q, cont]);
     const root = mk("div", { id: "lg-funnel-root" }, [mk("main", { "data-lg-mount": "" }, [sec])]);
@@ -766,5 +786,48 @@ describe("§4.2 — default provenance + hidden⇒not-required/not-persisted on 
     expect(state().section_index).toBe(1); // advanced, hidden-required did not block
     expect(answers()["dep"]).toBe("a"); // still in memory (back-nav)
     expect(snapshot()?.["dep"]).toBeUndefined(); // hidden ⇒ excluded from persistence (== the auction hiddenFields set)
+  });
+
+  it("a dependency-hidden field shadowed by an always-visible ValidationError does NOT leak its default into the /lg/auction projection (§4.2 hiddenAnswerFields)", async () => {
+    // #2C shape (the S6.1b gap): the insurer dropdown (defaultValue 'geico',
+    // REQUIRED, conditional show-if gate==='show') is hidden on entry because the
+    // gate defaults to 'hide'; an AUTHORED ValidationError binds the SAME
+    // internal_field ('insurer') for its error slot and carries NO conditional, so
+    // it is always visible. Pre-fix that always-visible non-producing node un-hid
+    // 'insurer' in hiddenAnswerFields ("hidden only when EVERY owning component is
+    // hidden"), leaking its default_applied answer into the auction request body —
+    // even though the producing dropdown was hidden. Only default-carrying fields
+    // expose the leak, which is exactly the combination the existing gesture tests
+    // (hidden-no-default / shown-with-default) never covered.
+    const gate: LgComponentConfig = { type: "ButtonAnswerGroup", question_id: "q_gate", internal_field: "gate", answer_type: "enum", props: {}, choices: [{ label: "Hide", value: "hide", analytics_id: "h" }, { label: "Show", value: "show", analytics_id: "s" }], valid_values: ["hide", "show"], default_answer: { value: "hide", answer_source: "default_applied" } };
+    const insurer: LgComponentConfig = { type: "DropdownQuestion", question_id: "q_ins", internal_field: "insurer", answer_type: "enum", required: true, conditional: { when: "gate", op: "eq", value: "show" }, props: {}, choices: [{ label: "GEICO", value: "geico", analytics_id: "g" }], valid_values: ["geico"], client_validation: { required: true }, default_answer: { value: "geico", answer_source: "default_applied" } };
+    const insErr: LgComponentConfig = { type: "ValidationError", question_id: "q_ins_err", internal_field: "insurer", props: {} };
+    DOC = fakeDocument();
+    const qGate = mk("div", { "data-lg-question": "q_gate", "data-lg-field": "gate" }, [mk("button", { "data-lg-choice": "hide" }), mk("button", { "data-lg-choice": "show" })]);
+    const qIns = mk("div", { "data-lg-question": "q_ins", "data-lg-field": "insurer" }, [mk("select", { "data-lg-input": "" })]);
+    const insErrSlot = mk("p", { "data-lg-error-for": "insurer" });
+    const cont = mk("button", { "data-lg-continue": "" });
+    const sec = mk("section", { "data-lg-section": "", "data-lg-section-id": "lgs_1", "data-lg-index": "0" }, [qGate, qIns, insErrSlot, cont]);
+    const root = mk("div", { id: "lg-funnel-root" }, [mk("main", { "data-lg-mount": "" }, [sec])]);
+    const auctionMock: FetchMock = (u) =>
+      u.includes("/lg/attempt")
+        ? { json: { funnel_attempt_id: "att_2c", signed_config_token: "t", ctx: {} } }
+        : u.includes("/lg/auction")
+          ? { json: { unfilled: true, banners_html: "", auction_result_id: "", banner_render_id: "" } }
+          : { status: 204 };
+    const { win, answers } = await boot(baseConfig([section("lgs_1", 0, [gate, insurer, insErr])]), root, { preview: false, fetchMock: auctionMock });
+    // Both defaults applied on entry; the insurer input is dependency-hidden.
+    expect(answers()["insurer"]).toBe("geico"); // in memory (§3.5.3 back-nav)
+    expect(answers()["gate"]).toBe("hide");
+    // Continue on the only page ⇒ finalize ⇒ /lg/auction POST is built + sent.
+    root.dispatch("click", cont);
+    await tick();
+    await tick();
+    const calls = (win as { __lgCalls?: Array<{ url: string; body?: string }> }).__lgCalls ?? [];
+    const auction = calls.find((c) => c.url.includes("/lg/auction"));
+    expect(auction, "auction POST fired").toBeTruthy();
+    const body = JSON.parse(auction?.body ?? "{}") as { answers: Record<string, { value: unknown }> };
+    expect(body.answers["gate"]?.value, "the visible gate answer IS projected").toBe("hide");
+    expect(body.answers["insurer"], "the hidden insurer default is ABSENT from the auction projection").toBeUndefined();
   });
 });

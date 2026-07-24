@@ -107,6 +107,34 @@ export function groupSubfields(component: LgComponentConfig): string[] | null {
   return null;
 }
 
+// LeadGen Rework §6.10/M9 — the answer-store base an Address records its
+// sub-fields under: internal_field ?? question_id ?? "address" (the SAME
+// fallback ladder presets.ts renderAddressFieldSet uses for `addrBase`).
+function addressBase(component: LgComponentConfig): string {
+  const f = component.internal_field;
+  if (typeof f === "string" && f.trim() !== "") return f.trim();
+  return component.question_id !== "" ? component.question_id : "address";
+}
+
+// §6.10/M9 — the answer key ONE address field spec records under, derived the
+// EXACT way the recorder does (presets.ts m9AddressFieldName): props.maps.fills
+// .<kind> override, else `{base}_{kind}`; a `full_address` field records under
+// the base itself ("full_address = the base field"). This is why the validator
+// must read the COMPILED config (internal_field/question_id + props.maps.fills),
+// NOT props.internal_fields — the M9 studio writes props.fields[] and never
+// props.internal_fields, so the old groupSubfields-positional read always keyed
+// the wrong store slot and every required/zip5 check on an authored address
+// failed no matter what the visitor typed.
+function addressFieldKey(component: LgComponentConfig, kind: string): string {
+  if (kind === "full_address") return addressBase(component);
+  const maps = (component.props ?? {})["maps"];
+  const fills = isRecord(maps) ? maps["fills"] : undefined;
+  const override = isRecord(fills) ? fills[kind] : undefined;
+  return typeof override === "string" && override.trim() !== ""
+    ? override.trim()
+    : `${addressBase(component)}_${kind}`;
+}
+
 // PC-A4 (P4b) — NANP structural phone validation + E.164 normalization.
 //
 // Returns the E.164 form (`+1` + 10 digits) for a valid US/Canada number, or
@@ -420,20 +448,23 @@ export function validateSection(
     if (!vis.visible) continue;
 
     // LeadGen Rework §6.10: an Address with authored props.fields[] validates
-    // PER FIELD — positional fields[k] ↔ the k-th answer sub-field
-    // (groupSubfields = props.internal_fields, the SAME order answers.ts
-    // fieldsOf records under). Each field carries its own required + format
-    // rule; a hidden component is already skipped above, and a field kind not
-    // in fields[] is never validated. Absent props.fields ⇒ the pre-M9
-    // whole-group required check (the M9 seam, below).
+    // PER FIELD — each spec's answer key is derived from its OWN `field` kind
+    // via addressFieldKey (props.maps.fills override else `{base}_{kind}`;
+    // full_address ⇒ the base), the SAME derivation presets.ts m9AddressFieldName
+    // records under and answers.ts fieldsOf mirrors — so required/zip5 gate the
+    // real stored value. (The old positional groupSubfields read keyed
+    // props.internal_fields, which the M9 studio never writes ⇒ every authored
+    // address failed required regardless of input.) Each field carries its own
+    // required + format rule; a hidden component is already skipped above.
+    // Absent props.fields ⇒ the pre-M9 whole-group required check (below).
     if (component.type === "AddressAutocompleteQuestion") {
       const specs = (component.props ?? {})["fields"];
       if (Array.isArray(specs)) {
-        const subs = groupSubfields(component) ?? [];
-        for (let k = 0; k < specs.length; k++) {
-          const spec = specs[k];
-          const key = subs[k];
-          if (!isRecord(spec) || key === undefined) continue;
+        for (const spec of specs) {
+          if (!isRecord(spec)) continue;
+          const kind = spec["field"];
+          if (typeof kind !== "string") continue;
+          const key = addressFieldKey(component, kind);
           for (const failure of validateAddressField(spec, answers[key])) {
             out.push({ ...failure, question_id: component.question_id, internal_field: key });
           }

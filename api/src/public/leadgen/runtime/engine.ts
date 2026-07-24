@@ -800,7 +800,23 @@ export class LgEngine {
   }
 
   private hiddenFields(): Set<string> {
-    return hiddenAnswerFields(this.config.sections, this.evalAnswers());
+    // §4.2: a dependency-hidden component's answer is EXCLUDED from the auction
+    // projection + persistence. hiddenAnswerFields treats a field as hidden only
+    // when EVERY component owning that internal_field is hidden — but an authored
+    // ValidationError binds a producing field's internal_field purely to paint
+    // its error slot (server answers.ts fieldsOf: produces===null ⇒ NO field)
+    // and carries no conditional, so it is always "visible" and would un-hide a
+    // field whose real (producing) input IS hidden — leaking that input's
+    // default_applied / user answer into /lg/auction + sessionStorage. Dropping
+    // non-answer-producing ValidationError nodes here mirrors the server's
+    // produces-null answer-space model; ValidationError is the only non-producing
+    // type that carries an internal_field (registry.ts). Consumers of this set:
+    // buildAuctionRequest → store.auctionAnswers, and persist → store.serialize.
+    const sections = this.config.sections.map((s) => ({
+      ...s,
+      components: s.components.filter((c) => c.type !== "ValidationError"),
+    }));
+    return hiddenAnswerFields(sections, this.evalAnswers());
   }
 
   // Round-4 P3a: intersect dependency-visible indices with the resolved
@@ -1046,10 +1062,15 @@ export class LgEngine {
     const write = this.store.recordUserAnswer(internalField, value, meta);
     if (questionEl !== null) {
       render.applySelectionClasses(questionEl, value);
-      // §6.5: choosing a BASE choice clears any authored "Other" select — the
-      // two share ONE answer domain (mutual exclusion). No-op for a question
-      // with no [data-lg-other-panel].
-      const otherSel = questionEl.querySelector("[data-lg-other-panel] [data-lg-input]");
+      // §6.5: choosing a BASE choice resets any authored "Other" select back to
+      // its "Choose…" placeholder — the two share ONE answer domain (mutual
+      // exclusion), so the picked Other option must stop DISPLAYING as selected.
+      // presets.ts renders the <select> with data-lg-other-panel AND data-lg-input
+      // on the SAME element, so this selects that element directly (a DESCENDANT
+      // selector "[data-lg-other-panel] [data-lg-input]" never matched it, so the
+      // reset silently no-op'd on the live funnel). No-op for a question with no
+      // [data-lg-other-panel].
+      const otherSel = questionEl.querySelector("[data-lg-other-panel]");
       if (otherSel !== null && "value" in otherSel) (otherSel as { value: string }).value = "";
     }
     this.afterAnswerMutation();

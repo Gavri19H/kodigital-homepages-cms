@@ -49,3 +49,25 @@ dead-coded `if (false && …)` isolation build). The rows sum exactly to the +4,
   round figures. Still well inside the D1 headroom.
 - **Progress/resume/auction = 0**: those legs were already delivered by Round-4 P4a and P1;
   S2.3's job there is proof, not new bytes.
+
+## P6 S6.3 — acceptance-phase runtime fixes (three §11 producer↔consumer divergences)
+
+Three defects the §11 terminal journeys surfaced (unit tests hand-built config+DOM, so a
+real producer↔consumer key/selector mismatch was invisible). All three fixes touch the
+capped engine bundle. Deltas are real `npm run build:leadgen-runtime` measurements by
+isolation build (revert one fix, rebuild, diff), same method as the S2.3 rows above.
+
+| | Bytes | Source |
+|---|---|---|
+| S2.3 final (prior ledger total) | **50,037** | `npm run build:leadgen-runtime` |
+| S6.3 final (all three fixes) | **50,435** | `npm run build:leadgen-runtime` |
+| **Net added by S6.3** | **+398** | |
+| D1 cap | **51,200** | |
+| **Headroom remaining** | **765** | 98.5% of cap consumed |
+
+| # | Fix (contract anchor) | File | Measured Δ | How measured |
+|---|---|---|---|---|
+| S6.3-1 | **Address per-field validation — answer-key derivation** (§6.10/M9 P0): `validateSection` derives each address sub-field's store key via the recorder's own convention (`props.maps.fills.<kind>` override else `{base}_{kind}`; `full_address`⇒base) instead of the positional `props.internal_fields` read the M9 studio never writes — so required/zip5 gate the value the DOM actually records. | `validation.ts` | **+327** | 50,364 (item-1-only build) − 50,037 |
+| S6.3-2 | **Hidden-set answer-producer scope** (§4.2): `hiddenFields()` drops non-answer-producing `ValidationError` nodes (produces===null, server answers.ts `fieldsOf` parity) before computing the dependency-hidden set, so an always-visible error-slot binding can no longer un-hide a hidden input and leak its `default_applied`/user answer into `/lg/auction` + sessionStorage. | `engine.ts` | **+87** | 50,451 (item-1+2 build) − 50,364 |
+| S6.3-3 | **Other-select display reset** (§6.5): base-choice click resets the authored Other `<select>` to its "Choose…" placeholder — the reset now selects the `[data-lg-other-panel]` element directly (presets renders `data-lg-other-panel`+`data-lg-input` on the SAME `<select>`; the old descendant selector `[data-lg-other-panel] [data-lg-input]` never matched, so the display never reset). | `engine.ts` | **−16** | 50,435 (final) − 50,451 (item-1+2 build) |
+| | **TOTAL** | | **+398** | 50,435 − 50,037 |

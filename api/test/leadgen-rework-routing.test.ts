@@ -43,6 +43,17 @@ import type { LeadgenOfferRow } from "../src/admin/leadgen/db-types";
 import { normalizeAnswers } from "../src/leadgen/answers";
 import { resolveRoutingMultiplier } from "../src/leadgen/s2s-dispatch";
 import { shouldRedirectForSession } from "../src/leadgen/funnel";
+// §6.10/M9 producer↔consumer coherence: the REAL save gate + config compiler +
+// SSR renderer + the client validator, exercised end-to-end (no hand-built config
+// or DOM) so an address sub-field KEY mismatch between the recorder (presets
+// data-lg-field) and the validator can never hide again.
+import { validateSectionContent } from "../src/public/leadgen/components/content-schema";
+import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
+import { renderComponent } from "../src/public/leadgen/components/presets";
+import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
+import { toPublicComponent } from "../src/public/leadgen/config-dto";
+import { validateSection } from "../src/public/leadgen/runtime/validation";
+import type { LgComponentConfig } from "../src/public/leadgen/runtime/state";
 
 // --- node:sqlite harness (repo pattern) ------------------------------------
 type SqliteStatement = { run(...p: unknown[]): unknown; get(...p: unknown[]): unknown; all(...p: unknown[]): unknown[] };
@@ -1280,5 +1291,82 @@ describeDb("M5 saved-template threading — LIVE serve path (resolver.ts resolve
     expect(html).not.toContain("SAVED-TEMPLATE-MARKER");
     expect(html).not.toContain("VARIANT-OVERRIDE-MARKER");
     expect(html).not.toContain("lg-secure-badge-text");
+  });
+});
+
+// ===========================================================================
+// §6.10/M9 — address sub-field KEY coherence across the REAL producer chain.
+// The pre-fix unit tests hand-built BOTH the config and the DOM, so the mismatch
+// between the RECORDER key (presets data-lg-field = {base}_{kind}) and the
+// VALIDATOR key (validation.ts derived from props.internal_fields, which the M9
+// studio never writes) was invisible. This drives the REAL chain end-to-end:
+//   author node → validateSectionContent (save gate) → toPublicComponent (compile)
+//   → renderComponent (SSR record keys) → validateSection (the client consumer).
+// Pre-fix, the fully-answered case FAILS (the validator reads a store slot the
+// recorder never wrote, so `required` never clears).
+// ===========================================================================
+describe("§6.10/M9 address key coherence — real save → config-dto → presets → validateSection", () => {
+  const DESIGN = defaultFunnelDesign;
+  const ADDR_BASE = "mailing_address";
+
+  // A real authored M9 address: internal_field + props.fields[] (street/city/zip),
+  // street + zip REQUIRED, zip zip5. NO props.internal_fields (the M9 studio's
+  // ui-section-studio collectAddressFields writes props.fields only).
+  function addressNode(): LeadgenComponentNode {
+    return {
+      type: "AddressAutocompleteQuestion",
+      question_id: "q_addr",
+      internal_field: ADDR_BASE,
+      props: {
+        fields: [
+          { field: "street", mode: "manual", required: true },
+          { field: "city", mode: "manual" },
+          { field: "zip", mode: "manual", validation: "zip5", required: true },
+        ],
+      },
+    } as unknown as LeadgenComponentNode;
+  }
+  const continueNode = { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } } as unknown as LeadgenComponentNode;
+
+  // Every data-lg-field the SSR renderer emits (the keys the engine RECORDS under).
+  function renderedFieldKeys(node: LeadgenComponentNode): string[] {
+    const html = renderComponent(node, DESIGN);
+    return [...html.matchAll(/data-lg-field="([^"]+)"/g)].map((m) => m[1] as string);
+  }
+  const configOf = (): LgComponentConfig => toPublicComponent(addressNode()) as unknown as LgComponentConfig;
+  const VIS = [{ question_id: "q_addr", visible: true, required_now: true }];
+
+  it("the save gate accepts the M9 address; config-dto emits props.fields and NO props.internal_fields", () => {
+    const gate = validateSectionContent({ components: [addressNode(), continueNode] });
+    expect(gate.ok, `save gate errors: ${JSON.stringify(gate.errors)}`).toBe(true);
+    const props = configOf().props;
+    expect(Array.isArray(props["fields"]), "compiled config carries props.fields[]").toBe(true);
+    expect("internal_fields" in props, "compiled config does NOT carry props.internal_fields").toBe(false);
+  });
+
+  it("the renderer records each sub-field under {base}_{kind}, NEVER the bare kind", () => {
+    const keys = renderedFieldKeys(addressNode());
+    for (const kind of ["street", "city", "zip"]) {
+      expect(keys, `records ${kind} under ${ADDR_BASE}_${kind}`).toContain(`${ADDR_BASE}_${kind}`);
+      expect(keys, `never the bare kind "${kind}"`).not.toContain(kind);
+    }
+  });
+
+  it("a fully-answered address PASSES validation through the real compiled config (0 failures)", () => {
+    const keys = renderedFieldKeys(addressNode()).filter((k) => k.startsWith(`${ADDR_BASE}_`));
+    const answers: Record<string, unknown> = {};
+    for (const k of keys) answers[k] = k.endsWith("_zip") ? "90210" : "somewhere";
+    const failures = validateSection([configOf()], answers, VIS);
+    expect(failures, `unexpected failures: ${JSON.stringify(failures)}`).toEqual([]);
+  });
+
+  it("a MISSING required sub-field blocks, keyed to the RECORDER's key (not the bare kind)", () => {
+    const keys = renderedFieldKeys(addressNode()).filter((k) => k.startsWith(`${ADDR_BASE}_`));
+    const answers: Record<string, unknown> = {};
+    for (const k of keys) if (!k.endsWith("_street")) answers[k] = k.endsWith("_zip") ? "90210" : "somewhere";
+    const failures = validateSection([configOf()], answers, VIS);
+    expect(failures.length).toBe(1);
+    expect(failures[0]?.code).toBe("required");
+    expect(failures[0]?.internal_field).toBe(`${ADDR_BASE}_street`);
   });
 });
