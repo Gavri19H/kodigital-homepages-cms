@@ -186,6 +186,17 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // chromium.
   'leadgen-rework-acceptance-builder.gesture.spec.ts',
   'leadgen-rework-acceptance-routing.gesture.spec.ts',
+  // LeadGen Rework P6 acceptance (LEADGEN-REWORK-03, slice S6.1b): the §11
+  // terminal component + input journeys. #1/#2A/#2B/#2C/#3/#4 (components) and
+  // #5/#6/#7/#8/#9/#10 (inputs). SAME cross-engine shape as the S6.1a builder/
+  // routing suites above: every studio/matrix/API-authoring assertion is plain
+  // click/fill/select (+ canvas-srcdoc gestures, the U13 delivery fix) and runs
+  // on BOTH engines; each dynamic {uniq}.e2e.test live-/lg leg is guarded by the
+  // helpers' liveLegChromiumOnly() (documented live-leg-skip on firefox, the
+  // both-engine assertions run first) — green on firefox (studio/API + skips),
+  // full on chromium.
+  'leadgen-rework-acceptance-components.gesture.spec.ts',
+  'leadgen-rework-acceptance-inputs.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',
