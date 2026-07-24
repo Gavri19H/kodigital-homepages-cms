@@ -405,11 +405,28 @@ test.describe("#11D — Templates tab", () => {
     await expect(page.locator("#lg-tpl-theme-select")).toBeVisible();
     const withText = await tplCanvasText(page);
     expect(withText).not.toContain("Sample section (add sections to preview your own).");
-    // theme switch fires a live preview round-trip
+    // theme switch fires a live preview round-trip. Root cause of the
+    // full-both-engine-run flake (S6.1a re-arm stabilization round): this was
+    // `page.waitForRequest((r) => ... && r.request().method() === "POST")` — but
+    // waitForRequest's callback receives a Request directly (Playwright types:
+    // `(request: Request) => boolean`), and Request has NO `.request()` method
+    // (that's a Response method, to fetch its associated Request) — calling it
+    // always throws `TypeError: r.request is not a function` the instant a
+    // matching "/preview" POST actually fires. In an ISOLATED run of this test
+    // (or this engine running first) the global `GET /themes` list is still
+    // empty (themeOpts <= 1: just the "Current theme" placeholder), so the
+    // `if` body — and the buggy predicate — never executes, masking the bug.
+    // In the FULL both-engine invocation chromium runs to completion first
+    // (fullyParallel:false/workers:1, one shared D1) and its own #11E tests
+    // create real theme rows via POST /themes that persist into firefox's
+    // later run of THIS test, so themeOpts > 1 becomes true and the predicate
+    // finally executes — a data-dependent trigger for a plain code defect, not
+    // a timing race. Own-hand reproduced (attempt 1/1): exact TypeError,
+    // firefox, full both-engine run. Fix: `r` IS the Request — just `r.method()`.
     const themeOpts = await page.locator("#lg-tpl-theme-select option").count();
     if (themeOpts > 1) {
       const [req] = await Promise.all([
-        page.waitForRequest((r) => r.url().includes("/preview") && r.request().method() === "POST"),
+        page.waitForRequest((r) => r.url().includes("/preview") && r.method() === "POST"),
         page.locator("#lg-tpl-theme-select").selectOption({ index: 1 }),
       ]);
       expect(req.method()).toBe("POST");
@@ -521,15 +538,52 @@ test.describe("#11E — Themes tab live sample", () => {
     // rest: no filled check-badge markup (default axis 'wash').
     await expect(themeCanvas(page).locator(".lg-check-badge")).toHaveCount(0);
 
+    // patchTheme() (THEME_MGR_SCRIPT) fires the PATCH then calls window.
+    // location.reload() itself on a 200 — arm the response wait BEFORE
+    // clicking (avoids missing an immediate PATCH).
+    //
+    // Stabilization round (own-hand reproduced every step below, full both-
+    // engine runs of this file): three things were tried before landing on the
+    // real fix.
+    //   (1) The original code awaited the patch, THEN called a separate
+    //       explicit `page.goto(page.url())`. This collides with the page's
+    //       OWN in-flight reload — Playwright throws "Navigation ... is
+    //       interrupted by another navigation" (reproduced on chromium).
+    //   (2) Removing the explicit goto and instead batching `page.
+    //       waitForNavigation(...).catch(()=>null)` alongside the click looked
+    //       like the fix, but was WORSE: on firefox it resolved before the
+    //       reload's fresh document actually replaced the old one, so every
+    //       following assertion hit "element(s) not found" against markup that
+    //       DOES exist once the reload genuinely completes (confirmed via the
+    //       trace's network resource: the reload's OWN response body already
+    //       contains the correct post-Mark markup — the server side was never
+    //       the problem).
+    //   (3) Dropping ALL navigation detection and asserting directly on the
+    //       post-re-render content with a generous timeout ALSO failed the
+    //       same way on firefox, run after run, never resolving even after the
+    //       full 20s — Playwright's own diagnostic confirms it correctly
+    //       detects "navigated to ..." yet still cannot find `.lg-check-
+    //       hollow` inside `.tm-canvas-frame.contentFrame()`. This isolates the
+    //       real defect to FIREFOX specifically failing to re-attach its
+    //       frameLocator tracking to the sandboxed srcdoc iframe across a
+    //       navigation it did not itself initiate via the Playwright API — a
+    //       plain in-page `window.location.reload()` is not enough for
+    //       Firefox to hand Playwright a fresh, queryable frame reference,
+    //       however long you wait.
+    // Fix: KEEP the explicit `page.goto(page.url())` — it IS what makes
+    // Firefox correctly re-track the iframe (own-hand confirmed: with it, the
+    // exact same assertions pass) — but swallow the harmless collision with
+    // the page's own reload via `.catch(() => {})`, since both navigations
+    // target the identical URL and the response is idempotent either way.
     const patch = page.waitForResponse((r) => r.request().method() === "PATCH" && r.url().includes("/api/admin/leadgen/themes/"));
     await page.locator('[data-tm-seg][data-group="selected"][data-value="mark"]').click();
     expect((await patch).status(), "theme PATCH saved").toBe(200);
-    await page.goto(page.url(), { waitUntil: "load" });
+    await page.goto(page.url(), { waitUntil: "load" }).catch(() => {});
     await expect(page.locator(".tm-canvas-frame")).toBeVisible({ timeout: 20_000 });
     // the ✓-in-selected markup now renders (hollow rest marker + one filled
     // badge per button) — the theme axis reached the REAL renderer live.
-    await expect(themeCanvas(page).locator(".lg-check-hollow").first()).toBeVisible();
-    await expect(themeCanvas(page).locator(".lg-check-badge")).toHaveCount(2);
+    await expect(themeCanvas(page).locator(".lg-check-hollow").first()).toBeVisible({ timeout: 20_000 });
+    await expect(themeCanvas(page).locator(".lg-check-badge")).toHaveCount(2, { timeout: 20_000 });
   });
 
   test("#11E title+subtitle full-width cards render live and are selectable (Answer layout → Card)", async ({ page }) => {
@@ -537,14 +591,21 @@ test.describe("#11E — Themes tab live sample", () => {
     await openThemes(page, seed.themeId);
     await expect(themeCanvas(page).locator(".lg-tscard")).toHaveCount(0);
 
+    // Same stabilization as the "flipping Selected → Mark" test above (see its
+    // comment): keep the explicit reload (own-hand tested: needed to correctly
+    // re-establish Playwright's iframe frame-tracking for this fully-SSR'd
+    // canvas on firefox — without it, .contentFrame() never finds the post-
+    // reload content even though the server response DOES contain it), and
+    // swallow the harmless race where it collides with patchTheme()'s own
+    // window.location.reload() to the same URL.
     const patch = page.waitForResponse((r) => r.request().method() === "PATCH" && r.url().includes("/api/admin/leadgen/themes/"));
     await page.locator('[data-tm-seg][data-group="layout"][data-value="card"]').click();
     expect((await patch).status(), "theme PATCH saved").toBe(200);
-    await page.goto(page.url(), { waitUntil: "load" });
+    await page.goto(page.url(), { waitUntil: "load" }).catch(() => {});
     await expect(page.locator(".tm-canvas-frame")).toBeVisible({ timeout: 20_000 });
     // the title+subtitle tscard anatomy renders live through the REAL renderer.
-    await expect(themeCanvas(page).locator(".lg-tscard-title", { hasText: "Construction" })).toBeVisible();
-    await expect(themeCanvas(page).locator(".lg-tscard-subtitle", { hasText: "Contractors, Home Builders" })).toBeVisible();
-    await expect(themeCanvas(page).locator(".lg-tscard-title", { hasText: "Retail" })).toBeVisible();
+    await expect(themeCanvas(page).locator(".lg-tscard-title", { hasText: "Construction" })).toBeVisible({ timeout: 20_000 });
+    await expect(themeCanvas(page).locator(".lg-tscard-subtitle", { hasText: "Contractors, Home Builders" })).toBeVisible({ timeout: 20_000 });
+    await expect(themeCanvas(page).locator(".lg-tscard-title", { hasText: "Retail" })).toBeVisible({ timeout: 20_000 });
   });
 });
