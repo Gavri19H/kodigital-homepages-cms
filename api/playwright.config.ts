@@ -174,6 +174,18 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // host) — engine-agnostic, SAME cross-engine shape as the entries above,
   // expected to run unmodified on both projects.
   'leadgen-rework-p3b-board.gesture.spec.ts',
+  // LeadGen Rework P6 acceptance (LEADGEN-REWORK-03, slice S6.1a): the §11
+  // terminal journeys. #11A/#11B/#11D/#11E (builder) + #11C (routing). SAME
+  // cross-engine shape as the leadgen-operator-acceptance / leadgen-round4-*-
+  // acceptance suites above: every admin board/rails/A-B/modal/canvas assertion
+  // is plain click/fill/select or a main-document page.mouse drag (engine-
+  // agnostic, both projects); each dynamic {uniq}.e2e.test live-/lg leg is
+  // guarded by the files' own liveLegChromiumOnly() (documented live-leg-skip
+  // annotation on firefox, both-engine assertions run first) — so both files
+  // are green on firefox (admin portions + documented skips) and full on
+  // chromium.
+  'leadgen-rework-acceptance-builder.gesture.spec.ts',
+  'leadgen-rework-acceptance-routing.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',
