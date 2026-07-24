@@ -457,6 +457,49 @@ test.describe("#2C — dependency reveal/hide, auction-projection absence, block
     expect("lead.current_insurer" in flat, "hidden field ABSENT from the provider payload").toBe(false);
   });
 
+  // S6.3 fix (re-armed, strengthening): a NON-producing ValidationError node
+  // bound to the insurer's internal_field carries no `conditional`, so it was
+  // always dependency-"visible" — this un-hid `current_insurer` in
+  // engine.ts hiddenFields() even while the insurer DROPDOWN itself was hidden,
+  // leaking its authored default into the auction projection + provider payload
+  // (my original observation, reported as an open concern). Fixed by filtering
+  // ValidationError nodes out of the owner set before computing hiddenAnswerFields
+  // — mirrors the server's produces===null answer-space model. This leg is the
+  // regression proof: hidden WITH a default is now honestly absent, matching
+  // §4.2 "a dependency-hidden component is not required, not validated, not
+  // persisted, and absent from the auction projection" without exception for an
+  // authored default.
+  test("#2C hidden WITH a default ⇒ STILL not collected: Insured = No hides the insurer even though it carries defaultValue, and current_insurer is ABSENT from the auction projection AND the provider payload (S6.3 regression proof)", async ({ page, browserName }) => {
+    if (!liveLegChromiumOnly(browserName, "#2C live dependency + auction needs chromium --host-resolver-rules.")) return;
+    test.setTimeout(90_000);
+    // A default IS authored on the insurer — the exact shape that used to leak.
+    const sec = insuredInsurerSection("hiddendef", { insurerDefault: "geico" });
+    const seed = await seedAuctionFunnel(apiCtx, { tag: "2chiddef", sections: [{ ...sec, answerMaps: insuredAnswerMap }], schemaChildren: insurerSchema, sampleAnswers: { currently_insured: "false" } });
+
+    await resetMockProvider(apiCtx);
+    await page.goto(shellUrlFor(seed.host, seed.slug), { waitUntil: "load" });
+    await ready(page);
+    await passSharedPage(page);
+
+    const s1 = sectionAt(page, 1);
+    await s1.locator('[data-lg-question="q_insured"] [data-lg-choice="false"]').click();
+    await expect(s1.locator('[data-lg-question="q_insurer"]'), "insurer hidden when not insured, even though it carries a default").toBeHidden();
+
+    const [auctionReq] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes("/lg/auction") && r.method() === "POST", { timeout: 20_000 }),
+      page.waitForResponse((r) => r.url().includes("/lg/auction"), { timeout: 20_000 }),
+      s1.locator("[data-lg-continue]").click(), // unblocked — hidden insurer is not required
+    ]);
+    const body = auctionReq.postDataJSON() as { answers: Record<string, unknown> };
+    expect(body.answers["currently_insured"], "the answered field IS in the projection").toBeTruthy();
+    expect(body.answers["current_insurer"], "the hidden-WITH-DEFAULT field is ABSENT from the auction projection (S6.3)").toBeUndefined();
+
+    await expect.poll(async () => (await readMockPayloads(apiCtx)).length, { timeout: 20_000 }).toBeGreaterThanOrEqual(1);
+    const flat = flattenPaths((await readMockPayloads(apiCtx)).at(-1));
+    expect(flat["lead.currently_insured"], "answered field present in the provider payload").toBeTruthy();
+    expect("lead.current_insurer" in flat, "hidden-WITH-DEFAULT field ABSENT from the provider payload (S6.3)").toBe(false);
+  });
+
   test("#2C shown+required WITH a default ⇒ does not block: Insured defaults Yes, the insurer default satisfies required, Continue advances, and current_insurer is PRESENT in the projection + payload", async ({ page, browserName }) => {
     if (!liveLegChromiumOnly(browserName, "#2C default-satisfies + auction needs chromium --host-resolver-rules.")) return;
     test.setTimeout(90_000);

@@ -201,38 +201,25 @@ test.describe("#6 — address (field subset, per-field mode/validation, keyless 
     expect(addr.props?.fields?.[0]?.field).toBe("full_address");
   });
 
-  // OPEN CONCERN reported to the conductor (AC-vs-product; NOT fixed — the file is
-  // outside this slice's grant): the per-field ZIP5 (and any per-field required)
-  // validation gate does NOT function on a LIVE studio-authored address, so a
-  // valid address can never advance. Root cause (own-hand-verified, repro below):
-  // the client validator src/public/leadgen/runtime/validation.ts:103-105 derives
-  // an address's sub-field keys from props.internal_fields, else the default
-  // ["street","city","state","zip"] — PLAIN names — but presets.ts m9AddressFieldName
-  // (:2836) renders + the store records them as `{base}_{field}` (e.g.
-  // "mailing_address_street"). Post-M9 the studio writes props.fields[] and NO
-  // props.internal_fields (ui-section-studio.ts:11215), so the validator checks
-  // keys (street/city) the store never holds → required fails forever. Repro:
-  // an address {internal_field:"mailing_address", fields:[street req, zip zip5 req]}
-  // records {mailing_address_street, mailing_address_zip} yet the validation_error
-  // beacon fires for {street:required, city:required}. test/leadgen-rework-runtime
-  // .test.ts §6.10 passes because it HAND-BUILDS the config with internal_fields +
-  // a hand-built plain-named DOM (both sides plain) — it never exercises the real
-  // presets render, so the integration mismatch is invisible to it. This journey
-  // therefore proves the field-SUBSET render + per-sub-field independent recording
-  // (both work live); the validation-gate clause is the reported failure.
-  test("#6 runtime: a free-text field subset renders its manual inputs and records each sub-field independently (per-field zip5 validation gate is a reported product bug — see OPEN CONCERN above)", async ({ page, browserName }) => {
-    // street is authored mode:autofill; with Maps off/keyless in dev it degrades
-    // to a manual text input (the graceful path). zip is manual + zip5.
-    // A field SUBSET (street/city/zip — not the full 4) with mixed modes: street
-    // MANUAL required, city AUTOFILL optional (Maps off in dev ⇒ it degrades to a
-    // keyless manual input the visitor can type), zip MANUAL zip5 required.
+  // S6.3 fix (re-armed): src/public/leadgen/runtime/validation.ts addressFieldKey
+  // now derives each sub-field's answer key via props.maps.fills override else
+  // `{base}_{kind}` — the SAME derivation presets.ts m9AddressFieldName renders +
+  // records under (the recorder's own convention), replacing the old positional
+  // groupSubfields read (props.internal_fields, which the M9 studio never
+  // writes). A required/zip5-authored address now validates and advances live.
+  test("#6 runtime: a required address (with zip5) BLOCKS with the correct per-sub-field error keys while incomplete/invalid, then Continue ADVANCES once street+zip are validly filled (S6.3)", async ({ page, browserName }) => {
+    // A field SUBSET (street/zip — not the full 4), both manual + required; zip
+    // additionally zip5. Explicit ValidationError slots bound to the recorder's
+    // OWN {base}_{kind} keys (presets.ts autoErrorSlot only auto-binds ONE slot
+    // to the Address's base internal_field, not per sub-field — mirrors this
+    // file's #2A/#5/#2C pattern of an explicit per-field error slot).
     const s = await createSection(
       apiCtx,
       `ACC6B 6rt ${uniqueTag("6r")}`,
       [
         {
           // Fixture-shaped (test/fixtures/leadgen-rework/address-subsets.json):
-          // per-field required drives validation — no node-level required/object.
+          // per-field required/zip5 drives validation — no node-level required/object.
           type: "AddressAutocompleteQuestion",
           question_id: "q_addr",
           internal_field: "mailing_address",
@@ -241,6 +228,8 @@ test.describe("#6 — address (field subset, per-field mode/validation, keyless 
             { field: "zip", mode: "manual", validation: "zip5", required: true },
           ] },
         },
+        { type: "ValidationError", question_id: "q_addr_street_err", internal_field: "mailing_address_street" },
+        { type: "ValidationError", question_id: "q_addr_zip_err", internal_field: "mailing_address_zip" },
         { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
       ],
       { continue_mode: "button" },
@@ -255,31 +244,41 @@ test.describe("#6 — address (field subset, per-field mode/validation, keyless 
     await passSharedPage(page);
     const s1 = sectionAt(page, 1);
 
-    // Field SUBSET: exactly the two configured sub-fields render (a subset of the
-    // default 4), each in its own `{base}_{field}` wrapper (M9 m9AddressFieldName).
-    // A manual-only subset needs no Maps key at all (Maps fully optional; the
-    // autofill→manual keyless DEGRADE render is the Plain-text-address preset in
-    // leadgen-rework-p2-studio.gesture.spec.ts (c) — this dev instance may have
-    // Maps enabled, turning an autofill field into an autocomplete widget, so the
-    // keyless render is not exercised live here).
+    // Field SUBSET: exactly the two configured sub-fields render, each in its own
+    // `{base}_{field}` wrapper (M9 m9AddressFieldName — the recorder's own key).
     const inputs = s1.locator('[data-lg-question="q_addr"] [data-lg-input]');
     await expect(inputs, "exactly the two configured sub-fields render").toHaveCount(2);
     await expect(s1.locator('[data-lg-field="mailing_address_street"]'), "street keyed {base}_field (M9)").toHaveCount(1);
     await expect(s1.locator('[data-lg-field="mailing_address_zip"]'), "zip keyed {base}_field (M9)").toHaveCount(1);
-    const streetInput = s1.locator('[data-lg-field$="street"] [data-lg-input]');
-    const zipInput = s1.locator('[data-lg-field$="zip"] [data-lg-input]');
+    const streetInput = s1.locator('[data-lg-field="mailing_address_street"] [data-lg-input]');
+    const zipInput = s1.locator('[data-lg-field="mailing_address_zip"] [data-lg-input]');
 
-    // Per-sub-field INDEPENDENT recording: filling each records it under its OWN
-    // distinct store key, so each is independently offer-mappable (the auction/offer
-    // payload can map street and zip to different fields, exactly like #2B).
+    // Both empty → BOTH required errors paint at their OWN {base}_{kind} keys
+    // (S6.3: addressFieldKey, not the old mismatched positional keys) — blocked.
+    await s1.locator("[data-lg-continue]").click();
+    await expect(s1.locator('[data-lg-error-for="mailing_address_street"]'), "street required error at its own key").toHaveText("This field is required.");
+    await expect(s1.locator('[data-lg-error-for="mailing_address_zip"]'), "zip required error at its own key").toHaveText("This field is required.");
+    await expect(sectionAt(page, 2), "blocked — both required fields empty").toBeHidden();
+
+    // street filled + a 4-digit zip (answered but invalid) → the zip5 format
+    // error paints at the SAME correct key; street's error clears (now answered).
     await streetInput.fill("221B Baker St");
+    await zipInput.fill("9021");
+    await s1.locator("[data-lg-continue]").click();
+    await expect(s1.locator('[data-lg-error-for="mailing_address_zip"]'), "zip5 format error at its own key").toHaveText("Enter a valid 5-digit ZIP code.");
+    await expect(sectionAt(page, 2), "blocked — a 4-digit ZIP fails zip5").toBeHidden();
+
+    // a valid 5-digit ZIP → Continue ADVANCES (the block↔advance transition IS
+    // the zip5 gate — §4.2 "blocks Continue" ≡ no advance).
     await zipInput.fill("90210");
+    await s1.locator("[data-lg-continue]").click();
+    await expect(sectionAt(page, 2), "advances once street+zip are validly filled").toBeVisible();
+
+    // Each sub-field recorded independently under its OWN distinct store key, so
+    // each is independently offer-mappable (exactly like #2B).
     const recorded = await engineAnswers(page);
     expect(recorded["mailing_address_street"], "street recorded under its own key").toBe("221B Baker St");
     expect(recorded["mailing_address_zip"], "zip recorded under its own key").toBe("90210");
-    // NOTE: advancing past this section is a reported product bug (see the OPEN
-    // CONCERN on this test) — the per-field zip5/required validation gate keys on
-    // mismatched sub-field names, so Continue is not asserted to advance here.
   });
 });
 
@@ -424,10 +423,17 @@ test.describe("#8 — Other-select on Buttons (and Cards, #8D)", () => {
       await expect(q.locator('[data-lg-choice="yes"]'), `${qid}: base deselected when Other picked`).not.toHaveClass(/lg-selected/);
 
       // pick a base choice again → records the base + the base is now selected
-      // (the answer switched off the Other value — the "and vice versa" direction).
+      // (the answer switched off the Other value — the "and vice versa" direction)
+      // AND (S6.3 fix, re-armed) the Other <select>'s DISPLAYED value resets to
+      // its "Choose…" placeholder. engine.ts handleChoiceActivation used to query
+      // "[data-lg-other-panel] [data-lg-input]" — a DESCENDANT selector that never
+      // matched because presets.ts renders data-lg-other-panel AND data-lg-input
+      // on the SAME <select> element — so the reset silently no-op'd live; fixed
+      // to query "[data-lg-other-panel]" directly.
       await q.locator('[data-lg-choice="no"]').click();
       await expect.poll(async () => (await engineAnswers(page))[field]).toBe("no");
       await expect(q.locator('[data-lg-choice="no"]'), `${qid}: base is now the selection (Other no longer recorded)`).toHaveClass(/lg-selected/);
+      await expect(q.locator("[data-lg-other-panel]"), `${qid}: the Other select's DISPLAYED value resets`).toHaveValue("");
     }
   });
 });
