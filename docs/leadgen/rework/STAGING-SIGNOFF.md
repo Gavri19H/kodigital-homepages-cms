@@ -12,8 +12,9 @@ The full contract: independent question components (M6 grid removal), phone form
 dropdown (§6.5), shared-path editor fixes (§6.1–6.7), and the Quotes rebuild — shared
 first page, multi-funnel board with slot-level A/B + slot rules, quote-scoped multi-action
 routing rules (M3), saved frame templates (M5), live-canvas Templates/Themes tabs
-(§8.2–8.4), plus the §10 no-dead-code sweep. Engine bundle: 50,037 / 51,200 bytes
-(owner cap D1, per-feature ledger in `byte-ledger.md`).
+(§8.2–8.4), plus the §10 no-dead-code sweep. Engine bundle: 50,833 / 51,200 bytes
+(owner cap D1, per-feature ledger in `byte-ledger.md`; headroom 367 — note for any
+future engine feature).
 
 Branch chain (each phase adversarially reviewed to SHIP before entering the chain):
 
@@ -119,7 +120,7 @@ surface in a follow-up): `header.tagline`, `header.secure_badge`, `header.cta`,
 ## 7. CI facts (verified)
 
 - deploy.yml runs on `pull_request` → the full vitest suite (`npm test` = `vitest run`,
-  421 files / 6,920 tests incl. every rework suite) executes on Node 22 as the PR check
+  422 files / 6,961 tests incl. every rework suite) executes on Node 22 as the PR check
   for each cutover PR. Deliberately, CI runs NO Playwright — browser evidence lives in
   the per-phase conductor batteries and the P6 acceptance journey suites (run locally,
   both engines, counts recorded in `traceability.md`).

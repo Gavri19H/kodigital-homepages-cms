@@ -71,3 +71,36 @@ isolation build (revert one fix, rebuild, diff), same method as the S2.3 rows ab
 | S6.3-2 | **Hidden-set answer-producer scope** (§4.2): `hiddenFields()` drops non-answer-producing `ValidationError` nodes (produces===null, server answers.ts `fieldsOf` parity) before computing the dependency-hidden set, so an always-visible error-slot binding can no longer un-hide a hidden input and leak its `default_applied`/user answer into `/lg/auction` + sessionStorage. | `engine.ts` | **+87** | 50,451 (item-1+2 build) − 50,364 |
 | S6.3-3 | **Other-select display reset** (§6.5): base-choice click resets the authored Other `<select>` to its "Choose…" placeholder — the reset now selects the `[data-lg-other-panel]` element directly (presets renders `data-lg-other-panel`+`data-lg-input` on the SAME `<select>`; the old descendant selector `[data-lg-other-panel] [data-lg-input]` never matched, so the display never reset). | `engine.ts` | **−16** | 50,435 (final) − 50,451 (item-1+2 build) |
 | | **TOTAL** | | **+398** | 50,435 − 50,037 |
+
+### S6.3 FIX-FIRST closure round — item-2 MAJOR (hidden-set answer-producer scope, class completeness)
+
+Adversarial full-program review reproduced a gap in S6.3-2 above: that fix filtered ONLY
+`type === "ValidationError"` out of `hiddenFields()`'s field-ownership scan, but the server's
+answer-space authority (`answers.ts fieldsOf`) drops the WHOLE `produces===null` class
+unconditionally, and `content-schema.ts` (~:2959) itself documents that ANY non-producing
+type — not only `ValidationError` — may legitimately reference (without claiming) a
+producing component's `internal_field`, reachable via a real `POST /sections` save. Reviewer
+repro: an always-visible `HelperText` bound to a hidden field's `internal_field` leaked that
+field's `default_applied` answer into `/lg/auction` exactly like the unfixed `ValidationError`
+case. Fix: `NON_ANSWER_PRODUCING_TYPES` — an explicit, exported literal in `engine.ts`
+enumerating all 28 `produces===null` types from `registry.ts` COMPONENT_CATALOG (grounded
+by direct inspection, not estimated) — replaces the single-type check; a new vitest
+("non-answer-producing type list is EXACTLY the registry's produces===null set") imports
+`COMPONENT_CATALOG` directly and asserts Set-equality against the engine's literal, so a
+future registry addition/removal that isn't mirrored here fails the build (the literal
+was chosen over importing `registry.ts` itself — 27,757 bytes of catalog/capability-example
+text — into the capped bundle; registry.ts has zero imports/worker-type refs and type-checks
+cleanly under `tsconfig.runtime.json`, so the coherence test imports it directly with no
+byte cost to the shipped bundle, only to the test program).
+
+| | Bytes | Source |
+|---|---|---|
+| S6.3 pre-closure (table above) | **50,435** | `npm run build:leadgen-runtime` |
+| S6.3 post-closure (class-complete fix) | **50,833** | `npm run build:leadgen-runtime` |
+| **Net added by the closure round** | **+398** | |
+| D1 cap | **51,200** | |
+| **Headroom remaining** | **367** | 99.3% of cap consumed |
+
+| # | Fix | File | Measured Δ | How measured |
+|---|---|---|---|---|
+| S6.3-2-closure | Widen the `hiddenFields()` filter from one named type (`ValidationError`) to the full `NON_ANSWER_PRODUCING_TYPES` literal (28 types) mirroring `registry.ts`'s `produces===null` set, closing the class-completeness gap the reviewer proved with a live `HelperText` repro. | `engine.ts` | **+398** | 50,833 (final, full-class literal) − 50,435 (pre-closure, ValidationError-only) |

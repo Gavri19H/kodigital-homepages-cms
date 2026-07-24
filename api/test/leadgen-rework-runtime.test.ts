@@ -29,12 +29,17 @@
 // is outside slice S2.3's owned files — see the S2.3 report.)
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LgEngine } from "../src/public/leadgen/runtime/engine";
+import { LgEngine, NON_ANSWER_PRODUCING_TYPES } from "../src/public/leadgen/runtime/engine";
 import type {
   LgComponentConfig,
   LgPublicConfig,
   LgSectionConfig,
 } from "../src/public/leadgen/runtime/state";
+// S6.3 FIX-FIRST closure coherence: registry.ts has ZERO imports/worker-type
+// refs (probe-confirmed), so it type-checks cleanly under tsconfig.runtime.json
+// alongside the engine — safe to import HERE (never into engine.ts itself,
+// which would blow the byte cap with its ~27KB of catalog/capability text).
+import { COMPONENT_CATALOG } from "../src/public/leadgen/components/registry";
 
 // ---------------------------------------------------------------------------
 // Fake DOM (only the surface the engine/render touch) — the r1 harness plus
@@ -788,26 +793,38 @@ describe("§4.2 — default provenance + hidden⇒not-required/not-persisted on 
     expect(snapshot()?.["dep"]).toBeUndefined(); // hidden ⇒ excluded from persistence (== the auction hiddenFields set)
   });
 
-  it("a dependency-hidden field shadowed by an always-visible ValidationError does NOT leak its default into the /lg/auction projection (§4.2 hiddenAnswerFields)", async () => {
-    // #2C shape (the S6.1b gap): the insurer dropdown (defaultValue 'geico',
-    // REQUIRED, conditional show-if gate==='show') is hidden on entry because the
-    // gate defaults to 'hide'; an AUTHORED ValidationError binds the SAME
-    // internal_field ('insurer') for its error slot and carries NO conditional, so
-    // it is always visible. Pre-fix that always-visible non-producing node un-hid
-    // 'insurer' in hiddenAnswerFields ("hidden only when EVERY owning component is
-    // hidden"), leaking its default_applied answer into the auction request body —
-    // even though the producing dropdown was hidden. Only default-carrying fields
-    // expose the leak, which is exactly the combination the existing gesture tests
-    // (hidden-no-default / shown-with-default) never covered.
+  // §4.2 (S6.3 FIX-FIRST closure — MAJOR): a dependency-hidden field shadowed by
+  // an ALWAYS-VISIBLE non-answer-producing node bound to the SAME internal_field
+  // must not leak its default into /lg/auction — for the FULL non-producing
+  // class (registry.ts produces===null), not just ValidationError. The reviewer
+  // reproduced this with an always-visible HelperText (content-schema.ts allows
+  // ANY non-producing type, not only ValidationError, to reference a producing
+  // internal_field — its own gate is `catalog.produces !== null`, nothing
+  // narrower); the ORIGINAL closure-round fix filtered only
+  // type==='ValidationError' and missed that case. Parameterized over the
+  // shadow node's TYPE so both the originally-covered case (ValidationError)
+  // and the reviewer's newly-covered class member (HelperText) drive the
+  // IDENTICAL real-engine path — #2C shape (S6.1b): the insurer dropdown
+  // (defaultValue 'geico', REQUIRED, conditional show-if gate==='show') is
+  // hidden on entry because the gate defaults to 'hide'; the shadow node binds
+  // the SAME internal_field ('insurer') with NO conditional of its own, so it
+  // is always "visible" and would (pre-fix) un-hide 'insurer' in
+  // hiddenAnswerFields ("hidden only when EVERY owning component is hidden"),
+  // leaking its default_applied answer into the auction request body even
+  // though the producing dropdown was hidden.
+  async function hiddenFieldShadowLeak(shadowType: string): Promise<{
+    answers: Record<string, unknown>;
+    auctionBody: { answers: Record<string, { value: unknown }> } | null;
+  }> {
     const gate: LgComponentConfig = { type: "ButtonAnswerGroup", question_id: "q_gate", internal_field: "gate", answer_type: "enum", props: {}, choices: [{ label: "Hide", value: "hide", analytics_id: "h" }, { label: "Show", value: "show", analytics_id: "s" }], valid_values: ["hide", "show"], default_answer: { value: "hide", answer_source: "default_applied" } };
     const insurer: LgComponentConfig = { type: "DropdownQuestion", question_id: "q_ins", internal_field: "insurer", answer_type: "enum", required: true, conditional: { when: "gate", op: "eq", value: "show" }, props: {}, choices: [{ label: "GEICO", value: "geico", analytics_id: "g" }], valid_values: ["geico"], client_validation: { required: true }, default_answer: { value: "geico", answer_source: "default_applied" } };
-    const insErr: LgComponentConfig = { type: "ValidationError", question_id: "q_ins_err", internal_field: "insurer", props: {} };
+    const shadow: LgComponentConfig = { type: shadowType, question_id: "q_shadow", internal_field: "insurer", props: {} };
     DOC = fakeDocument();
     const qGate = mk("div", { "data-lg-question": "q_gate", "data-lg-field": "gate" }, [mk("button", { "data-lg-choice": "hide" }), mk("button", { "data-lg-choice": "show" })]);
     const qIns = mk("div", { "data-lg-question": "q_ins", "data-lg-field": "insurer" }, [mk("select", { "data-lg-input": "" })]);
-    const insErrSlot = mk("p", { "data-lg-error-for": "insurer" });
+    const shadowSlot = mk("p", { "data-lg-error-for": "insurer" });
     const cont = mk("button", { "data-lg-continue": "" });
-    const sec = mk("section", { "data-lg-section": "", "data-lg-section-id": "lgs_1", "data-lg-index": "0" }, [qGate, qIns, insErrSlot, cont]);
+    const sec = mk("section", { "data-lg-section": "", "data-lg-section-id": "lgs_1", "data-lg-index": "0" }, [qGate, qIns, shadowSlot, cont]);
     const root = mk("div", { id: "lg-funnel-root" }, [mk("main", { "data-lg-mount": "" }, [sec])]);
     const auctionMock: FetchMock = (u) =>
       u.includes("/lg/attempt")
@@ -815,7 +832,7 @@ describe("§4.2 — default provenance + hidden⇒not-required/not-persisted on 
         : u.includes("/lg/auction")
           ? { json: { unfilled: true, banners_html: "", auction_result_id: "", banner_render_id: "" } }
           : { status: 204 };
-    const { win, answers } = await boot(baseConfig([section("lgs_1", 0, [gate, insurer, insErr])]), root, { preview: false, fetchMock: auctionMock });
+    const { win, answers } = await boot(baseConfig([section("lgs_1", 0, [gate, insurer, shadow])]), root, { preview: false, fetchMock: auctionMock });
     // Both defaults applied on entry; the insurer input is dependency-hidden.
     expect(answers()["insurer"]).toBe("geico"); // in memory (§3.5.3 back-nav)
     expect(answers()["gate"]).toBe("hide");
@@ -826,8 +843,33 @@ describe("§4.2 — default provenance + hidden⇒not-required/not-persisted on 
     const calls = (win as { __lgCalls?: Array<{ url: string; body?: string }> }).__lgCalls ?? [];
     const auction = calls.find((c) => c.url.includes("/lg/auction"));
     expect(auction, "auction POST fired").toBeTruthy();
-    const body = JSON.parse(auction?.body ?? "{}") as { answers: Record<string, { value: unknown }> };
-    expect(body.answers["gate"]?.value, "the visible gate answer IS projected").toBe("hide");
-    expect(body.answers["insurer"], "the hidden insurer default is ABSENT from the auction projection").toBeUndefined();
+    const auctionBody = auction !== undefined ? (JSON.parse(auction.body ?? "{}") as { answers: Record<string, { value: unknown }> }) : null;
+    return { answers: answers(), auctionBody };
+  }
+
+  it("shadowed by an always-visible ValidationError: hidden insurer default does NOT leak into the /lg/auction projection", async () => {
+    const { auctionBody } = await hiddenFieldShadowLeak("ValidationError");
+    expect(auctionBody?.answers["gate"]?.value, "the visible gate answer IS projected").toBe("hide");
+    expect(auctionBody?.answers["insurer"], "the hidden insurer default is ABSENT from the auction projection").toBeUndefined();
+  });
+
+  it("shadowed by an always-visible HelperText (reviewer case A): hidden insurer default does NOT leak into the /lg/auction projection", async () => {
+    const { auctionBody } = await hiddenFieldShadowLeak("HelperText");
+    expect(auctionBody?.answers["gate"]?.value, "the visible gate answer IS projected").toBe("hide");
+    expect(auctionBody?.answers["insurer"], "the hidden insurer default is ABSENT from the auction projection").toBeUndefined();
+  });
+
+  it("the engine's non-answer-producing type list is EXACTLY the registry's produces===null set (S6.3 closure coherence)", () => {
+    // Fails the moment a new produces:null type is added to (or removed from)
+    // registry.ts COMPONENT_CATALOG without a matching update to
+    // NON_ANSWER_PRODUCING_TYPES in engine.ts — the "future type" hole the
+    // reviewer named. Set-equality (order-independent), not a hardcoded copy:
+    // the expected side is computed FROM the live registry, every run.
+    const registryNonProducing = Object.entries(COMPONENT_CATALOG)
+      .filter(([, entry]) => entry.produces === null)
+      .map(([type]) => type)
+      .sort();
+    const engineList = [...NON_ANSWER_PRODUCING_TYPES].sort();
+    expect(engineList).toEqual(registryNonProducing);
   });
 });

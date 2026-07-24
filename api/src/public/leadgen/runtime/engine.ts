@@ -67,6 +67,41 @@ const AUCTION_RETRY_DELAYS_MS = [1000, 3000];
 const FRIENDLY_ERROR =
   "We're having trouble loading the next step. Please check your connection and try again.";
 
+// §4.2 (P6 S6.3 FIX-FIRST closure — MAJOR): the FULL non-answer-producing type
+// class, used by hiddenFields() below to keep chrome/control/affordance/layout
+// nodes from counting as "owners" of an internal_field for dependency-hiding
+// purposes. Server parity: answers.ts fieldsOf drops this WHOLE class
+// unconditionally (`if (produces === null) return [];`) — never one named
+// type — and content-schema.ts's own save-gate comment (~:2959) says it
+// straight: "Non-producing nodes (ValidationError, HelperText, …) legitimately
+// REFERENCE a question's internal_field" (its uniqueness gate is
+// `catalog.produces !== null`, nothing narrower), so ANY of these 28 types can
+// be authored bound to a producing field's internal_field and reach save (a
+// real POST /sections accepts it). The ORIGINAL closure-round fix here
+// filtered only `type === "ValidationError"`, which under-covered the class —
+// e.g. an always-visible HelperText bound to a hidden field's internal_field
+// leaked that field's default into the auction projection exactly like
+// ValidationError did (reviewer-reproduced MAJOR).
+//
+// This is a literal, NOT an import of registry.ts's COMPONENT_CATALOG (a
+// ~27KB catalog of props/validation/capabilityExample text that would blow
+// the engine's byte cap) — its membership is instead PINNED to the registry
+// by a dedicated vitest coherence test (test/leadgen-rework-runtime.test.ts,
+// "non-producing type list == registry produces===null") that imports
+// COMPONENT_CATALOG directly (registry.ts has zero imports/worker-type refs,
+// so it type-checks under tsconfig.runtime.json — confirmed by probe) and
+// fails the build the instant a new produces:null type is added to the
+// registry without a matching update here.
+export const NON_ANSWER_PRODUCING_TYPES: readonly string[] = [
+  "ProgressBar", "HeaderLogo", "BackButton", "DisclosureLink", "StepIndicator",
+  "CategoryLabel", "QuestionHeadline", "Subheadline",
+  "ContinueButton", "AutoAdvanceButton",
+  "ReassuranceBadge", "SuccessState", "SecureFormBadge", "TrustBar", "LogoStrip",
+  "HelperText", "ValidationError", "LegalNote", "TextBlock", "ImageBlock",
+  "Stack", "GridContainer", "Columns", "CardPanel", "BackgroundPanel", "Spacer",
+  "HeaderBar", "FooterBar",
+];
+
 // ---------------------------------------------------------------------------
 // Browser adapters (kept OUT of the DOM-free cores)
 // ---------------------------------------------------------------------------
@@ -802,19 +837,19 @@ export class LgEngine {
   private hiddenFields(): Set<string> {
     // §4.2: a dependency-hidden component's answer is EXCLUDED from the auction
     // projection + persistence. hiddenAnswerFields treats a field as hidden only
-    // when EVERY component owning that internal_field is hidden — but an authored
-    // ValidationError binds a producing field's internal_field purely to paint
-    // its error slot (server answers.ts fieldsOf: produces===null ⇒ NO field)
-    // and carries no conditional, so it is always "visible" and would un-hide a
-    // field whose real (producing) input IS hidden — leaking that input's
-    // default_applied / user answer into /lg/auction + sessionStorage. Dropping
-    // non-answer-producing ValidationError nodes here mirrors the server's
-    // produces-null answer-space model; ValidationError is the only non-producing
-    // type that carries an internal_field (registry.ts). Consumers of this set:
-    // buildAuctionRequest → store.auctionAnswers, and persist → store.serialize.
+    // when EVERY component owning that internal_field is hidden — but a
+    // non-answer-producing node (NON_ANSWER_PRODUCING_TYPES above) can bind a
+    // producing field's internal_field purely to reference it (an error slot,
+    // helper/legal copy, …) while carrying no conditional of its own, so it is
+    // always "visible" and would un-hide a field whose real producing input IS
+    // hidden — leaking that input's default_applied / user answer into
+    // /lg/auction + sessionStorage. Dropping the FULL non-producing class here
+    // mirrors the server's produces-null answer-space model (answers.ts
+    // fieldsOf). Consumers of this set: buildAuctionRequest → store.auctionAnswers,
+    // and persist → store.serialize.
     const sections = this.config.sections.map((s) => ({
       ...s,
-      components: s.components.filter((c) => c.type !== "ValidationError"),
+      components: s.components.filter((c) => !NON_ANSWER_PRODUCING_TYPES.includes(c.type)),
     }));
     return hiddenAnswerFields(sections, this.evalAnswers());
   }

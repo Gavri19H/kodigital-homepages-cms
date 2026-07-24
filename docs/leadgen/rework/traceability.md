@@ -17,25 +17,25 @@
 
 | Row ID | Contract Anchor | Requirement | Implementing Files | Proving Command/Test | Status | Evidence |
 |--------|---|---|---|---|---|---|
-| AC-01 | §11 #1 | Grid removed; N independent components; add-affordance outside boxes | tbd | tbd | OPEN | — |
-| AC-02 | §11 #2A | Click marks; Continue validates; default/answer tracking | tbd | tbd | OPEN | — |
-| AC-03 | §11 #2B | One screen two questions with per-question labels and mapping | tbd | tbd | OPEN | — |
-| AC-04 | §11 #2C | Dependency visibility hides/unhides; blocks/unblocks Continue | tbd | tbd | OPEN | — |
-| AC-05 | §11 #3 | Control matrix test; all types show exactly their controls | tbd | tbd | OPEN | — |
-| AC-06 | §11 #4 | ✓-in-selected per theme and per question; pill/card render | tbd | tbd | OPEN | — |
-| AC-07 | §11 #5 | Phone mask scaffold preview; runtime fill; Continue blocks; raw digits | tbd | tbd | OPEN | — |
-| AC-08 | §11 #6 | Address: free-text, subsets, per-field modes, ZIP validation, Maps optional | tbd | tbd | OPEN | — |
-| AC-09 | §11 #7 | Slider: five types, rendering, min/max/step, currency toggle, transforms | tbd | tbd | OPEN | — |
-| AC-10 | §11 #8 | Other affordance: base choices untouched; Other dropdown; deselection logic | tbd | tbd | OPEN | — |
-| AC-11 | §11 #9 | Card columns: min(authored, count); wrapped last row centered; ghost cell absent | tbd | tbd | OPEN | — |
-| AC-12 | §11 #10 | Dropdown shows no Other-group control | tbd | tbd | OPEN | — |
-| AC-13 | §11 #11A | Logo renders; placeholder chip without; never bare name | tbd | tbd | OPEN | — |
-| AC-14 | §11 #11B | No Template/Theme buttons in builder; top tabs only; tests green | tbd | tbd | OPEN | — |
-| AC-15 | §11 #11C | Builder: library-left, board-center, rules-right; first-match-wins; sticky outcome | tbd | tbd | OPEN | — |
-| AC-16 | §11 #11D | Templates: create, save, reuse, A/B on funnel; apply with preview/confirm | tbd | tbd | OPEN | — |
-| AC-17 | §11 #11E | Themes: live sample update; title+subtitle cards; ✓-selected selectable | tbd | tbd | OPEN | — |
-| AC-18 | §11 Migrations | M6/M7/M9/M12: before/after reports; field-universe + answer-map invariants | tbd | tbd | OPEN | — |
-| AC-19 | §11 Cross-cutting | Orphan scan green; engine within cap; suites pass by count; preflight checks; owner acceptance | tbd | tbd | OPEN | — |
+| AC-01 | §11 #1 | Grid removed; N independent components; add-affordance outside boxes | acceptance-components.gesture.spec.ts (#1 ×3) + acceptance-migrations.test.ts | per-file both engines + vitest | PASS | P6 terminal battery 2026-07-24 (a543a07): components 28/28 ×2-engine by conductor hand; full-program review independently re-ran + adjudicated "merits PASS" |
+| AC-02 | §11 #2A | Click marks; Continue validates; default/answer tracking | acceptance-components (#2A, real /lg/track beacons: default_applied/user_selected) | per-file both engines | PASS | as AC-01 |
+| AC-03 | §11 #2B | One screen two questions with per-question labels and mapping | acceptance-components (#2B studio + live w/ distinct offer field paths via mock sink) | per-file both engines | PASS | as AC-01 |
+| AC-04 | §11 #2C | Dependency visibility hides/unhides; blocks/unblocks Continue | acceptance-components (#2C ×4 incl. hidden-with-default) + engine hiddenFields | per-file both engines + class-level vitest regression | OPEN | review FINDING-1 (MAJOR): hidden-set filter covered only ValidationError, not the full produces===null class (HelperText leak, reviewer-reproduced) — S6.3 closure in flight; row closes on the fix + re-review |
+| AC-05 | §11 #3 | Control matrix test; all types show exactly their controls | acceptance-components (#3 ×2) + leadgen-rework-matrix (696) | per-file both engines + vitest | PASS | as AC-01 |
+| AC-06 | §11 #4 | ✓-in-selected per theme and per question; pill/card render | acceptance-components (#4 ×2: studio offer-gating + live BAG/IconCard ✓ w/ wash sibling) | per-file both engines | PASS | as AC-01 |
+| AC-07 | §11 #5 | Phone mask scaffold preview; runtime fill; Continue blocks; raw digits | acceptance-inputs (#5 ×3 incl. legacy presets + studio warning via real save problems[]) | per-file both engines | PASS | P6 terminal battery 2026-07-24 (a543a07): inputs 22/22 ×2-engine by conductor hand; review re-ran + "merits PASS" |
+| AC-08 | §11 #6 | Address: free-text, subsets, per-field modes, ZIP validation, Maps optional | acceptance-inputs (#6 ×3 incl. the S6.3-restored validation gate: per-sub-field errors → advance) | per-file both engines | PASS | as AC-07 + S6.3 fail-before/pass-after (validator keyed on recorder's {base}_{kind} convention) |
+| AC-09 | §11 #7 | Slider: five types, rendering, min/max/step, currency toggle, transforms | acceptance-inputs (#7 ×2 incl. Image9 repro: currency toggle never flips type) | per-file both engines | PASS | as AC-07 |
+| AC-10 | §11 #8 | Other affordance: base choices untouched; Other dropdown; deselection logic | acceptance-inputs (#8 ×2: Buttons+Cards parity, mutual-deselect, display reset per S6.3) | per-file both engines | PASS | as AC-07 |
+| AC-11 | §11 #9 | Card columns: min(authored, count); wrapped last row centered; ghost cell absent | acceptance-inputs (#9 live + 1280/375 screenshots, no overflow) | per-file both engines | PASS | as AC-07 |
+| AC-12 | §11 #10 | Dropdown shows no Other-group control | acceptance-inputs (#10 ×2) + §6.2 matrix vitest | per-file both engines | PASS | as AC-07 |
+| AC-13 | §11 #11A | Logo renders; placeholder chip without; never bare name | acceptance-builder (#11A live chip vs real logo through header-enabled frame) | per-file both engines | PASS | P6 terminal battery 2026-07-24 (a543a07): builder 24/24 ×2-engine ×2 runs by conductor hand (post-stabilization); review re-ran + "merits PASS" |
+| AC-14 | §11 #11B | No Template/Theme buttons in builder; top tabs only; tests green | acceptance-builder (#11B) | per-file both engines | PASS | as AC-13 |
+| AC-15 | §11 #11C | Builder: library-left, board-center, rules-right; first-match-wins; sticky outcome | acceptance-routing (17 tests: full battery incl. all-five-actions live w/ 302 redirect leg + sticky, first-match-wins, OS/UTM/checkpoint routes, delete guards, D1 outcome read-back, analytics dims) | per-file both engines | PASS | P6 terminal battery 2026-07-24 (a543a07): routing 34/34 ×2-engine by conductor hand; S6.2 fixed redirect/picker/winner-selection with fail-before proofs; review re-ran + "merits PASS" |
+| AC-16 | §11 #11D | Templates: create, save, reuse, A/B on funnel; apply with preview/confirm | acceptance-builder (#11D ×5 incl. re-armed picker-apply + default-seed via real + Add funnel gesture) | per-file both engines | PASS | as AC-13 + S6.2 GAP-2/GAP-3 fail-before proofs |
+| AC-17 | §11 #11E | Themes: live sample update; title+subtitle cards; ✓-selected selectable | acceptance-builder (#11E ×2, live canvas) | per-file both engines | PASS | as AC-13 |
+| AC-18 | §11 Migrations | M6/M7/M9/M12: before/after reports; field-universe + answer-map invariants | test/leadgen-rework-acceptance-migrations.test.ts (20) over on-disk 0046–0054 | vitest (inside the 422-file suite) | PASS | P6 2026-07-24: 20/20 real-SQL invariants on the live migrated chain; review verified the frozen pre-migration universe is the sound #126 pattern |
+| AC-19 | §11 Cross-cutting | Orphan scan green; engine within cap; suites pass by count; preflight checks; owner acceptance | scanner + build:leadgen-runtime + full suites + §4.3-15 preflight tests | all gates by count | PASS | P6 2026-07-24 (a543a07): scan 0 gating/0 allowlisted · bundle ≤cap w/ ledger summing exactly · vitest 422/6959 zero skips · preflight fail-closed proven · review re-ran all; the owner-acceptance leg = OP-4 (BLOCKED-operator, the contract's terminal gate) |
 
 ---
 
@@ -107,7 +107,7 @@
 | U-04 | §8.4 | Themes tab: live sample, title+subtitle cards, ✓-selected, existing theme-v2 kept | quotes-tabs/themes.ts + ui-theme-manager.ts (live canvas + Grid/List/Card + ✓-selected) | leadgen-rework-themes-ui 18/18 + themes gesture both engines (Card journey + grid calibration) | PASS | P4 SHIP 2026-07-23: templates 8/8 + themes both engines; conductor gate tsc 0 · 420f/7050t · verify:all 0 · bundle 50,037 |
 | U-05 | §8.5 | A/B tab: consolidated test view, control vocabulary removed, delete-variant | quotes-tabs/ab.ts (control vocabulary removed; delete-variant UI wired w/ guards) | board tests + reviewer audit (§8.5 row) | PASS | P3b SHIP final 2026-07-23 (6bfb05f): board 9/9+9/9 + 20/20 default invocation, rail 8/8 both engines w/ REAL round-trip, D5 wired (variant picker + CRUD), funnel-settings relocation upheld; conductor gate tsc 0 · 418f/7025t · verify:all 0 |
 | U-06 | §8.6 | Activation tab: preflight extended per §4.3-15 checks | P1 preflight §4.3-15 + activation tab rendering | leadgen-rework-handlers preflight matrix + activation tab suites | PASS | Server preflight P1-SHIPPED; tab renders problem list; P6 journey re-proves live; P3b SHIP final 2026-07-23 (6bfb05f): board 9/9+9/9 + 20/20 default invocation, rail 8/8 both engines w/ REAL round-trip, D5 wired (variant picker + CRUD), funnel-settings relocation upheld; conductor gate tsc 0 · 418f/7025t · verify:all 0 |
-| U-07 | §8.7 | Analytics tab: routed_to_funnel and feed_name join drilldown | tbd | tbd | OPEN | — |
+| U-07 | §8.7 | Analytics tab: routed_to_funnel and feed_name join drilldown | quotes-handlers.ts:5125-5176 (drilldown dims) + migration 0054 + quotes-tabs/analytics.ts | test/leadgen-analytics-drilldown.test.ts (9) + acceptance-routing analytics-dims assertions | PASS | Full-program review FINDING-2 adjudication 2026-07-24: implemented + tested (9 tests inside the 6959) + asserted live in the routing acceptance suite — evidence merits PASS (row had lagged the shipped work) |
 | U-08 | §8.8 | Site logo: explicit placeholder chip (A-8); preview link to Site settings | frame.ts A-8 chip + admin-preview Site-settings link (real route), live-path exclusion asserted | leadgen-rework-themes-ui chip cases + frame-render inverted cases | PASS | P4 SHIP 2026-07-23: templates 8/8 + themes both engines; conductor gate tsc 0 · 420f/7050t · verify:all 0 · bundle 50,037 |
 | U-09 | §8.9 | Dead-code bar: every rebuilt-tab control wired or absent | S5.3: shared-chip menu stubs → real A/B-allocations (Σbp==10000) + ruled-cases (+required default) editors (funnel.ts + PUT /shared-page slot descriptors w/ slot_revision carry-forward + §4.3-13 + content_version); '+ Add page' 400 fixed per §4.3-15 layering (preflight fail-closed, empty pages safe in composition); ＋section popover reposition-on-scroll; chip Move up/down page-boundary rollover; 481-line dead Round-4 island deleted (0-ref grep-proven) | board gesture 15/15 ×2 engines (S5.3 items 1/2/3/4a/4b) + handlers slot-lifecycle/preflight/content_version tests + orphan scan | PASS | P5 SHIP 2026-07-24: adversarial review SHIP at 689fdf5, reviewer live-proved all four board fixes at the real boundary on both engines (disclosure F, hardest-audit axis); preflight ≥1-page-≥1-section verified fail-closed (computeReworkActivationProblems); empty pages safe (resolver sectionsFromPages + engine pagesCount); 2 MINOR findings closed in the P5-close commit; conductor gate tsc 0 · vitest 421f/6920t · scanner 0 gating/0 allowlisted all tiers · verify:all 0 · bundle 50,037 byte-identical · conductor Playwright battery 12 files/174 tests |
 | U-10 | §8.10 | P0 golden design pack: geometry, tokens, states, empty states, microcopy | docs/leadgen/rework/design-pack/*.html + strings.md | adversarial §8.10 checklist + conductor live measurements | PASS | 21/21 §8.10 items pinned (review SHIP after F1-F3 fixed); overflow 1280+375 = none on all 4 mocks (live-measured); strings 11/11 byte-verbatim; merged 989c54a (PR #131); owner design sign-off 2026-07-22 |
@@ -176,6 +176,6 @@
 ## Summary
 
 - **Total rows:** 97 (19 AC + 12 M + 15 R + 10 C + 10 U + 11 X + 11 STR + 5 D + 4 OP)
-- **OPEN:** 86 rows (implementation rows)
-- **BLOCKED-operator:** 4 rows (operator tasks OP-1..OP-4)
-- **PASS:** 7 rows (U-10, M-11-by-decision, D-1..D-5) — conductor-written with executed evidence
+- **PASS:** 92 rows — conductor-written with executed evidence; full-program adversarial review 2026-07-24 audited the register 1:1 (its FINDING-3 corrected this block, which had gone stale at the P0-era counts)
+- **OPEN:** 1 row — AC-04 (§4.2 hidden-set produces-null generalization, review FINDING-1; closure in flight)
+- **BLOCKED-operator:** 4 rows (OP-1 deploy · OP-2 logo uploads · OP-3 staging visual QA · OP-4 owner hands-on acceptance — the contract's terminal gate)
