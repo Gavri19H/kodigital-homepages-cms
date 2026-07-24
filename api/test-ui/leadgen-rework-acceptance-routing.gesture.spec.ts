@@ -111,6 +111,13 @@ async function createMinimalOffer(request: APIRequestContext, tag: string): Prom
   );
 }
 
+// A saved frame-template RECORD through the real admin API (M5) — the SAME
+// DB-record source (+ public ids) the board's template picker lists (S6.2
+// fix: GET /frame-template-records) and POST /apply-template resolves.
+async function createTemplate(request: APIRequestContext, name: string, frameJson: Record<string, unknown> = {}): Promise<{ id: number; public_id: string; name: string; is_default: boolean }> {
+  return json(await request.post(`${LG_API}/frame-template-records`, { data: { name, frame_json: frameJson } }), `template create (${name})`);
+}
+
 // ===========================================================================
 // ADMIN-SIDE clauses (both engines). Sibling-proven mechanisms are re-run lean
 // here as the terminal §11 record with a citation.
@@ -173,19 +180,19 @@ test.describe("#11C — builder structure, board authoring & rules (admin, both 
     await expect(pageCard.locator("[data-sec-chip]")).toHaveCount(1); // rejected — no duplicate
   });
 
-  // The THEME picker jumps to the Themes tab (works, asserted). The TEMPLATE
-  // picker opens a popover listing the built-in templates (the UI is wired,
-  // asserted). OPEN CONCERN reported to the conductor: the board template
-  // picker's items come from GET /frame-templates (built-in CODE ids
-  // "centered"/"header-footer"/…), but POST /funnels/:id/apply-template resolves
-  // against the leadgen_frame_templates RECORDS (lgft_ ids / numeric), so
-  // applying returns 400 "template does not exist" — the picker's item ids do
-  // not match the apply endpoint's resolution. Own-hand-verified live this
-  // slice (apply with id "centered" → 400). Product bug in funnel.ts's board
-  // templates source vs frame-handlers.ts apply resolution; not fixed here
-  // (out of this slice's test-file grant). So the apply is NOT asserted green.
-  test("#11C per-funnel theme picker jumps to Themes; template picker opens + offers the built-in templates", async ({ page }) => {
+  // S6.2 fix (was the OPEN CONCERN this slice originally reported): the board
+  // template picker used to list built-in CODE ids (GET /frame-templates —
+  // "centered"/"header-footer"/…) that POST /apply-template rejected ("template
+  // does not exist") since apply-template resolves against the DB RECORDS. The
+  // picker now fetches GET /frame-template-records (frameTemplateRecordItems,
+  // quotes-tabs/funnel.ts) — the SAME source + public ids the Templates tab
+  // lists and apply-template resolves — so picking an item now actually applies.
+  test("#11C per-funnel theme picker jumps to Themes; template picker lists DB-record templates and applying one updates frame_template_id + the rendered frame", async ({ page }) => {
     const seed = await seedBoardQuote(apiCtx, "pickers");
+    const u = uniqueTag("pickers-tpl");
+    // a template with a DISTINCTIVE setting (footer.enabled:false) so the
+    // apply's rendered effect is independently verifiable, not just the stored id.
+    const tpl = await createTemplate(apiCtx, `ACC6C Picker ${u}`, { footer: { enabled: false } });
     await openEditor(page, seed.quotePublicId);
     const col = page.locator(".lg-col-funnel").first();
 
@@ -193,13 +200,26 @@ test.describe("#11C — builder structure, board authoring & rules (admin, both 
     await col.locator("[data-theme-picker]").click();
     await expect(page.locator('[data-panel="themes"]')).toHaveClass(/active/, { timeout: 10_000 });
 
-    // template picker → opens a popover listing the 6 built-in templates.
+    // template picker → a popover of the SAVED (DB-record) templates, incl. ours.
     await page.locator('[data-tab="builder"]').click();
     await expect(page.locator("[data-board]")).toBeVisible();
     await page.locator(".lg-col-funnel").first().locator("[data-template-picker]").click();
     const menu = page.locator("[data-template-menu]");
-    await expect(menu.locator(".lg-menu-item").first()).toBeVisible({ timeout: 10_000 });
-    await expect(menu.locator(".lg-menu-item")).toHaveCount(6); // the 6 built-in templates
+    const item = menu.locator(".lg-menu-item", { hasText: `ACC6C Picker ${u}` });
+    await expect(item).toBeVisible({ timeout: 10_000 });
+
+    const [applyRes] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/apply-template") && r.request().method() === "POST"),
+      item.click(),
+    ]);
+    expect(applyRes.ok(), "apply-template succeeded (the DB-record public id resolves — the S6.2 fix)").toBe(true);
+
+    const funnelRow = await json<{ frame_template_id: number | null }>(await apiCtx.get(`${LG_API}/funnels/${seed.funnelPublicId}`), "funnel row");
+    expect(funnelRow.frame_template_id, "the funnel's frame_template_id is updated").toBe(tpl.id);
+    // a rendered effect is visible beyond the stored id: the template's own
+    // distinctive setting is now in the funnel's effective (composed) frame.
+    const fr = await json<{ effective_frame: { footer?: { enabled?: boolean } } }>(await apiCtx.get(`${LG_API}/funnels/${seed.funnelPublicId}/frame`), "funnel frame");
+    expect(fr.effective_frame.footer?.enabled, "rendered effect: footer.enabled:false from the applied template is now in effect").toBe(false);
   });
 
   test("#11C funnel A/B = equal arms, no control label anywhere, delete-variant exists", async ({ page }) => {
@@ -539,64 +559,117 @@ test.describe("#11C — live routed sessions", () => {
     await expect(page.getByText("LOW PRIORITY LOSER")).toHaveCount(0);
   });
 
-  test("#11C all-actions on a live routed session: routed funnel served + feed_name + value_multiplier RECORDED in the outcome; analytics exposes routed_to_funnel + feed_name", async ({ page, browserName }) => {
-    const seed = await seedRoutingQuote(apiCtx, {
-      tag: uniqueTag("11c-all"),
-      sharedHeadline: "ALL ACTIONS SHARED",
-      sharedQuestionField: "track",
-      sharedChoices: [{ label: "VIP", value: "vip" }, { label: "Regular", value: "regular" }],
-      funnels: [{ headline: "ALL DEFAULT", field: "a1" }, { headline: "ALL TARGET", field: "a2" }],
+  // S6.2 fix (GAP 1): resolveEntryRedirect is now wired into serveFunnelShell —
+  // the redirect_pct/redirect_target actions have a LIVE consumer (previously
+  // an OPEN CONCERN in this report: carried but unread). This test proves ONE
+  // rule SHAPE carrying all FIVE actions (Funnel+Feed+Multiplier+Redirect%+
+  // Target) applies live, in two legs of the SAME shape (pct=100 vs pct=0 —
+  // the redirect_pct gate itself is exclusive-or by construction, so the two
+  // legs together are how a single rule's five actions are ALL observed on a
+  // live session): LEG A (pct=100) proves Redirect%+Target — the entry-plane
+  // 302 fires to the offer-governed /lg/lc URL and is sticky across a reload
+  // (same session, same verdict — the §4.3-6 stickiness contract). LEG B
+  // (pct=0) proves the remainder still gets Funnel+Feed+Multiplier: the
+  // redirect gate is inert, the target funnel serves, and the recorded
+  // /lg/attempt outcome carries feed_name + value_multiplier + routed_to_funnel.
+  // Unit complement (server-side proof, same mechanism): test/leadgen-rework-
+  // routing.test.ts "§4.3-9 entry-plane redirect" describe block — specifically
+  // "redirect_pct=100 + target_offer_id: GET /lg?utm_source=fb 302s…", "~50
+  // sessions at redirect_pct=50: BOTH outcomes occur and each session is STICKY
+  // across reload", "non-allowlisted raw URL: RUNTIME fail-closed…", and
+  // "remainder (not redirected) still gets the rule's feed_name + value_
+  // multiplier recorded at /lg/attempt".
+  test("#11C all-actions: ONE rule shape carrying Funnel+Feed+Multiplier+Redirect%+Target — pct=100 leg 302s to the governed offer URL (sticky across reload); pct=0 leg serves the target funnel and records feed_name+multiplier+routed_to_funnel", async ({ page, browserName }) => {
+    // --- seed both legs up front (admin API work — identical on both engines) ---
+    const legA = await seedRoutingQuote(apiCtx, {
+      tag: uniqueTag("11c-all-pct100"),
+      funnels: [{ headline: "ALL DEFAULT A", field: "a1" }, { headline: "ALL TARGET A", field: "a2" }],
       defaultFunnelIndex: 0,
     });
-    // A rule carrying the LIVE-APPLIED actions — target + feed + multiplier —
-    // matched at the shared-page checkpoint (track=vip → funnel[1]). (Redirect
-    // is a SAVE-proven action, tested above; see the OPEN CONCERN in the report:
-    // the quote-rule redirect_pct/target has no live consumer at /lg/ck, serve,
-    // or the click resolver — QuoteRoutingMatch.redirect_pct is carried but
-    // recordRoutingOutcome persists only multiplier+feed_name, so it is not
-    // asserted as live-applied here. value_multiplier IS live-wired:
-    // resolveRoutingMultiplier reads this outcome row at S2S dispatch.)
-    await createRoutingRule(apiCtx, seed.quotePublicId, {
-      rule_name: "All actions",
+    const offerA = await createMinimalOffer(apiCtx, "all-pct100");
+    await createRoutingRule(apiCtx, legA.quotePublicId, {
+      rule_name: "All actions pct100",
       priority: 1,
-      conditions: { groups: [{ field: "track", op: "eq", value: "vip" }] },
-      target_funnel_id: seed.funnels[1]!.public_id,
+      conditions: { groups: [{ field: "utm_source", op: "eq", value: "partner" }] },
+      target_funnel_id: legA.funnels[1]!.public_id,
       feed_name: "premium",
       value_multiplier: 3,
+      redirect_pct: 100,
+      target_offer_id: offerA.id,
     });
 
-    if (!liveLegChromiumOnly(browserName, "#11C all-actions live routing needs chromium --host-resolver-rules; resolveRoutingMultiplier→S2S + ctx.feed_name→payload are unit-proven in test/leadgen-rework-routing.test.ts (R-09 + end-to-end).")) return;
+    const legB = await seedRoutingQuote(apiCtx, {
+      tag: uniqueTag("11c-all-pct0"),
+      funnels: [{ headline: "ALL DEFAULT B", field: "b1" }, { headline: "ALL TARGET B", field: "b2" }],
+      defaultFunnelIndex: 0,
+    });
+    const offerB = await createMinimalOffer(apiCtx, "all-pct0");
+    await createRoutingRule(apiCtx, legB.quotePublicId, {
+      rule_name: "All actions pct0",
+      priority: 1,
+      conditions: { groups: [{ field: "utm_source", op: "eq", value: "partner" }] },
+      target_funnel_id: legB.funnels[1]!.public_id,
+      feed_name: "premium",
+      value_multiplier: 3,
+      redirect_pct: 0,
+      target_offer_id: offerB.id,
+    });
 
-    const cks = captureCheckpoints(page);
-    await page.goto(shellUrl(seed.host, seed.slug), { waitUntil: "load" });
+    if (!liveLegChromiumOnly(browserName, "#11C all-actions live routing needs chromium --host-resolver-rules; the redirect/stickiness/fail-closed mechanism is unit-proven in test/leadgen-rework-routing.test.ts's §4.3-9 entry-plane redirect describe block.")) return;
+
+    // --- LEG A (pct=100): Redirect% + Target ------------------------------
+    // A raw HTTP check against the REAL wrangler-dev worker: page.request (and
+    // Node fetch) run OUTSIDE the browser process, so they do their OWN DNS
+    // lookup and never see chromium's --host-resolver-rules (own-hand-verified
+    // this round: page.request against the tenant hostname ENOTFOUNDs). The
+    // fix — own-hand-verified working — connects to the loopback IP directly
+    // and sets an explicit Host header: this is not a workaround around the
+    // tenant-routing mechanism, it IS the mechanism (publicSiteContextMiddleware
+    // resolves the tenant from the Host header; in production DNS resolves the
+    // custom domain to Cloudflare's edge and Host conveys tenant identity to the
+    // Worker exactly the same way). A fresh context (not the shared admin
+    // `apiCtx`) so its cookie jar carries only this leg's ko_sid.
+    const hostCtx = await playwrightRequest.newContext({ baseURL: ORIGIN });
+    const pathA = `/lg/${legA.slug}?utm_source=partner`;
+    const tenantHeaders = { Host: legA.host };
+    const res1 = await hostCtx.get(pathA, { headers: tenantHeaders, maxRedirects: 0 });
+    expect(res1.status(), "redirect_pct=100 + target_offer_id: entry-plane 302 (never the shell)").toBe(302);
+    expect(res1.headers()["location"], "Location = the offer-governed /lg/lc click route").toBe(`/lg/lc/${offerA.public_id}`);
+    // sticky across reload (§4.3-6): the SAME context's cookie jar resends the
+    // ko_sid Set-Cookie res1 minted (confirmed empirically: the 2nd response
+    // carries NO Set-Cookie, meaning the server recognized the returning
+    // session) — the SAME session must get the SAME verdict.
+    const res2 = await hostCtx.get(pathA, { headers: tenantHeaders, maxRedirects: 0 });
+    expect(res2.status(), "sticky across reload: same 302").toBe(302);
+    expect(res2.headers()["location"], "sticky across reload: same Location").toBe(res1.headers()["location"]);
+    await hostCtx.dispose();
+
+    // --- LEG B (pct=0): Funnel + Feed + Multiplier (the remainder) --------
+    await page.goto(shellUrl(legB.host, legB.slug, "?utm_source=partner"), { waitUntil: "load" });
     await ready(page);
+    // never redirected (pct=0 ⇒ the gate is inert) — the FUNNEL action still
+    // applies: the target funnel serves, exactly as at pct=100 (proven above
+    // the gate would have redirected it away).
+    expect(await funnelRootAttr(page, "data-funnel-variant-id"), "Funnel action applies: target funnel served (redirect gate inert at pct=0)").toBe(legB.funnels[1]!.variant_public_id);
+
     const attemptId = await page.evaluate(() => (window as unknown as { __LG_ENGINE__?: { getState(): { funnel_attempt_id: string } } }).__LG_ENGINE__?.getState().funnel_attempt_id ?? "");
-    expect(attemptId, "the engine minted a funnel_attempt_id").toBeTruthy();
+    expect(attemptId, "the engine minted a funnel_attempt_id (its /lg/attempt call records the entry outcome)").toBeTruthy();
 
-    // answer vip + Continue → the checkpoint switch to funnel[1].
-    await page.getByRole("radio", { name: "VIP" }).click().catch(async () => {
-      await page.locator('[data-lg-choice="vip"]').first().click();
-    });
-    await page.locator("[data-lg-continue]").first().click();
-    await expect.poll(() => cks.filter((c) => c.sw === true).length, { timeout: 12_000 }).toBeGreaterThanOrEqual(1);
-    const sw = cks.find((c) => c.sw === true)!;
-    expect(sw.v, "served the target funnel's variant").toBe(seed.funnels[1]!.variant_public_id);
-    expect(sw.ar, "the switch cites the routing rule").toContain("routing_rule:");
-
-    // the outcome RECORDED the full action set (leadgen_routing_outcomes has no
-    // public endpoint — read the live-written row from the local D1).
+    // the outcome RECORDED Feed + Multiplier + the routed funnel
+    // (leadgen_routing_outcomes has no public endpoint — read the live-written
+    // row from the local D1, the __p4a-routing.spec.ts idiom).
     const rows = d1Query<{ routed_to_funnel: string; feed_name: string | null; value_multiplier: number | null; plane: string }>(
       `SELECT routed_to_funnel, feed_name, value_multiplier, plane FROM leadgen_routing_outcomes WHERE funnel_attempt_id = '${attemptId.replace(/'/g, "")}'`,
     );
-    expect(rows.length, "an outcome row was recorded for this live attempt").toBe(1);
-    expect(rows[0]!.routed_to_funnel, "routed_to_funnel is the target funnel").toBe(seed.funnels[1]!.public_id);
-    expect(rows[0]!.feed_name, "feed_name applied").toBe("premium");
-    expect(rows[0]!.value_multiplier, "value_multiplier applied (resolveRoutingMultiplier→S2S source)").toBe(3);
-    expect(rows[0]!.plane).toBe("checkpoint");
+    expect(rows.length, "an entry outcome was recorded for the remainder").toBe(1);
+    expect(rows[0]!.routed_to_funnel, "Target action applied: routed_to_funnel is the rule's target funnel").toBe(legB.funnels[1]!.public_id);
+    expect(rows[0]!.feed_name, "Feed action applied").toBe("premium");
+    expect(rows[0]!.value_multiplier, "Multiplier action applied (resolveRoutingMultiplier→S2S source)").toBe(3);
+    expect(rows[0]!.plane).toBe("entry");
 
     // §8.7: routed_to_funnel + feed_name are analytics drilldown dimensions.
     const analytics = await json<{ analytics: { breakdowns: { by_routed_funnel: unknown[]; by_feed_name: unknown[] } } }>(
-      await apiCtx.get(`${LG_API}/quotes/${seed.quotePublicId}/analytics`),
+      await apiCtx.get(`${LG_API}/quotes/${legB.quotePublicId}/analytics`),
       "analytics",
     );
     expect(Array.isArray(analytics.analytics.breakdowns.by_routed_funnel), "analytics exposes the routed_to_funnel dimension").toBe(true);

@@ -77,6 +77,15 @@ async function createTemplate(request: APIRequestContext, name: string, frameJso
   return json(await request.post(`${LG_API}/frame-template-records`, { data: { name, frame_json: frameJson } }), `template create (${name})`);
 }
 
+// Open the funnel-builder board (the "+ Add funnel" gesture's home) — the
+// leadgen-rework-p3b-board / leadgen-rework-acceptance-routing openEditor
+// shape, duplicated locally per this codebase's own test-file-local-
+// duplication convention (nothing shared is exported for these).
+async function openBoard(page: Page, quotePublicId: string): Promise<void> {
+  await page.goto(`/admin/leadgen/quotes/${quotePublicId}/edit`, { waitUntil: "domcontentloaded" });
+  await expect(page.locator("[data-board]")).toBeVisible({ timeout: 20_000 });
+}
+
 // Make a funnel serve with the COMPOSED frame (header region present). The live
 // serve renders the header logo chip ONLY on the renderQuoteFrame path, which
 // needs a non-null frame_config_json with header.enabled=true — the default
@@ -266,13 +275,12 @@ test.describe("#11D — Templates tab", () => {
 
   // §11D "default template seeds new funnels": the DEFAULT-TEMPLATE mechanism
   // (a single is_default template, atomic swap) is proven here through the real
-  // UI. OPEN CONCERN reported to the conductor: the AUTO-ASSIGN half ("seeds
-  // NEW funnels") is NOT implemented in the product — createQuoteFunnelHandler
-  // (quotes-handlers.ts:1906) inserts a funnel with NO frame_template_id, and
-  // resolveSavedFrameTemplateDefaults (frame-handlers.ts:98) returns null for a
-  // null id with NO is_default fallback, so a newly created funnel neither
-  // stores nor resolves the is_default template. No sibling unit test asserts
-  // it either. Not fabricated here (out of my file grant to fix product code).
+  // UI. The AUTO-ASSIGN half ("seeds new funnels") is proven in the next test,
+  // below — S6.2 fix: createQuoteFunnelHandler now stamps the current
+  // is_default template's id onto every funnel created via "+ Add funnel"
+  // (create-time; a later "Set as default" swap never retroactively re-skins
+  // an existing funnel). The quote's auto-created FIRST funnel is deliberately
+  // NOT seeded this way (STAGING-SIGNOFF §6 owner-decision disclosure).
   test("#11D 'Set as default' is a single atomic swap — the default-template mechanism", async ({ page }) => {
     const u = uniqueTag("11d-def");
     const seed = await seedQuote(apiCtx, "11d-def", true);
@@ -294,6 +302,37 @@ test.describe("#11D — Templates tab", () => {
 
     const records = await json<{ items: Array<{ public_id: string; is_default: boolean }> }>(await apiCtx.get(`${LG_API}/frame-template-records`), "records");
     expect(records.items.filter((t) => t.is_default).map((t) => t.public_id), "exactly one default, the last set").toEqual([t2.public_id]);
+  });
+
+  // S6.2 fix (GAP 3): the current default template SEEDS a funnel created via
+  // the real "+ Add funnel" board gesture (create-time stamp) — proven both by
+  // the stored frame_template_id AND a rendered effect (the template's own
+  // distinctive setting is now in the new funnel's effective/composed frame).
+  // The quote's auto-created FIRST funnel is deliberately NOT seeded this way
+  // (STAGING-SIGNOFF §6 owner-decision disclosure) — not asserted here.
+  test("#11D default template seeds a funnel created via the real '+ Add funnel' gesture (create-time stamp + rendered effect)", async ({ page }) => {
+    const u = uniqueTag("11d-seed");
+    const seed = await seedQuote(apiCtx, "11d-seed", false);
+    // a distinctive setting so the seeded funnel's rendered effect is
+    // independently verifiable, not just the stored frame_template_id.
+    const tpl = await createTemplate(apiCtx, `ACC6 Seed Default ${u}`, { footer: { enabled: false } });
+    await json(await apiCtx.put(`${LG_API}/frame-template-records/${tpl.public_id}/default`, { data: {} }), "set default");
+
+    await openBoard(page, seed.quotePublicId);
+    await expect(page.locator(".lg-col-funnel")).toHaveCount(1);
+    await page.locator("[data-add-funnel]").click();
+    await expect(page.locator(".lg-col-funnel")).toHaveCount(2, { timeout: 20_000 });
+
+    const newFunnelPub = await page.locator(".lg-col-funnel").nth(1).getAttribute("data-funnel-public-id");
+    expect(newFunnelPub, "the new funnel column carries its public id").toBeTruthy();
+
+    const funnelRow = await json<{ frame_template_id: number | null }>(await apiCtx.get(`${LG_API}/funnels/${newFunnelPub}`), "new funnel row");
+    expect(funnelRow.frame_template_id, "the new funnel's frame_template_id is the current default (create-time stamp)").toBe(tpl.id);
+
+    // rendered effect: the seeded template's own distinctive setting is now
+    // live in the new funnel's effective (composed) frame.
+    const fr = await json<{ effective_frame: { footer?: { enabled?: boolean } } }>(await apiCtx.get(`${LG_API}/funnels/${newFunnelPub}/frame`), "new funnel frame");
+    expect(fr.effective_frame.footer?.enabled, "rendered effect: the default template's footer.enabled:false is in effect on the new funnel").toBe(false);
   });
 
   test("#11D Apply to funnel: preview-before-apply + region-naming confirm; Cancel leaves the funnel untouched", async ({ page }) => {
