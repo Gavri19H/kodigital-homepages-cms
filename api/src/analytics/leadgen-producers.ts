@@ -67,7 +67,7 @@ const RUNTIME_ENGINE = "src/public/leadgen/runtime/engine.ts";
 const RUNTIME_MAPS = "src/public/leadgen/runtime/maps.ts";
 const CLICK = "src/public/leadgen/click.ts";
 const POSTBACK = "src/public/leadgen/postback.ts";
-const LANDER_EDITOR = "src/admin/leadgen/ui-quotes.ts";
+const LANDER_EDITOR = "src/admin/leadgen/quotes-tabs/funnel.ts";
 
 // One entry per LeadgenEventType — the `Record<LeadgenEventType, …>` type makes
 // this exhaustive at compile time (a missing key fails `tsc`).
@@ -86,7 +86,7 @@ export const LEADGEN_PRODUCER_MAP: Record<LeadgenEventType, LeadgenProducer> = {
     phase: "deferred",
     source_file: LANDER_EDITOR,
     source_marker: "lander_enabled",
-    emission_site: `${LANDER_EDITOR}:596 (admin config only — no public emitter)`,
+    emission_site: `${LANDER_EDITOR}:644 (admin config only — no public emitter)`,
     proof_kind: "deferred_no_surface",
     note:
       "DEV-32: no PUBLIC opening-lander surface exists (v2.3.7 built lander rendering " +
@@ -100,7 +100,7 @@ export const LEADGEN_PRODUCER_MAP: Record<LeadgenEventType, LeadgenProducer> = {
     phase: "deferred",
     source_file: LANDER_EDITOR,
     source_marker: "lander_enabled",
-    emission_site: `${LANDER_EDITOR}:596 (admin config only — no public emitter)`,
+    emission_site: `${LANDER_EDITOR}:644 (admin config only — no public emitter)`,
     proof_kind: "deferred_no_surface",
     note:
       "DEV-32: as opening_lander_view — the public lander surface that would beacon the CTA " +

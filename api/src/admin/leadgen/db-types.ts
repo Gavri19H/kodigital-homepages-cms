@@ -58,6 +58,9 @@ export type LeadgenFunnelStatus = "draft" | "active" | "archived";
 export type LeadgenAbTestStatus = "draft" | "running" | "stopped";
 export type LeadgenFunnelVariantStatus = "active" | "archived";
 
+// leadgen_quote_routing_rules (rework M3) — quote-scoped multi-action routing.
+export type LeadgenQuoteRoutingRuleStatus = "active" | "disabled";
+
 // leadgen_funnel_rules
 export type LeadgenFunnelRuleType =
   | "redirect_direct_offer"
@@ -481,6 +484,8 @@ export interface LeadgenQuoteRow {
   created_by: string | null;
   created_at: number;
   updated_at: number;
+  // Rework M4 (§4.3-7): the funnel unmatched visitors enter. NULL until set.
+  default_funnel_id: number | null;
 }
 
 export interface LeadgenQuoteApi {
@@ -493,6 +498,7 @@ export interface LeadgenQuoteApi {
   created_by: string | null;
   created_at: number;
   updated_at: number;
+  default_funnel_id: number | null;
 }
 
 // leadgen_funnels
@@ -508,6 +514,10 @@ export interface LeadgenFunnelRow {
   // 0041 (v2.5 redesign contract 03 §3.1): NULL = legacy frame / base design only.
   frame_config_json: string | null;
   theme_json: string | null;
+  // Rework M4: board column order (backfilled = id). Rework M5: base frame
+  // template (NULL = use frame_config_json.template as before).
+  display_order: number | null;
+  frame_template_id: number | null;
 }
 
 export interface LeadgenFunnelApi {
@@ -521,6 +531,8 @@ export interface LeadgenFunnelApi {
   updated_at: number;
   frame_config_json: unknown;
   theme_json: unknown;
+  display_order: number | null;
+  frame_template_id: number | null;
 }
 
 // leadgen_funnel_ab_tests — row shape is already API-stable.
@@ -545,7 +557,6 @@ export interface LeadgenFunnelVariantRow {
   funnel_id: number;
   ab_test_id: number | null;
   variant_label: string;
-  is_control: number;
   traffic_allocation_bp: number;
   funnel_design_id: string;
   auction_id: number | null;
@@ -562,6 +573,8 @@ export interface LeadgenFunnelVariantRow {
   // 0041 (v2.5 redesign contract 03 §3.1): sparse frame/theme override patch
   // (13 §13.2); NULL = no overrides.
   frame_overrides_json: string | null;
+  // Rework M5: A/B template override (NULL = inherit the funnel's template).
+  frame_template_id: number | null;
 }
 
 export interface LeadgenFunnelVariantApi {
@@ -570,7 +583,6 @@ export interface LeadgenFunnelVariantApi {
   funnel_id: number;
   ab_test_id: number | null;
   variant_label: string;
-  is_control: boolean;
   traffic_allocation_bp: number;
   funnel_design_id: string;
   auction_id: number | null;
@@ -585,12 +597,17 @@ export interface LeadgenFunnelVariantApi {
   status: LeadgenFunnelVariantStatus;
   created_at: number;
   frame_overrides_json: unknown;
+  frame_template_id: number | null;
 }
 
 // leadgen_funnel_variant_sections — row shape is already API-stable.
+// Rework M2: owner axis — exactly one of variant_id / quote_id is set
+// (quote_id owns the shared first page's sections). (page_id/slot_id from 0042
+// are read inline by the pages resolver and remain untyped here, as before.)
 export interface LeadgenFunnelVariantSectionRow {
   id: number;
-  variant_id: number;
+  variant_id: number | null;
+  quote_id: number | null;
   section_id: number;
   position: number;
   created_at: number;
@@ -629,6 +646,41 @@ export interface LeadgenFunnelRuleApi {
   priority: number;
   enabled: boolean;
   created_at: number;
+}
+
+// leadgen_quote_routing_rules (rework M3) — quote-scoped, multi-action routing.
+// conditions_json carries the same §21.4 shape/hash as leadgen_funnel_rules.
+export interface LeadgenQuoteRoutingRuleRow {
+  id: number;
+  public_id: string;
+  quote_id: number;
+  rule_name: string;
+  priority: number;
+  status: LeadgenQuoteRoutingRuleStatus;
+  match_mode: string | null;
+  conditions_json: string;
+  conditions_hash: string;
+  checkpoint_page: number | null;
+  target_funnel_id: number | null;
+  feed_name: string | null;
+  value_multiplier: number | null;
+  redirect_pct: number | null;
+  target_offer_id: number | null;
+  redirect_url: string | null;
+  redirect_url_allowlisted: number;
+  created_at: number;
+}
+
+// leadgen_frame_templates (rework M5) — saved frame templates; frame_json is
+// the FRAME_TEMPLATES[].defaults shape (parsed as FrameConfig at use).
+export interface LeadgenFrameTemplateRow {
+  id: number;
+  public_id: string;
+  name: string;
+  frame_json: string;
+  is_default: number;
+  created_at: number;
+  updated_at: number;
 }
 
 // leadgen_site_quotes

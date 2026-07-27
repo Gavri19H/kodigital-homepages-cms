@@ -106,6 +106,10 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
 }
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
@@ -116,6 +120,15 @@ const LEADGEN_MIGRATIONS = [
   "0042_leadgen_pages.sql",
   "0043_leadgen_routing_rules.sql",
   "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -178,8 +191,34 @@ function seedSection(sdb: SqliteDb, name: string): { id: number; public_id: stri
 }
 
 interface QuoteCreateBody {
+  id: number;
   public_id: string;
   funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
+}
+
+// Rework M2 (§4.3-1, §4.3-15): activation now also requires the quote's
+// shared first page (leadgen_funnel_pages, quote_id-owned) to carry ≥1
+// section — a section distinct from the funnel/variant's own (§4.3-13
+// uniqueness). Route wiring for POST/PUT /quotes/:id/shared-page is
+// mid-flight in another round, so this seeds the SQL shape directly
+// (mirrors leadgen-rework-handlers.test.ts / leadgen-rework-routing.test.ts).
+function seedSharedPageSection(sdb: SqliteDb, quoteId: number): void {
+  const sectionPublicId = mintPublicId("section");
+  const content = JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q1", question_key: "k", internal_field: "f", answer_type: "boolean" }] });
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, ?, 'quote_funnel', 'life', 'Shared', ?, 'button', 'active')",
+    )
+    .run(sectionPublicId, `Shared ${sectionPublicId.slice(-4)}`, content);
+  const sectionId = (sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(sectionPublicId) as { id: number }).id;
+  const pagePublicId = mintPublicId("funnel_page");
+  sdb.prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, NULL)").run(pagePublicId, quoteId);
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+       VALUES (?, ?, 0, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+    )
+    .run(quoteId, sectionId, pagePublicId);
 }
 
 interface Harness {
@@ -211,6 +250,7 @@ async function studioHarness(): Promise<Harness> {
     env,
   );
   expect(put.status, `seed variant: ${await put.clone().text()}`).toBe(200);
+  seedSharedPageSection(sdb, q.id);
   const activate = await admin.request(
     `${API}/quotes/${q.public_id}/activation/site-1`,
     jsonInit("PUT", { enabled: true, slug: "seam" }),
@@ -429,8 +469,6 @@ interface Studio {
   registry: Map<string, FakeNode>;
   root: FakeNode;
   calls: CapturedCall[];
-  issued: Array<{ url: string; body: string }>; // fetch ISSUANCE order (calls[] records completion order)
-  setResponseDelay: (fn: ((url: string, init?: RequestInit) => number) | null) => void;
   windowObj: Record<string, unknown>;
   probe: IslandProbe;
   settle: () => Promise<void>;
@@ -493,7 +531,45 @@ async function bootStudio(env: Env, html: string, opts: { rulesIsland?: boolean 
 
   // --- registry-backed document --------------------------------------------
   const registry = new Map<string, FakeNode>();
-  const explicitNull = new Set(["lg-rules-builder-root"]); // seam (e) uses mount(), not the SSR panel init
+  // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10): the OLD structure-panel /
+  // funnel-settings ids below are GENUINELY ABSENT from the served page now
+  // (the §8.2 board replaces the structure panel; the funnel-settings
+  // controls are a separate CONTRACT GAP — see the phase report). A REAL
+  // browser's document.getElementById returns null for every one of these,
+  // and the island's OWN collectPayload() is already null-guarded for
+  // exactly this (byId(...) ?? no-op). This harness's documentObj.
+  // getElementById MUST mirror that null, matching the SAME established
+  // idiom "lg-rules-builder-root" already used here ("seam (e) uses mount(),
+  // not the SSR panel init") — auto-vivifying a fake node for these ids
+  // would make the island take its "old DOM present" branch and send a
+  // WRONG (data-losing) PUT body, which is exactly the money-path bug
+  // collectPayload's null-guards exist to prevent in production.
+  // NOTE: lg-preview-iframe/lg-canvas-toolbar/lg-inspector-column are
+  // DELIBERATELY NOT added here even though they are ALSO gone from the
+  // real page — several OTHER seams in this file (the Phase D lazy stepper,
+  // DEV-66 mobile toggle, E4 click-delegation) drive the island's OWN
+  // canvas-interaction FUNCTIONS in isolation via this executed-VM harness
+  // and depend on a fake node existing at those ids to observe the island's
+  // writes (srcdoc, aria-pressed, etc.) — those functions are unreachable
+  // dead code in a real browser today (no canvas DOM to click into) but
+  // their INTERNAL LOGIC is still real, tested code; nullifying those three
+  // ids broke those OTHER tests when tried (verified by running with them
+  // included, then reverting) and is out of this repair's scope. (§10/S5.1:
+  // FIX 9, formerly also in this list, is RETIRED — its dead-template-pick
+  // trigger is gone, see that describe block's own retirement note.)
+  const explicitNull = new Set([
+    "lg-rules-builder-root",
+    "lg-section-list",
+    "lg-add-section",
+    "lg-rule-list",
+    "lg-add-rule",
+    "lg-funnel-design",
+    "lg-auction-id",
+    "lg-lander-enabled",
+    "lg-lander-headline",
+    "lg-lander-sub",
+    "lg-lander-hero",
+  ]);
   const byId = (id: string): FakeNode => {
     let n = registry.get(id);
     if (n === undefined) {
@@ -563,18 +639,10 @@ async function bootStudio(env: Env, html: string, opts: { rulesIsland?: boolean 
   };
 
   const calls: CapturedCall[] = [];
-  const issued: Array<{ url: string; body: string }> = [];
-  // Optional per-response delay (ms) — lets a test hold ONE response back so
-  // two live-router requests genuinely resolve out of order (the FIX 9 stale-
-  // response race). null = no delays.
-  let responseDelay: ((url: string, init?: RequestInit) => number) | null = null;
   const fetchImpl = (url: string, init?: RequestInit): Promise<Response> => {
     pendingFetches += 1;
-    issued.push({ url, body: init !== undefined && typeof init.body === "string" ? init.body : "" });
     return Promise.resolve(admin.request(url, init ?? {}, env)).then(
       async (res: Response) => {
-        const delayMs = responseDelay === null ? 0 : responseDelay(url, init);
-        if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
         let parsedResponse: unknown = null;
         try { parsedResponse = await res.clone().json(); } catch { /* non-JSON */ }
         let parsedBody: unknown = null;
@@ -627,24 +695,12 @@ async function bootStudio(env: Env, html: string, opts: { rulesIsland?: boolean 
     registry,
     root,
     calls,
-    issued,
-    setResponseDelay: (fn) => { responseDelay = fn; },
     windowObj,
     probe: probeRef!,
     settle,
     fire,
     byId,
   };
-}
-
-// Poll until `cond` holds (the FIX 9 test waits for a specific request to be
-// ISSUED before firing the competing one — never a blind sleep).
-async function waitFor(cond: () => boolean, label: string): Promise<void> {
-  for (let i = 0; i < 400; i += 1) {
-    if (cond()) return;
-    await new Promise((r) => setTimeout(r, 5));
-  }
-  expect(cond(), label).toBe(true);
 }
 
 // A minimal event target for delegated root handlers: answers ONE attribute.
@@ -673,7 +729,7 @@ interface StructureBody {
     public_id: string;
     variants: Array<{
       public_id: string;
-      is_control: boolean;
+      variant_label: string;
       funnel_design_id: string;
       frame_overrides_json: Record<string, unknown> | null;
       sections: Array<{ section_id: number; position: number }>;
@@ -737,7 +793,17 @@ describeDb("quote builder EXECUTED island — (a) boot decode equals server trut
     expect(boot!.status).toBe(200);
     const bootBody = boot!.body as Record<string, unknown>;
     expect(bootBody["mode"]).toBe("section");
-    expect(bootBody["section_public_id"]).toBe(h.sections[0]!.public_id);
+    // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10): section_public_id here
+    // depends on slideStillPresent(), which queries
+    // '.lg-section-row[data-section-public-id]' — the OLD structure panel's
+    // row class, which no longer renders (the §8.2 board replaces it with
+    // chip markup). The canvas preview flow this feeds is ITSELF dead code
+    // in production (canvas is null — no DOM to click into — so
+    // setCanvasDoc no-ops before this field would ever matter); this
+    // specific property can no longer be verified against a real DOM signal.
+    // NOT retired: the boot preview POST still fires + succeeds (asserted
+    // above), and draft_frame_config/draft_frame_overrides fidelity below
+    // (config-merge correctness, unrelated to canvas chrome).
     expect(bootBody["draft_frame_config"]).toEqual(studio.probe.draftFrameConfig());
     expect(bootBody["draft_frame_overrides"]).toBeUndefined();
     // …and the canvas iframe received the server document
@@ -809,13 +875,25 @@ describeDb("quote builder EXECUTED island — (b) edit → save path replays thr
     expect(Object.keys(themeBody)).toEqual(["theme_json"]);
     expect(themeBody["theme_json"]).toEqual(studio.probe.workingTheme);
     const variantBody = saves[2]!.body as Record<string, unknown>;
-    expect(Object.keys(variantBody).sort()).toEqual([
-      "auction_id", "funnel_design_id", "lander_enabled", "lander_headline",
-      "lander_hero_media_url", "lander_subheadline", "rules", "sections",
-    ]);
+    // LEADGEN-REWORK-03 P3b RETIREMENT + money-path HARDENING (§8.2/§10):
+    // funnel_design_id/auction_id/lander_*/sections have NO current admin
+    // surface (verified contract gap, see the phase report) and rules has
+    // no current admin surface either (the OLD per-variant hidden grid is
+    // gone, §5-M3/§13-D5 — S3b.2's quote-scoped rail is the replacement,
+    // covered by its own test files). collectPayload's money-path hardening
+    // (this round's fix) means the variant PUT now includes a key ONLY when
+    // its OWN control genuinely exists — with none of them present, the PUT
+    // body is correctly EMPTY (an intentional no-data-loss no-op, not a bug):
+    // sending {} changes nothing server-side, which is exactly right since
+    // nothing about the funnel-design/rules/sections state actually changed
+    // through any REAL control in this edit sequence.
+    expect(Object.keys(variantBody)).toEqual([]);
     // untouched overrides NEVER ride the PUT (additive §4.5 contract)
     expect(variantBody["frame_overrides_json"]).toBeUndefined();
-    expect(variantBody["sections"]).toEqual(h.sections.map((s, i) => ({ section_id: s.id, position: i })));
+    // sections is no longer IN the PUT body at all (see the citation above) —
+    // the STRONGER, real guarantee (the DB still has the ORIGINAL sections,
+    // untouched, proving the money-path hardening lost no data) is verified
+    // below via the server-truth /structure re-fetch (line "after.funnels…").
 
     // SERVER truth: persisted values equal the island's working values
     const frame = await getJson<FrameGetBody>(h.env, `${API}/funnels/${h.funnelPublicId}/frame`);
@@ -924,6 +1002,11 @@ describeDb("quote builder EXECUTED island — (b) edit → save path replays thr
 
   it("forked arm: an override-switch edit writes frame_overrides_json (badge derives client-side; PUT persists; server agrees)", async () => {
     const h = await studioHarness();
+    // Rework M1 (§4.3-10): forkVariantHandler now unconditionally refuses a
+    // 2nd active variant — archiving the source first is the minimal way to
+    // still exercise the real fork endpoint (this test's point is the
+    // FORKED arm's override-switch behavior, not fork's own guard).
+    h.sdb.prepare("UPDATE leadgen_funnel_variants SET status = 'archived' WHERE public_id = ?").run(h.variantId);
     const fork = await admin.request(`${API}/variants/${h.variantId}/fork`, { method: "POST" }, h.env);
     expect(fork.status, await fork.clone().text()).toBe(201);
     const forked = (await fork.json()) as { public_id: string };
@@ -981,72 +1064,35 @@ describeDb("quote builder EXECUTED island — (b) edit → save path replays thr
 //     Apply adopts the server merge; Cancel touches nothing
 // ===========================================================================
 
-describeDb("quote builder EXECUTED island — (c) template-switch flow equals the server's ?switch_to= truth", () => {
-  it("pick → live ?switch_to= fetch; dialog lines == server confirmations verbatim; preview carries the merged draft; nothing persists", async () => {
+// §10/S5.1 RETIREMENT: this ENTIRE seam drove the OLD canvas-embedded
+// 6-arrangement template picker (togglePanel/#lg-template-btn/
+// #lg-template-picker, the data-template-pick card click handler,
+// showTemplateConfirm/hideTemplateConfirm/#lg-template-confirm(-list),
+// #lg-template-apply/#lg-template-cancel, the pendingSwitch state) —
+// renderTemplatePicker (its ONLY render source, quotes-tabs/shared.ts) had
+// ZERO real callers anywhere in the admin/leadgen namespace (confirmed by
+// exhaustive grep, same discipline as the (e) rules-builder retirement
+// above), so none of its trigger/target elements, nor the JS that used to
+// wire them, exist in the product anymore — deleted in the same sweep.
+// test/leadgen-quote-builder-ui.test.ts ALREADY carried (and still passes) a
+// dedicated absence-proof for this exact retirement — "the OLD
+// canvas-embedded template picker is gone (§10: 'canvas template picker'
+// explicitly removed)" — whose own citation is the authoritative pointer:
+// "the board's own per-funnel template pickchip (data-template-picker) opens
+// a popover of the quote's SAVED templates — a different control entirely,
+// proven by the board gesture spec." The underlying SERVER endpoint
+// (GET /funnels/:id/frame?switch_to=) keeps its OWN direct, unaffected proof
+// in that same file's "GET /funnels/:id/frame?switch_to (04 §4.3, C5)"
+// describe block — the C5 read-only projection + confirmations mechanism
+// this seam used to drive through the retired client is still verified,
+// just no longer through a dead client trigger.
+describeDb("quote builder EXECUTED island — (c) template-switch flow [RETIRED: §10/S5.1, OLD canvas-embedded picker gone]", () => {
+  it("the OLD template-pick DOM/state has no current admin surface (see describe-block citation)", async () => {
     const h = await studioHarness();
-    const put = await admin.request(
-      `${API}/funnels/${h.funnelPublicId}/frame`,
-      jsonInit("PUT", { frame_config_json: { ...RICH_FRAME_CONFIG, template: "centered" } }),
-      h.env,
-    );
-    expect(put.status, await put.clone().text()).toBe(200);
-
-    // independent server truth for the same switch
-    const serverSwitch = await getJson<{ merged: Record<string, unknown>; confirmations: string[] }>(
-      h.env,
-      `${API}/funnels/${h.funnelPublicId}/frame?switch_to=minimal`,
-    );
-    expect(serverSwitch.confirmations.length).toBeGreaterThan(0);
-
     const html = await editorPage(h.env, h.quotePublicId);
-    const studio = await bootStudio(h.env, html);
-    const before = studio.calls.length;
-
-    // CLICK the template card through the island's delegated handler
-    studio.fire(studio.root, "click", fakeTarget("data-template-pick", "minimal"));
-    await studio.settle();
-
-    const switchCall = studio.calls.slice(before).find((c) => c.url.includes("switch_to=minimal"));
-    expect(switchCall, "island fetched the ?switch_to= projection").toBeDefined();
-    expect(switchCall!.url).toBe(`/api/admin/leadgen/funnels/${h.funnelPublicId}/frame?switch_to=minimal`);
-
-    // the island's pending switch IS the server merge
-    expect(studio.probe.pendingSwitch).toEqual({ id: "minimal", merged: serverSwitch.merged });
-
-    // dialog lines: VERBATIM server confirmations (C5 — the dialog names what
-    // stops rendering, e.g. the trust strip + benefit bar lines)
-    const list = studio.byId("lg-template-confirm-list");
-    expect(list.children.map((li) => textOf(li))).toEqual(serverSwitch.confirmations);
-    expect(studio.byId("lg-template-confirm").className).toBe(""); // shown
-
-    // preview-before-apply: the canvas POST rendered the WOULD-BE merged
-    // config (draft param), server-side, 200
-    const previewCall = studio.calls.slice(before).find((c) => c.url.endsWith("/preview"));
-    expect(previewCall, "preview-before-apply POST").toBeDefined();
-    expect(previewCall!.status).toBe(200);
-    expect((previewCall!.body as Record<string, unknown>)["draft_frame_config"]).toEqual(serverSwitch.merged);
-
-    // READ-ONLY: the stored column is untouched until Save
-    const stored = await getJson<FrameGetBody>(h.env, `${API}/funnels/${h.funnelPublicId}/frame`);
-    expect(stored.frame_config!["template"]).toBe("centered");
-    expect((stored.frame_config!["trust_strip"] as Record<string, unknown>)["enabled"]).toBe(true);
-
-    // APPLY: the island adopts the server merge as its working config
-    studio.fire(studio.byId("lg-template-apply"), "click");
-    await studio.settle();
-    expect(studio.probe.workingFrame).toEqual(serverSwitch.merged);
-    expect(studio.probe.frameDirty).toBe(true);
-    expect(studio.probe.pendingSwitch).toBeNull();
-    expect(studio.byId("lg-template-confirm").className).toBe("lg-hidden");
-
-    // CANCEL leaves the working config untouched (second pick, then cancel)
-    studio.fire(studio.root, "click", fakeTarget("data-template-pick", "white-trust"));
-    await studio.settle();
-    expect(studio.probe.pendingSwitch?.id).toBe("white-trust");
-    studio.fire(studio.byId("lg-template-cancel"), "click");
-    await studio.settle();
-    expect(studio.probe.pendingSwitch).toBeNull();
-    expect(studio.probe.workingFrame).toEqual(serverSwitch.merged); // still the APPLIED minimal merge
+    expect(html).not.toContain('id="lg-template-picker"');
+    expect(html).not.toContain('id="lg-template-confirm"');
+    expect(html).not.toContain('data-template-pick="centered"');
   });
 });
 
@@ -1156,128 +1202,31 @@ describeDb("quote builder EXECUTED island — (d) publish chip equals the server
 // (e) Rules builder island → hidden carrier → REAL variant PUT → evaluator
 // ===========================================================================
 
-describeDb("quote builder EXECUTED island — (e) rules builder round-trips through the real save path", () => {
-  it("picker-built conditions serialize into the hidden carrier, collectRules() reads it, the PUT persists it, and the evaluator agrees", async () => {
+// LEADGEN-REWORK-03 M3/§13-D5 RETIREMENT: this ENTIRE seam tested the OLD
+// per-variant hidden rules grid (id="lg-rule-list", one [data-rule-row] per
+// leadgen_funnel_rules row, renderRuleRow/renderRulesPanel) round-tripping a
+// B3-builder-authored condition through collectRules() -> PUT /variants/:id.
+// That grid is GONE — quotes-handlers.ts's leadgen_funnel_rules CHECK is now
+// tightened to the four auction-domain types only (eligibility/
+// disqualification/redirect_direct_offer/auction_entry), whose UI relocated
+// to the Auction tab (ui-auctions.ts "Funnel eligibility rules" panel); the
+// quote-scoped, multi-action routing rules this board's §8.2 RIGHT rail
+// manages are an entirely DIFFERENT table (leadgen_quote_routing_rules) with
+// their OWN round-trip proof. Attempting to keep this seam alive by
+// hand-simulating a #lg-rule-list DOM structure the real page can no longer
+// produce would test a code path a real operator can never reach (verified:
+// the crash --  document.querySelector is not a function -- surfaces deeper
+// unreachable-code interactions once the grid's container is null, the SAME
+// P5 orphan-scan territory as the OTHER dead-DOM references this phase found).
+// Replacement coverage: test/leadgen-rework-rules-ui.test.ts (SSR + ES5 island
+// proofs for QUOTE_RULES_SCRIPT, incl. its OWN condition-builder round trip)
+// + test-ui/leadgen-rework-p3b-rules.gesture.spec.ts (live gestures).
+describeDb("quote builder EXECUTED island — (e) rules builder [RETIRED: M3/§13-D5, OLD per-variant grid gone]", () => {
+  it("the OLD per-variant hidden rules grid has no current admin surface (see describe-block citation)", async () => {
     const h = await studioHarness();
     const html = await editorPage(h.env, h.quotePublicId);
-    const studio = await bootStudio(h.env, html, { rulesIsland: true });
-    const api = (studio.windowObj as { lgRulesBuilder?: Record<string, unknown> }).lgRulesBuilder as {
-      mount: (container: unknown, raw: unknown, out: unknown, opts: unknown) => { state: { out: FakeNode; addBtn: FakeNode; sentenceEl: FakeNode; rows: unknown[] } };
-    };
-
-    // mount the REAL builder into a fresh container (the dynamic add-rule host
-    // affordance), with the operator field vocabulary
-    const container = makeNode("div");
-    const mounted = api.mount(container, "", null, {
-      fields: [
-        { internal_field: "state", label: "State" },
-        { internal_field: "age", label: "Age" },
-      ],
-    });
-    const carrier = mounted.state.out;
-    expect(carrier.attrs["data-rule-conditions"]).toBe(""); // the created hidden carrier
-    expect(carrier.attrs["data-lg-rb-out"]).toBe("");
-    expect(JSON.parse(carrier.value)).toEqual({ groups: [] });
-
-    // BUILD through the real listeners: (state = CA or TX) AND (age 25–64)
-    studio.fire(mounted.state.addBtn, "click"); // row 1: state eq ''
-    let valueInput = findByClass(container, "lg-rb-value")[0]!;
-    valueInput.value = "CA";
-    studio.fire(valueInput, "input");
-
-    const orBtn = findByClass(findByClass(container, "lg-rb-clusteractions")[0]!, "btn-outline")[0]!;
-    studio.fire(orBtn, "click"); // row 2: another accepted answer for state
-    valueInput = findByClass(container, "lg-rb-value")[1]!;
-    valueInput.value = "TX";
-    studio.fire(valueInput, "input");
-
-    studio.fire(mounted.state.addBtn, "click"); // row 3: defaults to state — repoint to age
-    const fieldSelects = findByClass(container, "lg-rb-field");
-    const row3Field = fieldSelects[fieldSelects.length - 1]!;
-    row3Field.value = "age";
-    studio.fire(row3Field, "change");
-    const opSelects = findByClass(container, "lg-rb-op");
-    const row3Op = opSelects[opSelects.length - 1]!;
-    row3Op.value = "range";
-    studio.fire(row3Op, "change");
-    const from = findByClass(container, "lg-rb-from")[0]!;
-    from.value = "25";
-    studio.fire(from, "input");
-    const to = findByClass(container, "lg-rb-to")[0]!;
-    to.value = "64";
-    studio.fire(to, "input");
-
-    // the island wrote the EXACT §21.4 JSON into the hidden carrier
-    const built = JSON.parse(carrier.value) as LeadgenRuleConditions;
-    expect(built).toEqual({
-      groups: [
-        { field: "state", op: "eq", value: "CA" },
-        { field: "state", op: "eq", value: "TX" },
-        { field: "age", op: "range", from: 25, to: 64 },
-      ],
-    });
-    // …and the plain-language sentence renders the cluster semantics
-    expect(textOf(mounted.state.sentenceEl)).toContain("State");
-    expect(textOf(mounted.state.sentenceEl)).toContain("or");
-
-    // wire the carrier into the quote island's rule row (the collectRules host
-    // contract: one [data-rule-conditions] per [data-rule-row])
-    const ruleRow = makeNode("div");
-    ruleRow.sel["[data-rule-conditions]"] = carrier;
-    ruleRow.sel["[data-rule-type]"] = { value: "eligibility" };
-    ruleRow.sel["[data-rule-target-offer]"] = { value: "" };
-    ruleRow.sel["[data-rule-priority]"] = { value: "100" };
-    ruleRow.sel["[data-rule-redirect-url]"] = { value: "" };
-    ruleRow.sel["[data-rule-allowlisted]"] = { checked: false };
-    ruleRow.sel["[data-rule-enabled]"] = { checked: true };
-    studio.byId("lg-rule-list").sel["[data-rule-row]"] = [ruleRow];
-
-    // the REAL DOM bubbles the builder's edits up through #lg-rule-list —
-    // mirror that parent chain and fire the bubbled input so the island's
-    // container-scoped dirty tracking arms the variant PUT (FIX 6 gating)
-    ruleRow.parentNode = studio.byId("lg-rule-list");
-    carrier.parentNode = ruleRow;
-    studio.fire(studio.root, "input", carrier);
-    expect(studio.probe.variantDirty).toBe(true);
-
-    // the quote island's REAL collector reads the builder's carrier
-    const collected = studio.probe.collectRules();
-    expect(collected).toHaveLength(1);
-    expect(collected[0]!["conditions_json"]).toEqual(built);
-    expect(collected[0]!["rule_type"]).toBe("eligibility");
-
-    // REAL save path: PUT /variants/:id with the collected rules
-    const structure = await getJson<StructureBody>(h.env, `${API}/quotes/${h.quotePublicId}/structure`);
-    studio.byId("lg-funnel-design").value = structure.funnels[0]!.variants[0]!.funnel_design_id;
-    const before = studio.calls.length;
-    studio.fire(studio.byId("lg-variant-save"), "click");
-    await studio.settle();
-    const variantPut = studio.calls.slice(before).find((c) => c.method === "PUT" && c.url.endsWith(`/variants/${h.variantId}`));
-    expect(variantPut, "variant PUT captured").toBeDefined();
-    expect(variantPut!.status, JSON.stringify(variantPut!.response)).toBe(200);
-    expect(((variantPut!.body as Record<string, unknown>)["rules"] as Array<Record<string, unknown>>)[0]!["conditions_json"]).toEqual(built);
-
-    // stored truth round-trips byte-deep
-    const after = await getJson<StructureBody>(h.env, `${API}/quotes/${h.quotePublicId}/structure`);
-    const storedRules = after.funnels[0]!.variants[0]!.rules;
-    expect(storedRules).toHaveLength(1);
-    const stored = storedRules[0]!.conditions_json as LeadgenRuleConditions;
-    expect(stored).toEqual(built);
-
-    // REAL evaluator identity: stored ≡ carrier on match/non-match/absent edges
-    const contexts: Array<Record<string, unknown>> = [
-      { state: "CA", age: 30 },
-      { state: "TX", age: 30 },
-      { state: "TX", age: 70 },
-      { state: "NV", age: 40 },
-      { age: 30 },
-      {},
-    ];
-    const expected = [true, true, false, false, false, false];
-    for (let i = 0; i < contexts.length; i += 1) {
-      expect(conditionsMatch(stored, contexts[i]!), `stored ctx ${i}`).toBe(expected[i]);
-      expect(conditionsMatch(built, contexts[i]!), `carrier ctx ${i}`).toBe(expected[i]);
-    }
+    expect(html).not.toContain('id="lg-rule-list"');
+    expect(html).not.toContain('id="lg-add-rule"');
   });
 });
 
@@ -1287,55 +1236,40 @@ describeDb("quote builder EXECUTED island — (e) rules builder round-trips thro
 // back); the canvas must reflect the LAST-ISSUED request, never the stale one.
 // ===========================================================================
 
-describeDb("quote builder EXECUTED island — FIX 9: overlapping preview responses land last-issued-wins", () => {
-  it("a stale (slower) preview response is dropped — the canvas shows the LAST-issued render", async () => {
+// §10/S5.1 RETIREMENT: this test's ONLY trigger was two `data-template-pick`
+// clicks driving two DIRECT renderPreview(draftF) calls through the OLD
+// canvas-embedded template-switch dialog's preview-before-apply step — the
+// SAME dead mechanism retired in describe-block (c) above (renderTemplatePicker
+// had zero real callers; deleted from quotes-tabs/shared.ts in this sweep).
+// IMPORTANT — this is NOT a claim that the thing under test is gone: the
+// `previewSeq` monotonic-sequence guard inside renderPreview() (quotes-tabs/
+// funnel.ts, "Monotonic render-request sequence...") is UNTOUCHED, still
+// shipped, and still runs on EVERY schedulePreview()/renderPreview() call
+// site that remains live today (viewport toggle, slide selection, theme
+// edits, the Phase D lazy stepper, etc. — all still real, still tested for
+// their OWN basic behavior elsewhere in this file/suite). What is gone is
+// only the ONE trigger this specific test used to manufacture a genuine
+// out-of-order interleave (setResponseDelay + two data-template-pick clicks).
+// HONEST GAP (not silently dropped): grep across test/ and test-ui/ at the
+// time of this retirement found NO other test that drives two overlapping
+// preview requests through a LIVE trigger and asserts last-issued-wins — the
+// previewSeq guard's stale-response-rejection behavior itself is currently
+// UNVERIFIED by any live-triggered test after this retirement. Reintroducing
+// this exact interleaving proof through a live trigger (e.g. two rapid
+// `data-viewport-btn` clicks, which also call schedulePreview() with a
+// distinguishable `viewport` field per request) is a legitimate follow-up,
+// out of scope for this removal-sweep pass. The Studio harness's dedicated
+// `issued`/`setResponseDelay` fields and the standalone `waitFor` poller
+// (both ONLY ever consumed by this test) were removed with it — a future
+// interleaving test re-adds the same shape (issuance-order array + a
+// per-response delay hook + a poll-until helper) rather than resurrecting
+// unused scaffolding now.
+describeDb("quote builder EXECUTED island — FIX 9: overlapping preview responses [RETIRED: §10/S5.1, dead data-template-pick trigger — see coverage-gap note]", () => {
+  it("the OLD template-pick trigger this race depended on has no current admin surface, though the previewSeq guard code itself still ships", async () => {
     const h = await studioHarness();
     const html = await editorPage(h.env, h.quotePublicId);
-    const studio = await bootStudio(h.env, html);
-
-    // Hold back ONLY the minimal-draft preview response, so it resolves AFTER
-    // the later-issued white-trust one (a genuine out-of-order interleave).
-    studio.setResponseDelay((url, init) => {
-      if (!url.endsWith("/preview")) return 0;
-      const body = init !== undefined && typeof init.body === "string" ? init.body : "";
-      return body.includes('"template":"minimal"') ? 150 : 0;
-    });
-
-    // Two template picks drive two DIRECT renderPreview calls through the
-    // island's real ?switch_to= flow (no debounce between them). Fire the
-    // second pick only after the first preview request is genuinely ISSUED.
-    studio.fire(studio.root, "click", fakeTarget("data-template-pick", "minimal"));
-    await waitFor(
-      () => studio.issued.some((i) => i.url.endsWith("/preview") && i.body.includes('"template":"minimal"')),
-      "minimal preview request issued",
-    );
-    studio.fire(studio.root, "click", fakeTarget("data-template-pick", "white-trust"));
-    await studio.settle();
-
-    // issuance order: minimal FIRST, white-trust SECOND (last-issued)
-    const issueIdx = (template: string): number =>
-      studio.issued.findIndex((i) => i.url.endsWith("/preview") && i.body.includes(`"template":"${template}"`));
-    expect(issueIdx("minimal")).toBeGreaterThan(-1);
-    expect(issueIdx("white-trust"), "white-trust preview issued after minimal").toBeGreaterThan(issueIdx("minimal"));
-
-    // completion order: the DELAYED minimal response resolved LAST — the
-    // overlap really happened (calls[] records completion order)
-    const completionIdx = (template: string): number =>
-      studio.calls.findIndex((c) => {
-        if (!c.url.endsWith(`/variants/${h.variantId}/preview`) || c.method !== "POST") return false;
-        const draft = (c.body as Record<string, unknown>)["draft_frame_config"] as Record<string, unknown> | undefined;
-        return draft !== undefined && draft["template"] === template;
-      });
-    expect(completionIdx("white-trust")).toBeGreaterThan(-1);
-    expect(completionIdx("minimal"), "stale minimal response resolved AFTER white-trust").toBeGreaterThan(
-      completionIdx("white-trust"),
-    );
-
-    // last-ISSUED wins: the canvas holds the white-trust document; the stale
-    // minimal response that landed last was dropped by the seq guard.
-    const srcdoc = studio.byId("lg-preview-iframe").attrs["srcdoc"] ?? "";
-    expect(srcdoc).toContain('data-frame-template="white-trust"');
-    expect(srcdoc).not.toContain('data-frame-template="minimal"');
+    expect(html).not.toContain('data-template-pick="minimal"');
+    expect(html).toContain("previewSeq"); // the guard mechanism itself is untouched
   });
 });
 
@@ -1578,13 +1512,15 @@ describeDb("quote builder EXECUTED island — Phase D lazy all-slides stepper", 
     expect(first).toHaveLength(1);
     const firstBody = first[0]!.body as Record<string, unknown>;
     expect(firstBody["mode"]).toBe("all");
-    expect(firstBody["page"]).toBe(1); // 9 slides > the 8-slide threshold → lazy
+    expect(firstBody["page"]).toBe(1); // 10 slides > the 8-slide threshold → lazy
     const firstPreview = (first[0]!.response as { preview: Record<string, unknown> }).preview;
     expect(firstPreview["page"]).toBe(1);
-    expect(firstPreview["pages"]).toBeUndefined(); // ONE page, not all nine
-    expect(firstPreview["section_count"]).toBe(9);
-    expect(studio.byId("lg-preview-iframe").attrs["srcdoc"]).toContain("Step 1 of 9");
-    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 1 of 9");
+    expect(firstPreview["pages"]).toBeUndefined(); // ONE page, not all ten
+    // §4.3-11: studioHarness's 2 own sections + 7 extra (i=3..9) + the quote's
+    // 1 shared-page section (seeded by studioHarness too) = 10.
+    expect(firstPreview["section_count"]).toBe(10);
+    expect(studio.byId("lg-preview-iframe").attrs["srcdoc"]).toContain("Step 1 of 10");
+    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 1 of 10");
 
     // Next → a NEW lazy fetch for page 2 (the eager flow would swap locally)
     const mid = studio.calls.length;
@@ -1595,7 +1531,7 @@ describeDb("quote builder EXECUTED island — Phase D lazy all-slides stepper", 
     // the label still names the CURRENT step (it updates in renderPreview's
     // completion path, together with the canvas).
     expect(textOf(studio.byId("lg-step-label")), "label unchanged while the page-2 fetch is in flight").toBe(
-      "Slide 1 of 9",
+      "Slide 1 of 10",
     );
     await studio.settle();
     const second = studio.calls.slice(mid).filter((c) => c.url.endsWith("/preview"));
@@ -1604,13 +1540,15 @@ describeDb("quote builder EXECUTED island — Phase D lazy all-slides stepper", 
     const secondPreview = (second[0]!.response as { preview: Record<string, unknown> }).preview;
     expect(secondPreview["page"]).toBe(2);
     const srcdoc = studio.byId("lg-preview-iframe").attrs["srcdoc"] ?? "";
-    expect(srcdoc).toContain("Step 2 of 9");
+    expect(srcdoc).toContain("Step 2 of 10");
     expect(srcdoc).toContain(String(secondPreview["html"]).slice(0, 120)); // the canvas holds the served page
-    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 2 of 9");
+    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 2 of 10");
   });
 
   it("≤8 slides: the eager pages[] flow is untouched — no page param, Next steps LOCALLY with zero extra fetches", async () => {
-    const h = await studioHarness(); // 2 slides
+    // §4.3-11: studioHarness's 2 own sections + the quote's 1 shared-page
+    // section (studioHarness seeds one too) = 3 slides — still ≤8 (eager).
+    const h = await studioHarness();
     const putFrame = await admin.request(
       `${API}/funnels/${h.funnelPublicId}/frame`,
       jsonInit("PUT", { frame_config_json: STEP_FRAME }),
@@ -1628,16 +1566,16 @@ describeDb("quote builder EXECUTED island — Phase D lazy all-slides stepper", 
     expect(first).toHaveLength(1);
     expect((first[0]!.body as Record<string, unknown>)["page"]).toBeUndefined(); // eager — byte-identical Phase B
     const preview = (first[0]!.response as { preview: { pages?: string[] } }).preview;
-    expect(preview.pages).toHaveLength(2);
-    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 1 of 2");
+    expect(preview.pages).toHaveLength(3);
+    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 1 of 3");
 
     // Next swaps the LOCAL page — zero additional fetches
     const count = studio.calls.length;
     studio.fire(studio.byId("lg-step-next"), "click");
     await studio.settle();
     expect(studio.calls.length).toBe(count);
-    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 2 of 2");
-    expect(studio.byId("lg-preview-iframe").attrs["srcdoc"]).toContain("Step 2 of 2");
+    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 2 of 3");
+    expect(studio.byId("lg-preview-iframe").attrs["srcdoc"]).toContain("Step 2 of 3");
   });
 });
 

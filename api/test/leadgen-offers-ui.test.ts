@@ -132,7 +132,25 @@ const LEADGEN_MIGRATIONS = [
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  // Rework P1 (§5 M1-M12): the full migration set so leadgen_funnel_
+  // variant_sections carries the M2 owner axis (quote_id) — buildOfferUsage-
+  // Report's quotes_indirect check (offers-handlers.ts) now reads it
+  // unconditionally, which this file's "F1 (executed)" usage-report tests
+  // exercise via GET /offers/:id/usage.
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -1153,9 +1171,24 @@ describeDb("leadgen offers list — §7.1 row actions (kebab)", () => {
     const { env } = newHarness();
     const offer = await createOffer(env, "request_dynamic_bid", { offer_name: "Row Actions Offer" });
     const html = await getHtml(env, "/admin/leadgen/offers");
-    // kebab toggle + menu
-    expect(html).toContain(`data-offer-kebab-toggle="${offer.public_id}"`);
-    expect(html).toContain("data-offer-kebab-menu");
+    // Product-fix round (S2.4 admin-UI, root-cause): the row's kebab now
+    // renders via the SHARED renderKebabOpen/KEBAB_CLOSE + kebabMenuScript
+    // component (layout.ts) — the same portal-fixed mechanism every other
+    // admin list (sections/auctions/quotes/listicles) already uses — instead
+    // of a local, pre-portal-fix `data-offer-kebab-toggle`/
+    // `data-offer-kebab-menu` pair. Root cause: .table--sticky-edges makes
+    // every row's LAST td position:sticky (its own stacking context), so a
+    // position:absolute menu with a merely LOCAL z-index could never outrank
+    // a DIFFERENT row's own sticky td once its height overflowed past its
+    // row — a live Playwright click on a Delete button was intercepted by
+    // the NEXT row's td. kebabMenuScript fixes this by reparenting the open
+    // menu to <body> (position:fixed), so this assertion now proves the
+    // GENERIC, portal-capable markup + the toggle's per-offer aria-label
+    // (the public_id is no longer on the toggle itself — renderKebabOpen
+    // links toggle<->menu by a render-sequence id, not by entity id).
+    expect(html).toContain("data-kebab-toggle");
+    expect(html).toContain("data-kebab-menu");
+    expect(html).toContain(`aria-label="More actions for ${offer.offer_name}"`);
     // all five actions keyed to the offer (Delete always present — guarded, never hidden)
     expect(html).toContain(`data-offer-duplicate="${offer.public_id}"`);
     expect(html).toContain(`data-offer-archive="${offer.public_id}"`);

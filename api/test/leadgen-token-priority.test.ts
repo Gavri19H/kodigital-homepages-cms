@@ -56,16 +56,28 @@ const CONT = (design_overrides?: LeadgenDesignOverrides): LeadgenComponentNode =
   props: { label: "Continue" },
 });
 
+// Rework §6.7: 5 choices — enough that min(authored, choiceCount) never
+// constrains a columns value this file's priority-order tests exercise (1..5)
+// on their OWN. The 2-choice CHOICES stays the default (unaffected callers).
+const MANY_CHOICES: LeadgenChoice[] = [
+  { label: "LLC", value: "llc", analytics_id: "a_llc", icon: "B" },
+  { label: "Sole prop", value: "sole", analytics_id: "a_sole", icon: "P" },
+  { label: "Partnership", value: "partner", analytics_id: "a_partner", icon: "P2" },
+  { label: "C Corp", value: "ccorp", analytics_id: "a_ccorp", icon: "C" },
+  { label: "S Corp", value: "scorp", analytics_id: "a_scorp", icon: "S" },
+];
+
 const GRID = (
   design_overrides?: LeadgenDesignOverrides,
   props?: Record<string, unknown>,
+  choices: LeadgenChoice[] = CHOICES,
 ): LeadgenComponentNode => ({
   type: "IconCardAnswerGrid",
   question_id: "g1",
   internal_field: "biz",
   ...(design_overrides !== undefined ? { design_overrides } : {}),
   ...(props !== undefined ? { props } : {}),
-  choices: CHOICES,
+  choices,
 });
 
 const MULTI: LeadgenComponentNode = {
@@ -230,7 +242,7 @@ describe("section-local-override-application", () => {
       props: { text: "BUSINESS LOAN" },
     };
     const RANGE: LeadgenComponentNode = {
-      type: "RangeQuestion",
+      type: "NumberRangeQuestion",
       question_id: "r1",
       internal_field: "amount",
       design_overrides: { rangeColor: "success" },
@@ -249,26 +261,38 @@ describe("section-local-override-application", () => {
   });
 
   it("columnsDefault/gapDefault apply when the node leaves them unset", () => {
-    const html = renderSectionComponents([GRID()], BASE, ctxWith({ columnsDefault: 4, gapDefault: "22px" }));
-    expect(html).toContain(`style="--lg-cols:4;gap:22px"`);
+    // Rework §6.7 (test repair, P2): effective columns are now ALSO
+    // min(authored, choiceCount); MANY_CHOICES (5) is not always an exact
+    // multiple of every column count this file tests, so a wrapped last row
+    // may ALSO add justify-content:center (its own dedicated coverage lives
+    // in leadgen-rework-render.test.ts) — asserted here as two SEPARATE
+    // .toContain checks (cols, then gap) instead of one combined string, so
+    // this test keeps proving ONLY the Section-default PRIORITY mechanism.
+    const html = renderSectionComponents([GRID(undefined, undefined, MANY_CHOICES)], BASE, ctxWith({ columnsDefault: 4, gapDefault: "22px" }));
+    expect(html).toContain(`--lg-cols:4`);
+    expect(html).toContain(`gap:22px`);
     // without Section defaults the design tokens hold
-    const plain = renderSectionComponents([GRID()], BASE, ctxWith());
-    expect(plain).toContain(`style="--lg-cols:3;gap:0.5rem"`);
+    const plain = renderSectionComponents([GRID(undefined, undefined, MANY_CHOICES)], BASE, ctxWith());
+    expect(plain).toContain(`--lg-cols:3`);
+    expect(plain).toContain(`gap:0.5rem`);
   });
 
   it("columnsDefault/gapDefault yield to per-node values (design_overrides and props)", () => {
+    // Rework §6.7 (test repair, P2): MANY_CHOICES (5) — see note above.
     const ctx = ctxWith({ columnsDefault: 4, gapDefault: "22px" });
-    const viaOverrides = renderSectionComponents([GRID({ columns: 3, gridGap: "9px" })], BASE, ctx);
-    expect(viaOverrides).toContain(`style="--lg-cols:3;gap:9px"`);
-    const viaProps = renderSectionComponents([GRID(undefined, { columns: 5 })], BASE, ctx);
+    const viaOverrides = renderSectionComponents([GRID({ columns: 3, gridGap: "9px" }, undefined, MANY_CHOICES)], BASE, ctx);
+    expect(viaOverrides).toContain(`--lg-cols:3`);
+    expect(viaOverrides).toContain(`gap:9px`);
+    const viaProps = renderSectionComponents([GRID(undefined, { columns: 5 }, MANY_CHOICES)], BASE, ctx);
     expect(viaProps).toContain("--lg-cols:5");
   });
 
   it("columnsDefault clamps like every columns source; junk Section values fall through to the design", () => {
-    expect(renderSectionComponents([GRID()], BASE, ctxWith({ columnsDefault: 9 }))).toContain("--lg-cols:5");
-    expect(
-      renderSectionComponents([GRID()], BASE, ctxWith({ columnsDefault: Number.NaN, gapDefault: "" })),
-    ).toContain(`style="--lg-cols:3;gap:0.5rem"`);
+    // Rework §6.7 (test repair, P2): MANY_CHOICES (5) — see note above.
+    expect(renderSectionComponents([GRID(undefined, undefined, MANY_CHOICES)], BASE, ctxWith({ columnsDefault: 9 }))).toContain("--lg-cols:5");
+    const junk = renderSectionComponents([GRID(undefined, undefined, MANY_CHOICES)], BASE, ctxWith({ columnsDefault: Number.NaN, gapDefault: "" }));
+    expect(junk).toContain(`--lg-cols:3`);
+    expect(junk).toContain(`gap:0.5rem`);
   });
 
   it("gapDefault reaches the MultiChoiceCardGroup grid (its gap falls back to the design token)", () => {
@@ -301,11 +325,11 @@ describe("section-local-override-application", () => {
       { type: "QuestionHeadline", question_id: "h1", props: { text: "How much do you need?" } },
       GRID({ iconColor: "#1B3A5C", gridGap: "0.75rem" }),
       {
-        type: "CurrencyRangeQuestion",
+        type: "NumberRangeQuestion",
         question_id: "r1",
         internal_field: "amount",
         design_overrides: { rangeColor: "#1B3A5C" },
-        props: { min: 1000, max: 90000, default: 5000 },
+        props: { min: 1000, max: 90000, default: 5000, currency_affix: true },
       },
       MULTI,
       {

@@ -45,12 +45,20 @@ import {
 } from "./payload-builder-handlers";
 import { rebuildLeadgenAnalyticsRangeHandler } from "./analytics-admin-handlers";
 import {
+  applyFrameTemplateToFunnelHandler,
+  createFrameTemplateHandler,
+  deleteFrameTemplateHandler,
+  duplicateFrameTemplateHandler,
+  getFrameTemplateHandler,
   getFunnelFrameHandler,
   getFunnelThemeHandler,
   getSiteBrandingHandler,
+  listFrameTemplateRecordsHandler,
   listFrameTemplatesHandler,
   putFunnelFrameHandler,
   putFunnelThemeHandler,
+  setDefaultFrameTemplateHandler,
+  updateFrameTemplateHandler,
 } from "./frame-handlers";
 import {
   createMediaPlatformHandler,
@@ -88,20 +96,32 @@ import {
   createQuoteExperimentHandler,
   createQuoteFunnelHandler,
   createQuoteHandler,
+  createQuoteRoutingRuleHandler,
   createQuoteVariantHandler,
+  createSharedPageHandler,
+  createVariantRuleHandler,
   deleteActivationHandler,
   deleteFunnelHandler,
   deleteQuoteHandler,
+  deleteQuoteRoutingRuleHandler,
+  deleteSharedPageHandler,
+  deleteVariantHandler,
+  deleteVariantRuleHandler,
+  duplicateFunnelHandler,
   duplicateQuoteHandler,
+  duplicateQuoteRoutingRuleHandler,
   duplicateRuleHandler,
   experimentAssignmentPreviewHandler,
   forkVariantHandler,
   getFunnelHandler,
   getQuoteHandler,
+  getSharedPageHandler,
   listFunnelVariantsHandler,
   listQuoteFunnelsHandler,
+  listQuoteRoutingRulesHandler,
   listQuotesHandler,
   listQuoteVariantsHandler,
+  listVariantRulesHandler,
   patchFunnelHandler,
   patchQuoteHandler,
   previewVariantHandler,
@@ -111,8 +131,13 @@ import {
   quoteAnalyticsHandler,
   quoteStructureHandler,
   quoteUsageHandler,
+  reorderQuoteFunnelsHandler,
+  setQuoteDefaultFunnelHandler,
   startExperimentHandler,
   stopExperimentHandler,
+  updateQuoteRoutingRuleHandler,
+  updateSharedPageHandler,
+  updateVariantRuleHandler,
 } from "./quotes-handlers";
 import {
   auctionAnalyticsHandler,
@@ -195,6 +220,21 @@ routes.get("/themes/:id", getThemeHandler);
 routes.patch("/themes/:id", updateThemeHandler);
 routes.delete("/themes/:id", deleteThemeHandler);
 
+// --- Frame template records (Rework M5, §5-M5/§11D) — the DB-backed saved-
+// template surface (leadgen_frame_templates): create/save-as/rename/duplicate/
+// delete-with-in-use-guard/atomic-default-swap. Distinct from the STATIC
+// `/frame-templates` route above (the CODE registry projection, no :id
+// sibling) — own top-level prefix, no collision. Static list/create BEFORE the
+// bare /:id GET/PATCH/DELETE, then the deeper /duplicate + /default suffixes
+// (mirrors the Sections block's get/patch/delete-then-duplicate ordering).
+routes.get("/frame-template-records", listFrameTemplateRecordsHandler);
+routes.post("/frame-template-records", createFrameTemplateHandler);
+routes.get("/frame-template-records/:id", getFrameTemplateHandler);
+routes.patch("/frame-template-records/:id", updateFrameTemplateHandler);
+routes.delete("/frame-template-records/:id", deleteFrameTemplateHandler);
+routes.post("/frame-template-records/:id/duplicate", duplicateFrameTemplateHandler);
+routes.put("/frame-template-records/:id/default", setDefaultFrameTemplateHandler);
+
 // --- Sections (03 §8.2 + 05 §12–§14 — Phase-5 Stage B full surface) ----------
 // Static paths BEFORE /sections/:id (03 §8.1 static-before-param discipline).
 routes.get("/sections", listSectionsHandler);
@@ -227,9 +267,29 @@ routes.get("/quotes/:id/funnels", listQuoteFunnelsHandler);
 routes.post("/quotes/:id/funnels", createQuoteFunnelHandler);
 routes.post("/quotes/:id/duplicate", duplicateQuoteHandler); // Round-4 A-2 (row R4-02)
 routes.get("/quotes/:id/usage", quoteUsageHandler); // Round-4 A-2 (row R4-38)
+// Rework M2/M3/M4 (§4.3-1/§4.3-3..9/§4.3-7): the quote-owned shared first page,
+// its quote-scoped routing rules, board reorder, and default-funnel pointer —
+// all deeper paths, registered BEFORE the bare /quotes/:id below (03 §8.1).
+routes.get("/quotes/:id/shared-page", getSharedPageHandler);
+routes.post("/quotes/:id/shared-page", createSharedPageHandler);
+routes.put("/quotes/:id/shared-page", updateSharedPageHandler);
+routes.delete("/quotes/:id/shared-page", deleteSharedPageHandler);
+routes.get("/quotes/:id/routing-rules", listQuoteRoutingRulesHandler);
+routes.post("/quotes/:id/routing-rules", createQuoteRoutingRuleHandler);
+routes.put("/quotes/:id/funnel-order", reorderQuoteFunnelsHandler);
+routes.put("/quotes/:id/default-funnel", setQuoteDefaultFunnelHandler);
 routes.get("/quotes/:id", getQuoteHandler);
 routes.patch("/quotes/:id", patchQuoteHandler);
 routes.delete("/quotes/:id", deleteQuoteHandler);
+
+// Rework M3 — a routing rule's own address space (its own top-level prefix,
+// param named `rule_id` — mirrors the /variants/:variant_id/rules/:rule_id
+// precedent below of using a distinct param name for a rule's own id). Bare
+// PATCH/DELETE before the deeper /duplicate suffix (mirrors /offers/:id vs
+// /offers/:id/duplicate — Hono disambiguates by segment count either way).
+routes.patch("/routing-rules/:rule_id", updateQuoteRoutingRuleHandler);
+routes.delete("/routing-rules/:rule_id", deleteQuoteRoutingRuleHandler);
+routes.post("/routing-rules/:rule_id/duplicate", duplicateQuoteRoutingRuleHandler);
 
 // A/B lifecycle (§16.2): create + start/stop; start enforces the per-test
 // Σ==10000 allocation gate. assignment-preview shows which variant a sample
@@ -238,16 +298,29 @@ routes.post("/experiments/:id/start", startExperimentHandler);
 routes.post("/experiments/:id/stop", stopExperimentHandler);
 routes.get("/experiments/:id/assignment-preview", experimentAssignmentPreviewHandler);
 
-// Variants — static/deeper suffixes (/fork, /preview, /rules/:rule_id/duplicate)
+// Variants — static/deeper suffixes (/fork, /preview, /rules[/:rule_id[/duplicate]])
 // BEFORE the bare /variants/:id PUT (03 §8.1 static-before-param discipline).
 routes.post("/variants/:id/fork", forkVariantHandler);
 routes.post("/variants/:id/preview", previewVariantHandler);
-// Round-4 P4b: a rule's only independent CRUD verb (rules otherwise live
-// inside the variant's §15.5 replace-set PUT below) — param name is
-// `variant_id` here (distinct from the outer `:id`) so duplicateRuleHandler
-// reads BOTH ids unambiguously via c.req.param.
+// D5 mini-round: variant-scoped rule CRUD (leadgen_funnel_rules, the four
+// auction-domain types only) — the Auction-tab editor's real REST surface,
+// added ALONGSIDE the variant-PUT `rules` replace-set (unchanged, still
+// works). Bare PATCH/DELETE before the deeper /duplicate suffix (mirrors
+// /offers/:id vs /offers/:id/duplicate — Hono disambiguates by segment count
+// either way). The existing duplicate route (below) keeps its own `variant_id`
+// param name (distinct from the outer `:id` on ITS route) — unaffected.
+routes.get("/variants/:id/rules", listVariantRulesHandler);
+routes.post("/variants/:id/rules", createVariantRuleHandler);
+routes.patch("/variants/:id/rules/:rule_id", updateVariantRuleHandler);
+routes.delete("/variants/:id/rules/:rule_id", deleteVariantRuleHandler);
+// Round-4 P4b: mirrors the quote-scoped /routing-rules/:rule_id/duplicate
+// precedent — param name is `variant_id` here (distinct from the outer `:id`
+// convention above) so duplicateRuleHandler reads BOTH ids unambiguously via
+// c.req.param.
 routes.post("/variants/:variant_id/rules/:rule_id/duplicate", duplicateRuleHandler);
 routes.put("/variants/:id", putVariantHandler);
+// AC #11C ("delete-variant exists") — conductor extension round 2.
+routes.delete("/variants/:id", deleteVariantHandler);
 
 // Stable Funnels — /funnels/:id/{variants,experiments,frame,theme} BEFORE the
 // bare /funnels/:id. frame/theme are the v2.5 Quote Builder save surface
@@ -259,6 +332,9 @@ routes.get("/funnels/:id/frame", getFunnelFrameHandler);
 routes.put("/funnels/:id/frame", putFunnelFrameHandler);
 routes.get("/funnels/:id/theme", getFunnelThemeHandler);
 routes.put("/funnels/:id/theme", putFunnelThemeHandler);
+// Rework M5 (§8.2/§11D "Apply to funnel…") + funnel duplicate (§8.2 kebab).
+routes.post("/funnels/:id/duplicate", duplicateFunnelHandler);
+routes.post("/funnels/:id/apply-template", applyFrameTemplateToFunnelHandler);
 routes.get("/funnels/:id", getFunnelHandler);
 routes.patch("/funnels/:id", patchFunnelHandler);
 routes.delete("/funnels/:id", deleteFunnelHandler);

@@ -26,7 +26,7 @@ const FLAT_V25 = [
   { type: 'TwoButtonYesNo', question_id: 'q_yn', internal_field: 'insured', answer_type: 'boolean', props: { yesLabel: 'Yes', noLabel: 'No' } },
   { type: 'ZIPInputQuestion', question_id: 'q_zip', internal_field: 'zip', answer_type: 'string', props: { placeholder: 'ZIP code' } },
   { type: 'EmailInputQuestion', question_id: 'q_email', internal_field: 'email', answer_type: 'string', props: { placeholder: 'Email' } },
-  { type: 'RangeQuestion', question_id: 'q_range', internal_field: 'amount', answer_type: 'number', props: { min: 0, max: 100, step: 5, default: 0 } },
+  { type: 'NumberRangeQuestion', question_id: 'q_range', internal_field: 'amount', answer_type: 'number', props: { min: 0, max: 100, step: 5, default: 0 } },
   { type: 'ContinueButton', question_id: 'q_cont', props: { label: 'Continue' } },
 ];
 

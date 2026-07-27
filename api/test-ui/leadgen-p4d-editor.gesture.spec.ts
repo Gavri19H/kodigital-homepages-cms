@@ -236,12 +236,12 @@ test.describe("PC-A10 — SearchableDropdown + Range helpers now render live (th
     await expect(canvasRender(page).locator("text=We never share this")).toBeVisible({ timeout: 5_000 });
   });
 
-  test("RangeQuestion's authored Helper text paints on the live canvas", async ({ page }) => {
+  test("NumberRangeQuestion's authored Helper text paints on the live canvas", async ({ page }) => {
     const section = await createSection(page.request, `P4d PC-A10 range ${uniq}`, {
-      components: [{ type: "RangeQuestion", question_id: "q_r", internal_field: "amt", props: { min: 0, max: 100 } }],
+      components: [{ type: "NumberRangeQuestion", question_id: "q_r", internal_field: "amt", props: { min: 0, max: 100 } }],
     });
     await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: "domcontentloaded" });
-    await canvasRender(page).locator('[data-component-type="RangeQuestion"]').click();
+    await canvasRender(page).locator('[data-component-type="NumberRangeQuestion"]').click();
     await openInspectorTab(page, "content");
     await page.locator('[data-studio-panel="content"] input[data-inspector-field="helper"]:visible').fill("Slide to set your amount");
     await expect(canvasRender(page).locator("text=Slide to set your amount")).toBeVisible({ timeout: 5_000 });

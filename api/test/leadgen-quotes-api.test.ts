@@ -108,14 +108,30 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
   "0043_leadgen_routing_rules.sql",
   "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
+  "0054_leadgen_analytics_routing_dims.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -226,7 +242,7 @@ interface VariantJson {
   id: number;
   public_id: string;
   funnel_variant_id: string;
-  is_control: boolean;
+  variant_label: string;
   funnel_design_id: string;
   auction_id: number | null;
   [key: string]: unknown;
@@ -264,6 +280,70 @@ async function createQuote(env: Env, overrides: Record<string, unknown> = {}): P
   return (await res.json()) as QuoteDetail;
 }
 
+// Rework M2 (§4.3-1, §4.3-15): activation now requires BOTH (a) the quote's
+// shared first page (leadgen_funnel_pages, quote_id-owned) to carry ≥1
+// section, and (b) every active funnel to have ≥1 page with ≥1 section (its
+// active variant) — verified against quotes-handlers.ts's activation
+// preflight. Sections are distinct per §4.3-13 uniqueness. Route wiring for
+// POST/PUT /quotes/:id/shared-page is mid-flight in another round, so both
+// are seeded via SQL directly (mirrors leadgen-rework-handlers.test.ts /
+// leadgen-rework-routing.test.ts's own quote_id/variant_id axis split).
+function seedSection_(sdb: SqliteDb, name: string): { id: number; public_id: string } {
+  const publicId = mintPublicId("section");
+  const content = JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q1", question_key: "k", internal_field: "f", answer_type: "boolean" }] });
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, ?, 'quote_funnel', 'life', ?, ?, 'button', 'active')",
+    )
+    .run(publicId, name, `Headline ${name}`, content);
+  const id = (sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(publicId) as { id: number }).id;
+  return { id, public_id: publicId };
+}
+
+function seedSharedPageSection(sdb: SqliteDb, quoteId: number): void {
+  const s = seedSection_(sdb, "Shared");
+  const pagePublicId = mintPublicId("funnel_page");
+  sdb.prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, NULL)").run(pagePublicId, quoteId);
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+       VALUES (?, ?, 0, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+    )
+    .run(quoteId, s.id, pagePublicId);
+}
+
+// Attaches a section directly to a funnel's variant (variant_id-owned axis,
+// no quote_id) — satisfies "every active funnel has ≥1 page with ≥1 section."
+function seedVariantSection(sdb: SqliteDb, variantPublicId: string): void {
+  const s = seedSection_(sdb, "FunnelOwn");
+  const variantRowId = (sdb.prepare("SELECT id FROM leadgen_funnel_variants WHERE public_id = ?").get(variantPublicId) as { id: number }).id;
+  sdb.prepare("INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position) VALUES (?, ?, 0)").run(variantRowId, s.id);
+}
+
+// Combines both activation prerequisites for a freshly createQuote()'d quote
+// (its sole funnel's sole variant + the shared page).
+function seedActivationPrereqs(sdb: SqliteDb, q: { id: number; funnels: Array<{ variants: Array<{ public_id: string }> }> }): void {
+  seedVariantSection(sdb, q.funnels[0]!.variants[0]!.public_id);
+  seedSharedPageSection(sdb, q.id);
+}
+
+// Rework M1 (§4.3-10): "arms are added via the A/B tab, never a raw variant
+// create/fork" — forkVariantHandler/createVariantUnderFunnel BOTH now reject
+// ANY second active variant unconditionally while ≥1 active variant already
+// exists (quotes-handlers.ts:2415-2420/3536-3541 — verified; the P3b A/B-tab
+// arm-creation mechanism is not yet built). leadgen-rework-handlers.test.ts's
+// OWN equal-arms test seeds a second arm via raw SQL for exactly this reason
+// — the pattern this helper mirrors byte-for-byte.
+function seedSiblingArm(sdb: SqliteDb, funnelId: number, label: string, bp: number): string {
+  const publicId = mintPublicId("funnel_variant");
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label, traffic_allocation_bp, funnel_design_id, status) VALUES (?, ?, ?, ?, 'default', 'active')",
+    )
+    .run(publicId, funnelId, label, bp);
+  return publicId;
+}
+
 // ===========================================================================
 
 describeDb("§15.1 Quote CRUD + auto-seeded funnel/control-variant", () => {
@@ -277,7 +357,13 @@ describeDb("§15.1 Quote CRUD + auto-seeded funnel/control-variant", () => {
     expect(funnel.variants).toHaveLength(1);
     const variant = funnel.variants[0]!;
     expect(isPublicId("funnel_variant", variant.public_id)).toBe(true);
-    expect(variant.is_control).toBe(true);
+    // Rework M1 (§5-M1, §4.3-10): is_control dropped — "no control concept
+    // anywhere." Replacement semantics: with no running test a funnel has
+    // exactly one active variant, deterministically labeled "A" (variant_label
+    // ASC/id ASC first). Same scenario (the auto-seeded variant is THE
+    // funnel's variant), new axis.
+    expect(variant.variant_label).toBe("A");
+    expect(variant).not.toHaveProperty("is_control");
     expect(q.verticals_json).toEqual(["life", "health"]);
   });
 
@@ -372,11 +458,17 @@ describeDb("§6.2/§15.1 Funnel CRUD under a Quote", () => {
     const patched = await admin.request(`${API}/funnels/${fj.public_id}`, jsonInit("PATCH", { funnel_name: "Funnel B2" }), env);
     expect(((await patched.json()) as FunnelJson).funnel_name).toBe("Funnel B2");
 
+    // Rework M4/§4.3-14: DELETE /funnels/:id is no longer a soft archive — it
+    // HARD-deletes with cascade (guarded: default funnel / rule-targeted
+    // funnels are refused 409 instead). Funnel B is neither here, so it's
+    // gone entirely, not archived-but-listed.
     const del = await admin.request(`${API}/funnels/${fj.public_id}`, { method: "DELETE" }, env);
-    expect(((await del.json()) as { status: string }).status).toBe("archived");
+    const delBody = (await del.json()) as { ok: boolean; deleted: boolean; public_id: string };
+    expect(delBody.deleted).toBe(true);
+    expect(delBody.public_id).toBe(fj.public_id);
 
     const list = await admin.request(`${API}/quotes/${q.public_id}/funnels`, {}, env);
-    expect(((await list.json()) as { items: unknown[] }).items.length).toBe(2);
+    expect(((await list.json()) as { items: unknown[] }).items.length).toBe(1);
   });
 });
 
@@ -555,7 +647,11 @@ describeDb("§15.5 variant PUT — funnel-rule replace-set + redirect safety", (
       { rule_type: "eligibility" },
       { rule_type: "disqualification" },
     ]);
-    await putRules(env, variantId, [{ rule_type: "skip_section" }]);
+    // Rework M3: skip_section is no longer a valid leadgen_funnel_rules type
+    // (CHECK tightened to the 4 auction-domain types) — swapped to
+    // auction_entry; this test's point is the REPLACE-SET count (2 rows → 1
+    // row on a second PUT with fewer rules), not which specific type survives.
+    await putRules(env, variantId, [{ rule_type: "auction_entry" }]);
     const count = sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_funnel_rules WHERE variant_id = (SELECT id FROM leadgen_funnel_variants WHERE public_id = ?)").get(variantId) as { n: number };
     expect(count.n).toBe(1);
   });
@@ -563,8 +659,9 @@ describeDb("§15.5 variant PUT — funnel-rule replace-set + redirect safety", (
 
 describeDb("§17 activation — one enabled root per site, dup slug, preview URL, both sides", () => {
   it("activates a root (no slug) then GET reflects it + a tenant-host preview URL", async () => {
-    const { env } = newHarness();
+    const { sdb, env } = newHarness();
     const q = await createQuote(env);
+    seedActivationPrereqs(sdb, q);
     const put = await admin.request(`${API}/quotes/${q.public_id}/activation/site-1`, jsonInit("PUT", { enabled: true }), env);
     expect(put.status, `activate: ${await put.clone().text()}`).toBe(200);
     const pj = (await put.json()) as { enabled: boolean; slug: string | null; preview_url: string };
@@ -581,9 +678,11 @@ describeDb("§17 activation — one enabled root per site, dup slug, preview URL
   });
 
   it("a SECOND enabled root on the same site is rejected (uq_leadgen_sitequote_root)", async () => {
-    const { env } = newHarness();
+    const { sdb, env } = newHarness();
     const q1 = await createQuote(env, { quote_name: "Q1" });
     const q2 = await createQuote(env, { quote_name: "Q2" });
+    seedActivationPrereqs(sdb, q1);
+    seedActivationPrereqs(sdb, q2);
     await admin.request(`${API}/quotes/${q1.public_id}/activation/site-1`, jsonInit("PUT", { enabled: true }), env);
     const second = await admin.request(`${API}/quotes/${q2.public_id}/activation/site-1`, jsonInit("PUT", { enabled: true }), env);
     expect(second.status).toBe(400);
@@ -595,9 +694,11 @@ describeDb("§17 activation — one enabled root per site, dup slug, preview URL
   });
 
   it("a duplicate slug on the same site is rejected", async () => {
-    const { env } = newHarness();
+    const { sdb, env } = newHarness();
     const q1 = await createQuote(env, { quote_name: "Q1" });
     const q2 = await createQuote(env, { quote_name: "Q2" });
+    seedActivationPrereqs(sdb, q1);
+    seedActivationPrereqs(sdb, q2);
     await admin.request(`${API}/quotes/${q1.public_id}/activation/site-1`, jsonInit("PUT", { enabled: true, slug: "shared" }), env);
     const dup = await admin.request(`${API}/quotes/${q2.public_id}/activation/site-1`, jsonInit("PUT", { enabled: true, slug: "shared" }), env);
     expect(dup.status).toBe(400);
@@ -629,9 +730,11 @@ describeDb("§17 activation — one enabled root per site, dup slug, preview URL
   });
 
   it("DELETE deactivates (enabled → 0, reversible) and frees the root", async () => {
-    const { env } = newHarness();
+    const { sdb, env } = newHarness();
     const q1 = await createQuote(env, { quote_name: "Q1" });
     const q2 = await createQuote(env, { quote_name: "Q2" });
+    seedActivationPrereqs(sdb, q1);
+    seedActivationPrereqs(sdb, q2);
     await admin.request(`${API}/quotes/${q1.public_id}/activation/site-1`, jsonInit("PUT", { enabled: true }), env);
     const del = await admin.request(`${API}/quotes/${q1.public_id}/activation/site-1`, { method: "DELETE" }, env);
     expect(del.status).toBe(200);
@@ -714,13 +817,19 @@ describeDb("A/B — §16.2 allocation + lifecycle (P8)", () => {
   });
 
   it("start REJECTS a test whose active variants' bp do NOT sum to 10000 (§16.2 Σ gate)", async () => {
-    const { env } = newHarness();
+    const { sdb, env } = newHarness();
     const q = await createQuote(env);
     const control = q.funnels[0]!.variants[0]!.public_id;
-    // fork the control → a 2nd active variant that COPIES bp 10000 → Σ = 20000.
-    const fork = await admin.request(`${API}/variants/${control}/fork`, { method: "POST" }, env);
-    expect(fork.status).toBe(201);
-    const forked = (await fork.json()) as { public_id: string };
+    // Rework M1 (§4.3-10): forkVariantHandler now unconditionally refuses a
+    // second ACTIVE variant while one already exists (verified against
+    // quotes-handlers.ts; no API path creates an "arm of a running test" yet
+    // — the P3b A/B-tab mechanism isn't built). This test's point is the
+    // Σ==10000 start-gate, not fork itself — seed the 2nd active arm via raw
+    // SQL (the SAME idiom leadgen-rework-handlers.test.ts's own equal-arms
+    // test uses), a 2nd active variant that COPIES bp 10000 → Σ = 20000.
+    const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(q.funnels[0]!.public_id) as { id: number }).id;
+    const forkedPublicId = seedSiblingArm(sdb, funnelRowId, "B", 10000);
+    const forked = { public_id: forkedPublicId };
 
     const create = await admin.request(`${API}/quotes/${q.public_id}/experiments`, jsonInit("POST", {}), env);
     const ab = (await create.json()) as { public_id: string };
@@ -749,11 +858,14 @@ describeDb("A/B — §16.2 allocation + lifecycle (P8)", () => {
   });
 
   it("§16.2/§29: ANY allocation change on a RUNNING test's active arm is refused 409 (no silent in-place re-split); the freeze lifts after stop", async () => {
-    const { env } = newHarness();
+    const { sdb, env } = newHarness();
     const q = await createQuote(env);
     const control = q.funnels[0]!.variants[0]!.public_id;
-    const fork = await admin.request(`${API}/variants/${control}/fork`, { method: "POST" }, env);
-    const forked = (await fork.json()) as { public_id: string };
+    // Rework M1 (§4.3-10) — see the Σ-gate test above for the full rationale:
+    // fork unconditionally refuses a 2nd active variant, so the arm is seeded
+    // via raw SQL instead.
+    const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(q.funnels[0]!.public_id) as { id: number }).id;
+    const forked = { public_id: seedSiblingArm(sdb, funnelRowId, "B", 10000) };
     // draft editing is free (no running test) → split 50/50, then start.
     await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env);
     await admin.request(`${API}/variants/${forked.public_id}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env);
@@ -787,11 +899,14 @@ describeDb("A/B — §16.2 allocation + lifecycle (P8)", () => {
   });
 
   it("assignment-preview returns the SAME variant + bucket assignVariant computes (zero drift)", async () => {
-    const { env } = newHarness();
+    const { sdb, env } = newHarness();
     const q = await createQuote(env);
     const control = q.funnels[0]!.variants[0]!.public_id;
-    const fork = await admin.request(`${API}/variants/${control}/fork`, { method: "POST" }, env);
-    const forked = (await fork.json()) as { public_id: string };
+    // Rework M1 (§4.3-10) — see the Σ-gate test above for the full rationale:
+    // fork unconditionally refuses a 2nd active variant, so the arm is seeded
+    // via raw SQL instead.
+    const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(q.funnels[0]!.public_id) as { id: number }).id;
+    const forked = { public_id: seedSiblingArm(sdb, funnelRowId, "B", 10000) };
     await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env);
     await admin.request(`${API}/variants/${forked.public_id}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env);
     const create = await admin.request(`${API}/quotes/${q.public_id}/experiments`, jsonInit("POST", {}), env);
@@ -832,13 +947,22 @@ describeDb("A/B — §16.2 allocation + lifecycle (P8)", () => {
     const variantId = q.funnels[0]!.variants[0]!.public_id;
     const s1 = seedSection(sdb, { activity: "quote_funnel", vertical: "life" });
     await admin.request(`${API}/variants/${variantId}`, jsonInit("PUT", { sections: [{ section_id: s1.id }], rules: [{ rule_type: "eligibility" }] }), env);
+    // Rework M1 (§4.3-10): forkVariantHandler now unconditionally refuses a
+    // second ACTIVE variant while one already exists (quotes-handlers.ts:
+    // 3536-3541 — verified; no API path archives a variant yet, so this
+    // precondition is raw SQL, matching leadgen-rework-handlers.test.ts's own
+    // equal-arms seed idiom). This test's point is fork's OWN clone mechanics
+    // (sections+rules land on the new variant), not is_control (removed) —
+    // archiving the source (rather than forking a live sibling) is the
+    // minimal way to still exercise the REAL fork endpoint under the new gate.
+    sdb.prepare("UPDATE leadgen_funnel_variants SET status = 'archived' WHERE public_id = ?").run(variantId);
     const fork = await admin.request(`${API}/variants/${variantId}/fork`, { method: "POST" }, env);
-    expect(fork.status).toBe(201);
-    const fj = (await fork.json()) as { public_id: string; is_control: boolean; sections: unknown[]; rules: unknown[]; forked_from: string };
+    expect(fork.status, `fork: ${await fork.clone().text()}`).toBe(201);
+    const fj = (await fork.json()) as { public_id: string; sections: unknown[]; rules: unknown[]; forked_from: string };
     expect(isPublicId("funnel_variant", fj.public_id)).toBe(true);
     expect(fj.public_id).not.toBe(variantId);
     expect(fj.forked_from).toBe(variantId);
-    expect(fj.is_control).toBe(false);
+    expect(fj).not.toHaveProperty("is_control");
     expect(fj.sections).toHaveLength(1);
     expect(fj.rules).toHaveLength(1);
   });
@@ -855,7 +979,7 @@ describeDb("B1 — a running test's arm set + labels are frozen (§16.2/§29)", 
   // A funnel with TWO active arms (control "A" + a fork) split 50/50 and a RUNNING
   // A/B test over them — the fork + allocation edits all happen BEFORE start (when
   // editing is free), so the running-test freeze is the ONLY thing under test.
-  async function seedRunning2VariantTest(env: Env): Promise<{
+  async function seedRunning2VariantTest(sdb: SqliteDb, env: Env): Promise<{
     quotePublicId: string;
     funnelId: string;
     control: string;
@@ -865,9 +989,12 @@ describeDb("B1 — a running test's arm set + labels are frozen (§16.2/§29)", 
     const q = await createQuote(env);
     const funnelId = q.funnels[0]!.public_id;
     const control = q.funnels[0]!.variants[0]!.public_id;
-    const fork = await admin.request(`${API}/variants/${control}/fork`, { method: "POST" }, env);
-    expect(fork.status, `fork (pre-start): ${await fork.clone().text()}`).toBe(201);
-    const forked = ((await fork.json()) as { public_id: string }).public_id;
+    // Rework M1 (§4.3-10) — see the Σ-gate test's rationale above: fork
+    // unconditionally refuses a 2nd active variant, so the arm is seeded via
+    // raw SQL instead (this suite's own B1 point — the RUNNING-test freeze —
+    // only needs 2 active arms to exist, not that fork produced them).
+    const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(funnelId) as { id: number }).id;
+    const forked = seedSiblingArm(sdb, funnelRowId, "B", 10000);
     expect((await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env)).status).toBe(200);
     expect((await admin.request(`${API}/variants/${forked}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env)).status).toBe(200);
     const create = await admin.request(`${API}/quotes/${q.public_id}/experiments`, jsonInit("POST", {}), env);
@@ -893,8 +1020,8 @@ describeDb("B1 — a running test's arm set + labels are frozen (§16.2/§29)", 
   }
 
   it("(a) PUT variant_label on an active arm is refused (409); the arm set + labels are unchanged", async () => {
-    const { env } = newHarness();
-    const seed = await seedRunning2VariantTest(env);
+    const { sdb, env } = newHarness();
+    const seed = await seedRunning2VariantTest(sdb, env);
     const before = await armSet(env, seed.quotePublicId);
     const res = await admin.request(`${API}/variants/${seed.control}`, jsonInit("PUT", { variant_label: "ZZZ" }), env);
     expect(res.status, `relabel while running: ${await res.clone().text()}`).toBe(409);
@@ -907,8 +1034,8 @@ describeDb("B1 — a running test's arm set + labels are frozen (§16.2/§29)", 
   });
 
   it("(b) POST /funnels/:id/variants + POST /quotes/:id/variants adding a 3rd arm are refused (409); the arm set is unchanged", async () => {
-    const { env } = newHarness();
-    const seed = await seedRunning2VariantTest(env);
+    const { sdb, env } = newHarness();
+    const seed = await seedRunning2VariantTest(sdb, env);
     const before = await armSet(env, seed.quotePublicId);
     const viaFunnel = await admin.request(`${API}/funnels/${seed.funnelId}/variants`, jsonInit("POST", { variant_label: "C" }), env);
     expect(viaFunnel.status, `add via funnel: ${await viaFunnel.clone().text()}`).toBe(409);
@@ -918,30 +1045,38 @@ describeDb("B1 — a running test's arm set + labels are frozen (§16.2/§29)", 
   });
 
   it("(c) POST /variants/:id/fork of a running arm is refused (409); the arm set is unchanged", async () => {
-    const { env } = newHarness();
-    const seed = await seedRunning2VariantTest(env);
+    const { sdb, env } = newHarness();
+    const seed = await seedRunning2VariantTest(sdb, env);
     const before = await armSet(env, seed.quotePublicId);
     const res = await admin.request(`${API}/variants/${seed.control}/fork`, { method: "POST" }, env);
     expect(res.status, `fork while running: ${await res.clone().text()}`).toBe(409);
     expect(await armSet(env, seed.quotePublicId)).toEqual(before);
   });
 
-  it("(d) after stop, relabel + add-variant + fork all succeed again (stop → edit → start)", async () => {
-    const { env } = newHarness();
-    const seed = await seedRunning2VariantTest(env);
+  it("(d) after stop, relabel succeeds again; add-variant/fork stay blocked (2 active arms persist — no promote-winner step yet)", async () => {
+    const { sdb, env } = newHarness();
+    const seed = await seedRunning2VariantTest(sdb, env);
     expect((await admin.request(`${API}/experiments/${seed.testId}/stop`, { method: "POST" }, env)).status).toBe(200);
     expect(
       (await admin.request(`${API}/variants/${seed.control}`, jsonInit("PUT", { variant_label: "ZZZ" }), env)).status,
       "relabel after stop",
     ).toBe(200);
+    // Rework M1 (§4.3-10): stopExperimentHandler only flips the ab_test row's
+    // status — it does NOT archive either arm (no "promote the winner" step
+    // exists yet), so the funnel still has 2 ACTIVE variants after stop.
+    // add-variant/fork's guard checks "any active variant exists" (not
+    // "a running test exists"), so both stay blocked post-stop too — verified
+    // against quotes-handlers.ts (createVariantUnderFunnel/forkVariantHandler,
+    // both unconditional on active-variant count). Same scenario (does the
+    // guard correctly track running-vs-not), new axis for these 2 legs.
     expect(
       (await admin.request(`${API}/funnels/${seed.funnelId}/variants`, jsonInit("POST", { variant_label: "C" }), env)).status,
-      "add variant after stop",
-    ).toBe(201);
+      "add variant after stop (still blocked — 2 active arms remain)",
+    ).toBe(409);
     expect(
       (await admin.request(`${API}/variants/${seed.control}/fork`, { method: "POST" }, env)).status,
-      "fork after stop",
-    ).toBe(201);
+      "fork after stop (still blocked — 2 active arms remain)",
+    ).toBe(409);
   });
 });
 
@@ -960,13 +1095,22 @@ describeDb("POST /variants/:id/fork — atomicity (MINOR-2)", () => {
     const put = await admin.request(
       `${API}/variants/${variantId}`,
       jsonInit("PUT", {
+        // Rework M3: skip_section is no longer a valid leadgen_funnel_rules
+        // type (CHECK tightened to the 4 auction-domain types) — swapped to
+        // auction_entry; this test's point is fork cloning MULTIPLE rules,
+        // not which specific types.
         sections: [{ section_id: s1.id }, { section_id: s2.id }, { section_id: s3.id }],
-        rules: [{ rule_type: "eligibility" }, { rule_type: "skip_section" }],
+        rules: [{ rule_type: "eligibility" }, { rule_type: "auction_entry" }],
       }),
       env,
     );
     expect(put.status, `put: ${await put.clone().text()}`).toBe(200);
 
+    // Rework M1 (§4.3-10): fork unconditionally refuses a 2nd active variant
+    // — see the earlier fork-clone test's rationale. Archiving the source is
+    // the minimal way to still exercise the REAL fork endpoint's clone
+    // mechanics under the new gate.
+    sdb.prepare("UPDATE leadgen_funnel_variants SET status = 'archived' WHERE public_id = ?").run(variantId);
     const fork = await admin.request(`${API}/variants/${variantId}/fork`, { method: "POST" }, env);
     expect(fork.status, `fork: ${await fork.clone().text()}`).toBe(201);
     const fj = (await fork.json()) as { public_id: string; sections: unknown[]; rules: unknown[] };
@@ -1130,8 +1274,9 @@ function collectingCtx(): { ctx: ExecutionContext; settled: () => Promise<void> 
 
 describeDb("§28 admin-write cache invalidation (waitUntil trigger)", () => {
   it("PUT activation evicts the WHOLE site's funnel surface; a sibling site survives", async () => {
-    const { env } = newHarness();
+    const { sdb, env } = newHarness();
     const q = await createQuote(env);
+    seedActivationPrereqs(sdb, q);
     const fid = q.funnels[0]!.funnel_id;
     const vid = q.funnels[0]!.variants[0]!.funnel_variant_id;
     const siteShell = `lg-shell:site-1:auto:${fid}:${vid}:1:1`;
@@ -1156,8 +1301,9 @@ describeDb("§28 admin-write cache invalidation (waitUntil trigger)", () => {
   });
 
   it("DELETE activation (deactivate) evicts the site's funnel surface", async () => {
-    const { env } = newHarness();
+    const { sdb, env } = newHarness();
     const q = await createQuote(env);
+    seedActivationPrereqs(sdb, q);
     const fid = q.funnels[0]!.funnel_id;
     const vid = q.funnels[0]!.variants[0]!.funnel_variant_id;
     // activate first (no ctx → the setup write does not invalidate).
@@ -1186,8 +1332,9 @@ describeDb("§28 admin-write cache invalidation (waitUntil trigger)", () => {
   });
 
   it("PUT variant fans out to every activated site, narrowed to the funnel", async () => {
-    const { env } = newHarness();
+    const { sdb, env } = newHarness();
     const q = await createQuote(env);
+    seedActivationPrereqs(sdb, q);
     const fid = q.funnels[0]!.funnel_id;
     const vid = q.funnels[0]!.variants[0]!.funnel_variant_id;
     // activate on BOTH seeded sites (no ctx on the setup writes).
@@ -1221,8 +1368,9 @@ describeDb("§28 admin-write cache invalidation (waitUntil trigger)", () => {
   });
 
   it("fork variant triggers a funnel-narrowed per-site eviction", async () => {
-    const { env } = newHarness();
+    const { sdb, env } = newHarness();
     const q = await createQuote(env);
+    seedActivationPrereqs(sdb, q);
     const fid = q.funnels[0]!.funnel_id;
     const vid = q.funnels[0]!.variants[0]!.funnel_variant_id;
     await admin.request(`${API}/quotes/${q.public_id}/activation/site-1`, jsonInit("PUT", { enabled: true, slug: "auto" }), env);
@@ -1233,13 +1381,19 @@ describeDb("§28 admin-write cache invalidation (waitUntil trigger)", () => {
     env.CACHE = cache;
     const { ctx, settled } = collectingCtx();
 
+    // Rework M1 (§4.3-10): fork unconditionally refuses a 2nd active variant
+    // — see the earlier fork-clone tests' rationale. Archiving the source
+    // (post-activation; activation doesn't care about variant status) is the
+    // minimal way to still exercise the REAL fork endpoint's invalidation
+    // side effect under the new gate.
+    sdb.prepare("UPDATE leadgen_funnel_variants SET status = 'archived' WHERE public_id = ?").run(q.funnels[0]!.variants[0]!.public_id);
     const res = await admin.request(
       `${API}/variants/${q.funnels[0]!.variants[0]!.public_id}/fork`,
       jsonInit("POST", {}),
       env,
       ctx,
     );
-    expect(res.status).toBe(201);
+    expect(res.status, `fork: ${await res.clone().text()}`).toBe(201);
     await settled();
 
     expect(deletes).toContain(siteShell);
@@ -1247,8 +1401,9 @@ describeDb("§28 admin-write cache invalidation (waitUntil trigger)", () => {
   });
 
   it("a KV hiccup during invalidation NEVER breaks the admin write (fail-open)", async () => {
-    const { env } = newHarness();
+    const { sdb, env } = newHarness();
     const q = await createQuote(env);
+    seedActivationPrereqs(sdb, q);
     // a CACHE whose list() always throws — the write must still succeed.
     env.CACHE = {
       async list() {

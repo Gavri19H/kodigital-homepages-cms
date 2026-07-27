@@ -1,0 +1,38 @@
+{
+  "components": [
+    {
+      "type": "ButtonAnswerGroup",
+      "question_id": "q_buttons_other",
+      "internal_field": "vehicle_type",
+      "answer_type": "enum",
+      "props": {
+        "label": "What type of vehicle?",
+        "other": { "enabled": true, "label": "Other", "choices": [ { "label": "Motorcycle", "value": "motorcycle", "analytics_id": "other_motorcycle" } ] }
+      },
+      "choices": [
+        { "label": "Sedan", "value": "sedan", "analytics_id": "sedan" },
+        { "label": "SUV", "value": "suv", "analytics_id": "suv" },
+        { "label": "Truck", "value": "truck", "analytics_id": "truck" }
+      ]
+    },
+    {
+      "type": "IconCardAnswerGrid",
+      "question_id": "q_cards_other",
+      "internal_field": "business_type",
+      "answer_type": "enum",
+      "props": {
+        "label": "What type of business?",
+        "other": { "enabled": true, "label": "Other", "choices": [ { "label": "Nonprofit", "value": "nonprofit", "analytics_id": "other_nonprofit" } ] }
+      },
+      "choices": [
+        { "label": "Sole Proprietor", "value": "sole_prop", "icon": "user", "analytics_id": "sole_prop" },
+        { "label": "LLC", "value": "llc", "icon": "briefcase", "analytics_id": "llc" }
+      ]
+    },
+    {
+      "type": "ContinueButton",
+      "question_id": "q_continue",
+      "props": { "label": "Continue" }
+    }
+  ]
+}

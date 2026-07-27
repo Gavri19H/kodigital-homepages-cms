@@ -6,18 +6,16 @@
 // a curated (never free-CSS) `design_overrides` bag.
 //
 // `validateSectionContent` is I/O-free and returns FIELD-PATH-keyed typed
-// errors, mirroring the Offer-validator idiom (leadgen/validation.ts). It
-// performs exactly ONE normalization on its input — pruning orphan
-// MultiQuestionGrid shared choices beyond the pill bound (Round-4 R4-34) so a
-// legacy/corrupted grid stays saveable — and is otherwise non-mutating. The
-// server runs it on save (client validation is never trusted, §12.3); the
+// errors, mirroring the Offer-validator idiom (leadgen/validation.ts). It is
+// non-mutating (the Round-4 orphan-shared-choice prune went out with the §10
+// grid removal). The server runs it on save (client validation is never trusted, §12.3); the
 // same shape is what the runtime engine + preview consume. Referential checks
 // against Offers (answer→payload mapping) are a Stage-B/handler concern —
 // this validator is content-internal only.
 
 import { FUNNEL_TOKEN_ROLES } from "../designs/theme";
-import { COMPONENT_CATALOG } from "./registry";
-import type { ComponentType, ComponentScope } from "./registry";
+import { COMPONENT_CATALOG, COMPONENT_CAPABILITIES } from "./registry";
+import type { ComponentType, ComponentScope, ComponentCapabilitySpec } from "./registry";
 import type { LeadgenConditionOp, LeadgenContinueMode } from "../../../admin/leadgen/db-types";
 // P1b (register PC-11): the leading-icon enum's name vocabulary is sourced
 // from the build-time-vendored Tabler (MIT) icon map — see the
@@ -76,21 +74,6 @@ export interface LeadgenChoice {
   style?: LeadgenChoiceStyle;
 }
 
-// B9 Other-group display metadata MIRROR (fix-contract v2.4 06 §6.4) — the
-// schema-side original lives on the Offer payload node (payload.ts
-// LeadgenPayloadChoiceDisplay); a Section node carries this mirrored copy
-// where it renders the choices. Every field is OPTIONAL in storage: the
-// Phase-1 render leg (presets.ts readChoiceDisplay — the SINGLE normalizing
-// reader) applies the contract defaults (otherGroupLabel → "Other",
-// booleans → false). This module only VALIDATES the authored value.
-export interface LeadgenComponentChoiceDisplay {
-  // Choice values (matched by String(choice.value)) shown as normal choices;
-  // the rest fold into the "Other" secondary panel.
-  mainValues?: string[];
-  otherGroupEnabled?: boolean;
-  otherGroupLabel?: string;
-  searchableOther?: boolean;
-}
 
 // Inline dependency stored on a component (§12.3): "show/require this when
 // field <when> <op> <value>". `op` reuses the canonical LeadGen condition-op
@@ -271,11 +254,9 @@ const GLYPH_ICON_TYPES: ReadonlySet<string> = new Set([
 
 // §5.6 "The Accept-swap rule" — the 8-value Accept enum (`node.props.format`).
 // "us_zip" is anchored verbatim by the §11.3 worked example; the rest follow
-// the same short-snake-case convention. This key does not collide with the
-// PRE-EXISTING (dead/unread) `format` catalog entries — RangeQuestion's
-// `format(number|currency)` is a different node family entirely, and
-// PhoneInputQuestion's registry-documented `format` prop has zero readers
-// today (grep-verified) — so there is no live behavior to conflict with.
+// the same short-snake-case convention. This key does not collide with any
+// live behavior: PhoneInputQuestion's registry-documented `format` prop has
+// zero readers today (grep-verified) — so there is nothing to conflict with.
 export const LEADGEN_FIELD_ACCEPT_FORMATS = [
   "text",
   "number",
@@ -342,6 +323,129 @@ const PHONE_FORMAT_PRESET_SET: ReadonlySet<string> = new Set(LEADGEN_PHONE_FORMA
 // the save-gate and the config-builder can never disagree on "is this a phone".
 export function isPhoneTypedComponent(type: ComponentType, props: Record<string, unknown>): boolean {
   return acceptFormatOfType(type) === "phone" || props["format"] === "phone";
+}
+
+// ===========================================================================
+// LeadGen Rework (LEADGEN-REWORK-03) — the P2 component-model additions.
+// Every field below is OPTIONAL/ADDITIVE: a node carrying none of them
+// validates EXACTLY as pre-rework (the §6 seam rule — the runtime tolerates
+// legacy shapes the editor no longer authors). Gating is driven off the §6.2
+// COMPONENT_CAPABILITIES matrix (registry.ts) so the authoring surface, the
+// save gate, and the §6.2 matrix test can never disagree.
+// ===========================================================================
+
+// The maximum authored label length (§6.3).
+const LEADGEN_LABEL_MAX_LENGTH = 120;
+
+// §6.6 ✓-in-selected marker (per-choice via choice.style.selected_marker AND
+// per-node via props.selected_marker) — an override of the theme's Selected
+// axis (wash = tint the selected item; mark = a ✓ glyph inside it).
+export const LEADGEN_SELECTED_MARKERS = ["wash", "mark"] as const;
+export type LeadgenSelectedMarker = (typeof LEADGEN_SELECTED_MARKERS)[number];
+const SELECTED_MARKER_SET: ReadonlySet<string> = new Set(LEADGEN_SELECTED_MARKERS);
+
+// §6.8 slider types (the ONE collapsed NumberRangeQuestion catalog entry). A
+// dual_range / from_to slider collects an OBJECT of two number sub-fields
+// ({base}_min / {base}_max — join answers.ts fieldsOf, the field universe,
+// rules pickers and mapping exactly like Address sub-fields); single / stepper
+// / radial collect one number on the node's internal_field.
+export const LEADGEN_SLIDER_TYPES = ["single", "dual_range", "stepper", "from_to", "radial"] as const;
+export type LeadgenSliderType = (typeof LEADGEN_SLIDER_TYPES)[number];
+const SLIDER_TYPE_SET: ReadonlySet<string> = new Set(LEADGEN_SLIDER_TYPES);
+// The two slider types whose answer is an object of _min/_max sub-fields.
+const SLIDER_OBJECT_TYPE_SET: ReadonlySet<string> = new Set(["dual_range", "from_to"]);
+
+// A NumberRangeQuestion collecting the dual/from_to object answer — the ONE
+// predicate content-schema (field universe), config-dto and answers.ts fieldsOf
+// share so all three expand the SAME {base}_min/{base}_max pair for the SAME
+// node (the reviewer-flagged parity requirement, §6.8). single/stepper/radial
+// keep the scalar internal_field.
+export function isDualRangeSlider(node: {
+  type?: unknown;
+  internal_field?: unknown;
+  props?: unknown;
+}): boolean {
+  if (node.type !== "NumberRangeQuestion") return false;
+  if (!isNonEmptyString(node.internal_field)) return false;
+  const props = isRecord(node.props) ? node.props : {};
+  const st = props["slider_type"];
+  return st === "dual_range" || st === "from_to";
+}
+
+// §6.10 address field-set (M9). props.fields[] = ordered per-field specs;
+// `full_address` may only appear alone (it IS the whole address).
+export const LEADGEN_ADDRESS_FIELD_KINDS = ["street", "city", "state", "zip", "full_address"] as const;
+export type LeadgenAddressFieldKind = (typeof LEADGEN_ADDRESS_FIELD_KINDS)[number];
+const ADDRESS_FIELD_KIND_SET: ReadonlySet<string> = new Set(LEADGEN_ADDRESS_FIELD_KINDS);
+export const LEADGEN_ADDRESS_FIELD_MODES = ["manual", "autofill"] as const;
+export type LeadgenAddressFieldMode = (typeof LEADGEN_ADDRESS_FIELD_MODES)[number];
+const ADDRESS_FIELD_MODE_SET: ReadonlySet<string> = new Set(LEADGEN_ADDRESS_FIELD_MODES);
+const ADDRESS_VALIDATION_PRESET_SET: ReadonlySet<string> = new Set(["none", "zip5"]);
+
+// §6.5 authored "Other" values bag — SINGLE-select choice groups only.
+export const LEADGEN_OTHER_MAX_CHOICES = 50;
+
+// M8 (§6.9) — the phone MASK grammar. A mask `pattern` is a string of LITERALS
+// (any of `( ) - . / space`) and DIGIT RUNS; each MAXIMAL run of digit
+// characters is ONE group whose LENGTH is the run's NUMERIC value
+// (`"(3) 3-4"` → groups [3,3,4]; `"10-5"` → [10,5]). Bounds: 1-6 groups, each
+// 1-14, total 4-20 digits. Any violation is the A-10 save error (verbatim). The
+// compiled result carries the runtime-contract material: the scaffold (each
+// group → underscores of its length, literals kept verbatim), the digit_count
+// (Σ group lengths) and the stripped-digit regex `^\d{digit_count}$`.
+export const LEADGEN_PHONE_MASK_ERROR = "Format must be digit groups with separators, like (3) 3-4.";
+const PHONE_MASK_LITERALS: ReadonlySet<string> = new Set(["(", ")", "-", ".", "/", " "]);
+const PHONE_MASK_MIN_GROUPS = 1;
+const PHONE_MASK_MAX_GROUPS = 6;
+const PHONE_MASK_MIN_GROUP_LEN = 1;
+const PHONE_MASK_MAX_GROUP_LEN = 14;
+const PHONE_MASK_MIN_TOTAL = 4;
+const PHONE_MASK_MAX_TOTAL = 20;
+
+export interface LeadgenParsedPhoneMask {
+  // Group lengths in order ("(3) 3-4" → [3,3,4]).
+  groups: number[];
+  // The display scaffold ("(3) 3-4" → "(___) ___-____").
+  scaffold: string;
+  // Σ group lengths — the exact number of digits a complete answer holds.
+  digit_count: number;
+}
+
+// Parse + grammar-check a phone mask pattern. Returns the compiled mask on
+// success, or null on ANY grammar violation (the grammar is all-or-nothing by
+// contract — the caller emits the SINGLE A-10 message). PURE + I/O-free.
+// EXPORTED so config-dto compiles the SAME parse into the client contract
+// (buildPhoneContract) — one grammar, save-gate and config-builder can never
+// disagree.
+export function parsePhoneMaskPattern(pattern: unknown): LeadgenParsedPhoneMask | null {
+  if (typeof pattern !== "string" || pattern === "") return null;
+  const groups: number[] = [];
+  let scaffold = "";
+  let i = 0;
+  while (i < pattern.length) {
+    const ch = pattern[i]!;
+    if (ch >= "0" && ch <= "9") {
+      // A MAXIMAL digit run → ONE group whose length is the run's numeric value.
+      let j = i;
+      while (j < pattern.length && pattern[j]! >= "0" && pattern[j]! <= "9") j++;
+      const len = Number(pattern.slice(i, j));
+      if (!Number.isInteger(len) || len < PHONE_MASK_MIN_GROUP_LEN || len > PHONE_MASK_MAX_GROUP_LEN) {
+        return null;
+      }
+      groups.push(len);
+      scaffold += "_".repeat(len);
+      i = j;
+    } else if (PHONE_MASK_LITERALS.has(ch)) {
+      scaffold += ch;
+      i++;
+    } else {
+      return null; // an illegal (non-literal, non-digit) character
+    }
+  }
+  if (groups.length < PHONE_MASK_MIN_GROUPS || groups.length > PHONE_MASK_MAX_GROUPS) return null;
+  const digit_count = groups.reduce((a, b) => a + b, 0);
+  if (digit_count < PHONE_MASK_MIN_TOTAL || digit_count > PHONE_MASK_MAX_TOTAL) return null;
+  return { groups, scaffold, digit_count };
 }
 
 // ---------------------------------------------------------------------------
@@ -728,6 +832,10 @@ export interface LeadgenChoiceStyle {
   text_color_hex?: string;
   // Font-weight step.
   emphasis?: LeadgenChoiceEmphasis;
+  // Rework §6.6: per-CHOICE ✓-in-selected marker (wash | mark) — overrides the
+  // node-level props.selected_marker and the theme's Selected axis for THIS
+  // choice. Optional; absent ⇒ inherit node/theme.
+  selected_marker?: LeadgenSelectedMarker;
 }
 
 const CHOICE_STYLE_KEYS = [
@@ -737,6 +845,7 @@ const CHOICE_STYLE_KEYS = [
   "text_color_role",
   "text_color_hex",
   "emphasis",
+  "selected_marker",
 ] as const;
 const CHOICE_STYLE_KEY_SET: ReadonlySet<string> = new Set(CHOICE_STYLE_KEYS);
 
@@ -761,8 +870,6 @@ export interface LeadgenComponentNode {
   required?: boolean;
   valid_values?: Array<string | number | boolean>;
   choices?: LeadgenChoice[];
-  // B9 §6.4 mirrored Other-group display metadata (choice components only).
-  choiceDisplay?: LeadgenComponentChoiceDisplay;
   conditional?: LeadgenComponentConditional;
   // §3.4 canonical headline binding: "section_headline" is legal ONLY on a
   // QuestionHeadline, "section_subheadline" ONLY on a Subheadline; at most one
@@ -893,7 +1000,6 @@ export const AUTO_ADVANCE_CLICK_TYPES: ReadonlySet<ComponentType> = new Set<Comp
   "TwoButtonYesNo",
   "IconCardAnswerGrid",
   "ImageCardAnswerGrid",
-  "OtherGroupSelector",
 ]);
 
 export type AutoAdvanceIneligibleReason =
@@ -924,12 +1030,6 @@ function isMultiSelectNode(node: LeadgenComponentNode): boolean {
   // single-select type CONFIGURED multi (e.g. ButtonAnswerGroup props.multiple).
   if (isKnownComponentType(node.type) && COMPONENT_CATALOG[node.type].produces === "array") return true;
   if (node.answer_type === "array") return true;
-  // P5 (PC-10): a MultiQuestionGrid records SEVERAL answers (one per row), so —
-  // exactly like a multi-select — a single tap can never advance the section.
-  // This routes auto_advance to the HONEST "multi_select" reason ("choose
-  // several answers, so one tap can't advance") rather than the false
-  // "not_click_to_answer" (its rows ARE click-to-answer). Always Continue.
-  if (node.type === "MultiQuestionGrid") return true;
   const props = node.props;
   return isRecord(props) && props["multiple"] === true;
 }
@@ -978,83 +1078,6 @@ export function autoAdvanceConflictMessage(result: AutoAdvanceEligibility): stri
     default:
       return `This section can't auto-advance — use the Continue button.` + tail;
   }
-}
-
-// ---------------------------------------------------------------------------
-// P5 (register PC-10 / operator decision D2 — Image9) — MultiQuestionGrid rows
-// ---------------------------------------------------------------------------
-//
-// A MultiQuestionGrid node renders SEVERAL labeled sub-questions ("rows"), each
-// its OWN answer field. Like NameFieldsGroup/Address (catalog produces
-// "object"), the node carries NO single internal_field; each row's
-// `internal_field` is a real field the whole answer space sees (answers.ts
-// fieldsOf, config-dto row projection, rules pickers). The SHARED pill set is
-// the node's top-level `choices`; a row MAY override it with its own `choices`.
-// A row's optional `default` (∈ its effective choices) pre-selects a pill AND
-// seeds the row's initial answer — config-dto projects each row as a synthetic
-// single-field component with a `default_answer`, so the runtime's EXISTING
-// TwoButtonYesNo default-seed path (applySectionDefaults) records it with ZERO
-// new engine logic.
-
-export interface MultiQuestionRow {
-  label: string;
-  internal_field: string;
-  default?: string | number | boolean;
-  required?: boolean;
-  // Optional per-row override of the node-level shared `choices` (LeadgenChoice[]).
-  choices?: LeadgenChoice[];
-}
-
-// Authoring bounds (the catalog `validation` column). 1..8 rows; each pill set
-// 2..4 (pill pairs → small sets, per the reference).
-export const MULTI_QUESTION_MAX_ROWS = 8;
-export const MULTI_QUESTION_MIN_CHOICES = 2;
-export const MULTI_QUESTION_MAX_CHOICES = 4;
-
-// THE one normalizing reader for a node's rows — shared by the presets
-// renderer, the config-dto row projection, answers.ts fieldsOf, and the studio
-// field enumeration, so no two consumers can disagree on the row set. Defensive
-// (validation is the save-time gate): a malformed / field-less entry is skipped
-// so a render/projection over stored junk never throws or emits a nameless row.
-export function readMultiQuestionRows(node: LeadgenComponentNode): MultiQuestionRow[] {
-  const raw = node.props?.["rows"];
-  if (!Array.isArray(raw)) return [];
-  const out: MultiQuestionRow[] = [];
-  for (const entry of raw) {
-    if (!isRecord(entry)) continue;
-    const internalField = entry["internal_field"];
-    if (!isNonEmptyString(internalField)) continue;
-    const row: MultiQuestionRow = {
-      label: typeof entry["label"] === "string" ? entry["label"] : "",
-      internal_field: internalField,
-    };
-    if (isChoicePrimitive(entry["default"])) row.default = entry["default"];
-    if (typeof entry["required"] === "boolean") row.required = entry["required"];
-    if (Array.isArray(entry["choices"])) row.choices = entry["choices"] as LeadgenChoice[];
-    out.push(row);
-  }
-  return out;
-}
-
-// A row's EFFECTIVE choices: its own `choices` override, else the node's shared
-// `choices` (the common case — every row the same pill pair). Empty when
-// neither is authored (a save-time invalid_choice).
-export function multiQuestionRowChoices(
-  node: LeadgenComponentNode,
-  row: MultiQuestionRow,
-): LeadgenChoice[] {
-  if (Array.isArray(row.choices) && row.choices.length > 0) return row.choices;
-  return Array.isArray(node.choices) ? node.choices : [];
-}
-
-// The synthetic per-row question_id — the stable id config-dto assigns each
-// row's projected single-field component AND presets stamps on each row's
-// [data-lg-question] wrapper, so the runtime's enterSection paint /
-// handleChoiceActivation / componentByQuestionId resolve a row exactly like any
-// scalar question. MUST be byte-identical on both sides: derived purely from
-// the node's question_id + the row's (section-unique) internal_field.
-export function multiQuestionRowQuestionId(nodeQuestionId: string, internalField: string): string {
-  return `${nodeQuestionId}::${internalField}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1144,8 +1167,8 @@ export interface SectionContentValidation {
 // ---------------------------------------------------------------------------
 // Required-field table (derived from the catalog `props` contract). A prop
 // listed WITHOUT a trailing `?` in components/registry.ts is required; this
-// table is the curated, exhaustive resolution of that contract per type
-// (with the `...RangeQuestion` spread resolved). A new ComponentType added to
+// table is the curated, exhaustive resolution of that contract per type.
+// A new ComponentType added to
 // the catalog forces a new row here (compile error otherwise) — keeping the
 // content contract and the capability catalog in lockstep.
 // ---------------------------------------------------------------------------
@@ -1175,9 +1198,7 @@ export const REQUIRED_FIELDS: Record<ComponentType, RequiredSpec> = {
   CategoryLabel: { textProps: ["text"] },
   QuestionHeadline: { textProps: ["text"] },
   Subheadline: { textProps: ["text"] },
-  // range family (§14.5)
-  RangeQuestion: { internalField: true, numericProps: ["min", "max"] },
-  CurrencyRangeQuestion: { internalField: true, numericProps: ["min", "max"] },
+  // range family (§14.5) — the ONE collapsed Slider (§10/M7).
   NumberRangeQuestion: { internalField: true, numericProps: ["min", "max"] },
   // choice questions
   ButtonAnswerGroup: { internalField: true, choices: true },
@@ -1185,15 +1206,8 @@ export const REQUIRED_FIELDS: Record<ComponentType, RequiredSpec> = {
   IconCardAnswerGrid: { internalField: true, choices: true, choiceIcon: true },
   ImageCardAnswerGrid: { internalField: true, choices: true, choiceImage: true },
   MultiChoiceCardGroup: { internalField: true, choices: true },
-  // P5 (PC-10): NO single internal_field (each ROW carries its own — like
-  // NameFieldsGroup/Address). `choices: true` gates the SHARED pill set through
-  // the generic per-choice validation + the studio's existing choices editor;
-  // the row structure (1-8 rows, unique/defaulted fields, 2-4 per pill set) is
-  // enforced by the dedicated MultiQuestionGrid block in validateNode.
-  MultiQuestionGrid: { choices: true },
   DropdownQuestion: { internalField: true, choices: true },
   SearchableDropdownQuestion: { internalField: true, choices: true },
-  OtherGroupSelector: { internalField: true, choices: true },
   // free-form + PII inputs
   FreeTextQuestion: { internalField: true },
   NumberInputQuestion: { internalField: true },
@@ -1814,6 +1828,16 @@ function validateChoiceStyle(
       );
     }
   }
+  // Rework §6.6: per-choice ✓-in-selected marker (wash | mark).
+  if (value["selected_marker"] !== undefined) {
+    if (typeof value["selected_marker"] !== "string" || !SELECTED_MARKER_SET.has(value["selected_marker"])) {
+      push(
+        "invalid_choice_style",
+        `${path}.selected_marker`,
+        `choice.style.selected_marker must be one of ${LEADGEN_SELECTED_MARKERS.join("|")} (§6.6)`,
+      );
+    }
+  }
 }
 
 // size axis: a button-size preset (s/m/l) OR {custom_px:int} on the SAME
@@ -1922,6 +1946,82 @@ function validateNewFieldProps(
       push("invalid_field_prop", `${base}.props.${key}`, `props.${key} must be a string (§8.3)`);
     }
   }
+  // Rework §6.3: the per-question label is capped at 120 chars (the studio's
+  // Basics "Question label" input). Additive — an absent/short label is
+  // byte-identical to pre-rework.
+  if (typeof props["label"] === "string" && props["label"].length > LEADGEN_LABEL_MAX_LENGTH) {
+    push(
+      "invalid_field_prop",
+      `${base}.props.label`,
+      `Question label must be ${LEADGEN_LABEL_MAX_LENGTH} characters or fewer (§6.3)`,
+    );
+  }
+
+  const cap = COMPONENT_CAPABILITIES[type];
+
+  // Rework §6.6: node-level ✓-in-selected marker. Valid only on the choice
+  // types the §6.2 matrix flags with a selected-marker control; a misplaced one
+  // is rejected (a NEW field ⇒ rejecting it elsewhere breaks no stored content).
+  if (props["selected_marker"] !== undefined) {
+    if (!cap.selected_marker) {
+      push(
+        "invalid_field_prop",
+        `${base}.props.selected_marker`,
+        `props.selected_marker is only valid on a choice question with a selected-marker control (§6.6)`,
+      );
+    } else if (
+      typeof props["selected_marker"] !== "string" ||
+      !SELECTED_MARKER_SET.has(props["selected_marker"])
+    ) {
+      push(
+        "invalid_field_prop",
+        `${base}.props.selected_marker`,
+        `props.selected_marker must be one of ${LEADGEN_SELECTED_MARKERS.join("|")} (§6.6)`,
+      );
+    }
+  }
+
+  // Rework §6.8: slider type + currency affix. Valid only on the Slider
+  // (NumberRangeQuestion; the §6.2 matrix's slider_type control). Per-type:
+  // stepper REQUIRES props.step. currency_affix is a display-only boolean that
+  // never touches node.type/answer_type (the Image9 failure class dies here).
+  if (props["slider_type"] !== undefined) {
+    if (!cap.slider_type) {
+      push(
+        "invalid_field_prop",
+        `${base}.props.slider_type`,
+        "props.slider_type is only valid on a Slider (NumberRangeQuestion) (§6.8)",
+      );
+    } else if (typeof props["slider_type"] !== "string" || !SLIDER_TYPE_SET.has(props["slider_type"])) {
+      push(
+        "invalid_field_prop",
+        `${base}.props.slider_type`,
+        `props.slider_type must be one of ${LEADGEN_SLIDER_TYPES.join("|")} (§6.8)`,
+      );
+    } else if (props["slider_type"] === "stepper") {
+      const step = props["step"];
+      if (typeof step !== "number" || !Number.isFinite(step)) {
+        push(
+          "invalid_field_prop",
+          `${base}.props.step`,
+          "a stepper slider requires a numeric props.step (§6.8)",
+        );
+      }
+    }
+  }
+  if (props["currency_affix"] !== undefined && typeof props["currency_affix"] !== "boolean") {
+    push("invalid_field_prop", `${base}.props.currency_affix`, "props.currency_affix must be a boolean (§6.8)");
+  }
+
+  // Rework §6.10 (M9): the Address field-set. Valid only on
+  // AddressAutocompleteQuestion (the §6.2 matrix's field_set_maps control).
+  // NOTE — this is DELIBERATELY gated to Address: NameFieldsGroup also carries a
+  // `props.fields` (a string[] of first/last names, a different shape entirely),
+  // read defensively by answers.ts; the object-shaped field-set below is Address
+  // only, so the two never collide.
+  if (type === "AddressAutocompleteQuestion" && props["fields"] !== undefined) {
+    validateAddressFields(props["fields"], `${base}.props.fields`, push);
+  }
 
   // required (§8.3 Behavior group): NOTE (repo-reality-over-contract,
   // mission-loop doctrine) — §11.3's own JSON illustration nests this inside
@@ -2010,7 +2110,30 @@ function validateNewFieldProps(
           `props.phone_format must be one of ${LEADGEN_PHONE_FORMAT_PRESETS.join("|")} or a {custom:{regex}} object`,
         );
       }
+    } else if (isRecord(pf) && pf["mask"] !== undefined) {
+      // Rework M8 (§6.9): the authored digit-group MASK — the new preferred
+      // phone format. {mask:{pattern}}; the grammar is enforced by
+      // parsePhoneMaskPattern (a violation is the A-10 message VERBATIM). An
+      // OPTIONAL mask.message overrides the runtime completeness copy (default
+      // A-7, applied in config-dto.buildPhoneContract). config-dto compiles the
+      // SAME parse into the client contract.
+      const mask = pf["mask"];
+      if (!isRecord(mask)) {
+        push("invalid_field_prop", `${base}.props.phone_format.mask`, "phone_format.mask must be an object {pattern}");
+      } else {
+        if (parsePhoneMaskPattern(mask["pattern"]) === null) {
+          push("invalid_field_prop", `${base}.props.phone_format.mask.pattern`, LEADGEN_PHONE_MASK_ERROR);
+        }
+        if (mask["message"] !== undefined && typeof mask["message"] !== "string") {
+          push("invalid_field_prop", `${base}.props.phone_format.mask.message`, "phone_format.mask.message must be a string");
+        }
+      }
     } else if (isRecord(pf)) {
+      // Legacy custom raw-regex path. Per contract M8 the raw-regex path is
+      // removed from the EDITOR (a S2.4/studio change); the SCHEMA keeps
+      // TOLERATING it on read AND save so stored content stays valid and the
+      // shipped money-path ReDoS/length save-guards (leadgen-p2b-phone.test.ts)
+      // remain in force. New authoring uses the mask above.
       const custom = pf["custom"];
       if (!isRecord(custom) || !isNonEmptyString(custom["regex"])) {
         push(
@@ -2294,6 +2417,189 @@ function validateMapsFills(
 }
 
 // ---------------------------------------------------------------------------
+// Rework §6.10 (M9) — the Address field-set validator.
+// ---------------------------------------------------------------------------
+// props.fields[] = an ORDERED list of per-field specs; ≥1 field; `full_address`
+// may appear only ALONE (it IS the whole address). Each field: `field` ∈ the
+// 5-value kind enum; optional `label` (string), `mode` ∈ manual|autofill,
+// `required` (boolean), and `validation` ∈ 'none' | 'zip5' | {regex, message}
+// (a custom regex reuses the SAME ReDoS + length screen the custom phone path
+// trusts — a per-field rule reaches the runtime client, the SAME money-path
+// reasoning). Additive: an Address WITHOUT props.fields[] validates exactly as
+// pre-M9 (the seam). The compiled DTO carries props.fields[] verbatim (config-
+// dto passthrough) so the S2.3 runtime validateSection applies the per-field
+// rules; the field-NAME universe (collectKnownAnswerFields / answers.ts
+// fieldsOf) is UNCHANGED — it still derives from internal_fields/maps.fills, so
+// this metadata never shifts the answer space (the M9 migration invariant).
+function validateAddressFields(
+  value: unknown,
+  path: string,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  if (!Array.isArray(value) || value.length === 0) {
+    push("invalid_field_prop", path, "Address props.fields must be a non-empty array (§6.10)");
+    return;
+  }
+  const hasFullAddress = value.some((f) => isRecord(f) && f["field"] === "full_address");
+  if (hasFullAddress && value.length > 1) {
+    push("invalid_field_prop", path, "the 'full_address' field can only be used on its own (§6.10)");
+  }
+  for (let i = 0; i < value.length; i++) {
+    const fp = `${path}[${i}]`;
+    const field = value[i];
+    if (!isRecord(field)) {
+      push("invalid_field_prop", fp, "each address field must be an object {field, mode, validation}");
+      continue;
+    }
+    if (typeof field["field"] !== "string" || !ADDRESS_FIELD_KIND_SET.has(field["field"])) {
+      push(
+        "invalid_field_prop",
+        `${fp}.field`,
+        `address field must be one of ${LEADGEN_ADDRESS_FIELD_KINDS.join("|")} (§6.10)`,
+      );
+    }
+    if (field["label"] !== undefined && typeof field["label"] !== "string") {
+      push("invalid_field_prop", `${fp}.label`, "address field.label must be a string");
+    }
+    if (
+      field["mode"] !== undefined &&
+      (typeof field["mode"] !== "string" || !ADDRESS_FIELD_MODE_SET.has(field["mode"]))
+    ) {
+      push(
+        "invalid_field_prop",
+        `${fp}.mode`,
+        `address field.mode must be one of ${LEADGEN_ADDRESS_FIELD_MODES.join("|")} (§6.10)`,
+      );
+    }
+    if (field["required"] !== undefined && typeof field["required"] !== "boolean") {
+      push("invalid_field_prop", `${fp}.required`, "address field.required must be a boolean");
+    }
+    const validation = field["validation"];
+    if (validation === undefined) continue;
+    if (typeof validation === "string") {
+      if (!ADDRESS_VALIDATION_PRESET_SET.has(validation)) {
+        push(
+          "invalid_field_prop",
+          `${fp}.validation`,
+          "address field.validation must be 'none', 'zip5', or {regex, message} (§6.10)",
+        );
+      }
+    } else if (isRecord(validation)) {
+      const regex = validation["regex"];
+      if (!isNonEmptyString(regex)) {
+        push("invalid_field_prop", `${fp}.validation.regex`, "a custom address validation needs a non-empty regex (§6.10)");
+      } else if (regex.length > FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH) {
+        push(
+          "invalid_field_prop",
+          `${fp}.validation.regex`,
+          `the custom pattern must be at most ${FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH} characters`,
+        );
+      } else if (isCatastrophicRegexShape(regex)) {
+        push("invalid_field_prop", `${fp}.validation.regex`, "This pattern could freeze visitors' browsers — simplify it");
+      } else {
+        try {
+          new RegExp(regex);
+        } catch {
+          push("invalid_field_prop", `${fp}.validation.regex`, "the custom address pattern isn't a valid regular expression");
+        }
+      }
+      if (validation["message"] !== undefined && typeof validation["message"] !== "string") {
+        push("invalid_field_prop", `${fp}.validation.message`, "address field.validation.message must be a string");
+      }
+    } else {
+      push(
+        "invalid_field_prop",
+        `${fp}.validation`,
+        "address field.validation must be 'none', 'zip5', or {regex, message} (§6.10)",
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rework §6.5 — the authored "Other" values bag validator.
+// ---------------------------------------------------------------------------
+// props.other = {enabled?, label?, choices: LeadgenChoice[] 1..50}, valid ONLY
+// on the SINGLE-select choice groups the §6.2 matrix flags (`other_editor` —
+// Buttons / Icon cards / Image cards). Each other choice is shape-checked like a
+// base choice; other values must be UNIQUE vs the base choice values (they share
+// ONE answer domain). config-dto merges the other values into the DTO
+// valid_values so the runtime accepts an "other" selection exactly like a base
+// choice. Rejecting props.other on Dropdown/YesNo/MultiChoice is the matrix
+// #10 fix — a NEW field ⇒ rejecting it elsewhere breaks no stored content.
+function validateOtherEditor(
+  cap: ComponentCapabilitySpec,
+  value: unknown,
+  rawChoices: unknown,
+  path: string,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  if (!cap.other_editor) {
+    push(
+      "invalid_field_prop",
+      path,
+      "authored 'Other' values are only available on single-select button/card questions (§6.5)",
+    );
+    return;
+  }
+  if (!isRecord(value)) {
+    push("invalid_field_prop", path, "props.other must be an object {enabled?, label?, choices} (§6.5)");
+    return;
+  }
+  if (value["enabled"] !== undefined && typeof value["enabled"] !== "boolean") {
+    push("invalid_field_prop", `${path}.enabled`, "props.other.enabled must be a boolean");
+  }
+  if (value["label"] !== undefined && typeof value["label"] !== "string") {
+    push("invalid_field_prop", `${path}.label`, "props.other.label must be a string");
+  }
+  const choices = value["choices"];
+  if (!Array.isArray(choices) || choices.length === 0) {
+    push("invalid_field_prop", `${path}.choices`, "props.other.choices must be a non-empty array (§6.5)");
+    return;
+  }
+  if (choices.length > LEADGEN_OTHER_MAX_CHOICES) {
+    push(
+      "invalid_field_prop",
+      `${path}.choices`,
+      `props.other.choices allows at most ${LEADGEN_OTHER_MAX_CHOICES} values (§6.5)`,
+    );
+  }
+  const baseValues = new Set<string>(
+    (Array.isArray(rawChoices) ? rawChoices : [])
+      .filter(isRecord)
+      .map((c) => c["value"])
+      .filter(isChoicePrimitive)
+      .map((v) => String(v)),
+  );
+  for (let i = 0; i < choices.length; i++) {
+    const cp = `${path}.choices[${i}]`;
+    const choice = choices[i];
+    if (!isRecord(choice)) {
+      push("invalid_choice", cp, "each other choice must be an object");
+      continue;
+    }
+    if (!isNonEmptyString(choice["label"])) {
+      push("invalid_choice", `${cp}.label`, "choice.label is required");
+    }
+    if (!isChoicePrimitive(choice["value"])) {
+      push("invalid_choice", `${cp}.value`, "choice.value must be a string, number, or boolean");
+    } else if (baseValues.has(String(choice["value"]))) {
+      push(
+        "invalid_choice",
+        `${cp}.value`,
+        `other value '${String(choice["value"])}' duplicates a base choice — other values must be unique vs base (§6.5)`,
+      );
+    }
+    if (!isNonEmptyString(choice["analytics_id"])) {
+      push("invalid_choice", `${cp}.analytics_id`, "choice.analytics_id is required (§22 tracking)");
+    }
+    if (choice["style"] !== undefined) {
+      validateChoiceStyle(choice["style"], `${cp}.style`, push);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // v3.1 §5.3 retired-type -> primitive mapping utils (studio save-time, a
 // LATER phase wires the call site — these are pure and unused by this phase's
 // runtime). Cover: CategoryLabel, HelperText, LegalNote, ReassuranceBadge,
@@ -2373,9 +2679,8 @@ export function rewriteRetiredNodeToPrimitive(node: LeadgenComponentNode): Leadg
 // ---------------------------------------------------------------------------
 
 // Validate a Section's parsed `content_json`. I/O-free; returns every problem
-// found (never throws). `ok` is true iff `errors` is empty. The ONE input
-// mutation it makes is the Round-4 R4-34 orphan-MQG-shared-choice prune (see
-// the MultiQuestionGrid block below) — a no-op for every well-formed grid.
+// found (never throws). `ok` is true iff `errors` is empty. Non-mutating (the
+// Round-4 orphan-shared-choice prune was removed with §10's grid retirement).
 //
 // §8.5 tree shape: the walk is RECURSIVE over container children with the
 // SAME per-node checks at every level; nested paths follow the
@@ -2454,6 +2759,7 @@ export function validateSectionContent(
     }
     const spec = REQUIRED_FIELDS[type];
     const catalog = COMPONENT_CATALOG[type];
+    const cap = COMPONENT_CAPABILITIES[type];
     const isContainer = isLayoutContainerType(type);
 
     // question_id: required + unique across the whole tree.
@@ -2766,178 +3072,41 @@ export function validateSectionContent(
       }
     }
 
-    // P5 (PC-10) — MultiQuestionGrid rows. The SHARED pill set (node.choices) is
-    // already shape-checked by the generic `spec.choices` block above; here we
-    // BOUND it (2-4) and validate the ROW structure: 1-8 rows, each a labeled,
-    // uniquely-named field with an optional default (∈ its effective choices)
-    // and optional per-row pill override. Each row's internal_field JOINS the
-    // Section-wide uniqueness universe (duplicate_internal_field), so a row can
-    // never shadow another question's answer name.
-    if (type === "MultiQuestionGrid") {
-      let sharedChoices: unknown[] = Array.isArray(raw["choices"]) ? raw["choices"] : [];
-      // Round-4 A-3 / B-4.1 (P1b, register R4-34) — KILL the MQG save trap. The
-      // legacy "+ Add choice" ghost pushed blank options into the SHARED pill
-      // set past its 2-4 bound, so a corrupted grid 400'd on save and NEVER
-      // persisted (the operator's unexplained error). P1a stopped the studio
-      // from growing them; this leg makes ALREADY-corrupted content saveable by
-      // pruning ORPHAN shared choices — those beyond the pill bound that no row
-      // references — IN PLACE. The save handler stringifies THIS validated
-      // object (leadgen/sections.ts persists parsedContent.content post-verdict),
-      // so the prune persists: the corruption is cleaned, not merely tolerated.
-      // A no-op for every valid grid (fires ONLY when the shared set already
-      // exceeds MAX), so no well-formed content ever changes.
-      if (sharedChoices.length > MULTI_QUESTION_MAX_CHOICES) {
-        // A shared pill is REFERENCED when a row that draws on the shared set
-        // (no per-row `choices` override) pre-selects it via `default`; a
-        // referenced pill is never pruned (that would invalidate the row's
-        // default). Order is preserved; only unreferenced excess is dropped.
-        const referenced = new Set<string>();
-        for (const row of readMultiQuestionRows(raw as unknown as LeadgenComponentNode)) {
-          if (!(Array.isArray(row.choices) && row.choices.length > 0) && row.default !== undefined) {
-            referenced.add(String(row.default));
-          }
-        }
-        const isRef = (c: unknown): boolean =>
-          isRecord(c) && isChoicePrimitive(c["value"]) && referenced.has(String(c["value"]));
-        const unrefBudget = Math.max(0, MULTI_QUESTION_MAX_CHOICES - sharedChoices.filter(isRef).length);
-        let unrefUsed = 0;
-        const kept: unknown[] = [];
-        for (const c of sharedChoices) {
-          if (isRef(c)) {
-            kept.push(c);
-          } else if (unrefUsed < unrefBudget) {
-            kept.push(c);
-            unrefUsed++;
-          }
-        }
-        if (kept.length < sharedChoices.length) {
-          raw["choices"] = kept;
-          sharedChoices = kept;
-        }
-      }
-      // The bound still guards the pruned set: a grid with too FEW pills (or the
-      // pathological "more referenced defaults than the bound" case) still
-      // fails — but with a PLAIN-language message an author can act on, never
-      // the raw pill-set jargon.
-      if (
-        sharedChoices.length > 0 &&
-        (sharedChoices.length < MULTI_QUESTION_MIN_CHOICES ||
-          sharedChoices.length > MULTI_QUESTION_MAX_CHOICES)
-      ) {
-        push(
-          "invalid_choice",
-          `${base}.choices`,
-          `A question grid's shared answers must be ${MULTI_QUESTION_MIN_CHOICES}-${MULTI_QUESTION_MAX_CHOICES} — remove extras in the rows editor`,
-        );
-      }
-      const sharedValues = new Set<string>(
-        sharedChoices
-          .filter(isRecord)
-          .map((c) => c["value"])
-          .filter(isChoicePrimitive)
-          .map((v) => String(v)),
-      );
-      const rows = props["rows"];
-      if (!Array.isArray(rows) || rows.length === 0) {
-        push("invalid_field_prop", `${base}.props.rows`, "MultiQuestionGrid requires a non-empty rows array");
-      } else if (rows.length > MULTI_QUESTION_MAX_ROWS) {
+    // Rework §6.4 — defaults for choice groups. A single-select choice group
+    // (default_kind 'choice' — Buttons / Icon cards / Image cards) may carry a
+    // props.defaultValue that MUST be one of its choice values. A multi-select
+    // (MultiChoiceCardGroup) has NO default in v1 — a defaultValue there is a
+    // save error. Dropdown/YesNo/Slider keep their EXISTING default handling
+    // (untouched here). config-dto projects props.defaultValue → default_answer.
+    if (props["defaultValue"] !== undefined) {
+      if (type === "MultiChoiceCardGroup") {
         push(
           "invalid_field_prop",
-          `${base}.props.rows`,
-          `MultiQuestionGrid allows at most ${MULTI_QUESTION_MAX_ROWS} rows`,
+          `${base}.props.defaultValue`,
+          "a multi-select question has no single default (§6.4)",
         );
-      }
-      if (Array.isArray(rows)) {
-        const seenRowFields = new Set<string>();
-        for (let r = 0; r < rows.length; r++) {
-          const rp = `${base}.props.rows[${r}]`;
-          const row = rows[r];
-          if (!isRecord(row)) {
-            push("invalid_field_prop", rp, "each row must be an object");
-            continue;
-          }
-          if (!isNonEmptyString(row["label"])) {
-            push("invalid_field_prop", `${rp}.label`, "row.label is required");
-          }
-          const rowField = row["internal_field"];
-          if (!isNonEmptyString(rowField)) {
-            push(
-              "invalid_field_prop",
-              `${rp}.internal_field`,
-              "row.internal_field is required (the row's answer name)",
-            );
-          } else if (rowField.startsWith("__")) {
-            // P2b review-round (minor-4): same reservation as a component's
-            // internal_field — a row IS an answer field (§8.5 P5/PC-10).
-            push("reserved_internal_field", `${rp}.internal_field`, "Field names starting with __ are reserved");
-          } else if (seenRowFields.has(rowField) || seenInternalFields.has(rowField)) {
-            push(
-              "duplicate_internal_field",
-              `${rp}.internal_field`,
-              `duplicate internal_field '${rowField}' (§8.5 unique across the Section)`,
-            );
-          } else {
-            seenRowFields.add(rowField);
-            seenInternalFields.add(rowField);
-          }
-          if (row["required"] !== undefined && typeof row["required"] !== "boolean") {
-            push("invalid_field_prop", `${rp}.required`, "row.required must be a boolean");
-          }
-          // The row's EFFECTIVE choice-value domain (its own override, else the
-          // shared set) — the domain a `default` must belong to.
-          let rowValues = sharedValues;
-          const rowChoices = row["choices"];
-          if (rowChoices !== undefined) {
-            if (
-              !Array.isArray(rowChoices) ||
-              rowChoices.length < MULTI_QUESTION_MIN_CHOICES ||
-              rowChoices.length > MULTI_QUESTION_MAX_CHOICES
-            ) {
-              push(
-                "invalid_choice",
-                `${rp}.choices`,
-                `a row choices override must number ${MULTI_QUESTION_MIN_CHOICES}-${MULTI_QUESTION_MAX_CHOICES}`,
-              );
-              rowValues = new Set<string>();
-            } else {
-              rowValues = new Set<string>();
-              for (let c = 0; c < rowChoices.length; c++) {
-                const cp = `${rp}.choices[${c}]`;
-                const choice = rowChoices[c];
-                if (!isRecord(choice)) {
-                  push("invalid_choice", cp, "each choice must be an object");
-                  continue;
-                }
-                if (!isNonEmptyString(choice["label"])) {
-                  push("invalid_choice", `${cp}.label`, "choice.label is required");
-                }
-                if (!isChoicePrimitive(choice["value"])) {
-                  push("invalid_choice", `${cp}.value`, "choice.value must be a string, number, or boolean");
-                } else {
-                  rowValues.add(String(choice["value"]));
-                }
-                if (!isNonEmptyString(choice["analytics_id"])) {
-                  push("invalid_choice", `${cp}.analytics_id`, "choice.analytics_id is required (§22 tracking)");
-                }
-                if (choice["style"] !== undefined) {
-                  validateChoiceStyle(choice["style"], `${cp}.style`, push);
-                }
-              }
-            }
-          }
-          if (row["default"] !== undefined) {
-            if (!isChoicePrimitive(row["default"])) {
-              push("invalid_choice", `${rp}.default`, "row.default must be a string, number, or boolean");
-            } else if (!rowValues.has(String(row["default"]))) {
-              push(
-                "invalid_choice",
-                `${rp}.default`,
-                `row.default '${String(row["default"])}' is not one of this row's choices`,
-              );
-            }
-          }
+      } else if (cap.default_kind === "choice") {
+        const choiceValues = new Set<string>(
+          (Array.isArray(raw["choices"]) ? raw["choices"] : [])
+            .filter(isRecord)
+            .map((c) => c["value"])
+            .filter(isChoicePrimitive)
+            .map((v) => String(v)),
+        );
+        const dv = props["defaultValue"];
+        if (isChoicePrimitive(dv) && !choiceValues.has(String(dv))) {
+          push(
+            "invalid_choice",
+            `${base}.props.defaultValue`,
+            `default '${String(dv)}' is not one of this component's choices (§6.4)`,
+          );
         }
       }
+    }
+
+    // Rework §6.5 — authored "Other" values (single-select choice groups only).
+    if (props["other"] !== undefined) {
+      validateOtherEditor(cap, props["other"], raw["choices"], `${base}.props.other`, push);
     }
 
     // valid_values (enum-like domain) when present: non-empty primitive array.
@@ -2953,26 +3122,32 @@ export function validateSectionContent(
     }
 
     // answer_type must agree with the catalog `produces` (when it emits one).
+    // Rework §6.8 carve-out: a dual_range / from_to Slider produces an OBJECT
+    // (two {base}_min/{base}_max number sub-fields, like Address), overriding
+    // the range family's scalar `produces: "number"`. Any OTHER mismatch still
+    // errors — this is the ONE authored answer_type that legitimately differs
+    // from the catalog default, and it fixes (not reintroduces) the Image9
+    // answer_type_mismatch failure class.
     const answerType = raw["answer_type"];
     if (answerType !== undefined && catalog.produces !== null && answerType !== catalog.produces) {
-      push(
-        "answer_type_mismatch",
-        `${base}.answer_type`,
-        `answer_type '${String(answerType)}' does not match catalog produces '${catalog.produces}'`,
-      );
+      const sliderType = props["slider_type"];
+      const dualSliderObject =
+        cap.slider_type &&
+        typeof sliderType === "string" &&
+        SLIDER_OBJECT_TYPE_SET.has(sliderType) &&
+        answerType === "object";
+      if (!dualSliderObject) {
+        push(
+          "answer_type_mismatch",
+          `${base}.answer_type`,
+          `answer_type '${String(answerType)}' does not match catalog produces '${catalog.produces}'`,
+        );
+      }
     }
 
     // conditional (§12.3): shape + referenced field must exist in the Section.
     if (raw["conditional"] !== undefined) {
       validateConditional(raw["conditional"], `${base}.conditional`, knownFields, push);
-    }
-
-    // B9 §6.4 mirrored choiceDisplay (Phase-2 authoring leg): typed shape,
-    // known keys only, mainValues ⊆ the node's authored choice values. The
-    // render leg (readChoiceDisplay) stays defensive — this validation stops
-    // author mistakes at save.
-    if (raw["choiceDisplay"] !== undefined) {
-      validateChoiceDisplayMirror(raw["choiceDisplay"], raw["choices"], `${base}.choiceDisplay`, push);
     }
 
     // design_overrides: curated keys only; token/scalar values, never CSS.
@@ -3110,90 +3285,6 @@ export function validateSectionContent(
   return { ok: errors.length === 0, errors, warnings };
 }
 
-// B9 §6.4 mirrored-choiceDisplay check (mirrors payload.ts
-// validateChoiceDisplay, with the Section-side domain: the node's authored
-// choices — mainValues members must equal String(choice.value) of one of
-// them, exactly how the render leg (presets.ts splitChoicesForOtherGroup)
-// matches membership).
-const CHOICE_DISPLAY_KEYS = [
-  "mainValues",
-  "otherGroupEnabled",
-  "otherGroupLabel",
-  "searchableOther",
-] as const;
-const CHOICE_DISPLAY_KEY_SET: ReadonlySet<string> = new Set(CHOICE_DISPLAY_KEYS);
-
-function validateChoiceDisplayMirror(
-  raw: unknown,
-  rawChoices: unknown,
-  path: string,
-  push: (code: SectionContentErrorCode, path: string, message: string) => void,
-): void {
-  if (!isRecord(raw)) {
-    push("choice_display_invalid", path, "choiceDisplay must be an object");
-    return;
-  }
-  for (const key of Object.keys(raw)) {
-    if (!CHOICE_DISPLAY_KEY_SET.has(key)) {
-      push(
-        "choice_display_invalid",
-        `${path}.${key}`,
-        `unknown choiceDisplay key '${key}' (allowed: ${CHOICE_DISPLAY_KEYS.join(", ")})`,
-      );
-    }
-  }
-  const choiceValues = new Set<string>();
-  const hasChoices = Array.isArray(rawChoices) && rawChoices.length > 0;
-  if (hasChoices) {
-    for (const choice of rawChoices) {
-      if (isRecord(choice) && isChoicePrimitive(choice["value"])) {
-        choiceValues.add(String(choice["value"]));
-      }
-    }
-  } else {
-    push(
-      "choice_display_invalid",
-      path,
-      "choiceDisplay requires an authorable choices list on the same component",
-    );
-  }
-  const mainValues = raw["mainValues"];
-  if (mainValues !== undefined) {
-    if (!Array.isArray(mainValues)) {
-      push("choice_display_invalid", `${path}.mainValues`, "mainValues must be an array of strings");
-    } else {
-      const nonStrings = mainValues.filter((v) => typeof v !== "string");
-      if (nonStrings.length > 0) {
-        push(
-          "choice_display_invalid",
-          `${path}.mainValues`,
-          `mainValues must be strings (offenders: ${nonStrings.map((v) => JSON.stringify(v)).join(", ")})`,
-        );
-      }
-      if (hasChoices) {
-        const offenders = mainValues.filter(
-          (v): v is string => typeof v === "string" && !choiceValues.has(v),
-        );
-        if (offenders.length > 0) {
-          push(
-            "choice_display_invalid",
-            `${path}.mainValues`,
-            `mainValues not among this component's choice values: ${offenders.join(", ")}`,
-          );
-        }
-      }
-    }
-  }
-  for (const key of ["otherGroupEnabled", "searchableOther"] as const) {
-    if (raw[key] !== undefined && typeof raw[key] !== "boolean") {
-      push("choice_display_invalid", `${path}.${key}`, `choiceDisplay.${key} must be a boolean`);
-    }
-  }
-  if (raw["otherGroupLabel"] !== undefined && typeof raw["otherGroupLabel"] !== "string") {
-    push("choice_display_invalid", `${path}.otherGroupLabel`, "choiceDisplay.otherGroupLabel must be a string");
-  }
-}
-
 // conditional shape check (mirrors payload.ts validateConditional) + the
 // content-specific rule that `when` must reference a field that EXISTS in the
 // Section (else the dependency can never fire).
@@ -3263,35 +3354,40 @@ function validateConditional(
 // activation-time computeVariantPreflightBlocks (quotes-handlers.ts) both call
 // it, so the two can never disagree on which fields exist. It expands the whole
 // tree — every node's top-level internal_field / question_key / question_id,
-// PLUS the three MULTI-SUBFIELD classes that carry NO single internal_field yet
-// each name a real answer a rule can reference:
-//   * MultiQuestionGrid — one field per row (readMultiQuestionRows);
+// PLUS the MULTI-SUBFIELD classes that carry NO single internal_field yet each
+// name a real answer a rule can reference:
 //   * AddressAutocompleteQuestion — its four role sub-fields (a configured
 //     props.maps.fills.<slot> wins, else the node-namespaced
 //     `${internal_field || question_id || 'address'}_<slot>`);
 //   * NameFieldsGroup — its first/last field names (props.fields[0]/[1], default
-//     'first'/'last').
+//     'first'/'last');
+//   * a dual_range / from_to NumberRangeQuestion — its {base}_min / {base}_max.
 // The derivation MATCHES P1a's studio-side internalFieldsOf/refFieldInfo
 // (ui-section-studio.ts) EXACTLY, so the studio's rule-source picker, the save
 // gate, and the activation gate all see the identical universe (Round-4 P7 kills
-// the activation-only "MQG/Address/Name row is a missing field" 409). Depth-
+// the activation-only "Address/Name row is a missing field" 409). Depth-
 // capped like every other tree walk (terminates on cyclic / over-deep junk).
 export function collectKnownAnswerFields(components: readonly unknown[]): Set<string> {
   const knownFields = new Set<string>();
   const walk = (nodes: readonly unknown[], depth: number): void => {
     for (const raw of nodes) {
       if (!isRecord(raw)) continue;
+      // Rework §6.8: a dual_range / from_to Slider carries NO single answer
+      // field — its answer space is {base}_min / {base}_max (each a number).
+      // This MIRRORS answers.ts fieldsOf EXACTLY (the reviewer-flagged parity
+      // requirement) so the save-time known-field universe, the activation
+      // preflight, the config-dto projected universe, and normalization all see
+      // the SAME two fields — and NOT the base internal_field.
+      const isDualSlider = isDualRangeSlider(raw as { type?: unknown; internal_field?: unknown; props?: unknown });
       for (const key of ["internal_field", "question_key", "question_id"] as const) {
+        if (key === "internal_field" && isDualSlider) continue; // expanded below, base excluded
         const v = raw[key];
         if (isNonEmptyString(v)) knownFields.add(v);
       }
-      // P5 (PC-10): a MultiQuestionGrid carries no single internal_field — its
-      // rows' internal_fields are the real answer names, so register each so a
-      // conditional (this section or a sibling) may reference a row by field.
-      if (raw["type"] === "MultiQuestionGrid") {
-        for (const row of readMultiQuestionRows(raw as unknown as LeadgenComponentNode)) {
-          knownFields.add(row.internal_field);
-        }
+      if (isDualSlider) {
+        const base = raw["internal_field"] as string;
+        knownFields.add(`${base}_min`);
+        knownFields.add(`${base}_max`);
       }
       // Round-4 A-4 (P1b — P1a seam #1): the two MULTI-SUBFIELD question types
       // carry NO single internal_field, yet each sub-field IS a real answer a

@@ -121,7 +121,23 @@ const LEADGEN_MIGRATIONS = [
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  // Rework P1 (§5 M1-M12): the full migration set so leadgen_funnel_pages /
+  // leadgen_funnel_variant_sections carry the M2 owner axis (variant_id
+  // NULLable + quote_id) this suite's usage tests exercise below.
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -621,6 +637,57 @@ describeDb("GET /sections/:id/usage — funnel-variant join (P7 tables exist in 
     const section = await createSection(env, sectionBody());
     const res = await admin.request(`${API}/sections/${section.id}/usage`, {}, env);
     expect(((await res.json()) as { usage: { variants: unknown[] } }).usage.variants).toEqual([]);
+  });
+
+  // Rework M2 (§4.3-1 "shared first page", §5-M2 P1 entry gate): a Section can
+  // ALSO be placed directly on a Quote's shared page — a
+  // leadgen_funnel_variant_sections row with quote_id SET and variant_id
+  // NULL — instead of on any funnel variant's own page order. readSectionUsageRows
+  // must surface that row too (no owning funnel/variant to name), or an
+  // operator would see "not used" here while the DELETE guard (which checks
+  // existence, not identity) still correctly 409s.
+  it("returns a shared-page usage row (quote_id-owned, variant_id NULL) with no funnel/variant identity", async () => {
+    const { sdb, env } = newHarness();
+    const section = await createSection(env, sectionBody());
+
+    sdb.prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json) VALUES (?, 'SharedQ', 'quote_funnel', ?)").run(mintPublicId("quote"), JSON.stringify(["life"]));
+    const quoteId = (sdb.prepare("SELECT id FROM leadgen_quotes LIMIT 1").get() as { id: number }).id;
+    sdb.prepare("INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position) VALUES (?, ?, 0)").run(quoteId, section.id);
+
+    const res = await admin.request(`${API}/sections/${section.id}/usage`, {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      usage: {
+        variants: Array<{
+          quote_name: string;
+          funnel_public_id: string | null;
+          variant_public_id: string | null;
+          variant_label: string | null;
+        }>;
+      };
+    };
+    expect(body.usage.variants).toHaveLength(1);
+    expect(body.usage.variants[0]?.quote_name).toBe("SharedQ");
+    expect(body.usage.variants[0]?.funnel_public_id).toBeNull();
+    expect(body.usage.variants[0]?.variant_public_id).toBeNull();
+    expect(body.usage.variants[0]?.variant_label).toBeNull();
+  });
+
+  // The SAME shared-page reference must ALSO block a hard delete (the guard
+  // itself never joined through variant_id, so this already passed before
+  // the M2 fix — this proves the two legs stay in agreement, not a new gap).
+  it("blocks DELETE with 409 when the Section is used ONLY via a quote's shared page", async () => {
+    const { sdb, env } = newHarness();
+    const section = await createSection(env, sectionBody());
+    sdb.prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json) VALUES (?, 'SharedQ2', 'quote_funnel', ?)").run(mintPublicId("quote"), JSON.stringify(["life"]));
+    const quoteId = (sdb.prepare("SELECT id FROM leadgen_quotes LIMIT 1").get() as { id: number }).id;
+    sdb.prepare("INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position) VALUES (?, ?, 0)").run(quoteId, section.id);
+
+    const del = await admin.request(`${API}/sections/${section.id}`, { method: "DELETE" }, env);
+    expect(del.status, await del.clone().text()).toBe(409);
+    const body = (await del.json()) as { error: string; usage: { variants: unknown[] } };
+    expect(body.error).toBe("This section is used by quotes — archive it instead");
+    expect(body.usage.variants).toHaveLength(1);
   });
 });
 

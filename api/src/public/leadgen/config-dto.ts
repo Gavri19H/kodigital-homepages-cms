@@ -32,14 +32,7 @@ import type { FunnelDesign } from "./designs/registry";
 import type { EffectiveFunnelDesign } from "./designs/theme";
 import type { LeadgenAssignmentReason } from "./ab-hash";
 import { sha256Hex } from "./auction/parse";
-// B9 (fix-contract v2.4 06 §6.4): the DTO and the server renderer share ONE
-// normalizing choiceDisplay reader so /lg/config metadata and the rendered
-// Other-group markup can never disagree (09 §9.1 parity by construction).
-import {
-  readChoiceDisplay,
-  type LeadgenChoiceDisplay,
-  type LeadgenSectionDesignOverrides,
-} from "./components/presets";
+import { type LeadgenSectionDesignOverrides } from "./components/presets";
 // §8.5 layout containers: the config projects the canonical FLATTENED
 // component list — containers are a server-side rendering concern and never
 // appear in /lg/config (the client engine keeps consuming a flat list; the
@@ -48,10 +41,8 @@ import {
 import {
   flattenComponents,
   resolveDateBound,
-  readMultiQuestionRows,
-  multiQuestionRowChoices,
-  multiQuestionRowQuestionId,
   isPhoneTypedComponent,
+  parsePhoneMaskPattern,
 } from "./components/content-schema";
 import type {
   LeadgenComponentNode,
@@ -84,10 +75,6 @@ export interface PublicSectionComponent {
   conditional?: LeadgenComponentConditional;
   design_preset?: string;
   design_overrides?: LeadgenDesignOverrides;
-  // B9 (06 §6.4) Other-group display metadata — ADDITIVE passthrough, present
-  // only when the content_json node carries it (normalized through the shared
-  // readChoiceDisplay projection; unknown keys inside it are dropped).
-  choiceDisplay?: LeadgenChoiceDisplay;
   props: Record<string, unknown>;
   client_validation?: Record<string, unknown>;
   default_answer?: { value: unknown; answer_source: "default_applied" };
@@ -279,7 +266,19 @@ interface CompiledPhoneContract {
   regex: string;
   normalize: "digits" | "e164" | "none";
   message: string;
+  // Rework M8 (§6.9): a MASK contract also carries the display scaffold + the
+  // exact digit count. The runtime CHECKER (validation.ts) consumes only
+  // {regex, normalize, message} unchanged (byte-identical to P1); these two are
+  // additive — the S2.3 fill UX reads `scaffold`, and the studio's
+  // formatPhone-incoherence warning (sections-handlers.ts) reads `digit_count`
+  // to fire only when a mask pairs with formatPhone AND digit_count ≠ 10.
+  scaffold?: string;
+  digit_count?: number;
 }
+// Rework A-7 (strings.md) — the DEFAULT phone-incomplete message a mask
+// contract emits when the author sets none (§6.9 "Continue gates on
+// completeness … with the author's message (default: Appendix A-7)").
+const PHONE_INCOMPLETE_DEFAULT = "Enter a complete phone number.";
 const PHONE_PRESET_CONTRACTS: Readonly<Record<string, CompiledPhoneContract>> = {
   nanp: { regex: "^1?[2-9]\\d{2}[2-9]\\d{2}\\d{4}$", normalize: "digits", message: "Enter a valid US phone number." },
   e164_intl: { regex: "^\\+\\d{8,15}$", normalize: "e164", message: "Enter your phone number with the country code, like +972…" },
@@ -300,6 +299,28 @@ function buildPhoneContract(node: LeadgenComponentNode): CompiledPhoneContract |
   if (pf === undefined) return undefined;
   if (typeof pf === "string") return PHONE_PRESET_CONTRACTS[pf];
   if (pf !== null && typeof pf === "object") {
+    // Rework M8 (§6.9): compile the authored digit-group MASK — strip to
+    // digits, then test ^\d{digit_count}$ (the recorded answer is the raw digit
+    // string). Uses the SAME grammar parser the save gate does (one grammar,
+    // never two). A stale/corrupt mask parses to null → NO contract (the
+    // runtime falls to its NANP default, never throws). Default incomplete
+    // message = A-7 (author may override via mask.message).
+    const mask = (pf as { mask?: unknown }).mask;
+    if (mask !== null && typeof mask === "object") {
+      const parsed = parsePhoneMaskPattern((mask as { pattern?: unknown }).pattern);
+      if (parsed === null) return undefined;
+      const message = (mask as { message?: unknown }).message;
+      return {
+        regex: `^\\d{${parsed.digit_count}}$`,
+        normalize: "digits",
+        message: typeof message === "string" && message !== "" ? message : PHONE_INCOMPLETE_DEFAULT,
+        scaffold: parsed.scaffold,
+        digit_count: parsed.digit_count,
+      };
+    }
+    // Legacy custom raw-regex path — TOLERATED on read (contract M8 removes it
+    // from the editor only; the schema keeps validating stored/authored custom
+    // content). New authoring uses the mask above.
     const custom = (pf as { custom?: unknown }).custom;
     if (custom !== null && typeof custom === "object") {
       const regex = (custom as { regex?: unknown }).regex;
@@ -388,6 +409,25 @@ function isoToday(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Rework §6.5: the authored "Other" choice VALUES a single-select choice node
+// carries (props.other.choices[].value). Empty for any node without an Other
+// list — so a node without `other` is byte-identical. Defensive over stored
+// shapes (the save gate is content-schema.validateOtherEditor; this is a read).
+function otherChoiceValues(node: LeadgenComponentNode): Array<string | number | boolean> {
+  const other = node.props?.["other"];
+  if (other === null || typeof other !== "object") return [];
+  const choices = (other as { choices?: unknown }).choices;
+  if (!Array.isArray(choices)) return [];
+  const out: Array<string | number | boolean> = [];
+  for (const c of choices) {
+    if (c !== null && typeof c === "object") {
+      const v = (c as { value?: unknown }).value;
+      if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") out.push(v);
+    }
+  }
+  return out;
+}
+
 export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComponent {
   const component: PublicSectionComponent = {
     type: node.type,
@@ -400,14 +440,20 @@ export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComp
   if (node.required !== undefined) component.required = node.required;
   if (node.valid_values !== undefined) component.valid_values = node.valid_values;
   if (node.choices !== undefined) component.choices = node.choices;
+  // Rework §6.5: authored "Other" values share the node's ONE answer domain, so
+  // they join valid_values — the runtime accepts an "other" selection exactly
+  // like a base choice (the renderer paints base + other). Only when
+  // props.other.choices is authored; absent ⇒ byte-identical DTO.
+  const otherValues = otherChoiceValues(node);
+  if (otherValues.length > 0) {
+    const base = component.valid_values ?? (Array.isArray(node.choices) ? node.choices.map((c) => c.value) : []);
+    const merged: Array<string | number | boolean> = [...base];
+    for (const v of otherValues) if (!merged.includes(v)) merged.push(v);
+    component.valid_values = merged;
+  }
   if (node.conditional !== undefined) component.conditional = node.conditional;
   if (node.design_preset !== undefined) component.design_preset = node.design_preset;
   if (node.design_overrides !== undefined) component.design_overrides = node.design_overrides;
-
-  // B9 (06 §6.4): additive choiceDisplay passthrough — only when the node
-  // carries it, normalized through the SAME reader the server renderer uses.
-  const choiceDisplay = readChoiceDisplay(node);
-  if (choiceDisplay !== undefined) component.choiceDisplay = choiceDisplay;
 
   const clientValidation = buildClientValidation(node, isoToday());
   if (clientValidation !== undefined) component.client_validation = clientValidation;
@@ -420,45 +466,14 @@ export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComp
   return component;
 }
 
-// P5 (PC-10): a MultiQuestionGrid node projects into ONE synthetic single-field
-// choice component PER ROW — each carrying the row's internal_field, effective
-// pill set, optional required, and (crucially) the row's `default` as
-// `default_answer`. The runtime then seeds + paints + records + validates every
-// row through its EXISTING per-component machinery (applySectionDefaults /
-// enterSection / handleChoiceActivation / validateSection) with ZERO new engine
-// bytes — the rows ARE standard answer fields. presets.ts stamps the SAME
-// per-row question_id (multiQuestionRowQuestionId) on each row's
-// [data-lg-question] wrapper, so #lg-config and the DOM always agree. The parent
-// grid node itself projects to NOTHING (it carries no single answer). A
-// whole-grid `conditional` copies onto every row so they show/hide together
-// (row-level conditionals are not a v1 feature). Every other node projects 1:1
-// through toPublicComponent, so non-grid content is byte-identical.
+// Rework §10 / M6: the MultiQuestionGrid 1→N row expansion is REMOVED (the grid
+// type is retired; migration M6 rewrites stored grids to independent components,
+// which project 1:1). This is now a 1:1 projection seam kept as a named function
+// because many call sites flatMap over it (sections/quotes/runtime-routes/resolver
+// + the /lg/config builder); every node projects through toPublicComponent, so
+// the projected component list is byte-identical to the migrated content.
 export function expandPublicComponents(node: LeadgenComponentNode): PublicSectionComponent[] {
-  if (node.type !== "MultiQuestionGrid") return [toPublicComponent(node)];
-  return readMultiQuestionRows(node).map((row) => {
-    const choices = multiQuestionRowChoices(node, row);
-    const component: PublicSectionComponent = {
-      type: node.type,
-      question_id: multiQuestionRowQuestionId(node.question_id, row.internal_field),
-      internal_field: row.internal_field,
-      answer_type: "enum",
-      choices,
-      props: {},
-    };
-    if (row.required === true) {
-      component.required = true;
-      component.client_validation = { required: true };
-    }
-    // Enum domain = the row's pill values (membership parity with the other
-    // choice questions' valid_values leg).
-    const values = choices.map((c) => c.value).filter((v) => v !== undefined && v !== null);
-    if (values.length > 0) component.valid_values = values;
-    if (node.conditional !== undefined) component.conditional = node.conditional;
-    if (row.default !== undefined) {
-      component.default_answer = { value: row.default, answer_source: "default_applied" };
-    }
-    return component;
-  });
+  return [toPublicComponent(node)];
 }
 
 // The chunk ceiling for IN(?) lists — D1's 100-binding-per-statement limit,
@@ -541,9 +556,8 @@ export function buildPublicConfig(
     // §8.5: flatten-then-project. For flat legacy content flattenComponents is
     // the identity, so the projected shape is byte-identical to pre-§8.5; for
     // nested content the config lists every LEAF (questions/chrome/affordances
-    // in depth-first render order) and no container node.
-    // P5 (PC-10): flatMap so a MultiQuestionGrid expands to its per-row
-    // synthetic components (expandPublicComponents); every other node is 1:1.
+    // in depth-first render order) and no container node. expandPublicComponents
+    // is a 1:1 projection (§10/M6 retired the grid's per-row expansion).
     const components = flattenComponents(parseSectionComponents(rs.section.content_json)).flatMap(
       expandPublicComponents,
     );

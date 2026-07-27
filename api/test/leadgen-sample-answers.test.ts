@@ -111,12 +111,29 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -300,7 +317,7 @@ function linkSectionWithComponents(h: Harness): void {
       { type: "ZIPInputQuestion", question_id: "q-zip", internal_field: "zip" },
       { type: "EmailInputQuestion", question_id: "q-email", internal_field: "email" },
       { type: "PhoneInputQuestion", question_id: "q-phone", internal_field: "phone" },
-      { type: "RangeQuestion", question_id: "q-age", internal_field: "age", props: { min: 18, max: 99 } },
+      { type: "NumberRangeQuestion", question_id: "q-age", internal_field: "age", props: { min: 18, max: 99 } },
     ],
   };
   h.sdb

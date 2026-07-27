@@ -35,6 +35,26 @@ import { CANONICAL_CARRIER_FIELDS } from "../../public/leadgen/designs/banner-de
 import { BANNER_DESIGNS } from "../../public/leadgen/designs/registry";
 import { LEADGEN_ELIGIBILITY_REASON_LABELS } from "./ui-offers";
 import type { LeadgenAuctionApi, LeadgenAuctionRuleApi } from "./db-types";
+// Rework §13-D5: the four auction-domain funnel-rule types' editor is RELOCATED
+// to the Auction tab via the NEW self-contained, REST-driven
+// renderRelocatedRulesEditor/RELOCATED_RULES_SCRIPT (ui-rules-builder.ts) — its
+// OWN quote/funnel/variant picker + CRUD wiring against GET/POST
+// /variants/:id/rules, PATCH/DELETE /variants/:id/rules/:rule_id, POST
+// .../duplicate, reusing the SAME reusable §21.4 condition-builder mount
+// (window.lgRulesBuilder / RULES_BUILDER_SCRIPT). §10/S5.1: the ORIGINAL
+// per-variant condition-envelope editor this comment used to describe
+// (renderRoutingRulesPanel + ROUTING_RULES_SCRIPT) had ZERO real callers left
+// in any served page by the time of this removal sweep (the quote/variant
+// editor's own concatenation of it targeted DOM the board rewrite had already
+// deleted) — it was removed entirely, not "kept because a physical move was
+// TDZ-blocked." The relocated editor here was ALREADY the real §13-D5
+// replacement; nothing in this file changes as a result.
+import {
+  RULES_BUILDER_SCRIPT,
+  renderRelocatedRulesEditor,
+  RELOCATED_RULES_SCRIPT,
+  type RelocatedRuleQuote,
+} from "./ui-rules-builder";
 
 // ---------------------------------------------------------------------------
 // Shared shapes (the API responses this UI consumes)
@@ -113,7 +133,6 @@ const LG_AUCTIONS_STYLES = `
 .lg-fieldmap-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .lg-fieldmap-row .lg-fieldmap-key{min-width:140px;font-weight:600}
 .lg-num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-.lg-sim-note{color:var(--c-muted);font-size:14px;margin:8px 0}
 .lg-sim-summary{font-weight:600;margin:10px 0 4px}
 .lg-sim-offer{border:1px solid var(--c-border);border-radius:6px;padding:10px 12px;margin:8px 0}
 .lg-sim-offer-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px}
@@ -883,6 +902,8 @@ function auctionEditorHtml(
   activity: string,
   verticals: string[],
   brand: { userEmail?: string },
+  relocatedQuotes: RelocatedRuleQuote[],
+  defaultQuotePublicId: string | null,
 ): string {
   const head = `<div class="lg-editor-head">
     <a href="/admin/leadgen/auction" class="btn btn-outline">&#8592; Auctions</a>
@@ -910,6 +931,7 @@ function auctionEditorHtml(
   ${renderSettingsPanel(a, participating, quoteName, quoteOptions)}
   ${renderParticipatingPanel(a, participating, activity, verticals)}
   ${renderRulesPanel(rules)}
+  ${renderRelocatedFunnelRulesPanel(relocatedQuotes, defaultQuotePublicId)}
   ${renderBannerPanel(banner)}
   ${renderSimulatorPanel()}
   ${renderAnalyticsPanel()}
@@ -921,7 +943,10 @@ function auctionEditorHtml(
     userEmail: brand.userEmail,
     content,
     styles: LG_AUCTIONS_STYLES,
-    scripts: AUCTION_EDITOR_SCRIPT,
+    // §13-D5: RULES_BUILDER_SCRIPT (window.lgRulesBuilder, the shared §21.4
+    // condition builder) + RELOCATED_RULES_SCRIPT (the relocated editor's OWN
+    // picker + REST-driven CRUD) power the panel mounted above.
+    scripts: AUCTION_EDITOR_SCRIPT + RULES_BUILDER_SCRIPT + RELOCATED_RULES_SCRIPT,
   });
 }
 
@@ -963,6 +988,17 @@ export async function leadgenAuctionEditorPage(c: UiContext): Promise<Response> 
   const quoteOptions = quotes
     .map((q) => `<option value="${q.id}"${q.id === a.quote_id ? " selected" : ""}>${escapeHtml(q.quote_name)} (${escapeHtml(q.activity)})</option>`)
     .join("");
+  // §13-D5 wiring round: the relocated rules editor's quote/funnel/variant
+  // picker reuses this SAME already-loaded quotes list (id/public_id/quote_
+  // name/activity — the shape RelocatedRuleQuote mirrors exactly); the auction's
+  // OWN attributed quote pre-selects (common case), any quote stays reachable.
+  const relocatedQuotes: RelocatedRuleQuote[] = quotes.map((q) => ({
+    id: q.id,
+    public_id: q.public_id,
+    quote_name: q.quote_name,
+    activity: q.activity,
+  }));
+  const defaultQuotePublicId = attributedQuote?.public_id ?? null;
 
   const banner: BannerConfig = bannerRes.ok ? bannerRes.body : { auction_id: a.id, mode: "automatic", field_map_json: {}, banner_config_json: null };
 
@@ -977,6 +1013,8 @@ export async function leadgenAuctionEditorPage(c: UiContext): Promise<Response> 
       activity,
       verticals,
       branding(c),
+      relocatedQuotes,
+      defaultQuotePublicId,
     ),
   );
 }
@@ -1573,3 +1611,27 @@ const AUCTION_EDITOR_SCRIPT = `
   });
 }());
 `;
+
+
+
+// ---------------------------------------------------------------------------
+// D5 mount, wiring round — the relocated four-type editor (renderRelocated
+// RulesEditor + RELOCATED_RULES_SCRIPT, DEFINED in ui-rules-builder.ts and
+// imported above) mounted in the Auction editor Rules tab, bound to REAL data:
+// S1.4 landed the variant-scoped rule CRUD (GET/POST /variants/:id/rules,
+// PATCH/DELETE /variants/:id/rules/:rule_id, POST .../duplicate pre-existing).
+// The panel carries its OWN quote -> funnel -> variant picker (populated from
+// EXISTING endpoints only -- GET /quotes/:id/funnels, GET /sections?activity=,
+// GET /offers -- no new read endpoint needed) since the Auction tab has no
+// variant context of its own.
+// ---------------------------------------------------------------------------
+export function renderRelocatedFunnelRulesPanel(
+  quotes: RelocatedRuleQuote[],
+  defaultQuotePublicId: string | null,
+): string {
+  return `<div class="lg-apanel" data-panel="rules" data-pin="d5-funnel-eligibility-rules">
+  <h3>Funnel eligibility rules</h3>
+  <p class="form-help">Relocated from the funnel builder (\u00a713-D5): rules that gate who is eligible, disqualified, enters the auction, or is redirected to a direct offer. Pick the quote, funnel and variant to manage.</p>
+  ${renderRelocatedRulesEditor({ quotes, default_quote_public_id: defaultQuotePublicId })}
+</div>`;
+}

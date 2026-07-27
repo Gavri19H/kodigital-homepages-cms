@@ -482,7 +482,6 @@ const TYPE_LABELS: Record<string, string> = {
   PhoneInputQuestion: 'Short text field',
   NameFieldsGroup: 'Name',
   NumberRangeQuestion: 'Slider',
-  CurrencyRangeQuestion: 'Amount slider',
   ContinueButton: 'Continue button',
   TextBlock: 'Text',
   Stack: 'Stack',
@@ -495,7 +494,7 @@ const TYPE_LABELS: Record<string, string> = {
 // LEADGEN_FIELD_ACCEPT_TYPE reverse map (content-schema.ts): each entry names
 // the tile to click, plus (when the wanted type is not that tile's own
 // §5.6 default) the swap control that reaches it.
-type SwapKind = 'accept' | 'cardStyle' | 'sliderFormat' | 'searchable';
+type SwapKind = 'accept' | 'cardStyle' | 'searchable';
 interface TileInsert {
   dataName: string;
   swap?: SwapKind;
@@ -527,19 +526,19 @@ const TYPE_INSERT: Partial<Record<string, TileInsert>> = {
   ZIPInputQuestion: { dataName: 'short text', swap: 'accept', swapValue: 'us_zip' },
   // §5.6 Cards style swap — base tile "cards" (IconCardAnswerGrid)
   ImageCardAnswerGrid: { dataName: 'cards', swap: 'cardStyle', swapValue: 'image' },
-  // §5.6 Slider Format $ swap — base tile "slider scale" (NumberRangeQuestion)
-  CurrencyRangeQuestion: { dataName: 'slider scale', swap: 'sliderFormat' },
   // §5.5 Searchable-dropdown swap — base tile "dropdown" (DropdownQuestion)
   SearchableDropdownQuestion: { dataName: 'dropdown', swap: 'searchable' },
   // NOT in TYPE_INSERT (intentionally — see per-test rework, not a generic
   // helper case): Stack (no tile — golden §5.2 dropped it; reached via the
   // pre-existing "Group → Stack" toolbar action instead), NameFieldsGroup
   // (only reachable bundled inside the "Contact" tile's 3-node Stack), plain
-  // RangeQuestion (retired — the Slider tile's family is
-  // NumberRangeQuestion ⇄ CurrencyRangeQuestion only; the "range slider"
-  // authoring BEHAVIOR survives via NumberRangeQuestion), ReassuranceBadge
-  // (collapses into TextBlock per §5.3(b) — the specific "reassurance" role
-  // has no inspector control yet, Phase C).
+  // RangeQuestion (retired; §10/S5.1: CurrencyRangeQuestion retired too, and
+  // its "Slider Format $" toolbar swap [data-toolbar-slider-format] with it —
+  // NumberRangeQuestion is now the ONE Slider catalog entry, no swap-to-a-
+  // different-type at all; currency display is a plain props.currency_affix
+  // boolean on that ONE type), ReassuranceBadge (collapses into TextBlock per
+  // §5.3(b) — the specific "reassurance" role has no inspector control yet,
+  // Phase C).
 };
 
 // Library click-to-add. Clicks the golden TILE (data-tile/data-name), then
@@ -572,8 +571,6 @@ async function addComponent(page: Page, type: string): Promise<void> {
     await page.locator('[data-inspector-accept]').selectOption(insert.swapValue!);
   } else if (insert.swap === 'cardStyle') {
     await page.locator(`[data-card-style="${insert.swapValue}"]`).click();
-  } else if (insert.swap === 'sliderFormat') {
-    await page.locator('[data-toolbar-slider-format]').click();
   } else if (insert.swap === 'searchable') {
     await page.locator('[data-toolbar-searchable]').click();
   }
@@ -1591,13 +1588,13 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     test.setTimeout(120_000);
     await openNewStudio(page, `Range Slider ${uniq}`);
 
-    // v3.1 §5.6: the Slider tile's swap family is NumberRangeQuestion <->
-    // CurrencyRangeQuestion ONLY (contract §5.2 table) — plain RangeQuestion
-    // has no palette path anymore. The authoring BEHAVIOR fully survives via
-    // NumberRangeQuestion: both share the IDENTICAL renderRange() renderer
-    // (presets.ts renderRangeQuestion/renderNumberRangeQuestion both delegate
-    // to renderRange(..., "number", ...)), so every render-side assertion
-    // below is unaffected — only the stored TYPE STRING changes.
+    // §10/S5.1: NumberRangeQuestion is now the ONE collapsed Slider catalog
+    // entry (plain RangeQuestion AND CurrencyRangeQuestion both retired, no
+    // palette path, no swap-to-a-different-type at all) — currency display is
+    // a plain props.currency_affix boolean on this one type. The authoring
+    // BEHAVIOR this test drives is unaffected: only the stored TYPE STRING
+    // (and, where currency was previously exercised, the currency prop shape)
+    // changed with the collapse.
     await addComponent(page, 'NumberRangeQuestion');
     await setContentField(page, 'minLabel', 'Low');
     await setContentField(page, 'maxLabel', 'High');
@@ -1624,31 +1621,45 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     expect(range.props).toMatchObject({ min: 10, max: 500, step: 5, minLabel: 'Low', maxLabel: 'High' });
   });
 
-  test('main/Other values: choiceDisplay authored via the Choices tab; the preview shows main choices + the Other trigger', async ({ page }) => {
+  // §10/S5.1: rewritten for the §6.5 authored "Other" values editor
+  // (props.other = {enabled, label, choices}), which REPLACED the retired
+  // choiceDisplay/mainValues re-bucketing this test used to drive (data-
+  // choicedisplay/data-choice-main are gone — confirmed 0 references, P5
+  // orphan-scan). Under the new model the base Choices tab holds ONLY the
+  // MAIN answer buttons; "Other" values are AUTHORED separately in their own
+  // list (data-other-*, ui-section-studio.ts's populateOtherEditor/
+  // collectOther), not derived by re-bucketing base choices. The live-preview
+  // markers this test asserts on (data-lg-other-trigger, a <select
+  // data-lg-other-panel> of <option data-lg-choice> entries — NOT buttons,
+  // see presets.ts otherSelectMarkup) are unchanged by this rewrite.
+  test('main/Other values: props.other authored via the Choices tab; the preview shows main choices + the Other trigger', async ({ page }) => {
     test.setTimeout(120_000);
     await openNewStudio(page, `Main Other ${uniq}`);
 
     await addComponent(page, 'ButtonAnswerGroup');
     await openInspectorTab(page, 'content');
+    // Base choices = the two MAIN answer buttons only.
     await fillChoiceRow(page, 0, { label: 'Toyota', value: 'toyota', analytics_id: 'm_toyota' });
     await fillChoiceRow(page, 1, { label: 'Honda', value: 'honda', analytics_id: 'm_honda' });
-    await page.locator('#lg-choice-add').click();
-    await fillChoiceRow(page, 2, { label: 'Kia', value: 'kia', analytics_id: 'm_kia' });
-    await page.locator('#lg-choice-add').click();
-    await fillChoiceRow(page, 3, { label: 'Tesla', value: 'tesla', analytics_id: 'm_tesla' });
-    // B9 §6.4 grouping controls on the same tab
-    await page.locator('[data-choicedisplay="otherGroupEnabled"]').check();
-    await page.locator('[data-choicedisplay="otherGroupLabel"]').fill('Other brands');
-    // mark the two mains (their change events fold the display config into
-    // the model — collectChoices reads the group controls)
-    await choiceRows(page).nth(0).locator('[data-choice-main]').check();
-    await choiceRows(page).nth(1).locator('[data-choice-main]').check();
+    // §6.5 authored Other-values editor, same Content tab.
+    await page.locator('[data-other-enabled]').check();
+    await page.locator('[data-other-label]').fill('Other brands');
+    const otherRows = page.locator('[data-other-values] [data-other-row]');
+    // Enabling seeds ONE starter row (toggleOtherEnabled) — overwrite it for
+    // Kia, then "+ Add value" for a second row for Tesla.
+    await otherRows.nth(0).locator('[data-other-field="label"]').fill('Kia');
+    await otherRows.nth(0).locator('[data-other-field="value"]').fill('kia');
+    await otherRows.nth(0).locator('[data-other-field="analytics_id"]').fill('m_kia');
+    await page.locator('[data-other-add]').click();
+    await otherRows.nth(1).locator('[data-other-field="label"]').fill('Tesla');
+    await otherRows.nth(1).locator('[data-other-field="value"]').fill('tesla');
+    await otherRows.nth(1).locator('[data-other-field="analytics_id"]').fill('m_tesla');
     await setInternalField(page, 'car_make');
 
     await refreshPreview(page);
     const f = pFrame(page);
     // main choices render as answer buttons; the OTHER tail is ONE trigger
-    // (deliberately no data-lg-choice) + the hidden panel of REAL values
+    // (deliberately no data-lg-choice) + a hidden <select> of REAL values
     await expect(f.locator('.lg-answer-group button[data-lg-choice="toyota"]')).toBeVisible();
     await expect(f.locator('.lg-answer-group button[data-lg-choice="honda"]')).toBeVisible();
     const trigger = f.locator('[data-lg-other-trigger]');
@@ -1657,27 +1668,34 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     const panel = f.locator('[data-lg-other-panel]');
     await expect(panel).toBeAttached();
     await expect(panel).toBeHidden();
-    await expect(panel.locator('button[data-lg-choice="kia"]')).toHaveCount(1);
-    await expect(panel.locator('button[data-lg-choice="tesla"]')).toHaveCount(1);
+    await expect(panel.locator('option[data-lg-choice="kia"]')).toHaveCount(1);
+    await expect(panel.locator('option[data-lg-choice="tesla"]')).toHaveCount(1);
     await shootPreview(page, 'flow-main-other.png');
 
     await saveStudio(page);
     const detail = await fetchSection(page.request, publicIdFromUrl(page));
     const group = detail.content_json.components[2]!; // after the §5.2 bound pair
     expect(group.type).toBe('ButtonAnswerGroup');
-    expect((group.choices ?? []).map((c) => c['value'])).toEqual(['toyota', 'honda', 'kia', 'tesla']);
-    expect(group.choiceDisplay).toEqual({
-      otherGroupEnabled: true,
-      mainValues: ['toyota', 'honda'],
-      otherGroupLabel: 'Other brands',
+    expect((group.choices ?? []).map((c) => c['value'])).toEqual(['toyota', 'honda']);
+    expect(group.props?.['other']).toEqual({
+      enabled: true,
+      label: 'Other brands',
+      choices: [
+        { label: 'Kia', value: 'kia', analytics_id: 'm_kia' },
+        { label: 'Tesla', value: 'tesla', analytics_id: 'm_tesla' },
+      ],
     });
   });
 
-  test('choiceDisplay-only edit persists: toggling ONLY "Enable Other group" then saving must not lose the setting', async ({ page }) => {
+  // §10/S5.1: rewritten for the §6.5 authored "Other" values editor
+  // (props.other) — see the rewrite note on the "main/Other values" test
+  // above for the full disposition. data-choicedisplay is gone; the enable
+  // toggle is now data-other-enabled.
+  test('props.other-only edit persists: toggling ONLY "Enable Other" then saving must not lose the setting', async ({ page }) => {
     test.setTimeout(120_000);
-    // The Choices tab owns main/Other grouping (B9 §6.4). An operator whose
-    // LAST edit is the group toggle itself (no subsequent choice-row edit)
-    // must not silently lose it on save — order independence.
+    // An operator whose LAST edit is the Other-enable toggle itself (no
+    // subsequent Other-row edit) must not silently lose it on save — order
+    // independence.
     await ensureFeederOffer(page.request);
     const section = await createSection(page.request, `ChoiceDisplay Only ${uniq}`, {
       components: [
@@ -1703,14 +1721,14 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     await page.locator('[data-scope-pill="component"]').first().click();
     await expect(page.locator('[data-scope-editing-name]')).toHaveText('Simple answer buttons');
     await openInspectorTab(page, 'content');
-    await page.locator('[data-choicedisplay="otherGroupEnabled"]').check();
+    await page.locator('[data-other-enabled]').check();
 
     await saveStudio(page);
     const detail = await fetchSection(page.request, section.public_id);
     const group = detail.content_json.components[0]!;
     expect(
-      group.choiceDisplay?.['otherGroupEnabled'],
-      'the checked "Enable Other group" survives a save with no further choice-row edits',
+      group.props?.['other']?.['enabled'],
+      'the checked "Enable Other" survives a save with no further Other-row edits',
     ).toBe(true);
   });
 
@@ -1831,7 +1849,7 @@ test.describe('LeadGen Studio §9.4 + §8.13 (Slice F)', () => {
       },
       { type: 'ZIPInputQuestion', question_id: 'q_zip', internal_field: 'zip', props: { placeholder: 'ZIP code' } },
       {
-        type: 'RangeQuestion',
+        type: 'NumberRangeQuestion',
         question_id: 'q_amount',
         internal_field: 'amount',
         props: { min: 0, max: 100, default: 60 },
@@ -1980,7 +1998,7 @@ test.describe('LeadGen Studio §9.4 + §8.13 (Slice F)', () => {
         { type: 'ZIPInputQuestion', question_id: 'q-zip', internal_field: 'zip' },
         { type: 'EmailInputQuestion', question_id: 'q-email', internal_field: 'email' },
         { type: 'PhoneInputQuestion', question_id: 'q-phone', internal_field: 'phone' },
-        { type: 'RangeQuestion', question_id: 'q-age', internal_field: 'age', props: { min: 18, max: 99 } },
+        { type: 'NumberRangeQuestion', question_id: 'q-age', internal_field: 'age', props: { min: 18, max: 99 } },
       ],
     };
     await ensureFeederOffer(page.request);
@@ -2002,7 +2020,7 @@ test.describe('LeadGen Studio §9.4 + §8.13 (Slice F)', () => {
     const canvas = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render');
     await expect(canvas.locator('[data-component-type]')).toHaveCount(7);
     await expect(canvas.locator('[data-component-type="ButtonAnswerGroup"] button[data-lg-choice="acme"]')).toBeVisible();
-    await expect(canvas.locator('[data-component-type="RangeQuestion"]')).toBeAttached();
+    await expect(canvas.locator('[data-component-type="NumberRangeQuestion"]')).toBeAttached();
     await waitBootPreview(page);
     await expect(pFrame(page).locator('button[data-lg-choice="acme"]')).toBeVisible();
     await page.screenshot({ path: `${SHOT_DIR}/8-13-legacy-open.png` });

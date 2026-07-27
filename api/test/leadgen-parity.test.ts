@@ -329,12 +329,29 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
   return db;
 }
 
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -400,18 +417,14 @@ const NODE_SPECS: Record<ComponentType, LeadgenComponentNode> = {
   CategoryLabel: { type: "CategoryLabel", question_id: "q", props: { text: "BUSINESS LOAN" } },
   QuestionHeadline: { type: "QuestionHeadline", question_id: "q", props: { text: "How much?" } },
   Subheadline: { type: "Subheadline", question_id: "q", props: { text: "Why we ask" } },
-  RangeQuestion: { type: "RangeQuestion", question_id: "q", internal_field: "amt", props: { min: 0, max: 100, default: 50 } },
-  CurrencyRangeQuestion: { type: "CurrencyRangeQuestion", question_id: "q", internal_field: "loan", props: { min: 10000, max: 1000000, default: 330000, currency: "$" } },
-  NumberRangeQuestion: { type: "NumberRangeQuestion", question_id: "q", internal_field: "count", props: { min: 1, max: 9, default: 3 } },
+  NumberRangeQuestion: { type: "NumberRangeQuestion", question_id: "q", internal_field: "count", props: { min: 1, max: 9, default: 3, currency_affix: true } },
   ButtonAnswerGroup: { type: "ButtonAnswerGroup", question_id: "q", internal_field: "pick", choices: CHOICES },
   TwoButtonYesNo: { type: "TwoButtonYesNo", question_id: "q", internal_field: "insured", props: { auto_advance: true } },
   IconCardAnswerGrid: { type: "IconCardAnswerGrid", question_id: "q", internal_field: "biz", choices: ICON_CHOICES, props: { columns: 3 } },
   ImageCardAnswerGrid: { type: "ImageCardAnswerGrid", question_id: "q", internal_field: "carrier", choices: IMAGE_CHOICES, props: { columns: 4 } },
   MultiChoiceCardGroup: { type: "MultiChoiceCardGroup", question_id: "q", internal_field: "features", choices: CHOICES, props: { min: 1, max: 2 } },
-  MultiQuestionGrid: { type: "MultiQuestionGrid", question_id: "q", choices: CHOICES, props: { rows: [{ label: "Homeowner", internal_field: "mqg_home", default: "sole_prop" }, { label: "Married", internal_field: "mqg_married" }] } },
   DropdownQuestion: { type: "DropdownQuestion", question_id: "q", internal_field: "insurer", choices: CHOICES, props: { placeholder: "Pick one" } },
   SearchableDropdownQuestion: { type: "SearchableDropdownQuestion", question_id: "q", internal_field: "make", choices: CHOICES, props: { placeholder: "Pick one" } },
-  OtherGroupSelector: { type: "OtherGroupSelector", question_id: "q", internal_field: "carrier", choices: CHOICES, choiceDisplay: { mainValues: ["sole_prop"], otherGroupEnabled: true, otherGroupLabel: "Other", searchableOther: false } },
   FreeTextQuestion: { type: "FreeTextQuestion", question_id: "q", internal_field: "note", props: { placeholder: "Type…", maxLen: 100 } },
   NumberInputQuestion: { type: "NumberInputQuestion", question_id: "q", internal_field: "age", props: { min: 18, max: 99, step: 1, placeholder: "Your age" } },
   CurrencyInputQuestion: { type: "CurrencyInputQuestion", question_id: "q", internal_field: "income", props: { currency: "$", min: 0, max: 1000000, placeholder: "Annual income" } },
@@ -557,7 +570,7 @@ describeDb("§9.3 parity matrix — every catalog type × default design (deskto
   // Design-token application spot checks (grounded in the REAL design object,
   // not magic strings) — proves the style facet is non-vacuous AND identical.
   it("design tokens are applied identically (range fill, icon grid, badge)", async () => {
-    const range = { node: NODE_SPECS.CurrencyRangeQuestion, token: DESIGN.rangeQuestion.filledTrackColor };
+    const range = { node: NODE_SPECS.NumberRangeQuestion, token: DESIGN.rangeQuestion.filledTrackColor };
     const icon = { node: NODE_SPECS.IconCardAnswerGrid, token: DESIGN.iconCard.iconColor };
     const badge = { node: NODE_SPECS.ReassuranceBadge, token: DESIGN.reassuranceBadge.background };
     for (const { node, token } of [range, icon, badge]) {
@@ -566,9 +579,14 @@ describeDb("§9.3 parity matrix — every catalog type × default design (deskto
       expect(liveStyles, `${node.type}: token ${token} present on live`).toContain(token);
       expect(collectStyles(preview).join(" | "), `${node.type}: token parity`).toBe(liveStyles);
     }
-    // class-hook token: the icon grid's column count rides --lg-cols:3 (fixture).
+    // class-hook token: the icon grid's column count rides --lg-cols (fixture
+    // authors columns:3, but Rework §6.7 (test repair, P2) now ALSO clamps to
+    // min(authored, choiceCount) — NODE_SPECS.IconCardAnswerGrid carries only
+    // 2 choices (shared broadly across this file), so the correctly-clamped
+    // value is 2, not the authored 3; this still proves the class-hook token
+    // rides through identically live vs preview, just at the CLAMPED value.
     const iconLive = collectStyles(liveSubtree(NODE_SPECS.IconCardAnswerGrid)).join(" | ");
-    expect(iconLive).toContain("--lg-cols:3");
+    expect(iconLive).toContain("--lg-cols:2");
   });
 });
 

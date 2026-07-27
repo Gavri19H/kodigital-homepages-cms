@@ -89,6 +89,13 @@ import type { SiteBranding } from "../../../leadgen/branding";
 
 export const CMS_FALLBACK_LOGO_TEXT = "Kodigital";
 
+// Rework §8.8 (#11A), Appendix A-8: the header logo ladder's fallback used to
+// render the bare site_name as text (`logoNodeProps`'s "site" default leg,
+// below) — a real live-rendering defect (ground truth #11A: "'cc' is the
+// site's name" on an actual page), not merely an admin-preview cosmetic gap.
+// This is the verbatim baseline string asserted in CI after P0.
+export const LOGO_FALLBACK_CHIP_TEXT = "No logo — set it in Site settings.";
+
 // The 03 §3.3 auction-mount markup serve.ts bakes today — exported so callers
 // and tests share one literal for the `bannersMountHtml` input.
 export const LG_BANNERS_MOUNT_HTML = '<div class="lg-banners" data-lg-banners hidden></div>';
@@ -117,11 +124,21 @@ export interface RenderQuoteFrameInput {
   // "progress counts the slides of this funnel variant").
   sectionCount: number;
   root: FrameRootIdentity;
-  // Round-4 P5a (10B): the admin preview passes this so frame.ts can emit the
-  // "no logo set for this site" hint when the branding ladder floors to a text
-  // mark. ABSENT/false on the live serve path → NO hint markup is emitted, so
-  // the cached public shell stays byte-identical (the hint never ships live).
+  // Round-4 P5a (10B) / Rework §8.8: the admin preview passes this so frame.ts
+  // can emit the admin-only "Open Site settings" link affordance alongside
+  // the (now ALWAYS-rendered-when-no-logo) fallback chip. ABSENT/false on the
+  // live serve path → the link never emits, so the cached public shell only
+  // ever varies by this flag for that ONE link, never for the chip's own
+  // text (§8.8: "never a bare site-name text" is a live-rendering fix, not an
+  // admin-preview-only cosmetic — see renderLogoFallbackChip's doc comment).
   adminPreview?: boolean;
+  // Rework §8.8: an optional deep link to this site's Site-settings surface,
+  // shown ONLY beside the fallback chip in admin preview (adminPreview must
+  // also be true). ABSENT (every current caller — none is wired yet; that is
+  // caller-file territory outside this slice) → the chip still renders with
+  // its verbatim text, just without the link, never a fabricated/guessed
+  // href. Additive/optional: no existing caller needs to change.
+  siteSettingsHref?: string | null;
 }
 
 export interface RenderLegacyShellInput {
@@ -330,10 +347,21 @@ function renderHeaderRegion(
   design: DefaultFunnelDesign,
   branding: SiteBranding | null,
   adminPreview: boolean,
+  siteSettingsHref: string | null,
 ): string {
   const h = frame.header;
   if (!h.enabled) return "";
-  const logo = renderHeaderLogo(frameNode("HeaderLogo", "frame_logo", logoNodeProps(h, branding)), design);
+  // Rework §8.8 (#11A): compute the ladder's props ONCE. A resolvable image
+  // (`logoUrl` present) keeps the EXACT existing call — byte-identical for
+  // every site WITH a logo. Only the floor leg (no logoUrl — cms_fallback,
+  // or "site"/manual-degrade with no image) now diverges from
+  // renderHeaderLogo's own bare-site_name-text rendering (presets.ts,
+  // another slice's file) — see renderLogoFallbackChip.
+  const logoProps = logoNodeProps(h, branding);
+  const logo =
+    logoProps["logoUrl"] !== undefined
+      ? renderHeaderLogo(frameNode("HeaderLogo", "frame_logo", logoProps), design)
+      : renderLogoFallbackChip(adminPreview, siteSettingsHref);
   const extras: string[] = [];
   if (h.tagline !== null && h.tagline.trim() !== "") {
     extras.push(`<p class="lg-frame-tagline">${escapeHtml(h.tagline)}</p>`);
@@ -365,14 +393,11 @@ function renderHeaderRegion(
   // header_right cta_slots) → headerRightHtml is "" and the class is unchanged.
   const headerRight = renderCtasAtSlot(frame, "header_right");
   const headerRightHtml = headerRight !== "" ? `<div class="lg-frame-header-right">${headerRight}</div>` : "";
-  // Round-4 P5a (10B): admin-preview-only "no logo set" hint (never emitted live
-  // → the cached public shell stays byte-identical).
-  const hint = adminPreview ? renderNoLogoHint(h, branding) : "";
   const classes =
     `lg-frame-header lg-frame-header--${h.logo_align} lg-frame-header--logo-${h.logo_size}` +
     (headerRight !== "" ? " lg-frame-header--has-right" : "") +
     (h.sticky ? " lg-frame-header--sticky" : " lg-frame-header--static");
-  return region(TEMPLATE_HEADER_REGION[frame.template], classes, logo + hint + extrasHtml + headerRightHtml);
+  return region(TEMPLATE_HEADER_REGION[frame.template], classes, logo + extrasHtml + headerRightHtml);
 }
 
 // 11 §11.1 progress — rendered ONCE at frame_config.progress.position; style
@@ -938,21 +963,50 @@ function renderFooterV2(
   );
 }
 
-// 10B admin-preview-only hint: when the branding ladder floors to a text mark
-// (no real image logo resolved) AND this is the admin preview, emit a hint that
-// points the operator at Site settings. It is emitted ONLY when adminPreview is
-// true, so the live serve shell is byte-identical (nothing to CSS-hide live).
-function renderNoLogoHint(header: FrameHeaderConfig, branding: SiteBranding | null): string {
-  const resolvesImage =
-    header.logo_source === "manual"
-      ? header.logo_media_id !== null && mediaUrl(header.logo_media_id) !== null
-      : branding !== null && branding.logo_url !== null && branding.logo_url !== "";
-  if (resolvesImage) return "";
-  return (
-    `<div class="lg-frame-logo-hint" data-frame-region="logo" data-admin-preview-hint="1">` +
-    `No logo set for this site — set it in Site settings.` +
-    `</div>`
-  );
+// Rework §8.8 (#11A), Appendix A-8: SUPERSEDES the old 10B admin-preview-only
+// "no logo" hint (which used to sit ALONGSIDE the still-bare site_name text
+// and only ever rendered when adminPreview was true — "so the live serve
+// shell is byte-identical"). Ground truth #11A found the bare-text fallback
+// itself to be the REAL, LIVE defect ("'cc' is the site's name" on an actual
+// page) — a data + fallback-presentation bug, not an admin-only cosmetic
+// gap — so the chip is now the UNCONDITIONAL floor-leg rendering (live AND
+// preview, ONE composition path, never a fork): deterministic per funnel/
+// site state, so the cached public shell stays byte-identical FOR A GIVEN
+// site regardless of who's viewing it — it simply now shows the honest
+// chip instead of the misleading bare name for a site with no resolvable
+// logo. The "Open Site settings" link stays admin-preview-only (mirrors the
+// retired hint's OWN invariant for that one affordance): a live visitor has
+// no reason or access to follow an admin link, and no concrete href is
+// contract/pack-pinned (studio-panels.html's own mock uses "#0") — so the
+// link renders ONLY when the caller supplies BOTH adminPreview and a real
+// siteSettingsHref (see RenderQuoteFrameInput's doc comment); no caller
+// wires siteSettingsHref today (out of this slice), so in practice the link
+// does not yet appear anywhere — the chip's verbatim text does, everywhere.
+function renderLogoFallbackChip(adminPreview: boolean, siteSettingsHref: string | null): string {
+  const icon =
+    `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">` +
+    `<rect x="3" y="6" width="18" height="13" rx="2" stroke="#8A93A3" stroke-width="1.8"/>` +
+    `<path d="M3 9h18" stroke="#8A93A3" stroke-width="1.8"/>` +
+    `</svg>`;
+  // Literal, theme-independent colors (studio-panels.html pin 8.8-logo-
+  // fallback's own .logo-fallback-chip rule) — an honest SYSTEM message, not
+  // a themed UI element, so it deliberately never reads from the funnel's
+  // own color roles.
+  const chip =
+    `<span class="lg-frame-logo-fallback" data-frame-region="logo"` +
+    ` style="display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#5A6470;` +
+    `background:#F6F8FB;border:1px dashed #E1E6EE;border-radius:20px;padding:7px 14px">` +
+    icon +
+    `<span>${escapeHtml(LOGO_FALLBACK_CHIP_TEXT)}</span>` +
+    `</span>`;
+  const link =
+    adminPreview && siteSettingsHref !== null && siteSettingsHref.trim() !== ""
+      ? `<div class="lg-frame-logo-fallback-link" data-admin-preview-hint="1" style="text-align:center;margin-top:8px">` +
+        `<a href="${escapeHtml(siteSettingsHref)}" style="font-size:11.5px;font-weight:700;color:#1B3A5C;` +
+        `border-bottom:1px solid #9DBCDD;text-decoration:none">Open Site settings &rarr;</a>` +
+        `</div>`
+      : "";
+  return chip + link;
 }
 
 // Small attribute + class helpers (byte-trim; mirror presets' attr()/style()).
@@ -1117,7 +1171,7 @@ export function renderQuoteFrame(input: RenderQuoteFrameInput): string {
     discV2Top +
     progressAt.top +
     aboveHeaderEls +
-    renderHeaderRegion(frame, design, branding, adminPreview) +
+    renderHeaderRegion(frame, design, branding, adminPreview, input.siteSettingsHref ?? null) +
     progressAt.under_header +
     ctaUnderHeader +
     backAt.under_header_left +

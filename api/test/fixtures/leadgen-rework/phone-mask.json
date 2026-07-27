@@ -1,0 +1,20 @@
+{
+  "components": [
+    {
+      "type": "PhoneInputQuestion",
+      "question_id": "q_phone_mask",
+      "internal_field": "mobile_phone",
+      "answer_type": "string",
+      "required": true,
+      "props": {
+        "label": "Mobile phone",
+        "phone_format": { "mask": { "pattern": "(3) 3-4", "message": "Enter a complete phone number." } }
+      }
+    },
+    {
+      "type": "ContinueButton",
+      "question_id": "q_continue",
+      "props": { "label": "Continue" }
+    }
+  ]
+}

@@ -98,12 +98,29 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
 }
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -490,9 +507,9 @@ describeDb("leadgen section editor — M1 authoring wired", () => {
     });
     // A yes/no question seeds internal_field + boolean answer_type.
     expect(seeds["TwoButtonYesNo"]).toMatchObject({ internal_field: "", answer_type: "boolean" });
-    // A choice question seeds a choices array; a range question seeds internal_field.
+    // A choice question seeds a choices array; the slider seeds internal_field.
     expect(seeds["ButtonAnswerGroup"]).toHaveProperty("choices");
-    expect(seeds["RangeQuestion"]).toMatchObject({ internal_field: "", answer_type: "number" });
+    expect(seeds["NumberRangeQuestion"]).toMatchObject({ internal_field: "", answer_type: "number" });
     // chrome with no authorable answer fields seeds an empty (but present) object.
     expect(seeds["ProgressBar"]).toEqual({});
   });
@@ -529,7 +546,12 @@ describeDb("leadgen section editor — M1 authoring wired", () => {
     expect(html).toContain("data-inspector-choices");
     expect(html).toContain('id="lg-choice-add"');
     expect(html).toContain("data-choice-bulk"); // §8.6 bulk paste
-    expect(html).toContain('data-choicedisplay="otherGroupEnabled"'); // B9 main/Other grouping
+    // LeadGen Rework §6.5: the old B9 "main/Other grouping" choiceDisplay
+    // editor (data-choicedisplay="otherGroupEnabled") is retired, replaced by
+    // the authored-values Other editor (props.other = {enabled, label,
+    // choices}) — same choices-block region, current control markup.
+    expect(html).toContain("data-other-editor-block");
+    expect(html).toContain("data-other-enabled");
   });
 
   it("the ES5 builder COLLECTS inspector edits back into the selected node (not just markDirty)", async () => {
@@ -681,6 +703,23 @@ describeDb("leadgen sections pages — ES5-only inline scripts", () => {
       });
       expect(errors, errors.join("\n\n")).toEqual([]);
     }
+  });
+
+  // Rework M2 (§4.3-1 "shared first page"): the list page's Usage panel
+  // script (SECTION_LIST_SCRIPT) must split a quote-owned shared-page usage
+  // row (no funnel_public_id) from a true funnel-variant row instead of
+  // rendering a misleading "Funnel › Variant ?" line — sections-handlers.ts's
+  // readSectionUsageRows now emits both shapes in body.usage.variants. This
+  // is a minimal shipped-source check (this list-page script has no jsdom/VM
+  // execution harness in this suite — only the studio island does, further
+  // below — matching this file's existing precedent for row-action scripts).
+  it("Usage panel script discriminates shared-page rows (no funnel_public_id) from funnel-variant rows", async () => {
+    const { env } = newHarness();
+    const html = await getHtml(env, "/admin/leadgen/sections");
+    const scripts = extractScripts(html).join("\n");
+    expect(scripts).toContain("shared first page(s):");
+    expect(scripts).toContain("!variants[i].funnel_public_id");
+    expect(scripts).toContain("Not used by any funnel variant, shared page, or rule.");
   });
 });
 

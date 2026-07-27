@@ -1,0 +1,44 @@
+{
+  "components": [
+    {
+      "type": "NumberRangeQuestion",
+      "question_id": "q_slider_single",
+      "internal_field": "loan_amount",
+      "answer_type": "number",
+      "props": { "label": "Loan amount", "min": 0, "max": 100000, "step": 1000, "slider_type": "single", "minLabel": "$0", "maxLabel": "$100,000+" }
+    },
+    {
+      "type": "NumberRangeQuestion",
+      "question_id": "q_slider_stepper",
+      "internal_field": "years_experience",
+      "answer_type": "number",
+      "props": { "label": "Years of experience", "min": 0, "max": 40, "step": 1, "slider_type": "stepper" }
+    },
+    {
+      "type": "NumberRangeQuestion",
+      "question_id": "q_slider_from_to",
+      "internal_field": "budget_range",
+      "answer_type": "number",
+      "props": { "label": "Budget range", "min": 0, "max": 50000, "step": 500, "slider_type": "from_to" }
+    },
+    {
+      "type": "NumberRangeQuestion",
+      "question_id": "q_slider_dual",
+      "internal_field": "age_range",
+      "answer_type": "number",
+      "props": { "label": "Age range", "min": 18, "max": 90, "step": 1, "slider_type": "dual_range" }
+    },
+    {
+      "type": "NumberRangeQuestion",
+      "question_id": "q_slider_radial",
+      "internal_field": "coverage_amount",
+      "answer_type": "number",
+      "props": { "label": "Coverage amount", "min": 0, "max": 1000000, "step": 10000, "slider_type": "radial" }
+    },
+    {
+      "type": "ContinueButton",
+      "question_id": "q_continue",
+      "props": { "label": "Continue" }
+    }
+  ]
+}

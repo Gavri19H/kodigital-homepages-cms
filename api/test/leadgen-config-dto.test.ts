@@ -107,6 +107,7 @@ function buildResolved(overrides?: {
     created_by: null,
     created_at: 0,
     updated_at: 0,
+    default_funnel_id: null,
   };
   const funnel: LeadgenFunnelRow = {
     id: 7,
@@ -119,14 +120,19 @@ function buildResolved(overrides?: {
     updated_at: 0,
     frame_config_json: null,
     theme_json: null,
+    display_order: null,
+    frame_template_id: null,
   };
+  // Rework M1 (§5-M1, §4.3-10): is_control dropped; variant_label "A" is this
+  // fixture's single active variant (replacement semantics — no running test
+  // ⇒ exactly one active variant, deterministically first by variant_label
+  // ASC/id ASC). frame_template_id is new (M5); NULL = inherit the funnel's.
   const variant: LeadgenFunnelVariantRow = {
     id: 9,
     public_id: mintPublicId("funnel_variant"),
     funnel_id: 7,
     ab_test_id: null,
     variant_label: "A",
-    is_control: 1,
     traffic_allocation_bp: 10000,
     funnel_design_id: "default",
     auction_id: null,
@@ -141,6 +147,7 @@ function buildResolved(overrides?: {
     status: "active",
     created_at: 0,
     frame_overrides_json: null,
+    frame_template_id: null,
   };
   const site_quote: LeadgenSiteQuoteRow = {
     id: 2,
@@ -361,82 +368,6 @@ describe("buildPublicConfig — R6 answer_mapping_version population (v2.4 03 §
       expect(serialized.includes(forbidden), forbidden).toBe(false);
     }
     expect(serialized.toLowerCase().includes("secret")).toBe(false);
-  });
-});
-
-// Fix-contract v2.4 06 §6.4 (B9) — choiceDisplay passthrough: ADDITIVE, present
-// only when the content_json node carries it, normalized through the SAME
-// readChoiceDisplay projection the server renderer uses (unknown keys dropped).
-describe("buildPublicConfig — B9 choiceDisplay passthrough (v2.4 06 §6.4)", () => {
-  const CHOICE_DISPLAY_JSON = JSON.stringify({
-    components: [
-      {
-        type: "ButtonAnswerGroup",
-        question_id: "q_carrier",
-        internal_field: "carrier",
-        choices: [
-          { label: "Acme", value: "acme", analytics_id: "c_acme" },
-          { label: "Zeta", value: "zeta", analytics_id: "c_zeta" },
-        ],
-        choiceDisplay: {
-          mainValues: ["acme"],
-          otherGroupEnabled: true,
-          otherGroupLabel: "Other carrier",
-          searchableOther: true,
-          rogue_extra_key: "MUST_NOT_SURVIVE", // unknown key inside choiceDisplay → dropped
-        },
-      },
-      {
-        type: "TwoButtonYesNo",
-        question_id: "q_plain",
-        internal_field: "plain",
-      },
-    ],
-  });
-
-  function resolvedWithChoiceDisplay(): ResolvedActivatedFunnel {
-    const base = buildResolved();
-    return {
-      ...base,
-      sections: [
-        {
-          position: 0,
-          section: sectionRow({ id: 1, public_id: mintPublicId("section"), content_json: CHOICE_DISPLAY_JSON }),
-        },
-      ],
-    };
-  }
-
-  it("passes choiceDisplay through (normalized) when the node carries it", () => {
-    const config = buildPublicConfig(resolvedWithChoiceDisplay(), getFunnelDesign("default"));
-    const comp = config.sections[0]?.components[0];
-    expect(comp?.choiceDisplay).toEqual({
-      mainValues: ["acme"],
-      otherGroupEnabled: true,
-      otherGroupLabel: "Other carrier",
-      searchableOther: true,
-    });
-  });
-
-  it("drops unknown keys inside choiceDisplay (explicit projection) and omits the field when absent", () => {
-    const config = buildPublicConfig(resolvedWithChoiceDisplay(), getFunnelDesign("default"));
-    expect(JSON.stringify(config).includes("MUST_NOT_SURVIVE")).toBe(false);
-    const plain = config.sections[0]?.components[1];
-    expect(plain !== undefined && "choiceDisplay" in plain).toBe(false);
-  });
-
-  it("the DENY list is unchanged with choiceDisplay present", () => {
-    const serialized = JSON.stringify(buildPublicConfig(resolvedWithChoiceDisplay(), getFunnelDesign("default")));
-    for (const forbidden of [
-      "endpoint_production",
-      "api_token_secret_ref",
-      "bid_source",
-      "carrier_parse_json",
-      "schema_json",
-      "winner_logic",
-    ]) {
-      expect(serialized.includes(forbidden), forbidden).toBe(false);
-    }
   });
 });
 

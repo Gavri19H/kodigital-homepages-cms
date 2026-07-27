@@ -56,6 +56,7 @@ import { getThemeRecord } from "../../public/leadgen/designs/theme-store";
 import {
   CURATED_DESIGN_OVERRIDE_KEYS,
   flattenComponents,
+  parsePhoneMaskPattern,
 } from "../../public/leadgen/components/content-schema";
 import { COMPONENT_CATALOG } from "../../public/leadgen/components/registry";
 import type {
@@ -360,6 +361,17 @@ function phoneFormatIncoherenceWarning(node: Record<string, unknown>, path: stri
   const props = isRecord(node["props"]) ? node["props"] : {};
   const phoneFormat = props["phone_format"];
   if (phoneFormat === undefined || phoneFormat === null || phoneFormat === "nanp") return null;
+  // Rework M8 (§6.9): a MASK phone format is COHERENT with the US-only
+  // formatPhone transform iff it collects exactly 10 digits (NANP). S2.1 exposed
+  // digit_count via parsePhoneMaskPattern (the single grammar source) — a
+  // 10-digit mask (e.g. the default "(3) 3-4") pairs cleanly, so it does NOT
+  // warn; any other digit_count would be silently dropped by transformFormatPhone
+  // exactly like a non-NANP preset, so it still warns. Preset strings
+  // (e164_intl/il) and the legacy {custom:{regex}} shape keep warning below.
+  if (isRecord(phoneFormat) && isRecord(phoneFormat["mask"])) {
+    const parsed = parsePhoneMaskPattern((phoneFormat["mask"] as Record<string, unknown>)["pattern"]);
+    if (parsed !== null && parsed.digit_count === 10) return null;
+  }
   return {
     path,
     scope: "mapping",
@@ -988,6 +1000,20 @@ interface AffectedSectionFunnel {
 // sectionUsageHandler already uses, filtered to f.status='active'). A section
 // referenced by zero funnels, or only by draft/archived ones, touches NO cache
 // key — a safe, empty invalidation set.
+//
+// Rework M2 (§4.3-1/§4.3-2 "shared first page"): a Section can ALSO be placed
+// directly on its Quote's shared page (leadgen_funnel_variant_sections.
+// quote_id set, variant_id NULL) instead of on any funnel variant's own page
+// order. The shared page serves FIRST for every visitor of EVERY active
+// funnel under that quote, so editing a shared-page Section must invalidate
+// ALL of that quote's active funnels too — the first branch's unqualified
+// `v.id = fvs.variant_id` join would otherwise silently miss quote-owned rows
+// (variant_id IS NULL never matches), leaving those funnels' shells stale
+// (the exact staleness class R6 SEAM 3 / invalidateSectionAcrossFunnels below
+// exists to close). Plain UNION (not ALL): the same (funnel, quote) pair can
+// legitimately surface from BOTH branches when a funnel's own variant ALSO
+// orders this section directly — dedup keeps the per-funnel sweep below from
+// running twice for it.
 async function findActiveFunnelsReferencingSection(
   db: D1Database,
   sectionId: number,
@@ -998,7 +1024,12 @@ async function findActiveFunnelsReferencingSection(
        FROM leadgen_funnel_variant_sections fvs
        JOIN leadgen_funnel_variants v ON v.id = fvs.variant_id
        JOIN leadgen_funnels f ON f.id = v.funnel_id
-       WHERE fvs.section_id = ? AND f.status = 'active'`,
+       WHERE fvs.section_id = ?1 AND fvs.variant_id IS NOT NULL AND f.status = 'active'
+       UNION
+       SELECT DISTINCT f.public_id AS public_id, f.quote_id AS quote_id
+       FROM leadgen_funnel_variant_sections fvs
+       JOIN leadgen_funnels f ON f.quote_id = fvs.quote_id
+       WHERE fvs.section_id = ?1 AND fvs.quote_id IS NOT NULL AND f.status = 'active'`,
     )
     .bind(sectionId)
     .all<{ public_id: string; quote_id: number }>();
@@ -1207,6 +1238,12 @@ async function storedAnswerMapsAsInput(db: D1Database, sectionId: number): Promi
 //     child tables by FK).
 // ---------------------------------------------------------------------------
 
+// Rework M2 reader sweep (examined, unchanged): the guard's NOT EXISTS below
+// filters by section_id only — it never joins through variant_id — so it
+// already refuses a delete for a Section referenced by EITHER a variant-owned
+// OR a quote-owned (shared-page) leadgen_funnel_variant_sections row, with no
+// change needed. Only the INFORMATIVE usage payload built below on a 409
+// (readSectionUsageRows) needed the owner-axis fix — see that function.
 export async function deleteSectionHandler(c: AdminContext): Promise<Response> {
   const row = await resolveSectionRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
@@ -1437,6 +1474,22 @@ type SectionPreviewFrameResult =
   | { kind: "invalid"; fields: FieldErrors }
   | { kind: "not_found" };
 
+// Rework §8.8 (follow-up round): the SAME real admin route quotes-handlers.ts's
+// own SITE_SETTINGS_LINK / activation-preflight fix_url already builds
+// (ui.ts's GET /admin/settings?site_id=<id> — the per-site settings editor,
+// verified by grep, not invented). Duplicated as a small local helper rather
+// than imported (this repo's own harness-duplication convention for a
+// one-line, self-contained string builder) — reads the RAW, not-yet-resolved
+// frame_context body param directly (no SectionPreviewFrame type widening
+// needed just to carry a site_id through one render call). Absent/malformed
+// frame_context or site_id -> null, never a fabricated href.
+function siteSettingsHrefFromFrameContext(rawFrameContext: unknown): string | null {
+  if (!isRecord(rawFrameContext)) return null;
+  const rawSiteId = rawFrameContext["site_id"];
+  if (typeof rawSiteId !== "string" || rawSiteId.trim() === "") return null;
+  return `/admin/settings?site_id=${encodeURIComponent(rawSiteId.trim())}`;
+}
+
 // Parse + resolve the §13.4 frame_context body param. `explicitDesignId` is
 // the request's own design_id (when sent it stays the layer-1 base in-frame —
 // "existing design_id honored"); otherwise the funnel's variant design drives
@@ -1524,9 +1577,23 @@ async function resolveSectionPreviewFrame(
       .bind(variantPublicId, funnel.id)
       .first<LeadgenFunnelVariantRow>();
     if (variant === null) return { kind: "not_found" };
+    // Rework §4.3-11: the LIVE progress-bar total = shared-page sections +
+    // the routed funnel's own sections (resolver.ts owns that exact
+    // computation as a separate P1 slice — serve.ts's `resolved.sections`
+    // is untouched here). This PREVIEW-only convenience number mirrors the
+    // same two-part shape at the SAME rough fidelity it already had
+    // pre-rework (a raw section COUNT, never a page/slot resolution): the
+    // chosen variant's own count PLUS its owning quote's shared-page
+    // (quote_id-owned) section count, so previewing a Section inside a
+    // variant whose quote also has a shared page doesn't under-report steps
+    // relative to what a live visitor would actually see.
     const counted = await db
-      .prepare("SELECT COUNT(*) AS n FROM leadgen_funnel_variant_sections WHERE variant_id = ?")
-      .bind(variant.id)
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM leadgen_funnel_variant_sections WHERE variant_id = ?1) +
+           (SELECT COUNT(*) FROM leadgen_funnel_variant_sections WHERE quote_id = ?2) AS n`,
+      )
+      .bind(variant.id, funnel.quote_id)
       .first<{ n: number }>();
     sectionCount = Math.max(1, Number(counted?.n ?? 0));
   }
@@ -1865,6 +1932,18 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
             effectiveTokens: themeTokens ?? frame.composition.effectiveTokens,
             frame: frame.composition.frame,
             siteBranding: frame.branding,
+            // Rework §8.8 (follow-up round, conductor-granted): this whole
+            // endpoint (POST /api/admin/leadgen/sections/preview) is ONLY
+            // ever reached from admin-side code (the Section Studio canvas,
+            // the Themes-manager live canvas, the Templates canvas, the
+            // funnel-theme mini-preview) — never a live visitor path (that is
+            // serve.ts, a wholly separate module) — so it is unconditionally
+            // an admin preview leg. siteSettingsHref uses the SAME
+            // SITE_SETTINGS_LINK(siteId) pattern quotes-handlers.ts's own
+            // activation-preflight fix_url already establishes; null when no
+            // frame_context.site_id was supplied (never a fabricated href).
+            adminPreview: true,
+            siteSettingsHref: siteSettingsHrefFromFrameContext(body["frame_context"]),
             sectionsHtml,
             bannersMountHtml: LG_BANNERS_MOUNT_HTML,
             sectionCount: frame.sectionCount,
@@ -1983,9 +2062,9 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
           section_mapping_version: 0,
           answer_mapping_version: "",
           // The FULL flattened component list (the engine applies dependency
-          // visibility itself, exactly as on the live shell). P5 (PC-10):
-          // flatMap so a MultiQuestionGrid row-expands identically to the live
-          // config (expandPublicComponents) — preview and live never disagree.
+          // visibility itself, exactly as on the live shell). flatMap over
+          // expandPublicComponents (a 1:1 projection since §10/M6) keeps preview
+          // and live config byte-identical.
           components: flattenComponents(nodes).flatMap(expandPublicComponents),
         },
       ],
@@ -2066,14 +2145,35 @@ interface SectionUsageRow {
   quote_public_id: string;
   quote_name: string;
   quote_status: string;
-  funnel_public_id: string;
-  funnel_name: string;
-  variant_public_id: string;
-  variant_label: string;
-  variant_status: string;
+  // Rework M2: NULL for a quote-owned SHARED-PAGE usage row (see
+  // readSectionUsageRows below) — the Section is placed on the quote's
+  // shared first page directly, not on any one funnel variant's own page
+  // order, so there is no single owning funnel/variant to name.
+  // ui-section-studio.ts's usageFunnelsOf()/usageQuotesOf() readers already
+  // guard on a falsy funnel_public_id (pre-existing convention, reused here
+  // rather than adding a new discriminator field).
+  funnel_public_id: string | null;
+  funnel_name: string | null;
+  variant_public_id: string | null;
+  variant_label: string | null;
+  variant_status: string | null;
   position: number;
 }
 
+// This is the ONE query both sectionUsageHandler AND deleteSectionHandler's
+// usage guard read (comment above `readSectionUsageRows`'s call sites) — so
+// GET /usage and the DELETE 409 payload can never disagree about "in use".
+//
+// Rework M2 (§4.3-1 "one shared first page"): a Section can ALSO be placed
+// directly on its Quote's shared page (quote_id set, variant_id NULL)
+// instead of on any funnel variant. The first branch's join through
+// `fvs.variant_id` naturally excludes those rows (variant_id IS NULL never
+// matches v.id); the second branch surfaces them explicitly, joined straight
+// to leadgen_quotes (there is no owning funnel/variant to resolve). Without
+// this, a Section used ONLY via a shared page would report "not used" here
+// while the DELETE guard (which checks existence, not identity — see
+// deleteSectionHandler) still correctly 409s, leaving the operator with a
+// confusing empty usage list on a blocked delete.
 async function readSectionUsageRows(db: D1Database, sectionId: number): Promise<SectionUsageRow[]> {
   const usage = await db
     .prepare(
@@ -2085,8 +2185,16 @@ async function readSectionUsageRows(db: D1Database, sectionId: number): Promise<
        JOIN leadgen_funnel_variants v ON v.id = fvs.variant_id
        JOIN leadgen_funnels f ON f.id = v.funnel_id
        JOIN leadgen_quotes q ON q.id = f.quote_id
-       WHERE fvs.section_id = ?
-       ORDER BY q.quote_name ASC, v.variant_label ASC, fvs.position ASC`,
+       WHERE fvs.section_id = ?1 AND fvs.variant_id IS NOT NULL
+       UNION ALL
+       SELECT DISTINCT q.id AS quote_id, q.public_id AS quote_public_id, q.quote_name, q.status AS quote_status,
+              NULL AS funnel_public_id, NULL AS funnel_name,
+              NULL AS variant_public_id, NULL AS variant_label, NULL AS variant_status,
+              fvs.position
+       FROM leadgen_funnel_variant_sections fvs
+       JOIN leadgen_quotes q ON q.id = fvs.quote_id
+       WHERE fvs.section_id = ?1 AND fvs.quote_id IS NOT NULL
+       ORDER BY quote_name ASC, variant_label ASC, position ASC`,
     )
     .bind(sectionId)
     .all<SectionUsageRow>();
@@ -2100,6 +2208,12 @@ async function readSectionUsageRows(db: D1Database, sectionId: number): Promise<
 // found. Same shared-query discipline: this is the ONE query both
 // sectionUsageHandler AND deleteSectionHandler's guard read for the "rules"
 // leg, so they can never disagree.
+//
+// Rework M2 reader sweep (examined, unchanged): leadgen_funnel_rules.
+// variant_id stays NOT NULL in this migration wave (M2 only re-axises
+// leadgen_funnel_pages + leadgen_funnel_variant_sections), so the join below
+// through `r.variant_id` is unaffected — out of this slice's scope (§5-M3
+// eventually moves quote-scoped routing to a NEW table, separately).
 interface SectionRuleReference {
   id: number;
   public_id: string;

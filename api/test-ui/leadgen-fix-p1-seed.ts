@@ -405,6 +405,36 @@ export async function seedFixP1Funnel(
     "variant sections+auction",
   );
 
+  // LeadGen Rework §4.3-1/§4.3-15 (P1, own-hand-verified): activation now
+  // preflights "the shared first page needs at least one section" — this
+  // pre-Rework helper predates that requirement. Seed a TRIVIAL pass-through
+  // shared page (a single ContinueButton, no questions) so callers land on
+  // s1 in one click — the SAME pattern already proven in
+  // leadgen-rework-p2-studio.gesture.spec.ts / __p2c-studio.spec.ts /
+  // leadgen-round4-acceptance.gesture.spec.ts / leadgen-operator-acceptance
+  // .gesture.spec.ts's own seedLiveFunnel helpers.
+  const trivialShared = await json<{ id: number; public_id: string }>(
+    await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: `FixP1 shared ${uniq}`,
+        activity: "quote_funnel",
+        vertical: "life",
+        headline_text: "Continue",
+        status: "active",
+        content_json: {
+          components: [{ type: "ContinueButton", question_id: "shared_continue", props: { label: "Continue" } }],
+        },
+      },
+    }),
+    "shared page section create",
+  );
+  await json(
+    await request.post(`${LG_API}/quotes/${quote.public_id}/shared-page`, {
+      data: { sections: [{ section_id: trivialShared.id }] },
+    }),
+    "shared page create",
+  );
+
   // ---- Activation (the R5 gate — MUST be a clean 200) ----------------------
   const activationRes = await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, {
     data: { enabled: true, slug: opts.slug },

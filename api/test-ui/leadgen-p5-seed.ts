@@ -7,8 +7,9 @@
 //   ProgressBar · HeaderLogo · CategoryLabel · QuestionHeadline · Subheadline ·
 //   IconCardAnswerGrid (the §14.4 Sole-Proprietor/Partnership/LLC/C-Corp/S-Corp
 //   example) · TwoButtonYesNo (§13.2 "Are you insured?" Yes/No answer buttons) ·
-//   CurrencyRangeQuestion (§14.5 BUSINESS LOAN / "How much do you
-//   need?" / $330,000 / $10k / $1M+) · MultiChoiceCardGroup · DropdownQuestion ·
+//   NumberRangeQuestion, currency_affix (§10/S5.1: was CurrencyRangeQuestion,
+//   collapsed into the ONE Slider catalog entry) (§14.5 BUSINESS LOAN / "How
+//   much do you need?" / $330,000 / $10k / $1M+) · MultiChoiceCardGroup · DropdownQuestion ·
 //   ContinueButton · ReassuranceBadge ("Get your offers in 2 minutes or less.")
 //   · FreeText / Email / Phone / Name / ZIP PII inputs · Helper.
 //
@@ -136,7 +137,7 @@ export function buildVisualSectionContent(): SeedSectionContent {
         props: { yesLabel: "Yes", noLabel: "No", auto_advance: false },
       },
       {
-        type: "CurrencyRangeQuestion",
+        type: "NumberRangeQuestion",
         question_id: "q_loan_amount",
         internal_field: "loan_amount",
         required: true,
@@ -145,8 +146,7 @@ export function buildVisualSectionContent(): SeedSectionContent {
           max: 1000000,
           step: 5000,
           default: 330000,
-          currency: "$",
-          format: "currency",
+          currency_affix: true,
           minLabel: "$10,000",
           maxLabel: "$1M+",
           ariaLabel: "How much do you need?",

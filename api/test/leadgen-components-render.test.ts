@@ -15,8 +15,6 @@ import {
   CURATED_DESIGN_OVERRIDE_KEYS,
   flattenComponents,
   LEADGEN_CONTAINER_TYPES,
-  readMultiQuestionRows,
-  multiQuestionRowQuestionId,
 } from "../src/public/leadgen/components/content-schema";
 import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 import {
@@ -69,18 +67,19 @@ describe("validateSectionContent — accepts a well-formed Section", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("accepts a currency-range Section with a curated design_override", () => {
+  it("accepts a currency-affix slider Section with a curated design_override", () => {
     const content = {
       components: [
         { type: "CategoryLabel", question_id: "c1", props: { text: "BUSINESS LOAN" } },
         { type: "QuestionHeadline", question_id: "h1", props: { text: "How much do you need?" } },
         {
-          type: "CurrencyRangeQuestion",
+          // §10/M7: the ONE slider type; currency is display-only props.currency_affix.
+          type: "NumberRangeQuestion",
           question_id: "q_amt",
           internal_field: "loan_amount",
-          answer_type: "currency",
+          answer_type: "number",
           design_overrides: { rangeColor: "#1B3A5C", columns: 3 },
-          props: { min: 10000, max: 1000000, default: 330000, currency: "$" },
+          props: { min: 10000, max: 1000000, default: 330000, currency: "$", currency_affix: true },
         },
       ],
     };
@@ -139,8 +138,8 @@ describe("validateSectionContent — per-node rejects", () => {
     expect(codes(c)).toContain("duplicate_question_key");
   });
 
-  it("missing required internal_field (RangeQuestion)", () => {
-    const c = { components: [{ type: "RangeQuestion", question_id: "r", props: { min: 0, max: 9 } }] };
+  it("missing required internal_field (NumberRangeQuestion)", () => {
+    const c = { components: [{ type: "NumberRangeQuestion", question_id: "r", props: { min: 0, max: 9 } }] };
     expect(codes(c)).toContain("missing_required_field");
   });
 
@@ -311,18 +310,14 @@ const NODE_SPECS: Record<ComponentType, LeadgenComponentNode> = {
   CategoryLabel: { type: "CategoryLabel", question_id: "q", props: { text: "BUSINESS LOAN" } },
   QuestionHeadline: { type: "QuestionHeadline", question_id: "q", props: { text: "How much?" } },
   Subheadline: { type: "Subheadline", question_id: "q", props: { text: "Why we ask" } },
-  RangeQuestion: { type: "RangeQuestion", question_id: "q", internal_field: "amt", props: { min: 0, max: 100, default: 50 } },
-  CurrencyRangeQuestion: { type: "CurrencyRangeQuestion", question_id: "q", internal_field: "loan", props: { min: 10000, max: 1000000, default: 330000, currency: "$" } },
-  NumberRangeQuestion: { type: "NumberRangeQuestion", question_id: "q", internal_field: "count", props: { min: 1, max: 9, default: 3 } },
+  NumberRangeQuestion: { type: "NumberRangeQuestion", question_id: "q", internal_field: "count", props: { min: 1, max: 9, default: 3, currency_affix: true } },
   ButtonAnswerGroup: { type: "ButtonAnswerGroup", question_id: "q", internal_field: "pick", choices: CHOICES },
   TwoButtonYesNo: { type: "TwoButtonYesNo", question_id: "q", internal_field: "insured", props: { auto_advance: true } },
   IconCardAnswerGrid: { type: "IconCardAnswerGrid", question_id: "q", internal_field: "biz", choices: ICON_CHOICES, props: { columns: 3 } },
   ImageCardAnswerGrid: { type: "ImageCardAnswerGrid", question_id: "q", internal_field: "carrier", choices: IMAGE_CHOICES, props: { columns: 4 } },
   MultiChoiceCardGroup: { type: "MultiChoiceCardGroup", question_id: "q", internal_field: "features", choices: CHOICES, props: { min: 1, max: 2 } },
-  MultiQuestionGrid: { type: "MultiQuestionGrid", question_id: "q", choices: CHOICES, props: { rows: [{ label: "Homeowner", internal_field: "mqg_home", default: "sole_prop" }, { label: "Married", internal_field: "mqg_married" }] } },
   DropdownQuestion: { type: "DropdownQuestion", question_id: "q", internal_field: "insurer", choices: CHOICES, props: { placeholder: "Pick one" } },
   SearchableDropdownQuestion: { type: "SearchableDropdownQuestion", question_id: "q", internal_field: "make", choices: CHOICES, props: { placeholder: "Pick one" } },
-  OtherGroupSelector: { type: "OtherGroupSelector", question_id: "q", internal_field: "carrier", choices: CHOICES, choiceDisplay: { mainValues: ["sole_prop"], otherGroupEnabled: true, otherGroupLabel: "Other", searchableOther: false } },
   FreeTextQuestion: { type: "FreeTextQuestion", question_id: "q", internal_field: "note", props: { placeholder: "Type…", maxLen: 100 } },
   NumberInputQuestion: { type: "NumberInputQuestion", question_id: "q", internal_field: "age", props: { min: 18, max: 99, step: 1, placeholder: "Your age" } },
   CurrencyInputQuestion: { type: "CurrencyInputQuestion", question_id: "q", internal_field: "income", props: { currency: "$", min: 0, max: 1000000, placeholder: "Annual income" } },
@@ -399,7 +394,6 @@ const NO_INLINE_STYLE_TYPES = new Set<ComponentType>([
   "NumberInputQuestion",
   "CurrencyInputQuestion",
   "SearchableDropdownQuestion",
-  "OtherGroupSelector",
   // …and the structural affordances/chrome are fully class-driven too
   // (layout via modifier class / [data-active] state — no per-instance value).
   "TrustBar",
@@ -447,9 +441,9 @@ describe("renderComponent — every catalog type", () => {
   }
 
   it("question nodes carry data-internal-field + data-answer-type", () => {
-    const html = renderComponent(NODE_SPECS.CurrencyRangeQuestion, DESIGN);
-    expect(html).toContain('data-internal-field="loan"');
-    expect(html).toContain('data-answer-type="currency"'); // catalog produces
+    const html = renderComponent(NODE_SPECS.NumberRangeQuestion, DESIGN);
+    expect(html).toContain('data-internal-field="count"');
+    expect(html).toContain('data-answer-type="number"'); // catalog produces
   });
 
   it("choice nodes carry per-choice data-value + data-analytics-id", () => {
@@ -460,7 +454,7 @@ describe("renderComponent — every catalog type", () => {
 
   it("renderSectionComponents renders a whole ordered Section", () => {
     const html = renderSectionComponents(
-      [NODE_SPECS.CategoryLabel, NODE_SPECS.QuestionHeadline, NODE_SPECS.CurrencyRangeQuestion],
+      [NODE_SPECS.CategoryLabel, NODE_SPECS.QuestionHeadline, NODE_SPECS.NumberRangeQuestion],
       DESIGN,
     );
     expect(html.indexOf("lg-category")).toBeLessThan(html.indexOf("lg-headline"));
@@ -543,13 +537,19 @@ describe("IconCardAnswerGrid (§14.4)", () => {
     // Round-4 A-7 (P1b) re-pin: the card-grid clamp is now 1..5 (was 2..5),
     // UNIFIED with the button group — a 1-column input renders --lg-cols:1 (the
     // Image26 full-width stacked-card reference), no longer clamped up to 2.
+    // Rework §6.7 (test repair, P2): effective columns are ALSO now
+    // min(authored, choiceCount) — a 5-choice fixture (>= every authored value
+    // tested here) keeps this test proving the 1..5 BOUNDS clamp exactly as
+    // before; the choiceCount clamp itself has its own dedicated coverage in
+    // api/test/leadgen-rework-render.test.ts.
+    const FIVE_ICON_CHOICES = [1, 2, 3, 4, 5].map((n) => ({ label: `Choice ${n}`, value: `c${n}`, analytics_id: `a${n}`, icon: "🏢" }));
     const four = renderComponent(
-      { type: "IconCardAnswerGrid", question_id: "g", internal_field: "biz", props: { columns: 4 }, choices: ICON_CHOICES },
+      { type: "IconCardAnswerGrid", question_id: "g", internal_field: "biz", props: { columns: 4 }, choices: FIVE_ICON_CHOICES },
       DESIGN,
     );
     expect(four).toContain("--lg-cols:4");
     const clampedHigh = renderComponent(
-      { type: "IconCardAnswerGrid", question_id: "g", internal_field: "biz", props: { columns: 9 }, choices: ICON_CHOICES },
+      { type: "IconCardAnswerGrid", question_id: "g", internal_field: "biz", props: { columns: 9 }, choices: FIVE_ICON_CHOICES },
       DESIGN,
     );
     expect(clampedHigh).toContain("--lg-cols:5");
@@ -604,14 +604,21 @@ describe("IconCardAnswerGrid (§14.4)", () => {
 // ---------------------------------------------------------------------------
 
 describe("MultiChoiceCardGroup (P7fix-mcg — stored-vs-rendered clamp parity)", () => {
+  // Rework §6.7 (test repair, P2): effective columns are now ALSO
+  // min(authored, choiceCount) — a 5-choice fixture (>= every authored value
+  // this describe block tests) keeps these tests proving the ORIGINAL 1..5
+  // BOUNDS-clamp intent unaffected by the NEW choiceCount clamp (its own
+  // dedicated coverage lives in api/test/leadgen-rework-render.test.ts).
+  const FIVE_CHOICES = [1, 2, 3, 4, 5].map((n) => ({ label: `Choice ${n}`, value: `c${n}`, analytics_id: `a${n}` }));
+
   it("emits the requested desktop column count via --lg-cols (clamped 1..5, UNIFIED with IconCardAnswerGrid/renderCardGrid)", () => {
     const four = renderComponent(
-      { type: "MultiChoiceCardGroup", question_id: "g", internal_field: "features", props: { columns: 4 }, choices: CHOICES },
+      { type: "MultiChoiceCardGroup", question_id: "g", internal_field: "features", props: { columns: 4 }, choices: FIVE_CHOICES },
       DESIGN,
     );
     expect(four).toContain("--lg-cols:4");
     const clampedHigh = renderComponent(
-      { type: "MultiChoiceCardGroup", question_id: "g", internal_field: "features", props: { columns: 9 }, choices: CHOICES },
+      { type: "MultiChoiceCardGroup", question_id: "g", internal_field: "features", props: { columns: 9 }, choices: FIVE_CHOICES },
       DESIGN,
     );
     expect(clampedHigh).toContain("--lg-cols:5");
@@ -629,14 +636,15 @@ describe("MultiChoiceCardGroup (P7fix-mcg — stored-vs-rendered clamp parity)",
   it("back-compat: columns 2..5 render unchanged, and an un-authored group still defaults to --lg-cols:2", () => {
     for (const n of [2, 3, 5]) {
       const html = renderComponent(
-        { type: "MultiChoiceCardGroup", question_id: "g", internal_field: "features", props: { columns: n }, choices: CHOICES },
+        { type: "MultiChoiceCardGroup", question_id: "g", internal_field: "features", props: { columns: n }, choices: FIVE_CHOICES },
         DESIGN,
       );
       expect(html).toContain(`--lg-cols:${n}`);
     }
     // No `columns` authored at all (no props, no design_override, no Section
     // default) — the pre-P1a/pre-P7fix-mcg fallback of 2 is UNCHANGED, so
-    // legacy content renders byte-identically.
+    // legacy content renders byte-identically. CHOICES has exactly 2 entries
+    // (matching the default), so the §6.7 choiceCount clamp is a no-op here.
     const unauthored = renderComponent(
       { type: "MultiChoiceCardGroup", question_id: "g", internal_field: "features", choices: CHOICES },
       DESIGN,
@@ -720,10 +728,10 @@ describe("ButtonAnswerGroup + TwoButtonYesNo (§14.6 answer-button state)", () =
 // §14.5 range — filled/remaining track + slider a11y + currency format
 // ---------------------------------------------------------------------------
 
-describe("RangeQuestion / CurrencyRangeQuestion (§14.5)", () => {
+describe("Slider — NumberRangeQuestion (§14.5 / §6.8; currency via props.currency_affix, §10/M7)", () => {
   it("emits role=slider + aria-valuemin/max/now + filled/remaining track", () => {
     const html = renderComponent(
-      { type: "CurrencyRangeQuestion", question_id: "q", internal_field: "loan", props: { min: 10000, max: 1000000, default: 330000, minLabel: "$10,000", maxLabel: "$1M+" } },
+      { type: "NumberRangeQuestion", question_id: "q", internal_field: "loan", props: { min: 10000, max: 1000000, default: 330000, minLabel: "$10,000", maxLabel: "$1M+", currency_affix: true } },
       DESIGN,
     );
     expect(html).toContain('role="slider"');
@@ -851,19 +859,6 @@ describe("v2.4 03 §3.3 — data-lg-* hydration hooks", () => {
     for (const type of QUESTION_TYPES) {
       const spec = NODE_SPECS[type];
       const html = renderComponent(spec, DESIGN);
-      if (type === "MultiQuestionGrid") {
-        // P5 (PC-10): a MultiQuestionGrid is a MULTI-question node — each ROW is
-        // the answer-producing unit, so its [data-lg-question] hooks are the
-        // per-row synthetic ids (the SAME ids config-dto's expandPublicComponents
-        // projects as the row components — preview/live/runtime agree by
-        // construction), NOT a single node-level hook. Assert every row is hooked.
-        for (const row of readMultiQuestionRows(spec)) {
-          expect(html, `${type} row ${row.internal_field}`).toContain(
-            `data-lg-question="${multiQuestionRowQuestionId(spec.question_id, row.internal_field)}"`,
-          );
-        }
-        continue;
-      }
       expect(html, type).toContain(`data-lg-question="${spec.question_id}"`);
     }
   });
@@ -889,7 +884,7 @@ describe("v2.4 03 §3.3 — data-lg-* hydration hooks", () => {
   it("data-lg-field mirrors internal_field on question components that carry one", () => {
     expect(renderComponent(NODE_SPECS.TwoButtonYesNo, DESIGN)).toContain('data-lg-field="insured"');
     expect(renderComponent(NODE_SPECS.FreeTextQuestion, DESIGN)).toContain('data-lg-field="note"');
-    expect(renderComponent(NODE_SPECS.CurrencyRangeQuestion, DESIGN)).toContain('data-lg-field="loan"');
+    expect(renderComponent(NODE_SPECS.NumberRangeQuestion, DESIGN)).toContain('data-lg-field="count"');
     // NameFieldsGroup / AddressAutocomplete have no single internal_field → no data-lg-field.
     expect(renderComponent(NODE_SPECS.NameFieldsGroup, DESIGN)).not.toContain("data-lg-field");
     expect(renderComponent(NODE_SPECS.AddressAutocompleteQuestion, DESIGN)).not.toContain("data-lg-field");
@@ -1216,12 +1211,19 @@ describe("v3.1 §8.5b/§11.5/§12 — Style tab Corners/Border-color render wiri
 });
 
 // ---------------------------------------------------------------------------
-// v2.4 06 §6.4 (B9) — Other-group markup on choice components with
-// choiceDisplay.otherGroupEnabled. Attributes/markup appear ONLY with the
-// metadata (no existing content has it → no visual change by construction).
+// Rework §10 removal (test repair, P2): the v2.4 06 §6.4 (B9) choiceDisplay
+// Other-group render leg (splitChoicesForOtherGroup/renderOtherGroupTail) is
+// RETIRED from every renderer — LEADGEN-REWORK-03 §6.5 replaces it with the
+// authored `props.other` affordance (its own thorough coverage lives in
+// api/test/leadgen-rework-render.test.ts). This block now proves the RETIRED
+// mechanism is INERT: a node still carrying legacy choiceDisplay metadata
+// (M12 migrates/strips it from real content, but a defensive/stale record is
+// tolerated on read) renders IDENTICALLY to the same node WITHOUT it — no
+// Other-trigger, no panel, every choice flat — across every family that used
+// to special-case it.
 // ---------------------------------------------------------------------------
 
-describe("v2.4 §6.4 (B9) — Other-group render (choiceDisplay)", () => {
+describe("Rework §10 — retired choiceDisplay Other-group render is inert", () => {
   const CARRIERS = [
     { label: "Acme", value: "acme", analytics_id: "c_acme" },
     { label: "Globex", value: "globex", analytics_id: "c_globex" },
@@ -1242,34 +1244,24 @@ describe("v2.4 §6.4 (B9) — Other-group render (choiceDisplay)", () => {
       },
     }) as LeadgenComponentNode;
 
-  it("renders main values as normal choices + ONE Other trigger + a hidden panel of secondary REAL values", () => {
+  it("ButtonAnswerGroup: choiceDisplay.otherGroupEnabled renders flat — every choice a normal button, no Other artifacts", () => {
     const html = renderComponent(withDisplay(), DESIGN);
-    // main choice renders as a normal selectable choice…
     expect(html).toContain('data-lg-choice="acme"');
-    // …the trigger exists, labelled, expandable, and NEVER a choice itself…
-    expect(html).toContain("data-lg-other-trigger");
-    expect(html).toContain("Other carrier");
-    expect(html).toContain('aria-expanded="false"');
-    const triggerTag = html.match(/<button[^>]*data-lg-other-trigger[^>]*>/)?.[0] ?? "";
-    expect(triggerTag).not.toBe("");
-    expect(triggerTag).not.toContain("data-lg-choice");
-    expect(triggerTag).not.toContain("data-value");
-    // …the panel is hidden and carries the secondary REAL values.
-    expect(html).toContain("data-lg-other-panel");
-    expect(html).toMatch(/data-lg-other-panel hidden/);
     expect(html).toContain('data-lg-choice="globex"');
     expect(html).toContain('data-lg-choice="initech"');
-    // the literal string "Other" is never a stored value.
-    expect(html).not.toContain('data-lg-choice="Other');
-    expect(html).not.toContain('data-value="Other');
+    expect(html).not.toContain("data-lg-other-trigger");
+    expect(html).not.toContain("data-lg-other-panel");
+    expect(html).not.toContain("lg-other-");
+    expect(html).not.toContain("Other carrier"); // the retired otherGroupLabel never renders
+    // byte-identical to the SAME choices without any choiceDisplay at all.
+    const withoutDisplay = renderComponent(
+      { type: "ButtonAnswerGroup", question_id: "q_carrier", internal_field: "carrier", choices: CARRIERS } as LeadgenComponentNode,
+      DESIGN,
+    );
+    expect(html).toBe(withoutDisplay);
   });
 
-  it("searchableOther adds the panel search input; searchableOther:false omits it", () => {
-    expect(renderComponent(withDisplay(), DESIGN)).toContain("data-lg-other-search");
-    expect(renderComponent(withDisplay({ searchableOther: false }), DESIGN)).not.toContain("data-lg-other-search");
-  });
-
-  it("card grids + multi-choice render the Other group in their own affordance", () => {
+  it("card grids + multi-choice: choiceDisplay renders flat too (every choice a normal card, no Other artifacts)", () => {
     const icon = renderComponent(
       {
         type: "IconCardAnswerGrid",
@@ -1280,8 +1272,8 @@ describe("v2.4 §6.4 (B9) — Other-group render (choiceDisplay)", () => {
       } as LeadgenComponentNode,
       DESIGN,
     );
-    expect(icon).toContain("data-lg-other-trigger");
-    expect(icon).toContain("data-lg-other-panel");
+    expect(icon).not.toContain("data-lg-other-trigger");
+    expect(icon).not.toContain("data-lg-other-panel");
     expect(icon).toContain('data-lg-choice="globex"');
     const multi = renderComponent(
       {
@@ -1293,33 +1285,24 @@ describe("v2.4 §6.4 (B9) — Other-group render (choiceDisplay)", () => {
       } as LeadgenComponentNode,
       DESIGN,
     );
-    expect(multi).toContain("data-lg-other-trigger");
+    expect(multi).not.toContain("data-lg-other-trigger");
     expect(multi).toContain('data-lg-choice="initech"');
   });
 
-  it("WITHOUT choiceDisplay the markup carries no Other-group artifacts (no visual change)", () => {
+  it("WITHOUT choiceDisplay the markup carries no Other-group artifacts (unchanged baseline)", () => {
     const html = renderComponent(NODE_SPECS.ButtonAnswerGroup, DESIGN);
     expect(html).not.toContain("data-lg-other-trigger");
     expect(html).not.toContain("data-lg-other-panel");
     expect(html).not.toContain("lg-other-");
   });
 
-  it("otherGroupEnabled:false renders flat (metadata present but grouping off)", () => {
+  it("otherGroupEnabled:false ALSO renders flat (both booleans are equally inert now)", () => {
     const html = renderComponent(withDisplay({ otherGroupEnabled: false }), DESIGN);
     expect(html).not.toContain("data-lg-other-trigger");
-    expect(html).toContain('data-lg-choice="globex"'); // all values flat
+    expect(html).toContain('data-lg-choice="globex"');
   });
 
-  it("escapes a hostile otherGroupLabel (never live markup)", () => {
-    const html = renderComponent(
-      withDisplay({ otherGroupLabel: `<script>alert(1)</script>` }),
-      DESIGN,
-    );
-    expect(html).not.toContain("<script>alert(1)");
-    expect(html).toContain("&lt;script&gt;");
-  });
-
-  it("dropdown with choiceDisplay renders ALL values as flat real-value options (panel UX arrives with the Phase-2 preset)", () => {
+  it("dropdown with choiceDisplay renders ALL values as flat real-value options (unchanged — Dropdown never had an Other render leg)", () => {
     const html = renderComponent(
       {
         type: "DropdownQuestion",
@@ -1392,25 +1375,10 @@ describe("v2.4 08 §8.3/§8.10 — new leaf components", () => {
     expect(html).not.toContain("<script");
   });
 
-  it("OtherGroupSelector renders main choices as answer buttons + the Other trigger + hidden panel of REAL secondary values", () => {
-    const html = renderComponent(NODE_SPECS.OtherGroupSelector, DESIGN);
-    expect(html).toContain('class="lg-btn lg-btn-answer"'); // the answer-button affordance
-    expect(html).toContain('data-lg-choice="sole_prop"'); // main value stays a normal choice
-    expect(html).toContain("data-lg-other-trigger");
-    expect(html).toMatch(/data-lg-other-panel hidden/);
-    expect(html).toContain('data-lg-choice="partnership"'); // secondary REAL value in the panel
-    const triggerTag = html.match(/<button[^>]*data-lg-other-trigger[^>]*>/)?.[0] ?? "";
-    expect(triggerTag).not.toBe("");
-    expect(triggerTag).not.toContain("data-value"); // the trigger itself is never a choice
-    expect(html).not.toContain('data-lg-choice="Other');
-    // defensive flat fallback without grouping metadata.
-    const flat = renderComponent(
-      { type: "OtherGroupSelector", question_id: "q", internal_field: "carrier", choices: CHOICES },
-      DESIGN,
-    );
-    expect(flat).not.toContain("data-lg-other-trigger");
-    expect(flat).toContain('data-lg-choice="partnership"');
-  });
+  // §10 removal: the extinct-type render seam (OtherGroupSelector / the grid /
+  // Range / CurrencyRange → the `.lg-mqg-empty` fail-safe box, never a 500 — the
+  // L-192 seam) is proven once, for ALL four extinct types, in
+  // leadgen-rework-render.test.ts ("§10 seam"); not duplicated here.
 
   it("SuccessState renders icon + heading + message in the success-green family; role=status", () => {
     const html = renderComponent(NODE_SPECS.SuccessState, DESIGN);

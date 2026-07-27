@@ -1,0 +1,1159 @@
+<div class="lg-qpanel" data-panel="templates">
+  <style>
+.lg-tpl2-eyebrow{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--c-muted);margin:10px 0 8px}
+.lg-tpl2-shell{display:flex;gap:12px;align-items:flex-start;min-height:520px}
+.lg-tpl2-left{flex:0 0 292px;min-width:0}
+.lg-tpl2-center{flex:1 1 auto;min-width:0;background:var(--c-bg,#f6f7f9);border:1px solid var(--c-border);border-radius:8px;display:flex;flex-direction:column;overflow:hidden}
+.lg-tpl2-right{flex:0 0 344px;min-width:0}
+@media (max-width:1100px){.lg-tpl2-shell{flex-direction:column}.lg-tpl2-left,.lg-tpl2-right{flex:1 1 auto}}
+.lg-tpl2-canvas-shell{display:flex;flex-direction:column;height:100%}
+.lg-tpl2-canvas-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px;border-bottom:1px solid var(--c-border);background:var(--c-card,#fff)}
+.lg-tpl2-canvas-surface{flex:1 1 auto;overflow:auto;padding:20px;display:flex;justify-content:center}
+.lg-tpl2-canvas-iframe{width:600px;max-width:100%;min-height:520px;border:0;background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(16,24,40,.12)}
+.lg-tpl2-bar-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.lg-tpl2-chip-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1 1 auto}
+.lg-tpl2-tpl-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--c-border);border-radius:20px;padding:4px 10px;font-size:12px;background:var(--c-card,#fff);position:relative}
+.lg-tpl2-tpl-chip.is-default{border-color:var(--c-primary,#1B3A5C)}
+.lg-tpl2-tpl-chip-default-badge{font-size:9px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;background:var(--c-primary,#1B3A5C);color:#fff;border-radius:10px;padding:1px 6px}
+.lg-tpl2-tpl-chip button{background:none;border:0;cursor:pointer;color:var(--c-muted);font-size:11px;padding:0 2px}
+.lg-tpl2-tpl-menu{position:absolute;top:100%;left:0;z-index:5;background:var(--c-card,#fff);border:1px solid var(--c-border);border-radius:6px;box-shadow:0 4px 14px rgba(16,24,40,.16);padding:4px;display:flex;flex-direction:column;min-width:140px;margin-top:4px}
+.lg-tpl2-tpl-menu button{display:block;width:100%;text-align:left;padding:6px 8px;font-size:12px;color:var(--c-text);white-space:nowrap}
+.lg-tpl2-tpl-menu button:hover{background:var(--c-bg,#f6f7f9)}
+.lg-tpl2-new-form{align-items:center}
+.lg-tpl2-ptype-grid{display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+.lg-tpl2-ptype{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 6px;border:1px solid var(--c-border);border-radius:8px;background:var(--c-card,#fff);flex:1 1 0;min-width:56px;cursor:pointer;position:relative}
+.lg-tpl2-ptype input{position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;margin:0;cursor:pointer}
+.lg-tpl2-ptype.active{border-color:var(--c-primary,#1B3A5C);border-width:2px;background:var(--c-bg,#f6f7f9)}
+.lg-tpl2-ptype-thumb{width:32px;height:14px;border-radius:3px;background:var(--c-border);display:block}
+.lg-tpl2-ptype-label{font-size:10px;font-weight:700;text-align:center;color:var(--c-text)}
+.lg-tpl2-visually-hidden{position:absolute !important;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+.lg-tpl2-seg{display:inline-flex;border:1px solid var(--c-border);border-radius:8px;overflow:hidden;width:100%}
+.lg-tpl2-seg-item{flex:1;text-align:center;font-size:12px;font-weight:600;padding:7px 6px;cursor:pointer;position:relative;color:var(--c-muted);border-left:1px solid var(--c-border)}
+.lg-tpl2-seg-item:first-child{border-left:0}
+.lg-tpl2-seg-item input{position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;margin:0;cursor:pointer}
+.lg-tpl2-seg-item.active{background:var(--c-primary,#1B3A5C);color:#fff}
+.lg-tpl2-divider{height:1px;background:var(--c-border);margin:12px 0}
+.lg-tpl2-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0}
+.lg-tpl2-toggle-title{font-size:13px;font-weight:600;color:var(--c-text);display:block}
+.lg-tpl2-toggle-help{font-size:11px;color:var(--c-muted);display:block}
+.lg-tpl2-switch{position:relative;display:inline-block;flex:0 0 auto}
+.lg-tpl2-switch-input{position:absolute;opacity:0;width:38px;height:22px;margin:0;cursor:pointer;z-index:1}
+.lg-tpl2-switch-track{display:inline-block;width:38px;height:22px;border-radius:20px;background:#CBD3DF;position:relative;transition:background .12s}
+.lg-tpl2-switch-knob{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(16,24,40,.25);transition:left .12s}
+.lg-tpl2-switch-input:checked + .lg-tpl2-switch-track{background:var(--c-primary,#1B3A5C)}
+.lg-tpl2-switch-input:checked + .lg-tpl2-switch-track .lg-tpl2-switch-knob{left:18px}
+.lg-tpl2-dialog-overlay{position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(15,23,42,.45);z-index:60;display:flex;align-items:center;justify-content:center;padding:24px}
+.lg-tpl2-dialog-panel{background:var(--c-card,#fff);border-radius:10px;max-width:640px;width:100%;max-height:85vh;overflow:auto;padding:20px}
+.lg-tpl2-apply-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:10px}
+.lg-tpl2-apply-card{border:1px solid var(--c-border);border-radius:8px;padding:10px;text-align:left;background:var(--c-card,#fff);cursor:pointer}
+.lg-tpl2-apply-card:hover,.lg-tpl2-apply-card:focus{border-color:var(--c-primary,#1B3A5C)}
+.lg-tpl2-apply-card .lg-tpl2-apply-name{font-weight:700;font-size:13px;display:block;margin-bottom:2px}
+.lg-tpl2-apply-card .lg-tpl2-apply-summary{font-size:11px;color:var(--c-muted)}
+/* shared.ts's LG_QUOTES_STYLES defines the base .lg-hidden rule (display:
+   none, equal specificity, single class); several rules above ALSO set a
+   display value on elements that carry lg-hidden (the two dialog overlays,
+   the new-template-form bar-row) via an equal-specificity single-class
+   selector of their own — a same-specificity tie resolves by SOURCE ORDER,
+   and this style block is emitted after LG_QUOTES_STYLES, so without this
+   re-assertion those earlier display:flex rules would win and the "hidden"
+   dialogs would render interactive/blocking. Re-declaring the exact base
+   rule LAST here (not a compound override per element) is the simplest fix
+   that also covers any future lg-tpl2- prefixed class this file adds. */
+.lg-hidden{display:none}
+</style>
+  <div class="lg-panel-card" id="lg-tpl-bar">
+  <div class="lg-tpl2-bar-row">
+    <span class="lg-tpl2-eyebrow">Saved templates</span>
+    <div id="lg-tpl-list" class="lg-tpl2-chip-row"><span class="form-help">Loading templates&#8230;</span></div>
+    <button type="button" class="btn btn-outline btn-sm" id="lg-tpl-new-btn">+ New template</button>
+  </div>
+  <div class="lg-tpl2-bar-row lg-tpl2-new-form lg-hidden" id="lg-tpl-new-form">
+    <input class="form-input" id="lg-tpl-new-name" placeholder="Template name" aria-label="New template name" maxlength="60" />
+    <button type="button" class="btn btn-sm btn-primary" id="lg-tpl-new-save">Create</button>
+    <button type="button" class="btn btn-sm btn-outline" id="lg-tpl-new-cancel">Cancel</button>
+  </div>
+  <div class="lg-tpl2-bar-row">
+    <button type="button" class="btn btn-secondary btn-sm" id="lg-tpl-apply-btn">Apply to funnel&#8230;</button>
+    <button type="button" class="btn btn-secondary btn-sm" id="lg-tpl-ab-btn">A/B templates&#8230;</button>
+  </div>
+  <p class="alert alert-error lg-hidden" id="lg-tpl-delete-guard" role="alert"></p>
+  <p class="alert alert-error lg-hidden" id="lg-tpl-bar-error" role="alert"></p>
+</div>
+  <div class="lg-tpl2-shell" id="lg-tpl-shell">
+    <div class="lg-tpl2-left"><div class="lg-tpl2-eyebrow">Funnel-layout elements</div>
+  <div class="lg-tplbox-grid" id="lg-tplbox-grid"><button type="button" class="lg-tplbox-card" data-tplbox-pick="background">
+    <span class="lg-tplbox-card-letter">A</span>
+    <span>Background</span>
+  </button><button type="button" class="lg-tplbox-card" data-tplbox-pick="logo">
+    <span class="lg-tplbox-card-letter">B</span>
+    <span>Logo</span>
+  </button><button type="button" class="lg-tplbox-card" data-tplbox-pick="cta">
+    <span class="lg-tplbox-card-letter">C</span>
+    <span>Phone / URL</span>
+  </button><button type="button" class="lg-tplbox-card" data-tplbox-pick="disclosure">
+    <span class="lg-tplbox-card-letter">D</span>
+    <span>Disclosure</span>
+  </button><button type="button" class="lg-tplbox-card" data-tplbox-pick="free_text">
+    <span class="lg-tplbox-card-letter">E</span>
+    <span>Free text</span>
+  </button><button type="button" class="lg-tplbox-card" data-tplbox-pick="brand_logos">
+    <span class="lg-tplbox-card-letter">F</span>
+    <span>Brand logos</span>
+  </button><button type="button" class="lg-tplbox-card" data-tplbox-pick="footer">
+    <span class="lg-tplbox-card-letter">G</span>
+    <span>Footer</span>
+  </button><button type="button" class="lg-tplbox-card" data-tplbox-pick="images">
+    <span class="lg-tplbox-card-letter">H</span>
+    <span>Images</span>
+  </button><button type="button" class="lg-tplbox-card selected" data-tplbox-pick="progress">
+    <span class="lg-tplbox-card-letter">I</span>
+    <span>Progress</span>
+  </button></div></div>
+    <div class="lg-tpl2-center"><div class="lg-tpl2-canvas-shell">
+    <div class="lg-tpl2-canvas-toolbar" id="lg-tpl-canvas-toolbar">
+      <select class="form-select form-select-sm" id="lg-tpl-theme-select" aria-label="Theme switcher" style="max-width:180px">
+        <option value="">Current theme</option>
+      </select>
+      <select class="form-select form-select-sm" id="lg-tpl-section-select" aria-label="Section picker" style="max-width:240px">
+        <option value="">Loading sections&#8230;</option>
+      </select>
+      <span class="lg-chip" style="margin-left:auto">Live server preview</span>
+    </div>
+    <div class="lg-tpl2-canvas-surface">
+      <iframe id="lg-tpl-canvas-iframe" class="lg-tpl2-canvas-iframe" title="Templates live preview" sandbox="allow-same-origin"></iframe>
+    </div>
+    <p class="form-help" id="lg-tpl-canvas-status" role="status"></p>
+  </div></div>
+    <div class="lg-tpl2-right"><div class="lg-tplbox-editor" id="lg-tplbox-editor">
+    <p class="form-help" id="lg-tplbox-hint" hidden>Choose a box above to edit it.</p>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="background">
+  <h3>A &middot; Background</h3>
+  <p class="form-help">The funnel's page background &mdash; color and an optional image.</p>
+  <div class="form-group"><label class="form-label">Color</label><div class="lg-role-strip" data-role-strip="background.role"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="background.role" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="background.role" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="background.role" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="background.role" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="background.role" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="background.role" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="background.role" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="background.role" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="background.role" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="background.role" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="background.role" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="background.role" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="background.role" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="background.role" title="Secondary button" aria-label="Secondary button"></button></div></div>
+  <div class="form-group"><label class="form-label">Background image (optional, from the Media library)</label><span class="lg-media-field" data-media-field>
+    <input type="hidden" data-frame-key="background.image_media_id" aria-label="Background image (optional, from the Media library)" />
+    <img class="lg-media-thumb lg-hidden" data-media-thumb alt="" />
+    <button type="button" class="btn btn-sm btn-secondary" data-media-choose aria-label="Choose Background image (optional, from the Media library) from the Media library">Choose&#8230;</button>
+    <button type="button" class="btn btn-sm btn-outline lg-hidden" data-media-clear aria-label="Clear Background image (optional, from the Media library)">Clear</button>
+  </span></div>
+  <div class="form-group"><label class="form-label">Style</label><select class="form-select" data-frame-key="background.style"><option value="flat">Flat</option><option value="brand">Brand</option><option value="brand_gradient">Brand gradient</option></select></div>
+</div>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="logo">
+  <h3>B &middot; Logo</h3>
+  <p class="form-help">The header logo &mdash; sourced from the selected preview site's branding by default (10 &sect;10.1).</p>
+  <div class="form-group"><label class="form-label">Logo source</label><select class="form-select" data-frame-key="header.logo_source"><option value="site">Site logo (auto)</option><option value="cms_fallback">CMS fallback</option></select></div>
+  <div class="form-group"><label class="form-label">Logo size</label><select class="form-select" data-frame-key="header.logo_size"><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select></div>
+  <div class="form-group"><label class="form-label">Alignment</label><select class="form-select" data-frame-key="header.logo_align"><option value="left">Left</option><option value="center">Center</option></select></div>
+  <p class="form-help">For a manual logo override, open the Header region on the canvas (Funnel builder tab) &rarr; Advanced.</p>
+</div>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="cta">
+  <h3>C &middot; Phone / URL</h3>
+  <p class="form-help">Placeable call/link buttons (header, under the header, bottom of the section, or the footer).</p>
+  <div data-tplbox-list="cta_slots"></div>
+  <template data-tplbox-tpl="cta_slots"><div class="lg-tplbox-row" data-cta-row>
+    <div class="lg-list-row">
+      <select class="form-select form-select-sm" data-cta-slot aria-label="CTA slot"><option value="header_right">Header (right)</option><option value="under_header">Under the header</option><option value="section_bottom">Bottom of the section</option><option value="footer">Footer</option></select>
+      <input class="form-input" data-cta-label placeholder="Label (e.g. Call now)" aria-label="CTA label" />
+      <input class="form-input" data-cta-tel placeholder="Phone, e.g. +1 555 123 4567" aria-label="CTA phone number" />
+      <input class="form-input" data-cta-href placeholder="Or a link (https://…)" aria-label="CTA link" />
+      <select class="form-select form-select-sm" data-cta-align aria-label="CTA alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
+      <button type="button" class="btn btn-sm btn-outline" data-cta-remove aria-label="Remove CTA slot">&#10005;</button>
+    </div>
+    <button type="button" class="btn btn-sm btn-secondary" data-cta-cond-toggle aria-expanded="false">+ Add a condition</button>
+    <div class="lg-tplbox-cond lg-hidden" data-cta-cond-box>
+      <p class="form-help">Shown only when this holds (a compiled condition &mdash; toggling isn't wired live yet, but the config authors and round-trips today).</p>
+      <div class="form-group"><label class="form-label">Match</label>
+        <select class="form-select form-select-sm" data-cta-cond-match aria-label="Match all or any of these">
+          <option value="all">All of these</option>
+          <option value="any">Any of these</option>
+        </select>
+      </div>
+      <div data-cta-cond-rows></div>
+      <button type="button" class="btn btn-sm btn-secondary" data-cta-cond-add>+ Add condition</button>
+    </div>
+  </div></template>
+  <template data-tplbox-tpl="cta_cond_row"><div class="lg-list-row" data-cta-cond-row>
+    <select class="form-select form-select-sm" data-cta-cond-field aria-label="Condition field"><optgroup label="Visitor info"><option value="__state" selected>State</option><option value="__device">Device</option><option value="__hour">Hour (UTC 0–23)</option><option value="__weekday">Weekday (UTC 0–6)</option><option value="__page">Page number</option></optgroup><optgroup label="Answers"><option value="f">Second · f</option></optgroup></select>
+    <select class="form-select form-select-sm" data-cta-cond-op aria-label="Condition comparison"><option value="eq" selected>is</option><option value="neq">is not</option></select>
+    <input class="form-input" data-cta-cond-value placeholder="value" aria-label="Condition value" />
+    <button type="button" class="btn btn-sm btn-outline" data-cta-cond-row-remove aria-label="Remove condition">&#10005;</button>
+  </div></template>
+  <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="cta_slots">+ Add a CTA slot</button>
+</div>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="disclosure">
+  <h3>D &middot; Disclosure</h3>
+  <p class="form-help">Per-location advertising-disclosure entries (top and bottom can coexist).</p>
+  <div data-tplbox-list="disclosure.entries"></div>
+  <template data-tplbox-tpl="disclosure.entries"><div class="lg-tplbox-row" data-disc-entry-row>
+    <div class="lg-list-row">
+      <select class="form-select form-select-sm" data-disc-location aria-label="Disclosure location"><option value="top">Top</option><option value="bottom">Bottom</option></select>
+      <select class="form-select form-select-sm" data-disc-mode aria-label="Disclosure mode"><option value="full">Always shown</option><option value="hover">Hover / focus trigger</option></select>
+      <input class="form-input" data-disc-link-label placeholder="Trigger label (hover mode)" aria-label="Disclosure trigger label" />
+      <select class="form-select form-select-sm" data-disc-align aria-label="Disclosure alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
+      <button type="button" class="btn btn-sm btn-outline" data-disc-entry-remove aria-label="Remove disclosure entry">&#10005;</button>
+    </div>
+    <textarea class="form-input" rows="2" data-disc-text placeholder="Disclosure copy for this entry" aria-label="Disclosure entry text"></textarea>
+  </div></template>
+  <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="disclosure.entries">+ Add a disclosure entry</button>
+</div>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="free_text">
+  <h3>E &middot; Free text</h3>
+  <p class="form-help">Author paragraph / heading / checklist blocks anywhere in the funnel chrome.</p>
+  <div data-tplbox-list="free_text"></div>
+  <template data-tplbox-tpl="free_text"><div class="lg-tplbox-row" data-ft-entry-row>
+    <input type="hidden" data-ft-entry-id />
+    <div class="lg-list-row">
+      <select class="form-select form-select-sm" data-ft-slot aria-label="Free-text slot"><option value="above_section">Above the section</option><option value="below_section">Below the section</option><option value="above_header">Above the header</option><option value="below_footer">Below the footer</option></select>
+      <select class="form-select form-select-sm" data-ft-align aria-label="Free-text alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
+      <button type="button" class="btn btn-sm btn-outline" data-ft-entry-remove aria-label="Remove free-text element">&#10005;</button>
+    </div>
+    <div class="lg-scalars">
+      <div class="form-group"><label class="form-label">Text size</label><select class="form-select form-select-sm" data-ft-typo-size aria-label="Text size"><option value="">Theme default</option><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option><option value="xl">Extra large</option></select></div>
+      <div class="form-group"><label class="form-label">Text color</label><select class="form-select form-select-sm" data-ft-typo-color aria-label="Text color role"><option value="">Theme default</option><option value="brand_primary">Brand primary</option><option value="brand_secondary">Brand secondary</option><option value="accent">Accent</option><option value="success">Success</option><option value="error">Error</option><option value="page_background">Page background</option><option value="card_background">Card background</option><option value="surface_wash">Soft fill</option><option value="border">Border</option><option value="text_primary">Text</option><option value="text_muted">Muted text</option><option value="button_primary_bg">Button</option><option value="button_primary_text">Button text</option><option value="button_secondary_bg">Secondary button</option></select></div>
+    </div>
+    <div class="lg-tplbox-pagetarget">
+    <div class="form-group"><label class="form-label">Show on</label>
+      <select class="form-select form-select-sm" data-pt-mode aria-label="Page targeting mode"><option value="all">Every page</option><option value="first">First page only</option><option value="range">A page range</option><option value="list">Specific pages</option></select>
+    </div>
+    <div class="lg-list-row">
+      <input class="form-input form-input-sm" type="number" min="1" data-pt-from placeholder="From page" aria-label="Page range start" />
+      <input class="form-input form-input-sm" type="number" min="1" data-pt-to placeholder="To page" aria-label="Page range end" />
+      <input class="form-input" data-pt-list placeholder="Pages, comma-separated (e.g. 1, 3)" aria-label="Specific pages" />
+    </div>
+  </div>
+    <div data-ft-blocks></div>
+    <button type="button" class="btn btn-sm btn-secondary" data-ft-block-add>+ Add a text block</button>
+  </div></template>
+  <template data-tplbox-tpl="free_text_block"><div class="lg-tplbox-block" data-ft-block-row>
+    <div class="lg-list-row">
+      <select class="form-select form-select-sm" data-ft-block-type aria-label="Text block type"><option value="paragraph">Paragraph</option><option value="heading">Heading</option><option value="list">List</option></select>
+      <select class="form-select form-select-sm lg-hidden" data-ft-block-liststyle aria-label="List style"><option value="unordered">Bulleted</option><option value="ordered">Numbered</option><option value="check">Checklist</option></select>
+      <button type="button" class="btn btn-sm btn-outline" data-ft-block-remove aria-label="Remove text block">&#10005;</button>
+    </div>
+    <div class="lg-tplbox-toolbar" data-ft-block-toolbar>
+      <button type="button" class="btn btn-sm btn-outline" data-ft-fmt="bold" aria-label="Bold" title="Bold"><strong>B</strong></button>
+      <button type="button" class="btn btn-sm btn-outline" data-ft-fmt="italic" aria-label="Italic" title="Italic"><em>I</em></button>
+      <button type="button" class="btn btn-sm btn-outline" data-ft-fmt="link" aria-label="Link" title="Link">Link</button>
+    </div>
+    <textarea class="form-input" rows="3" data-ft-block-text placeholder="Text for this block" aria-label="Text block content"></textarea>
+    <textarea class="form-input lg-hidden" rows="3" data-ft-block-items placeholder="One list item per line" aria-label="List items, one per line"></textarea>
+  </div></template>
+  <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="free_text">+ Add a free-text element</button>
+</div>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="brand_logos">
+  <h3>F &middot; Brand logos</h3>
+  <p class="form-help">A row or grid of partner/trust logos, placed at a slot.</p>
+  <label class="lg-check"><input type="checkbox" data-bl-enabled /> Show the brand-logos strip</label>
+  <div class="lg-scalars">
+    <div class="form-group"><label class="form-label">Layout</label><select class="form-select form-select-sm" data-bl-layout aria-label="Brand logos layout"><option value="row">Row</option><option value="grid">Grid</option></select></div>
+    <div class="form-group"><label class="form-label">Slot</label><select class="form-select form-select-sm" data-bl-slot aria-label="Brand logos slot"><option value="above_section">Above the section</option><option value="below_section">Below the section</option><option value="above_header">Above the header</option><option value="below_footer">Below the footer</option></select></div>
+    <div class="form-group"><label class="form-label">Alignment</label><select class="form-select form-select-sm" data-bl-align aria-label="Brand logos alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></div>
+  </div>
+  <div class="lg-tplbox-pagetarget">
+    <div class="form-group"><label class="form-label">Show on</label>
+      <select class="form-select form-select-sm" data-pt-mode aria-label="Page targeting mode"><option value="all">Every page</option><option value="first">First page only</option><option value="range">A page range</option><option value="list">Specific pages</option></select>
+    </div>
+    <div class="lg-list-row">
+      <input class="form-input form-input-sm" type="number" min="1" data-pt-from placeholder="From page" aria-label="Page range start" />
+      <input class="form-input form-input-sm" type="number" min="1" data-pt-to placeholder="To page" aria-label="Page range end" />
+      <input class="form-input" data-pt-list placeholder="Pages, comma-separated (e.g. 1, 3)" aria-label="Specific pages" />
+    </div>
+  </div>
+  <div data-tplbox-list="brand_logos.items"></div>
+  <template data-tplbox-tpl="brand_logos.items"><div class="lg-list-row" data-bl-item-row>
+    <span class="lg-media-field" data-media-field>
+    <input type="hidden" data-list-field="media_id" aria-label="Logo image (from the Media library)" />
+    <img class="lg-media-thumb lg-hidden" data-media-thumb alt="" />
+    <button type="button" class="btn btn-sm btn-secondary" data-media-choose aria-label="Choose Logo image (from the Media library) from the Media library">Choose&#8230;</button>
+    <button type="button" class="btn btn-sm btn-outline lg-hidden" data-media-clear aria-label="Clear Logo image (from the Media library)">Clear</button>
+  </span>
+    <input class="form-input" data-bl-item-url placeholder="Or a direct image URL (https://…)" aria-label="Logo image URL" />
+    <input class="form-input" data-bl-item-alt placeholder="Alt text (required)" aria-label="Logo alt text" />
+    <select class="form-select form-select-sm" data-bl-item-size aria-label="Logo size"><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select>
+    <span class="lg-row-rail">
+      <button type="button" class="btn btn-sm btn-outline" data-bl-item-up aria-label="Move logo up">&#8593;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-bl-item-down aria-label="Move logo down">&#8595;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-bl-item-remove aria-label="Remove logo">&#10005;</button>
+    </span>
+  </div></template>
+  <div class="toolbar">
+    <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="brand_logos.items">+ Add a logo</button>
+    <button type="button" class="btn btn-sm btn-outline" data-bl-upload-btn>Upload a logo file&#8230;</button>
+    <input type="file" class="lg-hidden" data-bl-upload-input accept="image/svg+xml,image/png,image/jpeg" aria-label="Upload a logo file (SVG, PNG or JPEG)" />
+  </div>
+  <p class="form-help lg-hidden" data-bl-upload-error role="alert"></p>
+</div>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="footer">
+  <h3>G &middot; Footer</h3>
+  <p class="form-help">Bottom-of-page blocks (about / links / disclosure / logo / address / socials), with their own palette and typography.</p>
+  <h4>Palette &amp; typography scope</h4>
+  <div class="lg-scalars">
+    <div class="form-group"><label class="form-label">Background</label><div class="lg-role-strip" data-role-strip="footer.palette_scope.background"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="footer.palette_scope.background" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="footer.palette_scope.background" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="footer.palette_scope.background" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="footer.palette_scope.background" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="footer.palette_scope.background" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="footer.palette_scope.background" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="footer.palette_scope.background" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="footer.palette_scope.background" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="footer.palette_scope.background" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="footer.palette_scope.background" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="footer.palette_scope.background" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="footer.palette_scope.background" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="footer.palette_scope.background" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="footer.palette_scope.background" title="Secondary button" aria-label="Secondary button"></button></div></div>
+    <div class="form-group"><label class="form-label">Text</label><div class="lg-role-strip" data-role-strip="footer.palette_scope.text"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="footer.palette_scope.text" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="footer.palette_scope.text" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="footer.palette_scope.text" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="footer.palette_scope.text" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="footer.palette_scope.text" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="footer.palette_scope.text" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="footer.palette_scope.text" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="footer.palette_scope.text" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="footer.palette_scope.text" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="footer.palette_scope.text" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="footer.palette_scope.text" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="footer.palette_scope.text" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="footer.palette_scope.text" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="footer.palette_scope.text" title="Secondary button" aria-label="Secondary button"></button></div></div>
+    <div class="form-group"><label class="form-label">Links</label><div class="lg-role-strip" data-role-strip="footer.palette_scope.link"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="footer.palette_scope.link" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="footer.palette_scope.link" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="footer.palette_scope.link" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="footer.palette_scope.link" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="footer.palette_scope.link" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="footer.palette_scope.link" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="footer.palette_scope.link" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="footer.palette_scope.link" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="footer.palette_scope.link" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="footer.palette_scope.link" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="footer.palette_scope.link" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="footer.palette_scope.link" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="footer.palette_scope.link" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="footer.palette_scope.link" title="Secondary button" aria-label="Secondary button"></button></div></div>
+  </div>
+  <div class="form-group"><label class="form-label">Text size</label><select class="form-select" data-frame-key="footer.typography_scope.size"><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option><option value="xl">Extra large</option></select></div>
+  <h4>Blocks</h4>
+  <div data-tplbox-list="footer.blocks"></div>
+  <template data-tplbox-tpl="footer.blocks"><div class="lg-tplbox-row" data-footer-block-row>
+    <div class="lg-list-row">
+      <select class="form-select form-select-sm" data-footer-block-type aria-label="Footer block type"><option value="about_paragraph">About paragraph</option><option value="link_row">Link row</option><option value="disclosure">Disclosure</option><option value="logo">Logo</option><option value="address">Address</option><option value="socials">Social links</option></select>
+      <select class="form-select form-select-sm" data-footer-block-align aria-label="Footer block alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
+      <span class="lg-row-rail">
+        <button type="button" class="btn btn-sm btn-outline" data-footer-block-up aria-label="Move block up">&#8593;</button>
+        <button type="button" class="btn btn-sm btn-outline" data-footer-block-down aria-label="Move block down">&#8595;</button>
+        <button type="button" class="btn btn-sm btn-outline" data-footer-block-remove aria-label="Remove block">&#10005;</button>
+      </span>
+    </div>
+    <textarea class="form-input" rows="2" data-footer-block-text placeholder="About / disclosure / address copy" aria-label="Footer block text"></textarea>
+    <div class="lg-hidden" data-footer-block-linkrow>
+      <div class="form-group"><label class="form-label">Links source</label>
+        <select class="form-select form-select-sm" data-footer-block-linksource aria-label="Footer link row source">
+          <option value="site">From site settings (legal links)</option>
+          <option value="manual">Manual list</option>
+        </select>
+      </div>
+      <div data-footer-block-links></div>
+      <button type="button" class="btn btn-sm btn-secondary" data-footer-block-link-add>+ Add link</button>
+    </div>
+  </div></template>
+  <template data-tplbox-tpl="footer_link_row"><div class="lg-list-row" data-footer-link-row>
+    <input class="form-input" data-footer-link-label placeholder="Label" aria-label="Footer link label" />
+    <input class="form-input" data-footer-link-href placeholder="https://… or /page" aria-label="Footer link address" />
+    <button type="button" class="btn btn-sm btn-outline" data-footer-link-remove aria-label="Remove link">&#10005;</button>
+  </div></template>
+  <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="footer.blocks">+ Add a footer block</button>
+</div>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="images">
+  <h3>H &middot; Images</h3>
+  <p class="form-help">Individually placed images (e.g. a persona portrait), each with its own slot, size, alignment and optional hover caption.</p>
+  <div data-tplbox-list="images"></div>
+  <template data-tplbox-tpl="images"><div class="lg-tplbox-row" data-img-item-row>
+    <input type="hidden" data-img-item-id />
+    <div class="lg-list-row">
+      <span class="lg-media-field" data-media-field>
+    <input type="hidden" data-list-field="media_id" aria-label="Image (from the Media library)" />
+    <img class="lg-media-thumb lg-hidden" data-media-thumb alt="" />
+    <button type="button" class="btn btn-sm btn-secondary" data-media-choose aria-label="Choose Image (from the Media library) from the Media library">Choose&#8230;</button>
+    <button type="button" class="btn btn-sm btn-outline lg-hidden" data-media-clear aria-label="Clear Image (from the Media library)">Clear</button>
+  </span>
+      <input class="form-input" data-img-item-url placeholder="Or a direct image URL (https://…)" aria-label="Image URL" />
+      <input class="form-input" data-img-item-alt placeholder="Alt text (required)" aria-label="Image alt text" />
+      <span class="lg-row-rail">
+        <button type="button" class="btn btn-sm btn-outline" data-img-item-up aria-label="Move image up">&#8593;</button>
+        <button type="button" class="btn btn-sm btn-outline" data-img-item-down aria-label="Move image down">&#8595;</button>
+        <button type="button" class="btn btn-sm btn-outline" data-img-item-remove aria-label="Remove image">&#10005;</button>
+      </span>
+    </div>
+    <div class="lg-scalars">
+      <div class="form-group"><label class="form-label">Slot</label><select class="form-select form-select-sm" data-img-item-slot aria-label="Image slot"><option value="above_section">Above the section</option><option value="below_section">Below the section</option><option value="above_header">Above the header</option><option value="below_footer">Below the footer</option></select></div>
+      <div class="form-group"><label class="form-label">Size</label><select class="form-select form-select-sm" data-img-item-size aria-label="Image size"><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select></div>
+      <div class="form-group"><label class="form-label">Alignment</label><select class="form-select form-select-sm" data-img-item-align aria-label="Image alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></div>
+    </div>
+    <input class="form-input" data-img-item-tooltip placeholder="Hover caption (optional)" aria-label="Image hover caption" />
+    <div class="lg-tplbox-pagetarget">
+    <div class="form-group"><label class="form-label">Show on</label>
+      <select class="form-select form-select-sm" data-pt-mode aria-label="Page targeting mode"><option value="all">Every page</option><option value="first">First page only</option><option value="range">A page range</option><option value="list">Specific pages</option></select>
+    </div>
+    <div class="lg-list-row">
+      <input class="form-input form-input-sm" type="number" min="1" data-pt-from placeholder="From page" aria-label="Page range start" />
+      <input class="form-input form-input-sm" type="number" min="1" data-pt-to placeholder="To page" aria-label="Page range end" />
+      <input class="form-input" data-pt-list placeholder="Pages, comma-separated (e.g. 1, 3)" aria-label="Specific pages" />
+    </div>
+  </div>
+    <div class="lg-tplbox-persona">
+      <p class="form-help">Or generate an AI persona portrait (P5c, quota-guarded):</p>
+      <div class="lg-list-row">
+        <select class="form-select form-select-sm" data-img-item-persona aria-label="Persona">
+          <option value="">Choose a persona&#8230;</option>
+          <option value="old_person">Older person</option><option value="young_salesman">Young salesman</option><option value="young_woman">Young woman</option><option value="mid_age_professional">Mid-age professional</option><option value="friendly_advisor">Friendly advisor</option><option value="senior_expert">Senior expert</option><option value="casual_millennial">Casual millennial</option><option value="warm_grandmother">Warm grandmother</option>
+        </select>
+        <button type="button" class="btn btn-sm btn-secondary" data-img-item-generate>Generate</button>
+      </div>
+      <p class="form-help lg-hidden" data-img-item-gen-error role="alert"></p>
+    </div>
+  </div></template>
+  <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="images">+ Add an image</button>
+</div>
+    <div class="lg-inspector-panel lg-panel-card active" data-tplbox-panel="progress">
+  <h3>I &middot; Progress</h3>
+  <p class="form-help">Shows visitors how far through the funnel they are.</p>
+
+  <div class="lg-tpl2-eyebrow">Style</div>
+  <div class="lg-tpl2-ptype-grid" id="lg-tpl-progress-types" role="radiogroup" aria-label="Progress style"><label class="lg-tpl2-ptype">
+      <input type="radio" name="lg-progress-style" value="bar" data-frame-key="progress.style" data-frame-radio="1" />
+      <span class="lg-tpl2-ptype-thumb lg-tpl2-ptype-thumb--bar" aria-hidden="true"></span>
+      <span class="lg-tpl2-ptype-label">Bar</span>
+    </label><label class="lg-tpl2-ptype">
+      <input type="radio" name="lg-progress-style" value="dots" data-frame-key="progress.style" data-frame-radio="1" />
+      <span class="lg-tpl2-ptype-thumb lg-tpl2-ptype-thumb--dots" aria-hidden="true"></span>
+      <span class="lg-tpl2-ptype-label">Dots</span>
+    </label><label class="lg-tpl2-ptype">
+      <input type="radio" name="lg-progress-style" value="numbered" data-frame-key="progress.style" data-frame-radio="1" />
+      <span class="lg-tpl2-ptype-thumb lg-tpl2-ptype-thumb--numbered" aria-hidden="true"></span>
+      <span class="lg-tpl2-ptype-label">Numbered</span>
+    </label><label class="lg-tpl2-ptype">
+      <input type="radio" name="lg-progress-style" value="percent" data-frame-key="progress.style" data-frame-radio="1" />
+      <span class="lg-tpl2-ptype-thumb lg-tpl2-ptype-thumb--percent" aria-hidden="true"></span>
+      <span class="lg-tpl2-ptype-label">Percent</span>
+    </label><label class="lg-tpl2-ptype">
+      <input type="radio" name="lg-progress-style" value="icon_on_track" data-frame-key="progress.style" data-frame-radio="1" />
+      <span class="lg-tpl2-ptype-thumb lg-tpl2-ptype-thumb--icon_on_track" aria-hidden="true"></span>
+      <span class="lg-tpl2-ptype-label">Icon on track</span>
+    </label></div><input type="radio" id="lg-tpl-progress-hidden-radio" name="lg-progress-style" value="hidden" data-frame-key="progress.style" data-frame-radio="1" class="lg-tpl2-visually-hidden" aria-hidden="true" tabindex="-1" />
+  <p class="form-help">5 real styles (Bar/Dots/Numbered/Percent/Icon on track) &mdash; "Hidden" is the toggle below, not a 6th style.</p>
+
+  <label class="lg-tpl2-toggle-row">
+    <span class="lg-tpl2-toggle-copy"><span class="lg-tpl2-toggle-title">Show progress bar</span></span>
+    <span class="lg-tpl2-switch">
+      <input type="checkbox" id="lg-tpl-progress-show-checkbox" class="lg-tpl2-switch-input" checked />
+      <span class="lg-tpl2-switch-track" aria-hidden="true"><span class="lg-tpl2-switch-knob"></span></span>
+    </span>
+  </label>
+
+  <div class="lg-tpl2-divider"></div>
+  <div class="lg-tpl2-eyebrow">Design</div>
+  <div class="form-group"><label class="form-label">Position</label><select class="form-select" data-frame-key="progress.position"><option value="top">Top of page</option><option value="under_header">Under the header</option><option value="above_unit">Above the question unit</option><option value="in_card">Inside the card</option></select></div>
+  <div class="form-group"><label class="form-label">Alignment</label><div class="lg-tpl2-seg" role="radiogroup" aria-label="Alignment"><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-progress-align" value="left" data-frame-key="progress.align" data-frame-radio="1" /><span>Left</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-progress-align" value="center" data-frame-key="progress.align" data-frame-radio="1" /><span>Center</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-progress-align" value="right" data-frame-key="progress.align" data-frame-radio="1" /><span>Right</span></label></div><p class="form-help">Aligns the progress unit within its width band (defaults to Center).</p></div>
+  <div class="form-group"><label class="form-label">Thickness</label><div class="lg-tpl2-seg" role="radiogroup" aria-label="Thickness"><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-progress-thickness" value="s" data-frame-key="progress.thickness" data-frame-radio="1" /><span>Small</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-progress-thickness" value="m" data-frame-key="progress.thickness" data-frame-radio="1" /><span>Medium</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-progress-thickness" value="l" data-frame-key="progress.thickness" data-frame-radio="1" /><span>Large</span></label></div></div>
+  <div class="form-group"><label class="form-label">Width</label><div class="lg-tpl2-seg" role="radiogroup" aria-label="Width"><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-progress-width" value="content" data-frame-key="progress.width" data-frame-radio="1" /><span>Content width</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-progress-width" value="full" data-frame-key="progress.width" data-frame-radio="1" /><span>Full width</span></label></div></div>
+  <div class="form-group"><label class="form-label">Color</label><div class="lg-role-strip" data-role-strip="progress.color_role"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="progress.color_role" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="progress.color_role" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="progress.color_role" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="progress.color_role" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="progress.color_role" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="progress.color_role" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="progress.color_role" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="progress.color_role" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="progress.color_role" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="progress.color_role" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="progress.color_role" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="progress.color_role" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="progress.color_role" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="progress.color_role" title="Secondary button" aria-label="Secondary button"></button></div></div>
+  <label class="lg-tpl2-toggle-row">
+    <span class="lg-tpl2-toggle-copy">
+      <span class="lg-tpl2-toggle-title">Show label</span>
+      <span class="lg-tpl2-toggle-help">e.g. &quot;Step 2 of 5&quot; next to the bar</span>
+    </span>
+    <span class="lg-tpl2-switch">
+      <input type="checkbox" data-frame-key="progress.show_label" class="lg-tpl2-switch-input" />
+      <span class="lg-tpl2-switch-track" aria-hidden="true"><span class="lg-tpl2-switch-knob"></span></span>
+    </span>
+  </label>
+  <p class="lg-region-note">Progress counts the slides of this funnel variant automatically.</p>
+</div>
+  </div></div>
+  </div>
+  <div class="lg-tpl2-dialog-overlay lg-hidden" id="lg-tpl-apply-dialog" role="dialog" aria-modal="true" aria-label="Apply a template to this funnel">
+  <div class="lg-tpl2-dialog-panel">
+    <div data-apply-state="choose">
+      <h3>Funnel layout template</h3>
+      <p class="form-help">Your copy, images and colors are kept. Layout comes from the template. Nothing changes until you confirm.</p>
+      <div id="lg-tpl-apply-choices" class="lg-tpl2-apply-grid"></div>
+    </div>
+    <div class="lg-hidden" data-apply-state="confirm">
+      <h3>Before you switch</h3>
+      <ul id="lg-tpl-apply-confirm-list"></ul>
+      <div class="toolbar">
+        <button type="button" class="btn btn-primary" id="lg-tpl-apply-confirm-btn">Switch template</button>
+        <button type="button" class="btn btn-outline" id="lg-tpl-apply-back-btn">Back</button>
+      </div>
+    </div>
+    <p class="alert alert-error lg-hidden" id="lg-tpl-apply-error" role="alert"></p>
+    <div class="toolbar"><button type="button" class="btn btn-outline" id="lg-tpl-apply-cancel-btn">Cancel</button></div>
+  </div>
+</div>
+  <div class="lg-tpl2-dialog-overlay lg-hidden" id="lg-tpl-ab-dialog" role="dialog" aria-modal="true" aria-label="A/B test templates">
+  <div class="lg-tpl2-dialog-panel">
+    <h3>A/B templates</h3>
+    <p class="form-help">Forks the current variant into a new arm using a DIFFERENT saved template — the A/B tab manages the traffic split afterward.</p>
+    <div class="form-group">
+      <label class="form-label" for="lg-tpl-ab-template-select">New arm's template</label>
+      <select class="form-select" id="lg-tpl-ab-template-select" aria-label="Template for the new arm"></select>
+    </div>
+    <p class="alert alert-error lg-hidden" id="lg-tpl-ab-error" role="alert"></p>
+    <div class="toolbar">
+      <button type="button" class="btn btn-primary" id="lg-tpl-ab-confirm-btn">Create A/B arm</button>
+      <button type="button" class="btn btn-outline" id="lg-tpl-ab-cancel-btn">Cancel</button>
+    </div>
+  </div>
+</div>
+  <script>
+(function () {
+  'use strict';
+  var LG_API = '/api/admin/leadgen';
+  var boot = null;
+  var templates = [];
+  var myFrame = {};
+  var myDraftThemeId = '';
+  var lastRealProgressStyle = 'bar';
+  var previewSeq = 0;
+  var currentSections = [];
+
+  function byId(id) { return document.getElementById(id); }
+  function toArray(nodeList) { return Array.prototype.slice.call(nodeList); }
+  function clearChildren(el) { while (el && el.firstChild) { el.removeChild(el.firstChild); } }
+  function text(s) { return document.createTextNode(s === null || s === undefined ? '' : String(s)); }
+  function isRecord(v) { return v !== null && typeof v === 'object' && !(v instanceof Array); }
+
+  function getPath(obj, path) {
+    var parts = path.split('.');
+    var cur = obj;
+    var i;
+    for (i = 0; i < parts.length; i++) {
+      if (!isRecord(cur)) { return undefined; }
+      cur = cur[parts[i]];
+    }
+    return cur;
+  }
+  function setPath(obj, path, value) {
+    var parts = path.split('.');
+    var cur = obj;
+    var i;
+    for (i = 0; i < parts.length - 1; i++) {
+      if (!isRecord(cur[parts[i]])) { cur[parts[i]] = {}; }
+      cur = cur[parts[i]];
+    }
+    cur[parts[parts.length - 1]] = value;
+  }
+  function deepClone(v) { return v === null || v === undefined ? v : JSON.parse(JSON.stringify(v)); }
+
+  function fetchJson(url, opts) {
+    return fetch(url, opts).then(function (r) {
+      return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+    });
+  }
+
+  function showError(id, msg) {
+    var el = byId(id);
+    if (!el) { return; }
+    clearChildren(el);
+    el.appendChild(text(msg));
+    el.className = el.className.replace(/\s*lg-hidden/g, '');
+  }
+  function hideError(id) {
+    var el = byId(id);
+    if (!el) { return; }
+    if (el.className.indexOf('lg-hidden') < 0) { el.className = el.className + ' lg-hidden'; }
+  }
+
+  // --- boot state -------------------------------------------------------
+  function loadBoot() {
+    var el = byId('lg-quote-data');
+    if (!el) { return null; }
+    try { return JSON.parse(el.textContent || el.innerText || '{}'); } catch (e) { return null; }
+  }
+
+  // --- canvas: POST /variants/:id/preview (mode:section, draft_frame_config,
+  // draft_theme, section_public_id) — mirrors quotes-tabs/funnel.ts's
+  // renderPreview/schedulePreview SHAPE (debounce + monotonic seq guard
+  // against out-of-order responses), a fresh implementation since that
+  // island's closures are not reachable from here. -----------------------
+  function setCanvasDoc(bodyHtml, css) {
+    var frame = byId('lg-tpl-canvas-iframe');
+    if (!frame) { return; }
+    var doc = '<!doctype html><html><head><meta charset="utf-8"><style>' + (css || '') + '</style></head><body>' + (bodyHtml || '') + '</body></html>';
+    frame.setAttribute('srcdoc', doc);
+  }
+
+  function currentEffectiveFrameForDraft() {
+    var d = deepClone(myFrame) || {};
+    if (d.template === undefined && boot && boot.frame && boot.frame.effective_frame) { d.template = boot.frame.effective_frame.template; }
+    d.version = 1;
+    return d;
+  }
+  function currentDraftTheme() {
+    if (myDraftThemeId === '') { return undefined; }
+    return { theme_id: myDraftThemeId };
+  }
+
+  function renderFixture() {
+    var funnelId = boot ? boot.funnel_public_id : '';
+    var seq = ++previewSeq;
+    var body = {
+      content_json: {
+        components: [
+          { type: 'ButtonAnswerGroup', question_id: 'lg_tpl_fixture_q1', internal_field: 'lg_tpl_fixture_answer',
+            choices: [ { label: 'Option A', value: 'option_a' }, { label: 'Option B', value: 'option_b' } ],
+            props: {
+              label: 'Sample question',
+              helper: 'Sample section (add sections to preview your own).'
+            } },
+          { type: 'ContinueButton', question_id: 'lg_tpl_fixture_cont', props: { label: 'Continue' } }
+        ]
+      }
+    };
+    if (funnelId) { body.frame_context = { funnel_public_id: funnelId }; }
+    fetchJson(LG_API + '/sections/preview', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      if (seq !== previewSeq) { return; }
+      if (!res.ok || !res.body) { showError('lg-tpl-canvas-status_UNUSED', ''); return; }
+      var p = res.body.preview || {};
+      setCanvasDoc(p.desktop || '', p.css || '');
+      var status = byId('lg-tpl-canvas-status');
+      if (status) { clearChildren(status); status.appendChild(text('No sections yet \u2014 showing a sample.')); }
+    }).catch(function () { /* leave the last good render on screen */ });
+  }
+
+  function renderCanvasPreview() {
+    if (!boot || !boot.selected_variant) { return; }
+    if (currentSections.length === 0) { renderFixture(); return; }
+    var sectionSelect = byId('lg-tpl-section-select');
+    var sectionPublicId = sectionSelect ? sectionSelect.value : '';
+    var seq = ++previewSeq;
+    var body = {
+      mode: 'section',
+      viewport: 'desktop',
+      draft_frame_config: currentEffectiveFrameForDraft()
+    };
+    var draftTheme = currentDraftTheme();
+    if (draftTheme !== undefined) { body.draft_theme = draftTheme; }
+    if (sectionPublicId) { body.section_public_id = sectionPublicId; }
+    var status = byId('lg-tpl-canvas-status');
+    fetchJson(LG_API + '/variants/' + encodeURIComponent(boot.selected_variant) + '/preview', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      if (seq !== previewSeq) { return; }
+      if (!res.ok || !res.body) {
+        if (status) { clearChildren(status); status.appendChild(text('Preview failed.')); }
+        return;
+      }
+      var p = res.body.preview || {};
+      setCanvasDoc(p.html || '', p.css || '');
+      if (status) { clearChildren(status); }
+    }).catch(function () {
+      if (seq !== previewSeq) { return; }
+      if (status) { clearChildren(status); status.appendChild(text('Preview failed: network error.')); }
+    });
+  }
+
+  var previewTimer = null;
+  function scheduleCanvasPreview() {
+    if (previewTimer) { window.clearTimeout(previewTimer); }
+    previewTimer = window.setTimeout(function () { previewTimer = null; renderCanvasPreview(); }, 300);
+  }
+
+  // --- reactive local frame patch: mirrors (never owns) the shared
+  // island's [data-frame-key]/[data-role-pick] writes so THIS canvas also
+  // sees Progress (and any other scalar) edits before Save. See the
+  // top-of-file "Scope boundary" note for what this deliberately excludes. --
+  function controlValueOf(el) {
+    if (el.type === 'checkbox') { return el.checked; }
+    return el.value === '' ? null : el.value;
+  }
+  function onFrameKeyChange(ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute) { return; }
+    var key = el.getAttribute('data-frame-key');
+    if (key === null) { return; }
+    if (el.type === 'radio' && !el.checked) { return; }
+    setPath(myFrame, key, controlValueOf(el));
+    if (key === 'progress.style') { syncProgressToggleUi(); }
+    syncRadioActiveClasses();
+    scheduleCanvasPreview();
+  }
+  function onRolePickClick(ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute) { return; }
+    var pick = el.getAttribute('data-role-pick');
+    if (pick === null) { return; }
+    var pickFor = el.getAttribute('data-role-pick-for') || '';
+    if (pickFor === '' || pickFor.indexOf('palette.') === 0 || pickFor.indexOf('theme:') === 0) { return; }
+    setPath(myFrame, pickFor, pick);
+    scheduleCanvasPreview();
+  }
+
+  // --- Progress: Show-progress-bar toggle <-> progress.style="hidden" ----
+  function progressStyleRadios() { return toArray(document.querySelectorAll('input[data-frame-key="progress.style"][data-frame-radio="1"]')); }
+  function currentProgressStyle() {
+    var radios = progressStyleRadios();
+    var i;
+    for (i = 0; i < radios.length; i++) { if (radios[i].checked) { return radios[i].value; } }
+    return 'bar';
+  }
+  function setProgressStyleRadio(value) {
+    var radios = progressStyleRadios();
+    var i;
+    var target = null;
+    for (i = 0; i < radios.length; i++) { if (radios[i].value === value) { target = radios[i]; } }
+    if (!target) { return; }
+    target.checked = true;
+    var evt;
+    if (typeof window.Event === 'function') { evt = new window.Event('change', { bubbles: true }); }
+    target.dispatchEvent(evt);
+  }
+  function syncProgressToggleUi() {
+    var toggle = byId('lg-tpl-progress-show-checkbox');
+    var isHidden = currentProgressStyle() === 'hidden';
+    if (toggle) { toggle.checked = !isHidden; }
+  }
+  function wireProgressToggle() {
+    var toggle = byId('lg-tpl-progress-show-checkbox');
+    if (!toggle) { return; }
+    toggle.addEventListener('change', function () {
+      if (toggle.checked) {
+        setProgressStyleRadio(lastRealProgressStyle || 'bar');
+      } else {
+        var nowStyle = currentProgressStyle();
+        if (nowStyle !== 'hidden') { lastRealProgressStyle = nowStyle; }
+        setProgressStyleRadio('hidden');
+      }
+    });
+  }
+
+  // --- generic active-class sync for the type-picker + segmented controls
+  function syncRadioActiveClasses() {
+    var radios = toArray(document.querySelectorAll('.lg-tpl2-ptype input, .lg-tpl2-seg-item input'));
+    var i;
+    for (i = 0; i < radios.length; i++) {
+      var wrap = radios[i].parentNode;
+      if (!wrap || !wrap.className) { continue; }
+      var base = wrap.className.replace(/\s*active/g, '');
+      wrap.className = radios[i].checked ? base + ' active' : base;
+    }
+  }
+
+  // --- section picker: shared page (quote-scoped, §4.3-1) first, else this
+  // funnel/variant's own sections (boot.sections) — §8.3's own fallback
+  // order. Empty either way -> the fixture (renderCanvasPreview handles it).
+  function populateSectionPicker() {
+    var sel = byId('lg-tpl-section-select');
+    if (!sel) { return; }
+    var quoteId = boot ? boot.quote_public_id : '';
+    var fromVariant = (boot && boot.sections) ? boot.sections.map(function (s) { return { value: s.public_id, label: s.name }; }) : [];
+    function finish(sharedList) {
+      var combined = sharedList.concat(fromVariant);
+      currentSections = combined;
+      clearChildren(sel);
+      if (combined.length === 0) {
+        var opt = document.createElement('option');
+        opt.value = '';
+        opt.appendChild(text('No sections yet (sample shown)'));
+        sel.appendChild(opt);
+        renderCanvasPreview();
+        return;
+      }
+      var i;
+      for (i = 0; i < combined.length; i++) {
+        var o = document.createElement('option');
+        o.value = combined[i].value;
+        o.appendChild(text(combined[i].label));
+        sel.appendChild(o);
+      }
+      renderCanvasPreview();
+    }
+    if (!quoteId) { finish([]); return; }
+    fetchJson(LG_API + '/quotes/' + encodeURIComponent(quoteId) + '/shared-page', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (res) {
+        var shared = (res.ok && res.body && res.body.shared_page && res.body.shared_page.sections) ? res.body.shared_page.sections : [];
+        finish(shared.map(function (s) { return { value: s.section_public_id, label: s.section_name }; }));
+      })
+      .catch(function () { finish([]); });
+  }
+
+  // --- theme switcher: GET /themes, preview-only (draft_theme), never
+  // persists the funnel's OWN theme_json. -----------------------------
+  function populateThemeSwitcher() {
+    var sel = byId('lg-tpl-theme-select');
+    if (!sel) { return; }
+    fetchJson(LG_API + '/themes', { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (res) {
+      var items = (res.ok && res.body && res.body.items) ? res.body.items : [];
+      var i;
+      for (i = 0; i < items.length; i++) {
+        var o = document.createElement('option');
+        o.value = items[i].id;
+        o.appendChild(text(items[i].name || items[i].id));
+        sel.appendChild(o);
+      }
+    }).catch(function () { /* the "Current theme" option alone still works */ });
+    sel.addEventListener('change', function () {
+      myDraftThemeId = sel.value;
+      scheduleCanvasPreview();
+    });
+  }
+
+  // --- saved template bar --------------------------------------------
+  function templateSummary(frameJson) {
+    var bits = [];
+    if (frameJson && frameJson.section_slot && frameJson.section_slot.card) { bits.push(frameJson.section_slot.card === 'card' ? 'Card layout' : 'Bare layout'); }
+    if (frameJson && frameJson.progress && frameJson.progress.style) { bits.push(frameJson.progress.style === 'hidden' ? 'No progress bar' : (frameJson.progress.style + ' progress')); }
+    if (frameJson && frameJson.footer && frameJson.footer.enabled === false) { bits.push('no footer'); }
+    return bits.join(' \u00b7 ');
+  }
+
+  function closeAllTplMenus() {
+    var menus = toArray(document.querySelectorAll('.lg-tpl2-tpl-menu'));
+    var i;
+    for (i = 0; i < menus.length; i++) { if (menus[i].parentNode) { menus[i].parentNode.removeChild(menus[i]); } }
+  }
+
+  function renderTemplateList() {
+    var list = byId('lg-tpl-list');
+    if (!list) { return; }
+    clearChildren(list);
+    if (templates.length === 0) {
+      list.appendChild(text('No saved templates yet.'));
+      return;
+    }
+    var i;
+    for (i = 0; i < templates.length; i++) {
+      (function (tpl) {
+        var chip = document.createElement('span');
+        chip.className = 'lg-tpl2-tpl-chip' + (tpl.is_default ? ' is-default' : '');
+        chip.setAttribute('data-tpl-chip', tpl.public_id);
+        chip.appendChild(text(tpl.name));
+        if (tpl.is_default) {
+          var badge = document.createElement('span');
+          badge.className = 'lg-tpl2-tpl-chip-default-badge';
+          badge.appendChild(text('DEFAULT'));
+          chip.appendChild(badge);
+        }
+        var moreBtn = document.createElement('button');
+        moreBtn.type = 'button';
+        moreBtn.setAttribute('data-tpl-more', tpl.public_id);
+        moreBtn.setAttribute('aria-label', 'Template actions for ' + tpl.name);
+        moreBtn.appendChild(text('\u22ef'));
+        chip.appendChild(moreBtn);
+        list.appendChild(chip);
+      }(templates[i]));
+    }
+  }
+
+  function loadTemplates() {
+    return fetchJson(LG_API + '/frame-template-records', { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (res) {
+      templates = (res.ok && res.body && res.body.items) ? res.body.items : [];
+      renderTemplateList();
+      return templates;
+    });
+  }
+
+  function findTemplate(publicId) {
+    var i;
+    for (i = 0; i < templates.length; i++) { if (templates[i].public_id === publicId) { return templates[i]; } }
+    return null;
+  }
+
+  function openTplMenu(publicId, anchor) {
+    closeAllTplMenus();
+    var menu = document.createElement('div');
+    menu.className = 'lg-tpl2-tpl-menu';
+    function addItem(label, handler) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.appendChild(text(label));
+      b.addEventListener('click', function (ev) { ev.stopPropagation(); closeAllTplMenus(); handler(); });
+      menu.appendChild(b);
+    }
+    var tpl = findTemplate(publicId);
+    addItem('Rename\u2026', function () {
+      var next = window.prompt('New name for this template:', tpl ? tpl.name : '');
+      if (next === null) { return; }
+      next = next.replace(/^\s+|\s+$/g, '');
+      if (!next) { return; }
+      fetchJson(LG_API + '/frame-template-records/' + encodeURIComponent(publicId), {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ name: next })
+      }).then(function (res) {
+        if (!res.ok) { showError('lg-tpl-bar-error', (res.body && res.body.error) || 'Rename failed.'); return; }
+        hideError('lg-tpl-bar-error');
+        loadTemplates();
+      });
+    });
+    addItem('Duplicate', function () {
+      fetchJson(LG_API + '/frame-template-records/' + encodeURIComponent(publicId) + '/duplicate', {
+        method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' }
+      }).then(function (res) {
+        if (!res.ok) { showError('lg-tpl-bar-error', (res.body && res.body.error) || 'Duplicate failed.'); return; }
+        hideError('lg-tpl-bar-error');
+        loadTemplates();
+      });
+    });
+    addItem('Set as default', function () {
+      fetchJson(LG_API + '/frame-template-records/' + encodeURIComponent(publicId) + '/default', {
+        method: 'PUT', credentials: 'same-origin', headers: { Accept: 'application/json' }
+      }).then(function (res) {
+        if (!res.ok) { showError('lg-tpl-bar-error', (res.body && res.body.error) || 'Could not set default.'); return; }
+        hideError('lg-tpl-bar-error');
+        loadTemplates();
+      });
+    });
+    addItem('Delete', function () {
+      hideError('lg-tpl-delete-guard');
+      fetchJson(LG_API + '/frame-template-records/' + encodeURIComponent(publicId), {
+        method: 'DELETE', credentials: 'same-origin', headers: { Accept: 'application/json' }
+      }).then(function (res) {
+        if (res.status === 409) {
+          var body = res.body || {};
+          var names = [];
+          var inUse = body.in_use || {};
+          var fs = inUse.funnels || [];
+          var vs = inUse.variants || [];
+          var i;
+          for (i = 0; i < fs.length; i++) { names.push(fs[i].name); }
+          for (i = 0; i < vs.length; i++) { names.push(vs[i].label); }
+          var msg = (body.error || 'This template is in use.') + (names.length > 0 ? ' Used by: ' + names.join(', ') + '. Assign them a different template first, then delete this one.' : '');
+          showError('lg-tpl-delete-guard', msg);
+          return;
+        }
+        if (!res.ok) { showError('lg-tpl-bar-error', (res.body && res.body.error) || 'Delete failed.'); return; }
+        hideError('lg-tpl-bar-error');
+        loadTemplates();
+      });
+    });
+    document.body.appendChild(menu);
+    var rect = anchor.getBoundingClientRect();
+    menu.style.position = 'fixed';
+    menu.style.top = rect.bottom + 'px';
+    menu.style.left = rect.left + 'px';
+  }
+
+  function wireTemplateBar() {
+    document.addEventListener('click', function (ev) {
+      var el = ev.target;
+      if (!el || !el.getAttribute) { return; }
+      var moreId = el.getAttribute('data-tpl-more');
+      if (moreId !== null) { openTplMenu(moreId, el); return; }
+      if (!el.closest || !el.closest('.lg-tpl2-tpl-menu')) { closeAllTplMenus(); }
+    });
+    var newBtn = byId('lg-tpl-new-btn');
+    var newForm = byId('lg-tpl-new-form');
+    var newName = byId('lg-tpl-new-name');
+    var newSave = byId('lg-tpl-new-save');
+    var newCancel = byId('lg-tpl-new-cancel');
+    if (newBtn && newForm) {
+      newBtn.addEventListener('click', function () {
+        newForm.className = newForm.className.replace(/\s*lg-hidden/g, '');
+        if (newName) { newName.value = ''; newName.focus(); }
+      });
+    }
+    if (newCancel && newForm) {
+      newCancel.addEventListener('click', function () { newForm.className = newForm.className + ' lg-hidden'; });
+    }
+    if (newSave) {
+      newSave.addEventListener('click', function () {
+        var name = newName ? newName.value.replace(/^\s+|\s+$/g, '') : '';
+        if (!name) { showError('lg-tpl-bar-error', 'Enter a template name.'); return; }
+        fetchJson(LG_API + '/frame-template-records', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'content-type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ name: name, frame_json: (boot && boot.frame && boot.frame.effective_frame) || {} })
+        }).then(function (res) {
+          if (!res.ok) { showError('lg-tpl-bar-error', (res.body && res.body.error) || 'Create failed.'); return; }
+          hideError('lg-tpl-bar-error');
+          if (newForm) { newForm.className = newForm.className + ' lg-hidden'; }
+          loadTemplates();
+        });
+      });
+    }
+  }
+
+  // --- Apply to funnel -------------------------------------------------
+  function applyDialogShowState(state) {
+    var dialog = byId('lg-tpl-apply-dialog');
+    if (!dialog) { return; }
+    var panels = toArray(dialog.querySelectorAll('[data-apply-state]'));
+    var i;
+    for (i = 0; i < panels.length; i++) {
+      var isMatch = panels[i].getAttribute('data-apply-state') === state;
+      var base = panels[i].className.replace(/\s*lg-hidden/g, '');
+      panels[i].className = isMatch ? base : base + ' lg-hidden';
+    }
+  }
+  var applyChosenTemplate = null;
+  function diffSentences(candidateFrameJson) {
+    var sentences = [];
+    var cur = (boot && boot.frame && boot.frame.effective_frame) || {};
+    var cand = candidateFrameJson || {};
+    if (cur.section_slot && cand.section_slot && cur.section_slot.card !== cand.section_slot.card) {
+      sentences.push('The question unit changes from a ' + (cur.section_slot.card === 'card' ? 'card' : 'bare layout') + ' to a ' + (cand.section_slot.card === 'card' ? 'card' : 'bare layout') + '.');
+    }
+    if (cur.footer && cand.footer && cur.footer.enabled !== cand.footer.enabled) {
+      sentences.push(cand.footer.enabled ? 'The footer will be shown.' : 'The footer will be hidden.');
+    }
+    if (cur.trust_strip && cand.trust_strip && cur.trust_strip.enabled !== cand.trust_strip.enabled) {
+      sentences.push(cand.trust_strip.enabled ? 'A trust strip will be added.' : "The trust strip isn't part of this template's arrangement.");
+    }
+    if (cur.benefit_bar && cand.benefit_bar && cur.benefit_bar.enabled !== cand.benefit_bar.enabled) {
+      sentences.push(cand.benefit_bar.enabled ? 'A benefit bar will be added.' : "The benefit bar isn't part of this template's arrangement.");
+    }
+    if (cur.progress && cand.progress && cur.progress.style !== cand.progress.style) {
+      sentences.push('Progress style changes from ' + cur.progress.style + ' to ' + cand.progress.style + '.');
+    }
+    if (sentences.length === 0) { sentences.push('This template keeps the same overall arrangement.'); }
+    return sentences;
+  }
+  function renderApplyChoices() {
+    var box = byId('lg-tpl-apply-choices');
+    if (!box) { return; }
+    clearChildren(box);
+    var i;
+    for (i = 0; i < templates.length; i++) {
+      (function (tpl) {
+        var card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'lg-tpl2-apply-card';
+        card.setAttribute('data-apply-choice', tpl.public_id);
+        var name = document.createElement('span');
+        name.className = 'lg-tpl2-apply-name';
+        name.appendChild(text(tpl.name));
+        var summary = document.createElement('span');
+        summary.className = 'lg-tpl2-apply-summary';
+        summary.appendChild(text(templateSummary(tpl.frame_json)));
+        card.appendChild(name);
+        card.appendChild(summary);
+        card.addEventListener('click', function () {
+          applyChosenTemplate = tpl;
+          var list = byId('lg-tpl-apply-confirm-list');
+          if (list) {
+            clearChildren(list);
+            var sentences = diffSentences(tpl.frame_json);
+            var s;
+            for (s = 0; s < sentences.length; s++) {
+              var li = document.createElement('li');
+              li.appendChild(text(sentences[s]));
+              list.appendChild(li);
+            }
+          }
+          applyDialogShowState('confirm');
+        });
+        box.appendChild(card);
+      }(templates[i]));
+    }
+  }
+  function wireApplyDialog() {
+    var openBtn = byId('lg-tpl-apply-btn');
+    var dialog = byId('lg-tpl-apply-dialog');
+    var cancelBtn = byId('lg-tpl-apply-cancel-btn');
+    var backBtn = byId('lg-tpl-apply-back-btn');
+    var confirmBtn = byId('lg-tpl-apply-confirm-btn');
+    if (openBtn && dialog) {
+      openBtn.addEventListener('click', function () {
+        applyChosenTemplate = null;
+        hideError('lg-tpl-apply-error');
+        renderApplyChoices();
+        applyDialogShowState('choose');
+        dialog.className = dialog.className.replace(/\s*lg-hidden/g, '');
+      });
+    }
+    function closeDialog() { if (dialog) { dialog.className = dialog.className + ' lg-hidden'; } }
+    if (cancelBtn) { cancelBtn.addEventListener('click', closeDialog); }
+    if (backBtn) { backBtn.addEventListener('click', function () { applyDialogShowState('choose'); }); }
+    if (confirmBtn) {
+      confirmBtn.addEventListener('click', function () {
+        if (!applyChosenTemplate || !boot || !boot.funnel_public_id) { return; }
+        fetchJson(LG_API + '/funnels/' + encodeURIComponent(boot.funnel_public_id) + '/apply-template', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'content-type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ template_id: applyChosenTemplate.id })
+        }).then(function (res) {
+          if (!res.ok) { showError('lg-tpl-apply-error', (res.body && res.body.error) || 'Apply failed.'); return; }
+          window.location.reload();
+        });
+      });
+    }
+  }
+
+  // --- A/B templates -----------------------------------------------------
+  function wireAbTemplatesDialog() {
+    var openBtn = byId('lg-tpl-ab-btn');
+    var dialog = byId('lg-tpl-ab-dialog');
+    var cancelBtn = byId('lg-tpl-ab-cancel-btn');
+    var confirmBtn = byId('lg-tpl-ab-confirm-btn');
+    var select = byId('lg-tpl-ab-template-select');
+    if (openBtn && dialog) {
+      openBtn.addEventListener('click', function () {
+        hideError('lg-tpl-ab-error');
+        if (select) {
+          clearChildren(select);
+          var i;
+          for (i = 0; i < templates.length; i++) {
+            var o = document.createElement('option');
+            o.value = templates[i].id;
+            o.appendChild(text(templates[i].name));
+            select.appendChild(o);
+          }
+        }
+        dialog.className = dialog.className.replace(/\s*lg-hidden/g, '');
+      });
+    }
+    function closeDialog() { if (dialog) { dialog.className = dialog.className + ' lg-hidden'; } }
+    if (cancelBtn) { cancelBtn.addEventListener('click', closeDialog); }
+    if (confirmBtn) {
+      confirmBtn.addEventListener('click', function () {
+        if (!boot || !boot.selected_variant || !boot.funnel_public_id || !select || !select.value) { return; }
+        var templateId = select.value;
+        var funnelId = boot.funnel_public_id;
+        var variantId = boot.selected_variant;
+
+        function ensureRunningThenFork() {
+          return fetchJson(LG_API + '/quotes/' + encodeURIComponent(boot.quote_public_id) + '/structure', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+            .then(function (structRes) {
+              var funnels = (structRes.ok && structRes.body && structRes.body.funnels) ? structRes.body.funnels : [];
+              var i;
+              var funnel = null;
+              for (i = 0; i < funnels.length; i++) { if (funnels[i].public_id === funnelId) { funnel = funnels[i]; } }
+              var abTests = funnel ? (funnel.ab_tests || []) : [];
+              var running = null;
+              for (i = 0; i < abTests.length; i++) { if (abTests[i].status === 'running') { running = abTests[i]; } }
+              if (running) { return Promise.resolve(true); }
+              return fetchJson(LG_API + '/funnels/' + encodeURIComponent(funnelId) + '/experiments', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'content-type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({})
+              }).then(function (createRes) {
+                if (!createRes.ok || !createRes.body || !createRes.body.public_id) { throw new Error((createRes.body && createRes.body.error) || 'Could not create an A/B test.'); }
+                return fetchJson(LG_API + '/experiments/' + encodeURIComponent(createRes.body.public_id) + '/start', {
+                  method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' }
+                });
+              }).then(function (startRes) {
+                if (startRes && !startRes.ok) { throw new Error((startRes.body && startRes.body.error) || 'Could not start the A/B test.'); }
+                return true;
+              });
+            });
+        }
+
+        ensureRunningThenFork().then(function () {
+          return fetchJson(LG_API + '/variants/' + encodeURIComponent(variantId) + '/fork', {
+            method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' }
+          });
+        }).then(function (forkRes) {
+          if (!forkRes.ok || !forkRes.body || !forkRes.body.public_id) { throw new Error((forkRes.body && forkRes.body.error) || 'Fork failed.'); }
+          return fetchJson(LG_API + '/variants/' + encodeURIComponent(forkRes.body.public_id), {
+            method: 'PUT', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({ frame_template_id: parseInt(templateId, 10) })
+          });
+        }).then(function (putRes) {
+          if (!putRes.ok) { throw new Error((putRes.body && putRes.body.error) || 'Could not set the new arm\u2019s template.'); }
+          window.location.reload();
+        }).catch(function (err) {
+          showError('lg-tpl-ab-error', (err && err.message) || 'A/B templates failed.');
+        });
+      });
+    }
+  }
+
+  // --- init ---------------------------------------------------------------
+  function init() {
+    boot = loadBoot();
+    myFrame = deepClone((boot && boot.frame && boot.frame.frame_config) || {}) || {};
+    lastRealProgressStyle = (boot && boot.frame && boot.frame.effective_frame && boot.frame.effective_frame.progress && boot.frame.effective_frame.progress.style !== 'hidden')
+      ? boot.frame.effective_frame.progress.style
+      : 'bar';
+
+    document.addEventListener('change', onFrameKeyChange);
+    document.addEventListener('click', onRolePickClick);
+    wireProgressToggle();
+    syncProgressToggleUi();
+    syncRadioActiveClasses();
+
+    populateThemeSwitcher();
+    populateSectionPicker(); // triggers the first canvas render on resolve
+    wireTemplateBar();
+    wireApplyDialog();
+    wireAbTemplatesDialog();
+    loadTemplates();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+}());
+</script>
+</div>

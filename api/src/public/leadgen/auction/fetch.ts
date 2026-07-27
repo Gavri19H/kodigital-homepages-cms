@@ -140,6 +140,16 @@ export interface FetchProviderContext {
   // The Offer in scope (04 §4.5) — buildPayload's source:"placement" resolves
   // from offer.placement_id. Bridged from LeadGenRuntimeContext.offer.
   offer?: Readonly<{ offer_id?: string; offer_name?: string; placement_id?: string }>;
+  // LeadGen Rework M10/D3 (stamp-only): the routing feed_name for this
+  // attempt (bridged from LeadGenRuntimeContext.feed_name — runtime-context.ts
+  // resolveRoutingOutcomeDims), threaded into buildPayload's ctx.feed_name so
+  // a macro:"feed_name" payload node can map it. A caller whose `macros`
+  // already carries the canonical "feed_name" key (runtime-context.ts
+  // contextToMacros populates one, same as every other canonical macro) does
+  // not strictly need this — it is the SAME belt-and-suspenders fallback
+  // payload.ts's resolveNode already applies when ctx.macros.feed_name is
+  // absent (e.g. a caller supplying feed_name without the full macros object).
+  feed_name?: string;
   timeout_ms: number;
   // Stamped onto the redacted log row (issue 21 / §7.4). Optional — Stage B
   // may fill them instead.
@@ -216,6 +226,7 @@ export async function fetchProvider(
     macros: macroValues,
     ...(ctx.computed !== undefined ? { computed: ctx.computed } : {}),
     ...(ctx.offer !== undefined ? { offer: ctx.offer } : {}),
+    ...(ctx.feed_name !== undefined ? { feed_name: ctx.feed_name } : {}),
     token: {
       ...(tokenValue !== undefined ? { value: tokenValue } : {}),
       api_token_placement: offer.api_token_placement,

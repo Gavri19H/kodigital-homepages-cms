@@ -242,6 +242,10 @@ function makeKvStub(): KVNamespace {
 }
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
@@ -250,6 +254,17 @@ const LEADGEN_MIGRATIONS = [
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -590,7 +605,16 @@ describeDb("Gate 1b token audit — themes manager (leadgenThemeManagerPage, D1+
     const { status, html } = await getHtml(env, "/admin/leadgen/themes");
     expect(status).toBe(200);
 
-    const tmShellHtml = extractBalancedDivRegion(html, '<div class="tm-shell">');
+    // Rework §8.4 (P4 S4.2): the CENTER editor now renders a live canvas —
+    // a REAL section previewed through the REAL renderer inside a
+    // `srcdoc="…"` iframe. Its content is the SAME kind of funnel-design-
+    // token-scoped preview content as the STUDIO'S OWN canvas iframe
+    // (this file's header scoping decision #1, `stripCanvasSrcdoc` above,
+    // already established for `.tm-shell`'s sibling STUDIO_CHROME_HTML
+    // audit) — a SEPARATE, legitimate namespace resolved from the theme
+    // BEING PREVIEWED, not admin chrome, so it is stripped here the exact
+    // same way before the off-palette scan, never widening the allowlist.
+    const tmShellHtml = stripCanvasSrcdoc(extractBalancedDivRegion(html, '<div class="tm-shell">'));
     const authoredRoleHexes = [fx.navy, fx.bold, fx.minimal].flatMap((t) => Object.values(t.roles));
     const offenders = hexesNotIn(tmShellHtml, [...authoredRoleHexes, ...extractHexes(GOLDEN_HTML)]);
     expect(offenders, `off-palette / unaccounted hex(es) inside .tm-shell: ${offenders.join(", ")}`).toEqual([]);

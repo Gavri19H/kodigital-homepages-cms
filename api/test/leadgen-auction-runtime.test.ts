@@ -77,13 +77,28 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
 }
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+// Rework P1 coherence sweep: brought current through 0053 (was frozen at
+// 0042) so this harness's D1 schema matches the real Wave-1 shape — see
+// leadgen-gates.test.ts's identical fix for the failure class this avoids.
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
   "0040_leadgen_runtime_context.sql", // macro_context_json snapshot (04 §4.6)
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -335,13 +350,18 @@ function makeResolved(sections: Array<{ public_id: string; content_version: numb
   }));
   return {
     site_quote: { id: 1, site_id: "site-1", quote_id: 1, enabled: 1, slug: null, settings_overrides_json: null, created_at: 0, updated_at: 0 },
-    quote: { id: 1, public_id: "lgq_x", quote_name: "Q", activity: "quote_funnel", verticals_json: "[]", status: "active", created_by: null, created_at: 0, updated_at: 0 },
-    funnel: { id: 1, public_id: "lgf_test0000000000000000000000", quote_id: 1, funnel_name: "F", active_ab_test_id: null, status: "active", created_at: 0, updated_at: 0, frame_config_json: null, theme_json: null },
+    quote: { id: 1, public_id: "lgq_x", quote_name: "Q", activity: "quote_funnel", verticals_json: "[]", status: "active", created_by: null, created_at: 0, updated_at: 0, default_funnel_id: null },
+    funnel: { id: 1, public_id: "lgf_test0000000000000000000000", quote_id: 1, funnel_name: "F", active_ab_test_id: null, status: "active", created_at: 0, updated_at: 0, frame_config_json: null, theme_json: null, display_order: null, frame_template_id: null },
+    // Rework M1 (§5-M1, §4.3-10): is_control dropped; variant_label "A" is
+    // this fixture's single active variant (replacement semantics — no
+    // running test ⇒ exactly one active variant, deterministically first by
+    // variant_label ASC/id ASC). frame_template_id is new (M5); NULL =
+    // inherit the funnel's template.
     variant: {
-      id: 1, public_id: "lgn_test0000000000000000000000", funnel_id: 1, ab_test_id: null, variant_label: "A", is_control: 1,
+      id: 1, public_id: "lgn_test0000000000000000000000", funnel_id: 1, ab_test_id: null, variant_label: "A",
       traffic_allocation_bp: 10000, funnel_design_id: "default", auction_id: 1, lander_enabled: 0, lander_headline: null,
       lander_subheadline: null, lander_body_json: null, lander_hero_media_id: null, lander_hero_media_url: null, lander_cta_json: null,
-      content_version: 1, status: "active", created_at: 0, frame_overrides_json: null,
+      content_version: 1, status: "active", created_at: 0, frame_overrides_json: null, frame_template_id: null,
     },
     sections: sectionRows,
     ga4_measurement_id: null,

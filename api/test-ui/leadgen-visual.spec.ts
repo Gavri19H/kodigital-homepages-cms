@@ -12,7 +12,8 @@
 // leadgen-fix-p1-seed / leadgen-p14-seed convention) with a single rich
 // Section whose content is buildVisualSectionContent() — the §14.10 component
 // set (header/logo/progress/category/headline/subheadline · IconCardAnswerGrid
-// · TwoButtonYesNo · CurrencyRangeQuestion · MultiChoiceCardGroup · Dropdown ·
+// · TwoButtonYesNo · NumberRangeQuestion (currency_affix; §10/S5.1: was
+// CurrencyRangeQuestion) · MultiChoiceCardGroup · Dropdown ·
 // FreeText/Email/Phone/Name/ZIP PII · Continue · ReassuranceBadge · Helper).
 // This proves the LIVE runtime (server render + funnelChromeCss + engine
 // hydration) applies the design tokens — not merely the admin preview
@@ -109,6 +110,43 @@ let host: string;
 let slug: string;
 let servedHtml: string;
 
+// P5 rework (LEADGEN-REWORK-03 §4.3): every quote now carries a mandatory
+// SHARED first page (computeReworkActivationProblems -> activation.shared_page)
+// — activation 409s "The shared first page needs at least one section." until
+// the quote has one. Seed the SAME trivial single-ContinueButton shared page
+// used across this phase's other live-funnel probes (__p5a-frame.spec.ts's
+// seedTrivialSharedPage/passSharedPage precedent), then click through it once
+// hydrated so the runtime lands on THIS suite's own rich section — the shared
+// page's own .lg-continue is intentionally identical (chrome-CSS-driven, no
+// per-instance inline style), so the exact-computed-style rows below are
+// unaffected by which ContinueButton instance a bare `.first()` read picks;
+// the two call-sites that address `.lg-continue` WITHOUT `.first()` (the
+// interaction-state disabled/hover reads) are scoped `:visible` below so they
+// never resolve the shared page's now-hidden instance.
+async function seedTrivialSharedPage(request: APIRequestContext, quotePublicId: string): Promise<void> {
+  const shared = await jsonOk<{ id: number }>(
+    await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: `Visual shared ${Date.now()}${Math.floor(Math.random() * 1000)}`,
+        activity: "quote_funnel",
+        vertical: "business_loan",
+        status: "active",
+        headline_text: "Continue",
+        continue_mode: "button",
+        content_json: { components: [{ type: "ContinueButton", question_id: "shared_cont", props: { label: "Continue" } }] },
+      },
+    }),
+    "visual shared page section create",
+  );
+  await jsonOk(
+    await request.post(`${LG_API}/quotes/${quotePublicId}/shared-page`, { data: { sections: [{ section_id: shared.id }] } }),
+    "visual shared page create",
+  );
+}
+async function passSharedPage(page: Page): Promise<void> {
+  await page.locator("[data-lg-continue]:visible").click();
+}
+
 // Seed an ACTIVATED funnel whose single Section is the §14.10 visual component
 // set, through the REAL admin APIs (no direct DB writes). The Section maps NO
 // answers to Offers (a pure VISUAL section), so activation is a clean 200 with
@@ -161,6 +199,11 @@ async function seedActivatedVisualFunnel(ctx: APIRequestContext): Promise<{ host
     "variant sections",
   );
 
+  // The mandatory shared first page (see the seedTrivialSharedPage comment
+  // above) — must exist BEFORE activation or computeReworkActivationProblems
+  // blocks with activation.shared_page.
+  await seedTrivialSharedPage(request, quote.public_id);
+
   const activation = await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, {
     data: { enabled: true, slug: s },
   });
@@ -182,6 +225,9 @@ async function gotoRuntime(page: Page, size: { width: number; height: number }):
   await page.setViewportSize(size);
   await page.goto(runtimeUrl(), { waitUntil: "load" });
   await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 10_000 });
+  // The mandatory shared first page shows before this suite's own rich
+  // section — click through it once hydrated (composed position 1 of 2).
+  await passSharedPage(page);
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(() => {
     (document.activeElement as HTMLElement | null)?.blur?.();
@@ -369,12 +415,22 @@ test.describe("§14.10(b) computed-style EXACT assertions on the REAL /lg runtim
     ]);
     await assertContainsAndGradient(page);
 
-    // Icon-card grid = 3 columns at desktop (tokens.iconCardGrid.columnsDesktop
-    // via --lg-cols:3), multi-choice grid = 2 columns.
-    const iconCols = await computed(page, ".lg-card-grid:not(.lg-multi)", "grid-template-columns");
-    expect(iconCols.split(" ").length, `icon-card grid is 3 columns at desktop (got '${iconCols}')`).toBe(3);
-    const multiCols = await computed(page, ".lg-card-grid.lg-multi", "grid-template-columns");
-    expect(multiCols.split(" ").length, `multi-choice grid is 2 columns at desktop (got '${multiCols}')`).toBe(2);
+    // Icon-card grid = 3 LOGICAL columns at desktop (tokens.iconCardGrid.
+    // columnsDesktop), multi-choice grid = 2. Read via the --lg-cols custom
+    // property (presets.ts's own "the real logical column count", rework
+    // §6.7), NOT a raw grid-template-columns track count: BUSINESS_TYPE_CHOICES
+    // seeds 5 icon-card choices at columns:3 — a partial trailing row
+    // (5%3!==0) — so §6.7's doubled-half-track centering fix (adversarially
+    // reviewed 2026-07-22; see presets.ts's planGridColumns/gridItemColumnEntries
+    // comment block, worked 5-in-3 example) deliberately DOUBLES the raw track
+    // count to 6 half-tracks for that one instance so the wrapped last row can
+    // center at half-track granularity — --lg-cols itself stays untouched at 3.
+    // A raw track-count read would (and did, live: 6 tracks measured) treat
+    // this intended centering technique as a regression.
+    const iconCols = await computed(page, ".lg-card-grid:not(.lg-multi)", "--lg-cols");
+    expect(iconCols, `icon-card grid logical column count is 3 at desktop (--lg-cols; got '${iconCols}')`).toBe("3");
+    const multiCols = await computed(page, ".lg-card-grid.lg-multi", "--lg-cols");
+    expect(multiCols, `multi-choice grid logical column count is 2 at desktop (--lg-cols; got '${multiCols}')`).toBe("2");
 
     // Range currency value renders "$330,000" (§14.5).
     const rangeValue = await page.locator(".lg-range-value").textContent();
@@ -482,12 +538,15 @@ test.describe("§14.10(b) interaction states (selected / hover / disabled) on th
     ).toBe(hexToRgb("#E8EEF4"));
 
     // (1b) Continue disabled: opacity → 0.6 (chrome state rule; not inline).
-    const disabledOpacity = await page.locator(".lg-continue").evaluate((el) => {
+    // `:visible` (not `.first()`): the now-hidden shared-page ContinueButton
+    // also carries .lg-continue, and strict mode requires exactly one match
+    // for a bare .evaluate()/.hover() call (unlike computed()'s `.first()`).
+    const disabledOpacity = await page.locator(".lg-continue:visible").evaluate((el) => {
       el.setAttribute("aria-disabled", "true");
       return getComputedStyle(el).opacity;
     });
     expect(disabledOpacity, "disabled Continue opacity → 0.6 (tokens.primaryButton.disabledOpacity)").toBe("0.6");
-    await page.locator(".lg-continue").evaluate((el) => el.removeAttribute("aria-disabled"));
+    await page.locator(".lg-continue:visible").evaluate((el) => el.removeAttribute("aria-disabled"));
 
     // (2) BARE CONTROL card (never had inline border/background) computes to the
     // SAME navy selected tokens as the seeded card in (1a) — confirming the fix
@@ -510,9 +569,11 @@ test.describe("§14.10(b) interaction states (selected / hover / disabled) on th
     // the inline background is gone, so the chrome .lg-btn:hover navy-dark
     // #0F2440 wins by cascade. Proven by a real hover computed-style read (after
     // the background transition settles) AND the deterministic CSSOM rule read.
-    await page.locator(".lg-continue").hover();
+    // `:visible` — see the disabledOpacity comment above (strict-mode: the
+    // hidden shared-page ContinueButton also matches `.lg-continue`).
+    await page.locator(".lg-continue:visible").hover();
     await page.waitForTimeout(300); // > tokens.transitions.btnHoverMs (200ms) — let the transition settle
-    const hoverBg = await computed(page, ".lg-continue", "background-color");
+    const hoverBg = await computed(page, ".lg-continue:visible", "background-color");
     expect(
       hoverBg,
       "§14.6 Continue :hover darkens to navy-dark #0F2440 on the real element (chrome .lg-btn:hover applies)",
@@ -806,7 +867,7 @@ test.describe("§14.10(c) no arbitrary-CSS escapes (save-time + render-path sani
       const nodeCss = {
         components: [
           {
-            type: "CurrencyRangeQuestion",
+            type: "NumberRangeQuestion",
             question_id: "q_bad_range",
             internal_field: "bad_range",
             props: { min: 0, max: 10 },
@@ -866,7 +927,10 @@ test("§14.10(d) operator-screenshot capability checklist — every pattern pres
     // Icon cards (§14.4 Sole-Proprietor/…/S-Corp).
     ["icon cards (IconCardAnswerGrid)", has('data-component-type="IconCardAnswerGrid"') && has("lg-card-icon") && has("Sole Proprietor") && has("S Corporation")],
     // Currency range (§14.5 BUSINESS LOAN / $330,000 / $10,000 / $1M+).
-    ["currency range (CurrencyRangeQuestion)", has('data-component-type="CurrencyRangeQuestion"') && has('data-format="currency"') && has("$330,000") && has("$10,000") && has("$1M+")],
+    // §10/S5.1: was CurrencyRangeQuestion, collapsed into the ONE
+    // NumberRangeQuestion Slider catalog entry (data-format="currency" is
+    // unchanged, driven by props.currency_affix).
+    ["currency range (NumberRangeQuestion, currency_affix)", has('data-component-type="NumberRangeQuestion"') && has('data-format="currency"') && has("$330,000") && has("$10,000") && has("$1M+")],
     // Navy pill (was "blue pill" in the screenshots) — the Continue button.
     ["navy pill Continue (ContinueButton — renders NAVY, §14.6)", has('data-component-type="ContinueButton"') && has("lg-continue")],
     // Green reassurance badge (§14.7).

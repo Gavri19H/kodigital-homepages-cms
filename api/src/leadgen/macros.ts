@@ -54,6 +54,19 @@ export const CANONICAL_MACROS: readonly string[] = [
   "session_id",
   "fbc",
   "fbclid",
+  // LeadGen Rework M10/D3 (stamp-only): the quote-scoped routing rule's
+  // feed_name action, registered as a canonical macro exactly like every
+  // other ctx-derived dimension above — so a schema SAVE (payload.ts
+  // validatePayloadSchema, via isCanonicalMacro) accepts `source:"macro",
+  // macro:"feed_name"`. Runtime resolves it from LeadGenRuntimeContext.feed_name
+  // (runtime-context.ts contextToMacros); "" when no routing rule matched
+  // (never fabricated, same unresolved-macro policy as every macro above).
+  // CONDUCTOR-RATIFIED companion fix: ui-payload-builder.ts's
+  // ADVANCED_MACRO_GROUPS (that file's own module-load drift guard —
+  // ADVANCED_MACRO_SET.size === CANONICAL_MACROS.length — asserts EVERY
+  // canonical macro is reachable through the Advanced picker) carries a
+  // matching "feed_name" entry so this registration never breaks it.
+  "feed_name",
 ] as const;
 
 // Alias map — `{clickid}` → `{click_id}` (identical to listicles; normalized
@@ -66,8 +79,9 @@ export const MACRO_ALIASES: Readonly<Record<string, string>> = {
 
 const CANONICAL_SET: ReadonlySet<string> = new Set(CANONICAL_MACROS);
 
-// True when `name` is one of the 32 canonical macro names (post-alias form).
-// payload.ts uses this to validate `source:"macro"` schema nodes (04 §11.5).
+// True when `name` is one of the canonical macro names (post-alias form; the
+// original 32 + LeadGen Rework's additive `feed_name`, M10/D3). payload.ts
+// uses this to validate `source:"macro"` schema nodes (04 §11.5).
 export function isCanonicalMacro(name: string): boolean {
   return CANONICAL_SET.has(name);
 }

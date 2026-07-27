@@ -205,6 +205,10 @@ function makeKvStub(): KVNamespace {
 }
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
@@ -213,6 +217,17 @@ const LEADGEN_MIGRATIONS = [
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -493,7 +508,12 @@ describe("Gate 1a parity — component library tile SVGs (Appendix D, source-con
     }
   });
 
-  it("§5.6 Answer-fields group holds the 12 v3.1 contract tiles + P5 Question grid, in order", () => {
+  // LeadGen Rework §4.1: the one-unit "Question grid" tile is retired — the
+  // palette now offers the "Questions on one screen" STARTER at the same
+  // position (one insert seeds 2 independent TwoButtonYesNo components, no
+  // shared-grid data model). Pin updated to the contracted new reality; the
+  // exhaustive 13-tile count + order this test proves is unchanged.
+  it("§5.6 Answer-fields group holds the 12 v3.1 contract tiles + the §4.1 'Questions on one screen' starter, in order", () => {
     const group = STUDIO_LIBRARY_GROUPS.find((g) => g.key === "answer-fields")!;
     expect(group.tiles.map((t) => t.label)).toEqual([
       "Buttons",
@@ -501,7 +521,7 @@ describe("Gate 1a parity — component library tile SVGs (Appendix D, source-con
       "Yes / No",
       "Dropdown",
       "Multi-select",
-      "Question grid",
+      "Questions on one screen",
       "Short text",
       "Number",
       "Amount",

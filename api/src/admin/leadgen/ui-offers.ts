@@ -24,7 +24,14 @@
 // apiJson. Inline scripts are strict ES5 (layout.ts constraint — the
 // listicles pages hold it too, asserted by listicles-ui-es5.test.ts).
 
-import { escapeHtml, renderListPager, listFilterScript } from "../templates/layout";
+import {
+  escapeHtml,
+  renderListPager,
+  listFilterScript,
+  renderKebabOpen,
+  KEBAB_CLOSE,
+  kebabMenuScript,
+} from "../templates/layout";
 import {
   resolveTimeframe,
   renderTimeframeSelect,
@@ -446,16 +453,11 @@ function renderOfferRow(o: OfferListItem): string {
   ${renderAnalyticsSkeletonCells()}
   <td><div class="table-actions">
     <a href="${editHref}" class="btn btn-sm btn-secondary">Edit</a>
-    <div class="lg-kebab" data-offer-kebab>
-      <button type="button" class="btn btn-sm btn-outline lg-kebab-btn" data-offer-kebab-toggle="${escapeHtml(o.public_id)}" aria-haspopup="true" aria-expanded="false" aria-label="More actions for ${name}">&#8942;</button>
-      <div class="lg-kebab-menu" data-offer-kebab-menu hidden role="menu">
-        <a href="${editHref}" class="lg-kebab-item" role="menuitem">Edit</a>
+    ${renderKebabOpen(name)}<a href="${editHref}" class="lg-kebab-item" role="menuitem">Edit</a>
         <button type="button" class="lg-kebab-item" role="menuitem" data-offer-duplicate="${escapeHtml(o.public_id)}" data-offer-name="${name}">Duplicate</button>
         <button type="button" class="lg-kebab-item" role="menuitem" data-offer-archive="${escapeHtml(o.public_id)}" data-offer-name="${name}">Archive</button>
         <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-offer-delete="${escapeHtml(o.public_id)}" data-offer-name="${name}">Delete</button>
-        <button type="button" class="lg-kebab-item" role="menuitem" data-offer-usage="${escapeHtml(o.public_id)}" data-offer-name="${name}">Usage</button>
-      </div>
-    </div>
+        <button type="button" class="lg-kebab-item" role="menuitem" data-offer-usage="${escapeHtml(o.public_id)}" data-offer-name="${name}">Usage</button>${KEBAB_CLOSE}
   </div></td>
 </tr>`;
 }
@@ -725,20 +727,26 @@ const LG_OFFERS_STYLES = `
 .lg-fallback-result{display:block;width:100%;text-align:left;padding:8px 12px;border:0;background:none;font-size:13px;cursor:pointer}
 .lg-fallback-result:hover{background:var(--c-bg-alt)}
 .lg-fallback-selected{margin-top:6px;font-size:13px}
-.lg-metric-null{color:var(--c-muted)}
 .lg-eligibility-banner{border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:13px;border:1px solid transparent}
 .lg-eligibility-banner.lg-eligible{background:var(--c-success-bg,#e8f7ee);color:var(--c-success,#186a3b);border-color:var(--c-success,#7dcb9a)}
 .lg-eligibility-banner.lg-blocked{background:var(--c-danger-bg,#fdecea);color:var(--c-danger,#8a1f11);border-color:var(--c-danger,#e5a49a)}
 .lg-eligibility-reasons{margin:6px 0 8px 18px}
 .lg-eligibility-reasons li{margin-bottom:2px}
 .lg-eligibility-links{display:flex;gap:8px;flex-wrap:wrap}
-.lg-kebab{position:relative;display:inline-block}
-.lg-kebab-btn{line-height:1;font-weight:700}
-.lg-kebab-menu{position:absolute;right:0;top:100%;z-index:20;min-width:180px;background:#fff;border:1px solid var(--c-border);border-radius:6px;box-shadow:0 8px 20px rgba(0,0,0,0.14);padding:4px;display:flex;flex-direction:column}
-.lg-kebab-menu[hidden]{display:none}
-.lg-kebab-item{display:block;width:100%;text-align:left;padding:8px 12px;border:0;background:none;font-size:13px;color:var(--c-text);text-decoration:none;cursor:pointer;border-radius:4px}
-.lg-kebab-item:hover{background:var(--c-bg-alt)}
-.lg-kebab-danger{color:var(--c-danger,#8a1f11)}
+/* Product-fix round (S2.4 admin-UI, root-cause): the LOCAL .lg-kebab* rules
+   that used to live here are REMOVED — they were a stale, pre-portal-fix
+   copy that shadowed (via cascade order: page styles load AFTER
+   ADMIN_STYLES) the shared, ALREADY-FIXED .lg-kebab-menu rule (z-index:100)
+   layout.ts's ADMIN_STYLES provides globally. This offers row markup now
+   renders via renderKebabOpen/KEBAB_CLOSE (the same shared component every
+   other list — sections/auctions/quotes/listicles — already uses), so the
+   shared CSS applies unshadowed. See LG_OFFERS_LIST_ACTIONS_SCRIPT's own
+   comment for the full root-cause (a position:sticky last-column cell —
+   .table--sticky-edges td:last-child — establishes its OWN stacking
+   context, so a locally z-indexed absolute menu can never outrank a
+   DIFFERENT row's own sticky cell once the menu's height overflows past its
+   row; kebabMenuScript fixes this by reparenting the open menu to <body> +
+   position:fixed, escaping every ancestor stacking context in one step). */
 .lg-usage-kind{margin:10px 0}
 .lg-usage-kind-head{display:flex;align-items:baseline;gap:8px;font-weight:600;font-size:13px}
 .lg-usage-count{color:var(--c-muted);font-weight:400}
@@ -760,7 +768,6 @@ const LG_OFFERS_STYLES = `
 .lg-region-paste[hidden]{display:none}
 .lg-region-invalid{color:var(--c-danger,#8a1f11);font-size:12px}
 .lg-region-invalid[hidden]{display:none}
-.lg-region-help{color:var(--c-muted);font-size:12px}
 .lg-region-order{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--c-muted)}
 .lg-region-order input{width:90px}
 `;
@@ -1535,43 +1542,48 @@ const LG_OFFERS_LIST_ACTIONS_SCRIPT = `
   var dupCancel = document.getElementById('lg-dup-cancel');
   if (dupCancel) { dupCancel.addEventListener('click', function () { closeModal(dupModal); }); }
 
-  // --- kebab menus (open one at a time; close on outside click / Escape) -------
-  function closeKebabs() {
-    var open = document.querySelectorAll('[data-offer-kebab-menu]:not([hidden])');
-    var i;
-    for (i = 0; i < open.length; i++) {
-      open[i].hidden = true;
-      var btn = open[i].parentNode ? open[i].parentNode.querySelector('[data-offer-kebab-toggle]') : null;
-      if (btn) { btn.setAttribute('aria-expanded', 'false'); }
-    }
-  }
-
+  // --- kebab menus ---------------------------------------------------------
+  // Product-fix round (S2.4 admin-UI): ROOT-CAUSE was a stacking-context trap,
+  // not a z-index magnitude problem. NOTE (L-185): no backticks in this
+  // comment — this whole script is a backtick-delimited TS template literal,
+  // and a literal backtick anywhere inside it (even in a comment) closes the
+  // outer literal early and breaks tsc. .table--sticky-edges gives EVERY
+  // row's LAST td (the actions cell housing this kebab) position:sticky,
+  // z-index:1 (layout.ts) — and position:sticky ALWAYS establishes a NEW
+  // stacking context. A menu that is position:absolute INSIDE that sticky
+  // cell has its z-index scoped LOCALLY to that cell's own stacking context;
+  // it can never outrank a DIFFERENT row's sticky cell (also z-index:1, but a
+  // PEER in the table's outer stacking context) once the open menu's height
+  // overflows past its own row into the row below — the later row wins on DOM
+  // order at the same z-index, and its OPAQUE background (layout.ts's
+  // background:var(--c-bg)) then intercepts BOTH the paint and the pointer
+  // hit-test for the menu items underneath (reproduced live: Playwright's
+  // click on data-offer-delete resolved to the NEXT row's td). This is the
+  // EXACT bug layout.ts's kebabMenuScript already fixes for every other list
+  // (sections/auctions/quotes/listicles) by reparenting the open menu to
+  // body (position:fixed) on open — escaping every ancestor stacking
+  // context, sticky or not, in one step. This row's own kebab now renders via
+  // renderKebabOpen/KEBAB_CLOSE (generic data-kebab-toggle/data-kebab-menu/
+  // data-kebab attributes) and kebabMenuScript (embedded below) owns open/
+  // close/portal — never re-implemented locally. window.lgCloseKebabs is the
+  // shared close-on-action hook every other list's own click script already
+  // uses (ui-sections.ts et al.) — offers now matches that same idiom.
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (!t || !t.closest) { return; }
-    var toggle = t.closest('[data-offer-kebab-toggle]');
-    if (toggle) {
-      var menu = toggle.parentNode ? toggle.parentNode.querySelector('[data-offer-kebab-menu]') : null;
-      var wasHidden = menu ? menu.hidden : true;
-      closeKebabs();
-      if (menu && wasHidden) { menu.hidden = false; toggle.setAttribute('aria-expanded', 'true'); }
-      return;
-    }
     var dupBtn = t.closest('[data-offer-duplicate]');
-    if (dupBtn) { closeKebabs(); openDuplicate(dupBtn.getAttribute('data-offer-duplicate'), dupBtn.getAttribute('data-offer-name') || ''); return; }
+    if (dupBtn) { if (window.lgCloseKebabs) { window.lgCloseKebabs(); } openDuplicate(dupBtn.getAttribute('data-offer-duplicate'), dupBtn.getAttribute('data-offer-name') || ''); return; }
     var delBtn = t.closest('[data-offer-delete]');
-    if (delBtn) { closeKebabs(); openDelete(delBtn.getAttribute('data-offer-delete'), delBtn.getAttribute('data-offer-name') || 'this offer'); return; }
+    if (delBtn) { if (window.lgCloseKebabs) { window.lgCloseKebabs(); } openDelete(delBtn.getAttribute('data-offer-delete'), delBtn.getAttribute('data-offer-name') || 'this offer'); return; }
     var archiveBtn = t.closest('[data-offer-archive]');
-    if (archiveBtn) { closeKebabs(); onArchive(archiveBtn.getAttribute('data-offer-archive'), archiveBtn.getAttribute('data-offer-name') || 'this offer'); return; }
+    if (archiveBtn) { if (window.lgCloseKebabs) { window.lgCloseKebabs(); } onArchive(archiveBtn.getAttribute('data-offer-archive'), archiveBtn.getAttribute('data-offer-name') || 'this offer'); return; }
     var usageBtn = t.closest('[data-offer-usage]');
-    if (usageBtn) { closeKebabs(); showUsage(usageBtn.getAttribute('data-offer-usage'), usageBtn.getAttribute('data-offer-name') || ''); return; }
+    if (usageBtn) { if (window.lgCloseKebabs) { window.lgCloseKebabs(); } showUsage(usageBtn.getAttribute('data-offer-usage'), usageBtn.getAttribute('data-offer-name') || ''); return; }
     var usageArchive = t.closest('[data-usage-archive]');
     if (usageArchive) { window.lgUi.closeDialog(); onArchive(usageArchive.getAttribute('data-usage-archive'), usageArchive.getAttribute('data-offer-name') || 'this offer'); return; }
-    if (!t.closest('[data-offer-kebab]')) { closeKebabs(); }
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
-      closeKebabs();
       if (dupModal && !dupModal.classList.contains('hidden')) { closeModal(dupModal); }
       if (delModal && !delModal.classList.contains('hidden')) { closeModal(delModal); }
     }
@@ -1622,7 +1634,7 @@ ${renderLgDialogShell()}
     userEmail: brand.userEmail,
     content,
     styles: LG_OFFERS_STYLES,
-    scripts: LG_SHARED_SCRIPT + LG_OFFER_MODAL_SCRIPT + LG_OFFERS_LIST_ACTIONS_SCRIPT + listFilterScript,
+    scripts: kebabMenuScript + LG_SHARED_SCRIPT + LG_OFFER_MODAL_SCRIPT + LG_OFFERS_LIST_ACTIONS_SCRIPT + listFilterScript,
   });
 }
 

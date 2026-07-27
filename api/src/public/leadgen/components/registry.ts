@@ -74,40 +74,33 @@ export const COMPONENT_CATALOG = {
   QuestionHeadline: { category: "affordance", scope: "both", produces: null, props: ["text"], validation: [], events: [], tokenSlots: ["headline"] },
   Subheadline:   { category: "affordance", scope: "both", produces: null, props: ["text"], validation: [], events: [], tokenSlots: ["subheadline"] },
 
-  // v3.1 R3b E1-NEW-10 (catalog hygiene): legacy-only — NOT reachable from the
-  // palette or the canvas toolbar's Format-$ switch (that switch toggles
-  // ONLY between NumberRangeQuestion/CurrencyRangeQuestion, its documented
-  // 2-type family). Existing stored content of this exact type keeps
-  // rendering/validating; new authoring should use the Slider tile instead.
-  RangeQuestion:         { category: "question", scope: "unit", produces: "number",   props: ["internal_field","min","max","step","default","format(number|currency)","minLabel","maxLabel","required"], validation: ["min<=value<=max"], events: ["answer_click","answer_change"], tokenSlots: ["rangeQuestion"], capabilityExample: "screenshot: 'How much do you need?' $10k–$1M+ slider, value $330,000" },
-  CurrencyRangeQuestion: { category: "question", scope: "unit", produces: "currency", props: ["...RangeQuestion","currency"], validation: ["min<=value<=max"], events: ["answer_click","answer_change"], tokenSlots: ["rangeQuestion"], capabilityExample: "screenshot: BUSINESS LOAN currency range" },
-  NumberRangeQuestion:   { category: "question", scope: "unit", produces: "number",   props: ["...RangeQuestion"], validation: ["min<=value<=max"], events: ["answer_click","answer_change"], tokenSlots: ["rangeQuestion"] },
+  // Rework §10 / M7: the slider triplet collapsed to this ONE catalog entry. The
+  // legacy RangeQuestion / CurrencyRangeQuestion types are REMOVED — migration M7
+  // (0051) rewrites stored nodes to NumberRangeQuestion + props.slider_type/
+  // currency_affix; a stray stored node of an extinct type validates with a clear
+  // unknown_component_type error and renders the fail-safe box (never 500). §6.8
+  // slider variants ride props.slider_type; the currency "$" is display-only via
+  // props.currency_affix (never touches node.type/answer_type — the Image9 fix).
+  NumberRangeQuestion:   { category: "question", scope: "unit", produces: "number",   props: ["internal_field","min","max","step","default","minLabel","maxLabel","required","slider_type","currency_affix"], validation: ["min<=value<=max"], events: ["answer_click","answer_change"], tokenSlots: ["rangeQuestion"], capabilityExample: "screenshot: 'How much do you need?' $10k–$1M+ slider (single/stepper/from_to/dual_range/radial, §6.8)" },
 
   ButtonAnswerGroup:  { category: "question", scope: "unit", produces: "enum", props: ["internal_field","choices[{label,value,analytics_id,style?}]","required","auto_advance"], validation: ["one selected if required"], events: ["answer_click"], tokenSlots: ["primaryButton","input"] },
   TwoButtonYesNo:     { category: "question", scope: "unit", produces: "boolean", props: ["internal_field","yesLabel","noLabel","auto_advance","default?","yesStyle?","noStyle?"], validation: [], events: ["answer_click","answer_default_applied"], tokenSlots: ["primaryButton"], capabilityExample: "spec: 'Are you insured?' [Yes][No]" },
   IconCardAnswerGrid: { category: "question", scope: "unit", produces: "enum", props: ["internal_field","columns(1..5)","choices[{icon,label,description?,value,analytics_id,style?}]","required"], validation: ["one selected if required"], events: ["answer_click"], tokenSlots: ["iconCardGrid","iconCard"], capabilityExample: "screenshot: 'What type of business?' Sole Proprietor/Partnership/LLC/C-Corp/S-Corp icon cards" },
   ImageCardAnswerGrid:{ category: "question", scope: "unit", produces: "enum", props: ["internal_field","columns","choices[{imageMediaId,label,value,style?}]","searchable?","required"], validation: ["one selected if required"], events: ["answer_click"], tokenSlots: ["iconCardGrid","iconCard"], capabilityExample: "reference-funnel: brand-logo make/carrier grid + card-search" },
   MultiChoiceCardGroup:{ category: "question", scope: "unit", produces: "array", props: ["internal_field","choices[]","min","max"], validation: ["min<=count<=max"], events: ["answer_click"], tokenSlots: ["iconCard","multiChoice"] },
-  // P5 (register PC-10, operator decision D2 — Image9 "a good explanation for
-  // multi-choice including default answers"): the STACKED multi-QUESTION grid.
-  // One node renders SEVERAL labeled sub-questions, each a shared (or per-row-
-  // overridden) pill pair with an optional pre-selected DEFAULT. Unlike
-  // MultiChoiceCardGroup (multi-SELECT of one field's options → produces
-  // "array"), each ROW is its OWN answer field: `produces: "object"` + a
-  // per-row `internal_field`, following the NameFieldsGroup/Address multi-
-  // subfield pattern (answers.ts fieldsOf, config-dto row projection) so
-  // flatten/answers/rules/mapping/auction see the rows as ordinary fields with
-  // ZERO new runtime-engine logic. Always Continue (never auto-advance — it
-  // records several answers; see AUTO_ADVANCE_CLICK_TYPES / isMultiSelectNode).
-  MultiQuestionGrid:{ category: "question", scope: "unit", produces: "object", props: ["choices[{label,value,analytics_id,style?}]","rows[{label,internal_field,default?,required?,choices?}]","required"], validation: ["1-8 rows","unique internal_field per row","2-4 shared choices","row default in effective choices"], events: ["answer_click","answer_default_applied"], tokenSlots: ["primaryButton","input"], capabilityExample: "Image9: 'Tell us about the driver' — stacked labeled sub-questions (Homeowner/Married/Gender/Military Affiliation), each a default-selected pill pair, one Continue" },
+  // Rework §10 / M6: the one-unit MultiQuestionGrid is REMOVED (owner intent —
+  // §3.2 — independent components win). Migration M6 (0050) expands each stored
+  // grid in place to N independent components (TwoButtonYesNo / ButtonAnswerGroup),
+  // preserving every row field + the `<nodeQid>::<field>` ids. A stray stored grid
+  // node validates with a clear unknown_component_type error and renders the
+  // fail-safe box. The "Questions on one screen" palette starter (§4.1) replaces it.
   DropdownQuestion:   { category: "question", scope: "unit", produces: "enum", props: ["internal_field","choices[]","placeholder","required","conditional?"], validation: ["value in choices"], events: ["answer_click"], tokenSlots: ["dropdown"], capabilityExample: "spec: insurer dropdown shown when 'insured=yes'" },
   SearchableDropdownQuestion: { category: "question", scope: "unit", produces: "enum", props: ["internal_field","choices[]","placeholder?","required?"], validation: ["value in choices"], events: ["answer_click"], tokenSlots: ["dropdown","input"], capabilityExample: "08 §8.3/§8.10: DropdownQuestion plus a search input above the options (runtime filters client-side)" },
-  // v3.1 R3b E1-C7 (catalog hygiene): fully rendered + labeled, but has no
-  // palette tile/swap path of its own — ButtonAnswerGroup's own "Enable
-  // Other group" toggle (choiceDisplay.otherGroupEnabled) produces the
-  // identical B9 behavior on any choice type, superseding the need to
-  // insert this dedicated type directly. Kept for existing content.
-  OtherGroupSelector: { category: "question", scope: "unit", produces: "enum", props: ["internal_field","choices[]","required?"], validation: ["value in choices"], events: ["answer_click"], tokenSlots: ["primaryButton","input"], capabilityExample: "08 §8.3 (B9 §6.4): main choices as answer buttons + the Other tail; auto-applied when a mapped field has choiceDisplay.otherGroupEnabled" },
+  // Rework §10 / M12: OtherGroupSelector is REMOVED — §6.5's authored props.other
+  // on the single-select choice groups supersedes the B9 choiceDisplay mechanism.
+  // Migration M12 (0053) rewrites stored nodes to ButtonAnswerGroup (all choices
+  // become base choices); a stray stored node validates with a clear
+  // unknown_component_type error and renders the fail-safe box.
 
   FreeTextQuestion:   { category: "question", scope: "unit", produces: "string", props: ["internal_field","placeholder","maxLen","required","pii?"], validation: ["required","maxLen"], events: ["answer_change"], tokenSlots: ["input"] },
   NumberInputQuestion:   { category: "question", scope: "unit", produces: "number",   props: ["internal_field","min?","max?","step?","placeholder?","required?"], validation: ["numeric","min<=value<=max when set"], events: ["answer_change","validation_error"], tokenSlots: ["input"], capabilityExample: "08 §8.3/§8.10: plain number input (inputmode=numeric) — NOT a Range variant" },
@@ -171,6 +164,213 @@ export const COMPONENT_CATALOG = {
 } as const satisfies Record<string, CatalogEntryContract>;
 
 export type ComponentType = keyof typeof COMPONENT_CATALOG;
+
+// ---------------------------------------------------------------------------
+// LeadGen Rework §6.2 — the per-type inspector CONTROL-CAPABILITY matrix.
+// ---------------------------------------------------------------------------
+// The systemic #10 fix: inspector controls render from per-type capability
+// FLAGS instead of ad-hoc `hidden` toggles scattered through the studio island
+// (§6.2 "Controls render from per-type capability flags ... The ad-hoc
+// per-control `hidden` flags ... consolidate onto this one spec-driven
+// mechanism"). This is DATA — the SINGLE source of truth shared by the Studio
+// (S2.4, which renders exactly the flagged controls) and the schema validator
+// (content-schema.ts, which GATES props to the flagged capabilities so the
+// authoring surface and the save gate can never disagree) and the §6.2 matrix
+// test (S2.5). Every row/column of the contract's §6.2 table is transcribed
+// below verbatim; `satisfies Record<ComponentType, …>` makes it compile-time
+// EXHAUSTIVE (a new/removed catalog type forces a matching change here).
+//
+// Cell vocabulary (matching the matrix's non-✓/blank cells):
+//   * `"labels_only"` — YesNo shows a labels-only choice editor (Yes/No copy),
+//     not the full add/remove choice grid.
+//   * `"per_field"` — Address / NameFields render the control PER SUB-FIELD
+//     (existing convention), not once for the whole node.
+//   * `default_kind` — WHICH default control the type offers (§6.4): a YesNo
+//     toggle, a range value, a dropdown option, a choice pick, or none.
+export interface ComponentCapabilitySpec {
+  /** §6.3 Label + helper block. `"per_field"` = per sub-field (NameFields). */
+  label_helper: boolean | "per_field";
+  /** Required toggle. `"per_field"` = per sub-field (Address/NameFields). */
+  required: boolean | "per_field";
+  /** Choices editor (+ bulk paste). `"labels_only"` = YesNo Yes/No labels. */
+  choices_editor: boolean | "labels_only";
+  /** §6.5 "Other" values editor — SINGLE-select choice groups only. */
+  other_editor: boolean;
+  /** §6.4 default control kind — null = no default control on this type. */
+  default_kind: "yesno" | "range" | "dropdown" | "choice" | null;
+  /** §6.6 ✓-in-selected marker style (per-node, over the theme axis). */
+  selected_marker: boolean;
+  /** Column-count control (answer grids + containers). */
+  columns: boolean;
+  /** §5.6 Accept type-swap (text-input family + Phone). */
+  accept_type_swap: boolean;
+  /** §6.9 phone mask builder — Phone only. */
+  mask_builder: boolean;
+  /** §6.8 slider-type picker — Slider only. */
+  slider_type: boolean;
+  /** §6.10 address field-set + Maps editor — Address only. */
+  field_set_maps: boolean;
+  /** Placeholder control. `"per_field"` = per sub-field (Address/NameFields). */
+  placeholder: boolean | "per_field";
+}
+
+const CAP_NONE: ComponentCapabilitySpec = {
+  label_helper: false,
+  required: false,
+  choices_editor: false,
+  other_editor: false,
+  default_kind: null,
+  selected_marker: false,
+  columns: false,
+  accept_type_swap: false,
+  mask_builder: false,
+  slider_type: false,
+  field_set_maps: false,
+  placeholder: false,
+};
+
+// Buttons / Icon cards / Image cards — the SINGLE-select choice groups (§6.2
+// row set: Label+helper ✓, Required ✓, Choices editor ✓, Other editor ✓,
+// Default ✓ 'choice', Selected-marker ✓, Columns ✓).
+const CAP_CHOICE_SINGLE: ComponentCapabilitySpec = {
+  ...CAP_NONE,
+  label_helper: true,
+  required: true,
+  choices_editor: true,
+  other_editor: true,
+  default_kind: "choice",
+  selected_marker: true,
+  columns: true,
+};
+
+// Text-input family (FreeText / Email / Number / Currency / Date / ZIP):
+// Label+helper ✓, Required ✓, Accept type-swap ✓, Placeholder ✓.
+const CAP_TEXT_INPUT: ComponentCapabilitySpec = {
+  ...CAP_NONE,
+  label_helper: true,
+  required: true,
+  accept_type_swap: true,
+  placeholder: true,
+};
+
+// Dropdown / Searchable: Label+helper ✓, Required ✓, Choices editor ✓,
+// Default ✓ 'dropdown' (existing), Placeholder ✓. NO Other editor (the #10
+// fix: Dropdown shows no Other-group control), NO selected-marker, NO columns.
+const CAP_DROPDOWN: ComponentCapabilitySpec = {
+  ...CAP_NONE,
+  label_helper: true,
+  required: true,
+  choices_editor: true,
+  default_kind: "dropdown",
+  placeholder: true,
+};
+
+// Slider (the ONE NumberRangeQuestion catalog entry, §10/M7 collapse):
+// Label+helper ✓, Required ✓, Default ✓ 'range' (existing), Slider type ✓.
+const CAP_SLIDER: ComponentCapabilitySpec = {
+  ...CAP_NONE,
+  label_helper: true,
+  required: true,
+  default_kind: "range",
+  slider_type: true,
+};
+
+// Layout containers: only the Columns control (matrix Containers column).
+const CAP_CONTAINER: ComponentCapabilitySpec = { ...CAP_NONE, columns: true };
+
+export const COMPONENT_CAPABILITIES = {
+  // chrome — no Section-inspector controls.
+  ProgressBar: CAP_NONE,
+  HeaderLogo: CAP_NONE,
+  BackButton: CAP_NONE,
+  DisclosureLink: CAP_NONE,
+  StepIndicator: CAP_NONE,
+
+  // copy affordances — no answer controls.
+  CategoryLabel: CAP_NONE,
+  QuestionHeadline: CAP_NONE,
+  Subheadline: CAP_NONE,
+
+  // range family (the ONE collapsed Slider, §10/M7).
+  NumberRangeQuestion: CAP_SLIDER,
+
+  // choice questions.
+  ButtonAnswerGroup: CAP_CHOICE_SINGLE,
+  // YesNo: Label+helper ✓, Required ✓, Choices editor "labels only",
+  // Default ✓ 'yesno', Selected-marker ✓ — but NO Other editor, NO Columns.
+  TwoButtonYesNo: {
+    ...CAP_NONE,
+    label_helper: true,
+    required: true,
+    choices_editor: "labels_only",
+    default_kind: "yesno",
+    selected_marker: true,
+  },
+  IconCardAnswerGrid: CAP_CHOICE_SINGLE,
+  ImageCardAnswerGrid: CAP_CHOICE_SINGLE,
+  // MultiChoice: like the single-select groups BUT no Other editor and NO
+  // default (§6.4 "Multi-select has no default in v1").
+  MultiChoiceCardGroup: {
+    ...CAP_NONE,
+    label_helper: true,
+    required: true,
+    choices_editor: true,
+    selected_marker: true,
+    columns: true,
+  },
+  DropdownQuestion: CAP_DROPDOWN,
+  SearchableDropdownQuestion: CAP_DROPDOWN,
+
+  // free-form + PII inputs.
+  FreeTextQuestion: CAP_TEXT_INPUT,
+  NumberInputQuestion: CAP_TEXT_INPUT,
+  CurrencyInputQuestion: CAP_TEXT_INPUT,
+  EmailInputQuestion: CAP_TEXT_INPUT,
+  // Phone: the text-input family PLUS the §6.9 mask builder.
+  PhoneInputQuestion: { ...CAP_TEXT_INPUT, mask_builder: true },
+  // NameFields/Contact: every control is PER-FIELD (existing convention).
+  NameFieldsGroup: {
+    ...CAP_NONE,
+    label_helper: "per_field",
+    required: "per_field",
+    placeholder: "per_field",
+  },
+  DateQuestion: CAP_TEXT_INPUT,
+  ZIPInputQuestion: CAP_TEXT_INPUT,
+  // Address: Label+helper ✓, Required per-field, Field set + Maps ✓,
+  // Placeholder per-field.
+  AddressAutocompleteQuestion: {
+    ...CAP_NONE,
+    label_helper: true,
+    required: "per_field",
+    field_set_maps: true,
+    placeholder: "per_field",
+  },
+
+  // controls + remaining affordances — no answer controls.
+  ContinueButton: CAP_NONE,
+  AutoAdvanceButton: CAP_NONE,
+  ReassuranceBadge: CAP_NONE,
+  SuccessState: CAP_NONE,
+  SecureFormBadge: CAP_NONE,
+  TrustBar: CAP_NONE,
+  LogoStrip: CAP_NONE,
+  HelperText: CAP_NONE,
+  ValidationError: CAP_NONE,
+  LegalNote: CAP_NONE,
+  TextBlock: CAP_NONE,
+  ImageBlock: CAP_NONE,
+
+  // layout containers + leaves.
+  Stack: CAP_CONTAINER,
+  GridContainer: CAP_CONTAINER,
+  Columns: CAP_CONTAINER,
+  CardPanel: CAP_CONTAINER,
+  BackgroundPanel: CAP_CONTAINER,
+  Spacer: CAP_NONE,
+  HeaderBar: CAP_NONE,
+  FooterBar: CAP_NONE,
+} as const satisfies Record<ComponentType, ComponentCapabilitySpec>;
 
 // A component NOT in this catalog cannot be placed in a Section (server-validated
 // on save). Adding a new capability = a new catalog entry + a render in

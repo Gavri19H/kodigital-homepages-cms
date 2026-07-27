@@ -24,6 +24,7 @@
     "verify:jargon:strict": "node scripts/jargon-scan.mjs --strict",
     "verify:golden-regions": "node scripts/golden-allowlist.mjs",
     "verify:golden-regions:strict": "node scripts/golden-allowlist.mjs --strict",
+    "verify:orphan-scan": "node scripts/verify/leadgen-orphan-scan.mjs",
     "verify:all": "npm run verify:no-legacy-prod-refs && npm run verify:infra && npm run verify:worker-config && npm run verify:leadgen-runtime && npm run verify:jargon:strict && npm run verify:golden-regions:strict",
     "smoke:cms-domain": "tsx scripts/smoke/cms-domain.ts",
     "smoke:local": "curl -fsS http://localhost:8787/health",

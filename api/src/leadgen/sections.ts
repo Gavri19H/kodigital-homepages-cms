@@ -147,9 +147,6 @@ function validateSectionLevelOverride(key: string, value: unknown, errors: Field
   }
 }
 
-export const LEADGEN_CONTINUE_MODES = ["button", "auto_advance"] as const satisfies readonly LeadgenContinueMode[];
-export const LEADGEN_SECTION_STATUSES = ["active", "archived"] as const satisfies readonly LeadgenSectionStatus[];
-
 // Round-4 A-8/P-9 (rows R4-13/R4-42): a display-name map so validateSection's
 // save-error MESSAGES read as plain operator language, never the raw field id
 // verbatim ("section_name is required" -> "Section name is required"). The

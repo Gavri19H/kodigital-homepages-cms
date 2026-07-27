@@ -26,13 +26,14 @@ const CHOICE_FIELDS = [
   "aria_label",
   "description",
 ];
-// The 7 CHOICE types (a choices editor exists — meta.choice). TwoButtonYesNo is
+// The CHOICE types (a choices editor exists — meta.choice). TwoButtonYesNo is
 // NOT a choice type (fixed Yes/No), so it is not in CHOICE_FIELD_CONSUMPTION.
+// §10: OtherGroupSelector + the grid are retired (no renderer), so neither is a
+// choice type here anymore.
 const CHOICE_TYPES = [
   "ButtonAnswerGroup",
   "DropdownQuestion",
   "SearchableDropdownQuestion",
-  "OtherGroupSelector",
   "MultiChoiceCardGroup",
   "IconCardAnswerGrid",
   "ImageCardAnswerGrid",
@@ -119,12 +120,19 @@ describe("R3 E1-NEW-2 — the per-type choice-field map is DERIVED from presets.
     });
   }
 
-  it("the register's shape holds: BAG/DDQ/SDQ/OGS = label/value/analytics_id only; MCG adds title/subtitle; card grids get all 12", () => {
+  it("the register's shape holds: DDQ/SDQ = label/value/analytics_id only; BAG (§8.4 Card render axis) + MCG add title/subtitle; card grids get all 12", () => {
     const g = (t: string): string[] => [...(island[t] || [])].sort();
-    expect(g("ButtonAnswerGroup")).toEqual(["analytics_id", "label", "value"]);
+    // §8.4 (Card render axis, product-fix round): THEME_BUTTON_LAYOUTS gained
+    // "card" — renderButtonAnswerGroup's buttonInnerContent(isCard, marker,
+    // c.label, c.title, c.subtitle) reads title/subtitle from every choice
+    // under that theme layout (presets.ts), so ButtonAnswerGroup now needs
+    // the SAME authoring fields MultiChoiceCardGroup already exposes below.
+    expect(g("ButtonAnswerGroup")).toEqual(["analytics_id", "label", "subtitle", "title", "value"]);
     expect(g("DropdownQuestion")).toEqual(["analytics_id", "label", "value"]);
     expect(g("SearchableDropdownQuestion")).toEqual(["analytics_id", "label", "value"]);
-    expect(g("OtherGroupSelector")).toEqual(["analytics_id", "label", "value"]);
+    // §10: OtherGroupSelector + the grid are retired (no renderer, not in
+    // CHOICE_FIELD_CONSUMPTION); their extinct-type render seam is covered in
+    // leadgen-rework-render.test.ts.
     expect(g("MultiChoiceCardGroup")).toEqual(["analytics_id", "label", "subtitle", "title", "value"]);
     expect(g("IconCardAnswerGrid")).toEqual([...CHOICE_FIELDS].sort());
     expect(g("ImageCardAnswerGrid")).toEqual([...CHOICE_FIELDS].sort());
@@ -201,14 +209,15 @@ describe("P2b R-A completion — CHOICE_STYLE_TYPES is DERIVED from presets.ts's
     expect(island).toEqual(derived);
   });
 
-  it("the register's shape holds: exactly the 6 per-choice families (incl. P5 MultiQuestionGrid, whose shared pills thread c.style); TwoButtonYesNo (yesStyle/noStyle, no choices array) and the 2 native-select dropdowns are excluded", () => {
+  // Rework §10 removal: OtherGroupSelector AND the grid are retired (no renderer
+  // calls choiceItemStyle(..., c.style) anymore), leaving exactly 4 per-choice
+  // families (the extinct-type render seam is covered in leadgen-rework-render.test.ts).
+  it("the register's shape holds: exactly the 4 per-choice families; TwoButtonYesNo (yesStyle/noStyle, no choices array) and the 2 native-select dropdowns are excluded", () => {
     expect(derivedChoiceStyleTypes()).toEqual([
       "ButtonAnswerGroup",
       "IconCardAnswerGrid",
       "ImageCardAnswerGrid",
       "MultiChoiceCardGroup",
-      "MultiQuestionGrid",
-      "OtherGroupSelector",
     ]);
   });
 

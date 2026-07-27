@@ -63,10 +63,11 @@ import type { ResolvedActivatedFunnel } from "./resolver";
 import { computeSectionOrderHash } from "./config-dto";
 import {
   resolvePagePlan,
-  loadRoutingRules,
-  deriveCheckpointPages,
+  loadQuoteRoutingRules,
+  deriveQuoteCheckpointPages,
   checkpointPageAnchors,
   resolveEffectiveFrameOnly,
+  resolveSavedFrameTemplateDefaultsFor,
   buildFrameCtaCtx,
   computeCtaVerdict,
   type EntryKnownContext,
@@ -377,14 +378,15 @@ export async function mintFunnelAttempt(
     const resolved_plan = resolvePagePlan(resolved.pages, entryCtx, sessionId);
     pagePlanHash = resolved_plan.hash;
     pagePlan = resolved_plan.winners;
-    // Derive the checkpoint pages from the variant's routing rules. A degraded
-    // read (no DB in a unit harness) simply yields none → no /lg/checkpoint
-    // calls (fail-safe; the server still re-derives authoritatively).
+    // LeadGen Rework §4.3-3: derive the checkpoint pages from the QUOTE's
+    // routing rules over the RESOLVED (shared + variant) plan. A degraded read
+    // (no DB in a unit harness) yields none → no /lg/ck calls (fail-safe; the
+    // server still re-derives authoritatively at /lg/ck).
     const db = (env as { DB?: D1Database }).DB;
     if (db !== undefined) {
       try {
-        const rules = await loadRoutingRules(db, resolved.variant.id);
-        const pageNumbers = deriveCheckpointPages(resolved.pages, rules);
+        const rules = await loadQuoteRoutingRules(db, resolved.quote.id);
+        const pageNumbers = deriveQuoteCheckpointPages(resolved.pages, rules);
         checkpointPages = checkpointPageAnchors(pageNumbers, resolved_plan.pages);
       } catch {
         checkpointPages = [];
@@ -417,10 +419,20 @@ export async function mintFunnelAttempt(
   // page transitions only, the SAME granularity P4a routing already re-
   // evaluates at, not on every page). resolveEffectiveFrameOnly degrades to
   // null on a legacy/invalid/absent frame (no cta_slots to evaluate).
+  // Rework M5 (mini-round): precedence variant.frame_template_id ?? funnel.
+  // frame_template_id, via the shared resolver.ts helper (both this file and
+  // serve.ts/runtime-routes.ts share it — same table, same parser). A caller
+  // without env.DB (unit harnesses) degrades to null (no saved template
+  // defaults) — the SAME graceful degrade computeAttemptBindingExtras already
+  // applies a few lines up in this same function.
+  const dbForFrame = (env as { DB?: D1Database }).DB;
+  const savedTemplateDefaults =
+    dbForFrame !== undefined ? await resolveSavedFrameTemplateDefaultsFor(dbForFrame, resolved) : null;
   const frame = resolveEffectiveFrameOnly({
     frame_config_json: resolved.funnel.frame_config_json,
     theme_json: resolved.funnel.theme_json,
     frame_overrides_json: resolved.variant.frame_overrides_json,
+    saved_template_defaults: savedTemplateDefaults,
   });
   if (frame !== null) {
     const frameCtx = buildFrameCtaCtx({ state: ctxState, device: ctxDevice, hour: nowHour, weekday: nowWeekday }, 0);

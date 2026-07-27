@@ -49,18 +49,16 @@ const BOTH_TYPES = [
 // §8.2 "unit": all question/input/choice types + ContinueButton /
 // AutoAdvanceButton / ValidationError.
 const UNIT_TYPES = [
-  "RangeQuestion",
-  "CurrencyRangeQuestion",
+  // §10: the grid / OtherGroupSelector / Range / CurrencyRange types are removed
+  // from the catalog; the ONE surviving slider is NumberRangeQuestion.
   "NumberRangeQuestion",
   "ButtonAnswerGroup",
   "TwoButtonYesNo",
   "IconCardAnswerGrid",
   "ImageCardAnswerGrid",
   "MultiChoiceCardGroup",
-  "MultiQuestionGrid",
   "DropdownQuestion",
   "SearchableDropdownQuestion",
-  "OtherGroupSelector",
   "FreeTextQuestion",
   "NumberInputQuestion",
   "CurrencyInputQuestion",

@@ -60,8 +60,11 @@ import { escapeHtml } from "../../editor/sanitize";
 import {
   resolveActivatedFunnel,
   resolveActivatedFunnelByVariant,
+  resolveEntryRedirect,
   parseUtmFromLandingUrl,
   resolveEffectiveFrameOnly,
+  resolveSavedFrameTemplateDefaultsFor,
+  deriveOs,
   type ResolvedActivatedFunnel,
   type ResolvedFunnelSection,
   type FunnelAssignment,
@@ -82,7 +85,6 @@ import { flattenComponents } from "./components/content-schema";
 // below applies at serve time — same catalog the content-schema save-time
 // warning (frame_scope_component) already reads.
 import { COMPONENT_CATALOG } from "./components/registry";
-import { mintFunnelAttempt } from "./attempt";
 import { getFunnelDesign, type FunnelDesign } from "./designs/registry";
 import { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "./designs/default-funnel/styles";
 // 03 §3.2a / 09 §9.1: the ONE shared renderer — the same presets that power
@@ -425,6 +427,12 @@ export interface LeadgenFrameSource {
   frame_config_json: string | null | undefined;
   theme_json: string | null | undefined;
   frame_overrides_json: string | null | undefined;
+  // Rework M5 (§5, mini-round): the ALREADY-RESOLVED saved frame-template
+  // defaults (resolver.ts resolveSavedFrameTemplateDefaultsFor), threaded
+  // straight through resolveFrameComposition into resolveEffectiveFrameOnly's
+  // matching field. Optional — a caller that omits it (sections-handlers.ts's
+  // preview paths, unchanged) stays byte-identical (A-6a).
+  saved_template_defaults?: EffectiveFrameConfig | null;
 }
 
 // The resolved v2.5 composition bundle for one (funnel, variant): the effective
@@ -547,11 +555,19 @@ export function resolveFrameComposition(
 }
 
 // A ResolvedActivatedFunnel's frame source columns (funnel + assigned variant).
-function frameSourceOf(resolved: ResolvedActivatedFunnel): LeadgenFrameSource {
+// `savedTemplateDefaults` (Rework M5, mini-round) is an OPTIONAL 2nd arg — the
+// two callers feeding resolveFrameComposition resolve it via resolver.ts
+// resolveSavedFrameTemplateDefaultsFor on the COLD path and pass it through;
+// the theme-KV-only callers (resolveThemeRecordFor) omit it (irrelevant there).
+function frameSourceOf(
+  resolved: ResolvedActivatedFunnel,
+  savedTemplateDefaults?: EffectiveFrameConfig | null,
+): LeadgenFrameSource {
   return {
     frame_config_json: resolved.funnel.frame_config_json,
     theme_json: resolved.funnel.theme_json,
     frame_overrides_json: resolved.variant.frame_overrides_json,
+    saved_template_defaults: savedTemplateDefaults,
   };
 }
 
@@ -688,6 +704,11 @@ function renderFunnelShell(
   design: FunnelDesign,
   answerMapVersions: Readonly<Record<string, string>>,
   themeRecord: ThemeRecord | null,
+  // Rework M5 (§5, mini-round): pre-resolved by the ONE caller (serveFunnelShell,
+  // cold path only) via resolver.ts resolveSavedFrameTemplateDefaultsFor — this
+  // function stays synchronous (no DB access of its own), mirroring how
+  // themeRecord is already a pre-resolved plain param.
+  savedTemplateDefaults: EffectiveFrameConfig | null = null,
 ): string {
   const funnelId = toFunnelId(resolved.funnel.public_id);
   const funnelVariantId = toFunnelVariantId(resolved.variant.public_id);
@@ -702,7 +723,7 @@ function renderFunnelShell(
   // free on that path: the pin proves css/config/design_tokens bytes
   // unchanged). resolveTokens keeps design.id, so the scope selector is the
   // same string on both paths.
-  const composition = resolveFrameComposition(frameSourceOf(resolved), design, themeRecord);
+  const composition = resolveFrameComposition(frameSourceOf(resolved, savedTemplateDefaults), design, themeRecord);
   const effectiveDesign: FunnelDesign | EffectiveFunnelDesign =
     composition === null ? design : composition.effectiveTokens.design;
   const chromeCss =
@@ -803,17 +824,23 @@ export async function serveFunnelShell(
   const sidWasAbsent = sid === "";
   if (sidWasAbsent) sid = genSessionId();
 
-  // P4a (D-2) entry-routing attributes: CF geo state + UA device + landing-URL
-  // UTM (the request URL carries the ad params) + the server UTC clock. When an
-  // entry-plane routing rule on the control variant matches these, the resolver
-  // serves its target variant (routing ≻ A/B) — and since variantId feeds the
-  // cache key below, each routed target caches its OWN shell (no poisoning).
+  // P4a (D-2) / LeadGen Rework §4.3-3a entry-routing attributes: CF geo state +
+  // UA device + M10 os (the SAME deriveOs bucket + the SAME User-Agent header
+  // /lg/attempt + /lg/ck derive it from — shell-serve parity so an os-
+  // conditioned entry rule selects the funnel identically whether the FIRST
+  // request is this shell or a later /lg/attempt) + landing-URL UTM (the
+  // request URL carries the ad params) + the server UTC clock. When an
+  // entry-plane routing rule matches these, the resolver serves its target
+  // funnel (routing ≻ A/B) — and since variantId feeds the cache key below,
+  // each routed target caches its OWN shell (no poisoning).
   const geo = geoFromCf(readCfSignals(c.req.raw));
-  const ua = parseClientUa(c.req.header("User-Agent"));
+  const userAgent = c.req.header("User-Agent");
+  const ua = parseClientUa(userAgent);
   const now = new Date();
   const entryCtx: EntryKnownContext = {
     hour: now.getUTCHours(),
     weekday: now.getUTCDay(),
+    os: deriveOs(userAgent),
     ...(geo.state !== "" ? { state: geo.state } : {}),
     ...(ua.device !== "" ? { device: ua.device } : {}),
     ...parseUtmFromLandingUrl(c.req.url),
@@ -858,6 +885,25 @@ export async function serveFunnelShell(
     return headers;
   };
 
+  // LeadGen Rework §4.3-9 (entry plane): the matched entry rule's redirect_pct
+  // sends its sticky per-session share to the redirect target (the offer-
+  // governed /lg/lc URL or an allowlisted raw URL) INSTEAD of our funnel. The
+  // remainder fall through to the shell below (the funnel is already pre-
+  // selected by resolveActivatedFunnel; feed/multiplier are recorded when the
+  // engine then calls /lg/attempt). Runs BEFORE the If-None-Match/cache legs so
+  // a redirected visitor never gets a 304/shell. The 302 is no-store and rides
+  // the freshly-minted ko_sid so the decision is sticky across a reload (§4.3-6)
+  // — the SAME session hash always lands the same verdict. No funnel_attempt_id
+  // exists at shell-serve, so the redirect decision is not recorded here.
+  const redirectTo = await resolveEntryRedirect(c.env.DB, resolved.quote.id, entryCtx, sid);
+  if (redirectTo !== null) {
+    const rh = new Headers();
+    rh.set("Location", redirectTo);
+    rh.set("Cache-Control", "no-store");
+    rh.set(NOSNIFF_HEADER, NOSNIFF_VALUE);
+    return new Response(null, { status: 302, headers: withSession(rh) });
+  }
+
   const ifNoneMatch = c.req.header("If-None-Match") ?? null;
   if (matchesIfNoneMatch(ifNoneMatch, etag)) {
     return new Response(null, { status: 304, headers: withSession(publicHtmlCacheHeaders({ etag })) });
@@ -886,7 +932,15 @@ export async function serveFunnelShell(
     // narrow default, register R4 item 10I) instead of being dropped by the
     // legacy frameless fork below.
     const themeRecord = await resolveThemeRecordFor(c.env, frameSourceOf(resolved));
-    pristine = renderFunnelShell(resolved, design, answerMapVersions, themeRecord);
+    // Rework M5 (§5, mini-round): the SAME cold-path-only discipline — a
+    // cache hit already carries whatever saved template defaults were baked
+    // in at write time. S1.4 bumps content_version at both re-point
+    // endpoints (quotes-handlers.ts PUT /variants/:id frame_template_id, and
+    // apply-to-funnel via bumpActiveVariantContentVersions), busting this
+    // shell's cache key — permanent coverage in leadgen-rework-handlers.
+    // test.ts's "cache coherence" tests.
+    const savedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(c.env.DB, resolved);
+    pristine = renderFunnelShell(resolved, design, answerMapVersions, themeRecord, savedTemplateDefaults);
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);
     // Write-through stores the PRISTINE shell (visitor-invariant: no Maps key,
     // no per-session assignment dims — only the sentinels).
@@ -946,10 +1000,14 @@ export async function serveLeadgenConfig(c: PublicContext): Promise<Response> {
     // v3.1 §10.1/§12: the theme_id KV read — cold path only, mirrors the
     // shell's own placement exactly (resolveThemeRecordFor's doc comment).
     const themeRecord = await resolveThemeRecordFor(c.env, frameSourceOf(resolved));
+    // Rework M5 (§5, mini-round): cold-path only, mirrors the shell's own
+    // placement (serveFunnelShell's call site) and the same content_version
+    // cache-busting coverage documented there.
+    const savedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(c.env.DB, resolved);
     // v2.5 §13.3: the config route carries the SAME design tokens the shell
     // bakes — the EFFECTIVE design on the frame path, the base design on the
     // legacy path (one resolver, no drift).
-    const composition = resolveFrameComposition(frameSourceOf(resolved), design, themeRecord);
+    const composition = resolveFrameComposition(frameSourceOf(resolved, savedTemplateDefaults), design, themeRecord);
     const effectiveDesign = composition === null ? design : composition.effectiveTokens.design;
     // buildPublicConfig is the RED-LINE strip point: it copies only whitelisted
     // public fields, so no provider endpoint / token ref / bid strategy / raw
@@ -962,24 +1020,9 @@ export async function serveLeadgenConfig(c: PublicContext): Promise<Response> {
   return new Response(body, { status: 200, headers: leadgenConfigCacheHeaders(etag) });
 }
 
-// GET /lg/attempt?funnel_variant_id=lgn_… — mint a per-session funnel_attempt_id
-// + HMAC-signed signed_config_token (Stage-A mintFunnelAttempt). no-store
-// (§4.3 / §8.3 — session-specific, never cached, never in /lg/config). The
-// funnel is resolved from the funnel_variant_id query param (same anti-leak
-// reverse lookup as /lg/config; a foreign/unactivated variant → 404).
-export async function serveLeadgenAttempt(c: PublicContext): Promise<Response> {
-  const siteContext = c.get("siteContext");
-  const variantId = c.req.query("funnel_variant_id") ?? "";
-  const resolved = await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, variantId);
-  if (resolved === null) {
-    return new Response(JSON.stringify({ error: "Not Found" }), {
-      status: 404,
-      headers: leadgenNoStoreHeaders(),
-    });
-  }
-  const attempt = await mintFunnelAttempt(c.env, resolved);
-  return new Response(JSON.stringify(attempt), {
-    status: 200,
-    headers: leadgenNoStoreHeaders(),
-  });
-}
+// §10/S5.1: serveLeadgenAttempt (the OLD /lg/attempt V1 handler) deleted —
+// confirmed 0 references anywhere (P5 orphan-scan tier-1 GATING; not
+// registered on any route). serveLeadgenAttemptV2 (runtime-routes.ts) is the
+// LIVE handler actually mounted at leadgenPublicRouter.get("/lg/attempt", …)
+// and carries its own mintFunnelAttempt call + full test coverage
+// (leadgen-attempt.test.ts, leadgen-auction-runtime.test.ts, leadgen-gates.test.ts).

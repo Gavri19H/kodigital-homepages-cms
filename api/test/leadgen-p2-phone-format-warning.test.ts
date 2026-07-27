@@ -111,12 +111,29 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -293,6 +310,38 @@ describeDb("formatPhone x phone_format incoherence warning (P2 review round)", (
     expect(res.status, await res.clone().text()).toBe(201);
     const body = (await res.json()) as { problems: ProblemJson[] };
     expect(findPhoneWarning(body.problems)).toBeDefined();
+  });
+
+  // LeadGen Rework §6.9/M8: S2.4 extended phoneFormatIncoherenceWarning for the
+  // new mask shape (props.phone_format = {mask:{pattern}}) — coherent iff the
+  // mask's parsed digit_count is exactly 10 (NANP), since formatPhone silently
+  // drops anything else, the SAME failure class the preset checks above guard.
+  it("a mask phone_format with digit_count!==10 + formatPhone: warns (own-hand-verified against phoneFormatIncoherenceWarning, sections-handlers.ts)", async () => {
+    const { env } = newHarness();
+    const offer = await createMappableOffer(env);
+    const res = await admin.request(
+      `${API}/sections`,
+      // "3-4" parses to groups [3,4] = 7 digits total, not 10.
+      jsonInit("POST", sectionBody({ mask: { pattern: "3-4" } }, offer.id)),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const body = (await res.json()) as { problems: ProblemJson[] };
+    expect(findPhoneWarning(body.problems)).toBeDefined();
+  });
+
+  it("a mask phone_format with digit_count===10 + formatPhone: NO warning (the coherent NANP-shaped mask)", async () => {
+    const { env } = newHarness();
+    const offer = await createMappableOffer(env);
+    const res = await admin.request(
+      `${API}/sections`,
+      // The M8 contract's own example: groups [3,3,4] = 10 digits total.
+      jsonInit("POST", sectionBody({ mask: { pattern: "(3) 3-4" } }, offer.id)),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const body = (await res.json()) as { problems: ProblemJson[] };
+    expect(findPhoneWarning(body.problems)).toBeUndefined();
   });
 
   it("nanp phone_format + formatPhone: NO warning (the coherent pairing)", async () => {

@@ -18,10 +18,14 @@
 //     template `centered` + trust strip (2 logos w/ alts) + top-bar
 //     disclosure + manual footer links + footer trust text — the §15.3
 //     "footer/disclosure/trust configured" fixture;
-//   * a NON-CONTROL arm (fork of control) whose frame_overrides_json
+//   * a NON-CONTROL arm (create experiment -> start -> fork the control,
+//     the Rework M1 §4.3-10 arm-bootstrap flow) whose frame_overrides_json
 //     overrides progress (style dots) — the §4.5 override-badge fixture.
+//     armBVariantId is null only if that sanctioned flow itself fails (a
+//     real regression, not an expected state) — see armBBlockedReason on
+//     QuoteBuilderSeed.
 
-import { expect, type APIRequestContext } from "@playwright/test";
+import type { APIRequestContext } from "@playwright/test";
 import { seedActiveSite, uploadPng } from "./listicles-p6-seed";
 
 const LG_API = "/api/admin/leadgen";
@@ -127,7 +131,15 @@ export interface QuoteBuilderSeed {
   quotePublicId: string;
   funnelPublicId: string;
   controlVariantId: string;
-  armBVariantId: string;
+  // Rework M1 (§4.3-10) + conductor extension round 2: the sanctioned arm-
+  // bootstrap flow is create experiment -> start -> fork the control (only
+  // legal in that exact running-1-arm state) -> both arms rebalance to
+  // 5000/5000. Caught rather than thrown so this ALWAYS resolves (never
+  // null in the happy path); armBVariantId stays null ONLY if that flow
+  // itself regresses — a real failure, not an expected state — see
+  // armBBlockedReason.
+  armBVariantId: string | null;
+  armBBlockedReason: string | null;
   sections: Array<{ id: number; publicId: string; name: string }>;
   // Phase D (C2 row ⑨): a SECOND Quote with a configured frame (compat OFF)
   // whose single Section carries a raw-API-inserted legacy chrome node
@@ -225,6 +237,40 @@ export async function seedQuoteBuilder(request: APIRequestContext, uniq: string)
     "frame config",
   );
 
+  // --- quote-owned shared first page (Rework M2, §4.3-1/§4.3-15) --------------
+  // Activation now requires the quote's shared first page to carry ≥1 section,
+  // distinct from any section already placed on a variant (§4.3-13 uniqueness) —
+  // seeded through the real POST /quotes/:id/shared-page route.
+  const sharedSection = await json<{ id: number; public_id: string }>(
+    await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: `LG B shared slide ${uniq}`,
+        activity: "quote_funnel",
+        vertical: "life",
+        headline_text: "Before we start",
+        continue_mode: "button",
+        status: "active",
+        content_json: {
+          components: [
+            {
+              type: "TwoButtonYesNo",
+              question_id: "q_shared_intro",
+              internal_field: "shared_intro",
+              props: { yesLabel: "Yes", noLabel: "No" },
+            },
+          ],
+        },
+      },
+    }),
+    "shared section create",
+  );
+  await json(
+    await request.post(`${LG_API}/quotes/${quote.public_id}/shared-page`, {
+      data: { sections: [{ section_id: sharedSection.id, position: 0 }] },
+    }),
+    "shared page create",
+  );
+
   // --- activations: A enabled · C disabled · B none ----------------------------
   await json(
     await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteAId}`, {
@@ -240,15 +286,44 @@ export async function seedQuoteBuilder(request: APIRequestContext, uniq: string)
   );
 
   // --- the non-control arm with a progress override (§4.5 badge fixture) ------
-  const forkRes = await request.post(`${LG_API}/variants/${controlVariantId}/fork`);
-  expect(forkRes.status(), `fork: ${await forkRes.text()}`).toBe(201);
-  const armB = (await forkRes.json()) as { public_id: string };
-  await json(
-    await request.put(`${LG_API}/variants/${armB.public_id}`, {
-      data: { frame_overrides_json: { progress: { style: "dots" } } },
-    }),
-    "arm B overrides",
+  // Rework M1 (§4.3-10) + conductor extension round 2: fork bootstraps a
+  // SECOND active arm ONLY as the running-test 1→2 transition — the
+  // sanctioned HTTP flow is create experiment (draft) -> start (running;
+  // trivially Σ=10000 with the lone control arm) -> fork the control (NOW
+  // legal: exactly 1 active arm + a running test) -> both arms rebalance to
+  // 5000/5000, forked arm labelled 'B'. See test/leadgen-rework-handlers.test.ts's
+  // "full A/B lifecycle" test for the reference sequence this mirrors.
+  let armBVariantId: string | null = null;
+  let armBBlockedReason: string | null = null;
+  const experimentRes = await json<{ public_id: string; status: string }>(
+    await request.post(`${LG_API}/funnels/${funnelPublicId}/experiments`, { data: { name: `LG B experiment ${uniq}` } }),
+    "create experiment",
   );
+  const startRes = await request.post(`${LG_API}/experiments/${experimentRes.public_id}/start`);
+  if (startRes.status() === 200) {
+    const forkRes = await request.post(`${LG_API}/variants/${controlVariantId}/fork`);
+    if (forkRes.status() === 201) {
+      const armB = (await forkRes.json()) as { public_id: string };
+      armBVariantId = armB.public_id;
+      await json(
+        await request.put(`${LG_API}/variants/${armB.public_id}`, {
+          data: { frame_overrides_json: { progress: { style: "dots" } } },
+        }),
+        "arm B overrides",
+      );
+    } else {
+      // Safety net, loud on purpose: the create->start->fork sequence is the
+      // sanctioned, already-proven flow (see the reference test cited above)
+      // — if fork STILL refuses here, that is a genuine regression in the
+      // bootstrap mechanism, not an expected/silent state. Caught (rather
+      // than thrown) only so the REST of this fixture still seeds for
+      // consumers that don't need a second arm; armBBlockedReason surfaces
+      // the real HTTP body loudly to any consumer that does.
+      armBBlockedReason = `fork after experiment start returned ${forkRes.status()}: ${await forkRes.text()}`;
+    }
+  } else {
+    armBBlockedReason = `experiment start returned ${startRes.status()}: ${await startRes.text()}`;
+  }
 
   // --- Phase D C2 fixture: chrome-in-a-section quote (frame configured, no
   // --- activation). The chrome node rides the RAW section API (a save-time
@@ -280,6 +355,7 @@ export async function seedQuoteBuilder(request: APIRequestContext, uniq: string)
     "chrome section create",
   );
   const chromeQuoteRes = await json<{
+    id: number;
     public_id: string;
     funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
   }>(
@@ -303,6 +379,41 @@ export async function seedQuoteBuilder(request: APIRequestContext, uniq: string)
     "chrome quote frame",
   );
 
+  // Rework M2 (§4.3-1, §4.3-15): this is a SEPARATE quote, so it needs its
+  // OWN shared-page seed too — the test activates it directly (both the
+  // expected-409 C2 attempt and the expected-200 post-compat-override
+  // attempt), and the shared-page precondition is independent of the C2
+  // chrome-in-section problem the test is actually about.
+  const chromeSharedSection = await json<{ id: number; public_id: string }>(
+    await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: `LG D chrome shared slide ${uniq}`,
+        activity: "quote_funnel",
+        vertical: "life",
+        headline_text: "Before we start",
+        continue_mode: "button",
+        status: "active",
+        content_json: {
+          components: [
+            {
+              type: "TwoButtonYesNo",
+              question_id: "q_chrome_shared_intro",
+              internal_field: "chrome_shared_intro",
+              props: { yesLabel: "Yes", noLabel: "No" },
+            },
+          ],
+        },
+      },
+    }),
+    "chrome shared section create",
+  );
+  await json(
+    await request.post(`${LG_API}/quotes/${chromeQuoteRes.public_id}/shared-page`, {
+      data: { sections: [{ section_id: chromeSharedSection.id, position: 0 }] },
+    }),
+    "chrome shared page create",
+  );
+
   return {
     siteA: { id: siteAId, name: nameA, logoKey: logoA.storage_key },
     siteB: { id: siteBId, name: nameB, logoKey: logoB.storage_key },
@@ -310,7 +421,8 @@ export async function seedQuoteBuilder(request: APIRequestContext, uniq: string)
     quotePublicId: quote.public_id,
     funnelPublicId,
     controlVariantId,
-    armBVariantId: armB.public_id,
+    armBVariantId,
+    armBBlockedReason,
     sections,
     chromeQuote: {
       quotePublicId: chromeQuoteRes.public_id,

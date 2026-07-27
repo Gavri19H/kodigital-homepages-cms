@@ -117,7 +117,23 @@ const LEADGEN_MIGRATIONS = [
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  // Rework P1 (§5 M1-M12): the full migration set so leadgen_funnel_pages /
+  // leadgen_funnel_variant_sections carry the M2 owner axis (variant_id
+  // NULLable + quote_id) the quotes_indirect usage tests below exercise.
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -2514,5 +2530,61 @@ describeDb("usage — F12e every-kind fixture + F8 true multi-table counts (07 �
     // blocking verdict: all 9 blocking kinds, NONE of the warning kinds
     expect(body.usage.delete_eligibility.eligible).toBe(false);
     expect([...body.usage.delete_eligibility.blocking_kinds].sort()).toEqual([...BLOCKING].sort());
+  });
+});
+
+// --- Rework M2 (§4.3-1 "shared first page", §5-M2 P1 entry gate) -----------
+// quotes_indirect must ALSO count a Section reachable ONLY via a Quote's
+// shared page (leadgen_funnel_variant_sections.quote_id set, variant_id
+// NULL) — not just via a funnel variant. An unqualified INNER JOIN through
+// fv.id = fvs.variant_id (the pre-rework shape) silently drops that row,
+// which would wrongly let a still-referenced Offer's hard-delete pass since
+// quotes_indirect is a BLOCKING kind.
+
+describeDb("quotes_indirect — a quote-owned shared-page Section also counts (Rework M2 owner axis)", () => {
+  it("counts + blocks a hard delete when the Offer's Section is placed ONLY on a quote's shared page (no variant reference)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env, { offer_name: "SharedPageOnly", placements: ["sp-1"] });
+
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json) VALUES (?, 'Sec', 'quote_funnel', 'life', 'H', '{}')",
+      )
+      .run(mintPublicId("section"));
+    const sectionId = (sdb.prepare("SELECT id FROM leadgen_sections LIMIT 1").get() as { id: number }).id;
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_section_available_offers (section_id, offer_id, selected, mapping_state) VALUES (?, ?, 1, 'complete')",
+      )
+      .run(sectionId, offer.id);
+
+    sdb
+      .prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json) VALUES (?, 'SharedQ', 'quote_funnel', '[]')")
+      .run(mintPublicId("quote"));
+    const quoteId = (sdb.prepare("SELECT id FROM leadgen_quotes ORDER BY id DESC LIMIT 1").get() as { id: number }).id;
+    // The M2 owner axis: quote_id set, variant_id left NULL — placed on the
+    // quote's shared page directly, never on any funnel variant.
+    sdb
+      .prepare("INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position) VALUES (?, ?, 0)")
+      .run(quoteId, sectionId);
+
+    const res = await admin.request(`${API}/offers/${offer.id}/usage`, {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      usage: { kinds: Array<{ kind: string; count: number; items: Array<{ name: string }> }> };
+    };
+    const quotesIndirect = body.usage.kinds.find((k) => k.kind === "quotes_indirect");
+    expect(quotesIndirect, "quotes_indirect present").toBeDefined();
+    expect(quotesIndirect!.count, "the shared-page-owning quote is counted even with NO variant reference").toBe(1);
+    expect(quotesIndirect!.items[0]?.name).toBe("SharedQ");
+
+    const del = await admin.request(`${API}/offers/${offer.id}?mode=hard`, { method: "DELETE" }, env);
+    expect(del.status, await del.clone().text()).toBe(409);
+    const delBody = (await del.json()) as {
+      error: string;
+      usage: { delete_eligibility: { blocking_kinds: string[] } };
+    };
+    expect(delBody.error).toBe("offer_in_use");
+    expect(delBody.usage.delete_eligibility.blocking_kinds).toContain("quotes_indirect");
   });
 });

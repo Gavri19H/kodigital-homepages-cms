@@ -152,6 +152,22 @@ async function seedQuote(request: APIRequestContext, tag: string): Promise<Seede
     }),
     "funnel frame",
   );
+
+  // Rework M2 (§4.3-1, §4.3-15): activation now also requires the quote's
+  // shared first page to carry ≥1 section, distinct from any section already
+  // placed on a variant (§4.3-13 uniqueness) — seeded through the real
+  // POST /quotes/:id/shared-page route.
+  const sharedSection = await json<{ public_id: string }>(
+    await request.post(`${LG_API}/sections`, { data: richSection(`p6b-${safe}-shared`, `${field}_shared`) }),
+    "shared section create",
+  );
+  await json(
+    await request.post(`${LG_API}/quotes/${quote.public_id}/shared-page`, {
+      data: { sections: [{ section_id: sharedSection.public_id, position: 0 }] },
+    }),
+    "shared page create",
+  );
+
   await json(
     await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: safe } }),
     "activation",
@@ -318,6 +334,12 @@ test.describe("P6b — theme presets (apply / delete)", () => {
   });
 });
 
+// Rework M1 (§4.3-10) + conductor extension round 2: forkVariantHandler
+// bootstraps a SECOND active arm only as a RUNNING A/B test's 1->2
+// transition — both tests below now create+start an experiment on the
+// funnel before driving the "A/B this theme"/"Add variant" UI buttons that
+// trigger fork client-side (see test/leadgen-rework-handlers.test.ts's "full
+// A/B lifecycle" test for the reference sequence this mirrors).
 test.describe("P6b — theme A/B fork + the A/B tab's template-level reframe", () => {
   test("'A/B this theme' forks the variant, assigns the picked preset to the new arm, and applies the chosen split", async ({ page }) => {
     const seed = await seedQuote(apiCtx, "abtheme");
@@ -327,6 +349,12 @@ test.describe("P6b — theme A/B fork + the A/B tab's template-level reframe", (
       await apiCtx.post(`${LG_API}/themes`, { data: themePayload(themeBName, "Inter") }),
       "create theme B",
     );
+
+    const experiment = await json<{ public_id: string }>(
+      await apiCtx.post(`${LG_API}/funnels/${seed.funnelPublicId}/experiments`, { data: { name: `P6b ${uniq}` } }),
+      "create experiment",
+    );
+    await json(await apiCtx.post(`${LG_API}/experiments/${experiment.public_id}/start`), "start experiment");
 
     await openEditor(page, seed.quotePublicId, seed.variantPublicId);
     await page.locator('.lg-qtab[data-tab="themes"]').click();
@@ -368,6 +396,12 @@ test.describe("P6b — theme A/B fork + the A/B tab's template-level reframe", (
 
   test("the A/B tab offers Add variant + the allocation editor + a per-arm what-varies summary", async ({ page }) => {
     const seed = await seedQuote(apiCtx, "addvariant");
+    const uniq2 = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const experiment2 = await json<{ public_id: string }>(
+      await apiCtx.post(`${LG_API}/funnels/${seed.funnelPublicId}/experiments`, { data: { name: `P6b ${uniq2}` } }),
+      "create experiment",
+    );
+    await json(await apiCtx.post(`${LG_API}/experiments/${experiment2.public_id}/start`), "start experiment");
     await openEditor(page, seed.quotePublicId, seed.variantPublicId);
 
     const abPanel = page.locator('[data-panel="ab"]');

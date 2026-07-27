@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { LG_BANNERS_MOUNT_HTML, renderQuoteFrame } from "../src/public/leadgen/designs/frame";
+import { LG_BANNERS_MOUNT_HTML, LOGO_FALLBACK_CHIP_TEXT, renderQuoteFrame } from "../src/public/leadgen/designs/frame";
 import type { RenderQuoteFrameInput } from "../src/public/leadgen/designs/frame";
 import { effectiveFrame, validateFrameConfig } from "../src/public/leadgen/designs/frames";
 import type { FrameConfig, FrameTemplateId } from "../src/public/leadgen/designs/frames";
@@ -737,18 +737,35 @@ describe("P5a 10B site-logo preview hint", () => {
     expect(html).not.toContain("lg-frame-logo-hint");
   });
 
-  it("adminPreview + a site with NO logo → the 'no logo set' hint appears", () => {
+  // Rework §8.8 (#11A), Appendix A-8: REPAIRED (P4 S4.2) — the admin-preview-
+  // only "no logo set" hint (frame.ts's OLD renderNoLogoHint, sitting
+  // ALONGSIDE a still-bare site_name text mark) is SUPERSEDED by the honest
+  // placeholder chip, which is now the UNCONDITIONAL floor-leg rendering
+  // (live AND preview — see frame.ts's renderLogoFallbackChip doc comment:
+  // the bare-text mark was ground truth #11A's REAL live defect, not an
+  // admin-only cosmetic gap). This test's OWN intent — "a logo-less site
+  // shows an explicit hint, never a bare unexplained mark" — is what the
+  // chip now proves, more strongly (it holds live too, not just in preview).
+  it("adminPreview + a site with NO logo → the A-8 fallback chip appears (never the bare site_name mark)", () => {
     const html = composed({}, 2, { adminPreview: true, branding: BRANDING_NO_LOGO });
-    expect(html).toContain("lg-frame-logo-hint");
-    expect(html).toContain("No logo set for this site");
-    expect(html).toContain('data-admin-preview-hint="1"');
+    expect(html).toContain("lg-frame-logo-fallback");
+    expect(html).toContain(LOGO_FALLBACK_CHIP_TEXT);
+    // No siteSettingsHref supplied by this helper -> the admin-only LINK
+    // affordance stays absent (never a guessed/fabricated href); the chip
+    // TEXT itself is what this test asserts, unconditionally present.
+    expect(html).not.toContain("Open Site settings");
   });
 
-  it("LIVE serve (adminPreview absent) NEVER emits the hint — byte-identical shell", () => {
+  it("LIVE serve (adminPreview absent) shows the SAME chip — the fix is NOT admin-preview-gated (only the optional link is)", () => {
     const live = composed({}, 2, { branding: BRANDING_NO_LOGO });
     const liveExplicitFalse = composed({}, 2, { adminPreview: false, branding: BRANDING_NO_LOGO });
-    expect(live).not.toContain("lg-frame-logo-hint");
+    const preview = composed({}, 2, { adminPreview: true, branding: BRANDING_NO_LOGO });
+    expect(live).toContain("lg-frame-logo-fallback");
     expect(live).toBe(liveExplicitFalse);
+    // The chip's CORE content is byte-identical whether previewed or live —
+    // only an (unsupplied-here) siteSettingsHref-gated link could ever add a
+    // preview-only byte, and none is supplied by this helper.
+    expect(live).toBe(preview);
   });
 });
 

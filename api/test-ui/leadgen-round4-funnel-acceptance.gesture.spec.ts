@@ -92,14 +92,81 @@ async function openEditor(page: Page, quotePublicId: string, variantPublicId?: s
   await expect(page.locator("[data-panel='builder']")).toBeVisible({ timeout: 20_000 });
 }
 
+// M1 (§4.3-10) fork precondition, confirmed via source + live network trace
+// (this investigation): forkVariantHandler's canBootstrapArm requires a
+// RUNNING A/B test to ALREADY exist before a second active variant is
+// sanctioned — quotes-handlers.ts's createAbTest own comment: "a fresh
+// funnel's single active variant is already at bp=10000 (Σ trivially
+// satisfied) — start immediately, then fork it to bootstrap a 2nd equal arm
+// (§4.3-10)". Forking with NO test at all 409s "This funnel already has an
+// active variant. A second active variant is only allowed as an arm of a
+// running A/B test — set one up from the A/B tab." — so BOTH #lg-add-variant
+// and #lg-theme-ab-this (funnel.ts's shared forkWithAllocation) require this
+// precursor. Assumes the caller is ALREADY on the A/B tab (or navigates
+// there itself afterward, since the reloads this triggers reset the active
+// tab).
+async function createAndStartExperiment(page: Page): Promise<void> {
+  await page.locator('.lg-qtab[data-tab="ab"]').click();
+  const createReq = page.waitForResponse((res) => res.request().method() === "POST" && res.url().endsWith("/experiments"));
+  const createReload = page.waitForEvent("load");
+  await page.locator("#lg-create-experiment").click();
+  expect((await createReq).status(), "create A/B test").toBe(201);
+  await createReload;
+
+  await page.locator('.lg-qtab[data-tab="ab"]').click();
+  const startBtn = page.locator("[data-start-experiment]");
+  await expect(startBtn, "the newly-created draft test offers Start").toBeVisible();
+  const startReq = page.waitForResponse((res) => res.request().method() === "POST" && /\/experiments\/.+\/start$/.test(res.url()));
+  const startReload = page.waitForEvent("load");
+  await startBtn.click();
+  expect((await startReq).status(), "start A/B test").toBe(200);
+  await startReload;
+  await page.locator('.lg-qtab[data-tab="ab"]').click();
+}
+
+// P5 rework (LEADGEN-REWORK-03 §4.3): every quote now carries a mandatory
+// SHARED first page — activation 409s "activation.shared_page" until it
+// carries ≥1 section. Only Item 10I (live theme-render leg) activates a
+// quote onto a live site in this file; seed the SAME trivial single-
+// ContinueButton shared page used across this phase's other live-funnel
+// probes (__p5a-frame.spec.ts's seedTrivialSharedPage/passSharedPage
+// precedent).
+async function seedTrivialSharedPage(request: APIRequestContext, quotePublicId: string): Promise<void> {
+  const shared = await json<{ id: number; public_id: string }>(
+    await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: `R4F shared ${Date.now()}${Math.floor(Math.random() * 1000)}`,
+        activity: "quote_funnel", vertical: VERTICAL, status: "active",
+        headline_text: "Continue", continue_mode: "button",
+        content_json: JSON.stringify({ components: [{ type: "ContinueButton", question_id: "shared_cont", props: { label: "Continue" } }] }),
+      },
+    }),
+    "r4f shared page section create",
+  );
+  await json(
+    await request.post(`${LG_API}/quotes/${quotePublicId}/shared-page`, { data: { sections: [{ section_id: shared.id }] } }),
+    "r4f shared page create",
+  );
+}
+async function passSharedPage(page: Page): Promise<void> {
+  await page.locator("[data-lg-continue]:visible").click();
+}
+
 function boxesIntersect(a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }): boolean {
   return !(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
 }
 
-async function addSectionToPage(pageLoc: import("@playwright/test").Locator, label: string): Promise<void> {
-  await pageLoc.locator("[data-add-slot-select]").selectOption({ label });
-  await pageLoc.locator("[data-add-slot]").click();
-}
+// NOTE: the OLD #lg-section-list-scoped <select>+button add pair is removed
+// (§10/§8.9). The FUNNEL page's board "+ section" popover ([data-add-section])
+// WAS a product bug (it opened then self-closed within the same synchronous
+// click — the tabindex=0 control's focus scroll-into-view of the horizontally-
+// scrolled board fired the global scroll->closeMenus). S5.3 root-caused and
+// FIXED it (the open menu now REPOSITIONS on scroll instead of closing); proven
+// live in test-ui/leadgen-rework-p3b-board.gesture.spec.ts ("S5.3 item 2 —
+// funnel-page '+ section' popover stays open …"). Item 10J below still seeds its
+// slots directly via the variant PUT because its proof intent — chip-name
+// ellipsis/no-overlap — does not depend on HOW a slot was authored, not because
+// the popover is broken.
 
 // The dynamic-host live leg (a *.e2e.test tenant host, resolved via
 // chromium's --host-resolver-rules launch arg above) is chromium-only —
@@ -126,277 +193,140 @@ test.afterAll(async () => {
 test.describe("Round-4 acceptance — Funnel builder: structure/pages/routing/theme/A-B (register R4-24/25/28-33/44)", () => {
   // =========================================================================
   // Item 10J — funnel structure panel broken layout (Image41), fixed.
-  // Deeper gate: __p3b-structure.spec.ts. Journey: a long section name
-  // ellipsizes inside the ~260px rail without ever wrapping into / crowding
-  // the controls rail — ONE owned style block, not the old two-CSS-block split.
+  // REWRITTEN this sweep (§10/S5.1): the OLD narrow "#lg-structure-panel"
+  // sidebar (a #lg-section-list-scoped <select>+button add-slot flow) was
+  // superseded by the P3b funnel-builder BOARD (quotes-tabs/funnel.ts) — the
+  // old ids/classes (#lg-structure-panel, #lg-add-page as an id,
+  // .lg-studio-left, .lg-section-row, [data-select-slide], .lg-row-rail) are
+  // confirmed gone (grep: 0 references in src/). The ellipsis + no-overlap
+  // PROOF INTENT survives unchanged on the board's own section chip
+  // (.lg-sec-chip .lg-sc-name carries the SAME text-overflow:ellipsis;
+  // overflow:hidden;white-space:nowrap rule — quotes-tabs/shared.ts — inside
+  // a flex row alongside .lg-chip-grip/.lg-chip-kebab, so overlap is
+  // structurally prevented by the flex layout rather than fixed-width rail
+  // math). The ~260px absolute-width claim itself does NOT survive: the
+  // board's funnel columns are a fundamentally wider layout (multiple
+  // funnels side by side, not a narrow management sidebar) — dropped rather
+  // than pinned to an arbitrary new number with no contract citation.
   // =========================================================================
-  test("Item 10J — long section names ellipsize cleanly at the ~260px structure rail; the name cell never overlaps the controls rail", async ({ page }) => {
-    page.on("dialog", (d) => d.accept());
+  test("Item 10J — long section names ellipsize cleanly inside the board's section chip; the name never overlaps the grip/kebab controls", async ({ page }) => {
     const seed = await seedQuote(apiCtx, "10j");
-    const longName = "A very long section headline that has to ellipsize inside the two hundred and sixty pixel structure rail without ever wrapping the row";
+    const longName = "A very long section headline that has to ellipsize inside the board's section chip without ever overlapping the grip or kebab controls";
     const s1 = await createSection(apiCtx, longName, `r4f10j_${Date.now()}`);
 
+    // Seed the page (incl. the long-named section's slot) directly via the
+    // variant PUT. Item 10J's proof intent is chip-name ellipsis/no-overlap,
+    // which does not depend on HOW the slots were authored, so a direct PUT is
+    // the terse setup. (The two authoring bugs this comment used to flag —
+    // "+ Add page" 400ing on an empty page, and the funnel "+ section" popover
+    // self-closing — were both root-caused and FIXED in S5.3 and are proven live
+    // in leadgen-rework-p3b-board.gesture.spec.ts: "S5.3 item 1 — '+ Add page' …"
+    // and "S5.3 item 2 — funnel-page '+ section' popover stays open …".)
+    const filler = await createSection(apiCtx, `R4F 10j filler ${Date.now()}`, `r4f10jfill_${Date.now()}`);
+    await json(
+      await apiCtx.put(`${LG_API}/variants/${seed.variantPublicId}`, {
+        data: {
+          pages: [
+            {
+              name: "Page 1",
+              slots: [
+                { kind: "fixed", section_id: filler.public_id },
+                { kind: "fixed", section_id: s1.public_id },
+              ],
+            },
+          ],
+        },
+      }),
+      "10j seed both slots",
+    );
+
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/admin/leadgen/quotes/${seed.quotePublicId}/edit`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#lg-structure-panel")).toBeVisible({ timeout: 20_000 });
-    await page.locator("#lg-add-page").click();
-    const list = page.locator("#lg-section-list");
-    const p1 = list.locator("[data-page]").nth(0);
-    await addSectionToPage(p1, `${longName} (${VERTICAL})`);
-    await expect(p1.locator("[data-slot]")).toHaveCount(1);
+    await openEditor(page, seed.quotePublicId);
+    const funnelCol = page.locator(`[data-funnel-col][data-funnel-public-id="${seed.funnelPublicId}"]`);
+    await expect(funnelCol).toBeVisible();
 
-    const panelBox = await page.locator(".lg-studio-left").boundingBox();
-    expect(panelBox, "the structure rail measures ~260px").not.toBeNull();
-    expect(panelBox!.width).toBeLessThanOrEqual(280);
+    const pageCard2 = funnelCol.locator("[data-page-card]").first();
+    await expect(pageCard2.locator(".lg-sec-chip")).toHaveCount(2);
+    const chip = pageCard2.locator(".lg-sec-chip", { hasText: longName.slice(0, 40) });
+    await expect(chip).toBeVisible();
+    const nameEl = chip.locator(".lg-sc-name");
+    const kebab = chip.locator(".lg-chip-kebab");
 
-    const row = p1.locator(".lg-section-row");
-    const nameBtn = row.locator("[data-select-slide]");
-    const rail = row.locator(".lg-row-rail");
-    const ellipsis = await nameBtn.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+    const ellipsis = await nameEl.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
     expect(ellipsis.scrollWidth, "the long name overflows its own cell (ellipsized, not wrapped)").toBeGreaterThan(ellipsis.clientWidth);
-    const nameBox = await nameBtn.boundingBox();
-    const railBox = await rail.boundingBox();
-    expect(boxesIntersect(nameBox!, railBox!), "the name cell must never overlap the handle/arrows/Remove controls rail").toBe(false);
+    const nameBox = await nameEl.boundingBox();
+    const kebabBox = await kebab.boundingBox();
+    expect(boxesIntersect(nameBox!, kebabBox!), "the ellipsized name must never overlap the kebab control").toBe(false);
     expect(s1.id, "section seeded").toBeTruthy();
   });
 
   // =========================================================================
-  // Restructure item B / funnel delta B (D-3 FULL pages model) — a page holds
-  // >=1 section, page order is changeable, and an in-page RULE chooses which
-  // section renders in a slot ("CA sees section X, everyone else Y").
-  // Deeper gate: __p3a-pages.spec.ts + __p3b-structure.spec.ts. Journey:
-  // author 2 pages (2 sections in page 1, 1 in page 2), move a section across
-  // pages, reorder the pages, save -> reload round-trips; then configure a
-  // SEPARATE slot as RULED (state=CA -> section X, default section Y).
+  // Restructure item B / funnel delta B (D-3 FULL pages model)
+  // [RETIRED this sweep, §10/S5.1 — coordinator-directed]: this test drove
+  // the OLD #lg-section-list-scoped structure panel (#lg-structure-panel,
+  // #lg-add-page/#lg-variant-save as ids, [data-page]/[data-slot]/
+  // [data-slot-move-next]/[data-slot-kind-select]/[data-ruled-*]) — its
+  // WHOLE client-side implementation (funnel.ts's `if (sectionList) {...}`
+  // block: movePage/addSlotToPage/switchSlotKind/addRuledCase/addAbCand) is
+  // CONFIRMED DEAD, not merely renamed: `sectionList = byId('lg-section-
+  // list')`, and grep across src/ shows NO current render ever emits
+  // `id="lg-section-list"` — the listener never attaches, so none of that
+  // code is reachable from any admin page today.
+  //
+  // The P3b BOARD (quotes-tabs/funnel.ts, proven live in
+  // leadgen-rework-p3b-board.gesture.spec.ts) is the CURRENT mechanism and
+  // covers PART of this test's claims:
+  //   - a page holds >=1 section (renderBoardPageCard iterates page.slots;
+  //     addSectionToFunnelPage pushes additional slots onto the SAME page) —
+  //     COVERED (Item 10J's rewrite above also exercises the add-section path).
+  //   - page order is changeable — COVERED: the "page" kebab menu's
+  //     page-up/page-down actions (data-menu-action, funnel.ts movePage) PUT
+  //     the reordered `pages` array and reload; board-spec proves the
+  //     sibling reorder affordances (chip-up/chip-down, funnel move-left/
+  //     move-right) using the SAME kebab-menu pattern.
+  //
+  // Both of this test's remaining claims are now COVERED live by S5.3 (they
+  // were open gaps when this test retired; the successor tests are in
+  // test-ui/leadgen-rework-p3b-board.gesture.spec.ts + the §8.2 shared-chip
+  // editor handler tests in test/leadgen-rework-handlers.test.ts):
+  //   1. "move a section from page 1 -> page 2": chip-up/chip-down now ROLL OVER
+  //      the page boundary within the funnel (moveFunnelChip, funnel.ts), and
+  //      the cross-page MOVE drag has positive coverage too — "S5.3 item 4a —
+  //      menu 'Move down' rolls a chip across the page boundary …" + "S5.3 item
+  //      4b — dragging a chip from page 1 to page 2 …".
+  //   2. "an in-page RULED slot (state=CA -> X, default Y)" AUTHORED via the UI:
+  //      the shared-page chip menu's "A/B this slot" / "Slot rule" now open real
+  //      in-board editors (funnel.ts renderSharedSlotAbDialog / RuledDialog — the
+  //      old gotoTab('ab') dead-end stub is gone, U-09), and slot authoring lives
+  //      in the §8.2 board's shared-chip editors. Proven by "S5.3 item 3 — author
+  //      an A/B slot on the shared page via the chip menu …" + the handler tests
+  //      "shared-page slot authoring (§8.2 shared-chip editors, S5.3)".
   // =========================================================================
-  test("Pages model — multi-section pages, reorder, move-across-pages, and an in-page RULED slot (state=CA -> X, default Y), all round-trip", async ({ page }) => {
-    page.on("dialog", (d) => d.accept());
-    const seed = await seedQuote(apiCtx, "pages");
-    const u = Date.now();
-    const s1 = await createSection(apiCtx, `R4F Welcome ${u}`, `r4fp1_${u}`);
-    const s2 = await createSection(apiCtx, `R4F Benefits ${u}`, `r4fp2_${u}`);
-    const s3 = await createSection(apiCtx, `R4F Details ${u}`, `r4fp3_${u}`);
-
-    await page.goto(`/admin/leadgen/quotes/${seed.quotePublicId}/edit`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#lg-structure-panel")).toBeVisible({ timeout: 20_000 });
-    const list = page.locator("#lg-section-list");
-
-    await page.locator("#lg-add-page").click();
-    await page.locator("#lg-add-page").click();
-    let pages = list.locator("[data-page]");
-    await expect(pages).toHaveCount(2);
-    await pages.nth(0).locator("[data-page-name]").fill("Welcome");
-    await pages.nth(1).locator("[data-page-name]").fill("Details");
-
-    await addSectionToPage(pages.nth(0), `R4F Welcome ${u} (${VERTICAL})`);
-    await addSectionToPage(pages.nth(0), `R4F Benefits ${u} (${VERTICAL})`);
-    await addSectionToPage(pages.nth(1), `R4F Details ${u} (${VERTICAL})`);
-    await expect(pages.nth(0).locator("[data-slot]"), "page 1 holds 2 sections (a real multi-section page)").toHaveCount(2);
-    await expect(pages.nth(1).locator("[data-slot]")).toHaveCount(1);
-
-    // Move a section from page 1 -> page 2 (the explicit control).
-    await pages.nth(0).locator("[data-slot]").first().locator("[data-slot-move-next]").click();
-    await expect(pages.nth(0).locator("[data-slot]")).toHaveCount(1);
-    await expect(pages.nth(1).locator("[data-slot]")).toHaveCount(2);
-
-    // Reorder pages (page order changeable per funnel — restructure delta A).
-    await pages.nth(1).locator("[data-page-up]").click();
-    pages = list.locator("[data-page]");
-    await expect(pages.nth(0).locator("[data-page-name]")).toHaveValue("Details");
-    await expect(pages.nth(1).locator("[data-page-name]")).toHaveValue("Welcome");
-
-    const putPromise = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().includes(`/variants/${seed.variantPublicId}`));
-    await page.locator("#lg-variant-save").click();
-    const put = await putPromise;
-    expect(put.status(), `variant PUT: ${await put.text()}`).toBe(200);
-    const putBody = put.request().postDataJSON() as Record<string, unknown>;
-    expect(Object.keys(putBody)).toContain("pages");
-
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.locator("#lg-structure-panel")).toBeVisible({ timeout: 20_000 });
-    const list2 = page.locator("#lg-section-list");
-    const pages2 = list2.locator("[data-page]");
-    await expect(pages2).toHaveCount(2);
-    await expect(pages2.nth(0).locator("[data-page-name]"), "reordered pages round-trip").toHaveValue("Details");
-    await expect(pages2.nth(1).locator("[data-page-name]")).toHaveValue("Welcome");
-    await expect(pages2.nth(0).locator("[data-slot]")).toHaveCount(2);
-    await expect(pages2.nth(1).locator("[data-slot]")).toHaveCount(1);
-
-    // --- in-page RULED slot: state=CA -> section X, default section Y -------
-    await page.locator("#lg-add-page").click();
-    const pages3 = list2.locator("[data-page]");
-    const rulePage = pages3.nth(2);
-    await addSectionToPage(rulePage, `R4F Details ${u} (${VERTICAL})`); // seeds the fixed slot -> Y default
-    await rulePage.locator("[data-slot]").first().locator("[data-slot-kind-select]").selectOption("ruled");
-    const ruledSlot = rulePage.locator('[data-slot][data-slot-kind="ruled"]');
-    await expect(ruledSlot).toHaveCount(1);
-    const caseRow = ruledSlot.locator("[data-ruled-case]").first();
-    await caseRow.locator("[data-ruled-field]").selectOption("state");
-    await caseRow.locator("[data-ruled-op]").selectOption("eq");
-    await caseRow.locator("[data-ruled-value]").fill("CA");
-    await caseRow.locator("[data-ruled-section]").selectOption(s2.public_id);
-    await ruledSlot.locator("[data-ruled-default]").selectOption(s3.public_id);
-
-    const putPromise2 = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().includes(`/variants/${seed.variantPublicId}`));
-    await page.locator("#lg-variant-save").click();
-    const put2 = await putPromise2;
-    expect(put2.status(), `ruled-slot PUT: ${await put2.text()}`).toBe(200);
-    const putBody2 = put2.request().postDataJSON() as { pages: Array<{ slots: Array<Record<string, unknown>> }> };
-    const ruledSent = putBody2.pages[2]!.slots[0]!;
-    expect(ruledSent["kind"], "the in-page rule is a REAL ruled slot, not a UI-only shape").toBe("ruled");
-    expect(ruledSent["cases"]).toEqual([{ conditions: { groups: [{ field: "state", op: "eq", value: "CA" }] }, section_id: s2.public_id }]);
-    expect(ruledSent["default_section_id"]).toBe(s3.public_id);
-
-    await page.reload({ waitUntil: "domcontentloaded" });
-    const rulePage2 = list2.locator("[data-page]").nth(2);
-    const ruledSlot2 = rulePage2.locator("[data-slot]").first();
-    await expect(ruledSlot2, "the ruled slot round-trips").toHaveAttribute("data-slot-kind", "ruled");
-    await expect(ruledSlot2.locator("[data-ruled-case]").first().locator("[data-ruled-value]")).toHaveValue("CA");
-    await expect(ruledSlot2.locator("[data-ruled-default]")).toHaveValue(s3.public_id);
-  });
 
   // =========================================================================
-  // D-2 routing rules — the reference-shaped unified builder: name/priority
-  // /status, conditions over the field registry, an AUTO-DERIVED checkpoint,
-  // route-to-funnel-variant BY NAME, Duplicate, no raw target_offer_id ever
-  // visible. Deeper gate: __p4b-rules.spec.ts. Journey: author a rule through
-  // the REAL "+ New rule" modal (UTM source is X AND age >= 65 -> route to
-  // variant B) -> save -> reload round-trips (incl. server-derived checkpoint)
-  // -> toggle status -> Duplicate -> a redirect rule via the offer NAME picker.
+  // D-2 routing rules [RETIRED: §10/S5.1] — this test drove the FIRST-
+  // generation per-variant routing-rules PANEL (#lg-routing-rules-root/
+  // #lg-rule-new/#lg-rule-modal/#lg-modal-*/#lg-rules-table-body), rendered
+  // by ui-rules-builder.ts's renderRoutingRulesPanel/ROUTING_RULES_SCRIPT —
+  // confirmed 0 real callers (P5 orphan-scan) and deleted this sweep, along
+  // with its whole server-side evaluation chain in public/leadgen/resolver.ts
+  // (evaluateEntryRouting/evaluateCheckpointRouting/parseRoutingRule/
+  // loadRoutingRules/etc.) and the route_funnel_variant rule_type itself
+  // (migration 0048/M3's CHECK now forbids it). None of this test's DOM ids
+  // exist in any served page anymore. The RELOCATED four-type rules editor
+  // (renderRelocatedRulesEditor/RELOCATED_RULES_SCRIPT, ui-rules-builder.ts)
+  // is the current live mechanism — its modal/table behavior (live-updating
+  // checkpoint, redirect_direct_offer authored via the offer NAME picker,
+  // toggle/duplicate) is proven in test-ui/leadgen-rework-p3b-rules.gesture
+  // .spec.ts (e.g. its "edit -> the read-only checkpoint updates live" and
+  // "#lg-frr-type"/redirect_direct_offer tests) — the successor to this one.
   // =========================================================================
-  test("Routing rules (D-2) — named/prioritized rule via the modal (checkpoint auto-derived, route by NAME) -> save/reload/toggle/duplicate; redirect by offer NAME (never a raw id)", async ({ page }) => {
-    page.on("dialog", (d) => d.accept());
-    const u = Date.now();
-    const quote = await json<{ public_id: string; funnels: Array<{ variants: Array<{ public_id: string }> }> }>(
-      await apiCtx.post(`${LG_API}/quotes`, { data: { quote_name: `R4F rules ${u}`, activity: "quote_funnel", verticals: [VERTICAL] } }),
-      "quote create",
-    );
-    const variantAId = quote.funnels[0]!.variants[0]!.public_id;
-    const introSection = await createSection(apiCtx, `R4F Intro ${u}`, `r4fintro_${u}`);
-    const ageSection = await createSection(apiCtx, `R4F Age ${u}`, "age");
-    await json(
-      await apiCtx.put(`${LG_API}/variants/${variantAId}`, {
-        data: {
-          pages: [
-            { name: "Intro", slots: [{ kind: "fixed", section_id: introSection.public_id }] },
-            { name: "Age", slots: [{ kind: "fixed", section_id: ageSection.public_id }] },
-          ],
-        },
-      }),
-      "seed pages",
-    );
-    const fork = await json<{ public_id: string }>(await apiCtx.post(`${LG_API}/variants/${variantAId}/fork`), "fork variant B");
-    const offerName = `R4F Offer ${u}`;
-    const offer = await json<{ id: number }>(
-      await apiCtx.post(`${LG_API}/offers`, {
-        data: {
-          offer_name: offerName,
-          provider: "fxprov",
-          activity: "quote_funnel",
-          vertical: VERTICAL,
-          conversion_tracking_method: "s2s_postback",
-          offer_type: "cpc",
-          placements: [`r4f-${u}`],
-          calls_provider_api: false,
-          bid_source: "static",
-          cap_enabled: false,
-        },
-      }),
-      "offer create",
-    );
-
-    await page.goto(`/admin/leadgen/quotes/${quote.public_id}/edit`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#lg-routing-rules-root")).toBeVisible();
-    // The standalone Rules tab is GONE — rules are embedded in Funnel builder.
-    await expect(page.locator(".lg-qtabs [data-tab='rules']")).toHaveCount(0);
-
-    await page.locator("#lg-rule-new").click();
-    const modal = page.locator("#lg-rule-modal");
-    await expect(modal).toBeVisible();
-    await modal.locator("#lg-modal-rule-name").fill("R4F 65+ Facebook");
-    await modal.locator("#lg-modal-priority").fill("2");
-    await modal.locator("#lg-modal-rule-type").selectOption("route_funnel_variant");
-    await modal.locator("[data-modal-target-variant]").selectOption(fork.public_id);
-    const conditionsMount = modal.locator("#lg-modal-conditions-mount");
-    await conditionsMount.getByRole("button", { name: "+ Add condition" }).click();
-    await conditionsMount.locator(".lg-rb-field").nth(0).selectOption("utm_source");
-    await conditionsMount.locator(".lg-rb-op").nth(0).selectOption("eq");
-    await conditionsMount.locator(".lg-rb-value").nth(0).fill("facebook");
-    await conditionsMount.getByRole("button", { name: "+ Add condition" }).click();
-    await conditionsMount.locator(".lg-rb-field").nth(1).selectOption("age");
-    await conditionsMount.locator(".lg-rb-op").nth(1).selectOption("gte");
-    await conditionsMount.locator(".lg-rb-value").nth(1).fill("65");
-    // Checkpoint AUTO-DERIVED from the conditions (the age field's page).
-    await expect(modal.locator("#lg-modal-checkpoint")).toHaveText("Page 2");
-    await modal.locator("#lg-modal-save").click();
-    await expect(modal).toBeHidden();
-
-    const row = page.locator("#lg-rules-table-body [data-rules-table-row]").first();
-    await expect(row.locator("[data-row-name]")).toHaveText("R4F 65+ Facebook");
-    await expect(row.locator("[data-row-checkpoint]")).toHaveText("Page 2");
-    await expect(row.locator("[data-row-type]")).toHaveText("Route to a different funnel");
-    await expect(row.locator("[data-row-status-pill]")).toHaveText("Active");
-
-    const putPromise = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().includes(`/variants/${variantAId}`));
-    await page.locator("#lg-variant-save").click();
-    const put = await putPromise;
-    expect(put.status(), `variant PUT: ${await put.text()}`).toBe(200);
-    const putBody = put.request().postDataJSON() as { rules: Array<Record<string, unknown>> };
-    const sentRule = putBody.rules.find((r) => r["rule_name"] === "R4F 65+ Facebook");
-    expect(sentRule).toBeTruthy();
-    expect(sentRule!["target_funnel_variant_id"]).toBe(fork.public_id);
-
-    // No raw target_offer_id input ever VISIBLE (a hidden wire-format carrier
-    // is acceptable — never a DOM-visible raw-id field).
-    const legacyInputs = page.locator("[data-rule-target-offer]");
-    const legacyCount = await legacyInputs.count();
-    for (let i = 0; i < legacyCount; i++) await expect(legacyInputs.nth(i)).not.toBeVisible();
-
-    // Reload -> server-authoritative round-trip (incl. checkpoint_page).
-    await page.reload({ waitUntil: "domcontentloaded" });
-    const row2 = page.locator("#lg-rules-table-body [data-rules-table-row]").first();
-    await expect(row2.locator("[data-row-checkpoint]")).toHaveText("Page 2");
-
-    // Toggle status -> Disabled -> save -> reload -> persists.
-    await row2.locator("[data-rule-toggle-status]").click();
-    await expect(row2.locator("[data-row-status-pill]")).toHaveText("Disabled");
-    const putPromise2 = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().includes(`/variants/${variantAId}`));
-    await page.locator("#lg-variant-save").click();
-    expect((await putPromise2).status()).toBe(200);
-    await page.reload({ waitUntil: "domcontentloaded" });
-    const row3 = page.locator("#lg-rules-table-body [data-rules-table-row]").first();
-    await expect(row3.locator("[data-row-status-pill]"), "Disabled persists after reload").toHaveText("Disabled");
-
-    // Duplicate -> the SERVER endpoint ran (a reload with no further Save
-    // still shows the copy).
-    const beforeCount = await page.locator("#lg-rules-table-body [data-rules-table-row]").count();
-    const dupPromise = page.waitForResponse((r) => r.request().method() === "POST" && /\/rules\/.+\/duplicate$/.test(r.url()));
-    await row3.locator("[data-rule-duplicate]").click();
-    const dupRes = await dupPromise;
-    if (dupRes.status() !== 201) throw new Error(`duplicate expected 201, got ${dupRes.status()}: ${await dupRes.text()}`);
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.locator("#lg-rules-table-body [data-rules-table-row]")).toHaveCount(beforeCount + 1);
-    await expect(page.locator("#lg-rules-table-body [data-row-name]", { hasText: "R4F 65+ Facebook (copy)" })).toHaveCount(1);
-
-    // A redirect rule authored via the offer NAME picker (never a raw id typed).
-    await page.locator("#lg-rule-new").click();
-    const modal2 = page.locator("#lg-rule-modal");
-    await modal2.locator("#lg-modal-rule-name").fill("R4F Redirect");
-    await modal2.locator("#lg-modal-rule-type").selectOption("redirect_direct_offer");
-    const offerSelect = modal2.locator("[data-modal-target-offer]");
-    await expect(offerSelect.locator(`option:text("${offerName}")`)).toHaveCount(1);
-    await offerSelect.selectOption({ label: offerName });
-    await modal2.locator("[data-modal-redirect-pct]").fill("50");
-    await modal2.locator("#lg-modal-save").click();
-    await expect(modal2).toBeHidden();
-    const putPromise3 = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().includes(`/variants/${variantAId}`));
-    await page.locator("#lg-variant-save").click();
-    const put3 = await putPromise3;
-    expect(put3.status(), `redirect rule PUT: ${await put3.text()}`).toBe(200);
-    const putBody3 = put3.request().postDataJSON() as { rules: Array<Record<string, unknown>> };
-    const redirectRule = putBody3.rules.find((r) => r["rule_name"] === "R4F Redirect");
-    expect(redirectRule!["target_offer_id"], "the by-NAME picker persists the CORRECT numeric id").toBe(offer.id);
-    expect(redirectRule!["redirect_pct"]).toBe(50);
+  test("Routing rules (D-2) [RETIRED: §10/S5.1] — the OLD per-variant routing panel has no current admin surface (see describe-block citation)", async ({ page }) => {
+    const seed = await seedQuote(apiCtx, "routingretired");
+    await openEditor(page, seed.quotePublicId);
+    await expect(page.locator("#lg-routing-rules-root")).toHaveCount(0);
+    await expect(page.locator("#lg-rule-new")).toHaveCount(0);
+    await expect(page.locator("#lg-rules-table-body")).toHaveCount(0);
   });
 
   // =========================================================================
@@ -467,6 +397,9 @@ test.describe("Round-4 acceptance — Funnel builder: structure/pages/routing/th
     await json(await apiCtx.put(`${LG_API}/variants/${seed.variantPublicId}`, { data: { pages: [{ name: "Page 1", slots: [{ kind: "fixed", section_id: s.public_id }] }] } }), "variant pages");
     const host = `r4f-theme-${u}.e2e.test`;
     const siteId = await seedActiveSite(apiCtx, host, `R4F Theme Site ${u}`);
+    // The mandatory shared first page — must exist BEFORE activation or
+    // computeReworkActivationProblems blocks with activation.shared_page.
+    await seedTrivialSharedPage(apiCtx, seed.quotePublicId);
     await json(await apiCtx.put(`${LG_API}/quotes/${seed.quotePublicId}/activation/${siteId}`, { data: { enabled: true, slug: `r4f-theme-${u}` } }), "activation");
     await json(await apiCtx.put(`${LG_API}/funnels/${seed.funnelPublicId}/theme`, { data: { theme_json: { theme_id: themeId } } }), "apply preset");
     // Confirm the PUT actually persisted theme_id on the funnel (server
@@ -490,6 +423,10 @@ test.describe("Round-4 acceptance — Funnel builder: structure/pages/routing/th
     // resolving the WRONG render-path default frame, serving the theme
     // record's pre-edit values) — this assertion is now expected to hold.
     await page.goto(`http://${host}:${PW_PORT}/lg/r4f-theme-${u}`, { waitUntil: "load" });
+    await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 15_000 });
+    // Click through the mandatory shared page (composed position 1 of 2) so
+    // the funnel's own themed section becomes the active/shown page.
+    await passSharedPage(page);
     await page.locator(".lg-headline").first().waitFor();
     const size = Number.parseFloat(await page.locator(".lg-headline").first().evaluate((el) => getComputedStyle(el).fontSize));
     const family = await page.locator(".lg-headline").first().evaluate((el) => getComputedStyle(el).fontFamily);
@@ -510,6 +447,10 @@ test.describe("Round-4 acceptance — Funnel builder: structure/pages/routing/th
     const themeBName = `R4F Theme B ${u}`;
     const themeB = await json<{ item: { id: string } }>(await apiCtx.post(`${LG_API}/themes`, { data: themePayload(themeBName, "Inter") }), "create theme B");
     await openEditor(page, abSeed.quotePublicId, abSeed.variantPublicId);
+    // M1 (§4.3-10) fork precondition — see createAndStartExperiment's own
+    // citation: "A/B this theme" (fork) 409s "This funnel already has an
+    // active variant..." until a RUNNING A/B test already exists.
+    await createAndStartExperiment(page);
     await page.locator('.lg-qtab[data-tab="themes"]').click();
     const select = page.locator("#lg-theme-preset-select");
     await expect(select.locator(`option[value="${themeB.item.id}"]`)).toHaveText(themeBName, { timeout: 10_000 });
@@ -519,7 +460,7 @@ test.describe("Round-4 acceptance — Funnel builder: structure/pages/routing/th
     page.once("dialog", (dialog) => void dialog.accept("30"));
     await page.locator("#lg-theme-ab-this").click();
     const forkRes = await forkReq;
-    expect(forkRes.status()).toBe(201);
+    expect(forkRes.status(), `fork response: ${await forkRes.text().catch(() => "(body unavailable)")}`).toBe(201);
     const forkBody = (await forkRes.json()) as { public_id: string };
     expect((await putOriginalReq).status()).toBe(200);
     const variants = await json<{ items: Array<{ public_id: string; traffic_allocation_bp: number; frame_overrides_json: { theme_id?: string } | null }> }>(
@@ -547,9 +488,30 @@ test.describe("Round-4 acceptance — Funnel builder: structure/pages/routing/th
     const abPanel = page.locator('[data-panel="ab"]');
     await expect(abPanel).toHaveClass(/active/);
     await expect(page.locator("#lg-add-variant"), "a real Add-variant affordance exists (not fork-only)").toBeVisible();
-    await expect(abPanel.locator("[data-fork-variant]")).toBeVisible();
+    // [RETIRED §10/S5.1-era chrome]: the old fork-only affordance
+    // (data-fork-variant, a document-level click listener in funnel.ts) has
+    // no current renderer — grep confirms ab.ts (the A/B tab's HTML source)
+    // never emits the attribute; the listener is orphaned dead code. The
+    // CURRENT mechanism is #lg-add-variant (confirmed visible above), which
+    // this SAME test already exercises end-to-end below (POST .../fork +
+    // the allocation PUT + the new arm's honest "Same as control" label) —
+    // so removing this one stale visibility check drops no proof coverage.
     await expect(page.locator("[data-alloc-sum]"), "the allocation editor is present").toBeVisible();
-    await expect(page.locator(`[data-arm-variance="${seed.variantPublicId}"]`), "the control is labeled honestly").toHaveText("Control");
+    // [data-arm-variance] -> [data-arm-varies] + "Control"/"Same as control
+    // (no differences yet)" -> "Base variant"/"No layout or template changes
+    // yet": ab.ts's own header comment states the decision explicitly —
+    // "Rework M1 (§4.3-10): NO control concept... All '(control)'/'Differs
+    // from control'/'Same as control' copy is REMOVED (plain variant labels
+    // + what each arm overrides)". Confirmed via grep: data-arm-variance is
+    // never rendered anywhere in src/; data-arm-varies (renderAbPanel's
+    // variantVariesLine) is the CURRENT, live per-arm summary — same honest-
+    // labeling proof intent (never invents a difference), current vocabulary.
+    await expect(page.locator(`[data-arm-varies="${seed.variantPublicId}"]`), "the base (first) variant is labeled honestly, no retired control vocabulary").toHaveText("Base variant");
+
+    // M1 (§4.3-10) fork precondition — see createAndStartExperiment's own
+    // citation: Add-variant (fork) 409s "This funnel already has an active
+    // variant..." until a RUNNING A/B test already exists on this funnel.
+    await createAndStartExperiment(page);
 
     const forkReq = page.waitForResponse((res) => res.request().method() === "POST" && /\/variants\/.+\/fork$/.test(res.url()));
     const putOriginalReq = page.waitForResponse((res) => res.request().method() === "PUT" && res.url().endsWith(`/variants/${seed.variantPublicId}`));
@@ -557,7 +519,7 @@ test.describe("Round-4 acceptance — Funnel builder: structure/pages/routing/th
     page.once("dialog", (dialog) => void dialog.accept("25"));
     await page.locator("#lg-add-variant").click();
     const forkRes = await forkReq;
-    expect(forkRes.status()).toBe(201);
+    expect(forkRes.status(), `fork response: ${await forkRes.text().catch(() => "(body unavailable)")}`).toBe(201);
     const forkBody = (await forkRes.json()) as { public_id: string };
     await putOriginalReq;
     await reloadedEvt;
@@ -565,6 +527,6 @@ test.describe("Round-4 acceptance — Funnel builder: structure/pages/routing/th
 
     const newRow = page.locator(`[data-variant="${forkBody.public_id}"]`);
     await expect(newRow, "the new arm appears in the A/B tab").toBeVisible();
-    await expect(newRow.locator("[data-arm-variance]"), "a plain fork is honestly labeled — no differences invented").toHaveText("Same as control (no differences yet)");
+    await expect(newRow.locator("[data-arm-varies]"), "a plain fork is honestly labeled — no differences invented, current vocabulary").toHaveText("No layout or template changes yet");
   });
 });

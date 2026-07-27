@@ -29,7 +29,7 @@
 // undefined` guard fails the rule the instant the field is dropped) fires
 // only when the selection count survived normalizeAnswers' bounds check.
 //
-// One shared funnel: DropdownQuestion(coverage) + RangeQuestion(loan_amount)
+// One shared funnel: DropdownQuestion(coverage) + NumberRangeQuestion(loan_amount)
 // + MultiChoiceCardGroup(features, min:2/max:3, 6 choices a..f) in one
 // Section, plus THREE disqualification rules (priority-ordered, isolated per
 // test by choosing values that can only trip ONE rule at a time):
@@ -134,13 +134,29 @@ function makeKvStub(): { kv: KVNamespace; store: Map<string, string> } {
 }
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
   "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 const TENANT_HOST = "one.example.com";
@@ -252,7 +268,7 @@ const FEATURE_CHOICES = ["a", "b", "c", "d", "e", "f"].map((v) => ({
 
 const SECTION_COMPONENTS = [
   { type: "DropdownQuestion", question_id: "q_cov", internal_field: "coverage", answer_type: "enum", choices: COVERAGE_CHOICES, props: {} },
-  { type: "RangeQuestion", question_id: "q_loan", internal_field: "loan_amount", answer_type: "number", props: { min: 0, max: 100000, step: 5000 } },
+  { type: "NumberRangeQuestion", question_id: "q_loan", internal_field: "loan_amount", answer_type: "number", props: { min: 0, max: 100000, step: 5000 } },
   { type: "MultiChoiceCardGroup", question_id: "q_features", internal_field: "features", answer_type: "array", props: { min: 2, max: 3 }, choices: FEATURE_CHOICES },
 ];
 
@@ -301,6 +317,28 @@ async function seedFixture(h: Harness, slug: string): Promise<{ variantId: strin
     env,
   );
   expect(putRes.status, `put variant: ${await putRes.clone().text()}`).toBe(200);
+
+  // Rework M2 (§4.3-1, §4.3-15): activation now also requires the quote's
+  // shared first page (leadgen_funnel_pages, quote_id-owned) to carry ≥1
+  // section — a section distinct from the funnel/variant's own (§4.3-13
+  // uniqueness). Route wiring for POST/PUT /quotes/:id/shared-page is
+  // mid-flight in another round, so this seeds the SQL shape directly
+  // (mirrors leadgen-rework-handlers.test.ts / leadgen-rework-routing.test.ts).
+  const sharedSectionPublicId = mintPublicId("section");
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, 'Shared', 'quote_funnel', 'life', 'Shared', ?, 'button', 'active')",
+    )
+    .run(sharedSectionPublicId, JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "qs1", question_key: "ks", internal_field: "fs", answer_type: "boolean" }] }));
+  const sharedSectionRow = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(sharedSectionPublicId) as { id: number };
+  const sharedPagePublicId = mintPublicId("funnel_page");
+  sdb.prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, NULL)").run(sharedPagePublicId, quoteRow.id);
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+       VALUES (?, ?, 0, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+    )
+    .run(quoteRow.id, sharedSectionRow.id, sharedPagePublicId);
 
   const actRes = await admin.request(`${API}/quotes/${quote.public_id}/activation/site-1`, jsonInit("PUT", { enabled: true, slug }), env);
   expect(actRes.status, `activate: ${await actRes.clone().text()}`).toBe(200);

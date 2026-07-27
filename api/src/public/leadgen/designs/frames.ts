@@ -673,10 +673,24 @@ export interface EffectiveFrameResult {
 // first. Unknown template id in STORED json → `centered` + a problems[]
 // warning (mirror of the design-registry unknown-id fallback); ABSENT
 // template → `centered` silently (it is simply the default).
+//
+// Rework M5 (§5) — 4th argument `savedTemplateDefaults`: the CALLER-resolved
+// `leadgen_frame_templates` row the funnel/variant's `frame_template_id`
+// points to (variant.frame_template_id ?? funnel.frame_template_id — the
+// query/lookup is the CALLER's job; this module owns no DB access), ALREADY
+// PARSED to the `frame_json` shape (== FRAME_TEMPLATES[].defaults per M5's
+// own contract — "the FrameConfig per-group defaults shape"). When provided
+// (non-null/undefined) it becomes the base layer INSTEAD OF the templateId
+// string lookup below — the ftid wins outright over whatever
+// frame_config_json.template names (M5 order: "template(variant.ftid ??
+// funnel.ftid).defaults ⊕ funnel.frame_config ⊕ variant.overrides"). Omitted
+// (every pre-M5 call site) ⇒ the templateId-string branch below runs
+// UNCHANGED — byte-identical legacy behavior ("when neither ftid is set").
 export function effectiveFrame(
   template: FrameTemplateId | string | StoredFrameConfig | null | undefined,
   frame_config_json?: StoredFrameConfig | null,
   frame_overrides_json?: FrameOverrides | null,
+  savedTemplateDefaults?: EffectiveFrameConfig | null,
 ): EffectiveFrameResult {
   const problems: Problem[] = [];
 
@@ -694,12 +708,60 @@ export function effectiveFrame(
   }
 
   let templateId: FrameTemplateId;
-  if (requested === undefined) {
+  let frame: EffectiveFrameConfig;
+  if (savedTemplateDefaults !== null && savedTemplateDefaults !== undefined) {
+    // M5: the ftid resolution wins outright — never "unknown" (a stale/
+    // deleted ftid is the CALLER's problem to detect via its own row lookup
+    // returning null, in which case it simply omits this argument and falls
+    // to the legacy branch below).
+    //
+    // FIX (P5 sweep, product-bug round, 2026-07-23): `templateId`/
+    // `frame.template` MUST come from the SAVED TEMPLATE's own recorded
+    // arrangement family (savedTemplateDefaults.template), NEVER from
+    // `requested` (the FUNNEL's stale frame_config_json.template). The
+    // funnel's own template string describes what it was BEFORE this ftid
+    // applied — using it here stamped the WRONG identity onto the live
+    // frame: applying "Minimal" over a "Centered" funnel correctly flipped
+    // every field (frame = cloneJson(savedTemplateDefaults) below always
+    // did), but `.lg-frame--{template}` / `data-frame-template` (designs/
+    // frame.ts) kept reading "centered" — the funnel's leftover identity,
+    // not the template that's actually rendering. Investigated what
+    // consumes this string before picking the fix: NO existing CSS rule is
+    // keyed on `.lg-frame--{builtinId}` itself (only the UNRELATED mobile
+    // modifier classes, lg-frame--m-logo-*/m-trust-*/m-progress-*, are
+    // ever styled) — so `frame.template`'s job is exactly what the M5
+    // comment above already says: "a recognizable built-in-or-default id
+    // purely for callers keying UI/analytics off that string." A saved
+    // template's `frame_json` (this module's OWN 4th-arg contract, see the
+    // comment above this function) is validated at save time to be a
+    // FrameConfig — its OWN `.template` key, when authored, is ALSO
+    // validated as a real FrameTemplateId (validateFrameConfig's `template`
+    // check applies uniformly to every save, built-in-derived or not) —
+    // meaning it already records WHICH of the 6 built-in arrangement
+    // families this saved template's layout belongs to (studio "Save
+    // template" flows start from one of the 6 and customize FIELDS, never
+    // the arrangement family itself). Stamping THAT is the "honest
+    // identity": a saved template whose layout mirrors "Minimal" stamps
+    // "minimal" — coherent with any future `.lg-frame--minimal` CSS a
+    // custom stylesheet might add, applying uniformly to the built-in AND
+    // every saved template sharing that arrangement family. A saved row
+    // that genuinely omits `template` (a sparse FrameConfig patch — legal
+    // per this module's OWN sparse-patch contract, despite
+    // parseSavedFrameTemplateDefaults's EffectiveFrameConfig cast at the
+    // read boundary) falls back to DEFAULT_FRAME_TEMPLATE_ID, the SAME
+    // silent (never-"unknown") default every other branch of this
+    // conditional already uses — no new problem path invented.
+    templateId = isFrameTemplateId(savedTemplateDefaults.template) ? savedTemplateDefaults.template : DEFAULT_FRAME_TEMPLATE_ID;
+    frame = cloneJson(savedTemplateDefaults);
+  } else if (requested === undefined) {
     templateId = DEFAULT_FRAME_TEMPLATE_ID;
+    frame = cloneJson(FRAME_TEMPLATES[templateId].defaults);
   } else if (isFrameTemplateId(requested)) {
     templateId = requested;
+    frame = cloneJson(FRAME_TEMPLATES[templateId].defaults);
   } else {
     templateId = DEFAULT_FRAME_TEMPLATE_ID;
+    frame = cloneJson(FRAME_TEMPLATES[templateId].defaults);
     problems.push({
       path: "frame.template",
       scope: "frame",
@@ -708,7 +770,6 @@ export function effectiveFrame(
     });
   }
 
-  const frame = cloneJson(FRAME_TEMPLATES[templateId].defaults);
   if (funnel !== null) {
     const { template: _template, version: _version, ...groups } = funnel;
     mergeInto(frame as unknown as Record<string, unknown>, groups as Record<string, unknown>);
@@ -722,6 +783,31 @@ export function effectiveFrame(
   frame.template = templateId;
   frame.version = 1;
   return { frame, problems };
+}
+
+// Rework M5 (§5, S2.2 follow-up) — normalizes a `leadgen_frame_templates.
+// frame_json` column value into the EffectiveFrameConfig shape effectiveFrame's
+// 4th argument expects. Pure/sync, NO DB access — the row fetch (SELECT ...
+// FROM leadgen_frame_templates WHERE id = ?) is each CALLER's own job,
+// mirroring its local D1 conventions (same division of labor as
+// effectiveFrame's own 4th-arg comment above: "this module owns no DB
+// access"). validateTemplateInput (frame-handlers.ts) already gates every
+// SAVE with validateFrameConfig (zero error-severity problems); this
+// defensively re-validates on READ instead of trusting the write-time
+// guarantee blindly (D1 rule: a corrupt/malformed JSON column degrades to
+// null, never throws). A null/malformed/absent column ⇒ null ⇒ the caller
+// omits effectiveFrame's 4th arg ⇒ byte-identical legacy path.
+export function parseSavedFrameTemplateDefaults(raw: string | null | undefined): EffectiveFrameConfig | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  const validation = validateFrameConfig(parsed as Record<string, unknown>);
+  return validation.config === null ? null : (validation.config as EffectiveFrameConfig);
 }
 
 // Sparse deep-merge (§13.2): objects merge recursively; arrays replace WHOLE;

@@ -33,7 +33,7 @@ import {
   type LeadgenTransformStep,
 } from "./payload";
 import { COMPONENT_CATALOG } from "../public/leadgen/components/registry";
-import { flattenComponents, readMultiQuestionRows } from "../public/leadgen/components/content-schema";
+import { flattenComponents } from "../public/leadgen/components/content-schema";
 import type {
   LeadgenAnswerType,
   LeadgenComponentNode,
@@ -201,6 +201,27 @@ function fieldsOf(node: LeadgenComponentNode): FieldSpec[] {
   const answerType: LeadgenAnswerType =
     node.answer_type ?? (produces as LeadgenAnswerType);
 
+  // LeadGen Rework M7 (§6.8): a dual_range / from_to slider collects TWO sub-
+  // fields {internal_field}_min / {internal_field}_max (each a number), exactly
+  // like Address (§12.8) / NameFields sub-fields — so the field universe, rules
+  // pickers and per-offer mapping see them. This only makes the ALREADY-migrated
+  // content shape (NumberRangeQuestion + props.slider_type, M7) visible to
+  // normalization; schema-side validation of the slider props is P2. single /
+  // stepper / radial keep the single internal_field (the scalar branch below).
+  if (
+    node.type === "NumberRangeQuestion" &&
+    isNonEmptyString(node.internal_field) &&
+    (node.props?.["slider_type"] === "dual_range" || node.props?.["slider_type"] === "from_to")
+  ) {
+    const base = node.internal_field;
+    return [`${base}_min`, `${base}_max`].map((field) => ({
+      field,
+      answerType: "number" as LeadgenAnswerType,
+      hasDefault: false,
+      defaultValue: undefined,
+    }));
+  }
+
   if (isNonEmptyString(node.internal_field)) {
     return [
       {
@@ -220,19 +241,6 @@ function fieldsOf(node: LeadgenComponentNode): FieldSpec[] {
   if (node.type === "AddressAutocompleteQuestion") {
     const names = asStringArray(node.props?.["internal_fields"], ["street", "city", "state", "zip"]);
     return names.map((field) => ({ field, answerType: "string", hasDefault: false, defaultValue: undefined }));
-  }
-  if (node.type === "MultiQuestionGrid") {
-    // P5 (PC-10): each ROW is its own enum answer field (over the row's pill
-    // set) with an OPTIONAL default — the SAME 1→N expansion NameFieldsGroup/
-    // Address use, so normalizeAnswers / the payload build / the auction facet
-    // all see the rows as ordinary fields. The default seeds default_applied
-    // exactly like any scalar `default` above.
-    return readMultiQuestionRows(node).map((row) => ({
-      field: row.internal_field,
-      answerType: "enum" as LeadgenAnswerType,
-      hasDefault: row.default !== undefined,
-      defaultValue: row.default,
-    }));
   }
   return [];
 }

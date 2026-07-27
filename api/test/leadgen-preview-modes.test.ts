@@ -23,6 +23,7 @@ import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
 import { renderComposedVariantPreview } from "../src/admin/leadgen/quotes-handlers";
+import { LOGO_FALLBACK_CHIP_TEXT } from "../src/public/leadgen/designs/frame";
 import type {
   LeadgenFunnelRow,
   LeadgenFunnelVariantRow,
@@ -142,6 +143,10 @@ function makeKvStub(): KVNamespace {
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
@@ -150,6 +155,17 @@ const LEADGEN_MIGRATIONS = [
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 const API = "/api/admin/leadgen";
@@ -473,16 +489,26 @@ describeDb("preview modes — POST /variants/:id/preview (13 §13.4)", () => {
     const oneBody = (await one.json()) as V25Preview;
     expect(oneBody.preview.html).toContain(SITE_LOGO_URL); // §10.2 logo leg
 
-    // site-2 has NO settings and NO activation — the §10.4 text-mark leg.
+    // site-2 has NO settings and NO activation — the §10.4 ladder floor.
+    // Rework §8.8 (#11A): REPAIRED (P4 S4.2) — this used to assert the bare
+    // hostname-as-text-mark leg; that bare-text rendering IS ground truth
+    // #11A's real defect (ONE audited baseline hex is not the point here —
+    // "'cc' is the site's name" on an actual page was). The fallback is now
+    // the honest A-8 chip whenever no logo resolves, regardless of which
+    // site_name/hostname the branding ladder would otherwise have shown.
     const two = await postPreview(fx, { mode: "section", site_id: "site-2" });
     expect(two.status).toBe(200);
     const twoBody = (await two.json()) as V25Preview;
-    expect(twoBody.preview.html).toContain("two.example.com");
+    expect(twoBody.preview.html).toContain(LOGO_FALLBACK_CHIP_TEXT);
+    expect(twoBody.preview.html).not.toContain("two.example.com</span>");
     expect(twoBody.preview.html).not.toContain(SITE_LOGO_URL);
 
-    // No site_id → the CMS fallback branding entry (ladder floor).
+    // No site_id → the CMS fallback branding entry (ladder floor) — SAME A-8
+    // chip, not the bare "Kodigital" CMS mark.
     const none = await postPreview(fx, { mode: "section" });
-    expect(((await none.json()) as V25Preview).preview.html).toContain("Kodigital");
+    const noneHtml = ((await none.json()) as V25Preview).preview.html;
+    expect(noneHtml).toContain(LOGO_FALLBACK_CHIP_TEXT);
+    expect(noneHtml).not.toContain(">Kodigital</span>");
 
     // Unknown site → 404 (the selector lists real CMS sites only).
     const missing = await postPreview(fx, { mode: "section", site_id: "site-nope" });

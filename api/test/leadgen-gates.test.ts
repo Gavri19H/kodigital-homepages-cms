@@ -139,13 +139,31 @@ function makeKvStub(): { kv: KVNamespace; store: Map<string, string> } {
 }
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+// Rework P1 coherence sweep: brought current through 0053 (was frozen at
+// 0042) — createQuoteHandler now writes leadgen_funnels.display_order /
+// frame_template_id (M4/M5) and leadgen_funnel_variants has dropped
+// is_control (M1), so this harness's D1 schema must include every migration
+// those handlers assume exists, not just the ones this file happened to need
+// when it was last touched.
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
   "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 const TENANT_HOST = "one.example.com";
@@ -329,12 +347,29 @@ function seedSectionWithComponents(sdb: SqliteDb, components: unknown[]): { id: 
 async function seedActivatedFunnel(env: Env, sdb: SqliteDb, slug: string): Promise<{ variantId: string; funnelId: string; quoteId: string; sectionId: number }> {
   const createRes = await admin.request(`${API}/quotes`, jsonInit("POST", { quote_name: `Q ${slug}`, activity: "quote_funnel", verticals: ["life"] }), env);
   expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
-  const quote = (await createRes.json()) as { public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }> };
+  const quote = (await createRes.json()) as { id: number; public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }> };
   const funnelId = quote.funnels[0]!.public_id;
   const variantId = quote.funnels[0]!.variants[0]!.public_id;
   const section = seedSection(sdb);
   const putRes = await admin.request(`${API}/variants/${variantId}`, jsonInit("PUT", { sections: [{ section_id: section.id }] }), env);
   expect(putRes.status, `put sections: ${await putRes.clone().text()}`).toBe(200);
+  // Rework M2 (§4.3-1, §4.3-15): activation now also requires a
+  // leadgen_funnel_pages row owned by the quote (readSharedPageRow) carrying
+  // ≥1 section — a SEPARATE section (never the variant's own, per §4.3-13
+  // uniqueness: a section id may appear at most once within {shared page ∪
+  // any single funnel's plan}), raw-inserted quote_id-owned (not
+  // variant_id-owned) — mirroring createSharedPageHandler's own two-insert
+  // shape (quotes-handlers.ts) and the owner-axis idiom
+  // leadgen-r6-seams.test.ts's shared-page seam already uses.
+  const sharedSection = seedSection(sdb);
+  const sharedPagePublicId = mintPublicId("funnel_page");
+  sdb.prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, NULL)").run(sharedPagePublicId, quote.id);
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+       VALUES (?, ?, 0, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+    )
+    .run(quote.id, sharedSection.id, sharedPagePublicId);
   const actRes = await admin.request(`${API}/quotes/${quote.public_id}/activation/site-1`, jsonInit("PUT", { enabled: true, slug }), env);
   expect(actRes.status, `activate: ${await actRes.clone().text()}`).toBe(200);
   return { variantId, funnelId, quoteId: quote.public_id, sectionId: section.id };
@@ -843,13 +878,18 @@ describeDb("§5.4 stamps — auction-path events carry non-empty ids/versions", 
   function makeResolved(): ResolvedActivatedFunnel {
     return {
       site_quote: { id: 1, site_id: "site-1", quote_id: 1, enabled: 1, slug: null, settings_overrides_json: null, created_at: 0, updated_at: 0 },
-      quote: { id: 1, public_id: "lgq_stamps", quote_name: "Q", activity: "quote_funnel", verticals_json: "[]", status: "active", created_by: null, created_at: 0, updated_at: 0 },
-      funnel: { id: 1, public_id: "lgf_stamps", quote_id: 1, funnel_name: "F", active_ab_test_id: null, status: "active", created_at: 0, updated_at: 0, frame_config_json: null, theme_json: null },
+      quote: { id: 1, public_id: "lgq_stamps", quote_name: "Q", activity: "quote_funnel", verticals_json: "[]", status: "active", created_by: null, created_at: 0, updated_at: 0, default_funnel_id: null },
+      funnel: { id: 1, public_id: "lgf_stamps", quote_id: 1, funnel_name: "F", active_ab_test_id: null, status: "active", created_at: 0, updated_at: 0, frame_config_json: null, theme_json: null, display_order: null, frame_template_id: null },
+      // Rework M1 (§5-M1, §4.3-10): is_control dropped; variant_label "A" is
+      // this fixture's single active variant (replacement semantics — no
+      // running test ⇒ exactly one active variant, deterministically first
+      // by variant_label ASC/id ASC). frame_template_id is new (M5); NULL =
+      // inherit the funnel's template.
       variant: {
-        id: 1, public_id: "lgn_stamps", funnel_id: 1, ab_test_id: null, variant_label: "A", is_control: 1,
+        id: 1, public_id: "lgn_stamps", funnel_id: 1, ab_test_id: null, variant_label: "A",
         traffic_allocation_bp: 10000, funnel_design_id: "default", auction_id: 1, lander_enabled: 0, lander_headline: null,
         lander_subheadline: null, lander_body_json: null, lander_hero_media_id: null, lander_hero_media_url: null, lander_cta_json: null,
-        content_version: 1, status: "active", created_at: 0, frame_overrides_json: null,
+        content_version: 1, status: "active", created_at: 0, frame_overrides_json: null, frame_template_id: null,
       },
       sections: [{ position: 0, section: { id: 1, public_id: "lgs_stamps", content_version: 1, content_json: '{"components":[]}' } as unknown as LeadgenSectionRow }],
       ga4_measurement_id: null,
@@ -1189,8 +1229,22 @@ describeDb("R5 — quote activation preflight", () => {
   it("§8.5 preflight is RECURSIVE: a cross-container dependency (target nested in a sibling container) does NOT false-block", async () => {
     const { sdb, env } = newHarness();
     const createRes = await admin.request(`${API}/quotes`, jsonInit("POST", { quote_name: "Nested OK Q", activity: "quote_funnel", verticals: ["life"] }), env);
-    const quote = (await createRes.json()) as { public_id: string; funnels: Array<{ variants: Array<{ public_id: string }> }> };
+    const quote = (await createRes.json()) as { id: number; public_id: string; funnels: Array<{ variants: Array<{ public_id: string }> }> };
     const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    // Rework M2 (§4.3-1, §4.3-15): this test expects a CLEAN 200 activation,
+    // so (unlike seedBlockedQuote's siblings, which just look for their own
+    // specific block code amid whatever else piles up) it also needs the
+    // quote's shared first page to carry ≥1 section — see
+    // seedActivatedFunnel's identical fix above for the full rationale.
+    const sharedSection = seedSection(sdb);
+    const sharedPagePublicId = mintPublicId("funnel_page");
+    sdb.prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, NULL)").run(sharedPagePublicId, quote.id);
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+         VALUES (?, ?, 0, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+      )
+      .run(quote.id, sharedSection.id, sharedPagePublicId);
     // CardPanel ⊃ TwoButtonYesNo{internal_field:"homeowner"} + a SIBLING
     // top-level DropdownQuestion whose conditional.when points at "homeowner".
     const section = seedSectionWithComponents(sdb, [

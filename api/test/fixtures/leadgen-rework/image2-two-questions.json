@@ -1,0 +1,39 @@
+{
+  "components": [
+    {
+      "type": "TwoButtonYesNo",
+      "question_id": "q_homeowner",
+      "question_key": "homeowner_q",
+      "internal_field": "is_homeowner",
+      "answer_type": "boolean",
+      "props": {
+        "label": "Are you a homeowner?",
+        "yesLabel": "Yes",
+        "noLabel": "No"
+      }
+    },
+    {
+      "type": "DropdownQuestion",
+      "question_id": "q_credit_score",
+      "question_key": "credit_score_q",
+      "internal_field": "credit_score_band",
+      "answer_type": "enum",
+      "required": true,
+      "props": {
+        "label": "Credit Score",
+        "placeholder": "Select your range"
+      },
+      "choices": [
+        { "label": "Excellent (750+)", "value": "excellent", "analytics_id": "credit_excellent" },
+        { "label": "Good (700-749)", "value": "good", "analytics_id": "credit_good" },
+        { "label": "Fair (650-699)", "value": "fair", "analytics_id": "credit_fair" },
+        { "label": "Poor (below 650)", "value": "poor", "analytics_id": "credit_poor" }
+      ]
+    },
+    {
+      "type": "ContinueButton",
+      "question_id": "q_continue",
+      "props": { "label": "Continue" }
+    }
+  ]
+}

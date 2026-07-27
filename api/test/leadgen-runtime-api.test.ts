@@ -164,12 +164,29 @@ function makeKvStub(): { kv: KVNamespace; store: Map<string, { value: string; me
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 const TENANT_HOST = "one.example.com";
@@ -269,6 +286,49 @@ function seedSection(
   return { id: row.id, public_id: publicId };
 }
 
+// Rework M2 (§4.3-1, §4.3-15): activation now also requires the quote's
+// shared first page (leadgen_funnel_pages, quote_id-owned) to carry ≥1
+// section — a section distinct from the funnel/variant's own (§4.3-13
+// uniqueness). Route wiring for POST/PUT /quotes/:id/shared-page is
+// mid-flight in another round, so this seeds the SQL shape directly
+// (mirrors leadgen-rework-handlers.test.ts / leadgen-rework-routing.test.ts).
+function seedSharedPageSection(sdb: SqliteDb, quoteId: number): { sectionPublicId: string } {
+  const sectionPublicId = mintPublicId("section");
+  const content = JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q1", question_key: "k", internal_field: "f", answer_type: "boolean" }] });
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, ?, 'quote_funnel', 'life', 'Shared', ?, 'button', 'active')",
+    )
+    .run(sectionPublicId, `Shared ${sectionPublicId.slice(-4)}`, content);
+  const sectionId = (sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(sectionPublicId) as { id: number }).id;
+  const pagePublicId = mintPublicId("funnel_page");
+  sdb.prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, NULL)").run(pagePublicId, quoteId);
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+       VALUES (?, ?, 0, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+    )
+    .run(quoteId, sectionId, pagePublicId);
+  return { sectionPublicId };
+}
+
+// Rework M1 (§4.3-10): "arms are added via the A/B tab, never a raw variant
+// create/fork" — forkVariantHandler/createVariantUnderFunnel BOTH now reject
+// ANY second active variant unconditionally while ≥1 active variant already
+// exists (verified against quotes-handlers.ts; the P3b A/B-tab arm-creation
+// mechanism isn't built yet). leadgen-rework-handlers.test.ts's OWN
+// equal-arms test seeds a second arm via raw SQL for exactly this reason —
+// the pattern this helper mirrors byte-for-byte.
+function seedSiblingArm(sdb: SqliteDb, funnelId: number, label: string, bp: number): string {
+  const publicId = mintPublicId("funnel_variant");
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label, traffic_allocation_bp, funnel_design_id, status) VALUES (?, ?, ?, ?, 'default', 'active')",
+    )
+    .run(publicId, funnelId, label, bp);
+  return publicId;
+}
+
 interface SeededFunnel {
   quotePublicId: string;
   funnelId: string;
@@ -290,6 +350,7 @@ async function seedActivatedFunnel(
   );
   expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
   const quote = (await createRes.json()) as {
+    id: number;
     public_id: string;
     funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
   };
@@ -308,6 +369,7 @@ async function seedActivatedFunnel(
     env,
   );
   expect(putRes.status, `put sections: ${await putRes.clone().text()}`).toBe(200);
+  seedSharedPageSection(sdb, quote.id);
 
   const activateBody: Record<string, unknown> = { enabled: true };
   if (opts.slug !== null) activateBody.slug = opts.slug;
@@ -354,6 +416,7 @@ async function seedQuoteWithSection(
   );
   expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
   const quote = (await createRes.json()) as {
+    id: number;
     public_id: string;
     funnels: Array<{ variants: Array<{ public_id: string }> }>;
   };
@@ -365,6 +428,7 @@ async function seedQuoteWithSection(
     env,
   );
   expect(putRes.status, `put sections: ${await putRes.clone().text()}`).toBe(200);
+  seedSharedPageSection(sdb, quote.id);
   return { quotePublicId: quote.public_id, variantId };
 }
 
@@ -558,12 +622,19 @@ describeDb("GET /lg/attempt — session mint (§8.3 / §24c)", () => {
     expect(res.headers.get("Set-Cookie") ?? "").toContain("ko_sid=");
 
     const tuple: ConfigTokenTuple = {
-      ...v2Tuple({
-        funnel_variant_id: seeded.variantId,
-        section_order_hash: config.section_order_hash,
-        content_version: config.content_version,
-        funnel_attempt_id: attempt.funnel_attempt_id,
-      }),
+      // §4.3-11: seedActivatedFunnel now seeds this variant's 1 own section
+      // PLUS the quote's 1 shared-page section (both unmapped) — the resolved
+      // plan's answer_mapping_hash covers BOTH, ["0","0"] not v2Tuple's
+      // single-section default.
+      ...v2Tuple(
+        {
+          funnel_variant_id: seeded.variantId,
+          section_order_hash: config.section_order_hash,
+          content_version: config.content_version,
+          funnel_attempt_id: attempt.funnel_attempt_id,
+        },
+        { sectionVersions: ["0", "0"] },
+      ),
       session_id: attempt.session_id, // m2: the tuple binds the ECHOED sid
     };
     expect(await verifyConfigToken(env, attempt.signed_config_token, tuple)).toBe(true);
@@ -673,7 +744,9 @@ describeDb("CP3 — an activated funnel renders end-to-end (shell → config →
     };
     expect(config.funnel_variant_id).toBe(variantId);
     expect(Array.isArray(config.sections)).toBe(true);
-    expect(config.sections.length).toBe(1);
+    // §4.3-11: seedActivatedFunnel's 1 own section + the quote's 1 shared-page
+    // section = 2.
+    expect(config.sections.length).toBe(2);
 
     // 3) attempt (the bootstrap's second fetch) — the token binds THIS config
     // (+ the m2 minted-when-absent session id the route echoes).
@@ -683,12 +756,15 @@ describeDb("CP3 — an activated funnel renders end-to-end (shell → config →
       session_id: string;
     };
     const bound = await verifyConfigToken(env, attempt.signed_config_token, {
-      ...v2Tuple({
-        funnel_variant_id: variantId!,
-        section_order_hash: config.section_order_hash,
-        content_version: config.content_version,
-        funnel_attempt_id: attempt.funnel_attempt_id,
-      }),
+      ...v2Tuple(
+        {
+          funnel_variant_id: variantId!,
+          section_order_hash: config.section_order_hash,
+          content_version: config.content_version,
+          funnel_attempt_id: attempt.funnel_attempt_id,
+        },
+        { sectionVersions: ["0", "0"] },
+      ),
       session_id: attempt.session_id,
     });
     expect(bound, "CP3: the minted token binds the served config tuple").toBe(true);
@@ -795,21 +871,29 @@ async function seedRunning2VariantTest(
   );
   expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
   const quote = (await createRes.json()) as {
+    id: number;
     public_id: string;
     funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
   };
   const funnelId = quote.funnels[0]!.public_id;
   const controlId = quote.funnels[0]!.variants[0]!.public_id;
+  const funnelRowId = (sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(funnelId) as { id: number }).id;
 
   const section = seedSection(sdb, { activity: "quote_funnel", vertical: "life" });
   expect(
     (await admin.request(`${API}/variants/${controlId}`, jsonInit("PUT", { sections: [{ section_id: section.id }] }), env)).status,
   ).toBe(200);
 
-  // fork the control → a 2nd active variant (clones the section).
-  const forkRes = await admin.request(`${API}/variants/${controlId}/fork`, { method: "POST" }, env);
-  expect(forkRes.status, `fork: ${await forkRes.clone().text()}`).toBe(201);
-  const forkId = ((await forkRes.json()) as { public_id: string }).public_id;
+  // Rework M1 (§4.3-10): forkVariantHandler now unconditionally refuses a
+  // 2nd active variant — see leadgen-quotes-api.test.ts's Σ-gate test for the
+  // full rationale. This test's point is A/B assignment over TWO real
+  // running arms sharing the SAME section (not fork's own clone mechanics),
+  // so the 2nd arm is seeded via raw SQL (leadgen-rework-handlers.test.ts's
+  // own idiom) + the SAME section attached via the (unguarded) sections PUT.
+  const forkId = seedSiblingArm(sdb, funnelRowId, "B", 10000);
+  expect(
+    (await admin.request(`${API}/variants/${forkId}`, jsonInit("PUT", { sections: [{ section_id: section.id }] }), env)).status,
+  ).toBe(200);
 
   // 50/50 while draft (allocations are free) → create + start (Σ==10000 → running).
   expect((await admin.request(`${API}/variants/${controlId}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env)).status).toBe(200);
@@ -821,6 +905,7 @@ async function seedRunning2VariantTest(
   const started = (await startRes.json()) as { public_id: string; revision: number; status: string };
   expect(started.status).toBe("running");
 
+  seedSharedPageSection(sdb, quote.id);
   const activateBody: Record<string, unknown> = { enabled: true };
   if (opts.slug !== null) activateBody.slug = opts.slug;
   expect(
@@ -959,12 +1044,17 @@ describeDb("P8 — a RUNNING 2-variant test buckets by session (§16.2/§16.3)",
       session_id: string;
     };
     const bound = await verifyConfigToken(env, attempt.signed_config_token, {
-      ...v2Tuple({
-        funnel_variant_id: served!,
-        section_order_hash: config.section_order_hash,
-        content_version: config.content_version,
-        funnel_attempt_id: attempt.funnel_attempt_id,
-      }),
+      // §4.3-11: seedRunning2VariantTest's arms share ONE variant section
+      // PLUS the quote's 1 shared-page section (both unmapped) — ["0","0"].
+      ...v2Tuple(
+        {
+          funnel_variant_id: served!,
+          section_order_hash: config.section_order_hash,
+          content_version: config.content_version,
+          funnel_attempt_id: attempt.funnel_attempt_id,
+        },
+        { sectionVersions: ["0", "0"] },
+      ),
       session_id: attempt.session_id,
     });
     expect(bound, "token binds the assigned variant's config tuple").toBe(true);
@@ -1072,7 +1162,7 @@ async function seedActivatedFunnelTwoSections(
   env: Env,
   sdb: SqliteDb,
   opts: { quoteName: string; slug: string },
-): Promise<SeededFunnel & { sectionIds: string[] }> {
+): Promise<SeededFunnel & { sectionIds: string[]; sharedSectionPublicId: string }> {
   const createRes = await admin.request(
     `${API}/quotes`,
     jsonInit("POST", { quote_name: opts.quoteName, activity: "quote_funnel", verticals: ["life"] }),
@@ -1080,6 +1170,7 @@ async function seedActivatedFunnelTwoSections(
   );
   expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
   const quote = (await createRes.json()) as {
+    id: number;
     public_id: string;
     funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
   };
@@ -1093,6 +1184,7 @@ async function seedActivatedFunnelTwoSections(
     env,
   );
   expect(putRes.status, `put sections: ${await putRes.clone().text()}`).toBe(200);
+  const { sectionPublicId: sharedSectionPublicId } = seedSharedPageSection(sdb, quote.id);
   const actRes = await admin.request(
     `${API}/quotes/${quote.public_id}/activation/site-1`,
     jsonInit("PUT", { enabled: true, slug: opts.slug }),
@@ -1105,6 +1197,7 @@ async function seedActivatedFunnelTwoSections(
     variantId,
     slug: opts.slug,
     sectionIds: [s1.public_id, s2.public_id],
+    sharedSectionPublicId,
   };
 }
 
@@ -1115,34 +1208,47 @@ describeDb("v2.4 03 §3.2/§3.11 — server-rendered sections + #lg-config + run
 
     const html = await (await get(env, "/lg/shell")).text();
 
-    // the EXACT §3.2 wrapper vocabulary, in section order.
+    // §4.3-11: the quote's shared-page section now composes FIRST (index 0),
+    // ahead of this variant's own 2 sections (s1 index 1, s2 index 2) — the
+    // EXACT §3.2 wrapper vocabulary, in section order, over all 3.
     const sec0 = html.match(
       /<section data-lg-section data-lg-section-id="([^"]+)" data-lg-index="0" data-screen-label="([^"]+)"([^>]*)>/,
     );
     const sec1 = html.match(
       /<section data-lg-section data-lg-section-id="([^"]+)" data-lg-index="1" data-screen-label="([^"]+)"([^>]*)>/,
     );
-    expect(sec0, "first section wrapper").not.toBeNull();
-    expect(sec1, "second section wrapper").not.toBeNull();
-    expect(sec0![1]).toBe(seeded.sectionIds[0]);
-    expect(sec1![1]).toBe(seeded.sectionIds[1]);
+    const sec2 = html.match(
+      /<section data-lg-section data-lg-section-id="([^"]+)" data-lg-index="2" data-screen-label="([^"]+)"([^>]*)>/,
+    );
+    expect(sec0, "first section wrapper (the shared-page section)").not.toBeNull();
+    expect(sec1, "second section wrapper (this variant's own first section)").not.toBeNull();
+    expect(sec2, "third section wrapper (this variant's own second section)").not.toBeNull();
+    expect(sec0![1]).toBe(seeded.sharedSectionPublicId);
+    expect(sec1![1]).toBe(seeded.sectionIds[0]);
+    expect(sec2![1]).toBe(seeded.sectionIds[1]);
     // {i+1:02d} · {headline} labels.
     expect(sec0![2]!.startsWith("01 · ")).toBe(true);
     expect(sec1![2]!.startsWith("02 · ")).toBe(true);
+    expect(sec2![2]!.startsWith("03 · ")).toBe(true);
     // FIRST section not hidden (03 §3.11 — visible without JS); the rest hidden.
     expect(sec0![3]).not.toContain("hidden");
     expect(sec1![3]).toContain("hidden");
+    expect(sec2![3]).toContain("hidden");
     // the sections live INSIDE the data-lg-mount main.
     expect(html.indexOf("data-lg-mount")).toBeLessThan(html.indexOf("data-lg-section"));
-    // 11 §11.6: real question markup exists (never an empty mount) — the first
-    // section's TwoButtonYesNo renders as an answer group with lg choices.
+    // 11 §11.6: real question markup exists (never an empty mount) — the
+    // first (shared) section's TwoButtonYesNo renders as an answer group
+    // with lg choices (this variant's own first section is the SAME
+    // component type, so this signal is shared between the two — the
+    // dropdown check below is what proves ALL sections server-render).
     expect(html).toContain("data-lg-question");
     expect(html).toContain('data-lg-choice="true"');
-    // the second section's dropdown rendered too (ALL sections server-render).
+    // this variant's own second section's dropdown rendered too (ALL
+    // sections server-render, not just the visible first one).
     expect(html).toContain('data-lg-choice="acme"');
-    // the [data-lg-banners] auction mount rides after the sections, hidden.
+    // the [data-lg-banners] auction mount rides after ALL the sections, hidden.
     const bannersAt = html.indexOf("data-lg-banners");
-    expect(bannersAt).toBeGreaterThan(html.indexOf('data-lg-index="1"'));
+    expect(bannersAt).toBeGreaterThan(html.indexOf('data-lg-index="2"'));
     expect(html.slice(bannersAt - 60, bannersAt + 60)).toContain("hidden");
   });
 
@@ -1303,16 +1409,21 @@ describeDb("R6 — answer_mapping_version populated from leadgen_section_answer_
     const config = (await (await get(env, `/lg/config/${seeded.variantId}`)).json()) as {
       sections: Array<{ section_public_id: string; answer_mapping_version: string }>;
     };
-    expect(config.sections[0]?.answer_mapping_version).toBe(String(maxId));
-    expect(config.sections[1]?.answer_mapping_version).toBe("0");
+    // §4.3-11: the quote's shared-page section now composes FIRST (index 0,
+    // unmapped -> "0"); this variant's own mapped first section shifts to
+    // index 1, its unmapped second section to index 2.
+    expect(config.sections[0]?.answer_mapping_version).toBe("0");
+    expect(config.sections[1]?.answer_mapping_version).toBe(String(maxId));
+    expect(config.sections[2]?.answer_mapping_version).toBe("0");
 
     // the shell bakes the SAME populated values (one buildPublicConfig source).
     const html = await (await get(env, "/lg/r6")).text();
     const inline = parseInlineConfig(html) as {
       sections: Array<{ answer_mapping_version: string }>;
     } | null;
-    expect(inline?.sections[0]?.answer_mapping_version).toBe(String(maxId));
-    expect(inline?.sections[1]?.answer_mapping_version).toBe("0");
+    expect(inline?.sections[0]?.answer_mapping_version).toBe("0");
+    expect(inline?.sections[1]?.answer_mapping_version).toBe(String(maxId));
+    expect(inline?.sections[2]?.answer_mapping_version).toBe("0");
   });
 
   it("COHERENCE: sha256 over the config's ordered answer_mapping_versions == the v2 token's answer_mapping_hash (05 §5.3)", async () => {

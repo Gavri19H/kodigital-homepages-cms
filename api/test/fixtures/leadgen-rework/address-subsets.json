@@ -1,0 +1,22 @@
+{
+  "components": [
+    {
+      "type": "AddressAutocompleteQuestion",
+      "question_id": "q_address_subset",
+      "internal_field": "mailing_address",
+      "answer_type": "object",
+      "props": {
+        "label": "Mailing address",
+        "fields": [
+          { "field": "street", "label": "Street address", "mode": "manual", "required": true },
+          { "field": "zip", "label": "ZIP code", "mode": "manual", "validation": "zip5", "required": true }
+        ]
+      }
+    },
+    {
+      "type": "ContinueButton",
+      "question_id": "q_continue",
+      "props": { "label": "Continue" }
+    }
+  ]
+}

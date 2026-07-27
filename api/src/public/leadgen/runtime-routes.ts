@@ -41,15 +41,17 @@ import { computeSectionOrderHash, parseSectionComponents, expandPublicComponents
 import {
   resolveActivatedFunnelByVariant,
   parseUtmFromLandingUrl,
-  loadRoutingRules,
-  evaluateEntryRouting,
-  evaluateCheckpointRouting,
-  getActiveVariantByIdOnFunnel,
-  getControlVariantForFunnel,
+  loadQuoteRoutingRules,
+  evaluateQuoteEntryRouting,
+  evaluateQuoteCheckpointRouting,
+  entryMatchImpliesFunnel,
+  resolveFunnelEntryVariant,
   computeResumeSection,
   resolveEffectiveFrameOnly,
+  resolveSavedFrameTemplateDefaultsFor,
   buildFrameCtaCtx,
   computeCtaVerdict,
+  deriveOs,
   type EntryKnownContext,
   type ResolvedActivatedFunnel,
 } from "./resolver";
@@ -162,43 +164,47 @@ async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
     entry_ctx: entryCtx,
   });
 
-  // P4a (D-2): if THIS served variant was reached via an ENTRY routing rule
-  // (i.e. it is NOT the funnel's control and a control-variant entry rule
-  // targets it), record the server-authoritative routing OUTCOME keyed by the
-  // freshly-minted attempt id — the source of truth the S2S value_multiplier
-  // graft + the auction variant re-derivation read (never a client echo).
+  // LeadGen Rework §4.3-4/§4.3-9/§4.3-10: if THIS served variant's FUNNEL was
+  // pre-selected by an ENTRY-plane quote rule, record the server-authoritative
+  // routing OUTCOME keyed by the freshly-minted attempt id — the source of
+  // truth the S2S value_multiplier graft + the /lg/auction completion-ownership
+  // check read (never a client echo). routed_from_variant is NULL (entry pre-
+  // dates any source variant); routed_to_variant is FILLED with the assigned
+  // variant NOW (funnel entry, §4.3-10 — so the auction completion-ownership
+  // check matches the served variant); routed_to_funnel is the served funnel's
+  // public id (F-D, NOT NULL); feed_name rides the matched rule (M10/D3).
   // Best-effort: a failure never blocks the mint (the auction re-derives from
-  // the signed binding regardless; only the multiplier attribution is skipped).
+  // the signed binding regardless; only the attribution is skipped).
   //
-  // OPEN CONCERN (documented, not silently accepted): this RE-EVALUATES the
-  // entry rule using a FRESH entryCtx built from THIS /lg/attempt request,
-  // independently of `resolveActivatedFunnel`'s EARLIER evaluation at
-  // serveFunnelShell time (a SEPARATE HTTP request — the shell load, then the
-  // client engine's later /lg/attempt fetch). geo/device/UTM are effectively
-  // stable across the two nearly-simultaneous requests (same client, same
-  // page), but an hour/weekday-conditioned entry rule could theoretically
-  // disagree if the two requests straddle an hour/weekday boundary — a narrow,
-  // low-severity timing edge case (affects only analytics attribution +
-  // the S2S multiplier lookup for that one boundary-crossing visit, never the
-  // actually-served content, which the shell already locked in and the signed
-  // token/cache key already reflect). Not fixed here: doing so would need a
-  // shell→attempt channel (e.g. baking the matched rule hash into the shell
-  // and echoing it back) — a larger change flagged for the adversarial review.
+  // OPEN CONCERN (documented, unchanged from P4a): this RE-EVALUATES the entry
+  // rules over a FRESH entryCtx from THIS /lg/attempt request, independently of
+  // resolveActivatedFunnel's EARLIER shell-time evaluation (a separate HTTP
+  // request). geo/device/os/UTM are stable across the two near-simultaneous
+  // requests; only an hour/weekday-conditioned rule straddling a clock boundary
+  // could disagree — a narrow attribution-only edge (never the served content,
+  // which the shell locked in). A shell→attempt rule-hash channel would close it.
+  //
+  // S6.2 fix round: entryMatchImpliesFunnel (not a raw `===`) — the winner may
+  // now carry NO funnel action (redirect-only/feed-only, §4.3-9); such a
+  // winner implies its funnel choice fell through to the quote's default
+  // funnel (§4.3-7), so the outcome is recorded when the served funnel IS that
+  // default, not only when the match names it directly (a raw `match.
+  // target_funnel_id === resolved.funnel.id` would always be false for a null
+  // target_funnel_id and silently drop this winner's feed_name/multiplier).
   try {
-    const control = await getControlVariantForFunnel(c.env.DB, resolved.funnel.id);
-    if (control !== null && control.id !== resolved.variant.id) {
-      const match = evaluateEntryRouting(await loadRoutingRules(c.env.DB, control.id), entryCtx);
-      if (match !== null && match.target_funnel_variant_id === resolved.variant.id) {
-        await recordRoutingOutcome(c.env.DB, {
-          funnel_attempt_id: attempt.funnel_attempt_id,
-          session_id: sessionId,
-          from: control.public_id,
-          to: resolved.variant.public_id,
-          hash: match.hash,
-          multiplier: match.value_multiplier,
-          plane: "entry",
-        });
-      }
+    const match = evaluateQuoteEntryRouting(await loadQuoteRoutingRules(c.env.DB, resolved.quote.id), entryCtx);
+    if (match !== null && entryMatchImpliesFunnel(match, resolved.funnel.id, resolved.quote.default_funnel_id)) {
+      await recordRoutingOutcome(c.env.DB, {
+        funnel_attempt_id: attempt.funnel_attempt_id,
+        session_id: sessionId,
+        from: null,
+        to: resolved.variant.public_id,
+        to_funnel: resolved.funnel.public_id,
+        hash: match.hash,
+        multiplier: match.value_multiplier,
+        feed_name: match.feed_name,
+        plane: "entry",
+      });
     }
   } catch {
     /* best-effort — never blocks the mint */
@@ -238,11 +244,15 @@ async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
 // serve-auction already read (04 §4.2 "bridged, not duplicated").
 function requestEntryCtx(c: PublicContext, landingUrl: string, now: number): EntryKnownContext {
   const geo = geoFromCf(readCfSignals(c.req.raw));
-  const ua = parseClientUa(c.req.header("User-Agent"));
+  const userAgent = c.req.header("User-Agent");
+  const ua = parseClientUa(userAgent);
   const d = new Date(now);
   return {
     hour: d.getUTCHours(),
     weekday: d.getUTCDay(),
+    // M10: os is server-derived from the User-Agent EXACTLY where state/device
+    // derive, joining the entry-known routing universe (§4.3-3a).
+    os: deriveOs(userAgent),
     ...(geo.state !== "" ? { state: geo.state } : {}),
     ...(ua.device !== "" ? { device: ua.device } : {}),
     ...parseUtmFromLandingUrl(landingUrl),
@@ -260,8 +270,8 @@ function requestEntryCtx(c: PublicContext, landingUrl: string, now: number): Ent
 // expandPublicComponents over each candidate section's content_json); a
 // dedicated collectKnownFields exists too (content-schema.ts, ~2424) but it
 // is a PRIVATE nested helper inside validateSectionContent's save-time gate,
-// not exported, so it is not reusable here. expandPublicComponents already
-// covers the MultiQuestionGrid per-row expansion this needs; it does not
+// not exported, so it is not reusable here. expandPublicComponents is a 1:1
+// projection (§10/M6 retired the grid's per-row expansion); it does not
 // walk layout-container children the way content-schema.ts's SAVE-time
 // walker does (checkpoint rules are authored on top-level answer fields, and
 // resolver.ts's OWN existing checkpoint-page derivation makes the same
@@ -309,17 +319,23 @@ function checkpointJson(obj: unknown, status: number): Response {
   return new Response(JSON.stringify(obj), { status, headers: leadgenNoStoreHeaders() });
 }
 
-// The SERVER-recorded routing outcome (INSERT OR REPLACE — one row per attempt;
-// a checkpoint outcome supersedes an entry one). The auction/S2S read THIS.
+// The SERVER-recorded routing outcome (INSERT OR REPLACE — one row per attempt,
+// the §4.3-5 PK guard). The auction (routed_to_variant completion check) + S2S
+// (value_multiplier) read THIS. LeadGen Rework / F-D shape: routed_from_variant
+// NULLable (NULL on the entry plane), routed_to_variant NULLable (the assigned
+// variant, filled at funnel entry §4.3-10), routed_to_funnel NOT NULL (funnel
+// public id), feed_name NULLable (M10/D3 stamp).
 async function recordRoutingOutcome(
   db: D1Database,
   row: {
     funnel_attempt_id: string;
     session_id: string;
-    from: string;
-    to: string;
+    from: string | null;
+    to: string | null;
+    to_funnel: string;
     hash: string;
     multiplier: number | null;
+    feed_name: string | null;
     plane: "entry" | "checkpoint";
   },
 ): Promise<void> {
@@ -327,10 +343,20 @@ async function recordRoutingOutcome(
     .prepare(
       `INSERT OR REPLACE INTO leadgen_routing_outcomes
          (funnel_attempt_id, session_id, routed_from_variant, routed_to_variant,
-          matched_rule_hash, value_multiplier, plane, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())`,
+          routed_to_funnel, matched_rule_hash, value_multiplier, feed_name, plane, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`,
     )
-    .bind(row.funnel_attempt_id, row.session_id, row.from, row.to, row.hash, row.multiplier, row.plane)
+    .bind(
+      row.funnel_attempt_id,
+      row.session_id,
+      row.from,
+      row.to,
+      row.to_funnel,
+      row.hash,
+      row.multiplier,
+      row.feed_name,
+      row.plane,
+    )
     .run();
 }
 
@@ -386,11 +412,36 @@ async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
   }
 
   const db = c.env.DB;
-  // (3a) ≤1 switch: a prior CHECKPOINT switch on this attempt refuses a second
-  // (hop guard — loops impossible). An entry-plane row does NOT block. Dedicated
-  // try/catch (D1 safety): an unreadable outcomes table degrades to "no prior"
-  // rather than 500ing the checkpoint call (fail-safe — it can only ever
-  // suppress the ≤1-hop check's positive match, never fabricate a switch).
+
+  // (2) server-side answer re-normalization + request-derived entry attributes,
+  // and the CURRENT frame's CTA verdict (re-evaluated at this page transition
+  // against entry ctx UNION answers). Computed up-front so a CTA verdict still
+  // updates on a blocked / non-matching checkpoint (CTA visibility and routing
+  // are independent axes). `noSwitch` is the sticky/no-match response — it
+  // carries the refreshed CTA verdict.
+  const answers = normalizeCheckpointAnswers(body.a, checkpointKnownFields(current));
+  const entryCtx = requestEntryCtx(c, verified.landing_url, Date.now());
+  const ctaCtx = { ...buildFrameCtaCtx(entryCtx, 0), ...answers };
+  // Rework M5 (mini-round): precedence variant.frame_template_id ?? funnel.
+  // frame_template_id, via the shared resolver.ts helper.
+  const currentSavedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(c.env.DB, current);
+  const currentFrame = resolveEffectiveFrameOnly({
+    frame_config_json: current.funnel.frame_config_json,
+    theme_json: current.funnel.theme_json,
+    frame_overrides_json: current.variant.frame_overrides_json,
+    saved_template_defaults: currentSavedTemplateDefaults,
+  });
+  const ccCurrent = currentFrame !== null ? computeCtaVerdict(currentFrame.cta_slots, ctaCtx) : [];
+  const noSwitch = (): Response =>
+    checkpointJson(ccCurrent.length > 0 ? { sw: false, cc: ccCurrent } : { sw: false }, 200);
+
+  // (3a) §4.3-5 ONE-outcome-per-attempt PK guard + §4.3-6 sticky: once ANY
+  // routing outcome exists for this attempt (entry OR checkpoint), no rule
+  // re-evaluates — changing a shared/funnel answer after routing does NOT
+  // re-route (the changed answer still records + flows to the payload/auction).
+  // Dedicated try/catch (D1 safety): an unreadable outcomes table degrades to
+  // "no prior" (fail-safe — it can only ever suppress a positive match, never
+  // fabricate a switch). A refreshed CTA verdict still rides the sticky response.
   let prior: { plane: string } | null;
   try {
     prior = await db
@@ -400,39 +451,34 @@ async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
   } catch {
     prior = null;
   }
-  if (prior !== null && prior.plane === "checkpoint") {
-    return checkpointJson({ sw: false }, 200);
-  }
+  if (prior !== null) return noSwitch();
 
-  // (2) server-side answer re-normalization + request-derived entry attributes.
-  const answers = normalizeCheckpointAnswers(body.a, checkpointKnownFields(current));
-  const entryCtx = requestEntryCtx(c, verified.landing_url, Date.now());
+  // (3b) evaluate the QUOTE's CHECKPOINT-plane routing rules (shared-page or
+  // in-funnel, §4.3-3b/c) over entry ctx UNION the re-normalized answers.
+  const match = evaluateQuoteCheckpointRouting(
+    await loadQuoteRoutingRules(db, current.quote.id),
+    entryCtx,
+    answers,
+  );
+  // S6.2: QuoteRoutingMatch.target_funnel_id widened to `number | null` (the
+  // ENTRY evaluator now returns action-only winners too) — but
+  // evaluateQuoteCheckpointRouting's OWN filter is UNCHANGED (still requires
+  // target_funnel_id !== null to be a checkpoint-plane candidate at all), so
+  // this narrow is a pure type-safety statement, never reachable at runtime.
+  // The checkpoint-plane analogue (a feed/redirect-only winner pre-empting a
+  // lower-priority funnel-carrying checkpoint rule) is a real, structurally
+  // identical latent gap but is OUT OF SCOPE for this fix round — see the
+  // S6.2 follow-up report's open concern (no defined "matched, no switch, but
+  // still record" outcome shape for /lg/ck today).
+  if (match === null || match.target_funnel_id === null) return noSwitch();
 
-  // Round-4 P4a-adj (P5a runtime seam #1): the CURRENT variant's CTA verdict,
-  // re-evaluated against entry ctx UNION the freshly re-normalized answers —
-  // this is the "page transition" moment (checkpoint) an answer-conditioned
-  // CTA becomes evaluable at all (v1 semantics: ONLY at a P4a checkpoint page,
-  // since that is what gates /lg/ck firing in the first place — noted, not a
-  // general-purpose per-page re-evaluation). Computed BEFORE the routing match
-  // check so a CTA verdict updates even when the routing rule itself does NOT
-  // match (a CTA condition and a routing condition are independent axes).
-  const ctaCtx = { ...buildFrameCtaCtx(entryCtx, 0), ...answers };
-  const currentFrame = resolveEffectiveFrameOnly({
-    frame_config_json: current.funnel.frame_config_json,
-    theme_json: current.funnel.theme_json,
-    frame_overrides_json: current.variant.frame_overrides_json,
-  });
-  const ccCurrent = currentFrame !== null ? computeCtaVerdict(currentFrame.cta_slots, ctaCtx) : [];
-
-  // (3b) evaluate the bound variant's CHECKPOINT-plane routing rules.
-  const match = evaluateCheckpointRouting(await loadRoutingRules(db, current.variant.id), entryCtx, answers);
-  if (match === null) return checkpointJson(ccCurrent.length > 0 ? { sw: false, cc: ccCurrent } : { sw: false }, 200);
-
-  // Resolve the target (active sibling of THIS funnel) + its full bundle.
-  const targetRow = await getActiveVariantByIdOnFunnel(db, current.funnel.id, match.target_funnel_variant_id);
-  if (targetRow === null) return checkpointJson({ sw: false }, 200);
-  const target = await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, targetRow.public_id);
-  if (target === null) return checkpointJson({ sw: false }, 200);
+  // §4.3-8: resolve the target FUNNEL's entry variant (A/B applies at funnel
+  // entry), then its full bundle (shared page + variant pages). Same-quote
+  // guard: a quote rule may only route within its own quote's funnels.
+  const targetVariant = await resolveFunnelEntryVariant(db, match.target_funnel_id, sessionId);
+  if (targetVariant === null) return noSwitch();
+  const target = await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, targetVariant.public_id);
+  if (target === null || target.quote.id !== current.quote.id) return noSwitch();
 
   // (4) re-issue the binding for the target under the SAME attempt id.
   const now = Date.now();
@@ -442,37 +488,45 @@ async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
     entry_ctx: entryCtx,
     funnel_attempt_id: faid,
   });
+  // §4.3-8 resume: the target plan's first page with an unanswered visible
+  // required field (else its last page). The shared page's required fields are
+  // already answered, so resume lands inside the target funnel — never re-asking
+  // the shared page.
   const resume = computeResumeSection(reissued.page_plan ?? [], target.pages ?? [], answers);
 
-  // The recorded outcome row IS the ≤1-hop guard + the S2S multiplier lookup's
-  // source of truth — unlike the read-side degrades above, a WRITE failure
-  // here must refuse the switch (fail CLOSED): reporting sw:true without a
-  // durable record would let a retried/duplicate checkpoint call switch AGAIN
-  // (no prior row to detect) and would silently drop the multiplier
-  // attribution. The client's documented fail-open (continue the CURRENT
-  // plan unrouted) is the correct, safe outcome here too.
+  // The recorded outcome IS the §4.3-5 PK guard + the S2S multiplier + the
+  // auction completion-ownership source of truth — a WRITE failure must refuse
+  // the switch (fail CLOSED): reporting sw:true without a durable row would let
+  // a retried checkpoint switch AGAIN and would drop the attribution.
+  // routed_from_variant = the origin variant; routed_to_variant = the target's
+  // assigned variant (§4.3-10); routed_to_funnel = the target funnel public id
+  // (F-D); feed_name rides the matched rule (M10/D3).
   try {
     await recordRoutingOutcome(db, {
       funnel_attempt_id: faid,
       session_id: sessionId,
       from: current.variant.public_id,
       to: target.variant.public_id,
+      to_funnel: target.funnel.public_id,
       hash: match.hash,
       multiplier: match.value_multiplier,
+      feed_name: match.feed_name,
       plane: "checkpoint",
     });
   } catch {
-    return checkpointJson({ sw: false }, 200);
+    return noSwitch();
   }
 
   // The TARGET's own CTA verdict — a DIFFERENT frame than the origin's (the
   // whole point of routing to another funnel name/variant), re-evaluated
   // against the SAME entry ctx UNION answers (reissued.cc from mintFunnelAttempt
   // above lacks the answers half, so it is not reused here).
+  const targetSavedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(c.env.DB, target);
   const targetFrame = resolveEffectiveFrameOnly({
     frame_config_json: target.funnel.frame_config_json,
     theme_json: target.funnel.theme_json,
     frame_overrides_json: target.variant.frame_overrides_json,
+    saved_template_defaults: targetSavedTemplateDefaults,
   });
   const ccTarget = targetFrame !== null ? computeCtaVerdict(targetFrame.cta_slots, ctaCtx) : [];
 

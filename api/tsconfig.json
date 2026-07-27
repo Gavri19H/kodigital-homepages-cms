@@ -39,6 +39,10 @@
     // R1 (Section Builder v3.1 remediation): the runtime answer-recording suite
     // drives the REAL LgEngine + render.updateRangeDisplay over a fake DOM —
     // same DOM-lib split as the hydration/engine-sim suites above.
-    "test/leadgen-r1-runtime-recording.test.ts"
+    "test/leadgen-r1-runtime-recording.test.ts",
+    // LeadGen Rework P2 S2.3: the runtime widget-behavior suite (mask/slider/
+    // other/address) drives the REAL LgEngine over a fake DOM — same DOM-lib
+    // split as the hydration/engine-sim/r1 suites above.
+    "test/leadgen-rework-runtime.test.ts"
   ]
 }

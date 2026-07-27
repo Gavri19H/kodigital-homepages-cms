@@ -45,6 +45,42 @@ async function json<T>(
   return (await res.json()) as T;
 }
 
+// LEADGEN-REWORK-03 S5.2 (final round) — the established trivial-shared-page
+// precedent (leadgen-e-seed.ts's seedTrivialSharedPage /
+// leadgen-fix-p1-seed.ts's own shared-page seed): activation now requires the
+// quote's OWN shared first page to carry >=1 section (§4.3-1/§4.3-15). A bare
+// ContinueButton (no question) — its only job is satisfying the activation
+// precondition; every composed page count in this file is +1 versus its
+// pre-rework value, and every `pages:{mode:...}` frame-config targeting a
+// specific funnel-owned page position is likewise shifted +1 (documented at
+// each call site below — this was S5.1's reverted attempt's exact finding).
+async function seedTrivialSharedPage(request: APIRequestContext, quotePublicId: string): Promise<void> {
+  const shared = await json<{ id: number }>(
+    await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: `p5a shared ${Date.now()}${Math.floor(Math.random() * 1000)}`,
+        activity: "quote_funnel", vertical: "life", status: "active",
+        headline_text: "Continue", continue_mode: "button",
+        content_json: JSON.stringify({ components: [CONTINUE] }),
+      },
+    }),
+    "shared page section create",
+  );
+  await json(
+    await request.post(`${LG_API}/quotes/${quotePublicId}/shared-page`, { data: { sections: [{ section_id: shared.id }] } }),
+    "shared page create",
+  );
+}
+
+// Every shared page seeded above is a bare ContinueButton — no answer needed,
+// just the one click (the leadgen-patterns-v25.spec.ts
+// clickThroughSharedPageIfShowing precedent, simplified: this file's shared
+// pages are ALWAYS the funnel-agnostic trivial one, never carrying real
+// content worth asserting on).
+async function passSharedPage(page: Page): Promise<void> {
+  await page.locator("[data-lg-continue]:visible").click();
+}
+
 const CONTINUE = { type: "ContinueButton", question_id: "cont", props: { label: "Continue" } };
 function yesNoSection(name: string, field: string) {
   return {
@@ -107,6 +143,15 @@ async function seedFrameFunnel(
     await request.put(`${LG_API}/funnels/${funnelId}/frame`, { data: { frame_config_json: frameConfig } }),
     "funnel frame",
   );
+  // LEADGEN-REWORK-03 S5.2 (final round) — FIXED (was reverted last round;
+  // see the git history / prior phase report for that attempt's own note).
+  // Activation preflights "the shared first page needs at least one section"
+  // (§4.3-1/§4.3-15) — seeded here via the SAME trivial-shared-page precedent
+  // already proven in leadgen-e-seed.ts/leadgen-quote-builder.spec.ts this
+  // program. Every composed page position downstream of this call is +1 —
+  // handled deliberately at each affected call site (search this file for
+  // "composed position" / passSharedPage).
+  await seedTrivialSharedPage(request, quote.public_id);
   await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: safe } }), "activation");
   return { host, slug: safe, variantId, funnelId };
 }
@@ -129,7 +174,12 @@ const RICH_FRAME: Record<string, unknown> = {
   template: "centered",
   progress: { style: "numbered", show_label: true },
   free_text: [
-    { id: "ft_first", slot: "above_section", pages: { mode: "first" }, blocks: [{ type: "paragraph", html: "<strong>Shown only on page 1</strong>" }] },
+    // LEADGEN-REWORK-03 S5.2: was `pages: { mode: "first" }` — "first" now
+    // means composed position 1, which the mandatory shared page occupies
+    // (§4.3-1/§4.3-15); re-targeted to composed position 2, the funnel's OWN
+    // actual first page, preserving the ORIGINAL proof intent ("shown only on
+    // this funnel's first content page, hidden on its second").
+    { id: "ft_first", slot: "above_section", pages: { mode: "range", from: 2, to: 2 }, blocks: [{ type: "paragraph", html: "<strong>Shown only on page 1</strong>" }] },
     { id: "ft_all", slot: "below_section", pages: { mode: "all" }, blocks: [{ type: "list", style: "check", items: ["Free to use", "No obligation"] }] },
     // Security fix (adversarial review MAJOR-1): an authored block MIXING a
     // legit tag with an onerror/iframe payload — proves it renders INERT on
@@ -167,7 +217,9 @@ const RICH_FRAME: Record<string, unknown> = {
   // persona portrait) — a plain url ref here (the frame renderer doesn't care
   // where the ref came from), with a mouse-over caption + page targeting.
   images: [
-    { id: "img_persona", url: "/media/ai/persona/warm-elder.png", alt: "A warm, trustworthy insurance advisor", slot: "above_section", size: "m", tooltip: "Secured & verified", pages: { mode: "first" } },
+    // LEADGEN-REWORK-03 S5.2: same re-target as ft_first above (composed
+    // position 2 = this funnel's own first page).
+    { id: "img_persona", url: "/media/ai/persona/warm-elder.png", alt: "A warm, trustworthy insurance advisor", slot: "above_section", size: "m", tooltip: "Secured & verified", pages: { mode: "range", from: 2, to: 2 } },
   ],
   disclosure: {
     enabled: true,
@@ -201,21 +253,27 @@ test.describe("P5a — authorable frame elements v2 on the live funnel", () => {
     await ctx.dispose();
   });
 
-  test("10E free text: page targeting honored LIVE across a 2-page funnel", async ({ page }) => {
+  test("10E free text: page targeting honored LIVE across the funnel's 2 own pages (composed positions 2-3, behind the mandatory shared page at 1)", async ({ page }) => {
     await page.goto(shellUrl(rich), { waitUntil: "load" });
     await ready(page);
+    // composed position 1 = the mandatory shared page (§4.3-1/§4.3-15) —
+    // click past it to reach this funnel's OWN first page.
+    await passSharedPage(page);
     const ftFirst = page.locator('[data-free-text-id="ft_first"]');
     const ftAll = page.locator('[data-free-text-id="ft_all"]');
-    // page 1: both visible; the first block's rich text is sanitized+rendered.
+    // this funnel's page 1 (composed position 2): both visible; the first
+    // block's rich text is sanitized+rendered.
+    await expect(page.locator('[data-lg-progress]').first()).toHaveAttribute("data-lg-progress-current", "2");
     await expect(ftFirst).toBeVisible();
     await expect(ftAll).toBeVisible();
     await expect(ftFirst.locator("strong")).toHaveText("Shown only on page 1");
     await expect(ftAll.locator("li")).toHaveCount(2);
     await page.screenshot({ path: `${SHOT_DIR}/page1.png`, fullPage: true });
-    // advance to page 2 → the `first` block HIDES (engine data-show-on toggle),
-    // the `all` block stays. This is the zero-engine-byte live proof.
+    // advance to this funnel's page 2 (composed position 3) → the `first`
+    // (now range:2-2) block HIDES (engine data-show-on/data-frame-pages
+    // toggle), the `all` block stays. This is the zero-engine-byte live proof.
     await answerPageAndContinue(page);
-    await expect(page.locator('[data-lg-progress]').first()).toHaveAttribute("data-lg-progress-current", "2");
+    await expect(page.locator('[data-lg-progress]').first()).toHaveAttribute("data-lg-progress-current", "3");
     await expect(ftFirst).toBeHidden();
     await expect(ftAll).toBeVisible();
     await page.screenshot({ path: `${SHOT_DIR}/page2.png`, fullPage: true });
@@ -302,6 +360,10 @@ test.describe("P5a — authorable frame elements v2 on the live funnel", () => {
   test("10G images (follow-on): a placed image with alt + hover caption; page targeting honored", async ({ page }) => {
     await page.goto(shellUrl(rich), { waitUntil: "load" });
     await ready(page);
+    // composed position 1 = the mandatory shared page — click past it to
+    // reach this funnel's OWN first page (composed position 2), where
+    // img_persona's range:2-2 targeting resolves to visible.
+    await passSharedPage(page);
     const img = page.locator('[data-image-id="img_persona"]');
     await expect(img).toBeVisible();
     await expect(img.locator("img.lg-frame-image-img")).toHaveAttribute("alt", "A warm, trustworthy insurance advisor");
@@ -309,15 +371,23 @@ test.describe("P5a — authorable frame elements v2 on the live funnel", () => {
     const wrap = img.locator(".lg-frame-image-wrap");
     const tip = wrap.locator(".lg-frame-image-tip");
     await expect(tip).toHaveText("Secured & verified");
+    // the passSharedPage() click above can leave the cursor resting over
+    // this image's hover-trigger area (page-position-dependent) — reset it
+    // to a neutral corner first so the CSS-only hover transition genuinely
+    // starts from 0, not mid-flight (reproduced live this phase: 0.0446…
+    // instead of "0" without this reset).
+    await page.mouse.move(0, 0);
     expect(await tip.evaluate((el) => getComputedStyle(el).opacity)).toBe("0");
     await wrap.hover();
     await expect.poll(async () => tip.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
     await page.screenshot({ path: `${SHOT_DIR}/image-tooltip.png` });
 
-    // page targeting (mode:"first"): visible on page 1, hidden on page 2 —
-    // the SAME [data-show-on] engine toggle proven for free text.
+    // page targeting (range:2-2, re-targeted from the pre-shared-page
+    // "first"): visible on this funnel's page 1 (composed position 2, just
+    // asserted above), hidden on its page 2 (composed position 3) — the SAME
+    // [data-frame-pages]/[data-show-on] engine toggle proven for free text.
     await answerPageAndContinue(page);
-    await expect(page.locator("[data-lg-progress]").first()).toHaveAttribute("data-lg-progress-current", "2");
+    await expect(page.locator("[data-lg-progress]").first()).toHaveAttribute("data-lg-progress-current", "3");
     await expect(img).toBeHidden();
   });
 
@@ -387,11 +457,13 @@ test.describe("P5a — authorable frame elements v2 on the live funnel", () => {
 //   * Page-range targeting: data-frame-pages "range:2-2" hidden on page 1,
 //     visible on page 2, hidden again on page 3 (render.ts pageInSpec).
 //
-// A routing rule is seeded (age >= 200, NEVER matches) purely to make the
-// age page a routing CHECKPOINT (deriveCheckpointPages keys on the FIELD a
-// rule references, not on whether it ultimately matches) — this is what
-// makes the engine POST /lg/ck at all; the CTA verdict is proven independent
-// of the routing match outcome (sw:false, cc still present).
+// A quote routing rule is seeded (age >= 200, NEVER matches) purely to make
+// the age page a routing CHECKPOINT (§10/S5.1: deriveQuoteCheckpointPages,
+// the M3 quote-scoped twin of the retired deriveCheckpointPages, keys on the
+// FIELD a checkpoint-plane rule references, not on whether it ultimately
+// matches) — this is what makes the engine POST /lg/ck at all; the CTA
+// verdict is proven independent of the routing match outcome (sw:false, cc
+// still present).
 // ===========================================================================
 
 interface CtaPageRangeSeed {
@@ -476,14 +548,6 @@ test.describe("P4a-adj — CTA verdict LIVE toggle (answer-conditioned) + page-r
       "variant A pages",
     );
 
-    // A sibling variant purely to satisfy route_funnel_variant's non-null-
-    // target requirement -- NEVER actually visited (the rule's own condition
-    // never matches); its only job is to make the age page a checkpoint.
-    const variantB = await json<{ public_id: string }>(
-      await ctx.post(`${LG_API}/funnels/${funnelId}/variants`, { data: { variant_label: "B" } }),
-      "variant B create",
-    );
-
     const frameConfig = {
       version: 1,
       template: "centered",
@@ -495,7 +559,12 @@ test.describe("P4a-adj — CTA verdict LIVE toggle (answer-conditioned) + page-r
       ],
       free_text: [
         {
-          id: "ft_range", slot: "below_section", pages: { mode: "range", from: 2, to: 2 },
+          // LEADGEN-REWORK-03 S5.2: was from:2,to:2 targeting "P2" when Age
+          // was composed position 1 — the mandatory shared page now occupies
+          // position 1 (Age=2, P2=3, P3=4), so this shifts to 3-3 to keep
+          // targeting "P2" (unchanged proof intent: text shows on the
+          // funnel's own middle page only).
+          id: "ft_range", slot: "below_section", pages: { mode: "range", from: 3, to: 3 },
           blocks: [{ type: "paragraph", html: "<strong>Page 2 only text</strong>" }],
         },
       ],
@@ -504,22 +573,43 @@ test.describe("P4a-adj — CTA verdict LIVE toggle (answer-conditioned) + page-r
       await ctx.put(`${LG_API}/funnels/${funnelId}/frame`, { data: { frame_config_json: frameConfig } }),
       "funnel frame",
     );
+    // LEADGEN-REWORK-03 S5.2 (final round) — FIXED (was reverted last round).
+    // Activation preflights "the shared first page needs at least one
+    // section" (§4.3-1/§4.3-15) — seeded via the same trivial-shared-page
+    // precedent as seedFrameFunnel above. Composed positions downstream of
+    // this shift +1 (Age=2, P2=3, P3=4) — handled in the test body below.
+    await seedTrivialSharedPage(ctx, quote.public_id);
     await json(await ctx.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true } }), "activation");
 
+    // §10/S5.1: a quote routing rule (leadgen_quote_routing_rules — the M3
+    // quote-scoped replacement for the OLD per-variant route_funnel_variant
+    // model, which migration 0048 now forbids) with a condition on "age"
+    // that NEVER matches (age >= 200) -- purely to make the age page
+    // register as a routing CHECKPOINT. deriveQuoteCheckpointPages
+    // (resolver.ts, the quote-routing twin of the retired deriveCheckpoint
+    // Pages) keys on the CONDITION FIELD a checkpoint-plane rule references,
+    // not on whether it ultimately matches -- this is what makes the engine
+    // POST /lg/ck at all (attempt.ts's mintFunnelAttempt calls
+    // loadQuoteRoutingRules + deriveQuoteCheckpointPages, populating the
+    // /lg/attempt response's `cps`); the CTA verdict is proven independent
+    // of the routing match outcome (sw:false, cc still present). No target
+    // VARIANT is needed anymore (target_funnel_id, not target_funnel_variant
+    // _id) -- self-targeting this same funnel is sufficient since the rule
+    // never actually fires.
     const esc = (s: string): string => s.replace(/'/g, "''");
-    const rowsA = JSON.parse(
-      execFileSync("npx", ["wrangler", "d1", "execute", "kodigital-homepages-cms-db", "--local", "--json", "--command", `SELECT id FROM leadgen_funnel_variants WHERE public_id='${esc(variantA)}';`], { cwd: process.cwd(), timeout: 120_000 }).toString(),
+    const quoteRows = JSON.parse(
+      execFileSync("npx", ["wrangler", "d1", "execute", "kodigital-homepages-cms-db", "--local", "--json", "--command", `SELECT id FROM leadgen_quotes WHERE public_id='${esc(quote.public_id)}';`], { cwd: process.cwd(), timeout: 120_000 }).toString(),
     ) as Array<{ results: Array<{ id: number }> }>;
-    const rowsB = JSON.parse(
-      execFileSync("npx", ["wrangler", "d1", "execute", "kodigital-homepages-cms-db", "--local", "--json", "--command", `SELECT id FROM leadgen_funnel_variants WHERE public_id='${esc(variantB.public_id)}';`], { cwd: process.cwd(), timeout: 120_000 }).toString(),
+    const funnelRows = JSON.parse(
+      execFileSync("npx", ["wrangler", "d1", "execute", "kodigital-homepages-cms-db", "--local", "--json", "--command", `SELECT id FROM leadgen_funnels WHERE public_id='${esc(funnelId)}';`], { cwd: process.cwd(), timeout: 120_000 }).toString(),
     ) as Array<{ results: Array<{ id: number }> }>;
-    const aRowId = rowsA[0]!.results[0]!.id;
-    const bRowId = rowsB[0]!.results[0]!.id;
+    const quoteRowId = quoteRows[0]!.results[0]!.id;
+    const funnelRowId = funnelRows[0]!.results[0]!.id;
     execFileSync(
       "npx",
       [
         "wrangler", "d1", "execute", "kodigital-homepages-cms-db", "--local", "--command",
-        `INSERT INTO leadgen_funnel_rules (public_id, variant_id, rule_type, conditions_json, conditions_hash, priority, status, target_funnel_variant_id, rule_name, enabled) VALUES ('lgfr_pw_cta_${uniq}', ${aRowId}, 'route_funnel_variant', '{"groups":[{"field":"age","op":"gte","value":200}]}', 'h_pw_cta_${uniq}', 10, 'active', ${bRowId}, 'Never matches (checkpoint-only)', 1);`,
+        `INSERT INTO leadgen_quote_routing_rules (public_id, quote_id, rule_name, conditions_json, conditions_hash, priority, status, target_funnel_id) VALUES ('lgqr_pw_cta_${uniq}', ${quoteRowId}, 'Never matches (checkpoint-only)', '{"groups":[{"field":"age","op":"gte","value":200}]}', 'h_pw_cta_${uniq}', 10, 'active', ${funnelRowId});`,
       ],
       { cwd: process.cwd(), stdio: "pipe", timeout: 120_000 },
     );
@@ -527,18 +617,21 @@ test.describe("P4a-adj — CTA verdict LIVE toggle (answer-conditioned) + page-r
     seeded = { host };
   });
 
-  test("answer-conditioned CTA appears LIVE after the qualifying page transition; page-range text hidden(p1)->visible(p2)->hidden(p3)", async ({ page }) => {
+  test("answer-conditioned CTA appears LIVE after the qualifying page transition; page-range text hidden(Age)->visible(P2)->hidden(P3), composed positions 2-3-4 behind the mandatory shared page at 1", async ({ page }) => {
     await page.goto(`http://${seeded.host}:${PW_PORT}/lg`, { waitUntil: "load" });
     await ready(page);
+    // composed position 1 = the mandatory shared page — click past it to
+    // reach "Age" (composed position 2, this funnel's own first page).
+    await passSharedPage(page);
 
     const cta = page.locator('[data-lg-node="cta_senior"]');
     const ftRange = page.locator('[data-free-text-id="ft_range"]');
-    // Page 1 (age, unanswered): the answer-conditioned CTA is hidden (no
-    // answer yet -> fail-closed); the range-2-2 text is hidden (page 1 is
-    // outside the range).
+    // Age (composed position 2, unanswered): the answer-conditioned CTA is
+    // hidden (no answer yet -> fail-closed); the range-3-3 text is hidden
+    // (position 2 is outside the range).
     await expect(cta).toBeHidden();
     await expect(ftRange).toBeHidden();
-    await expect(page.locator("[data-lg-progress]").first()).toHaveAttribute("data-lg-progress-current", "1");
+    await expect(page.locator("[data-lg-progress]").first()).toHaveAttribute("data-lg-progress-current", "2");
 
     await page.locator("[data-lg-section]:not([hidden]) [data-lg-input]").first().fill("70");
     const [ckptResponse] = await Promise.all([
@@ -549,22 +642,22 @@ test.describe("P4a-adj — CTA verdict LIVE toggle (answer-conditioned) + page-r
     expect(ckptBody.sw, "the seeded routing rule's own condition (age>=200) never matches").toBe(false);
     expect(ckptBody.cc, "the CTA verdict is computed independent of the routing-match outcome").toEqual(["cta_senior"]);
 
-    await page.waitForTimeout(300); // let the engine apply the verdict + advance to page 2
+    await page.waitForTimeout(300); // let the engine apply the verdict + advance to P2
 
-    // Page 2: the CTA is now visible (verdict applied live); the range-2-2
-    // text is visible (page 2 is inside "range:2-2").
+    // P2 (composed position 3): the CTA is now visible (verdict applied
+    // live); the range-3-3 text is visible (position 3 is inside "range:3-3").
     await expect(cta).toBeVisible();
     await expect(ftRange).toBeVisible();
-    await expect(page.locator("[data-lg-progress]").first()).toHaveAttribute("data-lg-progress-current", "2");
+    await expect(page.locator("[data-lg-progress]").first()).toHaveAttribute("data-lg-progress-current", "3");
 
-    // Advance to page 3 (no further /lg/ck call — this page is not a
-    // checkpoint anchor): the range-2-2 text hides again (page 3 is outside
-    // the range); the CTA stays visible — the verdict is not re-evaluated
-    // off a checkpoint page (documented v1 semantics: CTA visibility updates
-    // at routing-checkpoint page transitions only).
+    // Advance to P3 (composed position 4; no further /lg/ck call — this page
+    // is not a checkpoint anchor): the range-3-3 text hides again (position 4
+    // is outside the range); the CTA stays visible — the verdict is not
+    // re-evaluated off a checkpoint page (documented v1 semantics: CTA
+    // visibility updates at routing-checkpoint page transitions only).
     await page.locator('[data-lg-section]:not([hidden]) [data-lg-choice="true"]').first().click();
     await page.locator("[data-lg-continue]:visible").click();
-    await expect(page.locator("[data-lg-progress]").first()).toHaveAttribute("data-lg-progress-current", "3");
+    await expect(page.locator("[data-lg-progress]").first()).toHaveAttribute("data-lg-progress-current", "4");
     await expect(ftRange).toBeHidden();
     await expect(cta).toBeVisible();
   });

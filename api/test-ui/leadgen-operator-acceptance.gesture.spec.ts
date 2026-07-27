@@ -192,6 +192,23 @@ async function seedLiveFunnel(
     }),
     "variant sections",
   );
+  // LeadGen Rework §4.3-1/§4.3-15 (P1, own-hand-verified): activation now
+  // preflights "the shared first page needs at least one section" — this
+  // pre-M2 helper predates that requirement. Seed a TRIVIAL pass-through
+  // shared page (a single ContinueButton, no questions) so every live leg
+  // advances through it in one click (passSharedPage below) before reaching
+  // the funnel content under test — the SAME pattern already proven in
+  // leadgen-rework-p2-studio.gesture.spec.ts / __p2c-studio.spec.ts /
+  // leadgen-round4-acceptance.gesture.spec.ts.
+  const trivialShared = await createStudioSection(request, `ACC shared ${tag} ${u}`, [
+    { type: "ContinueButton", question_id: "q_shared_cont", props: { label: "Continue" } },
+  ]);
+  await json(
+    await request.post(`${LG_API}/quotes/${quote.public_id}/shared-page`, {
+      data: { sections: [{ section_id: trivialShared.id }] },
+    }),
+    "shared page create",
+  );
   await json(
     await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, {
       data: { enabled: true, slug },
@@ -202,6 +219,14 @@ async function seedLiveFunnel(
 }
 
 const shellUrl = (s: { host: string; slug: string }) => `http://${s.host}:${PORT}/lg/${s.slug}`;
+
+// Click the trivial shared-page's Continue button once (see seedLiveFunnel's
+// own comment) so a live leg lands on the funnel content under test.
+async function passSharedPage(page: Page): Promise<void> {
+  const cont = page.locator("[data-lg-continue]").first();
+  await expect(cont, "the shared page's Continue is reachable").toBeVisible({ timeout: 8_000 });
+  await cont.click();
+}
 
 // A trivial trailing Section so an "advance" leg has somewhere to land (the p4b
 // NEXT pattern — section_index only increments when a next section exists).
@@ -279,7 +304,24 @@ async function measureAnswerGrid(
       if (!group) return null;
       const cells = [...group.querySelectorAll(".lg-btn-answer")].map((b) => rect(b)!).filter(Boolean);
       const tracks = view.getComputedStyle(group).gridTemplateColumns.trim().split(/\s+/).length;
-      const card = doc.querySelector(".lg-question-card");
+      // LeadGen Rework §4.3-1 (own-hand-verified: fail-before/pass-after +
+      // presets.ts:3149-3150 read): a document-wide
+      // doc.querySelector(".lg-question-card") (the pre-existing form) is
+      // ambiguous once seedLiveFunnel's trivial shared page coexists in the
+      // live DOM alongside the funnel's own section — renderQuestionCard
+      // wraps EACH section's own depth-1 content in its own
+      // .lg-question-card (one per [data-lg-section], the runtime keeps
+      // every section mounted and visibility-toggles by data-lg-index, per
+      // liveSection()'s own per-index locator convention below). The FIRST
+      // document-order match became the shared page's own (now-hidden,
+      // zero-rect) card, corrupting cardBox/padL/padR (observed failure:
+      // "group centered in the card column (640 vs 0)" — contentCenter
+      // computed from a zero cardBox). .closest() scopes the lookup to the
+      // ACTUAL measured group's own enclosing card instead — correct
+      // regardless of how many sections are simultaneously mounted, and
+      // unaffected in the single-section studio-iframe case (inIframe=true)
+      // since .closest() degrades to the same unique match there.
+      const card = group.closest(".lg-question-card");
       const cardCs = card && view.getComputedStyle(card);
       return {
         tracks,
@@ -411,6 +453,11 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     // reference grid — centered in the card column (width:100% by construction).
     const seeded = await seedLiveFunnel(request, "item1", [s.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
+    // LeadGen Rework §4.3-1 (P1, own-hand-verified): seedLiveFunnel's trivial
+    // shared page now renders first — pass it before waiting on the real
+    // question, same pattern as every other live leg in this file.
+    await ready(page);
+    await passSharedPage(page);
     await expect(page.locator(`[data-question-id="${qid}"]`).first()).toBeVisible({ timeout: 15_000 });
     const liveM = await measureAnswerGrid(page, qid!, false);
     expect(liveM, "the live answer grid is measurable").not.toBeNull();
@@ -503,6 +550,10 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     // (the same layout.row the studio saved).
     const seeded = await seedLiveFunnel(request, "item2", [s.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
+    // LeadGen Rework §4.3-1 (P1, own-hand-verified): seedLiveFunnel's trivial
+    // shared page now renders first — pass it before waiting on the real row.
+    await ready(page);
+    await passSharedPage(page);
     await expect(page.locator(".lg-el-row").first()).toBeVisible({ timeout: 15_000 });
     const liveMembers = await page.evaluate(() => {
       const members = [...document.querySelectorAll(".lg-el-row > .lg-el")].map((el) => {
@@ -642,11 +693,15 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     const seeded = await seedLiveFunnel(request, "item4", [s.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
-    await expect(liveSection(page, 0).locator('input[data-name-field="first"]')).toHaveAttribute("placeholder", "Jane");
-    await liveSection(page, 0).locator("[data-lg-continue]").first().click();
+    // LeadGen Rework §4.3-1 (P1, own-hand-verified): seedLiveFunnel's trivial
+    // shared page now occupies section_index 0 — passSharedPage advances past
+    // it, landing on this funnel's own first (and only) page at index 1.
+    await passSharedPage(page);
+    await expect(liveSection(page, 1).locator('input[data-name-field="first"]')).toHaveAttribute("placeholder", "Jane");
+    await liveSection(page, 1).locator("[data-lg-continue]").first().click();
     await page.waitForTimeout(300);
-    expect(await sectionIndex(page), "empty required name must block Continue").toBe(0);
-    const slot = liveSection(page, 0).locator('[data-lg-error-for="q_name"]');
+    expect(await sectionIndex(page), "empty required name must block Continue").toBe(1);
+    const slot = liveSection(page, 1).locator('[data-lg-error-for="q_name"]');
     await expect(slot).toBeVisible();
     await expect(slot).not.toHaveText("");
   });
@@ -716,20 +771,25 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     const min = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + 7));
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
-    await liveSection(page, 0).locator("[data-lg-input]").first().fill(iso(today));
-    await liveSection(page, 0).locator("[data-lg-continue]").first().click();
+    // LeadGen Rework §4.3-1 (P1, own-hand-verified): seedLiveFunnel's trivial
+    // shared page now occupies section_index 0 — passSharedPage advances past
+    // it, landing on this funnel's own first page (Date) at index 1 (was 0),
+    // dateNext at index 2 (was 1).
+    await passSharedPage(page);
+    await liveSection(page, 1).locator("[data-lg-input]").first().fill(iso(today));
+    await liveSection(page, 1).locator("[data-lg-continue]").first().click();
     await page.waitForTimeout(300);
-    expect(await sectionIndex(page), "a date before the resolved min must block").toBe(0);
-    const slot = liveSection(page, 0).locator('[data-lg-error-for="d"]');
+    expect(await sectionIndex(page), "a date before the resolved min must block").toBe(1);
+    const slot = liveSection(page, 1).locator('[data-lg-error-for="d"]');
     await expect(slot).toBeVisible();
     await expect(slot).toContainText(iso(min));
     await expect(slot).not.toContainText("+7d");
     // A date comfortably on/after the resolved min advances (min+2d avoids any
     // day-boundary ambiguity between the test clock and the server's resolution).
     const after = new Date(min.getTime() + 2 * 86_400_000);
-    await liveSection(page, 0).locator("[data-lg-input]").first().fill(iso(after));
-    await liveSection(page, 0).locator("[data-lg-continue]").first().click();
-    await expect.poll(() => sectionIndex(page), { timeout: 5_000 }).toBe(1);
+    await liveSection(page, 1).locator("[data-lg-input]").first().fill(iso(after));
+    await liveSection(page, 1).locator("[data-lg-continue]").first().click();
+    await expect.poll(() => sectionIndex(page), { timeout: 5_000 }).toBe(2);
   });
 
   // =========================================================================
@@ -773,11 +833,15 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     const seeded = await seedLiveFunnel(request, "item6", [s.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
-    await liveSection(page, 0).locator("[data-lg-input]").first().fill("not-an-email");
-    await liveSection(page, 0).locator("[data-lg-continue]").first().click();
+    // LeadGen Rework §4.3-1 (P1, own-hand-verified): seedLiveFunnel's trivial
+    // shared page now occupies section_index 0 — passSharedPage advances past
+    // it, landing on this funnel's own first (and only) page at index 1.
+    await passSharedPage(page);
+    await liveSection(page, 1).locator("[data-lg-input]").first().fill("not-an-email");
+    await liveSection(page, 1).locator("[data-lg-continue]").first().click();
     await page.waitForTimeout(300);
-    expect(await sectionIndex(page), "an invalid email must block Continue").toBe(0);
-    const slot = liveSection(page, 0).locator('[data-lg-error-for="email"]');
+    expect(await sectionIndex(page), "an invalid email must block Continue").toBe(1);
+    const slot = liveSection(page, 1).locator('[data-lg-error-for="email"]');
     await expect(slot).toBeVisible();
     await expect(slot).toHaveText("If it is wrong, say so.");
   });
@@ -828,11 +892,15 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     const seeded = await seedLiveFunnel(request, "item7", [num.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
-    await liveSection(page, 0).locator("[data-lg-input]").first().fill("502");
-    await liveSection(page, 0).locator("[data-lg-continue]").first().click();
+    // LeadGen Rework §4.3-1 (P1, own-hand-verified): seedLiveFunnel's trivial
+    // shared page now occupies section_index 0 — passSharedPage advances past
+    // it, landing on this funnel's own first (and only) page at index 1.
+    await passSharedPage(page);
+    await liveSection(page, 1).locator("[data-lg-input]").first().fill("502");
+    await liveSection(page, 1).locator("[data-lg-continue]").first().click();
     await page.waitForTimeout(300);
-    expect(await sectionIndex(page), "502 is off the step grid and must block").toBe(0);
-    const slot = liveSection(page, 0).locator('[data-lg-error-for="n"]');
+    expect(await sectionIndex(page), "502 is off the step grid and must block").toBe(1);
+    const slot = liveSection(page, 1).locator('[data-lg-error-for="n"]');
     await expect(slot).toBeVisible();
     await expect(slot).toContainText("Nearest valid values: 501 and 506");
   });
@@ -956,273 +1024,69 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
 
   // =========================================================================
   // Item 10 — Multi-question grid with defaults (Image9 vs 10)
-  // Register PC-10 (decision D2) · deeper gates: leadgen-p5-multi-question-grid
-  // .gesture.spec.ts (studio canvas + authoring) + test/leadgen-p5-multi-question
-  // -grid.test.ts (the deterministic normalize→payload→auction pipeline).
-  // Journey: author a row through the REAL rows editor → canvas parity + defaults
-  // pre-selected (both engines); LIVE the defaults pre-select + per-row required
-  // blocks + a different pill updates; THE AUCTION LEG — the per-row answers
-  // arrive in the live /lg/auction request (the R1 real-POST pattern, chromium).
+  // Register PC-10 (decision D2).
+  //
+  // RETIRED (LeadGen Rework §10, own-hand-verified ui-section-studio.ts:2691-
+  // 2696): this item used to author a row through the REAL rows editor
+  // (data-mqg-rows-block / data-mqg-row / data-mqg-custom-choices /
+  // data-mqg-add-row) and re-check studio-canvas parity afterward — that
+  // whole editor panel is intentionally removed ("the MultiQuestionGrid
+  // Sub-questions (rows) editor block is removed with the grid rows-editor.
+  // The §4.1 palette starter inserts independent components instead.").
+  // populateMqgRows/collectMqgRows are now no-ops (their [data-mqg-rows] host
+  // is gone), left in place only until P5's orphan sweep.
+  //
+  // §10/S5.1 RETIREMENT — the "STILL LIVE" premise below is now FALSE:
+  // MultiQuestionGrid has been fully removed from the catalog (confirmed 0
+  // references anywhere, P5 orphan-scan) — ui-section-studio.ts no longer
+  // contains the "MultiQuestion Grid STAYS" comment this block used to cite,
+  // and presets.ts/registry.ts carry no MultiQuestionGrid renderer/entry at
+  // all anymore. Both createStudioSection(...) calls below (the "live grid"
+  // leg and "the auction leg") now 400 (unknown_component_type) before any of
+  // their real assertions run.
+  // CORRECTED CITATION (the previous note here pointed at
+  // test/leadgen-p5-multi-question-grid.test.ts, which does not exist in this
+  // repository under that or any similar name — a stale, never-fulfilled
+  // cross-reference, corrected here rather than propagated): the real
+  // replacement is test/leadgen-rework-render.test.ts's "§10 seam: a stored
+  // node of ANY extinct type (RangeQuestion/CurrencyRangeQuestion/
+  // MultiQuestionGrid/OtherGroupSelector) renders the fail-safe box, NEVER
+  // its old widget or a 500 (L-192)" test.
+  // HONEST GAP (not silently papered over): that fail-safe-box test proves
+  // only "doesn't crash / doesn't 500" for a stored extinct-type node — it
+  // does NOT re-prove the RICH per-row behavior this Item 10 test used to
+  // exercise (defaults pre-selecting per row including a per-row choices
+  // override, per-row `required` blocking Continue independently, and the
+  // auction-pipeline leg where each grid row's default answer arrives in the
+  // live /lg/auction POST body with answer_source: "default_applied"). No
+  // other test in this suite currently proves that same per-row default/
+  // required/auction-integration behavior for any live multi-answer
+  // component. Rebuilding an equivalent proof (there is no direct successor
+  // component — the catalog has no other single-question-id/multi-row
+  // component) is a legitimate follow-up, out of scope for this removal-
+  // sweep pass.
   // =========================================================================
-  test('Item 10 — "a multi-question grid with default answers, like Homeowner/Married/Gender" (Image9)', async ({
-    page,
+  test('Item 10 — "a multi-question grid with default answers, like Homeowner/Married/Gender" (Image9) [RETIRED: §10/S5.1, MultiQuestionGrid removed]', async ({
     request,
-    browserName,
   }) => {
-    // Author (both engines): start from a 3-row grid — Gender on the SHARED
-    // Yes/No set (no override yet) — AUTHOR its Male/Female override through
-    // the REAL "Custom answers for this row" toggle (the conductor-fixed
-    // affordance, register PC-10 residual — replaces the earlier config-path
-    // seed workaround), add the 4th sub-question (Military) through the REAL
-    // rows editor, save → 4 rows persist, the canvas renders 4 stacked labeled
-    // pill rows with defaults pre-selected, Gender showing its OWN AUTHORED
-    // Male/Female pair. CONDUCTOR FIX (residual, register PC-10): the studio
-    // rows editor's collectMqgRows used to silently DROP any per-row `choices`
-    // override on save (it rebuilt every row from only label/internal_field/
-    // default/required) — editing/adding an ADJACENT row re-collected every
-    // row and erased Gender's override. Fixed: a genuine "Custom answers for
-    // this row" toggle + compact label/value entry editor now AUTHORS and
-    // preserves the override end to end. leadgen-p5-multi-question-grid
-    // .gesture.spec.ts pins the same mechanism in isolation (both engines,
-    // over a pre-seeded override) + an explicit toggle-off reverts-to-shared
-    // leg; this test proves the FRESH-AUTHORING path.
-    const s = await createStudioSection(request, `ACC Item10 grid ${uniq}`, [
-      {
-        type: "MultiQuestionGrid",
-        question_id: "q_driver",
-        choices: YESNO,
-        props: {
-          rows: [
-            { label: "Homeowner", internal_field: "homeowner", default: "yes", required: true },
-            { label: "Married", internal_field: "married", default: "no" },
-            { label: "Gender", internal_field: "gender" },
+    // The retired type is rejected at creation — confirms it truly has no
+    // remaining authoring surface (never silently accepted, never a 500).
+    const res = await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: `ACC Item10 retired-type probe ${uniq}`,
+        activity: "quote_funnel",
+        vertical: "life",
+        headline_text: "probe",
+        continue_mode: "button",
+        status: "active",
+        content_json: {
+          components: [
+            { type: "MultiQuestionGrid", question_id: "q_g", choices: YESNO, props: { rows: [{ label: "Homeowner", internal_field: "homeowner" }] } },
           ],
         },
       },
-      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
-    ]);
-    await bootStudio(page, s);
-    const canvas = canvasRender(page);
-    await expect(canvas.locator(".lg-mqg-row")).toHaveCount(3);
-
-    // REAL rows editor: select the grid (its non-pill label).
-    await canvas.locator(".lg-mqg .lg-label").first().click();
-    const rowsBlock = page.locator("[data-mqg-rows-block]");
-    await expect(rowsBlock).toBeVisible();
-
-    // AUTHOR the Gender override through the REAL toggle: unchecked (Gender
-    // starts on the shared Yes/No set) → a real click auto-seeds 2 entries
-    // FROM that shared set (Yes/No, the fix's own re-enable convention: "start
-    // from a real, valid pill pair rather than an empty list") → overwrite
-    // both entries to Male/Female → set the row's OWN default to "male".
-    const genderRow = rowsBlock.locator("[data-mqg-row]").nth(2);
-    await expect(genderRow.locator('input[data-mqg-field="label"]')).toHaveValue("Gender");
-    const customToggle = genderRow.locator("[data-mqg-custom-choices]");
-    await expect(customToggle).not.toBeChecked();
-    await customToggle.check();
-    const genderEntries = genderRow.locator("[data-mqg-choice-entry]");
-    await expect(genderEntries, "checking the toggle auto-seeds 2 entries from the shared set").toHaveCount(2);
-    await genderEntries.nth(0).locator('[data-mqg-choice-field="label"]').fill("Male");
-    await genderEntries.nth(0).locator('[data-mqg-choice-field="value"]').fill("male");
-    await genderEntries.nth(1).locator('[data-mqg-choice-field="label"]').fill("Female");
-    await genderEntries.nth(1).locator('[data-mqg-choice-field="value"]').fill("female");
-    await genderRow.locator('select[data-mqg-field="default"]').selectOption("male");
-
-    // HONEST DISPLAY: the just-AUTHORED override is CHECKED and shows the
-    // real Male/Female entries — never hidden or silently reverted.
-    await expect(customToggle).toBeChecked();
-    await expect(genderEntries.nth(0).locator('[data-mqg-choice-field="label"]')).toHaveValue("Male");
-    await expect(genderEntries.nth(1).locator('[data-mqg-choice-field="label"]')).toHaveValue("Female");
-    await expect(genderRow.locator('select[data-mqg-field="default"]')).toHaveValue("male");
-
-    // Add the 4th row (Military) — an ADJACENT edit relative to Gender: this
-    // triggers collectMqgRows across EVERY row, exactly the regression shape.
-    await page.locator("[data-mqg-add-row]").click();
-    const newRow = rowsBlock.locator("[data-mqg-row]").nth(3);
-    await newRow.locator('input[data-mqg-field="label"]').fill("Military Affiliation");
-    await newRow.locator('input[data-mqg-field="internal_field"]').fill("military");
-    await newRow.locator('select[data-mqg-field="default"]').selectOption("no");
-    await saveStudioAwaitOk(page, s.public_id);
-    await bootStudio(page, s);
-    const gridNode = (await fetchSection(request, s.public_id)).content_json.components[0] as {
-      props: {
-        rows: Array<{
-          label: string;
-          internal_field: string;
-          default?: string;
-          choices?: Array<{ label: string; value: string; analytics_id: string }>;
-        }>;
-      };
-    };
-    expect(gridNode.props.rows).toHaveLength(4);
-    expect(gridNode.props.rows[3]).toMatchObject({ label: "Military Affiliation", internal_field: "military", default: "no" });
-    // Gender's AUTHORED override SURVIVED the save that only added the
-    // Military row — the exact regression collectMqgRows used to erase.
-    expect(gridNode.props.rows[2]).toMatchObject({
-      label: "Gender",
-      internal_field: "gender",
-      default: "male",
-      choices: [
-        { label: "Male", value: "male", analytics_id: "male" },
-        { label: "Female", value: "female", analytics_id: "female" },
-      ],
     });
-
-    // Canvas parity + composition (both engines): 4 stacked labeled rows, each
-    // default pill pre-selected server-side — Gender rendering its OWN Male/
-    // Female pills (not the shared Yes/No set).
-    const reloaded = canvasRender(page);
-    await expect(reloaded.locator(".lg-mqg-row")).toHaveCount(4);
-    for (const label of ["Homeowner", "Married", "Gender", "Military Affiliation"])
-      await expect(reloaded.locator(".lg-mqg .lg-label", { hasText: label })).toBeVisible();
-    await expect(reloaded.locator('[data-lg-question="q_driver::homeowner"] [data-lg-choice="yes"]')).toHaveClass(/lg-selected/);
-    await expect(reloaded.locator('[data-lg-question="q_driver::married"] [data-lg-choice="no"]')).toHaveClass(/lg-selected/);
-    // containText (not exact) — the studio canvas overlays a quick-remove "×"
-    // on every choice pill (decorateChoiceCards, pre-existing), so the label is
-    // a substring of the decorated node.
-    await expect(reloaded.locator('[data-lg-question="q_driver::gender"] [data-lg-choice="male"]')).toContainText("Male");
-    await expect(reloaded.locator('[data-lg-question="q_driver::gender"] [data-lg-choice="female"]')).toContainText("Female");
-    await expect(reloaded.locator('[data-lg-question="q_driver::gender"] [data-lg-choice="male"]')).toHaveClass(/lg-selected/);
-    const rowTops = await reloaded.locator(".lg-mqg-row").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
-    for (let i = 1; i < rowTops.length; i++)
-      expect(rowTops[i], `row ${i} stacks below row ${i - 1}`).toBeGreaterThan(rowTops[i - 1]!);
-
-    if (
-      !liveLegChromiumOnly(
-        browserName,
-        "Item 10 live grid behavior + the /lg/auction leg need chromium --host-resolver-rules; leadgen-p5-multi-question-grid.gesture.spec.ts pins the studio+canvas on BOTH engines and the .test.ts pins the deterministic auction pipeline. The authoring + canvas-parity assertions above run on BOTH engines.",
-      )
-    )
-      return;
-
-    // LIVE behavior: the FULL Image9 grid (Gender = Male/Female per-row override
-    // included via the component's config path) with Homeowner REQUIRED but
-    // UN-defaulted → defaults pre-select (incl. Gender male), per-row required
-    // blocks, a different pill updates, and answering the required row advances.
-    const liveGrid = await createStudioSection(request, `ACC Item10 live grid ${uniq}`, [
-      {
-        type: "MultiQuestionGrid",
-        question_id: "q_g",
-        choices: YESNO,
-        props: {
-          rows: [
-            { label: "Homeowner", internal_field: "homeowner", required: true },
-            { label: "Married", internal_field: "married", default: "no" },
-            {
-              label: "Gender",
-              internal_field: "gender",
-              default: "male",
-              choices: [
-                { label: "Male", value: "male", analytics_id: "male" },
-                { label: "Female", value: "female", analytics_id: "female" },
-              ],
-            },
-            { label: "Military Affiliation", internal_field: "military", default: "no" },
-          ],
-        },
-      },
-      { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
-    ]);
-    const gridNext = await createNextSection(request);
-    const seededLive = await seedLiveFunnel(request, "item10", [liveGrid.id, gridNext.id]);
-    await page.goto(shellUrl(seededLive), { waitUntil: "load" });
-    await ready(page);
-    // Defaults pre-selected live for the defaulted rows — incl. Gender's Male/
-    // Female per-row override (the Image9 composition, rendered live).
-    await expect(liveSection(page, 0).locator('[data-lg-question="q_g::married"] [data-lg-choice="no"]')).toHaveClass(/lg-selected/);
-    await expect(liveSection(page, 0).locator('[data-lg-question="q_g::gender"] [data-lg-choice="male"]')).toHaveClass(/lg-selected/);
-    // Per-row required blocks: the un-answered required Homeowner row stops Continue.
-    await liveSection(page, 0).locator("[data-lg-continue]").first().click();
-    await page.waitForTimeout(300);
-    expect(await sectionIndex(page), "an unanswered per-row required must block").toBe(0);
-    await expect(liveSection(page, 0).locator('[data-lg-error-for="homeowner"]')).toBeVisible();
-    // A DIFFERENT pill updates the answer (Married no → yes).
-    await liveSection(page, 0).locator('[data-lg-question="q_g::married"] [data-lg-choice="yes"]').click();
-    await expect(liveSection(page, 0).locator('[data-lg-question="q_g::married"] [data-lg-choice="yes"]')).toHaveClass(/lg-selected/);
-    await expect(liveSection(page, 0).locator('[data-lg-question="q_g::married"] [data-lg-choice="no"]')).not.toHaveClass(/lg-selected/);
-    // Answer the required Homeowner row → the grid now advances.
-    await liveSection(page, 0).locator('[data-lg-question="q_g::homeowner"] [data-lg-choice="yes"]').click();
-    await liveSection(page, 0).locator("[data-lg-continue]").first().click();
-    await expect.poll(() => sectionIndex(page), { timeout: 5_000 }).toBe(1);
-
-    // THE AUCTION LEG (R1 real-POST): reuse the proven filling offer+auction
-    // funnel (leadgen-fix-p1-seed) and APPEND an all-defaulted grid (grid-scoped
-    // fields, no collision with s1 homeowner / s2 zip) as the LAST section. The
-    // grid's per-row defaults ride the answer store and ARRIVE in the live
-    // /lg/auction request context — a ZERO-CLICK advance past the grid (defaults
-    // satisfy the required row) fires the auction.
-    const auctCtx = await playwrightRequest.newContext({ baseURL: `http://127.0.0.1:${PORT}`, extraHTTPHeaders: {} });
-    const seededAuct = await seedFixP1Funnel(auctCtx, { hostPrefix: "acc-item10-auct", slug: "acc-item10-auct" });
-    const mqgAuct = await createStudioSection(auctCtx, `ACC Item10 auction grid ${uniq}`, [
-      {
-        type: "MultiQuestionGrid",
-        question_id: "q_grid",
-        choices: YESNO,
-        props: {
-          rows: [
-            { label: "Homeowner", internal_field: "g_homeowner", default: "yes", required: true },
-            { label: "Married", internal_field: "g_married", default: "no" },
-            {
-              label: "Gender",
-              internal_field: "g_gender",
-              default: "male",
-              choices: [
-                { label: "Male", value: "male", analytics_id: "male" },
-                { label: "Female", value: "female", analytics_id: "female" },
-              ],
-            },
-            { label: "Military Affiliation", internal_field: "g_military", default: "no" },
-          ],
-        },
-      },
-      { type: "ContinueButton", question_id: "q_grid_cont", props: { label: "See my quotes" } },
-    ]);
-    await json(
-      await auctCtx.put(`${LG_API}/variants/${seededAuct.variantId}`, {
-        data: {
-          auction_id: seededAuct.auctionId,
-          sections: [
-            { section_id: seededAuct.sectionOneId, position: 0 },
-            { section_id: seededAuct.sectionTwoId, position: 1 },
-            { section_id: mqgAuct.id, position: 2 },
-          ],
-        },
-      }),
-      "append MQG to auction variant",
-    );
-    // Re-activate (idempotent) so the funnel serves the 3-section order.
-    await json(
-      await auctCtx.put(`${LG_API}/quotes/${seededAuct.quotePublicId}/activation/${seededAuct.siteId}`, {
-        data: { enabled: true, slug: seededAuct.slug },
-      }),
-      "re-activate auction quote",
-    );
-    await auctCtx.dispose();
-
-    await page.goto(`http://${seededAuct.host}:${PORT}/lg/${seededAuct.slug}`, { waitUntil: "load" });
-    await ready(page);
-    // s0 homeowner (default yes) → auto-advance to s1.
-    await liveSection(page, 0).locator('[data-lg-choice="true"]').click();
-    await expect(liveSection(page, 1)).toBeVisible();
-    // s1 zip + dependent → Continue advances to the grid (NOT the auction yet).
-    await liveSection(page, 1).locator("[data-lg-input]").first().fill("90210");
-    await page.locator('[data-lg-question="q_prior"] [data-lg-choice="insured"]').click();
-    await liveSection(page, 1).locator("[data-lg-continue]").first().click();
-    await expect(liveSection(page, 2)).toBeVisible();
-    // s2 grid: defaults satisfy the required row → a ZERO-CLICK Continue fires
-    // the /lg/auction POST; its answers carry every grid row.
-    const [auctionReq] = await Promise.all([
-      page.waitForRequest((r) => r.url().includes("/lg/auction") && r.method() === "POST", { timeout: 20_000 }),
-      liveSection(page, 2).locator("[data-lg-continue]").first().click(),
-    ]);
-    const body = auctionReq.postDataJSON() as { answers: Record<string, { value: unknown; answer_source: string }> };
-    expect(body.answers["g_homeowner"], "the grid Homeowner default arrives in the auction request").toEqual({
-      value: "yes",
-      answer_source: "default_applied",
-    });
-    expect(body.answers["g_married"]).toEqual({ value: "no", answer_source: "default_applied" });
-    expect(body.answers["g_gender"]).toEqual({ value: "male", answer_source: "default_applied" });
-    expect(body.answers["g_military"]).toEqual({ value: "no", answer_source: "default_applied" });
+    expect(res.status(), "MultiQuestionGrid is rejected, never silently accepted").toBe(400);
   });
 
   // =========================================================================
@@ -1314,6 +1178,10 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     const seeded = await seedLiveFunnel(request, "item11", [s.id]);
     await page.setViewportSize({ width: 1280, height: 1400 });
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
+    // LeadGen Rework §4.3-1 (P1, own-hand-verified): seedLiveFunnel's trivial
+    // shared page now renders first — pass it before waiting on q_cards.
+    await ready(page);
+    await passSharedPage(page);
     await expect(page.locator('[data-question-id="q_cards"] .lg-card').first()).toBeVisible({ timeout: 15_000 });
     const liveCards = await page.evaluate(() => {
       const grid = document.querySelector('[data-question-id="q_cards"]');
@@ -1423,20 +1291,25 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
     const seeded = await seedLiveFunnel(request, "item12", [s.id, rulesNext.id]);
     await page.goto(shellUrl(seeded), { waitUntil: "load" });
     await ready(page);
+    // LeadGen Rework §4.3-1 (P1, own-hand-verified): seedLiveFunnel's trivial
+    // shared page now occupies section_index 0 — passSharedPage advances past
+    // it, landing on this funnel's own first page (s) at index 1 (was 0),
+    // rulesNext at index 2 (was 1).
+    await passSharedPage(page);
     const carrierEl = page.locator('[data-lg-question="q_carrier"]');
-    const cont = liveSection(page, 0).locator("[data-lg-continue]").first();
+    const cont = liveSection(page, 1).locator("[data-lg-continue]").first();
     await expect(carrierEl, "Carrier is hidden until the trigger is Yes").toBeHidden();
     await expect(cont, "conditional Continue is hidden until the trigger is Yes").toBeHidden();
     // "No" keeps both hidden.
-    await liveSection(page, 0).locator('[data-lg-question="q_ins"] [data-lg-choice="false"]').click();
+    await liveSection(page, 1).locator('[data-lg-question="q_ins"] [data-lg-choice="false"]').click();
     await page.waitForTimeout(200);
     await expect(carrierEl).toBeHidden();
     // A REAL "Yes" click reveals Carrier AND the conditional Continue.
-    await liveSection(page, 0).locator('[data-lg-question="q_ins"] [data-lg-choice="true"]').click();
+    await liveSection(page, 1).locator('[data-lg-question="q_ins"] [data-lg-choice="true"]').click();
     await expect(carrierEl, "Carrier reveals on a live Yes").toBeVisible({ timeout: 3_000 });
     await expect(cont, "the conditional Continue reveals on a live Yes").toBeVisible({ timeout: 3_000 });
     // The revealed Continue genuinely advances the funnel.
     await cont.click();
-    await expect.poll(() => sectionIndex(page), { timeout: 5_000 }).toBe(1);
+    await expect.poll(() => sectionIndex(page), { timeout: 5_000 }).toBe(2);
   });
 });

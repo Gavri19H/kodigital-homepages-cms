@@ -35,6 +35,7 @@ import { dirname, join } from "node:path";
 import {
   CMS_FALLBACK_LOGO_TEXT,
   LG_BANNERS_MOUNT_HTML,
+  LOGO_FALLBACK_CHIP_TEXT,
   renderLegacyShell,
   renderQuoteFrame,
 } from "../src/public/leadgen/designs/frame";
@@ -277,7 +278,8 @@ describe("frame-plus-unit-composition — renderLegacyShell reproduces the pinne
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     expect(pinnedBody.length).toBeGreaterThan(4000);
-    expect(pinnedBody.split("<section data-lg-section").length - 1).toBe(3);
+    // §4.3-11: the pin now composes the quote's shared-page section too (4 sections, not 3).
+    expect(pinnedBody.split("<section data-lg-section").length - 1).toBe(4);
     expect(pinnedBody).toContain(LG_BANNERS_MOUNT_HTML);
     // the pin's documented ULID placeholders (L is outside the Crockford set)
     expect(pinAttr("data-funnel-id")).toBe(`lgf_${"L".repeat(24)}01`);
@@ -424,24 +426,37 @@ describe("frame-plus-unit-composition — §10.2 header-logo ladder + site foote
     expect(html).toContain('<img class="lg-logo-img" src="/media/site-logo.png" alt="Acme Insure"');
   });
 
-  it('"site" without a logo → the site_name text mark (renderHeaderLogo text leg)', () => {
+  // Rework §8.8 (#11A), Appendix A-8: REPAIRED (P4 S4.2) — the site_name/CMS
+  // bare-text mark these 3 cases used to assert is EXACTLY the ground-truth
+  // #11A defect ("'cc' is the site's name" on an actual live page). The
+  // fallback is now the honest placeholder chip everywhere no image
+  // resolves — "never a bare site-name text" (§8.8) — verbatim Appendix A-8.
+  // Sites WITH a resolvable image are UNTOUCHED (the 3 tests above/below this
+  // block still assert the unchanged `<img class="lg-logo-img">` path).
+  it('"site" without a logo → the A-8 fallback chip, never the bare site_name text', () => {
     const html = composed("centered", undefined, {
       siteBranding: { ...BRANDING, logo_url: null },
     });
     expect(html).not.toContain("lg-logo-img");
-    expect(html).toContain(">Acme Insure</span>");
+    expect(html).not.toContain(">Acme Insure</span>");
+    expect(html).toContain("lg-frame-logo-fallback");
+    expect(html).toContain(`>${LOGO_FALLBACK_CHIP_TEXT}</span>`);
   });
 
-  it('"site" with ABSENT siteBranding → the CMS fallback mark (§10.2 "site_branding may be absent")', () => {
+  it('"site" with ABSENT siteBranding → the A-8 fallback chip (§10.2 "site_branding may be absent"), never the CMS bare-text mark', () => {
     const html = composed("centered", undefined, { siteBranding: undefined });
-    expect(html).toContain(`>${CMS_FALLBACK_LOGO_TEXT}</span>`);
+    expect(html).not.toContain(`>${CMS_FALLBACK_LOGO_TEXT}</span>`);
     expect(html).not.toContain("lg-logo-img");
+    expect(html).toContain("lg-frame-logo-fallback");
+    expect(html).toContain(`>${LOGO_FALLBACK_CHIP_TEXT}</span>`);
   });
 
-  it('"cms_fallback" renders the CMS mark even when full branding exists', () => {
+  it('"cms_fallback" renders the A-8 fallback chip even when full branding exists, never the CMS bare-text mark', () => {
     const html = composed("centered", { header: { logo_source: "cms_fallback" } });
-    expect(html).toContain(`>${CMS_FALLBACK_LOGO_TEXT}</span>`);
+    expect(html).not.toContain(`>${CMS_FALLBACK_LOGO_TEXT}</span>`);
     expect(html).not.toContain("Acme Insure</span>");
+    expect(html).toContain("lg-frame-logo-fallback");
+    expect(html).toContain(`>${LOGO_FALLBACK_CHIP_TEXT}</span>`);
   });
 
   it('"manual" renders the media logo through mediaUrl() and stamps data-logo-media-id', () => {

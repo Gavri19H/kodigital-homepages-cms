@@ -114,12 +114,29 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -173,6 +190,12 @@ function jsonInit(method: string, body: unknown): RequestInit {
 
 // A grid that leaves columns/gap UNSET (the §9.5 layer-4 defaults fill them)
 // + a ContinueButton with no per-node colors (the palette re-points reach it).
+// Rework §6.7 (test repair, P2): 4 choices — effective columns are now ALSO
+// min(authored, choiceCount), so this fixture needs >= the largest columns
+// value this file's PATCH round-trip test authors (columnsDefault:4) for the
+// "layer-4 default reaches an unset node" assertion to still prove THAT
+// mechanism rather than incidentally hitting the (separately, dedicatedly
+// tested) choiceCount clamp.
 const GRID_CONTENT = {
   components: [
     {
@@ -184,6 +207,8 @@ const GRID_CONTENT = {
       choices: [
         { label: "Up to $250k", value: "250k", analytics_id: "a_250", icon: "S" },
         { label: "Up to $1m", value: "1m", analytics_id: "a_1m", icon: "L" },
+        { label: "Up to $5m", value: "5m", analytics_id: "a_5m", icon: "XL" },
+        { label: "Up to $10m", value: "10m", analytics_id: "a_10m", icon: "XXL" },
       ],
     },
     { type: "ContinueButton", question_id: "c1", props: { label: "Continue" } },

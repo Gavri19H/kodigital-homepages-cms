@@ -84,7 +84,12 @@
 // answer_maps} — answer_maps pass through untouched until the D2 §8.7 panel.
 
 import { escapeHtml } from "../templates/layout";
-import { COMPONENT_CATALOG, type ComponentType } from "../../public/leadgen/components/registry";
+import {
+  COMPONENT_CATALOG,
+  COMPONENT_CAPABILITIES,
+  type ComponentType,
+  type ComponentCapabilitySpec,
+} from "../../public/leadgen/components/registry";
 import {
   COLOR_TYPED_OVERRIDE_KEYS,
   LEADGEN_BG_PANEL_BACKGROUNDS,
@@ -151,6 +156,11 @@ interface StudioTile {
   label: string;
   defaultType: ComponentType;
   childTypes?: readonly ComponentType[];
+  // Rework §4.1: a STARTER tile — one insert seeds a fixed multi-component
+  // scaffold (not a single node). "questions_one_screen" inserts 2 independent
+  // TwoButtonYesNo components ("Question 1"/"Question 2", fields answer1/
+  // answer2). defaultType is the primary type (for the drag envelope / a11y).
+  starter?: string;
   svg: string;
   // additive (m2, adversarial review): initial props for tiles whose insert
   // needs more than a bare default-typed node — e.g. the Divider tile shares
@@ -188,11 +198,12 @@ const TILE_SVG = {
     '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="4" y="8.5" width="38" height="13" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.5"/><path d="M32 13l3 3 3-3" stroke="#1B3A5C" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="9" y1="15" x2="25" y2="15" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/></svg>',
   multiSelect:
     '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="6.5" width="8" height="8" rx="2" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><path d="M8 10.5l1.6 1.6 3-3.2" stroke="#1B3A5C" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="18" y1="10.5" x2="38" y2="10.5" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/><rect x="6" y="18" width="8" height="8" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><line x1="18" y1="22" x2="34" y2="22" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/></svg>',
-  // P5 (register PC-10, operator Image9): stacked labeled sub-questions, each a
-  // pill pair with a default pre-selected (the filled navy pill) — the "several
-  // questions, one pill set, default answers" concept the tile must telegraph.
-  questionGrid:
-    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><line x1="4" y1="7.5" x2="14" y2="7.5" stroke="#9AA9BD" stroke-width="1.6" stroke-linecap="round"/><rect x="20" y="4" width="10" height="7" rx="3.5" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.2"/><rect x="32" y="4" width="10" height="7" rx="3.5" fill="#fff" stroke="#9AA9BD" stroke-width="1.2"/><line x1="4" y1="22.5" x2="14" y2="22.5" stroke="#9AA9BD" stroke-width="1.6" stroke-linecap="round"/><rect x="20" y="19" width="10" height="7" rx="3.5" fill="#fff" stroke="#9AA9BD" stroke-width="1.2"/><rect x="32" y="19" width="10" height="7" rx="3.5" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.2"/></svg>',
+  // Rework §4.1: the "Questions on one screen" STARTER tile icon — two SEPARATE
+  // pill-pair rows split by a dashed divider (signals two INDEPENDENT components,
+  // not one shared pill set the way the removed grid tile did). Transcribed from
+  // the P0 pack (studio-panels.html §4.1-palette-tile).
+  questionsOneScreen:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="4" y="3" width="16" height="7" rx="3.5" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.2"/><rect x="22" y="3" width="16" height="7" rx="3.5" fill="#fff" stroke="#9AA9BD" stroke-width="1.2"/><line x1="4" y1="15" x2="38" y2="15" stroke="#C2CCDA" stroke-width="1" stroke-dasharray="2 2"/><rect x="4" y="20" width="16" height="7" rx="3.5" fill="#fff" stroke="#9AA9BD" stroke-width="1.2"/><rect x="22" y="20" width="16" height="7" rx="3.5" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.2"/></svg>',
   number:
     '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="4" y="8.5" width="38" height="13" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.5"/><text x="10" y="19" font-family="Inter" font-size="10" font-weight="700" fill="#1B3A5C">123</text></svg>',
   amount:
@@ -243,7 +254,7 @@ export const STUDIO_LIBRARY_GROUPS: readonly StudioGroup[] = [
       { dataName: "yes no", label: "Yes / No", defaultType: "TwoButtonYesNo", svg: TILE_SVG.yesNo },
       { dataName: "dropdown", label: "Dropdown", defaultType: "DropdownQuestion", svg: TILE_SVG.dropdown },
       { dataName: "multi-select", label: "Multi-select", defaultType: "MultiChoiceCardGroup", svg: TILE_SVG.multiSelect },
-      { dataName: "question grid multi driver", label: "Question grid", defaultType: "MultiQuestionGrid", svg: TILE_SVG.questionGrid },
+      { dataName: "questions on one screen starter", label: "Questions on one screen", defaultType: "TwoButtonYesNo", starter: "questions_one_screen", svg: TILE_SVG.questionsOneScreen },
       TILE_SHORT_TEXT,
       { dataName: "number", label: "Number", defaultType: "NumberInputQuestion", svg: TILE_SVG.number },
       { dataName: "amount money", label: "Amount", defaultType: "CurrencyInputQuestion", svg: TILE_SVG.amount },
@@ -302,18 +313,14 @@ const STUDIO_TYPE_META: Record<ComponentType, { label: string; description: stri
   QuestionHeadline: { label: "Question headline", description: "The main question copy of this Section." },
   Subheadline: { label: "Subheadline", description: "Supporting copy under the headline." },
   HelperText: { label: "Helper text", description: "Small reassurance / hint line near a field." },
-  RangeQuestion: { label: "Slider", description: "Numeric slider between min and max." },
-  CurrencyRangeQuestion: { label: "Amount slider", description: "Currency-formatted slider (loan amounts)." },
-  NumberRangeQuestion: { label: "Slider", description: "Plain numeric slider variant." },
+  NumberRangeQuestion: { label: "Slider", description: "Numeric slider (single, stepper, from-to, dual-range, or radial)." },
   ButtonAnswerGroup: { label: "Simple answer buttons", description: "One-tap answer choices." },
   TwoButtonYesNo: { label: "Yes / No", description: "Yes / No pair storing a boolean answer." },
   IconCardAnswerGrid: { label: "Icon answer cards", description: "Use when each answer has an icon." },
   ImageCardAnswerGrid: { label: "Image answer cards", description: "Use when each answer has a logo or photo." },
   MultiChoiceCardGroup: { label: "Multi-select cards", description: "Select several cards (min/max bounded)." },
-  MultiQuestionGrid: { label: "Question grid", description: "Several labeled sub-questions, each a default-selected pill pair." },
   DropdownQuestion: { label: "Dropdown", description: "Single-select dropdown of choices." },
   SearchableDropdownQuestion: { label: "Searchable dropdown", description: "Dropdown with a client-side search box." },
-  OtherGroupSelector: { label: "Main + “Other” choices", description: "Main choices as buttons plus an Other panel." },
   FreeTextQuestion: { label: "Text", description: "Single-line free text input." },
   NumberInputQuestion: { label: "Number", description: "Plain numeric input (not a slider)." },
   CurrencyInputQuestion: { label: "Amount ($)", description: "Currency-prefixed plain input." },
@@ -355,133 +362,12 @@ const STUDIO_TYPE_META: Record<ComponentType, { label: string; description: stri
   ImageBlock: { label: "Image / Logo", description: "A single image, or your site's logo (auto-fill)." },
 };
 
-// ---------------------------------------------------------------------------
-// §8.3 sample nodes — thumbnails render FROM THE COMPONENT'S OWN PRESET with
-// these sample props (never hand-drawn). Product-code sibling of the test
-// suite's NODE_SPECS idiom.
-// ---------------------------------------------------------------------------
-
-const SAMPLE_CHOICES = [
-  { label: "Yes, currently", value: "yes", analytics_id: "smp_yes" },
-  { label: "Not yet", value: "no", analytics_id: "smp_no" },
-];
-const SAMPLE_ICON_CHOICES = SAMPLE_CHOICES.map((c) => ({ ...c, icon: "★" }));
-// A5: image-card sample choices ALWAYS carry image_alt next to imageMediaId —
-// §8.4 makes image_alt REQUIRED when imageMediaId is present on an
-// ImageCardAnswerGrid choice, so alt-less samples would fail save validation.
-const SAMPLE_IMAGE_CHOICES = SAMPLE_CHOICES.map((c) => ({ ...c, imageMediaId: "media_sample", image_alt: c.label }));
-
-export const STUDIO_SAMPLE_NODES: Record<ComponentType, LeadgenComponentNode> = {
-  ProgressBar: { type: "ProgressBar", question_id: "smp", props: { mode: "percent", percent: 60 } },
-  HeaderLogo: { type: "HeaderLogo", question_id: "smp", props: { logoMediaId: "media_logo", siteName: "Acme", accent: "Quotes" } },
-  BackButton: { type: "BackButton", question_id: "smp", props: { label: "Back" } },
-  DisclosureLink: { type: "DisclosureLink", question_id: "smp", props: { panelHtml: "Advertiser disclosure" } },
-  StepIndicator: { type: "StepIndicator", question_id: "smp", props: { steps: 4, current: 2 } },
-  CategoryLabel: { type: "CategoryLabel", question_id: "smp", props: { text: "AUTO INSURANCE" } },
-  QuestionHeadline: { type: "QuestionHeadline", question_id: "smp", props: { text: "Are you currently insured?" } },
-  Subheadline: { type: "Subheadline", question_id: "smp", props: { text: "This helps us match carriers." } },
-  HelperText: { type: "HelperText", question_id: "smp", props: { text: "We never share this." } },
-  RangeQuestion: { type: "RangeQuestion", question_id: "smp", internal_field: "smp_amount", props: { min: 0, max: 100, default: 60 } },
-  CurrencyRangeQuestion: { type: "CurrencyRangeQuestion", question_id: "smp", internal_field: "smp_loan", props: { min: 10000, max: 1000000, default: 330000, currency: "$" } },
-  NumberRangeQuestion: { type: "NumberRangeQuestion", question_id: "smp", internal_field: "smp_count", props: { min: 1, max: 9, default: 3 } },
-  ButtonAnswerGroup: { type: "ButtonAnswerGroup", question_id: "smp", internal_field: "smp_pick", choices: SAMPLE_CHOICES },
-  TwoButtonYesNo: { type: "TwoButtonYesNo", question_id: "smp", internal_field: "smp_insured", props: { yesLabel: "Yes", noLabel: "No" } },
-  IconCardAnswerGrid: { type: "IconCardAnswerGrid", question_id: "smp", internal_field: "smp_biz", choices: SAMPLE_ICON_CHOICES, props: { columns: 2 } },
-  ImageCardAnswerGrid: { type: "ImageCardAnswerGrid", question_id: "smp", internal_field: "smp_carrier", choices: SAMPLE_IMAGE_CHOICES, props: { columns: 2 } },
-  MultiChoiceCardGroup: { type: "MultiChoiceCardGroup", question_id: "smp", internal_field: "smp_features", choices: SAMPLE_CHOICES, props: { min: 1, max: 2 } },
-  MultiQuestionGrid: {
-    type: "MultiQuestionGrid",
-    question_id: "smp",
-    choices: SAMPLE_CHOICES,
-    props: {
-      rows: [
-        { label: "Homeowner", internal_field: "smp_homeowner", default: "yes", required: true },
-        { label: "Married", internal_field: "smp_married", default: "no" },
-      ],
-    },
-  },
-  DropdownQuestion: { type: "DropdownQuestion", question_id: "smp", internal_field: "smp_insurer", choices: SAMPLE_CHOICES, props: { placeholder: "Pick one" } },
-  SearchableDropdownQuestion: { type: "SearchableDropdownQuestion", question_id: "smp", internal_field: "smp_make", choices: SAMPLE_CHOICES, props: { placeholder: "Search…" } },
-  OtherGroupSelector: {
-    type: "OtherGroupSelector",
-    question_id: "smp",
-    internal_field: "smp_other",
-    choices: SAMPLE_CHOICES,
-    choiceDisplay: { mainValues: ["yes"], otherGroupEnabled: true, otherGroupLabel: "Other", searchableOther: false },
-  },
-  FreeTextQuestion: { type: "FreeTextQuestion", question_id: "smp", internal_field: "smp_note", props: { placeholder: "Type here…" } },
-  NumberInputQuestion: { type: "NumberInputQuestion", question_id: "smp", internal_field: "smp_age", props: { min: 18, max: 99, placeholder: "Your age" } },
-  CurrencyInputQuestion: { type: "CurrencyInputQuestion", question_id: "smp", internal_field: "smp_income", props: { currency: "$", placeholder: "Annual income" } },
-  EmailInputQuestion: { type: "EmailInputQuestion", question_id: "smp", internal_field: "smp_email", props: { placeholder: "you@example.com" } },
-  PhoneInputQuestion: { type: "PhoneInputQuestion", question_id: "smp", internal_field: "smp_phone", props: { placeholder: "(555) 000-0000" } },
-  NameFieldsGroup: { type: "NameFieldsGroup", question_id: "smp" },
-  DateQuestion: { type: "DateQuestion", question_id: "smp", internal_field: "smp_dob" },
-  ZIPInputQuestion: { type: "ZIPInputQuestion", question_id: "smp", internal_field: "smp_zip", props: { placeholder: "ZIP code" } },
-  AddressAutocompleteQuestion: { type: "AddressAutocompleteQuestion", question_id: "smp", props: { provider: "google", placeholder: "Street address" } },
-  ContinueButton: { type: "ContinueButton", question_id: "smp", props: { label: "Continue", loadingLabel: "Working…" } },
-  AutoAdvanceButton: { type: "AutoAdvanceButton", question_id: "smp", props: { label: "Next" } },
-  ReassuranceBadge: { type: "ReassuranceBadge", question_id: "smp", props: { text: "Get your offers in 2 minutes or less." } },
-  SuccessState: { type: "SuccessState", question_id: "smp", props: { heading: "All set", message: "We found offers for you.", icon: "✓" } },
-  SecureFormBadge: { type: "SecureFormBadge", question_id: "smp", props: { text: "256-bit SSL encrypted" } },
-  TrustBar: { type: "TrustBar", question_id: "smp", props: { items: [{ icon: "🔒", text: "SSL secured" }, { icon: "★", text: "4.8 rating" }], layout: "horizontal" } },
-  LogoStrip: { type: "LogoStrip", question_id: "smp", props: { logos: [{ mediaId: "media_1", alt: "Acme" }, { mediaId: "media_2", alt: "Globex" }] } },
-  ValidationError: { type: "ValidationError", question_id: "smp", props: { text: "This field is required" } },
-  LegalNote: { type: "LegalNote", question_id: "smp", props: { html: "Terms and conditions apply." } },
-  Stack: {
-    type: "Stack",
-    question_id: "smp",
-    props: { direction: "vertical", gap: "s", align: "stretch" },
-    children: [
-      { type: "QuestionHeadline", question_id: "smp_c1", props: { text: "Stacked content" } },
-      { type: "ContinueButton", question_id: "smp_c2", props: { label: "Continue" } },
-    ],
-  },
-  GridContainer: {
-    type: "GridContainer",
-    question_id: "smp",
-    props: { columnsDesktop: 2, columnsTablet: 2, columnsMobile: 1, gap: "s", sizing: "equal" },
-    children: [
-      { type: "ReassuranceBadge", question_id: "smp_c1", props: { text: "Fast" } },
-      { type: "ReassuranceBadge", question_id: "smp_c2", props: { text: "Free" } },
-    ],
-  },
-  Columns: {
-    type: "Columns",
-    question_id: "smp",
-    props: { ratio: "60/40", mobile: "stack" },
-    children: [
-      { type: "Subheadline", question_id: "smp_c1", props: { text: "Left column" } },
-      { type: "Subheadline", question_id: "smp_c2", props: { text: "Right column" } },
-    ],
-  },
-  CardPanel: {
-    type: "CardPanel",
-    question_id: "smp",
-    props: { width: "m", background: "card", shadow: "md", radius: "lg", padding: "m" },
-    children: [{ type: "QuestionHeadline", question_id: "smp_c1", props: { text: "Centered card" } }],
-  },
-  BackgroundPanel: {
-    type: "BackgroundPanel",
-    question_id: "smp",
-    props: { gradient: "primary" },
-    children: [{ type: "QuestionHeadline", question_id: "smp_c1", props: { text: "On a background" } }],
-  },
-  Spacer: { type: "Spacer", question_id: "smp", props: { size: "l" } },
-  HeaderBar: {
-    type: "HeaderBar",
-    question_id: "smp",
-    props: { logoMediaId: "media_logo", logoAlt: "Acme", back: true, secure: true, cta: { label: "Call now", tel: "+1 800 555 1212" } },
-  },
-  FooterBar: {
-    type: "FooterBar",
-    question_id: "smp",
-    props: { legalHtml: "Terms apply.", trustMessages: ["SSL secured"], links: [{ label: "Privacy", href: "/privacy" }] },
-  },
-  // v3.1 05 §5.3 Text/Image primitives — sample nodes for the thumbnail
-  // render (renderLibraryItem calls renderComponent on these directly).
-  TextBlock: { type: "TextBlock", question_id: "smp", props: { role: "body", text: "Supporting copy for this question." } },
-  ImageBlock: { type: "ImageBlock", question_id: "smp", props: { source: "auto_logo", siteName: "Acme", accent: "Quotes" } },
-};
+// §10/S5.1: the §8.3 STUDIO_SAMPLE_NODES map (+ its SAMPLE_CHOICES/
+// SAMPLE_ICON_CHOICES/SAMPLE_IMAGE_CHOICES feeders) was deleted — confirmed
+// 0 references anywhere (P5 orphan-scan tier-1 GATING). The thumbnail-render
+// idiom it documented ("renders FROM THE COMPONENT'S OWN PRESET") lives on
+// via the test suite's own NODE_SPECS fixture, cited in the deleted banner
+// as this const's sibling; no production caller ever read this export.
 
 // ---------------------------------------------------------------------------
 // Per-type inspector projections (Content tab copy fields + Validation tab
@@ -510,21 +396,14 @@ const CONTENT_PROP_FIELDS: Record<ComponentType, readonly string[]> = {
   QuestionHeadline: ["text"],
   Subheadline: ["text"],
   HelperText: ["text"],
-  RangeQuestion: ["minLabel", "maxLabel", "helper"],
-  CurrencyRangeQuestion: ["minLabel", "maxLabel", "currency", "helper"],
   NumberRangeQuestion: ["minLabel", "maxLabel", "helper"],
   ButtonAnswerGroup: ["helper"],
   TwoButtonYesNo: ["yesLabel", "noLabel", "helper"],
   IconCardAnswerGrid: ["helper"],
   ImageCardAnswerGrid: ["helper"],
   MultiChoiceCardGroup: ["helper"],
-  // P5 (PC-10): the shared pill set uses the existing choices editor; the ROWS
-  // use the dedicated rows editor. Only the node-level `helper` (rendered below
-  // the grid) is a generic content prop.
-  MultiQuestionGrid: ["helper"],
   DropdownQuestion: ["placeholder", "helper"],
   SearchableDropdownQuestion: ["placeholder", "helper"],
-  OtherGroupSelector: ["helper"],
   // v3.1 §8.3 Basics: "Field label (only you see this)" (node.props.label,
   // NEW — §11.3) is NOT listed here for the 8 Accept-swappable text-input
   // types — the generic CONTENT_CONTROLS "label" row's shared text ("Label")
@@ -619,8 +498,6 @@ interface ValidationField {
 // Validation-tab rule inputs per type (§8.6: min/max for numeric types,
 // maxLen/pattern for free text; DateQuestion min/max are date STRINGS).
 const VALIDATION_PROP_FIELDS: Partial<Record<ComponentType, readonly ValidationField[]>> = {
-  RangeQuestion: [{ key: "min", kind: "number" }, { key: "max", kind: "number" }, { key: "step", kind: "number" }],
-  CurrencyRangeQuestion: [{ key: "min", kind: "number" }, { key: "max", kind: "number" }, { key: "step", kind: "number" }],
   NumberRangeQuestion: [{ key: "min", kind: "number" }, { key: "max", kind: "number" }, { key: "step", kind: "number" }],
   NumberInputQuestion: [{ key: "min", kind: "number" }, { key: "max", kind: "number" }, { key: "step", kind: "number" }],
   CurrencyInputQuestion: [{ key: "min", kind: "number" }, { key: "max", kind: "number" }],
@@ -643,35 +520,12 @@ function seedTemplateForType(type: ComponentType): Record<string, unknown> {
   const props = entry.props as readonly string[];
   const seed: Record<string, unknown> = {};
   let hasChoices = false;
-  let hasRows = false;
   for (const prop of props) {
     if (prop === "internal_field") seed["internal_field"] = "";
     else if (prop === "required") seed["required"] = false;
     else if (prop.indexOf("choices") === 0) hasChoices = true;
-    else if (prop.indexOf("rows") === 0) hasRows = true;
   }
   if (hasChoices) seed["choices"] = [];
-  // Round-4 A-3 (P1a): a picker-inserted MultiQuestionGrid used to land with NO
-  // props.rows — the catalog's `rows[...]` prop matched none of the special
-  // cases above and was silently dropped, so a fresh grid rendered an EMPTY
-  // shell (renderMultiQuestionGrid maps over zero rows). Seed 2 starter
-  // sub-questions sharing a Yes/No pill pair (Image5-shaped defaults) so the
-  // grid renders its rows immediately AND saves valid (validateNode: 2-4 shared
-  // choices, 1-8 labeled/uniquely-named rows). Rows nest under `props` (node
-  // shape: node.props.rows, readMultiQuestionRows / the studio rows editor);
-  // the shared pill set is the node-level `choices`.
-  if (hasRows && type === "MultiQuestionGrid") {
-    seed["choices"] = [
-      { label: "Yes", value: "yes", analytics_id: "yes" },
-      { label: "No", value: "no", analytics_id: "no" },
-    ];
-    seed["props"] = {
-      rows: [
-        { label: "Question 1", internal_field: "answer1" },
-        { label: "Question 2", internal_field: "answer2" },
-      ],
-    };
-  }
   // Round-4 A-6 (P1a, deliverable 9b): an AddressAutocompleteQuestion inserted
   // with NO internal_field is invisible to the rules picker until named
   // (operator #6, Part C P-6). Seed a default whole-address field so the
@@ -740,6 +594,14 @@ export interface StudioTypeMetaBlob {
   };
   content_props: readonly string[];
   validation: readonly ValidationField[];
+  // LeadGen Rework §6.2 — the per-type inspector CONTROL-CAPABILITY matrix
+  // (registry.ts COMPONENT_CAPABILITIES). The island reads these flags to
+  // show/hide every inspector block from ONE spec-driven mechanism (cap()),
+  // replacing the ad-hoc per-control node.type checks scattered through the
+  // island. The SAME data the schema validator gates props on and the §6.2
+  // matrix test asserts, so the authoring surface and the save gate can never
+  // disagree.
+  capabilities: ComponentCapabilitySpec;
 }
 
 // CONDUCTOR FIX (register PC-2): the ONE place LEADGEN_PLACEMENT_EXCLUDED_TYPES
@@ -774,6 +636,9 @@ export function studioTypeMeta(): Record<string, StudioTypeMetaBlob> {
       },
       content_props: CONTENT_PROP_FIELDS[type],
       validation: VALIDATION_PROP_FIELDS[type] ?? [],
+      // §6.2 — the SINGLE source of truth for inspector control gating (the
+      // ad-hoc `hidden` type-list flags consolidate onto cap() island-side).
+      capabilities: COMPONENT_CAPABILITIES[type],
     };
   }
   return out;
@@ -1128,7 +993,10 @@ function renderLibraryItem(tile: StudioTile): string {
   // ride the drag 'add:' JSON envelope too, so a drag insert reproduces the
   // click/keyboard insert exactly (§5.6 determinism — no drag-drop degradation).
   const propsAttr = tile.defaultProps ? ` data-add-props="${escapeHtml(JSON.stringify(tile.defaultProps))}"` : "";
-  return `<div class="studio-library-item" data-tile role="button" tabindex="0" draggable="true" data-add-component="${escapeHtml(tile.defaultType)}"${childAttr}${propsAttr} data-name="${escapeHtml(tile.dataName)}" aria-label="Add ${escapeHtml(tile.label)}" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:${STUDIO_GEOMETRY.tile.padding};border:1px solid ${STUDIO_COLOR.linePanel};border-radius:${STUDIO_RADIUS.tile}px;background:${STUDIO_COLOR.white};cursor:grab">
+  // Rework §4.1: the starter marker rides the tile so click/keyboard/drag all
+  // resolve to the same multi-component insert.
+  const starterAttr = tile.starter ? ` data-add-starter="${escapeHtml(tile.starter)}"` : "";
+  return `<div class="studio-library-item" data-tile role="button" tabindex="0" draggable="true" data-add-component="${escapeHtml(tile.defaultType)}"${childAttr}${propsAttr}${starterAttr} data-name="${escapeHtml(tile.dataName)}" aria-label="Add ${escapeHtml(tile.label)}" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:${STUDIO_GEOMETRY.tile.padding};border:1px solid ${STUDIO_COLOR.linePanel};border-radius:${STUDIO_RADIUS.tile}px;background:${STUDIO_COLOR.white};cursor:grab">
   ${tile.svg}
   <div class="studio-item-name" style="font-size:${STUDIO_TYPE.size.tileName}px;font-weight:600;color:${STUDIO_COLOR.text2}">${escapeHtml(tile.label)}</div>
 </div>`;
@@ -1256,13 +1124,32 @@ html,body{margin:0;padding:0;background:#fff}
 .studio-canvas-render [contenteditable="true"]{outline:2px dashed var(--c-primary);outline-offset:2px;cursor:text}
 .studio-choice-selected{outline:2px solid #e85d26 !important;outline-offset:2px}
 .studio-choice-ghost{border:1px dashed var(--c-border);background:var(--c-surface);color:var(--c-muted);border-radius:8px;min-height:44px;cursor:pointer;font-size:12px}
-/* Round-4 A-3 (P1a): MultiQuestionGrid canvas affordances — the "Add a
-   sub-question" strip (a studio-choice-ghost, no in-grid layout impact) and the
-   zero-row legacy empty-state box (never a blank shell). */
-.studio-mqg-add{display:block;width:100%;margin-top:8px;text-align:center}
-.studio-mqg-empty{border:1px dashed var(--c-border);background:var(--c-surface);border-radius:8px;padding:14px;text-align:center}
-.studio-mqg-empty-msg{font-size:12.5px;color:var(--c-muted);margin-bottom:6px}
-.studio-mqg-empty .studio-mqg-add{margin-top:0}
+/* Rework §6.1: the "+ Add choice" ghost is a SIBLING row AFTER the component
+   root (never a grid cell, never inside the border) — small, left-aligned,
+   studio-only. It sits outside the component box so the component's own
+   geometry is identical with/without it (live == edit). */
+.studio-add-ghost-row{margin:8px 0 4px;text-align:left}
+.studio-add-ghost-btn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--c-border);border-radius:6px;background:var(--c-surface);color:var(--c-muted);font-size:11.5px;font-weight:600;padding:5px 11px;cursor:pointer;font-family:inherit;min-height:0}
+/* Product-fix round (S2.4): ROOT-CAUSE (live-measured, chromium) — the ghost
+   row is now a REAL DOM sibling inside .lg-question-card/.lg-card-panel/
+   .lg-bg-panel-inner, so the funnel's own rhythm mechanism in styles.ts (the
+   universal direct-child-adjacent-sibling selectors for those same three
+   container classes) was WINNING the cascade for margin-top specifically,
+   silently overriding the declared 8px above to 18px (spacing.stack) — an
+   unintended interaction between the section 6.1 ghost and a mechanism that
+   was never meant to space decorator chrome. That competing selector itself
+   carries a per-design scope ATTRIBUTE plus a class (specificity 0,2,0) and
+   loads AFTER this stylesheet in the srcdoc's document order, so a same-
+   specificity (0,2,0) override here still LOSES the tie on order alone — the
+   override below adds the data-add-ghost-row attribute the ghost row already
+   carries (see the island's insert site) as a THIRD selector component
+   (specificity 0,3,0: two classes plus one attribute), which is strictly
+   greater and wins regardless of load order. NOTE (L-185): no backticks in
+   this comment — this whole block is inside a backtick-delimited TS template
+   literal (SECTION_STUDIO_CANVAS_FRAME_CSS), and a literal backtick anywhere
+   inside it, even in a CSS comment, closes the outer literal early and
+   breaks the build. */
+.lg-question-card>.studio-add-ghost-row[data-add-ghost-row],.lg-card-panel>.studio-add-ghost-row[data-add-ghost-row],.lg-bg-panel-inner>.studio-add-ghost-row[data-add-ghost-row]{margin-top:8px}
 /* P1a HIGH concern fix (register PC-1/PC-11, this slice): .lg-answer-group
    (styles.ts) became a real CSS grid, but decorateChoiceCards used to insert
    .studio-choice-x as a SIBLING of the choice cell inside that SAME grid
@@ -2246,29 +2133,88 @@ function renderRequiredWhenControls(opOptions: string): string {
     </fieldset>`;
 }
 
-// Round-4 P2c — the Content-tab "Phone format" picker (A-6b studio surface):
-// a phone-typed field selects a preset (US default | International | Israel
-// | Custom…); content-schema/config-dto already validate/compile the choice
-// (P2b) — this is the FIRST authoring surface for it. EXTRACTED (same
-// discipline as above): golden:false, new post-golden content inside the
-// Content tab's "Answer format" group.
+// Rework §6.9 / M8 — the Content-tab "Answer format" phone MASK builder (the
+// A-6b studio surface, rebuilt). The country-preset trio + raw-regex custom
+// path are REMOVED (§10): the operator authors a digit-group Format (grammar
+// M8, parsePhoneMaskPattern), sees a live scaffold preview, can prefill from
+// common patterns, and sets the "If it's wrong, say" incomplete message
+// (default A-7). An invalid pattern shows the A-10 error VERBATIM and is not
+// saved. Legacy preset content (nanp/e164_intl/il) still validates on the
+// schema seam (no data migration) — this editor just no longer AUTHORS it.
 function renderPhoneFormatControls(): string {
   return `<div class="lg-inspector-field" data-content-phoneformat-block hidden>
-        <label class="form-label" for="lg-phone-format">Phone format</label>
-        <select id="lg-phone-format" class="form-input" data-phone-format-preset aria-label="Phone format">
-          <option value="nanp">US (default)</option>
-          <option value="e164_intl">International (+ country code)</option>
-          <option value="il">Israel</option>
-          <option value="custom">Custom&#8230;</option>
-        </select>
-        <div data-phone-format-custom hidden>
-          <label class="form-label" for="lg-phone-format-regex">Custom pattern</label>
-          <input id="lg-phone-format-regex" class="form-input" type="text" data-phone-format-field="regex" placeholder="Regular expression, e.g. ^[0-9]{4}$" aria-label="Custom phone pattern" />
-          <p class="form-help">A plain regular expression the number must match &#8212; visitors never see this, only your message below.</p>
-          <label class="form-label" for="lg-phone-format-message">Error message (optional)</label>
-          <input id="lg-phone-format-message" class="form-input" type="text" data-phone-format-field="message" placeholder="Enter a valid phone number." aria-label="Custom phone error message" />
+        <label class="form-label" for="lg-phone-mask">Format</label>
+        <input id="lg-phone-mask" class="form-input" type="text" data-phone-mask-pattern placeholder="(3) 3-4" aria-label="Phone number format" />
+        <p class="form-help">Literals: <code>( ) - . / space</code>. Each number is a digit-group length &#8212; &#8220;(3) 3-4&#8221; = 3 digits, 3 digits, 4 digits. 1&#8211;6 groups, each 1&#8211;14 digits, 4&#8211;20 digits total.</p>
+        <p class="form-help studio-field-error" data-phone-mask-error hidden></p>
+        <label class="form-label">Live scaffold preview</label>
+        <div class="studio-phone-scaffold" data-phone-mask-preview aria-live="polite">(___) ___-____</div>
+        <label class="form-label">Start from a common pattern</label>
+        <div class="studio-prefill-row">
+          <button type="button" class="btn btn-sm btn-outline" data-phone-mask-chip="(3) 3-4">US (3) 3-4</button>
+          <button type="button" class="btn btn-sm btn-outline" data-phone-mask-chip="3-4">7-digit 3-4</button>
         </div>
-        <p class="form-help" data-phone-format-error hidden></p>
+        <div class="studio-hr"></div>
+        <label class="form-label" for="lg-phone-mask-message">If it&#8217;s wrong, say</label>
+        <input id="lg-phone-mask-message" class="form-input" type="text" data-phone-mask-message placeholder="Enter a complete phone number." aria-label="Phone incomplete message" />
+        <p class="form-help">Shown when Continue is blocked by an incomplete number (default: &#8220;Enter a complete phone number.&#8221;).</p>
+      </div>`;
+}
+
+// Rework §6.8 / M7 — the Slider TYPE picker (thumbnail radio group) + the
+// display-only currency-affix toggle. Replaces the old "Format $" toolbar
+// toggle (the Image9 failure class: it flipped node.type without answer_type).
+// Writes props.slider_type (single|dual_range|stepper|from_to|radial) and
+// props.currency_affix; NEVER touches node.type / answer_type. Thumbnails
+// transcribed from the P0 pack (studio-panels.html §6.8-type-picker).
+function renderSliderTypePicker(): string {
+  const THUMBS: Record<string, string> = {
+    single: `<svg width="70" height="10" viewBox="0 0 70 10"><line x1="2" y1="5" x2="68" y2="5" stroke="#E1E6EE" stroke-width="4" stroke-linecap="round"/><line x1="2" y1="5" x2="34" y2="5" stroke="#1B3A5C" stroke-width="4" stroke-linecap="round"/><circle cx="34" cy="5" r="4.5" fill="#fff" stroke="#1B3A5C" stroke-width="2"/></svg>`,
+    dual_range: `<svg width="70" height="10" viewBox="0 0 70 10"><line x1="2" y1="5" x2="68" y2="5" stroke="#E1E6EE" stroke-width="4" stroke-linecap="round"/><line x1="20" y1="5" x2="50" y2="5" stroke="#1B3A5C" stroke-width="4" stroke-linecap="round"/><circle cx="20" cy="5" r="4.5" fill="#fff" stroke="#1B3A5C" stroke-width="2"/><circle cx="50" cy="5" r="4.5" fill="#fff" stroke="#1B3A5C" stroke-width="2"/></svg>`,
+    stepper: `<svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="3" width="13" height="13" rx="3" fill="none" stroke="#1B3A5C" stroke-width="1.6"/><line x1="4" y1="9.5" x2="9" y2="9.5" stroke="#1B3A5C" stroke-width="1.6"/><line x1="28" y1="6" x2="42" y2="6" stroke="#E1E6EE" stroke-width="3" stroke-linecap="round"/><line x1="28" y1="6" x2="35" y2="6" stroke="#1B3A5C" stroke-width="3" stroke-linecap="round"/><rect x="57" y="3" width="13" height="13" rx="3" fill="none" stroke="#1B3A5C" stroke-width="1.6"/><line x1="60" y1="9.5" x2="67" y2="9.5" stroke="#1B3A5C" stroke-width="1.6"/><line x1="63.5" y1="6" x2="63.5" y2="13" stroke="#1B3A5C" stroke-width="1.6"/></svg>`,
+    from_to: `<svg width="70" height="14" viewBox="0 0 70 14"><rect x="0" y="2" width="20" height="10" rx="2" fill="none" stroke="#9AA9BD" stroke-width="1.4"/><line x1="26" y1="7" x2="44" y2="7" stroke="#1B3A5C" stroke-width="3" stroke-linecap="round"/><rect x="50" y="2" width="20" height="10" rx="2" fill="none" stroke="#9AA9BD" stroke-width="1.4"/></svg>`,
+    radial: `<svg width="34" height="24" viewBox="0 0 34 24"><circle cx="17" cy="12" r="10" fill="none" stroke="#E1E6EE" stroke-width="3.5"/><path d="M17 2a10 10 0 018.5 15.3" fill="none" stroke="#1B3A5C" stroke-width="3.5" stroke-linecap="round"/></svg>`,
+  };
+  const CARDS: ReadonlyArray<{ value: string; name: string }> = [
+    { value: "single", name: "Single" },
+    { value: "dual_range", name: "Dual range" },
+    { value: "stepper", name: "Stepper" },
+    { value: "from_to", name: "From / To" },
+    { value: "radial", name: "Radial" },
+  ];
+  const cards = CARDS.map(
+    (c) =>
+      `<button type="button" class="studio-slider-type-card" data-set-slider-type="${c.value}" aria-pressed="false"><span class="studio-slider-type-thumb">${THUMBS[c.value]}</span><span class="studio-slider-type-name">${escapeHtml(c.name)}</span></button>`,
+  ).join("");
+  return `<div class="lg-inspector-field" data-slider-type-wrap hidden>
+        <label class="form-label">Slider type</label>
+        <div class="studio-slider-type-grid" role="group" aria-label="Slider type">${cards}</div>
+        <p class="form-help studio-field-error" data-slider-step-note hidden>Step is required for a stepper slider.</p>
+        <div class="studio-row-between">
+          <span class="lg-check-label">Currency symbol ($) prefix</span>
+          <label class="lg-check"><input type="checkbox" data-slider-currency-affix aria-label="Currency symbol ($) prefix" /></label>
+        </div>
+        <p class="form-help">Display only &#8212; it never changes the stored type or answer type.</p>
+      </div>`;
+}
+
+// Rework §6.10 / M9 — the Address field-set editor. Replaces the fixed
+// street/city/state/zip composite + type-lock (§10) with an ORDERED per-field
+// set: each row = {field, label?, mode, validation, required?} written to
+// props.fields[]. "Plain text address" seeds a single full_address manual row;
+// "+ Add field" offers only the UNUSED enum values (full_address only alone).
+// Rows build client-side (populateAddressFieldSet / buildAddressRow). Maps stays
+// an option on the Maps tab (§6.10 "unchanged as an option") — a per-field
+// 'autofill' mode is offered only while Maps is enabled, with the note below.
+function renderAddressFieldSet(): string {
+  return `<div class="lg-inspector-field" data-address-fieldset-block hidden>
+        <div class="studio-panel-eyebrow">Fields</div>
+        <button type="button" class="btn btn-sm btn-outline" data-address-preset-plain>Plain text address</button>
+        <p class="form-help">One click &#8594; a single free-text address field (full_address, manual).</p>
+        <div data-address-rows></div>
+        <button type="button" class="btn btn-sm btn-secondary" data-address-add>+ Add field</button>
+        <div class="studio-addr-menu" data-address-add-menu hidden></div>
+        <p class="form-help" data-address-maps-note>Autofill needs Google Maps &#8212; turn it on in the Maps tab. Without it (or without a server key) autofill fields fall back to plain manual entry &#8212; the field set above still works.</p>
       </div>`;
 }
 
@@ -2458,7 +2404,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       </div>
       <div class="studio-panel-eyebrow">Basics</div>
       <div class="lg-inspector-field" data-field-label-wrap hidden>
-        <label class="form-label" for="lg-field-label">Field label <span class="studio-muted-note">&#183; only you see this</span></label>
+        <label class="form-label" for="lg-field-label">Question label</label>
         <input id="lg-field-label" class="form-input" type="text" data-inspector-field="label" />
       </div>
       ${contentInputs}
@@ -2505,18 +2451,15 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <label class="form-label" for="lg-inspector-accept">Accept</label>
         <select id="lg-inspector-accept" class="form-input" data-inspector-accept>${ACCEPT_OPTION_HTML}</select>
       </div>
-      <!-- Round-4 A-6 (P1a, deliverable 9a): an Address is a fixed type — the
-           Accept type-swap is LOCKED (hidden) for it and this line explains why
-           (its map lookup would not apply to another answer format). -->
-      <p class="form-help" data-accept-address-lock hidden>Address is a fixed type &#8212; it can&#8217;t be switched to another answer format (its map lookup wouldn&#8217;t apply).</p>
       ${renderPhoneFormatControls()}
-      <!-- R5 D3 (register S4-A3 migration): searchable-dropdown / card-style /
-           slider-format toggles — MIGRATED from the canvas toolbar's
-           "component" cluster (each SWITCHES the concrete stored component
-           type, the same category as Accept above). Attribute names kept
-           verbatim (data-toolbar-searchable(-wrap)/data-card-style/
-           data-toolbar-slider-format(-wrap)) — their JS wiring is
-           attribute-addressed, unaffected by this relocation. -->
+      ${renderAddressFieldSet()}
+      <!-- R5 D3 (register S4-A3 migration): the searchable-dropdown + card-style
+           toggles — MIGRATED from the canvas toolbar's "component" cluster (each
+           SWITCHES the concrete stored component type, the same category as
+           Accept above). Attribute names kept verbatim. The old slider "Format $"
+           type-flip toggle was REMOVED here (§6.8/§10) — the Slider type picker
+           (renderSliderTypePicker, above) + the display-only currency-affix
+           replace it, ending the Image9 answer_type_mismatch failure class. -->
       <div class="lg-inspector-field" data-toolbar-searchable-wrap hidden>
         <button type="button" class="btn btn-sm btn-outline" data-toolbar-searchable aria-pressed="false" title="Searchable dropdown — switches the component type">Searchable: off</button>
       </div>
@@ -2528,9 +2471,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
           <button type="button" data-card-style="plain">Plain</button>
         </div>
       </div>
-      <div class="lg-inspector-field" data-toolbar-slider-format-wrap hidden>
-        <button type="button" class="btn btn-sm btn-outline" data-toolbar-slider-format aria-pressed="false" title="Amount ($) format — switches the component type">Format $: off</button>
-      </div>
+      ${renderSliderTypePicker()}
       <div class="form-group lg-inspector-field" data-vprop="min" hidden>
         <label class="form-label" for="lg-vprop-min">Min</label>
         <select class="form-input" data-inspector-vdate="min" hidden>${dateBoundOptions}</select>
@@ -2575,10 +2516,25 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         ${renderImageFitControl()}
         <div class="lg-choice-list" data-inspector-choices></div>
         <button type="button" class="btn btn-sm btn-secondary" id="lg-choice-add">+ Add choice</button>
-        <div class="form-group lg-inspector-field studio-othergroup">
-          <label class="lg-check"><input type="checkbox" data-choicedisplay="otherGroupEnabled" /> Enable &quot;Other&quot; group</label>
-          <input class="form-input" type="text" data-choicedisplay="otherGroupLabel" placeholder="Other-group label (default: Other)" />
-          <label class="lg-check"><input type="checkbox" data-choicedisplay="searchableOther" /> Searchable Other panel</label>
+        <!-- Rework §6.5 (#8): authored "Other" values (single-select Buttons /
+             Icon cards / Image cards — matrix other_editor). Replaces the retired
+             B9 Other-group re-bucketing UI (§10). Enable + Other
+             label + a values list with the SAME anatomy as the base choices
+             (label / value / analytics id, reorder / remove / add), written to
+             props.other. -->
+        <div class="form-group lg-inspector-field studio-other-editor" data-other-editor-block hidden>
+          <div class="studio-row-between">
+            <span class="lg-check-label">Enable &#8220;Other&#8221;</span>
+            <label class="lg-check"><input type="checkbox" data-other-enabled aria-label="Enable Other" /></label>
+          </div>
+          <div data-other-fields hidden>
+            <label class="form-label" for="lg-other-label">Other label</label>
+            <input id="lg-other-label" class="form-input" type="text" data-other-label placeholder="Other" />
+            <label class="form-label">Other values</label>
+            <div class="lg-choice-list" data-other-values></div>
+            <button type="button" class="btn btn-sm btn-secondary" data-other-add>+ Add value</button>
+            <p class="form-help">1&#8211;50 values, same fields as the choices above. They join the answer&#8217;s valid values, the field universe, rules pickers and offer mapping exactly like base choices.</p>
+          </div>
         </div>
         <div class="form-group lg-inspector-field">
           <label class="form-label" for="lg-choice-bulk">Bulk paste (one per line: label = value)</label>
@@ -2588,19 +2544,10 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <p class="form-help" data-choices-c1-note>Answer choices own display and normalization only. Provider values are set per Offer in the Offers tab &#8212; each row&#8217;s chip shows them read-only.</p>
       </div>
 
-      <!-- P5 (register PC-10, operator Image9) — MultiQuestionGrid sub-questions
-           (rows) editor. Gated to node.type==='MultiQuestionGrid'
-           (populateMqgRows). The SHARED pill set is authored in the choices
-           block above; here each ROW is its own question sharing those pills:
-           a label, an answer name (its internal_field), an optional pre-selected
-           default pill, and a Required toggle. Add / remove / reorder rows. -->
-      <div data-mqg-rows-block hidden>
-        <div class="studio-hr"></div>
-        <div class="studio-panel-eyebrow">Sub-questions</div>
-        <p class="form-help">Each row is its own question sharing the pill set above. Give it a label and an answer name; pick a default pill to pre-select one.</p>
-        <div class="lg-choice-list" data-mqg-rows></div>
-        <button type="button" class="btn btn-sm btn-secondary" data-mqg-add-row>+ Add sub-question</button>
-      </div>
+      <!-- §10 removal: the old one-unit grid's "Sub-questions" (rows) editor
+           block, its markup, and its island functions are removed. The §4.1
+           palette starter inserts independent components instead. -->
+
 
       <div class="form-group lg-inspector-field" data-default-wrap="yesno" hidden>
         <label class="form-label" for="lg-default-yesno">Default answer</label>
@@ -2636,6 +2583,14 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <label class="form-label" for="lg-default-dropdown">Default choice</label>
         <select id="lg-default-dropdown" class="form-input" data-default-control="dropdown"><option value="">No default — the visitor picks</option></select>
         <p class="form-help">Pre-selects one of this component&#8217;s choices.</p>
+      </div>
+      <!-- Rework §6.4 (F-C): defaults for single-select choice groups (Buttons /
+           Icon cards / Image cards — matrix default_kind 'choice'). A select over
+           the node's choices writing props.defaultValue; multi-select has none. -->
+      <div class="form-group lg-inspector-field" data-default-wrap="choice" hidden>
+        <label class="form-label" for="lg-default-choice">Default answer</label>
+        <select id="lg-default-choice" class="form-input" data-default-control="choice"><option value="">No default — the visitor picks</option></select>
+        <p class="form-help">A default pre-selects one of this component&#8217;s choices &#8212; the visitor must still confirm it before it counts.</p>
       </div>
     </div>
 
@@ -2721,6 +2676,20 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       <div data-style-choice-extras hidden>
         <div class="studio-hr"></div>
         <div class="studio-panel-eyebrow">Selected-state style</div>
+        <!-- Rework §6.6 (#4): the per-node ✓-in-selected marker — an override of
+             the funnel theme's Selected axis (props.selected_marker). Inherit
+             follows the theme; Wash tints the selected answer; Mark adds the
+             leading circle + ✓. Gated by the §6.2 matrix (cap selected_marker):
+             YesNo / Buttons / Icon cards / Image cards / Multi-select. -->
+        <div class="lg-inspector-field" data-selected-marker-wrap hidden>
+          <label class="form-label">Per-node override</label>
+          <div class="studio-segmented" role="group" aria-label="Selected-state marker" data-selected-marker-group>
+            <button type="button" data-set-selected-marker="">Inherit</button>
+            <button type="button" data-set-selected-marker="wash">Wash</button>
+            <button type="button" data-set-selected-marker="mark">Mark</button>
+          </div>
+          <p class="form-help">Inherit follows the funnel theme&#8217;s Selected axis. Wash tints the selected answer; Mark adds a leading circle + &#10003; inside it.</p>
+        </div>
         <div class="lg-inspector-field" data-tb-selected-role="button" hidden>
           <label class="form-label" for="lg-style-selected-button">Button background</label>
           <select id="lg-style-selected-button" class="form-input" data-inspector-override="buttonBackground" aria-label="Selected-state style role (button background)"><option value="">Inherited</option>${roleSelectOptions()}</select>
@@ -3584,6 +3553,26 @@ export const SECTION_STUDIO_STYLES = `
 .studio-breadcrumb span:not(.studio-crumb-current){color:#C2CACF;padding:0 1px}
 .studio-toolbar-problems{font-size:11px;color:#842029}
 .studio-control-invalid{outline:2px solid ${STUDIO_COLOR.danger};outline-offset:1px}
+/* LeadGen Rework §6.9 phone mask builder + §6.8 slider-type picker + §6.10
+   address field-set editor — studio inspector chrome (server-rendered admin,
+   uncapped; NOT the runtime bundle). */
+.studio-field-error{color:${STUDIO_COLOR.danger};font-weight:600}
+.form-input.studio-input-error{border-color:${STUDIO_COLOR.danger}}
+.studio-phone-scaffold{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:18px;letter-spacing:.5px;color:${STUDIO_COLOR.ink};background:${STUDIO_COLOR.white};border:1px solid var(--c-border);border-radius:8px;padding:12px 14px;text-align:center;margin:0 0 10px}
+.studio-prefill-row{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+.studio-slider-type-grid{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.studio-slider-type-card{border:1.5px solid var(--c-border);border-radius:10px;padding:9px 8px 7px;text-align:center;width:104px;flex:0 0 auto;background:${STUDIO_COLOR.white};cursor:pointer;font-family:inherit}
+.studio-slider-type-card.active{border-color:${STUDIO_COLOR.navy};background:${STUDIO_COLOR.navyTint}}
+.studio-slider-type-card .studio-slider-type-name{font-size:11px;font-weight:700;color:${STUDIO_COLOR.text2};margin-top:5px}
+.studio-slider-type-thumb{height:30px;display:flex;align-items:center;justify-content:center}
+.studio-addr-row{display:flex;align-items:center;gap:6px;border:1px solid var(--c-border);border-radius:8px;padding:7px;margin-bottom:6px;flex-wrap:wrap;background:${STUDIO_COLOR.white}}
+.studio-addr-row.studio-addr-dragging{opacity:.5}
+.studio-addr-cell{display:flex;flex-direction:column;gap:2px;min-width:0}
+.studio-addr-cell-label{font-size:9px;font-weight:700;color:${STUDIO_COLOR.mutedLabel};text-transform:uppercase;letter-spacing:.03em}
+.studio-addr-handle{cursor:grab;color:${STUDIO_COLOR.muted};flex:0 0 auto}
+.studio-addr-menu{border:1px solid var(--c-border);border-radius:8px;padding:4px;margin-top:6px;background:${STUDIO_COLOR.white}}
+.studio-addr-menu-item{padding:7px 9px;font-size:12.5px;border-radius:6px;color:${STUDIO_COLOR.text2};cursor:pointer;background:none;border:0;width:100%;text-align:left;font-family:inherit}
+.studio-addr-menu-item[disabled]{color:${STUDIO_COLOR.muted};cursor:not-allowed}
 /* §6.2 inline-edit + choice-op rules moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
 /* §9.4 role swatch rows + §9.5 section overrides */
 .studio-role-line{display:flex;gap:6px;align-items:center}
@@ -3827,10 +3816,9 @@ export const SECTION_STUDIO_SCRIPT = `
     if (producers.length > 1) { return { eligible: false, reason: 'multiple_producers', producers: producers }; }
     var only = producers[0];
     var m = typeMeta(only.type);
-    // P5 (PC-10): a MultiQuestionGrid records SEVERAL answers (one per row), so
-    // — like a multi-select — one tap can never advance. Mirrors the server's
-    // isMultiSelectNode so the studio lock reason matches the save validator.
-    var multi = m.produces === 'array' || only.answer_type === 'array' || only.type === 'MultiQuestionGrid' || !!(only.props && only.props.multiple === true);
+    // Mirrors the server's isMultiSelectNode so the studio lock reason matches
+    // the save validator (produces:"array" or an explicit multi config).
+    var multi = m.produces === 'array' || only.answer_type === 'array' || !!(only.props && only.props.multiple === true);
     if (multi) { return { eligible: false, reason: 'multi_select', producers: producers }; }
     if (!m.auto_advance_click) { return { eligible: false, reason: 'not_click_to_answer', producers: producers }; }
     if (only.conditional !== undefined && only.conditional !== null) { return { eligible: false, reason: 'conditional_producer', producers: producers }; }
@@ -3877,6 +3865,15 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   function typeMeta(type) { return studioMeta.types[type] || {}; }
   function isContainerType(type) { return typeMeta(type).container === true; }
+  // LeadGen Rework §6.2 — the ONE inspector control-gating primitive. Reads the
+  // per-type capability flag projected from registry.ts COMPONENT_CAPABILITIES
+  // (studioTypeMeta.capabilities): every inspector block below asks cap(node,
+  // '<flag>') instead of hardcoding a node.type list, so the studio, the
+  // save-time validator (content-schema) and the §6.2 matrix test (S2.5) share
+  // ONE truth. A flag is boolean, or a string cell ('labels_only'/'per_field'/
+  // a default_kind) — callers compare the returned value.
+  function capsOf(node) { var m = node ? typeMeta(node.type) : null; return (m && m.capabilities) || {}; }
+  function cap(node, flag) { var v = capsOf(node)[flag]; return v === undefined ? false : v; }
   // Operator words everywhere (07 §7.4): the label from the served meta blob,
   // never a raw type id on a normal surface.
   function typeLabel(type) { return typeMeta(type).label || type; }
@@ -3957,7 +3954,7 @@ export const SECTION_STUDIO_SCRIPT = `
     return !!node && (node.type === 'IconCardAnswerGrid' || node.type === 'ImageCardAnswerGrid' || node.type === 'MultiChoiceCardGroup' || node.type === 'ButtonAnswerGroup' || node.type === 'TwoButtonYesNo');
   }
   function isRangeFamilyType(node) {
-    return !!node && (node.type === 'RangeQuestion' || node.type === 'CurrencyRangeQuestion' || node.type === 'NumberRangeQuestion');
+    return !!node && node.type === 'NumberRangeQuestion';
   }
   // v3.1 R3b S2-7: iconColor/rangeColor were gated on the WRONG axis (shown
   // for every type except one, dead everywhere else) — now hidden EVERYWHERE
@@ -4579,15 +4576,35 @@ export const SECTION_STUDIO_SCRIPT = `
     return true;
   }
 
-  // §5.6 "Slider" type-swap — Format $ toggles NumberRangeQuestion <->
-  // CurrencyRangeQuestion (props/choices carry over unchanged).
-  function toggleSliderFormat(node) {
-    if (!node) { return false; }
-    if (node.type === 'NumberRangeQuestion') { node.type = 'CurrencyRangeQuestion'; }
-    else if (node.type === 'CurrencyRangeQuestion') { node.type = 'NumberRangeQuestion'; }
-    else { return false; }
+  // §10 removal: toggleSliderFormat (the "Format $" type-flip Number<->Currency)
+  // is gone — the Image9 failure class (it flipped node.type but never
+  // answer_type → save rejected answer_type_mismatch). §6.8 replaces it with the
+  // display-only props.currency_affix toggle (setCurrencyAffix), which never
+  // touches node.type/answer_type. The slider TYPE is props.slider_type
+  // (setSliderType); the catalog collapses to NumberRangeQuestion (M7).
+
+  // §6.8: the slider TYPE (props.slider_type) + display-only currency affix
+  // (props.currency_affix). Gated by the §6.2 matrix (cap slider_type). Neither
+  // ever mutates node.type / answer_type (the eliminated Image9 failure class).
+  function setSliderType(val) {
+    var node = selectedNode();
+    if (!node || cap(node, 'slider_type') !== true) { return; }
+    var props = ensureObj(node, 'props');
+    // 'single' is the implicit default — clear the key so an untouched slider
+    // stays byte-identical; the other four are written explicitly.
+    if (val === 'single') { delete props.slider_type; }
+    else if (val === 'dual_range' || val === 'stepper' || val === 'from_to' || val === 'radial') { props.slider_type = val; }
+    cleanupEmpty(node, 'props');
+    populateInspector();
     afterModelChange();
-    return true;
+  }
+  function setCurrencyAffix(on) {
+    var node = selectedNode();
+    if (!node || cap(node, 'slider_type') !== true) { return; }
+    var props = ensureObj(node, 'props');
+    if (on) { props.currency_affix = true; } else { delete props.currency_affix; }
+    cleanupEmpty(node, 'props');
+    afterModelChange();
   }
 
   // §5.6 "The Accept-swap rule" — all 8 text-input tiles insert ONE control
@@ -4882,14 +4899,6 @@ export const SECTION_STUDIO_SCRIPT = `
     var found = false;
     walkTree(state.content.components, 1, function (n) {
       if (n.internal_field === name) { found = true; }
-      // P5 (PC-10): a MultiQuestionGrid's row internal_fields are real answer
-      // names too — count them so de-collision (uniqueFieldName) sees them.
-      if (n.type === 'MultiQuestionGrid' && n.props && Array.isArray(n.props.rows)) {
-        var k;
-        for (k = 0; k < n.props.rows.length; k++) {
-          if (n.props.rows[k] && n.props.rows[k].internal_field === name) { found = true; }
-        }
-      }
     });
     return found;
   }
@@ -4902,16 +4911,6 @@ export const SECTION_STUDIO_SCRIPT = `
     var fields = [];
     walkTree(state.content.components, 1, function (n) {
       if (n.internal_field && trimStr(n.internal_field) !== '') { fields.push(n.internal_field); }
-      // P5 (PC-10): each MultiQuestionGrid ROW is its own answer field — list
-      // them so a rule/condition picker offers every sub-question (by its label,
-      // via sectionFieldLabels below).
-      if (n.type === 'MultiQuestionGrid' && n.props && Array.isArray(n.props.rows)) {
-        var k, rf;
-        for (k = 0; k < n.props.rows.length; k++) {
-          rf = n.props.rows[k] && n.props.rows[k].internal_field;
-          if (rf && trimStr(rf) !== '') { fields.push(rf); }
-        }
-      }
       // Round-4 A-4 (P1a): AddressAutocompleteQuestion role sub-fields — its
       // Maps fill-target internal fields (street/city/state/zip), or a
       // node-namespaced default when unconfigured, so an Address part can drive
@@ -4958,20 +4957,6 @@ export const SECTION_STUDIO_SCRIPT = `
         // rules sentence can speak "is Yes" instead of the raw "is true".
         if (n.props && typeof n.props.yesLabel === 'string' && trimStr(n.props.yesLabel) !== '') { info.yesLabel = n.props.yesLabel; }
         if (n.props && typeof n.props.noLabel === 'string' && trimStr(n.props.noLabel) !== '') { info.noLabel = n.props.noLabel; }
-      }
-      // P5 (PC-10): a MultiQuestionGrid row is an enum over its effective pill
-      // set (row override, else the shared set) — so the rule value picker
-      // offers the pill choices, exactly like any choice field.
-      if (n.type === 'MultiQuestionGrid' && n.props && Array.isArray(n.props.rows)) {
-        var k, row, rc;
-        for (k = 0; k < n.props.rows.length; k++) {
-          row = n.props.rows[k];
-          if (row && row.internal_field === fieldName) {
-            info.type = 'enum';
-            rc = (row.choices && row.choices.length) ? row.choices : n.choices;
-            if (rc && rc.length) { info.choices = rc; }
-          }
-        }
       }
       // Round-4 A-4 (P1a): an Address role sub-field is a plain string value
       // (street/city/state/zip text). Same inline derivation as internalFieldsOf
@@ -5034,14 +5019,6 @@ export const SECTION_STUDIO_SCRIPT = `
       var structuredLabel = null;
       walkTree(state.content.components, 1, function (n) {
         if (node === null && n.internal_field === fields[i]) { node = n; }
-        // MultiQuestionGrid row → the row's own label.
-        if (structuredLabel === null && n.type === 'MultiQuestionGrid' && n.props && Array.isArray(n.props.rows)) {
-          var k, row;
-          for (k = 0; k < n.props.rows.length; k++) {
-            row = n.props.rows[k];
-            if (row && row.internal_field === fields[i] && trimStr(row.label) !== '') { structuredLabel = row.label; }
-          }
-        }
         // Address role → "<Address> — City" style (same inline field-name
         // derivation as internalFieldsOf/refFieldInfo; no mapsConfigOf call).
         if (structuredLabel === null && n.type === 'AddressAutocompleteQuestion') {
@@ -6248,15 +6225,6 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!host) { continue; }
       qid = host.getAttribute('data-question-id');
       if (typeMeta(host.getAttribute('data-component-type')).choice !== true) { continue; }
-      // Round-4 A-3 (P1a, deliverable 3): a MultiQuestionGrid renders the SHARED
-      // pill set per row — a canvas ×-remove here would splice node.choices
-      // (the set behind EVERY row), a silent, surprising mutation the operator
-      // never asked for (and, ghost-added, the exact 2-4-bound save-400 trap).
-      // The shared pills are edited in the Content tab's choices block, and each
-      // row's own override in the rows editor — so NO per-pill ×-remove /
-      // draggable / choice-select decoration on a grid pill; the "Add a
-      // sub-question" affordance below points at that editor.
-      if (host.getAttribute('data-component-type') === 'MultiQuestionGrid') { continue; }
       card.setAttribute('draggable', 'true');
       if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue)) {
         card.className = card.className + ' studio-choice-selected';
@@ -6288,40 +6256,25 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < nodes.length; i++) {
       qid = nodes[i].getAttribute('data-question-id');
       type = nodes[i].getAttribute('data-component-type');
-      if (type === 'MultiQuestionGrid') {
-        // Round-4 A-3 (P1a, deliverables 2+10): a grid gets NO generic "+ Add
-        // choice" ghost (that pushes into the shared node.choices and 400s the
-        // save). Its canvas affordance opens the Content-tab rows editor and
-        // adds a sub-question. A zero-row legacy grid shows a studio-only
-        // empty-state box ("No sub-questions yet") wired to the same editor —
-        // never a blank shell.
-        var mqgRef = findRef(qid);
-        var mqgRowCount = (mqgRef && mqgRef.node.props && Array.isArray(mqgRef.node.props.rows)) ? mqgRef.node.props.rows.length : 0;
-        var addSub = frameCreate('button');
-        addSub.type = 'button';
-        addSub.className = 'lg-card studio-choice-ghost studio-mqg-add';
-        addSub.setAttribute('data-mqg-add-canvas', qid);
-        addSub.appendChild(document.createTextNode('+ Add a sub-question'));
-        if (mqgRowCount === 0) {
-          var emptyBox = frameCreate('div');
-          emptyBox.className = 'studio-mqg-empty';
-          emptyBox.setAttribute('data-mqg-empty', qid);
-          var emptyMsg = frameCreate('div');
-          emptyMsg.className = 'studio-mqg-empty-msg';
-          emptyMsg.appendChild(document.createTextNode('No sub-questions yet'));
-          emptyBox.appendChild(emptyMsg);
-          emptyBox.appendChild(addSub);
-          nodes[i].appendChild(emptyBox);
-        } else {
-          nodes[i].appendChild(addSub);
-        }
-      } else if (typeMeta(type).choice === true) {
+      // §10 removal: the MultiQuestionGrid canvas affordance ("+ Add a
+      // sub-question" strip + zero-row empty-state box) is gone with the grid
+      // editor — the palette starter (§4.1) inserts independent components.
+      if (typeMeta(type).choice === true) {
+        // Rework §6.1 (#1/#3/#9): the "+ Add choice" ghost is a SIBLING row
+        // inserted immediately AFTER the component root (never a grid cell,
+        // never inside the component's border) — left-aligned under the box,
+        // studio-only. The component's own geometry is identical with/without
+        // it, so live == edit (the geometry gate).
+        var ghostRow = frameCreate('div');
+        ghostRow.className = 'studio-add-ghost-row';
+        ghostRow.setAttribute('data-add-ghost-row', qid);
         ghost = frameCreate('button');
         ghost.type = 'button';
-        ghost.className = 'lg-card studio-choice-ghost';
+        ghost.className = 'studio-add-ghost-btn';
         ghost.setAttribute('data-choice-ghost', qid);
         ghost.appendChild(document.createTextNode('+ Add choice'));
-        nodes[i].appendChild(ghost);
+        ghostRow.appendChild(ghost);
+        if (nodes[i].parentNode) { nodes[i].parentNode.insertBefore(ghostRow, nodes[i].nextSibling); }
       }
       // §6.2: resize handle on the SELECTED CardPanel — snaps to width presets.
       if (type === 'CardPanel' && qid === selectedQuestionId) {
@@ -6445,13 +6398,16 @@ export const SECTION_STUDIO_SCRIPT = `
   // (presets.ts), so they join the size-consuming set in LOCKSTEP with the
   // presets.ts widening — the set-equality pin (test/leadgen-r2-canvas.test.ts)
   // re-derives this set from presets.ts SOURCE and fails if the two drift.
-  var SIZE_CONSUMING_TYPES = { FreeTextQuestion: 1, NumberInputQuestion: 1, EmailInputQuestion: 1, PhoneInputQuestion: 1, DateQuestion: 1, ZIPInputQuestion: 1, CurrencyInputQuestion: 1, AddressAutocompleteQuestion: 1, ButtonAnswerGroup: 1, TwoButtonYesNo: 1, IconCardAnswerGrid: 1, ImageCardAnswerGrid: 1, MultiChoiceCardGroup: 1, MultiQuestionGrid: 1, DropdownQuestion: 1, SearchableDropdownQuestion: 1, OtherGroupSelector: 1 };
+  // §10: the retired types (OtherGroupSelector + the grid) dropped out of
+  // presets.ts, so this lockstep set drops them too (the r2-canvas drift-pin
+  // re-derives this set from presets SOURCE and fails if the two drift).
+  var SIZE_CONSUMING_TYPES = { FreeTextQuestion: 1, NumberInputQuestion: 1, EmailInputQuestion: 1, PhoneInputQuestion: 1, DateQuestion: 1, ZIPInputQuestion: 1, CurrencyInputQuestion: 1, AddressAutocompleteQuestion: 1, ButtonAnswerGroup: 1, TwoButtonYesNo: 1, IconCardAnswerGrid: 1, ImageCardAnswerGrid: 1, MultiChoiceCardGroup: 1, DropdownQuestion: 1, SearchableDropdownQuestion: 1 };
   function isSizeConsumingType(type) { return SIZE_CONSUMING_TYPES[type] === 1; }
   // v3.1 R3 E1-NEW-6: the toolbar Placeholder quick-input is dead for these 5
   // types — their renderers never read props.placeholder (the range family are
   // sliders; TwoButtonYesNo is fixed Yes/No; NameFieldsGroup has its own
   // firstLabel/lastLabel). Gated OFF so the toolbar never advertises a no-op.
-  var PLACEHOLDER_INERT_TYPES = { RangeQuestion: 1, CurrencyRangeQuestion: 1, NumberRangeQuestion: 1, TwoButtonYesNo: 1, NameFieldsGroup: 1 };
+  var PLACEHOLDER_INERT_TYPES = { NumberRangeQuestion: 1, TwoButtonYesNo: 1, NameFieldsGroup: 1 };
   // §6.2 selection-chrome "kind": which of the golden's 3 variants applies.
   // Only 'field' gets the 8 handles — golden's headline/continue selections
   // show ONLY an outline + name tag (contract: "corner/vertical handles are
@@ -6674,7 +6630,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (inlineEditing) { return; }
     var t = ev.target;
     if (!t || !t.closest) { return; }
-    if (t.closest('[data-selection-chrome],[data-lg-choice],[data-resize-handle],[data-field-resize-handle],[data-width-handle],[contenteditable="true"],[data-frame-keep],[data-frame-move],[data-choice-x],[data-choice-ghost],[data-mqg-add-canvas],[data-mqg-empty],[data-funnel-picker],[data-container-chip]')) { return; }
+    if (t.closest('[data-selection-chrome],[data-lg-choice],[data-resize-handle],[data-field-resize-handle],[data-width-handle],[contenteditable="true"],[data-frame-keep],[data-frame-move],[data-choice-x],[data-choice-ghost],[data-funnel-picker],[data-container-chip]')) { return; }
     var surface = t.closest('[data-question-id]');
     if (!surface) { return; }
     startFieldMove(surface.getAttribute('data-question-id'), ev);
@@ -7006,7 +6962,12 @@ export const SECTION_STUDIO_SCRIPT = `
     // §8.8 linked-field chips + §5.4 frame badges REBUILD per pass (the region
     // is server HTML — every re-render wipes them, so decoration re-derives
     // from the model).
-    var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge, .studio-choice-ghost, .studio-choice-x, .studio-resize-handle, .studio-mapoverlay-chip, .studio-container-chip, .studio-mqg-empty');
+    // Rework §6.1: the "+ Add choice" ghost is now a SIBLING row
+    // (.studio-add-ghost-row) inserted AFTER the component root — it MUST be in
+    // this stale-cleanup set or every re-render stacks another ghost (the
+    // accumulation S2.5 caught). The legacy .studio-choice-ghost stays for any
+    // remaining canvas ghost usage.
+    var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge, .studio-add-ghost-row, .studio-choice-ghost, .studio-choice-x, .studio-resize-handle, .studio-mapoverlay-chip, .studio-container-chip');
     var i;
     for (i = 0; i < stale.length; i++) {
       if (stale[i].parentNode) { stale[i].parentNode.removeChild(stale[i]); }
@@ -7615,18 +7576,35 @@ export const SECTION_STUDIO_SCRIPT = `
     var showChoiceExtras = variant === 'field' && (isChoiceFamily || isAnswerLayoutType(node));
     if (choiceExtras) { choiceExtras.hidden = !showChoiceExtras; }
     var selButton = document.querySelector('[data-tb-selected-role="button"]');
-    if (selButton) { selButton.hidden = !node || (node.type !== 'ButtonAnswerGroup' && node.type !== 'TwoButtonYesNo' && node.type !== 'OtherGroupSelector'); }
+    // §10 removal: OtherGroupSelector dropped from the editor — the selected
+    // button-background role stays a Buttons / Yes-No control (legacy OGS nodes
+    // still render via presets, but the retired type gets no editor control).
+    if (selButton) { selButton.hidden = !node || (node.type !== 'ButtonAnswerGroup' && node.type !== 'TwoButtonYesNo'); }
+    // Rework §6.6 (#4): the per-node selected-marker segmented (Inherit/Wash/
+    // Mark → props.selected_marker), gated + painted from the §6.2 matrix.
+    var markerWrap = document.querySelector('[data-selected-marker-wrap]');
+    var showMarker = cap(node, 'selected_marker') === true;
+    if (markerWrap) { markerWrap.hidden = !showMarker; }
+    if (showMarker) {
+      var markerVal = (node.props && typeof node.props.selected_marker === 'string') ? node.props.selected_marker : '';
+      var markerBtns = document.querySelectorAll('[data-set-selected-marker]');
+      var mki;
+      for (mki = 0; mki < markerBtns.length; mki++) {
+        markerBtns[mki].className = markerBtns[mki].getAttribute('data-set-selected-marker') === markerVal ? 'active' : '';
+      }
+    }
     // FIX 4b: MultiChoiceCardGroup has NO icon slot — its iconColor swatch was
     // a dead write; the selected-icon role shows only for the two card grids.
     var selIcon = document.querySelector('[data-tb-selected-role="icon"]');
     if (selIcon) { selIcon.hidden = !isCardGridType(node); }
-    // P1a (register PC-1): the "Card layout" (columns/gap) control now shows for
-    // the whole answer-grid LAYOUT family — the two card grids AND the
-    // MultiChoiceCardGroup / ButtonAnswerGroup / TwoButtonYesNo, whose renderers
-    // consume columns/gridGap as of P1a (was card-grids-only, when those keys
-    // were dead writes for the other choice types).
+    // Rework §6.2: the "Card layout" (columns/gap) control is gated on the
+    // matrix Columns capability — cap(node,'columns'). This drops it from
+    // TwoButtonYesNo (§6.2's YesNo row has a BLANK Columns cell — a single
+    // fixed pair has no column count) while keeping it for the card grids +
+    // Buttons + MultiChoice whose renderers consume columns/gridGap. Replaces
+    // the broader isAnswerLayoutType gate that wrongly included YesNo.
     var choiceLayout = document.querySelector('[data-toolbar-choice-layout]');
-    if (choiceLayout) { choiceLayout.hidden = !isAnswerLayoutType(node); }
+    if (choiceLayout) { choiceLayout.hidden = cap(node, 'columns') !== true; }
     // P3b (register PC-2 / D1 / R-B) + CONDUCTOR FIX: the Placement block
     // shows for any NON-frame-scope selection (catalog scope != frame —
     // INDEPENDENT of the field/text/continue variant above, so a placed
@@ -7712,8 +7690,16 @@ export const SECTION_STUDIO_SCRIPT = `
     // only (dedicated controls, distinct from the generic CONTENT_CONTROLS
     // "label"/"icon" rows used by other types — see CONTENT_PROP_FIELDS).
     var acceptFmt = acceptFormatOfNode(node);
+    // Rework §6.3 (F-A): the node-level "Question label" shows for EVERY type the
+    // §6.2 matrix flags label_helper===true (choice groups, dropdown, slider,
+    // phone, address, the text-input family) — no longer just the Accept-swap
+    // family. NameFields is label_helper:"per_field" (its own dedicated block),
+    // so the shared control stays hidden for it (=== true, not truthy). The
+    // "Helper text" line renders from the generic CONTENT_CONTROLS helper row
+    // (in props.helper) for the same set — both additive (R4 A-6a).
     var labelWrap = document.querySelector('[data-field-label-wrap]');
-    if (labelWrap) { labelWrap.hidden = acceptFmt === null; if (acceptFmt !== null) { anyContent = true; } }
+    var showLabel = cap(node, 'label_helper') === true;
+    if (labelWrap) { labelWrap.hidden = !showLabel; if (showLabel) { anyContent = true; } }
     // v3.1 R3a (conductor-ruled consumption-honesty addition): of the 8 Accept-
     // swappable types, CurrencyInputQuestion is the ONE renderer that does NOT
     // consume props.icon — renderCurrencyInputQuestion has no fieldLeadingIcon
@@ -7726,14 +7712,15 @@ export const SECTION_STUDIO_SCRIPT = `
     if (emptyNote && acceptFmt !== null) { emptyNote.hidden = true; }
     var acceptWrap = document.querySelector('[data-accept-wrap]');
     var acceptSel = document.querySelector('[data-inspector-accept]');
-    // Round-4 A-6 (P1a, deliverable 9a): LOCK the Accept type-swap for an
-    // Address — swapping it to phone/email/etc. is meaningless (its Places/Maps
-    // wiring would not apply). Hide the dropdown, show a one-line explanation.
-    var isAddressNode = !!node && node.type === 'AddressAutocompleteQuestion';
-    var acceptAddrLock = document.querySelector('[data-accept-address-lock]');
-    if (acceptWrap) { acceptWrap.hidden = acceptFmt === null || isAddressNode; }
-    if (acceptAddrLock) { acceptAddrLock.hidden = !isAddressNode; }
-    if (acceptSel && acceptFmt !== null && !isAddressNode) { acceptSel.value = acceptFmt; }
+    // Rework §6.10 / §10: the Address type-lock is REMOVED. Accept-swap is now
+    // matrix-driven (cap accept_type_swap) — Address is not in that family
+    // (accept_type_swap:false), so its dropdown simply doesn't render; Address
+    // instead gets the field-set editor (below). The old "Address is a fixed
+    // type" lock note is gone with it.
+    var showAccept = cap(node, 'accept_type_swap') === true;
+    if (acceptWrap) { acceptWrap.hidden = !showAccept; }
+    if (acceptSel && showAccept && acceptFmt !== null) { acceptSel.value = acceptFmt; }
+    populateAddressFieldSet(node);
     var errWrap = document.querySelector('[data-vprop-error-wrap]');
     if (errWrap) { errWrap.hidden = !node || !meta.produces; }
 
@@ -7765,14 +7752,23 @@ export const SECTION_STUDIO_SCRIPT = `
         cardBtnsContent[cbic].className = cardBtnsContent[cbic].getAttribute('data-card-style') === curCardStyleContent ? 'btn btn-sm btn-secondary active' : 'btn btn-sm btn-outline';
       }
     }
-    var sliderWrapContent = document.querySelector('[data-toolbar-slider-format-wrap]');
-    var sliderBtnContent = document.querySelector('[data-toolbar-slider-format]');
-    var isSliderSel = !!node && (node.type === 'NumberRangeQuestion' || node.type === 'CurrencyRangeQuestion');
-    if (sliderWrapContent) { sliderWrapContent.hidden = !isSliderSel; }
-    if (sliderBtnContent && isSliderSel) {
-      var isCurrencySel = node.type === 'CurrencyRangeQuestion';
-      sliderBtnContent.textContent = isCurrencySel ? 'Format $: on' : 'Format $: off';
-      sliderBtnContent.setAttribute('aria-pressed', isCurrencySel ? 'true' : 'false');
+    // Rework §6.8: the slider TYPE picker + currency-affix toggle, matrix-gated.
+    var sliderTypeWrap = document.querySelector('[data-slider-type-wrap]');
+    var showSliderType = cap(node, 'slider_type') === true;
+    if (sliderTypeWrap) { sliderTypeWrap.hidden = !showSliderType; }
+    if (showSliderType) {
+      var stCur = (node.props && typeof node.props.slider_type === 'string') ? node.props.slider_type : 'single';
+      var stBtns = document.querySelectorAll('[data-set-slider-type]');
+      var sti;
+      for (sti = 0; sti < stBtns.length; sti++) {
+        var stOn = stBtns[sti].getAttribute('data-set-slider-type') === stCur;
+        stBtns[sti].className = stOn ? 'studio-slider-type-card active' : 'studio-slider-type-card';
+        stBtns[sti].setAttribute('aria-pressed', stOn ? 'true' : 'false');
+      }
+      var affixEl = document.querySelector('[data-slider-currency-affix]');
+      if (affixEl) { affixEl.checked = !!(node.props && node.props.currency_affix === true); }
+      var stepNote = document.querySelector('[data-slider-step-note]');
+      if (stepNote) { stepNote.hidden = !(stCur === 'stepper' && !(node.props && typeof node.props.step === 'number')); }
     }
 
     // v3.1 R3b E1-C8: Required/When-answered only make sense for a real
@@ -7856,13 +7852,12 @@ export const SECTION_STUDIO_SCRIPT = `
     populateImageBlockControls(node);
     populateNameFieldsGroupControls(node);
     populatePhoneFormatControls(node);
-    populateMqgRows(node);
     var choicesBlock = document.querySelector('[data-field-choices-block]');
     if (choicesBlock) { choicesBlock.hidden = !node || meta.choice !== true; }
     var cardStyleHint = document.querySelector('[data-card-style-hint]');
     if (cardStyleHint) { cardStyleHint.hidden = cardStyleOf(node) === null; }
     renderChoiceEditor(node);
-    populateChoiceDisplay(node);
+    populateOtherEditor(node);
     var dbg = document.querySelector('[data-studio-debug-id]');
     if (dbg) { dbg.textContent = node ? node.question_id : ''; }
     // §7.3 Advanced: the bind marker (read-only) — ids/raw markers live here
@@ -7997,10 +7992,10 @@ export const SECTION_STUDIO_SCRIPT = `
     // (overrides the generic input.type set above for this type only).
     populateDateBound(node, 'min');
     populateDateBound(node, 'max');
-    // §5.5: the range provider-format note shows for the slider family only.
+    // §5.5: the range provider-format note shows for the slider only.
     var rangeNote = document.querySelector('[data-range-format-note]');
     if (rangeNote) {
-      rangeNote.hidden = !node || (node.type !== 'RangeQuestion' && node.type !== 'NumberRangeQuestion' && node.type !== 'CurrencyRangeQuestion');
+      rangeNote.hidden = !node || node.type !== 'NumberRangeQuestion';
     }
     var presetSel = document.querySelector('[data-inspector-vprop="pattern_preset"]');
     var patternIn = document.querySelector('[data-inspector-vprop="pattern"]');
@@ -8421,6 +8416,21 @@ export const SECTION_STUDIO_SCRIPT = `
     var overrides = ensureObj(node, 'design_overrides');
     overrides.border_color = val;
     populateCornersBorderControls(node);
+    applyCanvasDecoration();
+    afterModelChange();
+  }
+  // Rework §6.6 (#4): write the per-node selected-marker (props.selected_marker).
+  // '' = Inherit (delete → follow the theme's Selected axis); 'wash'/'mark'
+  // override it (schema gates it to cap.selected_marker types). Re-decorate so
+  // the canvas overlay stays measured-accurate after the re-render.
+  function setSelectedMarker(val) {
+    var node = selectedNode();
+    if (!node) { return; }
+    var props = ensureObj(node, 'props');
+    if (val === 'wash' || val === 'mark') { props.selected_marker = val; }
+    else { delete props.selected_marker; }
+    cleanupEmpty(node, 'props');
+    populateStyleVariant(node);
     applyCanvasDecoration();
     afterModelChange();
   }
@@ -9103,68 +9113,103 @@ export const SECTION_STUDIO_SCRIPT = `
     var emptyNote = document.querySelector('[data-content-empty]');
     if (emptyNote) { emptyNote.hidden = true; }
   }
-  // Round-4 P2c (A-6b studio surface) — the Content-tab "Phone format"
-  // picker: US (default) | International | Israel | Custom…. content-
-  // schema/config-dto (P2b) already validate/compile props.phone_format;
-  // this is the FIRST authoring surface. "US (default)" ALWAYS clears the
-  // key (never writes the literal string 'nanp') — nanp and absent are
-  // BYTE-EQUIVALENT at the runtime (config-dto's own documented parity), so
-  // this is the honest back-compat choice: a brand-new/untouched phone
-  // field never gains a phone_format key merely by opening the studio.
+  // Rework §6.9 / M8 — the ES5 twin of content-schema.parsePhoneMaskPattern
+  // (the island cannot import ES modules). PURE. Returns {groups, scaffold,
+  // digit_count} or null on ANY grammar violation. The lockstep unit test
+  // (leadgen-rework-studio.test.ts) asserts this and the TS export produce
+  // IDENTICAL scaffolds for the chip patterns + more, so the two can never
+  // drift. Grammar: literals ( ) - . / space + maximal digit runs (each run =
+  // ONE group of that numeric length); 1-6 groups, each 1-14, total 4-20.
+  var PHONE_MASK_LITERALS = { '(': 1, ')': 1, '-': 1, '.': 1, '/': 1, ' ': 1 };
+  function parsePhoneMask(pattern) {
+    if (typeof pattern !== 'string' || pattern === '') { return null; }
+    var groups = [];
+    var scaffold = '';
+    var i = 0;
+    while (i < pattern.length) {
+      var ch = pattern.charAt(i);
+      if (ch >= '0' && ch <= '9') {
+        var j = i;
+        while (j < pattern.length && pattern.charAt(j) >= '0' && pattern.charAt(j) <= '9') { j++; }
+        var len = Number(pattern.slice(i, j));
+        if (!isFinite(len) || Math.floor(len) !== len || len < 1 || len > 14) { return null; }
+        groups.push(len);
+        var k;
+        for (k = 0; k < len; k++) { scaffold += '_'; }
+        i = j;
+      } else if (PHONE_MASK_LITERALS[ch] === 1) {
+        scaffold += ch;
+        i++;
+      } else {
+        return null;
+      }
+    }
+    if (groups.length < 1 || groups.length > 6) { return null; }
+    var total = 0, gi;
+    for (gi = 0; gi < groups.length; gi++) { total += groups[gi]; }
+    if (total < 4 || total > 20) { return null; }
+    return { groups: groups, scaffold: scaffold, digit_count: total };
+  }
+  // The A-10 save error VERBATIM (content-schema LEADGEN_PHONE_MASK_ERROR).
+  var PHONE_MASK_ERROR = 'Format must be digit groups with separators, like (3) 3-4.';
+  // Rework §6.9 — the phone MASK builder. Reads props.phone_format.mask (the new
+  // authored shape); a legacy string preset (nanp/e164_intl/il) or {custom:
+  // {regex}} shows an empty builder (the operator re-authors as a mask — those
+  // shapes still VALIDATE on the schema seam, no data migration). The block is
+  // gated by isPhoneTypedNode (matches the save-gate isPhoneTypedComponent).
   function populatePhoneFormatControls(node) {
     var block = document.querySelector('[data-content-phoneformat-block]');
-    var isPhone = isPhoneTypedNode(node);
+    // Rework §6.2/§6.9: the mask builder block is gated on the matrix
+    // mask_builder capability — its cap()-driven DOM surface (the S2.5 matrix
+    // Layer-B proof for the mask_builder row). cap(node,'mask_builder') is true
+    // ONLY for PhoneInputQuestion, which is exactly what isPhoneTypedNode
+    // resolved to for real content (an Accept-swap to phone sets type =
+    // PhoneInputQuestion), so this is behaviour-identical + matrix-faithful.
+    var isPhone = cap(node, 'mask_builder') === true;
     if (block) { block.hidden = !isPhone; }
     if (!isPhone) { return; }
-    var sel = document.querySelector('[data-phone-format-preset]');
-    var customWrap = document.querySelector('[data-phone-format-custom]');
-    var regexEl = document.querySelector('[data-phone-format-field="regex"]');
-    var msgEl = document.querySelector('[data-phone-format-field="message"]');
-    var errEl = document.querySelector('[data-phone-format-error]');
+    var patEl = document.querySelector('[data-phone-mask-pattern]');
+    var msgEl = document.querySelector('[data-phone-mask-message]');
     var pf = node.props ? node.props.phone_format : undefined;
-    var isCustom = !!(pf && typeof pf === 'object');
-    if (sel) { sel.value = isCustom ? 'custom' : (typeof pf === 'string' ? pf : 'nanp'); }
-    if (customWrap) { customWrap.hidden = !isCustom; }
-    var custom = (isCustom && pf.custom && typeof pf.custom === 'object') ? pf.custom : {};
-    if (regexEl) { regexEl.value = typeof custom.regex === 'string' ? custom.regex : ''; }
-    if (msgEl) { msgEl.value = typeof custom.message === 'string' ? custom.message : ''; }
-    if (errEl) { errEl.hidden = true; }
+    var mask = (pf && typeof pf === 'object' && pf.mask && typeof pf.mask === 'object') ? pf.mask : null;
+    if (patEl) { patEl.value = (mask && typeof mask.pattern === 'string') ? mask.pattern : ''; }
+    if (msgEl) { msgEl.value = (mask && typeof mask.message === 'string') ? mask.message : ''; }
+    refreshPhoneMaskPreview();
+  }
+  // Live scaffold preview + A-10 error, recomputed on every input (single
+  // grammar: parsePhoneMask above).
+  function refreshPhoneMaskPreview() {
+    var patEl = document.querySelector('[data-phone-mask-pattern]');
+    var prevEl = document.querySelector('[data-phone-mask-preview]');
+    var errEl = document.querySelector('[data-phone-mask-error]');
+    var raw = patEl ? trimStr(patEl.value) : '';
+    var parsed = raw === '' ? null : parsePhoneMask(raw);
+    var invalid = raw !== '' && parsed === null;
+    if (patEl) { patEl.className = invalid ? 'form-input studio-input-error' : 'form-input'; }
+    if (errEl) { errEl.hidden = !invalid; errEl.textContent = invalid ? PHONE_MASK_ERROR : ''; }
+    if (prevEl) { prevEl.textContent = parsed ? parsed.scaffold : ''; }
   }
   function collectPhoneFormat() {
     var node = selectedNode();
     if (!node || !isPhoneTypedNode(node)) { return; }
-    var sel = document.querySelector('[data-phone-format-preset]');
-    if (!sel) { return; }
+    refreshPhoneMaskPreview();
+    var patEl = document.querySelector('[data-phone-mask-pattern]');
+    var msgEl = document.querySelector('[data-phone-mask-message]');
+    var pattern = patEl ? trimStr(patEl.value) : '';
+    var message = msgEl ? trimStr(msgEl.value) : '';
     var props = ensureObj(node, 'props');
-    var val = sel.value;
-    var customWrap = document.querySelector('[data-phone-format-custom]');
-    var errEl = document.querySelector('[data-phone-format-error]');
-    if (val === 'custom') {
-      if (customWrap) { customWrap.hidden = false; }
-      var regexEl = document.querySelector('[data-phone-format-field="regex"]');
-      var msgEl = document.querySelector('[data-phone-format-field="message"]');
-      var regex = regexEl ? trimStr(regexEl.value) : '';
-      var message = msgEl ? trimStr(msgEl.value) : '';
-      if (regex === '') {
-        // No pattern yet — never persist an incomplete custom rule (the
-        // content-schema save-gate would 400 on it); a plain-language hint
-        // in place of a raw error code (E1-C1's own idiom).
-        if (errEl) { errEl.hidden = false; errEl.textContent = 'Enter a pattern for the custom phone format, or pick another option.'; }
-      } else {
-        var custom = { regex: regex };
-        if (message !== '') { custom.message = message; }
-        props.phone_format = { custom: custom };
-        if (errEl) { errEl.hidden = true; }
-      }
-    } else if (val === 'e164_intl' || val === 'il') {
-      if (customWrap) { customWrap.hidden = true; }
-      if (errEl) { errEl.hidden = true; }
-      props.phone_format = val;
-    } else {
-      // 'nanp' ("US (default)") or any unrecognized value — clear the key.
-      if (customWrap) { customWrap.hidden = true; }
-      if (errEl) { errEl.hidden = true; }
+    if (pattern === '') {
+      // No mask authored — clear the key (nanp and absent are byte-equivalent
+      // at the runtime; an incomplete-message without a pattern is meaningless).
       delete props.phone_format;
+    } else if (parsePhoneMask(pattern) === null) {
+      // Invalid — the A-10 error shows; never persist a bad mask (the save gate
+      // would 400 on it). Leave the previously-saved value untouched.
+      return;
+    } else {
+      var mask = { pattern: pattern };
+      if (message !== '') { mask.message = message; }
+      props.phone_format = { mask: mask };
     }
     cleanupEmpty(node, 'props');
     afterModelChange();
@@ -9914,14 +9959,17 @@ export const SECTION_STUDIO_SCRIPT = `
   // runtime default_applied path; the visitor still confirms it (§5.5).
   // range → props.default (number); dropdowns → props.default (choice value)
   // — both consumed by the presets (renderRange / the dropdown renderers).
-  var RANGE_DEFAULT_TYPES = ['RangeQuestion', 'CurrencyRangeQuestion', 'NumberRangeQuestion'];
-  var DROPDOWN_DEFAULT_TYPES = ['DropdownQuestion', 'SearchableDropdownQuestion'];
+  // Rework §6.4 — the default control KIND is matrix-driven (registry.ts
+  // COMPONENT_CAPABILITIES.default_kind): 'yesno' (TwoButtonYesNo, props.default
+  // Value boolean), 'range' (slider family, props.default number), 'dropdown'
+  // (Dropdown/Searchable, props.default over choices), 'choice' NEW (single-
+  // select Buttons/Icon cards/Image cards — props.defaultValue over choices,
+  // F-C), or null. No hardcoded type list — the studio and the save gate read
+  // the SAME matrix so they can never disagree on which types have a default.
   function defaultKindOf(node) {
     if (!node) { return null; }
-    if (node.type === 'TwoButtonYesNo') { return 'yesno'; }
-    if (RANGE_DEFAULT_TYPES.indexOf(node.type) !== -1) { return 'range'; }
-    if (DROPDOWN_DEFAULT_TYPES.indexOf(node.type) !== -1) { return 'dropdown'; }
-    return null;
+    var k = cap(node, 'default_kind');
+    return k ? k : null;
   }
   function populateDefaultControls(node) {
     var kind = defaultKindOf(node);
@@ -9942,6 +9990,29 @@ export const SECTION_STUDIO_SCRIPT = `
     if (kind === 'range') {
       el = document.querySelector('[data-default-control="range"]');
       if (el) { el.value = typeof props.default === 'number' ? String(props.default) : ''; }
+      return;
+    }
+    if (kind === 'choice') {
+      // §6.4 (F-C): a single-select choice group's default is props.defaultValue,
+      // one of its choice values (the generic runtime path config-dto default_
+      // answer → seed → paint). Options rebuilt from node.choices each populate.
+      el = document.querySelector('[data-default-control="choice"]');
+      if (!el) { return; }
+      clearChildren(el);
+      var copt = document.createElement('option');
+      copt.value = '';
+      copt.textContent = 'No default \\u2014 the visitor picks';
+      el.appendChild(copt);
+      var cchoices = node.choices || [];
+      var cci;
+      for (cci = 0; cci < cchoices.length; cci++) {
+        if (!cchoices[cci]) { continue; }
+        copt = document.createElement('option');
+        copt.value = String(cchoices[cci].value);
+        copt.textContent = String(cchoices[cci].label || cchoices[cci].value);
+        el.appendChild(copt);
+      }
+      el.value = (props.defaultValue === undefined || props.defaultValue === null) ? '' : String(props.defaultValue);
       return;
     }
     el = document.querySelector('[data-default-control="dropdown"]');
@@ -10012,6 +10083,11 @@ export const SECTION_STUDIO_SCRIPT = `
       var n = Number(v);
       if (v === '' || isNaN(n)) { delete props.default; }
       else { props.default = n; }
+    } else if (kind === 'choice') {
+      // §6.4 (F-C): single-select choice default → props.defaultValue (one of
+      // the choice values; save-gate asserts membership). Empty clears it.
+      if (v === '') { delete props.defaultValue; }
+      else { props.defaultValue = v; }
     } else {
       if (v === '') { delete props.default; }
       else { props.default = v; }
@@ -10044,15 +10120,21 @@ export const SECTION_STUDIO_SCRIPT = `
   // consume only label/value/analytics_id; MCG adds title/subtitle; the two card
   // grids consume every field (renderCardGrid references all 12).
   var CHOICE_FIELD_CONSUMPTION = {
-    ButtonAnswerGroup: ['label', 'value', 'analytics_id'],
+    // §8.4 (Card render axis): buttonInnerContent(isCard, marker, c.label,
+    // c.title, c.subtitle) reads title/subtitle from EVERY ButtonAnswerGroup
+    // choice under the theme's card Answer-layout — the same fields
+    // MultiChoiceCardGroup already exposes below. Without these here the
+    // renderer supports content nobody can author. TwoButtonYesNo does NOT
+    // get this: it is a FIXED boolean pair with no choices array at all
+    // (choices_editor:'labels_only' in the §6.2 matrix) — its own
+    // buttonInnerContent call passes title/subtitle as undefined,undefined
+    // unconditionally, degrading to a title-only tscard from yesLabel/
+    // noLabel (presets.ts's own comment: "a natural, non-special-cased
+    // consequence of the SAME shared helper every layout uses").
+    ButtonAnswerGroup: ['label', 'value', 'analytics_id', 'title', 'subtitle'],
     DropdownQuestion: ['label', 'value', 'analytics_id'],
     SearchableDropdownQuestion: ['label', 'value', 'analytics_id'],
-    OtherGroupSelector: ['label', 'value', 'analytics_id'],
     MultiChoiceCardGroup: ['label', 'value', 'analytics_id', 'title', 'subtitle'],
-    // P5 (PC-10): the SHARED pill set is simple label/value/analytics_id (+ the
-    // per-choice Style popover via CHOICE_STYLE_TYPES) — the fields
-    // renderMultiQuestionGrid's pill actually consumes.
-    MultiQuestionGrid: ['label', 'value', 'analytics_id'],
     IconCardAnswerGrid: CHOICE_FIELDS,
     ImageCardAnswerGrid: CHOICE_FIELDS
   };
@@ -10071,13 +10153,12 @@ export const SECTION_STUDIO_SCRIPT = `
   // choiceItemStyle also reads c.style (P2a): it would put a raw JSON
   // text-input cell in the grid instead of the structured popover below, and
   // it would weaken the pin's own "content grid vs. style" boundary rather
-  // than exercise it. The 5 types whose renderer actually calls
+  // than exercise it. The types whose renderer actually calls
   // choiceItemStyle(node, design, ctx, c.style) — ButtonAnswerGroup,
-  // OtherGroupSelector, MultiChoiceCardGroup, IconCardAnswerGrid,
-  // ImageCardAnswerGrid (presets.ts) — get the Style popover per row;
-  // DropdownQuestion/SearchableDropdownQuestion (native <select>, no
-  // per-option paint) do not.
-  var CHOICE_STYLE_TYPES = { ButtonAnswerGroup: 1, OtherGroupSelector: 1, MultiChoiceCardGroup: 1, MultiQuestionGrid: 1, IconCardAnswerGrid: 1, ImageCardAnswerGrid: 1 };
+  // MultiChoiceCardGroup, IconCardAnswerGrid, ImageCardAnswerGrid (presets.ts)
+  // — get the Style popover per row; DropdownQuestion/SearchableDropdownQuestion
+  // (native <select>, no per-option paint) do not.
+  var CHOICE_STYLE_TYPES = { ButtonAnswerGroup: 1, MultiChoiceCardGroup: 1, IconCardAnswerGrid: 1, ImageCardAnswerGrid: 1 };
   // ES5 mirror of content-schema.ts's LEADGEN_CHOICE_SIZE_PRESETS (the button-
   // size 3-value scale a choice's HEIGHT axis uses — s/m/l, NOT the node
   // WIDTH presets s/m/l/full) — same discipline as ICON_CATEGORY_ORDER above.
@@ -10577,7 +10658,7 @@ export const SECTION_STUDIO_SCRIPT = `
 
     return { wrap: wrap, getStyle: function () { return hasAnyKey(cur) ? cur : null; } };
   }
-  function buildChoiceRow(choice, isMain, node) {
+  function buildChoiceRow(choice, node) {
     var wrap = document.createElement('div');
     wrap.className = 'lg-choice-row';
     wrap.setAttribute('data-choice-row', '');
@@ -10717,16 +10798,9 @@ export const SECTION_STUDIO_SCRIPT = `
     disabledLabel.appendChild(disabledCb);
     disabledLabel.appendChild(document.createTextNode('disabled'));
     wrap.appendChild(disabledLabel);
-    var mainLabel = document.createElement('label');
-    mainLabel.className = 'lg-check';
-    var mainCb = document.createElement('input');
-    mainCb.type = 'checkbox';
-    mainCb.setAttribute('data-choice-main', '');
-    mainCb.checked = !!isMain;
-    mainCb.addEventListener('change', collectChoices);
-    mainLabel.appendChild(mainCb);
-    mainLabel.appendChild(document.createTextNode('main'));
-    wrap.appendChild(mainLabel);
+    // §10 removal: the per-choice "main" checkbox (choiceDisplay.mainValues
+    // re-bucketing) is gone — §6.5 replaces it with an authored props.other
+    // values list (data-other-values), not a re-bucketing of base choices.
     // §7.3 reorder within the row grid.
     var reorder = document.createElement('span');
     reorder.className = 'studio-choice-reorder';
@@ -10768,35 +10842,379 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!c) { return; }
     clearChildren(c);
     var choices = (node && node.choices && node.choices.length) ? node.choices : [];
-    var mains = (node && node.choiceDisplay && node.choiceDisplay.mainValues) ? node.choiceDisplay.mainValues : [];
     var i;
     for (i = 0; i < choices.length; i++) {
-      c.appendChild(buildChoiceRow(choices[i], mains.indexOf(String(choices[i].value)) !== -1, node));
+      c.appendChild(buildChoiceRow(choices[i], node));
     }
   }
-  function populateChoiceDisplay(node) {
-    var en = document.querySelector('[data-choicedisplay="otherGroupEnabled"]');
-    var lb = document.querySelector('[data-choicedisplay="otherGroupLabel"]');
-    var se = document.querySelector('[data-choicedisplay="searchableOther"]');
-    var d = (node && node.choiceDisplay) ? node.choiceDisplay : {};
-    if (en) { en.checked = d.otherGroupEnabled === true; }
-    if (lb) { lb.value = d.otherGroupLabel ? String(d.otherGroupLabel) : ''; }
-    if (se) { se.checked = d.searchableOther === true; }
+  // --- Rework §6.5 authored "Other" values editor (props.other) ----------------
+  // Single-select choice groups only (§6.2 matrix other_editor). Rows share the
+  // base choice anatomy (label / value / analytics id) but ride their OWN
+  // [data-other-row]/[data-other-field] hooks + collector so they never mix with
+  // the base [data-choice-row] set. Written to props.other = {enabled, label?,
+  // choices:[1..50]} — the shape content-schema.validateOtherEditor gates. The
+  // choiceDisplay/mainValues re-bucketing UI it replaces is removed (§10).
+  var OTHER_VALUE_FIELDS = ['label', 'value', 'analytics_id'];
+  function otherValueMoveBtn(wrap, delta) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-sm btn-outline';
+    b.setAttribute('aria-label', delta < 0 ? 'Move value up' : 'Move value down');
+    b.appendChild(document.createTextNode(delta < 0 ? '\\u2191' : '\\u2193'));
+    b.addEventListener('click', function () {
+      var parent = wrap.parentNode;
+      if (!parent) { return; }
+      if (delta < 0 && wrap.previousElementSibling) { parent.insertBefore(wrap, wrap.previousElementSibling); }
+      else if (delta > 0 && wrap.nextElementSibling) { parent.insertBefore(wrap.nextElementSibling, wrap); }
+      collectOther();
+    });
+    return b;
   }
-  function collectChoiceDisplay(node, mains) {
-    var en = document.querySelector('[data-choicedisplay="otherGroupEnabled"]');
-    var lb = document.querySelector('[data-choicedisplay="otherGroupLabel"]');
-    var se = document.querySelector('[data-choicedisplay="searchableOther"]');
-    var enabled = !!(en && en.checked);
-    if ((!enabled && mains.length === 0) || !node.choices || node.choices.length === 0) {
-      delete node.choiceDisplay;
-      return;
+  function buildOtherValueRow(choice) {
+    var wrap = document.createElement('div');
+    wrap.className = 'lg-choice-row';
+    wrap.setAttribute('data-other-row', '');
+    var i, field, cell, inp, valueInput = null, labelInput = null;
+    for (i = 0; i < OTHER_VALUE_FIELDS.length; i++) {
+      field = OTHER_VALUE_FIELDS[i];
+      cell = choiceCellWrap(field);
+      inp = document.createElement('input');
+      inp.className = 'form-input';
+      inp.setAttribute('data-other-field', field);
+      inp.setAttribute('aria-label', 'Other value ' + (CHOICE_FIELD_LABELS[field] || field));
+      inp.setAttribute('placeholder', CHOICE_FIELD_PLACEHOLDERS[field] || CHOICE_FIELD_LABELS[field] || field);
+      var v = choice ? choice[field] : undefined;
+      inp.value = (v === undefined || v === null) ? '' : String(v);
+      inp.addEventListener('input', collectOther);
+      inp.addEventListener('change', collectOther);
+      if (field === 'value') { valueInput = inp; }
+      if (field === 'label') { labelInput = inp; }
+      cell.appendChild(inp);
+      wrap.appendChild(cell);
     }
-    var display = { otherGroupEnabled: enabled };
-    if (mains.length > 0) { display.mainValues = mains; }
-    if (lb && trimStr(lb.value) !== '') { display.otherGroupLabel = trimStr(lb.value); }
-    if (se && se.checked) { display.searchableOther = true; }
-    node.choiceDisplay = display;
+    // §7.3 parity: value auto-suggested from the label while un-edited.
+    if (valueInput) {
+      valueInput.setAttribute('data-auto', valueInput.value === '' ? 'true' : 'false');
+      valueInput.addEventListener('input', function () { this.setAttribute('data-auto', 'false'); });
+    }
+    if (labelInput && valueInput) {
+      labelInput.addEventListener('input', function () {
+        if (valueInput.getAttribute('data-auto') === 'true') { valueInput.value = slugify(this.value); collectOther(); }
+      });
+    }
+    var reorder = document.createElement('span');
+    reorder.className = 'studio-choice-reorder';
+    reorder.appendChild(otherValueMoveBtn(wrap, -1));
+    reorder.appendChild(otherValueMoveBtn(wrap, 1));
+    wrap.appendChild(reorder);
+    var rm = document.createElement('button');
+    rm.type = 'button';
+    rm.className = 'btn btn-sm btn-danger';
+    rm.setAttribute('data-other-remove', '');
+    rm.appendChild(document.createTextNode('Remove'));
+    rm.addEventListener('click', function () { var p = wrap.parentNode; if (p) { p.removeChild(wrap); } collectOther(); });
+    wrap.appendChild(rm);
+    return wrap;
+  }
+  function populateOtherEditor(node) {
+    var block = document.querySelector('[data-other-editor-block]');
+    var show = cap(node, 'other_editor') === true;
+    if (block) { block.hidden = !show; }
+    if (!show) { return; }
+    var other = (node.props && node.props.other && typeof node.props.other === 'object') ? node.props.other : {};
+    var enabledCb = document.querySelector('[data-other-enabled]');
+    var fieldsWrap = document.querySelector('[data-other-fields]');
+    var labelEl = document.querySelector('[data-other-label]');
+    var listEl = document.querySelector('[data-other-values]');
+    var enabled = other.enabled === true;
+    if (enabledCb) { enabledCb.checked = enabled; }
+    if (fieldsWrap) { fieldsWrap.hidden = !enabled; }
+    if (labelEl) { labelEl.value = (typeof other.label === 'string') ? other.label : ''; }
+    if (listEl) {
+      clearChildren(listEl);
+      var vals = (other.choices && other.choices.length) ? other.choices : [];
+      var oi;
+      for (oi = 0; oi < vals.length; oi++) { listEl.appendChild(buildOtherValueRow(vals[oi])); }
+    }
+  }
+  function toggleOtherEnabled() {
+    var node = selectedNode();
+    if (!node || cap(node, 'other_editor') !== true) { return; }
+    var enabledCb = document.querySelector('[data-other-enabled]');
+    var listEl = document.querySelector('[data-other-values]');
+    var enabled = !!(enabledCb && enabledCb.checked);
+    // Enabling with an empty list seeds ONE starter value so props.other is
+    // immediately schema-valid (choices must be non-empty) and the enabled state
+    // persists — the same "seed a sample" idiom the base choices use.
+    if (enabled && listEl && listEl.querySelectorAll('[data-other-row]').length === 0) {
+      listEl.appendChild(buildOtherValueRow({ label: 'Other option', value: 'other_option', analytics_id: 'other_option' }));
+    }
+    collectOther();
+  }
+  function collectOther() {
+    var node = selectedNode();
+    if (!node || cap(node, 'other_editor') !== true) { return; }
+    var enabledCb = document.querySelector('[data-other-enabled]');
+    var fieldsWrap = document.querySelector('[data-other-fields]');
+    var labelEl = document.querySelector('[data-other-label]');
+    var listEl = document.querySelector('[data-other-values]');
+    var enabled = !!(enabledCb && enabledCb.checked);
+    if (fieldsWrap) { fieldsWrap.hidden = !enabled; }
+    var props = ensureObj(node, 'props');
+    var choices = [];
+    if (enabled && listEl) {
+      var rows = listEl.querySelectorAll('[data-other-row]');
+      var i, j, inputs, choice, f, v;
+      for (i = 0; i < rows.length; i++) {
+        inputs = rows[i].querySelectorAll('[data-other-field]');
+        choice = {};
+        for (j = 0; j < inputs.length; j++) {
+          f = inputs[j].getAttribute('data-other-field');
+          v = inputs[j].value;
+          if (v !== '') { choice[f] = v; }
+        }
+        if (choice.label === undefined && choice.value === undefined) { continue; }
+        if (choice.value !== undefined && choice.analytics_id === undefined) { choice.analytics_id = choice.value; }
+        choices.push(choice);
+      }
+    }
+    // props.other is only persistable with >=1 value (schema: choices non-empty);
+    // otherwise the key is cleared (Other off / no values = no Other).
+    if (enabled && choices.length > 0) {
+      var otherOut = { enabled: true };
+      if (labelEl && trimStr(labelEl.value) !== '') { otherOut.label = trimStr(labelEl.value); }
+      otherOut.choices = choices;
+      props.other = otherOut;
+    } else {
+      delete props.other;
+    }
+    cleanupEmpty(node, 'props');
+    afterModelChange();
+  }
+
+  // --- Rework §6.10 / M9 address field-set editor (props.fields[]) -------------
+  // Ordered per-field rows {field, label?, mode, validation, required?}; the
+  // fixed composite + type-lock are removed (§10). Autofill mode offered only
+  // while Maps is enabled; full_address is only valid alone (enforced by the
+  // add-menu + the save gate). Reorder via up/down (the a11y equivalent of the
+  // drag handle) + native drag on the handle.
+  var ADDRESS_FIELD_KINDS = ['street', 'city', 'state', 'zip', 'full_address'];
+  var ADDRESS_FIELD_MENU_LABELS = { street: 'Street', city: 'City', state: 'State', zip: 'ZIP', full_address: 'Full address' };
+  var ADDRESS_DEFAULT_LABELS = { street: 'Street address', city: 'City', state: 'State', zip: 'ZIP code', full_address: 'Address' };
+  var ADDRESS_DEFAULT_FIELDS = [
+    { field: 'street', mode: 'autofill' },
+    { field: 'city', mode: 'autofill' },
+    { field: 'state', mode: 'autofill' },
+    { field: 'zip', mode: 'autofill', validation: 'zip5' }
+  ];
+  function addressMapsEnabled(node) {
+    return !!(node && node.props && node.props.maps && node.props.maps.enabled === true);
+  }
+  function addressFieldsOf(node) {
+    if (node && node.props && node.props.fields && node.props.fields.length) { return node.props.fields; }
+    // Absent → display the default 4-field set; props.fields stays absent (byte-
+    // identical) until the operator edits, matching the presets render default.
+    return ADDRESS_DEFAULT_FIELDS;
+  }
+  function addrCell(labelText) {
+    var cell = document.createElement('div');
+    cell.className = 'studio-addr-cell';
+    var lab = document.createElement('span');
+    lab.className = 'studio-addr-cell-label';
+    lab.appendChild(document.createTextNode(labelText));
+    cell.appendChild(lab);
+    return cell;
+  }
+  function addressRowMoveBtn(wrap, delta) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-sm btn-outline';
+    b.setAttribute('aria-label', delta < 0 ? 'Move field up' : 'Move field down');
+    b.appendChild(document.createTextNode(delta < 0 ? '\\u2191' : '\\u2193'));
+    b.addEventListener('click', function () {
+      var parent = wrap.parentNode;
+      if (!parent) { return; }
+      if (delta < 0 && wrap.previousElementSibling) { parent.insertBefore(wrap, wrap.previousElementSibling); }
+      else if (delta > 0 && wrap.nextElementSibling) { parent.insertBefore(wrap.nextElementSibling, wrap); }
+      collectAddressFields();
+    });
+    return b;
+  }
+  function buildAddressRow(fieldSpec, mapsOn) {
+    var wrap = document.createElement('div');
+    wrap.className = 'studio-addr-row';
+    wrap.setAttribute('data-address-row', '');
+    var handle = document.createElement('span');
+    handle.className = 'studio-addr-handle';
+    handle.setAttribute('data-address-drag-handle', '');
+    handle.setAttribute('aria-hidden', 'true');
+    handle.appendChild(document.createTextNode('\\u2630'));
+    wrap.appendChild(handle);
+    var fieldCell = addrCell('Field');
+    var fieldSel = document.createElement('select');
+    fieldSel.className = 'form-input';
+    fieldSel.setAttribute('data-address-field-kind', '');
+    var ki;
+    for (ki = 0; ki < ADDRESS_FIELD_KINDS.length; ki++) {
+      var kopt = document.createElement('option');
+      kopt.value = ADDRESS_FIELD_KINDS[ki];
+      kopt.textContent = ADDRESS_FIELD_MENU_LABELS[ADDRESS_FIELD_KINDS[ki]];
+      fieldSel.appendChild(kopt);
+    }
+    fieldSel.value = fieldSpec.field || 'street';
+    fieldSel.addEventListener('change', collectAddressFields);
+    fieldCell.appendChild(fieldSel);
+    wrap.appendChild(fieldCell);
+    var labelCell = addrCell('Label');
+    var labelInp = document.createElement('input');
+    labelInp.className = 'form-input';
+    labelInp.setAttribute('data-address-field-label', '');
+    labelInp.value = (typeof fieldSpec.label === 'string') ? fieldSpec.label : '';
+    labelInp.setAttribute('placeholder', ADDRESS_DEFAULT_LABELS[fieldSpec.field] || 'Label');
+    labelInp.addEventListener('input', collectAddressFields);
+    labelInp.addEventListener('change', collectAddressFields);
+    labelCell.appendChild(labelInp);
+    wrap.appendChild(labelCell);
+    var modeCell = addrCell('Mode');
+    var modeSel = document.createElement('select');
+    modeSel.className = 'form-input';
+    modeSel.setAttribute('data-address-field-mode', '');
+    var manualOpt = document.createElement('option'); manualOpt.value = 'manual'; manualOpt.textContent = 'Manual'; modeSel.appendChild(manualOpt);
+    if (mapsOn) { var autoOpt = document.createElement('option'); autoOpt.value = 'autofill'; autoOpt.textContent = 'Autofill'; modeSel.appendChild(autoOpt); }
+    modeSel.value = (fieldSpec.mode === 'autofill' && mapsOn) ? 'autofill' : 'manual';
+    modeSel.addEventListener('change', collectAddressFields);
+    modeCell.appendChild(modeSel);
+    wrap.appendChild(modeCell);
+    var valCell = addrCell('Validation');
+    var valSel = document.createElement('select');
+    valSel.className = 'form-input';
+    valSel.setAttribute('data-address-field-validation', '');
+    var noneOpt = document.createElement('option'); noneOpt.value = 'none'; noneOpt.textContent = 'None'; valSel.appendChild(noneOpt);
+    var zipOpt = document.createElement('option'); zipOpt.value = 'zip5'; zipOpt.textContent = 'ZIP (5 digits)'; valSel.appendChild(zipOpt);
+    valSel.value = (fieldSpec.validation === 'zip5') ? 'zip5' : 'none';
+    valSel.addEventListener('change', collectAddressFields);
+    valCell.appendChild(valSel);
+    wrap.appendChild(valCell);
+    var reqLabel = document.createElement('label');
+    reqLabel.className = 'lg-check';
+    var reqCb = document.createElement('input');
+    reqCb.type = 'checkbox';
+    reqCb.setAttribute('data-address-field-required', '');
+    reqCb.checked = fieldSpec.required === true;
+    reqCb.addEventListener('change', collectAddressFields);
+    reqLabel.appendChild(reqCb);
+    reqLabel.appendChild(document.createTextNode('Required'));
+    wrap.appendChild(reqLabel);
+    var reorder = document.createElement('span');
+    reorder.className = 'studio-choice-reorder';
+    reorder.appendChild(addressRowMoveBtn(wrap, -1));
+    reorder.appendChild(addressRowMoveBtn(wrap, 1));
+    wrap.appendChild(reorder);
+    var rm = document.createElement('button');
+    rm.type = 'button';
+    rm.className = 'btn btn-sm btn-danger';
+    rm.setAttribute('data-address-remove', '');
+    rm.appendChild(document.createTextNode('Remove'));
+    rm.addEventListener('click', function () { var p = wrap.parentNode; if (p) { p.removeChild(wrap); } collectAddressFields(); renderAddressAddMenu(selectedNode()); });
+    wrap.appendChild(rm);
+    return wrap;
+  }
+  function usedAddressKinds(listEl) {
+    var used = {};
+    var rows = listEl ? listEl.querySelectorAll('[data-address-field-kind]') : [];
+    var i;
+    for (i = 0; i < rows.length; i++) { used[rows[i].value] = true; }
+    return used;
+  }
+  function renderAddressAddMenu(node) {
+    var menu = document.querySelector('[data-address-add-menu]');
+    var listEl = document.querySelector('[data-address-rows]');
+    if (!menu) { return; }
+    clearChildren(menu);
+    var used = usedAddressKinds(listEl);
+    var i;
+    for (i = 0; i < ADDRESS_FIELD_KINDS.length; i++) {
+      (function (kind) {
+        var item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'studio-addr-menu-item';
+        item.setAttribute('data-address-add-kind', kind);
+        item.appendChild(document.createTextNode(ADDRESS_FIELD_MENU_LABELS[kind]));
+        // full_address may only be used alone (§6.10) — never disabled, it
+        // REPLACES the set; the other kinds disable once already in the set.
+        if (kind !== 'full_address' && used[kind] === true) { item.disabled = true; }
+        item.addEventListener('click', function () { addAddressField(kind); });
+        menu.appendChild(item);
+      })(ADDRESS_FIELD_KINDS[i]);
+    }
+  }
+  function addAddressField(kind) {
+    var node = selectedNode();
+    if (!node) { return; }
+    var listEl = document.querySelector('[data-address-rows]');
+    var menu = document.querySelector('[data-address-add-menu]');
+    if (!listEl) { return; }
+    var mapsOn = addressMapsEnabled(node);
+    if (kind === 'full_address') {
+      clearChildren(listEl);
+      listEl.appendChild(buildAddressRow({ field: 'full_address', mode: 'manual' }, mapsOn));
+    } else {
+      listEl.appendChild(buildAddressRow({ field: kind, mode: mapsOn ? 'autofill' : 'manual' }, mapsOn));
+    }
+    if (menu) { menu.hidden = true; }
+    collectAddressFields();
+    renderAddressAddMenu(node);
+  }
+  function applyAddressPresetPlain() {
+    var node = selectedNode();
+    if (!node) { return; }
+    var listEl = document.querySelector('[data-address-rows]');
+    if (!listEl) { return; }
+    clearChildren(listEl);
+    listEl.appendChild(buildAddressRow({ field: 'full_address', mode: 'manual', label: 'Address' }, addressMapsEnabled(node)));
+    collectAddressFields();
+    renderAddressAddMenu(node);
+  }
+  function populateAddressFieldSet(node) {
+    var block = document.querySelector('[data-address-fieldset-block]');
+    var show = cap(node, 'field_set_maps') === true;
+    if (block) { block.hidden = !show; }
+    if (!show) { return; }
+    var listEl = document.querySelector('[data-address-rows]');
+    if (listEl) {
+      clearChildren(listEl);
+      var fields = addressFieldsOf(node);
+      var mapsOn = addressMapsEnabled(node);
+      var i;
+      for (i = 0; i < fields.length; i++) { listEl.appendChild(buildAddressRow(fields[i], mapsOn)); }
+    }
+    renderAddressAddMenu(node);
+    var menu = document.querySelector('[data-address-add-menu]');
+    if (menu) { menu.hidden = true; }
+  }
+  function collectAddressFields() {
+    var node = selectedNode();
+    if (!node || cap(node, 'field_set_maps') !== true) { return; }
+    var listEl = document.querySelector('[data-address-rows]');
+    if (!listEl) { return; }
+    var rows = listEl.querySelectorAll('[data-address-row]');
+    var fields = [], i;
+    for (i = 0; i < rows.length; i++) {
+      var kindEl = rows[i].querySelector('[data-address-field-kind]');
+      var labEl = rows[i].querySelector('[data-address-field-label]');
+      var modeEl = rows[i].querySelector('[data-address-field-mode]');
+      var valEl = rows[i].querySelector('[data-address-field-validation]');
+      var reqEl = rows[i].querySelector('[data-address-field-required]');
+      var f = { field: kindEl ? kindEl.value : 'street', mode: (modeEl && modeEl.value === 'autofill') ? 'autofill' : 'manual' };
+      if (labEl && trimStr(labEl.value) !== '') { f.label = trimStr(labEl.value); }
+      if (valEl && valEl.value === 'zip5') { f.validation = 'zip5'; }
+      if (reqEl && reqEl.checked) { f.required = true; }
+      fields.push(f);
+    }
+    var props = ensureObj(node, 'props');
+    if (fields.length > 0) { props.fields = fields; } else { delete props.fields; }
+    cleanupEmpty(node, 'props');
+    afterModelChange();
   }
   function collectChoices() {
     var node = selectedNode();
@@ -10804,7 +11222,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var c = choiceContainer();
     if (!c) { return; }
     var rows = c.querySelectorAll('[data-choice-row]');
-    var choices = [], mains = [], i, j, inputs, choice, f, v, mainCb;
+    var choices = [], i, j, inputs, choice, f, v;
     for (i = 0; i < rows.length; i++) {
       inputs = rows[i].querySelectorAll('[data-choice-field]');
       choice = {};
@@ -10823,20 +11241,14 @@ export const SECTION_STUDIO_SCRIPT = `
           }
         } else if (v !== '') { choice[f] = v; }
       }
-      mainCb = rows[i].querySelector('[data-choice-main]');
-      if (mainCb && mainCb.checked && choice.value !== undefined) { mains.push(String(choice.value)); }
+      // §10 removal: the per-choice "main" grouping is gone (§6.5 authored Other).
       // §8.4 disabled rides a checkbox (boolean — set only when true).
       var disabledCb = rows[i].querySelector('[data-choice-disabled]');
       if (disabledCb && disabledCb.checked) { choice.disabled = true; }
       choices.push(choice);
     }
     if (choices.length > 0) { node.choices = choices; } else { delete node.choices; }
-    collectChoiceDisplay(node, mains);
     afterModelChange();
-    // P5 (PC-10): the shared pill set feeds each row's default picker — refresh
-    // the rows editor so a just-edited pill set is immediately selectable as a
-    // row default (afterModelChange re-renders the canvas, not the inspector).
-    if (node.type === 'MultiQuestionGrid') { populateMqgRows(node); }
   }
   function parseBulkChoices(text, req) {
     var lines = String(text || '').split('\\n');
@@ -10870,314 +11282,8 @@ export const SECTION_STUDIO_SCRIPT = `
     var parsed = parseBulkChoices(ta.value, req);
     if (parsed.length === 0) { return; }
     node.choices = parsed;
-    delete node.choiceDisplay;
     renderChoiceEditor(node);
-    populateChoiceDisplay(node);
-    afterModelChange();
-  }
-
-  // --- P5 (register PC-10) MultiQuestionGrid sub-question (rows) editor ---------
-  // Each ROW is its own answer field sharing the node's pill set (or a per-row
-  // override). The editor mirrors the choices editor: build DOM rows, wire every
-  // input to collectMqgRows → node.props.rows → afterModelChange (persist +
-  // re-render + live validation). readMultiQuestionRows/expandPublicComponents
-  // (server) consume the SAME props.rows shape.
-  function mqgRowsContainer() { return document.querySelector('[data-mqg-rows]'); }
-  function readMqgRowsModel(node) {
-    return (node && node.props && Array.isArray(node.props.rows)) ? node.props.rows : [];
-  }
-  function effectiveRowChoices(node, row) {
-    if (row && row.choices && row.choices.length) { return row.choices; }
-    return (node && node.choices && node.choices.length) ? node.choices : [];
-  }
-  // A section-unique fresh field name — checks BOTH scalar internal_fields AND
-  // every MultiQuestionGrid row field (the row fields are real answer names too).
-  function mqgUsedFieldNames() {
-    var used = Object.create(null);
-    walkTree(state.content.components, 1, function (n) {
-      if (n && n.internal_field) { used[n.internal_field] = true; }
-      if (n && n.type === 'MultiQuestionGrid' && n.props && Array.isArray(n.props.rows)) {
-        var k;
-        for (k = 0; k < n.props.rows.length; k++) {
-          if (n.props.rows[k] && n.props.rows[k].internal_field) { used[n.props.rows[k].internal_field] = true; }
-        }
-      }
-    });
-    return used;
-  }
-  function uniqueMqgRowField() {
-    var used = mqgUsedFieldNames(), n = 1, name = 'answer1';
-    while (used[name]) { n += 1; name = 'answer' + n; }
-    return name;
-  }
-  function mqgRowMoveBtn(index, delta, disabled) {
-    var b = document.createElement('button');
-    b.type = 'button'; b.className = 'btn btn-sm btn-outline';
-    b.textContent = delta < 0 ? '\\u2191' : '\\u2193';
-    b.setAttribute('aria-label', delta < 0 ? 'Move sub-question up' : 'Move sub-question down');
-    if (disabled) { b.disabled = true; } else { b.addEventListener('click', function () { moveMqgRow(index, delta); }); }
-    return b;
-  }
-  function mqgCell(labelText) {
-    var cell = document.createElement('div'); cell.className = 'lg-choice-cell';
-    var lab = document.createElement('span'); lab.className = 'lg-choice-cell-label';
-    lab.appendChild(document.createTextNode(labelText)); cell.appendChild(lab);
-    return cell;
-  }
-  // P5 fix-round (conductor-flagged residual, register PC-10): per-row CUSTOM
-  // ANSWERS — a compact, row-scoped pill-set override (Image9's Gender=Male/
-  // Female is the reference case). Deliberately NOT the shared choices-editor
-  // machinery (buildChoiceRow / collectChoices / choiceContainer are hard-
-  // wired to the ONE [data-inspector-choices] singleton + node.choices —
-  // every icon/emoji/image/style call site inside buildChoiceRow calls the
-  // GLOBAL collectChoices() directly; retrofitting a target parameter through
-  // all of them would be a disproportionate risk to a heavily-tested shared
-  // subsystem for a rarely-used per-row override). Mirrors its VISUAL idiom
-  // (.lg-choice-row / .lg-choice-cell classes — zero new CSS) at a much
-  // smaller surface: label + value only (analytics_id auto = value, the same
-  // convention parseBulkChoices already uses) — no icon/emoji/image/style,
-  // which stay shared-set-only concerns.
-
-  // Every [data-mqg-choice-entry] currently in a row's (possibly still-hidden)
-  // entries list, read straight from the DOM — the live-typed state, not the
-  // last-committed model.
-  function readMqgRowChoiceEntries(rowEl) {
-    var out = [];
-    var entries = rowEl.querySelectorAll('[data-mqg-choice-entry]');
-    var j, labelEl, valueEl, lbl, val;
-    for (j = 0; j < entries.length; j++) {
-      labelEl = entries[j].querySelector('[data-mqg-choice-field="label"]');
-      valueEl = entries[j].querySelector('[data-mqg-choice-field="value"]');
-      lbl = labelEl ? trimStr(labelEl.value) : '';
-      val = valueEl ? trimStr(valueEl.value) : '';
-      if (lbl !== '' || val !== '') { out.push({ label: lbl, value: val, analytics_id: val }); }
-    }
-    return out;
-  }
-  // The row's LIVE effective choices (custom entries if the toggle is on,
-  // else the shared node-level set) — used to keep the Default picker's
-  // options in sync WHILE the operator is mid-edit (before any collect).
-  function mqgRowLiveEffectiveChoices(rowEl, node) {
-    var cb = rowEl.querySelector('[data-mqg-custom-choices]');
-    if (cb && cb.checked) { return readMqgRowChoiceEntries(rowEl); }
-    return (node && node.choices && node.choices.length) ? node.choices : [];
-  }
-  function refreshMqgRowDefaultSelect(rowEl, choices) {
-    var sel = rowEl.querySelector('select[data-mqg-field="default"]');
-    if (!sel) { return; }
-    var prev = sel.value;
-    clearChildren(sel);
-    var noneOpt = document.createElement('option'); noneOpt.value = ''; noneOpt.textContent = '\\u2014 none \\u2014'; sel.appendChild(noneOpt);
-    var i, opt, hasPrev = false;
-    for (i = 0; i < choices.length; i++) {
-      opt = document.createElement('option'); opt.value = String(choices[i].value);
-      opt.textContent = String(choices[i].label || choices[i].value); sel.appendChild(opt);
-      if (String(choices[i].value) === prev) { hasPrev = true; }
-    }
-    sel.value = hasPrev ? prev : '';
-  }
-  // One compact label+value entry (a MINIMAL mirror of buildChoiceRow's cell
-  // idiom — value auto-suggested from the label while un-edited, the SAME
-  // §7.3 convention). 'onChange' is invoked on every edit/add/remove.
-  function buildMqgRowChoiceEntry(choice, onChange) {
-    var entry = document.createElement('div');
-    entry.className = 'lg-choice-row'; entry.setAttribute('data-mqg-choice-entry', '');
-    var labelCell = mqgCell('Answer label');
-    var labelInp = document.createElement('input'); labelInp.className = 'form-input';
-    labelInp.setAttribute('data-mqg-choice-field', 'label'); labelInp.setAttribute('aria-label', 'Answer label');
-    labelInp.value = (choice && choice.label) ? String(choice.label) : '';
-    labelCell.appendChild(labelInp); entry.appendChild(labelCell);
-    var valueCell = mqgCell('Answer value');
-    var valueInp = document.createElement('input'); valueInp.className = 'form-input';
-    valueInp.setAttribute('data-mqg-choice-field', 'value'); valueInp.setAttribute('aria-label', 'Answer value');
-    valueInp.value = (choice && choice.value !== undefined && choice.value !== null) ? String(choice.value) : '';
-    valueInp.setAttribute('data-auto', valueInp.value === '' ? 'true' : 'false');
-    valueInp.addEventListener('input', function () { valueInp.setAttribute('data-auto', 'false'); });
-    valueCell.appendChild(valueInp); entry.appendChild(valueCell);
-    labelInp.addEventListener('input', function () {
-      if (valueInp.getAttribute('data-auto') === 'true') { valueInp.value = slugify(labelInp.value); }
-      onChange();
-    });
-    labelInp.addEventListener('change', onChange);
-    valueInp.addEventListener('input', onChange);
-    valueInp.addEventListener('change', onChange);
-    var rm = document.createElement('button'); rm.type = 'button'; rm.className = 'btn btn-sm btn-outline';
-    rm.setAttribute('data-mqg-choice-remove', ''); rm.setAttribute('aria-label', 'Remove answer'); rm.textContent = '\\u2715';
-    rm.addEventListener('click', function () { entry.parentNode.removeChild(entry); onChange(); });
-    entry.appendChild(rm);
-    return entry;
-  }
-  // Fires after ANY per-row choice-entry add/remove/edit: re-derives the
-  // add/remove disabled bounds (2-4, the schema's own pill-set range), keeps
-  // the Default picker's options current, and persists.
-  function mqgRowChoicesChanged(rowEl, node) {
-    var list = rowEl.querySelector('[data-mqg-row-choices-list]');
-    var addBtn = rowEl.querySelector('[data-mqg-row-choice-add]');
-    var entries = list ? list.querySelectorAll('[data-mqg-choice-entry]') : [];
-    var i, rm;
-    for (i = 0; i < entries.length; i++) {
-      rm = entries[i].querySelector('[data-mqg-choice-remove]');
-      if (rm) { rm.disabled = entries.length <= 2; }
-    }
-    if (addBtn) { addBtn.disabled = entries.length >= 4; }
-    refreshMqgRowDefaultSelect(rowEl, mqgRowLiveEffectiveChoices(rowEl, node));
-    collectMqgRows();
-  }
-  function buildMqgRowEditor(node, row, index, total) {
-    var wrap = document.createElement('div');
-    wrap.className = 'lg-choice-row'; wrap.setAttribute('data-mqg-row', '');
-    // Label
-    var labelCell = mqgCell('Label');
-    var labelInp = document.createElement('input'); labelInp.className = 'form-input';
-    labelInp.setAttribute('data-mqg-field', 'label'); labelInp.setAttribute('aria-label', 'Sub-question label');
-    labelInp.placeholder = 'e.g. Homeowner'; labelInp.value = (row && row.label) ? String(row.label) : '';
-    labelInp.addEventListener('input', collectMqgRows); labelInp.addEventListener('change', collectMqgRows);
-    labelCell.appendChild(labelInp); wrap.appendChild(labelCell);
-    // Answer name (internal_field)
-    var fieldCell = mqgCell('Answer name');
-    var fieldInp = document.createElement('input'); fieldInp.className = 'form-input';
-    fieldInp.setAttribute('data-mqg-field', 'internal_field'); fieldInp.setAttribute('aria-label', 'Answer name (internal field)');
-    fieldInp.placeholder = 'e.g. homeowner'; fieldInp.value = (row && row.internal_field) ? String(row.internal_field) : '';
-    fieldInp.addEventListener('input', collectMqgRows); fieldInp.addEventListener('change', collectMqgRows);
-    fieldCell.appendChild(fieldInp); wrap.appendChild(fieldCell);
-    // Default pill (a select over the row's effective choices)
-    var defCell = mqgCell('Default');
-    var defSel = document.createElement('select'); defSel.className = 'form-input';
-    defSel.setAttribute('data-mqg-field', 'default'); defSel.setAttribute('aria-label', 'Default answer');
-    var noneOpt = document.createElement('option'); noneOpt.value = ''; noneOpt.textContent = '\\u2014 none \\u2014'; defSel.appendChild(noneOpt);
-    var choices = effectiveRowChoices(node, row), ci, opt;
-    for (ci = 0; ci < choices.length; ci++) {
-      opt = document.createElement('option'); opt.value = String(choices[ci].value);
-      opt.textContent = String(choices[ci].label || choices[ci].value); defSel.appendChild(opt);
-    }
-    defSel.value = (row && row.default !== undefined && row.default !== null) ? String(row.default) : '';
-    defSel.addEventListener('change', collectMqgRows);
-    defCell.appendChild(defSel); wrap.appendChild(defCell);
-    // Required
-    var reqLabel = document.createElement('label'); reqLabel.className = 'lg-check';
-    var reqCb = document.createElement('input'); reqCb.type = 'checkbox';
-    reqCb.setAttribute('data-mqg-field', 'required'); reqCb.setAttribute('aria-label', 'Required');
-    reqCb.checked = !!(row && row.required === true); reqCb.addEventListener('change', collectMqgRows);
-    reqLabel.appendChild(reqCb); reqLabel.appendChild(document.createTextNode(' Required')); wrap.appendChild(reqLabel);
-    // Controls: reorder + remove
-    var controls = document.createElement('div'); controls.className = 'lg-choice-row-controls';
-    controls.appendChild(mqgRowMoveBtn(index, -1, index === 0));
-    controls.appendChild(mqgRowMoveBtn(index, 1, index === total - 1));
-    var rm = document.createElement('button'); rm.type = 'button'; rm.className = 'btn btn-sm btn-outline';
-    rm.setAttribute('data-mqg-remove', String(index)); rm.setAttribute('aria-label', 'Remove sub-question'); rm.textContent = '\\u2715';
-    rm.addEventListener('click', function () { removeMqgRow(index); });
-    controls.appendChild(rm); wrap.appendChild(controls);
-    // P5 fix-round (PC-10) — per-row CUSTOM ANSWERS: a toggle + compact
-    // label/value entry list, checked/seeded from the row's OWN 'choices'
-    // when present (HONEST display: an existing override is never hidden —
-    // it renders as live, editable entries, not just a passive summary line).
-    var hasOverride = !!(row && Array.isArray(row.choices) && row.choices.length > 0);
-    var customWrap = document.createElement('div');
-    customWrap.className = 'lg-mqg-row-custom';
-    var customLabel = document.createElement('label'); customLabel.className = 'lg-check';
-    var customCb = document.createElement('input'); customCb.type = 'checkbox';
-    customCb.setAttribute('data-mqg-custom-choices', ''); customCb.checked = hasOverride;
-    customLabel.appendChild(customCb);
-    customLabel.appendChild(document.createTextNode(' Custom answers for this row'));
-    customWrap.appendChild(customLabel);
-    var list = document.createElement('div');
-    list.className = 'lg-mqg-row-choices-list'; list.setAttribute('data-mqg-row-choices-list', '');
-    list.hidden = !hasOverride;
-    var seedChoices = hasOverride ? row.choices : [];
-    var sci, onEntryChange = function () { mqgRowChoicesChanged(wrap, node); };
-    for (sci = 0; sci < seedChoices.length; sci++) { list.appendChild(buildMqgRowChoiceEntry(seedChoices[sci], onEntryChange)); }
-    customWrap.appendChild(list);
-    var addChoiceBtn = document.createElement('button'); addChoiceBtn.type = 'button';
-    addChoiceBtn.className = 'btn btn-sm btn-secondary'; addChoiceBtn.setAttribute('data-mqg-row-choice-add', '');
-    addChoiceBtn.textContent = '+ Add answer'; addChoiceBtn.hidden = !hasOverride;
-    addChoiceBtn.disabled = seedChoices.length >= 4;
-    addChoiceBtn.addEventListener('click', function () {
-      if (list.querySelectorAll('[data-mqg-choice-entry]').length >= 4) { return; }
-      list.appendChild(buildMqgRowChoiceEntry({}, onEntryChange));
-      mqgRowChoicesChanged(wrap, node);
-    });
-    customWrap.appendChild(addChoiceBtn);
-    customCb.addEventListener('change', function () {
-      var checked = customCb.checked;
-      list.hidden = !checked; addChoiceBtn.hidden = !checked;
-      if (checked && list.querySelectorAll('[data-mqg-choice-entry]').length === 0) {
-        // Re-enabling with nothing yet entered: seed from whatever is
-        // CURRENTLY the shared set, so "override" starts from a real, valid
-        // pill pair rather than an empty (immediately-invalid) list.
-        var seed = (node && node.choices && node.choices.length) ? node.choices : [];
-        var i2;
-        for (i2 = 0; i2 < seed.length && i2 < 4; i2++) { list.appendChild(buildMqgRowChoiceEntry(seed[i2], onEntryChange)); }
-      }
-      mqgRowChoicesChanged(wrap, node);
-    });
-    wrap.appendChild(customWrap);
-    return wrap;
-  }
-  function populateMqgRows(node) {
-    var block = document.querySelector('[data-mqg-rows-block]');
-    var isMqg = !!node && node.type === 'MultiQuestionGrid';
-    if (block) { block.hidden = !isMqg; }
-    if (!isMqg) { return; }
-    var cont = mqgRowsContainer();
-    if (!cont) { return; }
-    clearChildren(cont);
-    var rows = readMqgRowsModel(node), i;
-    for (i = 0; i < rows.length; i++) { cont.appendChild(buildMqgRowEditor(node, rows[i], i, rows.length)); }
-  }
-  function collectMqgRows() {
-    var node = selectedNode();
-    if (!node || node.type !== 'MultiQuestionGrid') { return; }
-    var cont = mqgRowsContainer();
-    if (!cont) { return; }
-    var rowEls = cont.querySelectorAll('[data-mqg-row]');
-    var rows = [], i, el, labelEl, fieldEl, defEl, reqEl, row, customCb, choices;
-    for (i = 0; i < rowEls.length; i++) {
-      el = rowEls[i];
-      labelEl = el.querySelector('[data-mqg-field="label"]');
-      fieldEl = el.querySelector('[data-mqg-field="internal_field"]');
-      defEl = el.querySelector('[data-mqg-field="default"]');
-      reqEl = el.querySelector('[data-mqg-field="required"]');
-      row = { label: labelEl ? trimStr(labelEl.value) : '', internal_field: fieldEl ? trimStr(fieldEl.value) : '' };
-      if (defEl && trimStr(defEl.value) !== '') { row['default'] = defEl.value; }
-      if (reqEl && reqEl.checked) { row.required = true; }
-      // P5 fix-round (conductor-flagged residual, PC-10): PRESERVE a per-row
-      // choices override — read THIS row's OWN toggle + entries every time
-      // (never dropped just because an ADJACENT row's field changed and
-      // re-triggered this same collect across every row).
-      customCb = el.querySelector('[data-mqg-custom-choices]');
-      if (customCb && customCb.checked) {
-        choices = readMqgRowChoiceEntries(el);
-        if (choices.length > 0) { row.choices = choices; }
-      }
-      rows.push(row);
-    }
-    if (!node.props) { node.props = {}; }
-    node.props.rows = rows;
-    afterModelChange();
-  }
-  function addMqgRow() {
-    var node = selectedNode();
-    if (!node || node.type !== 'MultiQuestionGrid') { return; }
-    if (!node.props) { node.props = {}; }
-    if (!Array.isArray(node.props.rows)) { node.props.rows = []; }
-    node.props.rows.push({ label: '', internal_field: uniqueMqgRowField() });
-    populateMqgRows(node);
-    afterModelChange();
-  }
-  function removeMqgRow(index) {
-    var node = selectedNode();
-    if (!node || node.type !== 'MultiQuestionGrid' || !node.props || !Array.isArray(node.props.rows)) { return; }
-    node.props.rows.splice(index, 1);
-    populateMqgRows(node);
-    afterModelChange();
-  }
-  function moveMqgRow(index, delta) {
-    var node = selectedNode();
-    if (!node || node.type !== 'MultiQuestionGrid' || !node.props || !Array.isArray(node.props.rows)) { return; }
-    var rows = node.props.rows, j = index + delta;
-    if (j < 0 || j >= rows.length) { return; }
-    var tmp = rows[index]; rows[index] = rows[j]; rows[j] = tmp;
-    populateMqgRows(node);
+    populateOtherEditor(node);
     afterModelChange();
   }
 
@@ -11795,6 +11901,36 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     if (node) { selectComponent(node.question_id); }
   }
+  // Rework §4.1 — the "Questions on one screen" starter. ONE insert seeds 2
+  // independent TwoButtonYesNo scaffolds ("Question 1"/"Question 2", fields
+  // answer1/answer2). Real components, no new data semantics — the author edits
+  // freely from here. ONE atomic history entry (both spliced before the single
+  // afterModelChange).
+  function makeStarterYesNo(labelText, field) {
+    var node = makeNode('TwoButtonYesNo');
+    node.internal_field = field;
+    if (!node.props) { node.props = {}; }
+    node.props.label = labelText;
+    return node;
+  }
+  function insertQuestionsOnOneScreen() {
+    var q1 = makeStarterYesNo('Question 1', 'answer1');
+    var q2 = makeStarterYesNo('Question 2', 'answer2');
+    var target = state.content.components;
+    var at = target.length;
+    if (pendingInsert && pendingInsert.qid) {
+      var pref = findRef(pendingInsert.qid);
+      if (pref && !pref.parent) { at = pref.index + (pendingInsert.where === 'after' ? 1 : 0); }
+      pendingInsert = null;
+      updatePendingUi();
+    } else if (selectedQuestionId) {
+      var sref = findRef(selectedQuestionId);
+      if (sref && !sref.parent) { at = sref.index + 1; }
+    }
+    target.splice(at, 0, q1, q2);
+    afterModelChange();
+    selectComponent(q2.question_id);
+  }
   // §5.6 the "Contact" tile carries data-add-children (comma-separated types)
   // — a full 3-node Stack. v3.1 audit-round G FIX 4: drag now carries these
   // through the 'add:' JSON envelope, so a DRAG insert builds the same
@@ -11819,6 +11955,8 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!btn) { return; }
       // §5.2: a disabled bound item never consumes the armed insertion point.
       if (btn.getAttribute('data-bind-disabled') === 'true') { return; }
+      // Rework §4.1: a starter tile seeds a fixed multi-component scaffold.
+      if (btn.getAttribute('data-add-starter') === 'questions_one_screen') { insertQuestionsOnOneScreen(); return; }
       addFromLibrary(btn.getAttribute('data-add-component'), libraryChildTypesOf(btn), libraryPropsOf(btn));
     });
     // the items are role="button" divs (nested-button validity) — keep the
@@ -11829,6 +11967,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!btn) { return; }
       ev.preventDefault();
       if (btn.getAttribute('data-bind-disabled') === 'true') { return; }
+      if (btn.getAttribute('data-add-starter') === 'questions_one_screen') { insertQuestionsOnOneScreen(); return; }
       addFromLibrary(btn.getAttribute('data-add-component'), libraryChildTypesOf(btn), libraryPropsOf(btn));
     });
     libraryEl.addEventListener('dragstart', function (ev) {
@@ -11844,6 +11983,10 @@ export const SECTION_STUDIO_SCRIPT = `
       if (childTypes) { spec.childTypes = childTypes; }
       var defaultProps = libraryPropsOf(btn);
       if (defaultProps) { spec.defaultProps = defaultProps; }
+      // Rework §4.1: carry the starter marker so a DRAG insert seeds the same
+      // 2-component scaffold as click/keyboard (§5.6 determinism).
+      var starter = btn.getAttribute('data-add-starter');
+      if (starter) { spec.starter = starter; }
       ev.dataTransfer.setData('text/plain', 'add:' + JSON.stringify(spec));
     });
     // §5.1 group collapse/expand: chevron rotates 0→90°, click toggles.
@@ -11945,48 +12088,20 @@ export const SECTION_STUDIO_SCRIPT = `
         if (chipQid !== selectedQuestionId) { selectComponent(chipQid); }
         return;
       }
-      // Round-4 A-3 (P1a, deliverables 2+10): the grid's canvas "Add a
-      // sub-question" affordance (and its zero-row empty-state CTA) — select the
-      // grid, open the Content-tab rows editor, and append a starter row (the
-      // SAME addMqgRow the inspector "+ Add sub-question" button calls).
-      var mqgAddCanvas = ev.target && ev.target.closest ? ev.target.closest('[data-mqg-add-canvas]') : null;
-      if (mqgAddCanvas) {
-        ev.preventDefault();
-        var mqgAddQid = mqgAddCanvas.getAttribute('data-mqg-add-canvas');
-        var mqgAddRef = findRef(mqgAddQid);
-        if (mqgAddRef && mqgAddRef.node.type === 'MultiQuestionGrid') {
-          if (mqgAddQid !== selectedQuestionId) { selectComponent(mqgAddQid); }
-          setInspectorTab('content');
-          addMqgRow();
-        }
-        return;
-      }
       // §6.2 inline choice ops: per-choice ✕ + the "+ Add choice" ghost tile.
       var xBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-x]') : null;
       if (xBtn) {
         var xRef = findRef(xBtn.getAttribute('data-choice-x-qid'));
         if (xRef) {
-          // Round-4 A-3 (P1a, deliverable 3): a grid pill's × must NEVER splice
-          // the shared node.choices — point the operator at the rows/choices
-          // editor instead (defensive: decorateChoiceCards omits the × on grid
-          // pills, so this branch is a belt-and-suspenders guard).
-          if (xRef.node.type === 'MultiQuestionGrid') {
-            if (xRef.node.question_id !== selectedQuestionId) { selectComponent(xRef.node.question_id); }
-            setInspectorTab('content');
-            showRefusal('Edit grid answers in the Sub-questions editor below \\u2014 the pills are shared across every row.');
-          } else {
-            removeChoiceFromNode(xRef.node, xBtn.getAttribute('data-choice-x'));
-            if (selectedQuestionId === xRef.node.question_id) { renderChoiceEditor(xRef.node); }
-          }
+          removeChoiceFromNode(xRef.node, xBtn.getAttribute('data-choice-x'));
+          if (selectedQuestionId === xRef.node.question_id) { renderChoiceEditor(xRef.node); }
         }
         return;
       }
       var ghostBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-ghost]') : null;
       if (ghostBtn) {
         var gRef = findRef(ghostBtn.getAttribute('data-choice-ghost'));
-        // Round-4 A-3 (P1a): NO push into node.choices from the canvas for a
-        // grid (the shared-set save-400 trap) — the grid uses its own affordance.
-        if (gRef && gRef.node.type !== 'MultiQuestionGrid') {
+        if (gRef) {
           var added = addChoiceToNode(gRef.node);
           if (added) { selectChoice(gRef.node.question_id, String(added.value)); }
         }
@@ -12155,7 +12270,11 @@ export const SECTION_STUDIO_SCRIPT = `
         if (payload && payload.charCodeAt(0) === 123) {
           try { var addParsed = JSON.parse(payload); if (addParsed && addParsed.type) { addSpec = addParsed; } } catch (eAdd) { addSpec = { type: payload }; }
         }
-        if (hint.mode === 'into') { placed = addComponentAt(addSpec.type, hint.qid, null, addSpec.childTypes, addSpec.defaultProps); }
+        // Rework §4.1: a dragged starter tile seeds the 2-component scaffold
+        // (same insert as click/keyboard) rather than a single node — it selects
+        // its own result, so placed stays null and the fall-through is unchanged.
+        if (addSpec.starter === 'questions_one_screen') { insertQuestionsOnOneScreen(); }
+        else if (hint.mode === 'into') { placed = addComponentAt(addSpec.type, hint.qid, null, addSpec.childTypes, addSpec.defaultProps); }
         else if (hint.mode === 'before' || hint.mode === 'after') { placed = insertRelative(hint.qid, hint.mode, addSpec.type, addSpec.childTypes, addSpec.defaultProps); }
         else { placed = addComponentAt(addSpec.type, null, null, addSpec.childTypes, addSpec.defaultProps); }
         if (placed) { selectComponent(placed.question_id); }
@@ -12656,6 +12775,12 @@ export const SECTION_STUDIO_SCRIPT = `
   for (bci = 0; bci < borderColorEls.length; bci++) {
     borderColorEls[bci].addEventListener('click', function () { setNodeBorderColor(this.getAttribute('data-set-border-color')); });
   }
+  // Rework §6.6 (#4): the per-node selected-marker segmented (Inherit/Wash/Mark).
+  var selMarkerEls = document.querySelectorAll('[data-set-selected-marker]');
+  var smi;
+  for (smi = 0; smi < selMarkerEls.length; smi++) {
+    selMarkerEls[smi].addEventListener('click', function () { setSelectedMarker(this.getAttribute('data-set-selected-marker')); });
+  }
   var textBlockRoleEl = document.querySelector('[data-text-block-role]');
   if (textBlockRoleEl) { textBlockRoleEl.addEventListener('change', collectTextBlockRole); }
 
@@ -12721,21 +12846,26 @@ export const SECTION_STUDIO_SCRIPT = `
       if (node) { setAcceptFormat(node, this.value); populateInspector(); applyCanvasDecoration(); }
     });
   }
-  // Round-4 P2c (A-6b studio surface): the phone-format preset select +
-  // custom regex/message inputs.
-  var phoneFormatPresetEl = document.querySelector('[data-phone-format-preset]');
-  if (phoneFormatPresetEl) {
-    phoneFormatPresetEl.addEventListener('change', function () {
-      collectPhoneFormat();
-      var node = selectedNode();
-      populatePhoneFormatControls(node);
-    });
+  // Rework §6.9: the phone MASK builder — Format input (live preview + A-10 on
+  // input), the incomplete message, and the prefill chips.
+  var phoneMaskEl = document.querySelector('[data-phone-mask-pattern]');
+  if (phoneMaskEl) {
+    phoneMaskEl.addEventListener('input', collectPhoneFormat);
+    phoneMaskEl.addEventListener('change', collectPhoneFormat);
   }
-  var phoneFormatFieldEls = document.querySelectorAll('[data-phone-format-field]');
-  var pfi;
-  for (pfi = 0; pfi < phoneFormatFieldEls.length; pfi++) {
-    phoneFormatFieldEls[pfi].addEventListener('input', collectPhoneFormat);
-    phoneFormatFieldEls[pfi].addEventListener('change', collectPhoneFormat);
+  var phoneMaskMsgEl = document.querySelector('[data-phone-mask-message]');
+  if (phoneMaskMsgEl) {
+    phoneMaskMsgEl.addEventListener('input', collectPhoneFormat);
+    phoneMaskMsgEl.addEventListener('change', collectPhoneFormat);
+  }
+  var phoneMaskChipEls = document.querySelectorAll('[data-phone-mask-chip]');
+  var pmci;
+  for (pmci = 0; pmci < phoneMaskChipEls.length; pmci++) {
+    phoneMaskChipEls[pmci].addEventListener('click', function () {
+      var el = document.querySelector('[data-phone-mask-pattern]');
+      if (el) { el.value = this.getAttribute('data-phone-mask-chip'); }
+      collectPhoneFormat();
+    });
   }
   var contentModeEls = document.querySelectorAll('[data-set-continue-mode]');
   var cmi;
@@ -12875,25 +13005,65 @@ export const SECTION_STUDIO_SCRIPT = `
   if (choiceAdd) {
     choiceAdd.addEventListener('click', function () {
       var c = choiceContainer();
-      if (c) { c.appendChild(buildChoiceRow({}, false, selectedNode())); }
+      if (c) { c.appendChild(buildChoiceRow({}, selectedNode())); }
     });
   }
-  // P5 (register PC-10): the MultiQuestionGrid "+ Add sub-question" button.
-  var mqgAdd = document.querySelector('[data-mqg-add-row]');
-  if (mqgAdd) { mqgAdd.addEventListener('click', addMqgRow); }
-  // B9 §6.4 grouping controls: the three [data-choicedisplay] inputs fold into
-  // the model through the SAME collect path the choice rows use — an operator
-  // whose LAST edit is the Other-group toggle/label must not lose it on save
-  // (order independence; collectChoices reads rows + group controls together).
-  function wireChoiceDisplayControls() {
-    var els = document.querySelectorAll('[data-choicedisplay]');
-    var i;
-    for (i = 0; i < els.length; i++) {
-      els[i].addEventListener('change', collectChoices);
-      els[i].addEventListener('input', collectChoices);
-    }
+  // Rework §6.5: the authored "Other" values editor controls — enable toggle
+  // (seeds a starter value + collects), Other label, and "+ Add value" (the
+  // per-row inputs wire themselves in buildOtherValueRow). Replaces the removed
+  // [data-choicedisplay] Other-group grouping controls (§10).
+  var otherEnabledEl = document.querySelector('[data-other-enabled]');
+  if (otherEnabledEl) { otherEnabledEl.addEventListener('change', toggleOtherEnabled); }
+  var otherLabelEl = document.querySelector('[data-other-label]');
+  if (otherLabelEl) {
+    otherLabelEl.addEventListener('input', collectOther);
+    otherLabelEl.addEventListener('change', collectOther);
   }
-  wireChoiceDisplayControls();
+  var otherAddEl = document.querySelector('[data-other-add]');
+  if (otherAddEl) {
+    otherAddEl.addEventListener('click', function () {
+      var listEl = document.querySelector('[data-other-values]');
+      if (listEl) { listEl.appendChild(buildOtherValueRow({})); }
+    });
+  }
+  // Rework §6.10: the address field-set editor — "+ Add field" toggles the
+  // unused-enum menu, "Plain text address" preset, and native drag reorder via
+  // the handle (the row up/down buttons are the a11y equivalent).
+  var addressAddEl = document.querySelector('[data-address-add]');
+  if (addressAddEl) {
+    addressAddEl.addEventListener('click', function () {
+      var menu = document.querySelector('[data-address-add-menu]');
+      if (menu) { menu.hidden = !menu.hidden; }
+    });
+  }
+  var addressPresetEl = document.querySelector('[data-address-preset-plain]');
+  if (addressPresetEl) { addressPresetEl.addEventListener('click', applyAddressPresetPlain); }
+  var addressRowsEl = document.querySelector('[data-address-rows]');
+  if (addressRowsEl) {
+    var addrDragRow = null;
+    addressRowsEl.addEventListener('mousedown', function (ev) {
+      var h = ev.target && ev.target.closest ? ev.target.closest('[data-address-drag-handle]') : null;
+      var row = h && h.closest ? h.closest('[data-address-row]') : null;
+      if (row) { row.setAttribute('draggable', 'true'); }
+    });
+    addressRowsEl.addEventListener('dragstart', function (ev) {
+      var row = ev.target && ev.target.closest ? ev.target.closest('[data-address-row]') : null;
+      if (row) { addrDragRow = row; row.className = 'studio-addr-row studio-addr-dragging'; }
+    });
+    addressRowsEl.addEventListener('dragover', function (ev) {
+      if (!addrDragRow) { return; }
+      ev.preventDefault();
+      var over = ev.target && ev.target.closest ? ev.target.closest('[data-address-row]') : null;
+      if (!over || over === addrDragRow) { return; }
+      var rect = over.getBoundingClientRect();
+      if (ev.clientY < rect.top + rect.height / 2) { addressRowsEl.insertBefore(addrDragRow, over); }
+      else { addressRowsEl.insertBefore(addrDragRow, over.nextSibling); }
+    });
+    addressRowsEl.addEventListener('drop', function (ev) { ev.preventDefault(); });
+    addressRowsEl.addEventListener('dragend', function () {
+      if (addrDragRow) { addrDragRow.className = 'studio-addr-row'; addrDragRow.removeAttribute('draggable'); addrDragRow = null; collectAddressFields(); }
+    });
+  }
   var bulkApply = document.getElementById('lg-choice-bulk-apply');
   if (bulkApply) { bulkApply.addEventListener('click', applyBulkPaste); }
   var jsonApply = document.getElementById('lg-node-json-apply');
@@ -12969,12 +13139,15 @@ export const SECTION_STUDIO_SCRIPT = `
       if (cNode && setCardStyle(cNode, this.getAttribute('data-card-style'))) { selectComponent(selectedQuestionId); }
     });
   }
-  var sliderFormatBtnEl = document.querySelector('[data-toolbar-slider-format]');
-  if (sliderFormatBtnEl) {
-    sliderFormatBtnEl.addEventListener('click', function () {
-      var rNode = selectedNode();
-      if (rNode && toggleSliderFormat(rNode)) { selectComponent(selectedQuestionId); }
-    });
+  // Rework §6.8: the slider TYPE thumbnails + the currency-affix toggle.
+  var sliderTypeEls = document.querySelectorAll('[data-set-slider-type]');
+  var stwi;
+  for (stwi = 0; stwi < sliderTypeEls.length; stwi++) {
+    sliderTypeEls[stwi].addEventListener('click', function () { setSliderType(this.getAttribute('data-set-slider-type')); });
+  }
+  var currencyAffixEl = document.querySelector('[data-slider-currency-affix]');
+  if (currencyAffixEl) {
+    currencyAffixEl.addEventListener('change', function () { setCurrencyAffix(this.checked); });
   }
   // §9.5 Section-overrides drawer controls.
   var sectionRoleEls = document.querySelectorAll('[data-section-role], [data-section-columns-default], [data-section-gap-default]');

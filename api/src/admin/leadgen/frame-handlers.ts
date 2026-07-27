@@ -25,7 +25,9 @@ import {
   FRAME_TEMPLATE_IDS,
   computeTemplateSwitch,
   effectiveFrame,
+  parseSavedFrameTemplateDefaults,
   validateFrameConfig,
+  type EffectiveFrameConfig,
   type FrameTemplateDef,
   type StoredFrameConfig,
 } from "../../public/leadgen/designs/frames";
@@ -34,7 +36,8 @@ import type { Problem, ThemeIdRef, ThemeJson } from "../../public/leadgen/design
 import { getFunnelDesign } from "../../public/leadgen/designs/registry";
 import { resolveSiteBranding } from "../../leadgen/branding";
 import { escapeHtml } from "../templates/layout";
-import { parseJsonColumn, readJsonBody, type AdminContext } from "./offers-handlers";
+import { idSelector, parseJsonColumn, readJsonBody, type AdminContext } from "./offers-handlers";
+import { mintPublicId } from "../../leadgen/ids";
 // v3.1 §10.1: a funnel's theme_json may reference a KV `lg-funnel-themes`
 // record ({theme_id}) instead of the legacy inline shape — this module owns
 // the funnel PUT /funnels/:id/theme write path, so it performs the
@@ -47,7 +50,7 @@ import {
   readFunnelVariants,
   resolveFunnelRow,
 } from "./quotes-handlers";
-import type { LeadgenFunnelRow } from "./db-types";
+import type { LeadgenFrameTemplateRow, LeadgenFunnelRow } from "./db-types";
 
 // ---------------------------------------------------------------------------
 // small local helpers
@@ -65,10 +68,11 @@ function parsedJsonRecord(raw: string | null | undefined): Record<string, unknow
   return isRecord(parsed) ? parsed : null;
 }
 
-// The theme editor resolves swatches against the CONTROL variant's base
-// design (04 §4.8 — `funnel_design_id` stays a Variant field, 03 §3.2); the
-// control is the is_control-DESC head of the funnel's variants. A variantless
-// funnel degrades to the default design (the registry fallback rule).
+// The theme editor resolves swatches against the funnel's base-design head
+// (04 §4.8 — `funnel_design_id` stays a Variant field, 03 §3.2). Rework M1
+// (§4.3-10): no is_control axis — readFunnelVariants orders variant_label ASC,
+// so [0] is the funnel's single active variant (label 'A' with no test). A
+// variantless funnel degrades to the default design (the registry fallback).
 async function funnelBaseDesignId(db: D1Database, funnel: LeadgenFunnelRow): Promise<string> {
   const variants = await readFunnelVariants(db, funnel.id);
   return variants[0]?.funnel_design_id ?? "default";
@@ -78,11 +82,37 @@ async function funnelBaseDesignId(db: D1Database, funnel: LeadgenFunnelRow): Pro
 // GET/PUT /funnels/:id/frame (04 §4.8 rows 1–2)
 // ---------------------------------------------------------------------------
 
+// Rework M5 (§5, S2.2 follow-up): resolves a funnel's saved frame-template
+// defaults (frame_template_id → leadgen_frame_templates.frame_json) for
+// frameProjection's 4th effectiveFrame arg. This route is funnel-only (no
+// variant param), so the general M5 order (variant.frame_template_id ??
+// funnel.frame_template_id) collapses to funnel.frame_template_id alone —
+// reuses resolveFrameTemplateRow below for the actual row fetch (numeric id,
+// stringified — the SAME dual public_id/numeric selector that function's own
+// route callers use). NULL ftid or a since-deleted/corrupt row ⇒ null ⇒
+// frameProjection omits effectiveFrame's 4th arg ⇒ byte-identical legacy.
+async function resolveSavedFrameTemplateDefaults(
+  db: D1Database,
+  ftid: number | null,
+): Promise<EffectiveFrameConfig | null> {
+  if (ftid === null) return null;
+  const row = await resolveFrameTemplateRow(db, String(ftid));
+  return row === null ? null : parseSavedFrameTemplateDefaults(row.frame_json);
+}
+
 // The shared GET/PUT-success projection: the stored sparse config, the
 // effective frame (template ⊕ stored — what preview uses, ONE merge
 // implementation, 13 §13.2), and the CURRENT template's registry defaults.
-function frameProjection(stored: Record<string, unknown> | null): Record<string, unknown> {
-  const { frame, problems } = effectiveFrame(stored as StoredFrameConfig | null);
+function frameProjection(
+  stored: Record<string, unknown> | null,
+  savedTemplateDefaults: EffectiveFrameConfig | null,
+): Record<string, unknown> {
+  const { frame, problems } = effectiveFrame(
+    stored as StoredFrameConfig | null,
+    undefined,
+    undefined,
+    savedTemplateDefaults,
+  );
   return {
     frame_config: stored,
     effective_frame: frame,
@@ -110,7 +140,8 @@ export async function getFunnelFrameHandler(c: AdminContext): Promise<Response> 
     return c.json({ merged, confirmations });
   }
 
-  const projection = frameProjection(stored);
+  const savedDefaults = await resolveSavedFrameTemplateDefaults(c.env.DB, funnel.frame_template_id);
+  const projection = frameProjection(stored, savedDefaults);
   // Additive §3.6: a stored config's validation rows (e.g. the §4.4 manual-
   // logo warning, or drift errors the preflight also reports) surface on load
   // so the builder opens with the truth. NULL column = legacy → no rows.
@@ -142,6 +173,8 @@ export async function putFunnelFrameHandler(c: AdminContext): Promise<Response> 
     return c.json({ error: "Validation failed", problems: validation.problems }, 400);
   }
 
+  const savedDefaults = await resolveSavedFrameTemplateDefaults(c.env.DB, funnel.frame_template_id);
+
   // No-op save guard (DEV-57): the Quote Builder's one-Save chain re-PUTs the
   // frame on every Save, and the content_version bump is a full visitor-cache
   // invalidation (03 §3.1). A byte-identical config — the EXACT stored TEXT
@@ -150,7 +183,7 @@ export async function putFunnelFrameHandler(c: AdminContext): Promise<Response> 
   // `bumped_variants: 0` so the island flow is unchanged.
   const serialized = JSON.stringify(raw);
   if (funnel.frame_config_json === serialized) {
-    const projection = frameProjection(raw);
+    const projection = frameProjection(raw, savedDefaults);
     projection["problems"] = [...validation.problems, ...(projection["problems"] as Problem[])];
     projection["bumped_variants"] = 0;
     return c.json(projection);
@@ -164,7 +197,7 @@ export async function putFunnelFrameHandler(c: AdminContext): Promise<Response> 
   // 03 §3.1: the bump is what makes a frame edit reach visitors.
   const bumped = await bumpActiveVariantContentVersions(c.env.DB, funnel.id);
 
-  const projection = frameProjection(raw);
+  const projection = frameProjection(raw, savedDefaults);
   projection["problems"] = [...validation.problems, ...(projection["problems"] as Problem[])];
   projection["bumped_variants"] = bumped;
   return c.json(projection);
@@ -346,5 +379,234 @@ export async function getSiteBrandingHandler(c: AdminContext): Promise<Response>
     // §10.5: has_logo drives the preview-selector + preflight copy (§10.4 —
     // false = the funnel shows the site name as a text mark).
     has_logo: branding.logo_url !== null,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Rework M5 (§5-M5, §11D) — saved frame templates (leadgen_frame_templates).
+// The DB-backed template records the Templates tab creates / saves-as / renames
+// / duplicates / deletes (in-use guarded) + the ONE is_default (atomic swap) +
+// "Apply to funnel…" (sets leadgen_funnels.frame_template_id). listFrameTemplates
+// Handler above stays the CODE registry projection (thumbnails/arrangement);
+// these handlers are the persisted saved-template surface.
+// ---------------------------------------------------------------------------
+
+function frameTemplateRowToApi(row: LeadgenFrameTemplateRow): Record<string, unknown> {
+  return {
+    ...row,
+    frame_json: parseJsonColumn(row.frame_json),
+    is_default: row.is_default !== 0,
+  };
+}
+
+async function resolveFrameTemplateRow(db: D1Database, idParam: string): Promise<LeadgenFrameTemplateRow | null> {
+  const selector = idSelector("frame_template", idParam);
+  if (selector === null) return null;
+  const sql =
+    selector.column === "id"
+      ? "SELECT * FROM leadgen_frame_templates WHERE id = ? LIMIT 1"
+      : "SELECT * FROM leadgen_frame_templates WHERE public_id = ? LIMIT 1";
+  return (await db.prepare(sql).bind(selector.value).first<LeadgenFrameTemplateRow>()) ?? null;
+}
+
+// name (≤60, required, unique) + frame_json (a FrameConfig defaults object that
+// validateFrameConfig accepts with zero error-severity problems). Returns
+// {name, frameJson} or a field error.
+async function validateTemplateInput(
+  db: D1Database,
+  body: Record<string, unknown>,
+  existing: LeadgenFrameTemplateRow | null,
+): Promise<{ name: string; frameJson: string | null; errors: Record<string, string> }> {
+  const errors: Record<string, string> = {};
+  let name = existing?.name ?? "";
+  if (existing === null || body["name"] !== undefined) {
+    const raw = typeof body["name"] === "string" ? body["name"].trim() : "";
+    if (raw === "") errors["name"] = "name is required";
+    else if (raw.length > 60) errors["name"] = "name must be at most 60 characters";
+    else {
+      const clash = await db
+        .prepare("SELECT id FROM leadgen_frame_templates WHERE name = ? AND id != ? LIMIT 1")
+        .bind(raw, existing?.id ?? -1)
+        .first<{ id: number }>();
+      if (clash) errors["name"] = `a template named '${raw}' already exists`;
+      else name = raw;
+    }
+  }
+
+  let frameJson: string | null = existing?.frame_json ?? null;
+  if (existing === null || body["frame_json"] !== undefined) {
+    const raw = body["frame_json"];
+    if (!isRecord(raw)) errors["frame_json"] = "frame_json must be a JSON object";
+    else {
+      const validation = validateFrameConfig(raw);
+      if (validation.config === null) {
+        errors["frame_json"] = "frame_json failed validation";
+      } else {
+        frameJson = JSON.stringify(raw);
+      }
+    }
+  }
+  return { name, frameJson, errors };
+}
+
+// GET /frame-template-records — the saved (DB) templates.
+export async function listFrameTemplateRecordsHandler(c: AdminContext): Promise<Response> {
+  const rows = await c.env.DB.prepare(
+    "SELECT * FROM leadgen_frame_templates ORDER BY is_default DESC, id ASC",
+  ).all<LeadgenFrameTemplateRow>();
+  return c.json({ items: (rows.results ?? []).map(frameTemplateRowToApi) });
+}
+
+// GET /frame-template-records/:id
+export async function getFrameTemplateHandler(c: AdminContext): Promise<Response> {
+  const row = await resolveFrameTemplateRow(c.env.DB, c.req.param("id") ?? "");
+  if (row === null) return c.json({ error: "Not Found" }, 404);
+  return c.json(frameTemplateRowToApi(row));
+}
+
+// POST /frame-template-records — create / save-as (name + frame_json).
+export async function createFrameTemplateHandler(c: AdminContext): Promise<Response> {
+  const body = (await readJsonBody(c)) ?? {};
+  const { name, frameJson, errors } = await validateTemplateInput(c.env.DB, body, null);
+  if (Object.keys(errors).length > 0 || frameJson === null) {
+    return c.json({ error: "Validation failed", fields: errors }, 400);
+  }
+  const publicId = mintPublicId("frame_template");
+  await c.env.DB.prepare(
+    "INSERT INTO leadgen_frame_templates (public_id, name, frame_json, is_default) VALUES (?, ?, ?, 0)",
+  )
+    .bind(publicId, name, frameJson)
+    .run();
+  const row = await c.env.DB.prepare("SELECT * FROM leadgen_frame_templates WHERE public_id = ? LIMIT 1")
+    .bind(publicId)
+    .first<LeadgenFrameTemplateRow>();
+  if (!row) return c.json({ error: "Insert failed" }, 500);
+  return c.json(frameTemplateRowToApi(row), 201);
+}
+
+// PATCH /frame-template-records/:id — rename and/or replace frame_json.
+export async function updateFrameTemplateHandler(c: AdminContext): Promise<Response> {
+  const existing = await resolveFrameTemplateRow(c.env.DB, c.req.param("id") ?? "");
+  if (existing === null) return c.json({ error: "Not Found" }, 404);
+  const body = await readJsonBody(c);
+  if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
+  const { name, frameJson, errors } = await validateTemplateInput(c.env.DB, body, existing);
+  if (Object.keys(errors).length > 0) return c.json({ error: "Validation failed", fields: errors }, 400);
+  await c.env.DB.prepare(
+    "UPDATE leadgen_frame_templates SET name = ?, frame_json = ?, updated_at = unixepoch() WHERE id = ?",
+  )
+    .bind(name, frameJson ?? existing.frame_json, existing.id)
+    .run();
+  const row = await c.env.DB.prepare("SELECT * FROM leadgen_frame_templates WHERE id = ? LIMIT 1")
+    .bind(existing.id)
+    .first<LeadgenFrameTemplateRow>();
+  if (!row) return c.json({ error: "Update failed" }, 500);
+  return c.json(frameTemplateRowToApi(row));
+}
+
+// POST /frame-template-records/:id/duplicate — copy (new lgft_, name "(copy)",
+// never the default).
+export async function duplicateFrameTemplateHandler(c: AdminContext): Promise<Response> {
+  const src = await resolveFrameTemplateRow(c.env.DB, c.req.param("id") ?? "");
+  if (src === null) return c.json({ error: "Not Found" }, 404);
+  // Find a free "(copy)" name (unique constraint on name).
+  let name = `${src.name} (copy)`;
+  if (name.length > 60) name = `${src.name.slice(0, 54)} (copy)`;
+  for (let n = 2; ; n++) {
+    const clash = await c.env.DB.prepare("SELECT id FROM leadgen_frame_templates WHERE name = ? LIMIT 1").bind(name).first<{ id: number }>();
+    if (!clash) break;
+    name = `${src.name} (copy ${n})`;
+    if (name.length > 60) name = `${src.name.slice(0, 48)} (copy ${n})`;
+  }
+  const publicId = mintPublicId("frame_template");
+  await c.env.DB.prepare(
+    "INSERT INTO leadgen_frame_templates (public_id, name, frame_json, is_default) VALUES (?, ?, ?, 0)",
+  )
+    .bind(publicId, name, src.frame_json)
+    .run();
+  const row = await c.env.DB.prepare("SELECT * FROM leadgen_frame_templates WHERE public_id = ? LIMIT 1")
+    .bind(publicId)
+    .first<LeadgenFrameTemplateRow>();
+  if (!row) return c.json({ error: "Duplicate failed" }, 500);
+  return c.json({ ...frameTemplateRowToApi(row), duplicated_from: src.public_id }, 201);
+}
+
+// PUT /frame-template-records/:id/default — SET-DEFAULT as an ATOMIC SWAP: clear
+// the current default, set this one, in ONE batch (the partial unique index
+// uq_lg_frame_templates_default forbids two =1, so clear MUST precede set).
+export async function setDefaultFrameTemplateHandler(c: AdminContext): Promise<Response> {
+  const row = await resolveFrameTemplateRow(c.env.DB, c.req.param("id") ?? "");
+  if (row === null) return c.json({ error: "Not Found" }, 404);
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE leadgen_frame_templates SET is_default = 0, updated_at = unixepoch() WHERE is_default = 1"),
+    c.env.DB.prepare("UPDATE leadgen_frame_templates SET is_default = 1, updated_at = unixepoch() WHERE id = ?").bind(row.id),
+  ]);
+  const updated = await c.env.DB.prepare("SELECT * FROM leadgen_frame_templates WHERE id = ? LIMIT 1")
+    .bind(row.id)
+    .first<LeadgenFrameTemplateRow>();
+  if (!updated) return c.json({ error: "Update failed" }, 500);
+  return c.json(frameTemplateRowToApi(updated));
+}
+
+// DELETE /frame-template-records/:id — §4.3-14 in-use guard: a template cannot
+// be deleted while ANY funnel or variant references it (409 naming referrers).
+export async function deleteFrameTemplateHandler(c: AdminContext): Promise<Response> {
+  const row = await resolveFrameTemplateRow(c.env.DB, c.req.param("id") ?? "");
+  if (row === null) return c.json({ error: "Not Found" }, 404);
+  const funnelRefs = await c.env.DB.prepare(
+    "SELECT public_id, funnel_name FROM leadgen_funnels WHERE frame_template_id = ? ORDER BY id ASC",
+  )
+    .bind(row.id)
+    .all<{ public_id: string; funnel_name: string }>();
+  const variantRefs = await c.env.DB.prepare(
+    "SELECT public_id, variant_label FROM leadgen_funnel_variants WHERE frame_template_id = ? ORDER BY id ASC",
+  )
+    .bind(row.id)
+    .all<{ public_id: string; variant_label: string }>();
+  const funnels = funnelRefs.results ?? [];
+  const variants = variantRefs.results ?? [];
+  if (funnels.length > 0 || variants.length > 0) {
+    return c.json(
+      {
+        error: `Can't delete template '${row.name}': it is in use.`,
+        in_use: {
+          funnels: funnels.map((f) => ({ public_id: f.public_id, name: f.funnel_name })),
+          variants: variants.map((v) => ({ public_id: v.public_id, label: v.variant_label })),
+        },
+      },
+      409,
+    );
+  }
+  await c.env.DB.prepare("DELETE FROM leadgen_frame_templates WHERE id = ?").bind(row.id).run();
+  return c.json({ ok: true, id: row.id, public_id: row.public_id, deleted: true });
+}
+
+// POST /funnels/:id/apply-template — "Apply to funnel…": set the funnel's base
+// template (leadgen_funnels.frame_template_id) and bump its active variants so
+// visitors get the new layout (03 §3.1). {template_id:null} clears it (→ the
+// funnel falls back to frame_config_json.template, effectiveFrame's behavior).
+export async function applyFrameTemplateToFunnelHandler(c: AdminContext): Promise<Response> {
+  const funnel = await resolveFunnelRow(c.env.DB, c.req.param("id") ?? "");
+  if (funnel === null) return c.json({ error: "Not Found" }, 404);
+  const body = (await readJsonBody(c)) ?? {};
+  const raw = body["template_id"] ?? body["frame_template_id"] ?? null;
+  let templateId: number | null = null;
+  if (raw !== null && raw !== undefined && raw !== "") {
+    const tpl = await resolveFrameTemplateRow(c.env.DB, String(raw));
+    if (tpl === null) {
+      return c.json({ error: "Validation failed", fields: { template_id: "template does not exist" } }, 400);
+    }
+    templateId = tpl.id;
+  }
+  await c.env.DB.prepare("UPDATE leadgen_funnels SET frame_template_id = ?, updated_at = unixepoch() WHERE id = ?")
+    .bind(templateId, funnel.id)
+    .run();
+  const bumped = await bumpActiveVariantContentVersions(c.env.DB, funnel.id);
+  const updated = await resolveFunnelRow(c.env.DB, String(funnel.id));
+  return c.json({
+    funnel_id: funnel.public_id,
+    frame_template_id: templateId,
+    bumped_variants: bumped,
+    funnel: updated,
   });
 }

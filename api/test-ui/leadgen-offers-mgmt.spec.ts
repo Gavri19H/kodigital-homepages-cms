@@ -196,9 +196,14 @@ test.describe.serial('LeadGen Offers — §7.7 management browser flows (A1–A3
       if (r.method() === 'POST' && r.url().includes('/duplicate')) dupPosts.push(r.url());
     });
 
-    // §7.1 kebab → Duplicate.
+    // §7.1 kebab → Duplicate. Product-fix round (S2.4 admin-UI, root-cause):
+    // the kebab menu now portals to <body> on open (layout.ts kebabMenuScript
+    // — the SAME fix every other admin list already uses), so the menu ITEMS
+    // are no longer descendants of `row` once opened; the toggle itself stays
+    // put (row-scoped), but the menu item locator is now page-scoped,
+    // disambiguated by data-offer-name (every row's item carries it).
     await row.getByRole('button', { name: /More actions/i }).click();
-    await row.locator('[data-offer-duplicate]').click();
+    await page.locator(`[data-offer-duplicate][data-offer-name="${srcName}"]`).click();
     const modal = page.locator('#lg-offer-duplicate-modal');
     await expect(modal).toBeVisible();
     // Name prefilled "<name> (copy)"; the default placement id starts EMPTY
@@ -251,7 +256,10 @@ test.describe.serial('LeadGen Offers — §7.7 management browser flows (A1–A3
     await page.goto(`/admin/leadgen/offers?search=${uniq}`, { waitUntil: 'domcontentloaded' });
     const row = page.locator(`tr[data-entity-name="${name}"]`);
     await row.getByRole('button', { name: /More actions/i }).click();
-    await row.locator('[data-offer-delete]').click();
+    // Product-fix round (S2.4 admin-UI, root-cause): page-scoped, not
+    // row-scoped — see the ① comment above for why (the menu portals to
+    // <body> on open; the toggle stays row-scoped, the item does not).
+    await page.locator(`[data-offer-delete][data-offer-name="${name}"]`).click();
     const modal = page.locator('#lg-offer-delete-modal');
     await expect(modal).toBeVisible();
     await expect(modal.locator('[data-delete-offer-name]').first()).toHaveText(name);
@@ -289,7 +297,8 @@ test.describe.serial('LeadGen Offers — §7.7 management browser flows (A1–A3
     await page.goto(`/admin/leadgen/offers?search=${uniq}`, { waitUntil: 'domcontentloaded' });
     const row = page.locator(`tr[data-entity-name="${referencedOfferName}"]`);
     await row.getByRole('button', { name: /More actions/i }).click();
-    await row.locator('[data-offer-usage]').click();
+    // Product-fix round (S2.4 admin-UI, root-cause): page-scoped (see ① comment).
+    await page.locator(`[data-offer-usage][data-offer-name="${referencedOfferName}"]`).click();
 
     const dialog = page.locator('#lg-dialog');
     await expect(dialog).toBeVisible();
@@ -316,7 +325,8 @@ test.describe.serial('LeadGen Offers — §7.7 management browser flows (A1–A3
     await page.goto(`/admin/leadgen/offers?search=${uniq}`, { waitUntil: 'domcontentloaded' });
     const row = page.locator(`tr[data-entity-name="${referencedOfferName}"]`);
     await row.getByRole('button', { name: /More actions/i }).click();
-    await row.locator('[data-offer-delete]').click();
+    // Product-fix round (S2.4 admin-UI, root-cause): page-scoped (see ① comment).
+    await page.locator(`[data-offer-delete][data-offer-name="${referencedOfferName}"]`).click();
     await page.locator('#lg-del-confirm').fill(referencedOfferName);
     await expect(page.locator('#lg-del-submit')).toBeEnabled();
     await page.locator('#lg-del-submit').click();

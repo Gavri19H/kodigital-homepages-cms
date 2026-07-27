@@ -209,7 +209,7 @@ describe("leadgen ids — ULID shape", () => {
   });
 });
 
-describe("leadgen ids — the fifteen entity prefixes (02 §6.1 + §6.3; lgpg_ added round4 P3a)", () => {
+describe("leadgen ids — the seventeen entity prefixes (02 §6.1 + §6.3; lgpg_ added round4 P3a; lgqr_/lgft_ added by the rework M3/M5)", () => {
   const expected: Record<PublicIdKind, string> = {
     offer: "lgo_",
     offer_placement: "lgpl_",
@@ -226,11 +226,13 @@ describe("leadgen ids — the fifteen entity prefixes (02 §6.1 + §6.3; lgpg_ a
     auction_rule: "lgar_",
     link_click: "lgl_",
     funnel_page: "lgpg_",
+    quote_routing_rule: "lgqr_",
+    frame_template: "lgft_",
   };
 
-  it("exposes exactly the fifteen contract prefixes", () => {
+  it("exposes exactly the seventeen contract prefixes", () => {
     expect(PUBLIC_ID_PREFIXES).toEqual(expected);
-    expect(Object.keys(PUBLIC_ID_PREFIXES)).toHaveLength(15);
+    expect(Object.keys(PUBLIC_ID_PREFIXES)).toHaveLength(17);
   });
 
   for (const [kind, prefix] of Object.entries(expected) as Array<[PublicIdKind, string]>) {

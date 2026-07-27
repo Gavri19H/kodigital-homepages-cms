@@ -167,7 +167,9 @@ describe("P6a deliverable 2 — display size ramp", () => {
 describe("P6a deliverable 3 — button-style sub-schema", () => {
   it("fill/layout/selected are closed enums with precise validation paths", () => {
     expect([...THEME_BUTTON_STYLES]).toEqual(["fill", "outline", "soft"]);
-    expect([...THEME_BUTTON_LAYOUTS]).toEqual(["grid", "list"]);
+    // §8.4 (Card render axis): "card" joined the enum — button groups render
+    // title/subtitle tscards under this layout (theme.ts/presets.ts/styles.ts).
+    expect([...THEME_BUTTON_LAYOUTS]).toEqual(["grid", "list", "card"]);
     expect([...THEME_BUTTON_SELECTED_STYLES]).toEqual(["wash", "mark"]);
     expect(validateTheme({ button_defaults: { fill: "soft" } }).problems).toHaveLength(0);
     expect(validateTheme({ button_defaults: { fill: "glossy" } }).problems[0]?.path).toBe("theme.button_defaults.fill");

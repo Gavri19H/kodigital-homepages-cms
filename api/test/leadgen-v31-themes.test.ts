@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
+import { mintPublicId } from "../src/leadgen/ids";
 import type { Env } from "../src/env";
 import {
   isThemeIdRef,
@@ -385,6 +386,10 @@ function makeKvStub(): KVNamespace {
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 
+// Rework P1 coherence sweep (conductor-consolidated round): brought
+// current through 0053 (was stale) so this harness's D1 schema matches
+// the real Wave-1 shape (handlers now write M1/M2/M4/M5 columns/tables
+// this file's schema never had).
 const LEADGEN_MIGRATIONS = [
   "0036_leadgen_core.sql",
   "0037_leadgen_analytics_mirror.sql",
@@ -393,6 +398,17 @@ const LEADGEN_MIGRATIONS = [
   "0040_leadgen_runtime_context.sql",
   "0041_leadgen_frame_theme.sql",
   "0042_leadgen_pages.sql",
+  "0043_leadgen_routing_rules.sql",
+  "0044_leadgen_redirect_pct.sql",
+  "0045_leadgen_persona_quota.sql",
+  "0046_leadgen_rework_m1_variants.sql",
+  "0047_leadgen_rework_m2_shared_pages.sql",
+  "0048_leadgen_rework_m3_routing.sql",
+  "0049_leadgen_rework_m4_m5_defaults_templates.sql",
+  "0050_leadgen_rework_m6_grid_expansion.sql",
+  "0051_leadgen_rework_m7_slider_collapse.sql",
+  "0052_leadgen_rework_m9_address_fields.sql",
+  "0053_leadgen_rework_m12_othergroup_retirement.sql",
 ] as const;
 
 const API = "/api/admin/leadgen";
@@ -446,6 +462,11 @@ function jsonInit(method: string, body?: unknown): RequestInit {
 function newEnv(): Env {
   const sdb = createDb(DatabaseSync as DatabaseSyncCtor);
   return buildEnv(d1FromSqlite(sdb), makeKvStub());
+}
+
+function newEnvWithDb(): { sdb: SqliteDb; env: Env } {
+  const sdb = createDb(DatabaseSync as DatabaseSyncCtor);
+  return { sdb, env: buildEnv(d1FromSqlite(sdb), makeKvStub()) };
 }
 
 const VALID_THEME_BODY = {
@@ -765,7 +786,19 @@ interface ActivatedFunnel {
   variantPublicId: string;
 }
 
-async function createActivatedFunnel(env: Env, siteId: string, slug: string): Promise<ActivatedFunnel> {
+function seedSectionMinimal(sdb: SqliteDb, name: string): { id: number; public_id: string } {
+  const publicId = mintPublicId("section");
+  const content = JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q1", question_key: "k", internal_field: "f", answer_type: "boolean" }] });
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, ?, 'quote_funnel', 'life', 'Headline', ?, 'button', 'active')",
+    )
+    .run(publicId, name, content);
+  const row = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(publicId) as { id: number };
+  return { id: row.id, public_id: publicId };
+}
+
+async function createActivatedFunnel(sdb: SqliteDb, env: Env, siteId: string, slug: string): Promise<ActivatedFunnel> {
   const createRes = await admin.request(
     `${API}/quotes`,
     jsonInit("POST", { quote_name: `Invalidation Quote ${slug}`, activity: "quote_funnel", verticals: ["life"] }),
@@ -773,11 +806,36 @@ async function createActivatedFunnel(env: Env, siteId: string, slug: string): Pr
   );
   expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
   const created = (await createRes.json()) as {
+    id: number;
     public_id: string;
     funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
   };
   const funnelPublicId = created.funnels[0]!.public_id;
   const variantPublicId = created.funnels[0]!.variants[0]!.public_id;
+
+  // Rework M2/M4 (§4.3-1, §4.3-15): activation now also requires (a) every
+  // active funnel to have ≥1 page with ≥1 section (its active variant), and
+  // (b) the quote's shared first page to carry ≥1 section — sections
+  // distinct per §4.3-13 uniqueness. Route wiring for POST/PUT
+  // /quotes/:id/shared-page is mid-flight in another round, so both are
+  // seeded via SQL directly (mirrors leadgen-rework-handlers.test.ts /
+  // leadgen-rework-routing.test.ts's own quote_id/variant_id axis split).
+  const ownSection = seedSectionMinimal(sdb, `Own ${slug}`);
+  const putRes = await admin.request(
+    `${API}/variants/${variantPublicId}`,
+    jsonInit("PUT", { sections: [{ section_id: ownSection.id }] }),
+    env,
+  );
+  expect(putRes.status, `put sections: ${await putRes.clone().text()}`).toBe(200);
+  const sharedSection = seedSectionMinimal(sdb, `Shared ${slug}`);
+  const sharedPagePublicId = mintPublicId("funnel_page");
+  sdb.prepare("INSERT INTO leadgen_funnel_pages (public_id, quote_id, position, name) VALUES (?, ?, 0, NULL)").run(sharedPagePublicId, created.id);
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_funnel_variant_sections (quote_id, section_id, position, page_id)
+       VALUES (?, ?, 0, (SELECT id FROM leadgen_funnel_pages WHERE public_id = ?))`,
+    )
+    .run(created.id, sharedSection.id, sharedPagePublicId);
 
   const actRes = await admin.request(
     `${API}/quotes/${created.public_id}/activation/${siteId}`,
@@ -797,7 +855,7 @@ function configKey(site: string, funnel: string, variant: string): string {
 
 describeDb("theme-edit cache invalidation (v3.1 §10.4/§12, fix round 2)", () => {
   it("PATCH with a real content change invalidates the REFERENCED funnel's shell+config on every activated site; an unreferenced funnel's keys survive (funnel-narrowed)", async () => {
-    const env = newEnv();
+    const { sdb, env } = newEnvWithDb();
     const theme = (
       (await (await admin.request(`${API}/themes`, jsonInit("POST", VALID_THEME_BODY), env)).json()) as {
         item: ThemeRecord;
@@ -805,7 +863,7 @@ describeDb("theme-edit cache invalidation (v3.1 §10.4/§12, fix round 2)", () =
     ).item;
 
     // Referenced funnel: assigned this theme, activated on site-1.
-    const referenced = await createActivatedFunnel(env, "site-1", "ref-funnel");
+    const referenced = await createActivatedFunnel(sdb, env, "site-1", "ref-funnel");
     const putTheme = await admin.request(
       `${API}/funnels/${referenced.funnelPublicId}/theme`,
       jsonInit("PUT", { theme_json: { theme_id: theme.id } }),
@@ -814,7 +872,7 @@ describeDb("theme-edit cache invalidation (v3.1 §10.4/§12, fix round 2)", () =
     expect(putTheme.status, `assign theme: ${await putTheme.clone().text()}`).toBe(200);
 
     // Unreferenced funnel: no theme assignment at all, activated on site-2.
-    const unreferenced = await createActivatedFunnel(env, "site-2", "other-funnel");
+    const unreferenced = await createActivatedFunnel(sdb, env, "site-2", "other-funnel");
 
     const refShell = shellKey("site-1", "ref-funnel", referenced.funnelPublicId, referenced.variantPublicId);
     const refConfig = configKey("site-1", referenced.funnelPublicId, referenced.variantPublicId);
@@ -845,14 +903,14 @@ describeDb("theme-edit cache invalidation (v3.1 §10.4/§12, fix round 2)", () =
   });
 
   it("a theme referenced ONLY via a variant's frame_overrides_json.theme_id is ALSO invalidated", async () => {
-    const env = newEnv();
+    const { sdb, env } = newEnvWithDb();
     const theme = (
       (await (await admin.request(`${API}/themes`, jsonInit("POST", VALID_THEME_BODY), env)).json()) as {
         item: ThemeRecord;
       }
     ).item;
 
-    const fx = await createActivatedFunnel(env, "site-1", "variant-ref-funnel");
+    const fx = await createActivatedFunnel(sdb, env, "site-1", "variant-ref-funnel");
     const putVariant = await admin.request(
       `${API}/variants/${fx.variantPublicId}`,
       jsonInit("PUT", { frame_overrides_json: { theme_id: theme.id } }),
@@ -879,8 +937,8 @@ describeDb("theme-edit cache invalidation (v3.1 §10.4/§12, fix round 2)", () =
   });
 
   it("POST /themes (create) triggers NO invalidation sweep — nothing can reference a brand-new theme_id yet", async () => {
-    const env = newEnv();
-    const fx = await createActivatedFunnel(env, "site-1", "precreate-funnel");
+    const { sdb, env } = newEnvWithDb();
+    const fx = await createActivatedFunnel(sdb, env, "site-1", "precreate-funnel");
     const shell = shellKey("site-1", "precreate-funnel", fx.funnelPublicId, fx.variantPublicId);
     await env.CACHE.put(shell, "x");
     const { kv: instrumented, deletes } = instrumentDeletes(env.CACHE);
@@ -895,13 +953,13 @@ describeDb("theme-edit cache invalidation (v3.1 §10.4/§12, fix round 2)", () =
   });
 
   it("a no-op PATCH (byte-identical values) does NOT trigger an invalidation sweep", async () => {
-    const env = newEnv();
+    const { sdb, env } = newEnvWithDb();
     const theme = (
       (await (await admin.request(`${API}/themes`, jsonInit("POST", VALID_THEME_BODY), env)).json()) as {
         item: ThemeRecord;
       }
     ).item;
-    const fx = await createActivatedFunnel(env, "site-1", "noop-funnel");
+    const fx = await createActivatedFunnel(sdb, env, "site-1", "noop-funnel");
     await admin.request(
       `${API}/funnels/${fx.funnelPublicId}/theme`,
       jsonInit("PUT", { theme_json: { theme_id: theme.id } }),

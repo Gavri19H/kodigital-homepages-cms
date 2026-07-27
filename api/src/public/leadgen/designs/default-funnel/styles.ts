@@ -98,6 +98,11 @@ function pushButtonStyleRules(
   design: DefaultFunnelDesign | EffectiveFunnelDesign,
   bs: EffectiveButtonStyle,
   out: string[],
+  // §8.4 gap round (2026-07-23): the "card" layout's mobile-375 shrink
+  // (title/subtitle font-size + padding + mark-glyph offset, P0 pack data-pin
+  // 8.4-mobile-title-subtitle-cards) is the FIRST button-style rule needing
+  // the mobile array — every prior axis (fill/list/mark) was desktop-only.
+  mobile: string[],
 ): void {
   const { radius, shadow, color, spacing } = design;
 
@@ -156,6 +161,132 @@ function pushButtonStyleRules(
       }),
     );
   }
+  // LAYOUT — card (Image23, §8.4 gap round 2026-07-23): the theme's NEW
+  // Answer-layout value — full-width title+subtitle cards, ONE per row
+  // (P0 pack docs/leadgen/rework/design-pack/themes.html data-pin
+  // 8.4-title-subtitle-card-rest/8.4-tscard-hover/8.4-tscard-selected/
+  // 8.4-tscard-selected-wash/8.4-tscard-error). presets.ts stamps
+  // .lg-tscard ONLY on buttons/YesNo when this theme axis resolves "card"
+  // (buttonInnerContent), so every rule below is unambiguously scoped by
+  // that ONE class — no container-attribute qualifier needed on the item
+  // rules. Every color/radius value below reuses this design's EXISTING
+  // measured tokens 1:1 (the pack's own tscard hex values are close-but-not
+  // -byte-identical to this palette; each mapped to its numerically closest
+  // existing token — the SAME "no new value invented" discipline
+  // iconCardDepthSlots, above the base .lg-card-grid rules, already
+  // established for a different §8.4 feature):
+  //   background #fff -> color.card (EXACT); title color #1A1F36 ->
+  //   page.textColor (EXACT); rest subtitle color #8A93A3 -> page.
+  //   textLightColor (#718096, the lightest/most-muted existing text
+  //   color); rest border #E1E6EE -> color.borderLight (#E8ECF2, closest);
+  //   hover border #C7D6E6 -> color.border (#D2D9E5, closest); hover/mark-
+  //   selected background #F7F9FC -> color.primaryGhost (#F2F6FA,
+  //   closest); mark-selected border #1B3A5C = color.primary (EXACT — the
+  //   wash-selected background/border ALREADY comes for free from the
+  //   EXISTING generic .lg-btn.lg-btn-answer[aria-checked="true"] rule
+  //   below in this same file, which already resolves to color.primaryWash
+  //   #E8EEF4, itself the closest existing token to the pack's wash bg
+  //   #EAF0F6 — .lg-tscard needs NO new wash-selected border/background
+  //   rule at all); wash-selected subtitle color #41495B -> page.
+  //   textSecondaryColor (#4A5568, closest); error border #B23A2C ->
+  //   color.error (#D32F2F, same red family, the only error role this
+  //   palette has); radius 14px = radius.lg (EXACT); title/subtitle
+  //   font-size 17px/12.5px -> iconCard.titleFontSize (1rem) / subheadline.
+  //   fontSize (0.825rem) — both ~1px tolerance, the SAME tolerance the
+  //   §6.6 marker reuse below already takes (17px/19px hollow/badge vs the
+  //   pack's own 20px mark-glyph). subtitle margin-top 4px = spacing.xs
+  //   (EXACT). Genuinely NEW measurements (no existing token to reuse —
+  //   the same category as iconCardDepthSlots.badgePadding "2px 8px"
+  //   introducing a new precise measurement for ITS new component):
+  //   desktop padding "18px 20px", the inter-card gap "8px" (spacing.sm,
+  //   closest to the pack's 10px — no exact scale step exists either side),
+  //   and the mobile-only sizes below.
+  if (bs.layout === "card") {
+    out.push(
+      // container: ONE column, full-width stack (never a multi-column
+      // grid — Image23's own anatomy is always a vertical list of cards).
+      rule(`${scope} .lg-answer-group[data-btn-layout="card"]`, {
+        "grid-template-columns": "1fr",
+        gap: spacing.sm,
+      }),
+      // base (rest) tscard.
+      rule(`${scope} .lg-tscard`, {
+        display: "block",
+        width: "100%",
+        "text-align": "left",
+        "border-radius": radius.lg,
+        padding: "18px 20px",
+        background: color.card,
+        border: `1.6px solid ${color.borderLight}`,
+        position: "relative", // anchors the §6.6 marker's corner reposition below.
+      }),
+      rule(`${scope} .lg-tscard-title`, {
+        display: "block",
+        "font-size": design.iconCard.titleFontSize,
+        "font-weight": "700",
+        color: design.page.textColor,
+      }),
+      rule(`${scope} .lg-tscard-subtitle`, {
+        display: "block",
+        "font-size": design.subheadline.fontSize,
+        color: design.page.textLightColor,
+        "margin-top": spacing.xs,
+      }),
+      // hover.
+      rule(`${scope} .lg-tscard:hover`, {
+        "border-color": color.border,
+        background: color.primaryGhost,
+      }),
+      // error (mirrors the EXISTING .lg-card[data-error="true"] idiom).
+      rule(`${scope} .lg-tscard[data-error="true"]`, { "border-color": color.error }),
+      // the "Other" trigger's ONLY anatomy delta from a plain choice card —
+      // title left, chevron right (the pack's own trailing-affordance row).
+      rule(`${scope} .lg-tscard.lg-other-trigger`, {
+        display: "flex",
+        "align-items": "center",
+        "justify-content": "space-between",
+      }),
+      // §6.6 marker interplay: the SAME .lg-check-hollow/.lg-check-badge
+      // pair every other layout already renders (selectedMarkerMarkup) —
+      // repositioned to the pack's corner-badge placement ONLY inside a
+      // tscard (elsewhere it stays the existing leading-inline position).
+      // Orthogonal to the base mark rules above (those set display:none/
+      // flex for the resting/selected SWAP; these set position/top/right),
+      // so no specificity conflict — both apply together.
+      rule(`${scope} .lg-tscard .lg-check-hollow, ${scope} .lg-tscard .lg-check-badge`, {
+        position: "absolute",
+        top: "14px",
+        right: "16px",
+      }),
+      // wash-selected subtitle darkens for readability against the wash
+      // background — ONLY when this SPECIFIC card resolved to 'wash' (no
+      // mark badge present), never when it resolved to 'mark' (the pack's
+      // 8.4-tscard-selected example keeps the subtitle muted; only
+      // 8.4-tscard-selected-wash darkens it). `:has()` is already in this
+      // file's support baseline (see .lg-mqg:has(...) / .lg-el[data-el-
+      // leaf]:has(...) elsewhere in this stylesheet).
+      rule(
+        [
+          `${scope} .lg-tscard.lg-selected:not(:has(.lg-check-badge)) .lg-tscard-subtitle`,
+          `${scope} .lg-tscard[aria-checked="true"]:not(:has(.lg-check-badge)) .lg-tscard-subtitle`,
+          `${scope} .lg-tscard[data-selected="true"]:not(:has(.lg-check-badge)) .lg-tscard-subtitle`,
+        ].join(", "),
+        { color: design.page.textSecondaryColor },
+      ),
+    );
+    // mobile 375 (P0 pack data-pin 8.4-mobile-title-subtitle-cards): smaller
+    // padding/type + a tighter marker offset — genuinely new, pack-pinned
+    // measurements (no existing token covers a mobile-only card shrink).
+    mobile.push(
+      rule(`${scope} .lg-tscard`, { padding: "14px 16px" }),
+      rule(`${scope} .lg-tscard-title`, { "font-size": "14.5px" }),
+      rule(`${scope} .lg-tscard-subtitle`, { "font-size": "11px" }),
+      rule(`${scope} .lg-tscard .lg-check-hollow, ${scope} .lg-tscard .lg-check-badge`, {
+        top: "12px",
+        right: "14px",
+      }),
+    );
+  }
   // SELECTED — mark (Image 40): a bigger selected state (heavier border + a
   // slight scale-up) plus a corner check badge, shown only when selected.
   if (bs.selected === "mark") {
@@ -186,6 +317,51 @@ function pushButtonStyleRules(
       rule(
         `${g(".lg-card.lg-selected .lg-card-check")},${g('.lg-card[aria-checked="true"] .lg-card-check')},${g('.lg-card[data-selected="true"] .lg-card-check')}`,
         { display: "flex" },
+      ),
+    );
+
+    // Rework §6.6 (S2.2 follow-up, coordinator-directed 2026-07-22): the SAME
+    // mark mechanism for the button/YesNo family — presets.ts now stamps
+    // data-card-select="mark" on .lg-answer-group roots too (whenever theme OR
+    // a per-choice/per-node selected_marker override resolves 'mark'), and
+    // every mark-resolved button unconditionally carries BOTH a hollow-circle
+    // span (resting) and a filled-badge span (selected) — presets.ts
+    // selectedMarkerMarkup. CSS alone decides which one paints, mirroring the
+    // card branch above; sizes/colors are the P0 golden pack's OWN pinned
+    // values (studio-panels.html .lg-check-badge/.lg-check-hollow, data-pin
+    // 6.6-visitor-selected) expressed through this design's existing measured
+    // tokens (color.primary/color.border/radius.full) — no new value invented.
+    const gb = (leaf: string): string => `${scope} .lg-answer-group[data-card-select="mark"] ${leaf}`;
+    out.push(
+      // resting: a 17px hollow (border-only) circle — the pack's own size.
+      rule(gb(".lg-check-hollow"), {
+        width: "17px",
+        height: "17px",
+        "border-radius": radius.full,
+        border: `1.6px solid ${color.border}`,
+        "flex-shrink": "0",
+      }),
+      // the filled 19px badge — present in markup, hidden until selected.
+      rule(gb(".lg-check-badge"), {
+        display: "none",
+        width: "19px",
+        height: "19px",
+        "border-radius": radius.full,
+        background: color.primary,
+        "align-items": "center",
+        "justify-content": "center",
+        "flex-shrink": "0",
+      }),
+      // selected: swap which one paints — the SAME 3-selector triplet
+      // (.lg-selected / [aria-checked="true"] / [data-selected="true"]) the
+      // card branch above uses, scoped to .lg-btn-answer instead of .lg-card.
+      rule(
+        `${gb(".lg-btn-answer.lg-selected .lg-check-hollow")},${gb('.lg-btn-answer[aria-checked="true"] .lg-check-hollow')},${gb('.lg-btn-answer[data-selected="true"] .lg-check-hollow')}`,
+        { display: "none" },
+      ),
+      rule(
+        `${gb(".lg-btn-answer.lg-selected .lg-check-badge")},${gb('.lg-btn-answer[aria-checked="true"] .lg-check-badge')},${gb('.lg-btn-answer[data-selected="true"] .lg-check-badge')}`,
+        { display: "inline-flex" },
       ),
     );
   }
@@ -823,10 +999,31 @@ export function funnelChromeCss(
   // the column count (buttons don't collapse like cards) and only narrows the
   // gutter. Pinned by leadgen-u11-centering (inline centering) + the new
   // leadgen-p1-geometry.gesture gate (equal cells, gap, centering, ≥52 height).
+  // FIX-FIRST (F1, §6.7 adversarial review, 2026-07-22): a partial trailing
+  // row's doubled track count rides an inline custom property, --lg-tracks
+  // (presets.ts), which this rule prefers via a var() fallback — an
+  // exact-fit instance never emits --lg-tracks, so this resolves through to
+  // exactly the pre-fix value (see gridItemColumnEntries's own comment for
+  // the pixel-equivalence proof — the SAME gap token produces pixel-
+  // identical full-row cell widths whether an instance is doubled or not).
+  // FIX-FIRST (F2, adversarial review, 2026-07-22): the ORIGINAL F1 shape
+  // used a literal INLINE grid-template-columns override instead of a
+  // custom property — for `.lg-card-grid` that out-ranked the mobile
+  // collapse rule (see that rule's own comment below for the live-Chromium
+  // proof); `.lg-answer-group` was never actually broken by this (buttons
+  // have NO mobile grid-template-columns override to out-rank — "buttons
+  // don't collapse like cards" per this rule's own header comment), but the
+  // --lg-tracks custom-property shape is applied HERE TOO for consistency
+  // and to future-proof against a mobile collapse rule ever being added for
+  // buttons. A grid-based fix (not the P0 pack's flexbox `display:flex;
+  // flex-wrap:wrap;justify-content:center`) was chosen specifically because
+  // THIS class is measured via getComputedStyle(...).gridTemplateColumns by
+  // the pinned leadgen-p1-geometry.gesture.spec.ts (btnTracks, desktop AND
+  // mobile) — flexbox would report "none" and break that gate outright.
   out.push(
     rule(`${scope} .lg-answer-group`, {
       display: "grid",
-      "grid-template-columns": `repeat(var(--lg-cols, ${answerGrid.columns}), minmax(0, 1fr))`,
+      "grid-template-columns": `var(--lg-tracks, repeat(var(--lg-cols, ${answerGrid.columns}), minmax(0, 1fr)))`,
       gap: answerGrid.gap,
       width: "100%",
     }),
@@ -844,6 +1041,18 @@ export function funnelChromeCss(
     // rule above, so it is additive-only, never a behavior change for content
     // that authors no per-choice size.
     rule(`${scope} .lg-answer-group[data-choice-heights="1"]`, { "align-items": "start" }),
+    // FIX-FIRST F2 FOLLOW-UP (§6.7 adversarial review, 2026-07-22): a
+    // partial-row item's per-item grid-column-start/-end (presets.ts
+    // gridItemColumnEntries) rides the SAME additive inline-custom-property
+    // shape as the container's own --lg-tracks fix, for the SAME reason —
+    // shared here since `.lg-answer-group`/`.lg-card-grid` use the identical
+    // mechanism (see gridItemColumnEntries's own comment). Exact-fit items
+    // never emit --lg-gc-start/--lg-gc-end, so both fall back to `auto` —
+    // grid's own default — byte-identical to pre-fix.
+    rule(`${scope} .lg-answer-group > *, ${scope} .lg-card-grid > *`, {
+      "grid-column-start": "var(--lg-gc-start, auto)",
+      "grid-column-end": "var(--lg-gc-end, auto)",
+    }),
   );
   mobile.push(rule(`${scope} .lg-answer-group`, { gap: answerGrid.gapMobile }));
 
@@ -1070,11 +1279,42 @@ export function funnelChromeCss(
   );
 
   // ---- icon/answer card grid + card + states (§14.2 iconCardGrid/iconCard) -
+  // FIX-FIRST (F1, §6.7 adversarial review, 2026-07-22): a partial trailing
+  // row's doubled track count rides an inline custom property, --lg-tracks
+  // (presets.ts), which this rule prefers via a var() fallback — an
+  // exact-fit instance never emits --lg-tracks, so this resolves through to
+  // exactly the pre-fix value (see gridItemColumnEntries's own comment for
+  // the pixel-equivalence proof).
+  // FIX-FIRST (F2, adversarial review, 2026-07-22 — MAJOR, live-Chromium-
+  // proved): the ORIGINAL F1 shape emitted a literal INLINE
+  // `grid-template-columns` override instead of a custom property. Inline
+  // style ALWAYS wins over a class rule by cascade specificity — media
+  // query or not — so that override out-ranked the MOBILE COLLAPSE rule
+  // below (`mobile.push(... {"grid-template-columns":"1fr"})` at ≤480px): a
+  // 5-card partial-row grid stayed at 6 doubled tracks (3 cramped visual
+  // columns) at 375px instead of collapsing to 1, while an exact-fit control
+  // correctly collapsed — reproducing exactly the "mobile columns unchanged"
+  // regression §6.7 itself promises never to introduce. FIX: --lg-tracks is
+  // a custom property, not the real `grid-template-columns` property itself
+  // — declaring a variable inline cannot out-rank anything. The ACTUAL
+  // property is still set by THIS class rule (below), which the mobile
+  // rule — same specificity as this rule, later in source order, its own
+  // literal `1fr` never referencing --lg-tracks at all — continues to beat
+  // exactly as it always could for every other property on this element. A
+  // grid-based fix (not the P0 pack's flexbox `display:flex;flex-wrap:wrap;
+  // justify-content:center`) was chosen specifically because THIS class is
+  // ALSO measured via getComputedStyle(...).gridTemplateColumns by the
+  // pinned leadgen-p1-geometry.gesture.spec.ts (multiTracks + mobile
+  // cardTracks) — flexbox would report "none" and break that gate outright.
   out.push(
     rule(`${scope} .lg-card-grid`, {
       display: "grid",
-      // per-instance column count arrives inline as --lg-cols (2..5); default 3.
-      "grid-template-columns": "repeat(var(--lg-cols, 3), minmax(0, 1fr))",
+      // per-instance column count arrives inline as --lg-cols (2..5,
+      // unchanged); a partial trailing row's doubled track count rides the
+      // SEPARATE --lg-tracks inline custom property instead (presets.ts) —
+      // preferred here via the var() fallback so the mobile collapse rule
+      // below still applies normally (F2 fix).
+      "grid-template-columns": "var(--lg-tracks, repeat(var(--lg-cols, 3), minmax(0, 1fr)))",
       gap: iconCardGrid.gap,
       "margin-bottom": iconCardGrid.marginBottom,
     }),
@@ -1085,7 +1325,22 @@ export function funnelChromeCss(
     rule(`${scope} .lg-card-grid[data-choice-heights="1"]`, { "align-items": "start" }),
   );
   // Mobile collapse (§14.4 mobile 1..2 cols): the grid falls to 1 column.
-  mobile.push(rule(`${scope} .lg-card-grid`, { "grid-template-columns": "1fr" }));
+  // F2: this rule's own literal `1fr` never references --lg-tracks, so it
+  // continues to collapse a PARTIAL-ROW grid too, not just an exact-fit one
+  // — the whole point of the F2 fix (see the base rule's own comment above).
+  mobile.push(
+    rule(`${scope} .lg-card-grid`, { "grid-template-columns": "1fr" }),
+    // F2 FOLLOW-UP: a partial-row item's --lg-gc-start/--lg-gc-end (desktop
+    // half-track centering) must NOT keep demanding a 2-track span once the
+    // rule above collapses the container to a SINGLE explicit column — an
+    // over-spanning item would force the grid to fabricate implicit extra
+    // columns to satisfy it (live-measured: 5 tracks, "133px 38px 38px 38px
+    // 38px" instead of one full-width column). Reset to `auto` HERE, for
+    // cards ONLY (`.lg-answer-group`'s own children keep consuming the
+    // variables unchanged — buttons never collapse on mobile, "buttons keep
+    // their multi-track count" per the base rule's own header comment).
+    rule(`${scope} .lg-card-grid > *`, { "grid-column-start": "auto", "grid-column-end": "auto" }),
+  );
   out.push(
     rule(`${scope} .lg-card`, {
       display: "flex",
@@ -1281,16 +1536,6 @@ export function funnelChromeCss(
     }),
     rule(`${scope} .lg-currency-input`, { "padding-left": spacing.xl }),
   );
-
-  // P5 (register PC-10, operator Image9) — MultiQuestionGrid needs NO new CSS:
-  // each row REUSES `.lg-field` (block + inter-row margin), `.lg-label` (the
-  // sub-question label above the pills), `.lg-answer-group` (the P1 equal-cell
-  // pill grid, --lg-cols = the pill count), `.lg-btn.lg-btn-answer`/`.lg-selected`
-  // (the default-selected pill paint) and `.lg-error` (the per-row slot). The
-  // `.lg-mqg` wrapper is a plain block (div default); the last row's `.lg-field`
-  // bottom margin collapses through it into the next card element's `> * + *`
-  // stack, so no wrapper rule is needed — the shared chrome sheet stays
-  // byte-identical (the §13.1 legacy byte-pins hold unchanged).
 
   // ---- validation: error / helper / legal (§14.2 validation) --------------
   out.push(
@@ -1758,12 +2003,12 @@ export function funnelChromeCss(
     }),
     rule(`${scope}.lg-preview .lg-address-chip-role`, { "font-weight": "700", color: page.textColor }),
     rule(`${scope}.lg-preview .lg-address-chip-field`, { color: page.textSecondaryColor, "font-family": "monospace" }),
-    // A-3 (renderer leg): a zero-row grid's SSR placeholder. Hidden by default
-    // (LIVE renders nothing, as today); shown under `.lg-preview` — EXCEPT when
-    // P1a's client-side canvas decoration has already injected its own
-    // `.studio-mqg-empty` into this `.lg-mqg` (a :has() de-dup, so the studio
-    // canvas never doubles; the admin preview drawer, which runs the engine not
-    // the decoration, shows this SSR one).
+    // §10 fail-safe box: a stored node of a RETIRED/unknown component type
+    // (the §10-removed grid / OtherGroupSelector / Range / CurrencyRange, or
+    // any corrupt type) renders `.lg-mqg-empty` from presets' default case —
+    // NEVER a 500 (L-192 seam). Hidden by default (a LIVE funnel renders
+    // nothing for it — silent); shown as an honest notice under `.lg-preview`
+    // (studio canvas + admin preview).
     rule(`${scope} .lg-mqg-empty`, { display: "none" }),
     rule(`${scope}.lg-preview .lg-mqg-empty`, {
       display: "block",
@@ -1774,7 +2019,6 @@ export function funnelChromeCss(
       color: page.textSecondaryColor,
       "font-size": "13px",
     }),
-    rule(`${scope}.lg-preview .lg-mqg:has(.studio-mqg-empty) .lg-mqg-empty`, { display: "none" }),
   );
 
   // ---- P6 theme button-style rules (deliverable 3) ------------------------
@@ -1785,7 +2029,7 @@ export function funnelChromeCss(
   // no button look) ⇒ nothing pushed ⇒ byte-identical to pre-P6.
   const buttonStyle = readButtonStyle(design);
   if (buttonStyle !== undefined) {
-    pushButtonStyleRules(scope, design, buttonStyle, out);
+    pushButtonStyleRules(scope, design, buttonStyle, out, mobile);
   }
 
   // ---- v2.5 frame-region rules (13 §13.1, opt-in — see FunnelChromeCssOpts).

@@ -200,6 +200,47 @@ async function createSection(
   );
 }
 
+// Product-fix round (S2.4): LeadGen Rework §4.3-1/§4.3-15 (P1, own-hand-
+// verified) — activation now preflights "the shared first page needs at
+// least one section." Seed a TRIVIAL pass-through shared page (a single
+// ContinueButton, no questions) so activation succeeds and a visitor lands
+// on the real test section in one click — the SAME pattern already proven
+// in leadgen-fix-p1-seed.ts / leadgen-rework-p2-studio.gesture.spec.ts /
+// __p2c-studio.spec.ts / leadgen-round4-acceptance.gesture.spec.ts /
+// leadgen-operator-acceptance.gesture.spec.ts / leadgen-live-funnel.spec.ts.
+async function createTrivialSharedPage(request: APIRequestContext, quotePublicId: string, tag: string): Promise<void> {
+  const trivialShared = await json<Created>(
+    await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: `p1geo shared ${tag}`,
+        activity: "quote_funnel",
+        vertical: "life",
+        headline_text: "Continue",
+        status: "active",
+        content_json: {
+          components: [{ type: "ContinueButton", question_id: "shared_continue", props: { label: "Continue" } }],
+        },
+      },
+    }),
+    "shared page section create",
+  );
+  await json(
+    await request.post(`${LG_API}/quotes/${quotePublicId}/shared-page`, {
+      data: { sections: [{ section_id: trivialShared.id }] },
+    }),
+    "shared page create",
+  );
+}
+
+// Click through the trivial shared page's lone Continue button once (the
+// SAME passSharedPage idiom leadgen-live-funnel.spec.ts already proves) —
+// every live /lg render in this file now lands there FIRST.
+async function passSharedPage(page: Page): Promise<void> {
+  const cont = page.locator("[data-lg-continue]").first();
+  await expect(cont, "the shared page's Continue is reachable").toBeVisible({ timeout: 8_000 });
+  await cont.click();
+}
+
 // Measure inside the studio canvas srcdoc iframe (the operator-facing surface).
 async function bootStudio(page: Page, s: Created): Promise<void> {
   await page.goto(`/admin/leadgen/sections/${s.public_id}/edit`, { waitUntil: "domcontentloaded" });
@@ -217,6 +258,24 @@ async function measureCanvas(page: Page): Promise<GeomSnapshot> {
     const doc = iframe && iframe.contentDocument;
     const view = doc && doc.defaultView;
     if (!doc || !view) return { ok: false as const };
+    // Product-fix round (S2.4, §6.1 ruling): the "+ Add choice" ghost row
+    // (.studio-add-ghost-row) is a REAL, studio-ONLY sibling inserted
+    // immediately after every choice-bearing component's root (contract §6.1
+    // "immediately AFTER the component's root element... studio-only" —
+    // never rendered live). It occupies real flow space in the EDIT canvas
+    // by deliberate design (a visible, clickable affordance), so its mere
+    // presence pushes a choice-type component's FOLLOWER further down than
+    // the pure component-to-component design rhythm the RHYTHM test proves.
+    // §6.1 pins the ghost's OWN placement/margins, not the inter-COMPONENT
+    // gap — so this measurement excludes it (removes it before reading any
+    // rect) to keep proving the DESIGN rhythm between authored components,
+    // matching what the live /lg route (which never renders a ghost at all)
+    // measures. This is a measurement-time removal only — it never mutates
+    // the model, and every OTHER test in this file that shares this snapshot
+    // (button/yn cell geometry, MultiChoiceCardGroup tracks, icon card size)
+    // measures WITHIN a component's own box, unaffected by removing an
+    // unrelated sibling decorator.
+    doc.querySelectorAll(".studio-add-ghost-row").forEach((el) => el.remove());
     const q = (sel: string): Element | null => doc.querySelector(sel);
     const rect = (el: Element | null): { x: number; y: number; w: number; h: number } | null =>
       el ? (() => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; })() : null;
@@ -402,11 +461,13 @@ test.describe("P1a geometry gate — live /lg funnel (§12 parity)", () => {
     );
     const variantId = quote.funnels[0]!.variants[0]!.public_id;
     await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: s.id }] } }), "variant sections");
+    await createTrivialSharedPage(request, quote.public_id, `${uniq}`);
     await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p1geo" } }), "activation");
 
     // ---- desktop /lg render ----
     await page.setViewportSize({ width: 1280, height: 1400 });
     await page.goto(`http://${host}:8899/lg/p1geo`, { waitUntil: "load" });
+    await passSharedPage(page);
     await expect(page.locator('[data-question-id="q_btn"]').first()).toBeVisible({ timeout: 15_000 });
     const live = await page.evaluate(() => {
       const view = window;
@@ -416,7 +477,14 @@ test.describe("P1a geometry gate — live /lg funnel (§12 parity)", () => {
       const box = (id: string) => rect(document.querySelector(`[data-question-id="${id}"]`));
       const grp = document.querySelector('[data-question-id="q_btn"]');
       const btnTracks = grp ? view.getComputedStyle(grp).gridTemplateColumns.trim().split(/\s+/).length : 0;
-      const card = document.querySelector(".lg-question-card");
+      // Product-fix round (S2.4): now that the shared page (§4.3-1/§4.3-15)
+      // precedes the real section, BOTH pages' [data-lg-section] wrappers
+      // (each carrying their own .lg-question-card) stay in the DOM — the
+      // engine toggles the `hidden` attribute per page, it does not unmount
+      // the previous one. A bare ".lg-question-card" query matches document
+      // order, so it was picking up the (hidden, zero-size) shared page's
+      // card instead of the real section's. Scope to the VISIBLE section.
+      const card = document.querySelector("[data-lg-section]:not([hidden]) .lg-question-card");
       const cardCs = card && view.getComputedStyle(card);
       return {
         btnCells, ynCells, btnTracks,
@@ -502,6 +570,11 @@ test.describe("P1a geometry gate — CardPanel nesting (MINOR-1, adversarial rev
       const iframe = document.getElementById("lg-studio-canvas-frame") as HTMLIFrameElement | null;
       const doc = iframe && iframe.contentDocument;
       if (!doc) return null;
+      // Product-fix round (S2.4, §6.1 ruling): see measureCanvas's own
+      // comment — q_panel_btn is choice-bearing, so it carries a studio-only
+      // ghost row after it; exclude it from measurement so this proves the
+      // TRUE component-to-component design rhythm (what live /lg shows too).
+      doc.querySelectorAll(".studio-add-ghost-row").forEach((el) => el.remove());
       const a = doc.querySelector('[data-question-id="q_panel_btn"]');
       const b = doc.querySelector('[data-question-id="q_panel_yn"]');
       if (!a || !b) return null;
@@ -532,10 +605,12 @@ test.describe("P1a geometry gate — CardPanel nesting (MINOR-1, adversarial rev
     );
     const variantId = quote.funnels[0]!.variants[0]!.public_id;
     await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: s.id }] } }), "variant sections (panel)");
+    await createTrivialSharedPage(request, quote.public_id, `panel-${uniq}`);
     await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p1geo-panel" } }), "activation (panel)");
 
     await page.setViewportSize({ width: 1280, height: 1400 });
     await page.goto(`http://${host}:8899/lg/p1geo-panel`, { waitUntil: "load" });
+    await passSharedPage(page);
     await expect(page.locator('[data-question-id="q_panel_yn"]').first()).toBeVisible({ timeout: 15_000 });
     const measured = await page.evaluate(() => {
       const a = document.querySelector('[data-question-id="q_panel_btn"]');
@@ -551,5 +626,87 @@ test.describe("P1a geometry gate — CardPanel nesting (MINOR-1, adversarial rev
     expect(measured!.gap, `live: CardPanel-nested gap ${measured!.gap} == spacing.stack ${STACK}`).toBeGreaterThanOrEqual(STACK - 1.5);
     expect(measured!.gap, `live: CardPanel-nested gap ${measured!.gap} == spacing.stack ${STACK}`).toBeLessThanOrEqual(STACK + 1.5);
     expect(measured!.gap, "live: CardPanel-nested gap is spaced (not the MINOR-1 0px)").toBeGreaterThan(4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F2 (adversarial review, 2026-07-22): the gate gap the reviewer named — every
+// EXISTING mobile-leg fixture in this file (q_cards above) is an EXACT-FIT
+// card grid (3 choices / 3 authored columns, remainder 0), so it never
+// exercised F1's own bug: F1's original inline `grid-template-columns`
+// override (the wrapped-last-row centering fix, presets.ts
+// gridItemColumnEntries) out-ranked the mobile media-query collapse rule by
+// CSS cascade specificity, so a PARTIAL-ROW card grid (an authored/effective
+// remainder, e.g. 5-in-3) stayed doubled (6 tracks, 3 cramped columns) at
+// 375px instead of collapsing to 1 — while THIS file's own exact-fit control
+// correctly collapsed the whole time, masking the regression until the
+// reviewer specifically probed a partial-row shape live in Chromium. F2's
+// fix (the --lg-tracks inline CUSTOM PROPERTY, not a literal property
+// override — see gridItemColumnEntries's own comment) restores the mobile
+// collapse rule's ability to out-cascade it normally. Self-contained: its
+// own section/fixture/quote/host, so it cannot perturb any existing
+// assertion in this file — the SAME isolation discipline the CardPanel-
+// nesting describe block above already follows.
+// ---------------------------------------------------------------------------
+const PARTIAL_ROW_CARDS_COMPONENTS = [
+  {
+    type: "IconCardAnswerGrid",
+    question_id: "q_cards_f2",
+    internal_field: "biz_f2",
+    answer_type: "enum",
+    props: { columns: 3 },
+    choices: [
+      { label: "One", value: "one", analytics_id: "o1", icon: "home" },
+      { label: "Two", value: "two", analytics_id: "o2", icon: "car" },
+      { label: "Three", value: "three", analytics_id: "o3", icon: "shield" },
+      { label: "Four", value: "four", analytics_id: "o4", icon: "home" },
+      { label: "Five", value: "five", analytics_id: "o5", icon: "car" },
+    ],
+  },
+];
+
+test.describe("P1a geometry gate — F2 mobile partial-row card collapse (adversarial review, 2026-07-22)", () => {
+  test("live /lg: a PARTIAL-ROW card grid (5-in-3, remainder 2) ALSO collapses to 1 track at 375px, not just an exact-fit one", async ({ page, request, browserName }) => {
+    // Same dynamic-hostname constraint as every other live /lg leg in this
+    // file — firefox's network.dns.localDomains cannot resolve this test's
+    // dynamic `{uniq}.e2e.test` host.
+    test.skip(browserName === "firefox", "live /lg leg needs chromium --host-resolver-rules; firefox cannot resolve the dynamic e2e host — this fix is CSS cascade behavior, engine-agnostic in principle, but this repo's convention keeps the dynamic-hostname leg chromium-only (see every other live /lg test in this file)");
+    const host = `p1geo-f2-${uniq}.e2e.test`;
+    const siteId = await seedActiveSite(request, host, `P1a F2 Mobile ${uniq}`);
+    const s = await createSection(request, `p1geo-f2-${uniq}`, PARTIAL_ROW_CARDS_COMPONENTS);
+    const quote = await json<{ public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }> }>(
+      await request.post(`${LG_API}/quotes`, { data: { quote_name: `P1a F2 ${uniq}`, activity: "quote_funnel", verticals: ["life"] } }),
+      "quote create (f2)",
+    );
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: s.id }] } }), "variant sections (f2)");
+    await createTrivialSharedPage(request, quote.public_id, `f2-${uniq}`);
+    await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p1geo-f2" } }), "activation (f2)");
+
+    await page.setViewportSize({ width: 375, height: 1400 });
+    await page.goto(`http://${host}:8899/lg/p1geo-f2`, { waitUntil: "load" });
+    await passSharedPage(page);
+    await expect(page.locator('[data-question-id="q_cards_f2"]').first()).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(200);
+    const mobile = await page.evaluate(() => {
+      const view = window;
+      const cardGrid = document.querySelector('[data-question-id="q_cards_f2"]');
+      const cols = cardGrid ? view.getComputedStyle(cardGrid).gridTemplateColumns : "";
+      return {
+        cardTracks: cardGrid ? cols.trim().split(/\s+/).length : 0,
+        cardCols: cols,
+        scrollWidth: document.scrollingElement ? document.scrollingElement.scrollWidth : document.body.scrollWidth,
+        innerWidth: view.innerWidth,
+      };
+    });
+    // eslint-disable-next-line no-console
+    console.log(`[F2 mobile partial-row] cardTracks=${mobile.cardTracks} cardCols="${mobile.cardCols}" scrollW=${mobile.scrollWidth} innerW=${mobile.innerWidth}`);
+    // F2 fix proof: fail-before (F1's literal inline grid-template-columns
+    // override) measured 6 tracks here (3 cramped columns — the override
+    // out-ranked the mobile collapse rule); pass-after (this round's
+    // --lg-tracks custom-property fix) collapses to 1, matching the
+    // exact-fit control (the describe block above) exactly.
+    expect(mobile.cardTracks, `mobile: PARTIAL-ROW card grid collapses to 1 track (F2 fix), cols="${mobile.cardCols}"`).toBe(1);
+    expect(mobile.scrollWidth, `mobile: scrollWidth ${mobile.scrollWidth} ≤ innerWidth ${mobile.innerWidth}`).toBeLessThanOrEqual(mobile.innerWidth + 1);
   });
 });

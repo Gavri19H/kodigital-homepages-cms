@@ -102,13 +102,6 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // presets.ts server renderer a live funnel uses) — SAME cross-engine shape
   // as p2a/p3a/p4b/p4c.
   'leadgen-p4d-editor.gesture.spec.ts',
-  // P5 (register PC-10 / decision D2 — Image9 MultiQuestionGrid): studio-only
-  // authoring + canvas-parity + default pre-selection — SAME cross-engine shape
-  // as p2a/p3a/p4c/p4d (the studio's OWN canvas preview, the SAME presets.ts
-  // server renderer a live funnel uses; no e2e.test dynamic tenant host). The
-  // runtime seeding/recording + auction round-trip ride the deterministic
-  // server-pipeline gate test/leadgen-p5-multi-question-grid.test.ts.
-  'leadgen-p5-multi-question-grid.gesture.spec.ts',
   // P5b (register §A PC-1..12): the OPERATOR ACCEPTANCE suite — the operator's
   // 12 items re-scripted as live journeys (the P5 close's terminal artifact).
   // SAME cross-engine shape as p2a/p3a/p4b/p4c/p4d/p5: every studio / canvas /
@@ -146,6 +139,64 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   'leadgen-round4-acceptance.gesture.spec.ts',
   'leadgen-round4-quotes-acceptance.gesture.spec.ts',
   'leadgen-round4-funnel-acceptance.gesture.spec.ts',
+  // LeadGen Rework P2 (LEADGEN-REWORK-03, slice S2.5): the §6.1/§6.2 studio
+  // gesture gate (geometry/ghost-sibling, mask builder, address field-set,
+  // §4.1 starter, slider type picker). SAME cross-engine shape as p1-geometry/
+  // p2a-element-freedom/p3a-placement above: every action is plain click/
+  // fill/selectOption + a real mouse click on the studio canvas (no dynamic
+  // *.e2e.test tenant host except one liveLegChromiumOnly()-guarded leg in
+  // test (a), mirroring Item 9's own studio-vs-live pattern) — engine-
+  // agnostic, expected to run unmodified on both projects.
+  'leadgen-rework-p2-studio.gesture.spec.ts',
+  // LeadGen Rework P4 (LEADGEN-REWORK-03, slice S4.2): the §8.4 Themes tab
+  // live-canvas gate (canvas presence, ✓-in-selected re-render on a
+  // segmented-control click, theme-card switch, siteSettingsHref link). SAME
+  // cross-engine shape as p2-studio above: every action is plain click/
+  // navigate against the admin Themes-manager page (no drag, no dynamic
+  // *.e2e.test tenant host at all — the canvas is a static server-rendered
+  // preview iframe, not the running visitor engine) — engine-agnostic,
+  // expected to run unmodified on both projects.
+  'leadgen-rework-p4-themes.gesture.spec.ts',
+  // LeadGen Rework P3b slice S3b.2 (§8.2 RIGHT rail + §13-D5 relocation): the
+  // quote-rules rail/modal + the relocated four-type editor's live journeys.
+  // SAME cross-engine shape as p2-studio/p2a/p3a/p4b above: every action is
+  // plain click/fill/selectOption/select against a REAL served page (the
+  // rail's own mounted island + the auction editor's picker+CRUD island) — no
+  // dynamic *.e2e.test tenant host, engine-agnostic, expected to run
+  // unmodified on both projects.
+  'leadgen-rework-p3b-rules.gesture.spec.ts',
+  // LeadGen Rework P3b slice S3b.1 (§8.2 the funnel-builder BOARD): library-
+  // left/board-center/rules-rail-mount, the in-house mouse drag engine
+  // (library->page, chip reorder, page reorder), menu-equivalent a11y paths,
+  // funnel CRUD (add/duplicate/set-default/delete-guard/rename), the A/B
+  // badge jump, and the 1280/375 responsive screenshots. Main-document
+  // pointer streams (no srcdoc-canvas caveats, no dynamic *.e2e.test tenant
+  // host) — engine-agnostic, SAME cross-engine shape as the entries above,
+  // expected to run unmodified on both projects.
+  'leadgen-rework-p3b-board.gesture.spec.ts',
+  // LeadGen Rework P6 acceptance (LEADGEN-REWORK-03, slice S6.1a): the §11
+  // terminal journeys. #11A/#11B/#11D/#11E (builder) + #11C (routing). SAME
+  // cross-engine shape as the leadgen-operator-acceptance / leadgen-round4-*-
+  // acceptance suites above: every admin board/rails/A-B/modal/canvas assertion
+  // is plain click/fill/select or a main-document page.mouse drag (engine-
+  // agnostic, both projects); each dynamic {uniq}.e2e.test live-/lg leg is
+  // guarded by the files' own liveLegChromiumOnly() (documented live-leg-skip
+  // annotation on firefox, both-engine assertions run first) — so both files
+  // are green on firefox (admin portions + documented skips) and full on
+  // chromium.
+  'leadgen-rework-acceptance-builder.gesture.spec.ts',
+  'leadgen-rework-acceptance-routing.gesture.spec.ts',
+  // LeadGen Rework P6 acceptance (LEADGEN-REWORK-03, slice S6.1b): the §11
+  // terminal component + input journeys. #1/#2A/#2B/#2C/#3/#4 (components) and
+  // #5/#6/#7/#8/#9/#10 (inputs). SAME cross-engine shape as the S6.1a builder/
+  // routing suites above: every studio/matrix/API-authoring assertion is plain
+  // click/fill/select (+ canvas-srcdoc gestures, the U13 delivery fix) and runs
+  // on BOTH engines; each dynamic {uniq}.e2e.test live-/lg leg is guarded by the
+  // helpers' liveLegChromiumOnly() (documented live-leg-skip on firefox, the
+  // both-engine assertions run first) — green on firefox (studio/API + skips),
+  // full on chromium.
+  'leadgen-rework-acceptance-components.gesture.spec.ts',
+  'leadgen-rework-acceptance-inputs.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',

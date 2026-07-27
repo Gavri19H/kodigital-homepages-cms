@@ -33,6 +33,11 @@ const slotFor = (html: string, field: string): boolean =>
 // (produces "object", no single internal_field): it renders its OWN PER-ROW
 // error slot (keyed to each row's internal_field, proven in the R1/Playwright
 // legs), never a single node-level slot — so it joins the exception.
+// Rework §10 removal (test repair, P2): OtherGroupSelector's render leg is
+// RETIRED to a fail-safe extinct-type box (conductor ruling) that emits NO
+// error slot at all (nor any answer markup) — by design, not a regression;
+// it joins the exception list (own dedicated retirement coverage lives in
+// leadgen-r1-answers.test.ts / leadgen-components-render.test.ts).
 const SINGLE_FIELD_PRODUCERS: ComponentType[] = (
   Object.keys(COMPONENT_CATALOG) as ComponentType[]
 ).filter((t) => {
@@ -40,8 +45,7 @@ const SINGLE_FIELD_PRODUCERS: ComponentType[] = (
   return (
     p !== null &&
     t !== "NameFieldsGroup" &&
-    t !== "AddressAutocompleteQuestion" &&
-    t !== "MultiQuestionGrid"
+    t !== "AddressAutocompleteQuestion"
   );
 });
 

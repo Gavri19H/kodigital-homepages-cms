@@ -103,6 +103,33 @@ async function seedQuote(request: APIRequestContext, tag: string): Promise<Seede
     }),
     "variant pages",
   );
+  // LeadGen Rework §4.3-1/§4.3-15 (P1, own-hand-verified): activation now
+  // preflights "the shared first page needs at least one section" — this
+  // pre-M2 helper predates that requirement. Seed a TRIVIAL pass-through
+  // shared page (a single ContinueButton, no questions) — the SAME
+  // established pattern leadgen-round4-acceptance.gesture.spec.ts /
+  // leadgen-rework-p2-studio.gesture.spec.ts / __p2c-studio.spec.ts already
+  // use (verified by direct read of leadgen-round4-acceptance.gesture.spec.ts
+  // lines ~212-227).
+  const sharedSection = await json<{ public_id: string }>(
+    await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: `${safe}-shared`,
+        activity,
+        vertical: "life",
+        status: "active",
+        headline_text: `${safe}-shared`,
+        content_json: JSON.stringify({ components: [CONTINUE] }),
+      },
+    }),
+    "shared section create",
+  );
+  await json(
+    await request.post(`${LG_API}/quotes/${quote.public_id}/shared-page`, {
+      data: { sections: [{ section_id: sharedSection.public_id }] },
+    }),
+    "shared page create",
+  );
   await json(
     await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: safe } }),
     "activation",
@@ -127,6 +154,16 @@ async function openEditor(page: Page, quotePublicId: string): Promise<void> {
 const shellUrl = (s: { host: string; slug: string }) => `http://${s.host}:${PW_PORT}/lg/${s.slug}`;
 async function ready(page: Page): Promise<void> {
   await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 10_000 });
+}
+
+// Click the trivial shared-page's Continue button once (seedQuote's own
+// doc comment) so a live leg lands on the funnel content under test — the
+// SAME pattern leadgen-round4-acceptance.gesture.spec.ts's own
+// passSharedPage already uses (verified by direct read).
+async function passSharedPage(page: Page): Promise<void> {
+  const cont = page.locator("[data-lg-continue]").first();
+  await expect(cont, "the shared page's Continue is reachable").toBeVisible({ timeout: 8_000 });
+  await cont.click();
 }
 
 // The dynamic-host live leg (shellUrl -> a *.e2e.test tenant host, resolved
@@ -193,12 +230,17 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
   });
 
   // =========================================================================
-  // Item 10B — real site-logo preview + no-logo hint (Image11 "cc" fallback).
+  // Item 10B — real site-logo preview + no-logo fallback (Image11 "cc").
   // Deeper gate: __p5b-quotes-ia.spec.ts. Journey: selecting a preview site
-  // WITH a logo resolves the REAL logo image; a logo-less site shows an
-  // explicit admin-only hint (never a bare unexplained fallback mark).
+  // WITH a logo resolves the REAL logo image; a logo-less site shows the
+  // explicit A-8 fallback chip (never a bare unexplained fallback mark).
+  // Rework §8.8 (P4 S4.2): REPAIRED — the admin-only `[data-admin-preview-
+  // hint="1"]` marker this used to check is retired (superseded by the
+  // ALWAYS-rendered chip, live+preview — see frame.ts renderLogoFallbackChip
+  // doc comment); the chip's OWN class now proves the SAME "explicit, never
+  // bare" guarantee, more strongly.
   // =========================================================================
-  test("Item 10B — the builder preview resolves the REAL selected site's logo; a logo-less site shows an explicit no-logo hint", async ({ page }) => {
+  test("Item 10B — the builder preview resolves the REAL selected site's logo; a logo-less site shows the explicit A-8 fallback chip", async ({ page }) => {
     const seed = await seedQuote(apiCtx, "logo");
     const u = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
     const logoSiteId = await seedActiveSite(apiCtx, `r4q-logosite-${u}.e2e.test`, `R4Q Logo Site ${u}`);
@@ -221,8 +263,8 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
     await expect(logoImg).toHaveAttribute("src", new RegExp(logo.storage_key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 
     await page.locator("#lg-site-select").selectOption(bareSite.resource.id);
-    const hint = canvas(page).locator('[data-admin-preview-hint="1"]');
-    await expect(hint, "a logo-less site shows an explicit hint, never a bare unexplained fallback").toBeVisible({ timeout: 20_000 });
+    const chip = canvas(page).locator(".lg-frame-logo-fallback");
+    await expect(chip, "a logo-less site shows the explicit A-8 fallback chip, never a bare unexplained mark").toBeVisible({ timeout: 20_000 });
   });
 
   // =========================================================================
@@ -430,16 +472,24 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
 
     await page.goto(shellUrl(seed), { waitUntil: "load" });
     await ready(page);
+    // "mode: first" gates on data-show-on="first", which rides the engine's
+    // OWN step<=1 toggle (frame.ts pageTargetGating's doc comment) — an
+    // OVERALL-VISIT step count, not a funnel-only one. seedQuote's own
+    // trivial pass-through shared page (Continue-only, added for the
+    // §4.3-15 activation preflight — see seedQuote's doc comment) is now
+    // step 1, so THIS is where "renders on page 1" is checked — before
+    // passing it, not after.
     const ftBlock = page.locator("text=Rates shown are illustrative.");
-    await expect(ftBlock, "renders on page 1 (mode: first)").toBeVisible();
+    await expect(ftBlock, "renders on page 1 / step 1 (mode: first)").toBeVisible();
 
-    // Advance to page 2 (answer + real Continue click) — the page-1-only
-    // block must hide (the SAME [data-show-on] engine toggle __p5a-frame
-    // .spec.ts already proves for free text).
-    await page.locator('[data-lg-section]:not([hidden]) [data-lg-choice="true"]').first().click();
-    await page.locator("[data-lg-continue]:visible").click();
-    await expect(page.locator("[data-lg-progress]").first(), "advanced to page 2").toHaveAttribute("data-lg-progress-current", "2");
-    await expect(ftBlock, "the page-1-only block hides on page 2").toBeHidden();
+    // Advance to step 2 — passing the shared page's own Continue is now
+    // what moves step 1 -> 2 (the funnel's OWN page 1, a 2-choice-page
+    // funnel by this test's own 2-page variant-pages PUT above) — the
+    // page-1-only block must hide (the SAME [data-show-on] engine toggle
+    // __p5a-frame.spec.ts already proves for free text).
+    await passSharedPage(page);
+    await expect(page.locator("[data-lg-progress]").first(), "advanced to step 2").toHaveAttribute("data-lg-progress-current", "2");
+    await expect(ftBlock, "the page-1/step-1-only block hides by step 2").toBeHidden();
   });
 
   // =========================================================================
