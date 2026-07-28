@@ -56,8 +56,9 @@ const LG_BASE = (process.env.LG_BASE ?? "http://127.0.0.1:8901").replace(/\/+$/,
 
 // Fail-closed host guard: only local dev servers permitted. Pointing at a
 // non-local origin would create/modify offers/sites on a remote system.
+// IPv6 loopback: WHATWG URL.hostname returns "[::1]" (bracketed) for http://[::1]:port.
 const url = new URL(LG_BASE);
-if (!["127.0.0.1", "localhost", "::1"].includes(url.hostname)) {
+if (!["127.0.0.1", "localhost", "::1", "[::1]"].includes(url.hostname)) {
   console.error(`LG_BASE rejected: hostname "${url.hostname}" is not a local dev server`);
   process.exit(1);
 }
