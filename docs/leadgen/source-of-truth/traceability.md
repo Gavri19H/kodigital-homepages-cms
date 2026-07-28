@@ -77,6 +77,16 @@ async (PACK DELIVERED → OWNER-APPROVED only by the owner's dated reply).
 | ADJ-R6 | "the no-sections preview error path calls showError('lg-tpl-canvas-status_UNUSED','') … a failed preview renders a blank canvas with no feedback" | real status id + visible message | P2 | DEVIATES(replay) | — |
 | ADJ-R7 | "subsequent control edits send theme_id together with inline overrides and the validator rejects the combination, so theme controls stop applying" | normalize preset-based theme payload (validator = designs/theme.ts theme_id-exclusive branch) | P2 | DEVIATES(replay) | — |
 | ADJ-R8 | "after a click the pixels show selection but aria-checked never updates — Yes/No, Buttons and Cards alike" | selection state reaches assistive tech | P5 | DEVIATES(replay) | — |
+| ADJ-N1 | S0-C finding: "testRun.status_code, a field that does not exist on POST /offers/:id/test's real response (the status is nested at response.status)" — the Test-tool assertion in test-ui/leadgen-fix-p1-seed.ts is a silent no-op | OUT-OF-CONTRACT defect (in no owner clause) — surfaced for the owner's fix-or-defer ruling, never silently deferred | owner ruling | DEVIATES(found 2026-07-28 by the S0-C build; test-infra only, no product impact) | — |
+
+**Ground-truth refinement (S0-C, 2026-07-28 — binds P4/P5 payload-acceptance setups):** a live
+`/lg/auction` calls a provider (and writes `leadgen_provider_request_log`) only when the offer is
+wired into the AUCTION entity (`PUT /auctions/:id/offers` → `leadgen_auction_offers`) AND the offer
+has a PASSED Test-tool run; the section-level `leadgen_section_answer_maps` rows are admin-side
+config the live path does not read directly. The S0-C fixture seeds the full emitting chain. Every
+P4/P5 payload-read acceptance setup must include the auction wiring + Test-tool pass, and P5's
+SRC-7B/SRC-6B value_transform work re-verifies WHERE transforms apply on the LIVE path (the driven
+three-format payloads are the proof either way).
 
 ## DEC rows — owner decisions (RULED 2026-07-28; all recommendations accepted verbatim)
 
