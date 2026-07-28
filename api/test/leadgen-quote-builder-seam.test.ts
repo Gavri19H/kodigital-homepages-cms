@@ -1129,6 +1129,17 @@ describeDb("quote builder EXECUTED island — (d) publish chip equals the server
     const variantId = q.funnels[0]!.variants[0]!.public_id;
     const seedPut = await admin.request(`${API}/variants/${variantId}`, jsonInit("PUT", { sections: [{ section_id: section.id }] }), env);
     expect(seedPut.status, await seedPut.clone().text()).toBe(200);
+    // P0 S0-B1 fix-round: this fixture predates the rework §4.3-15 activation
+    // gate (default funnel / shared first page / etc — quotes-handlers.ts's
+    // computeReworkActivationProblems, now ALSO folded into the variant-save
+    // advisory preflight storeVariantPreflight() returns, matching the real
+    // activation-PUT gate). Without a shared-page section this quote would
+    // stay blocked on activation.shared_page even after the offer fix below,
+    // which is not what THIS test is exercising (the offer-mapping block/fix
+    // cycle) — seed it the same way studioHarness() already does for every
+    // other test in this file, so the fixture is genuinely well-formed under
+    // the corrected semantics and "fixing" the offer alone reaches Ready.
+    seedSharedPageSection(sdbBoot, q.id);
 
     const html = await editorPage(env, q.public_id);
     const studio = await bootStudio(env, html);
