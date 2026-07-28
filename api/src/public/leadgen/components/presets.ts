@@ -49,6 +49,7 @@ import {
   flattenComponents,
   isIsoDate,
   isLayoutContainerType,
+  isQuestionGridType,
   LEADGEN_MAX_CONTAINER_DEPTH,
   LEADGEN_NODE_BORDER_COLOR_ROLES,
   LEADGEN_NODE_CORNERS,
@@ -3837,6 +3838,106 @@ export function renderBackgroundPanel(
   );
 }
 
+// ---------------------------------------------------------------------------
+// R2 P1 §① — the QUESTION GRID container (owner A.1 #1/#2; design pin
+// "Screenshot 2026-07-27 at 18.30.25.png")
+// ---------------------------------------------------------------------------
+//
+// ANATOMY (the pin, read top-to-bottom): the section title, then a STACK of
+// LABELED question blocks — each block is one question's own label ABOVE its
+// own control (Yes/No pair, dropdown, buttons …) — and ONE Continue for the
+// whole screen. So this container renders:
+//
+//   <div class="lg-qgrid" data-component-type="QuestionGrid" style="gap:…">
+//     <div class="lg-qgrid-q">              ← ONE labeled block per child
+//       <span class="lg-label">…</span>     ← the CHILD's own labelLine
+//       <div class="lg-answer-group" data-lg-question="…">…</div>
+//     </div>
+//     … N blocks …
+//   </div>
+//
+// Three rules this renderer obeys, all of them owner-verbatim consequences:
+//
+//  1. EVERY child renders through its OWN existing renderer (renderComponent —
+//     the same per-type dispatch every other container uses). Nothing about a
+//     question changes because it sits in a group: its label, choices,
+//     default, required flag, per-question `design_overrides` (D4) and its
+//     hydration attrs are produced by the SAME code path as a standalone
+//     instance. "Each question in the component is independent field, with
+//     independent answers, inefendent **defaults!!** … independent style".
+//  2. The CONTAINER carries NO [data-lg-question] (hydration emits it only for
+//     an answer-PRODUCING catalog type, and the grid's `produces` is null) —
+//     the children carry it. The container answers no field, is labeled by no
+//     label, and adds NO Continue of its own: the section's single §11.5
+//     control still owns that.
+//  3. Each child's LABEL + CONTROL share ONE wrapper (`.lg-qgrid-q`), and for
+//     a child with a dependency rule that wrapper — not the bare control — is
+//     the runtime's hide target: it carries `data-lg-node="<child qid>"`, the
+//     hook render.applyComponentVisibility already selects on
+//     (`[data-lg-question="q"],[data-lg-node="q"]`, first match in DOCUMENT
+//     order ⇒ the ancestor wrapper). Hiding it hides the label WITH the
+//     control, so a dependency-hidden question can never leave an orphaned
+//     label behind ("if the user clicked 'no' and the dependency rule wasn't
+//     met, we need to ignore this question- it isn't relevant, so it doesn't
+//     exist"). `data-lg-node` (never a second [data-lg-question]) keeps the
+//     §11.6 question count pure — exactly the reason hydration() introduced
+//     that attribute for conditional non-producing nodes.
+function questionGridGapStyle(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  // The container's ONE authorable knob (CONTAINER_PROP_SPECS.QuestionGrid):
+  // the spacing between its stacked questions, on the SAME xs..xl token scale
+  // (and the SAME resolver) the Stack container uses — registry tokenSlots
+  // ["stack"]. Always emitted, so the grid owns its internal rhythm and needs
+  // no `> * + *` margin floor (the styles.ts scoping rule for containers with
+  // explicit gap semantics).
+  return style({ gap: stackGapValue(design, propStr(node, "gap")) });
+}
+
+// ONE child question → its labeled, independently-hideable block.
+function wrapGridQuestion(node: LeadgenComponentNode, html: string): string {
+  if (html === "") return "";
+  const conditional =
+    typeof node === "object" && node !== null ? node.conditional : undefined;
+  return (
+    `<div class="lg-qgrid-q"` +
+    // Only a child that actually carries a dependency rule needs the hide
+    // hook; an unconditional question is never toggled, so it stays a plain
+    // block (no attribute invented where nothing consumes it).
+    (conditional !== undefined ? attr("data-lg-node", node.question_id) : "") +
+    `>${html}</div>`
+  );
+}
+
+// The child walk — routed through the SAME renderPlacedSiblings every other
+// sibling list uses, so a grid's children can sit side by side via `layout`
+// (validateRowGrouping already gates that list) exactly like top-level
+// siblings; the per-child block wrapper is applied INSIDE each slot.
+function renderQuestionGridChildren(
+  children: readonly LeadgenComponentNode[],
+  design: DefaultFunnelDesign,
+  depth: number,
+  state: SectionRenderState | undefined,
+): string {
+  return renderPlacedSiblings(children, state?.ctx, (child) =>
+    wrapGridQuestion(child, renderComponent(child, design, depth, state)),
+  );
+}
+
+export function renderQuestionGrid(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  depth = 1,
+  state?: SectionRenderState,
+): string {
+  if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return "";
+  return (
+    `<div class="lg-qgrid"${hydration(node)}` +
+    questionGridGapStyle(node, design) +
+    `>` +
+    renderQuestionGridChildren(containerChildren(node), design, depth + 1, state) +
+    `</div>`
+  );
+}
+
 // Spacer (§8.5 layout leaf): a token-sized vertical gap by default. v3.1
 // §5.6 (adversarial review m2): an OPTIONAL "line" variant (the Divider
 // tile) renders the SAME token-sized block with a visible center rule,
@@ -4093,6 +4194,11 @@ export function renderComponent(
       return renderCardPanel(node, design, depth, state);
     case "BackgroundPanel":
       return renderBackgroundPanel(node, design, depth, state);
+    // R2 P1 §① the QUESTION grid container (recursive, like the §8.5 layout
+    // containers above — but its children are QUESTIONS, each rendered by its
+    // own per-type renderer through this same dispatch).
+    case "QuestionGrid":
+      return renderQuestionGrid(node, design, depth, state);
     case "Spacer":
       return renderSpacer(node, design);
     case "HeaderBar":
@@ -4489,6 +4595,26 @@ function renderVisibleNodes(
   // (renderPlacedSiblings' fast path === map(renderOne).join("")).
   const renderOne = (node: LeadgenComponentNode): string => {
     if (typeof node !== "object" || node === null) return "";
+    // R2 P1 §① the QUESTION grid: a real component (unlike a §8.5 layout
+    // container it IS projected into /lg/config), but for THIS walk it behaves
+    // like one — flattenComponents never yields the container itself, so its
+    // question_id is not in `visibleIds` and the leaf test below would delete
+    // the whole group. Keep the wrapper, filter the CHILDREN: a
+    // dependency-hidden question's labeled block drops out entirely (label
+    // WITH control — the same "it doesn't exist" semantics the live runtime
+    // gets by hiding `.lg-qgrid-q`), the visible ones keep their blocks.
+    if (isQuestionGridType(node.type)) {
+      if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return ""; // defensive (validator is the gate)
+      const inner = renderPlacedSiblings(containerChildren(node), state?.ctx, (child) =>
+        typeof child === "object" &&
+        child !== null &&
+        typeof child.question_id === "string" &&
+        visibleIds.has(child.question_id)
+          ? wrapGridQuestion(child, renderComponent(child, design, depth + 1, state))
+          : "",
+      );
+      return renderContainerWrapper(node, design, depth, inner);
+    }
     if (isLayoutContainerType(node.type)) {
       if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return ""; // defensive (validator is the gate)
       const inner = renderVisibleNodes(containerChildren(node), design, visibleIds, depth + 1, state);
