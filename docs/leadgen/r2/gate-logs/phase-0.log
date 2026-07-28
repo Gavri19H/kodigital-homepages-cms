@@ -23894,3 +23894,161 @@ unhandled error: GET /admin TypeError: env.DB.prepare(...).first is not a functi
    Duration  127.82s (transform 3.02s, setup 0ms, collect 34.14s, tests 40.74s, environment 27ms, prepare 8.79s)
 
 [2F] exit-of-vitest=0
+
+== FIX-FIRST CLOSURE APPEND 2026-07-28T20:04:17Z (review m3/m5: complete the ritual at current HEAD) ==
+HEAD: f764b0295307535f0f3b2d64ebc2f8d8b4ea9fcb
+
+== [1R] npm run typecheck ==
+
+> kodigital-homepages-cms-api@0.1.0 typecheck
+> tsc --noEmit
+
+[1R] exit=0
+
+== [3R] verify:all ==
+
+> kodigital-homepages-cms-api@0.1.0 verify:all
+> npm run verify:no-legacy-prod-refs && npm run verify:infra && npm run verify:worker-config && npm run verify:leadgen-runtime && npm run verify:jargon:strict && npm run verify:golden-regions:strict
+
+
+> kodigital-homepages-cms-api@0.1.0 verify:no-legacy-prod-refs
+> tsx scripts/verify/assert-no-legacy-prod-refs.ts
+
+verify:no-legacy-prod-refs OK -- no banned legacy production identifiers found (Group A + Group B).
+
+> kodigital-homepages-cms-api@0.1.0 verify:infra
+> tsx scripts/verify/infra-contract.ts
+
+verify:infra OK -- wrangler.toml matches the Phase 1.5 infra contract (8 checks passed).
+
+> kodigital-homepages-cms-api@0.1.0 verify:worker-config
+> tsx scripts/verify/worker-config.ts
+
+verify:worker-config OK -- wrangler.toml [vars] blocks match the Phase 1.5 routing contract (3 blocks checked).
+
+> kodigital-homepages-cms-api@0.1.0 verify:leadgen-runtime
+> tsx scripts/verify/leadgen-runtime.ts
+
+  freshness: OK (byte-identical rebuild)
+  size: OK (50833 bytes, 95.5% of budget)
+  types: OK (tsc -p tsconfig.runtime.json)
+verify:leadgen-runtime PASS
+
+> kodigital-homepages-cms-api@0.1.0 verify:jargon:strict
+> node scripts/jargon-scan.mjs --strict
+
+=== jargon-scan (Section Builder v3.1, register §A M6) ===
+Files scanned: 3
+  - src/admin/leadgen/ui-section-studio.ts
+  - src/admin/leadgen/ui-sections.ts
+  - src/admin/leadgen/ui-theme-manager.ts
+
+[section (§)] 0 hit(s)
+
+[legacy] 0 hit(s)
+
+[wrangler] 0 hit(s)
+
+[GOOGLE_MAPS] 0 hit(s)
+
+[raw-operator-codes] 0 hit(s)
+
+TOTAL: 0 hit(s) across 5 categories
+mode: --strict (exit 1 if TOTAL > 0)
+
+> kodigital-homepages-cms-api@0.1.0 verify:golden-regions:strict
+> node scripts/golden-allowlist.mjs --strict
+
+=== golden-allowlist (Section Builder v3.1, register §A M2) ===
+Files scanned: src/admin/leadgen/ui-section-studio.ts, src/admin/leadgen/ui-sections.ts
+Live blocks detected: 40
+  golden:true   22
+  golden:false  18
+  UNCLASSIFIED  0
+Stale allowlist entries (no longer detected in source): 0
+
+[non-golden] 18 block(s)
+  src/admin/leadgen/ui-section-studio.ts:885-914  renderActivityVerticalPickers  (S4-A8)
+    -> R5 census split (extracted from renderStudioSettings, which used to carry this MIXED-in): the Activity/Vertical '+New...' pickers + styled-placeholder-pill empty state. No golden position exists for this group (it was moved into the question strip from the top bar in an earlier phase, unrelated to golden fidelity) — accepted, functionally necessary, non-golden extension, now its own classifiable block per the split.
+  src/admin/leadgen/ui-section-studio.ts:1225-1241  renderFrameHintSkeleton  (U15 (operator retest erratum))
+    -> U15 operator-ordered clarity erratum (2026-07-15): the golden's skeleton pill copy 'Funnel frame' is renamed to 'Funnel layout' (the operator's 3rd retest flagged 'frame' as incomprehensible). This block now intentionally diverges from the golden's Appendix-A microcopy, so it is no longer golden-verbatim.
+  src/admin/leadgen/ui-section-studio.ts:1242-1261  renderScopePillsMarkup  (U15 (operator retest erratum))
+    -> U15 operator-ordered clarity erratum (2026-07-15): the golden's scope pill 'Funnel frame' (+ its title) is renamed to 'Funnel layout' (the operator's 3rd retest flagged 'frame' as incomprehensible). The data-scope-pill='frame' VALUE stays (internal key); only the display text + title diverge from the golden, so this block is no longer golden-verbatim.
+  src/admin/leadgen/ui-section-studio.ts:1464-1550  renderCanvasToolbar  (S4-A3 (R5 purge))
+    -> PROPOSED reclassification (implementer, pending conductor ratification): R5 D3 removed EVERY ballooning cluster (renderToolbarLayoutCluster DELETED — its entry above is intentionally gone, not stale-orphaned, per the purge completion the E.5b arming enforces; layout/text/component/preset clusters removed or migrated to Content/Style tabs). The function now renders ONLY golden-legit chrome (breadcrumb/pills/undo/viewport/frame-hint/offer-mapping-toggle) PLUS one compact non-golden 'More actions' popover (structure + choice-item quick actions — the golden mockup depicts neither; documented judgment call per the dispatch's own carve-out) and the inline validation-problems slot. Kept golden:false for the More-popover addition alone — a MUCH smaller divergence than pre-R5.
+  src/admin/leadgen/ui-section-studio.ts:1687-1744  renderStyleExtraControls  (S4-A4 successor (R3b))
+    -> Replaces the removed §8.5 rail: ONLY the consumed, per-type-gated role rows survive (iconColor for card grids, rangeColor for the range family). Jargon-free; consumption-honesty gated. Not a golden region — accepted extension pending R5 golden arbitration (conductor-classified 2026-07-14).
+  src/admin/leadgen/ui-section-studio.ts:1745-1764  renderImageFitControl  (E2-C6 / R3b)
+    -> imageFit control relocated to the Content tab for ImageCardAnswerGrid (its real consumer). Consumed + gated; not a golden region — accepted extension (conductor-classified 2026-07-14).
+  src/admin/leadgen/ui-section-studio.ts:1877-1913  renderContainerControl  (S4-A4)
+    -> Helper consumed only by renderDesignPanel/renderLayoutPanel (S4-A4) — no independent golden use.
+  src/admin/leadgen/ui-section-studio.ts:1914-1937  renderContainerLayoutPanel  (S4-A4 successor (R3b))
+    -> Containers' REAL layout props (Stack/Grid/Columns/CardPanel/Spacer) in a clean jargon-free panel, container types only. Consumed; not a golden region — accepted extension pending R5 (conductor-classified 2026-07-14).
+  src/admin/leadgen/ui-section-studio.ts:1963-2023  renderStyleContinueBlock  (U15 (operator retest erratum))
+    -> MINOR-3 census split (extracted from renderStudioInspector, which used to carry this MIXED-in): the Continue Style-tab's 'inherited from the funnel' notice — eyebrow, Color/Position/Size rows, and the 3 deep-link buttons. U15 operator-ordered clarity erratum (2026-07-15): renames the golden-verbatim eyebrow 'Inherited from the frame' -> 'From the funnel layout' and the deep-link buttons 'Change in frame ->' -> 'Edit in Quote Builder ->' (the operator's 3rd retest flagged 'frame' as incomprehensible). This is now the ONLY block carrying that divergence.
+  src/admin/leadgen/ui-section-studio.ts:2024-2079  renderStylePlacementBlock  (PC-2 / decision D1 / axiom R-B)
+    -> P3b placement panel — post-golden feature. Structured-placement Style-tab controls (align/width/nudge/row-indicator) plus the CONDUCTOR-FIX excluded-ownership note for ContinueButton/AutoAdvanceButton (position is Quote-Builder-owned). Extracted out of renderStudioInspector on conductor ruling so this post-golden addition does not dilute that already-classified golden:true region — the same P1-granularity discipline renderStyleExtraControls/renderContainerLayoutPanel/renderImageFitControl already follow. Not a golden region — accepted extension (conductor-classified 2026-07-17).
+  src/admin/leadgen/ui-section-studio.ts:2080-2112  renderShowIfControls  (Round-4 P2c (A-4 authoring))
+    -> P2c group-row controls — post-golden feature. The Rules-tab Show-if picker (row 0, data-inspector-cond, is the pre-existing golden-verbatim single-condition picker, byte-unchanged) PLUS the NEW ANY/ALL group toggle + "+ Add condition" affordance. Extracted out of renderStudioInspector (the SAME P1-granularity discipline renderStylePlacementBlock/renderStyleContinueBlock already follow) so this post-golden addition does not dilute that already-classified golden:true region. Not a golden region — accepted extension (implementer-classified 2026-07-20, P2c slice).
+  src/admin/leadgen/ui-section-studio.ts:2113-2143  renderRequiredWhenControls  (Round-4 P2c (A-4 authoring))
+    -> P2c group-row controls — the SAME extraction/rationale as renderShowIfControls, applied to the Require-if surface (props.requiredWhen). Row 0 (data-inspector-reqcond) is byte-unchanged; the ANY/ALL toggle + "+ Add condition" are new. Not a golden region — accepted extension (implementer-classified 2026-07-20, P2c slice).
+  src/admin/leadgen/ui-section-studio.ts:2144-2169  renderPhoneFormatControls  (Round-4 P2c (A-6b studio surface))
+    -> The Content-tab "Phone format" picker (US default | International | Israel | Custom…) — the FIRST studio authoring surface for props.phone_format (content-schema/config-dto validate/compile it since P2b). Extracted out of renderStudioInspector (same P1-granularity discipline as the other P2c/P3b extractions) so this post-golden addition does not dilute that already-classified golden:true region. Not a golden region — accepted extension (implementer-classified 2026-07-20, P2c slice).
+  src/admin/leadgen/ui-section-studio.ts:2170-2208  renderSliderTypePicker  (LEADGEN-REWORK-03 §6.8)
+    -> The Content-tab slider-type thumbnail radio group (single/dual_range/stepper/from_to/radial) + the display-only currency-affix toggle — the P0 golden design pack's studio-panels.html pins this control (data-pin 6.8-type-picker), but pixel-fidelity against that pack is the authoring (studio inspector) slice's own verification, not asserted here. Classified golden:false / accepted extension so the strict census gate is not silently left unclassified (gate-closing entry added by the P2 server-renderer slice per conductor coordination — the function itself is owned/authored by the studio-inspector slice, not this one).
+  src/admin/leadgen/ui-section-studio.ts:2209-2227  renderAddressFieldSet  (LEADGEN-REWORK-03 §6.10 / M9)
+    -> The Content-tab address field-set editor (ordered field rows + "Plain text address" preset + "+ Add field" + the Maps-off degrade note) — the P0 golden design pack's studio-panels.html pins this control (data-pin 6.10-field-set-editor), but pixel-fidelity against that pack is the authoring (studio inspector) slice's own verification, not asserted here. Classified golden:false / accepted extension so the strict census gate is not silently left unclassified (gate-closing entry added by the P2 server-renderer slice per conductor coordination — the function itself is owned/authored by the studio-inspector slice, not this one).
+  src/admin/leadgen/ui-section-studio.ts:2864-2926  renderPreviewPanel  (S4-A5)
+    -> Bottom-drawer 'Preview' panel = a dev/QA console (pickers, mapping overlay, refresh, state simulator, dependency-JSON textarea, events-would-fire log, 2 iframes) — golden's drawer is a bar only (golden :371-387). Per the mission's operator-resolved decision, this stays behind an explicit 'QA tools' toggle in R5, not removed outright.
+  src/admin/leadgen/ui-section-studio.ts:2930-2957  renderSectionOverridesPanel  (S4-A6)
+    -> Bottom-drawer 4th tab 'Design overrides' (14 role swatches + columns/gap) — golden shows exactly 3 items + theme switcher + Expand. Self-flagged non-golden in its own source per the register.
+  src/admin/leadgen/ui-sections.ts:667-672  renderSectionEditorChrome  (S4-A10)
+    -> R5 census split (extracted from sectionEditorHtml, which used to carry this MIXED-in): the 'New Section' pubid label (new-section state only) + the 2 error/warning alert surfaces. Golden's static mockup depicts no new/unsaved/error state, so this has no golden position — accepted, functionally necessary, non-golden extension, now its own classifiable block per the split.
+
+[UNCLASSIFIED — needs an allowlist entry] 0 block(s)
+
+mode: --strict (exit 1 if any UNCLASSIFIED block OR any stale golden:false entry exists)
+[3R] exit=0
+
+== [7R] F5 deferral grep at HEAD ==
+7532:+ ✓ test/listicles-fanout.test.ts > §7.1 publish → invalidate + warm (the Phase-2 TODO replaced) > publishing an article wipes its stale shells and warms every ACTIVE Version's shell
+22948:+ ✓ test/listicles-fanout.test.ts > §7.1 publish → invalidate + warm (the Phase-2 TODO replaced) > publishing an article wipes its stale shells and warms every ACTIVE Version's shell
+[7R] hits-exit=0 (1 = zero hits)
+
+== [5R] D1 provider-log payload read (review m5: command + full row) ==
+$ npx wrangler d1 execute kodigital-homepages-cms-db --local --command "SELECT id, auction_instance_id, status_code, request_payload_redacted_json FROM leadgen_provider_request_log ORDER BY id DESC LIMIT 1"
+
+ ⛅️ wrangler 3.114.17 (update available 4.115.0)
+------------------------------------------------
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mThe version of Wrangler you are using is now out-of-date.[0m
+
+  Please update to the latest version to prevent critical errors.
+  Run `npm install --save-dev wrangler@4` to update to the latest version.
+  After installation, run Wrangler with `npx wrangler`.
+
+
+🌀 Executing on local database kodigital-homepages-cms-db (caa649b9-128e-4912-97c8-3e3d4a394800) from .wrangler/state/v3/d1:
+🌀 To execute on your remote database, add a --remote flag to your wrangler command.
+🚣 1 command executed successfully.
+[
+  {
+    "results": [
+      {
+        "id": 4,
+        "auction_instance_id": "01KYN3BCM77DGB6KJQFTXY8E4W",
+        "status_code": 200,
+        "request_payload_redacted_json": "{\"lead\":{\"r2fix_carrier\":\"beta_mutual\"}}"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "duration": 0
+    }
+  }
+]
+[5R] exit=0
+[7R] classification (conductor): 2 hits, both INSIDE this committed gate log's vitest capture —
+the pre-existing test title "§7.1 publish → invalidate + warm (the Phase-2 TODO replaced)"
+(test/listicles-fanout.test.ts, unchanged since before this mission). Not deferrals; no
+P0-authored line carries a deferral token. [7] at e7e753c (pre-log-commit) was zero hits.
