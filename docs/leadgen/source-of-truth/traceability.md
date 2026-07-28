@@ -154,7 +154,8 @@ SERVED funnel (not an outcome row) on default legs.
 
 | Phase | Scope | State | Branch | Merged sha | Review verdict | Pack | Cost (tokens / duration) |
 |---|---|---|---|---|---|---|---|
-| P0 | Step 0 + S0-B1 + S0-C + S0-D + baseline sweep + R1a | GATED: adversarial FIX-FIRST → all closures → scoped re-review SHIP 2026-07-28; gate log 6963/6963 + verify:all green; R1a = BLOCKED(owner), sole open P0 item | leadgen-r2-p0 | pending squash PR | SHIP (scoped re-review) | PACK DELIVERED 2026-07-28 (docs/leadgen/r2/evidence/p0/PACK.md) | see dispatch cost table below |
+| P0 | Step 0 + S0-B1 + S0-C + S0-D + baseline sweep + R1a | MERGED 2026-07-28 (PR #133, squash 4e95903); adversarial FIX-FIRST → all closures → scoped re-review SHIP; gate 6963/6963; R1a = BLOCKED(owner), sole open P0 item | leadgen-r2-p0 | 4e95903 | SHIP (scoped re-review) | PACK DELIVERED 2026-07-28 (docs/leadgen/r2/evidence/p0/PACK.md) | see dispatch cost table below |
+| P1 | ① Question-Grid container (S1a schema → S1b render ∥ S1c studio → S1d runtime/seams) | IN FLIGHT (opened 2026-07-28) | leadgen-r2-p1 | — | — | OWNER-BLOCKING (D10) | — |
 
 **P0 dispatch cost table (tokens as reported per dispatch notification; resumed-agent figures are cumulative for that resumption):**
 | Dispatch | Model | Tokens | Duration |
@@ -167,7 +168,6 @@ SERVED funnel (not an outcome row) on default legs.
 | Sweep-B quotes surfaces | Sonnet | 289,079 | 1,509s |
 | Adversarial review (+scoped re-review) | Opus | 257,551 (+306,261) | 1,961s (+326s) |
 | m8 host guard / N5 IPv6 entry | Haiku | 34,168 / 31,887 | 79s / 63s |
-| P1 | ① Question-Grid | pending | — | — | — | OWNER-BLOCKING | — |
 | P2 | ② Templates + ③ Themes | pending | — | — | — | async | — |
 | P3 | ④ Footer J | pending | — | — | — | async | — |
 | P4 | ⑤ Sliders | pending | — | — | — | OWNER-BLOCKING | — |
