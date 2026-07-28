@@ -850,11 +850,12 @@ describe("events: ULID-shape id", () => {
 
 describe("bundle: committed engine-bundle.generated.ts", () => {
   it("is within the §3.1 budget and non-trivial", () => {
-    // LeadGen Rework owner decision D1 (P0 review, 2026-07-22): the visitor
-    // runtime cap is raised 46080 -> 51200 (50 KiB), FINAL for this program,
-    // to fund the §7 visitor-facing widgets (mask/sliders/other/address) —
-    // see docs/leadgen/rework/byte-ledger.md for the per-feature accounting.
-    expect(LEADGEN_RUNTIME_JS_BYTES).toBeLessThanOrEqual(51200);
+    // LeadGen Rework owner decision D1 (2026-07-22): the visitor runtime cap
+    // is raised 46080 -> 51200 (50 KiB) to fund the §7 visitor-facing widgets
+    // (mask/sliders/other/address); then R2 owner decision D1 (2026-07-28):
+    // the cap is raised 51200 -> 53248 (52 KiB) to fund the R2 slider and grid
+    // runtime components — overflow = owner decision. See docs/leadgen/rework/byte-ledger.md.
+    expect(LEADGEN_RUNTIME_JS_BYTES).toBeLessThanOrEqual(53248);
     expect(LEADGEN_RUNTIME_JS_BYTES).toBeGreaterThan(1000);
   });
 

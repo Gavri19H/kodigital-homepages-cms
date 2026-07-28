@@ -13,8 +13,9 @@
  *      (2026-07-16), then 43 KiB by D-1 (2026-07-19), then 44 KiB by the
  *      operator's P3a same-screen-pages amendment (2026-07-20), then 45 KiB
  *      (46080) by a consolidated operator amendment (2026-07-20), then the
- *      LeadGen-Rework FINAL 50 KiB (51200) by owner decision D1 (2026-07-22)
- *      funding the §7 visitor-facing widgets; FINAL, no further raises)).
+ *      LeadGen-Rework 50 KiB (51200) by owner decision D1 (2026-07-22), then
+ *      the R2 final 52 KiB (53248) by owner decision D1 (2026-07-28) funding
+ *      the R2 slider and grid runtime components; overflow = owner cap decision)).
  *   3. TYPES — `tsc -p tsconfig.runtime.json --noEmit` (the browser-lib
  *      project covering ONLY src/public/leadgen/runtime/): the runtime
  *      modules are excluded from the worker tsconfig (no DOM lib there), so

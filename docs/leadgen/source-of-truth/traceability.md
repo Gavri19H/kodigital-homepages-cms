@@ -1,0 +1,175 @@
+# LeadGen R2 — Traceability Register (single recovery truth)
+
+Seeded by Execution-Plan Step 0.3 from Contract §8 at **imperative-sentence granularity** (F1/M-6).
+Anchors quote the owner verbatim (fragments of `SOURCE-OF-TRUTH.md`); probe lines quote
+`LEADGEN-R2-PROBE-VERDICTS.md` (2026-07-27). Only the conductor writes rows, and only after its own
+gate run + adversarial SHIP. Status vocabulary: `PASS(evidence)` / `DEVIATES(finding)` /
+`BLOCKED(owner)` / `INCONCLUSIVE(step: …)`. Validator: `check_register.py` must exit 0 at every
+phase merge and at CLOSE. Owner-gate column: P1/P4 packs are OWNER-BLOCKING (D10); all other packs
+async (PACK DELIVERED → OWNER-APPROVED only by the owner's dated reply).
+
+## SRC rows — owner imperatives
+
+| ID | Anchor (owner verbatim) | Requirement | Phase | Owner gate | Status | Evidence |
+|---|---|---|---|---|---|---|
+| SRC-1a | "you can't treat the whole component as one unit that is providing an answer to one filed" | ① ONE container component whose children are independent-field questions | P1 | P1 pack OWNER-BLOCKING + `Screenshot 2026-07-27 at 18.30.25.png` | DEVIATES(probe: "no such component; only flat sections + element-level Rules") | — |
+| SRC-1b | "inefendent **defaults!!** (right now only the first question has option for default)" | independent default per question; default control live (A3) | P1 | P1 pack | DEVIATES(probe: "Default-choice select ignores in-session choice edits until save+reload") | — |
+| SRC-1c | "if the user wants to deviate from the theme - independent style" | per-question style deviation, D4 full axes incl. free colors | P1 | P1 pack | DEVIATES(probe: "size/corners/border only; colors locked to 3 theme roles"; replay: corners/border/width DO render live — re-scope to the constrained axes after a fresh drive) | — |
+| SRC-1d | "independent **rules**!" | per-question dependencies authored in QUESTION terms, type-agnostic both sides | P1 | P1 pack | DEVIATES(probe: "expressible only as a section-level element rule … shows the SECTION HEADLINE") | — |
+| SRC-1e | "you left a lot of dead parts- … there is no 'Main question'!!!" | no shared Helper text / Answer format / sub-questions / Main question | P1 | P1 pack | DEVIATES(probe: dead parts present in the component editor) | — |
+| SRC-1f | "the '+Add a question' button, for all the components, should be small, **out of the component** and not to affect the componenent size/ structure!!!" | + Add a question small, OUTSIDE, non-widening | P1 | P1 pack | DEVIATES(probe: "affordance does not exist") | — |
+| SRC-2a | "the question is marked/checked and only being tracked after the user is clicking 'continue' … if the user is overiding the default, the user answer is the one that is being saved" | mark-then-continue; override wins | P1 (reuse) | P1 pack | INCONCLUSIVE(step: P0 baseline sweep re-drive — probe rated PERFECT, in-use re-proof required) | — |
+| SRC-2b | "the 'credit score' question is a dropdown element - the user shuold be able to choose the wanted element per question" | mixed types per question inside the container | P1 | P1 pack | DEVIATES(probe: primitives PERFECT but homeless — no container to hold mixed-type questions) | — |
+| SRC-2c | "if we set a 'default' and the user didn't change it - this is his answer and the 'required' rule is met. but if the user clicked 'no' … we need to ignore this question" | required-with-default; dependency-hidden ⇒ not required/validated/persisted; label hides too (A1) | P1 | P1 pack | DEVIATES(probe: "the hidden question's LABEL stays visible as an orphan") | — |
+| SRC-3 | "should be applied on all the components, you are not allowed to take care only in this component and ignore the rest" | add-affordance outside-rule proven on the FULL registry roster | P1 + P6 re-verify | per-component roster list | DEVIATES(probe: rule applied nowhere; roster acceptance per Contract §2 #4) | — |
+| SRC-4 | "the √ inside the button for the chosen answer" | ✓ inside selected grid button; lift faint-contrast nit | P1 | P1 pack | INCONCLUSIVE(step: P0 baseline sweep re-drive — probe 4a PERFECT "contrast subtle") | — |
+| SRC-5 | "somthing like field that looks this way (3)-3-4 … converted to this format - (___)-___-____" | phone mask re-prove; standalone tile = D6 (ADJ-A6) | P5 | P5 pack (async) | INCONCLUSIVE(step: P0 baseline sweep re-drive — probe 4b PERFECT incl. verbatim block message) | — |
+| SRC-6 | "if I want to auto fill only for street address and city and I want the user will insert the Zip by himself but to validate the Zip in a 5 digits zip validation?" | ⑥ subsets; composite-by-default (D3); zip5 visible message; keyless-degrade honesty; live autofill leg per D8 | P5 | P5 pack (async) + `Image8.png` | DEVIATES(probe: "zip5 … blocks SILENTLY"; "visitor gets ONE bare input"; autofill unauthorable keyless) | — |
+| SRC-6B | "every component that include more than one field- each field is potentially answering another offer field in different formats per offer!!!" | one address sub-field → TWO offers in TWO output formats via value_transform | P5 (after SRC-7B) | 2-offer/2-format payload | DEVIATES(no operator-facing output-format control exists; transforms are advanced/raw-JSON only) | — |
+| SRC-7 | "You must give the user the option to pick his desired slider from sliders list!!! the slider type is **not** a theme decision!!!" | ⑤ five slider types render the §6.8 anatomy in use; picker == render; `$` display-only | P4 | P4 pack OWNER-BLOCKING + Image10.png/Image11.png/Image12.png/Image13.png/Image14.png | DEVIATES(probe 2b/2c: "four of five renders don't deliver it" — detached handle / bare inputs / stacked tracks / no dial) | — |
+| SRC-7B | "I can define that I want the currency will be passed to the offer in the auction and I can define that only the number is sent, and I can define that the number will be sent as string" | currency-string/number/number-as-string per offer via value_transform; D9 exact string `$170,000` | P5 | 3-format payload table | DEVIATES(no currency-format transform kind; TRANSFORM_KINDS duplicated in two files) | — |
+| SRC-8 | "I want to add 'other' group - a dropdown element, inside the button … I need to have fields to add the dropdown values. D. The same should apply for 'Cards' as well" | authored-Other dropdown re-prove (Buttons+Cards) | P5 | P5 pack (async) | INCONCLUSIVE(step: P0 baseline sweep re-drive — probe 4c PERFECT; ADJ-A7 frictions tracked separately) | — |
+| SRC-9 | "why the cards are aligned to the left and the '+ add choice' is inside the component and widening it???" | cards centered; add-choice outside re-prove | P5 | P5 pack (async) | INCONCLUSIVE(step: P0 baseline sweep re-drive — probe 4d PERFECT; ADJ-A5 tracked separately) | — |
+| SRC-10 | "dropdown component - why is there 'enable other group'??? what does it even mean????" | dropdown editor clean re-prove; Offers-Payload-Builder leftover removed | P5 | P5 pack (async) | INCONCLUSIVE(step: P0 baseline sweep re-drive — probe 4e PERFECT; leftover control on payload builder) | — |
+| SRC-11A | "I chose a site - why I don't see its logo????" | ② logo resolves in canvas (8a + R5 site_id seam) | P2 | P2 pack (async) + `Image18.png` | DEVIATES(probe 8a: authored logo still shows "No logo — set it in Site settings") | — |
+| SRC-11B | "the 'themes' and the templates are moving to the top bar" | top-bar-only: builder chips navigate to the top-bar tabs, never embedded editing/apply in the builder | P2 | P2 pack (async) | DEVIATES(sweep-B 2026-07-28: Theme chip navigates ✓ but the funnel-card Template chip opens an embedded apply-popover INSIDE the builder — openTemplatePicker, funnel.ts ~:4462; the probe's 8b PERFECT missed it because B4 read as "unresponsive". Fix in P2 with ADJ-B4) | 8b-template-chip-click-1280.png, 8b-theme-chip-nav-1280.png (sweep-b) |
+| SRC-11C-A | "the order of the pages could be changed and not only what pages we show per funnel name" | page reorder (drag + menu equivalent) persists; board reachable ≥6 funnels, no rail occlusion @1600/1640/1680 | P2 | P2 pack (async) | INCONCLUSIVE(step: P2 re-drive; sweep-B seeded BOTH menu AND drag reorder persisting after reload — the UNCONFIRMED drag leg is closed; ADJ-B3 occlusion remains P2) | 11c-a-menu-*.png, 11c-a-drag-*.png (sweep-b) |
+| SRC-11C-B | "each page could include more than one section and we should be able to A/B test or creating in-funnel rules (show in CA this section in this page, and in the rest show this sectio, for example)" | multi-section pages; per-slot A/B + ruled slots — authorable BY AN OPERATOR in the board UI | P2 | P2 pack (async) | DEVIATES(sweep-B seeded the mechanism live — A/B + device-ruled slots render and the device drive reveals X-vs-Y (11c-b-mobile-render-375.png); state=CA slot saves + renders its chip — BUT the funnel-page section-chip kebab has NO "A/B this slot"/"Slot rule" entries (shared-page chips have them; funnel.ts:399-400), so an operator cannot author it without raw API, and the ruled-slot dialog lacks a generated plain-language sentence. P2 adds the operator path + re-drives; state=CA LIVE-geo leg still resolves post-deploy at the cutover sitting — GATE-INCONC) | 11c-b-*.png (sweep-b) |
+| SRC-11C-C | "The AB test can be also in the funnel level and not only in the page level" | funnel-level A/B; both arms served | P2 | P2 pack (async) | INCONCLUSIVE(step: P2 both-arms re-drive; sweep-B seeded 2 arms 5000/5000 bp, 16 draws split 9/7 — keep experiments RUNNING when driving splits, a stopped experiment collapses to single-arm) | 11c-c-*.png (sweep-b) |
+| SRC-11C-D | "Theme picker per funnel name" | theme-per-funnel; two funnels render two themes | P2 | P2 pack (async) | INCONCLUSIVE(step: P2 re-drive; sweep-B seeded two funnels rendering two distinct themes live) | 11c-d-funnel-a-theme-1280.png, 11c-d-funnel-b-theme-1280.png (sweep-b) |
+| SRC-11C-R | "the funnel is decided per user answers durring the questionarie or per the user parameters (UTMs/ Claudflare data such as device/os/time/day and so on)" | routing via leadgen_quote_routing_rules: answers=CHECKPOINT plane; params=ENTRY plane; outcomes recorded | P1 (grid leg) + P2 | P1/P2 packs | INCONCLUSIVE(step: P1 grid checkpoint-rule drive + P2 entry-rule re-drives; sweep-B seeded BOTH entry rules live — utm_source + device each routed into its target_funnel_id with leadgen_routing_outcomes rows, non-matching legs defaulted) | 11c-r-*.png (sweep-b) |
+| SRC-11D | "'The funnel layout elements (A)' should be aligned to the left, the funnel elemnts settings (B) shuold be aligned to the right, and in the middle should be a *CANVAS*" + "I want different types of progress bars and to design them with a dedicated box!" | ② 3-pane; ONE preview path; every element A–I reflects live; 5 progress styles selectable + visually distinct | P2 | P2 pack (async; `Image22.png` = BEFORE-reference only) | DEVIATES(probe 5a/5b/5c: "0/9 elements reflect any edit" on empty path; only Background on populated; dead chip; single-option dropdowns) | — |
+| SRC-11E | "Add a real section to the canvas to the user could actually see the design he creates. the buttons design not rich enough … for example - Image23" | ③ three-pane; sticky center canvas; one canvas; Image23 two-line buttons | P2 | P2 pack (async) + `Image23.png` | DEVIATES(probe 6a/6b/6c: placeholder canvas; TWO stacked canvases; not sticky; "title+subtitle two-line buttons are NOT achievable via theme") | — |
+| SRC-J | "Add a bottom of the page template management. this is seperate template element, and should include - free text (rich toolbar), links to legal pages (from the 'pages' tab) that the user is choosing, Logo, company details and other elenments. this template element could use different color, font and sizes then the main template" | ④ element J = upgrade of Footer G in place | P3 | P3 pack (async) + `Image28.png`/`Image45.png` | DEVIATES(probe 7a: "MISSING: rich-text toolbar (plain textarea), Pages-tab link picker …, independent font family") | — |
+| SRC-R1 | "templates canvas non-functional" | ② rebuild proves the rejection point closed | P2 | P2 pack (async) | DEVIATES(probe 5a/5b/5c) | — |
+| SRC-R2 | "themes tab layout (left section chooser by activity/vertical, sticky center canvas, right design elements, no duplicate canvases)" | ③ rebuild proves the rejection point closed | P2 | P2 pack (async) | DEVIATES(probe 6a: single column; two canvases; not sticky) | — |
+| SRC-R3 | "footer element J" | ④ proves the rejection point closed | P3 | P3 pack (async) | DEVIATES(probe 7a: G ≠ J) | — |
+| SRC-R4 | "sliders broken vs Image9–14 and picker ≠ render" | ⑤ proves the rejection point closed | P4 | P4 pack OWNER-BLOCKING | DEVIATES(probe 2b: 4/5 renders deviate) | — |
+| SRC-R5 | "question grid 'not even close'" | ① proves the rejection point closed | P1 | P1 pack OWNER-BLOCKING | DEVIATES(probe 1: container model absent) | — |
+| SRC-R6 | "address 'none of the issues fixed'" | ⑥ proves the rejection point closed | P5 | P5 pack (async) | DEVIATES(probe 3: composite/DEFAULT/zip5 deviate) | — |
+
+## SRC rows — A.1 #11C/#11D imperative-granularity expansion (added at the P0 review's M1 finding; F1/M-6 "every distinct owner imperative = one row")
+
+These #11C funnel-builder sentences were largely LANDED by the prior program (the P0 review
+drove the board and confirmed — board-funnel-builder-1440.png); each still gets its own row so
+any P2 regression has a row to fail and the P2 adversarial an anchor to audit.
+
+| ID | Anchor (owner verbatim) | Requirement | Phase | Owner gate | Status | Evidence |
+|---|---|---|---|---|---|---|
+| SRC-11C-N01 | “there is no "control" funnel!!!” | no control-funnel concept anywhere in the builder | P2 | P2 pack | INCONCLUSIVE(step: P2 re-drive; landed per P0 review — no control/canvas/variant strings on the board) | board-funnel-builder-1440.png (review) |
+| SRC-11C-N02 | "the first page is shared by **all** the funnels" | one shared first page across all funnels | P2 | P2 pack | INCONCLUSIVE(step: P2 re-drive; landed — "Shared first page · SHARED · QUOTE-OWNED" card) | board-funnel-builder-1440.png (review) |
+| SRC-11C-N03 | "we can do AB test for this page as well!" | the shared first page is A/B-able | P2 | P2 pack | INCONCLUSIVE(step: P2 re-drive; board card states per-slot A/B of shared sections; sweep-B drove slot A/B live) | 11c-b-board-chips-1280.png (sweep-b) |
+| SRC-11C-N04 | "kick out all the stupid and unusable components from the 'Funnel builder' - the canvas, the canvas controllers on the top, the varient" | no canvas / canvas controllers / variant widget inside the funnel builder | P2 | P2 pack | INCONCLUSIVE(step: P2 re-drive; landed per P0 review drive) | board-funnel-builder-1440.png (review) |
+| SRC-11C-N05 | "add in the left side all the available sections in draggable boxes" | left section library with draggable boxes | P2 | P2 pack | INCONCLUSIVE(step: P2 re-drive; landed — Section library rail; sweep-B drag drive) | 8c-drag-after-1280.png (sweep-b) |
+| SRC-11C-N06 | "in the middle create different funnels side by side and drag sections boxes to the page of the wanted funnle" | funnels side-by-side center; drag section→funnel page | P2 | P2 pack | INCONCLUSIVE(step: P2 re-drive; landed — 3 funnels side-by-side + drag proven) | 8c-three-funnels-1280.png, 8c-drag-after-1280.png (sweep-b) |
+| SRC-11C-N07 | "add button of 'add funnel', user should be able to add as many funnel he wants" | + Add funnel; unbounded funnel count | P2 | P2 pack (≥6-funnel board-reachability leg) | INCONCLUSIVE(step: P2 ≥6-funnel drive; landed — "+ Add funnel" present) | board-funnel-builder-1440.png (review) |
+| SRC-11C-N08 | "why the user can choose the same page more than ones in the same funnel???" | same page at most once per funnel, message verbatim | P2 | P2 pack | INCONCLUSIVE(step: P2 re-drive; landed — uniqueness message driven verbatim) | 8c-uniqueness-message-1280.png (sweep-b) |
+| SRC-11C-N09 | "the routing rules table has got out of its box - disaster!!!!!!" | the rules rail/table stays inside its box and clips nothing, at every width | P2 | P2 pack | DEVIATES(the rail itself holds, but it CLIPS funnel cards at 1440/1600–1680 — ADJ-B3's fix closes this jointly) | board-funnel-builder-1440.png (review) |
+| SRC-11C-N10 | “Unified the "Rules" with this tab and show them in the right side where we define rules of what funnel name we are showing for each user” | rules unified into the funnel tab, right side | P2 | P2 pack | INCONCLUSIVE(step: P2 re-drive; landed — right Routing-rules rail on the board) | board-funnel-builder-1440.png (review) |
+| SRC-11C-N11 | "the rules you build are using jargon, have no actions" | rules render plain-language sentences WITH actions | P2 | P2 pack | INCONCLUSIVE(step: P2 re-drive; landed — plain sentence + 2-action rule driven; review saw sentence + Edit/Duplicate/toggle) | 8c-rules-modal-sentence-1280.png, 8c-rules-modal-saved-card-1280.png (sweep-b) |
+| SRC-11C-N12 | "Image42 here it how it builds in the reference" | the rule-builder pattern matches the owner's Image42 reference | P2 | P2 pack — HUMAN side-by-side vs `Image42.png` | INCONCLUSIVE(step: P2 pack side-by-side vs Image42.png) | — |
+| SRC-11D-N01 | "I should be able to create as many templates I want, to save them, and to use them as presets in different 'Quotes'" | unlimited templates; save; cross-quote presets | P2 | P2 pack | INCONCLUSIVE(step: P2 re-drive; seeded — two templates + cross-quote apply driven) | 5d-template-two-created-1280.png, 5d-apply-preview-confirm-1280.png (sweep-b) |
+| SRC-11D-N02 | "The user should be able to define the 'default' template, but to A/B test different templates" | default template (per-quote per D5) + A/B different templates | P2 | P2 pack | INCONCLUSIVE(step: P2 re-drive under D5's per-quote default; seeded — set-default + A/B fork driven under the current global semantics) | 5d-set-default-1280.png, 5d-ab-templates-result-1280.png (sweep-b) |
+| SRC-11D-N03 | "the canvas should include one section in the middle so the user could see a real reference of how is design is gonna look like in real life" | the Templates canvas renders one REAL section mid-frame on empty AND populated funnels | P2 | P2 pack | DEVIATES(probe 5a: empty-path shows a static sample card; populated path works — the ② one-preview-path rebuild closes this) | — |
+| SRC-11D-N04 | "and to swich 'Themes' so he will see how it looks on different themes designs" | in-canvas theme switcher offering the real presets | P2 | P2 pack | DEVIATES(probe 5b: theme switcher has a single option, no presets, no create affordance — ADJ-B7) | — |
+
+## ADJ rows — adjacent defects (probe + replay verbatim anchors; fix ALL, none deferred)
+
+| ID | Anchor (probe/replay verbatim) | Fix | Phase | Status | Evidence |
+|---|---|---|---|---|---|
+| ADJ-B1 | "every well-formed draft quote shows 'Blocked (N errors)' and activation 409s (quote_activation_blocked) with NO reason surfaced anywhere in the UI" | S0-B1: root-cause BOTH surfaces (silent preflight render AND wrongful block decision); well-formed quote activates OR reasons surfaced+addressable | P0 | PASS(root cause = storeVariantPreflight omitted computeReworkActivationProblems → save-time false-green; fixed 7e6c442 + seam-test fixture 60c056b; fail-before/pass-after regression 2/2; gate log [2F] 6963/6963; P0 adversarial clause-3 PERFECT — the reviewer authored its own quote, saw the reason surfaced, fixed it, activated enabled:true, drove the live visitor) | b1-blocked-reason-1280.png, b1-activated-ready-1280.png, b1-visitor-live-1280.png (evidence/p0/review/) |
+| ADJ-A1 | "dependency-hidden question keeps its visible label while the control hides" | label hides with control | P1 | DEVIATES(probe A1) | — |
+| ADJ-A2 | "Silent zip5 block: no error text anywhere (aria-invalid red border only)" | visible zip5 message | P5 | DEVIATES(probe A2) | — |
+| ADJ-A3 | "Default-choice select ignores in-session choice edits until save+reload" | live default control; fail-before/pass-after regression | P1 | DEVIATES(probe A3) | — |
+| ADJ-A4 | "Rule-builder 'when' list mislabels the first question with the SECTION HEADLINE" | question label in when-list; regression; extends to every sibling via props.label (replay R2) | P1 | DEVIATES(probe A4) | — |
+| ADJ-A5 | "Studio 'No issues' chip vs server-only icon rule → save 400 the operator can't predict" | surface server rule in issues chip | P5 | DEVIATES(probe A5) | — |
+| ADJ-A6 | "No standalone Phone component (Contact stack only)" | D6: surface Phone palette tile (reuse type+mask) | P5 | DEVIATES(probe A6; D6 RULED yes) | — |
+| ADJ-A7 | "empty-label value rows silently dropped on save; unstyled truncated native select 'Choose..'" | preserve-or-reject with message; style select; regression | P5 | DEVIATES(probe A7) | — |
+| ADJ-A8 | "Address inspector shows a 4-field set for a component whose visitor render is one bare input (inspector/product mismatch)" | subsumed by SRC-6 composite-by-default (D3) | P5 | DEVIATES(probe A8 — closes with SRC-6) | — |
+| ADJ-A9 | "Maps-enabled section requires picking a 'job' at activation (409) — friction/discoverability" | preflight UX + keyless honesty | P5 | DEVIATES(probe A9) | — |
+| ADJ-A10 | "Activity/vertical lists start EMPTY locally; '+ create' flow works but with raw JS prompts" | studio modals replace prompt() | P2 | DEVIATES(probe A10) | — |
+| ADJ-B2 | "Template 'Set as default' is global across all quotes (owner decision: intended?)" | D5: per-quote default table (migration 0055) + global fallback | P2 | DEVIATES(probe B2; D5 RULED per-quote) | — |
+| ADJ-B3 | "At 1600–1680px the 3rd funnel card is occluded by the fixed rules rail" | responsive fix; regression at 1600/1640/1680px (the general assert `scrollWidth ≤ innerWidth` must hold everywhere) | P2 | DEVIATES(probe B3; P0 review also reproduced card clipping at 1440 — board-funnel-builder-1440.png — so the defect band is wider than the pinned regression widths; the pinned 1600/1640/1680 fail-before/pass-after stands, the fix must clear all widths) | board-funnel-builder-1440.png (evidence/p0/review/) |
+| ADJ-B4 | "Funnel-card 'Template' chip: no observable effect (its Theme sibling navigates)" — REFRESHED by sweep-B: the chip IS responsive and opens an embedded apply-popover inside the builder (openTemplatePicker, funnel.ts ~:4462) | owner-compliant fix: navigate to the top-bar Templates tab or remove the chip (never embedded apply — SRC-11B) | P2 | DEVIATES(sweep-B 2026-07-28: embedded apply in the builder; probe-era "unresponsive" is stale) | 8b-template-chip-click-1280.png (sweep-b) |
+| ADJ-B5 | "Themes canvas not sticky on a ~3,814px page" | subsumed by ③ sticky canvas | P2 | DEVIATES(probe B5 — closes with SRC-R2) | — |
+| ADJ-B6 | "'Live server preview' chip is a no-op" | remove dead chip | P2 | DEVIATES(probe B6) | — |
+| ADJ-B7 | "Templates canvas theme/section dropdowns each show 1 option with no affordance to create a theme from there" | real presets in dropdown + create affordance | P2 | DEVIATES(probe B7) | — |
+| ADJ-R1 | "recorded answers change domain, so pre-existing conditionals / routing comparands / offer value_maps keyed on the authored values no longer match" | (a) P0 read-only production data-consistency inventory; (b) P1 invariant: 2-choice conversion preserves recorded values | P0 + P1 | DEVIATES(replay 2026-07-28; bench probes at mission-skill-bench/results/control-C-GRID/) | — |
+| ADJ-R1a | R1(a) P0 leg — "inventory production grid-row conversions whose authored choice values differ from the rendered true/false domain, joined against the rules / answer-maps / value_maps referencing those fields" (Plan Amendments #2 item 4) | Read-only production D1 SELECT inventory → findings to this register; any remediation DRAFTED for owner approval, never executed | P0 → owner-assisted | BLOCKED(owner: the session's auto-permission layer denies remote production D1 reads from the conductor shell — `wrangler d1 execute … --env production --remote` blocked twice; cf-bindings MCP requires interactive OAuth. Closure: the owner runs the read-only commands below — or grants the permission — and the inventory rows land here. Command 1 (candidates): `npx wrangler d1 execute kodigital-homepages-cms-db --env production --remote --json --command "SELECT id, public_id, site_id, content_json FROM leadgen_sections WHERE content_json LIKE '%TwoButtonYesNo%'"` from any repo checkout's api/; commands 2–4 (reference joins, run as-is, filtered locally to the flagged fields): the same wrapper over `SELECT id, section_id, question_id, internal_field, output_value_map, value_transform FROM leadgen_section_answer_maps`, `SELECT id, quote_id, rule_name, conditions_json, target_funnel_id FROM leadgen_quote_routing_rules`, `SELECT id, funnel_id, rule_type, conditions_json FROM leadgen_funnel_rules`. The conductor then filters choices[].value ∉ {true,false} and cross-joins locally (read-only throughout). P1's R1b invariant work does NOT depend on this inventory and proceeds) | — |
+| ADJ-R2 | "a rule authored on a question inside a grouped container never evaluates … while the identical flat control arm routes" | container-nested questions first-class across the field universe; two-arm routing drive | P1 | DEVIATES(replay: non-recursive seams named — fieldToPageIndex, computeResumeSection, checkpointKnownFields, answerFields/sectionFieldsByPublicId, sectionFieldLabels) | — |
+| ADJ-R3 | "'Questions on one screen' always splices into state.content.components …, leaving a selected container empty" | starter honors the selected container | P1 | DEVIATES(replay) | — |
+| ADJ-R4 | "'+ New template' posts boot.frame.effective_frame (the page-load snapshot) instead of the island's live draft" | template create serializes the live draft (myFrame) | P2 | DEVIATES(replay; fail-before/pass-after) | — |
+| ADJ-R5 | "the Templates-tab preview request body omits site_id … the canvas renders the no-logo chip even when site_settings.logo_media_id is set" | preview body includes site_id (funnel.ts sibling is the working pattern) | P2 | DEVIATES(replay) | — |
+| ADJ-R6 | "the no-sections preview error path calls showError('lg-tpl-canvas-status_UNUSED','') … a failed preview renders a blank canvas with no feedback" | real status id + visible message | P2 | DEVIATES(replay) | — |
+| ADJ-R7 | "subsequent control edits send theme_id together with inline overrides and the validator rejects the combination, so theme controls stop applying" | normalize preset-based theme payload (validator = designs/theme.ts theme_id-exclusive branch) | P2 | DEVIATES(replay) | — |
+| ADJ-R8 | "after a click the pixels show selection but aria-checked never updates — Yes/No, Buttons and Cards alike" | selection state reaches assistive tech | P5 | DEVIATES(replay) | — |
+| ADJ-N1 | S0-C finding: "testRun.status_code, a field that does not exist on POST /offers/:id/test's real response (the status is nested at response.status)" — the Test-tool assertion in test-ui/leadgen-fix-p1-seed.ts is a silent no-op | OUT-OF-CONTRACT defect (in no owner clause) — surfaced for the owner's fix-or-defer ruling, never silently deferred | owner ruling | DEVIATES(found 2026-07-28 by the S0-C build; test-infra only, no product impact) | — |
+| ADJ-N2 | Sweep-A finding: "aria-invalid never set on failed Phone/Email validation — setFieldError's querySelector targets a void input that can't have descendants" | OUT-OF-CONTRACT defect (a11y error signal; the owner's #5 demands the visible block, which works) — owner fix-or-defer; natural home = P5 beside A2's visible-message work if ruled fix | owner ruling | DEVIATES(found 2026-07-28 by sweep-A; visible block message itself works — see 4b-phone-mask-a-blocked-1280.png) | — |
+| ADJ-N3 | Sweep-A finding: "raw-API PATCH /sections/:id … doesn't reliably propagate to live /lg SSR (40s+), Studio UI Save converged instantly" — scheduleSectionContentInvalidate called without await (sections-handlers.ts:1173, the fire-and-forget class) | OUT-OF-CONTRACT defect — owner fix-or-defer; natural home = P5 (sections-handlers.ts is P5-owned). Mission-operational rule meanwhile: API-authored drives poll for convergence before verdicts | owner ruling | DEVIATES(found 2026-07-28 by sweep-A; reproduced 8s+ no-convergence via curl poll) | — |
+| ADJ-N4 | P0 review m7: "quotes-handlers.ts:6341 writes preflightKvKey(...) inside a fail-open catch — zero readers anywhere in src/ or test/ — while the comment at :5280-5282 claims 'the stored copy feeds the Phase-2 preflight panel'" | OUT-OF-CONTRACT: dead advisory-preflight KV write + false comment (pre-existing; S0-B1 edited the surrounding function but the dead write is outside B1's clause) — owner fix-or-defer; natural home = P2 (quotes-handlers.ts is P2-owned next) | owner ruling | DEVIATES(found 2026-07-28 by the P0 adversarial review) | — |
+| ADJ-N5 | P0 review m11: the activation-block panel groups a quote-level blocker under the heading "Slides" ("Cannot activate this Quote." → group Slides → the shared-page error) | OUT-OF-CONTRACT nit adjacent to the owner's jargon complaint — owner fix-or-defer; natural home = P2 | owner ruling | DEVIATES(found 2026-07-28 by the P0 adversarial review; b1-blocked-reason-1280.png) | b1-blocked-reason-1280.png (review) |
+| ADJ-N6 | P0 review m12: the quote header chip still reads "draft" after a successful site activation ("draft" + "Ready" + "Activation saved for st_…" simultaneously) | OUT-OF-CONTRACT nit — owner fix-or-defer | owner ruling | DEVIATES(found 2026-07-28 by the P0 adversarial review; b1-activated-ready-1280.png) | b1-activated-ready-1280.png (review) |
+
+**Ground-truth refinement (S0-C, 2026-07-28 — binds P4/P5 payload-acceptance setups):** a live
+`/lg/auction` calls a provider (and writes `leadgen_provider_request_log`) only when the offer is
+wired into the AUCTION entity (`PUT /auctions/:id/offers` → `leadgen_auction_offers`) AND the offer
+has a PASSED Test-tool run; the section-level `leadgen_section_answer_maps` rows are admin-side
+config the live path does not read directly. The S0-C fixture seeds the full emitting chain. Every
+P4/P5 payload-read acceptance setup must include the auction wiring + Test-tool pass, and P5's
+SRC-7B/SRC-6B value_transform work re-verifies WHERE transforms apply on the LIVE path (the driven
+three-format payloads are the proof either way).
+
+**P0-review refinements (2026-07-28):** (i) the fixture's driven auction returns `status:"unfilled"`
+(provider called, payload row written — the P0 spec; NO winner) — any later acceptance needing a
+WINNING offer must extend the setup, never assume the fixture provides one; (ii) the fixture's
+`--drive` submits a CONSTANT value (`beta_mutual` on `r2fix_carrier`) — it is a smoke, never
+acceptance evidence: every payload-read acceptance authors its OWN component with per-run unique
+values (the fixture-distinction guard); (iii) `leadgen_routing_outcomes` rows are written ONLY on a
+rule match (`recordRoutingOutcome` fires inside the match branch, runtime-routes.ts:194) — a
+defaulted leg writes NO row; routing acceptances assert the outcome row on matched legs and the
+SERVED funnel (not an outcome row) on default legs.
+
+## DEC rows — owner decisions (RULED 2026-07-28; all recommendations accepted verbatim)
+
+| ID | Decision | Ruling | Where applied |
+|---|---|---|---|
+| DEC-D1 | Engine byte cap 51,200 → 53,248; ledger grid ≤250 / sliders ≤1,500 / other ≤250 / reserve 415; overflow = owner cap decision | RULED 2026-07-28 (yes) | P0 S0-D up-front |
+| DEC-D2 | Element-J legal links | RULED (per-site pages resolved at serve time + manual fallback) | P3 S3b |
+| DEC-D3 | Address default when unconfigured | RULED (full 4-field composite) | P5 S5a |
+| DEC-D4 | Per-question style-deviation axes | RULED (reuse full per-section override axes incl. free colors) | P1 |
+| DEC-D5 | Template default scope | RULED (per-quote default table, migration 0055, global fallback; seeds NEW funnels only) | P2 S2c |
+| DEC-D6 | Standalone Phone tile | RULED (yes — surface tile, reuse type+mask) | P5 S5c |
+| DEC-D7 | Grid data model | RULED (container node whose children are EXISTING question node types; content_json; NO migration) | P1 S1a |
+| DEC-D8 | Maps keys | RULED+AMENDED 2026-07-28: production carries GOOGLE_MAPS_BROWSER_KEY + GOOGLE_MAPS_SERVER_KEY (verified via wrangler secret list); no owner action; autofill leg INCONCLUSIVE-pending-key locally, MUST-RESOLVE post-deploy | P5 / P6 |
+| DEC-D9 | Currency-string exact byte shape | RULED (visitor-facing `$170,000` — asserted verbatim in the P5 SRC-7B acceptance) | P5 |
+| DEC-D10 | P1 + P4 packs OWNER-BLOCKING | RULED (yes; owner-directed-fix loop on reject) | P1 / P4 gates |
+
+## GATE rows
+
+| ID | Anchor | Requirement | Phase | Status | Evidence |
+|---|---|---|---|---|---|
+| GATE-INCONC | "show in CA this section in this page" + D8 Maps autofill leg (`Image8.png`) | The two MUST-RESOLVE INCONCLUSIVE rows (SRC-11C-B state=CA live-geo; SRC-6 autofill) are verified post-deploy in the cutover sitting or owner-waived in writing — never silently closed | P6 | INCONCLUSIVE(step: post-deploy cutover sitting — named steps + named evidence per Plan P6 checklist item 2) | — |
+
+## Phase tracker (conductor-written at each merge)
+
+| Phase | Scope | State | Branch | Merged sha | Review verdict | Pack | Cost (tokens / duration) |
+|---|---|---|---|---|---|---|---|
+| P0 | Step 0 + S0-B1 + S0-C + S0-D + baseline sweep + R1a | GATED: adversarial FIX-FIRST → all closures → scoped re-review SHIP 2026-07-28; gate log 6963/6963 + verify:all green; R1a = BLOCKED(owner), sole open P0 item | leadgen-r2-p0 | pending squash PR | SHIP (scoped re-review) | PACK DELIVERED 2026-07-28 (docs/leadgen/r2/evidence/p0/PACK.md) | see dispatch cost table below |
+
+**P0 dispatch cost table (tokens as reported per dispatch notification; resumed-agent figures are cumulative for that resumption):**
+| Dispatch | Model | Tokens | Duration |
+|---|---|---|---|
+| intake scout A / scout B | Haiku | 41,177 / 65,279 | 100s / 117s |
+| cap raise (slice S0-D) | Haiku | 40,164 | 142s |
+| activation unblock (slice S0-B1, +warm retry) | Sonnet | 234,563 (+260,611) | 1,430s (+177s) |
+| seed fixture (slice S0-C) | Sonnet | 309,493 | 1,684s |
+| Sweep-A studio clauses | Sonnet | 404,441 | 3,386s |
+| Sweep-B quotes surfaces | Sonnet | 289,079 | 1,509s |
+| Adversarial review (+scoped re-review) | Opus | 257,551 (+306,261) | 1,961s (+326s) |
+| m8 host guard / N5 IPv6 entry | Haiku | 34,168 / 31,887 | 79s / 63s |
+| P1 | ① Question-Grid | pending | — | — | — | OWNER-BLOCKING | — |
+| P2 | ② Templates + ③ Themes | pending | — | — | — | async | — |
+| P3 | ④ Footer J | pending | — | — | — | async | — |
+| P4 | ⑤ Sliders | pending | — | — | — | OWNER-BLOCKING | — |
+| P5 | ⑥ Address + SRC-7B/6B + adjacents | pending | — | — | — | async | — |
+| P6 | Terminal + cutover | pending | — | — | — | owner gates 4–5 | — |

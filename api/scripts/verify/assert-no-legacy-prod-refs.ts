@@ -106,6 +106,12 @@ const GROUP_A_ALLOWED_FILES: readonly string[] = [
   // quotes a banned identifier in prose; untracked on CI, present in local
   // checkouts — without this entry every local scanner run fails.
   "docs/MISSION-CMS-RESCUE-4.md",
+  // LeadGen R2 owner source of truth (Execution-Plan Step 0.1, 2026-07-28):
+  // the owner's verbatim instructions cite the reference product URL
+  // (A.1 #11C) and are preserved word-for-word as the acceptance authority —
+  // same class as the vendored design contracts above. The owner's words are
+  // never edited to satisfy a scan; the exemption lives here instead.
+  "docs/leadgen/source-of-truth/SOURCE-OF-TRUTH.md",
 ];
 
 // Files that legitimately contain Group B identifiers: everything in

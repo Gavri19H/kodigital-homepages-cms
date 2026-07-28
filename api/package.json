@@ -33,6 +33,7 @@
     "db:explain-article": "tsx scripts/db/explain-article.ts",
     "db:migrate:local": "wrangler d1 migrations apply kodigital-homepages-cms-db --local",
     "seed:local": "tsx scripts/seed-local.ts",
+    "seed:leadgen-fixture": "tsx scripts/seed-leadgen-fixture.ts",
     "db:reset:local": "rm -rf .wrangler/state/v3 && npm run db:migrate:local && npm run seed:local",
     "db:migrate:remote": "wrangler d1 migrations apply kodigital-homepages-cms-db --remote",
     "deploy:staging": "wrangler deploy --env staging",
