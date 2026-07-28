@@ -68,6 +68,10 @@ const UNIT_TYPES = [
   "DateQuestion",
   "ZIPInputQuestion",
   "AddressAutocompleteQuestion",
+  // R2 P1 §① — the QuestionGrid container (D7). Section-palette only, like
+  // every other question type: it is a UNIT component the Section builder
+  // places, never funnel-frame chrome.
+  "QuestionGrid",
   "ContinueButton",
   "AutoAdvanceButton",
   "ValidationError",

@@ -16,10 +16,18 @@
 //
 // Contract: every entry has
 //   type            unique component id used in Section content_json
-//   category        chrome | question | control | affordance | layout
+//   category        chrome | question | question_group | control | affordance
+//                   | layout
 //                   (layout = §8.5 containers + prop-driven layout leaves —
 //                   server-side rendering concern, produces null, never
-//                   projected into the public /lg/config component list)
+//                   projected into the public /lg/config component list;
+//                   question_group = R2 P1 §① — a container of QUESTIONS: it
+//                   produces no answer of its own (its children do) yet it IS
+//                   projected into /lg/config as one component carrying its
+//                   child questions. Deliberately NOT `question`: every
+//                   category:"question" type is an answer PRODUCER with a
+//                   recording hook — a lockstep invariant this container would
+//                   silently break.)
 //   scope           frame | unit | both (v2.5 08 §8.2 / 03 §3.5 — WHERE the
 //                   component belongs: "frame" = Quote-frame only (removed
 //                   from the Section palette; legacy nodes inside Sections
@@ -51,7 +59,7 @@
 export type ComponentScope = "frame" | "unit" | "both";
 
 interface CatalogEntryContract {
-  category: "chrome" | "question" | "control" | "affordance" | "layout";
+  category: "chrome" | "question" | "question_group" | "control" | "affordance" | "layout";
   scope: ComponentScope;
   produces: string | null;
   props: readonly string[];
@@ -101,6 +109,30 @@ export const COMPONENT_CATALOG = {
   // Migration M12 (0053) rewrites stored nodes to ButtonAnswerGroup (all choices
   // become base choices); a stray stored node validates with a clear
   // unknown_component_type error and renders the fail-safe box.
+
+  // R2 P1 §① — the QUESTION GRID container (owner A.1 #1/#2 + the cosmic §5
+  // correction: "the question grid is a COMPONENT. Inside the component there
+  // are different QUESTIONS, each question is answering another field, and can
+  // have dependency between of them. Some questions could be buttons, and some
+  // can be dropdown or else."). D7: a NEW node type whose CHILDREN ARE THE
+  // EXISTING QUESTION NODE TYPES — every child keeps its own internal_field,
+  // label, choices, default, required, per-question style deviation (D4) and
+  // its own `conditional` (sibling-scoped inside the group). The container
+  // itself produces NOTHING (`produces: null`): it has no Main question, no
+  // shared Helper text, no shared Answer format and no 'sub questions' — the
+  // dead parts the owner struck out — which is why its capability row is the
+  // all-blank CAP_NONE below. category "question_group", NOT "question" (every
+  // category:"question" type is an answer PRODUCER carrying a recording hook —
+  // leadgen-r1-answers Test A's lockstep) and NOT "layout" (unlike the §8.5
+  // layout containers it IS projected into /lg/config, as ONE component
+  // carrying its N child questions — config-dto.projectSectionComponents). Its
+  // children are the only answer-producing nodes, and flattenComponents
+  // descends into it so every answer/dependency/field-universe consumer
+  // already treats them as independent questions. Palette naming lives in the
+  // studio ("Questions on one screen", §4.1) — the "+ Add a question"
+  // affordance is a studio-side control that must sit OUTSIDE the component
+  // (owner A.1 #1).
+  QuestionGrid:       { category: "question_group", scope: "unit", produces: null, props: ["gap(xs|s|m|l|xl)","children[] (question components only)"], validation: ["children are question components","each child conditional points at a SIBLING question in the same group","no self-reference","no dependency cycles","no shared label/helper/format/sub-questions/default on the container"], events: [], tokenSlots: ["stack"], capabilityExample: "design pin 'Screenshot 2026-07-27 at 18.30.25.png': stacked labeled questions, mixed types (Yes/No + dropdowns + buttons), a dependent dropdown appearing on Yes, ONE Continue for the whole group" },
 
   FreeTextQuestion:   { category: "question", scope: "unit", produces: "string", props: ["internal_field","placeholder","maxLen","required","pii?"], validation: ["required","maxLen"], events: ["answer_change"], tokenSlots: ["input"] },
   NumberInputQuestion:   { category: "question", scope: "unit", produces: "number",   props: ["internal_field","min?","max?","step?","placeholder?","required?"], validation: ["numeric","min<=value<=max when set"], events: ["answer_change","validation_error"], tokenSlots: ["input"], capabilityExample: "08 §8.3/§8.10: plain number input (inputmode=numeric) — NOT a Range variant" },
@@ -320,6 +352,18 @@ export const COMPONENT_CAPABILITIES = {
   },
   DropdownQuestion: CAP_DROPDOWN,
   SearchableDropdownQuestion: CAP_DROPDOWN,
+
+  // R2 P1 §① QuestionGrid — the all-blank row BY CONTRACT, not by omission.
+  // Owner A.1 #1: "you left a lot of dead parts- If each question is
+  // independent so why did you kept the main 'Helper text'? if each question is
+  // independent why you kept main 'Answer format'? what is it 'sub
+  // questions'???? there is no 'Main question'!!!" — so the CONTAINER offers no
+  // label/helper, no required toggle, no choices editor, no default and no
+  // placeholder. Every one of those controls belongs to the CHILD question,
+  // which renders the capability row of its OWN type (untouched). The
+  // container's only authorable knob is the spacing between its questions
+  // (props.gap), which is not an inspector capability flag.
+  QuestionGrid: CAP_NONE,
 
   // free-form + PII inputs.
   FreeTextQuestion: CAP_TEXT_INPUT,

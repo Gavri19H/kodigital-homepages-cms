@@ -34,12 +34,16 @@ import type { LeadgenAssignmentReason } from "./ab-hash";
 import { sha256Hex } from "./auction/parse";
 import { type LeadgenSectionDesignOverrides } from "./components/presets";
 // §8.5 layout containers: the config projects the canonical FLATTENED
-// component list — containers are a server-side rendering concern and never
-// appear in /lg/config (the client engine keeps consuming a flat list; the
-// server-rendered shell HTML carries the nested DOM and the engine toggles
-// [data-question-id] leaves wherever they sit).
+// component list — layout containers are a server-side rendering concern and
+// never appear in /lg/config (the client engine keeps consuming a flat list;
+// the server-rendered shell HTML carries the nested DOM and the engine toggles
+// [data-question-id] leaves wherever they sit). R2 P1 §① adds the ONE
+// exception: a QUESTION GRID is a component the visitor sees, so it projects as
+// one entry carrying its N child question configs (projectSectionComponents).
 import {
-  flattenComponents,
+  isLayoutContainerType,
+  isQuestionGridType,
+  LEADGEN_MAX_CONTAINER_DEPTH,
   resolveDateBound,
   isPhoneTypedComponent,
   parsePhoneMaskPattern,
@@ -78,6 +82,17 @@ export interface PublicSectionComponent {
   props: Record<string, unknown>;
   client_validation?: Record<string, unknown>;
   default_answer?: { value: unknown; answer_source: "default_applied" };
+  // R2 P1 §① — the QuestionGrid container projects as ONE component carrying
+  // its N child QUESTIONS (present ONLY on a question-grid component; absent on
+  // every other type, so every pre-R2 component config is byte-identical).
+  // Each child is a FULL PublicSectionComponent: its own internal_field,
+  // answer_type, required, choices, client_validation, default_answer and
+  // `conditional` — the owner's model ("Each question in the component is
+  // independent field, with independent answers, inefendent defaults!!").
+  // The runtime excludes a dependency-hidden child by evaluating THAT child's
+  // own `conditional`; the grouping survives the projection because the render
+  // needs it (stacked labeled questions, ONE Continue for the group).
+  children?: PublicSectionComponent[];
 }
 
 export interface PublicSectionConfig {
@@ -463,6 +478,16 @@ export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComp
   if (defaultValue !== undefined) {
     component.default_answer = { value: defaultValue, answer_source: "default_applied" };
   }
+
+  // R2 P1 §① — a QuestionGrid projects its child questions THROUGH THIS SAME
+  // projection (one component-config producer, no second shape): every child
+  // keeps its own field / default / required / conditional / choices /
+  // client_validation. Only a question grid carries `children` here; a §8.5
+  // layout container never reaches this function (projectSectionComponents
+  // flattens it), so no other type gains a key.
+  if (isQuestionGridType(node.type) && Array.isArray(node.children)) {
+    component.children = node.children.map(toPublicComponent);
+  }
   return component;
 }
 
@@ -474,6 +499,47 @@ export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComp
 // the projected component list is byte-identical to the migrated content.
 export function expandPublicComponents(node: LeadgenComponentNode): PublicSectionComponent[] {
   return [toPublicComponent(node)];
+}
+
+// R2 P1 §① — THE section-content projection for /lg/config. It replaces the
+// bare `flattenComponents(...).flatMap(expandPublicComponents)` because the two
+// container families project DIFFERENTLY:
+//
+//   · a §8.5 LAYOUT container (Stack/GridContainer/Columns/CardPanel/
+//     BackgroundPanel) is pure server-side rendering chrome → flattened away,
+//     exactly as before (byte-identical output for all pre-R2 content);
+//   · a QUESTION GRID is a real component the visitor sees as one group →
+//     projected as ONE component whose `children` are its N question configs.
+//     Flattening it away would destroy the grouping the render needs (the
+//     design pin: stacked labeled questions under ONE Continue) and would lose
+//     the "these questions belong together" fact the runtime needs to keep the
+//     group's continue gate coherent.
+//
+// Depth-capped like every other tree walk (the validator is the gate; this walk
+// just refuses to blow the stack on corrupt/over-deep stored data).
+export function projectSectionComponents(
+  components: readonly LeadgenComponentNode[],
+): PublicSectionComponent[] {
+  const out: PublicSectionComponent[] = [];
+  const walk = (nodes: readonly LeadgenComponentNode[], depth: number): void => {
+    for (const node of nodes) {
+      const type =
+        typeof node === "object" && node !== null ? (node as { type?: unknown }).type : undefined;
+      if (isQuestionGridType(type)) {
+        out.push(...expandPublicComponents(node));
+        continue;
+      }
+      if (isLayoutContainerType(type)) {
+        if (depth >= LEADGEN_MAX_CONTAINER_DEPTH + 1) continue; // corrupt over-deep data
+        const children = (node as { children?: unknown }).children;
+        if (Array.isArray(children)) walk(children as LeadgenComponentNode[], depth + 1);
+        continue;
+      }
+      out.push(...expandPublicComponents(node));
+    }
+  };
+  walk(components, 1);
+  return out;
 }
 
 // The chunk ceiling for IN(?) lists — D1's 100-binding-per-statement limit,
@@ -553,14 +619,15 @@ export function buildPublicConfig(
   const quote_id = toQuoteId(resolved.quote.public_id);
 
   const sections: PublicSectionConfig[] = resolved.sections.map((rs, index) => {
-    // §8.5: flatten-then-project. For flat legacy content flattenComponents is
-    // the identity, so the projected shape is byte-identical to pre-§8.5; for
+    // §8.5: flatten-then-project. For flat legacy content the walk is the
+    // identity, so the projected shape is byte-identical to pre-§8.5; for
     // nested content the config lists every LEAF (questions/chrome/affordances
-    // in depth-first render order) and no container node. expandPublicComponents
-    // is a 1:1 projection (§10/M6 retired the grid's per-row expansion).
-    const components = flattenComponents(parseSectionComponents(rs.section.content_json)).flatMap(
-      expandPublicComponents,
-    );
+    // in depth-first render order) and no LAYOUT container node.
+    // expandPublicComponents is a 1:1 projection (§10/M6 retired the grid's
+    // per-row expansion). R2 P1 §①: a QuestionGrid is the ONE container that
+    // survives as a component — projected once, with its child questions
+    // (projectSectionComponents).
+    const components = projectSectionComponents(parseSectionComponents(rs.section.content_json));
     const config: PublicSectionConfig = {
       section_public_id: rs.section.public_id,
       section_index: index,
