@@ -6318,6 +6318,16 @@ async function storeVariantPreflight(
       ...(await computeVariantV25Problems(c.env.DB, quote, funnel, funnelState, variant)),
     ];
   }
+  // S0-B1 fix: the rework activation checks (default funnel / shared page /
+  // per-funnel sections / enabled-rule targets / §4.3-13 uniqueness) are
+  // QUOTE-level and ALWAYS ride the real activation-PUT gate's verdict
+  // (computeQuoteActivationPreflight below always includes them). This
+  // advisory copy omitted them, so a variant save's re-rendered preflight
+  // panel could flip to a false "Ready to activate — all preflight checks
+  // pass" while the quote was still hard-blocked by one of these checks —
+  // the activation PUT would then 409 with no reason the operator had just
+  // seen surfaced. Quote-level, so unconditional (not gated on `funnel`).
+  problems = [...problems, ...(await computeReworkActivationProblems(c.env.DB, quote))];
   const preflight: QuoteActivationPreflight = {
     ok: blocks.length === 0,
     quote_id: quote.public_id,
