@@ -84,7 +84,7 @@ import { applyPreviewSimMarkup, parsePreviewSim } from "./preview-sim";
 // INLINED because the admin host has no tenant site context: every /lg/*
 // path (including the bundle URL) rides publicSiteContextMiddleware and 404s
 // on ADMIN_HOST, so a script-src from the studio srcdoc cannot load there.
-import { parseSectionDesignOverrides, expandPublicComponents } from "../../public/leadgen/config-dto";
+import { parseSectionDesignOverrides, projectSectionComponents } from "../../public/leadgen/config-dto";
 import { LEADGEN_RUNTIME_JS } from "../../public/leadgen/runtime/engine-bundle.generated";
 import { LEADGEN_TEMPLATE_VERSION } from "../../cache/cache-keys";
 import { escapeHtml } from "../templates/layout";
@@ -2061,11 +2061,15 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
           address_validation_enabled: addressValidation,
           section_mapping_version: 0,
           answer_mapping_version: "",
-          // The FULL flattened component list (the engine applies dependency
-          // visibility itself, exactly as on the live shell). flatMap over
-          // expandPublicComponents (a 1:1 projection since §10/M6) keeps preview
-          // and live config byte-identical.
-          components: flattenComponents(nodes).flatMap(expandPublicComponents),
+          // The FULL component list (the engine applies dependency visibility
+          // itself, exactly as on the live shell). R2 P1 §①: projectSection-
+          // Components is the SAME projection the LIVE config uses — layout
+          // containers still flatten away, but a QuestionGrid projects as ONE
+          // component carrying its child questions, so the studio preview keeps
+          // the grouping the live config has (before this, flattenComponents +
+          // expandPublicComponents dissolved the group and the preview and the
+          // live config disagreed).
+          components: projectSectionComponents(nodes),
         },
       ],
     };
