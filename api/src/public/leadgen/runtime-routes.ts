@@ -37,7 +37,7 @@ import {
   computeAttemptBindingExtras,
   type ConfigTokenTuple,
 } from "./attempt";
-import { computeSectionOrderHash, parseSectionComponents, expandPublicComponents } from "./config-dto";
+import { computeSectionOrderHash, parseSectionComponents } from "./config-dto";
 import {
   resolveActivatedFunnelByVariant,
   parseUtmFromLandingUrl,
@@ -47,6 +47,7 @@ import {
   entryMatchImpliesFunnel,
   resolveFunnelEntryVariant,
   computeResumeSection,
+  expandWithGridChildren,
   resolveEffectiveFrameOnly,
   resolveSavedFrameTemplateDefaultsFor,
   buildFrameCtaCtx,
@@ -267,21 +268,21 @@ function requestEntryCtx(c: PublicContext, landingUrl: string, now: number): Ent
 // Review minor-5: the variant's known internal_field universe, server-side —
 // reused, not reinvented. Same TWO primitives resolver.ts's fieldToPageIndex
 // already builds its own internal_field map from (parseSectionComponents +
-// expandPublicComponents over each candidate section's content_json); a
+// expandWithGridChildren over each candidate section's content_json); a
 // dedicated collectKnownFields exists too (content-schema.ts, ~2424) but it
 // is a PRIVATE nested helper inside validateSectionContent's save-time gate,
-// not exported, so it is not reusable here. expandPublicComponents is a 1:1
-// projection (§10/M6 retired the grid's per-row expansion); it does not
-// walk layout-container children the way content-schema.ts's SAVE-time
-// walker does (checkpoint rules are authored on top-level answer fields, and
-// resolver.ts's OWN existing checkpoint-page derivation makes the same
-// non-recursive assumption — no scope narrowing relative to what already
-// governs which fields a routing rule can reference).
-function checkpointKnownFields(current: ResolvedActivatedFunnel): ReadonlySet<string> {
+// not exported, so it is not reusable here. R2 P1 §①: expandWithGridChildren
+// (resolver.ts) adds the ONE extra level expandPublicComponents itself never
+// walks — a QuestionGrid's own children each answer their OWN field (owner
+// A.1 #1), so a checkpoint-plane routing rule on a grid child's field is now
+// in this known-field set exactly like a top-level field (still no layout-
+// container descent — checkpoint rules stay scoped to real answer fields,
+// same as before this fix).
+export function checkpointKnownFields(current: ResolvedActivatedFunnel): ReadonlySet<string> {
   const known = new Set<string>();
   for (const s of current.sections) {
     for (const node of parseSectionComponents(s.section.content_json ?? "")) {
-      for (const comp of expandPublicComponents(node)) {
+      for (const comp of expandWithGridChildren(node)) {
         if (comp.internal_field !== undefined && comp.internal_field !== "") known.add(comp.internal_field);
       }
     }

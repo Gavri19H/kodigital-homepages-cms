@@ -24,6 +24,7 @@
 // only); no non-/lg network calls; GA4 untouched; no Listicles state.
 
 import {
+  flattenGridChildren,
   LgStateStore,
   scanForRestorableSnapshot,
   storageKeyForAttempt,
@@ -75,7 +76,7 @@ const FRIENDLY_ERROR =
 // type — and content-schema.ts's own save-gate comment (~:2959) says it
 // straight: "Non-producing nodes (ValidationError, HelperText, …) legitimately
 // REFERENCE a question's internal_field" (its uniqueness gate is
-// `catalog.produces !== null`, nothing narrower), so ANY of these 28 types can
+// `catalog.produces !== null`, nothing narrower), so ANY of these 29 types can
 // be authored bound to a producing field's internal_field and reach save (a
 // real POST /sections accepts it). The ORIGINAL closure-round fix here
 // filtered only `type === "ValidationError"`, which under-covered the class —
@@ -91,7 +92,16 @@ const FRIENDLY_ERROR =
 // COMPONENT_CATALOG directly (registry.ts has zero imports/worker-type refs,
 // so it type-checks under tsconfig.runtime.json — confirmed by probe) and
 // fails the build the instant a new produces:null type is added to the
-// registry without a matching update here.
+// registry without a matching update here. R2 P1 §① closes exactly that: the
+// registry's QuestionGrid entry is `produces: null` (the container itself
+// answers no field) — this list was not updated when that entry landed
+// (S1a, registry.ts only), so the coherence test failed the instant this
+// slice touched engine.ts. Adding it here is a defense-in-depth no-op for
+// hiddenFields() specifically (flattenGridChildren, state.ts, already
+// removes the container from `section.components` at construction — by the
+// time hiddenFields() filters this list, no "QuestionGrid" entry is ever
+// present to filter), kept for the SAME reason every other produces:null
+// type is listed: coherence with the registry, not live behavior here.
 export const NON_ANSWER_PRODUCING_TYPES: readonly string[] = [
   "ProgressBar", "HeaderLogo", "BackButton", "DisclosureLink", "StepIndicator",
   "CategoryLabel", "QuestionHeadline", "Subheadline",
@@ -99,7 +109,7 @@ export const NON_ANSWER_PRODUCING_TYPES: readonly string[] = [
   "ReassuranceBadge", "SuccessState", "SecureFormBadge", "TrustBar", "LogoStrip",
   "HelperText", "ValidationError", "LegalNote", "TextBlock", "ImageBlock",
   "Stack", "GridContainer", "Columns", "CardPanel", "BackgroundPanel", "Spacer",
-  "HeaderBar", "FooterBar",
+  "HeaderBar", "FooterBar", "QuestionGrid",
 ];
 
 // ---------------------------------------------------------------------------
@@ -542,6 +552,13 @@ export class LgEngine {
   constructor(root: HTMLElement, config: LgPublicConfig, preview: boolean) {
     this.root = root;
     this.config = config;
+    // R2 P1 §① boot-time flatten (state.ts flattenGridChildren) — BEFORE
+    // anything below reads a section's components, so every reader (this
+    // class's own lookups + dependencies.ts/validation.ts) sees each grid
+    // child as first-class with no further changes.
+    for (const section of this.config.sections) {
+      section.components = flattenGridChildren(section.components);
+    }
     this.preview = preview;
     this.store = new LgStateStore({ storage: sessionStorageAdapter(), now: () => Date.now() });
     this.beacons = new LgBeaconClient({

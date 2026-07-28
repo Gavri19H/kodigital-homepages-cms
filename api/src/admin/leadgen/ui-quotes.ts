@@ -859,22 +859,7 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
   // B3 rules-builder data: this variant's rules + the internal fields of the
   // activity's Sections (from their content_json components) + Offers.
   const available = sectionsRes.ok ? sectionsRes.body.items : [];
-  const fieldSeen = new Set<string>();
-  const fields: { internal_field: string; label: string }[] = [];
-  for (const section of available) {
-    const content = section.content_json;
-    const components =
-      content !== null && typeof content === "object" && Array.isArray((content as { components?: unknown }).components)
-        ? ((content as { components: unknown[] }).components)
-        : [];
-    for (const node of components) {
-      if (node === null || typeof node !== "object") continue;
-      const internalField = (node as { internal_field?: unknown }).internal_field;
-      if (typeof internalField !== "string" || internalField === "" || fieldSeen.has(internalField)) continue;
-      fieldSeen.add(internalField);
-      fields.push({ internal_field: internalField, label: `${section.section_name} · ${internalField}` });
-    }
-  }
+  const fields = quoteRailAnswerFields(available);
   // §10/S5.1: `fields` (QuoteRulesRailAnswerField[]) is threaded directly —
   // it used to ride inside a `RoutingBuilderData` wrapper object whose OTHER
   // six fields (rules/offers/sections/variants/field_pages/page_count) fed
@@ -974,11 +959,60 @@ interface QuoteRulesRailRuleWire {
   redirect_url_allowlisted: boolean;
 }
 
+// R2 P1 §① — a QuestionGrid node has no internal_field of its own; each of
+// its N children answers its OWN field (owner A.1 #1: "Each one of this
+// questions is answering another field"). Both raw content_json walks below
+// (the rules-rail answer-field picker + the per-section field map) must see
+// those child fields, not just the top-level node's own. One level only — a
+// grid child is schema-restricted to a leaf question type, never a nested
+// grid, so this never needs to recurse further.
+function internalFieldsOf(node: unknown): string[] {
+  if (node === null || typeof node !== "object") return [];
+  const out: string[] = [];
+  const own = (node as { internal_field?: unknown }).internal_field;
+  if (typeof own === "string" && own !== "") out.push(own);
+  const children = (node as { children?: unknown }).children;
+  if (Array.isArray(children)) {
+    for (const child of children) {
+      if (child === null || typeof child !== "object") continue;
+      const f = (child as { internal_field?: unknown }).internal_field;
+      if (typeof f === "string" && f !== "") out.push(f);
+    }
+  }
+  return out;
+}
+
+// The quote's rules-rail answer-field picker data (§8.2 RIGHT rail, B3
+// rules-builder): every DISTINCT internal_field across the activity's
+// available sections' content_json components (incl. a QuestionGrid's own
+// children — R2 P1 §①), first-section-wins labeled. Extracted to its own
+// function (was inline in the quote-editor GET handler) so it is
+// unit-testable without the full request/response wiring.
+export function quoteRailAnswerFields(available: readonly AvailableSection[]): QuoteRulesRailAnswerField[] {
+  const fieldSeen = new Set<string>();
+  const fields: QuoteRulesRailAnswerField[] = [];
+  for (const section of available) {
+    const content = section.content_json;
+    const components =
+      content !== null && typeof content === "object" && Array.isArray((content as { components?: unknown }).components)
+        ? (content as { components: unknown[] }).components
+        : [];
+    for (const node of components) {
+      for (const internalField of internalFieldsOf(node)) {
+        if (fieldSeen.has(internalField)) continue;
+        fieldSeen.add(internalField);
+        fields.push({ internal_field: internalField, label: `${section.section_name} · ${internalField}` });
+      }
+    }
+  }
+  return fields;
+}
+
 // The SAME content_json → internal_field walk buildFieldPageMap performs,
 // factored so the rail's per-funnel per-page fields AND its shared-page-fields
 // projection can share ONE pass over `available` instead of a third
 // hand-rolled copy of the same extraction.
-function sectionFieldsByPublicId(available: readonly AvailableSection[]): Map<string, string[]> {
+export function sectionFieldsByPublicId(available: readonly AvailableSection[]): Map<string, string[]> {
   const sectionFields = new Map<string, string[]>();
   for (const s of available) {
     const content = s.content_json;
@@ -988,9 +1022,7 @@ function sectionFieldsByPublicId(available: readonly AvailableSection[]): Map<st
         : [];
     const names: string[] = [];
     for (const node of components) {
-      if (node === null || typeof node !== "object") continue;
-      const f = (node as { internal_field?: unknown }).internal_field;
-      if (typeof f === "string" && f !== "") names.push(f);
+      names.push(...internalFieldsOf(node));
     }
     sectionFields.set(s.public_id, names);
   }
