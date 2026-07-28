@@ -76,6 +76,12 @@ import type {
 // see fieldLeadingIcon / the renderCardGrid iconSlot below.
 import { LEADGEN_ICONS, leadgenIconSvg } from "./icons.generated";
 import { baseTokenForRole, isFunnelTokenRole, readButtonStyle } from "../designs/theme";
+// R2 P1 §① (owner A.1 #4 / probe 4a): the ONE definition of the §6.6 mark
+// rules lives in the design sheet; this module emits it demand-driven for the
+// author-opted case ONLY (selectedMarkStyleBlock below). Import direction is
+// presets → designs (the same direction as the tokens/theme imports above);
+// styles.ts imports nothing from this module, so no cycle is introduced.
+import { selectedMarkRules } from "../designs/default-funnel/styles";
 import type { FunnelTokenRole, ThemeRecordControls } from "../designs/theme";
 import type { LeadgenContinueMode } from "../../../admin/leadgen/db-types";
 
@@ -504,6 +510,87 @@ function selectedMarkerMarkup(marker: LeadgenSelectedMarker): string {
     `<svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4 10-11" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>` +
     `</span>`
   );
+}
+
+// ---------------------------------------------------------------------------
+// R2 P1 §① — the AUTHOR-OPTED ✓ marker's styling (owner A.1 #4 "here is
+// another buttons structure we need to support for the 'Question grid'
+// buttons (the √ inside the button for the chosen answer)"; probe 4a: PERFECT
+// anatomy, "contrast subtle").
+// ---------------------------------------------------------------------------
+//
+// ROOT CAUSE: resolveSelectedMarker (above) resolves the marker per CHOICE >
+// per NODE > theme, so selectedMarkerMarkup emits the hollow+badge spans
+// whenever an AUTHOR opts one question in — with no theme involved. But the
+// CSS that turns those spans into a hollow circle (resting) and a filled ✓
+// disc (selected) is emitted by styles.ts ONLY inside the theme branch
+// (funnelChromeCss → pushButtonStyleRules, itself reached only when the design
+// carries a theme button-style stash, and then only under selected==="mark").
+// With no mark theme the badge therefore rendered with NO rules at all: an
+// unhidden, uncircled 11px WHITE ✓ on the light selected wash (#E8EEF4) —
+// "faint white on light wash" — and visible on the RESTING button too.
+//
+// WHY THIS IS A STYLE BLOCK AND NOT A PER-INSTANCE `style` ATTRIBUTE
+// (conductor ruling: use the per-node scoped-CSS mechanism, else say so with
+// evidence). The per-node mechanism is `style="…"` + custom properties
+// consumed by EXISTING sheet rules (appearanceStyleEntries → --lg-answer-bg /
+// --lg-field-border / --lg-sel-bg). It cannot carry this one, for two
+// checkable reasons:
+//   1. the marker is a RESTING↔SELECTED SWAP — `.lg-btn-answer.lg-selected
+//      .lg-check-badge{display:inline-flex}` — a descendant-state selector. A
+//      `style` attribute can only declare the element's OWN properties, and an
+//      inline `display:none` on the badge would additionally BEAT any later
+//      rule, so the swap could never fire; and
+//   2. nothing in the runtime could flip it either: render.ts
+//      applySelectionClasses toggles SELECTED_CLASS + aria-pressed on
+//      `[data-lg-choice]` BUTTONS only — it never touches the marker spans.
+// There is also no existing base rule to feed with a var: the base sheet has
+// no `.lg-check-*` rule at all (that is the bug).
+//
+// So the fallback the ruling authorizes: a MINIMAL, DEMAND-DRIVEN block —
+// emitted once per section render, ONLY when that section's own content
+// actually resolves a 'mark' marker on the button/YesNo family AND the design
+// sheet does not already carry the rules (mark theme). A funnel that never
+// opts in gets ZERO extra bytes anywhere, so the byte-safe-additive contract
+// (a wash/absent theme adds nothing) holds unchanged. The rule bodies are
+// imported from styles.ts (selectedMarkRules) — one definition, no drift —
+// and are self-scoping: they match only elements this renderer stamped with
+// `[data-card-select="mark"]`.
+function nodeResolvesMark(node: LeadgenComponentNode, design: DefaultFunnelDesign): boolean {
+  // Mirrors each renderer's OWN `anyMark` computation 1:1 (renderButtonAnswerGroup
+  // / renderTwoButtonYesNo) — the two families that stamp data-card-select on a
+  // `.lg-answer-group` root, which is what these rules key on. (The card family
+  // stamps it on `.lg-card-grid` and paints a different marker element,
+  // `.lg-card-check`; it is untouched here.)
+  if (node.type === "ButtonAnswerGroup") {
+    return choiceList(node).some((c) => resolveSelectedMarker(node, c.style, design) === "mark");
+  }
+  if (node.type === "TwoButtonYesNo") {
+    const yesStyle = node.props?.["yesStyle"] as LeadgenChoiceStyle | undefined;
+    const noStyle = node.props?.["noStyle"] as LeadgenChoiceStyle | undefined;
+    return (
+      resolveSelectedMarker(node, yesStyle, design) === "mark" ||
+      resolveSelectedMarker(node, noStyle, design) === "mark"
+    );
+  }
+  return false;
+}
+
+function selectedMarkStyleBlock(
+  nodes: readonly LeadgenComponentNode[],
+  design: DefaultFunnelDesign,
+): string {
+  // A mark THEME already ships these rules in its own sheet — never duplicate.
+  if (readButtonStyle(design)?.selected === "mark") return "";
+  // flattenComponents descends into layout containers AND question grids, so a
+  // grid child that opts in is found exactly like a top-level node.
+  const opted = flattenComponents(nodes).some(
+    (n) => typeof n === "object" && n !== null && nodeResolvesMark(n, design),
+  );
+  if (!opted) return "";
+  // Self-scoping (no design-scope prefix): these selectors only ever match the
+  // marker spans this renderer emits inside a stamped answer group.
+  return `<style>${selectedMarkRules("", design).join("")}</style>`;
 }
 
 // LeadGen Rework §8.4 gap round (2026-07-23): the theme "Answer layout:
@@ -1707,8 +1794,22 @@ export function renderMultiChoiceCardGroup(
 // choice VALUE; the matching <option> gets the `selected` marker and the
 // placeholder loses it. Unmatched/absent default → undefined → the legacy
 // placeholder-selected markup renders byte-identically.
+// R2 P1 §① SRC-1b (owner A.1 #1: "independent answers, inefendent
+// **defaults!!**"; design pin 18.30.25 shows "Geico" already chosen in the
+// dependent dropdown). CANONICAL KEY = `props.defaultValue`: it is what the
+// Studio inspector writes for every question family (ui-section-studio.ts
+// `props.defaultValue = …` / `delete props.defaultValue`) and the ONLY key
+// config-dto.ts projects into the public config's `default_answer`
+// (`node.props?.["defaultValue"]` → answer_source "default_applied").
+// `props.default` is the older render-only key this preselect has always read
+// — kept as the fallback so pre-existing stored content renders byte-
+// identically — but it is written by nothing today, so an operator-authored
+// dropdown default never reached the SSR <option selected> at all: the visitor
+// saw the "Select…" placeholder until the runtime applied the default. Reading
+// defaultValue FIRST closes that seam server-side, in the one helper both
+// dropdown renderers share.
 function dropdownDefaultValue(node: LeadgenComponentNode): string | undefined {
-  const raw = node.props?.["default"];
+  const raw = node.props?.["defaultValue"] ?? node.props?.["default"];
   const def = typeof raw === "string" || typeof raw === "number" ? String(raw) : undefined;
   if (def === undefined) return undefined;
   return choiceList(node).some((c) => String(c.value) === def) ? def : undefined;
@@ -4517,7 +4618,9 @@ export function renderSectionComponents(
   if (depth === 1 && state.deferContinue) {
     out += renderContinueSlot(state.deferredContinue, design, sectionCtx);
   }
-  return out;
+  // R2 P1 §① (owner A.1 #4 / probe 4a): "" for every section that never opts a
+  // question into the ✓ marker — see selectedMarkStyleBlock.
+  return depth === 1 ? selectedMarkStyleBlock(nodes, design) + out : out;
 }
 
 // Dependency-filtered render (the admin preview's §12.3/§14.9 simulator): keep
@@ -4573,7 +4676,9 @@ export function renderSectionComponentsVisible(
   if (depth === 1 && state !== undefined && state.deferContinue) {
     out += renderContinueSlot(state.deferredContinue, design, sectionCtx);
   }
-  return out;
+  // Same demand-driven ✓ block as renderSectionComponents (§12 parity: the two
+  // surfaces must never disagree on the marker's styling).
+  return depth === 1 ? selectedMarkStyleBlock(nodes, design) + out : out;
 }
 
 // The visible-leaf walk renderSectionComponentsVisible drives — extracted so

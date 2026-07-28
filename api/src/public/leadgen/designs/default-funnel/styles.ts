@@ -9,7 +9,12 @@
 // that inline per-instance styles cannot express. Per-INSTANCE styling (a
 // choice's icon, a range's filled width, a grid's column count) is emitted
 // inline by the presets (components/presets.ts). No preset emits a `<style>`
-// block that reads instance data (§14.3 / §14.10).
+// block that reads instance data (§14.3 / §14.10) — R2 P1 §① adds the single
+// bounded exception, and it reads NO instance data: when a SECTION's content
+// opts a question into the §6.6 ✓ marker on a design whose theme does not,
+// presets.ts emits this file's OWN `selectedMarkRules` (exported below,
+// state-selector rules an inline attribute cannot express) once for that
+// section. Content-gated, so a funnel that never opts in is byte-unchanged.
 //
 // Everything is scoped under a root data-attribute so funnel chrome can never
 // leak into the surrounding admin/page CSS.
@@ -320,52 +325,41 @@ function pushButtonStyleRules(
       ),
     );
 
-    // Rework §6.6 (S2.2 follow-up, coordinator-directed 2026-07-22): the
-    // button/YesNo family's mark rules USED to live here, behind this
-    // theme-only `bs.selected === "mark"` gate. R2 P1 §① (owner A.1 #4 /
-    // probe 4a) moved them into the BASE sheet — see pushSelectedMarkRules,
-    // called unconditionally by funnelChromeCss. Nothing is emitted here for
-    // this axis any more; a mark THEME still gets the identical rules (now
-    // from the base sheet, earlier in source order), and the .lg-tscard
-    // marker REPOSITION above (card layout) still overrides them from here.
+    // Rework §6.6 (S2.2 follow-up, coordinator-directed 2026-07-22): the SAME
+    // mark mechanism for the button/YesNo family — presets.ts stamps
+    // data-card-select="mark" on .lg-answer-group roots too (whenever theme OR
+    // a per-choice/per-node selected_marker override resolves 'mark'), and
+    // every mark-resolved button unconditionally carries BOTH a hollow-circle
+    // span (resting) and a filled-badge span (selected) — presets.ts
+    // selectedMarkerMarkup. CSS alone decides which one paints, mirroring the
+    // card branch above; sizes/colors are the P0 golden pack's OWN pinned
+    // values (studio-panels.html .lg-check-badge/.lg-check-hollow, data-pin
+    // 6.6-visitor-selected) expressed through this design's existing measured
+    // tokens (color.primary/color.border/radius.full) — no new value invented.
+    //
+    // R2 P1 §① (conductor ruling, owner A.1 #4 / probe 4a): this THEME gate
+    // stays exactly as it was — a design whose Selected axis is not 'mark'
+    // adds NOTHING to this sheet (the byte-safe-additive contract three
+    // suites pin). The AUTHOR-opted case (per-node / per-choice
+    // selected_marker with no mark theme) is served demand-driven, from
+    // presets.ts (selectedMarkStyleBlock), so nothing here changes for any
+    // funnel that never opts in.
+    out.push(...selectedMarkRules(scope, design));
   }
 }
 
-// R2 P1 §① — the SELECTED-MARK rules for the button/YesNo family (owner A.1
-// #4: "here is another buttons structure we need to support for the 'Question
-// grid' buttons (the √ inside the button for the chosen answer)"; probe 4a:
-// PERFECT anatomy, "contrast subtle").
-//
-// ROOT CAUSE of the faint ✓ (why this is a MOVE, not a re-style): presets.ts
-// `resolveSelectedMarker` resolves the marker per CHOICE > per NODE > theme, so
-// selectedMarkerMarkup emits the hollow+badge spans whenever an AUTHOR opts a
-// question into the ✓ structure — with NO theme involved. The CSS that turns
-// those two spans into a hollow circle (resting) and a filled ✓ badge
-// (selected) lived inside pushButtonStyleRules, which funnelChromeCss calls
-// ONLY when the design carries a theme button-style stash, and then only under
-// `selected === "mark"`. On the default design (and on every theme whose
-// Selected axis is 'wash') the badge therefore rendered with NO rules at all:
-// an unhidden, uncircled, 11px WHITE ✓ glyph sitting directly on the light
-// selected wash (#E8EEF4) — "faint white on light wash", and visible on the
-// RESTING button too. Emitting the same rules from the base sheet restores the
-// intended anatomy for every design: resting = hollow circle, selected = the
-// ✓ reversed out of a filled color.primary (#1B3A5C) disc INSIDE the button.
-// Zero new tokens, zero new markup, no repositioning — the contrast lift IS
-// the badge disc the markup always expected.
-//
-// The rules stay keyed on `[data-card-select="mark"]`, which presets stamps
-// ONLY when some layer actually resolved 'mark', so a wash-only funnel matches
-// nothing (no visual change) — sizes/colors remain the P0 golden pack's pinned
-// values expressed through this design's existing tokens (color.primary /
-// color.border / radius.full), no value invented.
-function pushSelectedMarkRules(
+// The 4 §6.6 mark rules for the button/YesNo family. Extracted VERBATIM from
+// the theme branch above so the ONE demand-driven consumer in presets.ts
+// (selectedMarkStyleBlock — the author-opted, no-mark-theme case) emits the
+// byte-identical rule bodies instead of a second, drifting definition.
+export function selectedMarkRules(
   scope: string,
   design: DefaultFunnelDesign | EffectiveFunnelDesign,
-  out: string[],
-): void {
+): string[] {
   const { color, radius } = design;
-  const gb = (leaf: string): string => `${scope} .lg-answer-group[data-card-select="mark"] ${leaf}`;
-  out.push(
+  const gb = (leaf: string): string =>
+    `${scope === "" ? "" : `${scope} `}.lg-answer-group[data-card-select="mark"] ${leaf}`;
+  return [
     // resting: a 17px hollow (border-only) circle — the pack's own size.
     rule(gb(".lg-check-hollow"), {
       width: "17px",
@@ -397,7 +391,7 @@ function pushSelectedMarkRules(
       `${gb(".lg-btn-answer.lg-selected .lg-check-badge")},${gb('.lg-btn-answer[aria-checked="true"] .lg-check-badge')},${gb('.lg-btn-answer[data-selected="true"] .lg-check-badge')}`,
       { display: "inline-flex" },
     ),
-  );
+  ];
 }
 
 // tokens → the full scoped chrome stylesheet for one funnel design. `scope`
@@ -1187,11 +1181,6 @@ export function funnelChromeCss(
       { background: `var(--lg-answer-bg, var(--lg-sel-bg, ${iconCard.selectedBackground}))` },
     ),
   );
-  // R2 P1 §① (owner A.1 #4 / probe 4a "contrast subtle"): the ✓-in-the-button
-  // marker rules, emitted for EVERY design — they were theme-gated, which left
-  // an author-opted ✓ as a bare white glyph on the light selected wash. See
-  // pushSelectedMarkRules. Inert unless presets stamped [data-card-select="mark"].
-  pushSelectedMarkRules(scope, design, out);
 
   // ---- reassurance badge (§14.2 reassuranceBadge / §14.7) -----------------
   out.push(

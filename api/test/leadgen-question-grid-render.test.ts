@@ -35,6 +35,7 @@ import { validateSectionContent } from "../src/public/leadgen/components/content
 import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { funnelChromeCss } from "../src/public/leadgen/designs/default-funnel/styles";
+import { resolveTokens } from "../src/public/leadgen/designs/theme";
 
 const DESIGN = defaultFunnelDesign;
 
@@ -76,10 +77,10 @@ function pinGrid(): LeadgenComponentNode {
         internal_field: "current_insurer",
         required: true,
         choices: INSURER_CHOICES,
-        // `default` is the SSR pre-selection key renderDropdownQuestion reads;
-        // `defaultValue` is the /lg/config default_answer key (config-dto).
-        // A grid child owns BOTH independently — see the S1c/S1d handoff note.
-        props: { label: "Who is your current insurer?", default: "geico", defaultValue: "geico" },
+        // props.defaultValue is the CANONICAL default key (what the Studio
+        // writes and what config-dto projects as default_answer) — §6b below
+        // pins that the SSR preselect now reads it.
+        props: { label: "Who is your current insurer?", defaultValue: "geico" },
         conditional: { when: "currently_insured", op: "eq", value: true },
       },
       {
@@ -87,7 +88,7 @@ function pinGrid(): LeadgenComponentNode {
         question_id: "q_credit",
         internal_field: "credit_score",
         choices: CREDIT_CHOICES,
-        props: { label: "Credit Score", default: "excellent", defaultValue: "excellent" },
+        props: { label: "Credit Score", defaultValue: "excellent" },
       },
       {
         type: "TwoButtonYesNo",
@@ -326,20 +327,116 @@ describe("QuestionGrid buttons — the ✓ inside the chosen answer is legible",
     );
   });
 
-  it("the DEFAULT design now styles that ✓ — a filled primary disc, not a bare white glyph", () => {
-    // Probe 4a's nit: the badge markup renders on any AUTHOR-opted question
-    // (props/choice selected_marker), but its CSS used to be emitted only for a
-    // theme whose Selected axis was 'mark' — so on the default design the ✓ was
-    // an unhidden, uncircled WHITE glyph on the light selected wash.
-    const sheet = funnelChromeCss(DESIGN);
-    expect(sheet).toMatch(/\.lg-check-badge\{display:none;width:19px;height:19px/);
-    expect(sheet).toContain(`background:${DESIGN.color.primary}`);
-    expect(sheet).toMatch(/\.lg-check-hollow\{width:17px;height:17px/);
-    // resting hollow hidden / filled badge shown on the selected button.
-    expect(sheet).toContain('.lg-answer-group[data-card-select="mark"] .lg-btn-answer.lg-selected .lg-check-badge');
-    // the glyph itself is white — on #1B3A5C, not on the #E8EEF4 wash.
-    expect(renderComponent(pinGrid(), DESIGN)).toContain('stroke="#fff"');
+  it("the author-opted ✓ is STYLED on the default design — filled disc, not a bare white glyph", () => {
+    // Probe 4a's nit: the badge markup renders for any AUTHOR-opted question
+    // (node/choice selected_marker), but its CSS was emitted only for a theme
+    // whose Selected axis is 'mark' — so on the default design the ✓ was an
+    // unhidden, uncircled WHITE glyph on the light selected wash (#E8EEF4).
+    // Fix: the section render carries the rules on DEMAND for that content.
+    const html = renderSectionComponents([pinGrid()], DESIGN);
+    expect(html).toContain("<style>");
+    expect(html).toMatch(/\.lg-check-badge\{display:none;width:19px;height:19px/);
+    expect(html).toContain(`background:${DESIGN.color.primary}`); // the disc
+    expect(html).toMatch(/\.lg-check-hollow\{width:17px;height:17px/); // resting
+    // the selected-state swap (a 3-selector list, so match the rule shape).
+    expect(html).toMatch(
+      /\.lg-answer-group\[data-card-select="mark"\] \.lg-btn-answer\.lg-selected \.lg-check-badge[^{]*\{display:inline-flex\}/,
+    );
+    // the glyph is white — reversed out of #1B3A5C, never sitting on the wash.
+    expect(html).toContain('stroke="#fff"');
     expect(DESIGN.color.primary).toBe("#1B3A5C");
+  });
+
+  it("BYTE-SAFE: content that never opts in adds NOTHING (sheet and section both clean)", () => {
+    // The guard three suites pin: a wash/absent theme emits no mark CSS.
+    const sheet = funnelChromeCss(DESIGN);
+    expect(sheet).not.toContain("lg-check-hollow");
+    expect(sheet).not.toContain("lg-check-badge");
+    expect(sheet).not.toContain("data-card-select");
+    // …and a section whose questions carry no selected_marker gets no block.
+    const plain = renderSectionComponents(
+      [
+        {
+          type: "TwoButtonYesNo",
+          question_id: "q1",
+          internal_field: "f1",
+          props: { label: "Insured?" },
+        } as LeadgenComponentNode,
+      ],
+      DESIGN,
+    );
+    expect(plain).not.toContain("<style");
+    expect(plain).not.toContain("lg-check-badge");
+  });
+
+  it("a MARK THEME keeps its own sheet rules — the section adds no duplicate block", () => {
+    const themed = resolveTokens(DESIGN, { button_defaults: { selected: "mark" } })
+      .design as unknown as typeof DESIGN;
+    expect(funnelChromeCss(themed)).toContain('.lg-answer-group[data-card-select="mark"] .lg-check-badge');
+    expect(renderSectionComponents([pinGrid()], themed)).not.toContain("<style");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6b. SRC-1b — a per-question dropdown DEFAULT actually pre-selects (owner
+//     A.1 #1 "inefendent **defaults!!**"; the pin shows "Geico" already chosen)
+// ---------------------------------------------------------------------------
+
+describe("QuestionGrid — the canonical default key pre-selects server-side", () => {
+  // FAIL-BEFORE (the seam this round closes): the Studio writes
+  // props.defaultValue (and config-dto projects ONLY that key into
+  // default_answer), while the SSR preselect read props.default — so an
+  // operator-authored dropdown default rendered as the bare "Select…"
+  // placeholder. Authoring the default the way the product authors it:
+  const authoredLikeTheStudio: LeadgenComponentNode = {
+    type: "DropdownQuestion",
+    question_id: "q_dd",
+    internal_field: "insurer",
+    choices: INSURER_CHOICES,
+    props: { label: "Who is your current insurer?", defaultValue: "geico" },
+  } as LeadgenComponentNode;
+
+  it("props.defaultValue (the key the Studio writes) pre-selects its option", () => {
+    expect(validateSectionContent({ components: [authoredLikeTheStudio] }).errors).toEqual([]);
+    const html = renderComponent(authoredLikeTheStudio, DESIGN);
+    expect(html).toContain('<option value="geico" data-lg-choice="geico" data-analytics-id="ins_geico" selected>');
+    expect(html).toContain('<option value="" disabled>'); // placeholder NOT selected
+    expect(html).not.toContain('<option value="" disabled selected>');
+  });
+
+  it("the legacy props.default still wins when defaultValue is absent (no regression)", () => {
+    const legacy = {
+      ...authoredLikeTheStudio,
+      props: { label: "Who is your current insurer?", default: "progressive" },
+    } as LeadgenComponentNode;
+    expect(renderComponent(legacy, DESIGN)).toContain('data-lg-choice="progressive" data-analytics-id="ins_prog" selected>');
+  });
+
+  it("defaultValue takes precedence over a stale props.default on the same node", () => {
+    const both = {
+      ...authoredLikeTheStudio,
+      props: { defaultValue: "geico", default: "progressive" },
+    } as LeadgenComponentNode;
+    const html = renderComponent(both, DESIGN);
+    expect(html).toContain('data-lg-choice="geico" data-analytics-id="ins_geico" selected>');
+    expect(html).not.toContain('data-lg-choice="progressive" data-analytics-id="ins_prog" selected>');
+  });
+
+  it("an unauthored default leaves the placeholder selected (unchanged)", () => {
+    const none = { ...authoredLikeTheStudio, props: { label: "Insurer" } } as LeadgenComponentNode;
+    expect(renderComponent(none, DESIGN)).toContain('<option value="" disabled selected>');
+  });
+
+  it("EVERY grid child's own default pre-selects — not only the first question", () => {
+    const grid = pinGrid();
+    // author both dropdowns the Studio way (defaultValue only)
+    const children = grid.children as LeadgenComponentNode[];
+    children[1] = { ...(children[1] as LeadgenComponentNode), props: { label: "Who is your current insurer?", defaultValue: "progressive" } } as LeadgenComponentNode;
+    children[2] = { ...(children[2] as LeadgenComponentNode), props: { label: "Credit Score", defaultValue: "good" } } as LeadgenComponentNode;
+    expect(validateSectionContent({ components: [grid] }).errors).toEqual([]);
+    const html = renderComponent(grid, DESIGN);
+    expect(blockFor(html, "q_insurer")).toContain('data-lg-choice="progressive" data-analytics-id="ins_prog" selected>');
+    expect(blockFor(html, "q_credit")).toContain('data-lg-choice="good" data-analytics-id="cs_good" selected>');
   });
 });
 

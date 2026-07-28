@@ -832,6 +832,19 @@ const ROUND4_P1B_RULES = [
   `\n${DEFAULT_FUNNEL_SCOPE}.lg-preview .lg-mqg:has(.studio-mqg-empty) .lg-mqg-empty{display:none}`,
 ];
 
+// R2 P1 §① (register SRC-1/SRC-2, conductor-granted strip-list entry): the
+// QuestionGrid container's OWN two chrome rules — the ONLY delta this slice
+// adds to the base sheet. NOTHING else grew: the ✓-marker rules the same slice
+// needed are emitted DEMAND-DRIVEN from presets.ts (a per-section <style>
+// block, only for content that opts a question into the marker), so a wash/
+// absent theme's sheet — and this legacy fixture, whose content has no grid and
+// no marker opt-in — stays byte-identical everywhere else. Same wholesale-strip
+// idiom + token interpolation as the P1a/P3a/P1b rule constants above.
+const R2_P1_QUESTION_GRID_RULES = [
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-qgrid{display:grid;grid-template-columns:minmax(0, 1fr);width:100%;box-sizing:border-box}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-qgrid-q{min-width:0;max-width:100%}`,
+];
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -1008,7 +1021,10 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
   // (the ONLY additional legal delta this slice adds — the grid-follower table
   // growth is already handled by followerSelectorsFixRound above).
   const cssMinusEl = P3A_EL_RULES.reduce((s, r) => s.split(r).join(""), cssMinusMove);
-  const cssMinusAll = ROUND4_P1B_RULES.reduce((s, r) => s.split(r).join(""), cssMinusEl);
+  const cssMinusP1b = ROUND4_P1B_RULES.reduce((s, r) => s.split(r).join(""), cssMinusEl);
+  // R2 P1 §①: strip the two net-new QuestionGrid container rules (see their
+  // constant above — the only base-sheet delta this slice adds).
+  const cssMinusAll = R2_P1_QUESTION_GRID_RULES.reduce((s, r) => s.split(r).join(""), cssMinusP1b);
   expect(
     cssMinusAll,
     "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty)",
