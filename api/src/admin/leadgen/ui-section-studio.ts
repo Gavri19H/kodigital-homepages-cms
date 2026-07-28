@@ -3492,7 +3492,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-grid-q-head{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
 .studio-grid-q-index{flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:#EAF0F6;color:#1B3A5C;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-bottom:6px}
 .studio-grid-q-cell{display:flex;flex-direction:column;gap:3px;flex:1 1 130px;min-width:0}
-.studio-grid-q-caption{font-size:11px;font-weight:600;color:var(--c-muted,#66748a)}
+.studio-grid-q-caption{font-size:11px;font-weight:600;color:var(--c-muted)}
 .studio-grid-q-actions{display:flex;gap:5px;align-items:center;flex:0 0 auto}
 .studio-grid-q-dep{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:9px;padding-top:9px;border-top:1px dashed var(--c-border)}
 .studio-grid-q-dep .form-input{flex:1 1 120px;min-width:0}
@@ -7645,11 +7645,11 @@ export const SECTION_STUDIO_SCRIPT = `
     // DEDICATED block (data-content-namefieldsgroup-block), not the generic
     // CONTENT_PROP_FIELDS rows, so content_props is deliberately [] for it
     // and would otherwise wrongly hide the whole Content tab.
-    // R2 P1 §①: a question GROUP always qualifies — same "dedicated block,
+    // R2 P1 §①: QuestionGrid ALSO always qualifies — same "dedicated block,
     // empty content_props" reason as ImageBlock/NameFieldsGroup: its Content
     // tab IS the questions list (data-content-questiongrid-block), and its
     // content_props is [] BY CONTRACT (no shared helper/format/label).
-    var hasContent = isBound || (meta.content_props || []).length > 0 || meta.choice === true || node.type === 'ImageBlock' || node.type === 'NameFieldsGroup' || meta.question_group === true || FRAME_SCOPE_STUDIO_TYPES[node.type] === 1;
+    var hasContent = isBound || (meta.content_props || []).length > 0 || meta.choice === true || node.type === 'ImageBlock' || node.type === 'NameFieldsGroup' || node.type === 'QuestionGrid' || FRAME_SCOPE_STUDIO_TYPES[node.type] === 1;
     if (hasContent) { tabs.push('content'); }
     // Style: any visual selection (§8.5 "any visual selection").
     tabs.push('style');
