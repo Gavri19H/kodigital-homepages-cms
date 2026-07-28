@@ -1,0 +1,33 @@
+{
+  "check": "R1a read-only production data-consistency inventory (Plan Amendments #2 item 4 / Contract §5.7 R1(a))",
+  "executed": "2026-07-29, by the owner's hand-run read-only SELECT (conductor shell blocked by the permission layer; owner ran via the session ! prefix)",
+  "command": "npx wrangler d1 execute kodigital-homepages-cms-db --env production --remote --json --command \"SELECT id, public_id, section_name, activity, vertical, status, content_json FROM leadgen_sections WHERE content_json LIKE '%TwoButtonYesNo%'\"",
+  "result_rows": [
+    {
+      "id": 7,
+      "public_id": "lgs_01KXXD78MSJ7QJVZNAE89PDTT6",
+      "section_name": "Bundle home & auto?",
+      "activity": "Insurance",
+      "vertical": "Car",
+      "status": "active",
+      "content_json": "{\"components\":[{\"type\":\"QuestionHeadline\",\"question_id\":\"q_bound_headline\",\"bind\":\"section_headline\"},{\"type\":\"Subheadline\",\"question_id\":\"q_bound_subheadline\",\"bind\":\"section_subheadline\"},{\"internal_field\":\"field_mrrwlisv_jzgj\",\"answer_type\":\"boolean\",\"type\":\"TwoButtonYesNo\",\"question_id\":\"q_mrrwlisv_jzgj\",\"props\":{\"yesLabel\":\"Yes, I'm interested\",\"noLabel\":\"No, thanks\"}}]}"
+    },
+    {
+      "id": 8,
+      "public_id": "lgs_01KXXD9198YKCYP4V157C86130",
+      "section_name": "Military",
+      "activity": "Insurance",
+      "vertical": "Car",
+      "status": "active",
+      "content_json": "{\"components\":[{\"type\":\"QuestionHeadline\",\"question_id\":\"q_bound_headline\",\"bind\":\"section_headline\"},{\"type\":\"Subheadline\",\"question_id\":\"q_bound_subheadline\",\"bind\":\"section_subheadline\"},{\"internal_field\":\"field_mrrwnhe5_csqm\",\"answer_type\":\"boolean\",\"type\":\"TwoButtonYesNo\",\"question_id\":\"q_mrrwnhe5_csqm\"}]}"
+    }
+  ],
+  "meta": { "served_by": "v3-prod", "rows_read": 21, "rows_written": 0, "changed_db": false },
+  "analysis": {
+    "candidate_class": "TwoButtonYesNo nodes carrying authored choices[].value outside the {true,false} domain (values the fixed true/false emitter would ignore)",
+    "candidates_found": 0,
+    "detail": "Both production TwoButtonYesNo nodes are NATIVE Yes/No questions: neither content_json contains a choices[] array anywhere (verified over the full returned JSON). Section 7 customizes display LABELS only (yesLabel/noLabel props), which do not alter the recorded true/false values; section 8 is bare. No conditionals/routing comparands/value_maps can be keyed on ignored authored values because no such values exist.",
+    "remediation": "NONE required — the affected class is empty in production. No data change is proposed.",
+    "cross_join_legs": "Vacuous with zero candidates; the owner may optionally run the reference-table SELECTs (PACK.md) for corroboration on fields field_mrrwlisv_jzgj / field_mrrwnhe5_csqm (boolean-domain, healthy either way)."
+  }
+}
