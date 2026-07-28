@@ -24052,3 +24052,420 @@ $ npx wrangler d1 execute kodigital-homepages-cms-db --local --command "SELECT i
 the pre-existing test title "§7.1 publish → invalidate + warm (the Phase-2 TODO replaced)"
 (test/listicles-fanout.test.ts, unchanged since before this mission). Not deferrals; no
 P0-authored line carries a deferral token. [7] at e7e753c (pre-log-commit) was zero hits.
+
+== FINAL PRE-MERGE STAMP 2026-07-28T20:20:22Z (review N1: cover every code sha) ==
+tested tree: e6d5b37e0cb44ed3e2e5397aac489257fd286eee (= branch HEAD at stamp time; the gate-log commit lands docs-only on top as the PR head)
+code shas since the closure append: 94d1cc9 (m8 guard) + 1f2b4f7 (N5 [::1]) + docs e6d5b37
+
+== [1F] typecheck ==
+
+> kodigital-homepages-cms-api@0.1.0 typecheck
+> tsc --noEmit
+
+[1F] exit=0
+
+== [3F] verify:all ==
+
+> kodigital-homepages-cms-api@0.1.0 verify:all
+> npm run verify:no-legacy-prod-refs && npm run verify:infra && npm run verify:worker-config && npm run verify:leadgen-runtime && npm run verify:jargon:strict && npm run verify:golden-regions:strict
+
+
+> kodigital-homepages-cms-api@0.1.0 verify:no-legacy-prod-refs
+> tsx scripts/verify/assert-no-legacy-prod-refs.ts
+
+verify:no-legacy-prod-refs OK -- no banned legacy production identifiers found (Group A + Group B).
+
+> kodigital-homepages-cms-api@0.1.0 verify:infra
+> tsx scripts/verify/infra-contract.ts
+
+verify:infra OK -- wrangler.toml matches the Phase 1.5 infra contract (8 checks passed).
+
+> kodigital-homepages-cms-api@0.1.0 verify:worker-config
+> tsx scripts/verify/worker-config.ts
+
+verify:worker-config OK -- wrangler.toml [vars] blocks match the Phase 1.5 routing contract (3 blocks checked).
+
+> kodigital-homepages-cms-api@0.1.0 verify:leadgen-runtime
+> tsx scripts/verify/leadgen-runtime.ts
+
+  freshness: OK (byte-identical rebuild)
+  size: OK (50833 bytes, 95.5% of budget)
+  types: OK (tsc -p tsconfig.runtime.json)
+verify:leadgen-runtime PASS
+
+> kodigital-homepages-cms-api@0.1.0 verify:jargon:strict
+> node scripts/jargon-scan.mjs --strict
+
+=== jargon-scan (Section Builder v3.1, register §A M6) ===
+Files scanned: 3
+  - src/admin/leadgen/ui-section-studio.ts
+  - src/admin/leadgen/ui-sections.ts
+  - src/admin/leadgen/ui-theme-manager.ts
+
+[section (§)] 0 hit(s)
+
+[legacy] 0 hit(s)
+
+[wrangler] 0 hit(s)
+
+[GOOGLE_MAPS] 0 hit(s)
+
+[raw-operator-codes] 0 hit(s)
+
+TOTAL: 0 hit(s) across 5 categories
+mode: --strict (exit 1 if TOTAL > 0)
+
+> kodigital-homepages-cms-api@0.1.0 verify:golden-regions:strict
+> node scripts/golden-allowlist.mjs --strict
+
+=== golden-allowlist (Section Builder v3.1, register §A M2) ===
+Files scanned: src/admin/leadgen/ui-section-studio.ts, src/admin/leadgen/ui-sections.ts
+Live blocks detected: 40
+  golden:true   22
+  golden:false  18
+  UNCLASSIFIED  0
+Stale allowlist entries (no longer detected in source): 0
+
+[non-golden] 18 block(s)
+  src/admin/leadgen/ui-section-studio.ts:885-914  renderActivityVerticalPickers  (S4-A8)
+    -> R5 census split (extracted from renderStudioSettings, which used to carry this MIXED-in): the Activity/Vertical '+New...' pickers + styled-placeholder-pill empty state. No golden position exists for this group (it was moved into the question strip from the top bar in an earlier phase, unrelated to golden fidelity) — accepted, functionally necessary, non-golden extension, now its own classifiable block per the split.
+  src/admin/leadgen/ui-section-studio.ts:1225-1241  renderFrameHintSkeleton  (U15 (operator retest erratum))
+    -> U15 operator-ordered clarity erratum (2026-07-15): the golden's skeleton pill copy 'Funnel frame' is renamed to 'Funnel layout' (the operator's 3rd retest flagged 'frame' as incomprehensible). This block now intentionally diverges from the golden's Appendix-A microcopy, so it is no longer golden-verbatim.
+  src/admin/leadgen/ui-section-studio.ts:1242-1261  renderScopePillsMarkup  (U15 (operator retest erratum))
+    -> U15 operator-ordered clarity erratum (2026-07-15): the golden's scope pill 'Funnel frame' (+ its title) is renamed to 'Funnel layout' (the operator's 3rd retest flagged 'frame' as incomprehensible). The data-scope-pill='frame' VALUE stays (internal key); only the display text + title diverge from the golden, so this block is no longer golden-verbatim.
+  src/admin/leadgen/ui-section-studio.ts:1464-1550  renderCanvasToolbar  (S4-A3 (R5 purge))
+    -> PROPOSED reclassification (implementer, pending conductor ratification): R5 D3 removed EVERY ballooning cluster (renderToolbarLayoutCluster DELETED — its entry above is intentionally gone, not stale-orphaned, per the purge completion the E.5b arming enforces; layout/text/component/preset clusters removed or migrated to Content/Style tabs). The function now renders ONLY golden-legit chrome (breadcrumb/pills/undo/viewport/frame-hint/offer-mapping-toggle) PLUS one compact non-golden 'More actions' popover (structure + choice-item quick actions — the golden mockup depicts neither; documented judgment call per the dispatch's own carve-out) and the inline validation-problems slot. Kept golden:false for the More-popover addition alone — a MUCH smaller divergence than pre-R5.
+  src/admin/leadgen/ui-section-studio.ts:1687-1744  renderStyleExtraControls  (S4-A4 successor (R3b))
+    -> Replaces the removed §8.5 rail: ONLY the consumed, per-type-gated role rows survive (iconColor for card grids, rangeColor for the range family). Jargon-free; consumption-honesty gated. Not a golden region — accepted extension pending R5 golden arbitration (conductor-classified 2026-07-14).
+  src/admin/leadgen/ui-section-studio.ts:1745-1764  renderImageFitControl  (E2-C6 / R3b)
+    -> imageFit control relocated to the Content tab for ImageCardAnswerGrid (its real consumer). Consumed + gated; not a golden region — accepted extension (conductor-classified 2026-07-14).
+  src/admin/leadgen/ui-section-studio.ts:1877-1913  renderContainerControl  (S4-A4)
+    -> Helper consumed only by renderDesignPanel/renderLayoutPanel (S4-A4) — no independent golden use.
+  src/admin/leadgen/ui-section-studio.ts:1914-1937  renderContainerLayoutPanel  (S4-A4 successor (R3b))
+    -> Containers' REAL layout props (Stack/Grid/Columns/CardPanel/Spacer) in a clean jargon-free panel, container types only. Consumed; not a golden region — accepted extension pending R5 (conductor-classified 2026-07-14).
+  src/admin/leadgen/ui-section-studio.ts:1963-2023  renderStyleContinueBlock  (U15 (operator retest erratum))
+    -> MINOR-3 census split (extracted from renderStudioInspector, which used to carry this MIXED-in): the Continue Style-tab's 'inherited from the funnel' notice — eyebrow, Color/Position/Size rows, and the 3 deep-link buttons. U15 operator-ordered clarity erratum (2026-07-15): renames the golden-verbatim eyebrow 'Inherited from the frame' -> 'From the funnel layout' and the deep-link buttons 'Change in frame ->' -> 'Edit in Quote Builder ->' (the operator's 3rd retest flagged 'frame' as incomprehensible). This is now the ONLY block carrying that divergence.
+  src/admin/leadgen/ui-section-studio.ts:2024-2079  renderStylePlacementBlock  (PC-2 / decision D1 / axiom R-B)
+    -> P3b placement panel — post-golden feature. Structured-placement Style-tab controls (align/width/nudge/row-indicator) plus the CONDUCTOR-FIX excluded-ownership note for ContinueButton/AutoAdvanceButton (position is Quote-Builder-owned). Extracted out of renderStudioInspector on conductor ruling so this post-golden addition does not dilute that already-classified golden:true region — the same P1-granularity discipline renderStyleExtraControls/renderContainerLayoutPanel/renderImageFitControl already follow. Not a golden region — accepted extension (conductor-classified 2026-07-17).
+  src/admin/leadgen/ui-section-studio.ts:2080-2112  renderShowIfControls  (Round-4 P2c (A-4 authoring))
+    -> P2c group-row controls — post-golden feature. The Rules-tab Show-if picker (row 0, data-inspector-cond, is the pre-existing golden-verbatim single-condition picker, byte-unchanged) PLUS the NEW ANY/ALL group toggle + "+ Add condition" affordance. Extracted out of renderStudioInspector (the SAME P1-granularity discipline renderStylePlacementBlock/renderStyleContinueBlock already follow) so this post-golden addition does not dilute that already-classified golden:true region. Not a golden region — accepted extension (implementer-classified 2026-07-20, P2c slice).
+  src/admin/leadgen/ui-section-studio.ts:2113-2143  renderRequiredWhenControls  (Round-4 P2c (A-4 authoring))
+    -> P2c group-row controls — the SAME extraction/rationale as renderShowIfControls, applied to the Require-if surface (props.requiredWhen). Row 0 (data-inspector-reqcond) is byte-unchanged; the ANY/ALL toggle + "+ Add condition" are new. Not a golden region — accepted extension (implementer-classified 2026-07-20, P2c slice).
+  src/admin/leadgen/ui-section-studio.ts:2144-2169  renderPhoneFormatControls  (Round-4 P2c (A-6b studio surface))
+    -> The Content-tab "Phone format" picker (US default | International | Israel | Custom…) — the FIRST studio authoring surface for props.phone_format (content-schema/config-dto validate/compile it since P2b). Extracted out of renderStudioInspector (same P1-granularity discipline as the other P2c/P3b extractions) so this post-golden addition does not dilute that already-classified golden:true region. Not a golden region — accepted extension (implementer-classified 2026-07-20, P2c slice).
+  src/admin/leadgen/ui-section-studio.ts:2170-2208  renderSliderTypePicker  (LEADGEN-REWORK-03 §6.8)
+    -> The Content-tab slider-type thumbnail radio group (single/dual_range/stepper/from_to/radial) + the display-only currency-affix toggle — the P0 golden design pack's studio-panels.html pins this control (data-pin 6.8-type-picker), but pixel-fidelity against that pack is the authoring (studio inspector) slice's own verification, not asserted here. Classified golden:false / accepted extension so the strict census gate is not silently left unclassified (gate-closing entry added by the P2 server-renderer slice per conductor coordination — the function itself is owned/authored by the studio-inspector slice, not this one).
+  src/admin/leadgen/ui-section-studio.ts:2209-2227  renderAddressFieldSet  (LEADGEN-REWORK-03 §6.10 / M9)
+    -> The Content-tab address field-set editor (ordered field rows + "Plain text address" preset + "+ Add field" + the Maps-off degrade note) — the P0 golden design pack's studio-panels.html pins this control (data-pin 6.10-field-set-editor), but pixel-fidelity against that pack is the authoring (studio inspector) slice's own verification, not asserted here. Classified golden:false / accepted extension so the strict census gate is not silently left unclassified (gate-closing entry added by the P2 server-renderer slice per conductor coordination — the function itself is owned/authored by the studio-inspector slice, not this one).
+  src/admin/leadgen/ui-section-studio.ts:2864-2926  renderPreviewPanel  (S4-A5)
+    -> Bottom-drawer 'Preview' panel = a dev/QA console (pickers, mapping overlay, refresh, state simulator, dependency-JSON textarea, events-would-fire log, 2 iframes) — golden's drawer is a bar only (golden :371-387). Per the mission's operator-resolved decision, this stays behind an explicit 'QA tools' toggle in R5, not removed outright.
+  src/admin/leadgen/ui-section-studio.ts:2930-2957  renderSectionOverridesPanel  (S4-A6)
+    -> Bottom-drawer 4th tab 'Design overrides' (14 role swatches + columns/gap) — golden shows exactly 3 items + theme switcher + Expand. Self-flagged non-golden in its own source per the register.
+  src/admin/leadgen/ui-sections.ts:667-672  renderSectionEditorChrome  (S4-A10)
+    -> R5 census split (extracted from sectionEditorHtml, which used to carry this MIXED-in): the 'New Section' pubid label (new-section state only) + the 2 error/warning alert surfaces. Golden's static mockup depicts no new/unsaved/error state, so this has no golden position — accepted, functionally necessary, non-golden extension, now its own classifiable block per the split.
+
+[UNCLASSIFIED — needs an allowlist entry] 0 block(s)
+
+mode: --strict (exit 1 if any UNCLASSIFIED block OR any stale golden:false entry exists)
+[3F] exit=0
+
+== [GF] fixture guard reject leg (no server needed) ==
+$ LG_BASE=https://example.com npm run seed:leadgen-fixture
+
+> kodigital-homepages-cms-api@0.1.0 seed:leadgen-fixture
+> tsx scripts/seed-leadgen-fixture.ts
+
+LG_BASE rejected: hostname "example.com" is not a local dev server
+[GF] exit=1 (non-zero = rejected before any request, as designed)
+
+== [TF] verify-scripts-green + fixture-adjacent lanes ==
+
+ RUN  v2.1.9 /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api
+
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (a) boot decode equals server truth > workingFrame equals GET frame_config and clientEffective() equals effective_frame for a rich stored config
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+TypeError: kv.get is not a function
+    at Module.readThemeRecords (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/public/leadgen/designs/theme-store.ts:104:24)
+    at listThemesHandler (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/themes-handlers.ts:473:25)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/router.ts:168:9
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at accessAuth (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/auth/access-auth.ts:119:37)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:5:12
+
+ ✓ test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (a) boot decode equals server truth > workingFrame equals GET frame_config and clientEffective() equals effective_frame for a rich stored config
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (a) boot decode equals server truth > unknown stored template: island and server AGREE on the 'centered' fallback (client decode == server fallback)
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+TypeError: kv.get is not a function
+    at Module.readThemeRecords (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/public/leadgen/designs/theme-store.ts:104:24)
+    at listThemesHandler (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/themes-handlers.ts:473:25)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/router.ts:168:9
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at accessAuth (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/auth/access-auth.ts:119:37)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:5:12
+
+ ✓ test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (a) boot decode equals server truth > unknown stored template: island and server AGREE on the 'centered' fallback (client decode == server fallback)
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (b) edit → save path replays through the live router > a data-frame-key edit + a data-theme-key edit save frame → theme → variant IN ORDER with the exact accepted bodies
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+TypeError: kv.get is not a function
+    at Module.readThemeRecords (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/public/leadgen/designs/theme-store.ts:104:24)
+    at listThemesHandler (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/themes-handlers.ts:473:25)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/router.ts:168:9
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at accessAuth (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/auth/access-auth.ts:119:37)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:5:12
+
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (b) edit → save path replays through the live router > a data-frame-key edit + a data-theme-key edit save frame → theme → variant IN ORDER with the exact accepted bodies
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+
+ ✓ test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (b) edit → save path replays through the live router > a data-frame-key edit + a data-theme-key edit save frame → theme → variant IN ORDER with the exact accepted bodies
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (b) edit → save path replays through the live router > FIX 6: a second Save with nothing changed issues ZERO PUTs (no re-bump, no cache thrash)
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+TypeError: kv.get is not a function
+    at Module.readThemeRecords (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/public/leadgen/designs/theme-store.ts:104:24)
+    at listThemesHandler (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/themes-handlers.ts:473:25)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/router.ts:168:9
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at accessAuth (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/auth/access-auth.ts:119:37)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:5:12
+
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (b) edit → save path replays through the live router > FIX 6: a second Save with nothing changed issues ZERO PUTs (no re-bump, no cache thrash)
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+
+ ✓ test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (b) edit → save path replays through the live router > FIX 6: a second Save with nothing changed issues ZERO PUTs (no re-bump, no cache thrash)
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (b) edit → save path replays through the live router > FIX 6a: a mid-chain theme failure leaves ONLY theme+variant dirty — Retry re-PUTs just those, never the already-saved frame
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+TypeError: kv.get is not a function
+    at Module.readThemeRecords (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/public/leadgen/designs/theme-store.ts:104:24)
+    at listThemesHandler (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/themes-handlers.ts:473:25)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/router.ts:168:9
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at accessAuth (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/auth/access-auth.ts:119:37)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:5:12
+
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (b) edit → save path replays through the live router > FIX 6a: a mid-chain theme failure leaves ONLY theme+variant dirty — Retry re-PUTs just those, never the already-saved frame
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+
+ ✓ test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (b) edit → save path replays through the live router > FIX 6a: a mid-chain theme failure leaves ONLY theme+variant dirty — Retry re-PUTs just those, never the already-saved frame
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (b) edit → save path replays through the live router > forked arm: an override-switch edit writes frame_overrides_json (badge derives client-side; PUT persists; server agrees)
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+TypeError: kv.get is not a function
+    at Module.readThemeRecords (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/public/leadgen/designs/theme-store.ts:104:24)
+    at listThemesHandler (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/themes-handlers.ts:473:25)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/router.ts:168:9
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at accessAuth (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/auth/access-auth.ts:119:37)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:5:12
+
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (b) edit → save path replays through the live router > forked arm: an override-switch edit writes frame_overrides_json (badge derives client-side; PUT persists; server agrees)
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (c) template-switch flow [RETIRED: §10/S5.1, OLD canvas-embedded picker gone] > the OLD template-pick DOM/state has no current admin surface (see describe-block citation)
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+
+ ✓ test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (b) edit → save path replays through the live router > forked arm: an override-switch edit writes frame_overrides_json (badge derives client-side; PUT persists; server agrees)
+ ✓ test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (c) template-switch flow [RETIRED: §10/S5.1, OLD canvas-embedded picker gone] > the OLD template-pick DOM/state has no current admin surface (see describe-block citation)
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (d) publish chip equals the server activation_preflight > blocked fixture: the chip the island derives from the variant-PUT verdict matches blocks+problems counts; fixing flips it to Ready
+TypeError: kv.get is not a function
+    at Module.readThemeRecords (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/public/leadgen/designs/theme-store.ts:104:24)
+    at listThemesHandler (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/themes-handlers.ts:473:25)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/router.ts:168:9
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at accessAuth (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/auth/access-auth.ts:119:37)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:5:12
+
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (e) rules builder [RETIRED: M3/§13-D5, OLD per-variant grid gone] > the OLD per-variant hidden rules grid has no current admin surface (see describe-block citation)
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — FIX 9: overlapping preview responses [RETIRED: §10/S5.1, dead data-template-pick trigger — see coverage-gap note] > the OLD template-pick trigger this race depended on has no current admin surface, though the previewSeq guard code itself still ships
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+
+ ✓ test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (d) publish chip equals the server activation_preflight > blocked fixture: the chip the island derives from the variant-PUT verdict matches blocks+problems counts; fixing flips it to Ready
+ ✓ test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — (e) rules builder [RETIRED: M3/§13-D5, OLD per-variant grid gone] > the OLD per-variant hidden rules grid has no current admin surface (see describe-block citation)
+ ✓ test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — FIX 9: overlapping preview responses [RETIRED: §10/S5.1, dead data-template-pick trigger — see coverage-gap note] > the OLD template-pick trigger this race depended on has no current admin surface, though the previewSeq guard code itself still ships
+stderr | test/leadgen-quote-builder-seam.test.ts > Quote Builder studio seams — DEV-60 (b) quote-name rename PATCH > Save name PATCHes /quotes/:id {quote_name} (trimmed), persists, re-renders the title, and arms NO dirty flag
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+TypeError: kv.get is not a function
+    at Module.readThemeRecords (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/public/leadgen/designs/theme-store.ts:104:24)
+    at listThemesHandler (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/themes-handlers.ts:473:25)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/router.ts:168:9
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at accessAuth (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/auth/access-auth.ts:119:37)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:5:12
+
+ ✓ test/leadgen-quote-builder-seam.test.ts > Quote Builder studio seams — DEV-60 (b) quote-name rename PATCH > Save name PATCHes /quotes/:id {quote_name} (trimmed), persists, re-renders the title, and arms NO dirty flag
+stderr | test/leadgen-quote-builder-seam.test.ts > Quote Builder studio seams — DEV-60 (b) quote-name rename PATCH > an all-whitespace name never issues a PATCH — the island surfaces the error locally
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+TypeError: kv.get is not a function
+    at Module.readThemeRecords (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/public/leadgen/designs/theme-store.ts:104:24)
+    at listThemesHandler (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/themes-handlers.ts:473:25)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/router.ts:168:9
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at accessAuth (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/auth/access-auth.ts:119:37)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:5:12
+
+ ✓ test/leadgen-quote-builder-seam.test.ts > Quote Builder studio seams — DEV-60 (b) quote-name rename PATCH > an all-whitespace name never issues a PATCH — the island surfaces the error locally
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — Phase D C2 LIVE activation 409 → grouped problems render > blocked PUT re-renders the panel from the 409 report+problems; the REAL compat flip downgrades to warning and the same island save succeeds
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+TypeError: kv.get is not a function
+    at Module.readThemeRecords (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/public/leadgen/designs/theme-store.ts:104:24)
+    at listThemesHandler (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/themes-handlers.ts:473:25)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/router.ts:168:9
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at accessAuth (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/auth/access-auth.ts:119:37)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:5:12
+
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — Phase D C2 LIVE activation 409 → grouped problems render > blocked PUT re-renders the panel from the 409 report+problems; the REAL compat flip downgrades to warning and the same island save succeeds
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+
+ ✓ test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — Phase D C2 LIVE activation 409 → grouped problems render > blocked PUT re-renders the panel from the 409 report+problems; the REAL compat flip downgrades to warning and the same island save succeeds
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — Phase D lazy all-slides stepper > >8 slides: mode:'all' fetches page:1; Next fetches page:2 — one composed page per step, canvas + label follow
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+TypeError: kv.get is not a function
+    at Module.readThemeRecords (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/public/leadgen/designs/theme-store.ts:104:24)
+    at listThemesHandler (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/themes-handlers.ts:473:25)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/router.ts:168:9
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at accessAuth (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/auth/access-auth.ts:119:37)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:5:12
+
+ ✓ test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — Phase D lazy all-slides stepper > >8 slides: mode:'all' fetches page:1; Next fetches page:2 — one composed page per step, canvas + label follow
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — Phase D lazy all-slides stepper > ≤8 slides: the eager pages[] flow is untouched — no page param, Next steps LOCALLY with zero extra fetches
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+TypeError: kv.get is not a function
+    at Module.readThemeRecords (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/public/leadgen/designs/theme-store.ts:104:24)
+    at listThemesHandler (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/themes-handlers.ts:473:25)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/router.ts:168:9
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at accessAuth (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/auth/access-auth.ts:119:37)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:5:12
+
+ ✓ test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — Phase D lazy all-slides stepper > ≤8 slides: the eager pages[] flow is untouched — no page param, Next steps LOCALLY with zero extra fetches
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — DEV-66 canvas mobile = real 375 iframe > the mobile toggle re-renders the srcdoc iframe at width 375px (desktop 1280px) with the mobile media query aboard
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+TypeError: kv.get is not a function
+    at Module.readThemeRecords (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/public/leadgen/designs/theme-store.ts:104:24)
+    at listThemesHandler (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/themes-handlers.ts:473:25)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/router.ts:168:9
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at accessAuth (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/auth/access-auth.ts:119:37)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:5:12
+
+ ✓ test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — DEV-66 canvas mobile = real 375 iframe > the mobile toggle re-renders the srcdoc iframe at width 375px (desktop 1280px) with the mobile media query aboard
+stderr | test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — E4 bare canvas clicks resolve to the background region > a #lg-funnel-root / empty-area click selects `background` and opens its inspector; a real region still wins; slot-interior still banners
+[lg-invalidate] lg-shell list failed: TypeError
+[lg-invalidate] lg-config list failed: TypeError
+TypeError: kv.get is not a function
+    at Module.readThemeRecords (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/public/leadgen/designs/theme-store.ts:104:24)
+    at listThemesHandler (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/themes-handlers.ts:473:25)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/router.ts:168:9
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:46
+    at accessAuth (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/auth/access-auth.ts:119:37)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:23)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:5:12
+
+ ✓ test/leadgen-quote-builder-seam.test.ts > quote builder EXECUTED island — E4 bare canvas clicks resolve to the background region > a #lg-funnel-root / empty-area click selects `background` and opens its inspector; a real region still wins; slot-interior still banners
+ ✓ test/leadgen-activation-preflight-r2.test.ts > P0 S0-B1: variant-save advisory preflight stays in parity with the real activation gate > FIRES (b): a minimal well-formed quote's variant-save response reports the SAME activation.shared_page error the real GET /activation gate reports
+ ✓ test/leadgen-activation-preflight-r2.test.ts > P0 S0-B1: variant-save advisory preflight stays in parity with the real activation gate > CLEARS (b): once the shared page is authored, BOTH the variant-save advisory and the real gate agree the check is satisfied
+ ✓ test/verify-scripts-green.test.ts > verify-scripts-green > tsc-noEmit exits 0 (T22.AC1 — typecheck clean) 4396ms
+ ✓ test/verify-scripts-green.test.ts > verify-scripts-green > verify-no-legacy-prod-refs exits 0 (T22.AC2) 452ms
+ ✓ test/verify-scripts-green.test.ts > verify-scripts-green > verify-infra exits 0 (T22.AC3)
+ ✓ test/verify-scripts-green.test.ts > verify-scripts-green > verify-worker-config exits 0 (T22.AC4)
+
+ Test Files  3 passed (3)
+      Tests  23 passed (23)
+   Start at  23:20:30
+   Duration  8.21s (transform 882ms, setup 0ms, collect 1.37s, tests 6.46s, environment 0ms, prepare 67ms)
+
+[TF] exit=0
+
+== [6F] check_register (final) ==
+check_register: /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/docs/leadgen/source-of-truth/traceability.md
+rows checked: 84
+R1 violations: 0
+R2 violations: 0
+R3 violations: 0
+R4 violations: 0
+R5 violations: 0
+TOTAL violations: 0
+[6F] exit=0
