@@ -67,6 +67,27 @@ original file (both before and after), so every changed byte anywhere in the
 full page is accounted for by either a named panel's own diff or the
 chrome diff — no possible hiding place for an unattributed change.
 
+2026-07-29 re-capture (P2 gate-fix round — 18db5c6 + item-2 shared.ts CSS cleanup):
+`18db5c6` removed the dead `scheduleMiniPreview`/`themeMiniOpen` mini-preview
+cluster from `funnel.ts` (4 call-site removals + the 44-line function/var
+cluster) and the orphaned `.lg-theme-minipreview` CSS rule from `shared.ts`;
+this same gate-fix round additionally removed the sibling orphaned
+`.lg-minipreview-frame` CSS rule (golden-allowlist/orphan-scan gate-fix,
+conductor-coordinated). Re-capture changed 8 of the 11 fixtures (`editor-full`,
+`editor-panel-ab`, `editor-panel-activation`, `editor-panel-builder`,
+`quotes-list-empty`, `quotes-list-seeded`, `quotes-new`, `quotes-not-found`);
+`editor-panel-templates/themes/analytics.html` were already current (zero
+drift). Every changed line classified against the two source diffs, 104 lines
+total: 53 map to the 18db5c6 removals (5× `.lg-theme-minipreview` CSS line +
+4× `scheduleMiniPreview()` call sites + the 44-line dead cluster, all in
+`editor-full.html` for the funnel-script lines since only that fixture embeds
+the tab's `<script>`), 5 map to this round's own `.lg-minipreview-frame` CSS
+removal (one per fixture embedding `LG_QUOTES_STYLES`), and the remaining 46
+are minted-id/`computed_at` regeneration noise inherent to re-running the
+capture script (crypto-random ULIDs; already normalized away by the test's
+own `normalizeIds`/`ID_RE`/`COMPUTED_AT_RE`, not a content change) — 0 lines
+outside these three buckets.
+
 ## Rolling analytics window (CLOSED — normalized, does not drift)
 
 The two `quotes-list-*.html` fixtures embed `resolveTimeframe`'s default rolling

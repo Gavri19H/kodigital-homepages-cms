@@ -615,7 +615,6 @@ export const LG_QUOTES_STYLES = `
 .lg-theme-swatch{width:28px;height:28px;border-radius:6px;border:1px solid var(--c-border);flex:none}
 .lg-used-by{color:var(--c-muted);font-size:12px}
 .lg-inherit-tag{font-size:11px;border:1px solid var(--c-border);border-radius:999px;padding:0 8px;color:var(--c-muted)}
-.lg-minipreview-frame{display:block;width:100%;height:200px;border:0;border-radius:6px;background:#fff}
 .lg-harmony-row{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
 .lg-harmony-step{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--c-border);border-radius:6px;background:none;cursor:pointer;padding:4px 8px;font-size:12px;color:var(--c-text)}
 .lg-harmony-chip{width:14px;height:14px;border-radius:4px;border:1px solid var(--c-border);display:inline-block}
