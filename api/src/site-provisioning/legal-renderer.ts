@@ -11,6 +11,7 @@
 // "rendered HTML contains no opening curly substring" holds end-to-end.
 
 import type { Env } from "../env";
+import { LEGAL_PAGE_TYPES } from "../admin/pages-crud-handlers";
 
 export const LEGAL_TEMPLATE_SLUGS = [
   "privacy-policy",
@@ -20,6 +21,28 @@ export const LEGAL_TEMPLATE_SLUGS = [
 ] as const;
 
 export type LegalTemplateSlug = (typeof LEGAL_TEMPLATE_SLUGS)[number];
+
+// R2 P3 flake-fix (root). Every provisioned legal page used to be inserted
+// with the literal page_type 'legal', so the four canonical pages a site is
+// seeded with were INDISTINGUISHABLE by page_type — and
+// leadgen/branding.ts resolvePickedLegalPageLinks's page_type leg
+// (first-wins by show_in_footer DESC, display_order ASC, id ASC) handed
+// whichever of them was inserted first to EVERY pick that reached it. With
+// provisioning's rows landing before a site's own pages, four distinct
+// operator picks all served /privacy-policy. Legal links are a compliance
+// surface (SOURCE-OF-TRUTH A.2: "links to legal pages (from the 'pages'
+// tab) that the user is choosing"), so a "Terms of Use" pick may never
+// serve the privacy policy.
+//
+// The disambiguating vocabulary already exists and is already shared:
+// pages-crud-handlers.ts exports LEGAL_PAGE_TYPES (privacy-policy, terms,
+// do-not-sell, contact, legal) — the same set branding.ts's picker query
+// reuses. A canonical slug therefore carries its OWN page_type; anything
+// else keeps the generic 'legal' bucket. No new vocabulary, no new module:
+// pages-crud-handlers.ts is the single source of truth for both sides.
+export function legalPageTypeForSlug(slug: string): string {
+  return LEGAL_PAGE_TYPES.has(slug) ? slug : "legal";
+}
 
 export interface LegalRenderVariables {
   site_name: string;
@@ -173,18 +196,24 @@ export async function renderLegalPagesForSite(
       schema_version: 1,
       vars,
     });
+    // page_type is now BOUND per page (legalPageTypeForSlug above), not the
+    // literal 'legal' this statement used to carry. `template` stays 'legal'
+    // (that column selects the render template, not the page's identity).
+    // The existing `page_type = excluded.page_type` in the DO UPDATE clause
+    // means an ALREADY-provisioned site self-heals on its next provisioning
+    // run: the upsert rewrites the stale 'legal' row with its canonical type.
     await db
       .prepare(
         "INSERT INTO pages " +
           "(site_id, slug, title, content_json, content_html, status, template, show_in_footer, page_type) " +
-          "VALUES (?, ?, ?, ?, ?, 'published', 'legal', 1, 'legal') " +
+          "VALUES (?, ?, ?, ?, ?, 'published', 'legal', 1, ?) " +
           "ON CONFLICT(site_id, slug) DO UPDATE SET " +
           "title = excluded.title, content_json = excluded.content_json, " +
           "content_html = excluded.content_html, status = excluded.status, " +
           "template = excluded.template, show_in_footer = excluded.show_in_footer, " +
           "page_type = excluded.page_type, updated_at = unixepoch()",
       )
-      .bind(site_id, slug, title, contentJson, html)
+      .bind(site_id, slug, title, contentJson, html, legalPageTypeForSlug(slug))
       .run();
     rendered.push(slug);
   }

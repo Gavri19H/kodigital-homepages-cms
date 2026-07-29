@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api
+
+ ✓ test/leadgen-p3-provisioning-legal-page-type.test.ts (6 tests) 13ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  23:35:19
+   Duration  1.54s (transform 1.02s, setup 0ms, collect 1.36s, tests 13ms, environment 0ms, prepare 37ms)
+

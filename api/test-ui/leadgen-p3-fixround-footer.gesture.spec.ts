@@ -236,19 +236,35 @@ function buildWidePng(width: number, height: number): Buffer {
 }
 
 async function openTemplatesTab(page: Page, quotePublicId: string): Promise<void> {
-  // R2 P3 tail-2 (item 1, chromium+firefox registration): templates.ts's
-  // init() fires GET .../frame-template-records (loadTemplates()) on every
-  // page load, unconditionally; the Apply dialog's renderApplyChoices() is
-  // SYNCHRONOUS over the in-memory `templates` array it populates — no fetch
-  // of its own. Racing the Apply click against that still-in-flight GET
-  // intermittently opened the dialog with zero [data-apply-choice] cards.
-  // Waiting for the SAME response here (every test opens this tab before any
-  // Apply flow) removes the race at its one source instead of padding each
-  // call site with a guess-timeout.
-  await Promise.all([
-    page.waitForResponse((r) => r.url().includes("/frame-template-records") && r.request().method() === "GET", { timeout: 20_000 }),
-    page.goto(`/admin/leadgen/quotes/${quotePublicId}/edit`, { waitUntil: "domcontentloaded" }),
-  ]);
+  // R2 P3 flake-fix (4b) — the navigation is now DETERMINISTIC.
+  //
+  // It used to race page.goto against a waitForResponse for the page-load GET
+  // .../frame-template-records inside ONE Promise.all. When the previous
+  // document was a live /lg funnel (its own subresources still in flight,
+  // firefox), the 20s response wait expired with the browser STILL on /lg
+  // (2/158 runs): the admin navigation had not committed yet, so the event it
+  // waited for could not have arrived — the wait failed the test for a
+  // condition it had made impossible.
+  //
+  // That wait is also redundant now. templates.ts's init() fires the GET on
+  // every page load and renderApplyChoices() reads the in-memory `templates`
+  // array it fills, but applyTemplate() below waits for the applied
+  // template's OWN chip first — rendered from that same array, i.e. the real
+  // commit signal for "the array is populated", not a network-timing guess.
+  //
+  // Sequence (no fixed sleep, no retry, nothing hidden):
+  //   1. about:blank — ends the previous document's in-flight loads so the
+  //      admin navigation can never queue behind them;
+  //   2. an AWAITED goto with an explicit navigation timeout;
+  //   3. assert the URL actually COMMITTED to the editor — the old failure
+  //      mode ("still on /lg") now fails on exactly that, loudly;
+  //   4. the tab + panel signals the page itself emits.
+  await page.goto("about:blank");
+  await page.goto(`/admin/leadgen/quotes/${quotePublicId}/edit`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  await expect(page, "the editor navigation must COMMIT (fail-before: still on /lg)").toHaveURL(
+    new RegExp(`/admin/leadgen/quotes/${quotePublicId}/edit`),
+    { timeout: 20_000 },
+  );
   await page.locator('[data-tab="templates"]').click();
   await expect(page.locator('[data-panel="templates"]')).toHaveClass(/active/);
   await expect(page.locator('[data-tplbox-panel="progress"]')).toBeVisible({ timeout: 20_000 });
@@ -276,7 +292,9 @@ async function saveCurrentDesignAsTemplate(page: Page, name: string): Promise<{ 
 }
 
 // Apply a saved template to this funnel through the REAL apply dialog.
-async function applyTemplate(page: Page, templatePublicId: string): Promise<void> {
+// `funnelPublicId` is the funnel the journey expects the apply to land on —
+// asserted below (R2 P3 flake-fix 4a), never assumed.
+async function applyTemplate(page: Page, templatePublicId: string, funnelPublicId: string): Promise<void> {
   // R2 P3 tail-2 (item 1) — the Apply dialog's renderApplyChoices() reads the
   // SAME in-memory `templates` array loadTemplates() (a page-load GET) fills;
   // it does not re-fetch on open. Right after a fresh reload (this template
@@ -289,16 +307,26 @@ async function applyTemplate(page: Page, templatePublicId: string): Promise<void
   await page.locator("#lg-tpl-apply-btn").click();
   const dlg = page.locator("#lg-tpl-apply-dialog");
   await expect(dlg).toBeVisible();
-  // the choice list is painted from an async loadTemplates() — wait for the
-  // list to exist at all before reaching for one card.
-  await expect(dlg.locator("[data-apply-choice]").first()).toBeVisible({ timeout: 20_000 });
+  // the choice list is painted from an async loadTemplates() — wait for THIS
+  // template's own card (the one about to be clicked), not merely "a card".
+  await expect(dlg.locator(`[data-apply-choice="${templatePublicId}"]`)).toBeVisible({ timeout: 20_000 });
   await page.locator(`[data-apply-choice="${templatePublicId}"]`).click();
   await expect(dlg.locator('[data-apply-state="confirm"]')).toBeVisible({ timeout: 15_000 });
-  await Promise.all([
-    page.waitForResponse((r) => r.url().includes("/apply-template") && r.request().method() === "POST"),
+  const [applyRes] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes(`/funnels/${funnelPublicId}/apply-template`) && r.request().method() === "POST",
+    ),
     page.waitForNavigation({ waitUntil: "domcontentloaded" }).catch(() => null),
     page.locator("#lg-tpl-apply-confirm-btn").click(),
   ]);
+  // R2 P3 flake-fix (4a): the apply POST's outcome used to be UNASSERTED — a
+  // real 503 (or a 404 on another funnel) passed silently and the journey
+  // then measured an empty footer as though the operator's template had been
+  // applied. Both halves are now asserted: the status, and the funnel the
+  // POST actually targeted (the URL the waiter matched, echoed here so a
+  // future edit to the predicate cannot quietly widen it).
+  expect(applyRes.status(), `apply-template POST ${applyRes.url()}`).toBe(200);
+  expect(applyRes.url(), "the apply must target THIS funnel").toContain(`/funnels/${funnelPublicId}/apply-template`);
 }
 
 // The visitor's own footer, read off the LIVE /lg/:slug route.
@@ -414,7 +442,7 @@ test.describe("R2 P3 FIX-FIRST A — the wipe repro no longer wipes (BLOCKER-1)"
     );
 
     await openTemplatesTab(page, seed.quotePublicId);
-    await applyTemplate(page, tpl.public_id);
+    await applyTemplate(page, tpl.public_id, seed.funnelPublicId);
 
     // 1) the visitor is served the full footer.
     const before = await visitFooter(page, host, slug, 1280);
@@ -516,7 +544,7 @@ test.describe("R2 P3 FIX-FIRST B — Image28 rebuilt through the real editor", (
     const saved = await saveCurrentDesignAsTemplate(page, `P3FX Image28 ${uniq}`);
 
     await openTemplatesTab(page, seed.quotePublicId);
-    await applyTemplate(page, saved.public_id);
+    await applyTemplate(page, saved.public_id, seed.funnelPublicId);
 
     // --- the visitor -------------------------------------------------------
     for (const width of [1280, 375]) {
@@ -615,7 +643,7 @@ test.describe("R2 P3 FIX-FIRST C — Image45 rebuilt through the real editor", (
     const saved = await saveCurrentDesignAsTemplate(page, `P3FX Image45 ${uniq}`);
 
     await openTemplatesTab(page, seed.quotePublicId);
-    await applyTemplate(page, saved.public_id);
+    await applyTemplate(page, saved.public_id, seed.funnelPublicId);
 
     for (const width of [1280, 375]) {
       const probe = await visitFooter(page, host, slug, width);
@@ -713,7 +741,7 @@ test.describe("R2 P3 FIX-FIRST D — one saved pick set, two serving sites (D2)"
     await activateOn(apiCtx, seedB.quotePublicId, siteB, slugB);
     for (const s of [seedA, seedB]) {
       await openTemplatesTab(page, s.quotePublicId);
-      await applyTemplate(page, tpl.public_id);
+      await applyTemplate(page, tpl.public_id, s.funnelPublicId);
     }
 
     const a = await visitFooter(page, hostA, slugA, 1280);
