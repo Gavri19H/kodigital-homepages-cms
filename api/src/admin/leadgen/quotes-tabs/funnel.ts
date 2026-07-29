@@ -38,6 +38,12 @@ import {
 } from "../../../public/leadgen/designs/frames";
 import { FUNNEL_TOKEN_ROLES } from "../../../public/leadgen/designs/theme";
 import { ENTRY_KNOWN_SLOT_FIELDS } from "../../../public/leadgen/resolver";
+// R2 P2 tail (item 2): the preset-resolve algorithm quotes-tabs/themes.ts's
+// THEMES_TAB_SCRIPT already uses (MINOR-1) — extracted to a shared module so
+// this island's own one-Save theme path (normalizedThemePut) resolves a
+// preset into inline values too, instead of the older theme_id-drop-only
+// shape. See that module's header for why this is a source-text export.
+import { themePresetResolveSnippet } from "./theme-preset-resolve";
 import {
   // P3b S3b.1 follow-up: the funnel-tab RIGHT rail is S3b.2's (§8.2 RIGHT,
   // MOUNT CONTRACT documented at renderQuoteRulesRail's own doc comment). The
@@ -46,6 +52,13 @@ import {
   // QUOTE_RULES_SCRIPT to the page's scripts bundle.
   renderQuoteRulesRail,
   type QuoteRulesRailData,
+  // R2 SRC-11C-B: the ruled-slot chip's plain-language sentence reuses the
+  // quote-level routing rules' OWN generator (same "field is value" phrase
+  // idiom, never re-implemented) — one call per case (a ruled-slot case is a
+  // single-condition row, unlike a routing rule's multi-condition AND/OR
+  // predicate), so the phrasing can never drift between the two surfaces.
+  conditionsSentence,
+  type RulesBuilderRow,
 } from "../ui-rules-builder";
 import {
   type RuleNode,
@@ -140,6 +153,39 @@ const SLOT_RULE_OPS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "gte", label: "at least" },
   { value: "lte", label: "at most" },
 ];
+
+// R2 P2 FIX-FIRST (MINOR-4, adversarial review): the ruled-slot DIALOG showed
+// no plain-language sentence at all — the operator only saw it after saving,
+// on the chip (ruledSlotSentence below). The island cannot import the TS
+// generator, and hand-writing the phrasing in ES5 would be exactly the drift
+// the chip's own comment forbids ("never re-implemented"), so the phrase
+// TEMPLATES are produced BY conditionsSentence itself at SSR time — one probe
+// call per op with sentinel tokens the island substitutes. If the generator's
+// wording ever changes, these templates change with it, automatically.
+const SLOT_RULE_SENTENCE_FIELD_TOKEN = "@@LG_SLOT_RULE_FIELD@@";
+const SLOT_RULE_SENTENCE_VALUE_TOKEN = "@@LG_SLOT_RULE_VALUE@@";
+const SLOT_RULE_SENTENCE_TEMPLATES: Readonly<Record<string, string>> = Object.fromEntries(
+  SLOT_RULE_OPS.map((o) => [
+    o.value,
+    conditionsSentence(
+      [
+        {
+          field: SLOT_RULE_SENTENCE_FIELD_TOKEN,
+          op: o.value as RulesBuilderRow["op"],
+          value: SLOT_RULE_SENTENCE_VALUE_TOKEN,
+        },
+      ],
+      () => SLOT_RULE_SENTENCE_FIELD_TOKEN,
+    ).replace(/\.$/, ""),
+  ]),
+);
+
+// The three joiners the SAVED-chip sentence is assembled from — shared with
+// the island (below) so the live dialog sentence and the chip can never drift
+// in punctuation either.
+const RULED_SENTENCE_ARROW = " → ";
+const RULED_SENTENCE_JOIN = "; ";
+const RULED_SENTENCE_OTHERWISE = "; otherwise → ";
 
 
 // --- inline icons (studio-vocabulary SVG, ~0 engine bytes; admin-only) -------
@@ -246,15 +292,60 @@ function renderSectionChip(
 
 // §8.2 (S5.3): the shared page's slots (fixed / ab / ruled), same chip model as
 // a funnel page card (renderBoardPageCard) so a shared chip honestly reflects
-// its kind ("A/B: …" / "Rule: …" / the section name) and carries data-slot-id +
-// data-slot-kind for the shared-chip menu editors. `slots` rides the
-// sharedPageJson body (BoardPageSlot shape) but is NOT on the SharedPageBody
-// type (shared.ts is out of this slice's ownership) — read via a local cast; a
-// legacy body with only the flat `sections` list degrades to one fixed chip per
-// section (no slot id → the menu editors fall back to a fresh convert).
+// its kind ("A/B: …" / a ruled sentence / the section name) and carries
+// data-slot-id + data-slot-kind for the shared-chip menu editors. `slots`
+// rides the sharedPageJson body (BoardPageSlot shape) but is NOT on the
+// SharedPageBody type (shared.ts is out of this slice's ownership) — read via
+// a local cast; a legacy body with only the flat `sections` list degrades to
+// one fixed chip per section (no slot id → the menu editors fall back to a
+// fresh convert).
 function sharedPageSlots(sharedPage: SharedPageBody | null | undefined): BoardPage["slots"] | null {
   const slots = (sharedPage as unknown as { slots?: BoardPage["slots"] } | null | undefined)?.slots;
   return Array.isArray(slots) ? slots : null;
+}
+
+// R2 SRC-11C-B (contract §7 / A.1 #11-C follow-up — the operator-path gap:
+// a ruled chip showed only its first candidate's bare name, no way to see
+// WHAT the rule does without the raw API): renders the GENERATED PLAIN-
+// LANGUAGE SENTENCE for a saved rule, reusing ui-rules-builder.ts's OWN
+// conditionsSentence (the quote-level routing rules' generator — same "field
+// is value" phrase idiom, never re-implemented), one call per case (a
+// ruled-slot case is a single-condition row, unlike a routing rule's multi-
+// condition AND/OR predicate). `rule_summary` (quotes-handlers.ts's
+// pageToApi — {cases:[{field,op,value,section_name}], default_section_name})
+// is NOT on BoardPageSlot's declared type (shared.ts, out of this slice's
+// ownership) — read via the SAME local-cast idiom sharedPageSlots uses just
+// above. Absent/malformed summary degrades to the neutral "Rule: <name>"
+// label (never throws).
+function ruledSlotSummaryOf(
+  slot: BoardPage["slots"][number],
+): { cases: Array<{ field: string; op: string; value: unknown; section_name: string }>; default_section_name: string } | null {
+  const summary = (slot as unknown as { rule_summary?: unknown }).rule_summary;
+  if (summary === null || typeof summary !== "object") return null;
+  const cases = (summary as { cases?: unknown }).cases;
+  const defaultName = (summary as { default_section_name?: unknown }).default_section_name;
+  if (!Array.isArray(cases) || typeof defaultName !== "string") return null;
+  return summary as { cases: Array<{ field: string; op: string; value: unknown; section_name: string }>; default_section_name: string };
+}
+
+function ruledSlotSentence(slot: BoardPage["slots"][number], fallbackName: string): string {
+  const summary = ruledSlotSummaryOf(slot);
+  if (summary === null || summary.cases.length === 0) return `Rule: ${fallbackName}`;
+  const parts = summary.cases.map((c) => {
+    const row: RulesBuilderRow = { field: c.field, op: c.op as RulesBuilderRow["op"], value: c.value as RulesBuilderRow["value"] };
+    const sentence = conditionsSentence([row], (f) => SLOT_RULE_FIELD_LABELS[f] ?? f).replace(/\.$/, "");
+    return `${sentence}${RULED_SENTENCE_ARROW}${c.section_name}`;
+  });
+  return `${parts.join(RULED_SENTENCE_JOIN)}${RULED_SENTENCE_OTHERWISE}${summary.default_section_name}`;
+}
+
+// The chip label every board column (shared + funnel) shares — factored out
+// so the two identical A/B-or-ruled-or-fixed ternaries never drift.
+function chipLabelFor(slot: BoardPage["slots"][number]): string {
+  const primary = slot.candidates[0];
+  if (slot.kind === "ab") return `A/B: ${slot.candidates.map((c) => c.section_name).join(" / ") || "empty"}`;
+  if (slot.kind === "ruled") return ruledSlotSentence(slot, primary?.section_name ?? "empty");
+  return primary?.section_name ?? "empty";
 }
 
 function renderSharedColumn(sharedPage: SharedPageBody | null | undefined): string {
@@ -264,12 +355,7 @@ function renderSharedColumn(sharedPage: SharedPageBody | null | undefined): stri
     chips = slots
       .map((slot) => {
         const primary = slot.candidates[0];
-        const name = slot.kind === "ab"
-          ? `A/B: ${slot.candidates.map((c) => c.section_name).join(" / ") || "empty"}`
-          : slot.kind === "ruled"
-            ? `Rule: ${primary?.section_name ?? "empty"}`
-            : (primary?.section_name ?? "empty");
-        return renderSectionChip(name, primary?.section_id ?? "", { scope: "shared", slotId: slot.slot_id, slotKind: slot.kind, mappingStatus: primary?.mapping_status });
+        return renderSectionChip(chipLabelFor(slot), primary?.section_id ?? "", { scope: "shared", slotId: slot.slot_id, slotKind: slot.kind, mappingStatus: primary?.mapping_status });
       })
       .join("");
   } else {
@@ -299,12 +385,7 @@ function renderBoardPageCard(page: BoardPage, index: number): string {
   const chips = page.slots
     .map((slot) => {
       const primary = slot.candidates[0];
-      const name = slot.kind === "ab"
-        ? `A/B: ${slot.candidates.map((c) => c.section_name).join(" / ") || "empty"}`
-        : slot.kind === "ruled"
-          ? `Rule: ${primary?.section_name ?? "empty"}`
-          : (primary?.section_name ?? "empty");
-      return renderSectionChip(name, primary?.section_id ?? "", { scope: "funnel", slotId: slot.slot_id, slotKind: slot.kind, mappingStatus: primary?.mapping_status });
+      return renderSectionChip(chipLabelFor(slot), primary?.section_id ?? "", { scope: "funnel", slotId: slot.slot_id, slotKind: slot.kind, mappingStatus: primary?.mapping_status });
     })
     .join("");
   return `<div class="lg-page-card" data-page-card data-page-public-id="${escapeHtml(page.page_id)}" data-page-index="${index}" data-pin="8.2-page-card">
@@ -397,7 +478,7 @@ function renderBoardMenus(): string {
   return `<div class="lg-board-menus" data-board-menus>
     ${menu("funnel", item("funnel-settings", "Funnel settings") + `<div class="lg-menu-sep"></div>` + item("duplicate", "Duplicate") + item("set-default", "Set as default") + item("move-left", "Move left") + item("move-right", "Move right") + `<div class="lg-menu-sep"></div>` + item("delete", "Delete", true))}
     ${menu("shared-chip", item("ab-slot", "A/B this slot") + item("slot-rule", "Slot rule") + `<div class="lg-menu-sep"></div>` + item("remove", "Remove", true))}
-    ${menu("funnel-chip", item("chip-up", "Move up") + item("chip-down", "Move down") + `<div class="lg-menu-sep"></div>` + item("remove", "Remove", true))}
+    ${menu("funnel-chip", item("ab-slot", "A/B this slot") + item("slot-rule", "Slot rule") + `<div class="lg-menu-sep"></div>` + item("chip-up", "Move up") + item("chip-down", "Move down") + `<div class="lg-menu-sep"></div>` + item("remove", "Remove", true))}
     ${menu("page", item("page-up", "Move up") + item("page-down", "Move down") + `<div class="lg-menu-sep"></div>` + item("page-delete", "Delete page", true))}
   </div>
   <div class="lg-board-guard lg-hidden" data-board-guard role="dialog" aria-modal="true" aria-labelledby="lg-board-guard-title">
@@ -474,6 +555,7 @@ function renderSharedSlotAbDialog(): string {
         <div class="lg-ab-arms" data-ab-arms></div>
         <button type="button" class="btn btn-sm btn-secondary" data-ab-add-arm>+ Add arm</button>
         <p class="lg-alloc-summary">Σ = <strong data-ab-sum>&mdash;</strong> <span class="form-help" data-ab-sum-note></span></p>
+        <p class="form-help" data-ab-sentence role="status" aria-live="polite"></p>
         <p class="form-help lg-hidden" data-ab-error role="alert"></p>
       </div>
       <div class="lg-board-guard-foot">
@@ -497,6 +579,7 @@ function renderSharedSlotRuledDialog(): string {
           <label class="form-label" for="lg-ruled-default-select">Default section (required)</label>
           <select id="lg-ruled-default-select" class="form-select" data-ruled-default aria-label="Default section"></select>
         </div>
+        <p class="form-help" data-ruled-sentence role="status" aria-live="polite"></p>
         <p class="form-help lg-hidden" data-ruled-error role="alert"></p>
       </div>
       <div class="lg-board-guard-foot">
@@ -610,6 +693,7 @@ export function renderBuilderPanel(
     : (currentFunnel.variants.find((v) => v.public_id === (currentFunnel.active_variant_public_id ?? "")) ?? primaryVariantOf(currentFunnel.variants));
   const funnelCols = funnels.map((f) => renderFunnelColumn(f, structure, templates)).join("");
   return `<div class="lg-qpanel active" data-panel="builder">
+  <style data-pin="r2-b3-rail-fix">.lg-board-right{min-width:0}</style>
   <div class="lg-board-shell" data-pin="8.2-tab-geometry">
     ${renderBoardLibrary(available, structure, currentFunnelPublicId)}
     <div class="lg-board-center">
@@ -917,7 +1001,7 @@ export const QUOTE_EDITOR_SCRIPT = `
     // Header/Background inspectors) and the moved theme editor never show a
     // stale value.
     if (name === 'templates' || name === 'themes') { populateAllControls(); }
-    if (name === 'themes') { themeMiniOpen = true; scheduleMiniPreview(); loadThemePresetOptions(); }
+    if (name === 'themes') { loadThemePresetOptions(); }
   }
   var ti;
   for (ti = 0; ti < tabs.length; ti++) {
@@ -1008,6 +1092,57 @@ export const QUOTE_EDITOR_SCRIPT = `
     return msg;
   }
 
+  // R2 P2 tail (item 2): PRESET_ROLE_BRIDGE, PRESET_EXTRA_ROLE_BRIDGE,
+  // hasAnyKey, inlineThemeFromPreset — the SAME resolve algorithm quotes-
+  // tabs/themes.ts's THEMES_TAB_SCRIPT uses (MINOR-1), via the shared
+  // theme-preset-resolve snippet (see that module's header).
+  ${themePresetResolveSnippet()}
+
+  // R2 P2 tail (item 2) — closes the R7 residual quotes-tabs/themes.ts's own
+  // header explicitly flagged as open: this ONE-Save theme path used to drop
+  // a bare theme_id the moment any inline field was ALSO present (R7's OTHER
+  // sanctioned branch), which silently discarded the WHOLE applied preset's
+  // palette/typography/buttons on the first edit through this tab — the same
+  // bug MINOR-1 closed for quotes-tabs/themes.ts's OWN rail-edit save
+  // (flushThemeEdits), via the SAME resolve-then-merge algorithm, reused
+  // here through the shared theme-preset-resolve snippet (above), not
+  // reinvented. A preset Applied via wireThemePresets (theme_json:
+  // {theme_id}), then edited through THIS tab's OWN theme controls
+  // (workingTheme accumulates the edit alongside the still-present
+  // theme_id): GET the current theme; if it carries a theme_id, RESOLVE
+  // that preset record into inline values FIRST (inlineThemeFromPreset) so
+  // its palette survives; merge this session's edits (workingTheme, its own
+  // theme_id excluded) on top via deepMerge (a NESTED merge — so editing
+  // ONE palette role never displaces the preset's OTHER resolved roles,
+  // unlike a shallow key overwrite); then PUT.
+  function normalizedThemePut(funnelBase) {
+    return fetch(funnelBase + '/theme', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (getRes) {
+        var current = (getRes.ok && getRes.body && getRes.body.theme) || {};
+        if (typeof current.theme_id === 'string' && current.theme_id !== '') {
+          // R2 P2 FIX-FIRST-2 (fail-closed): a preset that cannot be read
+          // REJECTS here — the one-Save chain's own catch surfaces the
+          // message, themeDirty stays set, and no theme PUT is ever sent (the
+          // old code turned an unreadable preset into an EMPTY inline theme
+          // and PUT it, wiping the funnel's look with no error).
+          return presetInlineOrAbort(current.theme_id);
+        }
+        var inline = {};
+        var k;
+        for (k in current) { if (Object.prototype.hasOwnProperty.call(current, k) && k !== 'theme_id') { inline[k] = current[k]; } }
+        return inline;
+      })
+      .then(function (baseTheme) {
+        var merged = baseTheme || {};
+        var edits = {};
+        var k;
+        for (k in workingTheme) { if (Object.prototype.hasOwnProperty.call(workingTheme, k) && k !== 'theme_id') { edits[k] = workingTheme[k]; } }
+        deepMerge(merged, edits);
+        return putJson(funnelBase + '/theme', { theme_json: merged });
+      });
+  }
+
   // --- 4.7 one-Save: frame PUT (when edited) -> theme PUT (when edited) ->
   // variant PUT (ONLY when order/lander/design/auction/rules or the sparse
   // overrides changed). Each step's dirty flag clears THE MOMENT its own PUT
@@ -1030,7 +1165,7 @@ export const QUOTE_EDITOR_SCRIPT = `
         if (res1.body !== null) { frameDirty = false; }
         if (res1.body && res1.body.problems) { warned += res1.body.problems.length; }
         return themeDirty
-          ? putJson(funnelBase + '/theme', { theme_json: workingTheme })
+          ? normalizedThemePut(funnelBase)
           : Promise.resolve({ ok: true, body: null });
       }).then(function (res2) {
         if (!res2.ok) { throw new Error(saveFailureText(res2, 'Theme save')); }
@@ -1616,7 +1751,25 @@ export const QUOTE_EDITOR_SCRIPT = `
     paintSwatches();
     markStripSelection();
     schedulePreview();
-    scheduleMiniPreview();
+  }
+  // R2 P2 FIX-FIRST-2 (MAJOR-1 residue) — THE CONVERGENT PALETTE SEAM
+  // (producer side; the consumer is quotes-tabs/themes.ts's own island).
+  // Every palette-role write below resolves through THIS island's rules (the
+  // harmony mix math, the hex format gate, the role-alias rule, the §4.5
+  // override-vs-funnel split) and then ANNOUNCES the resolved (role, value)
+  // once, here. The Themes tab's canvas is a DIFFERENT island with its own
+  // draft + its own preview endpoint; it consumes this event instead of
+  // re-deriving any of those rules, so a harmony step / Advanced hex / Reset
+  // moves BOTH canvases from ONE computation. value === null means "reset to
+  // inherited" (writeThemeValue's delete semantics). Feature-detected +
+  // guarded: an engine without createEvent, or a page with no listener,
+  // changes nothing for this tab's own canvas.
+  function emitPaletteDraft(role, value) {
+    try {
+      var ev = document.createEvent('CustomEvent');
+      ev.initCustomEvent('lg:palette-draft-change', true, false, { role: role, value: value });
+      document.dispatchEvent(ev);
+    } catch (e) { /* older engines without createEvent: this tab is unaffected */ }
   }
   // ONE palette write path (role picks, harmony steps, Advanced custom
   // colors): §4.5-aware — rides frame_overrides_json.theme when the theme
@@ -1632,11 +1785,11 @@ export const QUOTE_EDITOR_SCRIPT = `
       markStripSelection();
       updateOverrideBadge();
       schedulePreview();
-      scheduleMiniPreview();
     } else {
       if (!isRecordVal(workingTheme.palette)) { workingTheme.palette = {}; }
       writeThemeValue('palette.' + role, value);
     }
+    emitPaletteDraft(role, value);
   }
   root.addEventListener('click', function (ev) {
     var el = ev.target;
@@ -1660,10 +1813,12 @@ export const QUOTE_EDITOR_SCRIPT = `
       delete workingOverrides.theme.palette[resetRole];
       overridesDirty = true;
       markDirty();
-      paintSwatches(); markStripSelection(); updateOverrideBadge(); schedulePreview(); scheduleMiniPreview();
+      paintSwatches(); markStripSelection(); updateOverrideBadge(); schedulePreview();
+      emitPaletteDraft(resetRole, null);
       return;
     }
     writeThemeValue('palette.' + resetRole, null);
+    emitPaletteDraft(resetRole, null);
   });
   root.addEventListener('change', function (ev) {
     var el = ev.target;
@@ -2705,10 +2860,28 @@ export const QUOTE_EDITOR_SCRIPT = `
   // ones in the same composition slot, so re-editing a field that ALREADY
   // has a stored override previews the WORKING value exactly (render-only;
   // nothing persists).
+  // R2 handoff (S2a's templates.ts idiom, adopted here — funnel.ts's
+  // collectors are SHARED save+preview, unlike templates.ts's separate
+  // canvas-only one): a half-typed images row (no media_id AND no url yet)
+  // cannot render and would 400 the WHOLE preview. This filters ONLY the
+  // draft CLONE the preview POST sends — workingFrame/workingOverrides (and
+  // therefore the actual Save PUT, funnelBase + '/frame' /
+  // frame_overrides_json) are UNTOUCHED, so Save still validates an
+  // incomplete row exactly as before ("save keeps validating").
+  function stripIncompleteImagesForPreview(images) {
+    if (!images || !images.length) { return images; }
+    var out = []; var i;
+    for (i = 0; i < images.length; i++) {
+      var it = images[i];
+      if (it && (it.media_id || it.url)) { out.push(it); }
+    }
+    return out;
+  }
   function draftFrameConfig() {
     var d = deepClone(workingFrame);
     if (d.template === undefined) { d.template = currentTemplateId(); }
     d.version = 1;
+    if (d.images) { d.images = stripIncompleteImagesForPreview(d.images); }
     return d;
   }
   function draftTheme() {
@@ -2719,7 +2892,11 @@ export const QUOTE_EDITOR_SCRIPT = `
   // preview mirror of the save payload's null). Untouched arms keep the
   // server-side STORED merge.
   function draftOverridesParam(body) {
-    if (overridesDirty) { body.draft_frame_overrides = deepClone(workingOverrides); }
+    if (overridesDirty) {
+      var ov = deepClone(workingOverrides);
+      if (ov.images) { ov.images = stripIncompleteImagesForPreview(ov.images); }
+      body.draft_frame_overrides = ov;
+    }
     return body;
   }
   function canvasStatus(text) {
@@ -2812,50 +2989,6 @@ export const QUOTE_EDITOR_SCRIPT = `
   function schedulePreview() {
     if (previewTimer) { window.clearTimeout(previewTimer); }
     previewTimer = window.setTimeout(function () { previewTimer = null; renderPreview(); }, 300);
-  }
-
-  // --- 09 §9.3 mini preview (DEV-60 d): the REAL preview machinery ------------
-  // A tiny debounced draft_theme POST to the SAME endpoint in the cheap
-  // frame-only mode (button/card/progress chrome rendered by the REAL
-  // presets), replacing the old hand-rolled spans. Fetches only while the
-  // theme editor is OPEN.
-  var miniTimer = null;
-  var miniSeq = 0;
-  var themeMiniOpen = false;
-  function miniStatus(text) {
-    var el = byId('lg-theme-minipreview-status');
-    if (el) { clearChildren(el); if (text) { el.appendChild(document.createTextNode(text)); } }
-  }
-  function renderMiniPreview() {
-    var mount = byId('lg-theme-minipreview');
-    var frame = byId('lg-theme-minipreview-frame');
-    if (!mount || !frame) { return; }
-    miniSeq += 1;
-    var seq = miniSeq;
-    fetch(previewUrl(), {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify(draftOverridesParam({
-        mode: mount.getAttribute('data-mini-preview-mode') || 'frame',
-        viewport: 'desktop',
-        draft_frame_config: draftFrameConfig(),
-        draft_theme: draftTheme()
-      }))
-    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
-      if (seq !== miniSeq) { return; }
-      if (!res.ok) { miniStatus('Theme preview failed.'); return; }
-      miniStatus('');
-      var p = res.body.preview || {};
-      frame.setAttribute('srcdoc', '<!doctype html><html><head><meta charset="utf-8"><style>' + (p.css || '') + '</style></head><body>' + (p.html || '') + '</body></html>');
-    }).catch(function () {
-      if (seq !== miniSeq) { return; }
-      miniStatus('Theme preview failed: network error');
-    });
-  }
-  function scheduleMiniPreview() {
-    if (!themeMiniOpen) { return; }
-    if (miniTimer) { window.clearTimeout(miniTimer); }
-    miniTimer = window.setTimeout(function () { miniTimer = null; renderMiniPreview(); }, 300);
   }
 
   // ==========================================================================
@@ -3183,6 +3316,33 @@ export const QUOTE_EDITOR_SCRIPT = `
       schedulePreview();
     }
     for (i = 0; i < selects.length; i++) { selects[i].addEventListener('change', onSiteChange); }
+    // R2 handoff: sync this tab's site select at INIT so it agrees with the
+    // Templates tab's own first-Active default (populateSiteSelect there) —
+    // an explicit choice ALREADY made on another tab's select (cross-tab,
+    // same-page convention) wins; else default to the first option whose
+    // SSR-rendered data-badge is "Active" (renderSiteSelect, shared.ts),
+    // matching what Templates would pick. Without this the canvas showed
+    // "CMS fallback branding" on first paint until the operator touched it.
+    (function initSiteSelectDefault() {
+      if (selects.length === 0) { return; }
+      function isMine(el) {
+        var m; for (m = 0; m < selects.length; m++) { if (selects[m] === el) { return true; } }
+        return false;
+      }
+      var allSelects = document.querySelectorAll('[data-site-select]');
+      var chosen = ''; var k;
+      for (k = 0; k < allSelects.length; k++) {
+        if (isMine(allSelects[k])) { continue; }
+        if (allSelects[k].value) { chosen = allSelects[k].value; break; }
+      }
+      if (chosen === '') {
+        var opt = selects[0].querySelector('option[data-badge="Active"]');
+        if (opt) { chosen = opt.value; }
+      }
+      if (chosen === '') { return; }
+      siteId = chosen;
+      for (k = 0; k < selects.length; k++) { selects[k].value = chosen; }
+    }());
   }());
   // §10/S5.1: the #lg-canvas-variant-select change-listener mirror was
   // removed — confirmed dead for the SAME reason as #lg-variant-select
@@ -3212,11 +3372,13 @@ export const QUOTE_EDITOR_SCRIPT = `
   // handler/#lg-template-apply/#lg-template-cancel) was removed — confirmed
   // dead: renderTemplatePicker (its ONLY render source, shared.ts) has ZERO
   // real callers anywhere in the admin/leadgen namespace, so none of its
-  // trigger/target elements ever render. The board's OWN, LIVE per-funnel-
-  // column template picker (§8.2 M5 — the data-template-picker pickchip in
-  // this file's own renderColumnHeader-shaped markup + its applyTemplate
-  // handler below) is a SEPARATE, unrelated, still-live mechanism — NOT
-  // touched. #lg-theme-btn also stays (jumps to the Themes tab, unrelated).
+  // trigger/target elements ever render. R2 SRC-11B: the per-funnel-column
+  // Template chip's OWN embedded apply-popover (openTemplatePicker/
+  // applyTemplate/frameTemplateRecordItems) was ALSO removed — the owner
+  // ruled themes+templates belong on the top bar ONLY; the chip now
+  // NAVIGATES to the Templates tab (gotoTab('templates'), the data-template-
+  // picker dispatch below), exactly like its Theme sibling. #lg-theme-btn
+  // stays (jumps to the Themes tab, unrelated).
   (function () {
     var themeBtn = byId('lg-theme-btn');
     if (themeBtn) { themeBtn.addEventListener('click', function () { activate('themes'); }); }
@@ -3618,6 +3780,17 @@ export const QUOTE_EDITOR_SCRIPT = `
   // validator would reject.
   var SLOT_RULE_FIELDS = ${JSON.stringify(SLOT_RULE_FIELDS)};
   var SLOT_RULE_OPS = ${JSON.stringify(SLOT_RULE_OPS)};
+  // R2 P2 FIX-FIRST (MINOR-4): the plain-language phrase templates GENERATED
+  // by ui-rules-builder.ts's own conditionsSentence at SSR time (see
+  // SLOT_RULE_SENTENCE_TEMPLATES) plus the chip's own joiners — the dialog's
+  // live sentence is assembled from exactly the same pieces the saved chip is.
+  var SLOT_RULE_SENTENCE_TEMPLATES = ${JSON.stringify(SLOT_RULE_SENTENCE_TEMPLATES)};
+  var SLOT_RULE_FIELD_LABELS = ${JSON.stringify(SLOT_RULE_FIELD_LABELS)};
+  var SLOT_RULE_SENTENCE_FIELD_TOKEN = ${JSON.stringify(SLOT_RULE_SENTENCE_FIELD_TOKEN)};
+  var SLOT_RULE_SENTENCE_VALUE_TOKEN = ${JSON.stringify(SLOT_RULE_SENTENCE_VALUE_TOKEN)};
+  var RULED_SENTENCE_ARROW = ${JSON.stringify(RULED_SENTENCE_ARROW)};
+  var RULED_SENTENCE_JOIN = ${JSON.stringify(RULED_SENTENCE_JOIN)};
+  var RULED_SENTENCE_OTHERWISE = ${JSON.stringify(RULED_SENTENCE_OTHERWISE)};
 
   function reloadPage() { window.location.reload(); }
   function req(method, url, body) {
@@ -3714,9 +3887,16 @@ export const QUOTE_EDITOR_SCRIPT = `
     for (i = 0; i < ss.length; i++) { out.push(slotToPut(ss[i])); }
     return out;
   }
-  function saveSharedSlots(putSlots, nearEl) {
+  // onError (R2 P2 FIX-FIRST, MINOR-4) is OPTIONAL: when supplied the
+  // caller owns where the server's message is rendered (the ruled dialog
+  // renders it INSIDE itself and stays open); omitted → the pre-existing
+  // board-level inline banner, unchanged.
+  function saveSharedSlots(putSlots, nearEl, onError) {
     req('PUT', API + '/quotes/' + encodeURIComponent(quoteId) + '/shared-page', { slots: putSlots }).then(function (res) {
-      if (!res.ok) { showInlineErr(nearEl, firstFieldError(res.body)); return; }
+      if (!res.ok) {
+        if (onError) { onError(firstFieldError(res.body)); return; }
+        showInlineErr(nearEl, firstFieldError(res.body)); return;
+      }
       reloadPage();
     });
   }
@@ -3942,32 +4122,6 @@ export const QUOTE_EDITOR_SCRIPT = `
     for (i = 0; i < secs.length; i++) { out.push({ label: secs[i].name, value: secs[i].public_id }); }
     return out;
   }
-  function frameTemplateRecordItems(body) {
-    /* §11C/M5: the SAVED (DB) frame-template records — {public_id,name,
-       is_default} — the SAME source (+ public ids) the Templates tab lists and
-       POST /funnels/:id/apply-template resolves. The old BOARD.templates fed the
-       picker built-in CODE ids (e.g. "centered") that apply-template rejects
-       ("template does not exist") — the retired §10 code-catalog axis. */
-    var recs = (body && body.items) || []; var out = []; var i;
-    for (i = 0; i < recs.length; i++) {
-      out.push({ label: recs[i].name + (recs[i].is_default ? ' (default)' : ''), value: recs[i].public_id });
-    }
-    return out;
-  }
-  function openTemplatePicker(anchor, funnelPub) {
-    req('GET', API + '/frame-template-records').then(function (res) {
-      openPopoverList(anchor, frameTemplateRecordItems(res && res.ok ? res.body : null), function (pub) { applyTemplate(funnelPub, pub); });
-    });
-  }
-
-  /* ================= TEMPLATE PICKER (M5 apply) ================= */
-  function applyTemplate(funnelPub, templateId) {
-    req('POST', API + '/funnels/' + encodeURIComponent(funnelPub) + '/apply-template', { template_id: templateId }).then(function (res) {
-      if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
-      reloadPage();
-    });
-  }
-
   /* ============ PREVIEW (POST /variants/:id/preview -> new tab, Blob) ======= */
   function previewFunnel(funnel) {
     var variantPub = funnel.active_variant_public_id;
@@ -4109,6 +4263,25 @@ export const QUOTE_EDITOR_SCRIPT = `
     var sumEl = abDialog.querySelector('[data-ab-sum]'); if (sumEl) { sumEl.textContent = (Math.round(sum * 100) / 100) + '%'; }
     var note = abDialog.querySelector('[data-ab-sum-note]'); if (note) { note.textContent = Math.round(sum * 100) === 10000 ? '' : '(must total 100%)'; }
   }
+  // R2 P2 tail (item 1): the LIVE plain-language summary, same idiom as the
+  // ruled dialog's refreshRuledSentence (below) — rebuilt from the dialog's
+  // OWN current DOM state on every edit, reusing selectedOptionText (also
+  // shared with the ruled dialog). An operator must see in words what they
+  // are about to save, e.g. "Splits traffic: 50% Section X / 50% Section Y".
+  function refreshAbSentence() {
+    if (!abDialog) { return; }
+    var out = abDialog.querySelector('[data-ab-sentence]');
+    if (!out) { return; }
+    var arms = abArms(); var parts = []; var i;
+    for (i = 0; i < arms.length; i++) {
+      var pct = Number(arms[i].querySelector('[data-ab-arm-pct]').value);
+      var name = selectedOptionText(arms[i].querySelector('[data-ab-arm-section]'));
+      parts.push((isFinite(pct) ? pct : 0) + '% ' + (name || 'Choose a section\\u2026'));
+    }
+    var sentence = parts.length === 0 ? 'Add an arm to see the split.' : 'Splits traffic: ' + parts.join(' / ');
+    while (out.firstChild) { out.removeChild(out.firstChild); }
+    out.appendChild(document.createTextNode(sentence));
+  }
   // Program convention (§8.2): A/B arms start equal. Split 10000bp across the
   // arms, remainder to the first arm so Σ is EXACTLY 10000 (100.00%).
   function resplitAbEqually() {
@@ -4116,12 +4289,66 @@ export const QUOTE_EDITOR_SCRIPT = `
     var base = Math.floor(10000 / n); var rem = 10000 - base * n; var i;
     for (i = 0; i < n; i++) { var bp = base + (i === 0 ? rem : 0); arms[i].querySelector('[data-ab-arm-pct]').value = String(bp / 100); }
     updateAbSum();
+    refreshAbSentence();
   }
-  function openSharedAbEditor(slotId) {
-    if (!abDialog) { return; }
-    var idx = sharedSlotIndexById(slotId); if (idx < 0) { return; }
-    var slot = sharedSlots()[idx];
-    abDialog.setAttribute('data-slot-id', String(slotId));
+  // R2 SRC-11C-B (a funnel page's section-chip kebab lacked "A/B this
+  // slot"/"Slot rule" — the shared-page chip had them; an operator could not
+  // author one without raw API). abRuledSlotCtx resolves the SLOT + a SAVE
+  // callback for either scope (shared page OR a specific funnel page), so
+  // the SAME two dialogs below work for both chip kinds — no dialog/DOM
+  // duplication, only the read/write target differs. A funnel-scope save
+  // reuses funnelPagesToPut's existing full-page conversion (the SAME shape
+  // saveFunnel PUTs) and only OVERRIDES the one edited slot's descriptor.
+  function abRuledSlotCtx(scope, funnelPub, pageIndex, slotId) {
+    if (scope === 'shared') {
+      var sIdx = sharedSlotIndexById(slotId);
+      if (sIdx < 0) { return null; }
+      return {
+        scope: 'shared',
+        slot: sharedSlots()[sIdx],
+        // onError is OPTIONAL: when supplied the caller owns where the
+        // server's message is rendered and the dialog stays open (the ruled
+        // dialog's Save, MINOR-4; the A/B dialog's Save, R2 P2 tail item 1)
+        // — omitted (revert-to-fixed, every other caller) keeps the
+        // pre-existing board-level inline banner, byte-for-byte.
+        save: function (overridePut, onError) {
+          var put = sharedSlotsToPut(); put[sIdx] = overridePut;
+          saveSharedSlots(put, null, onError);
+        }
+      };
+    }
+    var f = funnelByPublic(funnelPub);
+    var page = (f && f.pages) ? f.pages[pageIndex] : null;
+    var slots = page ? (page.slots || []) : [];
+    var found = -1; var i;
+    for (i = 0; i < slots.length; i++) { if (slots[i].slot_id === slotId) { found = i; break; } }
+    if (!f || found < 0) { return null; }
+    return {
+      scope: 'funnel',
+      slot: slots[found],
+      save: function (overridePut, onError) {
+        var variantPub = f.active_variant_public_id;
+        if (!variantPub) {
+          if (onError) { onError('This funnel has no active variant to save into.'); return; }
+          showInlineErr(null, 'This funnel has no active variant to save into.'); return;
+        }
+        var putPages = funnelPagesToPut(f);
+        putPages[pageIndex].slots[found] = overridePut;
+        req('PUT', API + '/variants/' + encodeURIComponent(variantPub), { pages: putPages }).then(function (res) {
+          if (!res.ok) {
+            if (onError) { onError(firstFieldError(res.body)); return; }
+            showInlineErr(null, firstFieldError(res.body)); return;
+          }
+          reloadPage();
+        });
+      }
+    };
+  }
+  var abCtx = null;
+  function openAbEditorCtx(ctx) {
+    if (!abDialog || !ctx) { return; }
+    abCtx = ctx;
+    var slot = ctx.slot;
     var arms = abArmsEl(); while (arms.firstChild) { arms.removeChild(arms.firstChild); }
     if (slot.kind === 'ab' && slot.section_ids && slot.section_ids.length > 0) {
       var i; for (i = 0; i < slot.section_ids.length; i++) {
@@ -4137,12 +4364,14 @@ export const QUOTE_EDITOR_SCRIPT = `
     }
     hide(abDialog.querySelector('[data-ab-error]'));
     updateAbSum();
+    refreshAbSentence();
     show(abDialog);
   }
-  function closeSharedAbEditor() { hide(abDialog); }
+  function openSharedAbEditor(slotId) { openAbEditorCtx(abRuledSlotCtx('shared', null, null, slotId)); }
+  function openFunnelAbEditor(funnelPub, pageIndex, slotId) { openAbEditorCtx(abRuledSlotCtx('funnel', funnelPub, pageIndex, slotId)); }
+  function closeSharedAbEditor() { hide(abDialog); abCtx = null; }
   function saveSharedAb() {
-    if (!abDialog) { return; }
-    var idx = sharedSlotIndexById(Number(abDialog.getAttribute('data-slot-id'))); if (idx < 0) { return; }
+    if (!abDialog || !abCtx) { return; }
     var arms = abArms(); var allocations = []; var sum = 0; var i; var err = abDialog.querySelector('[data-ab-error]');
     for (i = 0; i < arms.length; i++) {
       var secPub = arms[i].querySelector('[data-ab-arm-section]').value;
@@ -4153,17 +4382,27 @@ export const QUOTE_EDITOR_SCRIPT = `
     }
     if (allocations.length < 2) { showErr(err, 'An A/B test needs at least two arms.'); return; }
     if (sum !== 10000) { showErr(err, 'Arm percentages must total 100% (got ' + (sum / 100) + '%).'); return; }
-    var put = sharedSlotsToPut(); put[idx] = { kind: 'ab', allocations: allocations };
-    closeSharedAbEditor(); saveSharedSlots(put, null);
+    // R2 P2 tail (item 1, same idiom as MINOR-4's saveSharedRuled): the
+    // dialog used to CLOSE before saving, so a server rejection (e.g. the
+    // §4.3-13 per-funnel section-uniqueness rule) surfaced as a board-level
+    // banner behind a dialog that had already thrown the operator's work
+    // away. It now stays open until the save is accepted; a rejection
+    // renders the server's OWN message right beside the controls that
+    // caused it (the same [data-ab-error] line the client-side checks above
+    // use). Success reloads the page (ctx.save's own tail), which tears the
+    // dialog down.
+    hide(err);
+    abCtx.save({ kind: 'ab', allocations: allocations }, function (msg) {
+      showErr(abDialog.querySelector('[data-ab-error]'), msg);
+    });
   }
   function revertAbToFixed() {
-    if (!abDialog) { return; }
-    var idx = sharedSlotIndexById(Number(abDialog.getAttribute('data-slot-id'))); if (idx < 0) { return; }
+    if (!abDialog || !abCtx) { return; }
     var arms = abArms(); var keep = arms.length > 0 ? arms[0].querySelector('[data-ab-arm-section]').value : '';
-    if (!keep) { var slot = sharedSlots()[idx]; keep = (slot.section_ids && slot.section_ids[0]) || ''; }
+    if (!keep) { keep = (abCtx.slot.section_ids && abCtx.slot.section_ids[0]) || ''; }
     if (!keep) { showErr(abDialog.querySelector('[data-ab-error]'), 'Pick a section to keep.'); return; }
-    var put = sharedSlotsToPut(); put[idx] = { kind: 'fixed', section_id: keep };
-    closeSharedAbEditor(); saveSharedSlots(put, null);
+    var ctx = abCtx; closeSharedAbEditor();
+    ctx.save({ kind: 'fixed', section_id: keep });
   }
 
   function ruledCasesEl() { return ruledDialog ? ruledDialog.querySelector('[data-ruled-cases]') : null; }
@@ -4181,11 +4420,46 @@ export const QUOTE_EDITOR_SCRIPT = `
     row.appendChild(fSel); row.appendChild(oSel); row.appendChild(vIn); row.appendChild(arrow); row.appendChild(secSel); row.appendChild(rm);
     return row;
   }
-  function openSharedRuledEditor(slotId) {
+  // R2 P2 FIX-FIRST (MINOR-4): the LIVE plain-language sentence, rebuilt on
+  // every edit from the SSR-generated templates + the chip's own joiners.
+  function selectedOptionText(sel) {
+    if (!sel || sel.selectedIndex < 0) { return ''; }
+    var opt = sel.options[sel.selectedIndex];
+    return opt ? (opt.textContent || opt.innerText || '') : '';
+  }
+  function ruledCaseSentence(field, op, value, sectionName) {
+    var tpl = SLOT_RULE_SENTENCE_TEMPLATES[op];
+    if (!tpl) { return ''; }
+    var label = SLOT_RULE_FIELD_LABELS[field] || field;
+    var text = tpl.split(SLOT_RULE_SENTENCE_FIELD_TOKEN).join(label);
+    text = text.split(SLOT_RULE_SENTENCE_VALUE_TOKEN).join(value);
+    return text + RULED_SENTENCE_ARROW + sectionName;
+  }
+  function refreshRuledSentence() {
     if (!ruledDialog) { return; }
-    var idx = sharedSlotIndexById(slotId); if (idx < 0) { return; }
-    var slot = sharedSlots()[idx];
-    ruledDialog.setAttribute('data-slot-id', String(slotId));
+    var out = ruledDialog.querySelector('[data-ruled-sentence]');
+    if (!out) { return; }
+    var arr = ruledCases(); var parts = []; var i;
+    for (i = 0; i < arr.length; i++) {
+      parts.push(ruledCaseSentence(
+        arr[i].querySelector('[data-ruled-field]').value,
+        arr[i].querySelector('[data-ruled-op]').value,
+        arr[i].querySelector('[data-ruled-value]').value,
+        selectedOptionText(arr[i].querySelector('[data-ruled-section]'))
+      ));
+    }
+    var defSel = ruledDialog.querySelector('[data-ruled-default]');
+    var sentence = parts.length === 0
+      ? 'Add a case to see what this rule will do.'
+      : parts.join(RULED_SENTENCE_JOIN) + RULED_SENTENCE_OTHERWISE + selectedOptionText(defSel);
+    while (out.firstChild) { out.removeChild(out.firstChild); }
+    out.appendChild(document.createTextNode(sentence));
+  }
+  var ruledCtx = null;
+  function openRuledEditorCtx(ctx) {
+    if (!ruledDialog || !ctx) { return; }
+    ruledCtx = ctx;
+    var slot = ctx.slot;
     var casesEl = ruledCasesEl(); while (casesEl.firstChild) { casesEl.removeChild(casesEl.firstChild); }
     var defSel = ruledDialog.querySelector('[data-ruled-default]');
     if (slot.kind === 'ruled' && slot.rules) {
@@ -4202,12 +4476,14 @@ export const QUOTE_EDITOR_SCRIPT = `
       fillSectionSelect(defSel, (slot.section_ids && slot.section_ids[0]) || '', true);
     }
     hide(ruledDialog.querySelector('[data-ruled-error]'));
+    refreshRuledSentence();
     show(ruledDialog);
   }
-  function closeSharedRuledEditor() { hide(ruledDialog); }
+  function openSharedRuledEditor(slotId) { openRuledEditorCtx(abRuledSlotCtx('shared', null, null, slotId)); }
+  function openFunnelRuledEditor(funnelPub, pageIndex, slotId) { openRuledEditorCtx(abRuledSlotCtx('funnel', funnelPub, pageIndex, slotId)); }
+  function closeSharedRuledEditor() { hide(ruledDialog); ruledCtx = null; }
   function saveSharedRuled() {
-    if (!ruledDialog) { return; }
-    var idx = sharedSlotIndexById(Number(ruledDialog.getAttribute('data-slot-id'))); if (idx < 0) { return; }
+    if (!ruledDialog || !ruledCtx) { return; }
     var arr = ruledCases(); var cases = []; var i; var err = ruledDialog.querySelector('[data-ruled-error]');
     for (i = 0; i < arr.length; i++) {
       var field = arr[i].querySelector('[data-ruled-field]').value;
@@ -4220,20 +4496,44 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (cases.length === 0) { showErr(err, 'Add at least one case, or revert to a single section.'); return; }
     var defSel = ruledDialog.querySelector('[data-ruled-default]'); var def = defSel ? defSel.value : '';
     if (!def) { showErr(err, 'Pick a default section \\u2014 it shows when no case matches.'); return; }
-    var put = sharedSlotsToPut(); put[idx] = { kind: 'ruled', cases: cases, default_section_id: def };
-    closeSharedRuledEditor(); saveSharedSlots(put, null);
+    // R2 P2 FIX-FIRST (MINOR-4): the dialog used to CLOSE before saving, so a
+    // server rejection (e.g. a uniqueness conflict) surfaced as a board-level
+    // banner behind a dialog that had already thrown the operator's work
+    // away. It now stays open until the save is accepted; a rejection renders
+    // the server's OWN message right beside the controls that caused it (the
+    // same [data-ruled-error] line the client-side checks above use). Success
+    // reloads the page (ctx.save's own tail), which tears the dialog down.
+    hide(err);
+    ruledCtx.save({ kind: 'ruled', cases: cases, default_section_id: def }, function (msg) {
+      showErr(ruledDialog.querySelector('[data-ruled-error]'), msg);
+    });
   }
   function revertRuledToFixed() {
-    if (!ruledDialog) { return; }
-    var idx = sharedSlotIndexById(Number(ruledDialog.getAttribute('data-slot-id'))); if (idx < 0) { return; }
+    if (!ruledDialog || !ruledCtx) { return; }
     var defSel = ruledDialog.querySelector('[data-ruled-default]'); var keep = defSel ? defSel.value : '';
-    if (!keep) { var slot = sharedSlots()[idx]; keep = (slot.section_ids && slot.section_ids[0]) || ''; }
+    if (!keep) { keep = (ruledCtx.slot.section_ids && ruledCtx.slot.section_ids[0]) || ''; }
     if (!keep) { showErr(ruledDialog.querySelector('[data-ruled-error]'), 'Pick a section to keep.'); return; }
-    var put = sharedSlotsToPut(); put[idx] = { kind: 'fixed', section_id: keep };
-    closeSharedRuledEditor(); saveSharedSlots(put, null);
+    var ctx = ruledCtx; closeSharedRuledEditor();
+    ctx.save({ kind: 'fixed', section_id: keep });
   }
   // Live Σ recompute as A/B arm percentages are typed.
   if (abDialog) { abDialog.addEventListener('input', function (ev) { if (ev.target && ev.target.getAttribute && ev.target.getAttribute('data-ab-arm-pct') !== null) { updateAbSum(); } }); }
+  // R2 P2 tail (item 1): live sentence — same idiom as the ruled dialog's
+  // refreshRuledSentence below (recomputed on both 'input' and 'change',
+  // unconditionally; arm section selects fire 'change', pct inputs fire
+  // 'input'). Add/remove-arm mutate the DOM without firing either event, so
+  // resplitAbEqually (above) calls refreshAbSentence directly too.
+  if (abDialog) {
+    abDialog.addEventListener('input', refreshAbSentence);
+    abDialog.addEventListener('change', refreshAbSentence);
+  }
+  // R2 P2 FIX-FIRST (MINOR-4): live sentence — recomputed as the operator
+  // types a value or switches a field/op/section (both event kinds; selects
+  // fire 'change', the text input fires 'input').
+  if (ruledDialog) {
+    ruledDialog.addEventListener('input', refreshRuledSentence);
+    ruledDialog.addEventListener('change', refreshRuledSentence);
+  }
 
   /* ================= DRAG ENGINE (in-house mouse; both engines) ============= */
   var drag = null;
@@ -4408,8 +4708,8 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (abDialog && t === abDialog) { closeSharedAbEditor(); return; }
 
     // §8.2 (S5.3) shared-slot RULED editor.
-    if (t.closest('[data-ruled-add-case]')) { ev.stopPropagation(); if (ruledCasesEl()) { ruledCasesEl().appendChild(makeRuledCase('state', 'eq', '', '')); } return; }
-    if (t.closest('[data-ruled-case-remove]')) { ev.stopPropagation(); var caseEl = t.closest('[data-ruled-case]'); if (caseEl && caseEl.parentNode) { caseEl.parentNode.removeChild(caseEl); } return; }
+    if (t.closest('[data-ruled-add-case]')) { ev.stopPropagation(); if (ruledCasesEl()) { ruledCasesEl().appendChild(makeRuledCase('state', 'eq', '', '')); refreshRuledSentence(); } return; }
+    if (t.closest('[data-ruled-case-remove]')) { ev.stopPropagation(); var caseEl = t.closest('[data-ruled-case]'); if (caseEl && caseEl.parentNode) { caseEl.parentNode.removeChild(caseEl); refreshRuledSentence(); } return; }
     if (t.closest('[data-ruled-revert]')) { ev.stopPropagation(); revertRuledToFixed(); return; }
     if (t.closest('[data-shared-ruled-close]')) { ev.stopPropagation(); closeSharedRuledEditor(); return; }
     if (t.closest('[data-shared-ruled-save]')) { ev.stopPropagation(); saveSharedRuled(); return; }
@@ -4458,8 +4758,11 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (pv) { ev.stopPropagation(); var pf2 = funnelOfEl(pv); if (pf2 && pf2.model) { previewFunnel(pf2.model); } return; }
     if (t.closest('[data-ab-badge]')) { ev.stopPropagation(); gotoTab('ab'); return; }
     if (t.closest('[data-theme-picker]')) { ev.stopPropagation(); gotoTab('themes'); return; }
-    var tp = t.closest('[data-template-picker]');
-    if (tp) { ev.stopPropagation(); var tcol = tp.closest('[data-funnel-col]'); var tpub = tcol.getAttribute('data-funnel-public-id'); openTemplatePicker(tp, tpub); return; }
+    // SRC-11B (owner: "the themes and the templates are moving to the top
+    // bar, why you kept the old and wrong option in the funnel builder??").
+    // NAVIGATES to the top-bar Templates tab — exactly like its Theme sibling
+    // just above — never opens an embedded apply-popover in the builder.
+    if (t.closest('[data-template-picker]')) { ev.stopPropagation(); gotoTab('templates'); return; }
     var nm = t.closest('[data-funnel-name]');
     if (nm) { ev.stopPropagation(); var ncol = nm.closest('[data-funnel-col]'); beginRename(nm, ncol.getAttribute('data-funnel-public-id')); return; }
     var fp = t.closest('[data-lib-filter]');
@@ -4508,8 +4811,24 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (action === 'chip-down') { if (ctx.chip) { moveFunnelChip(ctx.chip, 'down'); } return; }
     // §8.2 (S5.3): the shared-page chip's "A/B this slot" / "Slot rule" open the
     // in-board slot editors (was a dead-end gotoTab('ab') stub — U-09 §8.9).
-    if (action === 'ab-slot') { if (ctx.chip) { openSharedAbEditor(Number(ctx.chip.getAttribute('data-slot-id'))); } return; }
-    if (action === 'slot-rule') { if (ctx.chip) { openSharedRuledEditor(Number(ctx.chip.getAttribute('data-slot-id'))); } return; }
+    // R2 SRC-11C-B: the SAME two entries now also appear on a FUNNEL-page
+    // chip's kebab (parity with the shared chip) — funnelOfEl/pageIndexOfEl
+    // (the SAME helpers removeFunnelChip/moveFunnelChip already use) resolve
+    // which funnel + page the chip lives in.
+    if (action === 'ab-slot') {
+      if (!ctx.chip) { return; }
+      if (ctx.chip.getAttribute('data-chip-scope') === 'shared') { openSharedAbEditor(Number(ctx.chip.getAttribute('data-slot-id'))); return; }
+      var abF = funnelOfEl(ctx.chip); var abPi = pageIndexOfEl(ctx.chip);
+      if (abF && abF.model && abPi >= 0) { openFunnelAbEditor(abF.pub, abPi, Number(ctx.chip.getAttribute('data-slot-id'))); }
+      return;
+    }
+    if (action === 'slot-rule') {
+      if (!ctx.chip) { return; }
+      if (ctx.chip.getAttribute('data-chip-scope') === 'shared') { openSharedRuledEditor(Number(ctx.chip.getAttribute('data-slot-id'))); return; }
+      var ruF = funnelOfEl(ctx.chip); var ruPi = pageIndexOfEl(ctx.chip);
+      if (ruF && ruF.model && ruPi >= 0) { openFunnelRuledEditor(ruF.pub, ruPi, Number(ctx.chip.getAttribute('data-slot-id'))); }
+      return;
+    }
     if (action === 'page-up') { if (ctx.pageCard) { movePage(ctx.pageCard, 'up'); } return; }
     if (action === 'page-down') { if (ctx.pageCard) { movePage(ctx.pageCard, 'down'); } return; }
     if (action === 'page-delete') { if (ctx.pageCard) { deletePage(ctx.pageCard); } return; }

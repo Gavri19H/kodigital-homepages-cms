@@ -34,6 +34,7 @@ import {
   loadVariantPages,
   validateSlotRuleFieldScope,
   type ResolvedFunnelPage,
+  type ResolvedPageSlot,
   // §4.3-11 parity addendum: the SAME shared-page loader + page→sections
   // flattener composeResolvedBundle (the live serve path, resolver.ts,
   // unexported) uses — imported read-only so the composed variant preview
@@ -1077,6 +1078,34 @@ export async function deleteQuoteRoutingRuleHandler(c: AdminContext): Promise<Re
   return c.json({ ok: true, id: existing.id, public_id: existing.public_id });
 }
 
+// R2 SRC-11C-B (contract §7 / A.1 #11-C follow-up — the operator-path gap the
+// owner flagged: a funnel-page ruled chip showed only the first candidate's
+// bare name, no way to see WHAT the rule actually does): resolves a ruled
+// slot's cases + default to their candidate NAMES, right where the numeric
+// section id (rules.cases[].section_id / default_section_id) and the name
+// (slot.candidates[].section.section_name, keyed by the SAME numeric
+// section.id) are jointly available — funnel.ts's board owns the actual
+// PLAIN-LANGUAGE SENTENCE phrasing (reused from ui-rules-builder.ts's
+// conditionsSentence, the quote-level routing rules' own generator); this
+// only resolves ids to names, never re-deriving the field/op vocabulary.
+function ruledSlotSummary(
+  slot: ResolvedPageSlot,
+): { cases: Array<{ field: string; op: string; value: unknown; section_name: string }>; default_section_name: string } | null {
+  const rules = slot.rules;
+  if (rules === null) return null;
+  const nameByNumId = new Map(slot.candidates.map((c) => [c.section.id, c.section.section_name]));
+  const cases = rules.cases.map((rc) => {
+    const group = rc.conditions.groups[0];
+    return {
+      field: group?.field ?? "",
+      op: group?.op ?? "eq",
+      value: group?.value ?? null,
+      section_name: nameByNumId.get(rc.section_id) ?? "a section",
+    };
+  });
+  return { cases, default_section_name: nameByNumId.get(rules.default_section_id) ?? "a section" };
+}
+
 // Round-4 P3a: API-safe projection of a resolved page/slot/candidate tree
 // (loadVariantPages — the SAME loader the public runtime uses). A "fixed"
 // slot (exactly 1 candidate, no rules/allocations) surfaces kind:"fixed" so
@@ -1093,6 +1122,7 @@ function pageToApi(page: ResolvedFunnelPage): Record<string, unknown> {
       slot_revision: slot.slot_revision,
       kind: slot.rules !== null ? "ruled" : slot.ab_allocations !== null ? "ab" : "fixed",
       rules: slot.rules,
+      rule_summary: ruledSlotSummary(slot),
       allocations: slot.ab_allocations,
       candidates: slot.candidates.map((c) => ({
         section_id: c.section.public_id,
@@ -1291,6 +1321,29 @@ async function readQuoteFunnels(db: D1Database, quoteId: number): Promise<Leadge
   return result.results ?? [];
 }
 
+// R2 D5 (contract §7 D5): the quote's per-quote default template override
+// (leadgen_quote_default_template, migration 0055) resolved to its PUBLIC id,
+// or null when the quote has no override row (the global is_default stays the
+// cross-quote fallback — reported by the frame-template-records list, not
+// here). Fail-safe: a pre-0055 schema degrades to null, never throwing —
+// mirrors every other M5 fallback's read discipline in this file.
+async function resolveQuoteDefaultTemplatePublicId(db: D1Database, quotePublicId: string): Promise<string | null> {
+  try {
+    const row = await db
+      .prepare(
+        `SELECT ft.public_id AS public_id
+           FROM leadgen_quote_default_template qdt
+           JOIN leadgen_frame_templates ft ON ft.id = qdt.frame_template_id
+          WHERE qdt.quote_public_id = ? LIMIT 1`,
+      )
+      .bind(quotePublicId)
+      .first<{ public_id: string }>();
+    return row?.public_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Quote detail: the quote + its funnels, each with its variants (summary, no
 // per-variant sections/rules — the full tree is /quotes/:id/structure).
 async function quoteDetailJson(
@@ -1303,7 +1356,11 @@ async function quoteDetailJson(
     const variants = await readFunnelVariants(db, f.id);
     funnelJson.push({ ...funnelRowToApi(f), variants: variants.map(variantRowToApi) });
   }
-  return { ...quoteRowToApi(quote), funnels: funnelJson };
+  return {
+    ...quoteRowToApi(quote),
+    funnels: funnelJson,
+    default_template_id: await resolveQuoteDefaultTemplatePublicId(db, quote.public_id),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1402,13 +1459,32 @@ function validateQuoteCreate(body: Record<string, unknown>): {
 }
 
 // Rework M5 / §11D — "the default template seeds new funnels": the current
-// is_default saved frame template's numeric id, or null. This is a CREATE-TIME
+// default saved frame template's numeric id, or null. This is a CREATE-TIME
 // seed (not a resolve-time fallback — "seeds" is creation vocabulary): a funnel
 // captures the default AT CREATION, so a later "Set as default" swap never
 // retroactively re-skins an existing funnel. Fail-safe: any read error (a
 // pre-M5 money-path harness with no leadgen_frame_templates table) ⇒ null ⇒ the
 // funnel is created with NO template, exactly as before.
-async function resolveDefaultFrameTemplateId(db: D1Database): Promise<number | null> {
+//
+// R2 D5 (contract §7 D5, owner ruling on A.1 #11-D/ADJ-B2): the per-quote
+// override (leadgen_quote_default_template, migration 0055) now REPLACES the
+// global is_default as this seed — checked FIRST when a quotePublicId is
+// given — with the global is_default staying the cross-quote FALLBACK when
+// the quote has no override row (or a pre-0055 schema has no such table yet).
+async function resolveDefaultFrameTemplateId(db: D1Database, quotePublicId?: string): Promise<number | null> {
+  if (quotePublicId !== undefined) {
+    try {
+      const perQuote = await db
+        .prepare("SELECT frame_template_id FROM leadgen_quote_default_template WHERE quote_public_id = ? LIMIT 1")
+        .bind(quotePublicId)
+        .first<{ frame_template_id: number | null }>();
+      if (perQuote !== null && perQuote.frame_template_id !== null && perQuote.frame_template_id !== undefined) {
+        return perQuote.frame_template_id;
+      }
+    } catch {
+      /* pre-0055 schema (no leadgen_quote_default_template table yet) — fall through to the global default */
+    }
+  }
   try {
     const row = await db
       .prepare("SELECT id FROM leadgen_frame_templates WHERE is_default = 1 LIMIT 1")
@@ -1512,8 +1588,46 @@ export async function patchQuoteHandler(c: AdminContext): Promise<Response> {
       errors["status"] = `status must be one of ${QUOTE_STATUSES.join("|")}`;
     } else { status = s as LeadgenQuoteStatus; touched = true; }
   }
+  // R2 D5 (contract §7 D5): PATCH is the vehicle for "Set as default" going
+  // PER-QUOTE (the Templates tab writes/updates THIS quote's row in
+  // leadgen_quote_default_template, migration 0055 — reusing this ALREADY-
+  // routed endpoint rather than a new one; the global is_default stays the
+  // cross-quote fallback, untouched). null clears the override (falls back
+  // to the global default); an integer id must reference a real saved
+  // template.
+  let defaultTemplateAction: { kind: "none" } | { kind: "clear" } | { kind: "set"; frameTemplateId: number } = {
+    kind: "none",
+  };
+  if (body["default_template_id"] !== undefined) {
+    const parsed = asIntOrNull(body["default_template_id"]);
+    if (parsed === INVALID) {
+      errors["default_template_id"] = "default_template_id must be an integer id or null";
+    } else if (parsed === null) {
+      defaultTemplateAction = { kind: "clear" };
+      touched = true;
+    } else {
+      const ex = await c.env.DB.prepare("SELECT id FROM leadgen_frame_templates WHERE id = ? LIMIT 1")
+        .bind(parsed)
+        .first<{ id: number }>();
+      if (!ex) errors["default_template_id"] = `frame template ${parsed} does not exist`;
+      else { defaultTemplateAction = { kind: "set", frameTemplateId: parsed }; touched = true; }
+    }
+  }
   if (Object.keys(errors).length > 0) return c.json({ error: "Validation failed", fields: errors }, 400);
   if (!touched) return c.json({ error: "No updatable fields provided" }, 400);
+
+  if (defaultTemplateAction.kind === "set") {
+    await c.env.DB.prepare(
+      `INSERT INTO leadgen_quote_default_template (quote_public_id, frame_template_id) VALUES (?, ?)
+       ON CONFLICT(quote_public_id) DO UPDATE SET frame_template_id = excluded.frame_template_id`,
+    )
+      .bind(existing.public_id, defaultTemplateAction.frameTemplateId)
+      .run();
+  } else if (defaultTemplateAction.kind === "clear") {
+    await c.env.DB.prepare("DELETE FROM leadgen_quote_default_template WHERE quote_public_id = ?")
+      .bind(existing.public_id)
+      .run();
+  }
 
   await c.env.DB.prepare(
     `UPDATE leadgen_quotes SET quote_name = ?, activity = ?, verticals_json = ?, status = ?, updated_at = unixepoch()
@@ -1934,7 +2048,7 @@ export async function createQuoteFunnelHandler(c: AdminContext): Promise<Respons
   // (create-time). null when no default set / pre-M5 schema ⇒ frame_template_id
   // stays null (the pre-rework behavior). The variant stays NULL (inherits the
   // funnel's template per M5 effectiveFrame: variant.ftid ?? funnel.ftid).
-  const defaultTemplateId = await resolveDefaultFrameTemplateId(c.env.DB);
+  const defaultTemplateId = await resolveDefaultFrameTemplateId(c.env.DB, quote.public_id);
   // Rework M4 (§4.3-1): funnels are unlimited; a new funnel appends to the board
   // (display_order = MAX+1). Rework M1: seed its single active variant (label 'A').
   await c.env.DB.batch([
@@ -4280,6 +4394,7 @@ const V25_PREVIEW_KEYS = [
   "draft_theme",
   "draft_frame_overrides", // DEV-58 (Phase D): per-arm overrides draft
   "page", // Phase D stepper perf: mode:"all" lazy per-page fetch
+  "sample_section", // R2 §3 ②: empty-funnel sample row inside the real frame
 ] as const;
 
 export async function previewVariantHandler(c: AdminContext): Promise<Response> {
@@ -4371,6 +4486,73 @@ export const LG_SLOT_PLACEHOLDER_HTML =
   '<div class="lg-slot-placeholder" data-lg-slot-placeholder>' +
   "This area is the Section’s question unit — edit it in the Section Builder." +
   "</div>";
+
+// ---------------------------------------------------------------------------
+// R2 §3 ② (A.1 #11-D) — the SAMPLE section for an EMPTY funnel.
+//
+// Owner truth: "the canvas should include one section in the middle so the
+// user could see a real reference of how is design is gonna look like in real
+// life". Before this, an empty funnel took a SECOND preview endpoint
+// (POST /sections/preview) that renders a BARE section card with NO frame —
+// so nothing the Funnel-layout boxes edit was visible. There is now ONE
+// preview path: the composed variant preview serves the empty funnel too, and
+// the caller opts in with `sample_section:true`. The synthetic row rides the
+// SAME `sections` array as real rows, so frame composition, progress totals
+// (1 of 1), footer show_on and the §15.4 config echo are computed exactly the
+// way a real one-section funnel computes them — never a special render path.
+// It is never persisted and never leaves this request.
+// ---------------------------------------------------------------------------
+
+export const LG_SAMPLE_SECTION_PUBLIC_ID = "lgs_sample_preview";
+export const LG_SAMPLE_SECTION_HEADLINE = "Sample question";
+// The design pack's Appendix A-9 no-sections copy, VERBATIM — the same string
+// the retired client-side fixture carried, so the words the operator reads on
+// an empty funnel are unchanged; only where they render moved (inside the
+// composed frame now, not a bare card). templates.ts's canvas status line
+// carries the same literal.
+export const LG_SAMPLE_SECTION_HELPER = "Sample section (add sections to preview your own).";
+
+export function buildSamplePreviewSection(
+  quote: LeadgenQuoteRow,
+  variant: LeadgenFunnelVariantRow,
+): LeadgenSectionRow {
+  const content = {
+    components: [
+      {
+        type: "ButtonAnswerGroup",
+        question_id: "lg_sample_q1",
+        internal_field: "lg_sample_answer",
+        choices: [
+          { label: "Option A", value: "option_a" },
+          { label: "Option B", value: "option_b" },
+        ],
+        props: { label: LG_SAMPLE_SECTION_HEADLINE, helper: LG_SAMPLE_SECTION_HELPER },
+      },
+      { type: "ContinueButton", question_id: "lg_sample_continue", props: { label: "Continue" } },
+    ],
+  };
+  return {
+    id: 0,
+    public_id: LG_SAMPLE_SECTION_PUBLIC_ID,
+    section_name: LG_SAMPLE_SECTION_HEADLINE,
+    activity: quote.activity,
+    vertical: quote.activity,
+    headline_text: LG_SAMPLE_SECTION_HEADLINE,
+    subheadline_text: LG_SAMPLE_SECTION_HELPER,
+    image_json: null,
+    content_json: JSON.stringify(content),
+    content_html: null,
+    continue_mode: "button",
+    design_overrides_json: null,
+    address_validation_enabled: 0,
+    section_mapping_version: 1,
+    content_version: variant.content_version,
+    status: "active",
+    created_by: null,
+    created_at: 0,
+    updated_at: 0,
+  };
+}
 
 export interface ComposedVariantPreviewInput {
   quote: LeadgenQuoteRow;
@@ -4835,6 +5017,20 @@ async function composedVariantPreviewResponse(
     }
   }
 
+  // R2 §3 ② — `sample_section` (additive, boolean): with NO sections of its
+  // own this variant renders the synthetic sample row INSIDE the composed
+  // frame (see buildSamplePreviewSection). Ignored when the variant HAS
+  // sections — a real section always wins over the sample.
+  let sampleSection = false;
+  if (body["sample_section"] !== undefined && body["sample_section"] !== null) {
+    const raw = body["sample_section"];
+    if (typeof raw !== "boolean") {
+      fields["sample_section"] = "sample_section must be a boolean";
+    } else {
+      sampleSection = raw;
+    }
+  }
+
   if (Object.keys(fields).length > 0) {
     return c.json({ error: "Validation failed", fields }, 400);
   }
@@ -4876,7 +5072,14 @@ async function composedVariantPreviewResponse(
     sharedPages = [];
   }
   const variantPages = await loadVariantPages(c.env.DB, variant.id);
-  const sections: LeadgenSectionRow[] = sectionsFromPages([...sharedPages, ...variantPages]).map((rs) => rs.section);
+  const storedSections: LeadgenSectionRow[] = sectionsFromPages([...sharedPages, ...variantPages]).map((rs) => rs.section);
+  // R2 §3 ② — ONE preview path: an EMPTY funnel composes the SAMPLE section
+  // inside the real frame instead of falling back to a second, frameless
+  // endpoint. `usingSample` rides the response so the caller can say so.
+  const usingSample = sampleSection && storedSections.length === 0;
+  const sections: LeadgenSectionRow[] = usingSample
+    ? [buildSamplePreviewSection(owner.quote, variant)]
+    : storedSections;
 
   // section_public_id → the visible ordered index (mode:"section").
   let visibleIndex = 0;
@@ -4950,6 +5153,10 @@ async function composedVariantPreviewResponse(
         : { css: preview.css, html: preview.html ?? "", section_count: preview.section_count },
     config: preview.config,
   };
+  // R2 §3 ② — honest echo: TRUE only when the composed body carries the
+  // synthetic sample row (an empty funnel that opted in), so the canvas can
+  // label it without guessing from section_count.
+  if (usingSample) payload["sample_section"] = true;
   if (problems.length > 0) payload["problems"] = problems; // §3.6 additive warnings
   return c.json(payload);
 }
@@ -5613,7 +5820,7 @@ export async function computeQuoteActivationPreflight(
     // error-severity problems (C2 LIVE, Phase D).
     // M5: no variant is in scope yet at this point (the loop below iterates
     // them) — precedence collapses to funnel.frame_template_id alone.
-    const savedFrameDefaults = await loadSavedFrameTemplateDefaults(db, funnel.frame_template_id);
+    const savedFrameDefaults = await loadSavedFrameTemplateDefaults(db, funnel.frame_template_id, quote.public_id);
     const funnelState = readFunnelV25State(funnel, savedFrameDefaults);
     problems.push(...(await computeFunnelV25Problems(db, quote, funnel, funnelState, siteId)));
     for (const variant of variants) {
@@ -5789,16 +5996,41 @@ interface FunnelV25State {
 // resolveFrameTemplateRow (that module already imports FROM this one; the
 // reverse would cycle). NULL ftid or a since-deleted/corrupt row ⇒ null ⇒
 // readFunnelV25State omits effectiveFrame's 4th arg ⇒ byte-identical legacy.
+//
+// R2 D5 (contract §7 D5): the admin-preflight TWIN of resolver.ts's
+// resolveSavedFrameTemplateDefaultsFor — same table, same parser, same
+// null-degrade — so the preflight's effectiveFrameConfig preview NEVER
+// disagrees with what the live page actually serves. `quotePublicId`, when
+// given, is consulted ONLY when ftid is null (an explicit variant/funnel ftid
+// is NEVER overridden) via the per-quote default (migration 0055); this reads
+// nothing extra and writes nothing — no existing funnel is re-templated.
 async function loadSavedFrameTemplateDefaults(
   db: D1Database,
   ftid: number | null,
+  quotePublicId?: string,
 ): Promise<EffectiveFrameConfig | null> {
-  if (ftid === null) return null;
-  const row = await db
-    .prepare("SELECT frame_json FROM leadgen_frame_templates WHERE id = ? LIMIT 1")
-    .bind(ftid)
-    .first<{ frame_json: string | null }>();
-  return row === null ? null : parseSavedFrameTemplateDefaults(row.frame_json);
+  if (ftid !== null) {
+    const row = await db
+      .prepare("SELECT frame_json FROM leadgen_frame_templates WHERE id = ? LIMIT 1")
+      .bind(ftid)
+      .first<{ frame_json: string | null }>();
+    return row === null ? null : parseSavedFrameTemplateDefaults(row.frame_json);
+  }
+  if (quotePublicId === undefined) return null;
+  try {
+    const row = await db
+      .prepare(
+        `SELECT ft.frame_json AS frame_json
+           FROM leadgen_quote_default_template qdt
+           JOIN leadgen_frame_templates ft ON ft.id = qdt.frame_template_id
+          WHERE qdt.quote_public_id = ? LIMIT 1`,
+      )
+      .bind(quotePublicId)
+      .first<{ frame_json: string | null }>();
+    return row === null ? null : parseSavedFrameTemplateDefaults(row.frame_json);
+  } catch {
+    return null;
+  }
 }
 
 function readFunnelV25State(
@@ -6311,6 +6543,7 @@ async function storeVariantPreflight(
     const savedFrameDefaults = await loadSavedFrameTemplateDefaults(
       c.env.DB,
       variant.frame_template_id ?? funnel.frame_template_id,
+      quote.public_id,
     );
     const funnelState = readFunnelV25State(funnel, savedFrameDefaults);
     problems = [

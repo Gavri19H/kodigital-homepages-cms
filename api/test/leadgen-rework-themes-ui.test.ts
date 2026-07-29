@@ -441,26 +441,48 @@ describeDb("Rework P4 S4.2 — §8.4 Themes tab live canvas (ui-theme-manager.ts
 });
 
 // ===========================================================================
-// 1a. P2-4 (conductor review round): the Quotes Themes TAB's embed actually
-//    surfaces the §8.4 canvas — a composition proof, not just each piece in
-//    isolation. themes.ts's renderThemesTabPanel mounts an iframe pointed at
-//    /admin/leadgen/themes?embed=1 (verified: quotes-tabs/themes.ts:205);
-//    that EXACT route is ui-theme-manager.ts's own leadgenThemeManagerPage,
-//    which is what actually renders the canvas. Proves the wiring between
-//    the two files this slice owns, not just each file's own output alone.
+// 1a. R2 P2 S2b (supersedes the P2-4 conductor-review-round test this block
+//    used to hold): the OWNER'S A.3 rejection ("themes tab layout... no
+//    duplicate canvases") means the Quotes Themes TAB no longer re-embeds
+//    the WHOLE standalone Themes-manager page (with its OWN §8.4 canvas) as
+//    a second canvas — that was the "duplicate canvases" bug. The tab now
+//    owns exactly one canvas of its own (renderThemeCanvasPane); the
+//    standalone route (ui-theme-manager.ts's leadgenThemeManagerPage) is
+//    UNCHANGED and still serves Section Studio's own `?embed=1&from=...`
+//    overlay — proven unaffected by the OTHER describe blocks in this file,
+//    all of which hit that route directly and still pass unchanged.
 // ===========================================================================
 
-describeDb("Rework P4 S4.2 — tab -> embed -> canvas composition (P2-4)", () => {
-  it("the Quotes Themes tab panel's iframe points at the embed route that renders the canvas", () => {
+describeDb("Rework R2 P2 S2b — three-pane tab, no duplicate canvas (supersedes P2-4)", () => {
+  it("the Quotes Themes tab panel owns exactly ONE canvas element and never embeds the standalone manager page as a second one", () => {
     // renderThemesTabPanel is a pure string builder (no DB) — the SAME
     // function ui-quotes.ts's quoteEditorHtml mounts as the Themes tab panel.
     const tabHtml = renderThemesTabPanel(true);
     expect(tabHtml).toContain('data-panel="themes"');
-    expect(tabHtml).toContain('src="/admin/leadgen/themes?embed=1"');
-    expect(tabHtml).toContain('id="lg-theme-presets-frame"');
+    // The old duplicate-canvas offenders are gone: no embedded standalone
+    // page, no placeholder mini-preview strip.
+    expect(tabHtml).not.toContain("?embed=1");
+    expect(tabHtml).not.toContain('id="lg-theme-presets-frame"');
+    expect(tabHtml).not.toContain('id="lg-theme-minipreview-frame"');
+    expect(tabHtml).not.toContain("This area is the Section’s question unit");
+    // Exactly one canvas element (iframe) in the whole tab DOM.
+    expect(tabHtml.match(/<iframe\b/g) ?? []).toHaveLength(1);
+    expect(tabHtml).toContain('id="lg-theme-canvas-frame"');
+    // Three panes present: left chooser, center sticky canvas, right rail.
+    expect(tabHtml).toContain("data-lg-theme-list");
+    expect(tabHtml).toContain("data-lg-theme-filters");
+    expect(tabHtml).toContain('id="lg-theme-rail"');
+    expect(tabHtml).toContain("position:sticky");
+    // The preset-apply row's element ids are UNCHANGED — funnel.ts's
+    // existing wireThemePresets() still drives them without modification.
+    expect(tabHtml).toContain('id="lg-theme-preset-select"');
+    expect(tabHtml).toContain('id="lg-theme-preset-apply"');
+    expect(tabHtml).toContain('id="lg-theme-ab-this"');
+    // A plain (non-embedded) link replaces the old iframe.
+    expect(tabHtml).toContain('href="/admin/leadgen/themes"');
   });
 
-  it("hitting that EXACT embedded route (?embed=1) renders the §8.4 live canvas, not just the standalone (non-embed) page", async () => {
+  it("hitting the standalone embedded route (?embed=1) — used by Section Studio's OWN overlay, unrelated to the tab above — still renders the §8.4 live canvas", async () => {
     const { sdb, env } = newHarness();
     const theme = await createTheme(env, "Embed Composition");
     const quote = await createQuote(env, "Auto Insurance");

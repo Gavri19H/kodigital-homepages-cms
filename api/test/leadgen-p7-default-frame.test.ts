@@ -21,9 +21,21 @@
 //      EXPLICIT theme-preset reference (written only by
 //      PUT /funnels/:id/theme), never a resolved/default ThemeRecord and
 //      never a bespoke inline theme with no theme_id.
-// Every other frameless funnel (no theme_json at all, OR an inline theme with
-// no theme_id) takes the EXACT unchanged legacy fork — no DB write, no schema
-// dependency, no effect on any funnel that never had an explicit theme
+//
+// R2 P2 FIX-FIRST (MAJOR-1, adversarial review 2026-07-29) — CONDITION 2 IS
+// NOW WIDER, and this file is updated to the new contract: a theme_json that
+// carries ANY INLINE DESIGN KEY (palette / typography / scales /
+// button_defaults / card_defaults) triggers the SAME narrow default. The
+// reviewer proved the gap on a real instance: a brand-new quote's Themes rail
+// writes exactly that inline shape (and the R7 normalization strips theme_id
+// the moment a control is edited), so the funnel's theme was dropped whole —
+// "Brand-primary edit produced no preview change" in the canvas, and the LIVE
+// /lg page served unthemed. The narrowing below is unchanged in every other
+// respect (see the corrupt/schema-invalid cases, which still take the legacy
+// fail-safe fork, and the themeless case, which still returns null).
+// Every other frameless funnel (no theme_json at all) takes the EXACT
+// unchanged legacy fork — no DB write, no schema
+// dependency, no effect on any funnel that never had a theme
 // applied. When the narrow condition fires, the composition synthesizes onto
 // the "minimal" template (least additional chrome) with its header disabled
 // (header.enabled: false — designs/frame.ts's renderHeaderRegion returns ""
@@ -264,7 +276,10 @@ describe("P7fix (narrow): resolveFrameComposition NULL-frame branch (R4 item 10I
     expect(composition, "themeless + frameless funnel takes the legacy fork").toBeNull();
   });
 
-  it("inline theme_json with NO theme_id: composition stays null (narrow condition requires an explicit reference)", () => {
+  // R2 P2 FIX-FIRST (MAJOR-1): was "composition stays null". The reviewer's
+  // repro is exactly this row shape — the Themes rail's own write — and it
+  // lost the operator's whole theme on both the canvas and the live page.
+  it("inline theme_json with NO theme_id: composition NOW synthesizes the narrow default and the inline palette reaches the tokens", () => {
     const composition = resolveFrameComposition(
       {
         frame_config_json: null,
@@ -273,7 +288,42 @@ describe("P7fix (narrow): resolveFrameComposition NULL-frame branch (R4 item 10I
       },
       design,
     );
-    expect(composition, "a bespoke inline theme with no theme_id does not trigger the narrow default").toBeNull();
+    expect(composition, "an inline (theme_id-less) theme is as explicit an intent as a preset").not.toBeNull();
+    expect(composition!.frame.template).toBe("minimal");
+    expect(composition!.frame.header.enabled, "same least-chrome synthesis as the theme_id leg").toBe(false);
+    expect(composition!.effectiveTokens.roles.brand_primary, "the operator's inline colour actually reaches the render").toBe("#123456");
+  });
+
+  it("inline theme_json carrying ONLY non-design keys (version): still null — 'inline design keys' means a real design group", () => {
+    const composition = resolveFrameComposition(
+      { frame_config_json: null, theme_json: JSON.stringify({ version: 1 }), frame_overrides_json: null },
+      design,
+    );
+    expect(composition, "a bare {version:1} authors no design and must not flip the fork").toBeNull();
+  });
+
+  it("CORRUPT frame_config_json + INLINE theme: stays on the EXACT legacy fail-safe path (R4-48 unchanged by the widening)", () => {
+    const composition = resolveFrameComposition(
+      {
+        frame_config_json: "{not json",
+        theme_json: JSON.stringify({ version: 1, palette: { brand_primary: "#123456" } }),
+        frame_overrides_json: null,
+      },
+      design,
+    );
+    expect(composition, "a present-but-corrupt frame is never synthesized, inline-themed or not").toBeNull();
+  });
+
+  it("STRUCTURALLY INVALID inline theme + NULL frame: stays null (the widening reads the VALIDATED theme, never the raw column)", () => {
+    const composition = resolveFrameComposition(
+      {
+        frame_config_json: null,
+        theme_json: JSON.stringify({ palette: { brand_primary: "not-a-colour" }, bogus_key: { a: 1 } }),
+        frame_overrides_json: null,
+      },
+      design,
+    );
+    expect(composition, "validateTheme rejects the shape ⇒ theme null ⇒ legacy fork, exactly as before").toBeNull();
   });
 
   it("explicit theme_json.theme_id + NULL frame: composition synthesizes onto the least-chrome 'minimal' template with header disabled", () => {

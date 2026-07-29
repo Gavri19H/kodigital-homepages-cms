@@ -525,7 +525,41 @@ export function resolveFrameComposition(
       frameColumnTrulyAbsent && rawTheme !== null && typeof rawTheme["theme_id"] === "string"
         ? rawTheme["theme_id"]
         : null;
-    if (explicitThemeId === null) return null; // legacy funnel (absent+themeless) OR present-but-corrupt frame — exact current behavior (03 §3.1 / 13 §13.3)
+    // R2 P2 FIX-FIRST (MAJOR-1, adversarial review): the R4 narrow default
+    // above admitted ONLY an explicit theme_id PRESET. A funnel whose
+    // theme_json carries INLINE design keys instead (palette / typography /
+    // scales / button_defaults / card_defaults — what the Themes rail writes
+    // for every hand-authored edit, and what the R7 "drop theme_id when
+    // overriding" normalization produces the moment an operator touches one
+    // control) hit the `return null` below and lost its ENTIRE theme: the
+    // Themes canvas stayed byte-identical after a Brand-primary edit and the
+    // live /lg page served unthemed. A theme the operator authored is exactly
+    // as explicit an intent as a preset they picked, so the SAME least-chrome
+    // synthesized frame now carries it. UNCHANGED either side of this:
+    //   • frameColumnTrulyAbsent still gates BOTH shapes — a present-but-
+    //     corrupt/schema-invalid frame stays on the exact legacy fail-safe
+    //     path (R4-48, 13 §13.3), themed or not;
+    //   • the funnel must carry a STRUCTURALLY VALID theme (the `theme`
+    //     resolved by validateTheme above, not the raw column) — a drifted/
+    //     corrupt theme_json resolves to null here and takes the legacy fork
+    //     exactly as before;
+    //   • a themeless frameless funnel (the overwhelming legacy majority)
+    //     still returns null, byte-identical.
+    const inlineDesignKeys: ReadonlyArray<keyof ThemeJson> = [
+      "palette",
+      "typography",
+      "scales",
+      "button_defaults",
+      "card_defaults",
+    ];
+    const hasInlineDesign =
+      frameColumnTrulyAbsent &&
+      theme !== null &&
+      inlineDesignKeys.some((k) => {
+        const v = (theme as Record<string, unknown>)[k];
+        return typeof v === "object" && v !== null && !Array.isArray(v);
+      });
+    if (explicitThemeId === null && !hasInlineDesign) return null; // legacy funnel (absent+themeless) OR present-but-corrupt frame — exact current behavior (03 §3.1 / 13 §13.3)
     frameSource = { ...source, frame_config_json: NARROW_DEFAULT_THEMED_FRAME_CONFIG_JSON };
   }
 

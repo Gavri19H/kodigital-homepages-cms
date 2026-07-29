@@ -654,6 +654,41 @@ function planGridColumns(authoredCols: number | undefined, defaultCols: number, 
   return { cols, emitOverride, hasPartialRow };
 }
 
+// R2 P2 FIX-FIRST (MAJOR-2, adversarial review) — the theme's card layout OWNS
+// the column axis. Contract §4 end-state 5: "the two-line layout + styling is
+// owned by the THEME (a `card`/full-width layout axis)"; the control's own
+// label is "Full-width cards (Image23)", and Image23's anatomy is a vertical
+// stack of full-width rows (incl. the trailing "Other" row) — never a 2-up.
+//
+// BEFORE: the plan was computed from the SECTION's columns only, so a themed
+// group inherited the design's multi-column default. styles.ts's shipped
+// `.lg-answer-group[data-btn-layout="card"]{grid-template-columns:1fr}` rule
+// (§8.4 gap round) already forced ONE EXPLICIT track — but a partial trailing
+// row ALSO emitted the §6.7 centering machinery (--lg-tracks + per-item
+// --lg-gc-start/--lg-gc-end "span 2"), and a 2-track span against a 1-track
+// explicit template makes the grid FABRICATE an implicit second column: the
+// live 2-up half-width rows the review measured. The container CSS and the
+// item geometry disagreed about the axis; this makes the RENDER coherent with
+// the axis the theme already owns in CSS.
+//
+// CHOICE (stated for the record): the theme wins UNCONDITIONALLY here — an
+// explicit section-level `columns` does NOT re-open the axis — because the
+// already-shipped container rule above is itself unconditional (an authored
+// --lg-cols has only ever been a var() FALLBACK that rule never consults), so
+// honoring a section override would need that CSS rule relaxed too and would
+// contradict "owned by the theme". Per-element freedom INSIDE the card (size,
+// colors, title/subtitle) is untouched. Non-card themes: identical plan as
+// before, byte-for-byte.
+function planAnswerGridColumns(
+  authoredCols: number | undefined,
+  defaultCols: number,
+  choiceCount: number,
+  isCard: boolean,
+): GridColumnsPlan {
+  if (!isCard) return planGridColumns(authoredCols, defaultCols, choiceCount);
+  return { cols: 1, emitOverride: defaultCols !== 1, hasPartialRow: false };
+}
+
 // Rework §6.7 FIX-FIRST (adversarial review F1, 2026-07-22): the PRIOR
 // trailingRowCenterOffset used a SINGLE-track grid-column-start offset
 // (Math.floor((cols-remainder)/2)) which can only express WHOLE-track
@@ -1343,8 +1378,14 @@ export function renderButtonAnswerGroup(
 ): string {
   const autoAdvance = propBool(node, "auto_advance");
   const choices = choiceList(node);
+  // §8.4 gap round: the theme's Answer-layout:'card' value (Image23) — see
+  // buttonInnerContent's own comment. Resolved ONCE per group (a theme axis,
+  // not per-choice), matching how every other button-style axis resolves.
+  // R2 P2 FIX-FIRST (MAJOR-2): resolved BEFORE the column plan, because the
+  // card layout OWNS the column axis (planAnswerGridColumns).
+  const isCard = readButtonStyle(design)?.layout === "card";
   // Rework §6.7: min(authored, choiceCount) — see planGridColumns.
-  const gridCols = planGridColumns(ovNum(node, "columns") ?? propNum(node, "columns"), design.answerGrid.columns, choices.length);
+  const gridCols = planAnswerGridColumns(ovNum(node, "columns") ?? propNum(node, "columns"), design.answerGrid.columns, choices.length, isCard);
   // Rework §6.6: resolve choice > node > theme PER BUTTON (extends the
   // pre-§6.6 theme-only ternary the exact same way renderCardGrid's
   // markerResolutions/anyMark do) — a group with no per-choice/per-node
@@ -1353,10 +1394,6 @@ export function renderButtonAnswerGroup(
   // button to 'mark', ALSO byte-identical.
   const markerResolutions = choices.map((c) => resolveSelectedMarker(node, c.style, design));
   const anyMark = markerResolutions.some((m) => m === "mark");
-  // §8.4 gap round: the theme's Answer-layout:'card' value (Image23) — see
-  // buttonInnerContent's own comment. Resolved ONCE per group (a theme axis,
-  // not per-choice), matching how every other button-style axis resolves.
-  const isCard = readButtonStyle(design)?.layout === "card";
   // v3.1 R3 §7/§8.5b + P2a §R-A: each answer button carries the node's per-item
   // design_overrides (height→min-height, corners→radius, border_color→role
   // border) MERGED with the choice's OWN diff-only `style` overlay (per-element
@@ -1411,10 +1448,19 @@ export function renderTwoButtonYesNo(
   const yes = propStr(node, "yesLabel") ?? "Yes";
   const no = propStr(node, "noLabel") ?? "No";
   const autoAdvance = propBool(node, "auto_advance");
+  // §8.4 gap round: TwoButtonYesNo is a FIXED boolean pair with NO title/
+  // subtitle fields at all (unlike LeadgenChoice) — buttonInnerContent's
+  // fallback-to-label rule means this always degrades to title-only (yes/no
+  // label as the tscard title, no subtitle span), a natural, non-special-
+  // cased consequence of the SAME shared helper every layout uses.
+  // R2 P2 FIX-FIRST (MAJOR-2): resolved BEFORE the column plan — under a card
+  // theme this fixed pair stacks full-width too (Image23 anatomy), exactly
+  // like every other answer group; a non-card theme is byte-identical.
+  const isCard = readButtonStyle(design)?.layout === "card";
   // YesNo is a fixed 2-choice pair; planGridColumns(2 choices, default 2) is a
   // permanent no-op (min(2,2)=2, remainder 0) — included for uniformity with
   // the other choice families, never emits an override or partial-row centering.
-  const gridCols = planGridColumns(ovNum(node, "columns") ?? propNum(node, "columns"), design.answerGrid.columns, 2);
+  const gridCols = planAnswerGridColumns(ovNum(node, "columns") ?? propNum(node, "columns"), design.answerGrid.columns, 2, isCard);
   // Same discipline as renderButtonAnswerGroup: base + state chrome is fully
   // class-driven (.lg-btn.lg-btn-answer) so the §14.6 selected/hover states apply.
   // FIX 4a: the curated buttonBackground override rides the group root as
@@ -1431,12 +1477,6 @@ export function renderTwoButtonYesNo(
   const yesMarker = resolveSelectedMarker(node, yesStyle, design);
   const noMarker = resolveSelectedMarker(node, noStyle, design);
   const anyMark = yesMarker === "mark" || noMarker === "mark";
-  // §8.4 gap round: TwoButtonYesNo is a FIXED boolean pair with NO title/
-  // subtitle fields at all (unlike LeadgenChoice) — buttonInnerContent's
-  // fallback-to-label rule means this always degrades to title-only (yes/no
-  // label as the tscard title, no subtitle span), a natural, non-special-
-  // cased consequence of the SAME shared helper every layout uses.
-  const isCard = readButtonStyle(design)?.layout === "card";
   const btn = (label: string, value: boolean, cs: LeadgenChoiceStyle | undefined, marker: LeadgenSelectedMarker): string =>
     `<button type="button" class="lg-btn lg-btn-answer${isCard ? " lg-tscard" : ""}" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, cs)}` +
     // 03 §3.3: data-lg-choice mirrors data-value (the stored boolean).

@@ -47,7 +47,7 @@ import type { Env } from "../../env";
 // resolveTokens the runtime/composed-preview path already calls (theme.ts);
 // getThemeRecord is the KV `lg-funnel-themes` lookup (themes-handlers.ts owns
 // the store — this handler only reads it, never writes).
-import { resolveTokens, winningThemeId, type EffectiveTokens, type Problem } from "../../public/leadgen/designs/theme";
+import { resolveTokens, validateTheme, winningThemeId, type EffectiveTokens, type Problem } from "../../public/leadgen/designs/theme";
 import { getThemeRecord } from "../../public/leadgen/designs/theme-store";
 // §8.5 layout containers: question/mapping/ZIP walks consume the canonical
 // flattened projection; ONLY the renderer receives the full tree (it recurses).
@@ -1558,6 +1558,30 @@ async function resolveSectionPreviewFrame(
       fields["frame_context.site_id"] = "frame_context.site_id must be a site id string";
     }
   }
+  // R2 P2 FIX-FIRST (MAJOR-1 leg 2): `frame_context.draft_theme` — the
+  // WORKING (not-yet-relied-on-storage) theme_json the caller wants this
+  // composition resolved under, so a rail edit shows in the canvas without
+  // depending on the write round-trip. This is the Templates canvas's OWN
+  // established idiom (quotes-tabs/templates.ts posts draft_frame_config/
+  // draft_theme to POST /variants/:id/preview, validated by
+  // composedVariantPreviewResponse), brought to the section-preview endpoint
+  // the Themes canvas uses — the Themes tab's section chooser previews ANY
+  // active section, including ones that belong to no variant, so it cannot
+  // use the variant endpoint (which 400s "section_public_id is not a section
+  // of this variant"). Validated with the SAME validateTheme gate the stored
+  // column takes: structurally invalid → 400 (never a silent fallback);
+  // absent → the funnel's STORED theme_json, byte-identical to today.
+  let draftTheme: Record<string, unknown> | null = null;
+  if (raw["draft_theme"] !== undefined && raw["draft_theme"] !== null) {
+    const rawDraftTheme = raw["draft_theme"];
+    if (!isRecord(rawDraftTheme)) {
+      fields["frame_context.draft_theme"] = "frame_context.draft_theme must be a JSON object";
+    } else if (validateTheme(rawDraftTheme).theme === null) {
+      fields["frame_context.draft_theme"] = "frame_context.draft_theme is not a valid theme";
+    } else {
+      draftTheme = rawDraftTheme;
+    }
+  }
   if (Object.keys(fields).length > 0) return { kind: "invalid", fields };
 
   // Unknown funnel → 404 (§13.4).
@@ -1629,15 +1653,20 @@ async function resolveSectionPreviewFrame(
   // real visitor would see — "runtime, quote preview, and section-in-frame
   // preview share identical resolution." An unknown/deleted id degrades to
   // null (never throws), same as the live path.
+  // R2 P2 FIX-FIRST (MAJOR-1 leg 2): a supplied draft_theme REPLACES the
+  // funnel's stored theme_json for THIS render only (nothing persists) —
+  // including for the winning-theme_id resolution, so a draft that is itself
+  // a {theme_id} reference still fetches + composes its KV record.
+  const effectiveThemeJson = draftTheme !== null ? JSON.stringify(draftTheme) : funnel.theme_json;
   const naturalThemeId = winningThemeId(
-    parseJsonColumn(funnel.theme_json ?? null),
+    draftTheme !== null ? draftTheme : parseJsonColumn(funnel.theme_json ?? null),
     parseJsonColumn(variant?.frame_overrides_json ?? null),
   );
   const naturalThemeRecord = naturalThemeId !== null ? await getThemeRecord(cache, naturalThemeId) : null;
   const composition = resolveFrameComposition(
     {
       frame_config_json: funnel.frame_config_json,
-      theme_json: funnel.theme_json,
+      theme_json: effectiveThemeJson,
       frame_overrides_json: variant?.frame_overrides_json ?? null,
     },
     design,

@@ -42,22 +42,31 @@
 // AFTER every tab panel — must already exist in the document by the time it
 // runs). Every endpoint it calls already exists (frame-template-records CRUD,
 // /funnels/:id/apply-template, /quotes/:id/shared-page, /variants/:id/preview
-// {mode,draft_frame_config,draft_theme,section_public_id}, /sections/preview,
-// /themes, /variants/:id/fork, /funnels/:id/experiments,
-// /experiments/:id/start, /variants/:id PUT) — this phase adds NO new routes,
-// so frame-handlers.ts needed no edits.
+// {mode,draft_frame_config,draft_theme,section_public_id,site_id,
+// sample_section}, /themes, /variants/:id/fork, /funnels/:id/experiments,
+// /experiments/:id/start, /variants/:id PUT).
 //
-// Scope boundary (disclosed, not silent): this canvas's LIVE (pre-Save)
-// reactivity covers every scalar `[data-frame-key]` field (incl. every
-// Progress control) and `[data-role-pick]` swatch click anywhere in the
-// document — not the box C–G array-shaped fields (cta_slots/disclosure.
-// entries/free_text/brand_logos.items/footer.blocks/images), which still
-// reach this canvas only after Save (a fresh page load re-reads the funnel's
-// persisted frame_config_json). Reusing those boxes' own complex per-row
-// collectors would mean duplicating logic that lives in funnel.ts, outside
-// this slice; a scalar dot-path patch is self-contained and covers the
-// contract's explicit test list for this phase (progress edits + section/
-// theme switches updating the canvas).
+// R2 §3 ② (A.1 #11-D) — what this rebuild changed here:
+//   1. ONE preview path. The empty-funnel leg used to call a SECOND endpoint
+//      (POST /sections/preview) that renders a bare, frameless sample card —
+//      so on a new funnel NOTHING the Funnel-layout boxes edit was visible.
+//      Both legs now take POST /variants/:id/preview; an empty funnel asks
+//      for the sample section INSIDE the real frame (`sample_section:true`,
+//      quotes-handlers.ts buildSamplePreviewSection).
+//   2. LIVE reflection for every element A–I. Scalars keep the
+//      `[data-frame-key]`/`[data-role-pick]` mirror; the ARRAY-shaped groups
+//      (C cta_slots · D disclosure.entries · E free_text · F brand_logos ·
+//      G footer.blocks · H images) are re-read from their own box rows at
+//      render time (collect*/overlayListGroups below — shapes mirror
+//      funnel.ts's collectors 1:1), and hidden media `[data-frame-key]`
+//      inputs (element A's background image, written with no 'change' event)
+//      are re-read the same way. They no longer wait for a Save.
+//   3. site_id rides the preview body (R5), so the canvas renders the chosen
+//      site's real branding — #11A's missing logo.
+//   4. "+ New template" posts the LIVE draft, not the page-load snapshot (R4).
+//   5. The no-sections failure leg writes a visible message to the REAL
+//      `#lg-tpl-canvas-status` (R6), and the dead static preview chip
+//      is gone (B6).
 
 import { escapeHtml } from "../../templates/layout";
 import {
@@ -652,11 +661,12 @@ function renderSettingsColumn(answerFields: readonly QuoteRulesRailAnswerField[]
 
 
 // ---------------------------------------------------------------------------
-// §8.3 CENTER — live canvas. Toolbar (theme switcher + section picker) +
-// server-rendered srcdoc iframe, populated entirely by the inline script
-// below (this file's own POST /variants/:id/preview + /sections/preview
-// calls — see the top-of-file doc comment for why this can't reuse funnel
-// .ts's private `renderPreview`/`schedulePreview` closures).
+// §8.3 CENTER — live canvas. Toolbar (theme switcher + "+ New theme…"
+// affordance + section picker + preview-site select) and a server-rendered
+// srcdoc iframe, populated entirely by the inline script below through the
+// ONE preview endpoint (POST /variants/:id/preview — see the top-of-file doc
+// comment for why this can't reuse funnel.ts's private `renderPreview`/
+// `schedulePreview` closures).
 // ---------------------------------------------------------------------------
 
 function renderCanvas(): string {
@@ -665,10 +675,13 @@ function renderCanvas(): string {
       <select class="form-select form-select-sm" id="lg-tpl-theme-select" aria-label="Theme switcher" style="max-width:180px">
         <option value="">Current theme</option>
       </select>
+      <button type="button" class="btn btn-sm btn-outline" id="lg-tpl-theme-create" title="Create a theme in the Themes tab">+ New theme&#8230;</button>
       <select class="form-select form-select-sm" id="lg-tpl-section-select" aria-label="Section picker" style="max-width:240px">
         <option value="">Loading sections&#8230;</option>
       </select>
-      <span class="lg-chip" style="margin-left:auto">Live server preview</span>
+      <select class="form-select form-select-sm" id="lg-tpl-site-select" data-site-select aria-label="Preview site" style="max-width:220px;margin-left:auto">
+        <option value="">CMS fallback branding</option>
+      </select>
     </div>
     <div class="lg-tpl2-canvas-surface">
       <iframe id="lg-tpl-canvas-iframe" class="lg-tpl2-canvas-iframe" title="Templates live preview" sandbox="allow-same-origin"></iframe>
@@ -855,8 +868,15 @@ const TPL_SCRIPT = `
   var LG_API = '/api/admin/leadgen';
   var boot = null;
   var templates = [];
+  // R2 D5 (contract §7 D5): this quote's PER-QUOTE default template override
+  // (leadgen_quote_default_template, migration 0055) — its public_id, or ''
+  // when unset (falls back to the global default). Loaded from GET
+  // /quotes/:id (quoteDetailJson's default_template_id) alongside loadTemplates.
+  var myQuoteDefaultTemplateId = '';
   var myFrame = {};
   var myDraftThemeId = '';
+  var mySiteId = '';
+  var arraysArmed = false;
   var lastRealProgressStyle = 'bar';
   var previewSeq = 0;
   var currentSections = [];
@@ -927,9 +947,28 @@ const TPL_SCRIPT = `
     frame.setAttribute('srcdoc', doc);
   }
 
+  // R2 §3 ② (R6): ONE status sink, the REAL id (#lg-tpl-canvas-status). The
+  // pre-R2 no-sections error leg wrote an EMPTY message to an id that does
+  // not exist in this panel, so a failed render left a blank canvas with no
+  // explanation at all.
+  function canvasStatus(msg) {
+    var el = byId('lg-tpl-canvas-status');
+    if (!el) { return; }
+    clearChildren(el);
+    if (msg) { el.appendChild(text(msg)); }
+  }
+
   function currentEffectiveFrameForDraft() {
     var d = deepClone(myFrame) || {};
     if (d.template === undefined && boot && boot.frame && boot.frame.effective_frame) { d.template = boot.frame.effective_frame.template; }
+    // R2 §3 ② — the ARRAY-shaped elements (C cta_slots / D disclosure.entries /
+    // E free_text / F brand_logos / G footer.blocks / H images) live in the
+    // box editors' DOM rows, not in any scalar [data-frame-key]; before this
+    // they reached the canvas only after Save. Once the operator has touched
+    // the Templates panel we re-read them straight from those rows on every
+    // render, so each edit shows up in the canvas live.
+    if (arraysArmed) { overlayListGroups(d); }
+    overlayHiddenFrameKeys(d);
     d.version = 1;
     return d;
   }
@@ -938,42 +977,16 @@ const TPL_SCRIPT = `
     return { theme_id: myDraftThemeId };
   }
 
-  function renderFixture() {
-    var funnelId = boot ? boot.funnel_public_id : '';
-    var seq = ++previewSeq;
-    var body = {
-      content_json: {
-        components: [
-          { type: 'ButtonAnswerGroup', question_id: 'lg_tpl_fixture_q1', internal_field: 'lg_tpl_fixture_answer',
-            choices: [ { label: 'Option A', value: 'option_a' }, { label: 'Option B', value: 'option_b' } ],
-            props: {
-              label: 'Sample question',
-              helper: 'Sample section (add sections to preview your own).'
-            } },
-          { type: 'ContinueButton', question_id: 'lg_tpl_fixture_cont', props: { label: 'Continue' } }
-        ]
-      }
-    };
-    if (funnelId) { body.frame_context = { funnel_public_id: funnelId }; }
-    fetchJson(LG_API + '/sections/preview', {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify(body)
-    }).then(function (res) {
-      if (seq !== previewSeq) { return; }
-      if (!res.ok || !res.body) { showError('lg-tpl-canvas-status_UNUSED', ''); return; }
-      var p = res.body.preview || {};
-      setCanvasDoc(p.desktop || '', p.css || '');
-      var status = byId('lg-tpl-canvas-status');
-      if (status) { clearChildren(status); status.appendChild(text('No sections yet \\u2014 showing a sample.')); }
-    }).catch(function () { /* leave the last good render on screen */ });
-  }
-
+  // R2 §3 ② — ONE preview path for EVERY funnel: the draft-aware composed
+  // endpoint (POST /variants/:id/preview). An EMPTY funnel no longer detours
+  // to the section-only endpoint (a bare, frameless sample card that
+  // reflected NO frame edit) — it asks this same endpoint for the sample
+  // section INSIDE the real frame with sample_section:true.
   function renderCanvasPreview() {
     if (!boot || !boot.selected_variant) { return; }
-    if (currentSections.length === 0) { renderFixture(); return; }
     var sectionSelect = byId('lg-tpl-section-select');
     var sectionPublicId = sectionSelect ? sectionSelect.value : '';
+    var noSections = currentSections.length === 0;
     var seq = ++previewSeq;
     var body = {
       mode: 'section',
@@ -982,8 +995,13 @@ const TPL_SCRIPT = `
     };
     var draftTheme = currentDraftTheme();
     if (draftTheme !== undefined) { body.draft_theme = draftTheme; }
-    if (sectionPublicId) { body.section_public_id = sectionPublicId; }
-    var status = byId('lg-tpl-canvas-status');
+    if (!noSections && sectionPublicId) { body.section_public_id = sectionPublicId; }
+    if (noSections) { body.sample_section = true; }
+    // R5: the site whose branding the canvas renders under — WITHOUT this the
+    // server resolves no SiteBranding and an authored site logo can never
+    // appear (#11A "I chose a site - why I don't see its logo????"). The
+    // funnel builder's canvas already sends it (funnel.ts previewBody).
+    if (mySiteId) { body.site_id = mySiteId; }
     fetchJson(LG_API + '/variants/' + encodeURIComponent(boot.selected_variant) + '/preview', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
@@ -991,15 +1009,22 @@ const TPL_SCRIPT = `
     }).then(function (res) {
       if (seq !== previewSeq) { return; }
       if (!res.ok || !res.body) {
-        if (status) { clearChildren(status); status.appendChild(text('Preview failed.')); }
+        // The canvas keeps its last good render; the status says WHY — the
+        // server's own path-precise problem when it sent one (§3.6), never a
+        // bare "Validation failed".
+        var problems = res.body && res.body.problems;
+        var detail = (problems && problems.length > 0 && problems[0].message) || (res.body && res.body.error);
+        canvasStatus(detail ? 'Preview failed: ' + detail : 'Preview failed \\u2014 the canvas is showing the last good render.');
         return;
       }
       var p = res.body.preview || {};
       setCanvasDoc(p.html || '', p.css || '');
-      if (status) { clearChildren(status); }
+      // Appendix A-9's no-sections copy, VERBATIM (unchanged from the retired
+      // client fixture) + what is new: it renders inside the REAL frame.
+      canvasStatus(res.body.sample_section === true ? 'Sample section (add sections to preview your own). Your frame, theme and every element edit render around it.' : '');
     }).catch(function () {
       if (seq !== previewSeq) { return; }
-      if (status) { clearChildren(status); status.appendChild(text('Preview failed: network error.')); }
+      canvasStatus('Preview failed: network error.');
     });
   }
 
@@ -1036,6 +1061,295 @@ const TPL_SCRIPT = `
     var pickFor = el.getAttribute('data-role-pick-for') || '';
     if (pickFor === '' || pickFor.indexOf('palette.') === 0 || pickFor.indexOf('theme:') === 0) { return; }
     setPath(myFrame, pickFor, pick);
+    scheduleCanvasPreview();
+  }
+
+  // =========================================================================
+  // R2 §3 ② — LIVE reflection for the ARRAY-shaped elements (C/D/E/F/G/H).
+  //
+  // The box editors' rows ARE the authored value; the shared island collects
+  // them into ITS working frame on 'change' (funnel.ts TPLBOX_LIST_WRITERS)
+  // and that value only reached this canvas after a Save + reload. These
+  // readers re-derive the SAME six group values from the SAME rows this file
+  // renders, so every C-H edit is in the very next canvas render. Shapes
+  // mirror funnel.ts's collect* functions 1:1 (skip-empty guards included) —
+  // the server validates draft_frame_config, so a drifting shape would 400
+  // rather than silently render something else.
+  // =========================================================================
+  function panelRoot() { return document.querySelector('.lg-qpanel[data-panel="templates"]'); }
+  function q(scope, sel) { return scope ? scope.querySelector(sel) : null; }
+  function qa(scope, sel) { return scope ? toArray(scope.querySelectorAll(sel)) : []; }
+  function valOf(scope, sel) { var el = q(scope, sel); return el ? el.value : ''; }
+  function tplListEl(key) { return q(panelRoot(), '[data-tplbox-list="' + key + '"]'); }
+
+  function collectPageTarget(scopeEl) {
+    var mode = valOf(scopeEl, '[data-pt-mode]') || 'all';
+    if (mode === 'all') { return null; }
+    var pt = { mode: mode };
+    if (mode === 'range') {
+      var from = valOf(scopeEl, '[data-pt-from]');
+      var to = valOf(scopeEl, '[data-pt-to]');
+      pt.from = from !== '' ? Number(from) : 1;
+      pt.to = to !== '' ? Number(to) : pt.from;
+    } else if (mode === 'list') {
+      var parts = String(valOf(scopeEl, '[data-pt-list]')).split(',');
+      var pages = [];
+      var i;
+      for (i = 0; i < parts.length; i++) {
+        var raw = parts[i].replace(/^\\s+|\\s+$/g, '');
+        var n = Number(raw);
+        if (raw !== '' && isFinite(n)) { pages.push(n); }
+      }
+      pt.pages = pages;
+    }
+    return pt;
+  }
+
+  function collectCtaCondition(row) {
+    var box = q(row, '[data-cta-cond-box]');
+    if (!box || String(box.className).indexOf('lg-hidden') >= 0) { return null; }
+    var rows = qa(box, '[data-cta-cond-row]');
+    var conds = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var when = valOf(rows[i], '[data-cta-cond-field]');
+      var value = valOf(rows[i], '[data-cta-cond-value]');
+      if (when === '' && value === '') { continue; }
+      conds.push({ when: when, op: valOf(rows[i], '[data-cta-cond-op]'), value: value });
+    }
+    if (conds.length === 0) { return null; }
+    if (conds.length === 1) { return conds[0]; }
+    return { match: valOf(box, '[data-cta-cond-match]') || 'all', conditions: conds };
+  }
+
+  function collectCtaSlots() {
+    var rows = qa(tplListEl('cta_slots'), '[data-cta-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var tel = valOf(rows[i], '[data-cta-tel]');
+      var href = valOf(rows[i], '[data-cta-href]');
+      if (tel === '' && href === '') { continue; }
+      var entry = { slot: valOf(rows[i], '[data-cta-slot]'), label: valOf(rows[i], '[data-cta-label]'), align: valOf(rows[i], '[data-cta-align]') };
+      if (tel !== '') { entry.tel = tel; }
+      if (href !== '') { entry.href = href; }
+      var cond = collectCtaCondition(rows[i]);
+      if (cond) { entry.condition = cond; }
+      out.push(entry);
+    }
+    return out;
+  }
+
+  function collectDisclosureEntries() {
+    var rows = qa(tplListEl('disclosure.entries'), '[data-disc-entry-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var body = valOf(rows[i], '[data-disc-text]');
+      var linkLabel = valOf(rows[i], '[data-disc-link-label]');
+      if (body === '' && linkLabel === '') { continue; }
+      var entry = { location: valOf(rows[i], '[data-disc-location]'), mode: valOf(rows[i], '[data-disc-mode]'), text: body, align: valOf(rows[i], '[data-disc-align]') };
+      if (linkLabel !== '') { entry.link_label = linkLabel; }
+      out.push(entry);
+    }
+    return out;
+  }
+
+  function collectFreeTextBlocks(entryRow) {
+    var rows = qa(q(entryRow, '[data-ft-blocks]'), '[data-ft-block-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var type = valOf(rows[i], '[data-ft-block-type]');
+      if (type === 'list') {
+        var lines = String(valOf(rows[i], '[data-ft-block-items]')).split('\\n');
+        var items = [];
+        var j;
+        for (j = 0; j < lines.length; j++) {
+          var t = lines[j].replace(/^\\s+|\\s+$/g, '');
+          if (t !== '') { items.push(t); }
+        }
+        if (items.length === 0) { continue; }
+        out.push({ type: 'list', items: items, style: valOf(rows[i], '[data-ft-block-liststyle]') || 'unordered' });
+      } else {
+        var html = valOf(rows[i], '[data-ft-block-text]');
+        if (html === '') { continue; }
+        out.push({ type: type, html: html });
+      }
+    }
+    return out;
+  }
+
+  function collectFreeText() {
+    var rows = qa(tplListEl('free_text'), '[data-ft-entry-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var blocks = collectFreeTextBlocks(rows[i]);
+      if (blocks.length === 0) { continue; }
+      var idEl = q(rows[i], '[data-ft-entry-id]');
+      var entry = {
+        id: (idEl && idEl.value) || ('ft_preview_' + i),
+        slot: valOf(rows[i], '[data-ft-slot]'),
+        blocks: blocks,
+        align: valOf(rows[i], '[data-ft-align]')
+      };
+      var size = valOf(rows[i], '[data-ft-typo-size]');
+      var color = valOf(rows[i], '[data-ft-typo-color]');
+      var typo = {};
+      if (size !== '') { typo.size = size; }
+      if (color !== '') { typo.color = color; }
+      if (size !== '' || color !== '') { entry.typography = typo; }
+      var pt = collectPageTarget(rows[i]);
+      if (pt) { entry.pages = pt; }
+      out.push(entry);
+    }
+    return out;
+  }
+
+  function collectBrandLogoItems() {
+    var rows = qa(tplListEl('brand_logos.items'), '[data-bl-item-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var mediaId = valOf(rows[i], '[data-list-field="media_id"]');
+      var url = valOf(rows[i], '[data-bl-item-url]');
+      var alt = valOf(rows[i], '[data-bl-item-alt]');
+      // PREVIEW-safe: a half-typed row (alt only, no image yet) is not
+      // renderable and validateFrameConfig rejects it — skip it here so a
+      // mid-edit row never replaces the canvas with a validation error. The
+      // SAVE payload is the shared island's own collector, unchanged.
+      if (mediaId === '' && url === '') { continue; }
+      var item = { alt: alt, size: valOf(rows[i], '[data-bl-item-size]') || 'm' };
+      if (mediaId !== '') { item.media_id = mediaId; }
+      if (url !== '') { item.url = url; }
+      out.push(item);
+    }
+    return out;
+  }
+
+  function collectBrandLogos() {
+    var panel = q(panelRoot(), '[data-tplbox-panel="brand_logos"]');
+    if (!panel) { return null; }
+    var enabledEl = q(panel, '[data-bl-enabled]');
+    var cfg = {
+      enabled: enabledEl ? enabledEl.checked : false,
+      layout: valOf(panel, '[data-bl-layout]') || 'row',
+      items: collectBrandLogoItems(),
+      slot: valOf(panel, '[data-bl-slot]') || 'below_section',
+      align: valOf(panel, '[data-bl-align]') || 'left'
+    };
+    var pt = collectPageTarget(panel);
+    if (pt) { cfg.pages = pt; }
+    return cfg;
+  }
+
+  function collectFooterLinkRows(linkrowEl) {
+    var rows = qa(q(linkrowEl, '[data-footer-block-links]'), '[data-footer-link-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var label = valOf(rows[i], '[data-footer-link-label]');
+      var href = valOf(rows[i], '[data-footer-link-href]');
+      if (label === '' && href === '') { continue; }
+      out.push({ label: label, href: href });
+    }
+    return out;
+  }
+
+  function collectFooterBlocks() {
+    var rows = qa(tplListEl('footer.blocks'), '[data-footer-block-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var type = valOf(rows[i], '[data-footer-block-type]');
+      var body = valOf(rows[i], '[data-footer-block-text]');
+      var hasText = type === 'about_paragraph' || type === 'disclosure' || type === 'address';
+      if (hasText && body === '') { continue; }
+      var block = { type: type, align: valOf(rows[i], '[data-footer-block-align]') };
+      if (hasText) { block.text = body; }
+      if (type === 'link_row') {
+        block.links_source = valOf(rows[i], '[data-footer-block-linksource]') || 'site';
+        if (block.links_source === 'manual') {
+          var linkrowEl = q(rows[i], '[data-footer-block-linkrow]');
+          var links = linkrowEl ? collectFooterLinkRows(linkrowEl) : [];
+          if (links.length === 0) { continue; }
+          block.links = links;
+        }
+      }
+      out.push(block);
+    }
+    return out;
+  }
+
+  function collectImages() {
+    var rows = qa(tplListEl('images'), '[data-img-item-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var mediaId = valOf(rows[i], '[data-list-field="media_id"]');
+      var url = valOf(rows[i], '[data-img-item-url]');
+      var alt = valOf(rows[i], '[data-img-item-alt]');
+      // PREVIEW-safe, same rule as the brand-logo items above: an image row
+      // with no media/url yet cannot render and would 400 the whole preview.
+      if (mediaId === '' && url === '') { continue; }
+      var idEl = q(rows[i], '[data-img-item-id]');
+      var item = {
+        id: (idEl && idEl.value) || ('img_preview_' + i),
+        alt: alt,
+        slot: valOf(rows[i], '[data-img-item-slot]'),
+        size: valOf(rows[i], '[data-img-item-size]') || 'm',
+        align: valOf(rows[i], '[data-img-item-align]') || 'left'
+      };
+      if (mediaId !== '') { item.media_id = mediaId; }
+      if (url !== '') { item.url = url; }
+      var tooltip = valOf(rows[i], '[data-img-item-tooltip]');
+      if (tooltip !== '') { item.tooltip = tooltip; }
+      var pt = collectPageTarget(rows[i]);
+      if (pt) { item.pages = pt; }
+      out.push(item);
+    }
+    return out;
+  }
+
+  // Overlay the six group values onto a draft frame. Called ONLY once the
+  // operator has edited in this panel (arraysArmed) — before that the rows
+  // may not be populated yet and an empty read would WIPE stored elements
+  // out of the preview.
+  function overlayListGroups(draft) {
+    if (!panelRoot()) { return; }
+    setPath(draft, 'cta_slots', collectCtaSlots());
+    setPath(draft, 'disclosure.entries', collectDisclosureEntries());
+    setPath(draft, 'free_text', collectFreeText());
+    var bl = collectBrandLogos();
+    if (bl !== null) { setPath(draft, 'brand_logos', bl); }
+    setPath(draft, 'footer.blocks', collectFooterBlocks());
+    setPath(draft, 'images', collectImages());
+  }
+
+  // A media pick writes a hidden [data-frame-key] input DIRECTLY (no native
+  // 'change' event — funnel.ts writeMediaFieldValue), so element A's
+  // background image would otherwise never reach this canvas live. Read those
+  // hidden inputs at render time.
+  function overlayHiddenFrameKeys(draft) {
+    var inputs = qa(panelRoot(), 'input[type="hidden"][data-frame-key]');
+    var i;
+    for (i = 0; i < inputs.length; i++) {
+      var key = inputs[i].getAttribute('data-frame-key');
+      if (!key) { continue; }
+      setPath(draft, key, inputs[i].value === '' ? null : inputs[i].value);
+    }
+  }
+
+  // Every edit inside the Templates panel — typing (input), select/checkbox
+  // (change) and the add/remove/reorder/media buttons (click) — re-renders
+  // the canvas. The 300ms debounce means the collectors run once per burst,
+  // AFTER the shared island's own handlers have mutated the rows.
+  function onPanelEdit(ev) {
+    var el = ev.target;
+    if (!el || !el.closest) { return; }
+    if (!el.closest('.lg-qpanel[data-panel="templates"]')) { return; }
+    arraysArmed = true;
     scheduleCanvasPreview();
   }
 
@@ -1128,7 +1442,10 @@ const TPL_SCRIPT = `
   }
 
   // --- theme switcher: GET /themes, preview-only (draft_theme), never
-  // persists the funnel's OWN theme_json. -----------------------------
+  // persists the funnel's OWN theme_json. B7: the dropdown lists the REAL
+  // theme presets, says so honestly when there are none yet, and the
+  // "+ New theme…" button next to it reaches the Themes tab (where presets
+  // are authored) instead of dead-ending. ------------------------------
   function populateThemeSwitcher() {
     var sel = byId('lg-tpl-theme-select');
     if (!sel) { return; }
@@ -1141,9 +1458,65 @@ const TPL_SCRIPT = `
         o.appendChild(text(items[i].name || items[i].id));
         sel.appendChild(o);
       }
+      if (items.length === 0) {
+        var empty = document.createElement('option');
+        empty.value = '';
+        empty.disabled = true;
+        empty.appendChild(text('No themes yet \\u2014 create one in the Themes tab'));
+        sel.appendChild(empty);
+      }
     }).catch(function () { /* the "Current theme" option alone still works */ });
     sel.addEventListener('change', function () {
       myDraftThemeId = sel.value;
+      scheduleCanvasPreview();
+    });
+  }
+
+  function wireThemeCreateAffordance() {
+    var btn = byId('lg-tpl-theme-create');
+    if (!btn) { return; }
+    btn.addEventListener('click', function () {
+      var tab = document.querySelector('[data-tab="themes"]');
+      if (tab) { tab.click(); }
+    });
+  }
+
+  // --- preview site (R5 / #11A): the site whose branding the canvas renders
+  // under. Options come from the boot blob's activation sites; the select
+  // carries [data-site-select], the SAME hook the funnel builder's toolbar
+  // uses, so the two canvases agree on the chosen site. Default = the first
+  // ACTIVE site, so a funnel that IS live on a site shows that site's logo
+  // without a second click. ---------------------------------------------
+  function populateSiteSelect() {
+    var sel = byId('lg-tpl-site-select');
+    var sites = (boot && boot.sites) ? boot.sites : [];
+    var chosen = '';
+    var i;
+    if (sel) {
+      for (i = 0; i < sites.length; i++) {
+        var o = document.createElement('option');
+        o.value = sites[i].site_id;
+        o.appendChild(text((sites[i].site_name || sites[i].site_id) + ' \\u2014 ' + (sites[i].badge || '')));
+        sel.appendChild(o);
+      }
+    }
+    // An explicit choice already made on another tab's site select wins.
+    var others = toArray(document.querySelectorAll('[data-site-select]'));
+    for (i = 0; i < others.length; i++) {
+      if (others[i] !== sel && others[i].value) { chosen = others[i].value; }
+    }
+    if (chosen === '') {
+      for (i = 0; i < sites.length; i++) {
+        if (sites[i].badge === 'Active') { chosen = sites[i].site_id; break; }
+      }
+    }
+    mySiteId = chosen;
+    if (sel && chosen !== '') { sel.value = chosen; }
+    document.addEventListener('change', function (ev) {
+      var el = ev.target;
+      if (!el || !el.getAttribute || el.getAttribute('data-site-select') === null) { return; }
+      mySiteId = el.value || '';
+      if (sel && sel !== el) { sel.value = mySiteId; }
       scheduleCanvasPreview();
     });
   }
@@ -1174,14 +1547,18 @@ const TPL_SCRIPT = `
     var i;
     for (i = 0; i < templates.length; i++) {
       (function (tpl) {
+        // R2 D5: "DEFAULT" now marks THIS QUOTE's override (myQuoteDefaultTemplateId)
+        // when one is set; a quote with no override shows the GLOBAL default
+        // (tpl.is_default) instead, since that is what it actually inherits.
+        var isThisQuoteDefault = myQuoteDefaultTemplateId ? (tpl.public_id === myQuoteDefaultTemplateId) : !!tpl.is_default;
         var chip = document.createElement('span');
-        chip.className = 'lg-tpl2-tpl-chip' + (tpl.is_default ? ' is-default' : '');
+        chip.className = 'lg-tpl2-tpl-chip' + (isThisQuoteDefault ? ' is-default' : '');
         chip.setAttribute('data-tpl-chip', tpl.public_id);
         chip.appendChild(text(tpl.name));
-        if (tpl.is_default) {
+        if (isThisQuoteDefault) {
           var badge = document.createElement('span');
           badge.className = 'lg-tpl2-tpl-chip-default-badge';
-          badge.appendChild(text('DEFAULT'));
+          badge.appendChild(text(myQuoteDefaultTemplateId ? 'DEFAULT FOR THIS QUOTE' : 'DEFAULT'));
           chip.appendChild(badge);
         }
         var moreBtn = document.createElement('button');
@@ -1201,6 +1578,21 @@ const TPL_SCRIPT = `
       renderTemplateList();
       return templates;
     });
+  }
+
+  // R2 D5: this quote's per-quote default override (quoteDetailJson's
+  // default_template_id) — a SEPARATE fetch from loadTemplates (which lists
+  // every SAVED template, global is_default included) since the per-quote
+  // override lives on the quote's OWN row, not the template records list.
+  function loadQuoteDefaultTemplate() {
+    if (!boot || !boot.quote_public_id) { return Promise.resolve(''); }
+    return fetchJson(LG_API + '/quotes/' + encodeURIComponent(boot.quote_public_id), { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (res) {
+        myQuoteDefaultTemplateId = (res.ok && res.body && res.body.default_template_id) ? res.body.default_template_id : '';
+        renderTemplateList();
+        return myQuoteDefaultTemplateId;
+      })
+      .catch(function () { return ''; });
   }
 
   function findTemplate(publicId) {
@@ -1245,13 +1637,22 @@ const TPL_SCRIPT = `
         loadTemplates();
       });
     });
-    addItem('Set as default', function () {
-      fetchJson(LG_API + '/frame-template-records/' + encodeURIComponent(publicId) + '/default', {
-        method: 'PUT', credentials: 'same-origin', headers: { Accept: 'application/json' }
+    // R2 D5 (contract §7 D5, owner ruling on A.1 #11-D/ADJ-B2): "Set as
+    // default" is now PER-QUOTE — it writes/updates THIS quote's row
+    // (PATCH /quotes/:id {default_template_id}, migration 0055's
+    // leadgen_quote_default_template) rather than the old cross-quote-global
+    // PUT /frame-template-records/:id/default. The global default (set
+    // elsewhere) remains the fallback for quotes with no override.
+    addItem('Set as this quote\\u2019s default', function () {
+      if (!boot || !boot.quote_public_id || !tpl) { return; }
+      fetchJson(LG_API + '/quotes/' + encodeURIComponent(boot.quote_public_id), {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ default_template_id: tpl.id })
       }).then(function (res) {
-        if (!res.ok) { showError('lg-tpl-bar-error', (res.body && res.body.error) || 'Could not set default.'); return; }
+        if (!res.ok) { showError('lg-tpl-bar-error', (res.body && res.body.error) || 'Could not set this quote\\u2019s default.'); return; }
         hideError('lg-tpl-bar-error');
-        loadTemplates();
+        loadQuoteDefaultTemplate();
       });
     });
     addItem('Delete', function () {
@@ -1310,10 +1711,13 @@ const TPL_SCRIPT = `
       newSave.addEventListener('click', function () {
         var name = newName ? newName.value.replace(/^\\s+|\\s+$/g, '') : '';
         if (!name) { showError('lg-tpl-bar-error', 'Enter a template name.'); return; }
+        // R4: save what the operator is LOOKING AT — the island's live draft
+        // (scalar edits + the C-H rows) — not boot.frame.effective_frame, the
+        // page-load snapshot that ignored every unsaved edit.
         fetchJson(LG_API + '/frame-template-records', {
           method: 'POST', credentials: 'same-origin',
           headers: { 'content-type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ name: name, frame_json: (boot && boot.frame && boot.frame.effective_frame) || {} })
+          body: JSON.stringify({ name: name, frame_json: currentEffectiveFrameForDraft() })
         }).then(function (res) {
           if (!res.ok) { showError('lg-tpl-bar-error', (res.body && res.body.error) || 'Create failed.'); return; }
           hideError('lg-tpl-bar-error');
@@ -1520,16 +1924,24 @@ const TPL_SCRIPT = `
 
     document.addEventListener('change', onFrameKeyChange);
     document.addEventListener('click', onRolePickClick);
+    // R2 §3 ② — every Templates-panel edit re-renders the canvas (the C-H
+    // rows included; see onPanelEdit / overlayListGroups).
+    document.addEventListener('input', onPanelEdit);
+    document.addEventListener('change', onPanelEdit);
+    document.addEventListener('click', onPanelEdit);
     wireProgressToggle();
     syncProgressToggleUi();
     syncRadioActiveClasses();
 
     populateThemeSwitcher();
+    wireThemeCreateAffordance();
+    populateSiteSelect();
     populateSectionPicker(); // triggers the first canvas render on resolve
     wireTemplateBar();
     wireApplyDialog();
     wireAbTemplatesDialog();
     loadTemplates();
+    loadQuoteDefaultTemplate();
   }
 
   if (document.readyState === 'loading') {

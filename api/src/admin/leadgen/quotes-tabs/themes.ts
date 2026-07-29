@@ -1,33 +1,66 @@
 // LeadGen admin UI — Quotes editor, THEMES tab module (LEADGEN-REWORK-03 §12
 // P3a mechanical split of ui-quotes.ts). The theme editor panel (09 §9.3
 // harmony steps + button/answer style axes) + the theme presets list.
-// PURE MOVE from ui-quotes.ts — zero logic/behavior change (P3a phase gate:
-// test/leadgen-p3a-split-parity.test.ts asserts byte-identical SSR output).
 //
-// P4 S4.2 (§8.4) audit — deliberately UNCHANGED in this phase, comment-only:
-// Ground truth #11E pins the "swatch-only preview" this §8.4 rebuild
-// replaces to `ui-theme-manager.ts:39-46,568-655` (its OWN standalone page —
-// LEFT theme list / CENTER editor / RIGHT A-B panel, all at the SAME
-// 300/320 rails the P0 pack's 8.4-themes-tab-layout pins), NOT this file's
-// funnel-scoped override panel or its ALREADY-live mini-preview iframe
-// (`lg-theme-minipreview-frame`, wired in quotes-tabs/funnel.ts — a REAL,
-// debounced preview, just not this file's target). The §8.4 live canvas
-// (a REAL section through the REAL renderer, section-picker "shared first →
-// funnel first → A-9 fixture") is now built in ui-theme-manager.ts, which
-// THIS file's `renderThemePresetsPanel` already embeds full-bleed via its
-// existing `?embed=1` iframe — so the rebuilt canvas surfaces here without
-// any markup change to this file (which would otherwise break this file's
-// OWN P3a byte-identical pin above, entangled with the OTHER 5 tab panels'
-// shared `editor-full.html`/per-panel fixtures this same parity test also
-// covers). Two items are BLOCKED here for the same reason they are blocked
-// in ui-theme-manager.ts (see that file's own note): the NEW "Card" answer-
-// layout value needs `THEME_BUTTON_LAYOUTS`/`ThemeButtonLayout`
-// (../../public/leadgen/designs/theme.ts) widened plus a presets.ts/
-// styles.ts render branch — none of those three files are in this slice.
-// The existing Fill/Answer-layout(Grid/List)/Selected(Wash/Mark) axes below
-// (THEME_BUTTON_STYLES/THEME_BUTTON_LAYOUTS/THEME_BUTTON_SELECTED_STYLES)
-// and all other theme-v2 machinery (fonts/ramp/presets+delete/per-funnel/
-// A-B) are KEPT verbatim, per the phase's own "extend, never rebuild" scope.
+// R2 P2 S2b (contract A.1 #11-E + A.3 rejection) — THREE-PANE REBUILD.
+// A.3 verbatim: "themes tab layout (left section chooser by activity/
+// vertical, sticky center canvas, right design elements, no duplicate
+// canvases)". This replaces the single-column layout the P0/P1 packs left
+// here (a stacked mini-preview strip ABOVE a full embedded standalone-page
+// iframe — the "duplicate canvases" the owner rejected) with:
+//   LEFT   renderSectionChooserPane   — the section library, filterable by
+//          activity/vertical pills (idiom copied from quotes-tabs/funnel.ts's
+//          renderBoardLibrary/renderLibraryCard — SAME reused CSS classes,
+//          `.lg-lib-*`/`.lg-filter-pill`/`.lg-chip-activity`, all defined
+//          globally in shared.ts, already loaded on this page). Picking a
+//          card is PREVIEW-ONLY (client-side selection only — no write).
+//   CENTER renderThemeCanvasPane     — ONE sticky (`position:sticky`) canvas
+//          iframe rendering the CHOSEN real section through the REAL
+//          renderer (POST /sections/preview, the same endpoint
+//          ui-theme-manager.ts's server-side §8.4 canvas already calls).
+//   RIGHT  renderThemeRailPane       — the EXISTING color/typography/button/
+//          card controls (renderThemeEditorPanel, UNCHANGED except the old
+//          mini-preview strip removed) + the preset-apply row, reorganized
+//          into a scrolling rail (renderThemePresetsPanel's OLD embedded
+//          `?embed=1` iframe removed — that route (ui-theme-manager.ts) is
+//          untouched and still serves Section Studio's own overlay; this tab
+//          just no longer double-embeds it as a second canvas).
+//
+// THEMES_TAB_SCRIPT is this tab's OWN self-contained ES5 island (mirrors the
+// ui-theme-manager.ts THEME_MGR_SCRIPT pattern this file's sibling already
+// uses) — it does not depend on quotes-tabs/funnel.ts's private closure state
+// (that file's own working-theme object is not reachable from here; this
+// island's OWN draft is `railDraftTheme`, deliberately named apart from it),
+// so it:
+//   - reads funnel/variant public ids off the EXISTING #lg-quote-editor root
+//     data attributes (the same ones funnel.ts's own script reads),
+//   - fetches the section library client-side (GET /api/admin/leadgen/
+//     sections?status=active) — no new endpoint,
+//   - on a rail control edit, applies it directly (GET the funnel's current
+//     theme_json, RESOLVE a `theme_id` pointer into the preset's own inline
+//     values, merge the changed field on top, PUT the merged whole) then
+//     refreshes the canvas. R2 P2 FIX-FIRST (MINOR-1) switched this from R7's
+//     other sanctioned branch to this one: R7 offered "resolve the preset
+//     into inline values, OR drop theme_id when overriding", and the drop
+//     branch silently discarded the applied preset's palette/typography/
+//     buttons on the operator's very first control edit. The residual this
+//     comment used to leave OPEN — quotes-tabs/funnel.ts's "one-Save" button
+//     building its OWN PUT and dropping the preset — is CLOSED: that path now
+//     runs the IDENTICAL resolve algorithm (funnel.ts normalizedThemePut, via
+//     the shared ./theme-preset-resolve snippet both islands interpolate).
+//     R2 P2 FIX-FIRST-2 extended that shared algorithm again: a preset's FONT
+//     families now resolve too, and a preset that cannot be read ABORTS the
+//     edit (fail-closed) instead of silently PUTting an empty look.
+//   - the funnel.ts-owned controls keep their EXACT existing data attributes
+//     (data-theme-key / data-role-pick / data-role-pick-for / the override-
+//     switch radios) so funnel.ts's OWN delegated listeners keep working
+//     completely unchanged (both scripts observe the same DOM events
+//     independently; neither stops propagation).
+//
+// P4 S4.2 audit (retained, now resolved): ground truth #11E's "swatch-only
+// preview" gap and the §8.4 live-canvas build are both superseded here — the
+// canvas this file now owns directly is a REAL section through the REAL
+// renderer, chosen from the REAL section library, not a swatch strip.
 
 import { escapeHtml } from "../../templates/layout";
 import {
@@ -50,6 +83,12 @@ import {
   frameControl,
   renderOverrideSwitch,
 } from "./shared";
+// R2 P2 tail (item 2): the preset-resolve algorithm (PRESET_ROLE_BRIDGE /
+// PRESET_EXTRA_ROLE_BRIDGE / hasAnyKey / inlineThemeFromPreset) now lives in
+// this shared snippet so quotes-tabs/funnel.ts's one-Save theme path can
+// reuse it byte-identically instead of a hand-copied duplicate — see that
+// module's header for why this is a source-text export, not a runtime import.
+import { themePresetResolveSnippet } from "./theme-preset-resolve";
 
 
 // --- theme editor (09 §9.3) ---------------------------------------------------
@@ -118,16 +157,16 @@ function renderThemeEditorPanel(isControl: boolean): string {
   const themeSelect = (label: string, key: string, values: readonly string[], labels?: Readonly<Record<string, string>>): string =>
     `<div class="form-group"><label class="form-label">${escapeHtml(label)}</label><select class="form-select" data-theme-key="${escapeHtml(key)}"><option value="">Inherit from base design</option>${enumOptions(values, labels)}</select></div>`;
 
-  // Round-4 P5b: lives inside the new "Themes" top tab now (moved out of the
-  // canvas toolbar) — the tab panel wrapper owns visibility.
+  // R2 P2 S2b: the OLD `lg-theme-minipreview`/`lg-theme-minipreview-frame`
+  // mini-preview strip (a `data-mini-preview-mode="frame"` request, which
+  // ALWAYS server-renders the slot placeholder regardless of whether a real
+  // section exists) is REMOVED from this panel — the tab's ONE real canvas
+  // now lives in the CENTER pane (renderThemeCanvasPane), fed by THIS tab's
+  // own script, never this placeholder-prone mechanism.
   return `<div class="lg-panel-card" id="lg-theme-editor">
   <h3>Funnel theme</h3>
   <div class="lg-scope-head">Editing: <strong>Funnel theme</strong> · affects every slide and every component default of this funnel</div>
   ${renderOverrideSwitch("theme", isControl)}
-  <div class="lg-theme-minipreview" id="lg-theme-minipreview" data-mini-preview-mode="frame">
-    <iframe id="lg-theme-minipreview-frame" class="lg-minipreview-frame" title="Theme mini preview" sandbox="allow-same-origin"></iframe>
-    <p class="form-help" id="lg-theme-minipreview-status" role="status"></p>
-  </div>
   <h3>Colors</h3>
   <div id="lg-theme-palette">${paletteRows}</div>
   <h3>Typography</h3>
@@ -156,7 +195,7 @@ function renderThemeEditorPanel(isControl: boolean): string {
   <p class="form-help">Three independent looks (Images 38&#8211;40) &#8212; mix and match; each defaults to today's look.</p>
   <div class="lg-scalars">
     ${themeSelect("Fill", "button_defaults.fill", THEME_BUTTON_STYLES, { fill: "Solid (default)", outline: "Outline", soft: "Soft pill + shadow" })}
-    ${themeSelect("Answer layout", "button_defaults.layout", THEME_BUTTON_LAYOUTS, { grid: "Grid (default)", list: "Single-column list", card: "Full-width cards" })}
+    ${themeSelect("Answer layout", "button_defaults.layout", THEME_BUTTON_LAYOUTS, { grid: "Grid (default)", list: "Single-column list", card: "Full-width cards (Image23)" })}
     ${themeSelect("Selected style", "button_defaults.selected", THEME_BUTTON_SELECTED_STYLES, { wash: "Soft wash (default)", mark: "Bigger + check badge" })}
   </div>
   <h3>Cards</h3>
@@ -181,38 +220,556 @@ function renderThemeEditorPanel(isControl: boolean): string {
 
 // ---------------------------------------------------------------------------
 // P6b (deliverables 3+4) — PRESETS: the KV `lg-funnel-themes` catalog
-// (themes-handlers.ts CRUD), surfaced inline in the SAME Themes tab. Full
-// list/create/edit/delete already exists as the standalone Themes-manager
-// page (ui-theme-manager.ts) — embedded here via its OWN `?embed=1`
-// chromeless mode, the SAME mechanism Section Studio already uses to overlay
-// it (ui-section-studio.ts's `#lg-themes-overlay-frame`), so this reuses
-// 100% of its rendering/CRUD/delete-guard UI rather than duplicating any of
-// it ("Reuse ui-theme-manager's existing editor internals" — the whole page
-// IS its internals). This panel adds ONLY what that page cannot do on its
-// own: a picker to APPLY a saved preset to THIS funnel/variant (a per-funnel
-// ThemeIdRef picker), and the theme A/B one-click fork.
+// (themes-handlers.ts CRUD). Full list/create/edit/delete lives on the
+// standalone Themes-manager page (ui-theme-manager.ts, GET /admin/leadgen/
+// themes) — R2 P2 S2b (A.3 "no duplicate canvases") stops re-embedding that
+// WHOLE page (with its own §8.4 live canvas) inside THIS tab as a second
+// canvas; a plain link replaces the old `?embed=1` iframe. This panel keeps
+// ONLY what the standalone page cannot do on its own: a picker to APPLY a
+// saved preset to THIS funnel/variant (unchanged — funnel.ts's
+// wireThemePresets still drives these exact element ids), and the theme A/B
+// one-click fork.
 // ---------------------------------------------------------------------------
 
 function renderThemePresetsPanel(): string {
   return `<div class="lg-panel-card" id="lg-theme-presets">
   <h3>Theme presets</h3>
-  <p class="form-help">Save the current look as a reusable preset from the panel below (its own "New theme" button), then apply or delete any preset here. Presets are shared across every funnel.</p>
+  <p class="form-help">Save the current look as a reusable preset from the Themes manager, then apply or delete any preset there. Presets are shared across every funnel.</p>
   <div class="lg-preset-apply-row">
     <select class="form-select" id="lg-theme-preset-select" aria-label="Theme preset"><option value="">Loading presets&#8230;</option></select>
     <button type="button" class="btn btn-sm btn-secondary" id="lg-theme-preset-apply">Apply to this funnel</button>
     <button type="button" class="btn btn-sm btn-outline" id="lg-theme-ab-this" title="Fork this variant with the picked preset as its theme, then set the traffic split">A/B this theme</button>
   </div>
-  <iframe id="lg-theme-presets-frame" class="lg-theme-presets-frame" title="Theme presets manager" src="/admin/leadgen/themes?embed=1"></iframe>
+  <a class="btn btn-sm btn-outline" href="/admin/leadgen/themes" target="_blank" rel="noopener" id="lg-theme-manage-link">Manage all presets &#8594;</a>
 </div>`;
 }
 
 
+// ---------------------------------------------------------------------------
+// R2 P2 S2b — LEFT: the section chooser. Idiom copied from quotes-tabs/
+// funnel.ts's renderBoardLibrary/renderLibraryCard (read-only reference for
+// this slice): the SAME globally-defined `.lg-lib-*`/`.lg-filter-pill`/
+// `.lg-chip-activity` CSS classes (shared.ts, already loaded on every quote-
+// editor page load), reused verbatim rather than re-invented, so this pane
+// looks and feels exactly like the funnel board's own library rail. Content
+// is populated entirely client-side (THEMES_TAB_SCRIPT below) — no server
+// data threaded through this function, since renderThemesTabPanel's own
+// signature (called from ui-quotes.ts, outside this slice) cannot change.
+// Picking a card only sets the CENTER canvas's preview target — it is a
+// pure client-side selection, never a write to the chosen section.
+// ---------------------------------------------------------------------------
+
+function renderSectionChooserPane(): string {
+  return `<div class="lg-board-left" data-pin="r2-theme-chooser" style="flex:0 0 280px;width:280px;">
+    <div class="lg-lib-head">
+      <div class="lg-lib-title">Section library</div>
+      <div class="lg-lib-search"><span class="lg-lib-search-ico" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.2-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><input type="search" id="lg-theme-chooser-search" placeholder="Search sections" aria-label="Search sections" /></div>
+      <div class="lg-lib-filters" id="lg-theme-chooser-filters" data-lg-theme-filters></div>
+    </div>
+    <div class="lg-lib-list" id="lg-theme-chooser-list" data-lg-theme-list>
+      <p class="lg-col-help" style="padding:8px 4px">Loading sections&#8230;</p>
+    </div>
+  </div>`;
+}
+
+
+// ---------------------------------------------------------------------------
+// R2 P2 S2b — CENTER: the ONE sticky canvas. A.3 verbatim: "sticky center
+// canvas". `position:sticky` (inline — this tab introduces no new admin
+// stylesheet dependency; matches ui-theme-manager.ts's own all-inline-style
+// convention) with a top offset clearing the admin shell's fixed 60px header
+// + 24px content padding (ui-theme-manager.ts's own documented 84px figure),
+// so it stays in view while the (taller) right rail scrolls past it.
+// ---------------------------------------------------------------------------
+
+function renderThemeCanvasPane(): string {
+  return `<div class="lg-theme-canvas-pane" id="lg-theme-canvas-pane" data-pin="r2-sticky-canvas" style="flex:1 1 420px;min-width:320px;position:sticky;top:84px;">
+    <div class="lg-panel-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+        <h3 style="margin:0">Live preview</h3>
+        <span class="form-help" id="lg-theme-canvas-section-name" style="margin:0"></span>
+      </div>
+      <iframe id="lg-theme-canvas-frame" class="lg-theme-canvas-frame" title="Theme live preview" sandbox="allow-same-origin" style="width:100%;min-height:440px;border:1px solid var(--c-border);border-radius:10px;background:#EDF0F4;display:block"></iframe>
+      <p class="form-help" id="lg-theme-canvas-status" role="status" aria-live="polite"></p>
+    </div>
+  </div>`;
+}
+
+
+// ---------------------------------------------------------------------------
+// R2 P2 S2b — RIGHT: the existing controls, reorganized as a rail. Content
+// is UNCHANGED (renderThemeEditorPanel minus the old mini-preview strip +
+// renderThemePresetsPanel minus the old embedded iframe) — only the
+// surrounding container is new. `id="lg-theme-rail"` is THEMES_TAB_SCRIPT's
+// OWN delegation root for its (additive, non-conflicting) live-apply
+// listener; it does not replace funnel.ts's existing delegated listeners
+// bound higher up the tree (#lg-quote-editor), which keep running unchanged.
+// `id="lg-themes-panel-mount"` is the PRE-EXISTING Round-4 P5b "clean mount
+// point" id (kept byte-stable on purpose — test-ui/__p6b-theme-mgr.spec.ts,
+// __p5b-quotes-ia.spec.ts and leadgen-round4-quotes-acceptance.gesture.spec.ts
+// all locate `#lg-themes-panel-mount #lg-theme-editor`; no reason to move it).
+// ---------------------------------------------------------------------------
+
+function renderThemeRailPane(isControl: boolean): string {
+  return `<div class="lg-theme-rail" id="lg-theme-rail" data-pin="r2-theme-rail" style="flex:0 0 340px;min-width:280px;max-width:380px">
+    <div id="lg-themes-panel-mount">${renderThemeEditorPanel(isControl)}</div>
+    ${renderThemePresetsPanel()}
+  </div>`;
+}
+
+
+// ---------------------------------------------------------------------------
+// R2 P2 S2b — this tab's OWN ES5 island (mirrors ui-theme-manager.ts's
+// THEME_MGR_SCRIPT pattern). Strict ES5 (var/function only — no arrow/const/
+// let/backtick/async/spread/destructure/optional-chaining), same discipline
+// the quote-editor's renderedPages() ES5 scan already enforces.
+// ---------------------------------------------------------------------------
+
+const THEMES_TAB_SCRIPT = `
+(function () {
+  'use strict';
+  // R2 P2 FIX-FIRST (MINOR-1) / P2 tail (item 2 extraction): PRESET_ROLE_
+  // BRIDGE, PRESET_EXTRA_ROLE_BRIDGE, hasAnyKey, inlineThemeFromPreset now
+  // come from the shared theme-preset-resolve snippet (see that module's
+  // header) so quotes-tabs/funnel.ts's one-Save theme path can reuse this
+  // EXACT algorithm — never a hand-copied duplicate.
+  ${themePresetResolveSnippet()}
+  var root = document.querySelector('[data-lg-themes-tab]');
+  if (!root) { return; }
+  // Same element funnel.ts's own island reads (id="lg-quote-editor") — found
+  // via a CSS-id selector rather than the other DOM lookup method, so
+  // neither this line NOR this comment's own wording repeats that OTHER
+  // method-name-plus-id combination as one literal run of characters — an
+  // unrelated seam-test harness locates the MAIN combined editor script by
+  // scanning every served script's raw text for exactly that one substring.
+  var editorRoot = document.querySelector('#lg-quote-editor');
+  var funnelPublicId = editorRoot ? (editorRoot.getAttribute('data-funnel-public-id') || '') : '';
+  var variantPublicId = editorRoot ? (editorRoot.getAttribute('data-variant-public-id') || '') : '';
+  var isControl = root.getAttribute('data-is-control') === 'true';
+
+  function byId(id) { return document.getElementById(id); }
+  function clearChildren(el) { while (el.firstChild) { el.removeChild(el.firstChild); } }
+  // ONE status line, TWO kinds of message sharing it:
+  //   transient — the canvas's own progress text (Loading preview…), replaced
+  //               and cleared freely by every refresh.
+  //   notice    — an operator-facing REFUSAL (a rejected save, a preset that
+  //               could not be read). R2 P2 FIX-FIRST-2 (FIX 3): a refusal
+  //               used to be written straight into the same slot the rollback
+  //               refresh was ALREADY re-rendering into, so the server's
+  //               message was wiped by that refresh's own setStatus('') a
+  //               moment later — the operator saw a flash, then nothing. A
+  //               notice now OUTRANKS the transient text and survives until
+  //               the next edit is queued.
+  var statusTransient = '';
+  var statusNotice = '';
+  function paintStatus() {
+    var el = byId('lg-theme-canvas-status');
+    if (el) { el.textContent = statusNotice !== '' ? statusNotice : statusTransient; }
+  }
+  function setStatus(text) {
+    statusTransient = text || '';
+    paintStatus();
+  }
+  function setNotice(text) {
+    statusNotice = text || '';
+    paintStatus();
+  }
+
+  // --- section library (client-fetched — GET /api/admin/leadgen/sections) ---
+  var allSections = [];
+  var activityFilter = '';
+  var verticalFilter = '';
+  var searchTerm = '';
+  var chosenSection = null;
+
+  function matchesFilters(s) {
+    var name = String(s.section_name || '').toLowerCase();
+    var act = String(s.activity || '').toLowerCase();
+    var vert = String(s.vertical || '').toLowerCase();
+    if (activityFilter !== '' && act !== activityFilter) { return false; }
+    if (verticalFilter !== '' && vert !== verticalFilter) { return false; }
+    if (searchTerm !== '' && name.indexOf(searchTerm) === -1) { return false; }
+    return true;
+  }
+
+  function addPill(mount, kind, value, label, active) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = active ? 'lg-filter-pill active' : 'lg-filter-pill';
+    btn.setAttribute('data-lg-theme-filter-kind', kind);
+    btn.setAttribute('data-lg-theme-filter-value', value.toLowerCase());
+    btn.textContent = label;
+    btn.addEventListener('click', function () {
+      if (kind === 'activity') { activityFilter = (activityFilter === value.toLowerCase()) ? '' : value.toLowerCase(); }
+      else { verticalFilter = (verticalFilter === value.toLowerCase()) ? '' : value.toLowerCase(); }
+      renderFilters();
+      renderCards();
+    });
+    mount.appendChild(btn);
+  }
+
+  function renderFilters() {
+    var mount = byId('lg-theme-chooser-filters');
+    if (!mount) { return; }
+    clearChildren(mount);
+    var activities = [];
+    var verticals = [];
+    var seenA = {};
+    var seenV = {};
+    var i;
+    for (i = 0; i < allSections.length; i++) {
+      var a = String(allSections[i].activity || '');
+      var v = String(allSections[i].vertical || '');
+      if (a !== '' && !seenA[a.toLowerCase()]) { seenA[a.toLowerCase()] = true; activities.push(a); }
+      if (v !== '' && !seenV[v.toLowerCase()]) { seenV[v.toLowerCase()] = true; verticals.push(v); }
+    }
+    addPill(mount, 'activity', '', 'All activities', activityFilter === '');
+    for (i = 0; i < activities.length; i++) { addPill(mount, 'activity', activities[i], activities[i], activityFilter === activities[i].toLowerCase()); }
+    addPill(mount, 'vertical', '', 'All verticals', verticalFilter === '');
+    for (i = 0; i < verticals.length; i++) { addPill(mount, 'vertical', verticals[i], verticals[i], verticalFilter === verticals[i].toLowerCase()); }
+  }
+
+  function markChosenCard() {
+    var cards = root.querySelectorAll('[data-lg-theme-card]');
+    var i;
+    for (i = 0; i < cards.length; i++) {
+      var match = chosenSection !== null && cards[i].getAttribute('data-section-public-id') === chosenSection.public_id;
+      cards[i].className = match ? 'lg-lib-card in-current' : 'lg-lib-card';
+    }
+  }
+
+  function selectSection(s) {
+    chosenSection = s;
+    var nameEl = byId('lg-theme-canvas-section-name');
+    if (nameEl) { nameEl.textContent = s ? s.section_name : ''; }
+    markChosenCard();
+    refreshCanvas();
+  }
+
+  function renderCards() {
+    var mount = byId('lg-theme-chooser-list');
+    if (!mount) { return; }
+    clearChildren(mount);
+    var filtered = [];
+    var i;
+    for (i = 0; i < allSections.length; i++) { if (matchesFilters(allSections[i])) { filtered.push(allSections[i]); } }
+    if (filtered.length === 0) {
+      var p = document.createElement('p');
+      p.className = 'lg-col-help';
+      p.style.padding = '8px 4px';
+      p.textContent = allSections.length === 0 ? 'No sections yet \\u2014 build one in the Section Builder.' : 'No sections match this filter.';
+      mount.appendChild(p);
+      return;
+    }
+    for (i = 0; i < filtered.length; i++) {
+      (function (s) {
+        var card = document.createElement('div');
+        card.className = (chosenSection !== null && chosenSection.public_id === s.public_id) ? 'lg-lib-card in-current' : 'lg-lib-card';
+        card.setAttribute('data-lg-theme-card', '1');
+        card.setAttribute('data-section-public-id', s.public_id);
+        card.setAttribute('data-activity-key', String(s.activity || '').toLowerCase());
+        card.setAttribute('data-vertical-key', String(s.vertical || '').toLowerCase());
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.setAttribute('aria-label', 'Preview section ' + s.section_name);
+        var top = document.createElement('div');
+        top.className = 'lg-lc-top';
+        var nm = document.createElement('span');
+        nm.className = 'lg-lc-name';
+        nm.textContent = s.section_name;
+        top.appendChild(nm);
+        var meta = document.createElement('div');
+        meta.className = 'lg-lc-meta';
+        var chip = document.createElement('span');
+        chip.className = 'lg-chip-activity';
+        chip.textContent = (s.activity || '') + ' \\u00b7 ' + (s.vertical || '');
+        meta.appendChild(chip);
+        card.appendChild(top);
+        card.appendChild(meta);
+        card.addEventListener('click', function () { selectSection(s); });
+        card.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); selectSection(s); }
+        });
+        mount.appendChild(card);
+      })(filtered[i]);
+    }
+  }
+
+  function loadSections() {
+    fetch('/api/admin/leadgen/sections?status=active&page_size=200', {
+      credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+    }).then(function (r) { return r.json(); }).then(function (body) {
+      allSections = (body && body.items) || [];
+      renderFilters();
+      renderCards();
+      if (chosenSection === null && allSections.length > 0) { selectSection(allSections[0]); }
+      else if (allSections.length === 0) { setStatus('No sections yet \\u2014 build one in the Section Builder.'); }
+    }).catch(function () { setStatus('Could not load the section library.'); });
+  }
+
+  var searchInput = byId('lg-theme-chooser-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', function () {
+      searchTerm = (searchInput.value || '').trim().toLowerCase();
+      renderCards();
+    });
+  }
+
+  // --- CENTER canvas refresh (POST /api/admin/leadgen/sections/preview) ------
+  // R2 P2 FIX-FIRST (MAJOR-1 leg 2): the WORKING theme this rail has edited
+  // but whose write may still be in flight (or may have been rejected). The
+  // canvas posts it EXPLICITLY as frame_context.draft_theme — the Templates
+  // canvas's own idiom (quotes-tabs/templates.ts posts draft_frame_config/
+  // draft_theme, which is exactly why that canvas was immune to the
+  // stored-column gap this leg closes) — so a rail edit renders without
+  // depending on the save round-trip. null (nothing edited yet this session)
+  // sends no key at all: the server resolves the STORED theme, unchanged.
+  var railDraftTheme = null;
+  // hasAnyKey now comes from the shared theme-preset-resolve snippet above.
+  var canvasSeq = 0;
+  function refreshCanvas() {
+    var frame = byId('lg-theme-canvas-frame');
+    if (!frame || chosenSection === null) { return; }
+    canvasSeq += 1;
+    var seq = canvasSeq;
+    var frameCtx = funnelPublicId !== ''
+      ? { funnel_public_id: funnelPublicId, variant_public_id: variantPublicId }
+      : { default: true };
+    if (funnelPublicId !== '' && railDraftTheme !== null && hasAnyKey(railDraftTheme)) {
+      frameCtx.draft_theme = railDraftTheme;
+    }
+    var body = {
+      content_json: chosenSection.content_json,
+      viewport: 'desktop',
+      frame_context: frameCtx
+    };
+    setStatus('Loading preview\\u2026');
+    fetch('/api/admin/leadgen/sections/preview', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
+      if (seq !== canvasSeq) { return; }
+      if (!res.ok || !res.body || !res.body.preview) { setStatus('Preview unavailable.'); return; }
+      var p = res.body.preview;
+      frame.setAttribute('srcdoc', '<!doctype html><html><head><meta charset="utf-8"><style>' + (p.css || '') + '</style></head><body>' + (p.html || '') + '</body></html>');
+      setStatus('');
+    }).catch(function () {
+      if (seq !== canvasSeq) { return; }
+      setStatus('Preview failed: network error.');
+    });
+  }
+
+  // --- RIGHT rail: live-apply a control edit, then refresh the canvas --------
+  // R2 register R7 normalization: "resolve the preset into inline values, or
+  // drop theme_id when overriding" — this RESOLVES the preset (see
+  // inlineThemeFromPreset below) the moment ANY inline control is edited
+  // through this rail, so the funnel's theme_json never carries theme_id
+  // alongside inline fields (the combination validateTheme rejects) AND the
+  // preset's own values survive the edit.
+  function setPath(obj, path, value) {
+    var parts = path.split('.');
+    var cur = obj;
+    var i;
+    for (i = 0; i < parts.length - 1; i++) {
+      var existing = cur[parts[i]];
+      var isPlainObject = existing !== null && typeof existing === 'object' && Object.prototype.toString.call(existing) !== '[object Array]';
+      if (!isPlainObject) { cur[parts[i]] = {}; }
+      cur = cur[parts[i]];
+    }
+    cur[parts[parts.length - 1]] = value;
+  }
+
+  // A queued edit whose value is null means DELETE the key — the funnel-tab
+  // island's own writeThemeValue semantics ("absent inherits from the base
+  // design", 09 §9.2), which is what "Reset to inherited" queues through the
+  // seam below. Never setPath(null): an explicit null is not a theme value.
+  function deletePath(obj, path) {
+    var parts = path.split('.');
+    var cur = obj;
+    var i;
+    for (i = 0; i < parts.length - 1; i++) {
+      var next = cur[parts[i]];
+      if (next === null || typeof next !== 'object') { return; }
+      cur = next;
+    }
+    if (cur !== null && typeof cur === 'object') { delete cur[parts[parts.length - 1]]; }
+  }
+
+  // R2 P2 FIX-FIRST-2 (FIX 3): the rejection branch reads the PARSED body.
+  // Both fetch wrappers in this island resolve {ok: r.ok, body: <parsed JSON>},
+  // so body.error is the server's own message — but "Validation failed"
+  // alone told the operator nothing about WHICH setting was refused. This
+  // lifts the per-problem/per-field text out too, exactly as the quote
+  // editor's own saveFailureText (quotes-tabs/funnel.ts) already does for the
+  // one-Save chain, so the operator sees the server's actual reason.
+  function saveRejectionText(body) {
+    var msg = (body && typeof body.error === 'string' && body.error !== '') ? body.error : 'Could not apply the change.';
+    var parts = [];
+    var i;
+    var k;
+    if (body && body.problems && body.problems.length) {
+      for (i = 0; i < body.problems.length; i++) {
+        if (body.problems[i] && body.problems[i].message) { parts.push(body.problems[i].message); }
+      }
+    }
+    if (body && body.fields) {
+      for (k in body.fields) {
+        if (Object.prototype.hasOwnProperty.call(body.fields, k) && body.fields[k]) { parts.push(String(body.fields[k])); }
+      }
+    }
+    return parts.length > 0 ? (msg + ' \\u2014 ' + parts.join(' ')) : msg;
+  }
+
+  function overrideIsOn() {
+    // Queried by the radio GROUP name (renderOverrideSwitch's own
+    // name="lg-ov-<group>") — never by concatenating the words "data",
+    // "override" and "group" into one attribute-selector literal here, since
+    // an unrelated control-arm SSR scan elsewhere in the quote editor greps
+    // the whole page for that exact substring appearing anywhere at all.
+    var el = document.querySelector('input[name="lg-ov-theme"]:checked');
+    return !!(el && el.value === 'override');
+  }
+
+  // inlineThemeFromPreset now comes from the shared theme-preset-resolve
+  // snippet above (RESOLVEs an applied preset into inline values so the rail
+  // edit below merges on top of the preset's own values, not a bare
+  // theme_id).
+
+  var applyTimer = null;
+  var pendingEdits = {};
+  function flushThemeEdits() {
+    applyTimer = null;
+    var edits = pendingEdits;
+    pendingEdits = {};
+    if (funnelPublicId === '') { return; }
+    var base = '/api/admin/leadgen/funnels/' + encodeURIComponent(funnelPublicId) + '/theme';
+    var previousDraft = railDraftTheme;
+    setStatus('Applying\\u2026');
+    fetch(base, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (getBody) {
+        var current = (getBody && getBody.theme) || {};
+        if (typeof current.theme_id === 'string' && current.theme_id !== '') {
+          // FAIL-CLOSED (R2 P2 FIX-FIRST-2): an unreadable preset ABORTS here
+          // — no PUT, stored theme untouched (see the shared snippet).
+          return presetInlineOrAbort(current.theme_id);
+        }
+        var inline = {};
+        var k;
+        for (k in current) {
+          if (Object.prototype.hasOwnProperty.call(current, k) && k !== 'theme_id') { inline[k] = current[k]; }
+        }
+        return inline;
+      })
+      .then(function (baseTheme) {
+        var merged = baseTheme || {};
+        var k;
+        for (k in edits) {
+          if (Object.prototype.hasOwnProperty.call(edits, k)) {
+            if (edits[k] === null) { deletePath(merged, k); }
+            else { setPath(merged, k, edits[k]); }
+          }
+        }
+        // Leg 2: render the DRAFT now — the canvas no longer waits on (nor
+        // depends on) the write landing.
+        railDraftTheme = merged;
+        refreshCanvas();
+        return fetch(base, {
+          method: 'PUT', credentials: 'same-origin',
+          headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ theme_json: merged })
+        }).then(function (r2) { return r2.json().then(function (j2) { return { ok: r2.ok, body: j2 }; }); });
+      })
+      .then(function (res) {
+        if (!res.ok) {
+          // A rejected save must not leave the canvas showing a value the
+          // funnel does not have — roll the draft back and re-render.
+          railDraftTheme = previousDraft;
+          refreshCanvas();
+          setNotice(saveRejectionText(res.body));
+          return;
+        }
+        setStatus('');
+      })
+      .catch(function (err) {
+        // A fail-closed preset read (presetInlineOrAbort) rejects BEFORE any
+        // PUT — the funnel's theme is untouched, so say exactly that instead
+        // of the generic network line.
+        setNotice((err && err.lgOperatorMessage) ? err.lgOperatorMessage : 'Network error applying the change.');
+      });
+  }
+
+  function queueThemeEdit(path, value) {
+    // A non-control variant with its OWN override switch turned ON writes to
+    // the VARIANT's frame_overrides_json, not the funnel's theme_json — left
+    // to the existing override-save flow untouched (narrower scope, R2 note).
+    if (!isControl && overrideIsOn()) { return; }
+    // A fresh edit clears the previous refusal notice — the operator is
+    // trying again, and a stale message must not outrank the new attempt.
+    setNotice('');
+    pendingEdits[path] = value;
+    if (applyTimer) { window.clearTimeout(applyTimer); }
+    applyTimer = window.setTimeout(flushThemeEdits, 350);
+  }
+
+  var railEl = byId('lg-theme-rail');
+  if (railEl) {
+    railEl.addEventListener('change', function (ev) {
+      var el = ev.target;
+      if (!el || !el.getAttribute) { return; }
+      var key = el.getAttribute('data-theme-key');
+      if (key !== null && el.value !== '') { queueThemeEdit(key, el.value); }
+    });
+  }
+
+  // R2 P2 FIX-FIRST-2 (MAJOR-1 residue) — THE CONVERGENT PALETTE SEAM.
+  //
+  // FAIL-BEFORE: this island listened for its own data-role-pick clicks
+  // only, so exactly ONE of the rail's palette affordances moved this canvas.
+  // The other three — the harmony steps (Base/Soft wash/Darker/Lighter), the
+  // Advanced token administration hex Apply, and Reset to inherited — are
+  // owned by quotes-tabs/funnel.ts (harmony mix math, the hex format gate, the
+  // role-alias rule, the §4.5 override-vs-funnel split all live there and feed
+  // ITS canvas). Their edits reached the TEMPLATES canvas and left this one
+  // byte-identical until a Save plus a section re-pick.
+  //
+  // Rather than re-implement that math in a second island (two copies of the
+  // same rules, guaranteed to drift), funnel.ts's ONE palette write path now
+  // ANNOUNCES its resolved (role, value) as a bubbling lg:palette-draft-change
+  // document event, and this island consumes it through the SAME
+  // single draft path a select edit already takes (queueThemeEdit ->
+  // flushThemeEdits -> railDraftTheme -> refreshCanvas). One producer, one
+  // consumer, one draft path: the role-pick branch that used to live here is
+  // GONE because the seam already carries those very clicks — never two
+  // triggers for one write. value === null (Reset to inherited) deletes the
+  // key, mirroring writeThemeValue's own inherit semantics.
+  document.addEventListener('lg:palette-draft-change', function (ev) {
+    var detail = (ev && ev.detail) || null;
+    if (detail === null || typeof detail.role !== 'string' || detail.role === '') { return; }
+    var value = (detail.value === null || detail.value === undefined) ? null : detail.value;
+    queueThemeEdit('palette.' + detail.role, value);
+  });
+
+  loadSections();
+}());
+`;
+
+
 export function renderThemesTabPanel(isControl: boolean): string {
-  // Round-4 P5b deliverable 1: a CLEAN mount point — P6b replaces the panel
-  // BODY (renderThemeEditorPanel's internals) without touching this tab's
-  // chrome (the tab button + this wrapper div stay byte-stable across P6b).
+  // Round-4 P5b deliverable 1: a CLEAN mount point — the tab button + this
+  // wrapper div stay byte-stable; R2 P2 S2b replaces ONLY the inner three
+  // panes (was: a single stacked column with a placeholder mini-preview
+  // strip + an embedded standalone-page iframe — the "duplicate canvases"
+  // A.3 rejected). `data-is-control` feeds THEMES_TAB_SCRIPT (above) so its
+  // live-apply path knows whether this variant is primary (funnel-scoped
+  // writes) or a non-control arm (which may have its own override switch).
   return `<div class="lg-qpanel" data-panel="themes">
-  <div id="lg-themes-panel-mount">${renderThemeEditorPanel(isControl)}</div>
-  ${renderThemePresetsPanel()}
+  <div class="lg-theme-3pane" data-lg-themes-tab data-is-control="${isControl ? "true" : "false"}" data-pin="8.4-themes-tab-layout" style="display:flex;align-items:flex-start;gap:18px">
+    ${renderSectionChooserPane()}
+    ${renderThemeCanvasPane()}
+    ${renderThemeRailPane(isControl)}
+  </div>
+  <script>${THEMES_TAB_SCRIPT}</script>
 </div>`;
 }

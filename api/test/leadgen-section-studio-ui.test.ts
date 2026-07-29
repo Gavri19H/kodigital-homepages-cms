@@ -2077,6 +2077,200 @@ describeDb("section studio SSR — §8.2 Activity/Vertical dropdowns + E9 skelet
   });
 });
 
+// ---------------------------------------------------------------------------
+// ADJ-A10 (probe): "Activity/vertical lists start EMPTY locally; '+ create'
+// flow works but with raw JS prompts." The name is now collected through the
+// studio's OWN modal idiom (renderNewSharedValueModal — the Media picker's
+// role="dialog" aria-modal="true" + lg-hidden toggle) with Create/Cancel and
+// an inline error for an empty name; window.prompt() is gone.
+// R2 P2 FIX-FIRST (MINOR-3, adversarial review): the §8.2 "no Offers exist
+// yet" gate was the LAST raw browser dialog in this flow (a window.confirm())
+// — A10's complaint is raw JS dialogs as a CLASS — so it is now the SAME
+// two-button modal idiom (renderNoOffersConfirmModal). The gate still gates:
+// declining creates nothing. Both assertions below are strengthened to
+// "window.confirm is never called at all".
+// ---------------------------------------------------------------------------
+
+describeDb("section studio — ADJ-A10 '+ New activity/vertical' is a MODAL, not a raw window.prompt()", () => {
+  it("SSR ships the modal (role=dialog, aria-modal, Create/Cancel, inline error slot) and the island never calls window.prompt", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    expect(html).toMatch(
+      /<div class="lg-media-picker-overlay lg-hidden" id="lg-new-shared-value-modal" role="dialog" aria-modal="true"/,
+    );
+    expect(html).toContain("data-new-shared-value-title");
+    expect(html).toContain('id="lg-new-shared-value-close"');
+    expect(html).toContain('id="lg-new-shared-value-input"');
+    expect(html).toMatch(/<p class="form-help studio-field-error" data-new-shared-value-error hidden>/);
+    expect(html).toContain("data-new-shared-value-cancel");
+    expect(html).toContain("data-new-shared-value-create");
+    const island = studioIsland(html);
+    // the ADJ-A10 activity/vertical create block (state var through the two
+    // trigger-button wire-ups, same span test/leadgen-r4a-pipeline.test.ts's
+    // "+New activity/vertical…renderOffersStaleNote()" test slices) never
+    // calls window.prompt — scoped to THIS block, not the whole island,
+    // since other (out-of-scope) prompt() affordances elsewhere are untouched.
+    const createBlockStart = island.indexOf("var newSharedValueTarget =");
+    const createBlockEnd = island.indexOf("if (activitySel) {");
+    expect(createBlockStart).toBeGreaterThan(-1);
+    expect(createBlockEnd).toBeGreaterThan(createBlockStart);
+    const createBlock = island.slice(createBlockStart, createBlockEnd);
+    expect(createBlock).not.toContain("window.prompt");
+    // MINOR-3: the §8.2 "no Offers yet" business gate keeps its EXACT sentence
+    // but is no longer a raw browser dialog anywhere in this block.
+    expect(createBlock).toContain("No Offers exist for '");
+    expect(createBlock).not.toContain("window.confirm");
+    // …and the gate modal itself is SSR'd, same idiom as the name dialog.
+    expect(html).toMatch(
+      /<div class="lg-media-picker-overlay lg-hidden" id="lg-no-offers-confirm-modal" role="dialog" aria-modal="true"/,
+    );
+    expect(html).toContain("data-no-offers-question");
+    expect(html).toContain("data-no-offers-cancel");
+    expect(html).toContain("data-no-offers-confirm");
+  });
+
+  it("EXECUTED: empty name shows the inline error (never silent, never window.prompt); a valid name + confirmed create lands the option end-to-end via the SAME sel/markDirty/after path; a declined confirm creates nothing; window.confirm is NEVER called", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+
+    const modal = stubEl("div");
+    modal.className = "lg-media-picker-overlay lg-hidden";
+    const title = stubEl("span");
+    const input = stubEl("input");
+    const errorEl = stubEl("p");
+    errorEl.hidden = true;
+    const sel = stubEl("select");
+    // MINOR-3: the gate is a real SSR'd modal now, so the probe DOM carries it.
+    const gateModal = stubEl("div");
+    gateModal.className = "lg-media-picker-overlay lg-hidden";
+    const gateQuestion = stubEl("p");
+    const gateConfirmBtn = stubEl("button");
+
+    const docStub = {
+      getElementById(id: string) {
+        if (id === "lg-new-shared-value-modal") return modal;
+        if (id === "lg-new-shared-value-input") return input;
+        if (id === "lg-no-offers-confirm-modal") return gateModal;
+        return null;
+      },
+      querySelector(q: string) {
+        if (q === "[data-new-shared-value-title]") return title;
+        if (q === "[data-new-shared-value-error]") return errorEl;
+        if (q === "[data-no-offers-question]") return gateQuestion;
+        if (q === "[data-no-offers-confirm]") return gateConfirmBtn;
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+      createElement(tag: string) {
+        return stubEl(tag);
+      },
+      createTextNode(text: string) {
+        return stubEl("#text", text);
+      },
+    };
+
+    const probe = studioProbe(html, { components: [] }, docStub as unknown as Record<string, unknown>);
+    const confirms: string[] = [];
+    probe.sandbox["window"] = {
+      confirm(msg: string) {
+        confirms.push(msg);
+        throw new Error("MINOR-3 regression: window.confirm must never be called");
+      },
+      prompt() {
+        throw new Error("ADJ-A10 regression: window.prompt must never be called");
+      },
+    };
+    probe.sandbox["dirty"] = false;
+    const afterCalls: string[] = [];
+    probe.sandbox["fakeSel"] = sel;
+    probe.sandbox["afterSpy"] = (v: string) => afterCalls.push(v);
+    probe.run(
+      [
+        "function markDirty() { dirty = true; }",
+        sliceIslandLine(island, "var newSharedValueTarget ="),
+        sliceIslandFunction(island, "trimStr"),
+        sliceIslandFunction(island, "clearChildren"),
+        sliceIslandFunction(island, "refreshPairPillState"),
+        sliceIslandFunction(island, "newSharedValueErrorEl"),
+        sliceIslandFunction(island, "newSharedValueInputEl"),
+        sliceIslandFunction(island, "clearNewSharedValueError"),
+        sliceIslandFunction(island, "showNewSharedValueError"),
+        sliceIslandFunction(island, "openNewSharedValueModal"),
+        sliceIslandFunction(island, "closeNewSharedValueModal"),
+        sliceIslandFunction(island, "closeNoOffersConfirm"),
+        sliceIslandFunction(island, "openNoOffersConfirm"),
+        sliceIslandFunction(island, "commitNewSharedValue"),
+        sliceIslandFunction(island, "submitNewSharedValueModal"),
+        sliceIslandFunction(island, "confirmNoOffersCreate"),
+      ].join("\n"),
+    );
+
+    // open (from the "+ New activity" trigger's callback signature)
+    probe.run("openNewSharedValueModal('activity', fakeSel, afterSpy)");
+    expect(title.allText()).toBe("Create a new activity");
+    expect(modal.className).toBe("lg-media-picker-overlay");
+    expect(errorEl.hidden).toBe(true);
+
+    // EMPTY NAME: inline error shown, NOT a silent no-op, modal stays open,
+    // nothing created, window.prompt never invoked (it would have thrown).
+    input.value = "";
+    probe.run("submitNewSharedValueModal()");
+    expect(errorEl.hidden).toBe(false);
+    expect(errorEl.allText()).toBe("Enter a name.");
+    expect(input.className).toBe("form-input studio-input-error");
+    expect(confirms).toHaveLength(0);
+    expect(sel.children).toHaveLength(0);
+    expect(probe.sandbox["dirty"]).toBe(false);
+    expect(afterCalls).toEqual([]);
+    expect(modal.className).toBe("lg-media-picker-overlay"); // still open
+
+    expect(gateModal.className).toBe("lg-media-picker-overlay lg-hidden"); // gate never opened
+
+    // VALID NAME: the gate opens as the studio's own modal — the SAME sentence
+    // the window.confirm() used to ask — and creates NOTHING on its own.
+    input.value = "New Activity";
+    probe.run("submitNewSharedValueModal()");
+    expect(gateModal.className).toBe("lg-media-picker-overlay"); // gate open
+    expect(gateQuestion.allText()).toBe("No Offers exist for 'New Activity' yet. Create the activity anyway?");
+    expect(sel.children).toHaveLength(0);
+
+    // DECLINE (the Cancel/Close button's own handler): the §8.2 gate still
+    // gates — no option, no dirty flag, no after() — and the name dialog stays
+    // open with the typed name intact.
+    probe.run("closeNoOffersConfirm()");
+    expect(gateModal.className).toBe("lg-media-picker-overlay lg-hidden");
+    expect(sel.children).toHaveLength(0);
+    expect(probe.sandbox["dirty"]).toBe(false);
+    expect(afterCalls).toEqual([]);
+    expect(modal.className).toBe("lg-media-picker-overlay"); // still open
+    expect(input.value).toBe("New Activity");
+
+    // CONFIRM (the "Create anyway" button's own handler): creates end-to-end —
+    // option appended to the REAL <select>, value set, markDirty fired, the
+    // after() callback (the same one the "+ New activity" wiring passes —
+    // loadVerticals/renderOffersStaleNote in production) invoked with the
+    // created value, both modals closed. The create mechanics are
+    // byte-identical to pre-modal.
+    probe.run("submitNewSharedValueModal()");
+    probe.run("confirmNoOffersCreate()");
+    expect(gateModal.className).toBe("lg-media-picker-overlay lg-hidden");
+    expect(sel.children).toHaveLength(1);
+    expect(sel.children[0]!.value).toBe("New Activity");
+    expect(sel.children[0]!.textContent).toBe("New Activity");
+    expect(sel.value).toBe("New Activity");
+    expect(probe.sandbox["dirty"]).toBe(true);
+    expect(afterCalls).toEqual(["New Activity"]);
+    expect(modal.className).toBe("lg-media-picker-overlay lg-hidden"); // closed
+    // MINOR-3: not one raw browser dialog anywhere in the whole flow.
+    expect(confirms).toHaveLength(0);
+  });
+});
+
 describeDb("section studio — §8.7 GET /sections/:id/offers answer_fields (server extension)", () => {
   it("each matched offer carries provider, default placement, ACTIVE schema version and its ANSWER-source fields (macro nodes excluded)", async () => {
     const { env } = newHarness();

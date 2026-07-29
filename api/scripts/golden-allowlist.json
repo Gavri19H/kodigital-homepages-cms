@@ -257,6 +257,18 @@
       "golden": true,
       "register": "S4-A11 (R5 D6)",
       "note": "PROPOSED classification (implementer, pending conductor ratification): the Themes-manager IN-PAGE OVERLAY container (iframe + backdrop) — this IS the golden interaction itself (golden :627-721, 'Manage theme ->' opens an overlay over the studio instead of navigating away). Classified golden:true because it directly implements the golden-specified overlay mechanism, unlike the OTHER R3b additions above which are accepted-but-non-golden extensions."
+    },
+    {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderNewSharedValueModal",
+      "golden": false,
+      "register": "ADJ-A10",
+      "note": "A10: replaces the raw prompt() with a studio modal per the owner's complaint — the golden mockup depicts no such dialog; gate-closing entry per conductor coordination."
+    },
+    {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderNoOffersConfirmModal",
+      "golden": false,
+      "register": "ADJ-A10 (R2 P2 FIX-FIRST MINOR-3)",
+      "note": "A10 completion: the §8.2 'no Offers exist yet' gate was the LAST raw browser dialog in that create flow (the owner's complaint names raw JS dialogs as a class), so it is now the SAME two-button studio modal idiom as renderNewSharedValueModal directly above — same overlay/panel classes, same lg-hidden toggle, same sentence. The golden mockup depicts no such dialog either; classified golden:false / accepted extension on the SAME precedent as its sibling entry."
     }
   ]
 }

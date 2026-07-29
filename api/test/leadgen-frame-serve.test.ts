@@ -635,9 +635,13 @@ describeDb("no-duplicate-headline-storage (15 §15.1 + 03 §3.4)", () => {
     // The css leg is the frame-extended chrome sheet.
     expect(preview!.css).toContain(".lg-frame-region");
 
-    // A frame-less funnel has NO composed preview in Phase A.
+    // A frame-less AND theme-less funnel has NO composed preview in Phase A.
+    // (R2 P2 FIX-FIRST MAJOR-1: a frameless funnel that still carries an
+    // INLINE theme now composes the narrow default on purpose — see
+    // leadgen-p7-default-frame.test.ts — so the "no frame ⇒ no composition"
+    // claim is pinned on the themeless row, which is what it always meant.)
     h.sdb
-      .prepare("UPDATE leadgen_funnels SET frame_config_json = NULL WHERE public_id = ?")
+      .prepare("UPDATE leadgen_funnels SET frame_config_json = NULL, theme_json = NULL WHERE public_id = ?")
       .run(seeded.funnelPublicId);
     const legacyFunnel = h.sdb
       .prepare("SELECT * FROM leadgen_funnels WHERE public_id = ?")
@@ -667,9 +671,17 @@ describeDb("serve fork fail-safe (13 §13.3): bad frame_config_json degrades BYT
     return res.text();
   }
 
+  // R2 P2 FIX-FIRST (MAJOR-1): the legacy reference row must now be frameless
+  // AND themeless. A frameless funnel that still carries an INLINE theme
+  // deliberately composes the narrow default from this round on (serve.ts) —
+  // that IS the fix — so nulling only the frame would no longer produce a
+  // legacy shell. The claim these two tests prove is unchanged and, if
+  // anything, stronger: a corrupt/schema-invalid frame serves the legacy body
+  // BYTE-FOR-BYTE, i.e. neither the bad frame NOR the theme it carries alters
+  // one byte of a revenue-serving page (13 §13.3).
   async function legacyReferenceBody(h: Harness, funnelPublicId: string, slug: string): Promise<string> {
     h.sdb
-      .prepare("UPDATE leadgen_funnels SET frame_config_json = NULL WHERE public_id = ?")
+      .prepare("UPDATE leadgen_funnels SET frame_config_json = NULL, theme_json = NULL WHERE public_id = ?")
       .run(funnelPublicId);
     const body = await coldServeBody(h, slug);
     // Sanity: the reference IS the legacy shell (no frame markup).
@@ -683,9 +695,13 @@ describeDb("serve fork fail-safe (13 §13.3): bad frame_config_json degrades BYT
     const seeded = await seedComposedFunnel(h, { slug: "failsafe-corrupt" });
     const legacy = await legacyReferenceBody(h, seeded.funnelPublicId, "failsafe-corrupt");
 
+    // The corrupt row keeps its INLINE theme (restored here, since the
+    // reference row above had to drop it) — so this proves the strong claim:
+    // a corrupt frame serves the legacy body byte-for-byte EVEN THOUGH the
+    // funnel carries a theme that a NULL frame would now compose.
     h.sdb
-      .prepare("UPDATE leadgen_funnels SET frame_config_json = ? WHERE public_id = ?")
-      .run("{not json", seeded.funnelPublicId);
+      .prepare("UPDATE leadgen_funnels SET frame_config_json = ?, theme_json = ? WHERE public_id = ?")
+      .run("{not json", JSON.stringify(THEME_JSON), seeded.funnelPublicId);
     const corrupt = await coldServeBody(h, "failsafe-corrupt");
     expect(corrupt).toBe(legacy);
   });
@@ -701,8 +717,8 @@ describeDb("serve fork fail-safe (13 §13.3): bad frame_config_json degrades BYT
       header: { cta: { enabled: true, label: "Call now", href: "javascript:alert(1)" } },
     });
     h.sdb
-      .prepare("UPDATE leadgen_funnels SET frame_config_json = ? WHERE public_id = ?")
-      .run(schemaInvalid, seeded.funnelPublicId);
+      .prepare("UPDATE leadgen_funnels SET frame_config_json = ?, theme_json = ? WHERE public_id = ?")
+      .run(schemaInvalid, JSON.stringify(THEME_JSON), seeded.funnelPublicId);
     const invalid = await coldServeBody(h, "failsafe-invalid");
     // Fail-safe: the unsafe href never reaches the page AND the whole body is
     // exactly the legacy render.
