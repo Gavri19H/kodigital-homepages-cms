@@ -109,6 +109,7 @@ any P2 regression has a row to fail and the P2 adversarial an anchor to audit.
 | ADJ-N4 | P0 review m7: "quotes-handlers.ts:6341 writes preflightKvKey(...) inside a fail-open catch — zero readers anywhere in src/ or test/ — while the comment at :5280-5282 claims 'the stored copy feeds the Phase-2 preflight panel'" | OUT-OF-CONTRACT: dead advisory-preflight KV write + false comment (pre-existing; S0-B1 edited the surrounding function but the dead write is outside B1's clause) — owner fix-or-defer; natural home = P2 (quotes-handlers.ts is P2-owned next) | owner ruling | DEVIATES(found 2026-07-28 by the P0 adversarial review) | — |
 | ADJ-N5 | P0 review m11: the activation-block panel groups a quote-level blocker under the heading "Slides" ("Cannot activate this Quote." → group Slides → the shared-page error) | OUT-OF-CONTRACT nit adjacent to the owner's jargon complaint — owner fix-or-defer; natural home = P2 | owner ruling | DEVIATES(found 2026-07-28 by the P0 adversarial review; b1-blocked-reason-1280.png) | b1-blocked-reason-1280.png (review) |
 | ADJ-N6 | P0 review m12: the quote header chip still reads "draft" after a successful site activation ("draft" + "Ready" + "Activation saved for st_…" simultaneously) | OUT-OF-CONTRACT nit — owner fix-or-defer | owner ruling | DEVIATES(found 2026-07-28 by the P0 adversarial review; b1-activated-ready-1280.png) | b1-activated-ready-1280.png (review) |
+| ADJ-N8 | P1 fix-round adjacent: the quote rules-rail card renders the raw choice VALUE ("rvw_credit… is excellent_rvw7q3") — the FIELD now shows its question label (fixed in-round) but the value-side label mapping lives in ui-rules-builder.ts | OUT-OF-CONTRACT display polish adjacent to the owner's "the rules you build are using jargon" — owner fix-or-defer; natural home = P2 (rules-rail UX is re-driven there) | owner ruling | DEVIATES(found 2026-07-29 in the P1 fix round; display-only) | — |
 | ADJ-N7 | P1 review MINOR-2: "a Continue-less multi-answer section saves 'No issues' and activates clean → dead-end page" — a section with 5 answer components, Wait-for-Continue, and NO Continue node reads "No issues [0]", passes activation preflight, and renders live with zero visible Continue (the visitor cannot advance; only an inline advisory in the selected-element panel hints at it) | OUT-OF-CONTRACT defect (in no owner clause) — owner fix-or-defer; candidates: the issues chip and/or activation preflight gain a "multi-answer + wait-for-continue + no Continue node" check | owner ruling | DEVIATES(found 2026-07-29 by the P1 adversarial review, first live drive) | — |
 
 **Ground-truth refinement (S0-C, 2026-07-28 — binds P4/P5 payload-acceptance setups):** a live
@@ -129,6 +130,12 @@ values (the fixture-distinction guard); (iii) `leadgen_routing_outcomes` rows ar
 rule match (`recordRoutingOutcome` fires inside the match branch, runtime-routes.ts:194) — a
 defaulted leg writes NO row; routing acceptances assert the outcome row on matched legs and the
 SERVED funnel (not an outcome row) on default legs.
+
+**P1 handoff to P4 (2026-07-29):** the canonical per-question default key is `props.defaultValue`
+(P1 fix round); the RANGE kind still MIRRORS `props.default` because the slider render functions
+(`presets.ts` renderRange family :935/:1025/:1154) read `default` only and belong to P4's slices.
+P4's S4a/S4c canonicalize those readers to `defaultValue ?? default` (then the studio mirror may
+drop). Until then both keys are written for range — behavior is correct, the mirror is deliberate.
 
 ## DEC rows — owner decisions (RULED 2026-07-28; all recommendations accepted verbatim)
 
