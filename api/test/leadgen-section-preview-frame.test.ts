@@ -885,6 +885,12 @@ const R2_P4_RANGE_NEW_RULES = [
   // the two mobile-block additions (dial shrink + tighter from/to gap)
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-radial{--lg-radial-size:140px;--lg-radial-band:15px}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-from-to-inputs{gap:${defaultFunnelDesign.spacing.sm}}`,
+  // P4 cleanup (Item 1, S4b pin-fidelity finding): a `@container` query on the
+  // two-handle `.lg-range-fill` (its own box IS the live handle gap) raises
+  // the min pill clear of the max pill once the clamp narrows that gap below
+  // 96px — CSS only, no engine change, no other rule's text touched.
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-from-to .lg-range-fill,${DEFAULT_FUNNEL_SCOPE} .lg-range-dual .lg-range-fill{container-type:inline-size;container-name:lg-range-fill}`,
+  `\n@container lg-range-fill (max-width:96px){${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-min .lg-range-handle-value{bottom:calc(100% + ${defaultFunnelDesign.spacing.sm} + ${defaultFunnelDesign.spacing.xl})}}`,
 ];
 // The three CHANGED rules, NEW -> pre-P4 text (targeted full-rule replaces,
 // the R5_*_RULE idiom): the input became the track overlay (its thumb now

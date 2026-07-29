@@ -952,6 +952,25 @@ export function funnelChromeCss(
       right: "0",
       transform: "none",
     }),
+    // P4 cleanup (S4b pin-fidelity finding): the INWARD anchor above is what
+    // keeps Image13's SEPARATED pins on-card — but engine.ts's clamp rule
+    // (syncDualRange) can land the two handles one `step` apart, and both
+    // pills still reach inward toward each other, colliding
+    // (p4_fromto-1280-clamped.png). `.lg-range-fill`'s own box already IS the
+    // live pixel gap between the two handles (engine.ts writes its left/width
+    // from both inputs every drag) — a container query on that box reacts to
+    // the SAME already-written value with ZERO new runtime bytes; no engine.ts
+    // change. S4b measured (measurements.txt): separated gap 142.6–146.7px
+    // (must stay exactly as painted above — Image13 fidelity) vs clamped gap
+    // 3.2–16.3px (must degrade). 96px sits ~47px inside the separated floor
+    // and ~80px outside the clamped ceiling — clears both with margin. Below
+    // it, the min pill is pushed a full pill-height-plus-gap ABOVE the max
+    // pill (stacked, not collided) — both values stay readable.
+    rule(`${scope} .lg-range-from-to .lg-range-fill,${scope} .lg-range-dual .lg-range-fill`, {
+      "container-type": "inline-size",
+      "container-name": "lg-range-fill",
+    }),
+    `@container lg-range-fill (max-width:96px){${scope} .lg-range-handle-min .lg-range-handle-value{bottom:calc(100% + ${spacing.sm} + ${spacing.xl})}}`,
     // Native range input drives recording + keyboard + role=slider semantics.
     // It is laid EXACTLY over its track: inflated by one thumb width and pulled
     // half a thumb left, so the native thumb's centre travels the track's true

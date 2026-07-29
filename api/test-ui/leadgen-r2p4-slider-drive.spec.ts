@@ -19,10 +19,15 @@ import { mkdirSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { PW_PORT } from "./utils/base-url";
 
-const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
+// The admin plane is host-gated to ADMIN_HOST (wrangler.toml dev value:
+// "localhost"), so the authoring context must speak that host — 127.0.0.1
+// 404s the ADMIN_HOST safety net (P4 cleanup fix; S4b's sibling spec already
+// uses this same host).
+const ORIGIN = `http://localhost:${PW_PORT}`;
 const SITE_HOST = "r2fix.e2e.test";
 const FUNNEL_SLUG = "r2fix";
 const SHOT_DIR = "../docs/leadgen/r2/evidence/p4/s4a";
+const CLEANUP_DIR = "../docs/leadgen/r2/evidence/p4/cleanup";
 const HEADLINE = "P4 sliders — all five";
 
 const REAL_CHROME_UA =
@@ -123,8 +128,18 @@ async function authorFiveSliders(currencyOn: boolean): Promise<number> {
   // ACTIVATION (a real operator write) bumps activationVersion, which the key
   // comment names as the self-correcting axis: it mints a fresh shell key.
   const quotes = (await (await ctx.get("/api/admin/leadgen/quotes?activity=r2fix_activity")).json()) as {
-    items: Array<{ public_id: string }>;
+    items: Array<{ public_id: string; quote_name: string }>;
   };
+  // ADJACENT (reported, not fixed by this slice): a PARALLEL round's own
+  // fixture ("P4 Thumbnail-Fix Evidence Quote") now shares this activity
+  // value in the same D1 state, so a positional items[0] intermittently
+  // resolves to THEIR quote instead of ours — activating it under the SAME
+  // "r2fix" slug then 400s (site-level slug is unique per site, owned by
+  // the ORIGINAL fixture quote). Find by name (same pattern the offer
+  // lookup above already uses) so this spec is immune to sibling rounds
+  // adding their own quotes under the same activity string.
+  const quote = quotes.items.find((q) => q.quote_name === "R2Fix Fixture Quote");
+  if (quote === undefined) throw new Error("fixture quote missing — run npm run seed:leadgen-fixture");
   const sites = (await (await ctx.get("/api/admin/sites")).json()) as { resource?: Array<{ id: string; domain: string }> };
   const site = (sites.resource ?? []).find((s) => s.domain === SITE_HOST);
   if (site === undefined) throw new Error("fixture site missing — run npm run seed:leadgen-fixture");
@@ -133,7 +148,7 @@ async function authorFiveSliders(currencyOn: boolean): Promise<number> {
   // the SAME key, so the previous body is served (a real staleness window, part
   // of the same adjacent finding). Cross the second boundary first.
   await new Promise((r) => setTimeout(r, 1100));
-  const act = await ctx.put(`/api/admin/leadgen/quotes/${quotes.items[0]!.public_id}/activation/${site.id}`, {
+  const act = await ctx.put(`/api/admin/leadgen/quotes/${quote.public_id}/activation/${site.id}`, {
     data: { enabled: true, slug: FUNNEL_SLUG },
   });
   console.log(`  re-save activation (mints a fresh lg-shell key) -> HTTP ${act.status()}`);
@@ -486,4 +501,88 @@ test("the $ affix toggles OFF then ON with no save error, and the render follows
   expect(on).toBe(200);
   expect(offReadout).toBe("37");
   expect(onReadout).toBe("$37");
+});
+
+// P4 cleanup Item 1 (S4b's own cosmetic finding, ratified as pin fidelity):
+// the two .lg-range-handle-value pills collide when a from_to drag clamps the
+// handles one step apart (S4b evidence:
+// docs/leadgen/r2/evidence/p4/s4b/p4_fromto-1280-clamped.png). The fix
+// (styles.ts, this file's owned sibling) is a `@container` query on
+// `.lg-range-fill` — its own box IS the live handle gap (engine.ts already
+// writes left/width on every drag; no engine change) — that raises the min
+// pill clear of the max pill once the gap narrows below 96px. CSS only, zero
+// runtime bytes. This drives BOTH states (S4b's own separated/clamped
+// recipe), asserts the computed-style delta that IS the mechanism, and
+// captures the evidence pair into docs/leadgen/r2/evidence/p4/cleanup/.
+test("P4 cleanup: the value pills stack instead of colliding when clamped; Image13 fidelity holds separated", async ({ page }) => {
+  mkdirSync(CLEANUP_DIR, { recursive: true });
+  await openFunnel(page, 1280);
+  const w = wrapFor(page, "p4_fromto");
+  const track = w.locator(".lg-range-track");
+  const hMin = w.locator(".lg-range-handle-min");
+  const hMax = w.locator(".lg-range-handle-max");
+  const pillMin = w.locator(".lg-range-handle-value").nth(0);
+  const pillMax = w.locator(".lg-range-handle-value").nth(1);
+  const rail0 = w.locator(".lg-range-input-dual").nth(0);
+
+  async function drag(from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move((from.x + to.x) / 2, (from.y + to.y) / 2, { steps: 6 });
+    await page.mouse.move(to.x, to.y, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(120);
+  }
+  function overlaps(a: { x: number; y: number; width: number; height: number }, b: typeof a): boolean {
+    return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  }
+
+  await w.evaluate((el) => (el as Element).scrollIntoView({ block: "center" }));
+  await page.waitForTimeout(150);
+  const t = (await box(track))!;
+
+  // ---- SEPARATED (S4b's own recipe: drag max to 70%, then min to 25%) -----
+  const mb = (await box(hMax))!;
+  await drag({ x: mb.x + mb.width / 2, y: mb.y + mb.height / 2 }, { x: t.x + t.width * 0.7, y: t.y + t.height / 2 });
+  const nb = (await box(hMin))!;
+  await drag({ x: nb.x + nb.width / 2, y: nb.y + nb.height / 2 }, { x: t.x + t.width * 0.25, y: t.y + t.height / 2 });
+
+  const sepMin = (await box(pillMin))!;
+  const sepMax = (await box(pillMax))!;
+  const sepMinBottom = await pillMin.evaluate((el) => getComputedStyle(el as Element).bottom);
+  const sepMaxBottom = await pillMax.evaluate((el) => getComputedStyle(el as Element).bottom);
+  console.log(
+    `P4 CLEANUP separated: minPill=${JSON.stringify(sepMin)} maxPill=${JSON.stringify(sepMax)} ` +
+      `minBottom=${sepMinBottom} maxBottom=${sepMaxBottom} overlap=${overlaps(sepMin, sepMax)}`,
+  );
+  await shot(page, w, `${CLEANUP_DIR}/p4_fromto-1280-separated.png`);
+  expect(overlaps(sepMin, sepMax), "Image13 fidelity: separated pills do not collide").toBe(false);
+  expect(sepMinBottom, "Image13 fidelity: the container query is NOT engaged on a wide (separated) gap").toBe(
+    sepMaxBottom,
+  );
+
+  // ---- CLAMPED (S4b's own recipe: 2x keyboard, then drag min past max) ----
+  await rail0.focus();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(120);
+  const nb2 = (await box(hMin))!;
+  await drag(
+    { x: nb2.x + nb2.width / 2, y: nb2.y + nb2.height / 2 },
+    { x: t.x + t.width + 120, y: t.y + t.height / 2 },
+  );
+
+  const clMin = (await box(pillMin))!;
+  const clMax = (await box(pillMax))!;
+  const clMinBottom = await pillMin.evaluate((el) => getComputedStyle(el as Element).bottom);
+  console.log(
+    `P4 CLEANUP clamped: minPill=${JSON.stringify(clMin)} maxPill=${JSON.stringify(clMax)} ` +
+      `minBottom=${clMinBottom} overlap=${overlaps(clMin, clMax)}`,
+  );
+  await shot(page, w, `${CLEANUP_DIR}/p4_fromto-1280-clamped.png`);
+  expect(
+    clMinBottom,
+    "the container-query mechanism engaged (min pill's computed bottom shifted) once the gap clamped",
+  ).not.toBe(sepMinBottom);
+  expect(overlaps(clMin, clMax), "the mechanism prevents the pill collision in the clamped state").toBe(false);
 });
