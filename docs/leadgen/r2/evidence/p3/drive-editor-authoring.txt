@@ -1,0 +1,17 @@
+== authoring Image28 through the real Templates editor ==
+   footer.enabled control count = 1
+   POST /frame-template-records -> 201 id=13
+== authoring Image45 through the real Templates editor ==
+   footer.enabled control count = 1
+   POST /frame-template-records -> 201 id=14
+
+== D2 picks template ==
+picker candidates from site A: ["about","legal","legal","legal","legal","privacy-policy","terms"]
+typed manual_url = "javascript:alert(1)" on the terms pick (save-time rejection probe)
+POST /frame-template-records -> 400 id=undefined
+
+== D2 picks template ==
+picker candidates from site A: ["about","legal","legal","legal","legal","privacy-policy","terms"]
+typed manual_url = "javascript:alert(1)" on the terms pick (save-time rejection probe)
+(a) SAVE with manual_url="javascript:alert(1)" -> HTTP 400 {"error":"Validation failed","fields":{"frame_json":"frame_json failed validation"}}
+(b) SAVE with manual_url="https://fallback.p3fix.test/terms" -> HTTP 201 id=15

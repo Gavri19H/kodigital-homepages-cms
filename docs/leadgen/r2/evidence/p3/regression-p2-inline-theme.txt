@@ -1,0 +1,8 @@
+frameless + INLINE theme (no template): HTTP 200
+  composed frame present (lg-frame-slot) = true
+  data-frame-template               = minimal
+  header region rendered            = false
+  inline brand colour #B5179E in css = 14 hits
+frameless + NO theme + NO template (legacy): HTTP 200
+  composed frame present (lg-frame-slot) = false (expected false)
+  footer region present                  = false (expected false)

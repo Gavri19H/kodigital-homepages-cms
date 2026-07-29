@@ -559,8 +559,36 @@ export function resolveFrameComposition(
         const v = (theme as Record<string, unknown>)[k];
         return typeof v === "object" && v !== null && !Array.isArray(v);
       });
-    if (explicitThemeId === null && !hasInlineDesign) return null; // legacy funnel (absent+themeless) OR present-but-corrupt frame — exact current behavior (03 §3.1 / 13 §13.3)
-    frameSource = { ...source, frame_config_json: NARROW_DEFAULT_THEMED_FRAME_CONFIG_JSON };
+    // R2 P3 BLOCKER FIX (leg 2 of 2 — "a saved template alone is a frame").
+    // P2 (above) taught this gate that an EXPLICIT THEME is design intent
+    // worth synthesizing a least-chrome frame for. An APPLIED SAVED TEMPLATE
+    // is design intent too — and, unlike a theme, it is a REAL frame of its
+    // own (header/slot/footer arrangement + the element-J footer blocks), so
+    // it must NOT be replaced by the synthetic narrow default: it IS the
+    // frame. `apply template` writes ONLY leadgen_funnels.frame_template_id,
+    // leaving frame_config_json NULL, so before this fix EVERY template-seeded
+    // funnel fell through the `return null` below and served frameless —
+    // footer included (contract §5.4 end-state #6, "renders at the bottom of
+    // every funnel page").
+    //
+    // Precedence when a funnel has BOTH: the saved template wins over the
+    // synthetic minimal+header-off default (a real authored frame always beats
+    // a fail-safe stand-in), and the theme is UNAFFECTED — theme/tokens ride
+    // resolveTokens below, which never reads frameSource.
+    //
+    // Gating is identical to the two branches above and to
+    // resolveEffectiveFrameOnly's own twin check: `frameColumnTrulyAbsent`, so
+    // a present-but-corrupt frame_config_json stays on the exact legacy
+    // fail-safe path (R4-48, 13 §13.3), saved template or not. A funnel with
+    // no template AND no theme still returns null, byte-identical.
+    const savedTemplateDefaults = frameColumnTrulyAbsent ? (source.saved_template_defaults ?? null) : null;
+    if (savedTemplateDefaults === null) {
+      if (explicitThemeId === null && !hasInlineDesign) return null; // legacy funnel (absent+themeless) OR present-but-corrupt frame — exact current behavior (03 §3.1 / 13 §13.3)
+      frameSource = { ...source, frame_config_json: NARROW_DEFAULT_THEMED_FRAME_CONFIG_JSON };
+    }
+    // savedTemplateDefaults !== null ⇒ frameSource stays `source` untouched:
+    // resolveEffectiveFrameOnly composes FRAME_TEMPLATES[tpl].defaults ⊕ the
+    // saved template ⊕ the variant's frame_overrides_json.
   }
 
   // Variant frame_overrides_json (§13.2): the `theme.palette` part rides

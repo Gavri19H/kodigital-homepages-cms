@@ -1,0 +1,12 @@
+preview POST -> HTTP 200; live GET -> HTTP 200
+canvas footer regions = 1  |  live = 1
+canvas footer scope style = --lg-footer-bg:var(--lg-role-card_background);--lg-footer-fg:var(--lg-role-text_muted);--lg-footer-link:var(--lg-role-brand_primary);--lg-footer-size:var(--lg-footer-size-m);--lg-footer-font:'Fraunces',Georgia,'Times New Roman',serif
+live   footer scope style = --lg-footer-bg:var(--lg-role-card_background);--lg-footer-fg:var(--lg-role-text_muted);--lg-footer-link:var(--lg-role-brand_primary);--lg-footer-size:var(--lg-footer-size-m);--lg-footer-font:'Fraunces',Georgia,'Times New Roman',serif
+canvas blocks = ["lg-frame-footer2-links","lg-frame-footer2-link","lg-frame-footer2-link","lg-frame-footer2-about"]
+live   blocks = ["lg-frame-footer2-links","lg-frame-footer2-link","lg-frame-footer2-link","lg-frame-footer2-about"]
+canvas anchors = ["/privacy-policy-alpha|Privacy Policy","/terms-alpha|Terms And Conditions"]
+live   anchors = ["/privacy-policy-alpha|Privacy Policy","/terms-alpha|Terms And Conditions"]
+canvas css declares font-family:var(--lg-footer-font,inherit) = true
+scope styles IDENTICAL = true
+anchors IDENTICAL      = true
+block sequence IDENTICAL = true

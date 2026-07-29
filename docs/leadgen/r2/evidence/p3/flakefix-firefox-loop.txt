@@ -1,0 +1,45 @@
+R2 P3 flake-fix — firefox loop, journey D ("one saved pick set, two serving sites (D2)")
+spec: api/test-ui/leadgen-p3-fixround-footer.gesture.spec.ts   engine: firefox   port: 8901 (this worktree's own)
+one PROCESS per iteration (the spec's module-level `uniq` makes --repeat-each collide on hosts/slugs)
+
+== run 1 (60 iterations) ==
+iter=60 pass=47 fail=13
+LOOP_DONE iterations=60 pass=47 fail=13
+bhref_class_failures=0
+goto_stall_failures=0
+  the 13 failures are ONE infrastructure class, not a test class:
+  "Error: Process from config.webServer was not able to start. Exit code: 1" x13
+  root: the local workerd runtime died mid-run —
+    ✘ [ERROR] *** Fatal uncaught kj::Exception: kj/async-io-unix.c++:1365: failed: setsocketopt(IPPROTO_TCP, TCP_NODELAY): Invalid argument
+
+== run 2 (60 iterations, health-guarded: restart my own wrangler PID when /health != 200) ==
+LOOP_DONE iterations=60 pass=56 fail=4 server_restarts=7
+bhref_class_failures=0
+goto_stall_failures=0
+webserver_infra_failures=0
+  failures at iterations: 20 34 41 54
+    iter=1 SERVER_RESTART (health=000)
+    iter=21 SERVER_RESTART (health=000)
+    iter=35 SERVER_RESTART (health=000)
+    iter=42 SERVER_RESTART (health=000)
+    iter=53 SERVER_RESTART (health=000)
+    iter=54 SERVER_RESTART (health=000)
+    iter=55 SERVER_RESTART (health=000)
+    -> every failure sits immediately before a health=000 restart (20->21, 34->35, 41->42, 54 during 53-55);
+       iter 54's own error is NS_ERROR_CONNECTION_REFUSED on page.goto.
+
+== run 3 (6-iteration confirmation, server healthy throughout) ==
+  iter=1 pass=1 fail=0 health=200
+  iter=2 pass=2 fail=0 health=200
+  iter=3 pass=3 fail=0 health=200
+  iter=4 pass=4 fail=0 health=200
+  iter=5 pass=5 fail=0 health=200
+  iter=6 pass=6 fail=0 health=200
+
+== totals across 126 journey-D iterations on firefox ==
+  "B href /privacy-policy must be one of B's OWN pages" class : 0
+  "the editor navigation must COMMIT (fail-before: still on /lg)" : 0
+
+== full spec, both engines (4 tests each) ==
+  chromium: [1A[2K  4 passed (10.9s)
+  firefox:  [1A[2K  4 passed (14.1s)

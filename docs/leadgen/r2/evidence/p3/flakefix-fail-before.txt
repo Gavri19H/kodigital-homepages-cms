@@ -1,0 +1,150 @@
+
+ RUN  v2.1.9 /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api
+
+ ❯ test/leadgen-p3-provisioning-legal-page-type.test.ts (6 tests | 5 failed) 296ms
+   × R2 P3 flake-fix ROOT — site-provisioning types each legal page by its own page_type > renderLegalPagesForSite writes privacy-policy/terms/do-not-sell/contact (fail-before: four rows all 'legal') 138ms
+     → expected [ …(4) ] to deeply equal [ …(4) ]
+   × R2 P3 flake-fix ROOT — site-provisioning types each legal page by its own page_type > a site already carrying the stale 'legal' rows SELF-HEALS on its next provisioning run (same row ids, ON CONFLICT DO UPDATE) 22ms
+     → expected [ 'legal', 'legal', 'legal', 'legal' ] to deeply equal [ 'privacy-policy', 'terms', …(2) ]
+   × R2 P3 flake-fix — the reproduced state (provisioning first, then the site's own pages) > four picks on the page_type fallback leg serve FOUR DISTINCT hrefs (fail-before: the four canonical rows were one bucket) 111ms
+     → expected [] to deeply equal [ 'Privacy Policy', …(3) ]
+   × R2 P3 flake-fix — the reproduced state (provisioning first, then the site's own pages) > the compliance claim itself: the pick labelled "Terms of Use" never serves the privacy policy 8ms
+     → expected undefined to be '/terms' // Object.is equality
+   × R2 P3 flake-fix — the reproduced state (provisioning first, then the site's own pages) > the e2e's own failing assertion, deterministically: every href site B serves is one of B's OWN pages 7ms
+     → FAIL-BEFORE: B href /privacy-policy must be one of B's OWN pages: expected false to be true // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/leadgen-p3-provisioning-legal-page-type.test.ts > R2 P3 flake-fix ROOT — site-provisioning types each legal page by its own page_type > renderLegalPagesForSite writes privacy-policy/terms/do-not-sell/contact (fail-before: four rows all 'legal')
+AssertionError: expected [ …(4) ] to deeply equal [ …(4) ]
+
+- Expected
++ Received
+
+  Array [
+    Object {
+-     "page_type": "privacy-policy",
++     "page_type": "legal",
+      "slug": "privacy-policy",
+    },
+    Object {
+-     "page_type": "terms",
++     "page_type": "legal",
+      "slug": "terms",
+    },
+    Object {
+-     "page_type": "do-not-sell",
++     "page_type": "legal",
+      "slug": "do-not-sell",
+    },
+    Object {
+-     "page_type": "contact",
++     "page_type": "legal",
+      "slug": "contact",
+    },
+  ]
+
+ ❯ test/leadgen-p3-provisioning-legal-page-type.test.ts:259:42
+    257|     expect(result.missing).toEqual([]);
+    258| 
+    259|     expect(pageTypesFor(sdb, "flake-a")).toEqual([
+       |                                          ^
+    260|       { slug: "privacy-policy", page_type: "privacy-policy" },
+    261|       { slug: "terms", page_type: "terms" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  test/leadgen-p3-provisioning-legal-page-type.test.ts > R2 P3 flake-fix ROOT — site-provisioning types each legal page by its own page_type > a site already carrying the stale 'legal' rows SELF-HEALS on its next provisioning run (same row ids, ON CONFLICT DO UPDATE)
+AssertionError: expected [ 'legal', 'legal', 'legal', 'legal' ] to deeply equal [ 'privacy-policy', 'terms', …(2) ]
+
+- Expected
++ Received
+
+  Array [
+-   "privacy-policy",
+-   "terms",
+-   "do-not-sell",
+-   "contact",
++   "legal",
++   "legal",
++   "legal",
++   "legal",
+  ]
+
+ ❯ test/leadgen-p3-provisioning-legal-page-type.test.ts:291:66
+    289|     await renderLegalPagesForSite(env, env.DB, "flake-a");
+    290| 
+    291|     expect(pageTypesFor(sdb, "flake-a").map((r) => r.page_type)).toEqu…
+       |                                                                  ^
+    292|       "privacy-policy",
+    293|       "terms",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  test/leadgen-p3-provisioning-legal-page-type.test.ts > R2 P3 flake-fix — the reproduced state (provisioning first, then the site's own pages) > four picks on the page_type fallback leg serve FOUR DISTINCT hrefs (fail-before: the four canonical rows were one bucket)
+AssertionError: expected [] to deeply equal [ 'Privacy Policy', …(3) ]
+
+- Expected
++ Received
+
+- Array [
+-   "Privacy Policy",
+-   "Terms of Use",
+-   "Your Privacy Choices",
+-   "Contact",
+- ]
++ Array []
+
+ ❯ test/leadgen-p3-provisioning-legal-page-type.test.ts:349:39
+    347| 
+    348|     const links = await resolvePickedLegalPageLinks(env.DB, "flake-a",…
+    349|     expect(links.map((l) => l.label)).toEqual([
+       |                                       ^
+    350|       "Privacy Policy",
+    351|       "Terms of Use",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  test/leadgen-p3-provisioning-legal-page-type.test.ts > R2 P3 flake-fix — the reproduced state (provisioning first, then the site's own pages) > the compliance claim itself: the pick labelled "Terms of Use" never serves the privacy policy
+AssertionError: expected undefined to be '/terms' // Object.is equality
+
+- Expected: 
+"/terms"
+
++ Received: 
+undefined
+
+ ❯ test/leadgen-p3-provisioning-legal-page-type.test.ts:374:41
+    372|     const links = await resolvePickedLegalPageLinks(env.DB, "flake-a",…
+    373|     const byLabel = new Map(links.map((l) => [l.label, l.href]));
+    374|     expect(byLabel.get("Terms of Use")).toBe("/terms");
+       |                                         ^
+    375|     expect(byLabel.get("Your Privacy Choices")).toBe("/do-not-sell");
+    376|     expect(byLabel.get("Contact")).toBe("/contact");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  test/leadgen-p3-provisioning-legal-page-type.test.ts > R2 P3 flake-fix — the reproduced state (provisioning first, then the site's own pages) > the e2e's own failing assertion, deterministically: every href site B serves is one of B's OWN pages
+AssertionError: FAIL-BEFORE: B href /privacy-policy must be one of B's OWN pages: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ test/leadgen-p3-provisioning-legal-page-type.test.ts:412:94
+    410|     const bOwn = new Set(B_OWN.map((p) => `/${p.slug}`));
+    411|     for (const l of links) {
+    412|       expect(bOwn.has(l.href), `FAIL-BEFORE: B href ${l.href} must be …
+       |                                                                                              ^
+    413|     }
+    414|     // and no provisioned canonical row can be borrowed into B's footer
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 1 passed (6)
+   Start at  23:34:41
+   Duration  2.98s (transform 1.64s, setup 0ms, collect 2.47s, tests 296ms, environment 0ms, prepare 45ms)
+

@@ -42,6 +42,10 @@ import {
   // section composition. No query is duplicated here.
   loadSharedPages,
   sectionsFromPages,
+  // R2 P3 (element J) D2 — the SAME pure, synchronous frame-merge
+  // composeResolvedBundle (resolver.ts) uses to find a footer's picked
+  // legal-links leg before resolveSiteBranding.
+  resolveEffectiveFrameOnly,
 } from "../../public/leadgen/resolver";
 import {
   auctionEntryPosition,
@@ -109,7 +113,7 @@ import {
   renderQuoteFrame,
   LG_BANNERS_MOUNT_HTML,
 } from "../../public/leadgen/designs/frame";
-import { validateFrameConfig, effectiveFrame, parseSavedFrameTemplateDefaults } from "../../public/leadgen/designs/frames";
+import { validateFrameConfig, effectiveFrame, parseSavedFrameTemplateDefaults, footerLegalPagePicks } from "../../public/leadgen/designs/frames";
 import type { EffectiveFrameConfig } from "../../public/leadgen/designs/frames";
 import {
   contrastRatioAA,
@@ -4601,6 +4605,19 @@ export interface ComposedVariantPreviewInput {
   // adminPreview — absent/undefined for the byte-parity test caller, so its
   // live-serve-identical contract is unaffected.
   siteSettingsHref?: string | null;
+  // R2 P3 BLOCKER FIX (leg 3 of 3 — one truth, both surfaces): the
+  // CALLER-resolved leadgen_frame_templates row for
+  // variant.frame_template_id ?? funnel.frame_template_id ?? the per-quote
+  // default (loadSavedFrameTemplateDefaults, this file). resolveFrameComposition
+  // now composes a frame from a saved template even when frame_config_json is
+  // NULL; without this field the Templates canvas would go on rendering the
+  // pre-fix "no frame at all" for exactly the funnels the live page now serves
+  // a footer for — the admin surface blind to the very defect it is meant to
+  // show. Absent/undefined keeps this function synchronous-pure and
+  // byte-identical for its OTHER caller (test/leadgen-preview-runtime-parity-
+  // v25.test.ts's live-serve-identical contract), same discipline as
+  // themeRecord/adminPreview above.
+  savedTemplateDefaults?: EffectiveFrameConfig | null;
 }
 
 export interface ComposedVariantPreview {
@@ -4739,6 +4756,7 @@ export function renderComposedVariantPreview(
           : input.draftFrameOverrides === null
             ? null
             : JSON.stringify(input.draftFrameOverrides),
+      saved_template_defaults: input.savedTemplateDefaults ?? null,
     },
     design,
     input.themeRecord ?? null,
@@ -5038,6 +5056,21 @@ async function composedVariantPreviewResponse(
     return c.json({ error: "Validation failed", problems }, 400);
   }
 
+  // R2 P3 BLOCKER FIX (leg 3 of 3): the SAME saved-template row the live serve
+  // path resolves (resolver.ts resolveSavedFrameTemplateDefaultsFor), read here
+  // through this file's own local loader with the IDENTICAL precedence —
+  // variant.frame_template_id ?? funnel.frame_template_id ?? the per-quote
+  // default. One row read per composed preview, degrading to null exactly like
+  // the live path (deleted/corrupt row, pre-0055 schema). Resolved BEFORE the
+  // site_id branch because the picks lookup below needs it too: a saved
+  // template's picked link_row must resolve against the preview site's Pages
+  // the same way the served page does.
+  const previewSavedTemplateDefaults = await loadSavedFrameTemplateDefaults(
+    c.env.DB,
+    variant.frame_template_id ?? owner.funnel.frame_template_id,
+    owner.quote.public_id,
+  );
+
   // site_id (C4): ANY CMS site is legal — branding is read-only site_settings
   // data; previewing under a site's branding needs NO activation and creates
   // none. Unknown site → 404.
@@ -5052,7 +5085,22 @@ async function composedVariantPreviewResponse(
       .bind(siteId)
       .first<{ id: string }>();
     if (site === null) return c.json({ error: "Not Found" }, 404);
-    siteBranding = await resolveSiteBranding(c.env.DB, siteId);
+    // R2 P3 (element J) D2 — this IS the draft-aware preview render, so the
+    // picks lookup must see the SAME draft substitution renderComposedVariantPreview
+    // applies moments later (draft_frame_config/draft_frame_overrides over
+    // the stored columns) — otherwise picking "From Pages" and previewing
+    // before Save would resolve against the STALE stored footer instead of
+    // what is about to render.
+    const previewFrame = resolveEffectiveFrameOnly({
+      frame_config_json: draftFrameConfig === undefined ? owner.funnel.frame_config_json : draftFrameConfig === null ? null : JSON.stringify(draftFrameConfig),
+      theme_json: owner.funnel.theme_json,
+      frame_overrides_json: draftFrameOverrides === undefined ? variant.frame_overrides_json : draftFrameOverrides === null ? null : JSON.stringify(draftFrameOverrides),
+      // R2 P3 BLOCKER FIX: without this a template-seeded funnel resolved NO
+      // frame here, so footerLegalPagePicks saw nothing and the canvas fell
+      // back to the site's own legal_links instead of the template's picks.
+      saved_template_defaults: previewSavedTemplateDefaults,
+    });
+    siteBranding = await resolveSiteBranding(c.env.DB, siteId, footerLegalPagePicks(previewFrame));
     siteSettingsHref = SITE_SETTINGS_LINK(siteId);
   }
 
@@ -5132,6 +5180,9 @@ async function composedVariantPreviewResponse(
     // admin URL, when a site_id was given (null when none was — no fabricated
     // href).
     siteSettingsHref,
+    // R2 P3 BLOCKER FIX (leg 3 of 3): same saved template the live serve path
+    // composes from — the Templates canvas and /lg now render one truth.
+    savedTemplateDefaults: previewSavedTemplateDefaults,
   });
   // With `mode` set the renderer never yields null (legacy funnels compose
   // through the pinned legacy shell) — this guard is type narrowing only.
@@ -6188,7 +6239,10 @@ async function computeFunnelV25Problems(
     state.effectiveFrameConfig.header.enabled &&
     state.effectiveFrameConfig.header.logo_source === "site"
   ) {
-    const branding = await resolveSiteBranding(db, siteId);
+    // R2 P3 (element J) D2 — state.effectiveFrameConfig is ALREADY this
+    // funnel's resolved frame (computed above); footerLegalPagePicks just
+    // reads its footer.blocks for a picked link_row.
+    const branding = await resolveSiteBranding(db, siteId, footerLegalPagePicks(state.effectiveFrameConfig));
     if (branding.logo_url === null) {
       problems.push({
         path: "frame.header.logo_source",

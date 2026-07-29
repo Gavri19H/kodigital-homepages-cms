@@ -1,0 +1,8 @@
+A. funnel frame BEFORE: status=200 frame_config=null
+B. POST /frame-template-records -> 201 id=9
+C. GET /frame-template-records/9 -> 200 blocks=2 palette_scope={"background":"card_background","text":"text_muted","link":"brand_primary"} typography_scope={"size":"s","font_family":"Inter"}
+D. POST apply-template -> 200 ftid=9 bumped=1
+E. LEG-1 GET /lg/r2fix (frame_config_json NULL + frame_template_id=9) -> HTTP 200 len=41101 hasFrame=false hasFooterRegion=false hasFooterV2=false
+   grep 'P3Fix28' in served html: 0 hits
+F. PUT /funnels/lgf_01KYQ8TMC7MHCD2CXEE2RP5VM3/frame (force the sparse template as frame_config_json) -> 200
+G. LEG-2 GET /lg/r2fix -> HTTP 500 body[0..240]="{\"error\":\"Internal Server Error\"}"

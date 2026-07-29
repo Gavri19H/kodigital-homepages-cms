@@ -720,6 +720,26 @@ export function renderBuilderPanel(
 // ---------------------------------------------------------------------------
 // Editor inline script (strict ES5) — tabs, section-order, rules, save,
 // preview, activation, A/B lifecycle, unsaved-changes guard.
+//
+// R2 P3 tail-2 (item 2 — coupling closed by documentation + a guard test,
+// NOT a restructure; see test/leadgen-p3-fixround-footer-picker-coupling
+// .test.ts): the "G: footer.blocks" section below (collectFooterBlocks/
+// fillFooterBlocks/collectFooterPickRows/addFooterPickRow) reads and writes
+// DOM this island never renders. templates.ts is the box's SOLE renderer
+// (its own top-of-file doc comment already documents the split: generic
+// data-tplbox-panel/data-frame-key/data-tplbox-list wiring is owned HERE via
+// key-driven delegation on the whole #lg-quote-editor subtree; the ONE piece
+// that generic delegation does NOT cover is the bespoke "Load pages from the
+// preview site…" fetch, data-footer-picks-load / fetchFooterPicks — that
+// handler lives ONLY in templates.ts's TPL_SCRIPT, wired via ITS OWN
+// document-level delegated click, so this island has no handler of its own
+// for it. Safe by construction, not by luck: ui-quotes.ts renders
+// renderBuilderPanel(...) (this island) and renderTemplatesTabPanel(...)
+// (TPL_SCRIPT) unconditionally and synchronously into the SAME response, on
+// EVERY /admin/leadgen/quotes/:id/edit request — no lazy load, no flag, no
+// path ships one without the other. The guard test asserts both halves of
+// that fact from the exported production strings, so a future edit that
+// breaks it fails loudly instead of leaving a dead "Load pages…" button.
 // ---------------------------------------------------------------------------
 
 export const QUOTE_EDITOR_SCRIPT = `
@@ -1298,11 +1318,41 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (frameState.effective_frame && frameState.effective_frame.template) { return frameState.effective_frame.template; }
     return 'centered';
   }
-  // Populate-only effective config: template defaults + funnel patch +
+  // R2 P3 FIX-FIRST (BLOCKER-1, root) — the editor's HYDRATION SOURCE.
+  //
+  // This used to be 'templateDefaults(currentTemplateId()) ⊕ workingFrame ⊕
+  // workingOverrides': the built-in ARRANGEMENT registry only. It never read
+  // the APPLIED SAVED TEMPLATE, while the server (frame-handlers.ts
+  // frameProjection → frames.ts effectiveFrame, post-571e310) composes
+  // 'FRAME_TEMPLATES[].defaults ⊕ savedTemplateDefaults ⊕ funnel ⊕
+  // overrides'. "Apply template" writes ONLY leadgen_funnels.frame_template_id
+  // (frame_config_json stays NULL), so for every template-seeded funnel the
+  // editor hydrated an EMPTY footer while the visitor was served the saved
+  // template's 8 blocks — and because a Save persists what the editor holds,
+  // one benign edit (e.g. "Text size") wrote 'footer.blocks: []' over a block
+  // set the operator had never seen. Silent, and unrecoverable through the UI
+  // (re-applying the template only re-stamps frame_template_id; the funnel's
+  // own frame_config_json now WINS over it in the same merge).
+  //
+  // The fix is to hydrate from the SERVER'S OWN COMPOSITION. 'effective_frame'
+  // (the GET /funnels/:id/frame projection this island already boots with) IS
+  // 'FRAME_TEMPLATES[].defaults ⊕ savedTemplateDefaults ⊕ stored' — the exact
+  // layers below the per-arm overrides — so it needs no new server field and
+  // no new fetch. Layering 'workingFrame' on top keeps every in-session edit
+  // authoritative, and at boot 'workingFrame === stored' (already inside
+  // effective_frame), so a funnel with NO saved template hydrates to exactly
+  // the same object as before. Absent projection (legacy/blank state) →
+  // the pre-fix registry-defaults base, unchanged.
+  function hydrationBase() {
+    var served = frameState.effective_frame;
+    if (isRecordVal(served) && !isEmptyObject(served)) { return deepClone(served); }
+    return deepClone(templateDefaults(currentTemplateId()));
+  }
+  // Populate-only effective config: the served composition + funnel patch +
   // active per-arm override groups (the SERVER recomputes the truth on every
   // preview POST — this only fills control values).
   function clientEffective() {
-    var eff = deepClone(templateDefaults(currentTemplateId()));
+    var eff = hydrationBase();
     var groups = deepClone(workingFrame);
     delete groups.template;
     delete groups.version;
@@ -1998,29 +2048,81 @@ export const QUOTE_EDITOR_SCRIPT = `
       if (next) { row.parentNode.insertBefore(next, row); }
     }
   }
-  // A minimal bold/italic/link toolbar over a <textarea>'s current selection
-  // (E free-text blocks) — wraps with the SAME inline tags frame.ts's
-  // sanitizeHtml allow-list accepts (strong/em/a), written into the block's
-  // 'html' field. No rich-text editor dependency; plain selectionStart/End.
-  function wrapSelection(ta, fmt) {
-    var start = ta.selectionStart || 0;
-    var end = ta.selectionEnd || 0;
+  // The toolbar's one text mutation: wrap the current selection. No rich-text
+  // editor dependency; plain selectionStart/End.
+  function applyWrap(ta, start, end, openTag, closeTag) {
     var value = ta.value || '';
     var selected = value.slice(start, end);
-    var openTag = '';
-    var closeTag = '';
-    if (fmt === 'bold') { openTag = '<strong>'; closeTag = '</strong>'; }
-    else if (fmt === 'italic') { openTag = '<em>'; closeTag = '</em>'; }
-    else if (fmt === 'link') {
-      var url = window.prompt('Link address (https://…)', 'https://');
-      if (!url) { return; }
-      openTag = '<a href="' + url.replace(/"/g, '&quot;') + '">';
-      closeTag = '</a>';
-    } else { return; }
     ta.value = value.slice(0, start) + openTag + selected + closeTag + value.slice(end);
     ta.focus();
     var pos = start + openTag.length + selected.length + closeTag.length;
     if (ta.setSelectionRange) { ta.setSelectionRange(pos, pos); }
+  }
+  // R2 P3 FIX-FIRST (MINOR-13) — the rich toolbar's "Link" button was a raw
+  // window.prompt(): no Cancel affordance, no inline validation, silent no-op
+  // on an empty value. This is the SAME studio modal idiom the ADJ-A10 fix
+  // established (ui-section-studio.ts renderNewSharedValueModal:
+  // role="dialog" aria-modal="true" overlay + panel, opened/closed by the
+  // lg-hidden class toggle, an inline error slot instead of a browser
+  // dialog). The modal markup ships from quotes-tabs/templates.ts
+  // (renderFooterLinkModal) alongside the toolbar it serves.
+  // The href class mirrors frames.ts SAFE_HREF_RE (the server re-validates
+  // and re-sanitizes on save — this only gives the inline error a meaning).
+  // NOTE the doubled backslashes: this island is emitted from a TS template
+  // literal, so a bare \\/ would collapse to / and terminate the regex literal
+  // in the SHIPPED source (the file's standing escaping rule — see the
+  // \\s-escaped regexes elsewhere in this island).
+  var SAFE_HREF_CLIENT = /^(https?:\\/\\/|\\/(?!\\/)|#|tel:|mailto:)/i;
+  var pendingLink = null;
+  function closeLinkModal() {
+    var overlay = byId('lg-link-modal');
+    if (overlay) { overlay.className = 'lg-media-picker-overlay lg-hidden'; }
+    pendingLink = null;
+  }
+  function openLinkModal(ta, after) {
+    var overlay = byId('lg-link-modal');
+    if (!overlay) { return; }
+    pendingLink = { ta: ta, start: ta.selectionStart || 0, end: ta.selectionEnd || 0, after: after };
+    var input = byId('lg-link-modal-url');
+    if (input) { input.value = 'https://'; }
+    var err = byId('lg-link-modal-error');
+    if (err) { err.hidden = true; }
+    overlay.className = 'lg-media-picker-overlay';
+    if (input && input.focus) { input.focus(); }
+  }
+  function confirmLinkModal() {
+    if (!pendingLink) { return; }
+    var input = byId('lg-link-modal-url');
+    var url = input ? String(input.value || '').replace(/^\\s+|\\s+$/g, '') : '';
+    if (url === '' || !SAFE_HREF_CLIENT.test(url)) {
+      var err = byId('lg-link-modal-error');
+      if (err) { err.hidden = false; }
+      return;
+    }
+    var p = pendingLink;
+    applyWrap(p.ta, p.start, p.end, '<a href="' + url.replace(/"/g, '&quot;') + '">', '</a>');
+    closeLinkModal();
+    if (p.after) { p.after(); }
+  }
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    if (!el || !el.hasAttribute) { return; }
+    if (closestAttr(el, 'data-link-modal-cancel') !== null) { closeLinkModal(); return; }
+    if (closestAttr(el, 'data-link-modal-confirm') !== null) { confirmLinkModal(); }
+  });
+  // A minimal bold/italic/link toolbar over a <textarea>'s current selection —
+  // wraps with the SAME inline tags frame.ts's sanitizeHtml allow-list accepts
+  // (strong/em/a), written into the block's 'html' field. 'after' runs once the
+  // wrap is actually applied — synchronously for bold/italic, and only on the
+  // link modal's Insert (never on Cancel) for the link case.
+  function wrapSelection(ta, fmt, after) {
+    var start = ta.selectionStart || 0;
+    var end = ta.selectionEnd || 0;
+    if (fmt === 'link') { openLinkModal(ta, after); return; }
+    if (fmt === 'bold') { applyWrap(ta, start, end, '<strong>', '</strong>'); }
+    else if (fmt === 'italic') { applyWrap(ta, start, end, '<em>', '</em>'); }
+    else { return; }
+    if (after) { after(); }
   }
   // Shared page-targeting mini-control (10E/10F) — 'all' (the default) is
   // OMITTED entirely (both 'pages' fields are optional), keeping a
@@ -2392,14 +2494,46 @@ export const QUOTE_EDITOR_SCRIPT = `
   }
 
   // --- G: footer.blocks — nested under the existing 'footer' group. ---------
+  // R2 P3 BLOCKER FIX (UI gap 2 of 3): this only ever revealed the text area
+  // (about_paragraph/disclosure/address) and the link-row box, so the THREE
+  // block types element J added — 'heading', 'list', 'logo' — had every one of
+  // their inputs stuck behind lg-hidden. templates.ts's collectFooterBlocks
+  // already reads them (html for heading, items/list_style for list,
+  // logo_source/logo_media_id/logo_url/logo_alt for logo) and skips a heading
+  // with an empty body and a list with zero items — so picking those types in
+  // the real editor produced NOTHING, every time: the owner's Image45 anatomy
+  // (heading+paragraph blocks over a centered logo) was not authorable at all.
+  // Visibility now mirrors that collector's own type→field map exactly, so a
+  // field is shown IF AND ONLY IF the collector reads it.
+  // The rich toolbar follows the SAME rule as the render side: only the three
+  // types designs/frame.ts passes through footerInlineBody (about_paragraph /
+  // disclosure / heading) accept markup — 'address' renders escapeHtml(text),
+  // so offering it a bold button would only ever emit literal "<strong>".
   function footerBlockTypeChanged(blockRow) {
     var type = blockRow.querySelector('[data-footer-block-type]').value;
     var textEl = blockRow.querySelector('[data-footer-block-text]');
     var linkrowEl = blockRow.querySelector('[data-footer-block-linkrow]');
-    var showText = type === 'about_paragraph' || type === 'disclosure' || type === 'address';
+    var itemsEl = blockRow.querySelector('[data-footer-block-items]');
+    var listStyleEl = blockRow.querySelector('[data-footer-block-liststyle]');
+    var logoEl = blockRow.querySelector('[data-footer-block-logo]');
+    var toolbarEl = blockRow.querySelector('[data-footer-block-toolbar]');
+    // R2 P3 FIX-FIRST (MINOR-6) — the heading-level select, shown for exactly
+    // the one type whose collector reads it (the same iff-rule as every other
+    // field in this function).
+    var levelEl = blockRow.querySelector('[data-footer-block-level]');
+    var showText = type === 'about_paragraph' || type === 'disclosure' || type === 'address' || type === 'heading';
     var showLinks = type === 'link_row';
+    var showList = type === 'list';
+    var showLogo = type === 'logo';
+    var showLevel = type === 'heading';
+    var showToolbar = type === 'about_paragraph' || type === 'disclosure' || type === 'heading';
+    if (levelEl) { levelEl.className = showLevel ? 'form-select form-select-sm' : 'form-select form-select-sm lg-hidden'; }
     if (textEl) { textEl.className = showText ? 'form-input' : 'form-input lg-hidden'; }
     if (linkrowEl) { linkrowEl.className = showLinks ? '' : 'lg-hidden'; }
+    if (itemsEl) { itemsEl.className = showList ? 'form-input' : 'form-input lg-hidden'; }
+    if (listStyleEl) { listStyleEl.className = showList ? 'form-select form-select-sm' : 'form-select form-select-sm lg-hidden'; }
+    if (logoEl) { logoEl.className = showLogo ? '' : 'lg-hidden'; }
+    if (toolbarEl) { toolbarEl.className = showToolbar ? 'lg-tplbox-toolbar' : 'lg-tplbox-toolbar lg-hidden'; }
   }
   function addFooterLinkRow(linkrowEl, values) {
     var box = linkrowEl.querySelector('[data-footer-block-links]');
@@ -2425,7 +2559,74 @@ export const QUOTE_EDITOR_SCRIPT = `
     }
     return out;
   }
+  function collectFooterPickRows(blockRow) {
+    var box = blockRow.querySelector('[data-footer-block-picks]');
+    if (!box) { return []; }
+    var rows = box.querySelectorAll('[data-footer-pick-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var checkedEl = rows[i].querySelector('[data-footer-pick-checked]');
+      if (!checkedEl || !checkedEl.checked) { continue; }
+      var pageTypeEl = rows[i].querySelector('[data-footer-pick-pagetype]');
+      var labelEl = rows[i].querySelector('[data-footer-pick-label]');
+      var pageType = pageTypeEl ? pageTypeEl.value : '';
+      var label = labelEl ? labelEl.value : '';
+      if (pageType === '' || label === '') { continue; }
+      var pick = { page_type: pageType, label: label };
+      // R2 P3 FIX-FIRST (BLOCKER-2) — carry the per-site-UNIQUE slug so four
+      // stock pages that share page_type:"legal" stay four distinct picks.
+      var slugEl = rows[i].querySelector('[data-footer-pick-slug]');
+      if (slugEl && slugEl.value !== '') { pick.slug = slugEl.value; }
+      var manualEl = rows[i].querySelector('[data-footer-pick-manualurl]');
+      if (manualEl && manualEl.value !== '') { pick.manual_url = manualEl.value; }
+      out.push(pick);
+    }
+    return out;
+  }
+  // R2 P3 BLOCKER FIX (UI gap 2 of 3, write side): this collector only knew
+  // text/align/links — every field element J added (html, items, list_style,
+  // logo_source/logo_media_id/logo_url/logo_alt, picks) was DROPPED. That is
+  // destructive, not merely incomplete: TPLBOX_LIST_WRITERS runs
+  // writeConfigValue('footer.blocks', collectFooterBlocks()) on EVERY footer
+  // row edit (remove / reorder / type change / — as of this fix — a toolbar
+  // click), so touching one block silently erased the J content of every other
+  // block in the footer. Shapes now mirror templates.ts's collectFooterBlocks
+  // 1:1 (the Templates-canvas twin), including its skip-empty guards, so the
+  // two collectors can never disagree about what an authored footer IS.
+  // R2 P3 FIX-FIRST (BLOCKER-1, structural guard) — a save must NEVER silently
+  // replace a non-empty SERVED block set with []. The hydration fix above
+  // removes the cause (the editor now shows what the visitor gets), but the
+  // wipe class must also be unreachable by construction, because the collector
+  // runs on EVERY footer-panel change — including controls that have nothing
+  // to do with blocks (the reviewer's repro was the "Text size" select).
+  //
+  // The invariant: an EMPTY collect is honoured only when the operator has
+  // actually touched the block list in this session. 'footerBlocksTouched' is
+  // set by (and ONLY by) the block-level mutation paths — add / remove /
+  // reorder / type change / a field edit inside a block row / a toolbar click.
+  // Deliberately emptying the footer (removing the last row) therefore still
+  // saves [] on the very next collect; a sibling control can no longer erase
+  // anything. 'servedFooterBlocks()' is the server's OWN boot composition
+  // (effective_frame), i.e. exactly what the visitor is being served.
+  var footerBlocksTouched = false;
+  function touchFooterBlocks() { footerBlocksTouched = true; }
+  // MINOR-9's plain-text projection of an authored rich-text body.
+  function plainFromMarkup(s) { return String(s === null || s === undefined ? '' : s).replace(/<[^>]*>/g, ''); }
+  function servedFooterBlocks() {
+    var served = frameState.effective_frame;
+    var blocks = served && served.footer ? served.footer.blocks : null;
+    return Object.prototype.toString.call(blocks) === '[object Array]' ? blocks : [];
+  }
   function collectFooterBlocks() {
+    var out = collectFooterBlocksRaw();
+    if (out.length === 0 && !footerBlocksTouched) {
+      var served = servedFooterBlocks();
+      if (served.length > 0) { return deepClone({ b: served }).b; }
+    }
+    return out;
+  }
+  function collectFooterBlocksRaw() {
     var list = tplList('footer.blocks');
     if (!list) { return []; }
     var rows = list.querySelectorAll('[data-footer-block-row]');
@@ -2437,9 +2638,56 @@ export const QUOTE_EDITOR_SCRIPT = `
       var text = r.querySelector('[data-footer-block-text]').value;
       var align = r.querySelector('[data-footer-block-align]').value;
       var showText = type === 'about_paragraph' || type === 'disclosure' || type === 'address';
-      if (showText && text === '') { continue; } // an empty text-typed block renders nothing — skip it
+      var hasHtml = type === 'about_paragraph' || type === 'disclosure' || type === 'heading';
+      if (type === 'heading') {
+        if (text === '') { continue; } // heading is html-only — nothing typed, nothing renders
+      } else if (showText && text === '') { continue; } // an empty text-typed block renders nothing — skip it
       var block = { type: type, align: align };
-      if (showText) { block.text = text; }
+      // R2 P3 FIX-FIRST (MINOR-9) — ONE textarea backs both fields, but only
+      // 'html' is sanitized; 'text' was getting the SAME raw authored markup
+      // even though frame.ts's own contract says text "is still a straight
+      // escape, contractually never markup" (and 'address', which has no html
+      // field, renders escapeHtml(text) — so raw tags there would print
+      // literally). The rich-text types now store the PLAIN projection in
+      // 'text' and the markup only in 'html'; nothing is lost, because
+      // footerInlineBody prefers html whenever it is non-empty.
+      if (showText) { block.text = hasHtml ? plainFromMarkup(text) : text; }
+      if (hasHtml) { block.html = text; }
+      // R2 P3 FIX-FIRST (MINOR-6) — the heading LEVEL is now authorable
+      // (frames.ts has always carried 'level'; frame.ts has always clamped it
+      // to 1..6). Absent control / blank value → omitted, i.e. frame.ts's
+      // unchanged default of 3.
+      if (type === 'heading') {
+        var levelEl = r.querySelector('[data-footer-block-level]');
+        if (levelEl && levelEl.value !== '') { block.level = Number(levelEl.value); }
+      }
+      if (type === 'list') {
+        var itemsEl = r.querySelector('[data-footer-block-items]');
+        var lines = String(itemsEl ? itemsEl.value : '').split('\\n');
+        var items = [];
+        var j;
+        for (j = 0; j < lines.length; j++) {
+          var t = lines[j].replace(/^\\s+|\\s+$/g, '');
+          if (t !== '') { items.push(t); }
+        }
+        if (items.length === 0) { continue; }
+        block.items = items;
+        var listStyleEl = r.querySelector('[data-footer-block-liststyle]');
+        block.list_style = (listStyleEl && listStyleEl.value) || 'unordered';
+      }
+      if (type === 'logo') {
+        var logoSourceEl = r.querySelector('[data-footer-block-logosource]');
+        var logoSource = (logoSourceEl && logoSourceEl.value) || 'site';
+        block.logo_source = logoSource;
+        if (logoSource === 'manual') {
+          var logoMediaEl = r.querySelector('[data-list-field="logo_media_id"]');
+          var logoUrlEl = r.querySelector('[data-footer-block-logourl]');
+          if (logoMediaEl && logoMediaEl.value !== '') { block.logo_media_id = logoMediaEl.value; }
+          if (logoUrlEl && logoUrlEl.value !== '') { block.logo_url = logoUrlEl.value; }
+        }
+        var logoAltEl = r.querySelector('[data-footer-block-logoalt]');
+        if (logoAltEl && logoAltEl.value !== '') { block.logo_alt = logoAltEl.value; }
+      }
       if (type === 'link_row') {
         var linkrowEl = r.querySelector('[data-footer-block-linkrow]');
         var linksSourceEl = r.querySelector('[data-footer-block-linksource]');
@@ -2449,11 +2697,36 @@ export const QUOTE_EDITOR_SCRIPT = `
           if (links.length === 0) { continue; } // nothing typed — a manual link row would render nothing
           block.links = links;
         }
+        if (block.links_source === 'picked') {
+          var picks = collectFooterPickRows(r);
+          if (picks.length === 0) { continue; }
+          block.picks = picks;
+        }
       }
       out.push(block);
     }
     return out;
   }
+  function addFooterPickRow(blockRow, pick) {
+    var box = blockRow.querySelector('[data-footer-block-picks]');
+    var row = cloneTplRow('footer_pick_row');
+    if (!box || !row) { return; }
+    var checkedEl = row.querySelector('[data-footer-pick-checked]'); if (checkedEl) { checkedEl.checked = true; }
+    var titleEl = row.querySelector('[data-footer-pick-title]');
+    if (titleEl) { titleEl.appendChild(document.createTextNode(pick.label || pick.page_type || '')); }
+    var typeEl = row.querySelector('[data-footer-pick-pagetype]'); if (typeEl) { typeEl.value = pick.page_type || ''; }
+    var slugEl = row.querySelector('[data-footer-pick-slug]'); if (slugEl) { slugEl.value = pick.slug || ''; }
+    var labelEl = row.querySelector('[data-footer-pick-label]'); if (labelEl) { labelEl.value = pick.label || ''; }
+    var manualEl = row.querySelector('[data-footer-pick-manualurl]'); if (manualEl) { manualEl.value = pick.manual_url || ''; }
+    box.appendChild(row);
+  }
+  // R2 P3 BLOCKER FIX (UI gap 2 of 3, read side): the hydration twin of the
+  // widened collector above. It restored ONLY type/align/text/links, so every
+  // J field (html, items+list_style, the logo source/media/url/alt, and the D2
+  // picks) came back BLANK when the operator reopened a saved footer — and the
+  // very next collect wrote that blank state back. Filling the picks from the
+  // stored block (rather than only from "Load pages from the preview site…")
+  // is what makes a saved links_source:"picked" row survive a reopen at all.
   function fillFooterBlocks(blocks) {
     var list = tplList('footer.blocks');
     if (!list) { return; }
@@ -2465,7 +2738,30 @@ export const QUOTE_EDITOR_SCRIPT = `
       var b = blocks[i] || {};
       setListFieldValue(row.querySelector('[data-footer-block-type]'), b.type || 'about_paragraph');
       setListFieldValue(row.querySelector('[data-footer-block-align]'), b.align || 'left');
-      var textEl = row.querySelector('[data-footer-block-text]'); if (textEl) { textEl.value = b.text || ''; }
+      // One textarea backs both fields (the editor's own contract — see
+      // templates.ts collectFooterBlocks): html wins when present, because
+      // that is the value designs/frame.ts's footerInlineBody prefers.
+      var textEl = row.querySelector('[data-footer-block-text]');
+      if (textEl) { textEl.value = b.html || b.text || ''; }
+      if (b.type === 'heading') {
+        var levelEl = row.querySelector('[data-footer-block-level]');
+        if (levelEl) { setListFieldValue(levelEl, String(b.level || 3)); }
+      }
+      if (b.type === 'list') {
+        var itemsEl = row.querySelector('[data-footer-block-items]');
+        var items = Object.prototype.toString.call(b.items) === '[object Array]' ? b.items : [];
+        if (itemsEl) { itemsEl.value = items.join('\\n'); }
+        setListFieldValue(row.querySelector('[data-footer-block-liststyle]'), b.list_style || 'unordered');
+      }
+      if (b.type === 'logo') {
+        setListFieldValue(row.querySelector('[data-footer-block-logosource]'), b.logo_source || 'site');
+        var logoMediaEl = row.querySelector('[data-list-field="logo_media_id"]');
+        if (logoMediaEl) { logoMediaEl.value = b.logo_media_id || ''; }
+        var logoUrlEl = row.querySelector('[data-footer-block-logourl]');
+        if (logoUrlEl) { logoUrlEl.value = b.logo_url || ''; }
+        var logoAltEl = row.querySelector('[data-footer-block-logoalt]');
+        if (logoAltEl) { logoAltEl.value = b.logo_alt || ''; }
+      }
       if (b.type === 'link_row') {
         var linkrowEl = row.querySelector('[data-footer-block-linkrow]');
         var linksSourceEl = row.querySelector('[data-footer-block-linksource]');
@@ -2473,6 +2769,9 @@ export const QUOTE_EDITOR_SCRIPT = `
         var links = Object.prototype.toString.call(b.links) === '[object Array]' ? b.links : [];
         var l;
         for (l = 0; l < links.length; l++) { addFooterLinkRow(linkrowEl, links[l]); }
+        var picks = Object.prototype.toString.call(b.picks) === '[object Array]' ? b.picks : [];
+        var p;
+        for (p = 0; p < picks.length; p++) { addFooterPickRow(row, picks[p] || {}); }
       }
       list.appendChild(row);
       footerBlockTypeChanged(row);
@@ -2592,6 +2891,11 @@ export const QUOTE_EDITOR_SCRIPT = `
       var footerBlockRow = closestAttr(el, 'data-footer-block-row');
       if (footerBlockRow) { footerBlockTypeChanged(footerBlockRow); }
     }
+    // R2 P3 FIX-FIRST (BLOCKER-1 guard) — a change INSIDE a block row is a
+    // real block edit; a change elsewhere in the footer panel (Text size,
+    // Font family, the palette strips, Show the footer) is NOT, and must
+    // never be able to author an empty block set. See collectFooterBlocks.
+    if (panel === 'footer' && closestAttr(el, 'data-footer-block-row') !== null) { touchFooterBlocks(); }
     writeTplboxList(listKey);
   });
 
@@ -2633,7 +2937,7 @@ export const QUOTE_EDITOR_SCRIPT = `
     }
     if (addKey === 'footer.blocks') {
       var frow = cloneTplRow('footer.blocks');
-      if (frow) { list.appendChild(frow); footerBlockTypeChanged(frow); }
+      if (frow) { list.appendChild(frow); footerBlockTypeChanged(frow); touchFooterBlocks(); }
       return;
     }
     var plain = cloneTplRow(addKey);
@@ -2704,7 +3008,7 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (fmt) {
       var toolbarBlock = closestAttr(el, 'data-ft-block-row');
       var ta = toolbarBlock ? toolbarBlock.querySelector('[data-ft-block-text]') : null;
-      if (ta) { wrapSelection(ta, fmt); writeConfigValue('free_text', collectFreeText()); }
+      if (ta) { wrapSelection(ta, fmt, function () { writeConfigValue('free_text', collectFreeText()); }); }
     }
   });
 
@@ -2725,17 +3029,39 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (!el || !el.getAttribute || !el.hasAttribute) { return; }
     if (el.hasAttribute('data-footer-link-remove')) {
       var linkRow = closestAttr(el, 'data-footer-link-row');
-      if (linkRow && linkRow.parentNode) { linkRow.parentNode.removeChild(linkRow); writeConfigValue('footer.blocks', collectFooterBlocks()); }
+      if (linkRow && linkRow.parentNode) { linkRow.parentNode.removeChild(linkRow); touchFooterBlocks(); writeConfigValue('footer.blocks', collectFooterBlocks()); }
       return;
     }
     var blockRow = closestAttr(el, 'data-footer-block-row');
     if (!blockRow) { return; }
-    if (el.hasAttribute('data-footer-block-remove')) { if (blockRow.parentNode) { blockRow.parentNode.removeChild(blockRow); } writeConfigValue('footer.blocks', collectFooterBlocks()); return; }
-    if (el.hasAttribute('data-footer-block-up')) { moveRowSibling(blockRow, -1); writeConfigValue('footer.blocks', collectFooterBlocks()); return; }
-    if (el.hasAttribute('data-footer-block-down')) { moveRowSibling(blockRow, 1); writeConfigValue('footer.blocks', collectFooterBlocks()); return; }
+    if (el.hasAttribute('data-footer-block-remove')) { if (blockRow.parentNode) { blockRow.parentNode.removeChild(blockRow); } touchFooterBlocks(); writeConfigValue('footer.blocks', collectFooterBlocks()); return; }
+    if (el.hasAttribute('data-footer-block-up')) { moveRowSibling(blockRow, -1); touchFooterBlocks(); writeConfigValue('footer.blocks', collectFooterBlocks()); return; }
+    if (el.hasAttribute('data-footer-block-down')) { moveRowSibling(blockRow, 1); touchFooterBlocks(); writeConfigValue('footer.blocks', collectFooterBlocks()); return; }
     if (el.hasAttribute('data-footer-block-link-add')) {
       var linkrowEl = blockRow.querySelector('[data-footer-block-linkrow]');
-      if (linkrowEl) { addFooterLinkRow(linkrowEl, null); }
+      if (linkrowEl) { addFooterLinkRow(linkrowEl, null); touchFooterBlocks(); }
+      return;
+    }
+    // R2 P3 BLOCKER FIX (UI gap 3 of 3): templates.ts renders three
+    // data-footer-fmt buttons (bold / italic / link) in EVERY footer block
+    // row and NOTHING listened for them — clicking Bold did literally nothing,
+    // so the owner's "free text (rich toolbar)" was reachable only by typing
+    // raw HTML into the textarea by hand. This is the SAME two-line body the
+    // free-text toolbar's data-ft-fmt branch uses a few handlers up
+    // (wrapSelection over this row's own textarea, then re-collect) — the
+    // separate attribute name exists only because that branch hardcodes
+    // free_text's collector and would persist to the wrong config path.
+    // closestAttr, NOT el.getAttribute: the Bold and Italic buttons wrap their
+    // glyph in <strong>/<em>, so a real click's ev.target is that INNER
+    // element and a direct getAttribute reads null — the button would still do
+    // nothing (proven in the drive: the first pass with getAttribute persisted
+    // ZERO <strong> tags). Only "Link", whose label is a bare text node,
+    // happens to report the button itself as the target.
+    var footerFmtEl = closestAttr(el, 'data-footer-fmt');
+    var footerFmt = footerFmtEl ? footerFmtEl.getAttribute('data-footer-fmt') : null;
+    if (footerFmt) {
+      var footerTa = blockRow.querySelector('[data-footer-block-text]');
+      if (footerTa) { touchFooterBlocks(); wrapSelection(footerTa, footerFmt, function () { writeConfigValue('footer.blocks', collectFooterBlocks()); }); }
     }
   });
 

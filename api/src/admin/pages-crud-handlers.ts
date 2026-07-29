@@ -52,7 +52,11 @@ const PAGE_TYPE_VALUES: ReadonlySet<string> = new Set([
   "contact",
   "legal",
 ]);
-const LEGAL_PAGE_TYPES: ReadonlySet<string> = new Set([
+// Exported for leadgen/branding.ts (P3 S3b, element J's Pages-fed
+// legal-links picker + serve-time resolver) — the single source of truth
+// for which page_type values are "legal" so the picker's discovery query
+// and this module's own site_id-required rule never drift apart.
+export const LEGAL_PAGE_TYPES: ReadonlySet<string> = new Set([
   "privacy-policy",
   "terms",
   "do-not-sell",

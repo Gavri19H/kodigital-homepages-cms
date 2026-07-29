@@ -57,6 +57,11 @@ import type { DefaultFunnelDesign } from "./default-funnel/tokens";
 import { FUNNEL_DESIGN_SCOPE_ATTR } from "./default-funnel/styles";
 import type { FunnelDesign } from "./registry";
 import type { EffectiveTokens } from "./theme";
+// R2 P3 (element J) — THEME_RECORD_FONT_STACKS is theme.ts's OWN closed
+// enum -> pre-vetted CSS-stack lookup (the SAME table headline_font/
+// body_font already render through); the footer's independent font family
+// reuses it rather than inventing a second lookup.
+import { THEME_RECORD_FONT_STACKS } from "./theme";
 import type {
   EffectiveFrameConfig,
   FrameBackConfig,
@@ -78,6 +83,10 @@ import type {
   FrameTrustStripConfig,
   FrameTypographyOverride,
 } from "./frames";
+// R2 P3 (element J, contract R2 minor-6) — the ONE SAFE_HREF_RE instance
+// (frames.ts's STORE-time gate); every footer href THIS module renders
+// re-checks it too (defense in depth), never a re-declared copy.
+import { SAFE_HREF_RE } from "./frames";
 import type { SiteBranding } from "../../../leadgen/branding";
 
 // ---------------------------------------------------------------------------
@@ -894,33 +903,128 @@ function footerScopeStyle(f: FrameFooterConfig): string {
   if (ps?.link !== undefined) pairs.push(`--lg-footer-link:var(--lg-role-${ps.link})`);
   const size = f.typography_scope?.size;
   if (size !== undefined) pairs.push(`--lg-footer-size:var(--lg-footer-size-${size})`);
+  // R2 P3 (element J) — the owner's "different color, font and sizes than
+  // the main template" independent font family. THEME_RECORD_FONT_STACKS is
+  // the SAME closed enum -> pre-vetted CSS-stack table headline_font/
+  // body_font already render through (never an unconstrained string — see
+  // theme.ts's own "P0 STORED-XSS FIX" comment on why); the lookup key was
+  // already validated at frames.ts's STORE-time gate (oneOf(THEME_RECORD_
+  // FONT_NAMES)), so this is a closed-table read, never an interpolated
+  // author string. NOTE: default-funnel/styles.ts's existing
+  // `.lg-frame-footer2` rule consumes --lg-footer-bg/-fg/-size today but has
+  // no font-family declaration yet — this custom property is set here but
+  // needs ONE more line there to visibly apply (see this slice's handoff).
+  const fontFamily = f.typography_scope?.font_family;
+  if (fontFamily !== undefined && fontFamily in THEME_RECORD_FONT_STACKS) {
+    pairs.push(`--lg-footer-font:${THEME_RECORD_FONT_STACKS[fontFamily]}`);
+  }
+  // R2 P3 FIX-FIRST (MAJOR-5) — the footer's own underline-links axis (the
+  // owner's Image45 pin). A CLOSED two-value property (the literal token
+  // `underline`, emitted only for `=== true`), never an author string — the
+  // same closed-table discipline as --lg-footer-font above. Absent → the
+  // styles.ts rule's own `none` fallback, i.e. today's behavior.
+  if (f.link_underline === true) pairs.push("--lg-footer-link-decoration:underline");
   return pairs.length > 0 ? ` style="${pairs.join(";")}"` : "";
 }
-function renderFooterBlock(block: FrameFooterBlock, branding: SiteBranding | null): string {
+// R2 P3 (element J) — about_paragraph/disclosure/heading share ONE rich-text
+// body: author html (RE-sanitized here — defense in depth; frames.ts's
+// validateFooterBlocks already sanitized it at STORE time, mirrors
+// frameInlineBody's own render-time re-invocation above) when present, else
+// the plain escaped text — byte-identical to pre-J output for every block
+// that never authors html (the ONLY new sink is `html` itself; `text` is
+// still a straight escape, contractually never markup).
+function footerInlineBody(block: FrameFooterBlock): string {
+  if (typeof block.html === "string" && block.html.trim() !== "") return sanitizeFrameInlineHtml(block.html);
+  return escapeHtml(block.text ?? "");
+}
+// R2 P3 (element J) — the "logo" block's OWN source: "site" (unchanged
+// default, the existing renderFooterLogo ladder) or "manual" (a media-
+// library ref or a SAFE_HREF_RE-gated direct URL — R2 minor-6 defense in
+// depth over frames.ts's STORE-time gate on the SAME field).
+function renderFooterBlockLogo(block: FrameFooterBlock, branding: SiteBranding | null): string {
+  if (block.logo_source === "manual") {
+    // R2 P3 FIX-FIRST (MINOR-10) — close the asymmetry R2 minor-6 forbids:
+    // `logo_url` was SAFE_HREF_RE-gated here but its sibling `logo_media_id`
+    // rode mediaUrl() ungated, so the media leg was the one src on this
+    // element with no render-time check. mediaUrl's own output is a /media/…
+    // path, so the gate is a no-op for every real media id — it simply means
+    // NEITHER sibling can reach `src` unchecked.
+    const mediaResolved = mediaUrl(block.logo_media_id ?? null);
+    const fromMedia = isNonEmptyStr(mediaResolved) && SAFE_HREF_RE.test(mediaResolved.trim()) ? mediaResolved : null;
+    const rawUrl = block.logo_url;
+    const fromUrl = isNonEmptyStr(rawUrl) && SAFE_HREF_RE.test(rawUrl.trim()) ? rawUrl : null;
+    const src = fromMedia ?? fromUrl;
+    if (src !== null) {
+      const alt = isNonEmptyStr(block.logo_alt) ? block.logo_alt : branding?.site_name ?? CMS_FALLBACK_LOGO_TEXT;
+      return `<img class="lg-frame-footer2-logo-img" src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" decoding="async">`;
+    }
+  }
+  return renderFooterLogo(branding);
+}
+function renderFooterBlock(block: FrameFooterBlock, branding: SiteBranding | null, footer: FrameFooterConfig): string {
   const alignA = alignAttr(block.align);
   switch (block.type) {
     case "about_paragraph":
-      return isNonEmptyStr(block.text)
-        ? `<p class="lg-frame-footer2-about"${alignA}>${escapeHtml(String(block.text))}</p>`
+      return footerInlineBody(block).trim() !== ""
+        ? `<p class="lg-frame-footer2-about"${alignA}>${footerInlineBody(block)}</p>`
         : "";
     case "disclosure":
-      return isNonEmptyStr(block.text)
-        ? `<div class="lg-frame-footer2-disclosure"${alignA}>${escapeHtml(String(block.text))}</div>`
+      return footerInlineBody(block).trim() !== ""
+        ? `<div class="lg-frame-footer2-disclosure"${alignA}>${footerInlineBody(block)}</div>`
         : "";
+    // R2 P3 (element J) — heading/list/address handlers match the free-text
+    // renderer's structure: level clamp 1..6, ordered-vs-unordered tag choice,
+    // check-style list support. The list_style:"check" case emits the class and
+    // reuses the freetext-flavoured check CSS (the checkmark glyph logic is
+    // shared globally).
+    case "heading": {
+      const level = Math.min(6, Math.max(1, Math.trunc(block.level ?? 3)));
+      const body = footerInlineBody(block);
+      return body.trim() !== "" ? `<h${level} class="lg-frame-footer2-heading"${alignA}>${body}</h${level}>` : "";
+    }
+    case "list": {
+      const style = block.list_style ?? "unordered";
+      const tag = style === "ordered" ? "ol" : "ul";
+      const checkCls = style === "check" ? " lg-frame-footer2-list--check" : "";
+      const items = Array.isArray(block.items) ? block.items : [];
+      const li = items.map((it) => `<li>${sanitizeFrameInlineHtml(String(it))}</li>`).join("");
+      return li === "" ? "" : `<${tag} class="lg-frame-footer2-list${checkCls}"${alignA}>${li}</${tag}>`;
+    }
     case "address":
       return isNonEmptyStr(block.text)
         ? `<address class="lg-frame-footer2-address"${alignA}>${escapeHtml(String(block.text))}</address>`
         : "";
     case "logo":
-      return `<div class="lg-frame-footer2-logo"${alignA}>${renderFooterLogo(branding)}</div>`;
+      return `<div class="lg-frame-footer2-logo"${alignA}>${renderFooterBlockLogo(block, branding)}</div>`;
     case "link_row": {
-      const links = (block.links_source === "site" ? (branding?.legal_links ?? []) : (block.links ?? [])).filter(
-        (l) => l.label.trim() !== "" && l.href.trim() !== "",
+      // R2 P3 (element J) D2 — "picked" resolves the SAME way "site" does:
+      // leadgen/branding.ts resolveSiteBranding's 3rd arg REPLACES
+      // branding.legal_links with the per-serving-site resolution before
+      // this module ever runs, so both sources read the ALREADY-RESOLVED
+      // list here — no render-path change needed to consume S3b's D2 leg.
+      const fromBranding = block.links_source === "site" || block.links_source === "picked";
+      // R2 minor-6 — re-check SAFE_HREF_RE at render time too (defense in
+      // depth): branding.legal_links is resolver-built from a stored slug or
+      // an already-gated manual_url fallback, and block.links is already
+      // gated at frames.ts STORE time, but an authored J link must never
+      // depend solely on a caller's discipline.
+      const links = (fromBranding ? (branding?.legal_links ?? []) : (block.links ?? [])).filter(
+        (l) => l.label.trim() !== "" && l.href.trim() !== "" && SAFE_HREF_RE.test(l.href.trim()),
       );
       if (links.length === 0) return "";
+      // R2 P3 FIX-FIRST (MINOR-8) — the owner's Image28 pin puts " | " BETWEEN
+      // the legal links. The separator is the footer's own authored text,
+      // ESCAPED (never a markup sink), rendered as an aria-hidden span between
+      // anchors only — never before the first or after the last, never inside
+      // an anchor. Absent/blank → the pre-fix anchors-only join, byte-identical.
+      const rawSep = footer.link_separator;
+      const sep =
+        typeof rawSep === "string" && rawSep !== ""
+          ? `<span class="lg-frame-footer2-link-sep" aria-hidden="true">${escapeHtml(rawSep)}</span>`
+          : "";
       const anchors = links
         .map((l) => `<a class="lg-frame-footer2-link" href="${escapeHtml(l.href)}">${escapeHtml(l.label)}</a>`)
-        .join("");
+        .join(sep);
       return `<div class="lg-frame-footer2-links"${alignA}>${anchors}</div>`;
     }
     case "socials":
@@ -930,7 +1034,11 @@ function renderFooterBlock(block: FrameFooterBlock, branding: SiteBranding | nul
   }
 }
 function renderSocials(block: FrameFooterBlock, alignA: string): string {
-  const items = (block.socials ?? []).filter((s) => s.platform.trim() !== "" && s.url.trim() !== "");
+  // R2 minor-6 — SAFE_HREF_RE re-check at render time (see the link_row case
+  // comment above for why, verbatim rationale).
+  const items = (block.socials ?? []).filter(
+    (s) => s.platform.trim() !== "" && s.url.trim() !== "" && SAFE_HREF_RE.test(s.url.trim()),
+  );
   if (items.length === 0) return "";
   const anchors = items
     .map(
@@ -948,7 +1056,7 @@ function renderFooterV2(
 ): string {
   const f = frame.footer;
   if (!f.enabled || f.show_on === "never") return "";
-  const inner = (f.blocks ?? []).map((b) => renderFooterBlock(b, branding)).join("");
+  const inner = (f.blocks ?? []).map((b) => renderFooterBlock(b, branding, f)).join("");
   const hideMobile = f.hide_on_mobile || frame.mobile.hide_footer === true;
   const classes =
     `lg-frame-footer lg-frame-footer2 lg-frame-footer--show-${f.show_on}` +

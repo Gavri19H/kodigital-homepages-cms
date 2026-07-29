@@ -44,6 +44,7 @@ import {
   testOfferHandler,
 } from "./payload-builder-handlers";
 import { rebuildLeadgenAnalyticsRangeHandler } from "./analytics-admin-handlers";
+import { listSiteLegalPagesHandler } from "./footer-legal-pages-handlers";
 import {
   applyFrameTemplateToFunnelHandler,
   createFrameTemplateHandler,
@@ -343,6 +344,11 @@ routes.delete("/funnels/:id", deleteFunnelHandler);
 // The only /sites/* route on this surface; deeper static suffix, no bare
 // /sites/:id sibling to order against.
 routes.get("/sites/:site_id/branding", getSiteBrandingHandler);
+// R2 P3 S3b (§5.4 item 2 / §7 D2) — element J's Pages-fed legal-links
+// picker data source (leadgen/branding.ts listPickableLegalPages). Read-only
+// sibling of the branding route above; same static-path, no :id-sibling
+// discipline.
+routes.get("/sites/:site_id/legal-pages", listSiteLegalPagesHandler);
 
 // --- Auctions (03 §8.2 + 07 §18–§21 — Phase-9 Stage B full surface) ----------
 // The API entity path is PLURAL; the HTML tab path is singular /admin/leadgen/

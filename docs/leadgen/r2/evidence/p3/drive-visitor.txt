@@ -1,0 +1,34 @@
+=== Image28 saved template, applied, real visitor ===
+apply template 13 -> 200 ftid=13 bumped=1
+   image28-footer @1280: HTTP 200 footerNodes=1 size=1264x119 font="Inter, system-ui, Arial, sans-serif" bg=rgb(255, 255, 255)
+      text: Privacy Policy Your Privacy Choices State Law Privacy Notice Terms of Use Licenses & Disclosure Accessibility Statement P3Fix28 LLC is a Marketing Lead Generato
+      png:  /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/docs/leadgen/r2/evidence/p3/image28-footer-1280.png
+      links: /privacy|Privacy Policy , /privacy-choices|Your Privacy Choices , /state-privacy|State Law Privacy Notice , /terms|Terms of Use , /licenses|Licenses & Disclosure , /accessibility|Accessibility Statement
+   image28-footer @375: HTTP 200 footerNodes=1 size=359x300 font="Inter, system-ui, Arial, sans-serif" bg=rgb(255, 255, 255)
+      text: Privacy Policy Your Privacy Choices State Law Privacy Notice Terms of Use Licenses & Disclosure Accessibility Statement P3Fix28 LLC is a Marketing Lead Generato
+      png:  /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/docs/leadgen/r2/evidence/p3/image28-footer-375.png
+      links: /privacy|Privacy Policy , /privacy-choices|Your Privacy Choices , /state-privacy|State Law Privacy Notice , /terms|Terms of Use , /licenses|Licenses & Disclosure , /accessibility|Accessibility Statement
+=== Image45 saved template, applied, real visitor ===
+apply template 14 -> 200 ftid=14 bumped=1
+   image45-footer @1280: HTTP 200 footerNodes=1 size=1264x450 font="Poppins, system-ui, Arial, sans-serif" bg=rgb(27, 58, 92)
+      text: P3Fix45 Co Ltd. (“Become”) is a free online lead-generator that connects users with independent providers of home security systems, monitoring services, and sma
+      png:  /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/docs/leadgen/r2/evidence/p3/image45-footer-1280.png
+      links: /terms|Terms And Conditions , /privacy|Privacy Policy
+   image45-footer @375: HTTP 200 footerNodes=1 size=359x666 font="Poppins, system-ui, Arial, sans-serif" bg=rgb(27, 58, 92)
+      text: P3Fix45 Co Ltd. (“Become”) is a free online lead-generator that connects users with independent providers of home security systems, monitoring services, and sma
+      png:  /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/docs/leadgen/r2/evidence/p3/image45-footer-375.png
+      links: /terms|Terms And Conditions , /privacy|Privacy Policy
+=== D2: ONE saved template with picks, THREE sites ===
+apply template 15 -> 200 ftid=15 bumped=1
+   d2-p3fix-a @1280: HTTP 200 footerNodes=1 size=1264x104 font="Fraunces, Georgia, "Times New Roman", serif" bg=rgb(255, 255, 255)
+      text: Privacy Policy Terms And Conditions P3FixD2 — one saved template, every site its own legal pages.
+      png:  /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/docs/leadgen/r2/evidence/p3/d2-p3fix-a-1280.png
+      links: /privacy-policy-alpha|Privacy Policy , /terms-alpha|Terms And Conditions
+   d2-p3fix-b @1280: HTTP 200 footerNodes=1 size=1264x104 font="Fraunces, Georgia, "Times New Roman", serif" bg=rgb(255, 255, 255)
+      text: Privacy Policy Terms And Conditions P3FixD2 — one saved template, every site its own legal pages.
+      png:  /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/docs/leadgen/r2/evidence/p3/d2-p3fix-b-1280.png
+      links: /datenschutz-bravo|Privacy Policy , /nutzungsbedingungen-bravo|Terms And Conditions
+   d2-p3fix-c @1280: HTTP 200 footerNodes=1 size=1264x104 font="Fraunces, Georgia, "Times New Roman", serif" bg=rgb(255, 255, 255)
+      text: Privacy Policy Terms And Conditions P3FixD2 — one saved template, every site its own legal pages.
+      png:  /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/docs/leadgen/r2/evidence/p3/d2-p3fix-c-1280.png
+      links: /privacy-charlie|Privacy Policy , https://fallback.p3fix.test/terms|Terms And Conditions

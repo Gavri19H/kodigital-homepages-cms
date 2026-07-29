@@ -38,6 +38,12 @@ import {
   renderQuoteFrame,
 } from "../../public/leadgen/designs/frame";
 import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
+// R2 P3 (element J) D2 — the SAME pure, synchronous frame-merge used just
+// below (resolveFrameComposition's own inputs) to find a footer's picked
+// legal-links leg before resolveSiteBranding runs.
+import { resolveEffectiveFrameOnly } from "../../public/leadgen/resolver";
+import { footerLegalPagePicks, parseSavedFrameTemplateDefaults } from "../../public/leadgen/designs/frames";
+import type { EffectiveFrameConfig } from "../../public/leadgen/designs/frames";
 // R6 SEAM 3 (register D3/E5): a Section's content changing must invalidate the
 // SAME §28 shell cache the theme-edit path already does — reuses the EXACT
 // exported helper themes-handlers.ts calls, no new invalidation channel.
@@ -1490,6 +1496,45 @@ function siteSettingsHrefFromFrameContext(rawFrameContext: unknown): string | nu
   return `/admin/settings?site_id=${encodeURIComponent(rawSiteId.trim())}`;
 }
 
+// R2 P3 tail (item 4): the admin-preview TWIN of resolver.ts's exported
+// resolveSavedFrameTemplateDefaultsFor — same table, same parser
+// (frames.ts's parseSavedFrameTemplateDefaults), same null-degrade — so the
+// Sections-tab preview's footer-picks lookup never disagrees with what the
+// live page (resolver.ts) and the activation preview (quotes-handlers.ts)
+// resolve. A LOCAL loader taking an already-collapsed ftid (this file's own
+// D1 convention, mirroring quotes-handlers.ts's own loadSavedFrameTemplateDefaults)
+// rather than the exported resolveSavedFrameTemplateDefaultsFor, because THIS
+// caller's variant may be null (frame_context with no variant_public_id) and
+// that export requires a real ResolvedActivatedFunnel-shaped variant.
+async function loadSavedFrameTemplateDefaults(
+  db: D1Database,
+  ftid: number | null,
+  quotePublicId?: string,
+): Promise<EffectiveFrameConfig | null> {
+  if (ftid !== null) {
+    const row = await db
+      .prepare("SELECT frame_json FROM leadgen_frame_templates WHERE id = ? LIMIT 1")
+      .bind(ftid)
+      .first<{ frame_json: string | null }>();
+    return row === null ? null : parseSavedFrameTemplateDefaults(row.frame_json);
+  }
+  if (quotePublicId === undefined) return null;
+  try {
+    const row = await db
+      .prepare(
+        `SELECT ft.frame_json AS frame_json
+           FROM leadgen_quote_default_template qdt
+           JOIN leadgen_frame_templates ft ON ft.id = qdt.frame_template_id
+          WHERE qdt.quote_public_id = ? LIMIT 1`,
+      )
+      .bind(quotePublicId)
+      .first<{ frame_json: string | null }>();
+    return row === null ? null : parseSavedFrameTemplateDefaults(row.frame_json);
+  } catch {
+    return null;
+  }
+}
+
 // Parse + resolve the §13.4 frame_context body param. `explicitDesignId` is
 // the request's own design_id (when sent it stays the layer-1 base in-frame —
 // "existing design_id honored"); otherwise the funnel's variant design drives
@@ -1630,6 +1675,21 @@ async function resolveSectionPreviewFrame(
     .first<{ public_id: string }>();
   if (quote === null) return { kind: "not_found" };
 
+  // R2 P3 tail (item 4) — resolved ONCE, unconditionally (coordinator
+  // ruling: "the clause is one truth on every surface, so both calls in
+  // this function are yours" — the composition call below needs this
+  // exactly as much as the branding-picks call inside the site_id branch,
+  // and both must read the IDENTICAL saved-template row, never two
+  // independent lookups that could disagree). Same precedence/null-degrade
+  // as resolver.ts's resolveSavedFrameTemplateDefaultsFor and quotes-
+  // handlers.ts's own loadSavedFrameTemplateDefaults: variant.frame_template_id
+  // ?? funnel.frame_template_id ?? the per-quote default (quote.public_id).
+  const previewSavedTemplateDefaults = await loadSavedFrameTemplateDefaults(
+    db,
+    variant?.frame_template_id ?? funnel.frame_template_id,
+    quote.public_id,
+  );
+
   // site_id (C4): ANY CMS site is legal — branding preview needs no
   // activation and creates none. Unknown site → 404 (the variant-preview rule).
   let branding: SiteBranding | null = null;
@@ -1639,7 +1699,24 @@ async function resolveSectionPreviewFrame(
       .bind(siteId)
       .first<{ id: string }>();
     if (site === null) return { kind: "not_found" };
-    branding = await resolveSiteBranding(db, siteId);
+    // R2 P3 (element J) D2 — the SAME raw frame_config_json/frame_overrides_json
+    // resolveFrameComposition below reads, merged once here purely to find a
+    // footer's picked legal-links leg (unrelated to that call's theme_json
+    // resolution, so this needs none of it).
+    //
+    // R2 P3 tail (item 4) — the third resolveEffectiveFrameOnly caller the
+    // blocker round missed: without saved_template_defaults, a template-seeded
+    // funnel (frame_template_id set, frame_config_json never written) resolved
+    // NO frame here, so the Sections-tab preview showed no footer region while
+    // the live page (resolver.ts) and the Templates-tab activation preview
+    // (quotes-handlers.ts) — both already carrying this fix — rendered one.
+    const previewFrame = resolveEffectiveFrameOnly({
+      frame_config_json: funnel.frame_config_json,
+      theme_json: funnel.theme_json,
+      frame_overrides_json: variant?.frame_overrides_json ?? null,
+      saved_template_defaults: previewSavedTemplateDefaults,
+    });
+    branding = await resolveSiteBranding(db, siteId, footerLegalPagePicks(previewFrame));
   }
 
   // Layer-1 base: the request's explicit design_id when sent (honored
@@ -1663,11 +1740,23 @@ async function resolveSectionPreviewFrame(
     parseJsonColumn(variant?.frame_overrides_json ?? null),
   );
   const naturalThemeRecord = naturalThemeId !== null ? await getThemeRecord(cache, naturalThemeId) : null;
+  // R2 P3 tail (item 4, coordinator-extended scope) — the SIBLING call the
+  // named fix alone left blind: without saved_template_defaults here, a
+  // template-seeded funnel (frame_config_json truly absent) resolved
+  // composition === null (serve.ts resolveFrameComposition's own
+  // frameColumnTrulyAbsent gate, no explicit theme/inline-design signal to
+  // synthesize the narrow default either), so previewSectionHandler's
+  // composition===null fork always took renderLegacyShell — which takes NO
+  // siteBranding/branding param at all — regardless of the branding fix
+  // above. Same resolved row (previewSavedTemplateDefaults, computed once
+  // above) threaded through, exactly like resolver.ts's live serve and
+  // quotes-handlers.ts's activation preview: one truth on every surface.
   const composition = resolveFrameComposition(
     {
       frame_config_json: funnel.frame_config_json,
       theme_json: effectiveThemeJson,
       frame_overrides_json: variant?.frame_overrides_json ?? null,
+      saved_template_defaults: previewSavedTemplateDefaults,
     },
     design,
     naturalThemeRecord,

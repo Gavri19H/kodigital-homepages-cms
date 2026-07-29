@@ -1,0 +1,26 @@
+FIXTURE RECAPTURE CLASSIFICATION — R2 P3 FIX-FIRST round
+
+Normalizers applied = the parity test's OWN three (minted ids, computed_at,
+rolling data-analytics window). Anything left is REAL drift.
+
+editor-full.html                   253 real lines / 33 hunks / UNATTRIBUTABLE 0
+                                      105  MINOR-13 studio link modal
+                                       51  BLOCKER-1 guard (touched/served/Raw)
+                                       34  BLOCKER-1 root (clientEffective/hydrationBase)
+                                       24  MINOR-6 heading level
+                                       19  BLOCKER-2 slug pick identity
+                                       17  MINOR-9 text/html split
+                                        3  MAJOR-5 + MINOR-8 link axes
+editor-panel-ab.html               0 real lines (raw byte drift = re-minted ULIDs only)
+editor-panel-activation.html       0 real lines (raw byte drift = re-minted ULIDs only)
+editor-panel-builder.html          0 real lines (raw byte drift = re-minted ULIDs only)
+editor-panel-templates.html        47 real lines / 11 hunks / UNATTRIBUTABLE 0
+                                       17  MINOR-13 studio link modal
+                                       14  BLOCKER-2 slug pick identity
+                                        7  MINOR-9 text/html split
+                                        6  MINOR-6 heading level
+                                        3  MAJOR-5 + MINOR-8 link axes
+quotes-list-seeded.html            0 real lines (raw byte drift = re-minted ULIDs only)
+
+TOTAL attributed lines: 300
+TOTAL UNATTRIBUTABLE HUNKS: 0

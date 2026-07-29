@@ -1,0 +1,123 @@
+FAIL-BEFORE — src at HEAD 9ffed25 (unfixed), test/leadgen-p3-fixround-footer.test.ts as shipped in this round
+captured: 2026-07-29T18:17:15Z
+cwd: /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api
+
+
+NOTE: vitest prints the ENTIRE received value on a failed deep-equal; those dumps
+(≈1.0 MB, mostly rendered HTML) are elided here. Every test result line, every
+assertion message and the totals are verbatim. Reproduce with:
+  (src at 9ffed25) cd api && npx vitest run test/leadgen-p3-fixround-footer.test.ts
+
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-2 — picked legal links resolve by a UNIQUE identity > on a STOCK-seeded site (four pages sharing page_type 'legal'), four picks serve FOUR DISTINCT hrefs
+   → expected [ '/contact', '/contact', …(2) ] to deeply equal [ '/contact', '/do-not-sell', …(2) ]
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-2 — picked legal links resolve by a UNIQUE identity > the D2 semantic survives: the SAME saved pick set resolves per serving site
+   → expected [ '/contact', '/contact', …(2) ] to deeply equal [ '/contact', '/do-not-sell', …(2) ]
+ ✓ test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-2 — picked legal links resolve by a UNIQUE identity > BACK-COMPAT: a pick saved BEFORE this fix (page_type only, no slug) resolves exactly as it did — first-wins per type
+ ✓ test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-2 — picked legal links resolve by a UNIQUE identity > a slug the serving site does NOT publish falls back to page_type, then manual_url, then omission
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-2 — picked legal links resolve by a UNIQUE identity > resolveSiteBranding's 3rd arg carries the slug identity end-to-end
+   → expected [ '/contact', '/contact', …(2) ] to deeply equal [ '/contact', '/do-not-sell', …(2) ]
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-2 — picked legal links resolve by a UNIQUE identity > the picker's row template carries the slug AND the stored pick shape validates it
+   → the picker row must carry the unique identity: expected '<div class="lg-qpanel" data-panel="te…' to contain 'data-footer-pick-slug'
+ ✓ test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-1 — one benign save can never wipe the served footer > the server's boot projection carries the applied saved template's 8 blocks (the truth the visitor is served)
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-1 — one benign save can never wipe the served footer > ROOT: clientEffective() hydrates the editor from that SAME composition (fail-before: 0 blocks)
+   → the editor must show what the visitor gets: expected [] to have a length of 8 but got +0
+ ✓ test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-1 — one benign save can never wipe the served footer > ROOT: an in-session/stored edit still wins over the served composition (the editor is not frozen)
+ ✓ test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-1 — one benign save can never wipe the served footer > ROOT: with no server projection (legacy/blank state) the pre-fix registry-defaults base still applies
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-1 — one benign save can never wipe the served footer > GUARD: an UNTOUCHED collect that yields [] keeps the served block set (fail-before: it returned [] and the save persisted it)
+   → island must contain   var footerBlocksTouched = false;: expected -1 to be greater than -1
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-1 — one benign save can never wipe the served footer > GUARD: after the operator touches the block list, an empty collect IS honoured (deliberate deletion still works)
+   → island must contain   var footerBlocksTouched = false;: expected -1 to be greater than -1
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-1 — one benign save can never wipe the served footer > GUARD: with nothing served, an empty collect stays empty (no phantom blocks invented)
+   → island must contain   var footerBlocksTouched = false;: expected -1 to be greater than -1
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-1 — one benign save can never wipe the served footer > GUARD: the non-block footer controls do NOT mark the list touched; a control INSIDE a block row does
+   → expected '\n(function () {\n  var root = docume…' to contain 'if (panel === \'footer\' && closestAt…'
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-3 — the per-block alignment control is honoured > frame.ts emits data-align for every block type (unchanged) AND the CSS now matches it
+   → about must honour data-align=left: expected '[data-lg-design="default-funnel"]{bac…' to contain '.lg-frame-footer2-about[data-align="l…'
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-3 — the per-block alignment control is honoured > a left-aligned block and a centered sibling get DIFFERENT declarations (the regression the review named)
+   → the given combination of arguments (undefined and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-4 — the new block types ship with CSS > list / heading / logo-img each have their OWN rule
+   → expected '[data-lg-design="default-funnel"]{bac…' to contain '.lg-frame-footer2-list{'
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-4 — the new block types ship with CSS > the list is readable centred AND left-aligned: markers ride with the text, no UA 40px indent
+   → expected '' to contain 'list-style-position:inside'
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-4 — the new block types ship with CSS > a manual footer logo is CONSTRAINED (MINOR-7: a 2000px asset can no longer blow the band out)
+   → expected '' to match /max-height:/
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-4 — the new block types ship with CSS > the heading scales with the footer's OWN typography scope (em, not a page-level rem)
+   → expected '' to match /font-size:[0-9.]+em/
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-5 + MINOR-8 — the footer's own link axes (Image45 underline, Image28 separators) > default (axis off) is byte-identical: no custom property, and the rule falls back to none
+   → expected '[data-lg-design="default-funnel"]{bac…' to contain 'text-decoration:var(--lg-footer-link-…'
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-5 + MINOR-8 — the footer's own link axes (Image45 underline, Image28 separators) > link_underline:true emits the property, so the anchors compute text-decoration: underline
+   → expected '<div id="lg-funnel-root" class="lg-fr…' to contain '--lg-footer-link-decoration:underline'
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-5 + MINOR-8 — the footer's own link axes (Image45 underline, Image28 separators) > link_separator renders BETWEEN anchors only — never leading, trailing, or inside a link
+   → n links → n-1 separators: expected +0 to be 2 // Object.is equality
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-5 + MINOR-8 — the footer's own link axes (Image45 underline, Image28 separators) > the separator is ESCAPED, never a markup sink
+   → expected '<div id="lg-funnel-root" class="lg-fr…' to contain '&lt;img src=x onerror=alert(1)&gt;'
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-5 + MINOR-8 — the footer's own link axes (Image45 underline, Image28 separators) > both axes validate through the REAL frame validator and round-trip effectiveFrame
+   → expected [ { …(4) }, { …(4) } ] to deeply equal []
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST minors > MINOR-6: the heading LEVEL is authorable, hydrated, collected, and rendered
+   → expected '<div class="lg-qpanel" data-panel="te…' to contain 'data-footer-block-level'
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST minors > MINOR-9: a rich-text block stores markup ONLY in html; text keeps the plain projection
+   → expected '\n(function () {\n  var root = docume…' to contain 'block.text = hasHtml ? plainFromMarku…'
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST minors > MINOR-10: logo_media_id is SAFE_HREF-gated at render, closing the asymmetry with logo_url
+   → an unsafe media ref must never reach an img src: expected '<div id="lg-funnel-root" class="lg-fr…' not to contain 'data:text/html'
+ × test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST minors > MINOR-13: the rich toolbar's Link button is a studio MODAL, never window.prompt
+   → the modal must ship with the panel: expected '<div class="lg-qpanel" data-panel="te…' to contain 'id="lg-link-modal"'
+ ✓ test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST minors > the island stays plain ES5 (no arrow functions, no const/let) — the file's own invariant
+⎯⎯⎯⎯⎯⎯ Failed Tests 24 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-2 — picked legal links resolve by a UNIQUE identity > on a STOCK-seeded site (four pages sharing page_type 'legal'), four picks serve FOUR DISTINCT hrefs
+AssertionError: expected [ '/contact', '/contact', …(2) ] to deeply equal [ '/contact', '/do-not-sell', …(2) ]
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-2 — picked legal links resolve by a UNIQUE identity > the D2 semantic survives: the SAME saved pick set resolves per serving site
+AssertionError: expected [ '/contact', '/contact', …(2) ] to deeply equal [ '/contact', '/do-not-sell', …(2) ]
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-2 — picked legal links resolve by a UNIQUE identity > resolveSiteBranding's 3rd arg carries the slug identity end-to-end
+AssertionError: expected [ '/contact', '/contact', …(2) ] to deeply equal [ '/contact', '/do-not-sell', …(2) ]
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-2 — picked legal links resolve by a UNIQUE identity > the picker's row template carries the slug AND the stored pick shape validates it
+AssertionError: the picker row must carry the unique identity: expected '<div class="lg-qpanel" data-panel="te…' to contain 'data-footer-pick-slug'
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-1 — one benign save can never wipe the served footer > ROOT: clientEffective() hydrates the editor from that SAME composition (fail-before: 0 blocks)
+AssertionError: the editor must show what the visitor gets: expected [] to have a length of 8 but got +0
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-1 — one benign save can never wipe the served footer > GUARD: an UNTOUCHED collect that yields [] keeps the served block set (fail-before: it returned [] and the save persisted it)
+AssertionError: island must contain   var footerBlocksTouched = false;: expected -1 to be greater than -1
+    359|   expect(start, `island must contain ${startMarker}`).toBeGreaterThan(…
+    361|   expect(end, `island must contain ${endMarker} after ${startMarker}`)…
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-1 — one benign save can never wipe the served footer > GUARD: after the operator touches the block list, an empty collect IS honoured (deliberate deletion still works)
+AssertionError: island must contain   var footerBlocksTouched = false;: expected -1 to be greater than -1
+    359|   expect(start, `island must contain ${startMarker}`).toBeGreaterThan(…
+    361|   expect(end, `island must contain ${endMarker} after ${startMarker}`)…
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-1 — one benign save can never wipe the served footer > GUARD: with nothing served, an empty collect stays empty (no phantom blocks invented)
+AssertionError: island must contain   var footerBlocksTouched = false;: expected -1 to be greater than -1
+    359|   expect(start, `island must contain ${startMarker}`).toBeGreaterThan(…
+    361|   expect(end, `island must contain ${endMarker} after ${startMarker}`)…
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST BLOCKER-1 — one benign save can never wipe the served footer > GUARD: the non-block footer controls do NOT mark the list touched; a control INSIDE a block row does
+AssertionError: expected '\n(function () {\n  var root = docume…' to contain 'if (panel === \'footer\' && closestAt…'
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-3 — the per-block alignment control is honoured > frame.ts emits data-align for every block type (unchanged) AND the CSS now matches it
+AssertionError: about must honour data-align=left: expected '[data-lg-design="default-funnel"]{bac…' to contain '.lg-frame-footer2-about[data-align="l…'
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-3 — the per-block alignment control is honoured > a left-aligned block and a centered sibling get DIFFERENT declarations (the regression the review named)
+AssertionError: the given combination of arguments (undefined and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-4 — the new block types ship with CSS > list / heading / logo-img each have their OWN rule
+AssertionError: expected '[data-lg-design="default-funnel"]{bac…' to contain '.lg-frame-footer2-list{'
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-4 — the new block types ship with CSS > the list is readable centred AND left-aligned: markers ride with the text, no UA 40px indent
+AssertionError: expected '' to contain 'list-style-position:inside'
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-4 — the new block types ship with CSS > a manual footer logo is CONSTRAINED (MINOR-7: a 2000px asset can no longer blow the band out)
+AssertionError: expected '' to match /max-height:/
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-4 — the new block types ship with CSS > the heading scales with the footer's OWN typography scope (em, not a page-level rem)
+AssertionError: expected '' to match /font-size:[0-9.]+em/
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-5 + MINOR-8 — the footer's own link axes (Image45 underline, Image28 separators) > default (axis off) is byte-identical: no custom property, and the rule falls back to none
+AssertionError: expected '[data-lg-design="default-funnel"]{bac…' to contain 'text-decoration:var(--lg-footer-link-…'
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-5 + MINOR-8 — the footer's own link axes (Image45 underline, Image28 separators) > link_underline:true emits the property, so the anchors compute text-decoration: underline
+AssertionError: expected '<div id="lg-funnel-root" class="lg-fr…' to contain '--lg-footer-link-decoration:underline'
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-5 + MINOR-8 — the footer's own link axes (Image45 underline, Image28 separators) > link_separator renders BETWEEN anchors only — never leading, trailing, or inside a link
+AssertionError: n links → n-1 separators: expected +0 to be 2 // Object.is equality
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-5 + MINOR-8 — the footer's own link axes (Image45 underline, Image28 separators) > the separator is ESCAPED, never a markup sink
+AssertionError: expected '<div id="lg-funnel-root" class="lg-fr…' to contain '&lt;img src=x onerror=alert(1)&gt;'
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST MAJOR-5 + MINOR-8 — the footer's own link axes (Image45 underline, Image28 separators) > both axes validate through the REAL frame validator and round-trip effectiveFrame
+AssertionError: expected [ { …(4) }, { …(4) } ] to deeply equal []
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST minors > MINOR-6: the heading LEVEL is authorable, hydrated, collected, and rendered
+AssertionError: expected '<div class="lg-qpanel" data-panel="te…' to contain 'data-footer-block-level'
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST minors > MINOR-9: a rich-text block stores markup ONLY in html; text keeps the plain projection
+AssertionError: expected '\n(function () {\n  var root = docume…' to contain 'block.text = hasHtml ? plainFromMarku…'
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST minors > MINOR-10: logo_media_id is SAFE_HREF-gated at render, closing the asymmetry with logo_url
+AssertionError: an unsafe media ref must never reach an img src: expected '<div id="lg-funnel-root" class="lg-fr…' not to contain 'data:text/html'
+ FAIL  test/leadgen-p3-fixround-footer.test.ts > R2 P3 FIX-FIRST minors > MINOR-13: the rich toolbar's Link button is a studio MODAL, never window.prompt
+AssertionError: the modal must ship with the panel: expected '<div class="lg-qpanel" data-panel="te…' to contain 'id="lg-link-modal"'
+ Test Files  1 failed (1)
+      Tests  24 failed | 6 passed (30)
+   Start at  21:17:16
+   Duration  1.63s (transform 979ms, setup 0ms, collect 1.32s, tests 42ms, environment 0ms, prepare 33ms)

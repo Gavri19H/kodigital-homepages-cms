@@ -611,12 +611,22 @@ describeDb("Quote Builder frame studio — §4.4 region inspectors [RETIRED: §8
   //         Header — PARTIALLY landed: logo_source/logo_size/logo_align
   //           present; enabled/tagline/secure_badge.*/cta.*/disclosure_link/
   //           sticky/logo_media_id have NO current surface anywhere.
-  //         Footer / Disclosure — a DIFFERENT, redesigned shape is present
-  //           (footer.blocks/palette_scope.*/typography_scope.size;
-  //           disclosure.entries) — the OLD flat keys this test pinned
-  //           (footer.enabled/show_on/links_source; disclosure.enabled/
-  //           location/link_label/text) are genuinely gone (not merely
-  //           renamed 1:1), so their absence-check stands.
+  //         Disclosure — a DIFFERENT, redesigned shape is present
+  //           (disclosure.entries) — the OLD flat keys this test pinned
+  //           (disclosure.enabled/location/link_label/text) are genuinely
+  //           gone (not merely renamed 1:1), so their absence-check stands.
+  //         Footer — PARTIALLY landed (R2 P3 tail CONDUCTOR RULING,
+  //           element-J UI gap fix): footer.enabled now has a current
+  //           control (box G, Footer, quotes-tabs/templates.ts
+  //           renderTplBoxFooter's frameCheck — the blocker round's fix for
+  //           "the operator could author a complete element-J footer here
+  //           and still have it render NOTHING") — asserted as a PRESENT
+  //           replacement below, not a gap, exactly mirroring the Progress
+  //           conversion precedent just below. footer.show_on/
+  //           footer.links_source remain absent (that file's own SCOPE
+  //           NOTE: only footer.enabled was added; the saved template's own
+  //           arrangement family supplies show_on) — this test's pin
+  //           NARROWED to the new reality rather than being deleted.
   //         Progress — FULLY landed (P4/S4.1, contract §8.3, merged into this
   //           tree at the P3b union): the Templates tab's NEW box I·Progress
   //           carries all six §8.3 controls (position/align/thickness/width/
@@ -684,9 +694,12 @@ describeDb("Quote Builder frame studio — §4.4 region inspectors [RETIRED: §8
     }
   });
 
-  it("Footer region-inspector controls have no current admin surface (see describe-block citation)", async () => {
+  it("Footer: footer.enabled is landed in the Templates tab (R2 P3 tail conductor ruling, element-J UI gap fix); footer.show_on/footer.links_source have no current admin surface (see describe-block citation)", async () => {
     const { html } = await harness();
-    for (const key of ["footer.enabled", "footer.show_on", "footer.links_source"]) {
+    // landed replacement (Templates tab box G, Footer, quotes-tabs/templates.ts renderTplBoxFooter's frameCheck)
+    expect(html, "footer control footer.enabled landed in Templates tab").toContain('data-frame-key="footer.enabled"');
+    // still-missing keys (verified absent everywhere — that file's own SCOPE NOTE: only footer.enabled was added)
+    for (const key of ["footer.show_on", "footer.links_source"]) {
       expect(html, `footer control ${key} absent`).not.toContain(`data-frame-key="${key}"`);
     }
     expect(html).not.toContain('data-frame-list="footer.links"');
