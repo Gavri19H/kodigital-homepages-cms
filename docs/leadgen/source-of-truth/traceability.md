@@ -137,6 +137,13 @@ rule match (`recordRoutingOutcome` fires inside the match branch, runtime-routes
 defaulted leg writes NO row; routing acceptances assert the outcome row on matched legs and the
 SERVED funnel (not an outcome row) on default legs.
 
+**Citation correction (P3, 2026-07-29):** the contract §5.4 "Implementing surfaces" list cites
+`designs/frames.ts` for the footer block render; the REAL render (`renderFooterBlock` /
+`renderFooterRegion`, ~:916-924) lives in **`api/src/public/leadgen/designs/frame.ts` (singular)**.
+`frames.ts` holds `FRAME_FOOTER_BLOCK_TYPES` + the `SAFE_HREF_RE` / `sanitizeFrameInlineHtml`
+helpers. Per the plan's citation-decay rule the identifiers are the durable anchors; P3 owns both
+files. No clause changes — only the pointer.
+
 **P1 handoff to P4 (2026-07-29):** the canonical per-question default key is `props.defaultValue`
 (P1 fix round); the RANGE kind still MIRRORS `props.default` because the slider render functions
 (`presets.ts` renderRange family :935/:1025/:1154) read `default` only and belong to P4's slices.
