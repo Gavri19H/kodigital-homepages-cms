@@ -1017,8 +1017,22 @@ describeDb("section studio SSR — §8.6 inspector + §8.5 container props", () 
     // hide dead-write rows per type (columns/gridGap → card grids only).
     expect(html).toContain('data-override-row="columns"');
     expect(html).toContain('data-override-row="gridGap"');
-    // the override controls are selects ONLY (no <input data-inspector-override)
-    expect(html).not.toMatch(/<input[^>]*data-inspector-override/);
+    // the override ROLE controls are selects ONLY (no <input data-inspector-override=")
+    //
+    // NARROWED by DEC-D4 (owner-RULED 2026-07-28): per-question style deviation
+    // must "Reuse the existing per-section override axes incl. free colors" —
+    // the roles-only alternative was REJECTED. The §9.4-era form of this pin
+    // ("no free-CSS input anywhere") predates that ruling and its prefix-matching
+    // regex also caught the D4 control; it now binds exactly what it was
+    // defending — the ROLE controls (data-inspector-override="…") stay selects —
+    // while the ruled free-color escape hatch is pinned POSITIVELY below.
+    expect(html).not.toMatch(/<input[^>]*data-inspector-override="/);
+    // DEC-D4: the free-color control EXISTS on the per-question Style panel,
+    // bound to the same design_overrides keys as the role selects (the schema
+    // already accepts a #hex literal for every color-typed key).
+    for (const key of ["buttonBackground", "iconColor", "featureColor", "rangeColor"]) {
+      expect(html, `D4 free color for ${key}`).toContain(`data-inspector-override-hex="${key}"`);
+    }
     // §9.4 (wave 2): COLOR-typed option VALUES are the 14 §9.1 ROLE NAMES —
     // picking writes the role, never hex; NO hex option values remain.
     const icon = selectBlock(html, "lg-inspector-iconColor");
