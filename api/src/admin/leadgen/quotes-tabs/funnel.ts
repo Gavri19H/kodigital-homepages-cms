@@ -2392,14 +2392,40 @@ export const QUOTE_EDITOR_SCRIPT = `
   }
 
   // --- G: footer.blocks — nested under the existing 'footer' group. ---------
+  // R2 P3 BLOCKER FIX (UI gap 2 of 3): this only ever revealed the text area
+  // (about_paragraph/disclosure/address) and the link-row box, so the THREE
+  // block types element J added — 'heading', 'list', 'logo' — had every one of
+  // their inputs stuck behind lg-hidden. templates.ts's collectFooterBlocks
+  // already reads them (html for heading, items/list_style for list,
+  // logo_source/logo_media_id/logo_url/logo_alt for logo) and skips a heading
+  // with an empty body and a list with zero items — so picking those types in
+  // the real editor produced NOTHING, every time: the owner's Image45 anatomy
+  // (heading+paragraph blocks over a centered logo) was not authorable at all.
+  // Visibility now mirrors that collector's own type→field map exactly, so a
+  // field is shown IF AND ONLY IF the collector reads it.
+  // The rich toolbar follows the SAME rule as the render side: only the three
+  // types designs/frame.ts passes through footerInlineBody (about_paragraph /
+  // disclosure / heading) accept markup — 'address' renders escapeHtml(text),
+  // so offering it a bold button would only ever emit literal "<strong>".
   function footerBlockTypeChanged(blockRow) {
     var type = blockRow.querySelector('[data-footer-block-type]').value;
     var textEl = blockRow.querySelector('[data-footer-block-text]');
     var linkrowEl = blockRow.querySelector('[data-footer-block-linkrow]');
-    var showText = type === 'about_paragraph' || type === 'disclosure' || type === 'address';
+    var itemsEl = blockRow.querySelector('[data-footer-block-items]');
+    var listStyleEl = blockRow.querySelector('[data-footer-block-liststyle]');
+    var logoEl = blockRow.querySelector('[data-footer-block-logo]');
+    var toolbarEl = blockRow.querySelector('[data-footer-block-toolbar]');
+    var showText = type === 'about_paragraph' || type === 'disclosure' || type === 'address' || type === 'heading';
     var showLinks = type === 'link_row';
+    var showList = type === 'list';
+    var showLogo = type === 'logo';
+    var showToolbar = type === 'about_paragraph' || type === 'disclosure' || type === 'heading';
     if (textEl) { textEl.className = showText ? 'form-input' : 'form-input lg-hidden'; }
     if (linkrowEl) { linkrowEl.className = showLinks ? '' : 'lg-hidden'; }
+    if (itemsEl) { itemsEl.className = showList ? 'form-input' : 'form-input lg-hidden'; }
+    if (listStyleEl) { listStyleEl.className = showList ? 'form-select form-select-sm' : 'form-select form-select-sm lg-hidden'; }
+    if (logoEl) { logoEl.className = showLogo ? '' : 'lg-hidden'; }
+    if (toolbarEl) { toolbarEl.className = showToolbar ? 'lg-tplbox-toolbar' : 'lg-tplbox-toolbar lg-hidden'; }
   }
   function addFooterLinkRow(linkrowEl, values) {
     var box = linkrowEl.querySelector('[data-footer-block-links]');
@@ -2425,6 +2451,37 @@ export const QUOTE_EDITOR_SCRIPT = `
     }
     return out;
   }
+  function collectFooterPickRows(blockRow) {
+    var box = blockRow.querySelector('[data-footer-block-picks]');
+    if (!box) { return []; }
+    var rows = box.querySelectorAll('[data-footer-pick-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var checkedEl = rows[i].querySelector('[data-footer-pick-checked]');
+      if (!checkedEl || !checkedEl.checked) { continue; }
+      var pageTypeEl = rows[i].querySelector('[data-footer-pick-pagetype]');
+      var labelEl = rows[i].querySelector('[data-footer-pick-label]');
+      var pageType = pageTypeEl ? pageTypeEl.value : '';
+      var label = labelEl ? labelEl.value : '';
+      if (pageType === '' || label === '') { continue; }
+      var pick = { page_type: pageType, label: label };
+      var manualEl = rows[i].querySelector('[data-footer-pick-manualurl]');
+      if (manualEl && manualEl.value !== '') { pick.manual_url = manualEl.value; }
+      out.push(pick);
+    }
+    return out;
+  }
+  // R2 P3 BLOCKER FIX (UI gap 2 of 3, write side): this collector only knew
+  // text/align/links — every field element J added (html, items, list_style,
+  // logo_source/logo_media_id/logo_url/logo_alt, picks) was DROPPED. That is
+  // destructive, not merely incomplete: TPLBOX_LIST_WRITERS runs
+  // writeConfigValue('footer.blocks', collectFooterBlocks()) on EVERY footer
+  // row edit (remove / reorder / type change / — as of this fix — a toolbar
+  // click), so touching one block silently erased the J content of every other
+  // block in the footer. Shapes now mirror templates.ts's collectFooterBlocks
+  // 1:1 (the Templates-canvas twin), including its skip-empty guards, so the
+  // two collectors can never disagree about what an authored footer IS.
   function collectFooterBlocks() {
     var list = tplList('footer.blocks');
     if (!list) { return []; }
@@ -2437,9 +2494,40 @@ export const QUOTE_EDITOR_SCRIPT = `
       var text = r.querySelector('[data-footer-block-text]').value;
       var align = r.querySelector('[data-footer-block-align]').value;
       var showText = type === 'about_paragraph' || type === 'disclosure' || type === 'address';
-      if (showText && text === '') { continue; } // an empty text-typed block renders nothing — skip it
+      var hasHtml = type === 'about_paragraph' || type === 'disclosure' || type === 'heading';
+      if (type === 'heading') {
+        if (text === '') { continue; } // heading is html-only — nothing typed, nothing renders
+      } else if (showText && text === '') { continue; } // an empty text-typed block renders nothing — skip it
       var block = { type: type, align: align };
       if (showText) { block.text = text; }
+      if (hasHtml) { block.html = text; }
+      if (type === 'list') {
+        var itemsEl = r.querySelector('[data-footer-block-items]');
+        var lines = String(itemsEl ? itemsEl.value : '').split('\\n');
+        var items = [];
+        var j;
+        for (j = 0; j < lines.length; j++) {
+          var t = lines[j].replace(/^\\s+|\\s+$/g, '');
+          if (t !== '') { items.push(t); }
+        }
+        if (items.length === 0) { continue; }
+        block.items = items;
+        var listStyleEl = r.querySelector('[data-footer-block-liststyle]');
+        block.list_style = (listStyleEl && listStyleEl.value) || 'unordered';
+      }
+      if (type === 'logo') {
+        var logoSourceEl = r.querySelector('[data-footer-block-logosource]');
+        var logoSource = (logoSourceEl && logoSourceEl.value) || 'site';
+        block.logo_source = logoSource;
+        if (logoSource === 'manual') {
+          var logoMediaEl = r.querySelector('[data-list-field="logo_media_id"]');
+          var logoUrlEl = r.querySelector('[data-footer-block-logourl]');
+          if (logoMediaEl && logoMediaEl.value !== '') { block.logo_media_id = logoMediaEl.value; }
+          if (logoUrlEl && logoUrlEl.value !== '') { block.logo_url = logoUrlEl.value; }
+        }
+        var logoAltEl = r.querySelector('[data-footer-block-logoalt]');
+        if (logoAltEl && logoAltEl.value !== '') { block.logo_alt = logoAltEl.value; }
+      }
       if (type === 'link_row') {
         var linkrowEl = r.querySelector('[data-footer-block-linkrow]');
         var linksSourceEl = r.querySelector('[data-footer-block-linksource]');
@@ -2449,11 +2537,35 @@ export const QUOTE_EDITOR_SCRIPT = `
           if (links.length === 0) { continue; } // nothing typed — a manual link row would render nothing
           block.links = links;
         }
+        if (block.links_source === 'picked') {
+          var picks = collectFooterPickRows(r);
+          if (picks.length === 0) { continue; }
+          block.picks = picks;
+        }
       }
       out.push(block);
     }
     return out;
   }
+  function addFooterPickRow(blockRow, pick) {
+    var box = blockRow.querySelector('[data-footer-block-picks]');
+    var row = cloneTplRow('footer_pick_row');
+    if (!box || !row) { return; }
+    var checkedEl = row.querySelector('[data-footer-pick-checked]'); if (checkedEl) { checkedEl.checked = true; }
+    var titleEl = row.querySelector('[data-footer-pick-title]');
+    if (titleEl) { titleEl.appendChild(document.createTextNode(pick.label || pick.page_type || '')); }
+    var typeEl = row.querySelector('[data-footer-pick-pagetype]'); if (typeEl) { typeEl.value = pick.page_type || ''; }
+    var labelEl = row.querySelector('[data-footer-pick-label]'); if (labelEl) { labelEl.value = pick.label || ''; }
+    var manualEl = row.querySelector('[data-footer-pick-manualurl]'); if (manualEl) { manualEl.value = pick.manual_url || ''; }
+    box.appendChild(row);
+  }
+  // R2 P3 BLOCKER FIX (UI gap 2 of 3, read side): the hydration twin of the
+  // widened collector above. It restored ONLY type/align/text/links, so every
+  // J field (html, items+list_style, the logo source/media/url/alt, and the D2
+  // picks) came back BLANK when the operator reopened a saved footer — and the
+  // very next collect wrote that blank state back. Filling the picks from the
+  // stored block (rather than only from "Load pages from the preview site…")
+  // is what makes a saved links_source:"picked" row survive a reopen at all.
   function fillFooterBlocks(blocks) {
     var list = tplList('footer.blocks');
     if (!list) { return; }
@@ -2465,7 +2577,26 @@ export const QUOTE_EDITOR_SCRIPT = `
       var b = blocks[i] || {};
       setListFieldValue(row.querySelector('[data-footer-block-type]'), b.type || 'about_paragraph');
       setListFieldValue(row.querySelector('[data-footer-block-align]'), b.align || 'left');
-      var textEl = row.querySelector('[data-footer-block-text]'); if (textEl) { textEl.value = b.text || ''; }
+      // One textarea backs both fields (the editor's own contract — see
+      // templates.ts collectFooterBlocks): html wins when present, because
+      // that is the value designs/frame.ts's footerInlineBody prefers.
+      var textEl = row.querySelector('[data-footer-block-text]');
+      if (textEl) { textEl.value = b.html || b.text || ''; }
+      if (b.type === 'list') {
+        var itemsEl = row.querySelector('[data-footer-block-items]');
+        var items = Object.prototype.toString.call(b.items) === '[object Array]' ? b.items : [];
+        if (itemsEl) { itemsEl.value = items.join('\\n'); }
+        setListFieldValue(row.querySelector('[data-footer-block-liststyle]'), b.list_style || 'unordered');
+      }
+      if (b.type === 'logo') {
+        setListFieldValue(row.querySelector('[data-footer-block-logosource]'), b.logo_source || 'site');
+        var logoMediaEl = row.querySelector('[data-list-field="logo_media_id"]');
+        if (logoMediaEl) { logoMediaEl.value = b.logo_media_id || ''; }
+        var logoUrlEl = row.querySelector('[data-footer-block-logourl]');
+        if (logoUrlEl) { logoUrlEl.value = b.logo_url || ''; }
+        var logoAltEl = row.querySelector('[data-footer-block-logoalt]');
+        if (logoAltEl) { logoAltEl.value = b.logo_alt || ''; }
+      }
       if (b.type === 'link_row') {
         var linkrowEl = row.querySelector('[data-footer-block-linkrow]');
         var linksSourceEl = row.querySelector('[data-footer-block-linksource]');
@@ -2473,6 +2604,9 @@ export const QUOTE_EDITOR_SCRIPT = `
         var links = Object.prototype.toString.call(b.links) === '[object Array]' ? b.links : [];
         var l;
         for (l = 0; l < links.length; l++) { addFooterLinkRow(linkrowEl, links[l]); }
+        var picks = Object.prototype.toString.call(b.picks) === '[object Array]' ? b.picks : [];
+        var p;
+        for (p = 0; p < picks.length; p++) { addFooterPickRow(row, picks[p] || {}); }
       }
       list.appendChild(row);
       footerBlockTypeChanged(row);
@@ -2736,6 +2870,28 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (el.hasAttribute('data-footer-block-link-add')) {
       var linkrowEl = blockRow.querySelector('[data-footer-block-linkrow]');
       if (linkrowEl) { addFooterLinkRow(linkrowEl, null); }
+      return;
+    }
+    // R2 P3 BLOCKER FIX (UI gap 3 of 3): templates.ts renders three
+    // data-footer-fmt buttons (bold / italic / link) in EVERY footer block
+    // row and NOTHING listened for them — clicking Bold did literally nothing,
+    // so the owner's "free text (rich toolbar)" was reachable only by typing
+    // raw HTML into the textarea by hand. This is the SAME two-line body the
+    // free-text toolbar's data-ft-fmt branch uses a few handlers up
+    // (wrapSelection over this row's own textarea, then re-collect) — the
+    // separate attribute name exists only because that branch hardcodes
+    // free_text's collector and would persist to the wrong config path.
+    // closestAttr, NOT el.getAttribute: the Bold and Italic buttons wrap their
+    // glyph in <strong>/<em>, so a real click's ev.target is that INNER
+    // element and a direct getAttribute reads null — the button would still do
+    // nothing (proven in the drive: the first pass with getAttribute persisted
+    // ZERO <strong> tags). Only "Link", whose label is a bare text node,
+    // happens to report the button itself as the target.
+    var footerFmtEl = closestAttr(el, 'data-footer-fmt');
+    var footerFmt = footerFmtEl ? footerFmtEl.getAttribute('data-footer-fmt') : null;
+    if (footerFmt) {
+      var footerTa = blockRow.querySelector('[data-footer-block-text]');
+      if (footerTa) { wrapSelection(footerTa, footerFmt); writeConfigValue('footer.blocks', collectFooterBlocks()); }
     }
   });
 

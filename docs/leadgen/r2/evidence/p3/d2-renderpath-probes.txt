@@ -1,0 +1,16 @@
+
+--- P1 OMISSION (do-not-sell picked, no site has it, no fallback) : picks=["privacy-policy","terms→https://fallback.p3fix.test/terms","do-not-sell"]
+   p3fix-a.e2e.test: HTTP 200 footerRegions=1 anchors=["/privacy-policy-alpha|Privacy Policy","/terms-alpha|Terms And Conditions"]
+      /javascript:/i hits in the WHOLE served html = 0
+      "Do Not Sell My Info" rendered = false
+   p3fix-c.e2e.test: HTTP 200 footerRegions=1 anchors=["/privacy-charlie|Privacy Policy","https://fallback.p3fix.test/terms|Terms And Conditions"]
+      /javascript:/i hits in the WHOLE served html = 0
+      "Do Not Sell My Info" rendered = false
+
+--- P2 REJECTION (hand-injected javascript: manual fallback) : picks=["privacy-policy","terms→javascript:alert('P3FixXSS')"]
+   p3fix-a.e2e.test: HTTP 200 footerRegions=0 anchors=[]
+      /javascript:/i hits in the WHOLE served html = 0
+      "Do Not Sell My Info" rendered = false
+   p3fix-c.e2e.test: HTTP 200 footerRegions=0 anchors=[]
+      /javascript:/i hits in the WHOLE served html = 0
+      "Do Not Sell My Info" rendered = false

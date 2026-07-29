@@ -810,7 +810,38 @@ export function effectiveFrame(
     // silent (never-"unknown") default every other branch of this
     // conditional already uses — no new problem path invented.
     templateId = isFrameTemplateId(savedTemplateDefaults.template) ? savedTemplateDefaults.template : DEFAULT_FRAME_TEMPLATE_ID;
-    frame = cloneJson(savedTemplateDefaults);
+    // R2 P3 BLOCKER FIX (sparse saved template 500): this branch used to be
+    // `frame = cloneJson(savedTemplateDefaults)` — it treated the saved row as
+    // if it were already a COMPLETE EffectiveFrameConfig. It is not. The write
+    // path (frame-handlers validateTemplateInput → validateFrameConfig) accepts
+    // a SPARSE FrameConfig patch (that is this module's own documented stored
+    // shape, and exactly what the Templates tab saves when the operator edits
+    // only the footer), and parseSavedFrameTemplateDefaults merely CASTS that
+    // sparse object to EffectiveFrameConfig at the read boundary (see its own
+    // comment). Cloning it therefore produced a frame with whole groups
+    // MISSING — `frame.section_slot` undefined — and every consumer that reads
+    // a group unconditionally (serve.ts renderVariantSectionsHtml's
+    // `frame.section_slot.continue_placement`, frame.ts renderSlotRegion, …)
+    // threw, 500ing the WHOLE public page for any funnel seeded from a saved
+    // footer template.
+    //
+    // The canonical defaults are the ones this function ALREADY composes for
+    // every other branch: FRAME_TEMPLATES[templateId].defaults — the arrangement
+    // family the saved row itself records (templateId, resolved one line above
+    // from savedTemplateDefaults.template, DEFAULT_FRAME_TEMPLATE_ID when the
+    // sparse row omits it). So the saved template becomes what it always was
+    // meant to be — a PATCH over its own family's defaults — merged with the
+    // SAME mergeInto the funnel/override layers below already use. No value is
+    // invented here.
+    //
+    // Byte-identical for a COMPLETE saved template (the pre-P3 shape M5's own
+    // contract describes: "== FRAME_TEMPLATES[].defaults"): every key it
+    // defines overwrites the base, arrays replace whole, explicit nulls
+    // replace — so mergeInto(base, complete) === cloneJson(complete). The
+    // ONLY behavior change is for keys a SPARSE row omits, which used to be
+    // `undefined` (i.e. the crash) and are now that family's default.
+    frame = cloneJson(FRAME_TEMPLATES[templateId].defaults);
+    mergeInto(frame as unknown as Record<string, unknown>, savedTemplateDefaults as unknown as Record<string, unknown>);
   } else if (requested === undefined) {
     templateId = DEFAULT_FRAME_TEMPLATE_ID;
     frame = cloneJson(FRAME_TEMPLATES[templateId].defaults);

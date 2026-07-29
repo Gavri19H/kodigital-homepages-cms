@@ -476,10 +476,25 @@ function renderFooterBlockRowTemplate(): string {
   </div>`;
 }
 
+// R2 P3 BLOCKER FIX (UI gap 1 of 3): this box had NO control for
+// footer.enabled, so the operator could author a complete element-J footer
+// here and still have it render NOTHING — designs/frame.ts renderFooterRegion
+// returns "" on `!f.enabled` before it ever looks at blocks, and one of the six
+// built-in arrangement families ("minimal") ships footer.enabled:false, as does
+// any saved template derived from it. `frameCheck` is the SAME data-frame-key
+// affordance every other boolean in this panel uses (onFrameKeyChange →
+// setPath(myFrame,…) → scheduleCanvasPreview; funnel.ts hydrates it from the
+// effective frame), so it saves and round-trips with no new plumbing.
+// SCOPE NOTE: only footer.enabled is added — footer.show_on and
+// footer.links_source stay unsurfaced (the saved template's own arrangement
+// family supplies show_on:"all"), so this touches exactly ONE of the three keys
+// test/leadgen-quote-builder-ui.test.ts's retired region-inspector inventory
+// currently asserts absent (that conflict is reported, never edited away).
 function renderTplBoxFooter(): string {
   return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="footer">
   <h3>G &middot; Footer</h3>
   <p class="form-help">Bottom-of-page blocks (company details / links / disclosure / logo / address / socials / heading / list), with their own palette, font family and sizes &mdash; independent of the main template.</p>
+  ${frameControl("Show the footer", frameCheck("Render the footer at the bottom of every funnel page", "footer.enabled"))}
   <h4>Palette &amp; typography scope</h4>
   <div class="lg-scalars">
     ${frameControl("Background", renderRoleStrip("footer.palette_scope.background"))}

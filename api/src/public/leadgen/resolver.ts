@@ -1606,10 +1606,28 @@ async function composeResolvedBundle(
   // SAME pure, synchronous frame-merge this file already exports (no new
   // computation invented) — footerLegalPagePicks just reads footer.blocks
   // off its result.
+  //
+  // R2 P3 BLOCKER FIX: this call omitted saved_template_defaults, so a funnel
+  // whose footer comes from an APPLIED SAVED TEMPLATE resolved previewFrame =
+  // null (or a frame missing the template's blocks) and footerLegalPagePicks
+  // found NOTHING — proven in the drive: one J template with picks
+  // {privacy-policy, terms} served the IDENTICAL site_settings-derived link
+  // list on all three fixture sites instead of each site's own pages. The
+  // picks live in the SAVED TEMPLATE, so the picks lookup must read the same
+  // composition the render does. Same helper, same precedence
+  // (variant.ftid ?? funnel.ftid ?? per-quote default), same null-degrade as
+  // serve.ts's own call — one indexed lookup, and it never throws.
+  let savedTemplateDefaults: EffectiveFrameConfig | null = null;
+  try {
+    savedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(db, { funnel, variant, quote });
+  } catch {
+    savedTemplateDefaults = null; // a template read must never 500 a revenue page
+  }
   const previewFrame = resolveEffectiveFrameOnly({
     frame_config_json: funnel.frame_config_json,
     theme_json: funnel.theme_json,
     frame_overrides_json: variant.frame_overrides_json,
+    saved_template_defaults: savedTemplateDefaults,
   });
   const siteBranding = await resolveSiteBranding(db, siteId, footerLegalPagePicks(previewFrame));
   return {
@@ -1828,9 +1846,32 @@ export function resolveEffectiveFrameOnly(source: {
   saved_template_defaults?: EffectiveFrameConfig | null;
 }): EffectiveFrameConfig | null {
   const rawFrame = parseFrameJsonColumn(source.frame_config_json ?? null);
-  if (rawFrame === null) return null;
-  const frameValidation = validateFrameConfig(rawFrame);
-  if (frameValidation.config === null) return null;
+  // R2 P3 BLOCKER FIX (leg 1 of 2 — "a saved template alone is a frame").
+  // parseFrameJsonColumn collapses TWO states to null (R4-48, mirrored from
+  // serve.ts resolveFrameComposition): (a) the column is a TRUE SQL-NULL /
+  // absent / blank — never configured; (b) it holds a non-empty string that
+  // failed to parse. Only (a) may compose from the saved template; a
+  // present-but-corrupt frame stays on the EXACT legacy fail-safe (return
+  // null) path unconditionally, template or not.
+  //
+  // Before this fix a funnel whose design comes from an APPLIED SAVED TEMPLATE
+  // (frame_template_id set, frame_config_json never written — the normal state
+  // after "apply template", which writes ONLY frame_template_id) returned null
+  // here, so it served with NO frame at all: no header, no slot chrome, and —
+  // the reported blocker — no footer, however complete the saved template's
+  // footer.blocks were. saved_template_defaults was already threaded in by
+  // every live caller (serve.ts, attempt.ts) and simply discarded by this
+  // early return.
+  const frameColumnTrulyAbsent =
+    typeof source.frame_config_json !== "string" || source.frame_config_json.trim() === "";
+  const savedDefaults = source.saved_template_defaults ?? null;
+  const savedTemplateOnly = rawFrame === null && frameColumnTrulyAbsent && savedDefaults !== null;
+  if (rawFrame === null && !savedTemplateOnly) return null;
+  // The saved-template-only case has no funnel layer to validate; effectiveFrame
+  // composes FRAME_TEMPLATES[savedDefaults.template].defaults ⊕ savedDefaults
+  // (⊕ the variant overrides below) — the same merge order as every other path.
+  const frameValidation = rawFrame === null ? { config: null } : validateFrameConfig(rawFrame);
+  if (frameValidation.config === null && !savedTemplateOnly) return null;
   const rawOverrides = parseFrameJsonColumn(source.frame_overrides_json ?? null);
   let frameOverrides: FrameOverrides | null = null;
   if (rawOverrides !== null) {
@@ -1839,10 +1880,10 @@ export function resolveEffectiveFrameOnly(source: {
     if (overridesValidation.config !== null) frameOverrides = overridesValidation.config as FrameOverrides;
   }
   const { frame } = effectiveFrame(
-    frameValidation.config as StoredFrameConfig,
+    frameValidation.config as StoredFrameConfig | null,
     null,
     frameOverrides,
-    source.saved_template_defaults ?? null,
+    savedDefaults,
   );
   return frame;
 }
