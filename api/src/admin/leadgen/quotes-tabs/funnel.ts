@@ -46,6 +46,13 @@ import {
   // QUOTE_RULES_SCRIPT to the page's scripts bundle.
   renderQuoteRulesRail,
   type QuoteRulesRailData,
+  // R2 SRC-11C-B: the ruled-slot chip's plain-language sentence reuses the
+  // quote-level routing rules' OWN generator (same "field is value" phrase
+  // idiom, never re-implemented) — one call per case (a ruled-slot case is a
+  // single-condition row, unlike a routing rule's multi-condition AND/OR
+  // predicate), so the phrasing can never drift between the two surfaces.
+  conditionsSentence,
+  type RulesBuilderRow,
 } from "../ui-rules-builder";
 import {
   type RuleNode,
@@ -246,15 +253,60 @@ function renderSectionChip(
 
 // §8.2 (S5.3): the shared page's slots (fixed / ab / ruled), same chip model as
 // a funnel page card (renderBoardPageCard) so a shared chip honestly reflects
-// its kind ("A/B: …" / "Rule: …" / the section name) and carries data-slot-id +
-// data-slot-kind for the shared-chip menu editors. `slots` rides the
-// sharedPageJson body (BoardPageSlot shape) but is NOT on the SharedPageBody
-// type (shared.ts is out of this slice's ownership) — read via a local cast; a
-// legacy body with only the flat `sections` list degrades to one fixed chip per
-// section (no slot id → the menu editors fall back to a fresh convert).
+// its kind ("A/B: …" / a ruled sentence / the section name) and carries
+// data-slot-id + data-slot-kind for the shared-chip menu editors. `slots`
+// rides the sharedPageJson body (BoardPageSlot shape) but is NOT on the
+// SharedPageBody type (shared.ts is out of this slice's ownership) — read via
+// a local cast; a legacy body with only the flat `sections` list degrades to
+// one fixed chip per section (no slot id → the menu editors fall back to a
+// fresh convert).
 function sharedPageSlots(sharedPage: SharedPageBody | null | undefined): BoardPage["slots"] | null {
   const slots = (sharedPage as unknown as { slots?: BoardPage["slots"] } | null | undefined)?.slots;
   return Array.isArray(slots) ? slots : null;
+}
+
+// R2 SRC-11C-B (contract §7 / A.1 #11-C follow-up — the operator-path gap:
+// a ruled chip showed only its first candidate's bare name, no way to see
+// WHAT the rule does without the raw API): renders the GENERATED PLAIN-
+// LANGUAGE SENTENCE for a saved rule, reusing ui-rules-builder.ts's OWN
+// conditionsSentence (the quote-level routing rules' generator — same "field
+// is value" phrase idiom, never re-implemented), one call per case (a
+// ruled-slot case is a single-condition row, unlike a routing rule's multi-
+// condition AND/OR predicate). `rule_summary` (quotes-handlers.ts's
+// pageToApi — {cases:[{field,op,value,section_name}], default_section_name})
+// is NOT on BoardPageSlot's declared type (shared.ts, out of this slice's
+// ownership) — read via the SAME local-cast idiom sharedPageSlots uses just
+// above. Absent/malformed summary degrades to the neutral "Rule: <name>"
+// label (never throws).
+function ruledSlotSummaryOf(
+  slot: BoardPage["slots"][number],
+): { cases: Array<{ field: string; op: string; value: unknown; section_name: string }>; default_section_name: string } | null {
+  const summary = (slot as unknown as { rule_summary?: unknown }).rule_summary;
+  if (summary === null || typeof summary !== "object") return null;
+  const cases = (summary as { cases?: unknown }).cases;
+  const defaultName = (summary as { default_section_name?: unknown }).default_section_name;
+  if (!Array.isArray(cases) || typeof defaultName !== "string") return null;
+  return summary as { cases: Array<{ field: string; op: string; value: unknown; section_name: string }>; default_section_name: string };
+}
+
+function ruledSlotSentence(slot: BoardPage["slots"][number], fallbackName: string): string {
+  const summary = ruledSlotSummaryOf(slot);
+  if (summary === null || summary.cases.length === 0) return `Rule: ${fallbackName}`;
+  const parts = summary.cases.map((c) => {
+    const row: RulesBuilderRow = { field: c.field, op: c.op as RulesBuilderRow["op"], value: c.value as RulesBuilderRow["value"] };
+    const sentence = conditionsSentence([row], (f) => SLOT_RULE_FIELD_LABELS[f] ?? f).replace(/\.$/, "");
+    return `${sentence} → ${c.section_name}`;
+  });
+  return `${parts.join("; ")}; otherwise → ${summary.default_section_name}`;
+}
+
+// The chip label every board column (shared + funnel) shares — factored out
+// so the two identical A/B-or-ruled-or-fixed ternaries never drift.
+function chipLabelFor(slot: BoardPage["slots"][number]): string {
+  const primary = slot.candidates[0];
+  if (slot.kind === "ab") return `A/B: ${slot.candidates.map((c) => c.section_name).join(" / ") || "empty"}`;
+  if (slot.kind === "ruled") return ruledSlotSentence(slot, primary?.section_name ?? "empty");
+  return primary?.section_name ?? "empty";
 }
 
 function renderSharedColumn(sharedPage: SharedPageBody | null | undefined): string {
@@ -264,12 +316,7 @@ function renderSharedColumn(sharedPage: SharedPageBody | null | undefined): stri
     chips = slots
       .map((slot) => {
         const primary = slot.candidates[0];
-        const name = slot.kind === "ab"
-          ? `A/B: ${slot.candidates.map((c) => c.section_name).join(" / ") || "empty"}`
-          : slot.kind === "ruled"
-            ? `Rule: ${primary?.section_name ?? "empty"}`
-            : (primary?.section_name ?? "empty");
-        return renderSectionChip(name, primary?.section_id ?? "", { scope: "shared", slotId: slot.slot_id, slotKind: slot.kind, mappingStatus: primary?.mapping_status });
+        return renderSectionChip(chipLabelFor(slot), primary?.section_id ?? "", { scope: "shared", slotId: slot.slot_id, slotKind: slot.kind, mappingStatus: primary?.mapping_status });
       })
       .join("");
   } else {
@@ -299,12 +346,7 @@ function renderBoardPageCard(page: BoardPage, index: number): string {
   const chips = page.slots
     .map((slot) => {
       const primary = slot.candidates[0];
-      const name = slot.kind === "ab"
-        ? `A/B: ${slot.candidates.map((c) => c.section_name).join(" / ") || "empty"}`
-        : slot.kind === "ruled"
-          ? `Rule: ${primary?.section_name ?? "empty"}`
-          : (primary?.section_name ?? "empty");
-      return renderSectionChip(name, primary?.section_id ?? "", { scope: "funnel", slotId: slot.slot_id, slotKind: slot.kind, mappingStatus: primary?.mapping_status });
+      return renderSectionChip(chipLabelFor(slot), primary?.section_id ?? "", { scope: "funnel", slotId: slot.slot_id, slotKind: slot.kind, mappingStatus: primary?.mapping_status });
     })
     .join("");
   return `<div class="lg-page-card" data-page-card data-page-public-id="${escapeHtml(page.page_id)}" data-page-index="${index}" data-pin="8.2-page-card">
@@ -397,7 +439,7 @@ function renderBoardMenus(): string {
   return `<div class="lg-board-menus" data-board-menus>
     ${menu("funnel", item("funnel-settings", "Funnel settings") + `<div class="lg-menu-sep"></div>` + item("duplicate", "Duplicate") + item("set-default", "Set as default") + item("move-left", "Move left") + item("move-right", "Move right") + `<div class="lg-menu-sep"></div>` + item("delete", "Delete", true))}
     ${menu("shared-chip", item("ab-slot", "A/B this slot") + item("slot-rule", "Slot rule") + `<div class="lg-menu-sep"></div>` + item("remove", "Remove", true))}
-    ${menu("funnel-chip", item("chip-up", "Move up") + item("chip-down", "Move down") + `<div class="lg-menu-sep"></div>` + item("remove", "Remove", true))}
+    ${menu("funnel-chip", item("ab-slot", "A/B this slot") + item("slot-rule", "Slot rule") + `<div class="lg-menu-sep"></div>` + item("chip-up", "Move up") + item("chip-down", "Move down") + `<div class="lg-menu-sep"></div>` + item("remove", "Remove", true))}
     ${menu("page", item("page-up", "Move up") + item("page-down", "Move down") + `<div class="lg-menu-sep"></div>` + item("page-delete", "Delete page", true))}
   </div>
   <div class="lg-board-guard lg-hidden" data-board-guard role="dialog" aria-modal="true" aria-labelledby="lg-board-guard-title">
@@ -610,6 +652,7 @@ export function renderBuilderPanel(
     : (currentFunnel.variants.find((v) => v.public_id === (currentFunnel.active_variant_public_id ?? "")) ?? primaryVariantOf(currentFunnel.variants));
   const funnelCols = funnels.map((f) => renderFunnelColumn(f, structure, templates)).join("");
   return `<div class="lg-qpanel active" data-panel="builder">
+  <style data-pin="r2-b3-rail-fix">.lg-board-right{min-width:0}</style>
   <div class="lg-board-shell" data-pin="8.2-tab-geometry">
     ${renderBoardLibrary(available, structure, currentFunnelPublicId)}
     <div class="lg-board-center">
@@ -1008,6 +1051,31 @@ export const QUOTE_EDITOR_SCRIPT = `
     return msg;
   }
 
+  // R2 register R7 normalization (mirrors quotes-tabs/themes.ts's own
+  // flushThemeEdits — reused, not reinvented): a preset Applied via
+  // wireThemePresets (theme_json: {theme_id}), then edited through THIS
+  // tab's OWN theme controls (workingTheme accumulates the edit alongside
+  // the still-present theme_id), must not resurface designs/theme.ts's
+  // validateTheme rejection "theme_id can't be combined with other theme
+  // settings" on the ONE-Save button. GET the current theme, drop a bare
+  // theme_id the moment ANY inline field is ALSO present, merge this
+  // session's edits (workingTheme) on top, then PUT.
+  function normalizedThemePut(funnelBase) {
+    return fetch(funnelBase + '/theme', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (getRes) {
+        var current = (getRes.ok && getRes.body && getRes.body.theme) || {};
+        var merged = {};
+        var k;
+        for (k in current) { if (Object.prototype.hasOwnProperty.call(current, k) && k !== 'theme_id') { merged[k] = current[k]; } }
+        for (k in workingTheme) { if (Object.prototype.hasOwnProperty.call(workingTheme, k)) { merged[k] = workingTheme[k]; } }
+        var hasInline = false;
+        for (k in merged) { if (Object.prototype.hasOwnProperty.call(merged, k) && k !== 'theme_id' && k !== 'version') { hasInline = true; break; } }
+        if (hasInline) { delete merged.theme_id; }
+        return putJson(funnelBase + '/theme', { theme_json: merged });
+      });
+  }
+
   // --- 4.7 one-Save: frame PUT (when edited) -> theme PUT (when edited) ->
   // variant PUT (ONLY when order/lander/design/auction/rules or the sparse
   // overrides changed). Each step's dirty flag clears THE MOMENT its own PUT
@@ -1030,7 +1098,7 @@ export const QUOTE_EDITOR_SCRIPT = `
         if (res1.body !== null) { frameDirty = false; }
         if (res1.body && res1.body.problems) { warned += res1.body.problems.length; }
         return themeDirty
-          ? putJson(funnelBase + '/theme', { theme_json: workingTheme })
+          ? normalizedThemePut(funnelBase)
           : Promise.resolve({ ok: true, body: null });
       }).then(function (res2) {
         if (!res2.ok) { throw new Error(saveFailureText(res2, 'Theme save')); }
@@ -2705,10 +2773,28 @@ export const QUOTE_EDITOR_SCRIPT = `
   // ones in the same composition slot, so re-editing a field that ALREADY
   // has a stored override previews the WORKING value exactly (render-only;
   // nothing persists).
+  // R2 handoff (S2a's templates.ts idiom, adopted here — funnel.ts's
+  // collectors are SHARED save+preview, unlike templates.ts's separate
+  // canvas-only one): a half-typed images row (no media_id AND no url yet)
+  // cannot render and would 400 the WHOLE preview. This filters ONLY the
+  // draft CLONE the preview POST sends — workingFrame/workingOverrides (and
+  // therefore the actual Save PUT, funnelBase + '/frame' /
+  // frame_overrides_json) are UNTOUCHED, so Save still validates an
+  // incomplete row exactly as before ("save keeps validating").
+  function stripIncompleteImagesForPreview(images) {
+    if (!images || !images.length) { return images; }
+    var out = []; var i;
+    for (i = 0; i < images.length; i++) {
+      var it = images[i];
+      if (it && (it.media_id || it.url)) { out.push(it); }
+    }
+    return out;
+  }
   function draftFrameConfig() {
     var d = deepClone(workingFrame);
     if (d.template === undefined) { d.template = currentTemplateId(); }
     d.version = 1;
+    if (d.images) { d.images = stripIncompleteImagesForPreview(d.images); }
     return d;
   }
   function draftTheme() {
@@ -2719,7 +2805,11 @@ export const QUOTE_EDITOR_SCRIPT = `
   // preview mirror of the save payload's null). Untouched arms keep the
   // server-side STORED merge.
   function draftOverridesParam(body) {
-    if (overridesDirty) { body.draft_frame_overrides = deepClone(workingOverrides); }
+    if (overridesDirty) {
+      var ov = deepClone(workingOverrides);
+      if (ov.images) { ov.images = stripIncompleteImagesForPreview(ov.images); }
+      body.draft_frame_overrides = ov;
+    }
     return body;
   }
   function canvasStatus(text) {
@@ -3183,6 +3273,33 @@ export const QUOTE_EDITOR_SCRIPT = `
       schedulePreview();
     }
     for (i = 0; i < selects.length; i++) { selects[i].addEventListener('change', onSiteChange); }
+    // R2 handoff: sync this tab's site select at INIT so it agrees with the
+    // Templates tab's own first-Active default (populateSiteSelect there) —
+    // an explicit choice ALREADY made on another tab's select (cross-tab,
+    // same-page convention) wins; else default to the first option whose
+    // SSR-rendered data-badge is "Active" (renderSiteSelect, shared.ts),
+    // matching what Templates would pick. Without this the canvas showed
+    // "CMS fallback branding" on first paint until the operator touched it.
+    (function initSiteSelectDefault() {
+      if (selects.length === 0) { return; }
+      function isMine(el) {
+        var m; for (m = 0; m < selects.length; m++) { if (selects[m] === el) { return true; } }
+        return false;
+      }
+      var allSelects = document.querySelectorAll('[data-site-select]');
+      var chosen = ''; var k;
+      for (k = 0; k < allSelects.length; k++) {
+        if (isMine(allSelects[k])) { continue; }
+        if (allSelects[k].value) { chosen = allSelects[k].value; break; }
+      }
+      if (chosen === '') {
+        var opt = selects[0].querySelector('option[data-badge="Active"]');
+        if (opt) { chosen = opt.value; }
+      }
+      if (chosen === '') { return; }
+      siteId = chosen;
+      for (k = 0; k < selects.length; k++) { selects[k].value = chosen; }
+    }());
   }());
   // §10/S5.1: the #lg-canvas-variant-select change-listener mirror was
   // removed — confirmed dead for the SAME reason as #lg-variant-select
@@ -3212,11 +3329,13 @@ export const QUOTE_EDITOR_SCRIPT = `
   // handler/#lg-template-apply/#lg-template-cancel) was removed — confirmed
   // dead: renderTemplatePicker (its ONLY render source, shared.ts) has ZERO
   // real callers anywhere in the admin/leadgen namespace, so none of its
-  // trigger/target elements ever render. The board's OWN, LIVE per-funnel-
-  // column template picker (§8.2 M5 — the data-template-picker pickchip in
-  // this file's own renderColumnHeader-shaped markup + its applyTemplate
-  // handler below) is a SEPARATE, unrelated, still-live mechanism — NOT
-  // touched. #lg-theme-btn also stays (jumps to the Themes tab, unrelated).
+  // trigger/target elements ever render. R2 SRC-11B: the per-funnel-column
+  // Template chip's OWN embedded apply-popover (openTemplatePicker/
+  // applyTemplate/frameTemplateRecordItems) was ALSO removed — the owner
+  // ruled themes+templates belong on the top bar ONLY; the chip now
+  // NAVIGATES to the Templates tab (gotoTab('templates'), the data-template-
+  // picker dispatch below), exactly like its Theme sibling. #lg-theme-btn
+  // stays (jumps to the Themes tab, unrelated).
   (function () {
     var themeBtn = byId('lg-theme-btn');
     if (themeBtn) { themeBtn.addEventListener('click', function () { activate('themes'); }); }
@@ -3942,32 +4061,6 @@ export const QUOTE_EDITOR_SCRIPT = `
     for (i = 0; i < secs.length; i++) { out.push({ label: secs[i].name, value: secs[i].public_id }); }
     return out;
   }
-  function frameTemplateRecordItems(body) {
-    /* §11C/M5: the SAVED (DB) frame-template records — {public_id,name,
-       is_default} — the SAME source (+ public ids) the Templates tab lists and
-       POST /funnels/:id/apply-template resolves. The old BOARD.templates fed the
-       picker built-in CODE ids (e.g. "centered") that apply-template rejects
-       ("template does not exist") — the retired §10 code-catalog axis. */
-    var recs = (body && body.items) || []; var out = []; var i;
-    for (i = 0; i < recs.length; i++) {
-      out.push({ label: recs[i].name + (recs[i].is_default ? ' (default)' : ''), value: recs[i].public_id });
-    }
-    return out;
-  }
-  function openTemplatePicker(anchor, funnelPub) {
-    req('GET', API + '/frame-template-records').then(function (res) {
-      openPopoverList(anchor, frameTemplateRecordItems(res && res.ok ? res.body : null), function (pub) { applyTemplate(funnelPub, pub); });
-    });
-  }
-
-  /* ================= TEMPLATE PICKER (M5 apply) ================= */
-  function applyTemplate(funnelPub, templateId) {
-    req('POST', API + '/funnels/' + encodeURIComponent(funnelPub) + '/apply-template', { template_id: templateId }).then(function (res) {
-      if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
-      reloadPage();
-    });
-  }
-
   /* ============ PREVIEW (POST /variants/:id/preview -> new tab, Blob) ======= */
   function previewFunnel(funnel) {
     var variantPub = funnel.active_variant_public_id;
@@ -4117,11 +4210,53 @@ export const QUOTE_EDITOR_SCRIPT = `
     for (i = 0; i < n; i++) { var bp = base + (i === 0 ? rem : 0); arms[i].querySelector('[data-ab-arm-pct]').value = String(bp / 100); }
     updateAbSum();
   }
-  function openSharedAbEditor(slotId) {
-    if (!abDialog) { return; }
-    var idx = sharedSlotIndexById(slotId); if (idx < 0) { return; }
-    var slot = sharedSlots()[idx];
-    abDialog.setAttribute('data-slot-id', String(slotId));
+  // R2 SRC-11C-B (a funnel page's section-chip kebab lacked "A/B this
+  // slot"/"Slot rule" — the shared-page chip had them; an operator could not
+  // author one without raw API). abRuledSlotCtx resolves the SLOT + a SAVE
+  // callback for either scope (shared page OR a specific funnel page), so
+  // the SAME two dialogs below work for both chip kinds — no dialog/DOM
+  // duplication, only the read/write target differs. A funnel-scope save
+  // reuses funnelPagesToPut's existing full-page conversion (the SAME shape
+  // saveFunnel PUTs) and only OVERRIDES the one edited slot's descriptor.
+  function abRuledSlotCtx(scope, funnelPub, pageIndex, slotId) {
+    if (scope === 'shared') {
+      var sIdx = sharedSlotIndexById(slotId);
+      if (sIdx < 0) { return null; }
+      return {
+        scope: 'shared',
+        slot: sharedSlots()[sIdx],
+        save: function (overridePut) {
+          var put = sharedSlotsToPut(); put[sIdx] = overridePut;
+          saveSharedSlots(put, null);
+        }
+      };
+    }
+    var f = funnelByPublic(funnelPub);
+    var page = (f && f.pages) ? f.pages[pageIndex] : null;
+    var slots = page ? (page.slots || []) : [];
+    var found = -1; var i;
+    for (i = 0; i < slots.length; i++) { if (slots[i].slot_id === slotId) { found = i; break; } }
+    if (!f || found < 0) { return null; }
+    return {
+      scope: 'funnel',
+      slot: slots[found],
+      save: function (overridePut) {
+        var variantPub = f.active_variant_public_id;
+        if (!variantPub) { showInlineErr(null, 'This funnel has no active variant to save into.'); return; }
+        var putPages = funnelPagesToPut(f);
+        putPages[pageIndex].slots[found] = overridePut;
+        req('PUT', API + '/variants/' + encodeURIComponent(variantPub), { pages: putPages }).then(function (res) {
+          if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
+          reloadPage();
+        });
+      }
+    };
+  }
+  var abCtx = null;
+  function openAbEditorCtx(ctx) {
+    if (!abDialog || !ctx) { return; }
+    abCtx = ctx;
+    var slot = ctx.slot;
     var arms = abArmsEl(); while (arms.firstChild) { arms.removeChild(arms.firstChild); }
     if (slot.kind === 'ab' && slot.section_ids && slot.section_ids.length > 0) {
       var i; for (i = 0; i < slot.section_ids.length; i++) {
@@ -4139,10 +4274,11 @@ export const QUOTE_EDITOR_SCRIPT = `
     updateAbSum();
     show(abDialog);
   }
-  function closeSharedAbEditor() { hide(abDialog); }
+  function openSharedAbEditor(slotId) { openAbEditorCtx(abRuledSlotCtx('shared', null, null, slotId)); }
+  function openFunnelAbEditor(funnelPub, pageIndex, slotId) { openAbEditorCtx(abRuledSlotCtx('funnel', funnelPub, pageIndex, slotId)); }
+  function closeSharedAbEditor() { hide(abDialog); abCtx = null; }
   function saveSharedAb() {
-    if (!abDialog) { return; }
-    var idx = sharedSlotIndexById(Number(abDialog.getAttribute('data-slot-id'))); if (idx < 0) { return; }
+    if (!abDialog || !abCtx) { return; }
     var arms = abArms(); var allocations = []; var sum = 0; var i; var err = abDialog.querySelector('[data-ab-error]');
     for (i = 0; i < arms.length; i++) {
       var secPub = arms[i].querySelector('[data-ab-arm-section]').value;
@@ -4153,17 +4289,16 @@ export const QUOTE_EDITOR_SCRIPT = `
     }
     if (allocations.length < 2) { showErr(err, 'An A/B test needs at least two arms.'); return; }
     if (sum !== 10000) { showErr(err, 'Arm percentages must total 100% (got ' + (sum / 100) + '%).'); return; }
-    var put = sharedSlotsToPut(); put[idx] = { kind: 'ab', allocations: allocations };
-    closeSharedAbEditor(); saveSharedSlots(put, null);
+    var ctx = abCtx; closeSharedAbEditor();
+    ctx.save({ kind: 'ab', allocations: allocations });
   }
   function revertAbToFixed() {
-    if (!abDialog) { return; }
-    var idx = sharedSlotIndexById(Number(abDialog.getAttribute('data-slot-id'))); if (idx < 0) { return; }
+    if (!abDialog || !abCtx) { return; }
     var arms = abArms(); var keep = arms.length > 0 ? arms[0].querySelector('[data-ab-arm-section]').value : '';
-    if (!keep) { var slot = sharedSlots()[idx]; keep = (slot.section_ids && slot.section_ids[0]) || ''; }
+    if (!keep) { keep = (abCtx.slot.section_ids && abCtx.slot.section_ids[0]) || ''; }
     if (!keep) { showErr(abDialog.querySelector('[data-ab-error]'), 'Pick a section to keep.'); return; }
-    var put = sharedSlotsToPut(); put[idx] = { kind: 'fixed', section_id: keep };
-    closeSharedAbEditor(); saveSharedSlots(put, null);
+    var ctx = abCtx; closeSharedAbEditor();
+    ctx.save({ kind: 'fixed', section_id: keep });
   }
 
   function ruledCasesEl() { return ruledDialog ? ruledDialog.querySelector('[data-ruled-cases]') : null; }
@@ -4181,11 +4316,11 @@ export const QUOTE_EDITOR_SCRIPT = `
     row.appendChild(fSel); row.appendChild(oSel); row.appendChild(vIn); row.appendChild(arrow); row.appendChild(secSel); row.appendChild(rm);
     return row;
   }
-  function openSharedRuledEditor(slotId) {
-    if (!ruledDialog) { return; }
-    var idx = sharedSlotIndexById(slotId); if (idx < 0) { return; }
-    var slot = sharedSlots()[idx];
-    ruledDialog.setAttribute('data-slot-id', String(slotId));
+  var ruledCtx = null;
+  function openRuledEditorCtx(ctx) {
+    if (!ruledDialog || !ctx) { return; }
+    ruledCtx = ctx;
+    var slot = ctx.slot;
     var casesEl = ruledCasesEl(); while (casesEl.firstChild) { casesEl.removeChild(casesEl.firstChild); }
     var defSel = ruledDialog.querySelector('[data-ruled-default]');
     if (slot.kind === 'ruled' && slot.rules) {
@@ -4204,10 +4339,11 @@ export const QUOTE_EDITOR_SCRIPT = `
     hide(ruledDialog.querySelector('[data-ruled-error]'));
     show(ruledDialog);
   }
-  function closeSharedRuledEditor() { hide(ruledDialog); }
+  function openSharedRuledEditor(slotId) { openRuledEditorCtx(abRuledSlotCtx('shared', null, null, slotId)); }
+  function openFunnelRuledEditor(funnelPub, pageIndex, slotId) { openRuledEditorCtx(abRuledSlotCtx('funnel', funnelPub, pageIndex, slotId)); }
+  function closeSharedRuledEditor() { hide(ruledDialog); ruledCtx = null; }
   function saveSharedRuled() {
-    if (!ruledDialog) { return; }
-    var idx = sharedSlotIndexById(Number(ruledDialog.getAttribute('data-slot-id'))); if (idx < 0) { return; }
+    if (!ruledDialog || !ruledCtx) { return; }
     var arr = ruledCases(); var cases = []; var i; var err = ruledDialog.querySelector('[data-ruled-error]');
     for (i = 0; i < arr.length; i++) {
       var field = arr[i].querySelector('[data-ruled-field]').value;
@@ -4220,17 +4356,16 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (cases.length === 0) { showErr(err, 'Add at least one case, or revert to a single section.'); return; }
     var defSel = ruledDialog.querySelector('[data-ruled-default]'); var def = defSel ? defSel.value : '';
     if (!def) { showErr(err, 'Pick a default section \\u2014 it shows when no case matches.'); return; }
-    var put = sharedSlotsToPut(); put[idx] = { kind: 'ruled', cases: cases, default_section_id: def };
-    closeSharedRuledEditor(); saveSharedSlots(put, null);
+    var ctx = ruledCtx; closeSharedRuledEditor();
+    ctx.save({ kind: 'ruled', cases: cases, default_section_id: def });
   }
   function revertRuledToFixed() {
-    if (!ruledDialog) { return; }
-    var idx = sharedSlotIndexById(Number(ruledDialog.getAttribute('data-slot-id'))); if (idx < 0) { return; }
+    if (!ruledDialog || !ruledCtx) { return; }
     var defSel = ruledDialog.querySelector('[data-ruled-default]'); var keep = defSel ? defSel.value : '';
-    if (!keep) { var slot = sharedSlots()[idx]; keep = (slot.section_ids && slot.section_ids[0]) || ''; }
+    if (!keep) { keep = (ruledCtx.slot.section_ids && ruledCtx.slot.section_ids[0]) || ''; }
     if (!keep) { showErr(ruledDialog.querySelector('[data-ruled-error]'), 'Pick a section to keep.'); return; }
-    var put = sharedSlotsToPut(); put[idx] = { kind: 'fixed', section_id: keep };
-    closeSharedRuledEditor(); saveSharedSlots(put, null);
+    var ctx = ruledCtx; closeSharedRuledEditor();
+    ctx.save({ kind: 'fixed', section_id: keep });
   }
   // Live Σ recompute as A/B arm percentages are typed.
   if (abDialog) { abDialog.addEventListener('input', function (ev) { if (ev.target && ev.target.getAttribute && ev.target.getAttribute('data-ab-arm-pct') !== null) { updateAbSum(); } }); }
@@ -4458,8 +4593,11 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (pv) { ev.stopPropagation(); var pf2 = funnelOfEl(pv); if (pf2 && pf2.model) { previewFunnel(pf2.model); } return; }
     if (t.closest('[data-ab-badge]')) { ev.stopPropagation(); gotoTab('ab'); return; }
     if (t.closest('[data-theme-picker]')) { ev.stopPropagation(); gotoTab('themes'); return; }
-    var tp = t.closest('[data-template-picker]');
-    if (tp) { ev.stopPropagation(); var tcol = tp.closest('[data-funnel-col]'); var tpub = tcol.getAttribute('data-funnel-public-id'); openTemplatePicker(tp, tpub); return; }
+    // SRC-11B (owner: "the themes and the templates are moving to the top
+    // bar, why you kept the old and wrong option in the funnel builder??").
+    // NAVIGATES to the top-bar Templates tab — exactly like its Theme sibling
+    // just above — never opens an embedded apply-popover in the builder.
+    if (t.closest('[data-template-picker]')) { ev.stopPropagation(); gotoTab('templates'); return; }
     var nm = t.closest('[data-funnel-name]');
     if (nm) { ev.stopPropagation(); var ncol = nm.closest('[data-funnel-col]'); beginRename(nm, ncol.getAttribute('data-funnel-public-id')); return; }
     var fp = t.closest('[data-lib-filter]');
@@ -4508,8 +4646,24 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (action === 'chip-down') { if (ctx.chip) { moveFunnelChip(ctx.chip, 'down'); } return; }
     // §8.2 (S5.3): the shared-page chip's "A/B this slot" / "Slot rule" open the
     // in-board slot editors (was a dead-end gotoTab('ab') stub — U-09 §8.9).
-    if (action === 'ab-slot') { if (ctx.chip) { openSharedAbEditor(Number(ctx.chip.getAttribute('data-slot-id'))); } return; }
-    if (action === 'slot-rule') { if (ctx.chip) { openSharedRuledEditor(Number(ctx.chip.getAttribute('data-slot-id'))); } return; }
+    // R2 SRC-11C-B: the SAME two entries now also appear on a FUNNEL-page
+    // chip's kebab (parity with the shared chip) — funnelOfEl/pageIndexOfEl
+    // (the SAME helpers removeFunnelChip/moveFunnelChip already use) resolve
+    // which funnel + page the chip lives in.
+    if (action === 'ab-slot') {
+      if (!ctx.chip) { return; }
+      if (ctx.chip.getAttribute('data-chip-scope') === 'shared') { openSharedAbEditor(Number(ctx.chip.getAttribute('data-slot-id'))); return; }
+      var abF = funnelOfEl(ctx.chip); var abPi = pageIndexOfEl(ctx.chip);
+      if (abF && abF.model && abPi >= 0) { openFunnelAbEditor(abF.pub, abPi, Number(ctx.chip.getAttribute('data-slot-id'))); }
+      return;
+    }
+    if (action === 'slot-rule') {
+      if (!ctx.chip) { return; }
+      if (ctx.chip.getAttribute('data-chip-scope') === 'shared') { openSharedRuledEditor(Number(ctx.chip.getAttribute('data-slot-id'))); return; }
+      var ruF = funnelOfEl(ctx.chip); var ruPi = pageIndexOfEl(ctx.chip);
+      if (ruF && ruF.model && ruPi >= 0) { openFunnelRuledEditor(ruF.pub, ruPi, Number(ctx.chip.getAttribute('data-slot-id'))); }
+      return;
+    }
     if (action === 'page-up') { if (ctx.pageCard) { movePage(ctx.pageCard, 'up'); } return; }
     if (action === 'page-down') { if (ctx.pageCard) { movePage(ctx.pageCard, 'down'); } return; }
     if (action === 'page-delete') { if (ctx.pageCard) { deletePage(ctx.pageCard); } return; }

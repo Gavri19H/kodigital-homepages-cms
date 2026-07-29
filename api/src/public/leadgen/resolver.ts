@@ -1852,17 +1852,41 @@ export function resolveEffectiveFrameOnly(source: {
 // deleted/corrupt row degrades to null ⇒ the caller omits
 // resolveEffectiveFrameOnly's 4th-arg-equivalent source field ⇒
 // effectiveFrame's legacy templateId-string branch (byte-identical, A-6a).
+// R2 D5 (contract §7 D5): the per-quote default (leadgen_quote_default_template,
+// migration 0055) is the FINAL fallback when NEITHER the variant NOR the funnel
+// carries an explicit frame_template_id — precedence STANDS as
+// variant.frame_template_id ?? funnel.frame_template_id ?? per-quote-default ??
+// none (today's behavior). It never overrides an explicit ftid at either level
+// (the ftid !== null branch below is completely unchanged) and never re-
+// templates an existing funnel — this only widens what "none" degrades to.
+// Fail-safe: a pre-0055 schema (no leadgen_quote_default_template table yet)
+// degrades to null exactly like a since-deleted/corrupt row, never throwing.
 export async function resolveSavedFrameTemplateDefaultsFor(
   db: D1Database,
-  resolved: Pick<ResolvedActivatedFunnel, "funnel" | "variant">,
+  resolved: Pick<ResolvedActivatedFunnel, "funnel" | "variant" | "quote">,
 ): Promise<EffectiveFrameConfig | null> {
   const ftid = resolved.variant.frame_template_id ?? resolved.funnel.frame_template_id;
-  if (ftid === null || ftid === undefined) return null;
-  const row = await db
-    .prepare("SELECT frame_json FROM leadgen_frame_templates WHERE id = ? LIMIT 1")
-    .bind(ftid)
-    .first<{ frame_json: string | null }>();
-  return row === null ? null : parseSavedFrameTemplateDefaults(row.frame_json);
+  if (ftid !== null && ftid !== undefined) {
+    const row = await db
+      .prepare("SELECT frame_json FROM leadgen_frame_templates WHERE id = ? LIMIT 1")
+      .bind(ftid)
+      .first<{ frame_json: string | null }>();
+    return row === null ? null : parseSavedFrameTemplateDefaults(row.frame_json);
+  }
+  try {
+    const perQuote = await db
+      .prepare(
+        `SELECT ft.frame_json AS frame_json
+           FROM leadgen_quote_default_template qdt
+           JOIN leadgen_frame_templates ft ON ft.id = qdt.frame_template_id
+          WHERE qdt.quote_public_id = ? LIMIT 1`,
+      )
+      .bind(resolved.quote.public_id)
+      .first<{ frame_json: string | null }>();
+    return perQuote === null ? null : parseSavedFrameTemplateDefaults(perQuote.frame_json);
+  } catch {
+    return null;
+  }
 }
 
 // The __-prefixed synthetic ctx keys a CTA condition may reference — SAME

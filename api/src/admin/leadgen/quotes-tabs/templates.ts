@@ -868,6 +868,11 @@ const TPL_SCRIPT = `
   var LG_API = '/api/admin/leadgen';
   var boot = null;
   var templates = [];
+  // R2 D5 (contract §7 D5): this quote's PER-QUOTE default template override
+  // (leadgen_quote_default_template, migration 0055) — its public_id, or ''
+  // when unset (falls back to the global default). Loaded from GET
+  // /quotes/:id (quoteDetailJson's default_template_id) alongside loadTemplates.
+  var myQuoteDefaultTemplateId = '';
   var myFrame = {};
   var myDraftThemeId = '';
   var mySiteId = '';
@@ -1542,14 +1547,18 @@ const TPL_SCRIPT = `
     var i;
     for (i = 0; i < templates.length; i++) {
       (function (tpl) {
+        // R2 D5: "DEFAULT" now marks THIS QUOTE's override (myQuoteDefaultTemplateId)
+        // when one is set; a quote with no override shows the GLOBAL default
+        // (tpl.is_default) instead, since that is what it actually inherits.
+        var isThisQuoteDefault = myQuoteDefaultTemplateId ? (tpl.public_id === myQuoteDefaultTemplateId) : !!tpl.is_default;
         var chip = document.createElement('span');
-        chip.className = 'lg-tpl2-tpl-chip' + (tpl.is_default ? ' is-default' : '');
+        chip.className = 'lg-tpl2-tpl-chip' + (isThisQuoteDefault ? ' is-default' : '');
         chip.setAttribute('data-tpl-chip', tpl.public_id);
         chip.appendChild(text(tpl.name));
-        if (tpl.is_default) {
+        if (isThisQuoteDefault) {
           var badge = document.createElement('span');
           badge.className = 'lg-tpl2-tpl-chip-default-badge';
-          badge.appendChild(text('DEFAULT'));
+          badge.appendChild(text(myQuoteDefaultTemplateId ? 'DEFAULT FOR THIS QUOTE' : 'DEFAULT'));
           chip.appendChild(badge);
         }
         var moreBtn = document.createElement('button');
@@ -1569,6 +1578,21 @@ const TPL_SCRIPT = `
       renderTemplateList();
       return templates;
     });
+  }
+
+  // R2 D5: this quote's per-quote default override (quoteDetailJson's
+  // default_template_id) — a SEPARATE fetch from loadTemplates (which lists
+  // every SAVED template, global is_default included) since the per-quote
+  // override lives on the quote's OWN row, not the template records list.
+  function loadQuoteDefaultTemplate() {
+    if (!boot || !boot.quote_public_id) { return Promise.resolve(''); }
+    return fetchJson(LG_API + '/quotes/' + encodeURIComponent(boot.quote_public_id), { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (res) {
+        myQuoteDefaultTemplateId = (res.ok && res.body && res.body.default_template_id) ? res.body.default_template_id : '';
+        renderTemplateList();
+        return myQuoteDefaultTemplateId;
+      })
+      .catch(function () { return ''; });
   }
 
   function findTemplate(publicId) {
@@ -1613,13 +1637,22 @@ const TPL_SCRIPT = `
         loadTemplates();
       });
     });
-    addItem('Set as default', function () {
-      fetchJson(LG_API + '/frame-template-records/' + encodeURIComponent(publicId) + '/default', {
-        method: 'PUT', credentials: 'same-origin', headers: { Accept: 'application/json' }
+    // R2 D5 (contract §7 D5, owner ruling on A.1 #11-D/ADJ-B2): "Set as
+    // default" is now PER-QUOTE — it writes/updates THIS quote's row
+    // (PATCH /quotes/:id {default_template_id}, migration 0055's
+    // leadgen_quote_default_template) rather than the old cross-quote-global
+    // PUT /frame-template-records/:id/default. The global default (set
+    // elsewhere) remains the fallback for quotes with no override.
+    addItem('Set as this quote\\u2019s default', function () {
+      if (!boot || !boot.quote_public_id || !tpl) { return; }
+      fetchJson(LG_API + '/quotes/' + encodeURIComponent(boot.quote_public_id), {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ default_template_id: tpl.id })
       }).then(function (res) {
-        if (!res.ok) { showError('lg-tpl-bar-error', (res.body && res.body.error) || 'Could not set default.'); return; }
+        if (!res.ok) { showError('lg-tpl-bar-error', (res.body && res.body.error) || 'Could not set this quote\\u2019s default.'); return; }
         hideError('lg-tpl-bar-error');
-        loadTemplates();
+        loadQuoteDefaultTemplate();
       });
     });
     addItem('Delete', function () {
@@ -1908,6 +1941,7 @@ const TPL_SCRIPT = `
     wireApplyDialog();
     wireAbTemplatesDialog();
     loadTemplates();
+    loadQuoteDefaultTemplate();
   }
 
   if (document.readyState === 'loading') {
