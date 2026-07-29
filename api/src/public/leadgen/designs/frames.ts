@@ -18,7 +18,7 @@
 //   - validateFrameConfig — server gate for PUT /funnels/:id/frame (§4.8):
 //     unknown keys REJECTED, path-precise §3.6 problems in operator language.
 
-import { FUNNEL_TOKEN_ROLES, isFunnelTokenRole } from "./theme";
+import { FUNNEL_TOKEN_ROLES, isFunnelTokenRole, THEME_RECORD_FONT_NAMES } from "./theme";
 import type { FunnelTokenRole, Problem, ProblemSeverity, VariantThemeOverrides } from "./theme";
 import { sanitizeFrameInlineHtml } from "../../../lib/inline-sanitizer";
 
@@ -63,6 +63,14 @@ export const FRAME_BACK_POSITIONS = ["under_header_left", "in_card", "below_card
 export const FRAME_DISCLOSURE_LOCATIONS = ["top_bar", "header", "footer", "modal"] as const;
 export const FRAME_FOOTER_SHOW_ON = ["all", "first", "final", "never"] as const;
 export const FRAME_FOOTER_LINKS_SOURCES = ["site", "manual"] as const;
+// R2 P3 (element J) D2 — link_row's OWN links_source widens with "picked"
+// (S3b's Pages-fed legal-links leg): an operator picks specific site pages by
+// their stable page_type identity; leadgen/branding.ts resolvePickedLegalPageLinks
+// resolves them per SERVING site at serve time. Scoped to link_row only (NOT
+// FRAME_FOOTER_LINKS_SOURCES itself, which the top-level legacy footer.links_source
+// and the "logo" block's logo_source above also use — "picked" has no meaning
+// for either of those, so the enum they validate against stays site|manual).
+export const FRAME_FOOTER_LINK_ROW_SOURCES = ["site", "manual", "picked"] as const;
 export const FRAME_TRUST_SOURCES = ["manual", "site_logo_set"] as const;
 export const FRAME_TRUST_PLACEMENTS = ["below_unit", "footer", "between_progress_and_unit"] as const;
 export const FRAME_TRUST_MOBILE_MODES = ["wrap", "scroll", "hide"] as const;
@@ -118,7 +126,11 @@ export const FRAME_CTA_SLOTS = ["header_right", "under_header", "section_bottom"
 export const FRAME_DISCLOSURE_V2_LOCATIONS = ["top", "bottom"] as const;
 export const FRAME_DISCLOSURE_MODES = ["full", "hover"] as const;
 
-// 10H footer v2 block model.
+// 10H footer v2 block model. R2 P3 (element J, SOURCE-OF-TRUTH A.2): "heading"
+// and "list" extend the free-text block-type model (FRAME_FREE_TEXT_BLOCK_TYPES)
+// into the footer so the owner's Image45 multi heading+paragraph pattern is
+// authorable; about_paragraph/disclosure/heading all carry the SAME optional
+// `html` rich-text field below (bold/italic/link via the reused toolbar).
 export const FRAME_FOOTER_BLOCK_TYPES = [
   "about_paragraph",
   "link_row",
@@ -126,6 +138,8 @@ export const FRAME_FOOTER_BLOCK_TYPES = [
   "logo",
   "address",
   "socials",
+  "heading",
+  "list",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -211,6 +225,19 @@ export interface FrameFooterLink {
   href: string;
 }
 
+// R2 P3 (element J) D2 — one operator pick from S3b's Pages-fed legal-links
+// picker (leadgen/branding.ts SiteBrandingLegalPagePick — SAME shape, kept
+// structurally compatible so a link_row block's `picks` passes straight
+// through to resolveSiteBranding's 3rd arg with no reshaping). `page_type`
+// is the stable cross-site identity; `label` is author-controlled and rides
+// unchanged across every serving site; `manual_url` is the D2 fallback used
+// only when the serving site has no page of that type.
+export interface FrameFooterLegalPagePick {
+  page_type: string;
+  label: string;
+  manual_url?: string;
+}
+
 // Round-4 P5a (10H) footer v2 — a block. One `type` per row; only that type's
 // fields are read (extra fields are ignored at render, rejected at validate).
 export interface FrameFooterSocialLink {
@@ -219,11 +246,35 @@ export interface FrameFooterSocialLink {
 }
 export interface FrameFooterBlock {
   type: (typeof FRAME_FOOTER_BLOCK_TYPES)[number];
-  text?: string; // about_paragraph / disclosure / address copy
-  links_source?: (typeof FRAME_FOOTER_LINKS_SOURCES)[number]; // link_row
+  text?: string; // about_paragraph / disclosure / address copy (plain)
+  links_source?: (typeof FRAME_FOOTER_LINK_ROW_SOURCES)[number]; // link_row
   links?: FrameFooterLink[]; // link_row (manual)
+  // link_row, links_source:"picked" (D2) — resolved server-side per serving
+  // site into branding.legal_links (leadgen/branding.ts resolveSiteBranding's
+  // 3rd arg); frame.ts's link_row case reads branding.legal_links for BOTH
+  // "site" and "picked" (the resolution already happened by the time it runs).
+  picks?: FrameFooterLegalPagePick[];
   socials?: FrameFooterSocialLink[]; // socials
   align?: (typeof FRAME_ELEMENT_ALIGNS)[number];
+  // R2 P3 (element J) — about_paragraph/disclosure/heading rich text: author
+  // html sanitized via sanitizeFrameInlineHtml at STORE time below (mirrors
+  // validateFreeText's b["html"] rewrite 1:1, same allowlisted tag set —
+  // bold/italic/link). `level` is forward capability for a heading block
+  // (mirrors FrameFreeTextBlock.level); no UI exposes it yet, same as there.
+  html?: string;
+  level?: number;
+  // "list" type — mirrors FrameFreeTextBlock items/style exactly (each item
+  // sanitized the same way).
+  items?: string[];
+  list_style?: (typeof FRAME_FREE_TEXT_LIST_STYLES)[number];
+  // "logo" type — site branding logo (unchanged default) OR a manual
+  // media/URL override, reusing FRAME_FOOTER_LINKS_SOURCES's own site|manual
+  // enum (the SAME "where does this asset come from" choice link_row already
+  // makes) rather than a new near-duplicate const.
+  logo_source?: (typeof FRAME_FOOTER_LINKS_SOURCES)[number];
+  logo_media_id?: string | null;
+  logo_url?: string;
+  logo_alt?: string;
 }
 
 // Footer's OWN palette/typography scope (10H "different color, font and sizes
@@ -236,6 +287,13 @@ export interface FramePaletteScope {
 }
 export interface FrameTypographyScope {
   size?: (typeof FRAME_TYPO_SIZES)[number];
+  // R2 P3 (element J) — the owner's "different color, font and sizes than the
+  // main template". A CLOSED enum, reusing theme.ts's OWN pre-vetted
+  // headline_font/body_font vocabulary (THEME_RECORD_FONT_NAMES) rather than
+  // an unconstrained string — see theme.ts's "P0 STORED-XSS FIX" comment on
+  // why an unconstrained font-family string is a documented CSS/style-block
+  // injection sink in this exact codebase; this field must never repeat that.
+  font_family?: (typeof THEME_RECORD_FONT_NAMES)[number];
 }
 
 export interface FrameFooterConfig {
@@ -810,6 +868,31 @@ export function parseSavedFrameTemplateDefaults(raw: string | null | undefined):
   return validation.config === null ? null : (validation.config as EffectiveFrameConfig);
 }
 
+// R2 P3 (element J) D2 — the ONE place that knows how to find a saved
+// legal-page pick set inside an effective frame's footer.blocks (the
+// link_row block authored with links_source:"picked"). Every serve/preview
+// orchestration call site that owns a resolveSiteBranding call reads THIS
+// instead of re-deriving the same footer.blocks scan independently at each
+// of the (currently 5) call sites — a single source of truth for "how do we
+// find J's picks," so they can never drift out of step with each other or
+// with the editor's own shape. The FIRST picked link_row block with a
+// non-empty picks array wins (mirrors this codebase's "first-wins" idiom
+// elsewhere — e.g. leadgen/branding.ts's per-page-type tie-break). Undefined
+// when none exists — the caller's resolveSiteBranding(db, siteId) 2-arg
+// call stays byte-identical for every funnel that has no picked link_row.
+export function footerLegalPagePicks(
+  frame: Pick<EffectiveFrameConfig, "footer"> | EffectiveFrameConfig | null | undefined,
+): FrameFooterLegalPagePick[] | undefined {
+  const blocks = frame?.footer?.blocks;
+  if (!Array.isArray(blocks)) return undefined;
+  for (const block of blocks) {
+    if (block.type === "link_row" && block.links_source === "picked" && Array.isArray(block.picks) && block.picks.length > 0) {
+      return block.picks;
+    }
+  }
+  return undefined;
+}
+
 // Sparse deep-merge (§13.2): objects merge recursively; arrays replace WHOLE;
 // scalars and nulls replace; `undefined` keys inherit. The patch is never
 // mutated and never shares references with the result (values are cloned in).
@@ -853,7 +936,12 @@ export interface FrameConfigValidation {
 // is rejected. MUST stay byte-identical to SAFE_HREF_RE in
 // components/content-schema.ts — the canonical source (module-private there,
 // so re-declared per the reuse rule).
-const SAFE_HREF_RE = /^(https?:\/\/|\/(?!\/)|#|tel:|mailto:)/i;
+// R2 P3 (element J, contract R2 minor-6) — EXPORTED so designs/frame.ts (the
+// singular render module) can import this ONE instance directly rather than
+// a third re-declared copy, and re-check every footer href it renders
+// (link_row/socials/manual logo) at render time too (defense in depth over
+// this module's own STORE-time validateFooterBlocks gate).
+export const SAFE_HREF_RE = /^(https?:\/\/|\/(?!\/)|#|tel:|mailto:)/i;
 
 // A phone target: optional tel: prefix, then + and common phone punctuation.
 const SAFE_TEL_RE = /^(tel:)?\+?[0-9(). -]{3,}$/i;
@@ -973,7 +1061,7 @@ const FRAME_GROUP_SPECS: Record<string, FrameGroupSpec> = {
       typography_scope: {
         kind: "object",
         label: "footer typography scope",
-        fields: { size: oneOf(FRAME_TYPO_SIZES) },
+        fields: { size: oneOf(FRAME_TYPO_SIZES), font_family: oneOf(THEME_RECORD_FONT_NAMES) },
       },
     },
   },
@@ -1162,8 +1250,50 @@ function validateFooterBlocks(value: unknown, path: string, _label: string, push
     if (block["text"] !== undefined && typeof block["text"] !== "string") {
       push("error", `${p}.text`, "A footer block's text must be plain text.");
     }
-    if (block["links_source"] !== undefined && !inEnum(block["links_source"], FRAME_FOOTER_LINKS_SOURCES)) {
-      push("error", `${p}.links_source`, `A footer link source must be one of: ${FRAME_FOOTER_LINKS_SOURCES.join(", ")}.`);
+    // R2 P3 (element J) SECURITY — the SAME STORE-time re-serialize-and-
+    // OVERWRITE pattern validateFreeText uses above (frames.ts is the caller's
+    // `raw` object graph; this mutation is what persists — see
+    // lib/inline-sanitizer.ts's module header). about_paragraph/disclosure/
+    // heading all share this one optional rich-text field.
+    if (typeof block["html"] === "string") {
+      block["html"] = sanitizeFrameInlineHtml(block["html"]);
+    }
+    if (block["level"] !== undefined && typeof block["level"] !== "number") {
+      push("error", `${p}.level`, "A footer heading level must be a number.");
+    }
+    if (block["type"] === "list") {
+      if (!Array.isArray(block["items"])) {
+        push("error", `${p}.items`, "A list block needs a list of items.");
+      } else {
+        block["items"] = (block["items"] as unknown[]).map((it) =>
+          typeof it === "string" ? sanitizeFrameInlineHtml(it) : it,
+        );
+      }
+      if (block["list_style"] !== undefined && !inEnum(block["list_style"], FRAME_FREE_TEXT_LIST_STYLES)) {
+        push("error", `${p}.list_style`, `A footer list style must be one of: ${FRAME_FREE_TEXT_LIST_STYLES.join(", ")}.`);
+      }
+    }
+    // "logo" type — site branding (default) or a manual media/URL override.
+    // Reuses FRAME_FOOTER_LINKS_SOURCES's site|manual enum (see the interface
+    // comment) and the SAME SAFE_HREF_RE gate every other footer href uses.
+    if (block["logo_source"] !== undefined && !inEnum(block["logo_source"], FRAME_FOOTER_LINKS_SOURCES)) {
+      push("error", `${p}.logo_source`, `A footer logo source must be one of: ${FRAME_FOOTER_LINKS_SOURCES.join(", ")}.`);
+    }
+    if (block["logo_media_id"] !== undefined && block["logo_media_id"] !== null && typeof block["logo_media_id"] !== "string") {
+      push("error", `${p}.logo_media_id`, "A footer logo media reference must be plain text, or empty.");
+    }
+    if (block["logo_url"] !== undefined && (!isNonEmptyString(block["logo_url"]) || !SAFE_HREF_RE.test(String(block["logo_url"]).trim()))) {
+      push("error", `${p}.logo_url`, "A footer logo URL needs a web address (https://…) or a page path (/…).");
+    }
+    if (block["logo_alt"] !== undefined && typeof block["logo_alt"] !== "string") {
+      push("error", `${p}.logo_alt`, "A footer logo alt text must be plain text.");
+    }
+    // R2 P3 (element J) D2 — link_row's OWN wider enum (adds "picked"); every
+    // OTHER links_source-shaped field (the top-level legacy footer.links_source,
+    // logo_source above) intentionally still checks FRAME_FOOTER_LINKS_SOURCES
+    // (site|manual only — "picked" has no meaning there).
+    if (block["links_source"] !== undefined && !inEnum(block["links_source"], FRAME_FOOTER_LINK_ROW_SOURCES)) {
+      push("error", `${p}.links_source`, `A footer link source must be one of: ${FRAME_FOOTER_LINK_ROW_SOURCES.join(", ")}.`);
     }
     if (block["links"] !== undefined) {
       if (!Array.isArray(block["links"])) {
@@ -1174,6 +1304,33 @@ function validateFooterBlocks(value: unknown, path: string, _label: string, push
           if (!isRecord(l) || !isNonEmptyString(l["label"])) push("error", `${lp}.label`, "A footer link needs a label.");
           else if (!isNonEmptyString(l["href"]) || !SAFE_HREF_RE.test(String(l["href"]).trim())) {
             push("error", `${lp}.href`, "A footer link needs a web address (https://…), a page path (/…), or a #link.");
+          }
+        });
+      }
+    }
+    // link_row, links_source:"picked" (D2) — the operator's picked page set.
+    // `manual_url`, when present, is the ONE new operator-typed href this
+    // adds; SAFE_HREF_RE-gated exactly like every other footer href (the
+    // per-serving-site resolved href itself is built server-side from that
+    // site's own slug, never operator text — leadgen/branding.ts, S3b).
+    if (block["picks"] !== undefined) {
+      if (!Array.isArray(block["picks"])) {
+        push("error", `${p}.picks`, "Footer picked pages must be a list.");
+      } else {
+        (block["picks"] as unknown[]).forEach((pk, j) => {
+          const pkp = `${p}.picks[${j}]`;
+          if (!isRecord(pk) || !isNonEmptyString(pk["page_type"])) {
+            push("error", `${pkp}.page_type`, "A picked page needs its page type.");
+          }
+          if (!isRecord(pk) || !isNonEmptyString(pk["label"])) {
+            push("error", `${pkp}.label`, "A picked page needs a label.");
+          }
+          if (
+            isRecord(pk) &&
+            pk["manual_url"] !== undefined &&
+            (!isNonEmptyString(pk["manual_url"]) || !SAFE_HREF_RE.test(String(pk["manual_url"]).trim()))
+          ) {
+            push("error", `${pkp}.manual_url`, "A picked page's fallback URL needs a web address (https://…) or a page path (/…).");
           }
         });
       }

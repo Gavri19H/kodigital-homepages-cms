@@ -60,7 +60,7 @@ import type { LeadgenComponentNode } from "./components/content-schema";
 // imports mintFunnelAttempt FROM attempt.ts, so attempt.ts importing this back
 // FROM serve.ts would be circular; resolver.ts sits BELOW both (serve.ts and
 // attempt.ts each already import resolver.ts, never the reverse).
-import { effectiveFrame, validateFrameConfig, parseSavedFrameTemplateDefaults } from "./designs/frames";
+import { effectiveFrame, validateFrameConfig, parseSavedFrameTemplateDefaults, footerLegalPagePicks } from "./designs/frames";
 import type { EffectiveFrameConfig, FrameOverrides, StoredFrameConfig, FrameCtaSlotConfig } from "./designs/frames";
 import { conditionalMet, type LeadgenPayloadConditional, type LeadgenPayloadConditionGroup } from "../../leadgen/payload";
 // LeadGen Rework §4.3-3: the ONE pure checkpoint-plane derivation (shared by
@@ -1600,7 +1600,18 @@ async function composeResolvedBundle(
   const variantPages = await loadVariantPages(db, variant.id);
   const pages = [...sharedPages, ...variantPages];
   const sections = sectionsFromPages(pages);
-  const siteBranding = await resolveSiteBranding(db, siteId);
+  // R2 P3 (element J) D2 — a live serve's own funnel/variant IS the footer's
+  // owner, so its picked-legal-links leg (link_row, links_source:"picked")
+  // must resolve for THIS serving site_id. resolveEffectiveFrameOnly is the
+  // SAME pure, synchronous frame-merge this file already exports (no new
+  // computation invented) — footerLegalPagePicks just reads footer.blocks
+  // off its result.
+  const previewFrame = resolveEffectiveFrameOnly({
+    frame_config_json: funnel.frame_config_json,
+    theme_json: funnel.theme_json,
+    frame_overrides_json: variant.frame_overrides_json,
+  });
+  const siteBranding = await resolveSiteBranding(db, siteId, footerLegalPagePicks(previewFrame));
   return {
     site_quote: siteQuote,
     quote,

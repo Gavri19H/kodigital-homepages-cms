@@ -38,6 +38,11 @@ import {
   renderQuoteFrame,
 } from "../../public/leadgen/designs/frame";
 import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
+// R2 P3 (element J) D2 — the SAME pure, synchronous frame-merge used just
+// below (resolveFrameComposition's own inputs) to find a footer's picked
+// legal-links leg before resolveSiteBranding runs.
+import { resolveEffectiveFrameOnly } from "../../public/leadgen/resolver";
+import { footerLegalPagePicks } from "../../public/leadgen/designs/frames";
 // R6 SEAM 3 (register D3/E5): a Section's content changing must invalidate the
 // SAME §28 shell cache the theme-edit path already does — reuses the EXACT
 // exported helper themes-handlers.ts calls, no new invalidation channel.
@@ -1639,7 +1644,16 @@ async function resolveSectionPreviewFrame(
       .bind(siteId)
       .first<{ id: string }>();
     if (site === null) return { kind: "not_found" };
-    branding = await resolveSiteBranding(db, siteId);
+    // R2 P3 (element J) D2 — the SAME raw frame_config_json/frame_overrides_json
+    // resolveFrameComposition below reads, merged once here purely to find a
+    // footer's picked legal-links leg (unrelated to that call's theme_json
+    // resolution, so this needs none of it).
+    const previewFrame = resolveEffectiveFrameOnly({
+      frame_config_json: funnel.frame_config_json,
+      theme_json: funnel.theme_json,
+      frame_overrides_json: variant?.frame_overrides_json ?? null,
+    });
+    branding = await resolveSiteBranding(db, siteId, footerLegalPagePicks(previewFrame));
   }
 
   // Layer-1 base: the request's explicit design_id when sent (honored

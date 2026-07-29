@@ -42,6 +42,10 @@ import {
   // section composition. No query is duplicated here.
   loadSharedPages,
   sectionsFromPages,
+  // R2 P3 (element J) D2 — the SAME pure, synchronous frame-merge
+  // composeResolvedBundle (resolver.ts) uses to find a footer's picked
+  // legal-links leg before resolveSiteBranding.
+  resolveEffectiveFrameOnly,
 } from "../../public/leadgen/resolver";
 import {
   auctionEntryPosition,
@@ -109,7 +113,7 @@ import {
   renderQuoteFrame,
   LG_BANNERS_MOUNT_HTML,
 } from "../../public/leadgen/designs/frame";
-import { validateFrameConfig, effectiveFrame, parseSavedFrameTemplateDefaults } from "../../public/leadgen/designs/frames";
+import { validateFrameConfig, effectiveFrame, parseSavedFrameTemplateDefaults, footerLegalPagePicks } from "../../public/leadgen/designs/frames";
 import type { EffectiveFrameConfig } from "../../public/leadgen/designs/frames";
 import {
   contrastRatioAA,
@@ -5052,7 +5056,18 @@ async function composedVariantPreviewResponse(
       .bind(siteId)
       .first<{ id: string }>();
     if (site === null) return c.json({ error: "Not Found" }, 404);
-    siteBranding = await resolveSiteBranding(c.env.DB, siteId);
+    // R2 P3 (element J) D2 — this IS the draft-aware preview render, so the
+    // picks lookup must see the SAME draft substitution renderComposedVariantPreview
+    // applies moments later (draft_frame_config/draft_frame_overrides over
+    // the stored columns) — otherwise picking "From Pages" and previewing
+    // before Save would resolve against the STALE stored footer instead of
+    // what is about to render.
+    const previewFrame = resolveEffectiveFrameOnly({
+      frame_config_json: draftFrameConfig === undefined ? owner.funnel.frame_config_json : draftFrameConfig === null ? null : JSON.stringify(draftFrameConfig),
+      theme_json: owner.funnel.theme_json,
+      frame_overrides_json: draftFrameOverrides === undefined ? variant.frame_overrides_json : draftFrameOverrides === null ? null : JSON.stringify(draftFrameOverrides),
+    });
+    siteBranding = await resolveSiteBranding(c.env.DB, siteId, footerLegalPagePicks(previewFrame));
     siteSettingsHref = SITE_SETTINGS_LINK(siteId);
   }
 
@@ -6188,7 +6203,10 @@ async function computeFunnelV25Problems(
     state.effectiveFrameConfig.header.enabled &&
     state.effectiveFrameConfig.header.logo_source === "site"
   ) {
-    const branding = await resolveSiteBranding(db, siteId);
+    // R2 P3 (element J) D2 — state.effectiveFrameConfig is ALREADY this
+    // funnel's resolved frame (computed above); footerLegalPagePicks just
+    // reads its footer.blocks for a picked link_row.
+    const branding = await resolveSiteBranding(db, siteId, footerLegalPagePicks(state.effectiveFrameConfig));
     if (branding.logo_url === null) {
       problems.push({
         path: "frame.header.logo_source",

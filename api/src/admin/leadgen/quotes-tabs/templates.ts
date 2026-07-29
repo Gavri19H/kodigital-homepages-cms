@@ -88,7 +88,7 @@ import {
   FRAME_SIZES,
   FRAME_TYPO_SIZES,
 } from "../../../public/leadgen/designs/frames";
-import { FUNNEL_TOKEN_ROLES } from "../../../public/leadgen/designs/theme";
+import { FUNNEL_TOKEN_ROLES, THEME_RECORD_FONT_NAMES } from "../../../public/leadgen/designs/theme";
 import { type QuoteRulesRailAnswerField } from "../ui-rules-builder";
 import {
   roleLabel,
@@ -376,6 +376,34 @@ function renderTplBoxBrandLogos(): string {
 // 10H footer v2 — add/remove/reorder blocks + the footer's OWN palette/
 // typography scope (10H "different color, font and sizes than the main
 // template"). Type-conditional fields per FRAME_FOOTER_BLOCK_TYPES.
+//
+// R2 P3 (element J, SOURCE-OF-TRUTH A.2) upgrades this SAME box IN PLACE
+// (contract §5.4 minor-1 — TPLBOX_CARDS keeps exactly one key:"footer" entry,
+// asserted below; no second footer tile, no orphaned old footer.blocks shape
+// — every field this adds is OPTIONAL on FrameFooterBlock/FrameTypographyScope,
+// so a pre-J saved footer keeps validating and rendering byte-identically):
+//   1. about_paragraph/disclosure/heading now carry a rich-text toolbar
+//      (bold/italic/link — the SAME 3 actions as E's `data-ft-fmt` toolbar,
+//      re-implemented here as `data-footer-fmt` because funnel.ts's existing
+//      click handler for `data-ft-fmt` hardcodes free_text's own collector —
+//      reusing its exact attribute name would silently wrap the RIGHT
+//      textarea but persist to the WRONG config path; see this slice's
+//      handoff note) plus new "Heading"/"List" block types mirroring
+//      FRAME_FREE_TEXT_BLOCK_TYPES's own paragraph/heading/list model.
+//   2. "About paragraph" is relabeled to name the owner's Image28/45 "company
+//      details" example directly (the SAME about_paragraph type — no schema
+//      break).
+//   3. "Logo" gains a site/manual source toggle (FRAME_FOOTER_LINKS_SOURCES'
+//      OWN site|manual enum, reused rather than a new one) + media/URL/alt.
+//   4. The box gains an independent Font family control below, a CLOSED
+//      enum (THEME_RECORD_FONT_NAMES — theme.ts's own pre-vetted vocabulary,
+//      never an unconstrained string; see theme.ts's "P0 STORED-XSS FIX").
+// All of these are schema+editor plumbing; the SERVED page's HTML for the
+// new fields (html/items/list_style/logo_source/logo_media_id/logo_url/
+// logo_alt/typography_scope.font_family) is produced by designs/frame.ts
+// (singular — NOT this slice's file, see the handoff note), which today only
+// reads block.text (escaped) and site branding for "logo" — this upgrade
+// cannot make those fields visible on a live page by itself.
 function renderFooterLinkRowTemplate(): string {
   return `<div class="lg-list-row" data-footer-link-row>
     <input class="form-input" data-footer-link-label placeholder="Label" aria-label="Footer link label" />
@@ -384,10 +412,25 @@ function renderFooterLinkRowTemplate(): string {
   </div>`;
 }
 
+// R2 P3 (element J) D2 — one row of the Pages-fed picker (data-footer-picks-
+// load fetches GET /sites/:site_id/legal-pages, clones this template once per
+// candidate page). `data-footer-pick-pagetype` carries the stable identity
+// (never the page's row id — see leadgen/branding.ts's resolver comment on
+// why); the label starts pre-filled from the page's title but stays
+// author-editable (the SAME saved label rides every serving site).
+function renderFooterPickRowTemplate(): string {
+  return `<div class="lg-list-row" data-footer-pick-row>
+    <label class="lg-check"><input type="checkbox" data-footer-pick-checked /> <span data-footer-pick-title></span></label>
+    <input type="hidden" data-footer-pick-pagetype />
+    <input class="form-input" data-footer-pick-label placeholder="Label" aria-label="Picked page label" />
+    <input class="form-input" data-footer-pick-manualurl placeholder="Fallback URL if a site has no match (https://…)" aria-label="Picked page fallback URL" />
+  </div>`;
+}
+
 function renderFooterBlockRowTemplate(): string {
   return `<div class="lg-tplbox-row" data-footer-block-row>
     <div class="lg-list-row">
-      <select class="form-select form-select-sm" data-footer-block-type aria-label="Footer block type">${enumOptions(FRAME_FOOTER_BLOCK_TYPES, { about_paragraph: "About paragraph", link_row: "Link row", disclosure: "Disclosure", logo: "Logo", address: "Address", socials: "Social links" })}</select>
+      <select class="form-select form-select-sm" data-footer-block-type aria-label="Footer block type">${enumOptions(FRAME_FOOTER_BLOCK_TYPES, { about_paragraph: "About paragraph / company details", link_row: "Link row", disclosure: "Disclosure", logo: "Logo", address: "Address", socials: "Social links", heading: "Heading", list: "List" })}</select>
       <select class="form-select form-select-sm" data-footer-block-align aria-label="Footer block alignment">${enumOptions(FRAME_ELEMENT_ALIGNS, { left: "Left", center: "Center", right: "Right" })}</select>
       <span class="lg-row-rail">
         <button type="button" class="btn btn-sm btn-outline" data-footer-block-up aria-label="Move block up">&#8593;</button>
@@ -395,16 +438,40 @@ function renderFooterBlockRowTemplate(): string {
         <button type="button" class="btn btn-sm btn-outline" data-footer-block-remove aria-label="Remove block">&#10005;</button>
       </span>
     </div>
-    <textarea class="form-input" rows="2" data-footer-block-text placeholder="About / disclosure / address copy" aria-label="Footer block text"></textarea>
+    <div class="lg-tplbox-toolbar" data-footer-block-toolbar>
+      <button type="button" class="btn btn-sm btn-outline" data-footer-fmt="bold" aria-label="Bold" title="Bold"><strong>B</strong></button>
+      <button type="button" class="btn btn-sm btn-outline" data-footer-fmt="italic" aria-label="Italic" title="Italic"><em>I</em></button>
+      <button type="button" class="btn btn-sm btn-outline" data-footer-fmt="link" aria-label="Link" title="Link">Link</button>
+    </div>
+    <textarea class="form-input" rows="2" data-footer-block-text placeholder="About / disclosure / address / heading copy" aria-label="Footer block text"></textarea>
+    <select class="form-select form-select-sm lg-hidden" data-footer-block-liststyle aria-label="Footer list style">${enumOptions(FRAME_FREE_TEXT_LIST_STYLES, { unordered: "Bulleted", ordered: "Numbered", check: "Checklist" })}</select>
+    <textarea class="form-input lg-hidden" rows="3" data-footer-block-items placeholder="One list item per line" aria-label="Footer list items, one per line"></textarea>
     <div class="lg-hidden" data-footer-block-linkrow>
       <div class="form-group"><label class="form-label">Links source</label>
         <select class="form-select form-select-sm" data-footer-block-linksource aria-label="Footer link row source">
           <option value="site">From site settings (legal links)</option>
           <option value="manual">Manual list</option>
+          <option value="picked">From Pages (operator-picked)</option>
         </select>
       </div>
       <div data-footer-block-links></div>
       <button type="button" class="btn btn-sm btn-secondary" data-footer-block-link-add>+ Add link</button>
+      <div data-footer-block-pickedrow>
+        <button type="button" class="btn btn-sm btn-outline" data-footer-picks-load>Load pages from the preview site&#8230;</button>
+        <div data-footer-block-picks></div>
+        <p class="form-help">Each picked page resolves to that page on whichever site serves the funnel (by its stable page type, not by id) &mdash; add a fallback URL for a site with no matching page.</p>
+      </div>
+    </div>
+    <div class="lg-hidden" data-footer-block-logo>
+      <div class="form-group"><label class="form-label">Logo source</label>
+        <select class="form-select form-select-sm" data-footer-block-logosource aria-label="Footer logo source">
+          <option value="site">The site's own logo</option>
+          <option value="manual">Manual (choose an image or paste a URL)</option>
+        </select>
+      </div>
+      ${mediaFieldMarkup("data-list-field", "logo_media_id", "Footer logo image (from the Media library)")}
+      <input class="form-input" data-footer-block-logourl placeholder="Or a direct image URL (https://…)" aria-label="Footer logo image URL" />
+      <input class="form-input" data-footer-block-logoalt placeholder="Alt text" aria-label="Footer logo alt text" />
     </div>
   </div>`;
 }
@@ -412,18 +479,20 @@ function renderFooterBlockRowTemplate(): string {
 function renderTplBoxFooter(): string {
   return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="footer">
   <h3>G &middot; Footer</h3>
-  <p class="form-help">Bottom-of-page blocks (about / links / disclosure / logo / address / socials), with their own palette and typography.</p>
+  <p class="form-help">Bottom-of-page blocks (company details / links / disclosure / logo / address / socials / heading / list), with their own palette, font family and sizes &mdash; independent of the main template.</p>
   <h4>Palette &amp; typography scope</h4>
   <div class="lg-scalars">
     ${frameControl("Background", renderRoleStrip("footer.palette_scope.background"))}
     ${frameControl("Text", renderRoleStrip("footer.palette_scope.text"))}
     ${frameControl("Links", renderRoleStrip("footer.palette_scope.link"))}
   </div>
+  ${frameSelect("Font family", "footer.typography_scope.font_family", THEME_RECORD_FONT_NAMES, undefined, "Independent of the main template's font.")}
   ${frameSelect("Text size", "footer.typography_scope.size", FRAME_TYPO_SIZES, { s: "Small", m: "Medium", l: "Large", xl: "Extra large" })}
   <h4>Blocks</h4>
   <div data-tplbox-list="footer.blocks"></div>
   <template data-tplbox-tpl="footer.blocks">${renderFooterBlockRowTemplate()}</template>
   <template data-tplbox-tpl="footer_link_row">${renderFooterLinkRowTemplate()}</template>
+  <template data-tplbox-tpl="footer_pick_row">${renderFooterPickRowTemplate()}</template>
   <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="footer.blocks">+ Add a footer block</button>
 </div>`;
 }
@@ -1257,6 +1326,59 @@ const TPL_SCRIPT = `
     return out;
   }
 
+  // R2 P3 (element J) D2 — only CHECKED picker rows become picks; page_type
+  // is REQUIRED (a row with no page_type, which should never happen once
+  // fetchFooterPicks below has populated it, is defensively skipped rather
+  // than saved half-built).
+  function collectFooterPickRows(pickedRowEl) {
+    var rows = qa(q(pickedRowEl, '[data-footer-block-picks]'), '[data-footer-pick-row]');
+    var out = [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var checkedEl = q(rows[i], '[data-footer-pick-checked]');
+      if (!checkedEl || !checkedEl.checked) { continue; }
+      var pageType = valOf(rows[i], '[data-footer-pick-pagetype]');
+      var label = valOf(rows[i], '[data-footer-pick-label]');
+      if (pageType === '' || label === '') { continue; }
+      var pick = { page_type: pageType, label: label };
+      var manualUrl = valOf(rows[i], '[data-footer-pick-manualurl]');
+      if (manualUrl !== '') { pick.manual_url = manualUrl; }
+      out.push(pick);
+    }
+    return out;
+  }
+
+  // R2 P3 (element J) D2 — "Load pages from the preview site…" (mySiteId,
+  // the SAME reference site the canvas previews under — populateSiteSelect
+  // above). Mirrors populateThemeSwitcher's fetch-then-build idiom. Building
+  // rows via the SAME data-tplbox-tpl clone the funnel-wide "+ Add a footer
+  // block" idiom uses (funnel.ts cloneTplRow) keeps ONE row-construction
+  // convention; this island only reads the <template>, never invents markup.
+  function fetchFooterPicks(loadBtn) {
+    var blockRow = loadBtn.closest('[data-footer-block-row]');
+    var pickedRowEl = blockRow ? q(blockRow, '[data-footer-block-pickedrow]') : null;
+    var list = pickedRowEl ? q(pickedRowEl, '[data-footer-block-picks]') : null;
+    var tpl = document.querySelector('template[data-tplbox-tpl="footer_pick_row"]');
+    if (!list || !tpl || !tpl.content || !mySiteId) { return; }
+    fetchJson(LG_API + '/sites/' + encodeURIComponent(mySiteId) + '/legal-pages', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (res) {
+        var pages = (res.ok && res.body && res.body.pages) ? res.body.pages : [];
+        clearChildren(list);
+        var i;
+        for (i = 0; i < pages.length; i++) {
+          var row = document.importNode(tpl.content, true).firstElementChild;
+          var titleEl = q(row, '[data-footer-pick-title]');
+          if (titleEl) { titleEl.appendChild(text(pages[i].title || pages[i].page_type)); }
+          var typeEl = q(row, '[data-footer-pick-pagetype]');
+          if (typeEl) { typeEl.value = pages[i].page_type || ''; }
+          var labelEl = q(row, '[data-footer-pick-label]');
+          if (labelEl) { labelEl.value = pages[i].title || ''; }
+          list.appendChild(row);
+        }
+      })
+      .catch(function () { /* the operator can still author a manual link_row instead */ });
+  }
+
   function collectFooterBlocks() {
     var rows = qa(tplListEl('footer.blocks'), '[data-footer-block-row]');
     var out = [];
@@ -1265,9 +1387,46 @@ const TPL_SCRIPT = `
       var type = valOf(rows[i], '[data-footer-block-type]');
       var body = valOf(rows[i], '[data-footer-block-text]');
       var hasText = type === 'about_paragraph' || type === 'disclosure' || type === 'address';
-      if (hasText && body === '') { continue; }
+      // R2 P3 (element J) — about_paragraph/disclosure keep writing the SAME
+      // 'text' field so the canvas preview never blanks pre-existing content
+      // (designs/frame.ts's renderer still only reads block.text for these
+      // two types); 'html' rides ALONGSIDE it, ready for once that renderer
+      // also prefers html-if-present (mirrors free_text's own field, sanitized
+      // server-side at validateFrameConfig). 'heading' is new and has no
+      // legacy text concept, so it is html-only (mirrors free_text's heading).
+      var hasHtml = type === 'about_paragraph' || type === 'disclosure' || type === 'heading';
+      if (type === 'heading') {
+        if (body === '') { continue; }
+      } else if (hasText && body === '') {
+        continue;
+      }
       var block = { type: type, align: valOf(rows[i], '[data-footer-block-align]') };
       if (hasText) { block.text = body; }
+      if (hasHtml) { block.html = body; }
+      if (type === 'list') {
+        var lines = String(valOf(rows[i], '[data-footer-block-items]')).split('\\n');
+        var items = [];
+        var j;
+        for (j = 0; j < lines.length; j++) {
+          var t = lines[j].replace(/^\\s+|\\s+$/g, '');
+          if (t !== '') { items.push(t); }
+        }
+        if (items.length === 0) { continue; }
+        block.items = items;
+        block.list_style = valOf(rows[i], '[data-footer-block-liststyle]') || 'unordered';
+      }
+      if (type === 'logo') {
+        var logoSource = valOf(rows[i], '[data-footer-block-logosource]') || 'site';
+        block.logo_source = logoSource;
+        if (logoSource === 'manual') {
+          var logoMediaId = valOf(rows[i], '[data-list-field="logo_media_id"]');
+          var logoUrl = valOf(rows[i], '[data-footer-block-logourl]');
+          if (logoMediaId !== '') { block.logo_media_id = logoMediaId; }
+          if (logoUrl !== '') { block.logo_url = logoUrl; }
+        }
+        var logoAlt = valOf(rows[i], '[data-footer-block-logoalt]');
+        if (logoAlt !== '') { block.logo_alt = logoAlt; }
+      }
       if (type === 'link_row') {
         block.links_source = valOf(rows[i], '[data-footer-block-linksource]') || 'site';
         if (block.links_source === 'manual') {
@@ -1275,6 +1434,13 @@ const TPL_SCRIPT = `
           var links = linkrowEl ? collectFooterLinkRows(linkrowEl) : [];
           if (links.length === 0) { continue; }
           block.links = links;
+        }
+        // R2 P3 (element J) D2 — S3b's Pages-fed legal-links picker.
+        if (block.links_source === 'picked') {
+          var pickedRowEl = q(rows[i], '[data-footer-block-pickedrow]');
+          var picks = pickedRowEl ? collectFooterPickRows(pickedRowEl) : [];
+          if (picks.length === 0) { continue; }
+          block.picks = picks;
         }
       }
       out.push(block);
@@ -1929,6 +2095,13 @@ const TPL_SCRIPT = `
     document.addEventListener('input', onPanelEdit);
     document.addEventListener('change', onPanelEdit);
     document.addEventListener('click', onPanelEdit);
+    // R2 P3 (element J) D2 — "Load pages from the preview site…" (own
+    // listener: this populates candidate rows, a DIFFERENT concern from
+    // onPanelEdit's "re-render the canvas on any edit").
+    document.addEventListener('click', function (ev) {
+      var el = ev.target;
+      if (el && el.closest && el.closest('[data-footer-picks-load]')) { fetchFooterPicks(el); }
+    });
     wireProgressToggle();
     syncProgressToggleUi();
     syncRadioActiveClasses();
