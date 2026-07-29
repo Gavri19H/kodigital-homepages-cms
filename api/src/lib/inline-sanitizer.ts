@@ -46,13 +46,15 @@
 //   dropped), ul, ol, li, br (always void), span (forward coverage; unused
 //   by the current renderer, kept per the allowlist spec).
 // `a`'s href is the ONE attribute preserved anywhere, restricted to
-// http(s)/tel/mailto after entities are decoded to a FIXPOINT (repeated
-// decode-until-stable, not editor/sanitize.ts's single composed pass) — an
-// href hidden behind nested/duplicated entity-encoding (the double-encoding
-// class the iframe/srcdoc payload above exploited) cannot slip an
-// unrecognized scheme past a single-decode check. Because the scheme check
-// is an ALLOWLIST (not "reject javascript:"), a scheme that decodes into
-// something OTHER than exactly http(s)/tel/mailto is rejected regardless —
+// http(s)://absolute, root-relative /path, #fragment, tel:, mailto:
+// (R2 P3 tail item 3 — the SAME SAFE_HREF_RE class designs/frames.ts already
+// gates every other authored link against) after entities are decoded to a
+// FIXPOINT (repeated decode-until-stable, not editor/sanitize.ts's single
+// composed pass) — an href hidden behind nested/duplicated entity-encoding
+// (the double-encoding class the iframe/srcdoc payload above exploited)
+// cannot slip an unrecognized scheme past a single-decode check. Because the
+// check is an ALLOWLIST (not "reject javascript:"), anything that decodes
+// into something OTHER than exactly that class is rejected regardless —
 // there is no enumerable blocklist to be incomplete.
 //
 // DISALLOWED elements (everything not in the set above, including every tag
@@ -89,9 +91,17 @@ const ALLOWED_TAGS: ReadonlySet<string> = new Set([
 ]);
 const VOID_TAGS: ReadonlySet<string> = new Set(["br"]);
 
-// href scheme allowlist — ONLY http(s)/tel/mailto (no javascript:/data:/file:/
-// anything else). Checked against the FIXPOINT-DECODED value.
-const SAFE_HREF_SCHEME_RE = /^(https?:|tel:|mailto:)/i;
+// href allowlist — http(s):// absolute, root-relative "/path" (the negative
+// lookahead excludes protocol-relative "//host"), "#fragment", tel:, mailto:
+// (no javascript:/data:/file:/anything else). R2 P3 tail (item 3): widened
+// from scheme-only to match designs/frames.ts's own SAFE_HREF_RE class
+// EXACTLY (the sibling free-text link gate every other footer/header href in
+// this product is checked against) — a rich-text-authored relative link to a
+// legal page (e.g. `<a href="/licenses">`) was being silently stripped down
+// to a bare, non-navigable `<a>` before this widening; it now survives,
+// still gated against javascript:/data:/protocol-relative //host. Checked
+// against the FIXPOINT-DECODED value.
+const SAFE_HREF_SCHEME_RE = /^(https?:\/\/|\/(?!\/)|#|tel:|mailto:)/i;
 
 const NAME_START_RE = /[A-Za-z]/;
 const NAME_CHAR_RE = /[A-Za-z0-9]/; // the allowlisted tag names are plain ascii

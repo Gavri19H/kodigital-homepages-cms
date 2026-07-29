@@ -1283,6 +1283,60 @@ describeDb("POST /sections/preview — frame_context (13 §13.4 unit-in-frame)",
     expect(badSite.status).toBe(404);
   });
 
+  // R2 P3 tail — item 4 (coordinator-extended scope, both resolveFrameComposition
+  // AND resolveEffectiveFrameOnly threaded with saved_template_defaults): a
+  // template-seeded funnel (frame_template_id set, frame_config_json truly
+  // absent — the state "apply template" leaves behind) now composes a REAL
+  // frame here too, so the Sections-tab preview shows the SAME footer region
+  // the live page (resolver.ts) and the Templates-tab activation preview
+  // (quotes-handlers.ts) already render — one truth on every surface.
+  it("R2 P3 tail item 4: a template-seeded funnel's footer region renders in the Sections-tab preview", async () => {
+    const fx = await seedFixture({ withFrame: false });
+    const templateJson = JSON.stringify({
+      version: 1,
+      template: "centered",
+      footer: {
+        enabled: true,
+        show_on: "all",
+        links_source: "site",
+        links: [],
+        trust_text: null,
+        description: null,
+        show_logo: true,
+        hide_on_mobile: false,
+      },
+    });
+    fx.sdb
+      .prepare("INSERT INTO leadgen_frame_templates (public_id, name, frame_json) VALUES (?, ?, ?)")
+      .run("lgft_p3tailitem4test", "P3 tail item 4 test template", templateJson);
+    const tpl = fx.sdb
+      .prepare("SELECT id FROM leadgen_frame_templates WHERE public_id = ?")
+      .get("lgft_p3tailitem4test") as { id: number };
+    fx.sdb.prepare("UPDATE leadgen_funnels SET frame_template_id = ? WHERE id = ?").run(tpl.id, fx.funnel.id);
+
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit(
+        "POST",
+        previewBodyFor(fx.sections[0]!, {
+          funnel_public_id: fx.funnel.public_id,
+          variant_public_id: fx.variant.public_id,
+          site_id: "site-1",
+        }),
+      ),
+      fx.env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as PreviewResponse;
+    // FAIL-BEFORE (both fixes reverted): this was absent — composition
+    // resolved null and previewSectionHandler took the renderLegacyShell
+    // fork, which carries no frame regions at all.
+    expect(body.preview.desktop, "template-seeded funnel must show its footer region here too").toContain(
+      'data-frame-region="footer"',
+    );
+    expect(body.preview.desktop).toContain('data-show-on="all"');
+  });
+
   it("sim + viewport honored in-frame: selected-state markup renders inside the frame; viewport names preview.html", async () => {
     const fx = await seedFixture();
     const res = await admin.request(

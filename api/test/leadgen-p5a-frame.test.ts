@@ -368,6 +368,19 @@ describe("P5a security fix (MAJOR-1) — allowlist re-serializer neutralizes the
     );
   });
 
+  it("R2 P3 tail item 3 — a root-relative href (an authored link to a legal page, e.g. /licenses) survives; a fragment survives; protocol-relative //host is still rejected", () => {
+    // owner clause: "free text (rich toolbar)" + "links to legal pages" — an
+    // authored <a href="/licenses"> was being silently stripped to a bare,
+    // non-navigable <a> (SAFE_HREF_SCHEME_RE only recognized http(s)/tel/
+    // mailto SCHEMES, never a bare relative path). Widened to match
+    // designs/frames.ts's own SAFE_HREF_RE class exactly.
+    expect(sanitizeFrameInlineHtml('<a href="/licenses">Licenses</a>')).toBe('<a href="/licenses">Licenses</a>');
+    expect(sanitizeFrameInlineHtml('<a href="#section-2">Jump</a>')).toBe('<a href="#section-2">Jump</a>');
+    // protocol-relative //host is NEVER allowed (the negative lookahead in
+    // the shared class) — a same-scheme cross-origin redirect vector.
+    expect(sanitizeFrameInlineHtml('<a href="//evil.host/x">bad</a>')).toBe("<a>bad</a>");
+  });
+
   it("an unsafe href (javascript:/data:) drops the href but keeps the inert text", () => {
     expect(sanitizeFrameInlineHtml('<a href="javascript:alert(1)">click</a>')).toBe("<a>click</a>");
     expect(sanitizeFrameInlineHtml('<a href="data:text/html,<script>alert(1)</script>">click</a>')).toBe("<a>click</a>");

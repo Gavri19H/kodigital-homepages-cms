@@ -2263,13 +2263,28 @@ export function funnelChromeCss(
         "max-height": logoStrip.logoMaxHeight,
         width: "auto",
       }),
+      // R2 P3 tail (item 2): this class renders BOTH inside the legacy
+      // footer (no colour scope — header.logoColor is the only signal that
+      // ever existed) AND, via renderFooterBlockLogo's fallback, inside the
+      // element-J footer2 "logo" block, which sits INSIDE the SAME
+      // footerScopeStyle-scoped wrapper every `.lg-frame-footer2-*` sibling
+      // rule already reads (--lg-footer-fg, above). A hardcoded
+      // header.logoColor there paints the SAME colour on every footer band
+      // regardless of the operator's OWN footer palette_scope.text pick —
+      // on a dark band whose picked --lg-footer-fg differs from the header's
+      // static logo colour, the header-coloured text can land invisible
+      // against the band. The footer's own colour axis must own its own
+      // logo: var(--lg-footer-fg,…) with header.logoColor as the CSS
+      // fallback — a footer with NO --lg-footer-fg set (legacy footer, or a
+      // footer2 with no palette_scope.text) resolves to the exact same
+      // header.logoColor as before (byte-identical computed style).
       rule(`${scope} .lg-frame-footer-logo-text`, {
         display: "block",
         "text-align": "center",
         "margin-top": spacing.md,
         "font-family": header.logoFontFamily,
         "font-weight": header.logoFontWeight,
-        color: header.logoColor,
+        color: `var(--lg-footer-fg,${header.logoColor})`,
       }),
       rule(`${scope} .lg-frame-footer-disclosure`, {
         background: footerBar.background,
