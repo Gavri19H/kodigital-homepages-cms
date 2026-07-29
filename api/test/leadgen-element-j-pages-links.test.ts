@@ -461,13 +461,21 @@ describe("element J D2 — driven through the REAL, unmodified frame.ts render p
     expect(html).not.toContain("lg-frame-footer2-links"); // link_row renders NOTHING when its links array is empty
   });
 
-  it("REGRESSION: if a caller ever bypassed the resolver and handed frame.ts a raw javascript: href directly, the CURRENT render path would emit it (escapeHtml only, no SAFE_HREF_RE re-check) — documents why the resolver, not the renderer, is this leg's safety boundary", () => {
+  it("CURRENT INVARIANT (P3 completion item 2): even if a caller bypassed the resolver and handed frame.ts a raw javascript: href directly, the render path ITSELF now rejects it — defense in depth, not a single point of trust", () => {
     const html = renderFooterWithBranding([{ label: "Evil", href: "javascript:alert(1)" }]);
-    // This is the EXISTING, unmodified frame.ts behavior (link_row / "site"
-    // mode has never re-validated branding-derived hrefs — they were always
-    // code-derived-safe before this slice). Documents the exact bypass route
-    // named in the dispatch (frame.ts renderFooterBlock ~916-924) rather
-    // than silently patching an unowned file.
-    expect(html).toContain("javascript:alert(1)");
+    // R2 minor-6 (frame.ts renderFooterBlock's link_row case — the SAFE_HREF_RE
+    // re-check added alongside this slice) means the render path no longer
+    // trusts a caller-supplied href unconditionally. This test USED TO assert
+    // the opposite (that an unrevalidated href WOULD render — the pre-fix
+    // gap, with the resolver as the ONLY boundary); that assumption is now
+    // FALSE and the assertion below is the correct, strengthened one — never
+    // weakened to keep the old expectation passing. The safety boundary moved
+    // by design (P3 conductor item 3): the resolver still independently
+    // guarantees safe data (proved by the two tests above — resolve-time
+    // rejection, never handed to the renderer at all), AND the renderer now
+    // ALSO re-validates independently, so a hypothetical future caller that
+    // skips the resolver is still covered.
+    expect(html).not.toContain("javascript:");
+    expect(html).not.toContain("lg-frame-footer2-links"); // link_row renders NOTHING when every link is filtered out
   });
 });

@@ -2559,6 +2559,13 @@ export function funnelChromeCss(
         background: "var(--lg-footer-bg,transparent)",
         color: "var(--lg-footer-fg,inherit)",
         "font-size": "var(--lg-footer-size,inherit)",
+        // R2 P3 completion (item 1) — the owner's "different color, font and
+        // sizes than the main template" (A.2): frame.ts's footerScopeStyle
+        // has ALWAYS emitted --lg-footer-font (closed THEME_RECORD_FONT_STACKS
+        // enum) but this rule never consumed it. ONE consuming declaration —
+        // absent an authored footer font it falls to `inherit` (the pre-
+        // existing byte-identical default), so this is additive-only.
+        "font-family": "var(--lg-footer-font,inherit)",
         padding: `${spacing.lg} ${content.paddingDesktop}`,
         "text-align": "center",
       }),
