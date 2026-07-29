@@ -720,6 +720,26 @@ export function renderBuilderPanel(
 // ---------------------------------------------------------------------------
 // Editor inline script (strict ES5) — tabs, section-order, rules, save,
 // preview, activation, A/B lifecycle, unsaved-changes guard.
+//
+// R2 P3 tail-2 (item 2 — coupling closed by documentation + a guard test,
+// NOT a restructure; see test/leadgen-p3-fixround-footer-picker-coupling
+// .test.ts): the "G: footer.blocks" section below (collectFooterBlocks/
+// fillFooterBlocks/collectFooterPickRows/addFooterPickRow) reads and writes
+// DOM this island never renders. templates.ts is the box's SOLE renderer
+// (its own top-of-file doc comment already documents the split: generic
+// data-tplbox-panel/data-frame-key/data-tplbox-list wiring is owned HERE via
+// key-driven delegation on the whole #lg-quote-editor subtree; the ONE piece
+// that generic delegation does NOT cover is the bespoke "Load pages from the
+// preview site…" fetch, data-footer-picks-load / fetchFooterPicks — that
+// handler lives ONLY in templates.ts's TPL_SCRIPT, wired via ITS OWN
+// document-level delegated click, so this island has no handler of its own
+// for it. Safe by construction, not by luck: ui-quotes.ts renders
+// renderBuilderPanel(...) (this island) and renderTemplatesTabPanel(...)
+// (TPL_SCRIPT) unconditionally and synchronously into the SAME response, on
+// EVERY /admin/leadgen/quotes/:id/edit request — no lazy load, no flag, no
+// path ships one without the other. The guard test asserts both halves of
+// that fact from the exported production strings, so a future edit that
+// breaks it fails loudly instead of leaving a dead "Load pages…" button.
 // ---------------------------------------------------------------------------
 
 export const QUOTE_EDITOR_SCRIPT = `

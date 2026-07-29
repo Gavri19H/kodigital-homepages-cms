@@ -23,11 +23,19 @@
 //   npm run db:reset:local
 //   PW_PORT=8901 npx playwright test test-ui/leadgen-p3-fixround-footer.gesture.spec.ts \
 //     --project=chromium --workers=1 --reporter=line --timeout=180000
+//   (repeat with --project=firefox for the second engine)
 //
-// ENGINE NOTE (disclosed): this file is not registered in playwright.config.ts's
-// FIREFOX_ONLY_GESTURE_SPECS / ALL_GESTURE_SPECS arrays (that file is outside
-// this slice's ownership). chromium's testIgnore is a blocklist, so it runs on
-// chromium with no config change; every gesture is engine-agnostic.
+// ENGINE NOTE: registered in playwright.config.ts's CROSS_ENGINE_GESTURE_SPECS
+// (R2 P3 tail-2, item 1) — runs on BOTH chromium and firefox. Every visitor
+// assertion navigates a dynamic {uniq}.e2e.test tenant host (the worker's
+// site-match reads the Host header, so 127.0.0.1 alone will not do): chromium
+// resolves it via the wildcard --host-resolver-rules launch arg below;
+// firefox's network.dns.localDomains pref has no wildcard form (an exact,
+// static, comma-separated host list only — resolved at module-load, before
+// any beforeAll mints a runtime value, the SAME ordering constraint
+// leadgen-runtime-inputs.gesture.spec.ts's own doc comment names), so E2E_HOSTS
+// below enumerates every literal *.e2e.test host this file visits (built from
+// `uniq`, computed ONE line earlier so it exists before test.use() reads it).
 
 import { test, expect, request as playwrightRequest, type APIRequestContext, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -36,13 +44,30 @@ import { join } from "node:path";
 import { PW_PORT } from "./utils/base-url";
 import { seedActiveSite } from "./listicles-p6-seed";
 
-test.use({ launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] }, viewport: { width: 1280, height: 900 } });
+const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+// Every *.e2e.test host visitFooter() navigates to, below — kept as literal
+// prefixes (not derived) so a new journey that forgets to add its host here
+// fails LOUDLY on firefox (NS_ERROR_UNKNOWN_HOST) rather than silently.
+const E2E_HOSTS = [
+  `p3fx-wipe-${uniq}.e2e.test`,
+  `p3fx-i28-${uniq}.e2e.test`,
+  `p3fx-i45-${uniq}.e2e.test`,
+  `p3fx-d2a-${uniq}.e2e.test`,
+  `p3fx-d2b-${uniq}.e2e.test`,
+].join(",");
+
+test.use({
+  launchOptions: {
+    args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"],
+    firefoxUserPrefs: { "network.dns.localDomains": E2E_HOSTS },
+  },
+  viewport: { width: 1280, height: 900 },
+});
 test.describe.configure({ mode: "serial" });
 
 const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 const LG_API = "/api/admin/leadgen";
 const EVIDENCE = join(process.cwd(), "..", "docs", "leadgen", "r2", "evidence", "p3", "fixround");
-const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
 mkdirSync(EVIDENCE, { recursive: true });
 
@@ -211,7 +236,19 @@ function buildWidePng(width: number, height: number): Buffer {
 }
 
 async function openTemplatesTab(page: Page, quotePublicId: string): Promise<void> {
-  await page.goto(`/admin/leadgen/quotes/${quotePublicId}/edit`, { waitUntil: "domcontentloaded" });
+  // R2 P3 tail-2 (item 1, chromium+firefox registration): templates.ts's
+  // init() fires GET .../frame-template-records (loadTemplates()) on every
+  // page load, unconditionally; the Apply dialog's renderApplyChoices() is
+  // SYNCHRONOUS over the in-memory `templates` array it populates — no fetch
+  // of its own. Racing the Apply click against that still-in-flight GET
+  // intermittently opened the dialog with zero [data-apply-choice] cards.
+  // Waiting for the SAME response here (every test opens this tab before any
+  // Apply flow) removes the race at its one source instead of padding each
+  // call site with a guess-timeout.
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes("/frame-template-records") && r.request().method() === "GET", { timeout: 20_000 }),
+    page.goto(`/admin/leadgen/quotes/${quotePublicId}/edit`, { waitUntil: "domcontentloaded" }),
+  ]);
   await page.locator('[data-tab="templates"]').click();
   await expect(page.locator('[data-panel="templates"]')).toHaveClass(/active/);
   await expect(page.locator('[data-tplbox-panel="progress"]')).toBeVisible({ timeout: 20_000 });
@@ -240,6 +277,15 @@ async function saveCurrentDesignAsTemplate(page: Page, name: string): Promise<{ 
 
 // Apply a saved template to this funnel through the REAL apply dialog.
 async function applyTemplate(page: Page, templatePublicId: string): Promise<void> {
+  // R2 P3 tail-2 (item 1) — the Apply dialog's renderApplyChoices() reads the
+  // SAME in-memory `templates` array loadTemplates() (a page-load GET) fills;
+  // it does not re-fetch on open. Right after a fresh reload (this template
+  // was frequently just created via the real "+ New template" UI moments
+  // ago), the network response landing is NOT the same instant as that array
+  // being populated — waiting for THIS template's own chip in the templates
+  // bar (rendered from that same array) is the precise signal, instead of a
+  // flaky race between "Apply" clicked and loadTemplates()'s .then() running.
+  await expect(page.locator(`[data-tpl-chip="${templatePublicId}"]`)).toBeVisible({ timeout: 20_000 });
   await page.locator("#lg-tpl-apply-btn").click();
   const dlg = page.locator("#lg-tpl-apply-dialog");
   await expect(dlg).toBeVisible();

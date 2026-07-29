@@ -197,6 +197,18 @@ const CROSS_ENGINE_GESTURE_SPECS = [
   // full on chromium.
   'leadgen-rework-acceptance-components.gesture.spec.ts',
   'leadgen-rework-acceptance-inputs.gesture.spec.ts',
+  // R2 P3 tail-2 (item 1): leadgen-p3-fixround-footer.gesture.spec.ts (the P3
+  // FIX-FIRST round's 4-journey footer proof) was previously UNREGISTERED
+  // here — its own header comment disclosed that gap ("not registered ...
+  // that file is outside this slice's ownership"). Chromium's testIgnore is a
+  // blocklist so the file already ran there with no config change, but
+  // firefox's testMatch is an allowlist (this very array), so it silently
+  // skipped firefox entirely — the "unaccounted shard" class. SAME
+  // cross-engine shape as the entries above: every action is a real Locator
+  // click/fill/selectOption/check against the admin editor + the live
+  // /lg/:slug visitor route (no srcdoc-canvas drag, no firefox-architectural
+  // dependency), so it is expected to run unmodified on both projects.
+  'leadgen-p3-fixround-footer.gesture.spec.ts',
 ];
 const FIREFOX_ONLY_GESTURE_SPECS = [
   'r0a-drag-spike.spec.ts',

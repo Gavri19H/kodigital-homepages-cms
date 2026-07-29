@@ -982,6 +982,19 @@ const TPL_STYLES = `
 // DOMContentLoaded so `#lg-quote-data` (emitted by ui-quotes.ts AFTER every
 // tab panel) is guaranteed present. Every fetch below targets an
 // ALREADY-SHIPPED endpoint — see the top-of-file doc comment's inventory.
+//
+// R2 P3 tail-2 (item 2): fetchFooterPicks + its data-footer-picks-load click
+// delegate (below) are THIS island's alone — funnel.ts's QUOTE_EDITOR_SCRIPT
+// reads/writes the SAME footer.blocks DOM (its own "G" section, a documented
+// byte-mirrored twin of this file's collectFooterBlocks/collectFooterPickRows)
+// but ships no fetch handler for this button; it depends on THIS script
+// shipping on the same page. That is guaranteed by construction, not by load
+// order — ui-quotes.ts always concatenates renderBuilderPanel(...) (funnel.ts)
+// and renderTemplatesTabPanel(...) (this function, which embeds TPL_SCRIPT
+// inline) into ONE synchronous response — see funnel.ts's own note above its
+// QUOTE_EDITOR_SCRIPT declaration, and
+// test/leadgen-p3-fixround-footer-picker-coupling.test.ts, which fails if
+// either half of that pairing disappears.
 // ---------------------------------------------------------------------------
 
 const TPL_SCRIPT = `
