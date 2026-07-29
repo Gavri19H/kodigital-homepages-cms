@@ -960,7 +960,7 @@ export const QUOTE_EDITOR_SCRIPT = `
     // Header/Background inspectors) and the moved theme editor never show a
     // stale value.
     if (name === 'templates' || name === 'themes') { populateAllControls(); }
-    if (name === 'themes') { themeMiniOpen = true; scheduleMiniPreview(); loadThemePresetOptions(); }
+    if (name === 'themes') { loadThemePresetOptions(); }
   }
   var ti;
   for (ti = 0; ti < tabs.length; ti++) {
@@ -1684,7 +1684,6 @@ export const QUOTE_EDITOR_SCRIPT = `
     paintSwatches();
     markStripSelection();
     schedulePreview();
-    scheduleMiniPreview();
   }
   // ONE palette write path (role picks, harmony steps, Advanced custom
   // colors): §4.5-aware — rides frame_overrides_json.theme when the theme
@@ -1700,7 +1699,6 @@ export const QUOTE_EDITOR_SCRIPT = `
       markStripSelection();
       updateOverrideBadge();
       schedulePreview();
-      scheduleMiniPreview();
     } else {
       if (!isRecordVal(workingTheme.palette)) { workingTheme.palette = {}; }
       writeThemeValue('palette.' + role, value);
@@ -1728,7 +1726,7 @@ export const QUOTE_EDITOR_SCRIPT = `
       delete workingOverrides.theme.palette[resetRole];
       overridesDirty = true;
       markDirty();
-      paintSwatches(); markStripSelection(); updateOverrideBadge(); schedulePreview(); scheduleMiniPreview();
+      paintSwatches(); markStripSelection(); updateOverrideBadge(); schedulePreview();
       return;
     }
     writeThemeValue('palette.' + resetRole, null);
@@ -2902,50 +2900,6 @@ export const QUOTE_EDITOR_SCRIPT = `
   function schedulePreview() {
     if (previewTimer) { window.clearTimeout(previewTimer); }
     previewTimer = window.setTimeout(function () { previewTimer = null; renderPreview(); }, 300);
-  }
-
-  // --- 09 §9.3 mini preview (DEV-60 d): the REAL preview machinery ------------
-  // A tiny debounced draft_theme POST to the SAME endpoint in the cheap
-  // frame-only mode (button/card/progress chrome rendered by the REAL
-  // presets), replacing the old hand-rolled spans. Fetches only while the
-  // theme editor is OPEN.
-  var miniTimer = null;
-  var miniSeq = 0;
-  var themeMiniOpen = false;
-  function miniStatus(text) {
-    var el = byId('lg-theme-minipreview-status');
-    if (el) { clearChildren(el); if (text) { el.appendChild(document.createTextNode(text)); } }
-  }
-  function renderMiniPreview() {
-    var mount = byId('lg-theme-minipreview');
-    var frame = byId('lg-theme-minipreview-frame');
-    if (!mount || !frame) { return; }
-    miniSeq += 1;
-    var seq = miniSeq;
-    fetch(previewUrl(), {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify(draftOverridesParam({
-        mode: mount.getAttribute('data-mini-preview-mode') || 'frame',
-        viewport: 'desktop',
-        draft_frame_config: draftFrameConfig(),
-        draft_theme: draftTheme()
-      }))
-    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
-      if (seq !== miniSeq) { return; }
-      if (!res.ok) { miniStatus('Theme preview failed.'); return; }
-      miniStatus('');
-      var p = res.body.preview || {};
-      frame.setAttribute('srcdoc', '<!doctype html><html><head><meta charset="utf-8"><style>' + (p.css || '') + '</style></head><body>' + (p.html || '') + '</body></html>');
-    }).catch(function () {
-      if (seq !== miniSeq) { return; }
-      miniStatus('Theme preview failed: network error');
-    });
-  }
-  function scheduleMiniPreview() {
-    if (!themeMiniOpen) { return; }
-    if (miniTimer) { window.clearTimeout(miniTimer); }
-    miniTimer = window.setTimeout(function () { miniTimer = null; renderMiniPreview(); }, 300);
   }
 
   // ==========================================================================

@@ -107,17 +107,20 @@ test.describe('R4a E3-NEW-1 — first-save problems[] survive (no longer silentl
     await page.locator('#lg-section-name').fill(`S3 New Section ${uniq}`);
     await page.locator('#lg-section-headline').fill('Are you currently insured?');
 
-    // Activity/Vertical start empty on a fresh DB — use the real "+New…"
-    // prompt flow (promptNewSharedValue fires window.prompt THEN a
-    // window.confirm — a persistent handler answers BOTH in sequence).
-    page.on('dialog', (d) => {
-      if (d.type() === 'prompt') void d.accept(d.message().startsWith('New activity') ? activity : vertical);
-      else void d.accept();
-    });
+    // Activity/Vertical start empty on a fresh DB — use the modal
+    // (promptNewSharedValue opens the modal, user fills input and clicks
+    // Create; the §8.2 business gate fires window.confirm, which we handle).
+    page.on('dialog', (d) => { if (d.type() === 'confirm') void d.accept(); });
+
+    // Create new activity
     await page.locator('[data-studio-new-activity]').click();
-    await page.waitForTimeout(200);
+    await page.locator('#lg-new-shared-value-input').fill(activity);
+    await page.locator('[data-new-shared-value-create]').click();
+
+    // Create new vertical
     await page.locator('[data-studio-new-vertical]').click();
-    await page.waitForTimeout(200);
+    await page.locator('#lg-new-shared-value-input').fill(vertical);
+    await page.locator('[data-new-shared-value-create]').click();
 
     // add a SECOND Continue button (the first is added here too — a fresh
     // Section seeds none) — triggers the non-blocking duplicate_continue
