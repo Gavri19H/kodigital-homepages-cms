@@ -3279,9 +3279,12 @@ function renderStudioMediaPicker(aiImageAvailable: boolean): string {
 // no-op on an empty name. This reuses the EXACT existing studio modal idiom
 // above (renderStudioMediaPicker: role="dialog" aria-modal="true" overlay +
 // panel, opened/closed via the lg-hidden class toggle) for a proper Create/
-// Cancel dialog with a name field and an inline error message. The §8.2
-// business gate itself stays a window.confirm() (unchanged) — orthogonal to
-// name COLLECTION, which is this modal's only job.
+// Cancel dialog with a name field and an inline error message.
+// R2 P2 FIX-FIRST (MINOR-3): the §8.2 business gate is no longer a raw
+// window.confirm() either — see renderNoOffersConfirmModal below. A10's
+// complaint is "raw JS prompts" as a CLASS, so every browser dialog in that
+// create flow is the complaint; the gate itself is unchanged in BEHAVIOR
+// (decline still creates nothing), only its presentation.
 function renderNewSharedValueModal(): string {
   return `<div class="lg-media-picker-overlay lg-hidden" id="lg-new-shared-value-modal" role="dialog" aria-modal="true" aria-label="Create a new activity or vertical">
   <div class="lg-media-picker-panel" style="max-width:420px">
@@ -3297,6 +3300,31 @@ function renderNewSharedValueModal(): string {
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
       <button type="button" class="btn btn-sm btn-outline" data-new-shared-value-cancel>Cancel</button>
       <button type="button" class="btn btn-sm btn-secondary" data-new-shared-value-create>Create</button>
+    </div>
+  </div>
+</div>`;
+}
+
+// R2 P2 FIX-FIRST (MINOR-3, adversarial review) — the §8.2 "no Offers exist
+// yet" gate. It was the LAST raw browser dialog left in the A10 create flow
+// (a window.confirm() fired the instant a valid name was entered), which is
+// the same complaint A10 names: "'+ create' flow works but with raw JS
+// prompts". Same modal idiom as renderNewSharedValueModal directly above
+// (role="dialog" aria-modal="true" overlay + panel, lg-hidden toggle), two
+// buttons, and the SAME sentence the confirm() asked — the island fills
+// [data-no-offers-question] with it on open, so the operator reads exactly
+// what they read before, in the studio's own chrome.
+function renderNoOffersConfirmModal(): string {
+  return `<div class="lg-media-picker-overlay lg-hidden" id="lg-no-offers-confirm-modal" role="dialog" aria-modal="true" aria-label="No Offers exist yet">
+  <div class="lg-media-picker-panel" style="max-width:420px">
+    <div class="studio-events-head">
+      <span class="form-label">No Offers yet</span>
+      <button type="button" class="btn btn-sm btn-outline" id="lg-no-offers-confirm-close">Close</button>
+    </div>
+    <p class="form-help" data-no-offers-question></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+      <button type="button" class="btn btn-sm btn-outline" data-no-offers-cancel>Cancel</button>
+      <button type="button" class="btn btn-sm btn-secondary" data-no-offers-confirm>Create anyway</button>
     </div>
   </div>
 </div>`;
@@ -3347,6 +3375,7 @@ ${mapsBanner}
 ${renderStudioDrawer(summary, answerMapCount, view.public_id)}
 ${renderStudioMediaPicker(aiImageAvailable)}
 ${renderNewSharedValueModal()}
+${renderNoOffersConfirmModal()}
 ${renderStudioSeedData()}
 ${renderThemesOverlay()}</div>`;
 }
@@ -14500,8 +14529,9 @@ export const SECTION_STUDIO_SCRIPT = `
   // through the studio's OWN modal idiom (renderNewSharedValueModal — the
   // Media picker's role="dialog" aria-modal="true" + lg-hidden toggle) with
   // Create/Cancel + an inline error for an empty name, instead of a raw
-  // window.prompt(). The §8.2 "no Offers exist yet" business gate stays a
-  // window.confirm() — unchanged, orthogonal to name COLLECTION.
+  // window.prompt(). R2 P2 FIX-FIRST (MINOR-3): the §8.2 "no Offers exist
+  // yet" business gate now uses the SAME idiom too (renderNoOffersConfirm
+  // Modal) — the whole flow is free of raw browser dialogs.
   var newSharedValueTarget = { kind: '', sel: null, after: null };
   function newSharedValueErrorEl() { return document.querySelector('[data-new-shared-value-error]'); }
   function newSharedValueInputEl() { return document.getElementById('lg-new-shared-value-input'); }
@@ -14537,15 +14567,36 @@ export const SECTION_STUDIO_SCRIPT = `
   function closeNewSharedValueModal() {
     var modal = document.getElementById('lg-new-shared-value-modal');
     if (modal) { modal.className = 'lg-media-picker-overlay lg-hidden'; }
+    // MINOR-3: never leave the gate overlay orphaned above a closed name
+    // dialog (Cancel/Close/commit all route through here).
+    var gate = document.getElementById('lg-no-offers-confirm-modal');
+    if (gate) { gate.className = 'lg-media-picker-overlay lg-hidden'; }
     newSharedValueTarget = { kind: '', sel: null, after: null };
   }
-  function submitNewSharedValueModal() {
+  // R2 P2 FIX-FIRST (MINOR-3): the §8.2 "no Offers exist yet" gate, as the
+  // studio's OWN two-button modal instead of the raw browser dialog it used
+  // to be (the pinned scan below greps this whole block for that API name, so
+  // this comment must not spell it either). The gate is
+  // unchanged in substance — the SAME sentence, and declining still creates
+  // NOTHING (the create tail only runs from the confirm button) — the name
+  // modal stays open behind it so a declined create keeps the typed name.
+  function closeNoOffersConfirm() {
+    var modal = document.getElementById('lg-no-offers-confirm-modal');
+    if (modal) { modal.className = 'lg-media-picker-overlay lg-hidden'; }
+  }
+  function openNoOffersConfirm(question) {
+    var modal = document.getElementById('lg-no-offers-confirm-modal');
+    if (!modal) { return false; }
+    var q = document.querySelector('[data-no-offers-question]');
+    if (q) { clearChildren(q); q.appendChild(document.createTextNode(question)); }
+    modal.className = 'lg-media-picker-overlay';
+    var confirmBtn = document.querySelector('[data-no-offers-confirm]');
+    if (confirmBtn && confirmBtn.focus) { confirmBtn.focus(); }
+    return true;
+  }
+  function commitNewSharedValue(v) {
     var target = newSharedValueTarget;
     if (!target.sel) { closeNewSharedValueModal(); return; }
-    var input = newSharedValueInputEl();
-    var v = trimStr(input ? input.value : '');
-    if (v === '') { showNewSharedValueError('Enter a name.'); return; }
-    if (!window.confirm("No Offers exist for '" + v + "' yet. Create the " + target.kind + ' anyway?')) { return; }
     var o = document.createElement('option');
     o.value = v;
     o.textContent = v;
@@ -14557,6 +14608,27 @@ export const SECTION_STUDIO_SCRIPT = `
     closeNewSharedValueModal();
     if (after) { after(v); }
   }
+  function submitNewSharedValueModal() {
+    var target = newSharedValueTarget;
+    if (!target.sel) { closeNewSharedValueModal(); return; }
+    var input = newSharedValueInputEl();
+    var v = trimStr(input ? input.value : '');
+    if (v === '') { showNewSharedValueError('Enter a name.'); return; }
+    openNoOffersConfirm("No Offers exist for '" + v + "' yet. Create the " + target.kind + ' anyway?');
+  }
+  function confirmNoOffersCreate() {
+    var input = newSharedValueInputEl();
+    var v = trimStr(input ? input.value : '');
+    closeNoOffersConfirm();
+    if (v === '') { showNewSharedValueError('Enter a name.'); return; }
+    commitNewSharedValue(v);
+  }
+  var noOffersConfirmBtn = document.querySelector('[data-no-offers-confirm]');
+  if (noOffersConfirmBtn) { noOffersConfirmBtn.addEventListener('click', confirmNoOffersCreate); }
+  var noOffersCancelBtn = document.querySelector('[data-no-offers-cancel]');
+  if (noOffersCancelBtn) { noOffersCancelBtn.addEventListener('click', closeNoOffersConfirm); }
+  var noOffersCloseBtn = document.getElementById('lg-no-offers-confirm-close');
+  if (noOffersCloseBtn) { noOffersCloseBtn.addEventListener('click', closeNoOffersConfirm); }
   var newSharedValueCloseBtn = document.getElementById('lg-new-shared-value-close');
   if (newSharedValueCloseBtn) { newSharedValueCloseBtn.addEventListener('click', closeNewSharedValueModal); }
   var newSharedValueCancelBtn = document.querySelector('[data-new-shared-value-cancel]');

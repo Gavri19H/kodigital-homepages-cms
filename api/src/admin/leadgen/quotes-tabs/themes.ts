@@ -29,20 +29,24 @@
 // THEMES_TAB_SCRIPT is this tab's OWN self-contained ES5 island (mirrors the
 // ui-theme-manager.ts THEME_MGR_SCRIPT pattern this file's sibling already
 // uses) — it does not depend on quotes-tabs/funnel.ts's private closure state
-// (workingTheme is not reachable from here), so it:
+// (that file's own working-theme object is not reachable from here; this
+// island's OWN draft is `railDraftTheme`, deliberately named apart from it),
+// so it:
 //   - reads funnel/variant public ids off the EXISTING #lg-quote-editor root
 //     data attributes (the same ones funnel.ts's own script reads),
 //   - fetches the section library client-side (GET /api/admin/leadgen/
 //     sections?status=active) — no new endpoint,
 //   - on a rail control edit, applies it directly (GET the funnel's current
-//     theme_json, merge the ONE changed field in, DROP a bare `theme_id`
-//     pointer if present, PUT the merged whole) then refreshes the canvas.
-//     The drop-theme_id-on-override step is R7's own suggested normalization
-//     ("resolve the preset into inline values, or drop theme_id when
-//     overriding") — applied for real, for edits made through THIS rebuilt
-//     rail. See the phase report for the residual this does not close (the
-//     pre-existing "one-Save" button in quotes-tabs/funnel.ts constructs its
-//     OWN PUT from a stale in-memory object outside this slice's ownership).
+//     theme_json, RESOLVE a `theme_id` pointer into the preset's own inline
+//     values, merge the changed field on top, PUT the merged whole) then
+//     refreshes the canvas. R2 P2 FIX-FIRST (MINOR-1) switched this from R7's
+//     other sanctioned branch to this one: R7 offered "resolve the preset
+//     into inline values, OR drop theme_id when overriding", and the drop
+//     branch silently discarded the applied preset's palette/typography/
+//     buttons on the operator's very first control edit. See the phase report
+//     for the residual this does not close (the pre-existing "one-Save"
+//     button in quotes-tabs/funnel.ts constructs its OWN PUT from a stale
+//     in-memory object outside this slice's ownership).
 //   - the funnel.ts-owned controls keep their EXACT existing data attributes
 //     (data-theme-key / data-role-pick / data-role-pick-for / the override-
 //     switch radios) so funnel.ts's OWN delegated listeners keep working
@@ -63,6 +67,8 @@ import {
   THEME_FONT_IDS,
   THEME_RADIUS_SCALES,
   THEME_RADIUS_STEPS,
+  THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE,
+  THEME_RECORD_ROLE_TO_TOKEN_ROLE,
   THEME_SHADOW_SCALES,
   THEME_SHADOW_STEPS,
   THEME_SIZE_SCALES,
@@ -314,6 +320,14 @@ function renderThemeRailPane(isControl: boolean): string {
 const THEMES_TAB_SCRIPT = `
 (function () {
   'use strict';
+  // R2 P2 FIX-FIRST (MINOR-1): the record-role -> FunnelTokenRole bridges,
+  // SERIALIZED FROM THE SAME compile-checked constants resolveTokens itself
+  // applies (designs/theme.ts THEME_RECORD_ROLE_TO_TOKEN_ROLE +
+  // THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE) — never a hand-copied table here,
+  // so a renamed role can never drift between the preset resolver and this
+  // rail (a rename is a compile error at the import above).
+  var PRESET_ROLE_BRIDGE = ${JSON.stringify(THEME_RECORD_ROLE_TO_TOKEN_ROLE)};
+  var PRESET_EXTRA_ROLE_BRIDGE = ${JSON.stringify(THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE)};
   var root = document.querySelector('[data-lg-themes-tab]');
   if (!root) { return; }
   // Same element funnel.ts's own island reads (id="lg-quote-editor") — found
@@ -475,18 +489,36 @@ const THEMES_TAB_SCRIPT = `
   }
 
   // --- CENTER canvas refresh (POST /api/admin/leadgen/sections/preview) ------
+  // R2 P2 FIX-FIRST (MAJOR-1 leg 2): the WORKING theme this rail has edited
+  // but whose write may still be in flight (or may have been rejected). The
+  // canvas posts it EXPLICITLY as frame_context.draft_theme — the Templates
+  // canvas's own idiom (quotes-tabs/templates.ts posts draft_frame_config/
+  // draft_theme, which is exactly why that canvas was immune to the
+  // stored-column gap this leg closes) — so a rail edit renders without
+  // depending on the save round-trip. null (nothing edited yet this session)
+  // sends no key at all: the server resolves the STORED theme, unchanged.
+  var railDraftTheme = null;
+  function hasAnyKey(o) {
+    var k;
+    for (k in o) { if (Object.prototype.hasOwnProperty.call(o, k)) { return true; } }
+    return false;
+  }
   var canvasSeq = 0;
   function refreshCanvas() {
     var frame = byId('lg-theme-canvas-frame');
     if (!frame || chosenSection === null) { return; }
     canvasSeq += 1;
     var seq = canvasSeq;
+    var frameCtx = funnelPublicId !== ''
+      ? { funnel_public_id: funnelPublicId, variant_public_id: variantPublicId }
+      : { default: true };
+    if (funnelPublicId !== '' && railDraftTheme !== null && hasAnyKey(railDraftTheme)) {
+      frameCtx.draft_theme = railDraftTheme;
+    }
     var body = {
       content_json: chosenSection.content_json,
       viewport: 'desktop',
-      frame_context: funnelPublicId !== ''
-        ? { funnel_public_id: funnelPublicId, variant_public_id: variantPublicId }
-        : { default: true }
+      frame_context: frameCtx
     };
     setStatus('Loading preview\\u2026');
     fetch('/api/admin/leadgen/sections/preview', {
@@ -507,10 +539,11 @@ const THEMES_TAB_SCRIPT = `
 
   // --- RIGHT rail: live-apply a control edit, then refresh the canvas --------
   // R2 register R7 normalization: "resolve the preset into inline values, or
-  // drop theme_id when overriding" — this drops a bare theme_id pointer the
-  // moment ANY inline control is edited through this rail, so the funnel's
-  // theme_json never again carries theme_id alongside inline fields (the
-  // combination validateTheme rejects).
+  // drop theme_id when overriding" — this RESOLVES the preset (see
+  // inlineThemeFromPreset below) the moment ANY inline control is edited
+  // through this rail, so the funnel's theme_json never carries theme_id
+  // alongside inline fields (the combination validateTheme rejects) AND the
+  // preset's own values survive the edit.
   function setPath(obj, path, value) {
     var parts = path.split('.');
     var cur = obj;
@@ -534,6 +567,50 @@ const THEMES_TAB_SCRIPT = `
     return !!(el && el.value === 'override');
   }
 
+  // R2 P2 FIX-FIRST (MINOR-1): RESOLVE an applied preset into inline values.
+  // The rail used to keep only the ONE edited key and drop the theme_id
+  // pointer, so the first control edit after "Apply to this funnel" silently
+  // discarded the whole preset (palette + typography + buttons). This maps a
+  // theme RECORD onto the inline theme_json shape through the bridges
+  // serialized above, so the preset's own values survive as real inline
+  // values and the edit lands on top of them.
+  // Deliberately NOT mapped (no faithful 1:1 exists — mapping them would
+  // INVENT values rather than preserve the preset's): typography.headline_
+  // font/body_font (a record's font vocabulary is Inter/Newsreader/Roboto
+  // Mono; inline typography.display/body is the literata/sora/... set) and
+  // controls.field_height/button_size/corners (corners is sharp|rounded|pill
+  // vs the inline radius scale sharp|soft|round). Those keep resolving from
+  // the base design, exactly as they did before this fix.
+  function inlineThemeFromPreset(rec) {
+    var out = {};
+    var palette = {};
+    var k;
+    var roles = (rec && rec.roles) || {};
+    for (k in PRESET_ROLE_BRIDGE) {
+      if (Object.prototype.hasOwnProperty.call(PRESET_ROLE_BRIDGE, k) && typeof roles[k] === 'string' && roles[k] !== '') {
+        palette[PRESET_ROLE_BRIDGE[k]] = roles[k];
+      }
+    }
+    var extra = (rec && rec.extra_roles) || {};
+    for (k in PRESET_EXTRA_ROLE_BRIDGE) {
+      if (Object.prototype.hasOwnProperty.call(PRESET_EXTRA_ROLE_BRIDGE, k) && typeof extra[k] === 'string' && extra[k] !== '') {
+        palette[PRESET_EXTRA_ROLE_BRIDGE[k]] = extra[k];
+      }
+    }
+    if (hasAnyKey(palette)) { out.palette = palette; }
+    var bstyle = (rec && rec.button_style) || null;
+    if (bstyle) {
+      var bd = {};
+      if (bstyle.fill) { bd.fill = bstyle.fill; }
+      if (bstyle.layout) { bd.layout = bstyle.layout; }
+      if (bstyle.selected) { bd.selected = bstyle.selected; }
+      if (hasAnyKey(bd)) { out.button_defaults = bd; }
+    }
+    var typ = (rec && rec.typography) || null;
+    if (typ && typ.display_size) { out.typography = { display_size: typ.display_size }; }
+    return out;
+  }
+
   var applyTimer = null;
   var pendingEdits = {};
   function flushThemeEdits() {
@@ -542,19 +619,36 @@ const THEMES_TAB_SCRIPT = `
     pendingEdits = {};
     if (funnelPublicId === '') { return; }
     var base = '/api/admin/leadgen/funnels/' + encodeURIComponent(funnelPublicId) + '/theme';
+    var previousDraft = railDraftTheme;
     setStatus('Applying\\u2026');
     fetch(base, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
       .then(function (r) { return r.json(); })
       .then(function (getBody) {
         var current = (getBody && getBody.theme) || {};
-        var merged = {};
+        if (typeof current.theme_id === 'string' && current.theme_id !== '') {
+          return fetch('/api/admin/leadgen/themes/' + encodeURIComponent(current.theme_id), {
+            credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+          }).then(function (rp) { return rp.json(); }).then(function (pb) {
+            return inlineThemeFromPreset(pb && pb.item);
+          });
+        }
+        var inline = {};
         var k;
         for (k in current) {
-          if (Object.prototype.hasOwnProperty.call(current, k) && k !== 'theme_id') { merged[k] = current[k]; }
+          if (Object.prototype.hasOwnProperty.call(current, k) && k !== 'theme_id') { inline[k] = current[k]; }
         }
+        return inline;
+      })
+      .then(function (baseTheme) {
+        var merged = baseTheme || {};
+        var k;
         for (k in edits) {
           if (Object.prototype.hasOwnProperty.call(edits, k)) { setPath(merged, k, edits[k]); }
         }
+        // Leg 2: render the DRAFT now — the canvas no longer waits on (nor
+        // depends on) the write landing.
+        railDraftTheme = merged;
+        refreshCanvas();
         return fetch(base, {
           method: 'PUT', credentials: 'same-origin',
           headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
@@ -563,11 +657,14 @@ const THEMES_TAB_SCRIPT = `
       })
       .then(function (res) {
         if (!res.ok) {
+          // A rejected save must not leave the canvas showing a value the
+          // funnel does not have — roll the draft back and re-render.
+          railDraftTheme = previousDraft;
+          refreshCanvas();
           setStatus((res.body && res.body.error) ? res.body.error : 'Could not apply the change.');
           return;
         }
         setStatus('');
-        refreshCanvas();
       })
       .catch(function () { setStatus('Network error applying the change.'); });
   }

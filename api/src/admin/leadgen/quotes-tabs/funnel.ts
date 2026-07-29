@@ -148,6 +148,39 @@ const SLOT_RULE_OPS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "lte", label: "at most" },
 ];
 
+// R2 P2 FIX-FIRST (MINOR-4, adversarial review): the ruled-slot DIALOG showed
+// no plain-language sentence at all — the operator only saw it after saving,
+// on the chip (ruledSlotSentence below). The island cannot import the TS
+// generator, and hand-writing the phrasing in ES5 would be exactly the drift
+// the chip's own comment forbids ("never re-implemented"), so the phrase
+// TEMPLATES are produced BY conditionsSentence itself at SSR time — one probe
+// call per op with sentinel tokens the island substitutes. If the generator's
+// wording ever changes, these templates change with it, automatically.
+const SLOT_RULE_SENTENCE_FIELD_TOKEN = "@@LG_SLOT_RULE_FIELD@@";
+const SLOT_RULE_SENTENCE_VALUE_TOKEN = "@@LG_SLOT_RULE_VALUE@@";
+const SLOT_RULE_SENTENCE_TEMPLATES: Readonly<Record<string, string>> = Object.fromEntries(
+  SLOT_RULE_OPS.map((o) => [
+    o.value,
+    conditionsSentence(
+      [
+        {
+          field: SLOT_RULE_SENTENCE_FIELD_TOKEN,
+          op: o.value as RulesBuilderRow["op"],
+          value: SLOT_RULE_SENTENCE_VALUE_TOKEN,
+        },
+      ],
+      () => SLOT_RULE_SENTENCE_FIELD_TOKEN,
+    ).replace(/\.$/, ""),
+  ]),
+);
+
+// The three joiners the SAVED-chip sentence is assembled from — shared with
+// the island (below) so the live dialog sentence and the chip can never drift
+// in punctuation either.
+const RULED_SENTENCE_ARROW = " → ";
+const RULED_SENTENCE_JOIN = "; ";
+const RULED_SENTENCE_OTHERWISE = "; otherwise → ";
+
 
 // --- inline icons (studio-vocabulary SVG, ~0 engine bytes; admin-only) -------
 const BOARD_ICON = {
@@ -295,9 +328,9 @@ function ruledSlotSentence(slot: BoardPage["slots"][number], fallbackName: strin
   const parts = summary.cases.map((c) => {
     const row: RulesBuilderRow = { field: c.field, op: c.op as RulesBuilderRow["op"], value: c.value as RulesBuilderRow["value"] };
     const sentence = conditionsSentence([row], (f) => SLOT_RULE_FIELD_LABELS[f] ?? f).replace(/\.$/, "");
-    return `${sentence} → ${c.section_name}`;
+    return `${sentence}${RULED_SENTENCE_ARROW}${c.section_name}`;
   });
-  return `${parts.join("; ")}; otherwise → ${summary.default_section_name}`;
+  return `${parts.join(RULED_SENTENCE_JOIN)}${RULED_SENTENCE_OTHERWISE}${summary.default_section_name}`;
 }
 
 // The chip label every board column (shared + funnel) shares — factored out
@@ -539,6 +572,7 @@ function renderSharedSlotRuledDialog(): string {
           <label class="form-label" for="lg-ruled-default-select">Default section (required)</label>
           <select id="lg-ruled-default-select" class="form-select" data-ruled-default aria-label="Default section"></select>
         </div>
+        <p class="form-help" data-ruled-sentence role="status" aria-live="polite"></p>
         <p class="form-help lg-hidden" data-ruled-error role="alert"></p>
       </div>
       <div class="lg-board-guard-foot">
@@ -3691,6 +3725,17 @@ export const QUOTE_EDITOR_SCRIPT = `
   // validator would reject.
   var SLOT_RULE_FIELDS = ${JSON.stringify(SLOT_RULE_FIELDS)};
   var SLOT_RULE_OPS = ${JSON.stringify(SLOT_RULE_OPS)};
+  // R2 P2 FIX-FIRST (MINOR-4): the plain-language phrase templates GENERATED
+  // by ui-rules-builder.ts's own conditionsSentence at SSR time (see
+  // SLOT_RULE_SENTENCE_TEMPLATES) plus the chip's own joiners — the dialog's
+  // live sentence is assembled from exactly the same pieces the saved chip is.
+  var SLOT_RULE_SENTENCE_TEMPLATES = ${JSON.stringify(SLOT_RULE_SENTENCE_TEMPLATES)};
+  var SLOT_RULE_FIELD_LABELS = ${JSON.stringify(SLOT_RULE_FIELD_LABELS)};
+  var SLOT_RULE_SENTENCE_FIELD_TOKEN = ${JSON.stringify(SLOT_RULE_SENTENCE_FIELD_TOKEN)};
+  var SLOT_RULE_SENTENCE_VALUE_TOKEN = ${JSON.stringify(SLOT_RULE_SENTENCE_VALUE_TOKEN)};
+  var RULED_SENTENCE_ARROW = ${JSON.stringify(RULED_SENTENCE_ARROW)};
+  var RULED_SENTENCE_JOIN = ${JSON.stringify(RULED_SENTENCE_JOIN)};
+  var RULED_SENTENCE_OTHERWISE = ${JSON.stringify(RULED_SENTENCE_OTHERWISE)};
 
   function reloadPage() { window.location.reload(); }
   function req(method, url, body) {
@@ -3787,9 +3832,16 @@ export const QUOTE_EDITOR_SCRIPT = `
     for (i = 0; i < ss.length; i++) { out.push(slotToPut(ss[i])); }
     return out;
   }
-  function saveSharedSlots(putSlots, nearEl) {
+  // onError (R2 P2 FIX-FIRST, MINOR-4) is OPTIONAL: when supplied the
+  // caller owns where the server's message is rendered (the ruled dialog
+  // renders it INSIDE itself and stays open); omitted → the pre-existing
+  // board-level inline banner, unchanged.
+  function saveSharedSlots(putSlots, nearEl, onError) {
     req('PUT', API + '/quotes/' + encodeURIComponent(quoteId) + '/shared-page', { slots: putSlots }).then(function (res) {
-      if (!res.ok) { showInlineErr(nearEl, firstFieldError(res.body)); return; }
+      if (!res.ok) {
+        if (onError) { onError(firstFieldError(res.body)); return; }
+        showInlineErr(nearEl, firstFieldError(res.body)); return;
+      }
       reloadPage();
     });
   }
@@ -4179,9 +4231,12 @@ export const QUOTE_EDITOR_SCRIPT = `
       return {
         scope: 'shared',
         slot: sharedSlots()[sIdx],
-        save: function (overridePut) {
+        // R2 P2 FIX-FIRST (MINOR-4): onError is OPTIONAL — omitted (the A/B
+        // editor, revert, every other caller) keeps the pre-existing
+        // board-level inline banner, byte-for-byte.
+        save: function (overridePut, onError) {
           var put = sharedSlotsToPut(); put[sIdx] = overridePut;
-          saveSharedSlots(put, null);
+          saveSharedSlots(put, null, onError);
         }
       };
     }
@@ -4194,13 +4249,19 @@ export const QUOTE_EDITOR_SCRIPT = `
     return {
       scope: 'funnel',
       slot: slots[found],
-      save: function (overridePut) {
+      save: function (overridePut, onError) {
         var variantPub = f.active_variant_public_id;
-        if (!variantPub) { showInlineErr(null, 'This funnel has no active variant to save into.'); return; }
+        if (!variantPub) {
+          if (onError) { onError('This funnel has no active variant to save into.'); return; }
+          showInlineErr(null, 'This funnel has no active variant to save into.'); return;
+        }
         var putPages = funnelPagesToPut(f);
         putPages[pageIndex].slots[found] = overridePut;
         req('PUT', API + '/variants/' + encodeURIComponent(variantPub), { pages: putPages }).then(function (res) {
-          if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
+          if (!res.ok) {
+            if (onError) { onError(firstFieldError(res.body)); return; }
+            showInlineErr(null, firstFieldError(res.body)); return;
+          }
           reloadPage();
         });
       }
@@ -4270,6 +4331,41 @@ export const QUOTE_EDITOR_SCRIPT = `
     row.appendChild(fSel); row.appendChild(oSel); row.appendChild(vIn); row.appendChild(arrow); row.appendChild(secSel); row.appendChild(rm);
     return row;
   }
+  // R2 P2 FIX-FIRST (MINOR-4): the LIVE plain-language sentence, rebuilt on
+  // every edit from the SSR-generated templates + the chip's own joiners.
+  function selectedOptionText(sel) {
+    if (!sel || sel.selectedIndex < 0) { return ''; }
+    var opt = sel.options[sel.selectedIndex];
+    return opt ? (opt.textContent || opt.innerText || '') : '';
+  }
+  function ruledCaseSentence(field, op, value, sectionName) {
+    var tpl = SLOT_RULE_SENTENCE_TEMPLATES[op];
+    if (!tpl) { return ''; }
+    var label = SLOT_RULE_FIELD_LABELS[field] || field;
+    var text = tpl.split(SLOT_RULE_SENTENCE_FIELD_TOKEN).join(label);
+    text = text.split(SLOT_RULE_SENTENCE_VALUE_TOKEN).join(value);
+    return text + RULED_SENTENCE_ARROW + sectionName;
+  }
+  function refreshRuledSentence() {
+    if (!ruledDialog) { return; }
+    var out = ruledDialog.querySelector('[data-ruled-sentence]');
+    if (!out) { return; }
+    var arr = ruledCases(); var parts = []; var i;
+    for (i = 0; i < arr.length; i++) {
+      parts.push(ruledCaseSentence(
+        arr[i].querySelector('[data-ruled-field]').value,
+        arr[i].querySelector('[data-ruled-op]').value,
+        arr[i].querySelector('[data-ruled-value]').value,
+        selectedOptionText(arr[i].querySelector('[data-ruled-section]'))
+      ));
+    }
+    var defSel = ruledDialog.querySelector('[data-ruled-default]');
+    var sentence = parts.length === 0
+      ? 'Add a case to see what this rule will do.'
+      : parts.join(RULED_SENTENCE_JOIN) + RULED_SENTENCE_OTHERWISE + selectedOptionText(defSel);
+    while (out.firstChild) { out.removeChild(out.firstChild); }
+    out.appendChild(document.createTextNode(sentence));
+  }
   var ruledCtx = null;
   function openRuledEditorCtx(ctx) {
     if (!ruledDialog || !ctx) { return; }
@@ -4291,6 +4387,7 @@ export const QUOTE_EDITOR_SCRIPT = `
       fillSectionSelect(defSel, (slot.section_ids && slot.section_ids[0]) || '', true);
     }
     hide(ruledDialog.querySelector('[data-ruled-error]'));
+    refreshRuledSentence();
     show(ruledDialog);
   }
   function openSharedRuledEditor(slotId) { openRuledEditorCtx(abRuledSlotCtx('shared', null, null, slotId)); }
@@ -4310,8 +4407,17 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (cases.length === 0) { showErr(err, 'Add at least one case, or revert to a single section.'); return; }
     var defSel = ruledDialog.querySelector('[data-ruled-default]'); var def = defSel ? defSel.value : '';
     if (!def) { showErr(err, 'Pick a default section \\u2014 it shows when no case matches.'); return; }
-    var ctx = ruledCtx; closeSharedRuledEditor();
-    ctx.save({ kind: 'ruled', cases: cases, default_section_id: def });
+    // R2 P2 FIX-FIRST (MINOR-4): the dialog used to CLOSE before saving, so a
+    // server rejection (e.g. a uniqueness conflict) surfaced as a board-level
+    // banner behind a dialog that had already thrown the operator's work
+    // away. It now stays open until the save is accepted; a rejection renders
+    // the server's OWN message right beside the controls that caused it (the
+    // same [data-ruled-error] line the client-side checks above use). Success
+    // reloads the page (ctx.save's own tail), which tears the dialog down.
+    hide(err);
+    ruledCtx.save({ kind: 'ruled', cases: cases, default_section_id: def }, function (msg) {
+      showErr(ruledDialog.querySelector('[data-ruled-error]'), msg);
+    });
   }
   function revertRuledToFixed() {
     if (!ruledDialog || !ruledCtx) { return; }
@@ -4323,6 +4429,13 @@ export const QUOTE_EDITOR_SCRIPT = `
   }
   // Live Σ recompute as A/B arm percentages are typed.
   if (abDialog) { abDialog.addEventListener('input', function (ev) { if (ev.target && ev.target.getAttribute && ev.target.getAttribute('data-ab-arm-pct') !== null) { updateAbSum(); } }); }
+  // R2 P2 FIX-FIRST (MINOR-4): live sentence — recomputed as the operator
+  // types a value or switches a field/op/section (both event kinds; selects
+  // fire 'change', the text input fires 'input').
+  if (ruledDialog) {
+    ruledDialog.addEventListener('input', refreshRuledSentence);
+    ruledDialog.addEventListener('change', refreshRuledSentence);
+  }
 
   /* ================= DRAG ENGINE (in-house mouse; both engines) ============= */
   var drag = null;
@@ -4497,8 +4610,8 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (abDialog && t === abDialog) { closeSharedAbEditor(); return; }
 
     // §8.2 (S5.3) shared-slot RULED editor.
-    if (t.closest('[data-ruled-add-case]')) { ev.stopPropagation(); if (ruledCasesEl()) { ruledCasesEl().appendChild(makeRuledCase('state', 'eq', '', '')); } return; }
-    if (t.closest('[data-ruled-case-remove]')) { ev.stopPropagation(); var caseEl = t.closest('[data-ruled-case]'); if (caseEl && caseEl.parentNode) { caseEl.parentNode.removeChild(caseEl); } return; }
+    if (t.closest('[data-ruled-add-case]')) { ev.stopPropagation(); if (ruledCasesEl()) { ruledCasesEl().appendChild(makeRuledCase('state', 'eq', '', '')); refreshRuledSentence(); } return; }
+    if (t.closest('[data-ruled-case-remove]')) { ev.stopPropagation(); var caseEl = t.closest('[data-ruled-case]'); if (caseEl && caseEl.parentNode) { caseEl.parentNode.removeChild(caseEl); refreshRuledSentence(); } return; }
     if (t.closest('[data-ruled-revert]')) { ev.stopPropagation(); revertRuledToFixed(); return; }
     if (t.closest('[data-shared-ruled-close]')) { ev.stopPropagation(); closeSharedRuledEditor(); return; }
     if (t.closest('[data-shared-ruled-save]')) { ev.stopPropagation(); saveSharedRuled(); return; }

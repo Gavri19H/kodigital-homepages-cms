@@ -242,6 +242,14 @@
   <script>
 (function () {
   'use strict';
+  // R2 P2 FIX-FIRST (MINOR-1): the record-role -> FunnelTokenRole bridges,
+  // SERIALIZED FROM THE SAME compile-checked constants resolveTokens itself
+  // applies (designs/theme.ts THEME_RECORD_ROLE_TO_TOKEN_ROLE +
+  // THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE) — never a hand-copied table here,
+  // so a renamed role can never drift between the preset resolver and this
+  // rail (a rename is a compile error at the import above).
+  var PRESET_ROLE_BRIDGE = {"brand_primary":"brand_primary","accent":"accent","page_bg":"page_background","card":"card_background","text":"text_primary","success":"success","error":"error"};
+  var PRESET_EXTRA_ROLE_BRIDGE = {"brand_secondary":"brand_secondary","surface_wash":"surface_wash","border":"border","text_muted":"text_muted","button_primary_bg":"button_primary_bg","button_primary_text":"button_primary_text","button_secondary_bg":"button_secondary_bg"};
   var root = document.querySelector('[data-lg-themes-tab]');
   if (!root) { return; }
   // Same element funnel.ts's own island reads (id="lg-quote-editor") — found
@@ -403,18 +411,36 @@
   }
 
   // --- CENTER canvas refresh (POST /api/admin/leadgen/sections/preview) ------
+  // R2 P2 FIX-FIRST (MAJOR-1 leg 2): the WORKING theme this rail has edited
+  // but whose write may still be in flight (or may have been rejected). The
+  // canvas posts it EXPLICITLY as frame_context.draft_theme — the Templates
+  // canvas's own idiom (quotes-tabs/templates.ts posts draft_frame_config/
+  // draft_theme, which is exactly why that canvas was immune to the
+  // stored-column gap this leg closes) — so a rail edit renders without
+  // depending on the save round-trip. null (nothing edited yet this session)
+  // sends no key at all: the server resolves the STORED theme, unchanged.
+  var railDraftTheme = null;
+  function hasAnyKey(o) {
+    var k;
+    for (k in o) { if (Object.prototype.hasOwnProperty.call(o, k)) { return true; } }
+    return false;
+  }
   var canvasSeq = 0;
   function refreshCanvas() {
     var frame = byId('lg-theme-canvas-frame');
     if (!frame || chosenSection === null) { return; }
     canvasSeq += 1;
     var seq = canvasSeq;
+    var frameCtx = funnelPublicId !== ''
+      ? { funnel_public_id: funnelPublicId, variant_public_id: variantPublicId }
+      : { default: true };
+    if (funnelPublicId !== '' && railDraftTheme !== null && hasAnyKey(railDraftTheme)) {
+      frameCtx.draft_theme = railDraftTheme;
+    }
     var body = {
       content_json: chosenSection.content_json,
       viewport: 'desktop',
-      frame_context: funnelPublicId !== ''
-        ? { funnel_public_id: funnelPublicId, variant_public_id: variantPublicId }
-        : { default: true }
+      frame_context: frameCtx
     };
     setStatus('Loading preview\u2026');
     fetch('/api/admin/leadgen/sections/preview', {
@@ -435,10 +461,11 @@
 
   // --- RIGHT rail: live-apply a control edit, then refresh the canvas --------
   // R2 register R7 normalization: "resolve the preset into inline values, or
-  // drop theme_id when overriding" — this drops a bare theme_id pointer the
-  // moment ANY inline control is edited through this rail, so the funnel's
-  // theme_json never again carries theme_id alongside inline fields (the
-  // combination validateTheme rejects).
+  // drop theme_id when overriding" — this RESOLVES the preset (see
+  // inlineThemeFromPreset below) the moment ANY inline control is edited
+  // through this rail, so the funnel's theme_json never carries theme_id
+  // alongside inline fields (the combination validateTheme rejects) AND the
+  // preset's own values survive the edit.
   function setPath(obj, path, value) {
     var parts = path.split('.');
     var cur = obj;
@@ -462,6 +489,50 @@
     return !!(el && el.value === 'override');
   }
 
+  // R2 P2 FIX-FIRST (MINOR-1): RESOLVE an applied preset into inline values.
+  // The rail used to keep only the ONE edited key and drop the theme_id
+  // pointer, so the first control edit after "Apply to this funnel" silently
+  // discarded the whole preset (palette + typography + buttons). This maps a
+  // theme RECORD onto the inline theme_json shape through the bridges
+  // serialized above, so the preset's own values survive as real inline
+  // values and the edit lands on top of them.
+  // Deliberately NOT mapped (no faithful 1:1 exists — mapping them would
+  // INVENT values rather than preserve the preset's): typography.headline_
+  // font/body_font (a record's font vocabulary is Inter/Newsreader/Roboto
+  // Mono; inline typography.display/body is the literata/sora/... set) and
+  // controls.field_height/button_size/corners (corners is sharp|rounded|pill
+  // vs the inline radius scale sharp|soft|round). Those keep resolving from
+  // the base design, exactly as they did before this fix.
+  function inlineThemeFromPreset(rec) {
+    var out = {};
+    var palette = {};
+    var k;
+    var roles = (rec && rec.roles) || {};
+    for (k in PRESET_ROLE_BRIDGE) {
+      if (Object.prototype.hasOwnProperty.call(PRESET_ROLE_BRIDGE, k) && typeof roles[k] === 'string' && roles[k] !== '') {
+        palette[PRESET_ROLE_BRIDGE[k]] = roles[k];
+      }
+    }
+    var extra = (rec && rec.extra_roles) || {};
+    for (k in PRESET_EXTRA_ROLE_BRIDGE) {
+      if (Object.prototype.hasOwnProperty.call(PRESET_EXTRA_ROLE_BRIDGE, k) && typeof extra[k] === 'string' && extra[k] !== '') {
+        palette[PRESET_EXTRA_ROLE_BRIDGE[k]] = extra[k];
+      }
+    }
+    if (hasAnyKey(palette)) { out.palette = palette; }
+    var bstyle = (rec && rec.button_style) || null;
+    if (bstyle) {
+      var bd = {};
+      if (bstyle.fill) { bd.fill = bstyle.fill; }
+      if (bstyle.layout) { bd.layout = bstyle.layout; }
+      if (bstyle.selected) { bd.selected = bstyle.selected; }
+      if (hasAnyKey(bd)) { out.button_defaults = bd; }
+    }
+    var typ = (rec && rec.typography) || null;
+    if (typ && typ.display_size) { out.typography = { display_size: typ.display_size }; }
+    return out;
+  }
+
   var applyTimer = null;
   var pendingEdits = {};
   function flushThemeEdits() {
@@ -470,19 +541,36 @@
     pendingEdits = {};
     if (funnelPublicId === '') { return; }
     var base = '/api/admin/leadgen/funnels/' + encodeURIComponent(funnelPublicId) + '/theme';
+    var previousDraft = railDraftTheme;
     setStatus('Applying\u2026');
     fetch(base, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
       .then(function (r) { return r.json(); })
       .then(function (getBody) {
         var current = (getBody && getBody.theme) || {};
-        var merged = {};
+        if (typeof current.theme_id === 'string' && current.theme_id !== '') {
+          return fetch('/api/admin/leadgen/themes/' + encodeURIComponent(current.theme_id), {
+            credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+          }).then(function (rp) { return rp.json(); }).then(function (pb) {
+            return inlineThemeFromPreset(pb && pb.item);
+          });
+        }
+        var inline = {};
         var k;
         for (k in current) {
-          if (Object.prototype.hasOwnProperty.call(current, k) && k !== 'theme_id') { merged[k] = current[k]; }
+          if (Object.prototype.hasOwnProperty.call(current, k) && k !== 'theme_id') { inline[k] = current[k]; }
         }
+        return inline;
+      })
+      .then(function (baseTheme) {
+        var merged = baseTheme || {};
+        var k;
         for (k in edits) {
           if (Object.prototype.hasOwnProperty.call(edits, k)) { setPath(merged, k, edits[k]); }
         }
+        // Leg 2: render the DRAFT now — the canvas no longer waits on (nor
+        // depends on) the write landing.
+        railDraftTheme = merged;
+        refreshCanvas();
         return fetch(base, {
           method: 'PUT', credentials: 'same-origin',
           headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
@@ -491,11 +579,14 @@
       })
       .then(function (res) {
         if (!res.ok) {
+          // A rejected save must not leave the canvas showing a value the
+          // funnel does not have — roll the draft back and re-render.
+          railDraftTheme = previousDraft;
+          refreshCanvas();
           setStatus((res.body && res.body.error) ? res.body.error : 'Could not apply the change.');
           return;
         }
         setStatus('');
-        refreshCanvas();
       })
       .catch(function () { setStatus('Network error applying the change.'); });
   }

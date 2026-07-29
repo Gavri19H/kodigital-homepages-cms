@@ -263,6 +263,12 @@
       "golden": false,
       "register": "ADJ-A10",
       "note": "A10: replaces the raw prompt() with a studio modal per the owner's complaint — the golden mockup depicts no such dialog; gate-closing entry per conductor coordination."
+    },
+    {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderNoOffersConfirmModal",
+      "golden": false,
+      "register": "ADJ-A10 (R2 P2 FIX-FIRST MINOR-3)",
+      "note": "A10 completion: the §8.2 'no Offers exist yet' gate was the LAST raw browser dialog in that create flow (the owner's complaint names raw JS dialogs as a class), so it is now the SAME two-button studio modal idiom as renderNewSharedValueModal directly above — same overlay/panel classes, same lg-hidden toggle, same sentence. The golden mockup depicts no such dialog either; classified golden:false / accepted extension on the SAME precedent as its sibling entry."
     }
   ]
 }
