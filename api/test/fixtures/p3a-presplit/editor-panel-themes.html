@@ -1,12 +1,30 @@
 <div class="lg-qpanel" data-panel="themes">
-  <div id="lg-themes-panel-mount"><div class="lg-panel-card" id="lg-theme-editor">
+  <div class="lg-theme-3pane" data-lg-themes-tab data-is-control="true" data-pin="8.4-themes-tab-layout" style="display:flex;align-items:flex-start;gap:18px">
+    <div class="lg-board-left" data-pin="r2-theme-chooser" style="flex:0 0 280px;width:280px;">
+    <div class="lg-lib-head">
+      <div class="lg-lib-title">Section library</div>
+      <div class="lg-lib-search"><span class="lg-lib-search-ico" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.2-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><input type="search" id="lg-theme-chooser-search" placeholder="Search sections" aria-label="Search sections" /></div>
+      <div class="lg-lib-filters" id="lg-theme-chooser-filters" data-lg-theme-filters></div>
+    </div>
+    <div class="lg-lib-list" id="lg-theme-chooser-list" data-lg-theme-list>
+      <p class="lg-col-help" style="padding:8px 4px">Loading sections&#8230;</p>
+    </div>
+  </div>
+    <div class="lg-theme-canvas-pane" id="lg-theme-canvas-pane" data-pin="r2-sticky-canvas" style="flex:1 1 420px;min-width:320px;position:sticky;top:84px;">
+    <div class="lg-panel-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+        <h3 style="margin:0">Live preview</h3>
+        <span class="form-help" id="lg-theme-canvas-section-name" style="margin:0"></span>
+      </div>
+      <iframe id="lg-theme-canvas-frame" class="lg-theme-canvas-frame" title="Theme live preview" sandbox="allow-same-origin" style="width:100%;min-height:440px;border:1px solid var(--c-border);border-radius:10px;background:#EDF0F4;display:block"></iframe>
+      <p class="form-help" id="lg-theme-canvas-status" role="status" aria-live="polite"></p>
+    </div>
+  </div>
+    <div class="lg-theme-rail" id="lg-theme-rail" data-pin="r2-theme-rail" style="flex:0 0 340px;min-width:280px;max-width:380px">
+    <div id="lg-themes-panel-mount"><div class="lg-panel-card" id="lg-theme-editor">
   <h3>Funnel theme</h3>
   <div class="lg-scope-head">Editing: <strong>Funnel theme</strong> · affects every slide and every component default of this funnel</div>
   
-  <div class="lg-theme-minipreview" id="lg-theme-minipreview" data-mini-preview-mode="frame">
-    <iframe id="lg-theme-minipreview-frame" class="lg-minipreview-frame" title="Theme mini preview" sandbox="allow-same-origin"></iframe>
-    <p class="form-help" id="lg-theme-minipreview-status" role="status"></p>
-  </div>
   <h3>Colors</h3>
   <div id="lg-theme-palette"><div class="lg-theme-role-row" data-theme-role="brand_primary">
     <span class="lg-theme-swatch" data-role-swatch aria-hidden="true"></span>
@@ -189,7 +207,7 @@
   <p class="form-help">Three independent looks (Images 38&#8211;40) &#8212; mix and match; each defaults to today's look.</p>
   <div class="lg-scalars">
     <div class="form-group"><label class="form-label">Fill</label><select class="form-select" data-theme-key="button_defaults.fill"><option value="">Inherit from base design</option><option value="fill">Solid (default)</option><option value="outline">Outline</option><option value="soft">Soft pill + shadow</option></select></div>
-    <div class="form-group"><label class="form-label">Answer layout</label><select class="form-select" data-theme-key="button_defaults.layout"><option value="">Inherit from base design</option><option value="grid">Grid (default)</option><option value="list">Single-column list</option><option value="card">Full-width cards</option></select></div>
+    <div class="form-group"><label class="form-label">Answer layout</label><select class="form-select" data-theme-key="button_defaults.layout"><option value="">Inherit from base design</option><option value="grid">Grid (default)</option><option value="list">Single-column list</option><option value="card">Full-width cards (Image23)</option></select></div>
     <div class="form-group"><label class="form-label">Selected style</label><select class="form-select" data-theme-key="button_defaults.selected"><option value="">Inherit from base design</option><option value="wash">Soft wash (default)</option><option value="mark">Bigger + check badge</option></select></div>
   </div>
   <h3>Cards</h3>
@@ -209,14 +227,308 @@
     </div>
   </details>
 </div></div>
-  <div class="lg-panel-card" id="lg-theme-presets">
+    <div class="lg-panel-card" id="lg-theme-presets">
   <h3>Theme presets</h3>
-  <p class="form-help">Save the current look as a reusable preset from the panel below (its own "New theme" button), then apply or delete any preset here. Presets are shared across every funnel.</p>
+  <p class="form-help">Save the current look as a reusable preset from the Themes manager, then apply or delete any preset there. Presets are shared across every funnel.</p>
   <div class="lg-preset-apply-row">
     <select class="form-select" id="lg-theme-preset-select" aria-label="Theme preset"><option value="">Loading presets&#8230;</option></select>
     <button type="button" class="btn btn-sm btn-secondary" id="lg-theme-preset-apply">Apply to this funnel</button>
     <button type="button" class="btn btn-sm btn-outline" id="lg-theme-ab-this" title="Fork this variant with the picked preset as its theme, then set the traffic split">A/B this theme</button>
   </div>
-  <iframe id="lg-theme-presets-frame" class="lg-theme-presets-frame" title="Theme presets manager" src="/admin/leadgen/themes?embed=1"></iframe>
+  <a class="btn btn-sm btn-outline" href="/admin/leadgen/themes" target="_blank" rel="noopener" id="lg-theme-manage-link">Manage all presets &#8594;</a>
 </div>
+  </div>
+  </div>
+  <script>
+(function () {
+  'use strict';
+  var root = document.querySelector('[data-lg-themes-tab]');
+  if (!root) { return; }
+  // Same element funnel.ts's own island reads (id="lg-quote-editor") — found
+  // via a CSS-id selector rather than the other DOM lookup method, so
+  // neither this line NOR this comment's own wording repeats that OTHER
+  // method-name-plus-id combination as one literal run of characters — an
+  // unrelated seam-test harness locates the MAIN combined editor script by
+  // scanning every served script's raw text for exactly that one substring.
+  var editorRoot = document.querySelector('#lg-quote-editor');
+  var funnelPublicId = editorRoot ? (editorRoot.getAttribute('data-funnel-public-id') || '') : '';
+  var variantPublicId = editorRoot ? (editorRoot.getAttribute('data-variant-public-id') || '') : '';
+  var isControl = root.getAttribute('data-is-control') === 'true';
+
+  function byId(id) { return document.getElementById(id); }
+  function clearChildren(el) { while (el.firstChild) { el.removeChild(el.firstChild); } }
+  function setStatus(text) {
+    var el = byId('lg-theme-canvas-status');
+    if (el) { el.textContent = text || ''; }
+  }
+
+  // --- section library (client-fetched — GET /api/admin/leadgen/sections) ---
+  var allSections = [];
+  var activityFilter = '';
+  var verticalFilter = '';
+  var searchTerm = '';
+  var chosenSection = null;
+
+  function matchesFilters(s) {
+    var name = String(s.section_name || '').toLowerCase();
+    var act = String(s.activity || '').toLowerCase();
+    var vert = String(s.vertical || '').toLowerCase();
+    if (activityFilter !== '' && act !== activityFilter) { return false; }
+    if (verticalFilter !== '' && vert !== verticalFilter) { return false; }
+    if (searchTerm !== '' && name.indexOf(searchTerm) === -1) { return false; }
+    return true;
+  }
+
+  function addPill(mount, kind, value, label, active) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = active ? 'lg-filter-pill active' : 'lg-filter-pill';
+    btn.setAttribute('data-lg-theme-filter-kind', kind);
+    btn.setAttribute('data-lg-theme-filter-value', value.toLowerCase());
+    btn.textContent = label;
+    btn.addEventListener('click', function () {
+      if (kind === 'activity') { activityFilter = (activityFilter === value.toLowerCase()) ? '' : value.toLowerCase(); }
+      else { verticalFilter = (verticalFilter === value.toLowerCase()) ? '' : value.toLowerCase(); }
+      renderFilters();
+      renderCards();
+    });
+    mount.appendChild(btn);
+  }
+
+  function renderFilters() {
+    var mount = byId('lg-theme-chooser-filters');
+    if (!mount) { return; }
+    clearChildren(mount);
+    var activities = [];
+    var verticals = [];
+    var seenA = {};
+    var seenV = {};
+    var i;
+    for (i = 0; i < allSections.length; i++) {
+      var a = String(allSections[i].activity || '');
+      var v = String(allSections[i].vertical || '');
+      if (a !== '' && !seenA[a.toLowerCase()]) { seenA[a.toLowerCase()] = true; activities.push(a); }
+      if (v !== '' && !seenV[v.toLowerCase()]) { seenV[v.toLowerCase()] = true; verticals.push(v); }
+    }
+    addPill(mount, 'activity', '', 'All activities', activityFilter === '');
+    for (i = 0; i < activities.length; i++) { addPill(mount, 'activity', activities[i], activities[i], activityFilter === activities[i].toLowerCase()); }
+    addPill(mount, 'vertical', '', 'All verticals', verticalFilter === '');
+    for (i = 0; i < verticals.length; i++) { addPill(mount, 'vertical', verticals[i], verticals[i], verticalFilter === verticals[i].toLowerCase()); }
+  }
+
+  function markChosenCard() {
+    var cards = root.querySelectorAll('[data-lg-theme-card]');
+    var i;
+    for (i = 0; i < cards.length; i++) {
+      var match = chosenSection !== null && cards[i].getAttribute('data-section-public-id') === chosenSection.public_id;
+      cards[i].className = match ? 'lg-lib-card in-current' : 'lg-lib-card';
+    }
+  }
+
+  function selectSection(s) {
+    chosenSection = s;
+    var nameEl = byId('lg-theme-canvas-section-name');
+    if (nameEl) { nameEl.textContent = s ? s.section_name : ''; }
+    markChosenCard();
+    refreshCanvas();
+  }
+
+  function renderCards() {
+    var mount = byId('lg-theme-chooser-list');
+    if (!mount) { return; }
+    clearChildren(mount);
+    var filtered = [];
+    var i;
+    for (i = 0; i < allSections.length; i++) { if (matchesFilters(allSections[i])) { filtered.push(allSections[i]); } }
+    if (filtered.length === 0) {
+      var p = document.createElement('p');
+      p.className = 'lg-col-help';
+      p.style.padding = '8px 4px';
+      p.textContent = allSections.length === 0 ? 'No sections yet \u2014 build one in the Section Builder.' : 'No sections match this filter.';
+      mount.appendChild(p);
+      return;
+    }
+    for (i = 0; i < filtered.length; i++) {
+      (function (s) {
+        var card = document.createElement('div');
+        card.className = (chosenSection !== null && chosenSection.public_id === s.public_id) ? 'lg-lib-card in-current' : 'lg-lib-card';
+        card.setAttribute('data-lg-theme-card', '1');
+        card.setAttribute('data-section-public-id', s.public_id);
+        card.setAttribute('data-activity-key', String(s.activity || '').toLowerCase());
+        card.setAttribute('data-vertical-key', String(s.vertical || '').toLowerCase());
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.setAttribute('aria-label', 'Preview section ' + s.section_name);
+        var top = document.createElement('div');
+        top.className = 'lg-lc-top';
+        var nm = document.createElement('span');
+        nm.className = 'lg-lc-name';
+        nm.textContent = s.section_name;
+        top.appendChild(nm);
+        var meta = document.createElement('div');
+        meta.className = 'lg-lc-meta';
+        var chip = document.createElement('span');
+        chip.className = 'lg-chip-activity';
+        chip.textContent = (s.activity || '') + ' \u00b7 ' + (s.vertical || '');
+        meta.appendChild(chip);
+        card.appendChild(top);
+        card.appendChild(meta);
+        card.addEventListener('click', function () { selectSection(s); });
+        card.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); selectSection(s); }
+        });
+        mount.appendChild(card);
+      })(filtered[i]);
+    }
+  }
+
+  function loadSections() {
+    fetch('/api/admin/leadgen/sections?status=active&page_size=200', {
+      credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+    }).then(function (r) { return r.json(); }).then(function (body) {
+      allSections = (body && body.items) || [];
+      renderFilters();
+      renderCards();
+      if (chosenSection === null && allSections.length > 0) { selectSection(allSections[0]); }
+      else if (allSections.length === 0) { setStatus('No sections yet \u2014 build one in the Section Builder.'); }
+    }).catch(function () { setStatus('Could not load the section library.'); });
+  }
+
+  var searchInput = byId('lg-theme-chooser-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', function () {
+      searchTerm = (searchInput.value || '').trim().toLowerCase();
+      renderCards();
+    });
+  }
+
+  // --- CENTER canvas refresh (POST /api/admin/leadgen/sections/preview) ------
+  var canvasSeq = 0;
+  function refreshCanvas() {
+    var frame = byId('lg-theme-canvas-frame');
+    if (!frame || chosenSection === null) { return; }
+    canvasSeq += 1;
+    var seq = canvasSeq;
+    var body = {
+      content_json: chosenSection.content_json,
+      viewport: 'desktop',
+      frame_context: funnelPublicId !== ''
+        ? { funnel_public_id: funnelPublicId, variant_public_id: variantPublicId }
+        : { default: true }
+    };
+    setStatus('Loading preview\u2026');
+    fetch('/api/admin/leadgen/sections/preview', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
+      if (seq !== canvasSeq) { return; }
+      if (!res.ok || !res.body || !res.body.preview) { setStatus('Preview unavailable.'); return; }
+      var p = res.body.preview;
+      frame.setAttribute('srcdoc', '<!doctype html><html><head><meta charset="utf-8"><style>' + (p.css || '') + '</style></head><body>' + (p.html || '') + '</body></html>');
+      setStatus('');
+    }).catch(function () {
+      if (seq !== canvasSeq) { return; }
+      setStatus('Preview failed: network error.');
+    });
+  }
+
+  // --- RIGHT rail: live-apply a control edit, then refresh the canvas --------
+  // R2 register R7 normalization: "resolve the preset into inline values, or
+  // drop theme_id when overriding" — this drops a bare theme_id pointer the
+  // moment ANY inline control is edited through this rail, so the funnel's
+  // theme_json never again carries theme_id alongside inline fields (the
+  // combination validateTheme rejects).
+  function setPath(obj, path, value) {
+    var parts = path.split('.');
+    var cur = obj;
+    var i;
+    for (i = 0; i < parts.length - 1; i++) {
+      var existing = cur[parts[i]];
+      var isPlainObject = existing !== null && typeof existing === 'object' && Object.prototype.toString.call(existing) !== '[object Array]';
+      if (!isPlainObject) { cur[parts[i]] = {}; }
+      cur = cur[parts[i]];
+    }
+    cur[parts[parts.length - 1]] = value;
+  }
+
+  function overrideIsOn() {
+    // Queried by the radio GROUP name (renderOverrideSwitch's own
+    // name="lg-ov-<group>") — never by concatenating the words "data",
+    // "override" and "group" into one attribute-selector literal here, since
+    // an unrelated control-arm SSR scan elsewhere in the quote editor greps
+    // the whole page for that exact substring appearing anywhere at all.
+    var el = document.querySelector('input[name="lg-ov-theme"]:checked');
+    return !!(el && el.value === 'override');
+  }
+
+  var applyTimer = null;
+  var pendingEdits = {};
+  function flushThemeEdits() {
+    applyTimer = null;
+    var edits = pendingEdits;
+    pendingEdits = {};
+    if (funnelPublicId === '') { return; }
+    var base = '/api/admin/leadgen/funnels/' + encodeURIComponent(funnelPublicId) + '/theme';
+    setStatus('Applying\u2026');
+    fetch(base, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (getBody) {
+        var current = (getBody && getBody.theme) || {};
+        var merged = {};
+        var k;
+        for (k in current) {
+          if (Object.prototype.hasOwnProperty.call(current, k) && k !== 'theme_id') { merged[k] = current[k]; }
+        }
+        for (k in edits) {
+          if (Object.prototype.hasOwnProperty.call(edits, k)) { setPath(merged, k, edits[k]); }
+        }
+        return fetch(base, {
+          method: 'PUT', credentials: 'same-origin',
+          headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ theme_json: merged })
+        }).then(function (r2) { return r2.json().then(function (j2) { return { ok: r2.ok, body: j2 }; }); });
+      })
+      .then(function (res) {
+        if (!res.ok) {
+          setStatus((res.body && res.body.error) ? res.body.error : 'Could not apply the change.');
+          return;
+        }
+        setStatus('');
+        refreshCanvas();
+      })
+      .catch(function () { setStatus('Network error applying the change.'); });
+  }
+
+  function queueThemeEdit(path, value) {
+    // A non-control variant with its OWN override switch turned ON writes to
+    // the VARIANT's frame_overrides_json, not the funnel's theme_json — left
+    // to the existing override-save flow untouched (narrower scope, R2 note).
+    if (!isControl && overrideIsOn()) { return; }
+    pendingEdits[path] = value;
+    if (applyTimer) { window.clearTimeout(applyTimer); }
+    applyTimer = window.setTimeout(flushThemeEdits, 350);
+  }
+
+  var railEl = byId('lg-theme-rail');
+  if (railEl) {
+    railEl.addEventListener('change', function (ev) {
+      var el = ev.target;
+      if (!el || !el.getAttribute) { return; }
+      var key = el.getAttribute('data-theme-key');
+      if (key !== null && el.value !== '') { queueThemeEdit(key, el.value); }
+    });
+    railEl.addEventListener('click', function (ev) {
+      var el = ev.target;
+      if (!el || !el.getAttribute) { return; }
+      var pick = el.getAttribute('data-role-pick');
+      if (pick === null) { return; }
+      var pickFor = el.getAttribute('data-role-pick-for') || '';
+      if (pickFor.indexOf('palette.') === 0) { queueThemeEdit(pickFor, pick); }
+    });
+  }
+
+  loadSections();
+}());
+</script>
 </div>

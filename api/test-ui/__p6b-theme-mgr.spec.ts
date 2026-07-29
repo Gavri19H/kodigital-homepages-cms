@@ -9,11 +9,12 @@
 //   * theme PRESETS (the KV `lg-funnel-themes` catalog, themes-handlers.ts):
 //     apply a saved preset to a funnel via the new picker -> the funnel's
 //     theme_id + the live render both reflect it; delete an unreferenced
-//     preset through the embedded theme-manager's own new Delete button
-//     (real click + real confirm() dialog); a preset referenced by a funnel
-//     is refused with a 409 naming that funnel (server-truth, asserted
-//     directly — the guard itself is themes-handlers.ts's own logic, not a
-//     UI affordance);
+//     preset on the STANDALONE theme-manager page's own Delete button (R2 P2
+//     S2b: the Themes tab's own "Manage all presets" link opens that page as
+//     a real navigation now, not an embedded iframe — real click + real
+//     confirm() dialog); a preset referenced by a funnel is refused with a
+//     409 naming that funnel (server-truth, asserted directly — the guard
+//     itself is themes-handlers.ts's own logic, not a UI affordance);
 //   * "A/B this theme": pick a preset in that SAME selector, one click forks
 //     the current variant, assigns the preset to the new arm, and applies
 //     the chosen traffic split;
@@ -264,7 +265,13 @@ test.describe("P6b — theme presets (apply / delete)", () => {
     expect(await computed(page, ".lg-headline", "font-family")).toContain("Roboto Mono");
   });
 
-  test("an unreferenced preset can be deleted from the embedded theme-manager (real click + confirm)", async ({ page }) => {
+  // R2 P2 S2b (A.3 "no duplicate canvases"): the Themes tab no longer embeds
+  // the standalone theme-manager page as a `#lg-theme-presets-frame` iframe —
+  // that was the "duplicate canvas" the owner rejected. The tab's "Manage all
+  // presets" link now opens the SAME standalone page as a real navigation
+  // (`target="_blank"`); this test drives that standalone page directly
+  // (same route, same #tm-delete-theme control, no frameLocator needed).
+  test("an unreferenced preset can be deleted from the standalone theme-manager page (real click + confirm)", async ({ page }) => {
     const seed = await seedQuote(apiCtx, "delunref");
     const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
     const unrefName = `P6b Delete Me ${uniq}`;
@@ -275,9 +282,12 @@ test.describe("P6b — theme presets (apply / delete)", () => {
 
     await openEditor(page, seed.quotePublicId);
     await page.locator('.lg-qtab[data-tab="themes"]').click();
-    const frame = page.frameLocator("#lg-theme-presets-frame");
-    await frame.locator("a", { hasText: unrefName }).click();
-    await expect(frame.locator("#tm-delete-theme")).toBeVisible({ timeout: 10_000 });
+    const manageLink = page.locator("#lg-theme-manage-link");
+    await expect(manageLink).toHaveAttribute("href", "/admin/leadgen/themes");
+
+    await page.goto(`/admin/leadgen/themes?theme=${created.item.id}`, { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#tm-theme-name")).toHaveValue(unrefName);
+    await expect(page.locator("#tm-delete-theme")).toBeVisible({ timeout: 10_000 });
 
     const deleteReq = page.waitForResponse(
       (res) => res.request().method() === "DELETE" && res.url().includes(`/themes/${created.item.id}`),
@@ -285,7 +295,7 @@ test.describe("P6b — theme presets (apply / delete)", () => {
     page.once("dialog", (dialog) => {
       void dialog.accept();
     });
-    await frame.locator("#tm-delete-theme").click();
+    await page.locator("#tm-delete-theme").click();
     const deleteRes = await deleteReq;
     expect(deleteRes.status()).toBe(200);
 
