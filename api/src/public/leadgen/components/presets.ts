@@ -49,6 +49,7 @@ import {
   flattenComponents,
   isIsoDate,
   isLayoutContainerType,
+  isQuestionGridType,
   LEADGEN_MAX_CONTAINER_DEPTH,
   LEADGEN_NODE_BORDER_COLOR_ROLES,
   LEADGEN_NODE_CORNERS,
@@ -75,6 +76,12 @@ import type {
 // see fieldLeadingIcon / the renderCardGrid iconSlot below.
 import { LEADGEN_ICONS, leadgenIconSvg } from "./icons.generated";
 import { baseTokenForRole, isFunnelTokenRole, readButtonStyle } from "../designs/theme";
+// R2 P1 §① (owner A.1 #4 / probe 4a): the ONE definition of the §6.6 mark
+// rules lives in the design sheet; this module emits it demand-driven for the
+// author-opted case ONLY (selectedMarkStyleBlock below). Import direction is
+// presets → designs (the same direction as the tokens/theme imports above);
+// styles.ts imports nothing from this module, so no cycle is introduced.
+import { selectedMarkRules } from "../designs/default-funnel/styles";
 import type { FunnelTokenRole, ThemeRecordControls } from "../designs/theme";
 import type { LeadgenContinueMode } from "../../../admin/leadgen/db-types";
 
@@ -503,6 +510,87 @@ function selectedMarkerMarkup(marker: LeadgenSelectedMarker): string {
     `<svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4 10-11" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>` +
     `</span>`
   );
+}
+
+// ---------------------------------------------------------------------------
+// R2 P1 §① — the AUTHOR-OPTED ✓ marker's styling (owner A.1 #4 "here is
+// another buttons structure we need to support for the 'Question grid'
+// buttons (the √ inside the button for the chosen answer)"; probe 4a: PERFECT
+// anatomy, "contrast subtle").
+// ---------------------------------------------------------------------------
+//
+// ROOT CAUSE: resolveSelectedMarker (above) resolves the marker per CHOICE >
+// per NODE > theme, so selectedMarkerMarkup emits the hollow+badge spans
+// whenever an AUTHOR opts one question in — with no theme involved. But the
+// CSS that turns those spans into a hollow circle (resting) and a filled ✓
+// disc (selected) is emitted by styles.ts ONLY inside the theme branch
+// (funnelChromeCss → pushButtonStyleRules, itself reached only when the design
+// carries a theme button-style stash, and then only under selected==="mark").
+// With no mark theme the badge therefore rendered with NO rules at all: an
+// unhidden, uncircled 11px WHITE ✓ on the light selected wash (#E8EEF4) —
+// "faint white on light wash" — and visible on the RESTING button too.
+//
+// WHY THIS IS A STYLE BLOCK AND NOT A PER-INSTANCE `style` ATTRIBUTE
+// (conductor ruling: use the per-node scoped-CSS mechanism, else say so with
+// evidence). The per-node mechanism is `style="…"` + custom properties
+// consumed by EXISTING sheet rules (appearanceStyleEntries → --lg-answer-bg /
+// --lg-field-border / --lg-sel-bg). It cannot carry this one, for two
+// checkable reasons:
+//   1. the marker is a RESTING↔SELECTED SWAP — `.lg-btn-answer.lg-selected
+//      .lg-check-badge{display:inline-flex}` — a descendant-state selector. A
+//      `style` attribute can only declare the element's OWN properties, and an
+//      inline `display:none` on the badge would additionally BEAT any later
+//      rule, so the swap could never fire; and
+//   2. nothing in the runtime could flip it either: render.ts
+//      applySelectionClasses toggles SELECTED_CLASS + aria-pressed on
+//      `[data-lg-choice]` BUTTONS only — it never touches the marker spans.
+// There is also no existing base rule to feed with a var: the base sheet has
+// no `.lg-check-*` rule at all (that is the bug).
+//
+// So the fallback the ruling authorizes: a MINIMAL, DEMAND-DRIVEN block —
+// emitted once per section render, ONLY when that section's own content
+// actually resolves a 'mark' marker on the button/YesNo family AND the design
+// sheet does not already carry the rules (mark theme). A funnel that never
+// opts in gets ZERO extra bytes anywhere, so the byte-safe-additive contract
+// (a wash/absent theme adds nothing) holds unchanged. The rule bodies are
+// imported from styles.ts (selectedMarkRules) — one definition, no drift —
+// and are self-scoping: they match only elements this renderer stamped with
+// `[data-card-select="mark"]`.
+function nodeResolvesMark(node: LeadgenComponentNode, design: DefaultFunnelDesign): boolean {
+  // Mirrors each renderer's OWN `anyMark` computation 1:1 (renderButtonAnswerGroup
+  // / renderTwoButtonYesNo) — the two families that stamp data-card-select on a
+  // `.lg-answer-group` root, which is what these rules key on. (The card family
+  // stamps it on `.lg-card-grid` and paints a different marker element,
+  // `.lg-card-check`; it is untouched here.)
+  if (node.type === "ButtonAnswerGroup") {
+    return choiceList(node).some((c) => resolveSelectedMarker(node, c.style, design) === "mark");
+  }
+  if (node.type === "TwoButtonYesNo") {
+    const yesStyle = node.props?.["yesStyle"] as LeadgenChoiceStyle | undefined;
+    const noStyle = node.props?.["noStyle"] as LeadgenChoiceStyle | undefined;
+    return (
+      resolveSelectedMarker(node, yesStyle, design) === "mark" ||
+      resolveSelectedMarker(node, noStyle, design) === "mark"
+    );
+  }
+  return false;
+}
+
+function selectedMarkStyleBlock(
+  nodes: readonly LeadgenComponentNode[],
+  design: DefaultFunnelDesign,
+): string {
+  // A mark THEME already ships these rules in its own sheet — never duplicate.
+  if (readButtonStyle(design)?.selected === "mark") return "";
+  // flattenComponents descends into layout containers AND question grids, so a
+  // grid child that opts in is found exactly like a top-level node.
+  const opted = flattenComponents(nodes).some(
+    (n) => typeof n === "object" && n !== null && nodeResolvesMark(n, design),
+  );
+  if (!opted) return "";
+  // Self-scoping (no design-scope prefix): these selectors only ever match the
+  // marker spans this renderer emits inside a stamped answer group.
+  return `<style>${selectedMarkRules("", design).join("")}</style>`;
 }
 
 // LeadGen Rework §8.4 gap round (2026-07-23): the theme "Answer layout:
@@ -1706,8 +1794,22 @@ export function renderMultiChoiceCardGroup(
 // choice VALUE; the matching <option> gets the `selected` marker and the
 // placeholder loses it. Unmatched/absent default → undefined → the legacy
 // placeholder-selected markup renders byte-identically.
+// R2 P1 §① SRC-1b (owner A.1 #1: "independent answers, inefendent
+// **defaults!!**"; design pin 18.30.25 shows "Geico" already chosen in the
+// dependent dropdown). CANONICAL KEY = `props.defaultValue`: it is what the
+// Studio inspector writes for every question family (ui-section-studio.ts
+// `props.defaultValue = …` / `delete props.defaultValue`) and the ONLY key
+// config-dto.ts projects into the public config's `default_answer`
+// (`node.props?.["defaultValue"]` → answer_source "default_applied").
+// `props.default` is the older render-only key this preselect has always read
+// — kept as the fallback so pre-existing stored content renders byte-
+// identically — but it is written by nothing today, so an operator-authored
+// dropdown default never reached the SSR <option selected> at all: the visitor
+// saw the "Select…" placeholder until the runtime applied the default. Reading
+// defaultValue FIRST closes that seam server-side, in the one helper both
+// dropdown renderers share.
 function dropdownDefaultValue(node: LeadgenComponentNode): string | undefined {
-  const raw = node.props?.["default"];
+  const raw = node.props?.["defaultValue"] ?? node.props?.["default"];
   const def = typeof raw === "string" || typeof raw === "number" ? String(raw) : undefined;
   if (def === undefined) return undefined;
   return choiceList(node).some((c) => String(c.value) === def) ? def : undefined;
@@ -3837,6 +3939,106 @@ export function renderBackgroundPanel(
   );
 }
 
+// ---------------------------------------------------------------------------
+// R2 P1 §① — the QUESTION GRID container (owner A.1 #1/#2; design pin
+// "Screenshot 2026-07-27 at 18.30.25.png")
+// ---------------------------------------------------------------------------
+//
+// ANATOMY (the pin, read top-to-bottom): the section title, then a STACK of
+// LABELED question blocks — each block is one question's own label ABOVE its
+// own control (Yes/No pair, dropdown, buttons …) — and ONE Continue for the
+// whole screen. So this container renders:
+//
+//   <div class="lg-qgrid" data-component-type="QuestionGrid" style="gap:…">
+//     <div class="lg-qgrid-q">              ← ONE labeled block per child
+//       <span class="lg-label">…</span>     ← the CHILD's own labelLine
+//       <div class="lg-answer-group" data-lg-question="…">…</div>
+//     </div>
+//     … N blocks …
+//   </div>
+//
+// Three rules this renderer obeys, all of them owner-verbatim consequences:
+//
+//  1. EVERY child renders through its OWN existing renderer (renderComponent —
+//     the same per-type dispatch every other container uses). Nothing about a
+//     question changes because it sits in a group: its label, choices,
+//     default, required flag, per-question `design_overrides` (D4) and its
+//     hydration attrs are produced by the SAME code path as a standalone
+//     instance. "Each question in the component is independent field, with
+//     independent answers, inefendent **defaults!!** … independent style".
+//  2. The CONTAINER carries NO [data-lg-question] (hydration emits it only for
+//     an answer-PRODUCING catalog type, and the grid's `produces` is null) —
+//     the children carry it. The container answers no field, is labeled by no
+//     label, and adds NO Continue of its own: the section's single §11.5
+//     control still owns that.
+//  3. Each child's LABEL + CONTROL share ONE wrapper (`.lg-qgrid-q`), and for
+//     a child with a dependency rule that wrapper — not the bare control — is
+//     the runtime's hide target: it carries `data-lg-node="<child qid>"`, the
+//     hook render.applyComponentVisibility already selects on
+//     (`[data-lg-question="q"],[data-lg-node="q"]`, first match in DOCUMENT
+//     order ⇒ the ancestor wrapper). Hiding it hides the label WITH the
+//     control, so a dependency-hidden question can never leave an orphaned
+//     label behind ("if the user clicked 'no' and the dependency rule wasn't
+//     met, we need to ignore this question- it isn't relevant, so it doesn't
+//     exist"). `data-lg-node` (never a second [data-lg-question]) keeps the
+//     §11.6 question count pure — exactly the reason hydration() introduced
+//     that attribute for conditional non-producing nodes.
+function questionGridGapStyle(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  // The container's ONE authorable knob (CONTAINER_PROP_SPECS.QuestionGrid):
+  // the spacing between its stacked questions, on the SAME xs..xl token scale
+  // (and the SAME resolver) the Stack container uses — registry tokenSlots
+  // ["stack"]. Always emitted, so the grid owns its internal rhythm and needs
+  // no `> * + *` margin floor (the styles.ts scoping rule for containers with
+  // explicit gap semantics).
+  return style({ gap: stackGapValue(design, propStr(node, "gap")) });
+}
+
+// ONE child question → its labeled, independently-hideable block.
+function wrapGridQuestion(node: LeadgenComponentNode, html: string): string {
+  if (html === "") return "";
+  const conditional =
+    typeof node === "object" && node !== null ? node.conditional : undefined;
+  return (
+    `<div class="lg-qgrid-q"` +
+    // Only a child that actually carries a dependency rule needs the hide
+    // hook; an unconditional question is never toggled, so it stays a plain
+    // block (no attribute invented where nothing consumes it).
+    (conditional !== undefined ? attr("data-lg-node", node.question_id) : "") +
+    `>${html}</div>`
+  );
+}
+
+// The child walk — routed through the SAME renderPlacedSiblings every other
+// sibling list uses, so a grid's children can sit side by side via `layout`
+// (validateRowGrouping already gates that list) exactly like top-level
+// siblings; the per-child block wrapper is applied INSIDE each slot.
+function renderQuestionGridChildren(
+  children: readonly LeadgenComponentNode[],
+  design: DefaultFunnelDesign,
+  depth: number,
+  state: SectionRenderState | undefined,
+): string {
+  return renderPlacedSiblings(children, state?.ctx, (child) =>
+    wrapGridQuestion(child, renderComponent(child, design, depth, state)),
+  );
+}
+
+export function renderQuestionGrid(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  depth = 1,
+  state?: SectionRenderState,
+): string {
+  if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return "";
+  return (
+    `<div class="lg-qgrid"${hydration(node)}` +
+    questionGridGapStyle(node, design) +
+    `>` +
+    renderQuestionGridChildren(containerChildren(node), design, depth + 1, state) +
+    `</div>`
+  );
+}
+
 // Spacer (§8.5 layout leaf): a token-sized vertical gap by default. v3.1
 // §5.6 (adversarial review m2): an OPTIONAL "line" variant (the Divider
 // tile) renders the SAME token-sized block with a visible center rule,
@@ -4093,6 +4295,11 @@ export function renderComponent(
       return renderCardPanel(node, design, depth, state);
     case "BackgroundPanel":
       return renderBackgroundPanel(node, design, depth, state);
+    // R2 P1 §① the QUESTION grid container (recursive, like the §8.5 layout
+    // containers above — but its children are QUESTIONS, each rendered by its
+    // own per-type renderer through this same dispatch).
+    case "QuestionGrid":
+      return renderQuestionGrid(node, design, depth, state);
     case "Spacer":
       return renderSpacer(node, design);
     case "HeaderBar":
@@ -4411,7 +4618,9 @@ export function renderSectionComponents(
   if (depth === 1 && state.deferContinue) {
     out += renderContinueSlot(state.deferredContinue, design, sectionCtx);
   }
-  return out;
+  // R2 P1 §① (owner A.1 #4 / probe 4a): "" for every section that never opts a
+  // question into the ✓ marker — see selectedMarkStyleBlock.
+  return depth === 1 ? selectedMarkStyleBlock(nodes, design) + out : out;
 }
 
 // Dependency-filtered render (the admin preview's §12.3/§14.9 simulator): keep
@@ -4467,7 +4676,9 @@ export function renderSectionComponentsVisible(
   if (depth === 1 && state !== undefined && state.deferContinue) {
     out += renderContinueSlot(state.deferredContinue, design, sectionCtx);
   }
-  return out;
+  // Same demand-driven ✓ block as renderSectionComponents (§12 parity: the two
+  // surfaces must never disagree on the marker's styling).
+  return depth === 1 ? selectedMarkStyleBlock(nodes, design) + out : out;
 }
 
 // The visible-leaf walk renderSectionComponentsVisible drives — extracted so
@@ -4489,6 +4700,26 @@ function renderVisibleNodes(
   // (renderPlacedSiblings' fast path === map(renderOne).join("")).
   const renderOne = (node: LeadgenComponentNode): string => {
     if (typeof node !== "object" || node === null) return "";
+    // R2 P1 §① the QUESTION grid: a real component (unlike a §8.5 layout
+    // container it IS projected into /lg/config), but for THIS walk it behaves
+    // like one — flattenComponents never yields the container itself, so its
+    // question_id is not in `visibleIds` and the leaf test below would delete
+    // the whole group. Keep the wrapper, filter the CHILDREN: a
+    // dependency-hidden question's labeled block drops out entirely (label
+    // WITH control — the same "it doesn't exist" semantics the live runtime
+    // gets by hiding `.lg-qgrid-q`), the visible ones keep their blocks.
+    if (isQuestionGridType(node.type)) {
+      if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return ""; // defensive (validator is the gate)
+      const inner = renderPlacedSiblings(containerChildren(node), state?.ctx, (child) =>
+        typeof child === "object" &&
+        child !== null &&
+        typeof child.question_id === "string" &&
+        visibleIds.has(child.question_id)
+          ? wrapGridQuestion(child, renderComponent(child, design, depth + 1, state))
+          : "",
+      );
+      return renderContainerWrapper(node, design, depth, inner);
+    }
     if (isLayoutContainerType(node.type)) {
       if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return ""; // defensive (validator is the gate)
       const inner = renderVisibleNodes(containerChildren(node), design, visibleIds, depth + 1, state);

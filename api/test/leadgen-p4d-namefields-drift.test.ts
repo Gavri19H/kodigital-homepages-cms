@@ -209,8 +209,10 @@ describe("PC-A8 — CONTENT_PROP_FIELDS.NameFieldsGroup is EMPTY (dedicated bloc
   it("NameFieldsGroup: [] in source (the ImageBlock precedent) — derived from the real committed file, not re-typed", () => {
     expect(contentPropFieldsSource()).toMatch(/NameFieldsGroup:\s*\[\],/);
   });
-  it("availableTabsFor's hasContent carve-out names NameFieldsGroup (else the Content tab itself would hide for it, exactly the ImageBlock bug this mirrors)", () => {
-    expect(SECTION_STUDIO_SCRIPT).toContain("node.type === 'ImageBlock' || node.type === 'NameFieldsGroup' || FRAME_SCOPE_STUDIO_TYPES[node.type] === 1");
+  it("availableTabsFor's hasContent carve-out names NameFieldsGroup AND QuestionGrid (else the Content tab itself would hide for them, exactly the ImageBlock bug this mirrors — R2 P1 §① gave QuestionGrid the identical empty-CONTENT_PROP_FIELDS/dedicated-block shape)", () => {
+    expect(SECTION_STUDIO_SCRIPT).toContain(
+      "node.type === 'ImageBlock' || node.type === 'NameFieldsGroup' || node.type === 'QuestionGrid' || FRAME_SCOPE_STUDIO_TYPES[node.type] === 1",
+    );
   });
 });
 

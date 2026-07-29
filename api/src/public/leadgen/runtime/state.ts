@@ -78,6 +78,11 @@ export interface LgComponentConfig {
   props: Record<string, unknown>;
   client_validation?: Record<string, unknown>;
   default_answer?: { value: unknown; answer_source: "default_applied" };
+  // R2 P1 §① — mirrors config-dto.ts PublicSectionComponent.children: present
+  // ONLY on a QuestionGrid entry, carrying its N child questions (each a full
+  // LgComponentConfig — own internal_field/props/conditional/required/
+  // choices). See flattenGridChildren below for how the engine consumes it.
+  children?: LgComponentConfig[];
 }
 
 export interface LgSectionConfig {
@@ -108,6 +113,30 @@ export interface LgPublicConfig {
   traffic_allocation_bp: number;
   assignment_reason: string;
   sections: LgSectionConfig[];
+}
+
+// R2 P1 §① — boot-time flatten (owner A.1 #1: "Each one of this questions is
+// answering another field ... independent answers, independent defaults ...
+// independent rules"). config-dto projects a QuestionGrid as ONE component
+// carrying its N children; every live evaluator (dependencies.ts
+// evaluateComponents/hiddenAnswerFields, validation.ts validateSection) and
+// the engine's own per-question lookups (componentByQuestionId,
+// applySectionDefaults, …) read `section.components` POSITIONALLY/by-id and
+// never descend into `.children` on their own. Splicing each grid's children
+// into its section's component list ONCE, before anything reads it, makes
+// every child first-class everywhere with ZERO changes to those readers. The
+// container itself is dropped (it produces no field, is never clicked, and
+// is never a [data-lg-question]/[data-lg-node] hide target for its OWN id —
+// only its children are). One level only: a grid child is schema-restricted
+// to a leaf question type (registry.ts: "children are question components
+// only"), so a child can never itself carry `.children`.
+export function flattenGridChildren(components: readonly LgComponentConfig[]): LgComponentConfig[] {
+  const out: LgComponentConfig[] = [];
+  for (const c of components) {
+    if (Array.isArray(c.children)) out.push(...c.children);
+    else out.push(c);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

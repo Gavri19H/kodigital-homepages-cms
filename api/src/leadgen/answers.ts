@@ -33,6 +33,13 @@ import {
   type LeadgenTransformStep,
 } from "./payload";
 import { COMPONENT_CATALOG } from "../public/leadgen/components/registry";
+// R2 P1 FIX-FIRST (BLOCKER 3) — the visibility gate on default application.
+// evaluateDependencies is THE server-side dependency evaluator (its op truth is
+// payload.ts `conditionalMet`, the same one the payload builder and
+// auction-rules use); it is REUSED here, never re-implemented, so "is this
+// question shown?" can never mean two different things on the two sides of the
+// same request. No import cycle: dependencies.ts never imports this module.
+import { evaluateDependencies } from "./dependencies";
 import { flattenComponents } from "../public/leadgen/components/content-schema";
 import type {
   LeadgenAnswerType,
@@ -170,6 +177,26 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
 }
 
+// R2 P1 FIX-FIRST (BLOCKER 2) — the ONE authored-default read.
+//
+// `props.defaultValue` is the CANONICAL authored-default key: it is what the
+// studio now writes for EVERY default kind (yesno / choice / dropdown / range —
+// ui-section-studio setGridQuestionDefault + collectDefaultControl), what
+// config-dto projects to `default_answer`, and what presets.ts's
+// dropdownDefaultValue reads first. `props.default` is the OLDER key (still
+// written alongside for the range renderers, which read only it, and still
+// present on every pre-R2 stored node), so it is read SECOND — a legacy node
+// keeps its default, a canonical node wins. Before this fix normalizeAnswers
+// read ONLY `props.default`, so a dropdown/range default authored in the studio
+// (and every yes/no default, always `defaultValue`) never became an answer.
+function authoredDefault(node: LeadgenComponentNode): { has: boolean; value: unknown } {
+  const props = node.props;
+  if (props === undefined || props === null) return { has: false, value: undefined };
+  if (props["defaultValue"] !== undefined) return { has: true, value: props["defaultValue"] };
+  if (props["default"] !== undefined) return { has: true, value: props["default"] };
+  return { has: false, value: undefined };
+}
+
 function asFiniteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
@@ -223,12 +250,13 @@ function fieldsOf(node: LeadgenComponentNode): FieldSpec[] {
   }
 
   if (isNonEmptyString(node.internal_field)) {
+    const authored = authoredDefault(node);
     return [
       {
         field: node.internal_field,
         answerType,
-        hasDefault: node.props?.["default"] !== undefined,
-        defaultValue: node.props?.["default"],
+        hasDefault: authored.has,
+        defaultValue: authored.value,
         minCount: asFiniteNumber(node.props?.["min"]),
         maxCount: asFiniteNumber(node.props?.["max"]),
       },
@@ -261,6 +289,20 @@ export interface LeadgenNormalizedAnswers {
 // field whose raw value is invalid for its type (and has no usable default) is
 // omitted (never fabricated as null/empty — the §12.11 "cleanObject drop"
 // discipline starts here).
+//
+// R2 P1 FIX-FIRST (BLOCKER 3) — a DEPENDENCY-HIDDEN question's default is NEVER
+// applied. Owner A.1 #2 (verbatim): "if the user clicked 'no' and the dependency
+// rule wasn't met, we need to ignore this question- it isn't relevant, so it
+// doesn't exist and the answer is not required". Before this fix the default
+// leg had NO visibility gate: the client correctly omitted the hidden field from
+// its envelope and the server put it straight back, so a fabricated answer the
+// visitor never saw reached the normalized space — and from there the Offer
+// payload / leadgen_provider_request_log (a billed answer nobody gave). Now the
+// default leg runs as a SECOND pass gated on evaluateDependencies: a component
+// whose conditional is unmet against the submitted answers contributes NOTHING
+// (not the answer, not the source) — it "doesn't exist". A PRESENT (submitted)
+// value is untouched by this gate: the client owns what it sends, and dropping
+// echoed answers would be a different, unrequested behavior change.
 export function normalizeAnswers(
   content: LeadgenSectionContent,
   rawAnswers: LeadgenRawAnswers,
@@ -270,10 +312,38 @@ export function normalizeAnswers(
   // §8.5 layout containers: walk the canonical flattened projection so a
   // question nested inside a container contributes its internal field exactly
   // like a top-level one (containers produce nothing and are skipped). Flat
-  // legacy content flattens to itself.
+  // legacy content flattens to itself. A QuestionGrid's children flatten here
+  // exactly like a container's, so grid and flat content share this whole path.
   const components = flattenComponents(
     Array.isArray(content.components) ? content.components : [],
   );
+
+  // An unusable value is DROPPED, never fabricated: invalid for its type, or —
+  // adversarial-review BLOCKER 2 — an array-typed (MultiChoice) answer whose
+  // SELECTION COUNT falls outside its authored min/max. Same drop discipline
+  // for every value, never a new rejection channel. This is the RED LINE 3
+  // server-side enforcement: a scripted client posting straight to /lg/auction
+  // cannot bypass min/max by skipping the browser's own (client-only)
+  // validateValue check.
+  const usable = (spec: FieldSpec, normalized: unknown): boolean => {
+    if (normalized === undefined) return false;
+    if (Array.isArray(normalized)) {
+      const count = normalized.length;
+      const tooFew = spec.minCount !== undefined && count < spec.minCount;
+      const tooMany = spec.maxCount !== undefined && count > spec.maxCount;
+      if (tooFew || tooMany) return false;
+    }
+    return true;
+  };
+
+  // Pass 1 — every SUBMITTED value (unchanged semantics). Defaults for absent
+  // fields are collected, not applied: their gate needs the full submitted set.
+  interface DeferredDefault {
+    node: LeadgenComponentNode;
+    spec: FieldSpec;
+    value: unknown;
+  }
+  const deferredDefaults: DeferredDefault[] = [];
 
   for (const node of components) {
     if (!isRecord(node)) continue;
@@ -283,44 +353,58 @@ export function normalizeAnswers(
         ? normalizeAnswerValue(spec.defaultValue, spec.answerType)
         : undefined;
 
-      let normalized: unknown;
-      let source: LeadgenAnswerSource;
-
-      if (present) {
-        normalized = normalizeAnswerValue(rawValue, spec.answerType);
-        if (touched) {
-          // A touched value equal to the pre-set default is a CONFIRMED default.
-          source =
-            spec.hasDefault && normalized !== undefined && normalized === normalizedDefault
-              ? "user_confirmed_default"
-              : "user_selected";
-        } else {
-          // Echoed but untouched — the default rode along unchanged.
-          source = spec.hasDefault ? "default_applied" : "user_selected";
+      if (!present) {
+        // no answer + no (usable) default → contribute nothing
+        if (spec.hasDefault && usable(spec, normalizedDefault)) {
+          deferredDefaults.push({ node, spec, value: normalizedDefault });
         }
-      } else if (spec.hasDefault) {
-        normalized = normalizedDefault;
-        source = "default_applied";
-      } else {
-        continue; // no answer + no default → contribute nothing
+        continue;
       }
 
-      if (normalized === undefined) continue; // invalid raw / invalid default
-      // Adversarial-review BLOCKER 2: an array-typed (MultiChoice) answer whose
-      // SELECTION COUNT falls outside its authored min/max is invalid — the
-      // SAME drop discipline as any other unusable value above (never a new
-      // rejection channel). This is the RED LINE 3 server-side enforcement: a
-      // scripted client posting straight to /lg/auction cannot bypass min/max
-      // by skipping the browser's own (client-only) validateValue check.
-      if (Array.isArray(normalized)) {
-        const count = normalized.length;
-        const tooFew = spec.minCount !== undefined && count < spec.minCount;
-        const tooMany = spec.maxCount !== undefined && count > spec.maxCount;
-        if (tooFew || tooMany) continue;
+      const normalized = normalizeAnswerValue(rawValue, spec.answerType);
+      let source: LeadgenAnswerSource;
+      if (touched) {
+        // A touched value equal to the pre-set default is a CONFIRMED default.
+        source =
+          spec.hasDefault && normalized !== undefined && normalized === normalizedDefault
+            ? "user_confirmed_default"
+            : "user_selected";
+      } else {
+        // Echoed but untouched — the default rode along unchanged.
+        source = spec.hasDefault ? "default_applied" : "user_selected";
       }
+      if (!usable(spec, normalized)) continue;
       answers[spec.field] = normalized;
       sources[spec.field] = source;
     }
+  }
+
+  // Pass 2 — apply each remaining default ONLY to a component that is actually
+  // shown. Iterated to a fixpoint so the result never depends on authoring
+  // order: an applied default is itself an answer (owner A.1 #2: "if we set a
+  // 'default' and the user didn't change it - this is his answer"), so it can
+  // legitimately reveal a dependent question whose own default then applies on
+  // the next sweep. Monotone (a sweep only ADDS answers) and bounded by the
+  // number of pending defaults, so it always terminates.
+  let pending = deferredDefaults;
+  while (pending.length > 0) {
+    const visible = new Map<string, boolean>();
+    for (const c of evaluateDependencies(components, answers).components) {
+      visible.set(c.question_id, c.visible);
+    }
+    const stillPending: DeferredDefault[] = [];
+    for (const d of pending) {
+      if (visible.get(d.node.question_id) === false) continue; // hidden ⇒ it doesn't exist
+      answers[d.spec.field] = d.value;
+      sources[d.spec.field] = "default_applied";
+    }
+    // A default that applied is gone; one still hidden is DROPPED (never
+    // retried) — only a NEWLY-visible pending default keeps the loop alive.
+    for (const d of pending) {
+      if (visible.get(d.node.question_id) === false) stillPending.push(d);
+    }
+    if (stillPending.length === pending.length) break; // no progress ⇒ fixpoint
+    pending = stillPending;
   }
 
   return { answers, sources };

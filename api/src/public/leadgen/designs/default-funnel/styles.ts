@@ -9,7 +9,12 @@
 // that inline per-instance styles cannot express. Per-INSTANCE styling (a
 // choice's icon, a range's filled width, a grid's column count) is emitted
 // inline by the presets (components/presets.ts). No preset emits a `<style>`
-// block that reads instance data (§14.3 / §14.10).
+// block that reads instance data (§14.3 / §14.10) — R2 P1 §① adds the single
+// bounded exception, and it reads NO instance data: when a SECTION's content
+// opts a question into the §6.6 ✓ marker on a design whose theme does not,
+// presets.ts emits this file's OWN `selectedMarkRules` (exported below,
+// state-selector rules an inline attribute cannot express) once for that
+// section. Content-gated, so a funnel that never opts in is byte-unchanged.
 //
 // Everything is scoped under a root data-attribute so funnel chrome can never
 // leak into the surrounding admin/page CSS.
@@ -321,7 +326,7 @@ function pushButtonStyleRules(
     );
 
     // Rework §6.6 (S2.2 follow-up, coordinator-directed 2026-07-22): the SAME
-    // mark mechanism for the button/YesNo family — presets.ts now stamps
+    // mark mechanism for the button/YesNo family — presets.ts stamps
     // data-card-select="mark" on .lg-answer-group roots too (whenever theme OR
     // a per-choice/per-node selected_marker override resolves 'mark'), and
     // every mark-resolved button unconditionally carries BOTH a hollow-circle
@@ -331,40 +336,62 @@ function pushButtonStyleRules(
     // values (studio-panels.html .lg-check-badge/.lg-check-hollow, data-pin
     // 6.6-visitor-selected) expressed through this design's existing measured
     // tokens (color.primary/color.border/radius.full) — no new value invented.
-    const gb = (leaf: string): string => `${scope} .lg-answer-group[data-card-select="mark"] ${leaf}`;
-    out.push(
-      // resting: a 17px hollow (border-only) circle — the pack's own size.
-      rule(gb(".lg-check-hollow"), {
-        width: "17px",
-        height: "17px",
-        "border-radius": radius.full,
-        border: `1.6px solid ${color.border}`,
-        "flex-shrink": "0",
-      }),
-      // the filled 19px badge — present in markup, hidden until selected.
-      rule(gb(".lg-check-badge"), {
-        display: "none",
-        width: "19px",
-        height: "19px",
-        "border-radius": radius.full,
-        background: color.primary,
-        "align-items": "center",
-        "justify-content": "center",
-        "flex-shrink": "0",
-      }),
-      // selected: swap which one paints — the SAME 3-selector triplet
-      // (.lg-selected / [aria-checked="true"] / [data-selected="true"]) the
-      // card branch above uses, scoped to .lg-btn-answer instead of .lg-card.
-      rule(
-        `${gb(".lg-btn-answer.lg-selected .lg-check-hollow")},${gb('.lg-btn-answer[aria-checked="true"] .lg-check-hollow')},${gb('.lg-btn-answer[data-selected="true"] .lg-check-hollow')}`,
-        { display: "none" },
-      ),
-      rule(
-        `${gb(".lg-btn-answer.lg-selected .lg-check-badge")},${gb('.lg-btn-answer[aria-checked="true"] .lg-check-badge')},${gb('.lg-btn-answer[data-selected="true"] .lg-check-badge')}`,
-        { display: "inline-flex" },
-      ),
-    );
+    //
+    // R2 P1 §① (conductor ruling, owner A.1 #4 / probe 4a): this THEME gate
+    // stays exactly as it was — a design whose Selected axis is not 'mark'
+    // adds NOTHING to this sheet (the byte-safe-additive contract three
+    // suites pin). The AUTHOR-opted case (per-node / per-choice
+    // selected_marker with no mark theme) is served demand-driven, from
+    // presets.ts (selectedMarkStyleBlock), so nothing here changes for any
+    // funnel that never opts in.
+    out.push(...selectedMarkRules(scope, design));
   }
+}
+
+// The 4 §6.6 mark rules for the button/YesNo family. Extracted VERBATIM from
+// the theme branch above so the ONE demand-driven consumer in presets.ts
+// (selectedMarkStyleBlock — the author-opted, no-mark-theme case) emits the
+// byte-identical rule bodies instead of a second, drifting definition.
+export function selectedMarkRules(
+  scope: string,
+  design: DefaultFunnelDesign | EffectiveFunnelDesign,
+): string[] {
+  const { color, radius } = design;
+  const gb = (leaf: string): string =>
+    `${scope === "" ? "" : `${scope} `}.lg-answer-group[data-card-select="mark"] ${leaf}`;
+  return [
+    // resting: a 17px hollow (border-only) circle — the pack's own size.
+    rule(gb(".lg-check-hollow"), {
+      width: "17px",
+      height: "17px",
+      "border-radius": radius.full,
+      border: `1.6px solid ${color.border}`,
+      "flex-shrink": "0",
+    }),
+    // the filled 19px badge — present in markup, hidden until selected. This
+    // disc is what carries the ✓'s contrast (white stroke on color.primary).
+    rule(gb(".lg-check-badge"), {
+      display: "none",
+      width: "19px",
+      height: "19px",
+      "border-radius": radius.full,
+      background: color.primary,
+      "align-items": "center",
+      "justify-content": "center",
+      "flex-shrink": "0",
+    }),
+    // selected: swap which one paints — the SAME 3-selector triplet
+    // (.lg-selected / [aria-checked="true"] / [data-selected="true"]) the
+    // card branch uses, scoped to .lg-btn-answer instead of .lg-card.
+    rule(
+      `${gb(".lg-btn-answer.lg-selected .lg-check-hollow")},${gb('.lg-btn-answer[aria-checked="true"] .lg-check-hollow')},${gb('.lg-btn-answer[data-selected="true"] .lg-check-hollow')}`,
+      { display: "none" },
+    ),
+    rule(
+      `${gb(".lg-btn-answer.lg-selected .lg-check-badge")},${gb('.lg-btn-answer[aria-checked="true"] .lg-check-badge')},${gb('.lg-btn-answer[data-selected="true"] .lg-check-badge')}`,
+      { display: "inline-flex" },
+    ),
+  ];
 }
 
 // tokens → the full scoped chrome stylesheet for one funnel design. `scope`
@@ -1680,6 +1707,39 @@ export function funnelChromeCss(
       "object-fit": "cover",
     }),
     rule(`${scope} .lg-bg-panel-inner`, { position: "relative" }),
+  );
+
+  // ---- R2 P1 §① QuestionGrid (design pin "Screenshot 2026-07-27 at
+  // 18.30.25.png") -----------------------------------------------------------
+  // The pin's anatomy is a STACK of labeled question blocks: one column, each
+  // block = the question's own `.lg-label` above its own control, an even
+  // author-chosen gap between blocks, ONE Continue below the whole group.
+  //
+  //   • `.lg-qgrid` — one column, ALWAYS (the group is a vertical list of
+  //     questions; a side-by-side pair is expressed per-child through the
+  //     P3a `layout.row` placement system, exactly like top-level siblings,
+  //     never by turning this container into a multi-column grid).
+  //     The per-instance GAP token value arrives INLINE from the preset (the
+  //     `.lg-stack`/--lg-cols idiom), so this container owns its internal
+  //     rhythm and is correctly OUTSIDE the `> * + *` margin-floor family
+  //     (the scoping rule recorded with that floor above).
+  //   • `.lg-qgrid-q` — ONE question's labeled block (label + control + its
+  //     helper/error slot). `min-width:0` is the grid-item overflow guard: a
+  //     long label/option string can never push the track wider than the card
+  //     at 375 (the same minmax(0,1fr) discipline `.lg-grid-container` uses),
+  //     and `max-width:100%` clamps a fixed-width child. NO `display` is set
+  //     here on purpose — a block <div> is already correct, and leaving the
+  //     property unset lets the terminal `[hidden]{display:none}` guard hide a
+  //     dependency-hidden block (label WITH control) without a specificity
+  //     fight.
+  out.push(
+    rule(`${scope} .lg-qgrid`, {
+      display: "grid",
+      "grid-template-columns": "minmax(0, 1fr)",
+      width: "100%",
+      "box-sizing": "border-box",
+    }),
+    rule(`${scope} .lg-qgrid-q`, { "min-width": "0", "max-width": "100%" }),
   );
 
   // Spacer: block gap; its height token value is inline from the preset.

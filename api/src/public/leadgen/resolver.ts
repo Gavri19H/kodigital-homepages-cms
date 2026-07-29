@@ -51,7 +51,8 @@ import { sha256Hex } from "./auction/parse";
 // used to derive which page each ANSWER field becomes known on (the auto-
 // CHECKPOINT). Imported as VALUES; config-dto imports THIS module type-only
 // (`import type`), so there is no runtime import cycle.
-import { parseSectionComponents, expandPublicComponents } from "./config-dto";
+import { parseSectionComponents, expandPublicComponents, type PublicSectionComponent } from "./config-dto";
+import type { LeadgenComponentNode } from "./components/content-schema";
 // Round-4 P4a-adj (P5a runtime seam #1, CTA visibility): frame-only resolution
 // (no theme/tokens) + the P2a composed-group evaluator, both reused here (NOT
 // re-derived) so a CTA condition and a section dependency conditional can never
@@ -1115,19 +1116,39 @@ function entryFlatCtx(ctx: EntryKnownContext): Record<string, unknown> {
   };
 }
 
+// R2 P1 §① — expandPublicComponents (config-dto's 1:1 projector, §10/M6) does
+// NOT descend into a QuestionGrid's own `children`: each child answers its
+// OWN field (owner A.1 #1 — "Each one of this questions is answering another
+// field"), so any seam deriving the variant's known/routable internal_field
+// universe from content_json must see them too. One level only (a grid child
+// is schema-restricted to a leaf question type — registry.ts: "children are
+// question components only" — never another grid). Exported so
+// runtime-routes.ts's checkpointKnownFields (the SAME non-recursive gap)
+// reuses this ONE walk instead of a second copy.
+export function expandWithGridChildren(node: LeadgenComponentNode): PublicSectionComponent[] {
+  const out: PublicSectionComponent[] = [];
+  for (const comp of expandPublicComponents(node)) {
+    out.push(comp);
+    if (Array.isArray(comp.children)) out.push(...comp.children);
+  }
+  return out;
+}
+
 // internal_field -> page index (0-based, page.position order) over a variant's
 // pages: a field becomes answerable at the page whose ANY candidate section
 // maps it; a field on multiple pages maps to its MAX (last) page (all known
 // only after the last). Uses config-dto's ONE parser/expander (MQG rows +
-// Address roles expand to their real internal_fields). STABLE across attempts
-// (candidate-based, not winner-based) — the engine page index == this index.
-function fieldToPageIndex(pages: readonly ResolvedFunnelPage[]): Map<string, number> {
+// Address roles expand to their real internal_fields) PLUS expandWithGrid-
+// Children's one extra level for a QuestionGrid's own children (R2 P1 §①).
+// STABLE across attempts (candidate-based, not winner-based) — the engine
+// page index == this index.
+export function fieldToPageIndex(pages: readonly ResolvedFunnelPage[]): Map<string, number> {
   const out = new Map<string, number>();
   pages.forEach((page, idx) => {
     for (const slot of page.slots) {
       for (const c of slot.candidates) {
         for (const node of parseSectionComponents(c.section.content_json ?? "")) {
-          for (const comp of expandPublicComponents(node)) {
+          for (const comp of expandWithGridChildren(node)) {
             const f = comp.internal_field;
             if (f !== undefined && f !== "") out.set(f, idx); // later page overwrites -> max
           }
@@ -1143,7 +1164,9 @@ function fieldToPageIndex(pages: readonly ResolvedFunnelPage[]): Map<string, num
 // field name; no question repeats). Returns "" when EVERY target required field
 // is already satisfied → the attempt proceeds directly to the auction. Winners
 // are the FLAT per-slot list (attempt.ts page_plan); pages carry the section
-// rows the required-field extraction reads (config-dto's ONE expander).
+// rows the required-field extraction reads (config-dto's ONE expander PLUS
+// expandWithGridChildren's one extra level for a QuestionGrid's own
+// independently-required children, R2 P1 §①).
 export function computeResumeSection(
   winners: readonly ResolvedSlotWinner[],
   pages: readonly ResolvedFunnelPage[],
@@ -1156,7 +1179,7 @@ export function computeResumeSection(
         if (reqBySection.has(c.section.public_id)) continue;
         const req: string[] = [];
         for (const node of parseSectionComponents(c.section.content_json ?? "")) {
-          for (const comp of expandPublicComponents(node)) {
+          for (const comp of expandWithGridChildren(node)) {
             if (comp.required === true && comp.internal_field !== undefined && comp.internal_field !== "") {
               req.push(comp.internal_field);
             }

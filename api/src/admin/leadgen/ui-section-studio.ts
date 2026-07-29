@@ -254,7 +254,18 @@ export const STUDIO_LIBRARY_GROUPS: readonly StudioGroup[] = [
       { dataName: "yes no", label: "Yes / No", defaultType: "TwoButtonYesNo", svg: TILE_SVG.yesNo },
       { dataName: "dropdown", label: "Dropdown", defaultType: "DropdownQuestion", svg: TILE_SVG.dropdown },
       { dataName: "multi-select", label: "Multi-select", defaultType: "MultiChoiceCardGroup", svg: TILE_SVG.multiSelect },
-      { dataName: "questions on one screen starter", label: "Questions on one screen", defaultType: "TwoButtonYesNo", starter: "questions_one_screen", svg: TILE_SVG.questionsOneScreen },
+      // R2 P1 §① — the ONE grid-bearing tile. The prior program's tile inserted
+      // TWO LOOSE YesNo components ("no container at all"); the owner's model is
+      // the opposite — ONE container whose children are independent-field
+      // questions (contract §2 demanded end state 1: "ONE palette component
+      // ('Question grid' / 'Questions on one screen')"). SAME tile, SAME starter
+      // marker, SAME icon, SAME data-name and SAME palette label — the contract
+      // names the component BOTH ways, and this tile keeps the second name so
+      // there is never a second, competing grid tile. What changes is the TYPE
+      // it inserts: the QuestionGrid CONTAINER. The owner's own word for the
+      // component, "Question grid", is its STUDIO_TYPE_META label — the name the
+      // canvas tag, the inspector scope header and the breadcrumb all show.
+      { dataName: "questions on one screen starter", label: "Questions on one screen", defaultType: "QuestionGrid", starter: "questions_one_screen", svg: TILE_SVG.questionsOneScreen },
       TILE_SHORT_TEXT,
       { dataName: "number", label: "Number", defaultType: "NumberInputQuestion", svg: TILE_SVG.number },
       { dataName: "amount money", label: "Amount", defaultType: "CurrencyInputQuestion", svg: TILE_SVG.amount },
@@ -319,6 +330,13 @@ const STUDIO_TYPE_META: Record<ComponentType, { label: string; description: stri
   IconCardAnswerGrid: { label: "Icon answer cards", description: "Use when each answer has an icon." },
   ImageCardAnswerGrid: { label: "Image answer cards", description: "Use when each answer has a logo or photo." },
   MultiChoiceCardGroup: { label: "Multi-select cards", description: "Select several cards (min/max bounded)." },
+  // R2 P1 §① — the owner's OWN name for the component ("'Question grid' …
+  // This component is providing answers to multiple fields", A.1 #1; contract
+  // §2 demanded end state 1: ONE palette component "Question grid" /
+  // "Questions on one screen"). The description says the container's whole
+  // point — independence per question — and names NOTHING the container
+  // itself owns (no main question, no shared helper/format/sub-questions).
+  QuestionGrid: { label: "Question grid", description: "Several questions on one screen — each answers its own field, with its own answers, default, rules and style." },
   DropdownQuestion: { label: "Dropdown", description: "Single-select dropdown of choices." },
   SearchableDropdownQuestion: { label: "Searchable dropdown", description: "Dropdown with a client-side search box." },
   FreeTextQuestion: { label: "Text", description: "Single-line free text input." },
@@ -402,6 +420,15 @@ const CONTENT_PROP_FIELDS: Record<ComponentType, readonly string[]> = {
   IconCardAnswerGrid: ["helper"],
   ImageCardAnswerGrid: ["helper"],
   MultiChoiceCardGroup: ["helper"],
+  // R2 P1 §① — EMPTY BY CONTRACT, not by omission (owner A.1 #1: "you left a
+  // lot of dead parts- If each question is independent so why did you kept the
+  // main 'Helper text'? if each question is independent why you kept main
+  // 'Answer format'? what is it 'sub questions'???? there is no 'Main
+  // question'!!!"). The container gets a DEDICATED Content block instead — the
+  // QUESTIONS LIST (data-content-questiongrid-block) — the same "dedicated
+  // block, empty generic entry" idiom ImageBlock/NameFieldsGroup use; see
+  // availableTabsFor's hasContent carve-out and renderGridQuestionsEditor.
+  QuestionGrid: [],
   DropdownQuestion: ["placeholder", "helper"],
   SearchableDropdownQuestion: ["placeholder", "helper"],
   // v3.1 §8.3 Basics: "Field label (only you see this)" (node.props.label,
@@ -560,6 +587,20 @@ export interface StudioTypeMetaBlob {
   // contract-asserted fixture rows (ZIP field / headline / continue).
   description: string;
   container: boolean;
+  // R2 P1 §① — the QUESTION-GROUP container (registry category
+  // "question_group"): it holds children like a layout container but is a
+  // question surface, never a layout one. Kept DISTINCT from `container`
+  // (which stays isLayoutContainerType, byte-unchanged for every existing
+  // island consumer — e.g. the r3b-pinned `meta.container === true` layout
+  // selection test); the island's tree walkers test BOTH flags, so a grid's
+  // children are real, selectable, rule-source nodes without widening the
+  // layout-container semantics.
+  question_group: boolean;
+  // R2 P1 §① — registry category "question": the node ANSWERS a field. The
+  // island's child-type guard uses it so only questions can be dropped into a
+  // question group (content-schema's question_grid_child_invalid, mirrored in
+  // the studio so the operator never authors a save-time 400).
+  question: boolean;
   layout: boolean;
   // The type has a Layout-tab structured-prop group (data-container-group):
   // the §8.5 containers/leaves plus the structured-prop affordance/chrome
@@ -618,6 +659,8 @@ export function studioTypeMeta(): Record<string, StudioTypeMetaBlob> {
       label: STUDIO_TYPE_META[type].label,
       description: STUDIO_TYPE_META[type].description,
       container: isLayoutContainerType(type),
+      question_group: COMPONENT_CATALOG[type].category === "question_group",
+      question: COMPONENT_CATALOG[type].category === "question",
       layout: COMPONENT_CATALOG[type].category === "layout",
       layout_props: STRUCTURED_PROP_TYPES.has(type),
       scope: COMPONENT_CATALOG[type].scope,
@@ -1600,6 +1643,32 @@ function options(values: readonly (string | number)[], labels?: readonly string[
     .join("");
 }
 
+// R2 P1 §① — the operator words for a question-group dependency, in the
+// OWNER's own order (clarification 2026-07-28: "is / is not / one of / not one
+// of / greater / less / between"). Every one of the seven ALREADY EXISTS in
+// CONDITION_OP_OPTIONS (eq / neq / in / not_in / gt / lt / range) — this adds
+// NOTHING to the vocabulary; it is a curated ordering of the same canonical ops
+// with the same CONDITION_OP_LABELS words, so the grid speaks the owner's
+// sentence and stores exactly what the save gate + runtime already evaluate.
+const GRID_CONDITION_OPS: readonly string[] = ["eq", "neq", "in", "not_in", "gt", "lt", "range"];
+const GRID_OP_OPTION_HTML = options(
+  GRID_CONDITION_OPS,
+  GRID_CONDITION_OPS.map((c) => CONDITION_OP_LABELS[c] ?? c),
+);
+
+// R2 P1 §① — the per-question TYPE picker's options: EXACTLY the catalog's
+// question components (category "question" — the same set content-schema.ts
+// admits as a question-group child), labelled with their operator words.
+// Owner A.1 #2: "the 'credit score' question is a dropdown element - the user
+// shuold be able to choose the wanted element per question."
+const GRID_QUESTION_TYPES: readonly ComponentType[] = (Object.keys(COMPONENT_CATALOG) as ComponentType[]).filter(
+  (t) => COMPONENT_CATALOG[t].category === "question",
+);
+const GRID_QUESTION_TYPE_OPTION_HTML = options(
+  GRID_QUESTION_TYPES,
+  GRID_QUESTION_TYPES.map((t) => STUDIO_TYPE_META[t].label),
+);
+
 // §8.6 Design tab: curated token dropdowns ONLY — value lists projected from
 // the active design's slots (colors from design.color, gaps from
 // design.spacing, columns 2–5, mobile behavior = the Columns mobile modes).
@@ -1663,6 +1732,35 @@ const ROLE_CONTROL_LABELS: Record<string, string> = {
   rangeColor: "Range fill",
 };
 
+// R2 P1 FIX-FIRST (MAJOR 1 / DEC-D4, owner-RULED) — per-question FREE COLOR.
+//
+// The ruling on per-question style deviation is "Reuse the existing per-section
+// override axes incl. free colors" (the 3-theme-roles-only alternative was
+// REJECTED). Every color-typed design_overrides key already ACCEPTS a raw #hex
+// (content-schema isValidColorOverrideValue: a theme role OR a #hex literal) and
+// the renderers already paint whatever value is stored — only the CONTROL was
+// missing, so a per-question color could never leave the 14 theme roles. This
+// emits the SAME free-color escape hatch buildChoiceStyleControl's color axes
+// give a single choice ("Custom color — off theme", a #RRGGBB text input,
+// same /^#[0-9a-fA-F]{3,8}$/ acceptance), bound to the SAME design_overrides key
+// as the role select it sits under — no new storage shape, no new vocabulary.
+// The panel's own chrome stays tokenized (v3.1 gate-1): the input carries no
+// color of its own; the hex the operator types is DATA on the node.
+//
+// NAMING (deliberate, not incidental): this is a small string-returning helper
+// that belongs to the blocks that CALL it (renderStyleExtraControls + the Style
+// tab markup), never a region of its own — exactly the class the golden-regions
+// census documents as part of its caller ("small string-returning helpers like
+// issueChip/segStyle/options"). It therefore carries no `render` prefix, which
+// is what that census's detection convention keys on.
+function overrideHexRowHtml(key: string, label: string): string {
+  return `<div class="form-group lg-inspector-field studio-role-hex" data-override-hex-row="${escapeHtml(key)}">
+  <span class="form-label">Custom color &#8212; off theme</span>
+  <input type="text" class="form-input" data-inspector-override-hex="${escapeHtml(key)}" placeholder="#RRGGBB" aria-label="${escapeHtml(label)} custom color (hex)">
+  <p class="form-help">Any color, not just a theme role &#8212; this question only. Clear it to go back to the role above.</p>
+</div>`;
+}
+
 // v3.1 R3b (renamed from renderDesignPanel — S2-7/S4-A4 rail removal; the
 // golden-regions scan tracks blocks by NAME, so the rename is itself part of
 // "drops renderDesignPanel from non-golden blocks"). Disposition of the OLD
@@ -1704,6 +1802,7 @@ function renderStyleExtraControls(design: FunnelDesign): string {
   </div>
   <p class="form-help studio-role-source" data-override-source="${escapeHtml(key)}"></p>
   <p class="form-help studio-role-custom" data-override-custom="${escapeHtml(key)}" hidden>Custom color &#8212; not a theme role. <button type="button" class="studio-link-btn" data-override-convert="${escapeHtml(key)}">Convert to a theme color</button></p>
+  ${overrideHexRowHtml(key, ROLE_CONTROL_LABELS[key] ?? key)}
 </div>`;
     })
     .join("");
@@ -1864,6 +1963,15 @@ const CONTAINER_PROP_CONTROLS: ReadonlyArray<{ type: string; controls: readonly 
       { key: "steps", label: "Steps (total, ≥1)", kind: "int" },
       { key: "current", label: "Current step (1…steps)", kind: "int" },
     ],
+  },
+  // R2 P1 §① — the question group's ONLY authorable container prop: the
+  // spacing between its stacked questions (content-schema CONTAINER_PROP_SPECS
+  // .QuestionGrid = { gap }). Everything else on this container would be a
+  // "dead part" (A.1 #1) — every question control belongs to the child.
+  // Appended LAST so no existing group's document order shifts.
+  {
+    type: "QuestionGrid",
+    controls: [{ key: "gap", label: "Space between questions", kind: "enum", values: LEADGEN_GAP_TOKENS }],
   },
 ];
 
@@ -2329,6 +2437,34 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       <p class="alert studio-callout-blue" data-framescope-note>Part of the funnel layout — shared by every section in this funnel. Edit it in the Quote Builder.<button type="button" class="studio-link-btn" data-framescope-change-in-frame>Edit in Quote Builder &#8594;</button></p>
     </div>
 
+    <!-- R2 P1 §① — the QUESTION GROUP's own Content surface: the QUESTIONS
+         LIST. Owner A.1 #1 (verbatim): "Each question in the component is
+         independent field, with independent answers, inefendent defaults!! …
+         if the user wants to deviate from the theme - independent style and
+         independent rules!" and "you left a lot of dead parts- … there is no
+         'Main question'!!!". So this block carries NO container-level label /
+         helper / answer format / default / sub-questions — every control below
+         is scoped to ONE child question. The rows are island-built (the
+         renderChoiceEditor idiom) because their controls depend on each
+         question's own type and each trigger question's own answers; the three
+         prototypes below are cloned per row so the operator words + the option
+         sets are authored ONCE, server-side. -->
+    <div data-content-questiongrid-block hidden>
+      <div class="studio-panel-eyebrow">Questions in this group</div>
+      <p class="form-help">Each question answers its own field and keeps its own answers, default, requirement, style and rules.</p>
+      <div data-grid-questions-list></div>
+      <p class="form-help" data-grid-questions-empty hidden>No questions yet — add the first one below.</p>
+      <!-- The add affordance sits OUTSIDE the questions list (owner A.1 #1:
+           "the '+Add a question' button … should be small, out of the component
+           and not to affect the componenent size/ structure!!!"); its canvas
+           twin is the sibling-after-root ghost decorateChoiceCards paints. -->
+      <div class="studio-add-ghost-row">
+        <button type="button" class="studio-add-condition-btn" data-grid-add-question>+ Add a question</button>
+      </div>
+      <select class="form-input" data-grid-type-proto hidden aria-hidden="true" tabindex="-1">${GRID_QUESTION_TYPE_OPTION_HTML}</select>
+      <select class="form-input" data-grid-op-proto hidden aria-hidden="true" tabindex="-1">${GRID_OP_OPTION_HTML}</select>
+    </div>
+
     <!-- field: Basics/Behavior/Answer-format/Connect-to-Offers (§8.3) -->
     <div data-content-field-block hidden>
       <!-- v3.1 R3b deliverable 4 (E2-NEW-1): ImageBlock's completed controls —
@@ -2693,10 +2829,12 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <div class="lg-inspector-field" data-tb-selected-role="button" hidden>
           <label class="form-label" for="lg-style-selected-button">Button background</label>
           <select id="lg-style-selected-button" class="form-input" data-inspector-override="buttonBackground" aria-label="Selected-state style role (button background)"><option value="">Inherited</option>${roleSelectOptions()}</select>
+          ${overrideHexRowHtml("buttonBackground", "Button background")}
         </div>
         <div class="lg-inspector-field" data-tb-selected-role="icon" hidden>
           <label class="form-label" for="lg-style-selected-icon">Icon color</label>
           <select id="lg-style-selected-icon" class="form-input" data-inspector-override="iconColor" aria-label="Selected-state style role (icon color)"><option value="">Inherited</option>${roleSelectOptions()}</select>
+          ${overrideHexRowHtml("iconColor", "Icon color")}
         </div>
         <div class="lg-inspector-field" data-toolbar-choice-layout hidden>
           <label class="form-label">Card layout</label>
@@ -2722,6 +2860,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       <div class="lg-inspector-field">
         <label class="form-label" for="lg-text-color-role">Text color role</label>
         <select id="lg-text-color-role" class="form-input" data-inspector-override="featureColor"><option value="">Inherited</option>${roleSelectOptions()}</select>
+        ${overrideHexRowHtml("featureColor", "Text color")}
       </div>
     </div>
 
@@ -3379,6 +3518,18 @@ export const SECTION_STUDIO_STYLES = `
 .studio-rules-always-row{display:flex;align-items:center;gap:8px;padding:9px 11px;border:1px solid var(--c-border);border-radius:8px;margin-bottom:10px;background:var(--c-surface-alt,#f7f9fb)}
 .studio-dot-green{width:8px;height:8px;border-radius:50%;background:#0e7c3a;flex:0 0 auto}
 .studio-add-condition-btn{border:1px solid var(--c-primary);color:var(--c-primary);background:none;border-radius:6px;padding:7px 12px;font-size:12.5px;font-weight:700;cursor:pointer}
+/* R2 P1 §① the question-group editor: one card per QUESTION (identity row +
+   its own dependency row). Panel-side only — the canvas "+ Add a question"
+   ghost keeps the canvas-frame stylesheet's .studio-add-ghost-* rules. */
+.studio-grid-q-row{border:1px solid var(--c-border);border-radius:8px;padding:10px;margin-bottom:9px;background:var(--c-surface,#fff)}
+.studio-grid-q-head{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
+.studio-grid-q-index{flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:#EAF0F6;color:#1B3A5C;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-bottom:6px}
+.studio-grid-q-cell{display:flex;flex-direction:column;gap:3px;flex:1 1 130px;min-width:0}
+.studio-grid-q-caption{font-size:11px;font-weight:600;color:var(--c-muted)}
+.studio-grid-q-actions{display:flex;gap:5px;align-items:center;flex:0 0 auto}
+.studio-grid-q-dep{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:9px;padding-top:9px;border-top:1px dashed var(--c-border)}
+.studio-grid-q-dep .form-input{flex:1 1 120px;min-width:0}
+.studio-grid-q-sentence{flex:1 1 100%;margin:2px 0 0}
 .studio-maps-job-row{display:flex;gap:9px;align-items:flex-start;padding:10px;border:1px solid var(--c-border);border-radius:8px;margin-bottom:8px;cursor:pointer}
 .studio-maps-job-row input{margin-top:2px}
 .studio-maps-zero-job-banner{font-size:11.5px;padding:8px 10px;margin-bottom:10px}
@@ -3579,6 +3730,9 @@ export const SECTION_STUDIO_STYLES = `
 .studio-role-swatch{display:inline-block;width:16px;height:16px;border-radius:4px;border:1px solid var(--c-border);flex:0 0 16px}
 .studio-role-source{margin:2px 0 0}
 .studio-role-custom{color:#664d03;margin:2px 0 0}
+/* DEC-D4 per-question free color: the hex escape hatch under a role row */
+.studio-role-hex{margin:4px 0 0}
+.studio-role-hex .form-label{font-size:12px;margin:0 0 2px}
 .studio-link-btn{border:0;background:none;color:var(--c-primary);cursor:pointer;font-size:inherit;padding:0;text-decoration:underline}
 .studio-overrides-banner{color:#055160;background:#cff4fc;border:1px solid #b6effb}
 .studio-section-roles{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px 16px;margin-bottom:10px}
@@ -3865,6 +4019,23 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   function typeMeta(type) { return studioMeta.types[type] || {}; }
   function isContainerType(type) { return typeMeta(type).container === true; }
+  // R2 P1 §① — the QUESTION GROUP (registry category "question_group") and the
+  // QUESTION leaf (category "question"), both projected from the server catalog
+  // (studioTypeMeta), never a re-typed island list.
+  function isQuestionGroupType(type) { return typeMeta(type).question_group === true; }
+  function isQuestionType(type) { return typeMeta(type).question === true; }
+  // "HOLDS CHILDREN" = a §8.5 layout container OR the question group. Every
+  // tree walker (walkTree / findRefIn / the depth cap), every drop target and
+  // every children-aware decoration now tests BOTH, so a grid's child questions
+  // are first-class nodes: selectable, deletable, rule sources in the when
+  // picker (replay R2), and counted by the depth cap exactly as
+  // content-schema.ts's isChildrenBearingType counts them at save time.
+  // isContainerType deliberately stays LAYOUT-only (the layout-selection
+  // semantics — wrap / ungroup / container chrome copy — are unchanged).
+  // The OR is written INLINE at each of those sites, never behind a shared
+  // helper: they are vm-probe-sliced by name with fixed collaborator lists, the
+  // same self-containment convention internalFieldsOf / refFieldInfo /
+  // sectionFieldLabels already document for their repeated derivations.
   // LeadGen Rework §6.2 — the ONE inspector control-gating primitive. Reads the
   // per-type capability flag projected from registry.ts COMPONENT_CAPABILITIES
   // (studioTypeMeta.capabilities): every inspector block below asks cap(node,
@@ -4839,7 +5010,15 @@ export const SECTION_STUDIO_SCRIPT = `
       node = list[i];
       if (!node || typeof node !== 'object') { continue; }
       fn(node, depth);
-      if (isContainerType(node.type) && node.children && node.children.length) {
+      // R2 P1 §① / replay R2: descend into a QUESTION GROUP too — its
+      // children ARE questions, so every reader built on walkTree
+      // (internalFieldsOf, fieldExists, sectionFieldLabels, refFieldInfo,
+      // findConditionalRefs, the offers/mapping sweeps) sees them and the rule
+      // "when" pickers offer container-NESTED question fields. The flag is read
+      // INLINE off typeMeta because this reader is vm-probe-sliced with a fixed
+      // collaborator list — the same self-containment convention
+      // internalFieldsOf/refFieldInfo document.
+      if ((isContainerType(node.type) || typeMeta(node.type).question_group === true) && node.children && node.children.length) {
         walkTree(node.children, depth + 1, fn);
       }
     }
@@ -4853,7 +5032,10 @@ export const SECTION_STUDIO_SCRIPT = `
       if (node.question_id === qid) {
         return { list: list, index: i, node: node, depth: depth, trail: trail.concat([node]), parent: trail.length ? trail[trail.length - 1] : null };
       }
-      if (isContainerType(node.type) && node.children && node.children.length) {
+      // R2 P1 §①: descend into a question group too — its child questions are
+      // selectable, inspectable, movable nodes like any container child.
+      // Inline flag read: probe-sliced (see walkTree's note).
+      if ((isContainerType(node.type) || typeMeta(node.type).question_group === true) && node.children && node.children.length) {
         hit = findRefIn(node.children, qid, depth + 1, trail.concat([node]));
         if (hit) { return hit; }
       }
@@ -4885,9 +5067,14 @@ export const SECTION_STUDIO_SCRIPT = `
     return false;
   }
   function subtreeMaxContainerDepth(node, depth) {
-    var best = isContainerType(node.type) ? depth : 0;
+    // R2 P1 §①: a question group consumes a nesting level at SAVE time
+    // (content-schema.ts checks container_depth_exceeded on it exactly like a
+    // layout container), so it must consume one here too or the studio would
+    // offer a nesting the save gate rejects. Inline flag read: probe-sliced.
+    var holds = isContainerType(node.type) || typeMeta(node.type).question_group === true;
+    var best = holds ? depth : 0;
     var i, d;
-    if (isContainerType(node.type) && node.children) {
+    if (holds && node.children) {
       for (i = 0; i < node.children.length; i++) {
         d = subtreeMaxContainerDepth(node.children[i], depth + 1);
         if (d > best) { best = d; }
@@ -5001,6 +5188,18 @@ export const SECTION_STUDIO_SCRIPT = `
   // any remaining same-type collision gets a short " (2)"/" (3)" suffix (the
   // SAME numbering idiom uniqueFieldName already uses for a de-collided
   // internal_field, first occurrence bare).
+  //
+  // R2 P1 §① — PROBE A4 / replay R2 (the owner's mislabel): "Rule-builder
+  // 'when' list mislabels the first question with the SECTION HEADLINE". The
+  // headline preference above is right for a one-question Section but WRONG the
+  // moment a Section (or a question group) holds several questions: each one
+  // has its OWN authored words in props.label ("Are you currently insured?",
+  // "Credit Score"), and that is what the operator must see in every picker,
+  // for EVERY sibling — not just the first, and never the section headline.
+  // Precedence is now: structured sub-field label > the question's OWN
+  // props.label > (first field only) the section headline > its type name.
+  // Same-type pairs therefore read by their own words instead of "Yes / No" +
+  // "Yes / No (2)".
   function sectionFieldLabels(fields, headlineText) {
     var headline = trimStr(headlineText);
     var bases = [];
@@ -5041,9 +5240,14 @@ export const SECTION_STUDIO_SCRIPT = `
           else if (fields[i] === slLast) { structuredLabel = typeLabel(n.type) + ' \\u2014 Last'; }
         }
       });
+      // A4/R2: the question's OWN authored label wins over the headline, for
+      // every field (props.label is the §11.3 "Field label (only you see this)"
+      // key every question type stores — the SAME key the canvas renders).
+      var ownLabel = (node && node.props && typeof node.props.label === 'string' && trimStr(node.props.label) !== '') ? trimStr(node.props.label) : null;
       base = (structuredLabel !== null) ? structuredLabel
-        : ((i === 0 && headline !== '') ? headline
-          : (node ? typeLabel(node.type) : fields[i]));
+        : (ownLabel !== null ? ownLabel
+          : ((i === 0 && headline !== '') ? headline
+            : (node ? typeLabel(node.type) : fields[i])));
       bases.push(base);
       counts[base] = (counts[base] || 0) + 1;
     }
@@ -5246,12 +5450,21 @@ export const SECTION_STUDIO_SCRIPT = `
     var ref;
     if (parentQid) {
       ref = findRef(parentQid);
-      if (!ref || !isContainerType(ref.node.type)) { return null; }
+      // Inline flag reads (probe-sliced — see walkTree's note).
+      if (!ref || !(isContainerType(ref.node.type) || typeMeta(ref.node.type).question_group === true)) { return null; }
+      // R2 P1 §① — the question group takes QUESTIONS only (content-schema's
+      // question_grid_child_invalid, mirrored here so the operator is refused
+      // in the studio instead of 400'd on save; owner cosmic §5: "Inside the
+      // component there are different QUESTIONS").
+      if (typeMeta(ref.node.type).question_group === true && typeMeta(type).question !== true) {
+        showRefusal('A question group holds questions only \\u2014 ' + typeLabel(type) + ' cannot go inside it.');
+        return null;
+      }
       if (!ref.node.children) { ref.node.children = []; }
       target = ref.node.children;
       depth = ref.depth + 1;
     }
-    if (isContainerType(type) && depth > MAX_DEPTH) {
+    if ((isContainerType(type) || typeMeta(type).question_group === true) && depth > MAX_DEPTH) {
       showRefusal('Cannot nest a ' + typeLabel(type) + ' deeper than ' + MAX_DEPTH + ' container levels — drop refused.');
       return null;
     }
@@ -5291,7 +5504,14 @@ export const SECTION_STUDIO_SCRIPT = `
     var pref = null;
     if (parentQid) {
       pref = findRef(parentQid);
-      if (!pref || !isContainerType(pref.node.type)) { return false; }
+      // Inline flag reads (probe-sliced — see walkTree's note).
+      if (!pref || !(isContainerType(pref.node.type) || typeMeta(pref.node.type).question_group === true)) { return false; }
+      // R2 P1 §① — same question-only rule as addComponentAt (a DRAG into the
+      // group is refused with the same operator sentence, never silently).
+      if (typeMeta(pref.node.type).question_group === true && typeMeta(ref.node.type).question !== true) {
+        showRefusal('A question group holds questions only \\u2014 ' + typeLabel(ref.node.type) + ' cannot go inside it.');
+        return false;
+      }
       if (!pref.node.children) { pref.node.children = []; }
       target = pref.node.children;
       depth = pref.depth + 1;
@@ -6276,6 +6496,26 @@ export const SECTION_STUDIO_SCRIPT = `
         ghostRow.appendChild(ghost);
         if (nodes[i].parentNode) { nodes[i].parentNode.insertBefore(ghostRow, nodes[i].nextSibling); }
       }
+      // R2 P1 §① — "+ Add a question" for the QUESTION GROUP. Owner A.1 #1
+      // (verbatim): "the '+Add a question' button, for all the components,
+      // should be small, **out of the component** and not to affect the
+      // componenent size/ structure!!!". So it is the EXACT same affordance the
+      // owner approved for "+ Add choice": the SAME .studio-add-ghost-row /
+      // .studio-add-ghost-btn classes, inserted as a SIBLING immediately AFTER
+      // the component root — never a child, never a grid cell, never inside the
+      // border. The group's own geometry is identical with and without it.
+      if (typeMeta(type).question_group === true) {
+        var qGhostRow = frameCreate('div');
+        qGhostRow.className = 'studio-add-ghost-row';
+        qGhostRow.setAttribute('data-add-ghost-row', qid);
+        var qGhost = frameCreate('button');
+        qGhost.type = 'button';
+        qGhost.className = 'studio-add-ghost-btn';
+        qGhost.setAttribute('data-question-ghost', qid);
+        qGhost.appendChild(document.createTextNode('+ Add a question'));
+        qGhostRow.appendChild(qGhost);
+        if (nodes[i].parentNode) { nodes[i].parentNode.insertBefore(qGhostRow, nodes[i].nextSibling); }
+      }
       // §6.2: resize handle on the SELECTED CardPanel — snaps to width presets.
       if (type === 'CardPanel' && qid === selectedQuestionId) {
         nodes[i].style.position = 'relative';
@@ -6418,7 +6658,10 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!node) { return null; }
     if (node.bind === 'section_headline' || node.bind === 'section_subheadline' || node.type === 'QuestionHeadline' || node.type === 'Subheadline') { return 'headline'; }
     if (node.type === 'ContinueButton' || node.type === 'AutoAdvanceButton') { return 'continue'; }
-    if (isContainerType(node.type)) { return null; }
+    // R2 P1 §①: a question GROUP is a children-holder, not a field — no 8-handle
+    // field chrome on the container (its questions get their own). Inline flag
+    // read: probe-sliced (see walkTree's note).
+    if (isContainerType(node.type) || typeMeta(node.type).question_group === true) { return null; }
     return 'field';
   }
   function clearSelectionChrome(region) {
@@ -6630,7 +6873,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (inlineEditing) { return; }
     var t = ev.target;
     if (!t || !t.closest) { return; }
-    if (t.closest('[data-selection-chrome],[data-lg-choice],[data-resize-handle],[data-field-resize-handle],[data-width-handle],[contenteditable="true"],[data-frame-keep],[data-frame-move],[data-choice-x],[data-choice-ghost],[data-funnel-picker],[data-container-chip]')) { return; }
+    if (t.closest('[data-selection-chrome],[data-lg-choice],[data-resize-handle],[data-field-resize-handle],[data-width-handle],[contenteditable="true"],[data-frame-keep],[data-frame-move],[data-choice-x],[data-choice-ghost],[data-question-ghost],[data-funnel-picker],[data-container-chip]')) { return; }
     var surface = t.closest('[data-question-id]');
     if (!surface) { return; }
     startFieldMove(surface.getAttribute('data-question-id'), ev);
@@ -6717,7 +6960,9 @@ export const SECTION_STUDIO_SCRIPT = `
       } else if (x > rect.width * (1 - BESIDE_ZONE_FRAC) && besideZoneActive(qid, hqid)) {
         dropHint = { qid: hqid, mode: 'beside-right' };
         host.className = withoutClasses(host.className, DROP_CLASSES) + ' studio-drop-beside-right';
-      } else if (isContainerType(type) && y > rect.height * 0.25 && y < rect.height * 0.75) {
+      } else if ((isContainerType(type) || typeMeta(type).question_group === true) && y > rect.height * 0.25 && y < rect.height * 0.75) {
+        // R2 P1 §①: a question group is a drop target too (inline flag read —
+        // probe-sliced; see walkTree's note).
         dropHint = { qid: hqid, mode: 'into' };
         host.className = withoutClasses(host.className, DROP_CLASSES) + ' studio-drop-into';
       } else if (y < rect.height / 2) {
@@ -7049,7 +7294,10 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < nodes.length; i++) {
       node = nodes[i];
       type = node.getAttribute('data-component-type');
-      if (!isContainerType(type)) { continue; }
+      // R2 P1 §①: the question group gets the same click-to-select chip
+      // (inline flag read — this pass runs inside the probe-sliced
+      // applyCanvasDecoration).
+      if (!(isContainerType(type) || typeMeta(type).question_group === true)) { continue; }
       qid = node.getAttribute('data-question-id');
       // The chip's containing block: the container itself. Set position:relative
       // ONLY when it is static (never override an author/preset position) — the
@@ -7433,7 +7681,11 @@ export const SECTION_STUDIO_SCRIPT = `
     // DEDICATED block (data-content-namefieldsgroup-block), not the generic
     // CONTENT_PROP_FIELDS rows, so content_props is deliberately [] for it
     // and would otherwise wrongly hide the whole Content tab.
-    var hasContent = isBound || (meta.content_props || []).length > 0 || meta.choice === true || node.type === 'ImageBlock' || node.type === 'NameFieldsGroup' || FRAME_SCOPE_STUDIO_TYPES[node.type] === 1;
+    // R2 P1 §①: QuestionGrid ALSO always qualifies — same "dedicated block,
+    // empty content_props" reason as ImageBlock/NameFieldsGroup: its Content
+    // tab IS the questions list (data-content-questiongrid-block), and its
+    // content_props is [] BY CONTRACT (no shared helper/format/label).
+    var hasContent = isBound || (meta.content_props || []).length > 0 || meta.choice === true || node.type === 'ImageBlock' || node.type === 'NameFieldsGroup' || node.type === 'QuestionGrid' || FRAME_SCOPE_STUDIO_TYPES[node.type] === 1;
     if (hasContent) { tabs.push('content'); }
     // Style: any visual selection (§8.5 "any visual selection").
     tabs.push('style');
@@ -7508,6 +7760,10 @@ export const SECTION_STUDIO_SCRIPT = `
     if (node.bind !== undefined) { return 'headline'; }
     if (node.type === 'ContinueButton') { return 'continue'; }
     if (FRAME_SCOPE_STUDIO_TYPES[node.type] === 1) { return 'frame_scope'; }
+    // R2 P1 §①: the question GROUP's Content tab is its QUESTIONS LIST — never
+    // the field block (that block's label/helper/format/default controls are
+    // exactly the "dead parts" the owner rejected on this component).
+    if (typeMeta(node.type).question_group === true) { return 'questiongrid'; }
     return 'field';
   }
   // §8.5b: the Style tab shows exactly ONE of field/text/continue/frame_scope
@@ -7527,10 +7783,18 @@ export const SECTION_STUDIO_SCRIPT = `
     var continueBlock = document.querySelector('[data-content-continue-block]');
     var fieldBlock = document.querySelector('[data-content-field-block]');
     var frameScopeBlock = document.querySelector('[data-content-framescope-block]');
+    var gridBlock = document.querySelector('[data-content-questiongrid-block]');
     if (headlineBlock) { headlineBlock.hidden = variant !== 'headline'; }
     if (continueBlock) { continueBlock.hidden = variant !== 'continue'; }
     if (fieldBlock) { fieldBlock.hidden = variant !== 'field'; }
     if (frameScopeBlock) { frameScopeBlock.hidden = variant !== 'frame_scope'; }
+    // R2 P1 §① — the questions list, rebuilt from the group's live children on
+    // every selection (the renderChoiceEditor lifecycle).
+    if (gridBlock) { gridBlock.hidden = variant !== 'questiongrid'; }
+    // typeof-guard: populateContentVariant is vm-probe-sliced by name with a
+    // fixed collaborator list (leadgen-rework-matrix Layer B), the same
+    // self-containment convention populateConditional documents.
+    if (variant === 'questiongrid' && typeof renderGridQuestionsEditor === 'function') { renderGridQuestionsEditor(node); }
     if (variant === 'headline') {
       var hIn = document.querySelector('[data-bound-shared-input="section_headline"]');
       var sIn = document.querySelector('[data-bound-shared-input="section_subheadline"]');
@@ -7820,6 +8084,16 @@ export const SECTION_STUDIO_SCRIPT = `
       if (isHexColor(oval)) { ensureLegacyOption(ovEls[i], String(oval)); }
       ovEls[i].value = (oval === undefined || oval === null) ? '' : String(oval);
     }
+    // D4 free color: each color-typed override row's hex escape hatch shows the
+    // stored value ONLY when it really is a hex (a theme role belongs to the
+    // select above it, never echoed into this box).
+    var hexEls = document.querySelectorAll('[data-inspector-override-hex]');
+    var hval;
+    for (i = 0; i < hexEls.length; i++) {
+      k = hexEls[i].getAttribute('data-inspector-override-hex');
+      hval = (node && node.design_overrides) ? node.design_overrides[k] : undefined;
+      hexEls[i].value = isHexColor(hval) ? String(hval) : '';
+    }
     // FIX 4b: dead-write Design rows are GATED per type (overrideRowHidden —
     // columns/gridGap are consumed by renderCardGrid only; iconColor has no
     // consumer on MultiChoiceCardGroup).
@@ -7946,6 +8220,28 @@ export const SECTION_STUDIO_SCRIPT = `
     if (input.value === '') { delete ov[key]; }
     else if (key === 'columns') { var n = Number(input.value); ov[key] = isNaN(n) ? input.value : n; }
     else { ov[key] = input.value; }
+    cleanupEmpty(node, 'design_overrides');
+    afterModelChange();
+  }
+  // D4 (owner-RULED per-question free colors): the hex escape hatch writes the
+  // SAME design_overrides key as the role select above it — a literal #hex,
+  // which the schema accepts for every color-typed key and every renderer paints
+  // as-is. Empty clears the override back to inherited; a malformed value is
+  // simply not committed (the operator keeps typing) — the identical acceptance
+  // buildChoiceStyleControl's per-choice color axes use.
+  function collectInspectorOverrideHex(input) {
+    var node = selectedNode();
+    if (!node) { return; }
+    var key = input.getAttribute('data-inspector-override-hex');
+    if (!key) { return; }
+    var v = trimStr(input.value);
+    var ov = ensureObj(node, 'design_overrides');
+    if (v === '') {
+      if (isHexColor(ov[key])) { delete ov[key]; }
+    } else {
+      if (!/^#[0-9a-fA-F]{3,8}$/.test(v)) { return; }
+      ov[key] = v;
+    }
     cleanupEmpty(node, 'design_overrides');
     afterModelChange();
   }
@@ -9955,10 +10251,21 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   // --- §5.5 defaults (FIX 8a/8b) --------------------------------------------------
-  // yes/no → props.defaultValue (boolean) — the config-dto default_answer /
-  // runtime default_applied path; the visitor still confirms it (§5.5).
-  // range → props.default (number); dropdowns → props.default (choice value)
-  // — both consumed by the presets (renderRange / the dropdown renderers).
+  // R2 P1 FIX-FIRST (BLOCKER 2) — ONE canonical authored-default key:
+  // props.defaultValue, for EVERY default kind (yesno boolean / choice value /
+  // dropdown choice value / range number). It is the key config-dto projects to
+  // default_answer, the key answers.ts normalizes as default_applied, and the
+  // key presets.ts dropdownDefaultValue reads first — so an authored default
+  // becomes the visitor's answer and satisfies the required rule (owner A.1 #2: "if we
+  // set a 'default' and the user didn't change it - this is his answer and the
+  // 'required' rule is met"). Before this fix range/dropdown wrote ONLY
+  // props.default, which config-dto never projected: the default rendered but
+  // was NOT an answer, and a required dropdown blocked Continue untouched.
+  // props.default is now LEGACY: still READ (stored nodes keep their default,
+  // both readers use defaultValue ?? default) and still MIRRORED on the range
+  // kind only, because the three range renderers (presets.ts renderRange family)
+  // read propNum(node,"default") and nothing else — dropping it there would
+  // silently reset every authored slider to its minimum.
   // Rework §6.4 — the default control KIND is matrix-driven (registry.ts
   // COMPONENT_CAPABILITIES.default_kind): 'yesno' (TwoButtonYesNo, props.default
   // Value boolean), 'range' (slider family, props.default number), 'dropdown'
@@ -9970,6 +10277,31 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!node) { return null; }
     var k = cap(node, 'default_kind');
     return k ? k : null;
+  }
+  // R2 P1 §① — the question-group row's Default <select> option builder: the
+  // question's LIVE choices, with its current default re-applied after the
+  // rebuild (never silently dropped to "no default"). Deliberately NOT folded
+  // into populateDefaultControls' own two inline blocks: that function is
+  // vm-probe-sliced by name with a fixed collaborator list
+  // (leadgen-rework-matrix Layer B), the same self-containment convention
+  // populateConditional documents — so the shared idiom is expressed here and
+  // the A3 fix is wired at the collectChoices seam instead.
+  function fillChoiceDefaultOptions(sel, choices, current) {
+    clearChildren(sel);
+    var opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'No default \\u2014 the visitor picks';
+    sel.appendChild(opt);
+    var list = choices || [];
+    var i;
+    for (i = 0; i < list.length; i++) {
+      if (!list[i]) { continue; }
+      opt = document.createElement('option');
+      opt.value = String(list[i].value);
+      opt.textContent = String(list[i].label || list[i].value);
+      sel.appendChild(opt);
+    }
+    sel.value = (current === undefined || current === null) ? '' : String(current);
   }
   function populateDefaultControls(node) {
     var kind = defaultKindOf(node);
@@ -9989,7 +10321,9 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     if (kind === 'range') {
       el = document.querySelector('[data-default-control="range"]');
-      if (el) { el.value = typeof props.default === 'number' ? String(props.default) : ''; }
+      // B2: canonical defaultValue first, legacy props.default second.
+      var rangeStored = (props.defaultValue !== undefined && props.defaultValue !== null) ? props.defaultValue : props.default;
+      if (el) { el.value = typeof rangeStored === 'number' ? String(rangeStored) : ''; }
       return;
     }
     if (kind === 'choice') {
@@ -10030,7 +10364,9 @@ export const SECTION_STUDIO_SCRIPT = `
       opt.textContent = String(choices[i].label || choices[i].value);
       el.appendChild(opt);
     }
-    el.value = (props.default === undefined || props.default === null) ? '' : String(props.default);
+    // B2: canonical defaultValue first, legacy props.default second.
+    var dropStored = (props.defaultValue !== undefined && props.defaultValue !== null) ? props.defaultValue : props.default;
+    el.value = (dropStored === undefined || dropStored === null) ? '' : String(dropStored);
   }
   // P2b (register R-A completion): TwoButtonYesNo's two FIXED buttons get the
   // SAME per-element style popover a choice row does (buildChoiceStyleControl)
@@ -10076,24 +10412,603 @@ export const SECTION_STUDIO_SCRIPT = `
     if (kind !== defaultKindOf(node)) { return; }
     var props = ensureObj(node, 'props');
     var v = trimStr(input.value);
+    // B2: EVERY kind writes props.defaultValue; the legacy props.default is
+    // cleared on write (never two disagreeing defaults on one node) except on
+    // the range kind, where it is MIRRORED for the presets.ts slider renderers.
     if (kind === 'yesno') {
       if (v === '') { delete props.defaultValue; }
       else { props.defaultValue = v === 'true'; }
+      delete props.default;
     } else if (kind === 'range') {
       var n = Number(v);
-      if (v === '' || isNaN(n)) { delete props.default; }
-      else { props.default = n; }
+      if (v === '' || isNaN(n)) { delete props.defaultValue; delete props.default; }
+      else { props.defaultValue = n; props.default = n; }
     } else if (kind === 'choice') {
       // §6.4 (F-C): single-select choice default → props.defaultValue (one of
       // the choice values; save-gate asserts membership). Empty clears it.
       if (v === '') { delete props.defaultValue; }
       else { props.defaultValue = v; }
+      delete props.default;
     } else {
-      if (v === '') { delete props.default; }
-      else { props.default = v; }
+      if (v === '') { delete props.defaultValue; }
+      else { props.defaultValue = v; }
+      delete props.default;
     }
     cleanupEmpty(node, 'props');
     afterModelChange();
+  }
+
+  // --- R2 P1 §① — the QUESTION GROUP editor (the questions list) ---------------
+  // Owner A.1 #1 (verbatim): "Each question in the component is independent
+  // field, with independent answers, inefendent defaults!! … if the user wants
+  // to deviate from the theme - independent style and independent rules!".
+  // Owner A.1 #2: "the 'credit score' question is a dropdown element - the user
+  // shuold be able to choose the wanted element per question. … the user should
+  // be able to manage inner dippendancies between of questions inside the
+  // component." Owner §A.4: "if user chooses answer X to Question A, unhide and
+  // require this DROPDOWN - HOW DO I SET DROPDOWN???" — answered by the
+  // per-question dependency row below, authored entirely in QUESTION terms.
+  //
+  // NOTHING here is container-level: no shared label, no shared helper, no
+  // shared answer format, no "sub questions", no "Main question" (A.1 #1's dead
+  // parts). Every control is scoped to ONE child question node, and the deep
+  // per-type editors (choices grid, Other values, per-element style, validation,
+  // Maps, Offers) are NOT rebuilt — "Answers…"/"Style…" select that child, which
+  // opens the EXISTING inspector for its own type.
+  function gridQuestionsOf(node) {
+    return (node && isQuestionGroupType(node.type) && node.children && node.children.length) ? node.children : [];
+  }
+  // A4 sibling: a question's OWN authored words, never the section headline.
+  function gridQuestionLabel(child) {
+    if (!child) { return ''; }
+    var own = (child.props && typeof child.props.label === 'string') ? trimStr(child.props.label) : '';
+    return own !== '' ? own : typeLabel(child.type);
+  }
+  // The stored default of ONE question, as a string ('' = no default). Mirrors
+  // collectDefaultControl's matrix-driven kind→prop mapping (B2: EVERY kind
+  // stores props.defaultValue; props.default is the legacy/range-render key,
+  // read second); kept separate because that function is vm-probe-sliced
+  // standalone AND writes to selectedNode(), while these two write to an
+  // explicitly passed CHILD node.
+  function gridDefaultStored(props) {
+    return (props.defaultValue !== undefined && props.defaultValue !== null) ? props.defaultValue : props.default;
+  }
+  function gridQuestionDefault(child) {
+    var kind = defaultKindOf(child);
+    var props = (child && child.props) || {};
+    if (kind === 'yesno') { return props.defaultValue === true ? 'true' : (props.defaultValue === false ? 'false' : ''); }
+    var stored = gridDefaultStored(props);
+    if (kind === 'range') { return typeof stored === 'number' ? String(stored) : ''; }
+    if (kind === 'choice' || kind === 'dropdown') { return (stored === undefined || stored === null) ? '' : String(stored); }
+    return '';
+  }
+  // B2 (producer side): the studio writes props.defaultValue for EVERY kind —
+  // the key config-dto projects to default_answer and answers.ts applies as
+  // default_applied. props.default is cleared on write (one default per node)
+  // except on range, where it is mirrored for the presets.ts slider renderers.
+  function setGridQuestionDefault(child, raw) {
+    var kind = defaultKindOf(child);
+    if (kind === null) { return; }
+    var props = ensureObj(child, 'props');
+    var v = trimStr(raw);
+    if (kind === 'yesno') { if (v === '') { delete props.defaultValue; } else { props.defaultValue = v === 'true'; } delete props.default; }
+    else if (kind === 'range') { var n = Number(v); if (v === '' || isNaN(n)) { delete props.defaultValue; delete props.default; } else { props.defaultValue = n; props.default = n; } }
+    else { if (v === '') { delete props.defaultValue; } else { props.defaultValue = v; } delete props.default; }
+    cleanupEmpty(child, 'props');
+  }
+  // The ONE leaf condition this row authors. A multi-condition group authored in
+  // the Rules tab is PRESERVED: the row reads/writes conditions[0] and never
+  // discards the siblings.
+  function gridDepOf(child) {
+    var stored = (child && child.conditional) ? child.conditional : null;
+    if (!stored) { return null; }
+    if (stored.conditions && stored.conditions.length > 0) { return stored.conditions[0]; }
+    return stored.when ? stored : null;
+  }
+  function applyGridDep(child, cond) {
+    var stored = (child && child.conditional) ? child.conditional : null;
+    if (stored && stored.conditions && stored.conditions.length > 1) {
+      if (cond === null) { stored.conditions.shift(); }
+      else { stored.conditions[0] = cond; }
+      if (stored.conditions.length === 1) { child.conditional = stored.conditions[0]; }
+      return;
+    }
+    if (cond === null) { delete child.conditional; } else { child.conditional = cond; }
+  }
+  // Which VALUE control the operator gets, decided by the TRIGGER question's own
+  // answers + the chosen operator — TYPE-AGNOSTIC on both sides (owner
+  // clarification 2026-07-28): 'bool' ONLY when the trigger's answer really is a
+  // boolean (Yes/No); any choice-bearing trigger (buttons, cards, dropdown, …)
+  // offers ITS OWN authored values; 'multi' is the same value set for one-of /
+  // not-one-of; numbers for greater/less/between; free text only when the
+  // trigger has no enumerable answers at all.
+  function gridDepValueKind(info, op) {
+    if (op === 'range') { return 'range'; }
+    if (op === 'gt' || op === 'lt') { return 'num'; }
+    if (op === 'in' || op === 'not_in') { return (info && info.choices) ? 'multi' : 'list'; }
+    if (info && info.type === 'boolean') { return 'bool'; }
+    if (info && info.choices) { return 'enum'; }
+    return 'text';
+  }
+  function gridAppendChoiceOptions(sel, info) {
+    var list = (info && info.choices) ? info.choices : [];
+    var i;
+    for (i = 0; i < list.length; i++) {
+      if (!list[i]) { continue; }
+      appendOption(sel, String(list[i].value), String(list[i].label || list[i].value));
+    }
+  }
+  function gridSelectedMulti(sel) {
+    var out = [], i;
+    for (i = 0; i < sel.options.length; i++) { if (sel.options[i].selected) { out.push(sel.options[i].value); } }
+    return out;
+  }
+  function gridSetMulti(sel, values) {
+    var want = values || [], i, j;
+    for (i = 0; i < sel.options.length; i++) {
+      sel.options[i].selected = false;
+      for (j = 0; j < want.length; j++) {
+        if (String(want[j]) === sel.options[i].value) { sel.options[i].selected = true; }
+      }
+    }
+  }
+  function gridEl(tag, cls) {
+    var el = document.createElement(tag);
+    if (cls) { el.className = cls; }
+    return el;
+  }
+  function gridLabelled(text, control) {
+    var wrap = gridEl('label', 'studio-grid-q-cell');
+    var cap = gridEl('span', 'studio-grid-q-caption');
+    cap.appendChild(document.createTextNode(text));
+    wrap.appendChild(cap);
+    wrap.appendChild(control);
+    return wrap;
+  }
+  function gridSmallBtn(text, attr, qid, cls) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = cls || 'btn btn-sm btn-outline';
+    b.setAttribute(attr, qid);
+    b.appendChild(document.createTextNode(text));
+    return b;
+  }
+  // ONE question row. Every control writes THIS child node and re-renders only
+  // what its own edit invalidates.
+  function buildGridQuestionRow(grid, child, index) {
+    var row = gridEl('div', 'studio-grid-q-row');
+    row.setAttribute('data-grid-question-row', child.question_id);
+    var head = gridEl('div', 'studio-grid-q-head');
+    var num = gridEl('span', 'studio-grid-q-index');
+    num.appendChild(document.createTextNode(String(index + 1)));
+    head.appendChild(num);
+
+    // 1) TYPE — "the user shuold be able to choose the wanted element per
+    //    question" (A.1 #2). Options are the catalog's question components.
+    var typeProto = document.querySelector('[data-grid-type-proto]');
+    var typeSel = typeProto ? typeProto.cloneNode(true) : document.createElement('select');
+    typeSel.hidden = false;
+    typeSel.removeAttribute('hidden');
+    typeSel.removeAttribute('aria-hidden');
+    typeSel.removeAttribute('tabindex');
+    typeSel.className = 'form-input';
+    typeSel.setAttribute('data-grid-q-field', 'type');
+    typeSel.setAttribute('aria-label', 'Question type');
+    typeSel.value = child.type;
+    typeSel.addEventListener('change', function () { setGridQuestionType(child.question_id, this.value); });
+    head.appendChild(gridLabelled('Type', typeSel));
+
+    // 2) LABEL — the question's own words (the A4 source of truth).
+    var labelIn = document.createElement('input');
+    labelIn.className = 'form-input';
+    labelIn.type = 'text';
+    labelIn.setAttribute('data-grid-q-field', 'label');
+    labelIn.setAttribute('aria-label', 'Question label');
+    labelIn.setAttribute('placeholder', 'What the visitor is asked');
+    labelIn.value = (child.props && typeof child.props.label === 'string') ? child.props.label : '';
+    labelIn.addEventListener('input', function () {
+      var props = ensureObj(child, 'props');
+      if (trimStr(this.value) === '') { delete props.label; } else { props.label = this.value; }
+      cleanupEmpty(child, 'props');
+      gridSyncTriggerLabels(grid);
+      afterModelChange();
+    });
+    head.appendChild(gridLabelled('Question', labelIn));
+
+    // 3) FIELD NAME — "Each one of this questions is answering another field
+    //    for the offers payload" (A.1 #1).
+    var fieldIn = document.createElement('input');
+    fieldIn.className = 'form-input';
+    fieldIn.type = 'text';
+    fieldIn.setAttribute('data-grid-q-field', 'internal_field');
+    fieldIn.setAttribute('aria-label', 'Field name');
+    fieldIn.setAttribute('placeholder', 'field_name');
+    fieldIn.value = child.internal_field ? String(child.internal_field) : '';
+    fieldIn.addEventListener('input', function () {
+      var next = trimStr(this.value);
+      if (next === '') { delete child.internal_field; } else { child.internal_field = next; }
+      afterModelChange();
+    });
+    fieldIn.addEventListener('change', function () { renderGridQuestionsEditor(selectedNode()); });
+    head.appendChild(gridLabelled('Answers field', fieldIn));
+
+    // 4) DEFAULT — independent per question (A.1 #1: "independent defaults!!
+    //    (right now only the first question has option for default)"). The
+    //    control KIND is the matrix's default_kind for THIS question's type.
+    var kind = defaultKindOf(child);
+    if (kind !== null) {
+      var defControl;
+      if (kind === 'range') {
+        defControl = document.createElement('input');
+        defControl.className = 'form-input';
+        defControl.type = 'number';
+        defControl.value = gridQuestionDefault(child);
+      } else {
+        defControl = document.createElement('select');
+        defControl.className = 'form-input';
+        if (kind === 'yesno') {
+          appendOption(defControl, '', 'No default \\u2014 the visitor picks');
+          appendOption(defControl, 'true', (child.props && trimStr(child.props.yesLabel) !== '') ? child.props.yesLabel : 'Yes');
+          appendOption(defControl, 'false', (child.props && trimStr(child.props.noLabel) !== '') ? child.props.noLabel : 'No');
+          defControl.value = gridQuestionDefault(child);
+        } else {
+          // A3: options built from the question's LIVE choices every render.
+          fillChoiceDefaultOptions(defControl, child.choices, gridQuestionDefault(child));
+        }
+      }
+      defControl.setAttribute('data-grid-q-field', 'default');
+      defControl.setAttribute('aria-label', 'Default answer');
+      defControl.addEventListener('change', function () {
+        setGridQuestionDefault(child, this.value);
+        afterModelChange();
+      });
+      head.appendChild(gridLabelled('Default', defControl));
+    }
+
+    // 5) REQUIRED — per question (A.1 #2's required-vs-dependency logic).
+    var reqWrap = gridEl('label', 'lg-check studio-grid-q-cell');
+    var reqCb = document.createElement('input');
+    reqCb.type = 'checkbox';
+    reqCb.setAttribute('data-grid-q-field', 'required');
+    reqCb.checked = child.required === true;
+    reqCb.addEventListener('change', function () {
+      if (this.checked) { child.required = true; } else { delete child.required; }
+      afterModelChange();
+    });
+    reqWrap.appendChild(reqCb);
+    reqWrap.appendChild(document.createTextNode(' Required'));
+    head.appendChild(reqWrap);
+
+    // 6) The deep per-type editors — REUSED, never rebuilt: selecting the child
+    //    opens the existing inspector (choices grid / Other values / validation
+    //    / Maps / Offers on Content, the per-element override controls on
+    //    Style = the D4 "independent style" deviation).
+    var actions = gridEl('span', 'studio-grid-q-actions');
+    if (typeMeta(child.type).choice === true) {
+      var answersBtn = gridSmallBtn('Answers\\u2026', 'data-grid-q-answers', child.question_id);
+      answersBtn.addEventListener('click', function () { selectComponent(child.question_id); setInspectorTab('content'); });
+      actions.appendChild(answersBtn);
+    }
+    var styleBtn = gridSmallBtn('Style\\u2026', 'data-grid-q-style', child.question_id);
+    styleBtn.addEventListener('click', function () { selectComponent(child.question_id); setInspectorTab('style'); });
+    actions.appendChild(styleBtn);
+    var upBtn = gridSmallBtn('\\u2191', 'data-grid-q-up', child.question_id);
+    upBtn.addEventListener('click', function () { moveGridQuestion(grid, child.question_id, -1); });
+    actions.appendChild(upBtn);
+    var downBtn = gridSmallBtn('\\u2193', 'data-grid-q-down', child.question_id);
+    downBtn.addEventListener('click', function () { moveGridQuestion(grid, child.question_id, 1); });
+    actions.appendChild(downBtn);
+    var rmBtn = gridSmallBtn('Remove', 'data-grid-q-remove', child.question_id, 'btn btn-sm btn-danger');
+    rmBtn.addEventListener('click', function () { removeGridQuestion(grid, child.question_id); });
+    actions.appendChild(rmBtn);
+    head.appendChild(actions);
+    row.appendChild(head);
+
+    // 7) THE DEPENDENCY, IN QUESTION TERMS (§A.4 — "HOW DO I SET DROPDOWN???").
+    row.appendChild(buildGridDependencyRow(grid, child));
+    return row;
+  }
+  // "Show this question when [another question in this grid] [is / is not / one
+  // of / not one of / greater than / less than / between] [that question's own
+  // answers]" — the whole owner sentence, in one row, with no field ids and no
+  // jargon. Stored as the child's own conditional, keyed on the SIBLING's
+  // internal_field with the canonical op (eq/neq/in/not_in/gt/lt/range), which
+  // is exactly what the save gate and the runtime already evaluate.
+  function buildGridDependencyRow(grid, child) {
+    var dep = gridEl('div', 'studio-grid-q-dep');
+    dep.setAttribute('data-grid-dep-row', child.question_id);
+    var lead = gridEl('span', 'studio-grid-q-caption');
+    lead.appendChild(document.createTextNode('Show this question when'));
+    dep.appendChild(lead);
+
+    var whenSel = document.createElement('select');
+    whenSel.className = 'form-input';
+    whenSel.setAttribute('data-grid-dep', 'when');
+    whenSel.setAttribute('aria-label', 'Trigger question');
+    appendOption(whenSel, '', '\\u2014 always shown \\u2014');
+    var siblings = gridQuestionsOf(grid), si, sib;
+    for (si = 0; si < siblings.length; si++) {
+      sib = siblings[si];
+      if (!sib || sib.question_id === child.question_id) { continue; }
+      if (!sib.internal_field || trimStr(sib.internal_field) === '') { continue; }
+      appendOption(whenSel, String(sib.internal_field), gridQuestionLabel(sib));
+    }
+    dep.appendChild(whenSel);
+
+    var opProto = document.querySelector('[data-grid-op-proto]');
+    var opSel = opProto ? opProto.cloneNode(true) : document.createElement('select');
+    opSel.hidden = false;
+    opSel.removeAttribute('hidden');
+    opSel.removeAttribute('aria-hidden');
+    opSel.removeAttribute('tabindex');
+    opSel.className = 'form-input';
+    opSel.setAttribute('data-grid-dep', 'op');
+    opSel.setAttribute('aria-label', 'Condition');
+    dep.appendChild(opSel);
+
+    var boolSel = document.createElement('select');
+    boolSel.className = 'form-input';
+    boolSel.setAttribute('data-grid-dep', 'value-bool');
+    boolSel.setAttribute('aria-label', 'Answer');
+    dep.appendChild(boolSel);
+    var enumSel = document.createElement('select');
+    enumSel.className = 'form-input';
+    enumSel.setAttribute('data-grid-dep', 'value-enum');
+    enumSel.setAttribute('aria-label', 'Answer');
+    dep.appendChild(enumSel);
+    var multiSel = document.createElement('select');
+    multiSel.className = 'form-input';
+    multiSel.multiple = true;
+    multiSel.setAttribute('multiple', 'multiple');
+    multiSel.setAttribute('data-grid-dep', 'values-enum');
+    multiSel.setAttribute('aria-label', 'Answers');
+    dep.appendChild(multiSel);
+    var textIn = document.createElement('input');
+    textIn.className = 'form-input';
+    textIn.type = 'text';
+    textIn.setAttribute('data-grid-dep', 'value');
+    textIn.setAttribute('aria-label', 'Answer');
+    dep.appendChild(textIn);
+    var listIn = document.createElement('input');
+    listIn.className = 'form-input';
+    listIn.type = 'text';
+    listIn.setAttribute('data-grid-dep', 'values');
+    listIn.setAttribute('placeholder', 'answers, comma-separated');
+    listIn.setAttribute('aria-label', 'Answers');
+    dep.appendChild(listIn);
+    var numIn = document.createElement('input');
+    numIn.className = 'form-input';
+    numIn.type = 'number';
+    numIn.setAttribute('data-grid-dep', 'value-num');
+    numIn.setAttribute('aria-label', 'Number');
+    dep.appendChild(numIn);
+    var fromIn = document.createElement('input');
+    fromIn.className = 'form-input';
+    fromIn.type = 'number';
+    fromIn.setAttribute('data-grid-dep', 'from');
+    fromIn.setAttribute('placeholder', 'from');
+    fromIn.setAttribute('aria-label', 'From');
+    dep.appendChild(fromIn);
+    var toIn = document.createElement('input');
+    toIn.className = 'form-input';
+    toIn.type = 'number';
+    toIn.setAttribute('data-grid-dep', 'to');
+    toIn.setAttribute('placeholder', 'to');
+    toIn.setAttribute('aria-label', 'To');
+    dep.appendChild(toIn);
+    var sentence = gridEl('p', 'form-help studio-grid-q-sentence');
+    sentence.setAttribute('data-grid-dep-sentence', child.question_id);
+    dep.appendChild(sentence);
+
+    // The row's own read/paint/collect trio (scoped to THIS row's controls —
+    // never document.querySelector, the buildConditionRow discipline).
+    function paint() {
+      var cond = gridDepOf(child);
+      var when = trimStr(whenSel.value);
+      var op = opSel.value || 'eq';
+      var info = when === '' ? { type: 'string', choices: null, yesLabel: 'Yes', noLabel: 'No' } : refFieldInfo(when);
+      var kind = when === '' ? 'none' : gridDepValueKind(info, op);
+      clearChildren(boolSel);
+      appendOption(boolSel, 'true', info.yesLabel || 'Yes');
+      appendOption(boolSel, 'false', info.noLabel || 'No');
+      clearChildren(enumSel);
+      gridAppendChoiceOptions(enumSel, info);
+      clearChildren(multiSel);
+      gridAppendChoiceOptions(multiSel, info);
+      opSel.hidden = when === '';
+      boolSel.hidden = kind !== 'bool';
+      enumSel.hidden = kind !== 'enum';
+      multiSel.hidden = kind !== 'multi';
+      textIn.hidden = kind !== 'text';
+      listIn.hidden = kind !== 'list';
+      numIn.hidden = kind !== 'num';
+      fromIn.hidden = kind !== 'range';
+      toIn.hidden = kind !== 'range';
+      if (cond) {
+        if (kind === 'bool') { boolSel.value = cond.value === false ? 'false' : 'true'; }
+        if (kind === 'enum') { enumSel.value = (cond.value === undefined || cond.value === null) ? '' : String(cond.value); }
+        if (kind === 'multi') { gridSetMulti(multiSel, cond.values); }
+        if (kind === 'list') { listIn.value = (cond.values && cond.values.length) ? cond.values.join(', ') : ''; }
+        if (kind === 'text') { textIn.value = (cond.value === undefined || cond.value === null) ? '' : String(cond.value); }
+        if (kind === 'num') { numIn.value = (cond.value === undefined || cond.value === null) ? '' : String(cond.value); }
+        if (kind === 'range') {
+          fromIn.value = (cond.from === undefined) ? '' : String(cond.from);
+          toIn.value = (cond.to === undefined) ? '' : String(cond.to);
+        }
+        sentence.textContent = conditionSentence('Shown', cond, gridDepTriggerLabel(grid, cond.when), refFieldInfo(cond.when));
+      } else {
+        sentence.textContent = 'Always shown \\u2014 pick a question above to make it depend on an answer.';
+      }
+    }
+    function collect() {
+      var when = trimStr(whenSel.value);
+      if (when === '') { applyGridDep(child, null); paint(); afterModelChange(); return; }
+      var op = opSel.value || 'eq';
+      var info = refFieldInfo(when);
+      var kind = gridDepValueKind(info, op);
+      var parts = { value: '', values: '', from: '', to: '' };
+      if (kind === 'bool') { parts.value = boolSel.value; }
+      else if (kind === 'enum') { parts.value = enumSel.value; }
+      else if (kind === 'num') { parts.value = numIn.value; }
+      else if (kind === 'text') { parts.value = textIn.value; }
+      else if (kind === 'multi') { parts.values = gridSelectedMulti(multiSel).join(','); }
+      else if (kind === 'list') { parts.values = listIn.value; }
+      else if (kind === 'range') { parts.from = fromIn.value; parts.to = toIn.value; }
+      applyGridDep(child, buildConditional(when, op, parts, info.type));
+      paint();
+      afterModelChange();
+    }
+    whenSel.addEventListener('change', collect);
+    opSel.addEventListener('change', collect);
+    boolSel.addEventListener('change', collect);
+    enumSel.addEventListener('change', collect);
+    multiSel.addEventListener('change', collect);
+    textIn.addEventListener('change', collect);
+    listIn.addEventListener('change', collect);
+    numIn.addEventListener('change', collect);
+    fromIn.addEventListener('change', collect);
+    toIn.addEventListener('change', collect);
+    var stored = gridDepOf(child);
+    whenSel.value = (stored && stored.when) ? stored.when : '';
+    opSel.value = (stored && stored.op) ? stored.op : 'eq';
+    paint();
+    return dep;
+  }
+  // The trigger's operator words for the readable sentence — its own question
+  // label inside this group, never a field id and never the section headline.
+  function gridDepTriggerLabel(grid, field) {
+    var list = gridQuestionsOf(grid), i;
+    for (i = 0; i < list.length; i++) {
+      if (list[i] && list[i].internal_field === field) { return gridQuestionLabel(list[i]); }
+    }
+    return field;
+  }
+  // A label edit must re-word every OTHER row's trigger picker + sentence at
+  // once (no save+reload), so the operator always reads live question words.
+  //
+  // R2 P1 FIX-FIRST (BLOCKER 1) — TARGETED text updates, never a rebuild. This
+  // runs on EVERY KEYSTROKE of the Question label input. It used to call
+  // renderGridQuestionsEditor(grid), which clearChildren()s the host and builds
+  // every row again: the very input being typed into was detached mid-keystroke,
+  // focus fell to BODY (where the up/down reorder keybindings live) and the
+  // typed characters were lost - the owner could not type a question label at
+  // all (driven: 26 keystrokes produced an empty field). Nothing STRUCTURAL
+  // changes when a label changes (the trigger picker's option SET is keyed on
+  // internal_field, not on words), so only two derived texts need refreshing:
+  // each trigger option's words and each dependency sentence. Structural
+  // rebuilds stay where they belong - the field-name input's own change (blur)
+  // handler, add/remove/move/type-swap.
+  function gridSyncTriggerLabels(grid) {
+    var host = document.querySelector('[data-grid-questions-list]');
+    if (!host || !grid) { return; }
+    var kids = gridQuestionsOf(grid);
+    var sels = host.querySelectorAll('[data-grid-dep="when"]');
+    var i, j, k, opts;
+    for (i = 0; i < sels.length; i++) {
+      opts = sels[i].options;
+      for (j = 0; j < opts.length; j++) {
+        if (opts[j].value === '') { continue; }
+        for (k = 0; k < kids.length; k++) {
+          if (kids[k] && kids[k].internal_field === opts[j].value) { opts[j].textContent = gridQuestionLabel(kids[k]); }
+        }
+      }
+    }
+    var sentences = host.querySelectorAll('[data-grid-dep-sentence]');
+    var qid, ref, cond;
+    for (i = 0; i < sentences.length; i++) {
+      qid = sentences[i].getAttribute('data-grid-dep-sentence');
+      ref = findRef(qid);
+      cond = ref ? gridDepOf(ref.node) : null;
+      sentences[i].textContent = cond
+        ? conditionSentence('Shown', cond, gridDepTriggerLabel(grid, cond.when), refFieldInfo(cond.when))
+        : 'Always shown \\u2014 pick a question above to make it depend on an answer.';
+    }
+  }
+  function renderGridQuestionsEditor(node) {
+    var host = document.querySelector('[data-grid-questions-list]');
+    if (!host) { return; }
+    clearChildren(host);
+    var kids = gridQuestionsOf(node);
+    var i;
+    for (i = 0; i < kids.length; i++) { host.appendChild(buildGridQuestionRow(node, kids[i], i)); }
+    var empty = document.querySelector('[data-grid-questions-empty]');
+    if (empty) { empty.hidden = kids.length > 0; }
+  }
+  // A question TYPE swap keeps the question's identity (question_id — so every
+  // rule pointing at it survives), its field, its words, its requirement, its
+  // own rule and its style deviation; the new type's seed supplies whatever it
+  // needs (makeNode = the ONE seeding path). Answers carry across only between
+  // choice-bearing types, and the default carries only while it still names a
+  // real answer.
+  function setGridQuestionType(qid, nextType) {
+    var ref = findRef(qid);
+    if (!ref || !isQuestionType(nextType) || ref.node.type === nextType) { return false; }
+    var old = ref.node;
+    var fresh = makeNode(nextType);
+    fresh.question_id = old.question_id;
+    if (old.internal_field !== undefined) { fresh.internal_field = old.internal_field; }
+    if (old.required !== undefined) { fresh.required = old.required; }
+    if (old.conditional !== undefined) { fresh.conditional = old.conditional; }
+    if (old.design_overrides !== undefined) { fresh.design_overrides = old.design_overrides; }
+    if (old.layout !== undefined) { fresh.layout = old.layout; }
+    if (old.choices && old.choices.length && typeMeta(nextType).choice === true) { fresh.choices = old.choices; }
+    else if (typeMeta(nextType).choice !== true) { delete fresh.choices; }
+    var oldProps = old.props || {};
+    var freshProps = ensureObj(fresh, 'props');
+    var carry = ['label', 'helper'], ci;
+    for (ci = 0; ci < carry.length; ci++) {
+      if (typeof oldProps[carry[ci]] === 'string' && trimStr(oldProps[carry[ci]]) !== '') { freshProps[carry[ci]] = oldProps[carry[ci]]; }
+    }
+    if (oldProps.requiredWhen !== undefined) { freshProps.requiredWhen = oldProps.requiredWhen; }
+    var prevDefault = gridQuestionDefault(old);
+    cleanupEmpty(fresh, 'props');
+    ref.list[ref.index] = fresh;
+    if (prevDefault !== '') {
+      var kind = defaultKindOf(fresh);
+      var keep = false;
+      if (kind === 'yesno') { keep = prevDefault === 'true' || prevDefault === 'false'; }
+      else if (kind === 'range') { keep = !isNaN(Number(prevDefault)); }
+      else if (kind === 'choice' || kind === 'dropdown') {
+        var cs = fresh.choices || [], k;
+        for (k = 0; k < cs.length; k++) { if (cs[k] && String(cs[k].value) === prevDefault) { keep = true; } }
+      }
+      if (keep) { setGridQuestionDefault(fresh, prevDefault); }
+    }
+    afterModelChange();
+    renderGridQuestionsEditor(selectedNode());
+    return true;
+  }
+  // "+ Add a question" — a new question of the group's most recent type (or
+  // Yes/No to start), appended INSIDE the group. addComponentAt carries every
+  // existing insertion rule (depth cap, question-only child guard, history).
+  function addQuestionToGrid(grid) {
+    if (!grid || !isQuestionGroupType(grid.type)) { return null; }
+    var kids = gridQuestionsOf(grid);
+    var seedType = kids.length > 0 ? kids[kids.length - 1].type : 'TwoButtonYesNo';
+    var node = addComponentAt(seedType, grid.question_id, null, undefined, undefined);
+    if (!node) { return null; }
+    var props = ensureObj(node, 'props');
+    props.label = 'Question ' + String(gridQuestionsOf(grid).length);
+    if (!node.internal_field || trimStr(node.internal_field) === '') { node.internal_field = 'answer' + String(gridQuestionsOf(grid).length); }
+    if (fieldExists(node.internal_field) && trimStr(node.internal_field) !== '') {
+      var base = node.internal_field;
+      node.internal_field = uniqueFieldName(base);
+    }
+    afterModelChange();
+    renderGridQuestionsEditor(grid);
+    return node;
+  }
+  function removeGridQuestion(grid, qid) {
+    removeNode(qid);
+    renderGridQuestionsEditor(grid);
+  }
+  function moveGridQuestion(grid, qid, delta) {
+    var ref = findRef(qid);
+    if (!ref) { return; }
+    var next = ref.index + delta;
+    if (next < 0 || next >= ref.list.length) { return; }
+    moveWithin(qid, delta);
+    renderGridQuestionsEditor(grid);
   }
 
   // --- choices editor (§8.6: rows + main/Other grouping + bulk paste) -----------
@@ -11248,6 +12163,16 @@ export const SECTION_STUDIO_SCRIPT = `
       choices.push(choice);
     }
     if (choices.length > 0) { node.choices = choices; } else { delete node.choices; }
+    // R2 P1 §① — PROBE A3 fail-before: the Default select was built ONCE per
+    // selection (populateInspector), so a choice LABEL renamed in-session kept
+    // showing the OLD word in the Default list until save+reload. Rebuild it
+    // from the freshly collected choices right here — the default itself is
+    // preserved by fillChoiceDefaultOptions re-applying the stored value.
+    // typeof-guard: collectChoices is vm-probe-sliced STANDALONE (the
+    // choice-row harness slices only choiceContainer+collectChoices), the same
+    // reason populateConditional documents for NOT calling its collaborators;
+    // in the shipped island the function is always present.
+    if (typeof populateDefaultControls === 'function') { populateDefaultControls(node); }
     afterModelChange();
   }
   function parseBulkChoices(text, req) {
@@ -11896,7 +12821,10 @@ export const SECTION_STUDIO_SCRIPT = `
       updatePendingUi();
     } else {
       var sel = selectedNode();
-      if (sel && isContainerType(sel.type)) { node = addComponentAt(type, sel.question_id, null, childTypes, defaultProps); }
+      // R2 P1 §① (replay R3, same class as the starter): a SELECTED question
+      // group receives the insert like any container — clicking "Dropdown" with
+      // the grid selected adds the question INSIDE it, never beside it.
+      if (sel && (isContainerType(sel.type) || typeMeta(sel.type).question_group === true)) { node = addComponentAt(type, sel.question_id, null, childTypes, defaultProps); }
       else { node = addComponentAt(type, null, null, childTypes, defaultProps); }
     }
     if (node) { selectComponent(node.question_id); }
@@ -11913,23 +12841,61 @@ export const SECTION_STUDIO_SCRIPT = `
     node.props.label = labelText;
     return node;
   }
+  // R2 P1 §① — the starter now seeds the OWNER'S component. The prior program
+  // read "the grid must not be one unit" as "there is no container at all" and
+  // spliced two LOOSE YesNo components into the Section (contract §2 cross-audit
+  // — the key planning failure); the owner's model is ONE container whose
+  // children are independent-field questions. So: with a question group selected
+  // (replay R3 — "always splices into state.content.components, leaving a
+  // selected container empty"), the two questions land INSIDE it; with nothing
+  // (or something else) selected, a fresh group is created and they land inside
+  // that. Either way ONE atomic history entry, and the pair is spliced into the
+  // group's children — never into the Section next to it.
   function insertQuestionsOnOneScreen() {
     var q1 = makeStarterYesNo('Question 1', 'answer1');
     var q2 = makeStarterYesNo('Question 2', 'answer2');
-    var target = state.content.components;
-    var at = target.length;
-    if (pendingInsert && pendingInsert.qid) {
-      var pref = findRef(pendingInsert.qid);
-      if (pref && !pref.parent) { at = pref.index + (pendingInsert.where === 'after' ? 1 : 0); }
-      pendingInsert = null;
-      updatePendingUi();
-    } else if (selectedQuestionId) {
-      var sref = findRef(selectedQuestionId);
-      if (sref && !sref.parent) { at = sref.index + 1; }
+    var target, at, focusQid;
+    var host = selectedQuestionGrid();
+    if (host) {
+      // R3: the SELECTED group receives them (and keeps its own place).
+      if (!host.children) { host.children = []; }
+      target = host.children;
+      at = target.length;
+      focusQid = host.question_id;
+      if (pendingInsert) { pendingInsert = null; updatePendingUi(); }
+    } else {
+      var grid = makeNode('QuestionGrid');
+      grid.children = [];
+      target = grid.children;
+      at = 0;
+      focusQid = grid.question_id;
+      var list = state.content.components;
+      var gridAt = list.length;
+      if (pendingInsert && pendingInsert.qid) {
+        var pref = findRef(pendingInsert.qid);
+        if (pref && !pref.parent) { gridAt = pref.index + (pendingInsert.where === 'after' ? 1 : 0); }
+        pendingInsert = null;
+        updatePendingUi();
+      } else if (selectedQuestionId) {
+        var sref = findRef(selectedQuestionId);
+        if (sref && !sref.parent) { gridAt = sref.index + 1; }
+      }
+      list.splice(gridAt, 0, grid);
     }
     target.splice(at, 0, q1, q2);
     afterModelChange();
-    selectComponent(q2.question_id);
+    selectComponent(focusQid);
+  }
+  // The question group the insert should target: the selected group itself, or
+  // the group a selected CHILD question sits in (selecting a question inside the
+  // group and adding another must not eject the new one to the Section).
+  function selectedQuestionGrid() {
+    if (!selectedQuestionId) { return null; }
+    var ref = findRef(selectedQuestionId);
+    if (!ref) { return null; }
+    if (isQuestionGroupType(ref.node.type)) { return ref.node; }
+    if (ref.parent && isQuestionGroupType(ref.parent.type)) { return ref.parent; }
+    return null;
   }
   // §5.6 the "Contact" tile carries data-add-children (comma-separated types)
   // — a full 3-node Stack. v3.1 audit-round G FIX 4: drag now carries these
@@ -12107,6 +13073,19 @@ export const SECTION_STUDIO_SCRIPT = `
         }
         return;
       }
+      // R2 P1 §① — the group's "+ Add a question" ghost (the same sibling-after-
+      // root affordance as "+ Add choice"): appends a question INSIDE the group
+      // and selects the group so the new row is right there in the list.
+      var qGhostBtn = ev.target && ev.target.closest ? ev.target.closest('[data-question-ghost]') : null;
+      if (qGhostBtn) {
+        var qgQid = qGhostBtn.getAttribute('data-question-ghost');
+        var qgRef = findRef(qgQid);
+        if (qgRef) {
+          if (selectedQuestionId !== qgQid) { selectComponent(qgQid); }
+          addQuestionToGrid(qgRef.node);
+        }
+        return;
+      }
       // R2 S1-8: a click on a resize handle (mousedown+mouseup with no real
       // drag) must NEVER change selection. The trailing native click's target is
       // the handle — a SIBLING of the field inside the selection wrap — whose
@@ -12221,7 +13200,8 @@ export const SECTION_STUDIO_SCRIPT = `
       var type = el.getAttribute('data-component-type');
       var rect = el.getBoundingClientRect();
       var y = ev.clientY - rect.top;
-      if (isContainerType(type) && y > rect.height * 0.25 && y < rect.height * 0.75) {
+      if ((isContainerType(type) || typeMeta(type).question_group === true) && y > rect.height * 0.25 && y < rect.height * 0.75) {
+        // R2 P1 §①: a question group is a drop target too (inline flag read).
         dropHint = { qid: qid, mode: 'into' };
         el.className = withoutClasses(el.className, DROP_CLASSES) + ' studio-drop-into';
       } else if (y < rect.height / 2) {
@@ -12721,6 +13701,13 @@ export const SECTION_STUDIO_SCRIPT = `
     ovEls[oe].addEventListener('input', function () { collectInspectorOverride(this); });
     ovEls[oe].addEventListener('change', function () { collectInspectorOverride(this); });
   }
+  // D4 free color: 'change' only (never per-keystroke) — a half-typed "#f" must
+  // not commit, and the operator's cursor is never disturbed while typing.
+  var ovHexEls = document.querySelectorAll('[data-inspector-override-hex]');
+  var ohe;
+  for (ohe = 0; ohe < ovHexEls.length; ohe++) {
+    ovHexEls[ohe].addEventListener('change', function () { collectInspectorOverrideHex(this); });
+  }
   var vpropEls = document.querySelectorAll('[data-inspector-vprop]');
   var ve;
   for (ve = 0; ve < vpropEls.length; ve++) {
@@ -12958,6 +13945,16 @@ export const SECTION_STUDIO_SCRIPT = `
   // segmented toggle (mirrors the existing populateImageBlockControls
   // className idiom: the clicked button's OWN attribute value decides which
   // sibling gets 'active').
+  // R2 P1 §① — the inspector twin of the canvas "+ Add a question" ghost. It
+  // sits OUTSIDE the questions list (never inside a question row), so adding a
+  // question never changes the component's own size or structure.
+  var gridAddQuestionBtn = document.querySelector('[data-grid-add-question]');
+  if (gridAddQuestionBtn) {
+    gridAddQuestionBtn.addEventListener('click', function () {
+      var grid = selectedQuestionGrid();
+      if (grid) { addQuestionToGrid(grid); }
+    });
+  }
   var rulesAddRowBtn = document.querySelector('[data-rules-add-row]');
   if (rulesAddRowBtn) { rulesAddRowBtn.addEventListener('click', addRulesConditionRow); }
   var reqCondAddRowBtn = document.querySelector('[data-reqcond-add-row]');

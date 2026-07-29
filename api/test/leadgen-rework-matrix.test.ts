@@ -433,6 +433,17 @@ export const EXPECTED_MATRIX: Record<ComponentType, ComponentCapabilitySpec> = {
   // §6.2 column "Dropdown / Searchable".
   DropdownQuestion: DROPDOWN,
   SearchableDropdownQuestion: DROPDOWN,
+  // R2 P1 §① QuestionGrid — the ALL-BLANK row, transcribed from the owner's
+  // ruling rather than from a §6.2 column (the table predates this component).
+  // A.1 #1 verbatim: "you left a lot of dead parts- If each question is
+  // independent so why did you kept the main 'Helper text'? if each question is
+  // independent why you kept main 'Answer format'? what is it 'sub
+  // questions'???? there is no 'Main question'!!!" — so the CONTAINER offers no
+  // label/helper (label_helper), no required toggle, no choices editor, no
+  // Other editor, no default (default_kind null), no placeholder, no
+  // selected_marker, no columns. Every one of those controls belongs to the
+  // CHILD question, which renders its OWN type's row above, unchanged.
+  QuestionGrid: NONE,
   // §6.2 column "FreeText / Email / Number / Currency / Date / ZIP".
   FreeTextQuestion: TEXT_INPUT,
   NumberInputQuestion: TEXT_INPUT,

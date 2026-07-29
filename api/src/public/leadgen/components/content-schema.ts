@@ -934,6 +934,50 @@ export function isLayoutContainerType(type: unknown): type is LeadgenContainerTy
   return typeof type === "string" && CONTAINER_TYPE_SET.has(type);
 }
 
+// ---------------------------------------------------------------------------
+// R2 P1 §① — the QUESTION GRID container (owner A.1 #1/#2 + the cosmic §5
+// correction: "the question grid is a COMPONENT. Inside the component there are
+// different QUESTIONS, each question is answering another field, and can have
+// dependency between of them. Some questions could be buttons, and some can be
+// dropdown or else.").
+// ---------------------------------------------------------------------------
+//
+// D7 (ruled): this is a NEW node type whose CHILDREN ARE THE EXISTING QUESTION
+// NODE TYPES — NOT a bespoke grid schema. Every child is a full component node
+// validated by the SAME per-node rules as a top-level question (its own
+// internal_field, props.label/helper, choices, props.defaultValue, required,
+// per-question design_overrides/style deviation — D4 — and its own
+// `conditional`), so the schema, the renderers, the runtime, answers.ts
+// fieldsOf and the rules pickers are REUSED rather than re-implemented.
+//
+// It is deliberately NOT a member of LEADGEN_CONTAINER_TYPES: a §8.5 layout
+// container is pure layout chrome (CAP_CONTAINER, no answer semantics), while
+// this container's whole reason to exist is QUESTION semantics — sibling-scoped
+// dependencies and the "no Main question / no shared Helper text / no shared
+// Answer format / no sub-questions" rule the owner spelled out ("you left a lot
+// of dead parts- If each question is independent so why did you kept the main
+// 'Helper text'? if each question is independent why you kept main 'Answer
+// format'? what is it 'sub questions'???? there is no 'Main question'!!!").
+// GridContainer (registry.ts) stays exactly what it is — a LAYOUT primitive.
+export const LEADGEN_QUESTION_GRID_TYPE = "QuestionGrid";
+export type LeadgenQuestionGridType = typeof LEADGEN_QUESTION_GRID_TYPE;
+
+// True when `type` names the question-grid container.
+export function isQuestionGridType(type: unknown): type is LeadgenQuestionGridType {
+  return type === LEADGEN_QUESTION_GRID_TYPE;
+}
+
+// True when `type` names ANY children-bearing node type — the 5 §8.5 layout
+// containers OR the question grid. This is the ONE predicate every tree walk
+// (flattenComponents, collectKnownAnswerFields) uses to decide "descend",
+// which is what makes the grid's child questions INDEPENDENT questions to
+// every existing consumer (answers.ts fieldsOf/normalization, dependencies.ts
+// evaluateDependencies, sections.ts, serve.ts, the offers/rules field pickers)
+// with zero per-consumer changes — the D7 reuse requirement.
+export function isChildrenBearingType(type: unknown): boolean {
+  return isLayoutContainerType(type) || isQuestionGridType(type);
+}
+
 // THE canonical flatten: every non-container node of the tree in depth-first
 // render order. Containers are a SERVER-side rendering concern — every
 // consumer that iterates a Section's components for questions / answers /
@@ -944,6 +988,16 @@ export function isLayoutContainerType(type: unknown): type is LeadgenContainerTy
 // they always did in the flat world (callers keep their own isRecord guards);
 // a container nested beyond the depth cap is not descended into (the
 // validator is the gate; this walk just refuses to blow the stack).
+//
+// R2 P1 §①: the QuestionGrid container flattens the SAME way (isChildrenBearing
+// Type) — the grid itself produces nothing, and its N child questions ARE
+// independent questions ("Each question in the component is independent field,
+// with independent answers, inefendent defaults!!"). So every answer /
+// dependency / field-universe consumer sees them exactly as if they had been
+// authored at the top level. The ONE consumer that must keep the grouping is
+// the /lg/config projection + the renderer — those use the dedicated
+// grouping-preserving walks (config-dto.projectSectionComponents / presets),
+// never this flatten.
 export function flattenComponents(
   components: readonly LeadgenComponentNode[],
 ): LeadgenComponentNode[] {
@@ -952,7 +1006,7 @@ export function flattenComponents(
     for (const node of nodes) {
       const type =
         typeof node === "object" && node !== null ? (node as { type?: unknown }).type : undefined;
-      if (isLayoutContainerType(type)) {
+      if (isChildrenBearingType(type)) {
         if (depth >= LEADGEN_MAX_CONTAINER_DEPTH + 1) continue; // corrupt over-deep data
         const children = (node as { children?: unknown }).children;
         if (Array.isArray(children)) walk(children as LeadgenComponentNode[], depth + 1);
@@ -1114,6 +1168,30 @@ export type SectionContentErrorCode =
   | "children_not_allowed"
   | "container_answer_field_forbidden"
   | "container_prop_invalid"
+  // R2 P1 §① QuestionGrid container errors (owner A.1 #1/#2 + cosmic §5):
+  //   question_grid_child_invalid       — children must be QUESTION nodes
+  //                                       ("Inside the component there are
+  //                                       different QUESTIONS"); a layout
+  //                                       container / control / copy node is
+  //                                       not a question.
+  //   question_grid_shared_field_forbidden
+  //                                     — the container carrying a shared
+  //                                       question-bearing field: the "dead
+  //                                       parts" the owner named (main Helper
+  //                                       text, main Answer format, sub
+  //                                       questions, a Main question).
+  //   question_grid_conditional_scope   — a child dependency whose `when` is
+  //                                       not a SIBLING inside the same grid
+  //                                       (self-reference included): "the user
+  //                                       should be able to manage inner
+  //                                       dippendancies between of questions
+  //                                       inside the component".
+  //   question_grid_conditional_cycle   — sibling dependencies that form a
+  //                                       cycle (unresolvable visibility).
+  | "question_grid_child_invalid"
+  | "question_grid_shared_field_forbidden"
+  | "question_grid_conditional_scope"
+  | "question_grid_conditional_cycle"
   // v2.5 §3.4 canonical headline binding errors
   | "bind_type_mismatch"
   | "duplicate_bind"
@@ -1235,6 +1313,11 @@ export const REQUIRED_FIELDS: Record<ComponentType, RequiredSpec> = {
   // SecureFormBadge above.
   TextBlock: {},
   ImageBlock: {},
+  // R2 P1 §① QuestionGrid: the container itself requires NOTHING — it has no
+  // internal_field, no choices, no text (owner: "there is no 'Main question'!!!").
+  // Every required-field truth belongs to its CHILD question nodes, which are
+  // validated through their OWN rows in this table.
+  QuestionGrid: {},
   // §8.5 layout containers + layout leaves: every prop is OPTIONAL (presets
   // apply token defaults); when PRESENT it must pass the §8.5 token-enum
   // check (validateContainerProps) — not this generic required-field table.
@@ -1337,6 +1420,12 @@ const CONTAINER_PROP_SPECS: Record<string, Record<string, ContainerPropSpec>> = 
   // enum resolved by the preset (`object-fit`), absent ⇒ today's markup.
   ImageCardAnswerGrid: {
     image_fit: enumSpec(LEADGEN_IMAGE_FIT_MODES),
+  },
+  // R2 P1 §①: the QuestionGrid's ONLY authorable container prop is the spacing
+  // between its stacked questions (the design pin's stacked labeled questions).
+  // Nothing question-bearing lives here — that is the whole point of the type.
+  QuestionGrid: {
+    gap: enumSpec(LEADGEN_GAP_TOKENS),
   },
   Stack: {
     direction: enumSpec(LEADGEN_STACK_DIRECTIONS),
@@ -1620,6 +1709,86 @@ function validateSizeOverride(
       "invalid_size_override",
       push,
     );
+  }
+}
+
+// The §14.8/§9.4 curated `design_overrides` bag check. Extracted VERBATIM from
+// validateSectionContent's per-leaf walk (behavior unchanged, same codes, same
+// paths, same order) so the R2 P1 §① QuestionGrid branch — which returns before
+// the leaf tail, exactly like the §8.5 container branch — can run the SAME gate
+// on the container's own overrides instead of leaving a new type's style bag
+// ungated. One override vocabulary, one validator, two call sites.
+function validateDesignOverridesBag(
+  overrides: unknown,
+  base: string,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  if (!isRecord(overrides)) {
+    push(
+      "non_curated_override_key",
+      `${base}.design_overrides`,
+      "design_overrides must be an object of curated token keys",
+    );
+    return;
+  }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (!CURATED_OVERRIDE_KEY_SET.has(key)) {
+      push(
+        "non_curated_override_key",
+        `${base}.design_overrides.${key}`,
+        `'${key}' is not a curated design-override token key (§14.8)`,
+      );
+    } else if (key === "size") {
+      // v3.1 §7.2 — the one object-shaped curated key; never CSS/color
+      // typed, so it takes its own dedicated branch ahead of the
+      // scalar-only checks below.
+      validateSizeOverride(value, `${base}.design_overrides.size`, push);
+    } else if (key === "corners") {
+      if (typeof value !== "string" || !NODE_CORNERS_SET.has(value)) {
+        push(
+          "invalid_override_value",
+          `${base}.design_overrides.corners`,
+          `design_overrides.corners must be one of: ${LEADGEN_NODE_CORNERS.join(", ")} (§8.5b)`,
+        );
+      }
+    } else if (key === "border_color") {
+      if (typeof value !== "string" || !NODE_BORDER_COLOR_ROLE_SET.has(value)) {
+        push(
+          "invalid_override_value",
+          `${base}.design_overrides.border_color`,
+          `design_overrides.border_color must be one of: ${LEADGEN_NODE_BORDER_COLOR_ROLES.join(", ")} (§8.5b)`,
+        );
+      }
+    } else if (key === "columns") {
+      // Round-4 A-7 (P1b): the layout column count is a bounded WHOLE
+      // number 1..5 — UNIFIED with both renderers' clamps (button group
+      // answerGroupRootStyle + renderCardGrid, presets.ts). Before P1b no
+      // server range check existed at all, so a stored 0/6/7 sat as
+      // stored-vs-rendered drift (the clamp silently repaired it on
+      // render). Reject it plainly at save instead.
+      if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 5) {
+        push(
+          "invalid_override_value",
+          `${base}.design_overrides.columns`,
+          "Columns must be a whole number from 1 to 5",
+        );
+      }
+    } else if (looksLikeArbitraryCss(value)) {
+      push(
+        "arbitrary_css_override",
+        `${base}.design_overrides.${key}`,
+        `design_overrides.${key} must be a fixed token value, not arbitrary CSS (§14.10)`,
+      );
+    } else if (COLOR_TYPED_KEY_SET.has(key) && !isValidColorOverrideValue(value)) {
+      // v2.5 §9.4: a color-typed override VALUE must be a known theme
+      // role (09 §9.1) or a legacy raw `#hex` literal (tolerated —
+      // existing stored content). Never any other string/scalar.
+      push(
+        "invalid_override_value",
+        `${base}.design_overrides.${key}`,
+        `design_overrides.${key} must be a theme color role (${LEADGEN_THEME_ROLES.join(", ")}) or a legacy #hex literal (§9.4)`,
+      );
+    }
   }
 }
 
@@ -2675,6 +2844,131 @@ export function rewriteRetiredNodeToPrimitive(node: LeadgenComponentNode): Leadg
 }
 
 // ---------------------------------------------------------------------------
+// R2 P1 §① — QuestionGrid container rules (the owner's "no dead parts" +
+// sibling-scoped inner dependencies).
+// ---------------------------------------------------------------------------
+
+// NODE-level fields that would make the container itself a question. Owner:
+// "there is no 'Main question'!!!" / "Each question in the component is
+// independent field, with independent answers, inefendent defaults!!".
+const QUESTION_GRID_FORBIDDEN_NODE_FIELDS: readonly [string, string][] = [
+  ["internal_field", "the container answers no field of its own — each question inside it answers another field"],
+  ["choices", "answer choices belong to the question that offers them, never to the container"],
+  ["answer_type", "the container emits no answer — each question inside it emits its own"],
+  ["valid_values", "an answer domain belongs to the question that owns it, never to the container"],
+  ["required", "'required' is per question — each question carries its own rule"],
+];
+
+// props-level "dead parts" the owner named explicitly. Key -> the reason,
+// phrased in the owner's own model so the save error reads like the ruling.
+const QUESTION_GRID_FORBIDDEN_PROPS: Readonly<Record<string, string>> = {
+  helper: "there is no shared helper text — each question carries its own helper",
+  helper_text: "there is no shared helper text — each question carries its own helper",
+  format: "there is no shared answer format — each question carries its own",
+  answer_format: "there is no shared answer format — each question carries its own",
+  rows: "there are no 'sub questions' — the container's children ARE the questions",
+  sub_questions: "there are no 'sub questions' — the container's children ARE the questions",
+  questions: "there are no 'sub questions' — the container's children ARE the questions",
+  label: "there is no 'Main question' — each question carries its own label",
+  text: "there is no 'Main question' — each question carries its own label",
+  question: "there is no 'Main question' — each question carries its own label",
+  defaultValue: "defaults are per question — each question carries its own default",
+  placeholder: "a placeholder belongs to the question that shows it",
+  other: "an 'Other' list belongs to the question that offers it",
+};
+
+// The inner dependency gate (owner: "the user should be able to manage inner
+// dippendancies between of questions inside the component"). A child's
+// `conditional` must point at a SIBLING question inside the SAME grid — never
+// at itself, never out of the grid — and the sibling graph must be acyclic.
+//
+// TYPE-AGNOSTIC on BOTH sides (owner clarification 2026-07-28): the trigger is
+// matched by the sibling's FIELD, never by its component type, and the operator
+// vocabulary is the full canonical set (see CONDITION_OPS) — so a Buttons
+// question with non-boolean choices triggering a Dropdown, or a Dropdown
+// triggering Buttons, validates exactly like the Yes/No case. Field ownership
+// is resolved with collectKnownAnswerFields (the SAME enumerator the whole-tree
+// universe uses), so a dual-range slider's _min/_max, an Address role and a
+// NameFields sub-field are all legal triggers inside a grid too.
+function validateQuestionGridDependencies(
+  children: readonly unknown[],
+  childPath: (index: number) => string,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  const fieldOwner = new Map<string, number>();
+  const ownFields: Array<ReadonlySet<string>> = [];
+  const labelOf: string[] = [];
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    const fields = isRecord(child) ? collectKnownAnswerFields([child]) : new Set<string>();
+    ownFields.push(fields);
+    labelOf.push(
+      isRecord(child) && isNonEmptyString(child["question_id"]) ? child["question_id"] : `#${i + 1}`,
+    );
+    for (const f of fields) if (!fieldOwner.has(f)) fieldOwner.set(f, i);
+  }
+
+  // child index -> the sibling indices it depends on (its trigger questions).
+  const edges: Array<Set<number>> = children.map(() => new Set<number>());
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    if (!isRecord(child) || child["conditional"] === undefined) continue;
+    const path = `${childPath(i)}.conditional`;
+    for (const ref of conditionalFieldRefs(child["conditional"])) {
+      if (ownFields[i]!.has(ref)) {
+        push(
+          "question_grid_conditional_scope",
+          `${path}.when`,
+          `a question cannot depend on its own answer ('${ref}') — point the rule at another question in this group`,
+        );
+        continue;
+      }
+      const owner = fieldOwner.get(ref);
+      if (owner === undefined) {
+        push(
+          "question_grid_conditional_scope",
+          `${path}.when`,
+          `'${ref}' is not another question in this group — a question group's rules must point at a question inside the same group`,
+        );
+        continue;
+      }
+      edges[i]!.add(owner);
+    }
+  }
+
+  // Cycle detection (white/grey/black DFS). A cycle is unresolvable visibility
+  // — Q2 shows only if Q3 is answered, Q3 shows only if Q2 is: neither ever
+  // shows. Report ONCE per cycle, naming the chain in question_id terms.
+  const state = new Array<0 | 1 | 2>(children.length).fill(0);
+  const stack: number[] = [];
+  const reported = new Set<string>();
+  const visit = (i: number): void => {
+    state[i] = 1;
+    stack.push(i);
+    for (const dep of edges[i]!) {
+      if (state[dep] === 1) {
+        const from = stack.indexOf(dep);
+        const chain = stack.slice(from === -1 ? stack.length - 1 : from).concat(dep);
+        const key = [...chain].sort((a, b) => a - b).join(",");
+        if (!reported.has(key)) {
+          reported.add(key);
+          push(
+            "question_grid_conditional_cycle",
+            `${childPath(i)}.conditional.when`,
+            `these questions depend on each other in a loop (${chain.map((n) => labelOf[n]).join(" -> ")}) — none of them could ever show`,
+          );
+        }
+      } else if (state[dep] === 0) {
+        visit(dep);
+      }
+    }
+    stack.pop();
+    state[i] = 2;
+  };
+  for (let i = 0; i < children.length; i++) if (state[i] === 0) visit(i);
+}
+
+// ---------------------------------------------------------------------------
 // validateSectionContent
 // ---------------------------------------------------------------------------
 
@@ -2878,6 +3172,111 @@ export function validateSectionContent(
     // early-return below — so a container node's own layout is covered too.
     if (raw["layout"] !== undefined) {
       validatePlacementLayout(raw["layout"], `${base}.layout`, type, catalog.scope, push);
+    }
+
+    // R2 P1 §① — the QUESTION GRID container. Checked BEFORE the §8.5 layout
+    // branch (it is not a layout container) and before the leaf tail (it is not
+    // a question leaf): its children are the questions, and they are validated
+    // by the SAME per-node rules one level down (D7 reuse).
+    if (isQuestionGridType(type)) {
+      if (depth > LEADGEN_MAX_CONTAINER_DEPTH) {
+        push(
+          "container_depth_exceeded",
+          base,
+          `container nesting exceeds the §8.5 maximum depth of ${LEADGEN_MAX_CONTAINER_DEPTH}`,
+        );
+        return;
+      }
+
+      // The "dead parts" gate (owner A.1 #1): the container carries NO shared
+      // question-bearing field — no Main question, no shared Helper text, no
+      // shared Answer format, no 'sub questions', no shared default.
+      for (const [key, reason] of QUESTION_GRID_FORBIDDEN_NODE_FIELDS) {
+        if (raw[key] !== undefined) {
+          push(
+            "question_grid_shared_field_forbidden",
+            `${base}.${key}`,
+            `a question group has no '${key}' of its own — ${reason}`,
+          );
+        }
+      }
+      for (const [key, reason] of Object.entries(QUESTION_GRID_FORBIDDEN_PROPS)) {
+        if (props[key] !== undefined) {
+          push(
+            "question_grid_shared_field_forbidden",
+            `${base}.props.${key}`,
+            `a question group has no shared '${key}' — ${reason}`,
+          );
+        }
+      }
+
+      // The container's own (non-question) props + curated style bag.
+      validateContainerProps(type, props, base, push);
+      if (raw["design_overrides"] !== undefined) {
+        validateDesignOverridesBag(raw["design_overrides"], base, push);
+      }
+
+      // A grid-LEVEL conditional is the whole group's visibility (the group is
+      // a component in the Section like any other) — validated against the
+      // whole-Section universe, exactly like any node's conditional. The
+      // CHILDREN's conditionals are the INNER dependencies and get the
+      // sibling-scope + acyclicity gate below.
+      if (raw["conditional"] !== undefined) {
+        validateConditional(raw["conditional"], `${base}.conditional`, knownFields, push);
+      }
+
+      const gridChildren = raw["children"];
+      if (gridChildren !== undefined) {
+        if (!Array.isArray(gridChildren)) {
+          push(
+            "question_grid_child_invalid",
+            `${base}.children`,
+            "a question group's children must be a list of question components",
+          );
+        } else {
+          for (let j = 0; j < gridChildren.length; j++) {
+            const childPath = `${base}.children[${j}]`;
+            const child = gridChildren[j];
+            // Owner (cosmic §5): "Inside the component there are different
+            // QUESTIONS" — a layout container / control / copy node is not a
+            // question and may not live inside the group. An UNKNOWN type is
+            // left to the recursive walk's own unknown_component_type error
+            // (never double-reported here).
+            const childType = isRecord(child) ? child["type"] : undefined;
+            if (isKnownComponentType(childType)) {
+              const childCategory = COMPONENT_CATALOG[childType].category;
+              if (isQuestionGridType(childType)) {
+                // A group inside a group has no owner meaning: "Inside the
+                // component there are different QUESTIONS" — one level, and
+                // every child is a question that answers another field.
+                push(
+                  "question_grid_child_invalid",
+                  `${childPath}.type`,
+                  "a question group cannot contain another question group — its children are the questions",
+                );
+              } else if (childCategory !== "question") {
+                push(
+                  "question_grid_child_invalid",
+                  `${childPath}.type`,
+                  `only question components can live inside a question group — ${childType} is a ${childCategory} component`,
+                );
+              }
+            }
+            validateNode(child, childPath, depth + 1);
+          }
+          // P3a: row-grouping (contiguity + max-3) over THIS child sibling list
+          // — a group's questions can sit side by side exactly like any other
+          // siblings.
+          validateRowGrouping(gridChildren, (j) => `${base}.children[${j}]`, push);
+          // The inner dependency gate: sibling-scoped, no self, no cycles.
+          validateQuestionGridDependencies(
+            gridChildren,
+            (j) => `${base}.children[${j}]`,
+            push,
+          );
+        }
+      }
+      return;
     }
 
     if (isContainer) {
@@ -3152,74 +3551,7 @@ export function validateSectionContent(
 
     // design_overrides: curated keys only; token/scalar values, never CSS.
     if (raw["design_overrides"] !== undefined) {
-      const overrides = raw["design_overrides"];
-      if (!isRecord(overrides)) {
-        push(
-          "non_curated_override_key",
-          `${base}.design_overrides`,
-          "design_overrides must be an object of curated token keys",
-        );
-      } else {
-        for (const [key, value] of Object.entries(overrides)) {
-          if (!CURATED_OVERRIDE_KEY_SET.has(key)) {
-            push(
-              "non_curated_override_key",
-              `${base}.design_overrides.${key}`,
-              `'${key}' is not a curated design-override token key (§14.8)`,
-            );
-          } else if (key === "size") {
-            // v3.1 §7.2 — the one object-shaped curated key; never CSS/color
-            // typed, so it takes its own dedicated branch ahead of the
-            // scalar-only checks below.
-            validateSizeOverride(value, `${base}.design_overrides.size`, push);
-          } else if (key === "corners") {
-            if (typeof value !== "string" || !NODE_CORNERS_SET.has(value)) {
-              push(
-                "invalid_override_value",
-                `${base}.design_overrides.corners`,
-                `design_overrides.corners must be one of: ${LEADGEN_NODE_CORNERS.join(", ")} (§8.5b)`,
-              );
-            }
-          } else if (key === "border_color") {
-            if (typeof value !== "string" || !NODE_BORDER_COLOR_ROLE_SET.has(value)) {
-              push(
-                "invalid_override_value",
-                `${base}.design_overrides.border_color`,
-                `design_overrides.border_color must be one of: ${LEADGEN_NODE_BORDER_COLOR_ROLES.join(", ")} (§8.5b)`,
-              );
-            }
-          } else if (key === "columns") {
-            // Round-4 A-7 (P1b): the layout column count is a bounded WHOLE
-            // number 1..5 — UNIFIED with both renderers' clamps (button group
-            // answerGroupRootStyle + renderCardGrid, presets.ts). Before P1b no
-            // server range check existed at all, so a stored 0/6/7 sat as
-            // stored-vs-rendered drift (the clamp silently repaired it on
-            // render). Reject it plainly at save instead.
-            if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 5) {
-              push(
-                "invalid_override_value",
-                `${base}.design_overrides.columns`,
-                "Columns must be a whole number from 1 to 5",
-              );
-            }
-          } else if (looksLikeArbitraryCss(value)) {
-            push(
-              "arbitrary_css_override",
-              `${base}.design_overrides.${key}`,
-              `design_overrides.${key} must be a fixed token value, not arbitrary CSS (§14.10)`,
-            );
-          } else if (COLOR_TYPED_KEY_SET.has(key) && !isValidColorOverrideValue(value)) {
-            // v2.5 §9.4: a color-typed override VALUE must be a known theme
-            // role (09 §9.1) or a legacy raw `#hex` literal (tolerated —
-            // existing stored content). Never any other string/scalar.
-            push(
-              "invalid_override_value",
-              `${base}.design_overrides.${key}`,
-              `design_overrides.${key} must be a theme color role (${LEADGEN_THEME_ROLES.join(", ")}) or a legacy #hex literal (§9.4)`,
-            );
-          }
-        }
-      }
+      validateDesignOverridesBag(raw["design_overrides"], base, push);
     }
 
     // v3.1 §8.3 top-level `required` (the repo's REAL mechanism — see the
@@ -3422,8 +3754,11 @@ export function collectKnownAnswerFields(components: readonly unknown[]): Set<st
         knownFields.add(first);
         knownFields.add(last);
       }
+      // R2 P1 §①: descend into the QuestionGrid exactly like a §8.5 container
+      // — its child questions each name a REAL answer field, so the rules
+      // pickers, the save gate and the activation preflight all see them.
       if (
-        isLayoutContainerType(raw["type"]) &&
+        isChildrenBearingType(raw["type"]) &&
         depth <= LEADGEN_MAX_CONTAINER_DEPTH &&
         Array.isArray(raw["children"])
       ) {

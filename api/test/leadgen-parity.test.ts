@@ -444,6 +444,18 @@ const NODE_SPECS: Record<ComponentType, LeadgenComponentNode> = {
   HelperText: { type: "HelperText", question_id: "q", props: { text: "We never share this." } },
   ValidationError: { type: "ValidationError", question_id: "q", props: { text: "Required" } },
   LegalNote: { type: "LegalNote", question_id: "q", props: { html: "Terms apply" } },
+  // R2 P1 §① — the QUESTION grid container. Children-bearing like the §8.5
+  // layout containers below, but its children are QUESTIONS (each answering
+  // another field, with its own label/choices/default). The fixture nests the
+  // design pin's own MIXED shape (a Yes/No pair + a dropdown) so the matrix
+  // proves per-child recursion parity, not just a wrapper.
+  QuestionGrid: {
+    type: "QuestionGrid", question_id: "q", props: { gap: "m" },
+    children: [
+      { type: "TwoButtonYesNo", question_id: "q_grid_yn", internal_field: "grid_insured", props: { label: "Are you currently insured?" } },
+      { type: "DropdownQuestion", question_id: "q_grid_dd", internal_field: "grid_insurer", choices: CHOICES, props: { label: "Who is your current insurer?", placeholder: "Pick one" } },
+    ],
+  },
   Stack: {
     type: "Stack", question_id: "q", props: { direction: "vertical", gap: "m", align: "stretch" },
     children: [{ type: "FreeTextQuestion", question_id: "q_in_stack", internal_field: "stack_note", props: { placeholder: "Type…" } }],

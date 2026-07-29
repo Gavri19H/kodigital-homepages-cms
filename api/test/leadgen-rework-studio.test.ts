@@ -298,20 +298,36 @@ describe("§6.10/M9 address field-set editor", () => {
 });
 
 // =============================================================================
-// §4.1 — "Questions on one screen" palette starter (replaces the grid tile)
+// §4.1 — the ONE grid-bearing palette tile
+//
+// R2 P1 §① NAMING RECONCILIATION (test-encoding update, sanctioned in the S1c
+// dispatch): the assertion below encoded the PRIOR program's model — a starter
+// tile that inserts two LOOSE YesNo components, plus an outright BAN on the name
+// "Question grid". The owner REJECTED that reading ("'Question grid' - Image1 -
+// This component is providing answers to multiple fields"), and R2 contract §2
+// demanded end state 1 restores it: **ONE palette component ("Question grid" /
+// "Questions on one screen")** whose children are independent-field questions.
+// The contract names the component BOTH ways, so the tile KEEPS the palette
+// wording it already had (one tile, never two competing ones) and now inserts
+// the CONTAINER; the owner's own word "Question grid" is the component's
+// operator name in studioTypeMeta — what the canvas tag, the inspector scope
+// header and the breadcrumb show. The MultiQuestionGrid ban STAYS: that extinct
+// ONE-UNIT type really is gone; what returns is a container of questions.
 // =============================================================================
 
 describe("§4.1 palette starter", () => {
   const allTiles = STUDIO_LIBRARY_GROUPS.flatMap((g) => g.tiles);
-  it("the 'Questions on one screen' starter tile exists (TwoButtonYesNo, starter marker) and the 'Question grid' tile is gone", () => {
-    const starter = allTiles.find((t) => t.label === "Questions on one screen");
-    expect(starter, "starter tile present").toBeTruthy();
-    expect(starter!.defaultType).toBe("TwoButtonYesNo");
-    expect(starter!.starter).toBe("questions_one_screen");
-    // §10: the grid catalog type is removed, so `defaultType` (a ComponentType)
-    // can never be it — String() to compare against the extinct id.
+  it("EXACTLY ONE grid-bearing tile exists — it inserts the QuestionGrid CONTAINER via the starter marker, the component's operator name is the owner's 'Question grid', and the extinct one-unit MultiQuestionGrid is still gone", () => {
+    const starters = allTiles.filter((t) => t.starter === "questions_one_screen");
+    expect(starters.length, "exactly one grid-bearing tile").toBe(1);
+    const starter = starters[0]!;
+    expect(starter.label).toBe("Questions on one screen");
+    expect(starter.defaultType).toBe("QuestionGrid");
+    // the owner's OWN name for the component, on every surface that names it.
+    expect(studioTypeMeta()["QuestionGrid"]!.label).toBe("Question grid");
+    // §10: the ONE-UNIT grid catalog type stays removed, so `defaultType`
+    // (a ComponentType) can never be it — String() to compare against the id.
     expect(allTiles.some((t) => String(t.defaultType) === "MultiQuestionGrid")).toBe(false);
-    expect(allTiles.some((t) => t.label === "Question grid")).toBe(false);
     // the tile renders the starter marker so click/keyboard/drag resolve to it.
     expect(LIBRARY).toContain('data-add-starter="questions_one_screen"');
   });

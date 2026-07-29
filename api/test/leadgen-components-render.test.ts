@@ -337,6 +337,14 @@ const NODE_SPECS: Record<ComponentType, LeadgenComponentNode> = {
   HelperText: { type: "HelperText", question_id: "q", props: { text: "We never share this." } },
   ValidationError: { type: "ValidationError", question_id: "q", props: { text: "Required" } },
   LegalNote: { type: "LegalNote", question_id: "q", props: { html: "Terms apply" } },
+  // R2 P1 §① — the QUESTION GRID container (children-bearing like the §8.5
+  // layout containers, but a QUESTION container: its children are the
+  // questions, each answering another field). The minimal valid spec nests one
+  // real question so the lockstep render proves recursion.
+  QuestionGrid: {
+    type: "QuestionGrid", question_id: "q", props: { gap: "m" },
+    children: [{ type: "TwoButtonYesNo", question_id: "q_in_group", internal_field: "group_insured", props: { label: "Are you insured?" } }],
+  },
   // §8.5 layout containers (children-bearing: each spec nests a real question
   // so the lockstep render proves recursion) + prop-driven layout leaves.
   Stack: {

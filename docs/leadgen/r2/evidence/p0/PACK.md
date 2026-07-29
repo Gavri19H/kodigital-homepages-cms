@@ -50,14 +50,15 @@ read-only R1a data-consistency inventory is **BLOCKED(owner)** (register row ADJ
 run from any checkout's `api/` directory (read-only SELECTs; nothing is written):
 ```
 npx wrangler d1 execute kodigital-homepages-cms-db --env production --remote --json \
-  --command "SELECT id, public_id, site_id, content_json FROM leadgen_sections WHERE content_json LIKE '%TwoButtonYesNo%'"
+  --command "SELECT id, public_id, section_name, activity, vertical, status, content_json FROM leadgen_sections WHERE content_json LIKE '%TwoButtonYesNo%'"
 npx wrangler d1 execute kodigital-homepages-cms-db --env production --remote --json \
-  --command "SELECT id, section_id, question_id, internal_field, output_value_map, value_transform FROM leadgen_section_answer_maps"
+  --command "SELECT id, public_id, section_id, question_id, internal_field, answer_type, offer_id, output_value_map_json, transform_json FROM leadgen_section_answer_maps"
 npx wrangler d1 execute kodigital-homepages-cms-db --env production --remote --json \
-  --command "SELECT id, quote_id, rule_name, conditions_json, target_funnel_id FROM leadgen_quote_routing_rules"
+  --command "SELECT id, public_id, quote_id, rule_name, status, conditions_json, target_funnel_id FROM leadgen_quote_routing_rules"
 npx wrangler d1 execute kodigital-homepages-cms-db --env production --remote --json \
-  --command "SELECT id, funnel_id, rule_type, conditions_json FROM leadgen_funnel_rules"
+  --command "SELECT id, public_id, variant_id, rule_type, enabled, conditions_json FROM leadgen_funnel_rules"
 ```
+*(column lists corrected 2026-07-29 against the real migrations after the first hand-run hit `no such column: site_id` — sections are activity/vertical-scoped; answer-map columns are `output_value_map_json`/`transform_json`; funnel rules key on `variant_id`)*
 Paste the outputs back (or grant the permission and I run them); I filter the
 `choices[].value ∉ {true,false}` candidates, cross-join, and land the inventory in the register.
 Any data remediation is DRAFTED for your approval — never executed by me.
