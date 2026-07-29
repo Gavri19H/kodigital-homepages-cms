@@ -918,6 +918,12 @@ function footerScopeStyle(f: FrameFooterConfig): string {
   if (fontFamily !== undefined && fontFamily in THEME_RECORD_FONT_STACKS) {
     pairs.push(`--lg-footer-font:${THEME_RECORD_FONT_STACKS[fontFamily]}`);
   }
+  // R2 P3 FIX-FIRST (MAJOR-5) — the footer's own underline-links axis (the
+  // owner's Image45 pin). A CLOSED two-value property (the literal token
+  // `underline`, emitted only for `=== true`), never an author string — the
+  // same closed-table discipline as --lg-footer-font above. Absent → the
+  // styles.ts rule's own `none` fallback, i.e. today's behavior.
+  if (f.link_underline === true) pairs.push("--lg-footer-link-decoration:underline");
   return pairs.length > 0 ? ` style="${pairs.join(";")}"` : "";
 }
 // R2 P3 (element J) — about_paragraph/disclosure/heading share ONE rich-text
@@ -937,7 +943,14 @@ function footerInlineBody(block: FrameFooterBlock): string {
 // depth over frames.ts's STORE-time gate on the SAME field).
 function renderFooterBlockLogo(block: FrameFooterBlock, branding: SiteBranding | null): string {
   if (block.logo_source === "manual") {
-    const fromMedia = mediaUrl(block.logo_media_id ?? null);
+    // R2 P3 FIX-FIRST (MINOR-10) — close the asymmetry R2 minor-6 forbids:
+    // `logo_url` was SAFE_HREF_RE-gated here but its sibling `logo_media_id`
+    // rode mediaUrl() ungated, so the media leg was the one src on this
+    // element with no render-time check. mediaUrl's own output is a /media/…
+    // path, so the gate is a no-op for every real media id — it simply means
+    // NEITHER sibling can reach `src` unchecked.
+    const mediaResolved = mediaUrl(block.logo_media_id ?? null);
+    const fromMedia = isNonEmptyStr(mediaResolved) && SAFE_HREF_RE.test(mediaResolved.trim()) ? mediaResolved : null;
     const rawUrl = block.logo_url;
     const fromUrl = isNonEmptyStr(rawUrl) && SAFE_HREF_RE.test(rawUrl.trim()) ? rawUrl : null;
     const src = fromMedia ?? fromUrl;
@@ -948,7 +961,7 @@ function renderFooterBlockLogo(block: FrameFooterBlock, branding: SiteBranding |
   }
   return renderFooterLogo(branding);
 }
-function renderFooterBlock(block: FrameFooterBlock, branding: SiteBranding | null): string {
+function renderFooterBlock(block: FrameFooterBlock, branding: SiteBranding | null, footer: FrameFooterConfig): string {
   const alignA = alignAttr(block.align);
   switch (block.type) {
     case "about_paragraph":
@@ -995,9 +1008,19 @@ function renderFooterBlock(block: FrameFooterBlock, branding: SiteBranding | nul
         (l) => l.label.trim() !== "" && l.href.trim() !== "" && SAFE_HREF_RE.test(l.href.trim()),
       );
       if (links.length === 0) return "";
+      // R2 P3 FIX-FIRST (MINOR-8) — the owner's Image28 pin puts " | " BETWEEN
+      // the legal links. The separator is the footer's own authored text,
+      // ESCAPED (never a markup sink), rendered as an aria-hidden span between
+      // anchors only — never before the first or after the last, never inside
+      // an anchor. Absent/blank → the pre-fix anchors-only join, byte-identical.
+      const rawSep = footer.link_separator;
+      const sep =
+        typeof rawSep === "string" && rawSep !== ""
+          ? `<span class="lg-frame-footer2-link-sep" aria-hidden="true">${escapeHtml(rawSep)}</span>`
+          : "";
       const anchors = links
         .map((l) => `<a class="lg-frame-footer2-link" href="${escapeHtml(l.href)}">${escapeHtml(l.label)}</a>`)
-        .join("");
+        .join(sep);
       return `<div class="lg-frame-footer2-links"${alignA}>${anchors}</div>`;
     }
     case "socials":
@@ -1029,7 +1052,7 @@ function renderFooterV2(
 ): string {
   const f = frame.footer;
   if (!f.enabled || f.show_on === "never") return "";
-  const inner = (f.blocks ?? []).map((b) => renderFooterBlock(b, branding)).join("");
+  const inner = (f.blocks ?? []).map((b) => renderFooterBlock(b, branding, f)).join("");
   const hideMobile = f.hide_on_mobile || frame.mobile.hide_footer === true;
   const classes =
     `lg-frame-footer lg-frame-footer2 lg-frame-footer--show-${f.show_on}` +

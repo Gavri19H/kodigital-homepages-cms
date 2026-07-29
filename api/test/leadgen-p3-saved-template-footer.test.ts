@@ -316,9 +316,16 @@ describe("R2 P3 blocker — the three editor wirings element J needs (SOURCE-OF-
   it("UI gap 3: the data-footer-fmt toolbar is wired, and resolves the button through closestAttr (its glyph is the click target)", () => {
     expect(QUOTE_EDITOR_SCRIPT, "the toolbar must have a handler at all").toContain("data-footer-fmt");
     expect(QUOTE_EDITOR_SCRIPT).toContain("closestAttr(el, 'data-footer-fmt')");
-    const at = QUOTE_EDITOR_SCRIPT.indexOf("wrapSelection(footerTa, footerFmt)");
+    // RECAPTURED (R2 P3 FIX-FIRST, MINOR-13): the pinned literal was
+    // `wrapSelection(footerTa, footerFmt)`. wrapSelection now takes a third
+    // `after` callback so the LINK case can run through the studio modal
+    // instead of window.prompt() — the wrap is applied on Insert, never on
+    // Cancel, so the persist call HAS to move inside that callback. Both
+    // things this check asserts are unchanged and still asserted below: the
+    // toolbar wraps the FOOTER textarea, and it persists through the FOOTER's
+    // collector (never free_text's).
+    const at = QUOTE_EDITOR_SCRIPT.indexOf("wrapSelection(footerTa, footerFmt,");
     expect(at, "the footer toolbar must wrap the FOOTER textarea").toBeGreaterThan(-1);
-    // …persisting through the FOOTER's collector, never free_text's.
     expect(QUOTE_EDITOR_SCRIPT.slice(at, at + 120)).toContain("writeConfigValue('footer.blocks', collectFooterBlocks())");
   });
 

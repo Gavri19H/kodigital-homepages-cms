@@ -232,9 +232,24 @@ export interface FrameFooterLink {
 // is the stable cross-site identity; `label` is author-controlled and rides
 // unchanged across every serving site; `manual_url` is the D2 fallback used
 // only when the serving site has no page of that type.
+// R2 P3 FIX-FIRST (BLOCKER-2) — `page_type` alone is NOT a unique identity.
+// A stock CMS site auto-seeds contact / do-not-sell / privacy-policy / terms
+// ALL as page_type:"legal" (site-provisioning legal-renderer), and
+// leadgen/branding.ts's resolver maps first-wins PER TYPE — so four distinct
+// picks silently collapsed onto ONE page, making Image28's six distinct legal
+// links unbuildable on a default site. `slug` is the per-site UNIQUE key
+// (migration 0007 idx_pages_site_slug_unique) that stock sites nonetheless
+// SHARE across sites (the seeder writes the same LEGAL_TEMPLATE_SLUGS
+// everywhere), so it distinguishes the four "legal" rows while still
+// resolving against whichever site serves the funnel — the D2 semantic.
+// BACK-COMPAT: `slug` is OPTIONAL and `page_type` stays REQUIRED; a pick
+// saved before this fix (page_type only) resolves through the UNCHANGED
+// page_type path, and a slug that the serving site does not have also falls
+// back to page_type, then to manual_url, then omission.
 export interface FrameFooterLegalPagePick {
   page_type: string;
   label: string;
+  slug?: string;
   manual_url?: string;
 }
 
@@ -312,6 +327,19 @@ export interface FrameFooterConfig {
   blocks?: FrameFooterBlock[];
   palette_scope?: FramePaletteScope;
   typography_scope?: FrameTypographyScope;
+  // R2 P3 FIX-FIRST (MAJOR-5) — the owner's Image45 pin shows UNDERLINED
+  // legal links; styles.ts hard-codes `text-decoration:none` on
+  // .lg-frame-footer2-link with no operator control, so that pin was not
+  // deliverable at all. The footer owns its own styling per A.2 ("different
+  // color, font and sizes then the main template"), so the axis belongs to
+  // the footer's OWN design box. ABSENT/false → today's behavior byte-for-
+  // byte (frame.ts emits no custom property, styles.ts falls to `none`).
+  link_underline?: boolean;
+  // R2 P3 FIX-FIRST (MINOR-8) — Image28 separates its six legal links with
+  // " | ". The separator is authorable text rendered BETWEEN the anchors of a
+  // link_row (never inside one, never a link itself); ABSENT/null → the
+  // pre-fix gap-only row, byte-identical.
+  link_separator?: string | null;
 }
 
 export interface FrameTrustLogo {
@@ -1094,6 +1122,11 @@ const FRAME_GROUP_SPECS: Record<string, FrameGroupSpec> = {
         label: "footer typography scope",
         fields: { size: oneOf(FRAME_TYPO_SIZES), font_family: oneOf(THEME_RECORD_FONT_NAMES) },
       },
+      // R2 P3 FIX-FIRST — the footer's own link-decoration axis (MAJOR-5) and
+      // the Image28 link separator (MINOR-8). Plain existing kinds: a boolean
+      // and nullable plain text (escaped at render, never a markup sink).
+      link_underline: bool,
+      link_separator: textOrNull,
     },
   },
   trust_strip: {
@@ -1355,6 +1388,12 @@ function validateFooterBlocks(value: unknown, path: string, _label: string, push
           }
           if (!isRecord(pk) || !isNonEmptyString(pk["label"])) {
             push("error", `${pkp}.label`, "A picked page needs a label.");
+          }
+          // R2 P3 FIX-FIRST (BLOCKER-2) — the OPTIONAL per-site-unique slug.
+          // Optional on purpose: picks saved before this fix carry only
+          // page_type and must keep validating (and resolving) unchanged.
+          if (isRecord(pk) && pk["slug"] !== undefined && !isNonEmptyString(pk["slug"])) {
+            push("error", `${pkp}.slug`, "A picked page's address must be plain text.");
           }
           if (
             isRecord(pk) &&

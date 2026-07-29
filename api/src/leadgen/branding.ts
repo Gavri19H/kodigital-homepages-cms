@@ -28,15 +28,17 @@
 //     site_settings). This is the ONLY behavior change; every existing
 //     caller that never passes the 3rd arg is unaffected.
 //   * `resolvePickedLegalPageLinks` — the serve-time resolver: the operator
-//     picks pages by their STABLE identity (`page_type`, a value from the
-//     admin/pages plane's closed LEGAL_PAGE_TYPES set or any page flagged
-//     `show_in_footer`), never by row id (row ids are per-site and cannot
-//     cross sites). At serve time, for the SERVING site_id, each pick's
-//     page_type is looked up against THAT site's own `pages` rows — so one
-//     saved pick set serves site A's privacy policy on site A and site B's
-//     on site B. No match on the serving site → the pick's `manual_url`
-//     fallback (when present AND safe) → otherwise OMITTED. Never a dead or
-//     unsafe link (D2 + R2 minor-6).
+//     picks pages by a STABLE, PORTABLE identity, never by row id (row ids
+//     are per-site and cannot cross sites). R2 P3 FIX-FIRST (BLOCKER-2): that
+//     identity is now `slug` FIRST (per-site UNIQUE, shared across stock
+//     sites) with `page_type` as the back-compat fallback — see
+//     SiteBrandingLegalPagePick below for why page_type alone was wrong and
+//     what the migration-safe rule is. At serve time, for the SERVING
+//     site_id, each pick is looked up against THAT site's own `pages` rows —
+//     so one saved pick set serves site A's privacy policy on site A and
+//     site B's on site B. No match on the serving site → the pick's
+//     `manual_url` fallback (when present AND safe) → otherwise OMITTED.
+//     Never a dead or unsafe link (D2 + R2 minor-6).
 //   * `listPickableLegalPages` — the picker's data source: one site's own
 //     candidates (page_type ∈ LEGAL_PAGE_TYPES and/or show_in_footer=1,
 //     non-archived) for the operator to choose from at authoring time.
@@ -67,9 +69,25 @@ export interface SiteBrandingLegalLink {
 // only the HREF resolves per site. `page_type` is the stable cross-site
 // identity (row ids are per-site and never portable). `manual_url` is the
 // D2 fallback used ONLY when the serving site has no page of that type.
+// R2 P3 FIX-FIRST (BLOCKER-2) — `slug` is the PRIMARY identity; `page_type`
+// is the back-compat fallback. Why: `page_type` is NOT unique per site — a
+// stock CMS site's provisioning step seeds contact / do-not-sell /
+// privacy-policy / terms ALL with page_type 'legal', so the first-wins
+// per-type map below sent four different picks to ONE page (silently, on the
+// DEFAULT path). `slug` is UNIQUE per site (migration 0007
+// idx_pages_site_slug_unique) yet SHARED across stock sites (the seeder
+// writes the same LEGAL_TEMPLATE_SLUGS on every site), so it keeps D2's
+// "one saved template, each site's own pages" semantic while telling the
+// four 'legal' rows apart.
+// BACK-COMPAT RULE (migration-safe, no data rewrite): resolution is
+//   slug (when stored AND the serving site publishes it)
+//   → page_type first-wins (EXACTLY the pre-fix behavior — the only path a
+//     pre-fix pick, which stores no slug, can ever take)
+//   → manual_url (SAFE_HREF-gated) → omitted.
 export interface SiteBrandingLegalPagePick {
   page_type: string;
   label: string;
+  slug?: string | null;
   manual_url?: string | null;
 }
 
@@ -181,28 +199,60 @@ const SAFE_HREF_RE = /^(https?:\/\/|\/(?!\/)|#|tel:|mailto:)/i;
 // then lowest id — first-wins per type. Never throws: a read failure yields
 // an empty map, so every pick degrades to its manual/omitted leg exactly as
 // if the site had no pages at all.
-async function loadPublishedPagesByType(
+// R2 P3 FIX-FIRST (BLOCKER-2): now loads BOTH indexes in the same batched
+// read — `bySlug` (the per-site UNIQUE identity, so no tie-break can apply)
+// and `byType` (the pre-fix first-wins map, kept byte-identical for the
+// back-compat leg). One statement per chunk covers both because a pick's
+// slug and its page_type describe the SAME candidate rows; the OR keeps the
+// binding count at 1 + |slugs| + |types| per chunk, chunked at 80 total
+// (d1-database-safety IN(?) rule).
+interface PublishedPageIndex {
+  bySlug: ReadonlyMap<string, { slug: string }>;
+  byType: ReadonlyMap<string, { slug: string }>;
+}
+async function loadPublishedPages(
   db: D1Database,
   siteId: string,
   pageTypes: readonly string[],
-): Promise<ReadonlyMap<string, { slug: string }>> {
+  slugs: readonly string[],
+): Promise<PublishedPageIndex> {
   const uniqueTypes = Array.from(new Set(pageTypes.filter((t) => t.trim() !== "")));
+  const uniqueSlugs = Array.from(new Set(slugs.filter((s) => s.trim() !== "")));
   const byType = new Map<string, { slug: string }>();
-  if (uniqueTypes.length === 0) return byType;
+  const bySlug = new Map<string, { slug: string }>();
+  if (uniqueTypes.length === 0 && uniqueSlugs.length === 0) return { bySlug, byType };
+  // Pair each key with its column so one flat list can be chunked at 80
+  // regardless of how the picks split between the two identities.
+  const keys: Array<{ column: "page_type" | "slug"; value: string }> = [
+    ...uniqueTypes.map((value) => ({ column: "page_type" as const, value })),
+    ...uniqueSlugs.map((value) => ({ column: "slug" as const, value })),
+  ];
   try {
-    for (let i = 0; i < uniqueTypes.length; i += 80) {
-      const chunk = uniqueTypes.slice(i, i + 80);
-      const placeholders = chunk.map(() => "?").join(",");
+    for (let i = 0; i < keys.length; i += 80) {
+      const chunk = keys.slice(i, i + 80);
+      const typeChunk = chunk.filter((k) => k.column === "page_type").map((k) => k.value);
+      const slugChunk = chunk.filter((k) => k.column === "slug").map((k) => k.value);
+      const clauses: string[] = [];
+      if (typeChunk.length > 0) clauses.push(`page_type IN (${typeChunk.map(() => "?").join(",")})`);
+      if (slugChunk.length > 0) clauses.push(`slug IN (${slugChunk.map(() => "?").join(",")})`);
       const result = await db
         .prepare(
           `SELECT page_type AS page_type, slug AS slug FROM pages
-           WHERE site_id = ? AND status = 'published' AND page_type IN (${placeholders})
+           WHERE site_id = ? AND status = 'published' AND (${clauses.join(" OR ")})
            ORDER BY show_in_footer DESC, display_order ASC, id ASC`,
         )
-        .bind(siteId, ...chunk)
+        .bind(siteId, ...typeChunk, ...slugChunk)
         .all<{ page_type: string; slug: string }>();
       for (const row of result.results ?? []) {
-        if (!byType.has(row.page_type)) byType.set(row.page_type, { slug: row.slug });
+        // byType stays EXACTLY the pre-fix map: populated only from rows the
+        // page_type leg of THIS chunk asked for, so the widened OR can never
+        // change which row wins a type (a chunk that requests type T gets
+        // every published T row, in the same order, exactly as before).
+        if (typeChunk.indexOf(row.page_type) !== -1 && !byType.has(row.page_type)) {
+          byType.set(row.page_type, { slug: row.slug });
+        }
+        // (site_id, slug) is UNIQUE — at most one row per slug, no tie-break.
+        bySlug.set(row.slug, { slug: row.slug });
       }
     }
   } catch (err) {
@@ -211,8 +261,9 @@ async function loadPublishedPagesByType(
       err instanceof Error ? err.message : err,
     );
     byType.clear();
+    bySlug.clear();
   }
-  return byType;
+  return { bySlug, byType };
 }
 
 // The D2 serve-time resolver. For the SERVING `siteId`, maps each pick's
@@ -229,12 +280,22 @@ export async function resolvePickedLegalPageLinks(
   picks: readonly SiteBrandingLegalPagePick[],
 ): Promise<SiteBrandingLegalLink[]> {
   if (picks.length === 0) return [];
-  const byType = await loadPublishedPagesByType(db, siteId, picks.map((p) => p.page_type));
+  const { bySlug, byType } = await loadPublishedPages(
+    db,
+    siteId,
+    picks.map((p) => p.page_type),
+    picks.map((p) => trimmed(p.slug)),
+  );
   const out: SiteBrandingLegalLink[] = [];
   for (const pick of picks) {
     const label = trimmed(pick.label);
     if (label === "") continue;
-    const match = byType.get(pick.page_type);
+    // R2 P3 FIX-FIRST (BLOCKER-2) — slug first (per-site UNIQUE, tells the
+    // four stock 'legal' rows apart), page_type second (the UNCHANGED
+    // pre-fix leg every pre-fix pick takes).
+    const slugKey = trimmed(pick.slug);
+    const bySlugMatch = slugKey === "" ? undefined : bySlug.get(slugKey);
+    const match = bySlugMatch ?? byType.get(pick.page_type);
     if (match !== undefined) {
       out.push({ label, href: `/${match.slug}` });
       continue;

@@ -2598,7 +2598,16 @@ export function funnelChromeCss(
         gap: spacing.md,
         margin: `0 0 ${spacing.sm}`,
       }),
-      rule(`${scope} .lg-frame-footer2-link`, { color: "var(--lg-footer-link,inherit)", "text-decoration": "none" }),
+      // R2 P3 FIX-FIRST (MAJOR-5) — the footer's own underline-links axis.
+      // frame.ts's footerScopeStyle emits --lg-footer-link-decoration ONLY for
+      // an explicit footer.link_underline:true; every other footer resolves the
+      // var to its `none` fallback == the pre-fix declaration, byte-identical.
+      rule(`${scope} .lg-frame-footer2-link`, {
+        color: "var(--lg-footer-link,inherit)",
+        "text-decoration": "var(--lg-footer-link-decoration,none)",
+      }),
+      // R2 P3 FIX-FIRST (MINOR-8) — the Image28 " | " between legal links.
+      rule(`${scope} .lg-frame-footer2-link-sep`, { color: "var(--lg-footer-fg,inherit)", opacity: "0.6" }),
       rule(`${scope} .lg-frame-footer2-socials`, {
         display: "flex",
         "flex-wrap": "wrap",
@@ -2606,6 +2615,90 @@ export function funnelChromeCss(
         gap: spacing.md,
       }),
       rule(`${scope} .lg-frame-footer2-social`, { color: "var(--lg-footer-link,inherit)", "text-decoration": "none" }),
+      // ---- R2 P3 FIX-FIRST (MAJOR-4): the element-J block types that shipped
+      // with ZERO CSS. `.lg-frame-footer2-list` inherited the UA's
+      // padding-left:40px under `.lg-frame-footer2{text-align:center}`, pinning
+      // its markers hard-left while the text floated centred (1280 AND 375);
+      // `-heading` had no size/weight/spacing at all; `-logo-img` had no size
+      // constraint, so a 2000px asset blew the band out (MINOR-7).
+      rule(`${scope} .lg-frame-footer2-heading`, {
+        // `em`, so the heading scales with the footer's OWN typography scope
+        // (--lg-footer-size on the wrapper) rather than the page's base size.
+        "font-size": "1.08em",
+        "font-weight": "600",
+        "line-height": "1.3",
+        color: "var(--lg-footer-fg,inherit)",
+        margin: `${spacing.md} 0 ${spacing.xs}`,
+      }),
+      rule(`${scope} .lg-frame-footer2-list`, {
+        // list-style-position:inside + no padding keeps the marker glued to its
+        // item, so the list reads correctly BOTH centred (the footer default)
+        // and left-aligned (the per-block [data-align] rules below).
+        "list-style-position": "inside",
+        "padding-left": "0",
+        margin: `0 0 ${spacing.sm}`,
+        "line-height": "1.5",
+      }),
+      rule(`${scope} .lg-frame-footer2-logo-img`, {
+        display: "inline-block",
+        "max-height": logoStrip.logoMaxHeight,
+        "max-width": "100%",
+        width: "auto",
+        height: "auto",
+      }),
+      // ---- R2 P3 FIX-FIRST (MAJOR-3): honour the per-block alignment control.
+      // Every footer block row offers Left/Center/Right and frame.ts has always
+      // emitted data-align="…", but NO rule matched it — `.lg-frame-footer2
+      // {text-align:center}` won every time, so Image45's left-aligned body
+      // column was unbuildable. Text blocks take text-align; the two FLEX rows
+      // (links/socials) take the equivalent justify-content. Blocks with no
+      // authored align emit no attribute and inherit the centred default, so
+      // this is additive-only.
+      rule(
+        [
+          `${scope} .lg-frame-footer2-about[data-align="left"]`,
+          `${scope} .lg-frame-footer2-disclosure[data-align="left"]`,
+          `${scope} .lg-frame-footer2-address[data-align="left"]`,
+          `${scope} .lg-frame-footer2-heading[data-align="left"]`,
+          `${scope} .lg-frame-footer2-list[data-align="left"]`,
+          `${scope} .lg-frame-footer2-logo[data-align="left"]`,
+        ].join(","),
+        { "text-align": "left" },
+      ),
+      rule(
+        [
+          `${scope} .lg-frame-footer2-about[data-align="center"]`,
+          `${scope} .lg-frame-footer2-disclosure[data-align="center"]`,
+          `${scope} .lg-frame-footer2-address[data-align="center"]`,
+          `${scope} .lg-frame-footer2-heading[data-align="center"]`,
+          `${scope} .lg-frame-footer2-list[data-align="center"]`,
+          `${scope} .lg-frame-footer2-logo[data-align="center"]`,
+        ].join(","),
+        { "text-align": "center" },
+      ),
+      rule(
+        [
+          `${scope} .lg-frame-footer2-about[data-align="right"]`,
+          `${scope} .lg-frame-footer2-disclosure[data-align="right"]`,
+          `${scope} .lg-frame-footer2-address[data-align="right"]`,
+          `${scope} .lg-frame-footer2-heading[data-align="right"]`,
+          `${scope} .lg-frame-footer2-list[data-align="right"]`,
+          `${scope} .lg-frame-footer2-logo[data-align="right"]`,
+        ].join(","),
+        { "text-align": "right" },
+      ),
+      rule(
+        [`${scope} .lg-frame-footer2-links[data-align="left"]`, `${scope} .lg-frame-footer2-socials[data-align="left"]`].join(","),
+        { "justify-content": "flex-start" },
+      ),
+      rule(
+        [`${scope} .lg-frame-footer2-links[data-align="center"]`, `${scope} .lg-frame-footer2-socials[data-align="center"]`].join(","),
+        { "justify-content": "center" },
+      ),
+      rule(
+        [`${scope} .lg-frame-footer2-links[data-align="right"]`, `${scope} .lg-frame-footer2-socials[data-align="right"]`].join(","),
+        { "justify-content": "flex-end" },
+      ),
       // ---- 10D progress v2 distinct styles ---------------------------------
       // alignment of the unit within its band.
       rule(`${scope} .lg-frame-progress--align-left`, { "text-align": "left" }),

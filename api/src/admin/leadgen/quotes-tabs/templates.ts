@@ -97,6 +97,7 @@ import {
   frameControl,
   frameCheck,
   frameSelect,
+  frameInput,
   mediaFieldMarkup,
   mediaPickerControl,
   renderFrameList,
@@ -414,17 +415,50 @@ function renderFooterLinkRowTemplate(): string {
 
 // R2 P3 (element J) D2 — one row of the Pages-fed picker (data-footer-picks-
 // load fetches GET /sites/:site_id/legal-pages, clones this template once per
-// candidate page). `data-footer-pick-pagetype` carries the stable identity
-// (never the page's row id — see leadgen/branding.ts's resolver comment on
-// why); the label starts pre-filled from the page's title but stays
-// author-editable (the SAME saved label rides every serving site).
+// candidate page). The stable identity is carried in hidden fields (never the
+// page's row id — see leadgen/branding.ts's resolver comment on why); the
+// label starts pre-filled from the page's title but stays author-editable
+// (the SAME saved label rides every serving site).
+// R2 P3 FIX-FIRST (BLOCKER-2) — TWO identity fields now: the per-site UNIQUE
+// `slug` (primary) and `page_type` (back-compat fallback). A stock site seeds
+// FOUR pages as page_type:"legal", so page_type alone made four picks
+// indistinguishable BOTH here (the operator saw four identical rows) and at
+// serve time (all four resolved to one page). The visible title now also
+// carries the slug, so the operator can tell them apart.
 function renderFooterPickRowTemplate(): string {
   return `<div class="lg-list-row" data-footer-pick-row>
     <label class="lg-check"><input type="checkbox" data-footer-pick-checked /> <span data-footer-pick-title></span></label>
     <input type="hidden" data-footer-pick-pagetype />
+    <input type="hidden" data-footer-pick-slug />
     <input class="form-input" data-footer-pick-label placeholder="Label" aria-label="Picked page label" />
     <input class="form-input" data-footer-pick-manualurl placeholder="Fallback URL if a site has no match (https://…)" aria-label="Picked page fallback URL" />
   </div>`;
+}
+
+// R2 P3 FIX-FIRST (MINOR-13) — the rich toolbar's "Link" dialog. The ADJ-A10
+// studio modal idiom (ui-section-studio.ts renderNewSharedValueModal):
+// role="dialog" aria-modal="true" overlay + panel, an inline error slot, and
+// an explicit Cancel — never a raw window.prompt(). Rendered ONCE per
+// Templates panel; funnel.ts's island drives it (openLinkModal /
+// confirmLinkModal) for BOTH the footer-block and free-text toolbars.
+function renderFooterLinkModal(): string {
+  return `<div class="lg-media-picker-overlay lg-hidden" id="lg-link-modal" role="dialog" aria-modal="true" aria-label="Insert a link">
+  <div class="lg-media-picker-panel" style="max-width:420px">
+    <div class="studio-events-head">
+      <span class="form-label">Insert a link</span>
+      <button type="button" class="btn btn-sm btn-outline" data-link-modal-cancel>Close</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="lg-link-modal-url">Link address</label>
+      <input type="text" id="lg-link-modal-url" class="form-input" placeholder="https://… or /page" />
+      <p class="form-help studio-field-error" id="lg-link-modal-error" hidden>Enter a web address (https://…), a page path (/…), or a #link.</p>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+      <button type="button" class="btn btn-sm btn-outline" data-link-modal-cancel>Cancel</button>
+      <button type="button" class="btn btn-sm btn-secondary" data-link-modal-confirm>Insert link</button>
+    </div>
+  </div>
+</div>`;
 }
 
 function renderFooterBlockRowTemplate(): string {
@@ -444,6 +478,7 @@ function renderFooterBlockRowTemplate(): string {
       <button type="button" class="btn btn-sm btn-outline" data-footer-fmt="link" aria-label="Link" title="Link">Link</button>
     </div>
     <textarea class="form-input" rows="2" data-footer-block-text placeholder="About / disclosure / address / heading copy" aria-label="Footer block text"></textarea>
+    <select class="form-select form-select-sm lg-hidden" data-footer-block-level aria-label="Footer heading level"><option value="1">Heading level 1</option><option value="2">Heading level 2</option><option value="3" selected>Heading level 3</option><option value="4">Heading level 4</option><option value="5">Heading level 5</option><option value="6">Heading level 6</option></select>
     <select class="form-select form-select-sm lg-hidden" data-footer-block-liststyle aria-label="Footer list style">${enumOptions(FRAME_FREE_TEXT_LIST_STYLES, { unordered: "Bulleted", ordered: "Numbered", check: "Checklist" })}</select>
     <textarea class="form-input lg-hidden" rows="3" data-footer-block-items placeholder="One list item per line" aria-label="Footer list items, one per line"></textarea>
     <div class="lg-hidden" data-footer-block-linkrow>
@@ -503,6 +538,9 @@ function renderTplBoxFooter(): string {
   </div>
   ${frameSelect("Font family", "footer.typography_scope.font_family", THEME_RECORD_FONT_NAMES, undefined, "Independent of the main template's font.")}
   ${frameSelect("Text size", "footer.typography_scope.size", FRAME_TYPO_SIZES, { s: "Small", m: "Medium", l: "Large", xl: "Extra large" })}
+  <h4>Links</h4>
+  ${frameControl("Underline links", frameCheck("Underline every link in the footer", "footer.link_underline"))}
+  ${frameInput("Separator between links", "footer.link_separator", "e.g.  |  — leave empty for spacing only")}
   <h4>Blocks</h4>
   <div data-tplbox-list="footer.blocks"></div>
   <template data-tplbox-tpl="footer.blocks">${renderFooterBlockRowTemplate()}</template>
@@ -1356,6 +1394,10 @@ const TPL_SCRIPT = `
       var label = valOf(rows[i], '[data-footer-pick-label]');
       if (pageType === '' || label === '') { continue; }
       var pick = { page_type: pageType, label: label };
+      // R2 P3 FIX-FIRST (BLOCKER-2) — the per-site-UNIQUE slug identity (the
+      // funnel.ts twin does the same); page_type stays for back-compat.
+      var pickSlug = valOf(rows[i], '[data-footer-pick-slug]');
+      if (pickSlug !== '') { pick.slug = pickSlug; }
       var manualUrl = valOf(rows[i], '[data-footer-pick-manualurl]');
       if (manualUrl !== '') { pick.manual_url = manualUrl; }
       out.push(pick);
@@ -1382,10 +1424,17 @@ const TPL_SCRIPT = `
         var i;
         for (i = 0; i < pages.length; i++) {
           var row = document.importNode(tpl.content, true).firstElementChild;
+          // R2 P3 FIX-FIRST (BLOCKER-2) — the visible option must allow an
+          // operator to tell apart the FOUR pages a stock site seeds with the
+          // same page_type ("legal"): show the slug alongside the title.
           var titleEl = q(row, '[data-footer-pick-title]');
-          if (titleEl) { titleEl.appendChild(text(pages[i].title || pages[i].page_type)); }
+          var pageSlug = pages[i].slug || '';
+          var pageTitle = pages[i].title || pages[i].page_type || '';
+          if (titleEl) { titleEl.appendChild(text(pageSlug === '' ? pageTitle : pageTitle + ' (/' + pageSlug + ')')); }
           var typeEl = q(row, '[data-footer-pick-pagetype]');
           if (typeEl) { typeEl.value = pages[i].page_type || ''; }
+          var slugEl = q(row, '[data-footer-pick-slug]');
+          if (slugEl) { slugEl.value = pageSlug; }
           var labelEl = q(row, '[data-footer-pick-label]');
           if (labelEl) { labelEl.value = pages[i].title || ''; }
           list.appendChild(row);
@@ -1394,6 +1443,8 @@ const TPL_SCRIPT = `
       .catch(function () { /* the operator can still author a manual link_row instead */ });
   }
 
+  // MINOR-9's plain-text projection (the funnel.ts twin's helper, mirrored).
+  function plainFromMarkup(s) { return String(s === null || s === undefined ? '' : s).replace(/<[^>]*>/g, ''); }
   function collectFooterBlocks() {
     var rows = qa(tplListEl('footer.blocks'), '[data-footer-block-row]');
     var out = [];
@@ -1416,8 +1467,16 @@ const TPL_SCRIPT = `
         continue;
       }
       var block = { type: type, align: valOf(rows[i], '[data-footer-block-align]') };
-      if (hasText) { block.text = body; }
+      // R2 P3 FIX-FIRST (MINOR-9) — the funnel.ts twin's rule, mirrored: only
+      // 'html' may hold markup; 'text' gets the plain projection so the field
+      // designs/frame.ts escapes verbatim can never carry raw tags.
+      if (hasText) { block.text = hasHtml ? plainFromMarkup(body) : body; }
       if (hasHtml) { block.html = body; }
+      // R2 P3 FIX-FIRST (MINOR-6) — the heading level, now authorable here too.
+      if (type === 'heading') {
+        var levelVal = valOf(rows[i], '[data-footer-block-level]');
+        if (levelVal !== '') { block.level = Number(levelVal); }
+      }
       if (type === 'list') {
         var lines = String(valOf(rows[i], '[data-footer-block-items]')).split('\\n');
         var items = [];
@@ -2160,6 +2219,7 @@ export function renderTemplatesTabPanel(isControl: boolean, answerFields: readon
   </div>
   ${renderApplyDialog()}
   ${renderAbTemplatesDialog()}
+  ${renderFooterLinkModal()}
   <script>${TPL_SCRIPT}</script>
 </div>`;
 }

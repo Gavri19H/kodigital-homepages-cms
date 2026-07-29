@@ -298,6 +298,9 @@
   </div>
   <div class="form-group"><label class="form-label">Font family</label><select class="form-select" data-frame-key="footer.typography_scope.font_family"><option value="Newsreader">Newsreader</option><option value="Inter">Inter</option><option value="Roboto Mono">Roboto Mono</option><option value="Poppins">Poppins</option><option value="Space Grotesk">Space Grotesk</option><option value="Fraunces">Fraunces</option><option value="Playfair Display">Playfair Display</option><option value="Manrope">Manrope</option><option value="DM Sans">DM Sans</option><option value="Work Sans">Work Sans</option><option value="Lexend">Lexend</option></select><p class="form-help">Independent of the main template&#39;s font.</p></div>
   <div class="form-group"><label class="form-label">Text size</label><select class="form-select" data-frame-key="footer.typography_scope.size"><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option><option value="xl">Extra large</option></select></div>
+  <h4>Links</h4>
+  <div class="form-group"><label class="form-label">Underline links</label><label class="lg-check"><input type="checkbox" data-frame-key="footer.link_underline" /> Underline every link in the footer</label></div>
+  <div class="form-group"><label class="form-label">Separator between links</label><input class="form-input" data-frame-key="footer.link_separator" placeholder="e.g.  |  — leave empty for spacing only" /></div>
   <h4>Blocks</h4>
   <div data-tplbox-list="footer.blocks"></div>
   <template data-tplbox-tpl="footer.blocks"><div class="lg-tplbox-row" data-footer-block-row>
@@ -316,6 +319,7 @@
       <button type="button" class="btn btn-sm btn-outline" data-footer-fmt="link" aria-label="Link" title="Link">Link</button>
     </div>
     <textarea class="form-input" rows="2" data-footer-block-text placeholder="About / disclosure / address / heading copy" aria-label="Footer block text"></textarea>
+    <select class="form-select form-select-sm lg-hidden" data-footer-block-level aria-label="Footer heading level"><option value="1">Heading level 1</option><option value="2">Heading level 2</option><option value="3" selected>Heading level 3</option><option value="4">Heading level 4</option><option value="5">Heading level 5</option><option value="6">Heading level 6</option></select>
     <select class="form-select form-select-sm lg-hidden" data-footer-block-liststyle aria-label="Footer list style"><option value="unordered">Bulleted</option><option value="ordered">Numbered</option><option value="check">Checklist</option></select>
     <textarea class="form-input lg-hidden" rows="3" data-footer-block-items placeholder="One list item per line" aria-label="Footer list items, one per line"></textarea>
     <div class="lg-hidden" data-footer-block-linkrow>
@@ -359,6 +363,7 @@
   <template data-tplbox-tpl="footer_pick_row"><div class="lg-list-row" data-footer-pick-row>
     <label class="lg-check"><input type="checkbox" data-footer-pick-checked /> <span data-footer-pick-title></span></label>
     <input type="hidden" data-footer-pick-pagetype />
+    <input type="hidden" data-footer-pick-slug />
     <input class="form-input" data-footer-pick-label placeholder="Label" aria-label="Picked page label" />
     <input class="form-input" data-footer-pick-manualurl placeholder="Fallback URL if a site has no match (https://…)" aria-label="Picked page fallback URL" />
   </div></template>
@@ -503,6 +508,23 @@
     <div class="toolbar">
       <button type="button" class="btn btn-primary" id="lg-tpl-ab-confirm-btn">Create A/B arm</button>
       <button type="button" class="btn btn-outline" id="lg-tpl-ab-cancel-btn">Cancel</button>
+    </div>
+  </div>
+</div>
+  <div class="lg-media-picker-overlay lg-hidden" id="lg-link-modal" role="dialog" aria-modal="true" aria-label="Insert a link">
+  <div class="lg-media-picker-panel" style="max-width:420px">
+    <div class="studio-events-head">
+      <span class="form-label">Insert a link</span>
+      <button type="button" class="btn btn-sm btn-outline" data-link-modal-cancel>Close</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="lg-link-modal-url">Link address</label>
+      <input type="text" id="lg-link-modal-url" class="form-input" placeholder="https://… or /page" />
+      <p class="form-help studio-field-error" id="lg-link-modal-error" hidden>Enter a web address (https://…), a page path (/…), or a #link.</p>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+      <button type="button" class="btn btn-sm btn-outline" data-link-modal-cancel>Cancel</button>
+      <button type="button" class="btn btn-sm btn-secondary" data-link-modal-confirm>Insert link</button>
     </div>
   </div>
 </div>
@@ -916,6 +938,10 @@
       var label = valOf(rows[i], '[data-footer-pick-label]');
       if (pageType === '' || label === '') { continue; }
       var pick = { page_type: pageType, label: label };
+      // R2 P3 FIX-FIRST (BLOCKER-2) — the per-site-UNIQUE slug identity (the
+      // funnel.ts twin does the same); page_type stays for back-compat.
+      var pickSlug = valOf(rows[i], '[data-footer-pick-slug]');
+      if (pickSlug !== '') { pick.slug = pickSlug; }
       var manualUrl = valOf(rows[i], '[data-footer-pick-manualurl]');
       if (manualUrl !== '') { pick.manual_url = manualUrl; }
       out.push(pick);
@@ -942,10 +968,17 @@
         var i;
         for (i = 0; i < pages.length; i++) {
           var row = document.importNode(tpl.content, true).firstElementChild;
+          // R2 P3 FIX-FIRST (BLOCKER-2) — the visible option must allow an
+          // operator to tell apart the FOUR pages a stock site seeds with the
+          // same page_type ("legal"): show the slug alongside the title.
           var titleEl = q(row, '[data-footer-pick-title]');
-          if (titleEl) { titleEl.appendChild(text(pages[i].title || pages[i].page_type)); }
+          var pageSlug = pages[i].slug || '';
+          var pageTitle = pages[i].title || pages[i].page_type || '';
+          if (titleEl) { titleEl.appendChild(text(pageSlug === '' ? pageTitle : pageTitle + ' (/' + pageSlug + ')')); }
           var typeEl = q(row, '[data-footer-pick-pagetype]');
           if (typeEl) { typeEl.value = pages[i].page_type || ''; }
+          var slugEl = q(row, '[data-footer-pick-slug]');
+          if (slugEl) { slugEl.value = pageSlug; }
           var labelEl = q(row, '[data-footer-pick-label]');
           if (labelEl) { labelEl.value = pages[i].title || ''; }
           list.appendChild(row);
@@ -954,6 +987,8 @@
       .catch(function () { /* the operator can still author a manual link_row instead */ });
   }
 
+  // MINOR-9's plain-text projection (the funnel.ts twin's helper, mirrored).
+  function plainFromMarkup(s) { return String(s === null || s === undefined ? '' : s).replace(/<[^>]*>/g, ''); }
   function collectFooterBlocks() {
     var rows = qa(tplListEl('footer.blocks'), '[data-footer-block-row]');
     var out = [];
@@ -976,8 +1011,16 @@
         continue;
       }
       var block = { type: type, align: valOf(rows[i], '[data-footer-block-align]') };
-      if (hasText) { block.text = body; }
+      // R2 P3 FIX-FIRST (MINOR-9) — the funnel.ts twin's rule, mirrored: only
+      // 'html' may hold markup; 'text' gets the plain projection so the field
+      // designs/frame.ts escapes verbatim can never carry raw tags.
+      if (hasText) { block.text = hasHtml ? plainFromMarkup(body) : body; }
       if (hasHtml) { block.html = body; }
+      // R2 P3 FIX-FIRST (MINOR-6) — the heading level, now authorable here too.
+      if (type === 'heading') {
+        var levelVal = valOf(rows[i], '[data-footer-block-level]');
+        if (levelVal !== '') { block.level = Number(levelVal); }
+      }
       if (type === 'list') {
         var lines = String(valOf(rows[i], '[data-footer-block-items]')).split('\n');
         var items = [];
