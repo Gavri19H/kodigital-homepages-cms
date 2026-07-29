@@ -4280,6 +4280,7 @@ const V25_PREVIEW_KEYS = [
   "draft_theme",
   "draft_frame_overrides", // DEV-58 (Phase D): per-arm overrides draft
   "page", // Phase D stepper perf: mode:"all" lazy per-page fetch
+  "sample_section", // R2 §3 ②: empty-funnel sample row inside the real frame
 ] as const;
 
 export async function previewVariantHandler(c: AdminContext): Promise<Response> {
@@ -4371,6 +4372,73 @@ export const LG_SLOT_PLACEHOLDER_HTML =
   '<div class="lg-slot-placeholder" data-lg-slot-placeholder>' +
   "This area is the Section’s question unit — edit it in the Section Builder." +
   "</div>";
+
+// ---------------------------------------------------------------------------
+// R2 §3 ② (A.1 #11-D) — the SAMPLE section for an EMPTY funnel.
+//
+// Owner truth: "the canvas should include one section in the middle so the
+// user could see a real reference of how is design is gonna look like in real
+// life". Before this, an empty funnel took a SECOND preview endpoint
+// (POST /sections/preview) that renders a BARE section card with NO frame —
+// so nothing the Funnel-layout boxes edit was visible. There is now ONE
+// preview path: the composed variant preview serves the empty funnel too, and
+// the caller opts in with `sample_section:true`. The synthetic row rides the
+// SAME `sections` array as real rows, so frame composition, progress totals
+// (1 of 1), footer show_on and the §15.4 config echo are computed exactly the
+// way a real one-section funnel computes them — never a special render path.
+// It is never persisted and never leaves this request.
+// ---------------------------------------------------------------------------
+
+export const LG_SAMPLE_SECTION_PUBLIC_ID = "lgs_sample_preview";
+export const LG_SAMPLE_SECTION_HEADLINE = "Sample question";
+// The design pack's Appendix A-9 no-sections copy, VERBATIM — the same string
+// the retired client-side fixture carried, so the words the operator reads on
+// an empty funnel are unchanged; only where they render moved (inside the
+// composed frame now, not a bare card). templates.ts's canvas status line
+// carries the same literal.
+export const LG_SAMPLE_SECTION_HELPER = "Sample section (add sections to preview your own).";
+
+export function buildSamplePreviewSection(
+  quote: LeadgenQuoteRow,
+  variant: LeadgenFunnelVariantRow,
+): LeadgenSectionRow {
+  const content = {
+    components: [
+      {
+        type: "ButtonAnswerGroup",
+        question_id: "lg_sample_q1",
+        internal_field: "lg_sample_answer",
+        choices: [
+          { label: "Option A", value: "option_a" },
+          { label: "Option B", value: "option_b" },
+        ],
+        props: { label: LG_SAMPLE_SECTION_HEADLINE, helper: LG_SAMPLE_SECTION_HELPER },
+      },
+      { type: "ContinueButton", question_id: "lg_sample_continue", props: { label: "Continue" } },
+    ],
+  };
+  return {
+    id: 0,
+    public_id: LG_SAMPLE_SECTION_PUBLIC_ID,
+    section_name: LG_SAMPLE_SECTION_HEADLINE,
+    activity: quote.activity,
+    vertical: quote.activity,
+    headline_text: LG_SAMPLE_SECTION_HEADLINE,
+    subheadline_text: LG_SAMPLE_SECTION_HELPER,
+    image_json: null,
+    content_json: JSON.stringify(content),
+    content_html: null,
+    continue_mode: "button",
+    design_overrides_json: null,
+    address_validation_enabled: 0,
+    section_mapping_version: 1,
+    content_version: variant.content_version,
+    status: "active",
+    created_by: null,
+    created_at: 0,
+    updated_at: 0,
+  };
+}
 
 export interface ComposedVariantPreviewInput {
   quote: LeadgenQuoteRow;
@@ -4835,6 +4903,20 @@ async function composedVariantPreviewResponse(
     }
   }
 
+  // R2 §3 ② — `sample_section` (additive, boolean): with NO sections of its
+  // own this variant renders the synthetic sample row INSIDE the composed
+  // frame (see buildSamplePreviewSection). Ignored when the variant HAS
+  // sections — a real section always wins over the sample.
+  let sampleSection = false;
+  if (body["sample_section"] !== undefined && body["sample_section"] !== null) {
+    const raw = body["sample_section"];
+    if (typeof raw !== "boolean") {
+      fields["sample_section"] = "sample_section must be a boolean";
+    } else {
+      sampleSection = raw;
+    }
+  }
+
   if (Object.keys(fields).length > 0) {
     return c.json({ error: "Validation failed", fields }, 400);
   }
@@ -4876,7 +4958,14 @@ async function composedVariantPreviewResponse(
     sharedPages = [];
   }
   const variantPages = await loadVariantPages(c.env.DB, variant.id);
-  const sections: LeadgenSectionRow[] = sectionsFromPages([...sharedPages, ...variantPages]).map((rs) => rs.section);
+  const storedSections: LeadgenSectionRow[] = sectionsFromPages([...sharedPages, ...variantPages]).map((rs) => rs.section);
+  // R2 §3 ② — ONE preview path: an EMPTY funnel composes the SAMPLE section
+  // inside the real frame instead of falling back to a second, frameless
+  // endpoint. `usingSample` rides the response so the caller can say so.
+  const usingSample = sampleSection && storedSections.length === 0;
+  const sections: LeadgenSectionRow[] = usingSample
+    ? [buildSamplePreviewSection(owner.quote, variant)]
+    : storedSections;
 
   // section_public_id → the visible ordered index (mode:"section").
   let visibleIndex = 0;
@@ -4950,6 +5039,10 @@ async function composedVariantPreviewResponse(
         : { css: preview.css, html: preview.html ?? "", section_count: preview.section_count },
     config: preview.config,
   };
+  // R2 §3 ② — honest echo: TRUE only when the composed body carries the
+  // synthetic sample row (an empty funnel that opted in), so the canvas can
+  // label it without guessing from section_count.
+  if (usingSample) payload["sample_section"] = true;
   if (problems.length > 0) payload["problems"] = problems; // §3.6 additive warnings
   return c.json(payload);
 }
