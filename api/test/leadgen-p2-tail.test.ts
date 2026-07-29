@@ -419,8 +419,15 @@ describeDb("R2 P2 tail — item 2: normalizedThemePut resolves a theme_id preset
     const src = [
       sliceIslandVar(island, "PRESET_ROLE_BRIDGE"),
       sliceIslandVar(island, "PRESET_EXTRA_ROLE_BRIDGE"),
+      // R2 P2 FIX-FIRST-2: the shared snippet grew the font bridge + the
+      // fail-closed preset read normalizedThemePut now calls.
+      sliceIslandVar(island, "PRESET_FONT_BRIDGE"),
+      sliceIslandVar(island, "PRESET_LOAD_FAILED_MESSAGE"),
       sliceIslandFunction(island, "hasAnyKey"),
+      sliceIslandFunction(island, "presetFontId"),
       sliceIslandFunction(island, "inlineThemeFromPreset"),
+      sliceIslandFunction(island, "presetLoadError"),
+      sliceIslandFunction(island, "presetInlineOrAbort"),
       sliceIslandFunction(island, "isRecordVal"),
       sliceIslandFunction(island, "deepMerge"),
       sliceIslandFunction(island, "putJson"),

@@ -256,19 +256,40 @@
   // compile error at this shared module's import above).
   var PRESET_ROLE_BRIDGE = {"brand_primary":"brand_primary","accent":"accent","page_bg":"page_background","card":"card_background","text":"text_primary","success":"success","error":"error"};
   var PRESET_EXTRA_ROLE_BRIDGE = {"brand_secondary":"brand_secondary","surface_wash":"surface_wash","border":"border","text_muted":"text_muted","button_primary_bg":"button_primary_bg","button_primary_text":"button_primary_text","button_secondary_bg":"button_secondary_bg"};
+  // Record font family -> inline THEME_FONT_IDS id, derived at compile time
+  // from the two byte-identical CSS-stack tables (see this module's
+  // recordFontToInlineId above) — the 8 self-hosted families pair exactly.
+  var PRESET_FONT_BRIDGE = {"Poppins":"poppins","Space Grotesk":"space_grotesk","Fraunces":"fraunces","Playfair Display":"playfair","Manrope":"manrope","DM Sans":"dm_sans","Work Sans":"work_sans","Lexend":"lexend"};
   function hasAnyKey(o) {
     var k;
     for (k in o) { if (Object.prototype.hasOwnProperty.call(o, k)) { return true; } }
     return false;
   }
-  // RESOLVE an applied preset into inline values. Deliberately NOT mapped (no
-  // faithful 1:1 exists — mapping them would INVENT values rather than
-  // preserve the preset's): typography.headline_font/body_font (a record's
-  // font vocabulary is Inter/Newsreader/Roboto Mono; inline typography.
-  // display/body is the literata/sora/... set) and controls.field_height/
-  // button_size/corners (corners is sharp|rounded|pill vs the inline radius
-  // scale sharp|soft|round). Those keep resolving from the base design,
-  // exactly as they did before this resolve step existed.
+  function presetFontId(name) {
+    return (typeof name === 'string' && Object.prototype.hasOwnProperty.call(PRESET_FONT_BRIDGE, name))
+      ? PRESET_FONT_BRIDGE[name] : null;
+  }
+  // RESOLVE an applied preset into inline values.
+  //
+  // R2 P2 FIX-FIRST-2 (MINOR residue): typography.headline_font/body_font DO
+  // resolve now — every family whose record stack is byte-identical to an
+  // inline THEME_FONT_IDS stack maps to that id (PRESET_FONT_BRIDGE above), so
+  // a preset's fonts survive the operator's first control edit.
+  //
+  // Values with genuinely NO inline counterpart (kept resolving from the base
+  // design, exactly as before this resolve step existed — mapping them would
+  // INVENT a value the preset never expressed):
+  //   • typography.headline_font/body_font when the family is "Newsreader"/"Inter"/"Roboto Mono" —
+  //     record-only families; no THEME_FONT_IDS id produces those CSS stacks.
+  //   • typography.base_px — an absolute pixel size; the inline axis
+  //     (typography.size s|m|l) is a x0.9/x1/x1.1 ramp over the BASE design's
+  //     tokens, so no px value maps onto it.
+  //   • controls.field_height/button_size/corners — the inline theme_json
+  //     vocabulary HAS no controls axis at all: theme.ts's ThemeJson declares
+  //     none, validateTheme's THEME_TOP_KEYS rejects a 'controls' key outright
+  //     (a 400), and EffectiveTokens.theme_controls is populated ONLY when a
+  //     RECORD is present (resolveTokens: 'if (record !== null)'). These three
+  //     cannot be carried by ANY inline theme_json — not a mapping choice.
   function inlineThemeFromPreset(rec) {
     var out = {};
     var palette = {};
@@ -295,8 +316,41 @@
       if (hasAnyKey(bd)) { out.button_defaults = bd; }
     }
     var typ = (rec && rec.typography) || null;
-    if (typ && typ.display_size) { out.typography = { display_size: typ.display_size }; }
+    if (typ) {
+      var tp = {};
+      if (typ.display_size) { tp.display_size = typ.display_size; }
+      var displayId = presetFontId(typ.headline_font);
+      if (displayId !== null) { tp.display = displayId; }
+      var bodyId = presetFontId(typ.body_font);
+      if (bodyId !== null) { tp.body = bodyId; }
+      if (hasAnyKey(tp)) { out.typography = tp; }
+    }
     return out;
+  }
+  // R2 P2 FIX-FIRST-2 (MINOR, fail-closed): fetching the applied preset is
+  // where this algorithm used to fail OPEN — 'inlineThemeFromPreset(pb &&
+  // pb.item)' turned ANY non-OK / unparseable preset GET into an EMPTY preset,
+  // so the caller's PUT wiped the funnel's whole look with no error at all.
+  // Now a preset that cannot be read ABORTS the edit (rejects): no PUT is
+  // sent, the stored theme is untouched, and the operator is told. The
+  // rejection carries lgOperatorMessage so a caller can tell "the preset could
+  // not be read" apart from a bare network failure.
+  var PRESET_LOAD_FAILED_MESSAGE = 'Couldn\u2019t load the preset \u2014 the change was not applied.';
+  function presetLoadError() {
+    var e = new Error(PRESET_LOAD_FAILED_MESSAGE);
+    e.lgOperatorMessage = PRESET_LOAD_FAILED_MESSAGE;
+    return e;
+  }
+  function presetInlineOrAbort(themeId) {
+    return fetch('/api/admin/leadgen/themes/' + encodeURIComponent(themeId), {
+      credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+    }).then(function (rp) {
+      if (!rp.ok) { throw presetLoadError(); }
+      return rp.json().then(function (pb) {
+        if (!pb || !pb.item) { throw presetLoadError(); }
+        return inlineThemeFromPreset(pb.item);
+      }, function () { throw presetLoadError(); });
+    }, function () { throw presetLoadError(); });
   }
 
   var root = document.querySelector('[data-lg-themes-tab]');
@@ -314,9 +368,30 @@
 
   function byId(id) { return document.getElementById(id); }
   function clearChildren(el) { while (el.firstChild) { el.removeChild(el.firstChild); } }
-  function setStatus(text) {
+  // ONE status line, TWO kinds of message sharing it:
+  //   transient — the canvas's own progress text (Loading preview…), replaced
+  //               and cleared freely by every refresh.
+  //   notice    — an operator-facing REFUSAL (a rejected save, a preset that
+  //               could not be read). R2 P2 FIX-FIRST-2 (FIX 3): a refusal
+  //               used to be written straight into the same slot the rollback
+  //               refresh was ALREADY re-rendering into, so the server's
+  //               message was wiped by that refresh's own setStatus('') a
+  //               moment later — the operator saw a flash, then nothing. A
+  //               notice now OUTRANKS the transient text and survives until
+  //               the next edit is queued.
+  var statusTransient = '';
+  var statusNotice = '';
+  function paintStatus() {
     var el = byId('lg-theme-canvas-status');
-    if (el) { el.textContent = text || ''; }
+    if (el) { el.textContent = statusNotice !== '' ? statusNotice : statusTransient; }
+  }
+  function setStatus(text) {
+    statusTransient = text || '';
+    paintStatus();
+  }
+  function setNotice(text) {
+    statusNotice = text || '';
+    paintStatus();
   }
 
   // --- section library (client-fetched — GET /api/admin/leadgen/sections) ---
@@ -524,6 +599,47 @@
     cur[parts[parts.length - 1]] = value;
   }
 
+  // A queued edit whose value is null means DELETE the key — the funnel-tab
+  // island's own writeThemeValue semantics ("absent inherits from the base
+  // design", 09 §9.2), which is what "Reset to inherited" queues through the
+  // seam below. Never setPath(null): an explicit null is not a theme value.
+  function deletePath(obj, path) {
+    var parts = path.split('.');
+    var cur = obj;
+    var i;
+    for (i = 0; i < parts.length - 1; i++) {
+      var next = cur[parts[i]];
+      if (next === null || typeof next !== 'object') { return; }
+      cur = next;
+    }
+    if (cur !== null && typeof cur === 'object') { delete cur[parts[parts.length - 1]]; }
+  }
+
+  // R2 P2 FIX-FIRST-2 (FIX 3): the rejection branch reads the PARSED body.
+  // Both fetch wrappers in this island resolve {ok: r.ok, body: <parsed JSON>},
+  // so body.error is the server's own message — but "Validation failed"
+  // alone told the operator nothing about WHICH setting was refused. This
+  // lifts the per-problem/per-field text out too, exactly as the quote
+  // editor's own saveFailureText (quotes-tabs/funnel.ts) already does for the
+  // one-Save chain, so the operator sees the server's actual reason.
+  function saveRejectionText(body) {
+    var msg = (body && typeof body.error === 'string' && body.error !== '') ? body.error : 'Could not apply the change.';
+    var parts = [];
+    var i;
+    var k;
+    if (body && body.problems && body.problems.length) {
+      for (i = 0; i < body.problems.length; i++) {
+        if (body.problems[i] && body.problems[i].message) { parts.push(body.problems[i].message); }
+      }
+    }
+    if (body && body.fields) {
+      for (k in body.fields) {
+        if (Object.prototype.hasOwnProperty.call(body.fields, k) && body.fields[k]) { parts.push(String(body.fields[k])); }
+      }
+    }
+    return parts.length > 0 ? (msg + ' \u2014 ' + parts.join(' ')) : msg;
+  }
+
   function overrideIsOn() {
     // Queried by the radio GROUP name (renderOverrideSwitch's own
     // name="lg-ov-<group>") — never by concatenating the words "data",
@@ -554,11 +670,9 @@
       .then(function (getBody) {
         var current = (getBody && getBody.theme) || {};
         if (typeof current.theme_id === 'string' && current.theme_id !== '') {
-          return fetch('/api/admin/leadgen/themes/' + encodeURIComponent(current.theme_id), {
-            credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-          }).then(function (rp) { return rp.json(); }).then(function (pb) {
-            return inlineThemeFromPreset(pb && pb.item);
-          });
+          // FAIL-CLOSED (R2 P2 FIX-FIRST-2): an unreadable preset ABORTS here
+          // — no PUT, stored theme untouched (see the shared snippet).
+          return presetInlineOrAbort(current.theme_id);
         }
         var inline = {};
         var k;
@@ -571,7 +685,10 @@
         var merged = baseTheme || {};
         var k;
         for (k in edits) {
-          if (Object.prototype.hasOwnProperty.call(edits, k)) { setPath(merged, k, edits[k]); }
+          if (Object.prototype.hasOwnProperty.call(edits, k)) {
+            if (edits[k] === null) { deletePath(merged, k); }
+            else { setPath(merged, k, edits[k]); }
+          }
         }
         // Leg 2: render the DRAFT now — the canvas no longer waits on (nor
         // depends on) the write landing.
@@ -589,12 +706,17 @@
           // funnel does not have — roll the draft back and re-render.
           railDraftTheme = previousDraft;
           refreshCanvas();
-          setStatus((res.body && res.body.error) ? res.body.error : 'Could not apply the change.');
+          setNotice(saveRejectionText(res.body));
           return;
         }
         setStatus('');
       })
-      .catch(function () { setStatus('Network error applying the change.'); });
+      .catch(function (err) {
+        // A fail-closed preset read (presetInlineOrAbort) rejects BEFORE any
+        // PUT — the funnel's theme is untouched, so say exactly that instead
+        // of the generic network line.
+        setNotice((err && err.lgOperatorMessage) ? err.lgOperatorMessage : 'Network error applying the change.');
+      });
   }
 
   function queueThemeEdit(path, value) {
@@ -602,6 +724,9 @@
     // the VARIANT's frame_overrides_json, not the funnel's theme_json — left
     // to the existing override-save flow untouched (narrower scope, R2 note).
     if (!isControl && overrideIsOn()) { return; }
+    // A fresh edit clears the previous refusal notice — the operator is
+    // trying again, and a stale message must not outrank the new attempt.
+    setNotice('');
     pendingEdits[path] = value;
     if (applyTimer) { window.clearTimeout(applyTimer); }
     applyTimer = window.setTimeout(flushThemeEdits, 350);
@@ -615,15 +740,35 @@
       var key = el.getAttribute('data-theme-key');
       if (key !== null && el.value !== '') { queueThemeEdit(key, el.value); }
     });
-    railEl.addEventListener('click', function (ev) {
-      var el = ev.target;
-      if (!el || !el.getAttribute) { return; }
-      var pick = el.getAttribute('data-role-pick');
-      if (pick === null) { return; }
-      var pickFor = el.getAttribute('data-role-pick-for') || '';
-      if (pickFor.indexOf('palette.') === 0) { queueThemeEdit(pickFor, pick); }
-    });
   }
+
+  // R2 P2 FIX-FIRST-2 (MAJOR-1 residue) — THE CONVERGENT PALETTE SEAM.
+  //
+  // FAIL-BEFORE: this island listened for its own data-role-pick clicks
+  // only, so exactly ONE of the rail's palette affordances moved this canvas.
+  // The other three — the harmony steps (Base/Soft wash/Darker/Lighter), the
+  // Advanced token administration hex Apply, and Reset to inherited — are
+  // owned by quotes-tabs/funnel.ts (harmony mix math, the hex format gate, the
+  // role-alias rule, the §4.5 override-vs-funnel split all live there and feed
+  // ITS canvas). Their edits reached the TEMPLATES canvas and left this one
+  // byte-identical until a Save plus a section re-pick.
+  //
+  // Rather than re-implement that math in a second island (two copies of the
+  // same rules, guaranteed to drift), funnel.ts's ONE palette write path now
+  // ANNOUNCES its resolved (role, value) as a bubbling lg:palette-draft-change
+  // document event, and this island consumes it through the SAME
+  // single draft path a select edit already takes (queueThemeEdit ->
+  // flushThemeEdits -> railDraftTheme -> refreshCanvas). One producer, one
+  // consumer, one draft path: the role-pick branch that used to live here is
+  // GONE because the seam already carries those very clicks — never two
+  // triggers for one write. value === null (Reset to inherited) deletes the
+  // key, mirroring writeThemeValue's own inherit semantics.
+  document.addEventListener('lg:palette-draft-change', function (ev) {
+    var detail = (ev && ev.detail) || null;
+    if (detail === null || typeof detail.role !== 'string' || detail.role === '') { return; }
+    var value = (detail.value === null || detail.value === undefined) ? null : detail.value;
+    queueThemeEdit('palette.' + detail.role, value);
+  });
 
   loadSections();
 }());

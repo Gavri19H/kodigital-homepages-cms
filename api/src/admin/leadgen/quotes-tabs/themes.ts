@@ -43,10 +43,14 @@
 //     other sanctioned branch to this one: R7 offered "resolve the preset
 //     into inline values, OR drop theme_id when overriding", and the drop
 //     branch silently discarded the applied preset's palette/typography/
-//     buttons on the operator's very first control edit. See the phase report
-//     for the residual this does not close (the pre-existing "one-Save"
-//     button in quotes-tabs/funnel.ts constructs its OWN PUT from a stale
-//     in-memory object outside this slice's ownership).
+//     buttons on the operator's very first control edit. The residual this
+//     comment used to leave OPEN — quotes-tabs/funnel.ts's "one-Save" button
+//     building its OWN PUT and dropping the preset — is CLOSED: that path now
+//     runs the IDENTICAL resolve algorithm (funnel.ts normalizedThemePut, via
+//     the shared ./theme-preset-resolve snippet both islands interpolate).
+//     R2 P2 FIX-FIRST-2 extended that shared algorithm again: a preset's FONT
+//     families now resolve too, and a preset that cannot be read ABORTS the
+//     edit (fail-closed) instead of silently PUTting an empty look.
 //   - the funnel.ts-owned controls keep their EXACT existing data attributes
 //     (data-theme-key / data-role-pick / data-role-pick-for / the override-
 //     switch radios) so funnel.ts's OWN delegated listeners keep working
@@ -345,9 +349,30 @@ const THEMES_TAB_SCRIPT = `
 
   function byId(id) { return document.getElementById(id); }
   function clearChildren(el) { while (el.firstChild) { el.removeChild(el.firstChild); } }
-  function setStatus(text) {
+  // ONE status line, TWO kinds of message sharing it:
+  //   transient — the canvas's own progress text (Loading preview…), replaced
+  //               and cleared freely by every refresh.
+  //   notice    — an operator-facing REFUSAL (a rejected save, a preset that
+  //               could not be read). R2 P2 FIX-FIRST-2 (FIX 3): a refusal
+  //               used to be written straight into the same slot the rollback
+  //               refresh was ALREADY re-rendering into, so the server's
+  //               message was wiped by that refresh's own setStatus('') a
+  //               moment later — the operator saw a flash, then nothing. A
+  //               notice now OUTRANKS the transient text and survives until
+  //               the next edit is queued.
+  var statusTransient = '';
+  var statusNotice = '';
+  function paintStatus() {
     var el = byId('lg-theme-canvas-status');
-    if (el) { el.textContent = text || ''; }
+    if (el) { el.textContent = statusNotice !== '' ? statusNotice : statusTransient; }
+  }
+  function setStatus(text) {
+    statusTransient = text || '';
+    paintStatus();
+  }
+  function setNotice(text) {
+    statusNotice = text || '';
+    paintStatus();
   }
 
   // --- section library (client-fetched — GET /api/admin/leadgen/sections) ---
@@ -555,6 +580,47 @@ const THEMES_TAB_SCRIPT = `
     cur[parts[parts.length - 1]] = value;
   }
 
+  // A queued edit whose value is null means DELETE the key — the funnel-tab
+  // island's own writeThemeValue semantics ("absent inherits from the base
+  // design", 09 §9.2), which is what "Reset to inherited" queues through the
+  // seam below. Never setPath(null): an explicit null is not a theme value.
+  function deletePath(obj, path) {
+    var parts = path.split('.');
+    var cur = obj;
+    var i;
+    for (i = 0; i < parts.length - 1; i++) {
+      var next = cur[parts[i]];
+      if (next === null || typeof next !== 'object') { return; }
+      cur = next;
+    }
+    if (cur !== null && typeof cur === 'object') { delete cur[parts[parts.length - 1]]; }
+  }
+
+  // R2 P2 FIX-FIRST-2 (FIX 3): the rejection branch reads the PARSED body.
+  // Both fetch wrappers in this island resolve {ok: r.ok, body: <parsed JSON>},
+  // so body.error is the server's own message — but "Validation failed"
+  // alone told the operator nothing about WHICH setting was refused. This
+  // lifts the per-problem/per-field text out too, exactly as the quote
+  // editor's own saveFailureText (quotes-tabs/funnel.ts) already does for the
+  // one-Save chain, so the operator sees the server's actual reason.
+  function saveRejectionText(body) {
+    var msg = (body && typeof body.error === 'string' && body.error !== '') ? body.error : 'Could not apply the change.';
+    var parts = [];
+    var i;
+    var k;
+    if (body && body.problems && body.problems.length) {
+      for (i = 0; i < body.problems.length; i++) {
+        if (body.problems[i] && body.problems[i].message) { parts.push(body.problems[i].message); }
+      }
+    }
+    if (body && body.fields) {
+      for (k in body.fields) {
+        if (Object.prototype.hasOwnProperty.call(body.fields, k) && body.fields[k]) { parts.push(String(body.fields[k])); }
+      }
+    }
+    return parts.length > 0 ? (msg + ' \\u2014 ' + parts.join(' ')) : msg;
+  }
+
   function overrideIsOn() {
     // Queried by the radio GROUP name (renderOverrideSwitch's own
     // name="lg-ov-<group>") — never by concatenating the words "data",
@@ -585,11 +651,9 @@ const THEMES_TAB_SCRIPT = `
       .then(function (getBody) {
         var current = (getBody && getBody.theme) || {};
         if (typeof current.theme_id === 'string' && current.theme_id !== '') {
-          return fetch('/api/admin/leadgen/themes/' + encodeURIComponent(current.theme_id), {
-            credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-          }).then(function (rp) { return rp.json(); }).then(function (pb) {
-            return inlineThemeFromPreset(pb && pb.item);
-          });
+          // FAIL-CLOSED (R2 P2 FIX-FIRST-2): an unreadable preset ABORTS here
+          // — no PUT, stored theme untouched (see the shared snippet).
+          return presetInlineOrAbort(current.theme_id);
         }
         var inline = {};
         var k;
@@ -602,7 +666,10 @@ const THEMES_TAB_SCRIPT = `
         var merged = baseTheme || {};
         var k;
         for (k in edits) {
-          if (Object.prototype.hasOwnProperty.call(edits, k)) { setPath(merged, k, edits[k]); }
+          if (Object.prototype.hasOwnProperty.call(edits, k)) {
+            if (edits[k] === null) { deletePath(merged, k); }
+            else { setPath(merged, k, edits[k]); }
+          }
         }
         // Leg 2: render the DRAFT now — the canvas no longer waits on (nor
         // depends on) the write landing.
@@ -620,12 +687,17 @@ const THEMES_TAB_SCRIPT = `
           // funnel does not have — roll the draft back and re-render.
           railDraftTheme = previousDraft;
           refreshCanvas();
-          setStatus((res.body && res.body.error) ? res.body.error : 'Could not apply the change.');
+          setNotice(saveRejectionText(res.body));
           return;
         }
         setStatus('');
       })
-      .catch(function () { setStatus('Network error applying the change.'); });
+      .catch(function (err) {
+        // A fail-closed preset read (presetInlineOrAbort) rejects BEFORE any
+        // PUT — the funnel's theme is untouched, so say exactly that instead
+        // of the generic network line.
+        setNotice((err && err.lgOperatorMessage) ? err.lgOperatorMessage : 'Network error applying the change.');
+      });
   }
 
   function queueThemeEdit(path, value) {
@@ -633,6 +705,9 @@ const THEMES_TAB_SCRIPT = `
     // the VARIANT's frame_overrides_json, not the funnel's theme_json — left
     // to the existing override-save flow untouched (narrower scope, R2 note).
     if (!isControl && overrideIsOn()) { return; }
+    // A fresh edit clears the previous refusal notice — the operator is
+    // trying again, and a stale message must not outrank the new attempt.
+    setNotice('');
     pendingEdits[path] = value;
     if (applyTimer) { window.clearTimeout(applyTimer); }
     applyTimer = window.setTimeout(flushThemeEdits, 350);
@@ -646,15 +721,35 @@ const THEMES_TAB_SCRIPT = `
       var key = el.getAttribute('data-theme-key');
       if (key !== null && el.value !== '') { queueThemeEdit(key, el.value); }
     });
-    railEl.addEventListener('click', function (ev) {
-      var el = ev.target;
-      if (!el || !el.getAttribute) { return; }
-      var pick = el.getAttribute('data-role-pick');
-      if (pick === null) { return; }
-      var pickFor = el.getAttribute('data-role-pick-for') || '';
-      if (pickFor.indexOf('palette.') === 0) { queueThemeEdit(pickFor, pick); }
-    });
   }
+
+  // R2 P2 FIX-FIRST-2 (MAJOR-1 residue) — THE CONVERGENT PALETTE SEAM.
+  //
+  // FAIL-BEFORE: this island listened for its own data-role-pick clicks
+  // only, so exactly ONE of the rail's palette affordances moved this canvas.
+  // The other three — the harmony steps (Base/Soft wash/Darker/Lighter), the
+  // Advanced token administration hex Apply, and Reset to inherited — are
+  // owned by quotes-tabs/funnel.ts (harmony mix math, the hex format gate, the
+  // role-alias rule, the §4.5 override-vs-funnel split all live there and feed
+  // ITS canvas). Their edits reached the TEMPLATES canvas and left this one
+  // byte-identical until a Save plus a section re-pick.
+  //
+  // Rather than re-implement that math in a second island (two copies of the
+  // same rules, guaranteed to drift), funnel.ts's ONE palette write path now
+  // ANNOUNCES its resolved (role, value) as a bubbling lg:palette-draft-change
+  // document event, and this island consumes it through the SAME
+  // single draft path a select edit already takes (queueThemeEdit ->
+  // flushThemeEdits -> railDraftTheme -> refreshCanvas). One producer, one
+  // consumer, one draft path: the role-pick branch that used to live here is
+  // GONE because the seam already carries those very clicks — never two
+  // triggers for one write. value === null (Reset to inherited) deletes the
+  // key, mirroring writeThemeValue's own inherit semantics.
+  document.addEventListener('lg:palette-draft-change', function (ev) {
+    var detail = (ev && ev.detail) || null;
+    if (detail === null || typeof detail.role !== 'string' || detail.role === '') { return; }
+    var value = (detail.value === null || detail.value === undefined) ? null : detail.value;
+    queueThemeEdit('palette.' + detail.role, value);
+  });
 
   loadSections();
 }());

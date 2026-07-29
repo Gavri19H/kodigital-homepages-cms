@@ -391,6 +391,12 @@ async function json<T>(res: Response, label: string): Promise<T> {
 
 interface IslandHandle {
   fire(kind: "change" | "click", target: Record<string, unknown>): void;
+  // R2 P2 FIX-FIRST-2: the document-level palette seam quotes-tabs/funnel.ts
+  // announces on (lg:palette-draft-change). `docListenerCount` proves the
+  // island actually SUBSCRIBED (fail-before: zero listeners existed).
+  dispatchDoc(type: string, detail: unknown): void;
+  docListenerCount(type: string): number;
+  statusText(): string;
   calls: Array<{ url: string; method: string; body: unknown }>;
   flushTimer(): void;
   settle(): Promise<void>;
@@ -422,6 +428,10 @@ function bootThemesIsland(env: Env, funnelPublicId: string, variantPublicId: str
     focus() {},
   });
   const rail = el();
+  // Stable per-id elements: setStatus() writes to the SAME status node every
+  // time, so a test can read what the operator would actually see.
+  const stableById: Record<string, Record<string, unknown>> = {};
+  const docListeners: Record<string, Array<(ev: unknown) => void>> = {};
   const editorRoot = {
     getAttribute(name: string) {
       if (name === "data-funnel-public-id") return funnelPublicId;
@@ -441,10 +451,14 @@ function bootThemesIsland(env: Env, funnelPublicId: string, variantPublicId: str
     },
     getElementById(id: string) {
       if (id === "lg-theme-rail") return rail;
-      return el();
+      if (stableById[id] === undefined) stableById[id] = el();
+      return stableById[id];
     },
     createElement: () => el(),
     createTextNode: () => ({}),
+    addEventListener(kind: string, fn: (ev: unknown) => void) {
+      (docListeners[kind] ??= []).push(fn);
+    },
   };
   const win = {
     setTimeout(fn: () => void) {
@@ -476,6 +490,15 @@ function bootThemesIsland(env: Env, funnelPublicId: string, variantPublicId: str
   return {
     fire(kind, target) {
       for (const fn of listeners[kind] ?? []) fn({ target });
+    },
+    dispatchDoc(type, detail) {
+      for (const fn of docListeners[type] ?? []) fn({ type, detail });
+    },
+    docListenerCount(type) {
+      return (docListeners[type] ?? []).length;
+    },
+    statusText() {
+      return String(stableById["lg-theme-canvas-status"]?.["textContent"] ?? "");
     },
     calls,
     flushTimer() {
@@ -729,5 +752,387 @@ describeDb("R2 P2 FIX-FIRST MINOR-4 — ruled-slot dialog: live sentence + rejec
     expect(closes.length, "FAIL-BEFORE: the dialog closed BEFORE the save ran, so the rejection landed behind it").toBe(0);
     expect(errorEl.textContent).toBe("Each section can appear only once on a page.");
     expect(errorEl.className).not.toContain("lg-hidden");
+  });
+});
+
+// ===========================================================================
+// R2 P2 FIX-FIRST-2 (adversarial RE-review, 2026-07-29) — the residue of the
+// round-1 fixes, each block opening on the reviewer's own driven repro.
+//
+//   FIX 1 (MAJOR-1 residue) — "two of the three Brand-primary affordances
+//     still leave the Themes canvas byte-identical": the harmony steps and the
+//     Advanced-hex Apply are owned by quotes-tabs/funnel.ts and only ever fed
+//     ITS canvas. The convergent seam: funnel.ts's ONE palette write path
+//     announces lg:palette-draft-change; the Themes island consumes it through
+//     the SAME draft path (queueThemeEdit -> railDraftTheme -> refreshCanvas)
+//     a select edit already takes. Producer and consumer are both EXECUTED
+//     below, from the REAL served bytes.
+//   FIX 2 (MINOR residue) — a preset's typography was discarded on the first
+//     edit. Every family with an exact inline counterpart now resolves.
+//   FIX 3 — the rejection branch now shows the server's OWN reason.
+//   FIX 4 — an unreadable preset ABORTS the edit (fail-closed) instead of
+//     PUTting an empty look over the operator's design.
+// ===========================================================================
+
+let FF2_EDITOR_HTML = "";
+
+function ff2FunnelIsland(): string {
+  return islandContaining(FF2_EDITOR_HTML, "function normalizedThemePut(");
+}
+
+// The preset a mappable-font test applies: BOTH families exist on the inline
+// side too (theme.ts THEME_RECORD_FONT_STACKS reuses THEME_FONT_STACKS'
+// values verbatim for the 8 self-hosted families).
+const FONT_PRESET_BODY = {
+  name: "Fonts Survive",
+  roles: { brand_primary: "#1B3A5C", accent: "#F5C518", page_bg: "#F4F6F9", card: "#FFFFFF", text: "#1A1F36", success: "#0E7C3A", error: "#B23A2C" },
+  typography: { headline_font: "Playfair Display", body_font: "Work Sans", base_px: 16, display_size: "xl" },
+  controls: { field_height: "medium", button_size: "m", corners: "rounded" },
+};
+
+async function seedPreviewableSection(env: Env, name: string): Promise<void> {
+  await json(
+    await admin.request(
+      `${API}/sections`,
+      jsonInit("POST", {
+        section_name: name,
+        headline_text: name,
+        activity: "quote_funnel",
+        vertical: "auto",
+        status: "active",
+        content_json: JSON.stringify({ components: [{ type: "ContinueButton", question_id: "q_c", props: { label: "Continue" } }] }),
+      }),
+      env,
+    ),
+    "seed a previewable section",
+  );
+}
+
+describeDb("R2 P2 FIX-FIRST-2 FIX 1 (producer) — every palette affordance announces ONE lg:palette-draft-change", () => {
+  beforeAll(async () => {
+    const sdb = createDb(DatabaseSync as DatabaseSyncCtor);
+    const env = buildEnv(d1FromSqlite(sdb), makeKvStub());
+    const created = await json<{ public_id: string }>(
+      await admin.request(
+        `${API}/quotes`,
+        jsonInit("POST", { quote_name: `FF2 seam ${mintPublicId("quote")}`, activity: "quote_funnel", verticals: ["auto"], funnel_name: "Auto" }),
+        env,
+      ),
+      "create quote for the editor page",
+    );
+    FF2_EDITOR_HTML = await (await admin.request(`/admin/leadgen/quotes/${created.public_id}/edit`, {}, env)).text();
+    sdb.close();
+  });
+
+  // FAIL-BEFORE: applyPaletteValue ended at writeThemeValue — the value never
+  // left this island, so the Themes tab's canvas could not learn about it.
+  it("EXECUTED: the REAL harmony math + the REAL hex gate + the REAL alias rule each emit the resolved (role, value) exactly once", () => {
+    const island = ff2FunnelIsland();
+    const emitted: Array<{ role: string; value: unknown }> = [];
+    const roleSel = { value: "" };
+    const valueEl = { value: "" };
+    const errors: string[] = [];
+
+    const src = [
+      sliceIslandFunction(island, "hexToRgb"),
+      sliceIslandFunction(island, "channelHex"),
+      sliceIslandFunction(island, "mixHex"),
+      sliceIslandFunction(island, "harmonyValue"),
+      sliceIslandFunction(island, "emitPaletteDraft"),
+      sliceIslandFunction(island, "applyPaletteValue"),
+      sliceIslandFunction(island, "applyAdvancedHex"),
+      // (1) harmony "Base" — the ROLE-VALUE alias branch of the real handler.
+      "applyPaletteValue('brand_primary', 'brand_primary');",
+      // (2) harmony "Darker" — the real handler fills the Advanced controls
+      //     from harmonyValue() and routes through the real hex gate.
+      "var derived = harmonyValue('brand_primary', 'darker');",
+      "__derived(derived);",
+      "roleSel.value = 'brand_primary'; valueEl.value = derived; applyAdvancedHex();",
+      // (3) a typed Advanced hex (the operator's own #FF00FF).
+      "roleSel.value = 'brand_primary'; valueEl.value = '#FF00FF'; applyAdvancedHex();",
+      // (4) a MALFORMED hex must still be refused — and must NOT announce.
+      "roleSel.value = 'brand_primary'; valueEl.value = 'magenta'; applyAdvancedHex();",
+    ].join("\n");
+
+    let derivedSeen = "";
+    runInNewContext(src, {
+      Math,
+      RegExp,
+      String,
+      parseInt,
+      document: {
+        createEvent: () => ({
+          initCustomEvent(type: string, _b: boolean, _c: boolean, detail: { role: string; value: unknown }) {
+            (this as unknown as { __t: string; __d: unknown }).__t = type;
+            (this as unknown as { __t: string; __d: unknown }).__d = detail;
+          },
+        }),
+        dispatchEvent(ev: { __t: string; __d: { role: string; value: unknown } }) {
+          expect(ev.__t, "the seam's event name").toBe("lg:palette-draft-change");
+          emitted.push(ev.__d);
+        },
+      },
+      // The two Advanced-panel controls the real handler drives, reachable
+      // both by the island's own byId() and by the driver lines above.
+      roleSel,
+      valueEl,
+      byId: (id: string) => (id === "lg-theme-hex-role" ? roleSel : id === "lg-theme-hex-value" ? valueEl : null),
+      showMsg: (_id: string, m: string) => errors.push(m),
+      hideMsg: () => {},
+      // applyPaletteValue's own collaborators (this slice does not re-implement
+      // them; they are the funnel tab's canvas/dirty bookkeeping).
+      isControl: true,
+      overrideMode: {},
+      workingTheme: {},
+      workingOverrides: {},
+      isRecordVal: (v: unknown) => v !== null && typeof v === "object",
+      writeThemeValue: () => {},
+      paintSwatches: () => {},
+      markStripSelection: () => {},
+      updateOverrideBadge: () => {},
+      schedulePreview: () => {},
+      markDirty: () => {},
+      baseTokens: { brand_primary: "#1B3A5C" },
+      tokens: { brand_primary: "#1B3A5C" },
+      __derived: (d: string) => {
+        derivedSeen = d;
+      },
+    });
+
+    // The real mix math, not a re-implementation: 0x1B*0.75 = 20.25 -> 14.
+    expect(derivedSeen).toBe("#142c45");
+    expect(errors, "the malformed hex was refused by the REAL gate").toEqual([
+      "Custom colors must be a color value like #1a2b3c.",
+    ]);
+    expect(emitted).toEqual([
+      { role: "brand_primary", value: "brand_primary" },
+      { role: "brand_primary", value: "#142c45" },
+      { role: "brand_primary", value: "#FF00FF" },
+    ]);
+  });
+
+  it("the served editor page wires BOTH previously-dead affordances into that one path (harmony steps -> applyAdvancedHex, Apply button -> applyAdvancedHex)", () => {
+    const island = ff2FunnelIsland();
+    // the harmony click handler's derived branch ends in applyAdvancedHex()
+    expect(island).toContain("if (adv) { adv.open = true; }\n    applyAdvancedHex();");
+    // the Advanced "Apply" button
+    expect(island).toContain("apply.addEventListener('click', applyAdvancedHex);");
+    // and the ONE write path announces
+    expect(island).toContain("emitPaletteDraft(role, value);");
+  });
+});
+
+describeDb("R2 P2 FIX-FIRST-2 FIX 1 (consumer) — an announced palette change moves the Themes canvas with NO Save", () => {
+  it("EXECUTED: the island subscribes to the seam, renders the draft, and persists it (harmony/hex reach the canvas at last)", async () => {
+    const sdb = createDb(DatabaseSync as DatabaseSyncCtor);
+    const env = buildEnv(d1FromSqlite(sdb), makeKvStub());
+    const { funnel, variant } = await seedQuote(env);
+    await seedPreviewableSection(env, "Seam Canvas Target");
+
+    const island = bootThemesIsland(env, funnel, variant);
+    await island.settle();
+    // FAIL-BEFORE: zero — the island had no document-level listener at all.
+    expect(island.docListenerCount("lg:palette-draft-change")).toBe(1);
+
+    const before = island.calls.filter((c) => c.url.includes("/sections/preview")).length;
+    island.dispatchDoc("lg:palette-draft-change", { role: "brand_primary", value: "#FF00FF" });
+    island.flushTimer();
+    await island.settle();
+
+    const previews = island.calls.filter((c) => c.url.includes("/sections/preview"));
+    expect(previews.length, "the canvas re-rendered for the announced change").toBeGreaterThan(before);
+    const drafted = previews.filter((c) => {
+      const ctx = (c.body as { frame_context?: { draft_theme?: { palette?: Record<string, string> } } } | null)?.frame_context;
+      return ctx?.draft_theme?.palette?.["brand_primary"] === "#FF00FF";
+    });
+    expect(drafted.length, "the DRAFT (pre-Save) carried the announced colour").toBeGreaterThan(0);
+
+    // ...and the same seam persisted it through the REAL funnel theme PUT.
+    const after = await json<{ theme: { palette?: Record<string, string> } }>(
+      await admin.request(`${API}/funnels/${funnel}/theme`, jsonInit("GET"), env),
+      "read theme back",
+    );
+    expect(after.theme.palette?.["brand_primary"]).toBe("#FF00FF");
+    sdb.close();
+  });
+
+  it("EXECUTED: value null (Reset to inherited) DELETES the role rather than writing a null the validator would refuse", async () => {
+    const sdb = createDb(DatabaseSync as DatabaseSyncCtor);
+    const env = buildEnv(d1FromSqlite(sdb), makeKvStub());
+    const { funnel, variant } = await seedQuote(env);
+    await seedPreviewableSection(env, "Reset Canvas Target");
+
+    const island = bootThemesIsland(env, funnel, variant);
+    await island.settle();
+    island.dispatchDoc("lg:palette-draft-change", { role: "brand_primary", value: "#FF00FF" });
+    island.flushTimer();
+    await island.settle();
+    island.dispatchDoc("lg:palette-draft-change", { role: "brand_primary", value: null });
+    island.flushTimer();
+    await island.settle();
+
+    const puts = island.calls.filter((c) => c.method === "PUT" && c.url.includes("/theme"));
+    expect(puts.length, "both edits were written through the real route").toBe(2);
+    const last = (puts[puts.length - 1]!.body as { theme_json: { palette?: Record<string, string> } }).theme_json;
+    expect(last.palette?.["brand_primary"], "the reset PUT carries no null value").toBeUndefined();
+    const after = await json<{ theme: { palette?: Record<string, string> } }>(
+      await admin.request(`${API}/funnels/${funnel}/theme`, jsonInit("GET"), env),
+      "read theme back",
+    );
+    expect(after.theme.palette?.["brand_primary"]).toBeUndefined();
+    sdb.close();
+  });
+});
+
+describeDb("R2 P2 FIX-FIRST-2 FIX 2 — a preset's mappable fonts survive the first edit (both save paths)", () => {
+  it("rail path: apply a Playfair/Work Sans preset -> ONE rail edit -> the stored theme still carries BOTH fonts", async () => {
+    const sdb = createDb(DatabaseSync as DatabaseSyncCtor);
+    const env = buildEnv(d1FromSqlite(sdb), makeKvStub());
+    const { funnel, variant } = await seedQuote(env);
+    const preset = await json<{ item: { id: string } }>(
+      await admin.request(`${API}/themes`, jsonInit("POST", FONT_PRESET_BODY), env),
+      "create preset",
+    );
+    await json(await admin.request(`${API}/funnels/${funnel}/theme`, jsonInit("PUT", { theme_json: { theme_id: preset.item.id } }), env), "apply preset");
+
+    const island = bootThemesIsland(env, funnel, variant);
+    await island.settle();
+    island.fire("change", { getAttribute: (n: string) => (n === "data-theme-key" ? "scales.radius" : null), value: "round" });
+    island.flushTimer();
+    await island.settle();
+
+    const after = await json<{ theme: Record<string, unknown> }>(
+      await admin.request(`${API}/funnels/${funnel}/theme`, jsonInit("GET"), env),
+      "read theme back",
+    );
+    const typo = (after.theme as { typography?: Record<string, string> }).typography ?? {};
+    // FAIL-BEFORE: typography was exactly {"display_size":"xl"} — both fonts
+    // were silently discarded on the operator's very first edit.
+    expect(typo["display"]).toBe("playfair");
+    expect(typo["body"]).toBe("work_sans");
+    expect(typo["display_size"]).toBe("xl");
+    expect((after.theme as { scales?: { radius?: string } }).scales?.radius).toBe("round");
+    // Honest about the edge the inline vocabulary genuinely cannot express:
+    // theme_json has NO controls axis (validateTheme's THEME_TOP_KEYS would
+    // reject the key outright), so controls.* still resolves from the base.
+    expect(after.theme).not.toHaveProperty("controls");
+    sdb.close();
+  });
+
+  it("funnel one-Save path: normalizedThemePut resolves the SAME fonts (one shared algorithm, not two)", async () => {
+    const sdb = createDb(DatabaseSync as DatabaseSyncCtor);
+    const env = buildEnv(d1FromSqlite(sdb), makeKvStub());
+    const { funnel } = await seedQuote(env);
+    const preset = await json<{ item: { id: string } }>(
+      await admin.request(`${API}/themes`, jsonInit("POST", FONT_PRESET_BODY), env),
+      "create preset",
+    );
+    await json(await admin.request(`${API}/funnels/${funnel}/theme`, jsonInit("PUT", { theme_json: { theme_id: preset.item.id } }), env), "apply preset");
+
+    const island = ff2FunnelIsland();
+    const fetchShim = (url: string, init?: RequestInit): Promise<Response> =>
+      Promise.resolve(admin.request(`http://localhost${url}`, init as RequestInit, env));
+    let captured: Promise<{ ok: boolean; body: unknown }> | null = null;
+    const src = [
+      sliceIslandVar(island, "PRESET_ROLE_BRIDGE"),
+      sliceIslandVar(island, "PRESET_EXTRA_ROLE_BRIDGE"),
+      sliceIslandVar(island, "PRESET_FONT_BRIDGE"),
+      sliceIslandVar(island, "PRESET_LOAD_FAILED_MESSAGE"),
+      sliceIslandFunction(island, "hasAnyKey"),
+      sliceIslandFunction(island, "presetFontId"),
+      sliceIslandFunction(island, "inlineThemeFromPreset"),
+      sliceIslandFunction(island, "presetLoadError"),
+      sliceIslandFunction(island, "presetInlineOrAbort"),
+      sliceIslandFunction(island, "isRecordVal"),
+      sliceIslandFunction(island, "deepMerge"),
+      sliceIslandFunction(island, "putJson"),
+      sliceIslandFunction(island, "normalizedThemePut"),
+      `__capture(normalizedThemePut(${JSON.stringify(`${API}/funnels/${funnel}`)}));`,
+    ].join("\n");
+    runInNewContext(src, {
+      JSON,
+      Object,
+      String,
+      Boolean,
+      Number,
+      encodeURIComponent,
+      fetch: fetchShim,
+      workingTheme: { theme_id: preset.item.id, scales: { radius: "round" }, version: 1 },
+      __capture: (p: Promise<{ ok: boolean; body: unknown }>) => {
+        captured = p;
+      },
+    });
+    const saveRes = await captured!;
+    expect(saveRes.ok, `theme PUT: ${JSON.stringify(saveRes.body)}`).toBe(true);
+
+    const after = await json<{ theme: Record<string, unknown> }>(
+      await admin.request(`${API}/funnels/${funnel}/theme`, jsonInit("GET"), env),
+      "read theme back",
+    );
+    const typo = (after.theme as { typography?: Record<string, string> }).typography ?? {};
+    expect(typo["display"]).toBe("playfair");
+    expect(typo["body"]).toBe("work_sans");
+    expect((after.theme as { scales?: { radius?: string } }).scales?.radius).toBe("round");
+    sdb.close();
+  });
+});
+
+describeDb("R2 P2 FIX-FIRST-2 FIX 3 + FIX 4 — the rail tells the truth when a write is refused or a preset cannot be read", () => {
+  it("FIX 3: a REJECTED theme PUT shows the server's OWN reason, not just 'Validation failed'", async () => {
+    const sdb = createDb(DatabaseSync as DatabaseSyncCtor);
+    const env = buildEnv(d1FromSqlite(sdb), makeKvStub());
+    const { funnel, variant } = await seedQuote(env);
+    await seedPreviewableSection(env, "Rejection Canvas Target");
+
+    const island = bootThemesIsland(env, funnel, variant);
+    await island.settle();
+    // A font id outside the curated vocabulary — the REAL validateTheme
+    // refuses it with a per-problem message.
+    island.fire("change", { getAttribute: (n: string) => (n === "data-theme-key" ? "typography.display" : null), value: "comic_sans" });
+    island.flushTimer();
+    await island.settle();
+
+    const rejected = island.calls.filter((c) => c.method === "PUT" && c.url.includes("/theme"));
+    expect(rejected.length, "the write was attempted (and refused)").toBe(1);
+    const status = island.statusText();
+    // FAIL-BEFORE: exactly "Validation failed" — the operator was never told
+    // WHICH setting was refused or why.
+    expect(status).toContain("Validation failed");
+    expect(status).toContain("curated fonts");
+    sdb.close();
+  });
+
+  it("FIX 4: an unreadable preset ABORTS the edit — no PUT, the stored theme is untouched, the operator is told", async () => {
+    const sdb = createDb(DatabaseSync as DatabaseSyncCtor);
+    const kv = makeKvStub();
+    const env = buildEnv(d1FromSqlite(sdb), kv);
+    const { funnel, variant } = await seedQuote(env);
+    await seedPreviewableSection(env, "Failclosed Canvas Target");
+    const preset = await json<{ item: { id: string } }>(
+      await admin.request(`${API}/themes`, jsonInit("POST", FONT_PRESET_BODY), env),
+      "create preset",
+    );
+    await json(await admin.request(`${API}/funnels/${funnel}/theme`, jsonInit("PUT", { theme_json: { theme_id: preset.item.id } }), env), "apply preset");
+    // The preset record disappears from under the funnel (the KV catalog the
+    // themes handler reads) — the funnel still points at it.
+    await kv.delete("lg-funnel-themes");
+    expect((await admin.request(`${API}/themes/${preset.item.id}`, jsonInit("GET"), env)).status).toBe(404);
+
+    const island = bootThemesIsland(env, funnel, variant);
+    await island.settle();
+    island.fire("change", { getAttribute: (n: string) => (n === "data-theme-key" ? "scales.radius" : null), value: "round" });
+    island.flushTimer();
+    await island.settle();
+
+    // FAIL-BEFORE: inlineThemeFromPreset(undefined) produced {}, and this PUT
+    // wiped the funnel's whole look with no error shown at all.
+    expect(island.calls.filter((c) => c.method === "PUT").length, "no write was attempted").toBe(0);
+    expect(island.statusText()).toBe("Couldn’t load the preset — the change was not applied.");
+    const after = await json<{ theme: Record<string, unknown> }>(
+      await admin.request(`${API}/funnels/${funnel}/theme`, jsonInit("GET"), env),
+      "read theme back",
+    );
+    expect(after.theme["theme_id"], "the stored theme is byte-for-byte what it was").toBe(preset.item.id);
+    sdb.close();
   });
 });

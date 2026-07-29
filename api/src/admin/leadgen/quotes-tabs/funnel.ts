@@ -1121,11 +1121,12 @@ export const QUOTE_EDITOR_SCRIPT = `
       .then(function (getRes) {
         var current = (getRes.ok && getRes.body && getRes.body.theme) || {};
         if (typeof current.theme_id === 'string' && current.theme_id !== '') {
-          return fetch('/api/admin/leadgen/themes/' + encodeURIComponent(current.theme_id), {
-            credentials: 'same-origin', headers: { Accept: 'application/json' }
-          }).then(function (rp) { return rp.json(); }).then(function (pb) {
-            return inlineThemeFromPreset(pb && pb.item);
-          });
+          // R2 P2 FIX-FIRST-2 (fail-closed): a preset that cannot be read
+          // REJECTS here — the one-Save chain's own catch surfaces the
+          // message, themeDirty stays set, and no theme PUT is ever sent (the
+          // old code turned an unreadable preset into an EMPTY inline theme
+          // and PUT it, wiping the funnel's look with no error).
+          return presetInlineOrAbort(current.theme_id);
         }
         var inline = {};
         var k;
@@ -1751,6 +1752,25 @@ export const QUOTE_EDITOR_SCRIPT = `
     markStripSelection();
     schedulePreview();
   }
+  // R2 P2 FIX-FIRST-2 (MAJOR-1 residue) — THE CONVERGENT PALETTE SEAM
+  // (producer side; the consumer is quotes-tabs/themes.ts's own island).
+  // Every palette-role write below resolves through THIS island's rules (the
+  // harmony mix math, the hex format gate, the role-alias rule, the §4.5
+  // override-vs-funnel split) and then ANNOUNCES the resolved (role, value)
+  // once, here. The Themes tab's canvas is a DIFFERENT island with its own
+  // draft + its own preview endpoint; it consumes this event instead of
+  // re-deriving any of those rules, so a harmony step / Advanced hex / Reset
+  // moves BOTH canvases from ONE computation. value === null means "reset to
+  // inherited" (writeThemeValue's delete semantics). Feature-detected +
+  // guarded: an engine without createEvent, or a page with no listener,
+  // changes nothing for this tab's own canvas.
+  function emitPaletteDraft(role, value) {
+    try {
+      var ev = document.createEvent('CustomEvent');
+      ev.initCustomEvent('lg:palette-draft-change', true, false, { role: role, value: value });
+      document.dispatchEvent(ev);
+    } catch (e) { /* older engines without createEvent: this tab is unaffected */ }
+  }
   // ONE palette write path (role picks, harmony steps, Advanced custom
   // colors): §4.5-aware — rides frame_overrides_json.theme when the theme
   // override switch is ON for this arm, the funnel theme otherwise.
@@ -1769,6 +1789,7 @@ export const QUOTE_EDITOR_SCRIPT = `
       if (!isRecordVal(workingTheme.palette)) { workingTheme.palette = {}; }
       writeThemeValue('palette.' + role, value);
     }
+    emitPaletteDraft(role, value);
   }
   root.addEventListener('click', function (ev) {
     var el = ev.target;
@@ -1793,9 +1814,11 @@ export const QUOTE_EDITOR_SCRIPT = `
       overridesDirty = true;
       markDirty();
       paintSwatches(); markStripSelection(); updateOverrideBadge(); schedulePreview();
+      emitPaletteDraft(resetRole, null);
       return;
     }
     writeThemeValue('palette.' + resetRole, null);
+    emitPaletteDraft(resetRole, null);
   });
   root.addEventListener('change', function (ev) {
     var el = ev.target;

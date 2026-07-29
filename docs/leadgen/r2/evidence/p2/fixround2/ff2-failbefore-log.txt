@@ -1,0 +1,8 @@
+quote=lgq_01KYQ07SC2QP3HT7RRD0VS6GA2 funnel=lgf_01KYQ07SC30MWYTQK28CQ34N35 slug-stamp=MS63XL1N
+preset=thm_ff2-fonts-ms63xl1n (Playfair Display / Work Sans)
+FIX 1 baseline canvas srcdoc len=30379 sha=6985ecfe460388b5
+  FIX1-a harmony Darker (no Save): canvas UNCHANGED 6985ecfe460388b5 -> 6985ecfe460388b5 (len 30379 -> 30379)
+  ^^ FAIL-BEFORE CONFIRMED: FIX1-a harmony Darker (no Save) left the canvas byte-identical
+  FIX1-b Advanced hex #FF00FF Apply (no Save): canvas UNCHANGED 6985ecfe460388b5 -> 6985ecfe460388b5 (len 30379 -> 30379)
+  ^^ FAIL-BEFORE CONFIRMED: FIX1-b Advanced hex #FF00FF Apply (no Save) left the canvas byte-identical
+FAIL-BEFORE persisted theme after both affordances: null

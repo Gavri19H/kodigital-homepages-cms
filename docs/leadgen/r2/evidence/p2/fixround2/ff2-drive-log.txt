@@ -1,0 +1,14 @@
+quote=lgq_01KYQ05YFNEMRW2YPZGYKFX54M funnel=lgf_01KYQ05YFNZXE4NH52YM5M11YW slug-stamp=MS63WATV
+preset=thm_ff2-fonts-ms63watv (Playfair Display / Work Sans)
+FIX 1 baseline canvas srcdoc len=30379 sha=59a99083646553ea
+  FIX1-a harmony Darker (no Save): canvas CHANGED 59a99083646553ea -> 91beb79841b131d1 (len 30379 -> 60370)
+  FIX1-b Advanced hex #FF00FF Apply (no Save): canvas CHANGED 91beb79841b131d1 -> 019bae8da7e01c28 (len 60370 -> 60370)
+  FIX1-c role pick accent (regression check): canvas CHANGED 019bae8da7e01c28 -> a4420f0cd81050db (len 60370 -> 60370)
+  FIX1-d font select fraunces (regression check): canvas CHANGED a4420f0cd81050db -> 963c0cd3dce14fdd (len 60370 -> 109073)
+  FIX1-e reset to inherited: canvas CHANGED 963c0cd3dce14fdd -> a6e6bf8e2a3fab87 (len 109073 -> 109073)
+FIX1-f Templates-owned edit background.style=brand: canvas CHANGED f632428b360ce305 -> 8db386c0a101f2c5 (len 60146 -> 108818)
+FIX 1 persisted theme (no Save was ever clicked): {"palette":{},"typography":{"display":"fraunces"}}
+FIX 2 rail: applied preset -> {"theme_id":"thm_ff2-fonts-ms63watv"}
+FIX 2 rail AFTER one edit: {"palette":{"brand_primary":"#1B3A5C","accent":"#F5C518","page_background":"#F4F6F9","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"},"typography":{"display_size":"xl","display":"playfair","body":"work_sans"},"scales":{"radius":"round"}}
+FIX 2 one-Save AFTER: {"palette":{"brand_primary":"#1B3A5C","accent":"#F5C518","page_background":"#F4F6F9","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"},"typography":{"display_size":"xl","display":"playfair","body":"work_sans"},"button_defaults":{"background_role":"accent"},"version":1}
+console errors: 0 
