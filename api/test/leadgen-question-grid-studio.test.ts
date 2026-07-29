@@ -266,6 +266,9 @@ const GRID_FUNCS = [
   "fillChoiceDefaultOptions",
   "gridQuestionsOf",
   "gridQuestionLabel",
+  // R2 P1 FIX-FIRST (B2): the one authored-default read (defaultValue, then the
+  // legacy props.default) gridQuestionDefault delegates to.
+  "gridDefaultStored",
   "gridQuestionDefault",
   "setGridQuestionDefault",
   "gridDepOf",

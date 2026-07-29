@@ -474,7 +474,20 @@ export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComp
   if (clientValidation !== undefined) component.client_validation = clientValidation;
 
   // §12.6 node-authored default → { value, answer_source: "default_applied" }.
-  const defaultValue = node.props?.["defaultValue"];
+  //
+  // R2 P1 FIX-FIRST (BLOCKER 2): read `props.defaultValue` FIRST, then the older
+  // `props.default`. The studio now writes `defaultValue` for EVERY default kind
+  // (ui-section-studio setGridQuestionDefault / collectDefaultControl), but two
+  // kinds — dropdown and range — wrote ONLY `props.default` until this fix, and
+  // every node stored before it still carries that key alone. Projecting only
+  // `defaultValue` meant such a node shipped `default_answer: null`, the runtime
+  // never seeded it (applySectionDefaults), and a REQUIRED dropdown the operator
+  // had given a default blocked Continue on an untouched screen — the owner's
+  // "if we set a 'default' and the user didn't change it - this is his answer and
+  // the 'required' rule is met" read as its exact opposite. Same precedence as
+  // presets.ts dropdownDefaultValue and answers.ts authoredDefault: one meaning
+  // of "the authored default" across render, config and normalization.
+  const defaultValue = node.props?.["defaultValue"] ?? node.props?.["default"];
   if (defaultValue !== undefined) {
     component.default_answer = { value: defaultValue, answer_source: "default_applied" };
   }

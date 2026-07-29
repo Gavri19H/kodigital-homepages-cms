@@ -966,20 +966,42 @@ interface QuoteRulesRailRuleWire {
 // those child fields, not just the top-level node's own. One level only — a
 // grid child is schema-restricted to a leaf question type, never a nested
 // grid, so this never needs to recurse further.
-function internalFieldsOf(node: unknown): string[] {
+// R2 P1 FIX-FIRST (MINOR 1) — each field WITH the question's own authored words.
+// The rules rail renders `answer_fields[].label` verbatim into the rule-card
+// sentence (ui-rules-builder qrFieldLabel → qrConditionChips), so a label built
+// out of storage ids made the card read "rvw_credit_rvw7q3 is excellent_rvw7q3"
+// — raw ids in an operator sentence (§12.4 "raw storage keys never surface").
+// `props.label` is the question's OWN words (the same source the studio's grid
+// rows and dependency sentences read); a question that has none falls back to
+// its field id, so the rail is never blank.
+interface SectionFieldEntry {
+  internal_field: string;
+  label: string | null;
+}
+function questionLabelOf(node: unknown): string | null {
+  if (node === null || typeof node !== "object") return null;
+  const props = (node as { props?: unknown }).props;
+  if (props === null || typeof props !== "object") return null;
+  const label = (props as { label?: unknown }).label;
+  return typeof label === "string" && label.trim() !== "" ? label.trim() : null;
+}
+function internalFieldEntriesOf(node: unknown): SectionFieldEntry[] {
   if (node === null || typeof node !== "object") return [];
-  const out: string[] = [];
+  const out: SectionFieldEntry[] = [];
   const own = (node as { internal_field?: unknown }).internal_field;
-  if (typeof own === "string" && own !== "") out.push(own);
+  if (typeof own === "string" && own !== "") out.push({ internal_field: own, label: questionLabelOf(node) });
   const children = (node as { children?: unknown }).children;
   if (Array.isArray(children)) {
     for (const child of children) {
       if (child === null || typeof child !== "object") continue;
       const f = (child as { internal_field?: unknown }).internal_field;
-      if (typeof f === "string" && f !== "") out.push(f);
+      if (typeof f === "string" && f !== "") out.push({ internal_field: f, label: questionLabelOf(child) });
     }
   }
   return out;
+}
+function internalFieldsOf(node: unknown): string[] {
+  return internalFieldEntriesOf(node).map((e) => e.internal_field);
 }
 
 // The quote's rules-rail answer-field picker data (§8.2 RIGHT rail, B3
@@ -998,10 +1020,17 @@ export function quoteRailAnswerFields(available: readonly AvailableSection[]): Q
         ? (content as { components: unknown[] }).components
         : [];
     for (const node of components) {
-      for (const internalField of internalFieldsOf(node)) {
-        if (fieldSeen.has(internalField)) continue;
-        fieldSeen.add(internalField);
-        fields.push({ internal_field: internalField, label: `${section.section_name} · ${internalField}` });
+      for (const entry of internalFieldEntriesOf(node)) {
+        if (fieldSeen.has(entry.internal_field)) continue;
+        fieldSeen.add(entry.internal_field);
+        // MINOR 1: the operator's own question words, never the storage id —
+        // this string IS the rule card's subject (qrFieldLabel returns it
+        // verbatim) and the picker's option text. Section-qualified, because
+        // two sections may ask the same question.
+        fields.push({
+          internal_field: entry.internal_field,
+          label: `${section.section_name} · ${entry.label ?? entry.internal_field}`,
+        });
       }
     }
   }

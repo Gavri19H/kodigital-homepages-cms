@@ -7331,7 +7331,12 @@ describeDb("review FIX 7 — Require-this-component-IF (props.requiredWhen) + se
 });
 
 describeDb("review FIX 8 — §5.5 defaults + the AI media-picker affordance", () => {
-  it("SSR + EXECUTED: the typed default controls write props.defaultValue (yes/no boolean) / props.default (range number, dropdown value); real PATCH round-trip + config-dto default_answer", async () => {
+  // R2 P1 FIX-FIRST (BLOCKER 2) retitled + re-asserted: the canonical authored-
+  // default key is props.defaultValue for EVERY kind (yes/no boolean, range
+  // number, dropdown choice value). props.default survives ONLY as the range
+  // mirror the presets.ts slider renderers read. The dropdown leg is the exact
+  // one the owner's 18.30.25 drive failed on: authored default → default_answer.
+  it("SSR + EXECUTED: the typed default controls write props.defaultValue for every kind (yes/no boolean · range number, mirrored to props.default · dropdown value); real PATCH round-trip + config-dto default_answer", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
@@ -7374,12 +7379,15 @@ describeDb("review FIX 8 — §5.5 defaults + the AI media-picker affordance", (
     // yes/no → BOOLEAN defaultValue (the config-dto default_applied field)
     collect("q1", "yesno", "true");
     expect(probe.run("state.content.components[0].props.defaultValue")).toBe(true);
-    // range → NUMBER props.default (the preset's slider start)
+    // range → NUMBER props.defaultValue (the answer) MIRRORED to props.default
+    // (the presets.ts slider renderers read propNum(node,"default") only)
     collect("q2", "range", "40");
+    expect(probe.run("state.content.components[1].props.defaultValue")).toBe(40);
     expect(probe.run("state.content.components[1].props.default")).toBe(40);
-    // dropdown → the choice VALUE
+    // dropdown → the choice VALUE, on the canonical key
     collect("q3", "dropdown", "acme");
-    expect(probe.run("state.content.components[2].props.default")).toBe("acme");
+    expect(probe.run("state.content.components[2].props.defaultValue")).toBe("acme");
+    expect(probe.run("state.content.components[2].props.default")).toBeUndefined();
     // a mismatched control kind never writes (type-gated)
     collect("q1", "range", "7");
     expect(probe.run("state.content.components[0].props.default")).toBeUndefined();
@@ -7399,12 +7407,17 @@ describeDb("review FIX 8 — §5.5 defaults + the AI media-picker affordance", (
     const saved = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as Record<string, unknown>;
     const savedNodes = (saved["content_json"] as { components: Array<Record<string, unknown>> }).components;
     expect((savedNodes[0]!["props"] as Record<string, unknown>)["defaultValue"]).toBe(true);
+    expect((savedNodes[1]!["props"] as Record<string, unknown>)["defaultValue"]).toBe(40);
     expect((savedNodes[1]!["props"] as Record<string, unknown>)["default"]).toBe(40);
-    expect((savedNodes[2]!["props"] as Record<string, unknown>)["default"]).toBe("acme");
-    // the runtime's default_applied path consumes the yes/no default via the
-    // REAL projection (config-dto default_answer)
+    expect((savedNodes[2]!["props"] as Record<string, unknown>)["defaultValue"]).toBe("acme");
+    // the runtime's default_applied path consumes the default via the REAL
+    // projection (config-dto default_answer) — for the yes/no AND (B2) for the
+    // dropdown + range the studio just authored: an authored default IS the
+    // visitor's answer, so it must reach the client config, not vanish.
     const pub = toPublicComponent(savedNodes[0] as never);
     expect(pub.default_answer).toEqual({ value: true, answer_source: "default_applied" });
+    expect(toPublicComponent(savedNodes[1] as never).default_answer).toEqual({ value: 40, answer_source: "default_applied" });
+    expect(toPublicComponent(savedNodes[2] as never).default_answer).toEqual({ value: "acme", answer_source: "default_applied" });
   });
 
   it("the media picker's Generate-with-AI affordance: HIDDEN without the route (§8.4); present + wired when the key exists (both builders' shared idiom)", async () => {

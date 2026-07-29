@@ -1732,6 +1732,35 @@ const ROLE_CONTROL_LABELS: Record<string, string> = {
   rangeColor: "Range fill",
 };
 
+// R2 P1 FIX-FIRST (MAJOR 1 / DEC-D4, owner-RULED) — per-question FREE COLOR.
+//
+// The ruling on per-question style deviation is "Reuse the existing per-section
+// override axes incl. free colors" (the 3-theme-roles-only alternative was
+// REJECTED). Every color-typed design_overrides key already ACCEPTS a raw #hex
+// (content-schema isValidColorOverrideValue: a theme role OR a #hex literal) and
+// the renderers already paint whatever value is stored — only the CONTROL was
+// missing, so a per-question color could never leave the 14 theme roles. This
+// emits the SAME free-color escape hatch buildChoiceStyleControl's color axes
+// give a single choice ("Custom color — off theme", a #RRGGBB text input,
+// same /^#[0-9a-fA-F]{3,8}$/ acceptance), bound to the SAME design_overrides key
+// as the role select it sits under — no new storage shape, no new vocabulary.
+// The panel's own chrome stays tokenized (v3.1 gate-1): the input carries no
+// color of its own; the hex the operator types is DATA on the node.
+//
+// NAMING (deliberate, not incidental): this is a small string-returning helper
+// that belongs to the blocks that CALL it (renderStyleExtraControls + the Style
+// tab markup), never a region of its own — exactly the class the golden-regions
+// census documents as part of its caller ("small string-returning helpers like
+// issueChip/segStyle/options"). It therefore carries no `render` prefix, which
+// is what that census's detection convention keys on.
+function overrideHexRowHtml(key: string, label: string): string {
+  return `<div class="form-group lg-inspector-field studio-role-hex" data-override-hex-row="${escapeHtml(key)}">
+  <span class="form-label">Custom color &#8212; off theme</span>
+  <input type="text" class="form-input" data-inspector-override-hex="${escapeHtml(key)}" placeholder="#RRGGBB" aria-label="${escapeHtml(label)} custom color (hex)">
+  <p class="form-help">Any color, not just a theme role &#8212; this question only. Clear it to go back to the role above.</p>
+</div>`;
+}
+
 // v3.1 R3b (renamed from renderDesignPanel — S2-7/S4-A4 rail removal; the
 // golden-regions scan tracks blocks by NAME, so the rename is itself part of
 // "drops renderDesignPanel from non-golden blocks"). Disposition of the OLD
@@ -1773,6 +1802,7 @@ function renderStyleExtraControls(design: FunnelDesign): string {
   </div>
   <p class="form-help studio-role-source" data-override-source="${escapeHtml(key)}"></p>
   <p class="form-help studio-role-custom" data-override-custom="${escapeHtml(key)}" hidden>Custom color &#8212; not a theme role. <button type="button" class="studio-link-btn" data-override-convert="${escapeHtml(key)}">Convert to a theme color</button></p>
+  ${overrideHexRowHtml(key, ROLE_CONTROL_LABELS[key] ?? key)}
 </div>`;
     })
     .join("");
@@ -2799,10 +2829,12 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <div class="lg-inspector-field" data-tb-selected-role="button" hidden>
           <label class="form-label" for="lg-style-selected-button">Button background</label>
           <select id="lg-style-selected-button" class="form-input" data-inspector-override="buttonBackground" aria-label="Selected-state style role (button background)"><option value="">Inherited</option>${roleSelectOptions()}</select>
+          ${overrideHexRowHtml("buttonBackground", "Button background")}
         </div>
         <div class="lg-inspector-field" data-tb-selected-role="icon" hidden>
           <label class="form-label" for="lg-style-selected-icon">Icon color</label>
           <select id="lg-style-selected-icon" class="form-input" data-inspector-override="iconColor" aria-label="Selected-state style role (icon color)"><option value="">Inherited</option>${roleSelectOptions()}</select>
+          ${overrideHexRowHtml("iconColor", "Icon color")}
         </div>
         <div class="lg-inspector-field" data-toolbar-choice-layout hidden>
           <label class="form-label">Card layout</label>
@@ -2828,6 +2860,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       <div class="lg-inspector-field">
         <label class="form-label" for="lg-text-color-role">Text color role</label>
         <select id="lg-text-color-role" class="form-input" data-inspector-override="featureColor"><option value="">Inherited</option>${roleSelectOptions()}</select>
+        ${overrideHexRowHtml("featureColor", "Text color")}
       </div>
     </div>
 
@@ -3697,6 +3730,9 @@ export const SECTION_STUDIO_STYLES = `
 .studio-role-swatch{display:inline-block;width:16px;height:16px;border-radius:4px;border:1px solid var(--c-border);flex:0 0 16px}
 .studio-role-source{margin:2px 0 0}
 .studio-role-custom{color:#664d03;margin:2px 0 0}
+/* DEC-D4 per-question free color: the hex escape hatch under a role row */
+.studio-role-hex{margin:4px 0 0}
+.studio-role-hex .form-label{font-size:12px;margin:0 0 2px}
 .studio-link-btn{border:0;background:none;color:var(--c-primary);cursor:pointer;font-size:inherit;padding:0;text-decoration:underline}
 .studio-overrides-banner{color:#055160;background:#cff4fc;border:1px solid #b6effb}
 .studio-section-roles{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px 16px;margin-bottom:10px}
@@ -8048,6 +8084,16 @@ export const SECTION_STUDIO_SCRIPT = `
       if (isHexColor(oval)) { ensureLegacyOption(ovEls[i], String(oval)); }
       ovEls[i].value = (oval === undefined || oval === null) ? '' : String(oval);
     }
+    // D4 free color: each color-typed override row's hex escape hatch shows the
+    // stored value ONLY when it really is a hex (a theme role belongs to the
+    // select above it, never echoed into this box).
+    var hexEls = document.querySelectorAll('[data-inspector-override-hex]');
+    var hval;
+    for (i = 0; i < hexEls.length; i++) {
+      k = hexEls[i].getAttribute('data-inspector-override-hex');
+      hval = (node && node.design_overrides) ? node.design_overrides[k] : undefined;
+      hexEls[i].value = isHexColor(hval) ? String(hval) : '';
+    }
     // FIX 4b: dead-write Design rows are GATED per type (overrideRowHidden —
     // columns/gridGap are consumed by renderCardGrid only; iconColor has no
     // consumer on MultiChoiceCardGroup).
@@ -8174,6 +8220,28 @@ export const SECTION_STUDIO_SCRIPT = `
     if (input.value === '') { delete ov[key]; }
     else if (key === 'columns') { var n = Number(input.value); ov[key] = isNaN(n) ? input.value : n; }
     else { ov[key] = input.value; }
+    cleanupEmpty(node, 'design_overrides');
+    afterModelChange();
+  }
+  // D4 (owner-RULED per-question free colors): the hex escape hatch writes the
+  // SAME design_overrides key as the role select above it — a literal #hex,
+  // which the schema accepts for every color-typed key and every renderer paints
+  // as-is. Empty clears the override back to inherited; a malformed value is
+  // simply not committed (the operator keeps typing) — the identical acceptance
+  // buildChoiceStyleControl's per-choice color axes use.
+  function collectInspectorOverrideHex(input) {
+    var node = selectedNode();
+    if (!node) { return; }
+    var key = input.getAttribute('data-inspector-override-hex');
+    if (!key) { return; }
+    var v = trimStr(input.value);
+    var ov = ensureObj(node, 'design_overrides');
+    if (v === '') {
+      if (isHexColor(ov[key])) { delete ov[key]; }
+    } else {
+      if (!/^#[0-9a-fA-F]{3,8}$/.test(v)) { return; }
+      ov[key] = v;
+    }
     cleanupEmpty(node, 'design_overrides');
     afterModelChange();
   }
@@ -10183,10 +10251,21 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   // --- §5.5 defaults (FIX 8a/8b) --------------------------------------------------
-  // yes/no → props.defaultValue (boolean) — the config-dto default_answer /
-  // runtime default_applied path; the visitor still confirms it (§5.5).
-  // range → props.default (number); dropdowns → props.default (choice value)
-  // — both consumed by the presets (renderRange / the dropdown renderers).
+  // R2 P1 FIX-FIRST (BLOCKER 2) — ONE canonical authored-default key:
+  // props.defaultValue, for EVERY default kind (yesno boolean / choice value /
+  // dropdown choice value / range number). It is the key config-dto projects to
+  // default_answer, the key answers.ts normalizes as default_applied, and the
+  // key presets.ts dropdownDefaultValue reads first — so an authored default
+  // becomes the visitor's answer and satisfies the required rule (owner A.1 #2: "if we
+  // set a 'default' and the user didn't change it - this is his answer and the
+  // 'required' rule is met"). Before this fix range/dropdown wrote ONLY
+  // props.default, which config-dto never projected: the default rendered but
+  // was NOT an answer, and a required dropdown blocked Continue untouched.
+  // props.default is now LEGACY: still READ (stored nodes keep their default,
+  // both readers use defaultValue ?? default) and still MIRRORED on the range
+  // kind only, because the three range renderers (presets.ts renderRange family)
+  // read propNum(node,"default") and nothing else — dropping it there would
+  // silently reset every authored slider to its minimum.
   // Rework §6.4 — the default control KIND is matrix-driven (registry.ts
   // COMPONENT_CAPABILITIES.default_kind): 'yesno' (TwoButtonYesNo, props.default
   // Value boolean), 'range' (slider family, props.default number), 'dropdown'
@@ -10242,7 +10321,9 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     if (kind === 'range') {
       el = document.querySelector('[data-default-control="range"]');
-      if (el) { el.value = typeof props.default === 'number' ? String(props.default) : ''; }
+      // B2: canonical defaultValue first, legacy props.default second.
+      var rangeStored = (props.defaultValue !== undefined && props.defaultValue !== null) ? props.defaultValue : props.default;
+      if (el) { el.value = typeof rangeStored === 'number' ? String(rangeStored) : ''; }
       return;
     }
     if (kind === 'choice') {
@@ -10283,7 +10364,9 @@ export const SECTION_STUDIO_SCRIPT = `
       opt.textContent = String(choices[i].label || choices[i].value);
       el.appendChild(opt);
     }
-    el.value = (props.default === undefined || props.default === null) ? '' : String(props.default);
+    // B2: canonical defaultValue first, legacy props.default second.
+    var dropStored = (props.defaultValue !== undefined && props.defaultValue !== null) ? props.defaultValue : props.default;
+    el.value = (dropStored === undefined || dropStored === null) ? '' : String(dropStored);
   }
   // P2b (register R-A completion): TwoButtonYesNo's two FIXED buttons get the
   // SAME per-element style popover a choice row does (buildChoiceStyleControl)
@@ -10329,21 +10412,27 @@ export const SECTION_STUDIO_SCRIPT = `
     if (kind !== defaultKindOf(node)) { return; }
     var props = ensureObj(node, 'props');
     var v = trimStr(input.value);
+    // B2: EVERY kind writes props.defaultValue; the legacy props.default is
+    // cleared on write (never two disagreeing defaults on one node) except on
+    // the range kind, where it is MIRRORED for the presets.ts slider renderers.
     if (kind === 'yesno') {
       if (v === '') { delete props.defaultValue; }
       else { props.defaultValue = v === 'true'; }
+      delete props.default;
     } else if (kind === 'range') {
       var n = Number(v);
-      if (v === '' || isNaN(n)) { delete props.default; }
-      else { props.default = n; }
+      if (v === '' || isNaN(n)) { delete props.defaultValue; delete props.default; }
+      else { props.defaultValue = n; props.default = n; }
     } else if (kind === 'choice') {
       // §6.4 (F-C): single-select choice default → props.defaultValue (one of
       // the choice values; save-gate asserts membership). Empty clears it.
       if (v === '') { delete props.defaultValue; }
       else { props.defaultValue = v; }
+      delete props.default;
     } else {
-      if (v === '') { delete props.default; }
-      else { props.default = v; }
+      if (v === '') { delete props.defaultValue; }
+      else { props.defaultValue = v; }
+      delete props.default;
     }
     cleanupEmpty(node, 'props');
     afterModelChange();
@@ -10376,28 +10465,35 @@ export const SECTION_STUDIO_SCRIPT = `
     return own !== '' ? own : typeLabel(child.type);
   }
   // The stored default of ONE question, as a string ('' = no default). Mirrors
-  // collectDefaultControl's matrix-driven kind→prop mapping (yesno/choice →
-  // props.defaultValue, range/dropdown → props.default); kept separate because
-  // that function is vm-probe-sliced standalone AND writes to selectedNode(),
-  // while these two write to an explicitly passed CHILD node.
+  // collectDefaultControl's matrix-driven kind→prop mapping (B2: EVERY kind
+  // stores props.defaultValue; props.default is the legacy/range-render key,
+  // read second); kept separate because that function is vm-probe-sliced
+  // standalone AND writes to selectedNode(), while these two write to an
+  // explicitly passed CHILD node.
+  function gridDefaultStored(props) {
+    return (props.defaultValue !== undefined && props.defaultValue !== null) ? props.defaultValue : props.default;
+  }
   function gridQuestionDefault(child) {
     var kind = defaultKindOf(child);
     var props = (child && child.props) || {};
     if (kind === 'yesno') { return props.defaultValue === true ? 'true' : (props.defaultValue === false ? 'false' : ''); }
-    if (kind === 'range') { return typeof props.default === 'number' ? String(props.default) : ''; }
-    if (kind === 'choice') { return (props.defaultValue === undefined || props.defaultValue === null) ? '' : String(props.defaultValue); }
-    if (kind === 'dropdown') { return (props.default === undefined || props.default === null) ? '' : String(props.default); }
+    var stored = gridDefaultStored(props);
+    if (kind === 'range') { return typeof stored === 'number' ? String(stored) : ''; }
+    if (kind === 'choice' || kind === 'dropdown') { return (stored === undefined || stored === null) ? '' : String(stored); }
     return '';
   }
+  // B2 (producer side): the studio writes props.defaultValue for EVERY kind —
+  // the key config-dto projects to default_answer and answers.ts applies as
+  // default_applied. props.default is cleared on write (one default per node)
+  // except on range, where it is mirrored for the presets.ts slider renderers.
   function setGridQuestionDefault(child, raw) {
     var kind = defaultKindOf(child);
     if (kind === null) { return; }
     var props = ensureObj(child, 'props');
     var v = trimStr(raw);
-    if (kind === 'yesno') { if (v === '') { delete props.defaultValue; } else { props.defaultValue = v === 'true'; } }
-    else if (kind === 'range') { var n = Number(v); if (v === '' || isNaN(n)) { delete props.default; } else { props.default = n; } }
-    else if (kind === 'choice') { if (v === '') { delete props.defaultValue; } else { props.defaultValue = v; } }
-    else { if (v === '') { delete props.default; } else { props.default = v; } }
+    if (kind === 'yesno') { if (v === '') { delete props.defaultValue; } else { props.defaultValue = v === 'true'; } delete props.default; }
+    else if (kind === 'range') { var n = Number(v); if (v === '' || isNaN(n)) { delete props.defaultValue; delete props.default; } else { props.defaultValue = n; props.default = n; } }
+    else { if (v === '') { delete props.defaultValue; } else { props.defaultValue = v; } delete props.default; }
     cleanupEmpty(child, 'props');
   }
   // The ONE leaf condition this row authors. A multi-condition group authored in
@@ -10789,10 +10885,44 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // A label edit must re-word every OTHER row's trigger picker + sentence at
   // once (no save+reload), so the operator always reads live question words.
+  //
+  // R2 P1 FIX-FIRST (BLOCKER 1) — TARGETED text updates, never a rebuild. This
+  // runs on EVERY KEYSTROKE of the Question label input. It used to call
+  // renderGridQuestionsEditor(grid), which clearChildren()s the host and builds
+  // every row again: the very input being typed into was detached mid-keystroke,
+  // focus fell to BODY (where the up/down reorder keybindings live) and the
+  // typed characters were lost - the owner could not type a question label at
+  // all (driven: 26 keystrokes produced an empty field). Nothing STRUCTURAL
+  // changes when a label changes (the trigger picker's option SET is keyed on
+  // internal_field, not on words), so only two derived texts need refreshing:
+  // each trigger option's words and each dependency sentence. Structural
+  // rebuilds stay where they belong - the field-name input's own change (blur)
+  // handler, add/remove/move/type-swap.
   function gridSyncTriggerLabels(grid) {
     var host = document.querySelector('[data-grid-questions-list]');
     if (!host || !grid) { return; }
-    renderGridQuestionsEditor(grid);
+    var kids = gridQuestionsOf(grid);
+    var sels = host.querySelectorAll('[data-grid-dep="when"]');
+    var i, j, k, opts;
+    for (i = 0; i < sels.length; i++) {
+      opts = sels[i].options;
+      for (j = 0; j < opts.length; j++) {
+        if (opts[j].value === '') { continue; }
+        for (k = 0; k < kids.length; k++) {
+          if (kids[k] && kids[k].internal_field === opts[j].value) { opts[j].textContent = gridQuestionLabel(kids[k]); }
+        }
+      }
+    }
+    var sentences = host.querySelectorAll('[data-grid-dep-sentence]');
+    var qid, ref, cond;
+    for (i = 0; i < sentences.length; i++) {
+      qid = sentences[i].getAttribute('data-grid-dep-sentence');
+      ref = findRef(qid);
+      cond = ref ? gridDepOf(ref.node) : null;
+      sentences[i].textContent = cond
+        ? conditionSentence('Shown', cond, gridDepTriggerLabel(grid, cond.when), refFieldInfo(cond.when))
+        : 'Always shown \\u2014 pick a question above to make it depend on an answer.';
+    }
   }
   function renderGridQuestionsEditor(node) {
     var host = document.querySelector('[data-grid-questions-list]');
@@ -13570,6 +13700,13 @@ export const SECTION_STUDIO_SCRIPT = `
   for (oe = 0; oe < ovEls.length; oe++) {
     ovEls[oe].addEventListener('input', function () { collectInspectorOverride(this); });
     ovEls[oe].addEventListener('change', function () { collectInspectorOverride(this); });
+  }
+  // D4 free color: 'change' only (never per-keystroke) — a half-typed "#f" must
+  // not commit, and the operator's cursor is never disturbed while typing.
+  var ovHexEls = document.querySelectorAll('[data-inspector-override-hex]');
+  var ohe;
+  for (ohe = 0; ohe < ovHexEls.length; ohe++) {
+    ovHexEls[ohe].addEventListener('change', function () { collectInspectorOverrideHex(this); });
   }
   var vpropEls = document.querySelectorAll('[data-inspector-vprop]');
   var ve;
