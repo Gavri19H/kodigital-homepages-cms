@@ -1,0 +1,49 @@
+R2 P4 S4b — driven-product measurements (2026-07-29T23:22:22.167Z)
+AUTHOR five sliders -> HTTP 200
+  re-save activation (mints a fresh lg-shell key) -> HTTP 200
+SSR converged in 19ms (1 poll(s)): the five authored sliders
+SINGLE @1280 DRAG: value 37->80 readout "$37"->"$80" fillW 120.6->260.8 handleX 583.6->723.8 aria-valuenow=80
+SINGLE @1280 KEYS(3x Right): value 80->83 fillW 260.8->270.6 handleX 723.8->733.6 readout="$83"
+STEPPER @1280: + button 170000->175000 (fillW 107.6->110.8, handleX 570.6->573.8) ; DRAG 175000->300000 (fillW 195.6, handleX 658.6) readout="$300,000"
+P4_FROMTO @1280: values [0,100000] -> maxDrag [0,70000] -> minDrag [25000,70000]
+  fill x/w 477.0/326.0 -> 477.0/228.2 -> 558.5/146.7 (track x/w 477.0/326.0)
+  pills [$0 , $100,000] -> [$0 , $70,000] -> [$25,000 , $70,000]
+  handles minCX=558.5 maxCX=705.2 fillL=558.5 fillR=705.2 aria=[25000,70000]
+  KEYS(min 2x Right): [25000,70000] -> [35000,70000] pills=[$35,000 , $70,000]
+  CLAMP (min dragged past max): [65000,70000] gap=5000 (step=5000) handleCX min=688.9 max=705.2
+P4_DUAL @1280: values [0,100] -> maxDrag [0,70] -> minDrag [25,70]
+  fill x/w 477.0/326.0 -> 477.0/228.2 -> 558.5/146.7 (track x/w 477.0/326.0)
+  pills [0 , 100] -> [0 , 70] -> [25 , 70]
+  handles minCX=558.5 maxCX=705.2 fillL=558.5 fillR=705.2 aria=[25,70]
+  KEYS(min 2x Right): [25,70] -> [27,70] pills=[27 , 70]
+  CLAMP (min dragged past max): [69,70] gap=1 (step=1) handleCX min=701.9 max=705.2
+FROM_TO @1280 fields mirror the rails: fields=[65000,70000] rails=[65000,70000]
+RADIAL @1280 dial box: centre=(640.0,612.6) ring r=79.0 size=176.0x176.0
+RADIAL @1280 KEYS(10x Right): value 45->55 centre "45"->"55" --lg-deg 162deg->198deg handle (646.8,670.1)->(597.9,670.1) aria-valuenow=55
+RADIAL @1280 RING DRAG (3 o'clock -> 6 o'clock): value 55->50 centre "55"->"50" --lg-deg 198deg->180deg handle (597.9,670.1)->(626.0,677.6) dial=176.0x176.0
+RADIAL @1280 RING DRAG (6 -> 9 o'clock): value 50->75 --lg-deg 180deg->270deg centre="75"
+RADIAL @1280 arc: conic-gradient(rgb(27, 58, 92) 0deg, rgb(27, 58, 92) 270deg, rgb(232, 238, 244) 270deg, rgb(232,…
+RADIAL @1280 a11y: role=slider count=1 on <input> aria-hidden(dial)=true
+SINGLE @375 DRAG: value 37->80 readout "$37"->"$80" fillW 117.3->253.6 handleX 132.3->268.6 aria-valuenow=80
+SINGLE @375 KEYS(3x Right): value 80->83 fillW 253.6->263.1 handleX 268.6->278.1 readout="$83"
+STEPPER @375: + button 170000->175000 (fillW 104.6->107.8, handleX 119.6->122.8) ; DRAG 175000->300000 (fillW 190.2, handleX 205.2) readout="$300,000"
+P4_FROMTO @375: values [0,100000] -> maxDrag [0,70000] -> minDrag [25000,70000]
+  fill x/w 29.0/317.0 -> 29.0/221.9 -> 108.3/142.6 (track x/w 29.0/317.0)
+  pills [$0 , $100,000] -> [$0 , $70,000] -> [$25,000 , $70,000]
+  handles minCX=108.3 maxCX=250.9 fillL=108.3 fillR=250.9 aria=[25000,70000]
+  KEYS(min 2x Right): [25000,70000] -> [35000,70000] pills=[$35,000 , $70,000]
+  CLAMP (min dragged past max): [65000,70000] gap=5000 (step=5000) handleCX min=235.0 max=250.9
+P4_DUAL @375: values [0,100] -> maxDrag [0,70] -> minDrag [25,70]
+  fill x/w 29.0/317.0 -> 29.0/221.9 -> 108.3/142.6 (track x/w 29.0/317.0)
+  pills [0 , 100] -> [0 , 70] -> [25 , 70]
+  handles minCX=108.3 maxCX=250.9 fillL=108.3 fillR=250.9 aria=[25,70]
+  KEYS(min 2x Right): [25,70] -> [27,70] pills=[27 , 70]
+  CLAMP (min dragged past max): [69,70] gap=1 (step=1) handleCX min=247.7 max=250.9
+FROM_TO @375 fields mirror the rails: fields=[65000,70000] rails=[65000,70000]
+RADIAL @375 dial box: centre=(187.5,575.3) ring r=61.0 size=140.0x140.0
+RADIAL @375 KEYS(10x Right): value 45->55 centre "45"->"55" --lg-deg 162deg->198deg handle (189.2,617.1)->(150.5,617.1) aria-valuenow=55
+RADIAL @375 RING DRAG (3 o'clock -> 6 o'clock): value 55->50 centre "55"->"50" --lg-deg 198deg->180deg handle (150.5,617.1)->(173.5,623.8) dial=140.0x140.0
+RADIAL @375 RING DRAG (6 -> 9 o'clock): value 50->75 --lg-deg 180deg->270deg centre="75"
+RADIAL @375 arc: conic-gradient(rgb(27, 58, 92) 0deg, rgb(27, 58, 92) 270deg, rgb(232, 238, 244) 270deg, rgb(232,…
+RADIAL @375 a11y: role=slider count=1 on <input> aria-hidden(dial)=true
+all-five sheets captured at 1280 and 375

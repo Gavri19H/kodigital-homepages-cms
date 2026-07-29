@@ -40,11 +40,6 @@ import type {
 // alongside the engine — safe to import HERE (never into engine.ts itself,
 // which would blow the byte cap with its ~27KB of catalog/capability text).
 import { COMPONENT_CATALOG } from "../src/public/leadgen/components/registry";
-// R2 P4 S4b: the §6.8 slider drives below run over the REAL server markup —
-// presets.ts + the default design are DOM-free, so they type-check here too.
-import { renderComponent } from "../src/public/leadgen/components/presets";
-import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
-import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 
 // ---------------------------------------------------------------------------
 // Fake DOM (only the surface the engine/render touch) — the r1 harness plus
@@ -994,6 +989,90 @@ function parseSsr(html: string): FakeElement[] {
   return [...root.children];
 }
 
+// The §6.8 markup the runtime drives. It is NOT the producer — presets.ts is —
+// but it is not free-floating either: `test/leadgen-slider-anatomy-r2.test.ts`
+// ("the runtime's hook contract") asserts, against the REAL renderComponent
+// output for all five types, that every hook named below is exactly what the
+// server emits. That suite lives in the WORKER tsconfig program because
+// presets.ts reaches src/env.ts through content-schema -> leadgen/payload,
+// while THIS file lives in the DOM-lib runtime program — the two programs
+// cannot import each other's halves today (tsconfig.runtime.json carries
+// `types: []`), so the contract is pinned there and consumed here. The real
+// end-to-end boundary proof is the driven product:
+// test-ui/leadgen-r2p4-s4b-slider-drive.spec.ts over the live server.
+function sliderHtml(p: Record<string, unknown>): string {
+  const n = (k: string, d: number): number => (typeof p[k] === "number" ? (p[k] as number) : d);
+  const kind = String(p["slider_type"] ?? "single");
+  const min = n("min", 0);
+  const max = n("max", 100);
+  const step = n("step", 1);
+  const value = n("default", min);
+  const cur = p["currency_affix"] === true ? String(p["currency"] ?? "$") : "";
+  const curAttr = cur === "" ? "" : ` data-currency="${cur}"`;
+  const fmt = (v: number): string => cur + v.toLocaleString("en-US");
+  const pctOfRail = (v: number): number => (max > min ? Math.round(((v - min) / (max - min)) * 100) : 0);
+  const hydrate = ` data-lg-question="q_s" data-lg-field="amount" data-internal-field="amount"`;
+  const rail = (extra: string, v: number): string =>
+    `<input class="lg-range-input${extra}" type="range" role="slider" data-lg-input min="${min}" max="${max}" step="${step}" value="${v}" aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${v}">`;
+  const handle = (variant: string, readout: string): string =>
+    `<div class="lg-range-handle${variant === "" ? "" : ` lg-range-handle-${variant}`}" aria-hidden="true">` +
+    (readout === "" ? "" : `<span class="lg-range-handle-value">${readout}</span>`) +
+    `</div>`;
+  const minmax = `<div class="lg-range-minmax"><span>${fmt(min)}</span><span>${fmt(max)}</span></div>`;
+  if (kind === "from_to" || kind === "dual_range") {
+    return (
+      `<div class="lg-range lg-range-${kind === "from_to" ? "from-to" : "dual"}"${hydrate}${curAttr} data-slider-type="${kind}">` +
+      `<div class="lg-range-track">` +
+      `<div class="lg-range-fill" style="left:0%;width:100%">` +
+      handle("min", fmt(min)) +
+      handle("max", fmt(max)) +
+      `</div>` +
+      `<span data-lg-field="amount_min">${rail(" lg-range-input-dual", min)}</span>` +
+      `<span data-lg-field="amount_max">${rail(" lg-range-input-dual", max)}</span>` +
+      `</div>` +
+      minmax +
+      (kind === "from_to"
+        ? `<div class="lg-range-from-to-inputs">` +
+          `<div class="lg-range-ft-field"><span data-lg-field="amount_min"><input class="lg-input lg-range-from" type="number" data-lg-input min="${min}" max="${max}" step="${step}" value="${min}"></span></div>` +
+          `<div class="lg-range-ft-field"><span data-lg-field="amount_max"><input class="lg-input lg-range-to" type="number" data-lg-input min="${min}" max="${max}" step="${step}" value="${max}"></span></div>` +
+          `</div>`
+        : "") +
+      `</div>`
+    );
+  }
+  if (kind === "radial") {
+    const deg = (pctOfRail(value) / 100) * 360;
+    return (
+      `<div class="lg-range lg-range-radial"${hydrate}${curAttr} data-slider-type="radial">` +
+      `<div class="lg-range-radial-outer" aria-hidden="true" style="--lg-deg:${deg}deg">` +
+      `<div class="lg-range-radial-handle"></div>` +
+      `<div class="lg-range-value lg-range-radial-inner">${fmt(value)}</div>` +
+      `</div>` +
+      rail(" lg-range-radial-input", value) +
+      `</div>`
+    );
+  }
+  const stepper = kind === "stepper";
+  return (
+    `<div class="lg-range${stepper ? " lg-range-stepper" : ""}"${hydrate}${curAttr}${stepper ? ` data-slider-type="stepper"` : ""}>` +
+    (stepper
+      ? `<div class="lg-range-stepper-row">` +
+        `<button type="button" class="lg-range-stepper-btn lg-range-stepper-dec" data-lg-step="dec" aria-label="Decrease">-</button>` +
+        `<div class="lg-range-value">${fmt(value)}</div>` +
+        `<button type="button" class="lg-range-stepper-btn lg-range-stepper-inc" data-lg-step="inc" aria-label="Increase">+</button>` +
+        `</div>`
+      : `<div class="lg-range-value">${fmt(value)}</div>`) +
+    `<div class="lg-range-track">` +
+    `<div class="lg-range-fill" style="width:${pctOfRail(value)}%">` +
+    handle("", "") +
+    `</div>` +
+    rail("", value) +
+    `</div>` +
+    minmax +
+    `</div>`
+  );
+}
+
 interface SliderRig {
   answers: () => Record<string, unknown>;
   q: (sel: string) => FakeElement;
@@ -1009,10 +1088,7 @@ interface SliderRig {
 
 async function sliderRig(props: Record<string, unknown>): Promise<SliderRig> {
   DOC = fakeDocument();
-  const html = renderComponent(
-    { type: "NumberRangeQuestion", question_id: "q_s", internal_field: "amount", props } as LeadgenComponentNode,
-    defaultFunnelDesign,
-  );
+  const html = sliderHtml(props);
   const sec = mk("section", { "data-lg-section": "", "data-lg-section-id": "lgs_1", "data-lg-index": "0" });
   for (const el of parseSsr(html)) sec.appendChild(el);
   sec.appendChild(mk("button", { "data-lg-continue": "" }));

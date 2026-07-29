@@ -268,3 +268,72 @@ describe("§6.8 — every type answers the SAME three questions (picker ≠ rend
     for (const c of classes) expect(CSS, c).toContain(`.${c}{`);
   });
 });
+
+// ---------------------------------------------------------------------------
+// R2 P4 S4b — the RUNTIME'S HOOK CONTRACT.
+//
+// engine.ts drives the five types through a fixed set of DOM hooks. The
+// behavioural drives for those hooks live in
+// test/leadgen-rework-runtime.test.ts, which cannot import presets.ts: that
+// suite belongs to the DOM-lib runtime tsconfig program (types: []), while
+// presets.ts reaches src/env.ts through content-schema -> leadgen/payload and
+// so needs @cloudflare/workers-types. This block closes that gap from the
+// PRODUCER side — it asserts, against the REAL renderComponent output, that
+// every hook the runtime queries is exactly what the server emits, so the
+// runtime suite's mirrored markup can never silently drift from the server's.
+// (The end-to-end proof remains the driven product:
+// test-ui/leadgen-r2p4-s4b-slider-drive.spec.ts.)
+// ---------------------------------------------------------------------------
+
+describe("§6.8 — the hooks the RUNTIME queries are the hooks the SERVER emits", () => {
+  // Every selector/attribute engine.ts (syncSlider / syncDualRange / the radial
+  // drag / handleStepper) reads, per type.
+  const CONTRACT: Record<string, string[]> = {
+    single: [`class="lg-range"`, `class="lg-range-value"`, `class="lg-range-fill"`, `class="lg-range-input"`, `role="slider"`],
+    stepper: [`data-slider-type="stepper"`, `class="lg-range-value"`, `class="lg-range-fill"`, `data-lg-step="dec"`, `data-lg-step="inc"`, `class="lg-range-input"`],
+    from_to: [`data-slider-type="from_to"`, `class="lg-range-fill"`, `lg-range-input lg-range-input-dual`, `class="lg-range-handle-value"`, `lg-input lg-range-from`, `lg-input lg-range-to`],
+    dual_range: [`data-slider-type="dual_range"`, `class="lg-range-fill"`, `lg-range-input lg-range-input-dual`, `class="lg-range-handle-value"`],
+    radial: [`data-slider-type="radial"`, `class="lg-range-radial-outer"`, `--lg-deg:`, `lg-range-value lg-range-radial-inner`, `lg-range-input lg-range-radial-input`],
+  };
+
+  for (const [type, hooks] of Object.entries(CONTRACT)) {
+    it(`${type}: every runtime hook is present in the real SSR`, () => {
+      const html = slider({ slider_type: type, min: 0, max: 100, step: 1, default: 40 });
+      for (const hook of hooks) expect(html, `${type} must emit ${hook}`).toContain(hook);
+    });
+  }
+
+  it("the two-handle types emit EXACTLY two rails and two pills, in min-then-max order", () => {
+    for (const type of ["from_to", "dual_range"]) {
+      const html = slider({ slider_type: type, min: 0, max: 100, step: 1 });
+      expect(count(html, /lg-range-input-dual/g), `${type} rails`).toBe(2);
+      expect(count(html, /class="lg-range-handle-value"/g), `${type} pills`).toBe(2);
+      // The runtime indexes rails[0]/pills[0] as the MIN side — DOM order is
+      // the contract, so assert min really does come first.
+      expect(html.indexOf("lg-range-handle-min")).toBeLessThan(html.indexOf("lg-range-handle-max"));
+      expect(html.indexOf(`data-lg-field="amount_min"`)).toBeLessThan(html.indexOf(`data-lg-field="amount_max"`));
+    }
+  });
+
+  it("from_to's labelled fields are the ONLY .lg-input inside the wrapper (the runtime indexes them 0/1)", () => {
+    const html = slider({ slider_type: "from_to", min: 0, max: 100, step: 1 });
+    expect(count(html, /class="lg-input lg-range-(from|to)"/g)).toBe(2);
+    expect(count(html, /class="lg-input\b/g)).toBe(2);
+    expect(html.indexOf("lg-range-from")).toBeLessThan(html.indexOf("lg-range-to"));
+    // dual_range has none — the runtime's `num[i] !== undefined` guard depends on it.
+    expect(count(slider({ slider_type: "dual_range", min: 0, max: 100, step: 1 }), /class="lg-input\b/g)).toBe(0);
+  });
+
+  it("the radial's real control is reachable as outer.parentElement's radial input (the drag's lookup)", () => {
+    const html = slider({ slider_type: "radial", min: 0, max: 100, step: 1, default: 40 });
+    const outerAt = html.indexOf(`class="lg-range-radial-outer"`);
+    const wrapAt = html.indexOf(`class="lg-range lg-range-radial"`);
+    const inputAt = html.indexOf(`lg-range-input lg-range-radial-input`);
+    // wrapper < outer < input: the input is a SIBLING of the dial under the
+    // same wrapper, which is exactly what the pointerdown handler walks.
+    expect(wrapAt).toBeGreaterThan(-1);
+    expect(outerAt).toBeGreaterThan(wrapAt);
+    expect(inputAt).toBeGreaterThan(outerAt);
+    expect(html.indexOf(`</div>`, outerAt), "the input sits AFTER the dial closes").toBeLessThan(inputAt);
+  });
+});
