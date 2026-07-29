@@ -38,6 +38,12 @@ import {
 } from "../../../public/leadgen/designs/frames";
 import { FUNNEL_TOKEN_ROLES } from "../../../public/leadgen/designs/theme";
 import { ENTRY_KNOWN_SLOT_FIELDS } from "../../../public/leadgen/resolver";
+// R2 P2 tail (item 2): the preset-resolve algorithm quotes-tabs/themes.ts's
+// THEMES_TAB_SCRIPT already uses (MINOR-1) — extracted to a shared module so
+// this island's own one-Save theme path (normalizedThemePut) resolves a
+// preset into inline values too, instead of the older theme_id-drop-only
+// shape. See that module's header for why this is a source-text export.
+import { themePresetResolveSnippet } from "./theme-preset-resolve";
 import {
   // P3b S3b.1 follow-up: the funnel-tab RIGHT rail is S3b.2's (§8.2 RIGHT,
   // MOUNT CONTRACT documented at renderQuoteRulesRail's own doc comment). The
@@ -549,6 +555,7 @@ function renderSharedSlotAbDialog(): string {
         <div class="lg-ab-arms" data-ab-arms></div>
         <button type="button" class="btn btn-sm btn-secondary" data-ab-add-arm>+ Add arm</button>
         <p class="lg-alloc-summary">Σ = <strong data-ab-sum>&mdash;</strong> <span class="form-help" data-ab-sum-note></span></p>
+        <p class="form-help" data-ab-sentence role="status" aria-live="polite"></p>
         <p class="form-help lg-hidden" data-ab-error role="alert"></p>
       </div>
       <div class="lg-board-guard-foot">
@@ -1085,27 +1092,52 @@ export const QUOTE_EDITOR_SCRIPT = `
     return msg;
   }
 
-  // R2 register R7 normalization (mirrors quotes-tabs/themes.ts's own
-  // flushThemeEdits — reused, not reinvented): a preset Applied via
-  // wireThemePresets (theme_json: {theme_id}), then edited through THIS
-  // tab's OWN theme controls (workingTheme accumulates the edit alongside
-  // the still-present theme_id), must not resurface designs/theme.ts's
-  // validateTheme rejection "theme_id can't be combined with other theme
-  // settings" on the ONE-Save button. GET the current theme, drop a bare
-  // theme_id the moment ANY inline field is ALSO present, merge this
-  // session's edits (workingTheme) on top, then PUT.
+  // R2 P2 tail (item 2): PRESET_ROLE_BRIDGE, PRESET_EXTRA_ROLE_BRIDGE,
+  // hasAnyKey, inlineThemeFromPreset — the SAME resolve algorithm quotes-
+  // tabs/themes.ts's THEMES_TAB_SCRIPT uses (MINOR-1), via the shared
+  // theme-preset-resolve snippet (see that module's header).
+  ${themePresetResolveSnippet()}
+
+  // R2 P2 tail (item 2) — closes the R7 residual quotes-tabs/themes.ts's own
+  // header explicitly flagged as open: this ONE-Save theme path used to drop
+  // a bare theme_id the moment any inline field was ALSO present (R7's OTHER
+  // sanctioned branch), which silently discarded the WHOLE applied preset's
+  // palette/typography/buttons on the first edit through this tab — the same
+  // bug MINOR-1 closed for quotes-tabs/themes.ts's OWN rail-edit save
+  // (flushThemeEdits), via the SAME resolve-then-merge algorithm, reused
+  // here through the shared theme-preset-resolve snippet (above), not
+  // reinvented. A preset Applied via wireThemePresets (theme_json:
+  // {theme_id}), then edited through THIS tab's OWN theme controls
+  // (workingTheme accumulates the edit alongside the still-present
+  // theme_id): GET the current theme; if it carries a theme_id, RESOLVE
+  // that preset record into inline values FIRST (inlineThemeFromPreset) so
+  // its palette survives; merge this session's edits (workingTheme, its own
+  // theme_id excluded) on top via deepMerge (a NESTED merge — so editing
+  // ONE palette role never displaces the preset's OTHER resolved roles,
+  // unlike a shallow key overwrite); then PUT.
   function normalizedThemePut(funnelBase) {
     return fetch(funnelBase + '/theme', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
       .then(function (getRes) {
         var current = (getRes.ok && getRes.body && getRes.body.theme) || {};
-        var merged = {};
+        if (typeof current.theme_id === 'string' && current.theme_id !== '') {
+          return fetch('/api/admin/leadgen/themes/' + encodeURIComponent(current.theme_id), {
+            credentials: 'same-origin', headers: { Accept: 'application/json' }
+          }).then(function (rp) { return rp.json(); }).then(function (pb) {
+            return inlineThemeFromPreset(pb && pb.item);
+          });
+        }
+        var inline = {};
         var k;
-        for (k in current) { if (Object.prototype.hasOwnProperty.call(current, k) && k !== 'theme_id') { merged[k] = current[k]; } }
-        for (k in workingTheme) { if (Object.prototype.hasOwnProperty.call(workingTheme, k)) { merged[k] = workingTheme[k]; } }
-        var hasInline = false;
-        for (k in merged) { if (Object.prototype.hasOwnProperty.call(merged, k) && k !== 'theme_id' && k !== 'version') { hasInline = true; break; } }
-        if (hasInline) { delete merged.theme_id; }
+        for (k in current) { if (Object.prototype.hasOwnProperty.call(current, k) && k !== 'theme_id') { inline[k] = current[k]; } }
+        return inline;
+      })
+      .then(function (baseTheme) {
+        var merged = baseTheme || {};
+        var edits = {};
+        var k;
+        for (k in workingTheme) { if (Object.prototype.hasOwnProperty.call(workingTheme, k) && k !== 'theme_id') { edits[k] = workingTheme[k]; } }
+        deepMerge(merged, edits);
         return putJson(funnelBase + '/theme', { theme_json: merged });
       });
   }
@@ -4208,6 +4240,25 @@ export const QUOTE_EDITOR_SCRIPT = `
     var sumEl = abDialog.querySelector('[data-ab-sum]'); if (sumEl) { sumEl.textContent = (Math.round(sum * 100) / 100) + '%'; }
     var note = abDialog.querySelector('[data-ab-sum-note]'); if (note) { note.textContent = Math.round(sum * 100) === 10000 ? '' : '(must total 100%)'; }
   }
+  // R2 P2 tail (item 1): the LIVE plain-language summary, same idiom as the
+  // ruled dialog's refreshRuledSentence (below) — rebuilt from the dialog's
+  // OWN current DOM state on every edit, reusing selectedOptionText (also
+  // shared with the ruled dialog). An operator must see in words what they
+  // are about to save, e.g. "Splits traffic: 50% Section X / 50% Section Y".
+  function refreshAbSentence() {
+    if (!abDialog) { return; }
+    var out = abDialog.querySelector('[data-ab-sentence]');
+    if (!out) { return; }
+    var arms = abArms(); var parts = []; var i;
+    for (i = 0; i < arms.length; i++) {
+      var pct = Number(arms[i].querySelector('[data-ab-arm-pct]').value);
+      var name = selectedOptionText(arms[i].querySelector('[data-ab-arm-section]'));
+      parts.push((isFinite(pct) ? pct : 0) + '% ' + (name || 'Choose a section\\u2026'));
+    }
+    var sentence = parts.length === 0 ? 'Add an arm to see the split.' : 'Splits traffic: ' + parts.join(' / ');
+    while (out.firstChild) { out.removeChild(out.firstChild); }
+    out.appendChild(document.createTextNode(sentence));
+  }
   // Program convention (§8.2): A/B arms start equal. Split 10000bp across the
   // arms, remainder to the first arm so Σ is EXACTLY 10000 (100.00%).
   function resplitAbEqually() {
@@ -4215,6 +4266,7 @@ export const QUOTE_EDITOR_SCRIPT = `
     var base = Math.floor(10000 / n); var rem = 10000 - base * n; var i;
     for (i = 0; i < n; i++) { var bp = base + (i === 0 ? rem : 0); arms[i].querySelector('[data-ab-arm-pct]').value = String(bp / 100); }
     updateAbSum();
+    refreshAbSentence();
   }
   // R2 SRC-11C-B (a funnel page's section-chip kebab lacked "A/B this
   // slot"/"Slot rule" — the shared-page chip had them; an operator could not
@@ -4231,9 +4283,11 @@ export const QUOTE_EDITOR_SCRIPT = `
       return {
         scope: 'shared',
         slot: sharedSlots()[sIdx],
-        // R2 P2 FIX-FIRST (MINOR-4): onError is OPTIONAL — omitted (the A/B
-        // editor, revert, every other caller) keeps the pre-existing
-        // board-level inline banner, byte-for-byte.
+        // onError is OPTIONAL: when supplied the caller owns where the
+        // server's message is rendered and the dialog stays open (the ruled
+        // dialog's Save, MINOR-4; the A/B dialog's Save, R2 P2 tail item 1)
+        // — omitted (revert-to-fixed, every other caller) keeps the
+        // pre-existing board-level inline banner, byte-for-byte.
         save: function (overridePut, onError) {
           var put = sharedSlotsToPut(); put[sIdx] = overridePut;
           saveSharedSlots(put, null, onError);
@@ -4287,6 +4341,7 @@ export const QUOTE_EDITOR_SCRIPT = `
     }
     hide(abDialog.querySelector('[data-ab-error]'));
     updateAbSum();
+    refreshAbSentence();
     show(abDialog);
   }
   function openSharedAbEditor(slotId) { openAbEditorCtx(abRuledSlotCtx('shared', null, null, slotId)); }
@@ -4304,8 +4359,19 @@ export const QUOTE_EDITOR_SCRIPT = `
     }
     if (allocations.length < 2) { showErr(err, 'An A/B test needs at least two arms.'); return; }
     if (sum !== 10000) { showErr(err, 'Arm percentages must total 100% (got ' + (sum / 100) + '%).'); return; }
-    var ctx = abCtx; closeSharedAbEditor();
-    ctx.save({ kind: 'ab', allocations: allocations });
+    // R2 P2 tail (item 1, same idiom as MINOR-4's saveSharedRuled): the
+    // dialog used to CLOSE before saving, so a server rejection (e.g. the
+    // §4.3-13 per-funnel section-uniqueness rule) surfaced as a board-level
+    // banner behind a dialog that had already thrown the operator's work
+    // away. It now stays open until the save is accepted; a rejection
+    // renders the server's OWN message right beside the controls that
+    // caused it (the same [data-ab-error] line the client-side checks above
+    // use). Success reloads the page (ctx.save's own tail), which tears the
+    // dialog down.
+    hide(err);
+    abCtx.save({ kind: 'ab', allocations: allocations }, function (msg) {
+      showErr(abDialog.querySelector('[data-ab-error]'), msg);
+    });
   }
   function revertAbToFixed() {
     if (!abDialog || !abCtx) { return; }
@@ -4429,6 +4495,15 @@ export const QUOTE_EDITOR_SCRIPT = `
   }
   // Live Σ recompute as A/B arm percentages are typed.
   if (abDialog) { abDialog.addEventListener('input', function (ev) { if (ev.target && ev.target.getAttribute && ev.target.getAttribute('data-ab-arm-pct') !== null) { updateAbSum(); } }); }
+  // R2 P2 tail (item 1): live sentence — same idiom as the ruled dialog's
+  // refreshRuledSentence below (recomputed on both 'input' and 'change',
+  // unconditionally; arm section selects fire 'change', pct inputs fire
+  // 'input'). Add/remove-arm mutate the DOM without firing either event, so
+  // resplitAbEqually (above) calls refreshAbSentence directly too.
+  if (abDialog) {
+    abDialog.addEventListener('input', refreshAbSentence);
+    abDialog.addEventListener('change', refreshAbSentence);
+  }
   // R2 P2 FIX-FIRST (MINOR-4): live sentence — recomputed as the operator
   // types a value or switches a field/op/section (both event kinds; selects
   // fire 'change', the text input fires 'input').

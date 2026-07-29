@@ -67,8 +67,6 @@ import {
   THEME_FONT_IDS,
   THEME_RADIUS_SCALES,
   THEME_RADIUS_STEPS,
-  THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE,
-  THEME_RECORD_ROLE_TO_TOKEN_ROLE,
   THEME_SHADOW_SCALES,
   THEME_SHADOW_STEPS,
   THEME_SIZE_SCALES,
@@ -81,6 +79,12 @@ import {
   frameControl,
   renderOverrideSwitch,
 } from "./shared";
+// R2 P2 tail (item 2): the preset-resolve algorithm (PRESET_ROLE_BRIDGE /
+// PRESET_EXTRA_ROLE_BRIDGE / hasAnyKey / inlineThemeFromPreset) now lives in
+// this shared snippet so quotes-tabs/funnel.ts's one-Save theme path can
+// reuse it byte-identically instead of a hand-copied duplicate — see that
+// module's header for why this is a source-text export, not a runtime import.
+import { themePresetResolveSnippet } from "./theme-preset-resolve";
 
 
 // --- theme editor (09 §9.3) ---------------------------------------------------
@@ -320,14 +324,12 @@ function renderThemeRailPane(isControl: boolean): string {
 const THEMES_TAB_SCRIPT = `
 (function () {
   'use strict';
-  // R2 P2 FIX-FIRST (MINOR-1): the record-role -> FunnelTokenRole bridges,
-  // SERIALIZED FROM THE SAME compile-checked constants resolveTokens itself
-  // applies (designs/theme.ts THEME_RECORD_ROLE_TO_TOKEN_ROLE +
-  // THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE) — never a hand-copied table here,
-  // so a renamed role can never drift between the preset resolver and this
-  // rail (a rename is a compile error at the import above).
-  var PRESET_ROLE_BRIDGE = ${JSON.stringify(THEME_RECORD_ROLE_TO_TOKEN_ROLE)};
-  var PRESET_EXTRA_ROLE_BRIDGE = ${JSON.stringify(THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE)};
+  // R2 P2 FIX-FIRST (MINOR-1) / P2 tail (item 2 extraction): PRESET_ROLE_
+  // BRIDGE, PRESET_EXTRA_ROLE_BRIDGE, hasAnyKey, inlineThemeFromPreset now
+  // come from the shared theme-preset-resolve snippet (see that module's
+  // header) so quotes-tabs/funnel.ts's one-Save theme path can reuse this
+  // EXACT algorithm — never a hand-copied duplicate.
+  ${themePresetResolveSnippet()}
   var root = document.querySelector('[data-lg-themes-tab]');
   if (!root) { return; }
   // Same element funnel.ts's own island reads (id="lg-quote-editor") — found
@@ -498,11 +500,7 @@ const THEMES_TAB_SCRIPT = `
   // depending on the save round-trip. null (nothing edited yet this session)
   // sends no key at all: the server resolves the STORED theme, unchanged.
   var railDraftTheme = null;
-  function hasAnyKey(o) {
-    var k;
-    for (k in o) { if (Object.prototype.hasOwnProperty.call(o, k)) { return true; } }
-    return false;
-  }
+  // hasAnyKey now comes from the shared theme-preset-resolve snippet above.
   var canvasSeq = 0;
   function refreshCanvas() {
     var frame = byId('lg-theme-canvas-frame');
@@ -567,49 +565,10 @@ const THEMES_TAB_SCRIPT = `
     return !!(el && el.value === 'override');
   }
 
-  // R2 P2 FIX-FIRST (MINOR-1): RESOLVE an applied preset into inline values.
-  // The rail used to keep only the ONE edited key and drop the theme_id
-  // pointer, so the first control edit after "Apply to this funnel" silently
-  // discarded the whole preset (palette + typography + buttons). This maps a
-  // theme RECORD onto the inline theme_json shape through the bridges
-  // serialized above, so the preset's own values survive as real inline
-  // values and the edit lands on top of them.
-  // Deliberately NOT mapped (no faithful 1:1 exists — mapping them would
-  // INVENT values rather than preserve the preset's): typography.headline_
-  // font/body_font (a record's font vocabulary is Inter/Newsreader/Roboto
-  // Mono; inline typography.display/body is the literata/sora/... set) and
-  // controls.field_height/button_size/corners (corners is sharp|rounded|pill
-  // vs the inline radius scale sharp|soft|round). Those keep resolving from
-  // the base design, exactly as they did before this fix.
-  function inlineThemeFromPreset(rec) {
-    var out = {};
-    var palette = {};
-    var k;
-    var roles = (rec && rec.roles) || {};
-    for (k in PRESET_ROLE_BRIDGE) {
-      if (Object.prototype.hasOwnProperty.call(PRESET_ROLE_BRIDGE, k) && typeof roles[k] === 'string' && roles[k] !== '') {
-        palette[PRESET_ROLE_BRIDGE[k]] = roles[k];
-      }
-    }
-    var extra = (rec && rec.extra_roles) || {};
-    for (k in PRESET_EXTRA_ROLE_BRIDGE) {
-      if (Object.prototype.hasOwnProperty.call(PRESET_EXTRA_ROLE_BRIDGE, k) && typeof extra[k] === 'string' && extra[k] !== '') {
-        palette[PRESET_EXTRA_ROLE_BRIDGE[k]] = extra[k];
-      }
-    }
-    if (hasAnyKey(palette)) { out.palette = palette; }
-    var bstyle = (rec && rec.button_style) || null;
-    if (bstyle) {
-      var bd = {};
-      if (bstyle.fill) { bd.fill = bstyle.fill; }
-      if (bstyle.layout) { bd.layout = bstyle.layout; }
-      if (bstyle.selected) { bd.selected = bstyle.selected; }
-      if (hasAnyKey(bd)) { out.button_defaults = bd; }
-    }
-    var typ = (rec && rec.typography) || null;
-    if (typ && typ.display_size) { out.typography = { display_size: typ.display_size }; }
-    return out;
-  }
+  // inlineThemeFromPreset now comes from the shared theme-preset-resolve
+  // snippet above (RESOLVEs an applied preset into inline values so the rail
+  // edit below merges on top of the preset's own values, not a bare
+  // theme_id).
 
   var applyTimer = null;
   var pendingEdits = {};
