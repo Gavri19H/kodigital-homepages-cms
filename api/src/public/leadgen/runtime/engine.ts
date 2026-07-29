@@ -501,6 +501,115 @@ function fillMaskScaffold(scaffold: string, digits: string): { text: string; car
 }
 
 // ---------------------------------------------------------------------------
+// §6.8 sliders — the MOVING half (R2 P4 S4b)
+//
+// S4a painted the five types' anatomy (presets.ts) and their CSS (styles.ts);
+// the `single` and `stepper` shapes already move for free (the native input
+// overlays its own track → `input` → render.updateRangeDisplay writes the fill
+// width + `.lg-range-value` text, and the fill's child `.lg-range-handle`
+// rides that width). The two shapes below have geometry the single-value
+// updater cannot express, so the engine owns it:
+//
+//   from_to / dual_range — ONE track, TWO real range inputs. The fill must span
+//     BETWEEN the two values (left AND width) and each handle's pill must read
+//     its OWN handle. render.updateRangeDisplay is single-value (it writes
+//     width from one input and would collapse the span), so these types are
+//     routed here INSTEAD of it.
+//   radial — the arc + ring handle are driven by ONE custom property,
+//     `--lg-deg` on `.lg-range-radial-outer` (styles.ts: the conic-gradient
+//     stop AND the handle's rotate() both read it). S4a's centre-value fix
+//     made the CENTRE follow the value; this makes the ARC follow it too.
+// ---------------------------------------------------------------------------
+
+// Every numeric slider attribute is server-rendered (presets.ts always emits
+// min/max/step); `|| fallback` covers a missing attr AND an empty one.
+function attrNum(el: Element, name: string, fallback: number): number {
+  return Number(el.getAttribute(name) || fallback);
+}
+
+const ARIA_NOW = "aria-valuenow";
+const SEL_DIAL = ".lg-range-radial-outer";
+
+// CLAMP RULE (from_to + dual_range): the DRAGGED handle stops ONE `step` short
+// of its neighbour; the neighbour NEVER moves. So min < max always holds (no
+// crossing), and the two thumbs can never land on the same pixel — which would
+// bury the lower one under the upper one's hit area and deadlock the pair
+// (neither handle reachable again). Returns the CLAMPED value of the moved
+// control so handleInputEvent records the clamp, never the raw crossing value;
+// null = not a two-handle slider (caller falls back to updateRangeDisplay).
+function syncDualRange(wrap: Element, moved: HTMLInputElement): string | null {
+  const rail = wrap.querySelectorAll(".lg-range-input-dual") as unknown as HTMLInputElement[];
+  const hi = rail[1];
+  // A cleared from_to number field is left alone (never re-filled mid-typing).
+  if (hi === undefined || moved.value === "") return null;
+  const lo = rail[0] as HTMLInputElement;
+  // from_to's two labelled number fields (the ONLY .lg-input inside a two-handle
+  // wrapper); dual_range is handles-only, so this list is empty there.
+  const num = wrap.querySelectorAll(".lg-input") as unknown as HTMLInputElement[];
+  const min = attrNum(lo, "min", 0);
+  const max = attrNum(lo, "max", 100);
+  const step = attrNum(lo, "step", 1);
+  const top = moved === hi || moved === num[1];
+  const fit = (n: number): number => (n >= min ? (n > max ? max : n) : min);
+  let a = fit(Number(top ? lo.value : moved.value));
+  let b = fit(Number(top ? moved.value : hi.value));
+  if (top) {
+    if (b < a + step) b = fit(a + step);
+  } else if (a > b - step) {
+    a = fit(b - step);
+  }
+  // The fill + both pills are emitted by the SAME presets.ts template literal
+  // that emitted the two rails found above, so they are never absent here.
+  const span = max - min || 1;
+  const pa = Math.round(((a - min) / span) * 100);
+  const fill = wrap.querySelector(".lg-range-fill") as HTMLElement;
+  fill.style.left = pa + "%";
+  fill.style.width = Math.round(((b - min) / span) * 100) - pa + "%";
+  // One pass per side (0 = min/left, 1 = max/right): the rail carries the
+  // clamped value + aria; from_to's labelled number field mirrors it (never the
+  // one being typed into — dual_range has none, hence the undefined test); and
+  // the handle's OWN pill carries its readout, byte-identical to the server's
+  // formatRangeValue (presets.ts).
+  const pill = wrap.querySelectorAll(".lg-range-handle-value");
+  const cur = wrap.getAttribute("data-currency") || "";
+  [a, b].forEach((v, i) => {
+    const s = `${v}`;
+    const rl = i ? hi : lo;
+    rl.value = s;
+    rl.setAttribute(ARIA_NOW, s);
+    const nu = num[i];
+    if (nu !== undefined && nu !== moved) nu.value = s;
+    (pill[i] as Element).textContent = cur + v.toLocaleString("en-US");
+  });
+  return `${top ? b : a}`;
+}
+
+// Route one changed slider control to its type's visual sync. Returns the
+// clamped answer value (the two-handle types) or null (every other type — the
+// caller then runs the single-value render.updateRangeDisplay).
+//
+// radial is handled inline: its ONE live property is `--lg-deg` on
+// `.lg-range-radial-outer` — 0deg is 12 o'clock sweeping clockwise (the
+// conic-gradient's own axis, which the ring handle's rotate() reads too), so a
+// single write moves the arc AND the handle. `single`/`stepper` fall through to
+// syncDualRange, which finds no `.lg-range-input-dual` rails and returns null —
+// the same answer an explicit type test gives, for fewer bytes.
+function syncSlider(input: HTMLInputElement): string | null {
+  const wrap = input.closest(".lg-range");
+  if (wrap === null) return null;
+  const outer = wrap.querySelector(SEL_DIAL) as HTMLElement | null;
+  if (outer === null) return syncDualRange(wrap, input);
+  const min = attrNum(input, "min", 0);
+  const span = attrNum(input, "max", 100) - min || 1;
+  outer.style.setProperty("--lg-deg", Math.round(((Number(input.value) - min) / span) * 360) + "deg");
+  return null;
+}
+
+// §6.8 radial: the dial under a pointer drag as [outer, input] (null = no
+// drag). One engine per page, so module scope is the cheapest correct home.
+let dialDrag: [Element, HTMLInputElement] | null = null;
+
+// ---------------------------------------------------------------------------
 // Engine
 // ---------------------------------------------------------------------------
 
@@ -960,6 +1069,72 @@ export class LgEngine {
       input.value = fillMaskScaffold(mask.scaffold, input.value.replace(/\D/g, "").slice(0, -1)).text;
       this.handleInputEvent(input);
     });
+
+    // §6.8 radial: the visitor grabs the RING, not an input — the real
+    // <input type=range> is pointer-events:none/opacity:0 over the dial
+    // (styles.ts) precisely so the dial's own pixels are the hit area. Grab =
+    // jump to the angle under the pointer + focus the (still focusable) input,
+    // so the SAME control then answers the native ↑↓←→/Home/End/PageUp/PageDown
+    // keys the §6.8 keyboard rail requires and :focus-within paints the dial's
+    // focus ring. Move/up ride the DOCUMENT so a drag that leaves the card
+    // keeps tracking, exactly like a native thumb drag.
+    // Map the pointer to the dragged dial's value: the angle from the dial's
+    // CENTRE, clockwise from 12 o'clock (the SAME axis --lg-deg feeds — see
+    // syncSlider), scaled across [min,max] and snapped to `step`. Routing the
+    // result through the real input + handleInputEvent means the drag records,
+    // re-renders the centre value, re-stamps aria-valuenow and re-draws the arc
+    // through the EXACT path a keypress uses — one behaviour, not two.
+    const dialTo = (ev: { clientX: number; clientY: number; buttons?: number }): void => {
+      const grab = dialDrag;
+      if (grab === null) return;
+      // The button came up somewhere we never saw (the drag ended) — release.
+      if (ev.buttons === 0) {
+        dialDrag = null;
+        return;
+      }
+      const input = grab[1];
+      const box = grab[0].getBoundingClientRect();
+      const turn =
+        Math.atan2(ev.clientX - box.left - box.width / 2, box.top + box.height / 2 - ev.clientY) /
+        (Math.PI * 2); // -0.5..0.5 of a turn, 0 = 12 o'clock, + = clockwise
+      const min = attrNum(input, "min", 0);
+      const max = attrNum(input, "max", 100);
+      const step = attrNum(input, "step", 1) || 1;
+      // turn ∈ [0,1) ⇒ the snap never falls below min; only the top edge can
+      // overshoot (a span that is not a whole number of steps), so one Math.min
+      // is the whole clamp here.
+      const v =
+        "" + Math.min(max, min + Math.round((((turn + 1) % 1) * (max - min)) / step) * step);
+      if (v === input.value) return;
+      input.value = v;
+      this.handleInputEvent(input);
+    };
+    // The dial ring and its centre are the only pointer targets inside
+    // `.lg-range-radial-outer` (the real input over them is pointer-events:none,
+    // the handle too — styles.ts), so ONE closest() both hit-tests the dial and
+    // hands back the element whose box the angle is measured from.
+    this.root.addEventListener("pointerdown", (raw) => {
+      const ev = raw as { target?: unknown; clientX: number; clientY: number };
+      const t = ev.target;
+      const outer = t instanceof Element ? t.closest(SEL_DIAL) : null;
+      // EVERY pointerdown re-decides what (if anything) is being dragged, so a
+      // press anywhere else releases a stale grab — the drag can never resume
+      // on a dial the visitor already let go of.
+      dialDrag = null;
+      if (outer === null) return;
+      const input = (outer.parentElement as Element).querySelector(
+        ".lg-range-radial-input",
+      ) as HTMLInputElement;
+      dialDrag = [outer, input];
+      // The (still focusable) input becomes the keyboard control for the dial
+      // the visitor just grabbed, and paints :focus-within's ring (styles.ts).
+      input.focus();
+      dialTo(ev); // a real pointerdown carries buttons=1 — never the release edge
+    });
+    // The release edge is `buttons === 0` inside dialTo (covers pointerup,
+    // pointercancel and a button let go outside the window) — one test on the
+    // move stream instead of two more listeners.
+    document.addEventListener("pointermove", dialTo as unknown as EventListener);
   }
 
   private replayPrehydrateQueue(): void {
@@ -1188,17 +1363,14 @@ export class LgEngine {
   // exactly like a drag. data-lg-step = "dec" | "inc".
   private handleStepper(stepEl: Element): void {
     const input = stepEl.closest("[data-lg-question]")?.querySelector("[data-lg-input]");
-    if (input === null || input === undefined || !(input instanceof HTMLInputElement)) return;
-    const step = Number(input.getAttribute("step")) || 1;
-    const min = Number(input.getAttribute("min"));
-    const max = Number(input.getAttribute("max"));
-    const cur = Number(input.value);
-    let next =
-      (Number.isFinite(cur) ? cur : Number.isFinite(min) ? min : 0) +
-      (stepEl.getAttribute("data-lg-step") === "dec" ? -step : step);
-    if (Number.isFinite(min) && next < min) next = min;
-    if (Number.isFinite(max) && next > max) next = max;
-    input.value = String(next);
+    if (!(input instanceof HTMLInputElement)) return;
+    const step = attrNum(input, "step", 1) || 1;
+    const min = attrNum(input, "min", 0);
+    const max = attrNum(input, "max", 100);
+    // A NaN/blank current value lands on min (`NaN >= min` is false), exactly
+    // as the pre-S4b Number.isFinite ladder did.
+    const n = Number(input.value) + (stepEl.getAttribute("data-lg-step") === "dec" ? -step : step);
+    input.value = "" + (n >= min ? (n > max ? max : n) : min);
     this.handleInputEvent(input);
   }
 
@@ -1395,6 +1567,19 @@ export class LgEngine {
       value = (input as { value: string }).value;
     }
 
+    // §6.8 (S4b): a slider moves its own type-specific visuals here — BEFORE
+    // the answer is recorded, so a from_to/dual handle dragged past its
+    // neighbour records the CLAMPED value (syncDualRange's rule), never the raw
+    // crossing one. A non-null return also means the two-handle geometry (fill
+    // left+width, per-handle pills) is already written, so the single-value
+    // render.updateRangeDisplay below MUST be skipped — it would rewrite the
+    // fill's width from one handle and collapse the span.
+    let dual: string | null = null;
+    if (input instanceof HTMLInputElement) {
+      dual = syncSlider(input);
+      if (dual !== null) value = dual;
+    }
+
     // m12: ZIP-format inputs STORE the trimmed value at capture (" 90210" →
     // "90210") so the client-passing answer also passes the server's strict
     // /^\d{5}$/ — validation semantics on either side stay unchanged.
@@ -1425,7 +1610,7 @@ export class LgEngine {
     const write = this.store.recordUserAnswer(internalField, value, meta);
     // S2-3 (register §C): a range slider moves its own visible value text +
     // filled track live as it is dragged (input fires continuously).
-    if (input instanceof HTMLInputElement && input.type === "range") {
+    if (input instanceof HTMLInputElement && input.type === "range" && dual === null) {
       render.updateRangeDisplay(input);
     }
     // §6.8: keep aria-valuenow live on EVERY slider handle — updateRangeDisplay
@@ -1434,7 +1619,7 @@ export class LgEngine {
     // always reads the current value (role=slider + aria-valuemin/max are
     // server-static; aria-valuenow is the one dynamic axis the engine owns).
     if (input.getAttribute("role") === "slider") {
-      input.setAttribute("aria-valuenow", String(value));
+      input.setAttribute(ARIA_NOW, String(value));
     }
     // §6.5: an authored "Other" select records like a base choice; picking it
     // must DESELECT every base choice. The other value is unique vs the base
