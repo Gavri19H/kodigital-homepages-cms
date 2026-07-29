@@ -39,6 +39,34 @@ changed byte fell strictly inside the trailing `<script>` region past the last
 `data-panel="analytics"` boundary — zero panel markup changed. Re-captured with
 this same ritual; see the git history for the exact `editor-full.html` diff.
 
+2026-07-29 re-capture (R2 P2 leftovers round — joint recapture after S2a/S2b/S2c):
+`editor-full.html` (never re-captured for either S2a or S2b individually — the
+`README`'s own "re-capture at the END of the board work" convention was
+followed for S2a/S2b too), `editor-panel-builder.html` and
+`editor-panel-templates.html` changed; `editor-panel-themes.html` was already
+current (S2b's own recapture — byte-identical, zero further drift) and
+`editor-panel-ab.html` / `editor-panel-activation.html` /
+`quotes-list-{empty,seeded}.html` changed ONLY in minted ids / the rolling
+analytics window (normalized, zero structural change). Classification of
+every real (normalized) content line, cross-referenced to each slice's own
+commit: **1078 real lines total — 450 S2a (`fe00199`, self-audited "zero
+unclassified" at capture time; embedded copy inside `editor-full.html` simply
+hadn't caught up yet) / 330 S2b (`a3c35b5`, ditto — confirmed via a byte-exact
+re-check that S2b's own already-committed `editor-panel-themes.html` needed
+ZERO further changes) / 298 S2c (`5707915`: `normalizedThemePut` R7 fix,
+`stripIncompleteImagesForPreview`, `initSiteSelectDefault`, the retired
+embedded Template-picker popover + its `gotoTab('templates')` replacement,
+the `abRuledSlotCtx` A/B + Ruled slot-editor refactor enabling funnel-page
+scope, the extended `ab-slot`/`slot-rule` kebab actions, the builder panel's
+`min-width:0` rail fix + funnel-chip "A/B this slot"/"Slot rule" kebab
+entries, and the templates panel's per-quote `myQuoteDefaultTemplateId` /
+"Set as this quote's default" D5 feature) / 0 unattributed**. Verified by
+reconstructing each of `editor-full.html`'s six `data-panel` regions plus its
+surrounding chrome and confirming the reconstruction is byte-for-byte the
+original file (both before and after), so every changed byte anywhere in the
+full page is accounted for by either a named panel's own diff or the
+chrome diff — no possible hiding place for an unattributed change.
+
 ## Rolling analytics window (CLOSED — normalized, does not drift)
 
 The two `quotes-list-*.html` fixtures embed `resolveTimeframe`'s default rolling

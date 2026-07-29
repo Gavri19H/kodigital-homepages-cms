@@ -777,14 +777,20 @@ describeDb("Quote Builder frame studio — theme editor (09 §9.3)", () => {
     expect(html).toContain(">Round</option>");
   });
 
-  it("custom hex ONLY inside the collapsed 'Advanced token administration' with the exact warning copy; live mini-preview strip present", async () => {
+  it("custom hex ONLY inside the collapsed 'Advanced token administration' with the exact warning copy; the removed mini-preview strip stays gone — the tab's ONE canvas replaced it (R2 P2 S2b)", async () => {
     const { html } = await harness();
     expect(html).toContain('id="lg-theme-advanced"');
     expect(html).toContain("Advanced token administration");
     expect(html).toContain("Custom colors skip the design system &#8212; check contrast.");
     expect(html).toContain('id="lg-theme-hex-role"');
     expect(html).toContain('id="lg-theme-hex-value"');
-    expect(html).toContain('id="lg-theme-minipreview"');
+    // R2 P2 S2b Themes-tab rebuild: the OLD mini-preview strip that used to
+    // sit inside this rail is GONE for good — the tab now carries exactly
+    // ONE canvas (the sticky center pane), not a second preview nested in
+    // the Advanced disclosure.
+    expect(html).not.toContain('id="lg-theme-minipreview"');
+    expect(html).toContain("data-lg-themes-tab");
+    expect(html).toContain('id="lg-theme-canvas-pane"');
     // the hex input sits INSIDE the Advanced details element
     const advanced = html.slice(html.indexOf('id="lg-theme-advanced"'));
     expect(advanced.slice(0, advanced.indexOf("</details>"))).toContain('id="lg-theme-hex-value"');
@@ -1012,20 +1018,20 @@ describeDb("Quote Builder studio — DEV-60 Phase C polish", () => {
     expect(script).toContain("applyAdvancedHex()"); // derived = the Advanced custom-color path
   });
 
-  it("(d) mini preview is preset-backed: iframe mount wired to the SAME preview endpoint in frame-only mode; hand-rolled spans gone", async () => {
+  it("(d) R2 P2 S2b rebuilt this away: the iframe-mini-preview mechanism is GONE — the themes tab carries ONE canvas (the sticky center pane); hand-rolled spans stay gone too", async () => {
     const { html } = await harness();
-    expect(html).toContain('id="lg-theme-minipreview"');
-    expect(html).toContain('data-mini-preview-mode="frame"');
-    expect(html).toContain('id="lg-theme-minipreview-frame"');
+    // the OLD mini-preview mount/iframe/mode attribute never render now —
+    // superseded by the tab's own single sticky canvas (renderThemeCanvasPane).
+    expect(html).not.toContain('id="lg-theme-minipreview"');
+    expect(html).not.toContain('id="lg-theme-minipreview-frame"');
+    expect(html).not.toContain('data-mini-preview-mode="frame"');
+    expect(html).toContain("data-lg-themes-tab");
+    expect(html).toContain('id="lg-theme-canvas-pane"');
+    expect(html).toContain('id="lg-theme-canvas-frame"');
     expect(html).not.toContain("data-mini-button");
     expect(html).not.toContain("data-mini-card");
     expect(html).not.toContain("data-mini-input");
     expect(html).not.toContain("data-mini-progress");
-    const script = extractScripts(html).join("\n");
-    expect(script).toContain("function previewUrl()"); // ONE endpoint constant serves canvas + mini
-    expect(script).toContain("function renderMiniPreview()");
-    expect(script).toContain("scheduleMiniPreview");
-    expect(script).toContain("data-mini-preview-mode");
   });
 });
 

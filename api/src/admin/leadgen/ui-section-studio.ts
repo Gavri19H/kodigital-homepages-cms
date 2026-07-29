@@ -3273,6 +3273,35 @@ function renderStudioMediaPicker(aiImageAvailable: boolean): string {
 </div>`;
 }
 
+// ADJ-A10 (probe): "+ New activity" / "+ New vertical" used to be a raw
+// window.prompt() (a name) chained into a window.confirm() (the §8.2 "no
+// Offers yet" gate) — no Cancel affordance, no inline validation, silent
+// no-op on an empty name. This reuses the EXACT existing studio modal idiom
+// above (renderStudioMediaPicker: role="dialog" aria-modal="true" overlay +
+// panel, opened/closed via the lg-hidden class toggle) for a proper Create/
+// Cancel dialog with a name field and an inline error message. The §8.2
+// business gate itself stays a window.confirm() (unchanged) — orthogonal to
+// name COLLECTION, which is this modal's only job.
+function renderNewSharedValueModal(): string {
+  return `<div class="lg-media-picker-overlay lg-hidden" id="lg-new-shared-value-modal" role="dialog" aria-modal="true" aria-label="Create a new activity or vertical">
+  <div class="lg-media-picker-panel" style="max-width:420px">
+    <div class="studio-events-head">
+      <span class="form-label" data-new-shared-value-title>Create a new activity</span>
+      <button type="button" class="btn btn-sm btn-outline" id="lg-new-shared-value-close">Close</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="lg-new-shared-value-input">Name</label>
+      <input type="text" id="lg-new-shared-value-input" class="form-input" />
+      <p class="form-help studio-field-error" data-new-shared-value-error hidden>Enter a name.</p>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+      <button type="button" class="btn btn-sm btn-outline" data-new-shared-value-cancel>Cancel</button>
+      <button type="button" class="btn btn-sm btn-secondary" data-new-shared-value-create>Create</button>
+    </div>
+  </div>
+</div>`;
+}
+
 // Initial (server-computed) issue count for the top-bar chip: the REAL
 // validator's error count — the island recomputes its structural subset live.
 export function initialIssueCount(content: LeadgenSectionContent): number {
@@ -3317,6 +3346,7 @@ ${mapsBanner}
 </div>
 ${renderStudioDrawer(summary, answerMapCount, view.public_id)}
 ${renderStudioMediaPicker(aiImageAvailable)}
+${renderNewSharedValueModal()}
 ${renderStudioSeedData()}
 ${renderThemesOverlay()}</div>`;
 }
@@ -14466,25 +14496,83 @@ export const SECTION_STUDIO_SCRIPT = `
     });
   }
   // "+ New activity…" / "+ New vertical…" — allow-create ONLY behind the §8.2
-  // explicit confirm; never silent free text.
-  function promptNewSharedValue(kind, sel, after) {
+  // explicit confirm; never silent free text. ADJ-A10: the name is collected
+  // through the studio's OWN modal idiom (renderNewSharedValueModal — the
+  // Media picker's role="dialog" aria-modal="true" + lg-hidden toggle) with
+  // Create/Cancel + an inline error for an empty name, instead of a raw
+  // window.prompt(). The §8.2 "no Offers exist yet" business gate stays a
+  // window.confirm() — unchanged, orthogonal to name COLLECTION.
+  var newSharedValueTarget = { kind: '', sel: null, after: null };
+  function newSharedValueErrorEl() { return document.querySelector('[data-new-shared-value-error]'); }
+  function newSharedValueInputEl() { return document.getElementById('lg-new-shared-value-input'); }
+  function clearNewSharedValueError() {
+    var err = newSharedValueErrorEl();
+    var input = newSharedValueInputEl();
+    if (err) { err.hidden = true; }
+    if (input) { input.className = 'form-input'; }
+  }
+  function showNewSharedValueError(message) {
+    var err = newSharedValueErrorEl();
+    var input = newSharedValueInputEl();
+    if (err) {
+      clearChildren(err);
+      err.appendChild(document.createTextNode(message));
+      err.hidden = false;
+    }
+    if (input) { input.className = 'form-input studio-input-error'; }
+  }
+  function openNewSharedValueModal(kind, sel, after) {
     if (!sel) { return; }
-    var v = trimStr(window.prompt('New ' + kind + ' name'));
-    if (v === '') { return; }
-    if (!window.confirm("No Offers exist for '" + v + "' yet. Create the " + kind + ' anyway?')) { return; }
+    var modal = document.getElementById('lg-new-shared-value-modal');
+    if (!modal) { return; }
+    var title = document.querySelector('[data-new-shared-value-title]');
+    var input = newSharedValueInputEl();
+    newSharedValueTarget = { kind: kind, sel: sel, after: after };
+    if (title) { clearChildren(title); title.appendChild(document.createTextNode('Create a new ' + kind)); }
+    if (input) { input.value = ''; }
+    clearNewSharedValueError();
+    modal.className = 'lg-media-picker-overlay';
+    if (input && input.focus) { input.focus(); }
+  }
+  function closeNewSharedValueModal() {
+    var modal = document.getElementById('lg-new-shared-value-modal');
+    if (modal) { modal.className = 'lg-media-picker-overlay lg-hidden'; }
+    newSharedValueTarget = { kind: '', sel: null, after: null };
+  }
+  function submitNewSharedValueModal() {
+    var target = newSharedValueTarget;
+    if (!target.sel) { closeNewSharedValueModal(); return; }
+    var input = newSharedValueInputEl();
+    var v = trimStr(input ? input.value : '');
+    if (v === '') { showNewSharedValueError('Enter a name.'); return; }
+    if (!window.confirm("No Offers exist for '" + v + "' yet. Create the " + target.kind + ' anyway?')) { return; }
     var o = document.createElement('option');
     o.value = v;
     o.textContent = v;
-    sel.appendChild(o);
-    sel.value = v;
-    refreshPairPillState(sel);
+    target.sel.appendChild(o);
+    target.sel.value = v;
+    refreshPairPillState(target.sel);
     markDirty();
+    var after = target.after;
+    closeNewSharedValueModal();
     if (after) { after(v); }
+  }
+  var newSharedValueCloseBtn = document.getElementById('lg-new-shared-value-close');
+  if (newSharedValueCloseBtn) { newSharedValueCloseBtn.addEventListener('click', closeNewSharedValueModal); }
+  var newSharedValueCancelBtn = document.querySelector('[data-new-shared-value-cancel]');
+  if (newSharedValueCancelBtn) { newSharedValueCancelBtn.addEventListener('click', closeNewSharedValueModal); }
+  var newSharedValueCreateBtn = document.querySelector('[data-new-shared-value-create]');
+  if (newSharedValueCreateBtn) { newSharedValueCreateBtn.addEventListener('click', submitNewSharedValueModal); }
+  var newSharedValueInputWired = newSharedValueInputEl();
+  if (newSharedValueInputWired) {
+    newSharedValueInputWired.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); submitNewSharedValueModal(); }
+    });
   }
   var newActivityBtn = document.querySelector('[data-studio-new-activity]');
   if (newActivityBtn) {
     newActivityBtn.addEventListener('click', function () {
-      promptNewSharedValue('activity', activitySel, function () {
+      openNewSharedValueModal('activity', activitySel, function () {
         if (verticalSel) { verticalSel.value = ''; }
         loadVerticals();
         // R4a E3-S5: parity with the activitySel 'change' handler below —
@@ -14498,7 +14586,7 @@ export const SECTION_STUDIO_SCRIPT = `
   if (newVerticalBtn) {
     newVerticalBtn.addEventListener('click', function () {
       // R4a E3-S5: parity with the verticalSel 'change' handler below.
-      promptNewSharedValue('vertical', verticalSel, function () { renderOffersStaleNote(); });
+      openNewSharedValueModal('vertical', verticalSel, function () { renderOffersStaleNote(); });
     });
   }
   if (activitySel) {
