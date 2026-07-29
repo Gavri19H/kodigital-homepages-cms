@@ -972,8 +972,11 @@ function renderFooterBlock(block: FrameFooterBlock, branding: SiteBranding | nul
       return footerInlineBody(block).trim() !== ""
         ? `<div class="lg-frame-footer2-disclosure"${alignA}>${footerInlineBody(block)}</div>`
         : "";
-    // R2 P3 (element J) — mirrors renderFreeTextBlock's own heading/list
-    // handling 1:1 (level clamp 1..6, ordered-vs-unordered tag choice).
+    // R2 P3 (element J) — heading/list/address handlers match the free-text
+    // renderer's structure: level clamp 1..6, ordered-vs-unordered tag choice,
+    // check-style list support. The list_style:"check" case emits the class and
+    // reuses the freetext-flavoured check CSS (the checkmark glyph logic is
+    // shared globally).
     case "heading": {
       const level = Math.min(6, Math.max(1, Math.trunc(block.level ?? 3)));
       const body = footerInlineBody(block);
@@ -982,9 +985,10 @@ function renderFooterBlock(block: FrameFooterBlock, branding: SiteBranding | nul
     case "list": {
       const style = block.list_style ?? "unordered";
       const tag = style === "ordered" ? "ol" : "ul";
+      const checkCls = style === "check" ? " lg-frame-footer2-list--check" : "";
       const items = Array.isArray(block.items) ? block.items : [];
       const li = items.map((it) => `<li>${sanitizeFrameInlineHtml(String(it))}</li>`).join("");
-      return li === "" ? "" : `<${tag} class="lg-frame-footer2-list"${alignA}>${li}</${tag}>`;
+      return li === "" ? "" : `<${tag} class="lg-frame-footer2-list${checkCls}"${alignA}>${li}</${tag}>`;
     }
     case "address":
       return isNonEmptyStr(block.text)

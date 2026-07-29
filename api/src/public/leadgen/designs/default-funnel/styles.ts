@@ -2639,6 +2639,20 @@ export function funnelChromeCss(
         margin: `0 0 ${spacing.sm}`,
         "line-height": "1.5",
       }),
+      // ✓ footer list: replace the marker with a check glyph (design-contract idiom).
+      rule(`${scope} .lg-frame-footer2-list--check`, { "list-style": "none", "padding-left": "0" }),
+      rule(`${scope} .lg-frame-footer2-list--check li`, {
+        position: "relative",
+        "padding-left": spacing.lg,
+        "margin-bottom": spacing.xs,
+      }),
+      rule(`${scope} .lg-frame-footer2-list--check li::before`, {
+        content: '"\\2713"',
+        position: "absolute",
+        left: "0",
+        color: color.primary,
+        "font-weight": "700",
+      }),
       rule(`${scope} .lg-frame-footer2-logo-img`, {
         display: "inline-block",
         "max-height": logoStrip.logoMaxHeight,
