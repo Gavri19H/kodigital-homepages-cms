@@ -18,13 +18,70 @@
 // storage failure degrades down the ladder to a safe projection instead of
 // 500ing a funnel serve. Both reads are .bind()-parameterized single-binding
 // statements (D1 100-binding rule trivially satisfied).
+//
+// R2 P3 D2 (fix-contract §5.4 item 2 / §7 D2) — element J's Pages-fed
+// legal-links leg, ADDITIVE to the §10.1 projection above:
+//   * `resolveSiteBranding`'s 3rd param (`legalPagePicks`, OPTIONAL) lets a
+//     caller that knows a specific footer block's operator-picked page set
+//     override `legal_links` with the D2 serve-time resolution below —
+//     ABSENT/empty → byte-identical to today (deriveLegalLinks from
+//     site_settings). This is the ONLY behavior change; every existing
+//     caller that never passes the 3rd arg is unaffected.
+//   * `resolvePickedLegalPageLinks` — the serve-time resolver: the operator
+//     picks pages by their STABLE identity (`page_type`, a value from the
+//     admin/pages plane's closed LEGAL_PAGE_TYPES set or any page flagged
+//     `show_in_footer`), never by row id (row ids are per-site and cannot
+//     cross sites). At serve time, for the SERVING site_id, each pick's
+//     page_type is looked up against THAT site's own `pages` rows — so one
+//     saved pick set serves site A's privacy policy on site A and site B's
+//     on site B. No match on the serving site → the pick's `manual_url`
+//     fallback (when present AND safe) → otherwise OMITTED. Never a dead or
+//     unsafe link (D2 + R2 minor-6).
+//   * `listPickableLegalPages` — the picker's data source: one site's own
+//     candidates (page_type ∈ LEGAL_PAGE_TYPES and/or show_in_footer=1,
+//     non-archived) for the operator to choose from at authoring time.
+//   * Safety: a pick's `manual_url` is the ONLY new operator-typed href this
+//     module introduces (a resolved page's href is built from that site's
+//     OWN slug, never operator text). It is gated by a byte-identical
+//     re-declaration of the existing `SAFE_HREF_RE` class (canonical source
+//     `public/leadgen/components/content-schema.ts`, sibling copy
+//     `public/leadgen/designs/frames.ts:856` — the codebase's established
+//     "re-declared per module, byte-identical" reuse rule, not a second/
+//     different sanitizer) — so by the time a link reaches `legal_links` it
+//     is ALREADY guaranteed to pass the same class every other footer href
+//     passes, matching this module's existing invariant that `legal_links`
+//     entries are always safe by construction.
 
 import { mediaUrl } from "../public/view-models/media-url";
 import { isSafeUrl } from "../editor/sanitize";
+import { LEGAL_PAGE_TYPES } from "../admin/pages-crud-handlers";
 
 export interface SiteBrandingLegalLink {
   label: string;
   href: string;
+}
+
+// D2 — one operator pick from the /admin/pages legal-links picker. `label`
+// is author-controlled and rides UNCHANGED across every serving site (the
+// "one saved template" reuse goal — Image28/Image45 show a fixed label row);
+// only the HREF resolves per site. `page_type` is the stable cross-site
+// identity (row ids are per-site and never portable). `manual_url` is the
+// D2 fallback used ONLY when the serving site has no page of that type.
+export interface SiteBrandingLegalPagePick {
+  page_type: string;
+  label: string;
+  manual_url?: string | null;
+}
+
+// The picker's one candidate row (listPickableLegalPages) — sourced from one
+// REFERENCE site's own pages, for the operator to choose from at authoring
+// time. `title` is display-only (the picker seeds its label input from it;
+// the resolver never reads title).
+export interface PickableLegalPage {
+  page_type: string;
+  slug: string;
+  title: string;
+  show_in_footer: boolean;
 }
 
 // §11.3 trust-logo set — one entry per resolvable id in the OPTIONAL
@@ -49,7 +106,10 @@ export interface SiteBranding {
   // site_settings.tagline (trimmed, non-empty) ?? null.
   tagline: string | null;
   // privacy/terms/contact derived from site settings when present; a missing
-  // signal OMITS the link (never an empty href). See deriveLegalLinks.
+  // signal OMITS the link (never an empty href). See deriveLegalLinks — UNLESS
+  // resolveSiteBranding was called with a non-empty `legalPagePicks` 3rd arg
+  // (D2, element J), in which case this is the resolvePickedLegalPageLinks
+  // result instead (REPLACES, never merges with, the site_settings derivation).
   legal_links: SiteBrandingLegalLink[];
   // §11.3 `trust_strip.source:"site_logo_set"` plumb: the OPTIONAL
   // `site_settings.trust_logo_media_ids` JSON list, defensively parsed.
@@ -94,6 +154,133 @@ function deriveLegalLinks(
     links.push({ label: "Terms of use", href: "/terms" });
   }
   return links;
+}
+
+// ---------------------------------------------------------------------------
+// D2 — element J's Pages-fed legal-links picker + serve-time resolution
+// (fix-contract §5.4 item 2 / §7 D2). See the file-header block above for the
+// full design summary.
+// ---------------------------------------------------------------------------
+
+// A safe, non-executable link target. BYTE-IDENTICAL to the canonical
+// SAFE_HREF_RE (public/leadgen/components/content-schema.ts — module-private
+// there, re-declared per module by the codebase's OWN established reuse
+// rule; sibling copy public/leadgen/designs/frames.ts:856, which documents
+// the same "MUST stay byte-identical" discipline). This is NOT a second/
+// different sanitizer — it is the SAME class, gating the ONE new
+// operator-typed href this module introduces (a pick's `manual_url`
+// fallback). A resolved page's own href is built from that site's stored
+// slug, never from operator text, so it needs no gate.
+const SAFE_HREF_RE = /^(https?:\/\/|\/(?!\/)|#|tel:|mailto:)/i;
+
+// One batched, chunked-at-80 read (d1-database-safety IN(?) rule) of every
+// page across ALL requested types for one site, published only (a draft/
+// archived page must never resolve into a live serve — same as "no match").
+// Tie-break when a site holds >1 row per page_type (no DB-unique constraint
+// enforces one-per-type): show_in_footer=1 first, then lowest display_order,
+// then lowest id — first-wins per type. Never throws: a read failure yields
+// an empty map, so every pick degrades to its manual/omitted leg exactly as
+// if the site had no pages at all.
+async function loadPublishedPagesByType(
+  db: D1Database,
+  siteId: string,
+  pageTypes: readonly string[],
+): Promise<ReadonlyMap<string, { slug: string }>> {
+  const uniqueTypes = Array.from(new Set(pageTypes.filter((t) => t.trim() !== "")));
+  const byType = new Map<string, { slug: string }>();
+  if (uniqueTypes.length === 0) return byType;
+  try {
+    for (let i = 0; i < uniqueTypes.length; i += 80) {
+      const chunk = uniqueTypes.slice(i, i + 80);
+      const placeholders = chunk.map(() => "?").join(",");
+      const result = await db
+        .prepare(
+          `SELECT page_type AS page_type, slug AS slug FROM pages
+           WHERE site_id = ? AND status = 'published' AND page_type IN (${placeholders})
+           ORDER BY show_in_footer DESC, display_order ASC, id ASC`,
+        )
+        .bind(siteId, ...chunk)
+        .all<{ page_type: string; slug: string }>();
+      for (const row of result.results ?? []) {
+        if (!byType.has(row.page_type)) byType.set(row.page_type, { slug: row.slug });
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `leadgen branding: pages read failed for site '${siteId}' — legal-page picks degrade to manual/omitted`,
+      err instanceof Error ? err.message : err,
+    );
+    byType.clear();
+  }
+  return byType;
+}
+
+// The D2 serve-time resolver. For the SERVING `siteId`, maps each pick's
+// stable `page_type` identity to THAT site's own page (never another site's
+// row) — so one saved pick set serves site A's privacy policy on site A and
+// site B's on site B. Order + count follow `picks` (the operator's own
+// authored order). No site match → `manual_url` when present AND
+// SAFE_HREF_RE-safe → otherwise the pick is OMITTED (never a dead or unsafe
+// link — D2 + R2 minor-6). A blank label is also omitted (never an empty
+// anchor text).
+export async function resolvePickedLegalPageLinks(
+  db: D1Database,
+  siteId: string,
+  picks: readonly SiteBrandingLegalPagePick[],
+): Promise<SiteBrandingLegalLink[]> {
+  if (picks.length === 0) return [];
+  const byType = await loadPublishedPagesByType(db, siteId, picks.map((p) => p.page_type));
+  const out: SiteBrandingLegalLink[] = [];
+  for (const pick of picks) {
+    const label = trimmed(pick.label);
+    if (label === "") continue;
+    const match = byType.get(pick.page_type);
+    if (match !== undefined) {
+      out.push({ label, href: `/${match.slug}` });
+      continue;
+    }
+    const manual = trimmed(pick.manual_url);
+    if (manual !== "" && SAFE_HREF_RE.test(manual)) {
+      out.push({ label, href: manual });
+    }
+  }
+  return out;
+}
+
+// The picker's data source (one admin endpoint, footer-legal-pages-handlers.ts,
+// reads this): one REFERENCE site's own candidates — page_type ∈
+// LEGAL_PAGE_TYPES (pages-crud-handlers.ts, exported for this reuse) and/or
+// show_in_footer=1, excluding archived. Never throws: a read failure yields
+// an empty list (the picker simply shows no candidates, never a 500).
+export async function listPickableLegalPages(
+  db: D1Database,
+  siteId: string,
+): Promise<PickableLegalPage[]> {
+  try {
+    const legalTypes = Array.from(LEGAL_PAGE_TYPES);
+    const placeholders = legalTypes.map(() => "?").join(",");
+    const result = await db
+      .prepare(
+        `SELECT page_type AS page_type, slug AS slug, title AS title, show_in_footer AS show_in_footer
+         FROM pages
+         WHERE site_id = ? AND status <> 'archived' AND (page_type IN (${placeholders}) OR show_in_footer = 1)
+         ORDER BY display_order ASC, title ASC`,
+      )
+      .bind(siteId, ...legalTypes)
+      .all<{ page_type: string; slug: string; title: string; show_in_footer: number }>();
+    return (result.results ?? []).map((row) => ({
+      page_type: row.page_type,
+      slug: row.slug,
+      title: row.title,
+      show_in_footer: row.show_in_footer === 1,
+    }));
+  } catch (err) {
+    console.warn(
+      `leadgen branding: pickable-pages read failed for site '${siteId}'`,
+      err instanceof Error ? err.message : err,
+    );
+    return [];
+  }
 }
 
 // §11.3 `site_settings.trust_logo_media_ids` — an OPTIONAL JSON list of media
@@ -196,9 +383,20 @@ export async function bumpLeadGenActivationVersionForBranding(
 // a failed read logs and degrades down the §10.4 ladder (branding must never
 // block a funnel serve; minimal-schema test harnesses without a
 // site_settings table degrade the same way).
+//
+// `legalPagePicks` (D2, OPTIONAL, 3rd arg): a specific element-J footer
+// block's operator-picked page set, when the caller has one (it is
+// funnel/footer-config-scoped, NOT a site_settings signal, so it cannot be
+// loaded inside this per-site function — the caller supplies it). ABSENT or
+// empty → byte-identical to pre-D2 behavior (deriveLegalLinks from
+// site_settings). Non-empty → `legal_links` becomes EXCLUSIVELY the D2
+// resolvePickedLegalPageLinks result for THIS site_id (replaces, never
+// merges with, the site_settings derivation — the operator's curated pick
+// set is a complete, deliberate choice).
 export async function resolveSiteBranding(
   db: D1Database,
   siteId: string,
+  legalPagePicks?: readonly SiteBrandingLegalPagePick[],
 ): Promise<SiteBranding> {
   let settings: Record<string, string> = {};
   try {
@@ -242,11 +440,15 @@ export async function resolveSiteBranding(
 
   const tagline = trimmed(settings.tagline);
 
+  const picks = legalPagePicks ?? [];
+  const legalLinks =
+    picks.length > 0 ? await resolvePickedLegalPageLinks(db, siteId, picks) : deriveLegalLinks(settings);
+
   return {
     site_name: siteName,
     logo_url: logoUrl,
     tagline: tagline !== "" ? tagline : null,
-    legal_links: deriveLegalLinks(settings),
+    legal_links: legalLinks,
     trust_logos: parseTrustLogos(settings.trust_logo_media_ids),
   };
 }
