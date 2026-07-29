@@ -275,23 +275,81 @@ describeDb("R2 P3 FIX-FIRST BLOCKER-2 — picked legal links resolve by a UNIQUE
     const a = await resolvePickedLegalPageLinks(env.DB, "stock-a", STOCK_PICKS);
     const b = await resolvePickedLegalPageLinks(env.DB, "stock-b", STOCK_PICKS);
     expect(a.map((l) => l.href)).toEqual(["/contact", "/do-not-sell", "/privacy-policy", "/terms"]);
-    // B has no do-not-sell page: that pick falls to page_type first-wins on B's
-    // OWN rows (never site A's), so it still resolves to a B page — and the
-    // three it DOES publish resolve to their own distinct slugs.
-    expect(b.map((l) => l.href)).toEqual(["/contact", "/contact", "/privacy-policy", "/terms"]);
+    // R2 P3 flake-fix — CONDUCTOR-ORDERED UPDATE of this expectation. It used
+    // to read ["/contact", "/contact", "/privacy-policy", "/terms"], i.e. it
+    // pinned the defect: B has no do-not-sell page, so that pick fell to the
+    // page_type leg on B's THREE same-type rows and first-wins handed it
+    // "/contact" — a second, distinct operator pick pointing at a page the
+    // operator never picked. On a compliance surface a wrong link is an
+    // invisible legal failure while a missing one is visible to the operator
+    // in their own footer, so an AMBIGUOUS type now omits (no manual_url set
+    // on these picks). The three B DOES publish still resolve by slug.
+    expect(b.map((l) => l.href)).toEqual(["/contact", "/privacy-policy", "/terms"]);
+    expect(new Set(b.map((l) => l.href)).size, "no two picks may share an href").toBe(b.length);
+    // …and each surviving link still carries ITS OWN label→page pairing
+    expect(b.map((l) => l.label)).toEqual(["Contact", "Privacy Policy", "Terms of Service"]);
+    expect(
+      b.some((l) => l.label === "Do Not Sell My Personal Information"),
+      "the unresolvable pick is dropped, never pointed at another page",
+    ).toBe(false);
     expect(b.every((l) => l.href.startsWith("/")), "never another site's absolute URL").toBe(true);
     sdb.close();
   });
 
-  it("BACK-COMPAT: a pick saved BEFORE this fix (page_type only, no slug) resolves exactly as it did — first-wins per type", async () => {
+  it("the page_type leg resolves ONLY when the type identifies ONE published row: ambiguous+no manual_url ⇒ omitted, ambiguous+manual_url ⇒ the manual URL, single row ⇒ resolves (the renamed-site case)", async () => {
     const sdb = createTestDb(DatabaseSync!);
     const env = buildEnv(d1FromSqlite(sdb));
+    // stock-a: FOUR published rows share page_type 'legal' — the type cannot
+    // identify a page. (This replaces the old "BACK-COMPAT … first-wins per
+    // type" test, which asserted this exact ambiguous state resolved to
+    // '/contact'. Conductor ruling: first-wins across same-type rows was a
+    // coin flip on a legal link, not a resolution.)
     await seedStockLegalPages(env, "stock-a");
     const legacy: SiteBrandingLegalPagePick[] = [{ page_type: "legal", label: "Legal" }];
-    const links = await resolvePickedLegalPageLinks(env.DB, "stock-a", legacy);
-    // show_in_footer DESC, display_order ASC, id ASC → 'contact' (the only
-    // show_in_footer row) — the SAME tie-break the pre-fix map applied.
-    expect(links).toEqual([{ label: "Legal", href: "/contact" }]);
+    expect(
+      await resolvePickedLegalPageLinks(env.DB, "stock-a", legacy),
+      "ambiguous + no manual_url ⇒ OMITTED (never a guessed compliance link)",
+    ).toEqual([]);
+
+    // the same ambiguous pick WITH an operator-supplied manual_url keeps a link
+    expect(
+      await resolvePickedLegalPageLinks(env.DB, "stock-a", [
+        { page_type: "legal", label: "Legal", manual_url: "https://legal.example.com/notices" },
+      ]),
+    ).toEqual([{ label: "Legal", href: "https://legal.example.com/notices" }]);
+    // …and the SAFE_HREF_RE gate still governs that fallback
+    expect(
+      await resolvePickedLegalPageLinks(env.DB, "stock-a", [
+        { page_type: "legal", label: "Legal", manual_url: "javascript:alert(1)" },
+      ]),
+      "an unsafe manual_url is still refused, so the pick is omitted",
+    ).toEqual([]);
+
+    // stock-b publishes exactly ONE row of each type, under RENAMED slugs —
+    // which is what site-provisioning now produces (legal-renderer.ts binds a
+    // canonical page_type per page). The owner's renamed-site clause is
+    // therefore preserved: a slug-less / foreign-slug pick still resolves.
+    await createPage(env, { site_id: "stock-b", slug: "datenschutz", title: "Privacy B", page_type: "privacy-policy" });
+    await createPage(env, { site_id: "stock-b", slug: "nutzungsbedingungen", title: "Terms B", page_type: "terms" });
+    await createPage(env, { site_id: "stock-b", slug: "b-legal-notices", title: "Notices B", page_type: "legal" });
+    expect(
+      await resolvePickedLegalPageLinks(env.DB, "stock-b", [
+        { page_type: "privacy-policy", slug: "privacy-policy", label: "Privacy Policy" },
+        { page_type: "terms", slug: "terms", label: "Terms of Use" },
+        { page_type: "legal", label: "Legal" },
+      ]),
+      "one row per type ⇒ the page_type leg still resolves each pick to ITS page",
+    ).toEqual([
+      { label: "Privacy Policy", href: "/datenschutz" },
+      { label: "Terms of Use", href: "/nutzungsbedingungen" },
+      { label: "Legal", href: "/b-legal-notices" },
+    ]);
+
+    // a draft sibling does not make a type ambiguous (only PUBLISHED rows count)
+    await createPage(env, { site_id: "stock-b", slug: "datenschutz-entwurf", title: "Draft", page_type: "privacy-policy", status: "draft" });
+    expect(
+      await resolvePickedLegalPageLinks(env.DB, "stock-b", [{ page_type: "privacy-policy", label: "Privacy Policy" }]),
+    ).toEqual([{ label: "Privacy Policy", href: "/datenschutz" }]);
     sdb.close();
   });
 

@@ -1,11 +1,12 @@
 R2 P3 FIX-FIRST — D2 two-site drive (ONE saved pick set, driven on the live /lg route)
-saved picks (slug|page_type|label): p3fx-178535893434044-contact|legal|Contact  ,  p3fx-178535893434044-do-not-sell|legal|Your Privacy Choices  ,  p3fx-178535893434044-state-law-privacy-notice|legal|State Law Privacy Notice  ,  p3fx-178535893434044-licenses-disclosure|legal|Licenses & Disclosure  ,  p3fx-178535893434044-privacy-policy|legal|Privacy Policy  ,  p3fx-178535893434044-terms|legal|Terms of Use
+saved picks (slug|page_type|label): p3fx-178535996729454-d2-contact|contact|Contact  ,  p3fx-178535996729454-d2-do-not-sell|do-not-sell|Your Privacy Choices  ,  p3fx-178535996729454-d2-privacy-policy|privacy-policy|Privacy Policy  ,  p3fx-178535996729454-d2-terms|terms|Terms of Use  ,  p3fx-178535996729454-d2-state-law-notice|legal|State Law Privacy Notice  ,  p3fx-178535996729454-d2-licenses|generic|Licenses & Disclosure
 
-site A (p3fx-d2a-178535893434044.e2e.test) serves: ["/p3fx-178535893434044-contact","/p3fx-178535893434044-do-not-sell","/p3fx-178535893434044-state-law-privacy-notice","/p3fx-178535893434044-licenses-disclosure","/p3fx-178535893434044-privacy-policy","/p3fx-178535893434044-terms"]
-site A publishes:         ["/p3fx-178535893434044-contact","/p3fx-178535893434044-do-not-sell","/p3fx-178535893434044-state-law-privacy-notice","/p3fx-178535893434044-licenses-disclosure","/p3fx-178535893434044-privacy-policy","/p3fx-178535893434044-terms"]
+site A (p3fx-d2a-178535996729454.e2e.test) serves: ["/p3fx-178535996729454-d2-contact","/p3fx-178535996729454-d2-do-not-sell","/p3fx-178535996729454-d2-privacy-policy","/p3fx-178535996729454-d2-terms","/p3fx-178535996729454-d2-state-law-notice","/p3fx-178535996729454-d2-licenses"]
+site A publishes:         ["/p3fx-178535996729454-d2-contact","/p3fx-178535996729454-d2-do-not-sell","/p3fx-178535996729454-d2-privacy-policy","/p3fx-178535996729454-d2-terms","/p3fx-178535996729454-d2-state-law-notice","/p3fx-178535996729454-d2-licenses"]
 
-site B (p3fx-d2b-178535893434044.e2e.test) serves: ["/p3fx-178535893434044-contact","/p3fx-178535893434044-do-not-sell","/p3fx-178535893434044-contact","/p3fx-178535893434044-contact","/p3fx-178535893434044-contact","/p3fx-178535893434044-contact"]
-site B publishes:         ["/p3fx-178535893434044-contact","/p3fx-178535893434044-do-not-sell","/p3fx-178535893434044-b-state-notice","/p3fx-178535893434044-b-datenschutz","/p3fx-178535893434044-b-terms-of-use"]
+site B (p3fx-d2b-178535996729454.e2e.test) serves: ["/p3fx-178535996729454-d2-contact","/p3fx-178535996729454-d2-do-not-sell","/p3fx-178535996729454-b-datenschutz","/p3fx-178535996729454-b-terms-of-use","/p3fx-178535996729454-b-state-notice"]
+site B publishes:         ["/p3fx-178535996729454-d2-contact","/p3fx-178535996729454-d2-do-not-sell","/p3fx-178535996729454-b-datenschutz","/p3fx-178535996729454-b-terms-of-use","/p3fx-178535996729454-b-state-notice"]
 
-B shares 2 of A's 6 slugs (slug leg) and publishes its OWN addresses for the rest
-(page_type leg). Zero B hrefs point at a page only A publishes.
+B shares 2 of A's 6 slugs (slug leg), RENAMES 3 (page_type leg, one row per
+type on B) and publishes nothing for A's 6th type (that pick is omitted, not
+borrowed). Zero B hrefs point at a page only A publishes.

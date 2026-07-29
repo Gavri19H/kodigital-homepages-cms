@@ -194,9 +194,13 @@ const SAFE_HREF_RE = /^(https?:\/\/|\/(?!\/)|#|tel:|mailto:)/i;
 // One batched, chunked-at-80 read (d1-database-safety IN(?) rule) of every
 // page across ALL requested types for one site, published only (a draft/
 // archived page must never resolve into a live serve — same as "no match").
-// Tie-break when a site holds >1 row per page_type (no DB-unique constraint
-// enforces one-per-type): show_in_footer=1 first, then lowest display_order,
-// then lowest id — first-wins per type. Never throws: a read failure yields
+// A site may hold >1 row per page_type (no DB-unique constraint enforces
+// one-per-type); the rows come back show_in_footer=1 first, then lowest
+// display_order, then lowest id, and `byType` keeps the first — but
+// `byTypeCount` records how many there were, and the resolver REFUSES the
+// page_type leg unless that count is 1 (R2 P3 flake-fix, conductor ruling:
+// first-wins across same-type rows is a coin flip, not a resolution). Never
+// throws: a read failure yields
 // an empty map, so every pick degrades to its manual/omitted leg exactly as
 // if the site had no pages at all.
 // R2 P3 FIX-FIRST (BLOCKER-2): now loads BOTH indexes in the same batched
@@ -206,9 +210,14 @@ const SAFE_HREF_RE = /^(https?:\/\/|\/(?!\/)|#|tel:|mailto:)/i;
 // slug and its page_type describe the SAME candidate rows; the OR keeps the
 // binding count at 1 + |slugs| + |types| per chunk, chunked at 80 total
 // (d1-database-safety IN(?) rule).
+// R2 P3 flake-fix (conductor ruling): `byTypeCount` carries HOW MANY published
+// rows of that page_type the serving site holds, because the resolver can only
+// honour the page_type leg when that answer is ONE (see
+// resolvePickedLegalPageLinks below).
 interface PublishedPageIndex {
   bySlug: ReadonlyMap<string, { slug: string }>;
   byType: ReadonlyMap<string, { slug: string }>;
+  byTypeCount: ReadonlyMap<string, number>;
 }
 async function loadPublishedPages(
   db: D1Database,
@@ -219,8 +228,9 @@ async function loadPublishedPages(
   const uniqueTypes = Array.from(new Set(pageTypes.filter((t) => t.trim() !== "")));
   const uniqueSlugs = Array.from(new Set(slugs.filter((s) => s.trim() !== "")));
   const byType = new Map<string, { slug: string }>();
+  const byTypeCount = new Map<string, number>();
   const bySlug = new Map<string, { slug: string }>();
-  if (uniqueTypes.length === 0 && uniqueSlugs.length === 0) return { bySlug, byType };
+  if (uniqueTypes.length === 0 && uniqueSlugs.length === 0) return { bySlug, byType, byTypeCount };
   // Pair each key with its column so one flat list can be chunked at 80
   // regardless of how the picks split between the two identities.
   const keys: Array<{ column: "page_type" | "slug"; value: string }> = [
@@ -248,8 +258,11 @@ async function loadPublishedPages(
         // page_type leg of THIS chunk asked for, so the widened OR can never
         // change which row wins a type (a chunk that requests type T gets
         // every published T row, in the same order, exactly as before).
-        if (typeChunk.indexOf(row.page_type) !== -1 && !byType.has(row.page_type)) {
-          byType.set(row.page_type, { slug: row.slug });
+        if (typeChunk.indexOf(row.page_type) !== -1) {
+          if (!byType.has(row.page_type)) byType.set(row.page_type, { slug: row.slug });
+          // …and count EVERY published row of that type on this site: a type
+          // holding more than one row cannot identify a single page.
+          byTypeCount.set(row.page_type, (byTypeCount.get(row.page_type) ?? 0) + 1);
         }
         // (site_id, slug) is UNIQUE — at most one row per slug, no tie-break.
         bySlug.set(row.slug, { slug: row.slug });
@@ -262,25 +275,28 @@ async function loadPublishedPages(
     );
     byType.clear();
     bySlug.clear();
+    byTypeCount.clear();
   }
-  return { bySlug, byType };
+  return { bySlug, byType, byTypeCount };
 }
 
 // The D2 serve-time resolver. For the SERVING `siteId`, maps each pick's
 // stable `page_type` identity to THAT site's own page (never another site's
 // row) — so one saved pick set serves site A's privacy policy on site A and
-// site B's on site B. Order + count follow `picks` (the operator's own
-// authored order). No site match → `manual_url` when present AND
-// SAFE_HREF_RE-safe → otherwise the pick is OMITTED (never a dead or unsafe
-// link — D2 + R2 minor-6). A blank label is also omitted (never an empty
-// anchor text).
+// site B's on site B. Order follows `picks` (the operator's own authored
+// order); the COUNT may be shorter, because a pick that cannot be resolved to
+// exactly one page is omitted rather than guessed. Ladder per pick:
+// slug (per-site UNIQUE) → page_type WHEN it identifies exactly one published
+// row → `manual_url` when present AND SAFE_HREF_RE-safe → OMITTED (never a
+// dead, unsafe, or wrong link — D2 + R2 minor-6 + the R2 P3 flake-fix
+// ambiguity rule). A blank label is also omitted (never an empty anchor text).
 export async function resolvePickedLegalPageLinks(
   db: D1Database,
   siteId: string,
   picks: readonly SiteBrandingLegalPagePick[],
 ): Promise<SiteBrandingLegalLink[]> {
   if (picks.length === 0) return [];
-  const { bySlug, byType } = await loadPublishedPages(
+  const { bySlug, byType, byTypeCount } = await loadPublishedPages(
     db,
     siteId,
     picks.map((p) => p.page_type),
@@ -291,13 +307,33 @@ export async function resolvePickedLegalPageLinks(
     const label = trimmed(pick.label);
     if (label === "") continue;
     // R2 P3 FIX-FIRST (BLOCKER-2) — slug first (per-site UNIQUE, tells the
-    // four stock 'legal' rows apart), page_type second (the UNCHANGED
-    // pre-fix leg every pre-fix pick takes).
+    // four stock 'legal' rows apart).
     const slugKey = trimmed(pick.slug);
     const bySlugMatch = slugKey === "" ? undefined : bySlug.get(slugKey);
-    const match = bySlugMatch ?? byType.get(pick.page_type);
-    if (match !== undefined) {
-      out.push({ label, href: `/${match.slug}` });
+    if (bySlugMatch !== undefined) {
+      out.push({ label, href: `/${bySlugMatch.slug}` });
+      continue;
+    }
+    // page_type second — the leg the owner clause needs for a site that
+    // RENAMED its page (its slug differs, its type does not).
+    //
+    // R2 P3 flake-fix (conductor ruling): that leg now requires the type to
+    // identify EXACTLY ONE published row on the serving site. With
+    // provisioning writing a canonical page_type per page
+    // (site-provisioning/legal-renderer.ts legalPageTypeForSlug), a renamed
+    // site holds exactly one row per type, so the renamed-site case is
+    // preserved unchanged. When the type matches MORE THAN ONE published row
+    // the old first-wins tie-break (show_in_footer DESC, display_order ASC,
+    // id ASC) was never a resolution — it was a coin flip on a compliance
+    // link, and it is how four distinct picks came to serve
+    // /privacy-policy. Ambiguity therefore falls through to the pick's own
+    // manual_url, and otherwise the link is OMITTED: a missing link is
+    // visible to the operator in their own footer, while a wrong one is an
+    // invisible legal failure for the visitor who clicks it.
+    const typeMatch = byType.get(pick.page_type);
+    const typeRows = byTypeCount.get(pick.page_type) ?? 0;
+    if (typeMatch !== undefined && typeRows === 1) {
+      out.push({ label, href: `/${typeMatch.slug}` });
       continue;
     }
     const manual = trimmed(pick.manual_url);

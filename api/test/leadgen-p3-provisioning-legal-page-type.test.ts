@@ -415,6 +415,50 @@ describeDb("R2 P3 flake-fix — the reproduced state (provisioning first, then t
     for (const slug of LEGAL_TEMPLATE_SLUGS) {
       expect(links.map((l) => l.href), `B must never serve the provisioned /${slug}`).not.toContain(`/${slug}`);
     }
+    // The loop above must not be able to pass VACUOUSLY, and on this
+    // legacy-shaped site it now does resolve to nothing: B's own five pages
+    // all share page_type 'legal', so the fallback is ambiguous and every
+    // pick omits (conductor ruling — a missing link over a wrong one). State
+    // that explicitly, so "0 links" can never be mistaken for "0 checks".
+    expect(links, "an all-'legal' site cannot identify a page by type ⇒ every pick omits").toEqual([]);
+    sdb.close();
+  });
+
+  it("a site provisioned AFTER the fix (one row per type, renamed slugs) still resolves every pick by page_type — non-vacuously", async () => {
+    // The other side of the ruling: omission is only for genuine ambiguity.
+    // With the provisioner writing one canonical type per page, a site that
+    // RENAMED its addresses keeps exactly one row per type, so the owner's
+    // renamed-site clause resolves — to that site's OWN distinct pages.
+    const sdb = createTestDb(DatabaseSync!);
+    const env = buildEnv(d1FromSqlite(sdb));
+    const B_RENAMED = [
+      { slug: "p3fx-b-datenschutz", title: "Privacy B", page_type: "privacy-policy" },
+      { slug: "p3fx-b-terms-of-use", title: "Terms B", page_type: "terms" },
+      { slug: "p3fx-b-choices", title: "Choices B", page_type: "do-not-sell" },
+      { slug: "p3fx-b-reach-us", title: "Contact B", page_type: "contact" },
+      { slug: "p3fx-b-state-notice", title: "State Notice B", page_type: "legal" },
+    ];
+    for (const p of B_RENAMED) {
+      await createPage(env, { site_id: "flake-b", slug: p.slug, title: p.title, page_type: p.page_type });
+    }
+    // picks authored on the reference site: canonical types, the reference
+    // site's slugs (which B does not publish) → every pick takes the type leg
+    const picks: SiteBrandingLegalPagePick[] = [
+      { page_type: "privacy-policy", slug: "p3fx-a-privacy-policy", label: "Privacy Policy" },
+      { page_type: "terms", slug: "p3fx-a-terms", label: "Terms of Use" },
+      { page_type: "do-not-sell", slug: "p3fx-a-do-not-sell", label: "Your Privacy Choices" },
+      { page_type: "contact", slug: "p3fx-a-contact", label: "Contact" },
+      { page_type: "legal", slug: "p3fx-a-state-law-privacy-notice", label: "State Law Privacy Notice" },
+    ];
+    const links = await resolvePickedLegalPageLinks(env.DB, "flake-b", picks);
+    expect(links, "five picks, five of B's OWN pages, each by its own type").toEqual([
+      { label: "Privacy Policy", href: "/p3fx-b-datenschutz" },
+      { label: "Terms of Use", href: "/p3fx-b-terms-of-use" },
+      { label: "Your Privacy Choices", href: "/p3fx-b-choices" },
+      { label: "Contact", href: "/p3fx-b-reach-us" },
+      { label: "State Law Privacy Notice", href: "/p3fx-b-state-notice" },
+    ]);
+    expect(new Set(links.map((l) => l.href)).size, "five DISTINCT hrefs").toBe(5);
     sdb.close();
   });
 });

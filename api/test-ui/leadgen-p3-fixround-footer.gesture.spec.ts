@@ -235,6 +235,39 @@ function buildWidePng(width: number, height: number): Buffer {
   ]);
 }
 
+// Journey D helper — rename ONE site's own page through the REAL admin PATCH
+// (the "this site uses its own address for that document" operator action).
+// The pages list carries no site_id, and several sites in a long-lived local
+// D1 share the provisioned slugs, so each candidate id is confirmed against
+// the detail endpoint before it is touched: never another site's row.
+async function renameSitePage(siteId: string, fromSlug: string, toSlug: string): Promise<void> {
+  const list = await json<{ pages: Array<{ id: number; slug: string }> }>(
+    await apiCtx.get("/api/admin/pages"),
+    "pages list",
+  );
+  for (const row of list.pages.filter((p) => p.slug === fromSlug)) {
+    const detail = await json<{ item: { id: number; site_id: string | null; slug: string } }>(
+      await apiCtx.get(`/api/admin/pages/${row.id}`),
+      `page ${row.id}`,
+    );
+    if (detail.item.site_id !== siteId) continue;
+    await json(await apiCtx.patch(`/api/admin/pages/${row.id}`, { data: { slug: toSlug } }), `rename ${fromSlug}`);
+    return;
+  }
+  throw new Error(`no page '${fromSlug}' on site ${siteId} to rename`);
+}
+
+// The per-site legal catalogue the picker itself reads — used by journey D to
+// wait for site provisioning's own pages DETERMINISTICALLY (they are written
+// by an async step; the journey asserts on them, so it must not race them).
+async function siteLegalPages(siteId: string): Promise<Array<{ page_type: string; slug: string }>> {
+  const body = await json<{ pages: Array<{ page_type: string; slug: string }> }>(
+    await apiCtx.get(`${LG_API}/sites/${siteId}/legal-pages`),
+    `legal-pages ${siteId}`,
+  );
+  return body.pages;
+}
+
 async function openTemplatesTab(page: Page, quotePublicId: string): Promise<void> {
   // R2 P3 flake-fix (4b) — the navigation is now DETERMINISTIC.
   //
@@ -693,32 +726,90 @@ test.describe("R2 P3 FIX-FIRST D — one saved pick set, two serving sites (D2)"
     const hostB = `p3fx-d2b-${uniq}.e2e.test`;
     const siteA = await seedActiveSite(apiCtx, hostA, `P3FX D2A ${uniq}`);
     const siteB = await seedActiveSite(apiCtx, hostB, `P3FX D2B ${uniq}`);
-    await seedStockLegalPages(apiCtx, siteA);
 
-    // Site B is deliberately NOT a slug-for-slug clone — it is the real-world
-    // case D2 exists for: the same page TYPES, this site's OWN addresses.
-    // Two of A's six slugs are SHARED (the slug leg must resolve to B's OWN
-    // rows, not A's) and four are B-unique (the page_type leg must find B's own
-    // differently-slugged page). Every slug is per-run prefixed, so site
-    // provisioning's auto-seeded legal set cannot satisfy any of them by
-    // accident — the resolution proven here is the resolver's, not the seeder's.
-    const B_PAGES = [
-      { slug: `${PAGE_PREFIX}contact`, title: "Contact B", page_type: "legal", footer: true },
-      { slug: `${PAGE_PREFIX}do-not-sell`, title: "Choices B", page_type: "legal", footer: false },
-      { slug: `${PAGE_PREFIX}b-state-notice`, title: "State Notice B", page_type: "legal", footer: false },
-      { slug: `${PAGE_PREFIX}b-datenschutz`, title: "Privacy B", page_type: "legal", footer: false },
-      { slug: `${PAGE_PREFIX}b-terms-of-use`, title: "Terms B", page_type: "legal", footer: false },
+    // R2 P3 flake-fix — this journey now runs on the shape site-provisioning
+    // ACTUALLY produces (legal-renderer.ts binds a canonical page_type per
+    // page): ONE published row per legal type per site. That is what makes
+    // the "a renamed site still resolves by page_type" claim testable at all
+    // — with every row typed 'legal' (the pre-fix shape journey B still
+    // exercises for the slug leg) the type identifies nothing, the resolver
+    // omits, and the assertions below would have run over an EMPTY list.
+    // Site A is the PICK SOURCE: one published row per legal type, per-run
+    // prefixed slugs (its own addresses), plus a sixth type site B does not
+    // publish at all. 'generic' is deliberate — site provisioning seeds
+    // about + the four canonical legal types on every site, so 'generic' is
+    // the one pickable type B is guaranteed NOT to hold.
+    const A_PAGES = [
+      { slug: `${PAGE_PREFIX}d2-contact`, title: "Contact", page_type: "contact", footer: true },
+      { slug: `${PAGE_PREFIX}d2-do-not-sell`, title: "Your Privacy Choices", page_type: "do-not-sell", footer: false },
+      { slug: `${PAGE_PREFIX}d2-privacy-policy`, title: "Privacy Policy", page_type: "privacy-policy", footer: false },
+      { slug: `${PAGE_PREFIX}d2-terms`, title: "Terms of Use", page_type: "terms", footer: false },
+      { slug: `${PAGE_PREFIX}d2-state-law-notice`, title: "State Law Privacy Notice", page_type: "legal", footer: false },
+      { slug: `${PAGE_PREFIX}d2-licenses`, title: "Licenses & Disclosure", page_type: "generic", footer: true },
     ];
-    for (const p of B_PAGES) {
+    for (const p of A_PAGES) {
       await json(
         await apiCtx.post("/api/admin/pages", {
-          data: { site_id: siteB, slug: p.slug, title: p.title, page_type: p.page_type, status: "published", show_in_footer: p.footer },
+          data: { site_id: siteA, slug: p.slug, title: p.title, page_type: p.page_type, status: "published", show_in_footer: p.footer },
         }),
-        `siteB page ${p.slug}`,
+        `siteA page ${p.slug}`,
       );
     }
 
-    const picks = STOCK_PAGES.map((p) => ({ page_type: p.page_type, slug: p.slug, label: p.title }));
+    // Site B is deliberately NOT a slug-for-slug clone — it is the real-world
+    // case D2 exists for: the same page TYPES, this site's OWN addresses. B's
+    // legal pages are the ones SITE PROVISIONING wrote for it (one row per
+    // canonical type — legal-renderer.ts binds page_type per page), RENAMED
+    // through the real admin PATCH: two to slugs A also uses (so the slug leg
+    // is exercised on B's own rows) and two to B-unique addresses (so the
+    // page_type leg is exercised, non-vacuously, on exactly one row per type).
+    // Renaming instead of adding a second row is what keeps "one row per type"
+    // true — a created duplicate would make the type ambiguous and the picks
+    // would omit, which is what made the previous version of this journey
+    // assert over an EMPTY list.
+    const CANONICAL = ["contact", "do-not-sell", "privacy-policy", "terms"];
+    await expect
+      .poll(
+        async () => {
+          const types = new Set((await siteLegalPages(siteB)).map((p) => p.page_type));
+          return CANONICAL.filter((t) => types.has(t)).length;
+        },
+        { message: "site provisioning must have written site B's four canonical legal pages", timeout: 30_000 },
+      )
+      .toBe(4);
+    const B_RENAMES: Array<[string, string, string]> = [
+      ["contact", `${PAGE_PREFIX}d2-contact`, "contact"], // SHARED slug with A
+      ["do-not-sell", `${PAGE_PREFIX}d2-do-not-sell`, "do-not-sell"], // SHARED slug with A
+      ["privacy-policy", `${PAGE_PREFIX}b-datenschutz`, "privacy-policy"], // RENAMED
+      ["terms", `${PAGE_PREFIX}b-terms-of-use`, "terms"], // RENAMED
+    ];
+    for (const [from, to] of B_RENAMES) await renameSitePage(siteB, from, to);
+    // …plus B's single 'legal'-typed page, its own address for A's 5th pick.
+    await json(
+      await apiCtx.post("/api/admin/pages", {
+        data: {
+          site_id: siteB,
+          slug: `${PAGE_PREFIX}b-state-notice`,
+          title: "State Notice B",
+          page_type: "legal",
+          status: "published",
+          show_in_footer: false,
+        },
+      }),
+      "siteB legal page",
+    );
+    const B_PAGES = [
+      ...B_RENAMES.map(([, slug, page_type]) => ({ slug, page_type })),
+      { slug: `${PAGE_PREFIX}b-state-notice`, page_type: "legal" },
+    ];
+    // the fixture's own invariant: exactly ONE published row per legal type
+    const bCatalogue = await siteLegalPages(siteB);
+    for (const type of ["contact", "do-not-sell", "privacy-policy", "terms", "legal"]) {
+      expect(bCatalogue.filter((p) => p.page_type === type), `site B holds one '${type}' row`).toHaveLength(1);
+    }
+    expect(bCatalogue.some((p) => p.page_type === "generic"), "site B publishes no 'generic' page").toBe(false);
+
+    const picks = A_PAGES.map((p) => ({ page_type: p.page_type, slug: p.slug, label: p.title }));
     const tpl = await json<{ public_id: string }>(
       await apiCtx.post(`${LG_API}/frame-template-records`, {
         data: {
@@ -745,7 +836,7 @@ test.describe("R2 P3 FIX-FIRST D — one saved pick set, two serving sites (D2)"
     }
 
     const a = await visitFooter(page, hostA, slugA, 1280);
-    expect(a.linkHrefs, "site A serves its own six, all distinct").toEqual(STOCK_PAGES.map((p) => `/${p.slug}`));
+    expect(a.linkHrefs, "site A serves its own six, all distinct").toEqual(A_PAGES.map((p) => `/${p.slug}`));
     await page.screenshot({ path: join(EVIDENCE, "fix-d2-siteA-1280.png"), fullPage: true });
 
     const b = await visitFooter(page, hostB, slugB, 1280);
@@ -756,13 +847,14 @@ test.describe("R2 P3 FIX-FIRST D — one saved pick set, two serving sites (D2)"
         `saved picks (slug|page_type|label): ${picks.map((p) => `${p.slug}|${p.page_type}|${p.label}`).join("  ,  ")}`,
         "",
         `site A (${hostA}) serves: ${JSON.stringify(a.linkHrefs)}`,
-        `site A publishes:         ${JSON.stringify(STOCK_PAGES.map((p) => `/${p.slug}`))}`,
+        `site A publishes:         ${JSON.stringify(A_PAGES.map((p) => `/${p.slug}`))}`,
         "",
         `site B (${hostB}) serves: ${JSON.stringify(b.linkHrefs)}`,
         `site B publishes:         ${JSON.stringify(B_PAGES.map((p) => `/${p.slug}`))}`,
         "",
-        "B shares 2 of A's 6 slugs (slug leg) and publishes its OWN addresses for the rest",
-        "(page_type leg). Zero B hrefs point at a page only A publishes.",
+        "B shares 2 of A's 6 slugs (slug leg), RENAMES 3 (page_type leg, one row per",
+        "type on B) and publishes nothing for A's 6th type (that pick is omitted, not",
+        "borrowed). Zero B hrefs point at a page only A publishes.",
       ].join("\n") + "\n",
     );
     // ONE saved pick set; site B's OWN addresses. Order follows the operator's
@@ -773,16 +865,28 @@ test.describe("R2 P3 FIX-FIRST D — one saved pick set, two serving sites (D2)"
     for (const href of b.linkHrefs) {
       expect(bSlugs.has(href), `B href ${href} must be one of B's OWN pages`).toBe(true);
     }
-    // the two SHARED slugs resolve through the slug leg — to B's rows
-    expect(b.linkHrefs[0], "shared slug → slug leg, on B's own row").toBe(`/${PAGE_PREFIX}contact`);
-    expect(b.linkHrefs[1], "shared slug → slug leg, on B's own row").toBe(`/${PAGE_PREFIX}do-not-sell`);
-    // the four B-unique ones fall to the page_type leg and still land on B
-    for (const href of b.linkHrefs.slice(2)) {
-      expect(bSlugs.has(href), `page_type leg stayed on site B (${href})`).toBe(true);
+    // FIVE of the six picks resolve on B, each to a DIFFERENT page of B's —
+    // this is the non-vacuous form of the renamed-site claim (the assertions
+    // below iterate a populated list, never an empty one).
+    expect(b.linkHrefs, "five picks resolve on B").toHaveLength(5);
+    expect(new Set(b.linkHrefs).size, "no two of B's links may share an href").toBe(5);
+    // the exact label → page pairing, which is what the defect broke
+    const bServed = new Map(b.linkLabels.map((l, i) => [l, b.linkHrefs[i]!]));
+    for (const [label, href] of [
+      ["Contact", `/${PAGE_PREFIX}d2-contact`], // shared slug → slug leg, B's row
+      ["Your Privacy Choices", `/${PAGE_PREFIX}d2-do-not-sell`], // shared slug → slug leg
+      ["Privacy Policy", `/${PAGE_PREFIX}b-datenschutz`], // RENAMED → page_type leg
+      ["Terms of Use", `/${PAGE_PREFIX}b-terms-of-use`], // RENAMED → page_type leg
+      ["State Law Privacy Notice", `/${PAGE_PREFIX}b-state-notice`], // RENAMED → page_type leg
+    ] as const) {
+      expect(bServed.get(label), `"${label}" must serve B's own ${href}`).toBe(href);
     }
+    // A's 6th type does not exist on B: that pick degrades (omitted), never
+    // borrows another page — the "wrong link is worse than a missing one" rule.
+    expect(bServed.has("Licenses & Disclosure"), "a type B does not publish is OMITTED").toBe(false);
     // …and NOTHING resolved to a page only site A publishes.
-    for (const a4 of STOCK_PAGES.slice(2).map((p) => `/${p.slug}`)) {
-      expect(b.linkHrefs, `B must never serve A's ${a4}`).not.toContain(a4);
+    for (const aOnly of A_PAGES.filter((p) => !bSlugs.has(`/${p.slug}`)).map((p) => `/${p.slug}`)) {
+      expect(b.linkHrefs, `B must never serve A's ${aOnly}`).not.toContain(aOnly);
     }
     await page.screenshot({ path: join(EVIDENCE, "fix-d2-siteB-1280.png"), fullPage: true });
   });
