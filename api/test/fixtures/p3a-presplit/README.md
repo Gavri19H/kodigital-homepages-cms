@@ -88,6 +88,17 @@ capture script (crypto-random ULIDs; already normalized away by the test's
 own `normalizeIds`/`ID_RE`/`COMPUTED_AT_RE`, not a content change) — 0 lines
 outside these three buckets.
 
+2026-07-29 re-capture (R2 P3 S3a — element J footer upgrade): `editor-panel-templates.html`
+and `editor-full.html` changed (the G · Footer box's new toolbar/heading+list
+type options/font-family selector/logo toggle/Pages-picker markup + the
+island's collectFooterPickRows/fetchFooterPicks/extended collectFooterBlocks
+JS) — every non-id-noise line traced to this round's own diff, zero
+unattributed. `editor-panel-ab.html`, `editor-panel-activation.html`,
+`editor-panel-builder.html` and `quotes-list-seeded.html` also re-captured
+(the script mints fresh ULIDs every run) but changed ONLY in minted ids —
+confirmed byte-for-byte identical otherwise; `editor-panel-themes.html` and
+`editor-panel-analytics.html` were already current (zero drift).
+
 ## Rolling analytics window (CLOSED — normalized, does not drift)
 
 The two `quotes-list-*.html` fixtures embed `resolveTimeframe`'s default rolling
