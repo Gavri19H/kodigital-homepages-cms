@@ -266,6 +266,79 @@ describe("§6.8 slider type picker", () => {
     expect(src).toContain("props.currency_affix = true");
     expect(src).not.toContain("node.type =");
   });
+
+  // P4 S4c found the picker/render drift inverted from the original probe: the
+  // §6.8 renders (S4a, 1e2ea09) were fixed to FLANK a prominent value with the
+  // -/+ buttons on one row, then a SEPARATE full track+handle+captions below —
+  // but the stepper THUMBNAIL still depicted [-box][mini-track][+box], a
+  // smaller/different anatomy than the render now delivers. This asserts the
+  // thumbnail's OWN markup (never the render's) carries the render's real
+  // structural signature.
+  function stepperThumbSvg(): string {
+    const marker = 'data-set-slider-type="stepper"';
+    const btnStart = INSPECTOR.indexOf(marker);
+    expect(btnStart, "stepper slider-type button present").toBeGreaterThan(-1);
+    const thumbStart = INSPECTOR.indexOf('class="studio-slider-type-thumb"', btnStart);
+    const svgStart = INSPECTOR.indexOf("<svg", thumbStart);
+    const svgEnd = INSPECTOR.indexOf("</svg>", svgStart) + "</svg>".length;
+    return INSPECTOR.slice(svgStart, svgEnd);
+  }
+
+  it("the stepper thumbnail depicts -/+ FLANKING a prominent value on one row, a SEPARATE track+handle, and captions below (the render's structural signature)", () => {
+    const svg = stepperThumbSvg();
+
+    // Row 1: two outline (fill:none) boxes — the - and + buttons.
+    const outlineBoxes = [
+      ...svg.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="[\d.]+" fill="none"/g),
+    ];
+    expect(outlineBoxes.length, "exactly two outline boxes (- and +)").toBe(2);
+    const minusX = Number(outlineBoxes[0]![1]);
+    const plusX = Number(outlineBoxes[1]![1]);
+    expect(plusX, "the + box sits right of the - box").toBeGreaterThan(minusX);
+    const row1Top = Number(outlineBoxes[0]![2]);
+    const row1Bottom = row1Top + Number(outlineBoxes[0]![4]);
+
+    // A solid (filled) value chip sits BETWEEN the two boxes on that same row
+    // — the prominent value, flanked by -/+, never a track segment.
+    const chip = svg.match(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="[\d.]+" fill="#1B3A5C"\/>/);
+    expect(chip, "a solid value chip flanked by the two buttons").not.toBeNull();
+    const chipX = Number(chip![1]);
+    expect(chipX, "value chip is right of the - box").toBeGreaterThan(minusX);
+    expect(chipX, "value chip is left of the + box").toBeLessThan(plusX);
+
+    // The pre-fix anatomy wedged a mini track directly on the button row —
+    // assert no track-colored line overlaps that row at all.
+    const trackColorLines = [
+      ...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)" stroke="#E1E6EE"/g),
+    ];
+    expect(trackColorLines.length, "exactly one grey track line (the real, separate track)").toBe(1);
+    const trackOverlapsButtonRow = trackColorLines.some((m) => {
+      const y1 = Number(m[2]);
+      const y2 = Number(m[4]);
+      return (y1 >= row1Top && y1 <= row1Bottom) || (y2 >= row1Top && y2 <= row1Bottom);
+    });
+    expect(trackOverlapsButtonRow, "no track-colored line overlaps the button row").toBe(false);
+
+    // Row 2: the SEPARATE full-width track + dark fill + circular handle,
+    // strictly below row 1 — same idiom as the single/dual_range siblings.
+    const trackY = Number(trackColorLines[0]![2]);
+    expect(trackY, "the track sits below the button/value row").toBeGreaterThan(row1Bottom);
+    const fillLine = svg.match(/<line x1="[\d.]+" y1="[\d.]+" x2="[\d.]+" y2="[\d.]+" stroke="#1B3A5C" stroke-width="4"/);
+    expect(fillLine, "a dark fill line on the track").not.toBeNull();
+    const handle = svg.match(/<circle cx="([\d.]+)" cy="([\d.]+)" r="[\d.]+" fill="#fff" stroke="#1B3A5C"/);
+    expect(handle, "a circular handle riding the track").not.toBeNull();
+    expect(Number(handle![2]), "the handle sits on the track's own row").toBeCloseTo(trackY, 1);
+
+    // Row 3: two caption marks below the track, flanking the far left/right
+    // (min/max), same as the render's bottom captions.
+    const captions = [...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="[\d.]+" stroke="#9AA9BD"/g)];
+    expect(captions.length, "two caption marks (min + max)").toBe(2);
+    const capY = Number(captions[0]![2]);
+    expect(capY, "captions sit below the track").toBeGreaterThan(trackY);
+    const leftCapX = Number(captions[0]![1]);
+    const rightCapX = Number(captions[1]![1]);
+    expect(rightCapX - leftCapX, "captions flank opposite edges, like the render's min/max").toBeGreaterThan(40);
+  });
 });
 
 // =============================================================================
