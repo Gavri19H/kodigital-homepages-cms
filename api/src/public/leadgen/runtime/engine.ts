@@ -530,6 +530,23 @@ function attrNum(el: Element, name: string, fallback: number): number {
 const ARIA_NOW = "aria-valuenow";
 const SEL_DIAL = ".lg-range-radial-outer";
 
+// R2 P4 FIX-FIRST-2 (N-1): true ONLY while the dispatch in flight is an `input`
+// event — the visitor is mid-keystroke. F-1 made syncDualRange mirror the
+// clamped value into every from_to box INCLUDING the one being typed into, so
+// the one-step anti-deadlock clamp was committed into that box on each
+// keystroke and the caret jumped behind it: with From=35000, typing "6" rewrote
+// the To box to "40000", the next "0" made "400000" → clamped to the max, and
+// 60000 became unreachable (the buyer got 100000). The box being typed into is
+// therefore left alone WHILE typing and reconciled on `change` (blur/Enter —
+// the SAME listener, with typing back to false), which is where F-1's guarantee
+// is observable: at COMMIT the box, the rails, the pills and the recorded
+// answer all agree. Every other surface — rails, aria, pills, fill, and the
+// RECORDED answer — still carries the clamped value on every keystroke, so a
+// mid-typing submit can never bill an unclamped number. Module scope, like
+// dialDrag: one engine per page, and it is set and cleared around a single
+// synchronous handleInputEvent call.
+let typing = false;
+
 // CLAMP RULE (from_to + dual_range): the DRAGGED handle stops ONE `step` short
 // of its neighbour; the neighbour NEVER moves. So min < max always holds (no
 // crossing), and the two thumbs can never land on the same pixel — which would
@@ -576,13 +593,14 @@ function syncDualRange(wrap: Element, moved: HTMLInputElement): string | null {
   fs.setProperty("--lg-a", `${pa}`);
   fs.setProperty("--lg-b", `${pb}`);
   // One pass per side (0 = min/left, 1 = max/right): the rail carries the
-  // clamped value + aria; from_to's labelled number field mirrors it — INCLUDING
-  // the one being typed into (R2 P4 FIX-FIRST F-1: skipping it left the box
-  // reading a number that never left the browser while the rail, the pill and
-  // the /lg/auction payload all carried the clamped one — the visitor saw
-  // 90000, the buyer was billed 35000). dual_range has no such field, hence the
-  // undefined test. The handle's OWN pill carries its readout, byte-identical
-  // to the server's formatRangeValue (presets.ts).
+  // clamped value + aria; from_to's labelled number field mirrors it (R2 P4
+  // FIX-FIRST F-1: never mirroring left the box reading a number that never
+  // left the browser while the rail, the pill and the /lg/auction payload all
+  // carried the clamped one — the visitor saw 90000, the buyer was billed
+  // 35000) — every field EXCEPT one still being typed into, which is mirrored
+  // at `change` instead (FIX-FIRST-2 / N-1, see `typing`). dual_range has no
+  // such field, hence the undefined test. The handle's OWN pill carries its
+  // readout, byte-identical to the server's formatRangeValue (presets.ts).
   const pill = wrap.querySelectorAll(".lg-range-handle-value");
   const cur = wrap.getAttribute("data-currency") || "";
   [a, b].forEach((v, i) => {
@@ -591,7 +609,7 @@ function syncDualRange(wrap: Element, moved: HTMLInputElement): string | null {
     rl.value = s;
     rl.setAttribute(ARIA_NOW, s);
     const nu = num[i];
-    if (nu !== undefined) nu.value = s;
+    if (nu !== undefined && !(typing && nu === moved)) nu.value = s;
     (pill[i] as Element).textContent = cur + v.toLocaleString("en-US");
   });
   return `${top ? b : a}`;
@@ -1057,7 +1075,14 @@ export class LgEngine {
     const onInput = (raw: Event): void => {
       const target = raw.target;
       if (!(target instanceof Element) || target.closest("[data-lg-input]") === null) return;
+      // FIX-FIRST-2 (N-1): the ONE place the two dispatches differ. `input` =
+      // mid-keystroke (syncDualRange must not rewrite the box under the caret);
+      // `change` = the commit (blur/Enter) where it must. Cleared straight after
+      // the synchronous call so the engine's other handleInputEvent callers
+      // (mask keydown, dial drag, restore) always run in commit mode.
+      typing = raw.type === "input";
       this.handleInputEvent(target);
+      typing = false;
     };
     this.root.addEventListener("input", onInput);
     this.root.addEventListener("change", onInput, true);

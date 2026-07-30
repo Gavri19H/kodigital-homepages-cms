@@ -878,7 +878,13 @@ const R2_P4_RANGE_NEW_RULES = [
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-stepper-row .lg-range-value{margin:0}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-stepper-btn{display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;flex-shrink:0;border-radius:${defaultFunnelDesign.radius.md};border:2px solid ${defaultFunnelDesign.color.primary};background:${defaultFunnelDesign.color.card};color:${defaultFunnelDesign.color.primary};font-size:1.5rem;line-height:1;font-weight:600;cursor:pointer;transition:background-color ${defaultFunnelDesign.transitions.btnHoverMs}ms}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-stepper-btn:hover{background:${defaultFunnelDesign.color.primaryGhost}}`,
-  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-from-to .lg-range-track,${DEFAULT_FUNNEL_SCOPE} .lg-range-dual .lg-range-track{margin-top:40px}`,
+  // P4 FIX-FIRST-2 (N-2): this NET-NEW rule's body changed from a flat 40px
+  // (clearance for ONE pill row) to clearance for the STACKED second row too —
+  // the closure review measured the raised min pill landing on the operator's
+  // question label at the low clamp. Still a net-new-since-the-frozen-capture
+  // rule, so it stays in the wholesale-strip list; only its literal text is
+  // re-captured here. Nothing else in the sheet moved.
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-from-to .lg-range-track,${DEFAULT_FUNNEL_SCOPE} .lg-range-dual .lg-range-track{margin-top:calc(40px + ${defaultFunnelDesign.spacing.xl} + ${defaultFunnelDesign.spacing.sm})}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-from-to-inputs{display:flex;gap:${defaultFunnelDesign.spacing.md};margin-top:${defaultFunnelDesign.spacing.md}}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-ft-field{flex:1 1 0;display:flex;flex-direction:column;gap:${defaultFunnelDesign.spacing.xs};min-width:0}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-ft-label{font-size:0.8125rem;font-weight:600;color:${defaultFunnelDesign.page.textSecondaryColor}}`,

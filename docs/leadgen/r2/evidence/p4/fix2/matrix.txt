@@ -1,0 +1,207 @@
+R2 P4 FIX-FIRST-2 — driven interaction matrix (2026-07-30T01:56:47.805Z)
+payload schema v4 already declares fr2_band_min/_max
+AUTHOR from_to (fr2_band) -> HTTP 200
+  re-save activation (fresh lg-shell key) -> HTTP 200
+SSR converged in 20ms (1 poll(s)): the fix-round-2 from_to slider
+
+=== N-1 @1280 === rest -> field[From=0 To=100000] rails=[0,100000] pills=[$0,$100,000]
+ A. From type-up 35000 (digit-by-digit)
+   A [clear]   -> field[From= To=100000] rails=[0,100000] pills=[$0,$100,000]
+   A type '3' -> field[From=3 To=100000] rails=[0,100000] pills=[$3,$100,000]
+   A type '5' -> field[From=35 To=100000] rails=[0,100000] pills=[$35,$100,000]
+   A type '0' -> field[From=350 To=100000] rails=[0,100000] pills=[$350,$100,000]
+   A type '0' -> field[From=3500 To=100000] rails=[5000,100000] pills=[$3,500,$100,000]
+   A type '0' -> field[From=35000 To=100000] rails=[35000,100000] pills=[$35,000,$100,000]
+   A [blur]    -> field[From=35000 To=100000] rails=[35000,100000] pills=[$35,000,$100,000]
+ B. To type-up 60000 — the exact keystroke path N-1 made unreachable
+   B [clear]   -> field[From=35000 To=] rails=[35000,100000] pills=[$35,000,$100,000]
+   B type '6' -> field[From=35000 To=6] rails=[35000,40000] pills=[$35,000,$40,000]
+   B type '0' -> field[From=35000 To=60] rails=[35000,40000] pills=[$35,000,$40,000]
+   B type '0' -> field[From=35000 To=600] rails=[35000,40000] pills=[$35,000,$40,000]
+   B type '0' -> field[From=35000 To=6000] rails=[35000,40000] pills=[$35,000,$40,000]
+   B type '0' -> field[From=35000 To=60000] rails=[35000,60000] pills=[$35,000,$60,000]
+   B [blur]    -> field[From=35000 To=60000] rails=[35000,60000] pills=[$35,000,$60,000]
+ C. To type-down 45000
+   C [clear]   -> field[From=35000 To=] rails=[35000,60000] pills=[$35,000,$60,000]
+   C type '4' -> field[From=35000 To=4] rails=[35000,40000] pills=[$35,000,$40,000]
+   C type '5' -> field[From=35000 To=45] rails=[35000,40000] pills=[$35,000,$40,000]
+   C type '0' -> field[From=35000 To=450] rails=[35000,40000] pills=[$35,000,$40,000]
+   C type '0' -> field[From=35000 To=4500] rails=[35000,40000] pills=[$35,000,$40,000]
+   C type '0' -> field[From=35000 To=45000] rails=[35000,45000] pills=[$35,000,$45,000]
+   C [blur]    -> field[From=35000 To=45000] rails=[35000,45000] pills=[$35,000,$45,000]
+ D. To paste 80000
+   D paste "80000" -> field[From=35000 To=80000] rails=[35000,80000] pills=[$35,000,$80,000]
+   D [blur]    -> field[From=35000 To=80000] rails=[35000,80000] pills=[$35,000,$80,000]
+ E. From type-up 50000
+   E [clear]   -> field[From= To=80000] rails=[35000,80000] pills=[$35,000,$80,000]
+   E type '5' -> field[From=5 To=80000] rails=[0,80000] pills=[$5,$80,000]
+   E type '0' -> field[From=50 To=80000] rails=[0,80000] pills=[$50,$80,000]
+   E type '0' -> field[From=500 To=80000] rails=[0,80000] pills=[$500,$80,000]
+   E type '0' -> field[From=5000 To=80000] rails=[5000,80000] pills=[$5,000,$80,000]
+   E type '0' -> field[From=50000 To=80000] rails=[50000,80000] pills=[$50,000,$80,000]
+   E [blur]    -> field[From=50000 To=80000] rails=[50000,80000] pills=[$50,000,$80,000]
+ F. From type-down 10000
+   F [clear]   -> field[From= To=80000] rails=[50000,80000] pills=[$50,000,$80,000]
+   F type '1' -> field[From=1 To=80000] rails=[0,80000] pills=[$1,$80,000]
+   F type '0' -> field[From=10 To=80000] rails=[0,80000] pills=[$10,$80,000]
+   F type '0' -> field[From=100 To=80000] rails=[0,80000] pills=[$100,$80,000]
+   F type '0' -> field[From=1000 To=80000] rails=[0,80000] pills=[$1,000,$80,000]
+   F type '0' -> field[From=10000 To=80000] rails=[10000,80000] pills=[$10,000,$80,000]
+   F [blur]    -> field[From=10000 To=80000] rails=[10000,80000] pills=[$10,000,$80,000]
+ G. From paste 25000
+   G paste "25000" -> field[From=25000 To=80000] rails=[25000,80000] pills=[$25,000,$80,000]
+   G [blur]    -> field[From=25000 To=80000] rails=[25000,80000] pills=[$25,000,$80,000]
+ H. To final out-of-order 5000 (below From=25000) -> one-step clamp
+   H [clear]   -> field[From=25000 To=] rails=[25000,80000] pills=[$25,000,$80,000]
+   H type '5' -> field[From=25000 To=5] rails=[25000,30000] pills=[$25,000,$30,000]
+   H type '0' -> field[From=25000 To=50] rails=[25000,30000] pills=[$25,000,$30,000]
+   H type '0' -> field[From=25000 To=500] rails=[25000,30000] pills=[$25,000,$30,000]
+   H type '0' -> field[From=25000 To=5000] rails=[25000,30000] pills=[$25,000,$30,000]
+   H [blur]    -> field[From=25000 To=30000] rails=[25000,30000] pills=[$25,000,$30,000]
+ I. From final out-of-order 90000 (above To=30000) -> one-step clamp
+   I [clear]   -> field[From= To=30000] rails=[25000,30000] pills=[$25,000,$30,000]
+   I type '9' -> field[From=9 To=30000] rails=[0,30000] pills=[$9,$30,000]
+   I type '0' -> field[From=90 To=30000] rails=[0,30000] pills=[$90,$30,000]
+   I type '0' -> field[From=900 To=30000] rails=[0,30000] pills=[$900,$30,000]
+   I type '0' -> field[From=9000 To=30000] rails=[10000,30000] pills=[$9,000,$30,000]
+   I type '0' -> field[From=90000 To=30000] rails=[25000,30000] pills=[$25,000,$30,000]
+   I [blur]    -> field[From=25000 To=30000] rails=[25000,30000] pills=[$25,000,$30,000]
+ J. To paste 37000 (off the 5000 grid)
+   J paste "37000" -> field[From=25000 To=37000] rails=[25000,35000] pills=[$25,000,$37,000]
+   J [blur]    -> field[From=25000 To=37000] rails=[25000,35000] pills=[$25,000,$37,000]
+ J. rail(step-snapped, native input) = 35000
+
+=== N-1 @375 === rest -> field[From=0 To=100000] rails=[0,100000] pills=[$0,$100,000]
+ A. From type-up 35000 (digit-by-digit)
+   A [clear]   -> field[From= To=100000] rails=[0,100000] pills=[$0,$100,000]
+   A type '3' -> field[From=3 To=100000] rails=[0,100000] pills=[$3,$100,000]
+   A type '5' -> field[From=35 To=100000] rails=[0,100000] pills=[$35,$100,000]
+   A type '0' -> field[From=350 To=100000] rails=[0,100000] pills=[$350,$100,000]
+   A type '0' -> field[From=3500 To=100000] rails=[5000,100000] pills=[$3,500,$100,000]
+   A type '0' -> field[From=35000 To=100000] rails=[35000,100000] pills=[$35,000,$100,000]
+   A [blur]    -> field[From=35000 To=100000] rails=[35000,100000] pills=[$35,000,$100,000]
+ B. To type-up 60000 — the exact keystroke path N-1 made unreachable
+   B [clear]   -> field[From=35000 To=] rails=[35000,100000] pills=[$35,000,$100,000]
+   B type '6' -> field[From=35000 To=6] rails=[35000,40000] pills=[$35,000,$40,000]
+   B type '0' -> field[From=35000 To=60] rails=[35000,40000] pills=[$35,000,$40,000]
+   B type '0' -> field[From=35000 To=600] rails=[35000,40000] pills=[$35,000,$40,000]
+   B type '0' -> field[From=35000 To=6000] rails=[35000,40000] pills=[$35,000,$40,000]
+   B type '0' -> field[From=35000 To=60000] rails=[35000,60000] pills=[$35,000,$60,000]
+   B [blur]    -> field[From=35000 To=60000] rails=[35000,60000] pills=[$35,000,$60,000]
+ C. To type-down 45000
+   C [clear]   -> field[From=35000 To=] rails=[35000,60000] pills=[$35,000,$60,000]
+   C type '4' -> field[From=35000 To=4] rails=[35000,40000] pills=[$35,000,$40,000]
+   C type '5' -> field[From=35000 To=45] rails=[35000,40000] pills=[$35,000,$40,000]
+   C type '0' -> field[From=35000 To=450] rails=[35000,40000] pills=[$35,000,$40,000]
+   C type '0' -> field[From=35000 To=4500] rails=[35000,40000] pills=[$35,000,$40,000]
+   C type '0' -> field[From=35000 To=45000] rails=[35000,45000] pills=[$35,000,$45,000]
+   C [blur]    -> field[From=35000 To=45000] rails=[35000,45000] pills=[$35,000,$45,000]
+ D. To paste 80000
+   D paste "80000" -> field[From=35000 To=80000] rails=[35000,80000] pills=[$35,000,$80,000]
+   D [blur]    -> field[From=35000 To=80000] rails=[35000,80000] pills=[$35,000,$80,000]
+ E. From type-up 50000
+   E [clear]   -> field[From= To=80000] rails=[35000,80000] pills=[$35,000,$80,000]
+   E type '5' -> field[From=5 To=80000] rails=[0,80000] pills=[$5,$80,000]
+   E type '0' -> field[From=50 To=80000] rails=[0,80000] pills=[$50,$80,000]
+   E type '0' -> field[From=500 To=80000] rails=[0,80000] pills=[$500,$80,000]
+   E type '0' -> field[From=5000 To=80000] rails=[5000,80000] pills=[$5,000,$80,000]
+   E type '0' -> field[From=50000 To=80000] rails=[50000,80000] pills=[$50,000,$80,000]
+   E [blur]    -> field[From=50000 To=80000] rails=[50000,80000] pills=[$50,000,$80,000]
+ F. From type-down 10000
+   F [clear]   -> field[From= To=80000] rails=[50000,80000] pills=[$50,000,$80,000]
+   F type '1' -> field[From=1 To=80000] rails=[0,80000] pills=[$1,$80,000]
+   F type '0' -> field[From=10 To=80000] rails=[0,80000] pills=[$10,$80,000]
+   F type '0' -> field[From=100 To=80000] rails=[0,80000] pills=[$100,$80,000]
+   F type '0' -> field[From=1000 To=80000] rails=[0,80000] pills=[$1,000,$80,000]
+   F type '0' -> field[From=10000 To=80000] rails=[10000,80000] pills=[$10,000,$80,000]
+   F [blur]    -> field[From=10000 To=80000] rails=[10000,80000] pills=[$10,000,$80,000]
+ G. From paste 25000
+   G paste "25000" -> field[From=25000 To=80000] rails=[25000,80000] pills=[$25,000,$80,000]
+   G [blur]    -> field[From=25000 To=80000] rails=[25000,80000] pills=[$25,000,$80,000]
+ H. To final out-of-order 5000 (below From=25000) -> one-step clamp
+   H [clear]   -> field[From=25000 To=] rails=[25000,80000] pills=[$25,000,$80,000]
+   H type '5' -> field[From=25000 To=5] rails=[25000,30000] pills=[$25,000,$30,000]
+   H type '0' -> field[From=25000 To=50] rails=[25000,30000] pills=[$25,000,$30,000]
+   H type '0' -> field[From=25000 To=500] rails=[25000,30000] pills=[$25,000,$30,000]
+   H type '0' -> field[From=25000 To=5000] rails=[25000,30000] pills=[$25,000,$30,000]
+   H [blur]    -> field[From=25000 To=30000] rails=[25000,30000] pills=[$25,000,$30,000]
+ I. From final out-of-order 90000 (above To=30000) -> one-step clamp
+   I [clear]   -> field[From= To=30000] rails=[25000,30000] pills=[$25,000,$30,000]
+   I type '9' -> field[From=9 To=30000] rails=[0,30000] pills=[$9,$30,000]
+   I type '0' -> field[From=90 To=30000] rails=[0,30000] pills=[$90,$30,000]
+   I type '0' -> field[From=900 To=30000] rails=[0,30000] pills=[$900,$30,000]
+   I type '0' -> field[From=9000 To=30000] rails=[10000,30000] pills=[$9,000,$30,000]
+   I type '0' -> field[From=90000 To=30000] rails=[25000,30000] pills=[$25,000,$30,000]
+   I [blur]    -> field[From=25000 To=30000] rails=[25000,30000] pills=[$25,000,$30,000]
+ J. To paste 37000 (off the 5000 grid)
+   J paste "37000" -> field[From=25000 To=37000] rails=[25000,35000] pills=[$25,000,$37,000]
+   J [blur]    -> field[From=25000 To=37000] rails=[25000,35000] pills=[$25,000,$37,000]
+ J. rail(step-snapped, native input) = 35000
+
+=== N-1 payload case 1: From 35000 typed, To 60000 typed ===
+   P1a [clear]   -> field[From= To=100000] rails=[0,100000] pills=[$0,$100,000]
+   P1a type '3' -> field[From=3 To=100000] rails=[0,100000] pills=[$3,$100,000]
+   P1a type '5' -> field[From=35 To=100000] rails=[0,100000] pills=[$35,$100,000]
+   P1a type '0' -> field[From=350 To=100000] rails=[0,100000] pills=[$350,$100,000]
+   P1a type '0' -> field[From=3500 To=100000] rails=[5000,100000] pills=[$3,500,$100,000]
+   P1a type '0' -> field[From=35000 To=100000] rails=[35000,100000] pills=[$35,000,$100,000]
+   P1a [blur]    -> field[From=35000 To=100000] rails=[35000,100000] pills=[$35,000,$100,000]
+   P1b [clear]   -> field[From=35000 To=] rails=[35000,100000] pills=[$35,000,$100,000]
+   P1b type '6' -> field[From=35000 To=6] rails=[35000,40000] pills=[$35,000,$40,000]
+   P1b type '0' -> field[From=35000 To=60] rails=[35000,40000] pills=[$35,000,$40,000]
+   P1b type '0' -> field[From=35000 To=600] rails=[35000,40000] pills=[$35,000,$40,000]
+   P1b type '0' -> field[From=35000 To=6000] rails=[35000,40000] pills=[$35,000,$40,000]
+   P1b type '0' -> field[From=35000 To=60000] rails=[35000,60000] pills=[$35,000,$60,000]
+   P1b [blur]    -> field[From=35000 To=60000] rails=[35000,60000] pills=[$35,000,$60,000]
+case 1 provider row id=7 payload={"r2fix_carrier":"acme_insurance","fr2_band_min":35000,"fr2_band_max":60000}
+
+=== N-1 payload case 2: From 35000 typed, To 20000 typed (out of order) ===
+   P2a [clear]   -> field[From= To=100000] rails=[0,100000] pills=[$0,$100,000]
+   P2a type '3' -> field[From=3 To=100000] rails=[0,100000] pills=[$3,$100,000]
+   P2a type '5' -> field[From=35 To=100000] rails=[0,100000] pills=[$35,$100,000]
+   P2a type '0' -> field[From=350 To=100000] rails=[0,100000] pills=[$350,$100,000]
+   P2a type '0' -> field[From=3500 To=100000] rails=[5000,100000] pills=[$3,500,$100,000]
+   P2a type '0' -> field[From=35000 To=100000] rails=[35000,100000] pills=[$35,000,$100,000]
+   P2a [blur]    -> field[From=35000 To=100000] rails=[35000,100000] pills=[$35,000,$100,000]
+   P2b [clear]   -> field[From=35000 To=] rails=[35000,100000] pills=[$35,000,$100,000]
+   P2b type '2' -> field[From=35000 To=2] rails=[35000,40000] pills=[$35,000,$40,000]
+   P2b type '0' -> field[From=35000 To=20] rails=[35000,40000] pills=[$35,000,$40,000]
+   P2b type '0' -> field[From=35000 To=200] rails=[35000,40000] pills=[$35,000,$40,000]
+   P2b type '0' -> field[From=35000 To=2000] rails=[35000,40000] pills=[$35,000,$40,000]
+   P2b type '0' -> field[From=35000 To=20000] rails=[35000,40000] pills=[$35,000,$40,000]
+   P2b [blur]    -> field[From=35000 To=40000] rails=[35000,40000] pills=[$35,000,$40,000]
+case 2 provider row id=8 payload={"r2fix_carrier":"acme_insurance","fr2_band_min":35000,"fr2_band_max":40000}
+
+=== N-2 @1280 === at rest: label.bottom=146.6 pillRow.top=188.6 gap=42.0px
+=== N-2 @1280 === low clamp -> field[From=0 To=5000] rails=[0,5000] pills=[$0,$5,000]
+label  top=130.6 bottom=146.6 left=387.0 right=893.0
+minPill top=156.6 bottom=179.6 left=376.0 right=411.5
+maxPill top=188.6 bottom=211.6 left=420.0 right=485.1
+gap(label.bottom -> minPill.top) = 10.0px
+track  top=226.6 bottom=234.6 h=8.0
+minmax  top=248.6 bottom=264.6 h=16.0
+ftInputs  top=280.6 bottom=354.6 h=74.0
+scrollWidth=1280/1280
+=== N-2 @1280 === high clamp -> field[From=95000 To=100000] rails=[95000,100000] pills=[$95,000,$100,000]
+label  top=130.6 bottom=146.6
+minPill top=156.6 bottom=179.6 left=786.6 right=860.4
+maxPill top=188.6 bottom=211.6 left=823.5 right=904.0
+gap(label.bottom -> minPill.top) = 10.0px
+scrollWidth=1280/1280
+
+=== N-2 @375 === at rest: label.bottom=106.3 pillRow.top=148.3 gap=42.0px
+=== N-2 @375 === low clamp -> field[From=0 To=5000] rails=[0,5000] pills=[$0,$5,000]
+label  top=90.3 bottom=106.3 left=29.0 right=346.0
+minPill top=116.3 bottom=139.3 left=18.0 right=53.5
+maxPill top=148.3 bottom=171.3 left=52.6 right=117.6
+gap(label.bottom -> minPill.top) = 10.0px
+track  top=186.3 bottom=194.3 h=8.0
+minmax  top=208.3 bottom=224.3 h=16.0
+ftInputs  top=240.3 bottom=314.3 h=74.0
+scrollWidth=375/375
+=== N-2 @375 === high clamp -> field[From=95000 To=100000] rails=[95000,100000] pills=[$95,000,$100,000]
+label  top=90.3 bottom=106.3
+minPill top=116.3 bottom=139.3 left=249.0 right=322.8
+maxPill top=148.3 bottom=171.3 left=276.5 right=357.0
+gap(label.bottom -> minPill.top) = 10.0px
+scrollWidth=375/375

@@ -1074,8 +1074,23 @@ export function funnelChromeCss(
     // The two-handle tracks carry value pills ABOVE their handles, so the track
     // needs the pill's own height as clearance — without it the pills paint
     // over the question label (the P4 drive caught exactly that).
+    //
+    // R2 P4 FIX-FIRST-2 (N-2): 40px is clearance for ONE pill row. The
+    // container query below STACKS a second row when the handles clamp
+    // together, and the closure review measured that row landing ON the
+    // operator's label at the low clamp (1280: label 130.6..146.6, raised min
+    // pill 116.6..139.6 — a 30px overrun; the values stayed legible, the label
+    // did not). Absolutely-positioned pills reserve no layout space, so this
+    // margin IS the reservation and it has to hold BOTH rows. Measured budget
+    // at 1280 (labelBottom = the track's margin-box top): the base pill row's
+    // top sits at labelBottom + margin - 38 (15px of handle overhang + gap,
+    // plus the 23px pill), and the stacked row is one `xl` higher — so the
+    // margin must be 40 + xl + a gap. `sm` is that gap, giving a measured 10px
+    // between the label and the stacked pill at both viewports. The stack's own
+    // lift is left exactly as it was. Cost at rest: the single pill row now
+    // breathes ~42px under the label instead of grazing it by 2px.
     rule(`${scope} .lg-range-from-to .lg-range-track,${scope} .lg-range-dual .lg-range-track`, {
-      "margin-top": "40px",
+      "margin-top": `calc(40px + ${spacing.xl} + ${spacing.sm})`,
     }),
     // §6.8 from_to (Image13): two LABELLED number inputs under the track.
     rule(`${scope} .lg-range-from-to-inputs`, {
