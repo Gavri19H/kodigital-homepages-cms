@@ -1240,8 +1240,11 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
     ]);
     const fields = await linkedFields(env, offer.id);
     expect(fields.map((f) => f.internal_field)).toEqual(["addr"]);
-    // unchanged metadata for the base entry (the catalog `produces`).
-    expect(fields[0]!.answer_type).toBe("object");
+    // R2 P5 F9 — the DERIVATION's type, not the catalog's. fieldsOf types this
+    // key "string" (a lone full_address is ONE text input, and the value the
+    // visitor posts is a string that normalizeAnswerValue would REJECT as an
+    // "object"); the picker must say the same thing the answer space does.
+    expect(fields[0]!.answer_type).toBe("string");
     expect(fields[0]!.choice_count).toBe(0);
   });
 
@@ -1272,6 +1275,94 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
     const fields = await linkedFields(env, offer.id);
     expect(fields.map((f) => f.internal_field)).toEqual(["zip_only", "coverage"]);
     expect(fields.map((f) => f.answer_type)).toEqual(["string", "number"]);
+  });
+
+  // --- R2 P5 F9 (SRC-6B) — EVERY component, from the ONE derivation --------
+  //
+  // Owner A.1 #6 says "every component that include more than one field", not
+  // "the address". F8 expanded the Address by name; the picker now projects
+  // answers.ts `fieldsOf` for EVERY node, so it offers exactly the keys the
+  // visitor will record whatever the component is. Every expectation below is
+  // a LITERAL key/type asserted through the real GET /offers/:id projection.
+
+  const SLIDER = (sliderType: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    type: "NumberRangeQuestion",
+    question_id: `q_${sliderType}`,
+    internal_field: "loan",
+    props: { min: 10_000, max: 500_000, step: 5_000, slider_type: sliderType, ...extra },
+  });
+
+  it("SRC-6B: a from_to slider projects loan_min + loan_max as NUMBERS, never the base", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "FromTo Sec", [
+      { type: "FreeTextQuestion", question_id: "q_a", internal_field: "field_a", answer_type: "string" },
+      // the §6.8 authored shape: a from_to slider legitimately declares
+      // answer_type "object" (content-schema's dual-slider carve-out) — the
+      // picker must NOT hand that type to the sub-fields.
+      { ...SLIDER("from_to"), answer_type: "object" },
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual(["field_a", "loan_min", "loan_max"]);
+    expect(fields.map((f) => f.internal_field)).not.toContain("loan");
+    const subs = fields.filter((f) => f.internal_field.startsWith("loan_"));
+    expect(subs.map((f) => f.answer_type)).toEqual(["number", "number"]);
+    expect(subs.map((f) => f.choice_count)).toEqual([0, 0]);
+  });
+
+  it("SRC-6B: a dual_range slider projects the SAME two number sub-fields", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "DualRange Sec", [{ ...SLIDER("dual_range"), answer_type: "object" }]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual(["loan_min", "loan_max"]);
+    // the node's own authored answer_type ("object", the §6.8 carve-out) never
+    // reaches the sub-fields — each one is a number.
+    expect(fields.map((f) => f.answer_type)).toEqual(["number", "number"]);
+  });
+
+  it("SRC-6B: single / stepper / radial sliders still project the SCALAR base", async () => {
+    for (const sliderType of ["single", "stepper", "radial"] as const) {
+      const { sdb, env } = newHarness();
+      const offer = await createOffer(env);
+      seedSectionLinked(sdb, offer.id, `${sliderType} Sec`, [SLIDER(sliderType)]);
+      const fields = await linkedFields(env, offer.id);
+      expect(fields.map((f) => f.internal_field), sliderType).toEqual(["loan"]);
+      expect(fields[0]!.answer_type, sliderType).toBe("number");
+      // the scalar entry keeps the node's own props (the sample-answer
+      // generator reads props.min) — unchanged by this fix.
+      expect(fields[0]!.internal_field, sliderType).toBe("loan");
+    }
+  });
+
+  it("SRC-6B: a NameFieldsGroup projects the sub-fields it records (it carries no internal_field at all)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "Name Sec", [
+      { type: "NameFieldsGroup", question_id: "q_name", props: { fields: ["given", "family"] } },
+      { type: "FreeTextQuestion", question_id: "q_b", internal_field: "field_b", answer_type: "string" },
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    // pre-fix the whole component was SKIPPED (no internal_field ⇒ `continue`),
+    // so neither name key could be picked in the §6.2 picker.
+    expect(fields.map((f) => f.internal_field)).toEqual(["given", "family", "field_b"]);
+    expect(fields.slice(0, 2).map((f) => f.answer_type)).toEqual(["string", "string"]);
+    expect(fields.slice(0, 2).map((f) => f.choice_count)).toEqual([0, 0]);
+  });
+
+  it("SRC-6B: a NON-PRODUCING node that references a question's field contributes NOTHING", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "NonProducing Sec", [
+      { type: "FreeTextQuestion", question_id: "q_a", internal_field: "field_a", answer_type: "string" },
+      // a ValidationError CARRIES the field it decorates (its error-slot
+      // binding) but never CLAIMS an answer name — catalog produces === null,
+      // so fieldsOf gives it no field and the picker must not offer one.
+      { type: "ValidationError", question_id: "q_err", internal_field: "err_only" },
+      { type: "HelperText", question_id: "q_help", internal_field: "help_only", props: { text: "hi" } },
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual(["field_a"]);
   });
 });
 

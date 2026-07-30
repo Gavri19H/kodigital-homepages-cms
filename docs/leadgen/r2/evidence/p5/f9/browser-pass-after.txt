@@ -1,3 +1,7 @@
+### PASS-AFTER browser (fix applied) ###
+
+Running 5 tests using 1 worker
+
 CREATE offer "P5B Offer A 6u1i4953 — currency passed" -> id=14 public=lgo_01KYRYHSG98VT3YH8GF2YF6CV9
 CREATE offer "P5B Offer B 6u1i4953 — number only" -> id=15 public=lgo_01KYRYHSHM6J0F8WEGDKDCW0W7
 CREATE offer "P5B Offer C 6u1i4953 — number as string" -> id=16 public=lgo_01KYRYHSJXVE28D4WRWAQM67WZ
@@ -27,16 +31,19 @@ PAYLOAD offer-1 (lgo_01KYRYHSG98VT3YH8GF2YF6CV9) {"lead":{"p5b_amount_currency":
 PAYLOAD offer-2 (lgo_01KYRYHSHM6J0F8WEGDKDCW0W7) {"lead":{"p5b_amount_number":170000,"p5b_zone_num":4113}}
 PAYLOAD offer-3 (lgo_01KYRYHSJXVE28D4WRWAQM67WZ) {"lead":{"p5b_amount_string":"170000"}}
 ANSWER-MAP value_transform rows (5): lead.p5b_amount_currency=[{"kind":"formatCurrency"}] | lead.p5b_amount_number=[{"kind":"toNumber"}] | lead.p5b_amount_string=[{"kind":"toString"}] | lead.p5b_zone_num=[{"kind":"toNumber"}] | lead.p5b_zone_text=[{"kind":"toString"}]
+  ✓  1 [chromium] › test-ui/leadgen-r2p5-payload-seam-drive.spec.ts:928:1 › SRC-7B/SRC-6B: one visitor, three per-offer formats of the amount and two of the SAME address sub-field — every format picked in the real control (4.0s)
 AUTHOR section [free-text (full_address)] -> HTTP 200
 SSR converged in 13ms (1 poll(s)): free-text address
 DRIVE typed=6u1i4953 Kestrel Way, Hoboken, NJ 04113 · readout="$170,000" · visitor RECORDED keys = [p5b_addr_6u1i4953, p5b_amount_6u1i4953]
 DRIVE auction_instance_id=01KYRYJ16N7KDAYHEC1DVGGXRQ
 PAYLOAD free-text offer-1 {"lead":{"p5b_amount_currency":"$170,000"}}
+  ✓  2 [chromium] › test-ui/leadgen-r2p5-payload-seam-drive.spec.ts:1001:1 › SRC-6 seam: a free-text (full_address) Address records the BASE key end-to-end into the payload (3.4s)
 AUTHOR section [street-only] -> HTTP 200
 SSR converged in 14ms (1 poll(s)): street-only address
 DRIVE typed=6u1i4953 Kestrel Way · readout="$170,000" · visitor RECORDED keys = [p5b_addr_6u1i4953_street, p5b_amount_6u1i4953]
 DRIVE auction_instance_id=01KYRYJ4HKG4YYFHRKT0RG1290
 PAYLOAD street-only offer-1 {"lead":{"p5b_amount_currency":"$170,000"}}
+  ✓  3 [chromium] › test-ui/leadgen-r2p5-payload-seam-drive.spec.ts:1025:1 › SRC-6 seam: a street-only Address records ONLY {base}_street end-to-end (3.4s)
 AUTHOR section [from_to slider + composite address] -> HTTP 200
 SSR converged in 16ms (1 poll(s)): from_to slider sub-fields
 DRIVE typed=10857 / 400857 · readout="$170,000" · visitor RECORDED keys = [p5b_amount_6u1i4953, p5b_range_6u1i4953_max, p5b_range_6u1i4953_min]
@@ -46,9 +53,13 @@ F9 PAYLOAD offer-1 (lgo_01KYRYHSG98VT3YH8GF2YF6CV9) {"lead":{"p5b_amount_currenc
 F9 PAYLOAD offer-2 (lgo_01KYRYHSHM6J0F8WEGDKDCW0W7) {"lead":{"p5b_amount_number":170000,"p5b_span_to":400857}}
 F9 PAYLOAD offer-3 (lgo_01KYRYHSJXVE28D4WRWAQM67WZ) {"lead":{"p5b_amount_string":"170000"}}
 F9 SENT-AS chips: offer-1 "$10,857" · offer-2 400857
+  ✓  4 [chromium] › test-ui/leadgen-r2p5-payload-seam-drive.spec.ts:1056:1 › SRC-6B (F9): a from_to slider's _min and _max feed two different Offers in two different formats — picker-authored, visitor-driven (3.7s)
 AUTHOR section [single slider (base key offered)] -> HTTP 200
 F9 FLAG-LEG options while SINGLE = ["Choose a Section field…","p5b_amount_6u1i4953 (number)","p5b_addr_6u1i4953_street (string)","p5b_addr_6u1i4953_city (string)","p5b_addr_6u1i4953_state (string)","p5b_addr_6u1i4953_zip (string)","p5b_range_6u1i4953 (number)"]
 F9 FLAG-LEG saved Offer C mapping lead.p5b_span_legacy <- "p5b_range_6u1i4953" (single slider)
 AUTHOR section [from_to (base key no longer recorded)] -> HTTP 200
 F9 FLAG-LEG selected option = "p5b_range_6u1i4953 (not on a linked Section)" · meta = "Mapped to p5b_range_6u1i4953"
 F9 FLAG-LEG options after the switch = ["Choose a Section field…","p5b_amount_6u1i4953 (number)","p5b_addr_6u1i4953_street (string)","p5b_addr_6u1i4953_city (string)","p5b_addr_6u1i4953_state (string)","p5b_addr_6u1i4953_zip (string)","p5b_range_6u1i4953_min (number)","p5b_range_6u1i4953_max (number)","p5b_range_6u1i4953 (not on a linked Section)"]
+  ✓  5 [chromium] › test-ui/leadgen-r2p5-payload-seam-drive.spec.ts:1137:1 › SRC-6B (F9): a saved mapping to a key the component no longer offers stays SELECTED and is FLAGGED — never silently blanked (399ms)
+
+  5 passed (17.6s)

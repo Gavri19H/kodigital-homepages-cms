@@ -1,0 +1,48 @@
+
+Running 5 tests using 1 worker
+
+CREATE offer "P5B Offer A 6lgk4613 — currency passed" -> id=2 public=lgo_01KYRY5JGKHHWY3BH25KE3N3H8
+CREATE offer "P5B Offer B 6lgk4613 — number only" -> id=3 public=lgo_01KYRY5JHBK9MMDBAK93SP24Q2
+CREATE offer "P5B Offer C 6lgk4613 — number as string" -> id=4 public=lgo_01KYRY5JHY94K2ZW7QCE38TX4T
+LINK section -> offers [2, 3, 4] HTTP 200
+AUTHOR P5B Offer A 6lgk4613 — currency passed · lead.p5b_amount_currency <- "formatCurrency" · preview "170000 → $170,000" · sends "$170,000"
+PICKER options = ["Choose a Section field…","p5b_amount_6lgk4613 (number)","p5b_addr_6lgk4613_street (string)","p5b_addr_6lgk4613_city (string)","p5b_addr_6lgk4613_state (string)","p5b_addr_6lgk4613_zip (string)","p5b_range_6lgk4613 (object)"]
+AUTHOR P5B Offer A 6lgk4613 — currency passed · lead.p5b_zone_text <- picked field "p5b_addr_6lgk4613_zip" · format "toString" · preview "07344 → 07344" · sends "07344"
+  ✘  1 [chromium] › test-ui/leadgen-r2p5-payload-seam-drive.spec.ts:915:1 › SRC-7B/SRC-6B: one visitor, three per-offer formats of the amount and two of the SAME address sub-field — every format picked in the real control (0ms)
+  -  2 [chromium] › test-ui/leadgen-r2p5-payload-seam-drive.spec.ts:988:1 › SRC-6 seam: a free-text (full_address) Address records the BASE key end-to-end into the payload
+  -  3 [chromium] › test-ui/leadgen-r2p5-payload-seam-drive.spec.ts:1012:1 › SRC-6 seam: a street-only Address records ONLY {base}_street end-to-end
+  -  4 [chromium] › test-ui/leadgen-r2p5-payload-seam-drive.spec.ts:1043:1 › SRC-6B (F9): a from_to slider's _min and _max feed two different Offers in two different formats — picker-authored, visitor-driven
+  -  5 [chromium] › test-ui/leadgen-r2p5-payload-seam-drive.spec.ts:1124:1 › SRC-6B (F9): a saved mapping to a key the component no longer offers stays SELECTED and is FLAGGED — never silently blanked
+
+
+  1) [chromium] › test-ui/leadgen-r2p5-payload-seam-drive.spec.ts:915:1 › SRC-7B/SRC-6B: one visitor, three per-offer formats of the amount and two of the SAME address sub-field — every format picked in the real control 
+
+    Error: the picker offers the slider sub-field p5b_range_6lgk4613_min AS A NUMBER; options = ["Choose a Section field…","p5b_amount_6lgk4613 (number)","p5b_addr_6lgk4613_street (string)","p5b_addr_6lgk4613_city (string)","p5b_addr_6lgk4613_state (string)","p5b_addr_6lgk4613_zip (string)","p5b_range_6lgk4613 (object)"]
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+      362 |       options.some((o) => o.startsWith(`${field} (number`)),
+      363 |       `the picker offers the slider sub-field ${field} AS A NUMBER; options = ${JSON.stringify(options)}`,
+    > 364 |     ).toBe(true);
+          |       ^
+      365 |   }
+      366 |   expect(
+      367 |     options.some((o) => o.startsWith(`${RANGE_BASE} (`)),
+        at authorRangeSubFieldNode (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/test-ui/leadgen-r2p5-payload-seam-drive.spec.ts:364:7)
+        at authorSchemaThroughControl (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/test-ui/leadgen-r2p5-payload-seam-drive.spec.ts:448:3)
+        at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/test-ui/leadgen-r2p5-payload-seam-drive.spec.ts:831:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-artifacts/leadgen-r2p5-payload-seam--a3e50--picked-in-the-real-control-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-artifacts/leadgen-r2p5-payload-seam--a3e50--picked-in-the-real-control-chromium/error-context.md
+
+    Error Context: test-artifacts/leadgen-r2p5-payload-seam--a3e50--picked-in-the-real-control-chromium/error-context.md
+
+  1 failed
+    [chromium] › test-ui/leadgen-r2p5-payload-seam-drive.spec.ts:915:1 › SRC-7B/SRC-6B: one visitor, three per-offer formats of the amount and two of the SAME address sub-field — every format picked in the real control 
+  4 did not run

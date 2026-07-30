@@ -163,7 +163,11 @@ function toCurrencyNumber(raw: unknown): number | undefined {
 // internal-field enumeration per component
 // ---------------------------------------------------------------------------
 
-interface FieldSpec {
+// R2 P5 F9 (SRC-6B): EXPORTED (export surface only — the shape is unchanged).
+// `fieldsOf` below is THE answer-space derivation, and the §6.2 per-offer field
+// picker (offers-handlers readLinkedSectionFields) now consumes it directly, so
+// this spec is part of that consumer's type surface.
+export interface FieldSpec {
   field: string;
   answerType: LeadgenAnswerType;
   hasDefault: boolean;
@@ -217,7 +221,18 @@ function asStringArray(value: unknown, fallback: readonly string[]): string[] {
 // question uses its `internal_field`; NameFieldsGroup + AddressAutocomplete
 // expand to their sub-fields (§12.8 "distinct internal fields street/city/
 // state/zip"). Chrome/controls/affordances contribute none.
-function fieldsOf(node: LeadgenComponentNode): FieldSpec[] {
+//
+// R2 P5 F9 (SRC-6B) — EXPORTED, unchanged. This is THE ONE canonical
+// derivation of "which answer keys will the visitor actually record for this
+// node", and the comment on the dual-slider branch below states its own reach
+// verbatim: the sub-fields exist "so the field universe, rules pickers and
+// per-offer mapping see them". The per-offer mapping (offers-handlers
+// readLinkedSectionFields → the §6.2 Section-field picker) was the one consumer
+// still deriving its own per-type answer, so it now calls THIS function for
+// EVERY component type — owner A.1 #6 is about "every component that include
+// more than one field", not about the address. Behaviour here is untouched: the
+// only edit in this module is the `export` keyword (here and on FieldSpec).
+export function fieldsOf(node: LeadgenComponentNode): FieldSpec[] {
   const catalog = COMPONENT_CATALOG[node.type];
   const produces = catalog?.produces ?? null;
   // Non-producing nodes (ValidationError, HelperText, chrome, affordances)

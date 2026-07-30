@@ -1,0 +1,132 @@
+### FAIL-BEFORE (src at HEAD 6ef420d, tests final) ###
+
+ RUN  v2.1.9 /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api
+
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: an unconfigured (4-field) Address projects its SUB-FIELD keys, not the base
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: an authored maps.fills rename is offered under the RENAMED name
+ × test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a full_address-alone Address still projects ONE entry under the base key
+   → expected 'object' to be 'string' // Object.is equality
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a street-only Address projects ONE entry, named for the key it records
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a non-address multi-entry Section keeps its exact projection (no address expansion leaks)
+ × test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a from_to slider projects loan_min + loan_max as NUMBERS, never the base
+   → expected [ 'field_a', 'loan' ] to deeply equal [ 'field_a', 'loan_min', 'loan_max' ]
+ × test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a dual_range slider projects the SAME two number sub-fields
+   → expected [ 'loan' ] to deeply equal [ 'loan_min', 'loan_max' ]
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: single / stepper / radial sliders still project the SCALAR base
+ × test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a NameFieldsGroup projects the sub-fields it records (it carries no internal_field at all)
+   → expected [ 'field_b' ] to deeply equal [ 'given', 'family', 'field_b' ]
+ × test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a NON-PRODUCING node that references a question's field contributes NOTHING
+   → expected [ 'field_a', 'err_only', 'help_only' ] to deeply equal [ 'field_a' ]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a full_address-alone Address still projects ONE entry under the base key
+AssertionError: expected 'object' to be 'string' // Object.is equality
+
+Expected: "string"
+Received: "object"
+
+ ❯ test/leadgen-offers-api.test.ts:1247:36
+    1245|     // visitor posts is a string that normalizeAnswerValue would REJEC…
+    1246|     // "object"); the picker must say the same thing the answer space …
+    1247|     expect(fields[0]!.answer_type).toBe("string");
+       |                                    ^
+    1248|     expect(fields[0]!.choice_count).toBe(0);
+    1249|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a from_to slider projects loan_min + loan_max as NUMBERS, never the base
+AssertionError: expected [ 'field_a', 'loan' ] to deeply equal [ 'field_a', 'loan_min', 'loan_max' ]
+
+- Expected
++ Received
+
+  Array [
+    "field_a",
+-   "loan_min",
+-   "loan_max",
++   "loan",
+  ]
+
+ ❯ test/leadgen-offers-api.test.ts:1306:49
+    1304|     ]);
+    1305|     const fields = await linkedFields(env, offer.id);
+    1306|     expect(fields.map((f) => f.internal_field)).toEqual(["field_a", "l…
+       |                                                 ^
+    1307|     expect(fields.map((f) => f.internal_field)).not.toContain("loan");
+    1308|     const subs = fields.filter((f) => f.internal_field.startsWith("loa…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a dual_range slider projects the SAME two number sub-fields
+AssertionError: expected [ 'loan' ] to deeply equal [ 'loan_min', 'loan_max' ]
+
+- Expected
++ Received
+
+  Array [
+-   "loan_min",
+-   "loan_max",
++   "loan",
+  ]
+
+ ❯ test/leadgen-offers-api.test.ts:1318:49
+    1316|     seedSectionLinked(sdb, offer.id, "DualRange Sec", [{ ...SLIDER("du…
+    1317|     const fields = await linkedFields(env, offer.id);
+    1318|     expect(fields.map((f) => f.internal_field)).toEqual(["loan_min", "…
+       |                                                 ^
+    1319|     // the node's own authored answer_type ("object", the §6.8 carve-o…
+    1320|     // reaches the sub-fields — each one is a number.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a NameFieldsGroup projects the sub-fields it records (it carries no internal_field at all)
+AssertionError: expected [ 'field_b' ] to deeply equal [ 'given', 'family', 'field_b' ]
+
+- Expected
++ Received
+
+  Array [
+-   "given",
+-   "family",
+    "field_b",
+  ]
+
+ ❯ test/leadgen-offers-api.test.ts:1348:49
+    1346|     // pre-fix the whole component was SKIPPED (no internal_field ⇒ `c…
+    1347|     // so neither name key could be picked in the §6.2 picker.
+    1348|     expect(fields.map((f) => f.internal_field)).toEqual(["given", "fam…
+       |                                                 ^
+    1349|     expect(fields.slice(0, 2).map((f) => f.answer_type)).toEqual(["str…
+    1350|     expect(fields.slice(0, 2).map((f) => f.choice_count)).toEqual([0, …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a NON-PRODUCING node that references a question's field contributes NOTHING
+AssertionError: expected [ 'field_a', 'err_only', 'help_only' ] to deeply equal [ 'field_a' ]
+
+- Expected
++ Received
+
+  Array [
+    "field_a",
++   "err_only",
++   "help_only",
+  ]
+
+ ❯ test/leadgen-offers-api.test.ts:1365:49
+    1363|     ]);
+    1364|     const fields = await linkedFields(env, offer.id);
+    1365|     expect(fields.map((f) => f.internal_field)).toEqual(["field_a"]);
+       |                                                 ^
+    1366|   });
+    1367| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 5 passed | 68 skipped (78)
+   Start at  10:07:07
+   Duration  1.63s (transform 1.02s, setup 0ms, collect 1.33s, tests 153ms, environment 0ms, prepare 30ms)
+

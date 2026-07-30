@@ -1,0 +1,20 @@
+### PASS-AFTER (final code) ###
+
+ RUN  v2.1.9 /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api
+
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: an unconfigured (4-field) Address projects its SUB-FIELD keys, not the base
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: an authored maps.fills rename is offered under the RENAMED name
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a full_address-alone Address still projects ONE entry under the base key
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a street-only Address projects ONE entry, named for the key it records
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a non-address multi-entry Section keeps its exact projection (no address expansion leaks)
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a from_to slider projects loan_min + loan_max as NUMBERS, never the base
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a dual_range slider projects the SAME two number sub-fields
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: single / stepper / radial sliders still project the SCALAR base
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a NameFieldsGroup projects the sub-fields it records (it carries no internal_field at all)
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a NON-PRODUCING node that references a question's field contributes NOTHING
+
+ Test Files  1 passed (1)
+      Tests  10 passed | 68 skipped (78)
+   Start at  10:25:52
+   Duration  1.69s (transform 1.05s, setup 0ms, collect 1.40s, tests 149ms, environment 0ms, prepare 32ms)
+
