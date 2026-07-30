@@ -928,6 +928,32 @@ const R2_P4_RANGE_CHANGED_RULES: ReadonlyArray<readonly [string, string]> = [
   ],
 ];
 
+// R2 P5 F7 (owner A.1 #6 "this is one of your worst executions" + owner A.1
+// #8, conductor-granted strip-list entry — the SAME grant
+// R2_P1_QUESTION_GRID_RULES / R2_P4_RANGE_NEW_RULES above already carry): the
+// P5-F3 commit (28df275) added two rules to the base sheet — the per-SUB-
+// FIELD address label (renderAddressFieldSet now labels each field of a
+// multi-field composite instead of relying on a placeholder that vanishes the
+// instant a visitor types) and the visitor-side authored-"Other" <select>
+// full-row span (it was inheriting the trigger's ONE narrow grid track and
+// clipping long authored option text). Neither rule ever existed in the
+// pre-change pinned baseline — `.lg-address-field-label` and
+// `select.lg-other-select` are brand-new selectors, not edits to an existing
+// rule's body — so a wholesale strip is the correct mechanism here (a
+// reverse-map, like R2_P4_RANGE_CHANGED_RULES above, only applies when an
+// EXISTING rule's text changed; neither rule below does). The SAME commit
+// also deleted four dead `.lg-address-composite*` rules; those need no entry
+// of their own — they already live in ROUND4_P1B_RULES above, and stripping
+// text no longer present in the live css is a documented no-op (`.split` on
+// a non-matching substring returns the string unchanged), so that bucket now
+// simply produces zero delta. Same wholesale-strip idiom + token
+// interpolation as the buckets above (kept in lockstep with styles.ts — a
+// drift fails here).
+const R2_P5_ADDRESS_LABEL_RULES = [
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-address-field-label{display:block;font-size:${defaultFunnelDesign.subheadline.fontSize};color:${defaultFunnelDesign.page.textSecondaryColor};margin-bottom:${defaultFunnelDesign.spacing.xs}}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} select.lg-other-select{grid-column:1 / -1}`,
+];
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -1111,13 +1137,20 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
   // R2 P4 S4a: strip the net-new §6.8 slider rules, then reverse-map the three
   // changed ones to their pre-P4 text (see the constants above).
   const cssMinusRange = R2_P4_RANGE_NEW_RULES.reduce((s, r) => s.split(r).join(""), cssMinusGrid);
-  const cssMinusAll = R2_P4_RANGE_CHANGED_RULES.reduce(
+  const cssMinusRangeChanged = R2_P4_RANGE_CHANGED_RULES.reduce(
     (s, [next, prev]) => s.split(next).join(prev),
     cssMinusRange,
   );
+  // R2 P5 F7: strip the two net-new address-label/Other-select rules (see
+  // R2_P5_ADDRESS_LABEL_RULES's own comment above — the only base-sheet
+  // delta this slice adds).
+  const cssMinusAll = R2_P5_ADDRESS_LABEL_RULES.reduce(
+    (s, r) => s.split(r).join(""),
+    cssMinusRangeChanged,
+  );
   expect(
     cssMinusAll,
-    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules",
+    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules",
   ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));
