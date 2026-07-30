@@ -1,0 +1,85 @@
+
+===== run 2026-07-30T14:06:46.128Z =====
+N07 funnel columns after 3 clicks of + Add funnel = 4
+N05 library cards=25 cursor=grab grips=25
+N06/N10 panes @1440: left={"x":275,"r":567} centre={"x":567,"r":1071} right={"x":1071,"r":1415}
+N06 dragged "P6C anat B acc6-anat-1785420406618313" from the library onto funnel 2's page — chip present after the island's reload
+N01/N04 on-screen word census = {"control":[],"canvas":[],"variant":[],"varient":[]}
+N01/N04 whole-panel word census (incl. hidden dialogs) = {"control":[],"canvas":[],"variant":["ot split shared-page traffic between section variants. arms start at an equal split; the percentages must"],"varient":[]}
+N01/N04 banned-element census inside [data-panel="builder"] = {"canvasEls":0,"variantEls":0,"controlEls":0}
+anatomy-board @375 scrollWidth=375 innerWidth=375 overflow=no
+N09 @375: body sw=375 iw=375 | shell[16..359] rail[17..358] railScroll 341<=341 | list 341<=341 | widest card right=344
+N09 @1280: body sw=1280 iw=1280 | shell[274..1256] rail[911..1255] railScroll 343<=343 | list 343<=343 | widest card right=1241
+N09 @1600: body sw=1600 iw=1600 | shell[274..1576] rail[1231..1575] railScroll 343<=343 | list 343<=343 | widest card right=1561
+N09 @1640: body sw=1640 iw=1640 | shell[274..1616] rail[1271..1615] railScroll 343<=343 | list 343<=343 | widest card right=1601
+N09 @1680: body sw=1680 iw=1680 | shell[274..1656] rail[1311..1655] railScroll 343<=343 | list 343<=343 | widest card right=1641
+N09/11C-A @1600: board scrolled right (true); last of 6 funnel columns right=967 vs rail left=1231
+N09/11C-A @1640: board scrolled right (true); last of 6 funnel columns right=1007 vs rail left=1271
+N09/11C-A @1680: board scrolled right (true); last of 6 funnel columns right=1047 vs rail left=1311
+n09-rail-and-six-funnels @375 scrollWidth=375 innerWidth=375 overflow=no
+11c-a-order-before @375 scrollWidth=375 innerWidth=375 overflow=no
+11C-A menu Move-up: before=["P6C A one acc6-11ca-1785420412778580","P6C A two acc6-11ca-1785420412778580","P6C A three acc6-11ca-1785420412778580"] after-reload=["P6C A one acc6-11ca-1785420412778580","P6C A three acc6-11ca-1785420412778580","P6C A two acc6-11ca-1785420412778580"]
+11c-a-order-after-menu @375 scrollWidth=375 innerWidth=375 overflow=no
+11C-A drag geometry: grip={"x":910,"y":502} target={"x":898,"y":620,"h":122}
+11C-A drag fired PUT /variants/ requests = 1
+11C-A drag: after-menu=["P6C A one acc6-11ca-1785420412778580","P6C A three acc6-11ca-1785420412778580","P6C A two acc6-11ca-1785420412778580"] after-drag-reload=["P6C A three acc6-11ca-1785420412778580","P6C A one acc6-11ca-1785420412778580","P6C A two acc6-11ca-1785420412778580"]
+11c-a-order-after-drag @375 scrollWidth=375 innerWidth=375 overflow=no
+N08 refusal message = "'P6C n08 acc6-n08-1785420418395875' is already in this funnel — a section can appear once per funnel."
+n08-same-page-twice-refused @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 shared column head = "Shared · quote-owned Shared first page Every visitor sees this first — entry rules only pre-select the funnel (§4.3-2)."; funnel columns = 2
+n02-shared-first-page-column @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 live: funnel(default)=lgf_01KYSNK4NZ5AJV7BR2E49E1ZS6 funnel(utm=twoarm)=lgf_01KYSNK4QCCAEPHJ2HXMAYDJHR; shared headline present in both = true/true
+n02-live-shared-first-page @375 scrollWidth=375 innerWidth=375 overflow=no
+N03 A/B dialog sentence = "Splits traffic: 50% ACC6 shared p6cn02 / 50% P6C N03 shared ARM B acc6-n02-1785420419650924"
+n03-shared-page-ab-dialog @375 scrollWidth=375 innerWidth=375 overflow=no
+N03 shared chip after save = "A/B: ACC6 shared p6cn02 / P6C N03 shared ARM B acc6-n02-1785420419650924"
+n03-shared-page-ab-saved @375 scrollWidth=375 innerWidth=375 overflow=no
+N03 draw#0 visibleArm=A session="p6c-n03-acc6-n02-1785420419650924-0" serverPlan=[{"page_id":"lgpg_01KYSNK4PHPE39J37RTEDFCAAB","slot_id":176,"section_public_id":"lgs_01KYSNK4P9JK93YEM6N2V6XJWK","assignment_reason":"slot_ab"},{"page_id":"lgpg_01KYSNK4PW3HQE8JKBA0E4R1D1","slot_id":1
+n03-live-shared-arm-A @375 scrollWidth=375 innerWidth=375 overflow=no
+N03 draw#1 visibleArm=A session="p6c-n03-acc6-n02-1785420419650924-1" serverPlan=[{"page_id":"lgpg_01KYSNK4PHPE39J37RTEDFCAAB","slot_id":176,"section_public_id":"lgs_01KYSNK4P9JK93YEM6N2V6XJWK","assignment_reason":"slot_ab"},{"page_id":"lgpg_01KYSNK4PW3HQE8JKBA0E4R1D1","slot_id":1
+N03 draw#2 visibleArm=A session="p6c-n03-acc6-n02-1785420419650924-2" serverPlan=[{"page_id":"lgpg_01KYSNK4PHPE39J37RTEDFCAAB","slot_id":176,"section_public_id":"lgs_01KYSNK4P9JK93YEM6N2V6XJWK","assignment_reason":"slot_ab"},{"page_id":"lgpg_01KYSNK4PW3HQE8JKBA0E4R1D1","slot_id":1
+N03 draw#3 visibleArm=A session="p6c-n03-acc6-n02-1785420419650924-3" serverPlan=[{"page_id":"lgpg_01KYSNK4PHPE39J37RTEDFCAAB","slot_id":176,"section_public_id":"lgs_01KYSNK4P9JK93YEM6N2V6XJWK","assignment_reason":"slot_ab"},{"page_id":"lgpg_01KYSNK4PW3HQE8JKBA0E4R1D1","slot_id":1
+n03-live-shared-arm-B @375 scrollWidth=375 innerWidth=375 overflow=no
+N03 live shared-page draws (6) = AAAAAB
+N03 live shared-page arms served = 2 (A,B)
+11C-C fork POST status = 201
+11c-c-two-arms-authored @375 scrollWidth=375 innerWidth=375 overflow=no
+11C-C arm allocations shown in the A/B tab = ["50","50"]
+11c-c-experiment-running @375 scrollWidth=375 innerWidth=375 overflow=no
+11c-c-live-arm-A @375 scrollWidth=375 innerWidth=375 overflow=no
+11c-c-live-arm-B @375 scrollWidth=375 innerWidth=375 overflow=no
+11C-C funnel-level arms served = 2: [["lgn_01KYSNKC9X9SQRQ5389JMP928T","A"],["lgn_01KYSNKFRQRRBYYN2J73046HN7","B"]] (A=lgn_01KYSNKC9X9SQRQ5389JMP928T B=lgn_01KYSNKFRQRRBYYN2J73046HN7)
+11C-D funnel names carrying their own Theme picker = ["ACC6 p6c11cd 1785420437452998 — Funnel A","P6C D funnel B acc6-11cd-1785420437452597"]
+11c-d-theme-picker-per-funnel @375 scrollWidth=375 innerWidth=375 overflow=no
+11c-d-funnel-A-theme-authored @375 scrollWidth=375 innerWidth=375 overflow=no
+11c-d-funnel-B-theme-authored @375 scrollWidth=375 innerWidth=375 overflow=no
+11C-D stored theme A = {"theme":{"scales":{"radius":"sharp"},"typography":{"display":"sora","size":"s"}},"effective_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","borde
+11C-D stored theme B = {"theme":{"scales":{"radius":"round"},"version":1,"typography":{"display":"fraunces","size":"l"}},"effective_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":
+11c-d-live-funnel-A @375 scrollWidth=375 innerWidth=375 overflow=no
+11c-d-live-funnel-B @375 scrollWidth=375 innerWidth=375 overflow=no
+11C-D live A funnel=lgf_01KYSNKP0R80KHF4JF293BM5BC paint={"rootFont":"Sora, system-ui, Arial, sans-serif","rootSize":"16px","cardRadius":"0px","headFont":"Sora, system-ui, Arial, sans-serif","headSize":"27.9px"}
+11C-D live B funnel=lgf_01KYSNKP3GAWCSR03M642VMVNB paint={"rootFont":"Sora, system-ui, Arial, sans-serif","rootSize":"16px","cardRadius":"0px","headFont":"Fraunces, Georgia, \"Times New Roman\", serif","headSize":"34.1px"}
+11C-R rail checkpoints = ["Entry","Shared page"]
+11c-r-two-planes-in-rail @375 scrollWidth=375 innerWidth=375 overflow=no
+11c-r-entry-param-routed @375 scrollWidth=375 innerWidth=375 overflow=no
+11c-r-checkpoint-answer-routed @375 scrollWidth=375 innerWidth=375 overflow=no
+11C-R entry: funnel=lgf_01KYSNKWRM65WCGNAM57Q2KFMB attempt=att_01KYSNKZ0AGV5K6CM74W2V9V1Y; checkpoint: before=lgf_01KYSNKWPWH7BTMVDWAHE0SKHK attempt=att_01KYSNKZTWJ0W0EKJ5NGJJFZ09 switchedTo=lgn_01KYSNKWSP7Q5C74R80Q50JK9V; after-answer body contains ANSWER section = false
+11C-R leadgen_routing_outcomes rows = [{"plane":"entry","routed_to_funnel":"lgf_01KYSNKWRM65WCGNAM57Q2KFMB","matched_rule_hash":"22e8240d46c76e787943b584585e065d1ddbfd8cb738634286b6b1535b3d80d3"},{"plane":"checkpoint","routed_to_funnel":"lgf_01KYSNKWSPM4143VKFHS1MS3V4","matched_rule_hash":"6fbe921b1deb912d9e529d0a9991ea94bd608c30ad85285b2cca1a18afbb9006"}]
+11C-R post-answer visible body head = "ACC6 shared p6c11cr\nYes I own\nNo I rent\nContinue"
+N11 modal sentence = "When Device is desktop, → P6C acc6-n11-1785420450854474 — Funnel A, Feed short, ×0.5."
+N11 modal checkpoint (read-only, derived) = "Entry"
+n11-modal-plain-language @375 scrollWidth=375 innerWidth=375 overflow=no
+N11 saved card conditions = ["Device is desktop"]
+N11 saved card actions = ["→ P6C acc6-n11-1785420450854474 — Funnel A","Feed short","×0.5"] ; card affordances = 4
+n11-saved-rule-card @375 scrollWidth=375 innerWidth=375 overflow=no
+11C-B page 1 chips = ["P6C B first acc6-11cb-1785420453731345","P6C B second acc6-11cb-1785420453731345"]
+11c-b-multi-section-page @375 scrollWidth=375 innerWidth=375 overflow=no
+11C-B funnel-page chip kebab entries = ["A/B this slot","Slot rule","Move up","Move down","Remove"]
+11C-B A/B dialog sentence = "Splits traffic: 50% P6C B first acc6-11cb-1785420453731345 / 50% P6C B altarm acc6-11cb-1785420453731345"
+11c-b-funnel-slot-ab-dialog @375 scrollWidth=375 innerWidth=375 overflow=no
+11C-B ruled-slot plain-language sentence = "Matches when State is \"CA\" → P6C B california acc6-11cb-1785420453731345; otherwise → P6C B second acc6-11cb-1785420453731345"
+11c-b-ca-slot-rule-dialog @375 scrollWidth=375 innerWidth=375 overflow=no
+11c-b-slots-authored @375 scrollWidth=375 innerWidth=375 overflow=no
+11C-B saved slot kinds = ["ab","ruled"]
+11C-B saved page-1 slots = [{"slot_id":190,"position":0,"slot_revision":1,"kind":"ab","rules":null,"rule_summary":null,"allocations":[{"section_id":185,"bp":5000},{"section_id":188,"bp":5000}],"candidates":[{"section_id":"lgs_01KYSNM5VBQWQRRA5PNKSFBQRZ","section_name":"P6C B first acc6-11cb-1785420453731345","mapping_status":"none"},{"section_id":"lgs_01KYSNM5VR03J9EP6DY4BQS866","section_name":"P6C B altarm acc6-11cb-1785420453731345","mapping_status":"none"}]},{"slot_id":191,"position":1,"slot_revision":1,"kind":"ruled",
+11C-B LIVE-GEO leg (a real CF edge reporting state=CA) is POST-DEPLOY — NOT decided by this run.
