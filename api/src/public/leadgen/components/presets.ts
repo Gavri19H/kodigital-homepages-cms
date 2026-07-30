@@ -3024,6 +3024,57 @@ const ADDRESS_FIELD_DEFAULT_LABEL: Record<Exclude<LeadgenAddressFieldKind, "full
   zip: "ZIP code",
 };
 
+// Owner D3 (R2 P5 S5a): "The address... this is one of your worst
+// executions... if I want it as a free text without validations or auto
+// fill? if I want only street address? if I want to auto fill only for
+// street address and city and I want the user will insert the Zip by
+// himself but to validate the Zip in a 5 digits zip validation?... the
+// mapping of what is auto-filled per field should definately be an option"
+// — an UNCONFIGURED/legacy address (no props.fields[] authored at all, or a
+// corrupt/malformed shape) no longer renders the pre-D3 single bare input +
+// a decorative studio-only preview of what WOULD auto-fill (the owner's
+// "worst execution" — the visitor never saw the 4 fields the studio
+// decorated). It now renders the REAL, functional 4-field composite —
+// byte-identical in SHAPE to what an author who explicitly configured
+// street/city/state/zip (all autofill, zip carrying zip5) would get, because
+// it's literally the SAME renderAddressFieldSet call with this as the
+// default spec array. This is the exact default ui-section-studio.ts's own
+// inspector already shows (its ADDRESS_DEFAULT_FIELDS constant) — so the
+// inspector and the visitor now agree (ADJ-A8) instead of the inspector
+// showing 4 fields while the visitor got 1. An author who saves ANY
+// props.fields[] (even a single non-default entry) fully overrides this;
+// nothing here reads authored state, so "existing explicitly-authored field
+// sets keep their configuration" holds by construction.
+const ADDRESS_DEFAULT_FIELD_SPECS: readonly LeadgenAddressFieldSpec[] = [
+  { field: "street", mode: "autofill", required: false, zip5: false },
+  { field: "city", mode: "autofill", required: false, zip5: false },
+  { field: "state", mode: "autofill", required: false, zip5: false },
+  { field: "zip", mode: "autofill", required: false, zip5: true },
+];
+
+// ADJ-A2 fix (R2 P5 S5a): validateSection (runtime/validation.ts) keys a
+// fields[]-authored (or now-default) Address's required/zip5/custom-format
+// failure to THIS field's OWN resolved name (addressFieldKey there —
+// `{base}_{kind}`, mirroring m9AddressFieldName below), never to the whole-
+// component autoErrorSlot's node-level key above (that one only ever fires
+// for the pre-M9 whole-group required check). Today only that ONE outer
+// slot exists, so setFieldError(sectionEl, "{base}_zip", …)'s slot lookup
+// always misses — render.ts's aria-invalid/ERROR_CLASS red border still
+// paints (data-lg-field DOES match) but the message text never does (a bad
+// ZIP "blocks silently"). Same idiom as autoErrorSlot (a hidden, empty
+// [data-lg-error-for] <p> the runtime fills/clears exactly like every other
+// field's slot) — just parameterized on the resolved per-field name instead
+// of a whole-node lookup, so EVERY sub-field (not only zip) now has
+// somewhere to speak.
+function addressFieldErrorSlot(design: DefaultFunnelDesign, fieldName: string): string {
+  return (
+    `<p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden` +
+    attr("data-lg-error-for", fieldName) +
+    style({ color: design.validation.errorTextColor }) +
+    `></p>`
+  );
+}
+
 // Field-name resolution mirrors the pre-M9 addrRoleField convention below
 // (maps.fills.<slot> override, else {base}_{slot}) so a per-field input's
 // data-lg-field always agrees with what maps.ts's autofill fill-target
@@ -3052,7 +3103,7 @@ function renderAddressFieldSet(
   design: DefaultFunnelDesign,
   ctx: LeadgenSectionRenderCtx | undefined,
   slot: string,
-  specs: LeadgenAddressFieldSpec[],
+  specs: readonly LeadgenAddressFieldSpec[],
 ): string {
   const provider = propStr(node, "provider") ?? "google";
   const addressMapsRaw = node.props?.["maps"];
@@ -3085,6 +3136,18 @@ function renderAddressFieldSet(
   // Which field drives the Places autocomplete: the FIRST autofill-mode,
   // non-full_address field, only when the master Maps toggle allows it.
   const autocompleteIndex = addressMapsEnabled ? specs.findIndex((f) => f.mode === "autofill") : -1;
+  // R2 P5 S5a: the §8.1 leading icon + the §11.5/§12 Style-tab corners/
+  // border-color overrides (MAJOR-1) were only ever wired on the single-
+  // input legacy renderer this function's caller now also replaces for the
+  // unconfigured default (D3) — carry both here too so neither authoring
+  // surface silently regresses just because the address is a field-SET.
+  // Icon anchors the FIRST rendered field (the same visual "entry point" it
+  // marked on the single input); appearance (radius/border) applies to
+  // EVERY field uniformly, matching the "inner .lg-input carries appearance,
+  // never the outer wrapper" idiom this file uses everywhere else. Both are
+  // additive: absent props.icon / design_overrides ⇒ "", byte-identical to a
+  // field-set authored with neither.
+  const icon = fieldLeadingIcon(node);
   const fieldHtml = specs
     .map((f, i) => {
       const kind = f.field as Exclude<LeadgenAddressFieldKind, "full_address">;
@@ -3108,14 +3171,32 @@ function renderAddressFieldSet(
           )
         : "";
       const zip5Attrs = kind === "zip" && f.zip5 ? ` inputmode="numeric" pattern="\\d{5}" maxlength="5"` : "";
-      return (
-        `<span class="lg-address-field-wrap"${attr("data-lg-field", fieldName)}${mapsAttr}>` +
-        `<input class="lg-input" type="text" data-lg-input` +
+      const hasIcon = i === 0 && icon !== "";
+      const inputStyleAttr = hasIcon
+        ? style({ ...appearanceStyleEntries(node, design), "padding-left": "42px" })
+        : fieldAppearanceStyle(node, design);
+      const input =
+        `<input class="lg-input" type="text" data-lg-input${inputStyleAttr}` +
         `${attr("placeholder", label)}${attr("aria-label", label)}` +
         (isAutocompleteField ? ` autocomplete="street-address" data-address-autocomplete="true"` : "") +
         zip5Attrs +
         (f.required ? " required" : "") +
-        `>` +
+        `>`;
+      const boxedInput = hasIcon
+        ? '<span class="lg-field-box" style="position:relative;display:block">' +
+          '<span class="lg-field-icon" aria-hidden="true" style="position:absolute;left:14px;top:0;bottom:0;display:flex;align-items:center;pointer-events:none;z-index:1">' +
+          icon +
+          "</span>" +
+          input +
+          "</span>"
+        : input;
+      return (
+        `<span class="lg-address-field-wrap"${attr("data-lg-field", fieldName)}${mapsAttr}>` +
+        boxedInput +
+        // ADJ-A2: a per-field slot so a required/zip5/custom-format failure on
+        // THIS field (validateSection keys it to fieldName) has somewhere to
+        // paint — see addressFieldErrorSlot's own comment for the mechanism.
+        addressFieldErrorSlot(design, fieldName) +
         `</span>`
       );
     })
@@ -3137,127 +3218,20 @@ export function renderAddressAutocompleteQuestion(
   ctx?: LeadgenSectionRenderCtx,
   slot = "",
 ): string {
-  // Rework §6.10/M9: props.fields[] present ⇒ the NEW per-field renderer
-  // (order/labels/mode, full_address single-input). Absent/corrupt ⇒ L-192
-  // "render EXACTLY as today" — the unchanged legacy composite body below.
-  const fieldSpecs = readAddressFieldSpecs(node);
-  if (fieldSpecs !== undefined) {
-    return labelLine(node) + renderAddressFieldSet(node, design, ctx, slot, fieldSpecs);
-  }
-  const provider = propStr(node, "provider") ?? "google";
-  const placeholder = propStr(node, "placeholder") ?? "Start typing your address…";
-  const addressMapsRaw = node.props?.["maps"];
-  // v3.1 §9.3 per-field precedence: a NEW-shape config's `enabled` now
-  // actually gates Address too (pre-v3.1 it was unconditionally "always
-  // Maps-capable" — an Address field with an explicit enabled:false must be
-  // able to turn Maps off, same as ZIP). Legacy flat-shape / absent-config
-  // content keeps the pre-v3.1 unconditional behavior (§12 no-regression).
-  const addressMapsEnabled = isNewMapsShape(addressMapsRaw) ? addressMapsRaw.enabled === true : true;
-  // v3.1 R3 S2-8/E1-NEW-9/U9: the §8.1 leading icon (this bespoke renderer never
-  // called fieldLeadingIcon, so even "location" was dead on Address). The icon
-  // rides the SAME lg-field-box/lg-field-icon markup + left inset renderTextInput
-  // uses (so the scoped chrome CSS applies identically); "" when no props.icon
-  // ⇒ the bare input, byte-identical to pre-R3.
-  const icon = fieldLeadingIcon(node);
-  const inputStyleAttr =
-    icon === ""
-      ? fieldAppearanceStyle(node, design)
-      : style({ ...appearanceStyleEntries(node, design), "padding-left": "42px" });
-  const input =
-    `<input class="lg-input lg-address-input" type="text" data-lg-input${inputStyleAttr}` +
-    ` autocomplete="street-address"${attr("placeholder", placeholder)}` +
-    (node.required === true ? " required" : "") +
-    ` data-address-autocomplete="true">`;
-  const boxedInput =
-    icon === ""
-      ? input
-      : '<span class="lg-field-box" style="position:relative;display:block">' +
-        '<span class="lg-field-icon" aria-hidden="true" style="position:absolute;left:14px;top:0;bottom:0;display:flex;align-items:center;pointer-events:none;z-index:1">' +
-        icon +
-        "</span>" +
-        input +
-        "</span>";
-  // Round-4 A-6/P-6 (P1b): a VISIBLE composite preview of the fill-target
-  // fields (Street/City/State/ZIP), so the studio canvas shows the Address as a
-  // structured autofill control, not a bare text field. The role→field mapping
-  // is the SAME derivation P1a wired into the rules pickers (a configured
-  // props.maps.fills.<slot>, else `${internal_field || question_id}_<slot>`,
-  // default-seed 'address') — so the chip names match the rule sources exactly.
-  // styles.ts scopes `.lg-address-composite` to `.lg-preview` ONLY (studio +
-  // admin preview); on the LIVE funnel it is display:none, so the live render
-  // keeps its single autocomplete input + the configured sibling fills, byte-
-  // for-byte in behavior. aria-hidden — it is an author affordance, never a
-  // form control (the real hidden data-address-part inputs below are untouched).
-  const addrBase =
-    typeof node.internal_field === "string" && node.internal_field.trim() !== ""
-      ? node.internal_field.trim()
-      : typeof node.question_id === "string" && node.question_id !== ""
-        ? node.question_id
-        : "address";
-  const addrMapsObj = addressMapsRaw !== null && typeof addressMapsRaw === "object" ? (addressMapsRaw as Record<string, unknown>) : {};
-  const addrFillsObj =
-    addrMapsObj["fills"] !== null && typeof addrMapsObj["fills"] === "object" ? (addrMapsObj["fills"] as Record<string, unknown>) : {};
-  const addrRoleField = (slot: string): string => {
-    const f = addrFillsObj[slot];
-    return typeof f === "string" && f.trim() !== "" ? f.trim() : `${addrBase}_${slot}`;
-  };
-  const addressComposite =
-    '<div class="lg-address-composite" aria-hidden="true">' +
-    '<span class="lg-address-composite-note">Auto-filled from the address</span>' +
-    '<div class="lg-address-composite-fields">' +
-    (
-      [
-        ["street", "Street"],
-        ["city", "City"],
-        ["state", "State"],
-        ["zip", "ZIP"],
-      ] as [string, string][]
-    )
-      .map(
-        ([slot, label]) =>
-          '<span class="lg-address-chip">' +
-          `<span class="lg-address-chip-role">${esc(label)}</span>` +
-          `<span class="lg-address-chip-field">${esc(addrRoleField(slot))}</span>` +
-          "</span>",
-      )
-      .join("") +
-    "</div></div>";
-  return (
-    // Rework §6.3: extends labelLine to Address (additive — "" when no
-    // props.label, so the L-192 legacy byte-identity fixture is unaffected).
-    labelLine(node) +
-    // 03 §3.3 / 08 §8.8: data-lg-maps carries the field-level props.maps
-    // config (or the "{}" compat fallback for global-checkbox-era content).
-    // The KEY itself never rides here — runtime/maps.ts no-ops gracefully
-    // when the shell injected no window.__LG_MAPS_KEY__. v3.1 §7/§12:
-    // fieldSizeStyle rides the OUTER `.lg-address` wrapper, same
-    // absent-is-empty discipline as the other field renderers.
-    `<div class="lg-address"${hydration(node)}${fieldSizeStyle(node, ctx)} data-provider="${esc(provider)}"${addressMapsEnabled ? attr("data-lg-maps", mapsConfigJson(node)) : ""}>` +
-    // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
-    // the :focus / [aria-invalid] state rules win by cascade (no !important;
-    // see renderTextInput's fuller comment — border_color rides the
-    // --lg-field-border custom property, never border-color directly, so
-    // this cascade holds even when an override is authored). corners/
-    // border_color ride THIS inner `.lg-input` element (fieldAppearanceStyle),
-    // not the `.lg-address` wrapper above — the wrapper carries no border/
-    // radius of its own (designs/default-funnel/styles.ts has no
-    // `.lg-address` rule at all), only `.lg-input` does.
-    boxedInput +
-    // Round-4 A-6/P-6 (P1b): the studio-only labeled composite preview (CSS
-    // hides it on the live funnel — see .lg-address-composite in styles.ts).
-    addressComposite +
-    // Distinct normalized sub-fields for payload mapping (§12.8).
-    `<input type="hidden" data-address-part="street"><input type="hidden" data-address-part="city">` +
-    `<input type="hidden" data-address-part="state"><input type="hidden" data-address-part="zip">` +
-    // CONDUCTOR FIX (P4b regression): the auto error slot (keyed on the
-    // group's question_id, PC-A2) nests as the LAST CHILD of the address box,
-    // never a card-level sibling — "" is a no-op.
-    slot +
-    `</div>` +
-    // v3.1 audit-round G FIX 3a: helper line below the address box (this
-    // wrapper bypasses renderTextInput). "" when no props.helper/helper_text.
-    fieldHelperLine(node)
-  );
+  // Rework §6.10/M9 + owner D3 (R2 P5 S5a): props.fields[] present ⇒ the
+  // per-field renderer using the AUTHOR's own order/labels/mode (full_address
+  // single-input included) — untouched, "existing explicitly-authored field
+  // sets keep their configuration". Absent/corrupt ⇒ the SAME per-field
+  // renderer using the DEFAULT 4-field spec (owner D3 ruling: "when
+  // unconfigured, the visitor renders the FULL 4-FIELD COMPOSITE — not the
+  // legacy single input"). This retires the pre-D3 L-192 bare-input fallback
+  // (+ its studio-only decorative preview of what WOULD auto-fill) the owner
+  // called "one of your worst executions" — the visitor now sees the SAME
+  // real fields the studio inspector already showed as a preview.
+  const fieldSpecs = readAddressFieldSpecs(node) ?? ADDRESS_DEFAULT_FIELD_SPECS;
+  // Rework §6.3: labelLine extends to Address (additive — "" when no
+  // props.label).
+  return labelLine(node) + renderAddressFieldSet(node, design, ctx, slot, fieldSpecs);
 }
 
 // ---------------------------------------------------------------------------

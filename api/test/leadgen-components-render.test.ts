@@ -393,7 +393,11 @@ const NO_INLINE_STYLE_TYPES = new Set<ComponentType>([
   "DateQuestion",
   "ZIPInputQuestion",
   "NameFieldsGroup",
-  "AddressAutocompleteQuestion",
+  // R2 P5 S5a (owner D3): AddressAutocompleteQuestion moved OUT of this set —
+  // an unconfigured/legacy address now defaults to the real 4-field
+  // composite (renderAddressFieldSet), whose `.lg-address-fields` wrapper
+  // ALWAYS carries an inline flex-layout style (display/flex-direction/gap),
+  // unlike the old single bare input this set used to describe.
   "ButtonAnswerGroup",
   "TwoButtonYesNo",
   // 08 §8.3/§8.10 Slice A: the new input/choice presets follow the same
@@ -893,9 +897,18 @@ describe("v2.4 03 §3.3 — data-lg-* hydration hooks", () => {
     expect(renderComponent(NODE_SPECS.TwoButtonYesNo, DESIGN)).toContain('data-lg-field="insured"');
     expect(renderComponent(NODE_SPECS.FreeTextQuestion, DESIGN)).toContain('data-lg-field="note"');
     expect(renderComponent(NODE_SPECS.NumberRangeQuestion, DESIGN)).toContain('data-lg-field="count"');
-    // NameFieldsGroup / AddressAutocomplete have no single internal_field → no data-lg-field.
+    // NameFieldsGroup has no single internal_field → no node-level data-lg-field.
     expect(renderComponent(NODE_SPECS.NameFieldsGroup, DESIGN)).not.toContain("data-lg-field");
-    expect(renderComponent(NODE_SPECS.AddressAutocompleteQuestion, DESIGN)).not.toContain("data-lg-field");
+    // R2 P5 S5a (owner D3): AddressAutocomplete ALSO has no single
+    // internal_field at the node level, but it now defaults to a REAL
+    // 4-field composite whose sub-fields each self-declare their OWN
+    // data-lg-field (no node-level one) — the opposite of "no data-lg-field
+    // at all" this used to assert pre-D3.
+    const addrHtml = renderComponent(NODE_SPECS.AddressAutocompleteQuestion, DESIGN);
+    expect(addrHtml).toContain('data-lg-field="q_street"');
+    expect(addrHtml).toContain('data-lg-field="q_city"');
+    expect(addrHtml).toContain('data-lg-field="q_state"');
+    expect(addrHtml).toContain('data-lg-field="q_zip"');
   });
 
   it("every selectable choice carries data-lg-choice={value} (buttons, cards, multi, yes/no, dropdown options)", () => {
@@ -925,9 +938,11 @@ describe("v2.4 03 §3.3 — data-lg-* hydration hooks", () => {
     // both name fields carry it…
     const name = renderComponent(NODE_SPECS.NameFieldsGroup, DESIGN);
     expect(name.split("data-lg-input").length - 1).toBe(2);
-    // …and the visible address input (hidden part-fields don't).
+    // R2 P5 S5a (owner D3): an unconfigured address now defaults to 4 REAL,
+    // independently-typeable inputs (street/city/state/zip) — no more hidden
+    // data-address-part fields standing in for un-typeable sub-values.
     const addr = renderComponent(NODE_SPECS.AddressAutocompleteQuestion, DESIGN);
-    expect(addr.split("data-lg-input").length - 1).toBe(1);
+    expect(addr.split("data-lg-input").length - 1).toBe(4);
   });
 
   it("nav controls: data-lg-continue on Continue + AutoAdvance buttons; data-lg-back on Back", () => {
@@ -982,17 +997,23 @@ describe("v2.4 03 §3.3 — data-lg-* hydration hooks", () => {
 // ---------------------------------------------------------------------------
 
 describe("v2.4 §3.3 — data-lg-maps (field-level props.maps; compat fallback)", () => {
-  it("AddressAutocompleteQuestion always carries data-lg-maps ('{}' compat fallback without props.maps)", () => {
+  it("AddressAutocompleteQuestion's default 4-field composite always carries data-lg-maps on its autocomplete-driving field (R2 P5/D3: no props.maps ⇒ the per-field {enabled,jobs,fills} shape, not the old node-level '{}' compat fallback)", () => {
     const html = renderComponent(NODE_SPECS.AddressAutocompleteQuestion, DESIGN);
-    expect(html).toContain('data-lg-maps="{}"');
+    // exactly ONE data-lg-maps: the first (street) field drives autocomplete.
+    expect((html.match(/data-lg-maps/g) ?? []).length).toBe(1);
+    expect(html).toMatch(/data-lg-field="q_street"[^>]*data-lg-maps="[^"]*&quot;enabled&quot;:true/);
+    expect(html).toContain("&quot;fills&quot;:{&quot;city&quot;:&quot;q_city&quot;");
   });
 
-  it("props.maps serializes VERBATIM into data-lg-maps (field-level config wins, §8.8)", () => {
+  it("props.maps serializes VERBATIM into data-lg-maps (field-level config wins, §8.8) — an explicitly-authored single full_address field (R2 P5/D3 keeps authored field sets untouched)", () => {
     const html = renderComponent(
       {
         type: "AddressAutocompleteQuestion",
         question_id: "q_addr",
-        props: { maps: { validateFullAddress: true, autofillCity: "city", autofillState: "state" } },
+        props: {
+          maps: { validateFullAddress: true, autofillCity: "city", autofillState: "state" },
+          fields: [{ field: "full_address" }],
+        },
       },
       DESIGN,
     );
@@ -1037,8 +1058,23 @@ describe("v3.1 §9.3 — Maps job-based precedence (NEW shape wins over legacy)"
   function zipNode(props: Record<string, unknown>) {
     return { type: "ZIPInputQuestion" as const, question_id: "q_zip", internal_field: "zip", props };
   }
+  // R2 P5 S5a (owner D3): explicitly authors a single full_address field so
+  // these §9.3 precedence proofs keep exercising the single-input
+  // mapsConfigJson translation seam they were written against — an
+  // unconfigured address (no fields[] at all) now defaults to the 4-field
+  // composite instead (renderAddressFieldSet's OWN per-field {enabled,jobs,
+  // fills} synthesis, proven separately in the "v2.4 §3.3 data-lg-maps"
+  // describe block above and the "§6.10/M9" suite in
+  // leadgen-rework-render.test.ts), which is a deliberately different,
+  // address-field-set-specific mechanism, not this generic job-precedence
+  // translation.
   function addressNode(props: Record<string, unknown>) {
-    return { type: "AddressAutocompleteQuestion" as const, question_id: "q_addr", internal_field: "addr", props };
+    return {
+      type: "AddressAutocompleteQuestion" as const,
+      question_id: "q_addr",
+      internal_field: "addr",
+      props: { ...props, fields: [{ field: "full_address" }] },
+    };
   }
 
   it("ZIP: jobs.validate=true → data-validate + data-lg-maps validate:true", () => {
@@ -1196,12 +1232,15 @@ describe("v3.1 §8.5b/§11.5/§12 — Style tab Corners/Border-color render wiri
     );
   });
 
-  it("AddressAutocompleteQuestion — corners/border_color render on the INNER lg-input element, not the lg-address wrapper", () => {
+  it("AddressAutocompleteQuestion — corners/border_color render on EVERY inner lg-input of the default 4-field composite, not the lg-address wrapper (R2 P5/D3: the composite-by-default carries the SAME appearance-override support every other field-having renderer does)", () => {
     const html = renderComponent(addrAppearanceNode({ corners: "sharp", border_color: "neutral" }), DESIGN);
-    expect(html).not.toMatch(/<div class="lg-address"[^>]*style=/);
-    expect(html).toContain(
-      `lg-address-input" type="text" data-lg-input style="border-radius:0;--lg-field-border:${DESIGN.color.border}"`,
-    );
+    expect(html).not.toMatch(/<div class="lg-address lg-address-fieldset"[^>]*style=/);
+    expect(html).not.toMatch(/<div class="lg-address-fields"[^>]*style="[^"]*border/);
+    const styledInput = `class="lg-input" type="text" data-lg-input style="border-radius:0;--lg-field-border:${DESIGN.color.border}"`;
+    for (const kind of ["street", "city", "state", "zip"]) {
+      expect(html, kind).toContain(`data-lg-field="addr2_${kind}"`);
+    }
+    expect((html.match(new RegExp(styledInput.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []).length).toBe(4);
   });
 
   it("a stale/corrupt design_overrides.corners value outside sharp|rounded|pill is ignored defensively (no crash; that key alone emits nothing, the other key is unaffected)", () => {
