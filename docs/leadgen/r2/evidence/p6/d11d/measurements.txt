@@ -1,0 +1,213 @@
+
+===== run 2026-07-30T13:01:14.838Z =====
+N03 columns @1280: left.x=274 w=292 | centre.x=578 w=322 | right.x=912 w=344
+N03 section picker options = ["P6D sec acc6-n03a-178541647522062"]; canvas contains authored headline = true
+n03-canvas-real-section-middle @375 scrollWidth=375 innerWidth=375 overflow=no
+n03-empty-funnel-sample-in-real-frame @375 scrollWidth=375 innerWidth=375 overflow=no
+N03 empty-funnel canvas: frame edit (progress dots → hidden → back) re-rendered around the sample section
+n03-empty-funnel-frame-edit-rerender @375 scrollWidth=375 innerWidth=375 overflow=no
+
+===== run 2026-07-30T13:01:29.529Z =====
+N04 theme switcher options = ["Current theme","P6D N04 Midnight acc6-n04-178541649016173","P6D N04 Ember acc6-n04-178541649016173"]
+n04-theme-A-midnight @375 scrollWidth=375 innerWidth=375 overflow=no
+n04-theme-B-ember @375 scrollWidth=375 innerWidth=375 overflow=no
+N04 canvas fingerprint before={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(245, 247, 250)","rootColor":"rgb(26, 31, 54)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(26, 31, 54)","elBorder":"rgb(26, 31, 54)"}
+N04 canvas fingerprint themeA={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(255, 255, 255)","rootColor":"rgb(16, 16, 16)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(16, 16, 16)","elBorder":"rgb(16, 16, 16)"}
+N04 canvas fingerprint themeB={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(255, 243, 230)","rootColor":"rgb(43, 33, 24)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(43, 33, 24)","elBorder":"rgb(43, 33, 24)"}
+
+===== run 2026-07-30T13:02:30.527Z =====
+N01 chips in quote A after 3 creates = 13
+n01-a-three-templates-saved @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-presets-listed-in-other-quote @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-apply-preset-confirm @375 scrollWidth=375 innerWidth=375 overflow=no
+N01 quote B funnel.frame_template_id=12 (template P6D N01 Numbered acc6-n01-1785416550858885 id=12); effective progress.style=numbered; quote A funnel.frame_template_id=null
+n01-b-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+
+===== run 2026-07-30T13:02:48.152Z =====
+
+===== run 2026-07-30T13:03:12.124Z =====
+N02 chip-menu labels = ["Rename…","Duplicate","Set as this quote’s default","Delete"]
+n02-default-defined @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 arms: A=lgn_01KYSHYB6RD8YS7FZ234WGCM0N tpl=null status=active | B=lgn_01KYSHYDJM6ZQBYDYF54ZPWGGS tpl=15 status=active
+n02-ab-two-templates @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-A-quote-default @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 live arms served = 1: [["lgn_01KYSHYB6RD8YS7FZ234WGCM0N",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--dots lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}]]
+
+===== run 2026-07-30T13:06:15.925Z =====
+N02 chip-menu labels = ["Rename…","Duplicate","Set as this quote’s default","Delete"]
+n02-default-defined @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 arms: A=lgn_01KYSJ3YVJ337JSXYF7TZRAK2M tpl=null status=active | B=lgn_01KYSJ41V9BBJPHSQDSR1V6RZ9 tpl=17 status=active
+n02-ab-two-templates @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-B-ab-alt @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-A-quote-default @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 live arms served = 2: [["lgn_01KYSJ41V9BBJPHSQDSR1V6RZ9",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--percent lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}],["lgn_01KYSJ3YVJ337JSXYF7TZRAK2M",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--dots lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}]]
+
+===== run 2026-07-30T13:08:56.177Z =====
+N01 chips in quote A after 3 creates = 36
+n01-a-three-templates-saved @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-presets-listed-in-other-quote @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-apply-preset-confirm @375 scrollWidth=375 innerWidth=375 overflow=no
+N01 quote B funnel.frame_template_id=35 (template P6D N01 Numbered acc6-n01-1785416937119127 id=35); effective progress.style=numbered; quote A funnel.frame_template_id=null
+n01-b-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 chip-menu labels = ["Rename…","Duplicate","Set as this quote’s default","Delete"]
+
+===== run 2026-07-30T13:09:49.237Z =====
+N03 columns @1280: left.x=274 w=292 | centre.x=578 w=322 | right.x=912 w=344
+N03 section picker options = ["P6D sec acc6-n03a-1785416989869653"]; canvas contains authored headline = true
+n03-canvas-real-section-middle @375 scrollWidth=375 innerWidth=375 overflow=no
+n03-empty-funnel-sample-in-real-frame @375 scrollWidth=375 innerWidth=375 overflow=no
+N03 empty-funnel canvas: frame edit (progress dots → hidden → back) re-rendered around the sample section
+n03-empty-funnel-frame-edit-rerender @375 scrollWidth=375 innerWidth=375 overflow=no
+N04 theme switcher options = ["Current theme","P6D N04 Midnight acc6-n04-178541649016173","P6D N04 Ember acc6-n04-178541649016173","ACC6 11D Theme acc6-11d-thm-1785416895604199","ACC6 acc6-11e-mark-1785416897702638","ACC6 acc6-11e-card-1785416898195249","ACC6 11D Theme acc6-11d-thm-178541690697258","ACC6 acc6-11e-mark-1785416909460986","ACC6 acc6-11e-card-1785416909912961","P6D N04 Midnight acc6-n04-1785416995910241","P6D N04 Ember acc6-n04-1785416995910241"]
+n04-theme-A-midnight @375 scrollWidth=375 innerWidth=375 overflow=no
+n04-theme-B-ember @375 scrollWidth=375 innerWidth=375 overflow=no
+N04 canvas fingerprint before={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(245, 247, 250)","rootColor":"rgb(26, 31, 54)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(26, 31, 54)","elBorder":"rgb(26, 31, 54)"}
+N04 canvas fingerprint themeA={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(255, 255, 255)","rootColor":"rgb(16, 16, 16)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(16, 16, 16)","elBorder":"rgb(16, 16, 16)"}
+N04 canvas fingerprint themeB={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(255, 243, 230)","rootColor":"rgb(43, 33, 24)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(43, 33, 24)","elBorder":"rgb(43, 33, 24)"}
+
+===== run 2026-07-30T13:10:18.814Z =====
+N02 chip-menu labels = ["Rename…","Duplicate","Set as this quote’s default","Delete"]
+n02-default-defined @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 arms: A=lgn_01KYSJBGJ0ACVKWG0A166HVNED tpl=null status=active | B=lgn_01KYSJBS37RWFVCV0A9S3K3E35 tpl=40 status=active
+n02-ab-two-templates @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-A-quote-default @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-B-ab-alt @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 live arms served = 2: [["lgn_01KYSJBGJ0ACVKWG0A166HVNED",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--dots lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}],["lgn_01KYSJBS37RWFVCV0A9S3K3E35",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--percent lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}]]
+
+===== run 2026-07-30T13:10:55.633Z =====
+N01 chips in quote A after 3 creates = 43
+n01-a-three-templates-saved @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-presets-listed-in-other-quote @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-apply-preset-confirm @375 scrollWidth=375 innerWidth=375 overflow=no
+N01 quote B funnel.frame_template_id=42 (template P6D N01 Numbered acc6-n01-1785417056226346 id=42); effective progress.style=numbered; quote A funnel.frame_template_id=null
+n01-b-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 chip-menu labels = ["Rename…","Duplicate","Set as this quote’s default","Delete"]
+n02-default-defined @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 arms: A=lgn_01KYSJCQ0JVR3XPZRAEHV0RX7K tpl=null status=active | B=lgn_01KYSJCVDW2GP6DV3M7WNK8V7V tpl=45 status=active
+n02-ab-two-templates @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-B-ab-alt @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-A-quote-default @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 live arms served = 2: [["lgn_01KYSJCVDW2GP6DV3M7WNK8V7V",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--percent lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}],["lgn_01KYSJCQ0JVR3XPZRAEHV0RX7K",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--dots lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}]]
+N03 columns @1280: left.x=274 w=292 | centre.x=578 w=322 | right.x=912 w=344
+N03 section picker options = ["P6D sec acc6-n03a-1785417072401844"]; canvas contains authored headline = true
+n03-canvas-real-section-middle @375 scrollWidth=375 innerWidth=375 overflow=no
+n03-empty-funnel-sample-in-real-frame @375 scrollWidth=375 innerWidth=375 overflow=no
+N03 empty-funnel canvas: frame edit (progress dots → hidden → back) re-rendered around the sample section
+n03-empty-funnel-frame-edit-rerender @375 scrollWidth=375 innerWidth=375 overflow=no
+N04 theme switcher options = ["Current theme","P6D N04 Midnight acc6-n04-178541649016173","P6D N04 Ember acc6-n04-178541649016173","ACC6 11D Theme acc6-11d-thm-1785416895604199","ACC6 acc6-11e-mark-1785416897702638","ACC6 acc6-11e-card-1785416898195249","ACC6 11D Theme acc6-11d-thm-178541690697258","ACC6 acc6-11e-mark-1785416909460986","ACC6 acc6-11e-card-1785416909912961","P6D N04 Midnight acc6-n04-1785416995910241","P6D N04 Ember acc6-n04-1785416995910241","P6D N04 Midnight acc6-n04-1785417076464869","P6D N04 Ember acc6-n04-1785417076464869"]
+n04-theme-A-midnight @375 scrollWidth=375 innerWidth=375 overflow=no
+n04-theme-B-ember @375 scrollWidth=375 innerWidth=375 overflow=no
+N04 canvas fingerprint before={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(245, 247, 250)","rootColor":"rgb(26, 31, 54)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(26, 31, 54)","elBorder":"rgb(26, 31, 54)"}
+N04 canvas fingerprint themeA={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(255, 255, 255)","rootColor":"rgb(16, 16, 16)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(16, 16, 16)","elBorder":"rgb(16, 16, 16)"}
+N04 canvas fingerprint themeB={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(255, 243, 230)","rootColor":"rgb(43, 33, 24)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(43, 33, 24)","elBorder":"rgb(43, 33, 24)"}
+
+===== run 2026-07-30T13:12:08.077Z =====
+N01 chips in quote A after 3 creates = 48
+n01-a-three-templates-saved @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-presets-listed-in-other-quote @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-apply-preset-confirm @375 scrollWidth=375 innerWidth=375 overflow=no
+N01 quote B funnel.frame_template_id=47 (template P6D N01 Numbered acc6-n01-1785417128661241 id=47); effective progress.style=numbered; quote A funnel.frame_template_id=null
+n01-b-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 chip-menu labels = ["Rename…","Duplicate","Set as this quote’s default","Delete"]
+n02-default-defined @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 arms: A=lgn_01KYSJEXVTCR6SXF95D2S6HNKM tpl=null status=active | B=lgn_01KYSJF1VX5XWHNRGN2HTX1DQP tpl=50 status=active
+n02-ab-two-templates @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-B-ab-alt @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-A-quote-default @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 live arms served = 2: [["lgn_01KYSJF1VX5XWHNRGN2HTX1DQP",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--percent lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}],["lgn_01KYSJEXVTCR6SXF95D2S6HNKM",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--dots lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}]]
+
+===== run 2026-07-30T13:12:28.008Z =====
+N01 chips in quote A after 3 creates = 53
+n01-a-three-templates-saved @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-presets-listed-in-other-quote @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-apply-preset-confirm @375 scrollWidth=375 innerWidth=375 overflow=no
+N01 quote B funnel.frame_template_id=52 (template P6D N01 Numbered acc6-n01-1785417148136688 id=52); effective progress.style=numbered; quote A funnel.frame_template_id=null
+n01-b-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 chip-menu labels = ["Rename…","Duplicate","Set as this quote’s default","Delete"]
+n02-default-defined @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 arms: A=lgn_01KYSJFF695CHJDG0V2RAJ1FA1 tpl=null status=active | B=lgn_01KYSJFJVXFPY5W6DC8CW4KADM tpl=55 status=active
+n02-ab-two-templates @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-A-quote-default @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-B-ab-alt @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 live arms served = 2: [["lgn_01KYSJFF695CHJDG0V2RAJ1FA1",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--dots lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}],["lgn_01KYSJFJVXFPY5W6DC8CW4KADM",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--percent lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}]]
+
+===== run 2026-07-30T13:13:31.506Z =====
+N02 chip-menu labels = ["Rename…","Duplicate","Set as this quote’s default","Delete"]
+n02-default-defined @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 arms: A=lgn_01KYSJH91HW90QHZXVQQC6XV2J tpl=null status=active | B=lgn_01KYSJHDXNX9JXY4P9B313A478 tpl=102 status=active
+n02-ab-two-templates @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-A-quote-default @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-B-ab-alt @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 live arms served = 2: [["lgn_01KYSJH91HW90QHZXVQQC6XV2J",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--dots lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}],["lgn_01KYSJHDXNX9JXY4P9B313A478",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--percent lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}]]
+
+===== run 2026-07-30T13:14:04.444Z =====
+N01 chips in quote A after 3 creates = 105
+n01-a-three-templates-saved @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-presets-listed-in-other-quote @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-apply-preset-confirm @375 scrollWidth=375 innerWidth=375 overflow=no
+N01 quote B funnel.frame_template_id=104 (template P6D N01 Numbered acc6-n01-1785417244876162 id=104); effective progress.style=numbered; quote A funnel.frame_template_id=null
+n01-b-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 chip-menu labels = ["Rename…","Duplicate","Set as this quote’s default","Delete"]
+n02-default-defined @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 arms: A=lgn_01KYSJJDY4DBPY7EHPAYVCNE08 tpl=null status=active | B=lgn_01KYSJJHM7BMRQC52CE4GF77TF tpl=107 status=active
+n02-ab-two-templates @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-A-quote-default @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-B-ab-alt @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 live arms served = 2: [["lgn_01KYSJJDY4DBPY7EHPAYVCNE08",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--dots lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}],["lgn_01KYSJJHM7BMRQC52CE4GF77TF",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--percent lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}]]
+
+===== run 2026-07-30T13:14:20.600Z =====
+N01 chips in quote A after 3 creates = 110
+n01-a-three-templates-saved @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-presets-listed-in-other-quote @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-apply-preset-confirm @375 scrollWidth=375 innerWidth=375 overflow=no
+N01 quote B funnel.frame_template_id=109 (template P6D N01 Numbered acc6-n01-1785417260735201 id=109); effective progress.style=numbered; quote A funnel.frame_template_id=null
+n01-b-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 chip-menu labels = ["Rename…","Duplicate","Set as this quote’s default","Delete"]
+n02-default-defined @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 arms: A=lgn_01KYSJJXFCK3MZJ4X9D5HD57R4 tpl=null status=active | B=lgn_01KYSJK1AQR1A9NA4ME4G648PV tpl=112 status=active
+n02-ab-two-templates @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-A-quote-default @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-B-ab-alt @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 live arms served = 2: [["lgn_01KYSJJXFCK3MZJ4X9D5HD57R4",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--dots lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}],["lgn_01KYSJK1AQR1A9NA4ME4G648PV",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--percent lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}]]
+
+===== run 2026-07-30T13:14:36.810Z =====
+N01 chips in quote A after 3 creates = 115
+n01-a-three-templates-saved @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-presets-listed-in-other-quote @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-apply-preset-confirm @375 scrollWidth=375 innerWidth=375 overflow=no
+N01 quote B funnel.frame_template_id=114 (template P6D N01 Numbered acc6-n01-1785417277117595 id=114); effective progress.style=numbered; quote A funnel.frame_template_id=null
+n01-b-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 chip-menu labels = ["Rename…","Duplicate","Set as this quote’s default","Delete"]
+n02-default-defined @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 arms: A=lgn_01KYSJKD06PVRN2RJAYNY7KZGP tpl=null status=active | B=lgn_01KYSJKHATJQT7GN450J8GVE80 tpl=117 status=active
+n02-ab-two-templates @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-A-quote-default @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-B-ab-alt @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 live arms served = 2: [["lgn_01KYSJKD06PVRN2RJAYNY7KZGP",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--dots lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}],["lgn_01KYSJKHATJQT7GN450J8GVE80",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--percent lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}]]
+
+===== run 2026-07-30T13:17:11.418Z =====
+N01 chips in quote A after 3 creates = 75
+n01-a-three-templates-saved @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-presets-listed-in-other-quote @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-apply-preset-confirm @375 scrollWidth=375 innerWidth=375 overflow=no
+N01 quote B funnel.frame_template_id=119 (template P6D N01 Numbered acc6-n01-1785417432002923 id=119); effective progress.style=numbered; quote A funnel.frame_template_id=null
+n01-b-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 chip-menu labels = ["Rename…","Duplicate","Set as this quote’s default","Delete"]
+n02-default-defined @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 arms: A=lgn_01KYSJR4Q8JR9XXTQ19Z7N61K2 tpl=null status=active | B=lgn_01KYSJR7JZF9PG1SBBZDGVDFQ9 tpl=122 status=active
+n02-ab-two-templates @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-A-quote-default @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-B-ab-alt @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 live arms served = 2: [["lgn_01KYSJR4Q8JR9XXTQ19Z7N61K2",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--dots lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}],["lgn_01KYSJR7JZF9PG1SBBZDGVDFQ9",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--percent lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}]]
+N03 columns @1280: left.x=274 w=292 | centre.x=578 w=322 | right.x=912 w=344
+N03 section picker options = ["P6D sec acc6-n03a-1785417444781387"]; canvas contains authored headline = true
+n03-canvas-real-section-middle @375 scrollWidth=375 innerWidth=375 overflow=no
+n03-empty-funnel-sample-in-real-frame @375 scrollWidth=375 innerWidth=375 overflow=no
+N03 empty-funnel canvas: frame edit (progress dots → hidden → back) re-rendered around the sample section
+n03-empty-funnel-frame-edit-rerender @375 scrollWidth=375 innerWidth=375 overflow=no
+N04 theme switcher options = ["Current theme","P6D N04 Midnight acc6-n04-178541649016173","P6D N04 Ember acc6-n04-178541649016173","ACC6 11D Theme acc6-11d-thm-1785416895604199","ACC6 acc6-11e-mark-1785416897702638","ACC6 acc6-11e-card-1785416898195249","ACC6 11D Theme acc6-11d-thm-178541690697258","ACC6 acc6-11e-mark-1785416909460986","ACC6 acc6-11e-card-1785416909912961","P6D N04 Midnight acc6-n04-1785416995910241","P6D N04 Ember acc6-n04-1785416995910241","P6D N04 Midnight acc6-n04-1785417076464869","P6D N04 Ember acc6-n04-1785417076464869","P6D N04 Midnight acc6-n04-178541744870379","P6D N04 Ember acc6-n04-178541744870379"]
+n04-theme-A-midnight @375 scrollWidth=375 innerWidth=375 overflow=no
+n04-theme-B-ember @375 scrollWidth=375 innerWidth=375 overflow=no
+N04 canvas fingerprint before={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(245, 247, 250)","rootColor":"rgb(26, 31, 54)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(26, 31, 54)","elBorder":"rgb(26, 31, 54)"}
+N04 canvas fingerprint themeA={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(255, 255, 255)","rootColor":"rgb(16, 16, 16)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(16, 16, 16)","elBorder":"rgb(16, 16, 16)"}
+N04 canvas fingerprint themeB={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(255, 243, 230)","rootColor":"rgb(43, 33, 24)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(43, 33, 24)","elBorder":"rgb(43, 33, 24)"}
