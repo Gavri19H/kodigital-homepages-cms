@@ -1392,7 +1392,12 @@ function otherRowStub(label: string, value: string, analyticsId: string): { quer
   };
 }
 
-function otherDocStub(rows: unknown[], labelValue: string): Record<string, unknown> {
+// P5-F11: `enabledCb` defaults to a FRESH { checked: true } literal (the
+// existing call sites' behavior, unchanged) but callers that need to inspect
+// the checkbox's `.checked` state AFTER collectOther()/populateOtherEditor()
+// have run (P5-F11's "never silently unchecked" assertion) can pass their
+// OWN persistent reference in.
+function otherDocStub(rows: unknown[], labelValue: string, enabledCb: { checked: boolean } = { checked: true }): Record<string, unknown> {
   const otherList = {
     querySelectorAll(sel: string) {
       return sel === "[data-other-row]" ? rows : [];
@@ -1401,7 +1406,7 @@ function otherDocStub(rows: unknown[], labelValue: string): Record<string, unkno
   return {
     getElementById: () => null,
     querySelector(sel: string) {
-      if (sel === "[data-other-enabled]") return { checked: true };
+      if (sel === "[data-other-enabled]") return enabledCb;
       if (sel === "[data-other-fields]") return { hidden: false };
       if (sel === "[data-other-label]") return { value: labelValue };
       if (sel === "[data-other-values]") return otherList;
@@ -1520,16 +1525,97 @@ describeDb("P5-F2 (ADJ-A7 fix-first) — an empty Other row is never silently dr
     expect(serverResult.errors.filter((e) => e.path.includes("props.other"))).toEqual([]);
   });
 
-  it("regression guard: Other enabled with NO rows ever added keeps clearing props.other (untouched editor stays saveable)", async () => {
+  // -------------------------------------------------------------------------
+  // P5-F11 fix-first -- the IDENTICAL ADJ-A7 class applied to the ENABLE FLAG
+  // rather than a value row. Driven repro: enable Other (a starter row is
+  // auto-seeded) then remove that row -- the checkbox stays checked but the
+  // values list is now empty. collectOther() used to take the SAME `else`
+  // branch as an explicit uncheck and silently `delete props.other`: the "No
+  // issues" chip read clean, save 200'd, and on reload "Enable Other" came
+  // back unchecked -- the operator checked a box, the product quietly
+  // unchecked it, and nothing said so. This test SUPERSEDES the
+  // identically-shaped test this replaces (which asserted that exact silent
+  // clear as correct for `otherDocStub([], "")` -- it was the bug this fixes).
+  //
+  // Discriminator: collectOther's keep-vs-delete decision is now the
+  // checkbox's own `enabled` boolean ALONE, never choices.length. An
+  // explicit uncheck (enabled === false) is the only path that still
+  // deletes props.other; it cannot misfire into this zero-rows-but-checked
+  // case because that case has enabled === true by construction (the
+  // operator never touched the checkbox to get here). computeIssues() then
+  // mirrors the schema's "choices non-empty" rule as a VISIBLE issue for the
+  // retained empty-choices shape -- the same preserve-then-let-validation-
+  // flag-it mechanism P5-F2 (ADJ-A7) established one row over, reused
+  // rather than reinvented.
+  // -------------------------------------------------------------------------
+  it("P5-F11: Other enabled with ZERO value rows is a VISIBLE issue, the real server validator blocks the save, and the enable checkbox is never silently unchecked (fail-before/pass-after)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
-    const probe = otherStudioProbe(html, OTHER_BASE_CONTENT, otherDocStub([], ""));
+    const island = studioIsland(html);
+    const enabledCb = { checked: true }; // Other IS enabled; every row has since been removed
+    const probe = otherStudioProbe(html, OTHER_BASE_CONTENT, otherDocStub([], "", enabledCb));
+    probe.sandbox.selectedQuestionId = "q_make";
+    probe.run("collectOther()");
+    const node = probe.sandbox.state.content.components[0] as {
+      props?: { other?: { enabled?: boolean; choices?: Array<Record<string, unknown>> } };
+    };
+    // never silently unchecked-by-omission: props.other is RETAINED (enabled
+    // stays true) instead of being deleted just because choices is empty.
+    expect(node.props?.other, "enabled Other with zero rows is preserved, not dropped").toEqual({ enabled: true, choices: [] });
+
+    // VISIBLE in the issues chip -- the operator-facing text, not an internal flag.
+    const issues = probe.run("computeIssues()") as Array<{ qid: string | null; message: string }>;
+    const otherIssues = issues.filter((i) => i.qid === "q_make" && i.message.includes('"Other"'));
+    expect(otherIssues.length, JSON.stringify(issues)).toBeGreaterThan(0);
+    expect(
+      otherIssues.some((i) => i.message.includes('has "Other" enabled with no values')),
+      JSON.stringify(otherIssues),
+    ).toBe(true);
+
+    // save blocked -- the REAL server validator (the same function the save
+    // route calls) rejects this exact content: props.other.choices must be
+    // a non-empty array once props.other is present at all.
+    const serverResult = validateSectionContent(probe.sandbox.state.content);
+    expect(serverResult.ok).toBe(false);
+    expect(
+      serverResult.errors.some((e) => e.code === "invalid_field_prop" && e.path.includes("props.other.choices")),
+      JSON.stringify(serverResult.errors),
+    ).toBe(true);
+
+    // the enable checkbox is never silently unchecked: simulating the exact
+    // "on reload" redraw the defect described (populateOtherEditor
+    // re-reading the model) still finds enabled === true and keeps the box
+    // checked -- it was never flipped by anything in the blocked-save path.
+    probe.run(
+      [sliceIslandFunction(island, "clearChildren"), sliceIslandFunction(island, "populateOtherEditor")].join("\n"),
+    );
+    probe.run("populateOtherEditor(state.content.components[0])");
+    expect(enabledCb.checked, "the enable checkbox stays checked after the blocked save").toBe(true);
+  });
+
+  // Constraint 1 (must not regress): an EXPLICIT uncheck still deletes
+  // props.other silently and cleanly -- that is the operator saying so, and
+  // it stays frictionless. The signal is enabledCb.checked === false, which
+  // cannot coincide with the zero-rows-but-checked case above (that case is
+  // checked === true by definition).
+  it("constraint: explicitly UNCHECKING Other still deletes props.other silently and cleanly (no issue, no complaint)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
+    const enabledCb = { checked: false }; // the operator just unchecked the box
+    const probe = otherStudioProbe(
+      html,
+      OTHER_BASE_CONTENT,
+      otherDocStub([otherRowStub("Diesel", "diesel", "c_diesel")], "Fuel type", enabledCb),
+    );
     probe.sandbox.selectedQuestionId = "q_make";
     probe.run("collectOther()");
     const node = probe.sandbox.state.content.components[0] as { props?: { other?: unknown } };
-    expect(node.props?.other, "no rows ever added -> props.other stays cleared").toBeUndefined();
+    expect(node.props?.other, "explicit uncheck deletes props.other cleanly").toBeUndefined();
     const issues = probe.run("computeIssues()") as Array<{ message: string }>;
     expect(issues.some((i) => i.message.includes('"Other"')), JSON.stringify(issues)).toBe(false);
+    const serverResult = validateSectionContent(probe.sandbox.state.content);
+    expect(serverResult.errors.filter((e) => e.path.includes("props.other"))).toEqual([]);
   });
 });

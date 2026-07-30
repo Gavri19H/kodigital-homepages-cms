@@ -6051,24 +6051,36 @@ export const SECTION_STUDIO_SCRIPT = `
       // leaves without a label is VISIBLE here pre-save, never only
       // discovered as a bare 400 (or, worse, believed "saved fine" off a
       // chip that never looked at props.other at all).
-      if (node.props && node.props.other && node.props.other.enabled === true && node.props.other.choices && node.props.other.choices.length > 0) {
-        var otherBaseValues = {}, obi;
-        if (node.choices) {
-          for (obi = 0; obi < node.choices.length; obi++) {
-            var obc = node.choices[obi];
-            if (obc && (typeof obc.value === 'string' || typeof obc.value === 'number' || typeof obc.value === 'boolean')) { otherBaseValues[String(obc.value)] = true; }
+      if (node.props && node.props.other && node.props.other.enabled === true) {
+        // P5-F11: the schema also requires choices non-empty whenever
+        // enabled is true (content-schema.ts validateOtherEditor) --
+        // mirrored here exactly like the base-choices "needs at least one
+        // choice" check above. An operator who enables Other and then
+        // removes every value row now sees this SAME visible chip/list
+        // entry instead of the flag silently reading as off again
+        // (collectOther no longer deletes props.other just because choices
+        // came back empty).
+        if (!node.props.other.choices || node.props.other.choices.length === 0) {
+          issues.push({ qid: node.question_id, message: label + ' has "Other" enabled with no values (add a value or turn Other off)' });
+        } else {
+          var otherBaseValues = {}, obi;
+          if (node.choices) {
+            for (obi = 0; obi < node.choices.length; obi++) {
+              var obc = node.choices[obi];
+              if (obc && (typeof obc.value === 'string' || typeof obc.value === 'number' || typeof obc.value === 'boolean')) { otherBaseValues[String(obc.value)] = true; }
+            }
           }
-        }
-        var otherChoices = node.props.other.choices, oi, oc, ovt;
-        if (otherChoices.length > 50) { issues.push({ qid: node.question_id, message: label + ' has more than 50 "Other" values (max 50)' }); }
-        for (oi = 0; oi < otherChoices.length; oi++) {
-          oc = otherChoices[oi];
-          if (!oc || typeof oc !== 'object') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value that is not valid' }); continue; }
-          if (trimStr(oc.label) === '') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value missing its label' }); }
-          ovt = typeof oc.value;
-          if (ovt !== 'string' && ovt !== 'number' && ovt !== 'boolean') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value with an invalid value' }); }
-          else if (otherBaseValues[String(oc.value)]) { issues.push({ qid: node.question_id, message: label + ' has an "Other" value that duplicates a base choice' }); }
-          if (trimStr(oc.analytics_id) === '') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value missing its analytics id' }); }
+          var otherChoices = node.props.other.choices, oi, oc, ovt;
+          if (otherChoices.length > 50) { issues.push({ qid: node.question_id, message: label + ' has more than 50 "Other" values (max 50)' }); }
+          for (oi = 0; oi < otherChoices.length; oi++) {
+            oc = otherChoices[oi];
+            if (!oc || typeof oc !== 'object') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value that is not valid' }); continue; }
+            if (trimStr(oc.label) === '') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value missing its label' }); }
+            ovt = typeof oc.value;
+            if (ovt !== 'string' && ovt !== 'number' && ovt !== 'boolean') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value with an invalid value' }); }
+            else if (otherBaseValues[String(oc.value)]) { issues.push({ qid: node.question_id, message: label + ' has an "Other" value that duplicates a base choice' }); }
+            if (trimStr(oc.analytics_id) === '') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value missing its analytics id' }); }
+          }
         }
       }
       var i, k, props = node.props || {};
@@ -12091,9 +12103,20 @@ export const SECTION_STUDIO_SCRIPT = `
         choices.push(choice);
       }
     }
-    // props.other is only persistable with >=1 value (schema: choices non-empty);
-    // otherwise the key is cleared (Other off / no values = no Other).
-    if (enabled && choices.length > 0) {
+    // P5-F11: the keep-vs-delete decision is driven SOLELY by the checkbox's
+    // own enabled flag, never by choices.length. Before this fix, "enabled
+    // && choices.length > 0" sent every value row being removed down the
+    // SAME else branch as an EXPLICIT uncheck, silently deleting
+    // props.other -- the "No issues" chip read clean, save 200'd, and on
+    // reload "Enable Other" came back unchecked, though the operator never
+    // touched that box. Now: enabled true always keeps props.other (even
+    // with an empty choices array), so an explicit uncheck (enabled false,
+    // the ONLY remaining delete path) can never be confused with a merely-
+    // empty list -- computeIssues() (above) mirrors the schema's non-empty-
+    // choices rule as a VISIBLE issue for that retained empty-choices shape
+    // instead, the same preserve-then-flag mechanism P5-F2 (ADJ-A7)
+    // established one row over, reused rather than reinvented.
+    if (enabled) {
       var otherOut = { enabled: true };
       if (labelEl && trimStr(labelEl.value) !== '') { otherOut.label = trimStr(labelEl.value); }
       otherOut.choices = choices;
