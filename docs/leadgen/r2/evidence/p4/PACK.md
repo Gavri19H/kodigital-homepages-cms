@@ -2,8 +2,10 @@
 
 Delivered 2026-07-30. Your D10 pause for this pack was **waived by your own instruction** ("approve,
 continue and don't stop until the last P") — so it is delivered with unchanged rigor and collects at
-the terminal gate rather than blocking. **Everything below was driven by a fresh-context reviewer
-that authored each slider itself, dragged it with a real pointer, and measured the result.**
+the terminal gate rather than blocking. **The per-type findings below were driven by a fresh-context reviewer that authored each slider
+itself, dragged it with a real pointer, and measured the result.** (The gate numbers are the
+conductor's own authoritative run; the drag recordings were produced by the implementing agent and
+the reviewer verified their motion frame-by-frame.)
 
 ## The five side-by-sides — your image, then the built render
 
@@ -14,8 +16,8 @@ render in `docs/leadgen/r2/evidence/p4/review/`.
 |---|---|---|---|
 | **single** | `Image11.png` (the "Value" slider) | `single-1280-rest.png` · `single-375-rest.png` · after-drag/keys | Big `$37` readout, fill, **one handle ON the track**, captions `$0`/`$100`. The handle sat ~20px BELOW the track before; measured now at **0.0px** from the track centre, at both widths. |
 | **stepper** | `Image10.png` | `stepper-1280-rest.png` · `stepper-375-rest.png` · after-drag | **48×48 −/＋ buttons FLANKING** the `$170,000` readout (gaps 121.5/121.5 at 1280, 27.0/27.0 at 375), track+fill+handle below, captions `$5,000`/`$500,000` — the captions were **missing** entirely before. |
-| **from_to** | `Image13.png` (+ `Image12.png`) | `from_to-1280-after-drag.png` · `from_to-375-after-keys.png` | **ONE track, TWO handles**, tooltip pills, end captions, and **two LABELLED inputs "From ($)" / "To ($)"**. Before: no visible handles, two bare unlabelled boxes, no `$`, no captions. |
-| **dual_range** | `Image11.png` (the "Range" slider) | `dual_range-1280-after-drag.png` · `dual_range-375-rest.png` | ONE track, two handles, readouts `18`/`78`, captions — the fill spans **exactly** 18%…78% between the handles. Before: two stacked separate tracks with no readouts. |
+| **from_to** | `Image13.png` (+ `Image12.png`) | `rex5-n1-A-typedown-1280.png` · `rex5-census-all-five-375.png` (post-fix; the earlier `from_to-*` captures predate the two fixes) | **ONE track, TWO handles**, tooltip pills, end captions, and **two LABELLED inputs "From ($)" / "To ($)"**. Before: no visible handles, two bare unlabelled boxes, no `$`, no captions. |
+| **dual_range** | `Image11.png` (the "Range" slider) | `rex5-census-all-five-1280.png` · `rex5-census-all-five-375.png` (post-fix) | ONE track, two handles, readouts `18`/`78`, captions — the fill spans **exactly** 18%…78% between the handles. Before: two stacked separate tracks with no readouts. |
 | **radial** | `Image14.png` | `radial-1280-rest.png` · `radial-375-rest.png` · after-drag/keys | A real **176px circular dial** (140px at 375) with a live conic arc and a draggable ring handle; the centre value tracks the drag `45 → 25 → 50 → 55` with `--lg-deg` matching `value·360/span` at every sample. Before: **no dial at all** (a flat strip) and a **frozen** centre value. |
 
 ## The five drag recordings (§5.5)
@@ -37,28 +39,35 @@ radial `45 → 33 → 50` with arc and ring handle following.
 
 ## What driving caught that tests did not
 This phase is the contract's named "exists ≠ executed" case: all five renderers already existed and
-passed tests while four of five were visually broken. Two further defects only appeared under a real
-pointer:
+passed tests while four of five were visually broken. THREE further defects only appeared under a
+real pointer:
 1. **A typed value reached your buyer wrong.** On a from_to slider, typing an out-of-order number
    left the box showing `90000` while the payload carried `35000`. Fixed — then the *fix* made the
    "To" box impossible to type into (typing `60000` landed `100000` in the payload). Both are now
    closed, and the acceptance was widened from the reported bug to the whole interaction: type-up,
    type-down, clear-and-retype digit-by-digit, paste, and out-of-order, on both fields, at both
    viewports, each checked against the field, the on-screen rails **and** the provider row.
-2. **A driven handle overflowed the 375 viewport by 18px** and clipped the value pill (clean at
+2. **At the low clamp, a value pill covered your question label.** Both handles pushed to the low
+   end lifted the min pill into the label row, hiding the start of your authored label. Fixed by
+   reserving the stacked-pill row — measured from **−30.0px overlap to +10.0px clearance** at both
+   viewports. **Honest cost:** at rest the pill row now sits **42px** under the label (was 2px), so
+   the slider frame you see in the side-by-sides has more space above it than before. Image13 pins
+   the frame itself (pills above handles, end captions, labelled boxes below) and that is unchanged.
+3. **A driven handle overflowed the 375 viewport by 18px** and clipped the value pill (clean at
    rest, broken when driven). Now swept across every handle position at both widths: zero overflow.
 
 ## Gate
 typecheck 0 · **vitest 7,379/7,379 (445 files)** at the pre-fix-2 stamp, re-run clean after · all
 verifiers 0 · runtime bundle **52,762** of your 53,248 cap (**486 B headroom**, P5's allocation
-intact) · F5 clean · register 103 rows / 0 violations.
+intact) · F5 clean · register 0 violations. Final byte figures verified twice (conductor + closure reviewer): slider slice 1,732 B, net reserve draw 179 B of 415, cap untouched.
 
 ## For your eye / your ruling
 - **ADJ-N21 — the one place the pins disagree with each other:** §6.8 (the binding design-pack
   anatomy) puts the value readout **above** the track; your Image11 shows it **below**, for both
   the single readout and the dual pills. The build followed §6.8. Both are defensible; this is
-  yours to pick. Compare `single-1280-rest.png` and `dual_range-1280-after-drag.png` with Image11.
+  yours to pick. Compare `single-1280-rest.png` and `rex5-census-all-five-1280.png` with Image11.
   Colour differences (navy vs Image10's green) are **not** a deviation — you ruled that theme owns
   colours.
+- **ADJ-N23:** two picker thumbnails (stepper, from_to) were corrected to match the fixed renders, but the design pack still pins the OLD thumbnail art and §5.5's sentence reads the other way ("make the renders match the thumbnails"). The product is right; the documentation needs re-pinning or an explicit note. Your ruling.
 - Older captures under `s4a/`, `s4b/` and `cleanup/` predate the last two fixes and are kept only as
   slice history — cite `review/`, `fixfirst/`, `fix2/` and `pack/` for current behavior.
