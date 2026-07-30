@@ -3067,6 +3067,22 @@ const ADDRESS_DEFAULT_FIELD_SPECS: readonly LeadgenAddressFieldSpec[] = [
 // field's slot) — just parameterized on the resolved per-field name instead
 // of a whole-node lookup, so EVERY sub-field (not only zip) now has
 // somewhere to speak.
+//
+// P6 D1 UNIQUENESS FIX: emitting this slot unconditionally shipped DUPLICATE
+// [data-lg-error-for] keys on one page — proven live (chromium, /lg funnel):
+// an Address authored with per-field required + explicit ValidationError nodes
+// on the SAME `{base}_{kind}` keys resolved
+// `[data-lg-error-for="mailing_address_street"]` to 2 elements (this auto slot
+// AND the authored <p data-component-type="ValidationError">). render.ts's
+// setFieldError/clearFieldErrors use querySelector — FIRST match in document
+// order only — so which slot speaks depended on where the author happened to
+// place their ValidationError node: painting was ambiguous, and half the time
+// the author's own slot stayed empty. The caller therefore skips this slot for
+// (a) any field an authored ValidationError already binds (state
+// .errorBoundFields — the SAME "authored override wins, never a double"
+// precedence autoErrorSlot has applied since P4b) and (b) a resolved field
+// name already emitted earlier in this same field set (two specs can collide
+// via props.maps.fills overrides pointing at one key).
 function addressFieldErrorSlot(design: DefaultFunnelDesign, fieldName: string): string {
   return (
     `<p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden` +
@@ -3174,6 +3190,10 @@ function renderAddressFieldSet(
   ctx: LeadgenSectionRenderCtx | undefined,
   slot: string,
   specs: readonly LeadgenAddressFieldSpec[],
+  // P6 D1: the internal_fields an authored ValidationError already reports on
+  // (SectionRenderState.errorBoundFields). Undefined on every non-section
+  // path (single-node previews/tests) ⇒ nothing suppressed, byte-identical.
+  errorBoundFields?: ReadonlySet<string>,
 ): string {
   const provider = propStr(node, "provider") ?? "google";
   const addressMapsRaw = node.props?.["maps"];
@@ -3234,6 +3254,9 @@ function renderAddressFieldSet(
   // today, so neither owner-graded-PERFECT single-field scenario changes a
   // byte.
   const isMultiField = specs.length > 1;
+  // P6 D1: every [data-lg-error-for] key this field set emits, so a resolved
+  // name can never be slotted twice (see addressFieldErrorSlot's comment).
+  const emittedErrorKeys = new Set<string>();
   const fieldHtml = specs
     .map((f, i) => {
       const kind = f.field as Exclude<LeadgenAddressFieldKind, "full_address">;
@@ -3292,14 +3315,19 @@ function renderAddressFieldSet(
           input +
           "</span>"
         : input;
+      // ADJ-A2: a per-field slot so a required/zip5/custom-format failure on
+      // THIS field (validateSection keys it to fieldName) has somewhere to
+      // paint — see addressFieldErrorSlot's own comment for the mechanism.
+      // P6 D1: unless that key already speaks (authored ValidationError, or an
+      // earlier spec in this set resolving to the same name) — one key, one
+      // slot, so setFieldError's querySelector is never ambiguous.
+      const keyAlreadySlotted = errorBoundFields?.has(fieldName) === true || emittedErrorKeys.has(fieldName);
+      if (!keyAlreadySlotted) emittedErrorKeys.add(fieldName);
       return (
         `<span class="lg-address-field-wrap"${attr("data-lg-field", fieldName)}${mapsAttr}>` +
         fieldLabelHtml +
         boxedInput +
-        // ADJ-A2: a per-field slot so a required/zip5/custom-format failure on
-        // THIS field (validateSection keys it to fieldName) has somewhere to
-        // paint — see addressFieldErrorSlot's own comment for the mechanism.
-        addressFieldErrorSlot(design, fieldName) +
+        (keyAlreadySlotted ? "" : addressFieldErrorSlot(design, fieldName)) +
         `</span>`
       );
     })
@@ -3320,6 +3348,9 @@ export function renderAddressAutocompleteQuestion(
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
   slot = "",
+  // P6 D1: authored-ValidationError-bound fields (see renderAddressFieldSet).
+  // Omitted ⇒ nothing suppressed, byte-identical to every pre-P6 call.
+  errorBoundFields?: ReadonlySet<string>,
 ): string {
   // Rework §6.10/M9 + owner D3 (R2 P5 S5a): props.fields[] present ⇒ the
   // per-field renderer using the AUTHOR's own order/labels/mode (full_address
@@ -3334,7 +3365,7 @@ export function renderAddressAutocompleteQuestion(
   const fieldSpecs = readAddressFieldSpecs(node) ?? ADDRESS_DEFAULT_FIELD_SPECS;
   // Rework §6.3: labelLine extends to Address (additive — "" when no
   // props.label).
-  return labelLine(node) + renderAddressFieldSet(node, design, ctx, slot, fieldSpecs);
+  return labelLine(node) + renderAddressFieldSet(node, design, ctx, slot, fieldSpecs, errorBoundFields);
 }
 
 // ---------------------------------------------------------------------------
@@ -4397,7 +4428,7 @@ export function renderComponent(
     case "PhoneInputQuestion":
       return renderPhoneInputQuestion(node, design, state?.ctx, slot);
     case "AddressAutocompleteQuestion":
-      return renderAddressAutocompleteQuestion(node, design, state?.ctx, slot);
+      return renderAddressAutocompleteQuestion(node, design, state?.ctx, slot, state?.errorBoundFields);
     case "ZIPInputQuestion":
       return renderZIPInputQuestion(node, design, state?.ctx, slot);
     case "NameFieldsGroup":

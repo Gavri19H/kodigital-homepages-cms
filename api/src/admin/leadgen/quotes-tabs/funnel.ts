@@ -3330,10 +3330,25 @@ export const QUOTE_EDITOR_SCRIPT = `
   function loadThemePresetOptions() {
     var sel = byId('lg-theme-preset-select');
     if (!sel) { return; }
-    var keep = sel.value;
     fetch('/api/admin/leadgen/themes', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
       .then(function (r) { return r.json(); })
       .then(function (body) {
+        // P6 D3 FIX: snapshot the picker's value HERE (at resolve time), not
+        // before the fetch. This function is called from FOUR places — the
+        // eager boot call, wireThemePresets, the activate('themes') tab hook
+        // and the presets-iframe 'load' handler — and a single editor load was
+        // measured issuing SEVEN concurrent GET /themes. With the snapshot
+        // taken before the fetch, any preset the operator picks WHILE one is
+        // in flight is destroyed when it resolves: clearChildren() wipes the
+        // <option>s and the stale keep ('' — the value from before the pick)
+        // never restores it, so the select silently falls back to the "Choose
+        // a preset…" placeholder. Measured live (chromium, real trusted click,
+        // 2nd of 10 runs): selectOption() succeeded, the 7th /themes GET
+        // finished 1ms later, the select's own value read back "" and "A/B
+        // this theme" answered with the product's own bail message "Pick a
+        // preset first, then A/B it." — zero network. Reading the value at
+        // resolve time preserves whatever the operator has chosen by then.
+        var keep = sel.value;
         var items = (body && body.items) || [];
         clearChildren(sel);
         var placeholder = document.createElement('option');

@@ -177,6 +177,40 @@ export async function realDrag(page: Page, from: Point, to: Point, options: Real
  * an absolute Point). Resolves bounding boxes via Playwright's real
  * actionability-checked boundingBox() — never getBoundingClientRect via
  * evaluate, so the same trusted-input contract holds end to end.
+ *
+ * P6 D5 — SOURCE SCROLL-INTO-VIEW (retires a whole false-failure class):
+ * boundingBox() reports VIEWPORT coordinates and happily returns a box that
+ * lies OUTSIDE the viewport, while toBeVisible() still passes (Playwright's
+ * "visible" means a non-empty box, not "on screen"). page.mouse, however,
+ * only delivers to real viewport coordinates — so an off-screen source made
+ * mouse.down() undeliverable and the drag silently never started. Measured
+ * instance (P6 C2, leadgen-u11u12-move-chromium-attempt.spec.ts's own
+ * comment): the product's §6.2/§6.4 focusChoiceRow scrolled the studio body
+ * scroller to scrollTop 651, putting the move tag at page y=-63.1; the same
+ * class is documented at the bottom edge. Callers used to patch this one at
+ * a time with their own scrollIntoViewIfNeeded() before the drag — doing it
+ * HERE retires the class repo-wide. scrollIntoViewIfNeeded() is a real
+ * Playwright actionability primitive (the same scroll Locator.click() and
+ * Locator.dragTo() perform before every real gesture), NOT dispatchEvent, so
+ * this file's trusted-input contract is untouched. Best-effort by design: if
+ * the scroll cannot complete, the `!fromBox` throw below still reports the
+ * unreachable source exactly as before.
+ *
+ * DELTA COMPENSATION (measured, not assumed — the first cut of this fix
+ * regressed on it): a scroll moves the caller's world too. Callers routinely
+ * pass `to` as an ABSOLUTE Point they computed from a boundingBox BEFORE this
+ * call (leadgen-p3a-placement's thirdPoint(), leadgen-u11u12-move's
+ * dropPoint), so scrolling here silently invalidated that point and the drop
+ * landed in the wrong place — proven by probe: with the raw scroll and a
+ * pre-measured drop point, the C2 drag ran to completion but persisted
+ * q_head,q_btn,q_zip (no reorder). So the source box is measured on BOTH
+ * sides of the scroll and an absolute `to` is shifted by the SAME delta,
+ * which is exactly the shift every element in that scroller took. Delta is
+ * {0,0} whenever nothing scrolled (the overwhelmingly common case), so an
+ * in-view source is byte-for-byte the pre-P6 behaviour. A `to` LOCATOR needs
+ * no compensation: its box is read AFTER the scroll. `clampToBox` stays
+ * caller-owned (it is typically the canvas FRAME's page box, which an
+ * in-iframe scroller does not move).
  */
 export async function realDragFromLocator(
   page: Page,
@@ -184,12 +218,21 @@ export async function realDragFromLocator(
   to: Point | Locator,
   options: RealDragOptions = {},
 ): Promise<void> {
+  const boxBeforeScroll = await fromLocator.boundingBox();
+  try {
+    await fromLocator.scrollIntoViewIfNeeded({ timeout: options.perStepGuardMs ?? 5000 });
+  } catch {
+    /* unreachable/detached source → the !fromBox throw below reports it */
+  }
   const fromBox = await fromLocator.boundingBox();
   if (!fromBox) throw new Error('realDragFromLocator: source locator has no bounding box (not visible/attached)');
+  const scrollDelta: Point = boxBeforeScroll
+    ? { x: fromBox.x - boxBeforeScroll.x, y: fromBox.y - boxBeforeScroll.y }
+    : { x: 0, y: 0 };
   const from: Point = { x: fromBox.x + fromBox.width / 2, y: fromBox.y + fromBox.height / 2 };
   let toPoint: Point;
   if ('x' in to && 'y' in to) {
-    toPoint = to;
+    toPoint = { x: to.x + scrollDelta.x, y: to.y + scrollDelta.y };
   } else {
     const toBox = await to.boundingBox();
     if (!toBox) throw new Error('realDragFromLocator: target locator has no bounding box (not visible/attached)');

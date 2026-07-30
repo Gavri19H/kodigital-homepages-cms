@@ -444,8 +444,21 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
     await quoteArchive.click();
     const quoteRowAfterArchive = page.locator(`tr[data-entity-id="${quote.public_id}"]`);
     await expect(quoteRowAfterArchive.getByRole("button", { name: /More actions/i }), "row survives the reload after archive").toBeVisible({ timeout: 10_000 });
-    await quoteRowAfterArchive.getByRole("button", { name: /More actions/i }).click();
     const quoteReactivate = page.locator(`[data-quote-reactivate="${quote.public_id}"]`);
+    // P6 D2 SYNC (no assertion weakened — this only orders the drive): the row
+    // + its More-actions button exist in BOTH documents, so the visibility wait
+    // above is already satisfied by the PRE-reload page. Measured on a loaded
+    // list (94 quotes): the kebab click landed 399ms BEFORE the archive
+    // handler's own window.location.reload() → the menu was opened on the
+    // doomed document and the reloaded one arrived with it closed, so
+    // [data-quote-reactivate] resolved (attached) but stayed `hidden` for the
+    // whole 5s timeout. Waiting for the ARCHIVED-state item to be attached is
+    // the "the reload landed" signal (it exists only in the post-archive
+    // markup); with it the same click landed 436ms AFTER the last navigation
+    // and the menu opened. Not engine-specific: chromium and firefox both fail
+    // without this wait at 94 rows and both pass with it.
+    await quoteReactivate.waitFor({ state: "attached", timeout: 10_000 });
+    await quoteRowAfterArchive.getByRole("button", { name: /More actions/i }).click();
     await expect(quoteReactivate, "an archived quote offers Reactivate (B-4.5 dead-end inverted)").toBeVisible();
     await expect(page.locator(`[data-quote-archive="${quote.public_id}"]`)).toHaveCount(0);
     const archivedReadBack = await json<{ status: string }>(await request.get(`${LG_API}/quotes/${quote.public_id}`), "quote read-back after archive");
@@ -455,6 +468,9 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
     await quoteReactivate.click();
     const quoteRowAfterReactivate = page.locator(`tr[data-entity-id="${quote.public_id}"]`);
     await expect(quoteRowAfterReactivate.getByRole("button", { name: /More actions/i }), "row survives the reload after reactivate").toBeVisible({ timeout: 10_000 });
+    // Same P6 D2 sync on the mirror leg: the ACTIVE-state item is the "the
+    // reactivate reload landed" signal before this kebab click.
+    await page.locator(`[data-quote-archive="${quote.public_id}"]`).waitFor({ state: "attached", timeout: 10_000 });
     await quoteRowAfterReactivate.getByRole("button", { name: /More actions/i }).click();
     await expect(page.locator(`[data-quote-archive="${quote.public_id}"]`), "reactivated quote offers Archive again").toBeVisible();
     const reactivatedReadBack = await json<{ status: string }>(await request.get(`${LG_API}/quotes/${quote.public_id}`), "quote read-back after reactivate");

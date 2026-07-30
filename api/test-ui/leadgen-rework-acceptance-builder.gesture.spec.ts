@@ -398,6 +398,21 @@ test.describe("#11D — Templates tab", () => {
   test("#11D layout = elements-left / live-canvas-middle / settings-right; section picker + theme switch re-render; no-sections fixture", async ({ page }) => {
     // with a section: the picker has a real option + the canvas renders it.
     const withSec = await seedQuote(apiCtx, "11d-lay", true);
+    // P6 D4: seed a REAL preset so the theme-switch round trip below is
+    // exercised on EVERY run instead of being skipped/misfired on the option
+    // count (see its own comment) — strictly more coverage, never less.
+    const switcherTheme = `ACC6 11D Theme ${uniqueTag("11d-thm")}`;
+    await json(
+      await apiCtx.post(`${LG_API}/themes`, {
+        data: {
+          name: switcherTheme,
+          roles: { brand_primary: "#123456", accent: "#654321", page_bg: "#FFFFFF", card: "#FFFFFF", text: "#101010", success: "#0E7C3A", error: "#B23A2C" },
+          typography: { headline_font: "Inter", body_font: "Inter", base_px: 16 },
+          controls: { field_height: "medium", button_size: "m", corners: "rounded" },
+        },
+      }),
+      "11D switcher theme",
+    );
     await openTemplatesTab(page, withSec.quotePublicId);
     // three-column layout markers
     await expect(page.locator("#lg-tpl-canvas-iframe")).toBeVisible();
@@ -423,14 +438,25 @@ test.describe("#11D — Templates tab", () => {
     // finally executes — a data-dependent trigger for a plain code defect, not
     // a timing race. Own-hand reproduced (attempt 1/1): exact TypeError,
     // firefox, full both-engine run. Fix: `r` IS the Request — just `r.method()`.
-    const themeOpts = await page.locator("#lg-tpl-theme-select option").count();
-    if (themeOpts > 1) {
-      const [req] = await Promise.all([
-        page.waitForRequest((r) => r.url().includes("/preview") && r.method() === "POST"),
-        page.locator("#lg-tpl-theme-select").selectOption({ index: 1 }),
-      ]);
-      expect(req.method()).toBe("POST");
-    }
+    // P6 D4 (root cause of the "option at index 1 is disabled" fail, own-hand
+    // reproduced deterministically on a ZERO-theme database): `themeOpts > 1`
+    // is NOT "a real preset exists". templates.ts populateThemeSwitcher appends
+    // a DISABLED placeholder option — "No themes yet — create one in the Themes
+    // tab" (its deliberate B7 honesty affordance) — when GET /themes returns an
+    // EMPTY list, so the select carries 2 options while offering 0 selectable
+    // themes and selectOption({index:1}) retried 61× against a disabled option.
+    // The option is disabled BY DESIGN (nothing is unreachable: it is an
+    // informational row, and the "+ New theme…" button beside it reaches the
+    // authoring surface). With the preset seeded above, index 1 is now always
+    // the real, ENABLED preset — asserted, not assumed, before the switch.
+    const themeOptions = page.locator("#lg-tpl-theme-select option");
+    await expect(page.locator("#lg-tpl-theme-select option", { hasText: switcherTheme }), "the seeded preset is listed").toHaveCount(1, { timeout: 10_000 });
+    await expect(themeOptions.nth(1), "a real preset row is selectable (not the disabled empty-state row)").toBeEnabled();
+    const [req] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes("/preview") && r.method() === "POST"),
+      page.locator("#lg-tpl-theme-select").selectOption({ index: 1 }),
+    ]);
+    expect(req.method()).toBe("POST");
 
     // no-sections quote → the canvas renders the Appendix A-9 fixture through
     // the REAL renderer (a real control element, not a hand-authored empty div).
