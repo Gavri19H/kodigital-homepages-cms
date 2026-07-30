@@ -1,7 +1,7 @@
-R2 P4 S4b — driven-product measurements (2026-07-29T23:54:04.667Z)
+R2 P4 S4b — driven-product measurements (2026-07-29T23:59:49.456Z)
 AUTHOR five sliders -> HTTP 200
-  re-save activation (mints a fresh lg-shell key) -> HTTP 400
-SSR converged in 38ms (1 poll(s)): the five authored sliders
+  re-save activation (mints a fresh lg-shell key) -> HTTP 200
+SSR converged in 23ms (1 poll(s)): the five authored sliders
 SINGLE @1280 DRAG: value 37->80 readout "$37"->"$80" fillW 120.6->260.8 handleX 583.6->723.8 aria-valuenow=80
 SINGLE @1280 KEYS(3x Right): value 80->83 fillW 260.8->270.6 handleX 723.8->733.6 readout="$83"
 STEPPER @1280: + button 170000->175000 (fillW 107.6->110.8, handleX 570.6->573.8) ; DRAG 175000->300000 (fillW 195.6, handleX 658.6) readout="$300,000"

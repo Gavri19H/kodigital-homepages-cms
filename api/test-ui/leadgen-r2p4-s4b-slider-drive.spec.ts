@@ -129,17 +129,32 @@ async function authorFiveSliders(): Promise<void> {
   // while the lg-shell cache key carries the VARIANT's — so a visitor can hold
   // the old shell for the full 300s TTL. Re-saving the ACTIVATION mints a fresh
   // key; activationVersion is unixepoch(), so cross a second boundary first.
+  // ADJACENT (reported, not fixed by this slice): a PARALLEL round's own
+  // fixture ("P4 Thumbnail-Fix Evidence Quote") now shares this activity value
+  // in the same D1 state, so a positional items[0] intermittently resolves to
+  // THEIR quote instead of ours — activating it under the SAME "r2fix" slug then
+  // 400s (site-level slug is unique per site, owned by the ORIGINAL fixture
+  // quote). Find by name (same pattern the offer lookup above already uses) so
+  // this spec is immune to sibling rounds adding their own quotes under the same
+  // activity string.
   const quotes = (await (await ctx.get("/api/admin/leadgen/quotes?activity=r2fix_activity")).json()) as {
-    items: Array<{ public_id: string }>;
+    items: Array<{ public_id: string; quote_name: string }>;
   };
+  const quote = quotes.items.find((q) => q.quote_name === "R2Fix Fixture Quote");
+  if (quote === undefined) throw new Error("fixture quote missing — run npm run seed:leadgen-fixture");
   const sites = (await (await ctx.get("/api/admin/sites")).json()) as { resource?: Array<{ id: string; domain: string }> };
   const site = (sites.resource ?? []).find((s) => s.domain === SITE_HOST);
   if (site === undefined) throw new Error("fixture site missing — run npm run seed:leadgen-fixture");
   await new Promise((r) => setTimeout(r, 1100));
-  const act = await ctx.put(`/api/admin/leadgen/quotes/${quotes.items[0]!.public_id}/activation/${site.id}`, {
+  const act = await ctx.put(`/api/admin/leadgen/quotes/${quote.public_id}/activation/${site.id}`, {
     data: { enabled: true, slug: FUNNEL_SLUG },
   });
-  say(`  re-save activation (mints a fresh lg-shell key) -> HTTP ${act.status()}`);
+  const actStatus = act.status();
+  say(`  re-save activation (mints a fresh lg-shell key) -> HTTP ${actStatus}`);
+  if (actStatus !== 200) {
+    const actBody = await act.text();
+    throw new Error(`activation re-save failed: ${actStatus} ${actBody.slice(0, 400)}`);
+  }
   await ctx.dispose();
 }
 
