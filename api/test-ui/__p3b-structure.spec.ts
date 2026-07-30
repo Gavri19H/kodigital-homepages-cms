@@ -1,5 +1,76 @@
+// ===========================================================================
+// RETIRED 2026-07-30 (R2 P6 terminal clearance, conductor ruling R-A) — both
+// describes below are `.skip`ped, NOT deleted, so the exact claims they used
+// to assert stay readable next to the specs that now assert them.
+//
+// WHY: the R2 P3b board rewrite DELETED this whole surface. Measured by hand
+// at f808e33 against `src/`:
+//   grep -rn "lg-structure-panel" src/          -> 0 hits (id renders nowhere)
+//   grep -rn 'id="lg-section-list"' src/        -> 0 hits
+//   grep -rn "data-auction-entry" src/          -> 0 hits
+// `quotes-tabs/funnel.ts`'s own comment records the removal: "REMOVED: the
+// dead Round-4 'structure panel' island ... its DOM is SSR'd NOWHERE since the
+// P3b board rewrite (0 id=lg-section-list / id=lg-slot* renders)." Every
+// selector below therefore targets a superseded product, and re-pointing the
+// FILE is impossible — there is no successor structure panel, there is a
+// board.
+//
+// WHERE EACH CLAIM IS NOW ASSERTED (claim -> covering spec + test):
+//  * add a page, persists across reload
+//      -> leadgen-rework-p3b-board.gesture.spec.ts
+//         "S5.3 item 1 — '+ Add page' on a fresh funnel persists an empty page
+//          across reload (was HTTP 400)"
+//  * add a section to a page through the per-page filtered picker, persists
+//      -> leadgen-rework-p3b-board.gesture.spec.ts
+//         "S5.3 item 2 — funnel-page '+ section' popover stays open, picks a
+//          section, persists across reload"
+//  * MOVE a section across a page boundary, persists
+//      -> leadgen-rework-p3b-board.gesture.spec.ts
+//         "S5.3 item 4a — menu 'Move down' rolls a chip across the page
+//          boundary (persists across reload)" AND "S5.3 item 4b — dragging a
+//          chip from page 1 to page 2 within a funnel moves it (persists
+//          across reload)"
+//  * reorder pages, survives a reload
+//      -> leadgen-r2p6-d11c-drive.spec.ts
+//         "11C-A — page order changes by DRAG and by the page kebab menu, and
+//          both survive a reload"
+//  * configure a slot as A/B between two sections; the split round-trips and
+//    the composed/live route honours it
+//      -> leadgen-rework-p3b-board.gesture.spec.ts
+//         "S5.3 item 3 — author an A/B slot on the shared page via the chip
+//          menu; chip shows kind; composed route serves one allocation" AND
+//         leadgen-r2p6-d11c-drive.spec.ts "N02·N03 — one shared first page
+//          fronts EVERY funnel live, and that shared page is A/B-able from the
+//          board (both arms served)"
+//  * a RULED slot (case -> section X, required default Y) authored through the
+//    real pickers, saved, and round-tripped
+//      -> leadgen-r2p6-d11c-drive.spec.ts "11C-B — a funnel page carries MORE
+//         THAN ONE section, and its chips offer both A/B-this-slot and a CA
+//         slot rule", which drives the SAME successor DOM
+//         ([data-shared-ruled-dialog] / [data-ruled-case] / [data-ruled-field]
+//          — funnel.ts renderSharedSlotRuledDialog)
+//  * the rail lays out cleanly at a narrow width with no overlap/clipping
+//      -> leadgen-rework-p3b-board.gesture.spec.ts "board renders library /
+//         board / rules-mount + responsive screenshots (1280 & 375)" AND
+//         leadgen-r2p6-d11c-drive.spec.ts "N09 — the rules rail/table stays
+//         inside its box and clips nothing at 375 · 1280 · 1600 · 1640 · 1680"
+//         (the 260px structure rail itself no longer exists to measure)
+//  * "the auction runs after the LAST page/section"
+//      -> test/leadgen-funnel.test.ts "auctionEntryPosition — the auction runs
+//         after the MAX position (no 'final' flag)" and
+//         test/leadgen-quotes-api.test.ts (auction_entry_position asserted on
+//         the real variant + structure endpoints, lines ~490/514/757).
+//         NOTE, stated rather than hidden: the browser-visible marker that
+//         survives the rewrite is the variant-PREVIEW one
+//         (quotes-handlers.ts renders `data-auction-after-position` /
+//          "Auction runs after this section (§15.3 max position)") and NO
+//         test-ui spec drives it today. Only the marker's DOM presence on a
+//         preview render is uncovered at the browser level; the ordering rule
+//         itself is covered by the two unit/API specs named above.
+// ===========================================================================
+//
 // LeadGen Round-4 Remediation — Phase P3 slice P3b probe spec (temporary;
-// final consolidation lands in P7). Drives the REAL admin Quote-Builder
+// final consolidation lands in P7). Drove the REAL admin Quote-Builder
 // structure panel (ui-quotes.ts) end to end with real fill/click (ZERO
 // dispatchEvent): pages become first-class rows holding nested section slots.
 //
@@ -108,7 +179,8 @@ test.beforeAll(() => {
   mkdirSync(SHOT_DIR, { recursive: true });
 });
 
-test.describe("P3b — pages-first Quote-Builder structure panel", () => {
+// RETIRED (ruling R-A) — see the claim->covering-spec map in the file header.
+test.describe.skip("P3b — pages-first Quote-Builder structure panel [RETIRED: #lg-structure-panel deleted by the P3b board rewrite; covered by leadgen-rework-p3b-board.gesture.spec.ts + leadgen-r2p6-d11c-drive.spec.ts]", () => {
   let seed: Seeded;
 
   test.beforeAll(async () => {
@@ -312,7 +384,8 @@ async function seedRuledFixture(request: APIRequestContext): Promise<RuledSeed> 
 // pre-authored fixture). Its OWN isolated quote (seedRuledFixture) —
 // independent of the A/B test's DOM/save state above.
 // ---------------------------------------------------------------------------
-test.describe("P3b — ruled-slot editor (review round, P3 minor-4)", () => {
+// RETIRED (ruling R-A) — see the claim->covering-spec map in the file header.
+test.describe.skip("P3b — ruled-slot editor (review round, P3 minor-4) [RETIRED: #lg-structure-panel deleted by the P3b board rewrite; the ruled-slot claim is covered by leadgen-r2p6-d11c-drive.spec.ts 11C-B on the successor [data-shared-ruled-dialog] DOM]", () => {
   let seed: RuledSeed;
 
   test.beforeAll(async () => {

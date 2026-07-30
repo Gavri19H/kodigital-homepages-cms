@@ -576,6 +576,12 @@ export interface LegacyPinLiveFunnel {
   slug: string;
   /** The three MINTED lgs_ ids, in variant position order (the row-⑥ normalizer input). */
   sectionPublicIds: string[];
+  /**
+   * The MINTED lgs_ id of the mandatory shared first page's section (R2 P6,
+   * ruling R-C). The pin harness gives its own shared section the FIXED id
+   * `lgs_0000000000000000000LEGACY1`, so row ⑥ maps this one onto that.
+   */
+  sharedSectionPublicId: string;
 }
 
 export async function seedLegacyPinLiveFunnel(
@@ -624,17 +630,60 @@ export async function seedLegacyPinLiveFunnel(
     "e3 legacy pin variant sections",
   );
   // Deliberately NO PUT /funnels/:id/frame — frame_config_json stays NULL.
-  // R2 P6: the SAME §4.3-1/§4.3-15 activation precondition seedPatternQuote
-  // already satisfies above (seedTrivialSharedPage) applies here too — this
-  // helper predates it and 409'd `activation.shared_page: "The shared first
-  // page needs at least one section."`, killing this file's whole beforeAll
-  // (1 fail + 5 did-not-run). Identical trivial ContinueButton shared page,
-  // same precedent, activity/vertical matched to this quote's own.
-  await seedTrivialSharedPage(request, quote.public_id, {
-    activity: "quote_funnel",
-    vertical: "life",
-    uniq: quote.public_id,
-  });
+  //
+  // R2 P6 terminal clearance (ruling R-C): the §4.3-1/§4.3-15 activation gate
+  // requires a shared first page with >=1 section, so this helper must seed
+  // one. The FIRST attempt reused the generic `seedTrivialSharedPage`
+  // (headline "Continue", one ContinueButton) — that cleared the 409 but broke
+  // row ⑥'s byte pin, because the committed fixture is NOT frozen-stale: it
+  // already contains the pin harness's OWN shared page. Measured 2026-07-30 by
+  // recapturing through the fixture's documented path
+  // (`LEADGEN_PIN_UPDATE=1 npx vitest run test/leadgen-frame-legacy-pin.test
+  // .ts`): both fixtures were rewritten BYTE-IDENTICALLY —
+  // legacy-shell.html sha256 4d8c72a35adf6685b77022aed4bfb89a6b7fec9a65e92eb05
+  // c69657b8092bf92 and legacy-variant-preview.json sha256 a3a0ac4229ee88c65ab
+  // 12722fca7445fa0c14eb94b223ccaa38888982687f3d2 before AND after, git status
+  // clean. Zero differing bytes, so there was nothing to reclassify.
+  //
+  // The divergence was entirely on THIS mirror's side: the fixture's slide 0 is
+  // `data-screen-label="01 · Shared"` carrying a TwoButtonYesNo, while the
+  // generic helper produced `01 · Continue` with a bare submit button. So this
+  // seeds a shared page that MIRRORS the pin harness's own, verbatim from
+  // test/leadgen-frame-legacy-pin.test.ts:399-413 (section_name 'Shared',
+  // headline 'Shared', continue_mode 'button', ONE TwoButtonYesNo with
+  // question_id qs1 / question_key ks / internal_field fs / answer_type
+  // boolean). Same drift-detection contract as LEGACY_PIN_SECTION_CONTENT
+  // above: if the pin harness's shared section ever changes, row ⑥'s
+  // byte-compare fails loudly rather than papering over it.
+  const sharedSection = await json<{ id: number; public_id: string }>(
+    await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: "Shared",
+        activity: "quote_funnel",
+        vertical: "life",
+        headline_text: "Shared",
+        continue_mode: "button",
+        status: "active",
+        content_json: {
+          components: [
+            { type: "TwoButtonYesNo", question_id: "qs1", question_key: "ks", internal_field: "fs", answer_type: "boolean" },
+          ],
+        },
+      },
+    }),
+    "e3 legacy pin shared-page section create",
+  );
+  await json(
+    await request.post(`${LG_API}/quotes/${quote.public_id}/shared-page`, {
+      data: { sections: [{ section_id: sharedSection.id }] },
+    }),
+    "e3 legacy pin shared page create",
+  );
   await activateQuoteOnSite(request, quote.public_id, siteId, "legacy-pin");
-  return { host, slug: "legacy-pin", sectionPublicIds: sections.map((s) => s.publicId) };
+  return {
+    host,
+    slug: "legacy-pin",
+    sectionPublicIds: sections.map((s) => s.publicId),
+    sharedSectionPublicId: sharedSection.public_id,
+  };
 }

@@ -430,10 +430,20 @@ test.describe("P6b — theme A/B fork + the A/B tab's template-level reframe", (
     await page.locator('.lg-qtab[data-tab="ab"]').click();
     await expect(abPanel).toHaveClass(/active/);
     await expect(page.locator("#lg-add-variant")).toBeVisible();
-    // "Fork this variant" renders TWICE (the always-visible top variant bar,
-    // AND this panel's own toolbar, both pre-existing) — scope to the A/B
-    // panel's copy specifically, avoiding a strict-mode ambiguity.
-    await expect(abPanel.locator("[data-fork-variant]")).toBeVisible();
+    // RE-POINTED 2026-07-30 (R2 P6 terminal clearance, ruling R-A). This line
+    // asserted the old "Fork this variant" button (`[data-fork-variant]`),
+    // which renders NOWHERE today: `grep -rn "data-fork-variant" src/` = 1
+    // hit, quotes-tabs/funnel.ts:3855, and that is a READ
+    // (`el.getAttribute('data-fork-variant')`), not a render. Rework M1's
+    // single-active-variant gate (§4.3-10) replaced free forking with the
+    // gated `#lg-add-variant` control (quotes-tabs/ab.ts:162, which also
+    // renders the disabled state + `#lg-add-variant-why` reason). The CLAIM —
+    // "the A/B panel itself offers the add-an-arm control, not just some other
+    // surface" — is unchanged and kept SCOPED to the panel exactly as before
+    // (the original comment's whole point), and the rest of this test already
+    // drives the real fork through `#lg-add-variant` a few lines below.
+    await expect(abPanel.locator("#lg-add-variant")).toBeVisible();
+    await expect(abPanel.locator("#lg-add-variant")).toHaveCount(1);
     await expect(page.locator("[data-alloc-sum]")).toBeVisible();
     await expect(page.locator(`[data-arm-variance="${seed.variantPublicId}"]`)).toHaveText("Control");
 

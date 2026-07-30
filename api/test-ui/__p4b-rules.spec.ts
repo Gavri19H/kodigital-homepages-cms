@@ -176,19 +176,85 @@ test.describe("P4b — unified routing-rules builder (Image42 modal + table)", (
     await ctx.dispose();
   });
 
+  // R2 P6 terminal clearance (conductor ruling R-B/R-A): this test's CLAIM —
+  // "there is no standalone Rules tab; the rules surface is embedded in the
+  // Funnel builder tab's RIGHT column" — is still true and still load-bearing,
+  // so it is KEPT and only its mount selector is re-pointed. The P3b board
+  // rewrite moved the mount from `#lg-inspector-column #lg-routing-rules-root`
+  // (0 renders in src today) to `.lg-board-right[data-rules-rail]`
+  // (quotes-tabs/funnel.ts:708, the ONLY `data-rules-rail` render in src).
+  // Kept at least as strict: the old version asserted "visible" + "exactly one
+  // inside the builder panel's inspector column"; this asserts visible + a
+  // page-wide uniqueness of the mount + that the single page-wide instance is
+  // the one inside the ACTIVE builder panel (so a stray mount in any other tab
+  // panel fails), and additionally pins the rail to the board shell's right
+  // column rather than merely "somewhere in the panel".
   test("standalone Rules tab is gone; the panel is embedded in the Funnel builder tab's right column", async ({ page }) => {
     await page.goto(`/admin/leadgen/quotes/${seed.quotePublicId}/edit`, { waitUntil: "domcontentloaded" });
     await expect(page.locator(".lg-qtabs [data-tab='builder']")).toBeVisible();
     // The five-tab era's standalone Rules tab/panel no longer exist.
     await expect(page.locator(".lg-qtabs [data-tab='rules']")).toHaveCount(0);
     await expect(page.locator("[data-panel='rules']")).toHaveCount(0);
-    // The unified table+modal is inside the ACTIVE builder panel's right column.
+    // The rules rail is inside the ACTIVE builder panel's right column…
     const builderPanel = page.locator("[data-panel='builder'].active");
-    await expect(builderPanel.locator("#lg-routing-rules-root")).toBeVisible();
-    await expect(builderPanel.locator("#lg-inspector-column #lg-routing-rules-root")).toHaveCount(1);
+    const rail = builderPanel.locator(".lg-board-right[data-rules-rail]");
+    await expect(rail).toBeVisible();
+    await expect(rail).toHaveCount(1);
+    // …and it is EMBEDDED there, not merely present: exactly one mount exists
+    // page-wide, and it is a direct child of the builder panel's board shell.
+    await expect(page.locator("[data-rules-rail]")).toHaveCount(1);
+    await expect(builderPanel.locator('.lg-board-shell[data-pin="8.2-tab-geometry"] > .lg-board-right[data-rules-rail]')).toHaveCount(1);
+    // …carrying a real rules surface (the quote-scoped rail island), not an
+    // empty div left behind by the move.
+    await expect(rail.locator('#lg-qr-rail[data-pin="8.2-rules-rail"]')).toHaveCount(1);
   });
 
-  test("author a rule through the modal, save, reload, toggle status, duplicate — no raw target_offer_id input ever visible", async ({ page }) => {
+  // =========================================================================
+  // RETIRED 2026-07-30 (R2 P6 terminal clearance, conductor ruling R-A) —
+  // `.skip`ped, not deleted, so the claims stay readable beside their cover.
+  //
+  // WHY: the P3b board rewrite deleted the ENTIRE per-variant rules UI this
+  // test drives. Measured by hand at f808e33 against `src/`:
+  //   grep -rn "lg-rule-modal" src/       -> 0 hits
+  //   grep -rn "lg-rule-new" src/         -> 0 hits
+  //   grep -rn "lg-rules-table-body" src/ -> 0 hits
+  //   grep -rn "lg-modal-rule-type" src/  -> 0 hits
+  //   grep -rn "lg-routing-rules-root" src/ -> only the two removal COMMENTS
+  //     in quotes-tabs/funnel.ts:1034/1037, zero renders
+  // ui-quotes.ts states the removal itself: "ROUTING_RULES_SCRIPT /
+  // renderRoutingRulesPanel (the OLD per-variant rules panel this phase
+  // removed from render — renderInspectorColumn/renderRulesPanel, deleted with
+  // the board rewrite) were CONFIRMED unreachable dead code bound to absent
+  // DOM (0 real call sites anywhere) and DELETED entirely." Routing moved to
+  // the QUOTE-scoped rail (leadgen_quote_routing_rules), which test 1 above
+  // still pins structurally.
+  //
+  // WHERE EACH CLAIM IS NOW ASSERTED — all in
+  // leadgen-rework-p3b-rules.gesture.spec.ts (16/16 at f808e33), whose Layer-2
+  // tests hit the REAL board page, REAL API and REAL D1 (not the mock layer):
+  //   * author a rule through the real modal, save, RELOAD, and read the
+  //     persisted server-side values back
+  //       -> "create through the real modal -> reload -> the card renders the
+  //          persisted, server-side values"  (Layer 2, real round-trip)
+  //   * toggle status (enable/disable) + Duplicate + delete
+  //       -> "duplicate adds a copy; enable/disable flips status; delete
+  //          removes the row" AND "pick variant -> create eligibility rule ->
+  //          edit -> duplicate -> delete; server message on a validation
+  //          failure"  (the latter is Layer 2, real server)
+  //   * priority + the row/card rendering the authored rule
+  //       -> "create a rule with ALL FIVE actions → saves → row appears with
+  //          its sentence" AND "priority change reorders the cards (lower
+  //          number first)"
+  //   * "no raw target_offer_id input is ever VISIBLE — the operator picks an
+  //     offer by NAME": the successor rail has no raw-id input at all; the
+  //     by-NAME picker is asserted by "create a rule with ALL FIVE actions"
+  //     ([data-qr-target-mode] [data-qr-mode="offer"] then
+  //      [data-qr-target-offer].selectOption), and the missing-offer failure
+  //     path by "pick variant -> ... server message on a validation failure"
+  //     (#lg-frr-type = redirect_direct_offer with no offer chosen ->
+  //      "requires target_offer_id").
+  // =========================================================================
+  test.skip("author a rule through the modal, save, reload, toggle status, duplicate — no raw target_offer_id input ever visible [RETIRED: per-variant rules UI deleted by the P3b board rewrite; covered by leadgen-rework-p3b-rules.gesture.spec.ts]", async ({ page }) => {
     // 3 save+reload round trips (initial / disable / re-enable) PLUS the
     // duplicate leg against a real wrangler-dev server — comfortably under
     // 120s individually, but the conductor's coherence + duplicate-endpoint
@@ -361,7 +427,24 @@ test.describe("P4b — unified routing-rules builder (Image42 modal + table)", (
     await expect(page.locator("#lg-rules-table-body [data-row-name]", { hasText: "Kissterra 65+ (copy)" })).toHaveCount(1);
   });
 
-  test("a redirect rule authored via the offer NAME picker persists target_offer_id + redirect_pct — never a raw id the operator typed", async ({ page }) => {
+  // RETIRED 2026-07-30 (ruling R-A) — same cause as the test above
+  // (#lg-rule-new / #lg-rule-modal / [data-modal-target-offer] all render 0×
+  // in src). The claim "the operator picks an offer by NAME and the correct
+  // target_offer_id + redirect_pct persist — never a raw id typed by hand" is
+  // asserted on the successor quote-rules rail by
+  // leadgen-rework-p3b-rules.gesture.spec.ts:
+  //   * by-NAME pick + persisted target: "create a rule with ALL FIVE actions
+  //     → saves → row appears with its sentence" (clicks
+  //     [data-qr-target-mode] [data-qr-mode="offer"], then
+  //     [data-qr-target-offer].selectOption — an option list of offer NAMES);
+  //   * redirect_pct as a real persisted field: the same spec's rule fixtures
+  //     carry redirect_pct/target_offer_id through the API row shape
+  //     (baseRule/echo at lines ~72/114-115, asserted in "priority change
+  //     reorders the cards");
+  //   * server-side rejection when no offer is picked: "pick variant -> create
+  //     eligibility rule -> edit -> duplicate -> delete; server message on a
+  //     validation failure" asserts the verbatim "requires target_offer_id".
+  test.skip("a redirect rule authored via the offer NAME picker persists target_offer_id + redirect_pct — never a raw id the operator typed [RETIRED: per-variant rules modal deleted by the P3b board rewrite; covered by leadgen-rework-p3b-rules.gesture.spec.ts]", async ({ page }) => {
     test.setTimeout(60_000);
     page.on("dialog", (d) => d.accept());
     await page.goto(`/admin/leadgen/quotes/${seed.quotePublicId}/edit`, { waitUntil: "domcontentloaded" });

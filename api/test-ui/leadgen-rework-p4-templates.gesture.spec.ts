@@ -147,6 +147,36 @@ test.describe("LeadGen Rework P4 — Templates tab (contract §8.3)", () => {
 
   test("section picker + theme switcher re-render the canvas (content changes)", async ({ page }) => {
     const seed = await seedQuote(apiCtx, "pickers", true);
+    // -------------------------------------------------------------------
+    // R2 P6 terminal clearance (ruling R-B) — ROOT CAUSE of this test's
+    // "option being selected is not enabled" failure, fixed by making the
+    // leg DETERMINISTIC rather than by relaxing it.
+    // The theme switcher (#lg-tpl-theme-select) is populated client-side
+    // from GET /themes (quotes-tabs/templates.ts wireThemeSwitcher). When
+    // that list is EMPTY the island appends a deliberate, `disabled`
+    // placeholder option: "No themes yet — create one in the Themes tab"
+    // (templates.ts:1714-1720, `empty.disabled = true`). So a themeless
+    // fixture still reports option count 2, the old `if (count > 1)` guard
+    // fired, and `selectOption({ index: 1 })` targeted that placeholder —
+    // Playwright correctly refused it for 30s. This is a LEGITIMATE
+    // zero-theme placeholder in the product, verified by reading the render
+    // (not assumed): nothing to fix in src.
+    // Seeding one real theme makes the switcher leg run EVERY time instead
+    // of being silently skipped on a themeless fixture, and lets the option
+    // be picked by its real id rather than a positional index.
+    // -------------------------------------------------------------------
+    const themeName = `P4T Picker Theme ${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const seededTheme = await json<{ item: { id: string } }>(
+      await apiCtx.post(`${LG_API}/themes`, {
+        data: {
+          name: themeName,
+          roles: { brand_primary: "#123456", accent: "#654321", page_bg: "#FFFFFF", card: "#FFFFFF", text: "#101010", success: "#0E7C3A", error: "#B23A2C" },
+          typography: { headline_font: "Inter", body_font: "Inter", base_px: 16 },
+          controls: { field_height: "medium", button_size: "m", corners: "rounded" },
+        },
+      }),
+      "seed a theme for the switcher",
+    );
     await openTemplatesTab(page, seed.quotePublicId);
 
     // section select has a real option (not just the "no sections" placeholder)
@@ -158,18 +188,22 @@ test.describe("LeadGen Rework P4 — Templates tab (contract §8.3)", () => {
     // theme switcher: selecting an explicit theme changes the resolved
     // config (network round trip) — assert a preview POST actually fires.
     const themeSelect = page.locator("#lg-tpl-theme-select");
-    const themeOptionCount = await themeSelect.locator("option").count();
-    if (themeOptionCount > 1) {
-      const [req] = await Promise.all([
-        // P6 terminal: a waitForRequest predicate receives a Request, which has NO
-        // .request() — the old form threw "r.request is not a function" before the
-        // predicate could ever match (the sibling builder spec fixed this already).
-        // waitForRESPONSE predicates below are untouched: those DO get a Response.
-        page.waitForRequest((r) => r.url().includes("/preview") && r.method() === "POST"),
-        themeSelect.selectOption({ index: 1 }),
-      ]);
-      expect(req.method()).toBe("POST");
-    }
+    // The seeded theme really reaches the switcher (client-side fetch), and it
+    // is ENABLED — i.e. not the zero-theme placeholder described above. This
+    // leg is now unconditional; the old `if (count > 1)` escape hatch is gone.
+    const realOption = themeSelect.locator(`option[value="${seededTheme.item.id}"]`);
+    await expect(realOption).toHaveCount(1, { timeout: 10_000 });
+    await expect(realOption).not.toBeDisabled();
+    const [req] = await Promise.all([
+      // P6 terminal: a waitForRequest predicate receives a Request, which has NO
+      // .request() — the old form threw "r.request is not a function" before the
+      // predicate could ever match (the sibling builder spec fixed this already).
+      // waitForRESPONSE predicates below are untouched: those DO get a Response.
+      page.waitForRequest((r) => r.url().includes("/preview") && r.method() === "POST"),
+      themeSelect.selectOption(seededTheme.item.id),
+    ]);
+    expect(req.method()).toBe("POST");
+    await expect(themeSelect).toHaveValue(seededTheme.item.id);
   });
 
   test("Progress type picker updates the canvas (a live, pre-Save preview round trip)", async ({ page }) => {
@@ -283,11 +317,45 @@ test.describe("LeadGen Rework P4 — Templates tab (contract §8.3)", () => {
     await expect(chip2).toHaveClass(/is-default/, { timeout: 10_000 });
     // atomic swap: exactly one default remains — chip1 no longer carries it.
     await expect(chip1).not.toHaveClass(/is-default/, { timeout: 10_000 });
+    // -----------------------------------------------------------------
+    // REWRITTEN 2026-07-30 (R2 P6 terminal clearance, ruling R-B) — this
+    // was the file's last STALE assertion, and it is now STRICTER, not
+    // weaker. It used to re-fetch the GLOBAL /frame-template-records and
+    // demand `is_default == [t2]`. R2 ruling D5 (contract §7 D5, migration
+    // 0055 `leadgen_quote_default_template`) made the control the test
+    // clicks — "Set as this quote’s default" — PER-QUOTE: it PATCHes
+    // /quotes/:id {default_template_id} and deliberately leaves the global
+    // `is_default` alone (that flag stays the cross-quote seed for "+ Add
+    // funnel"). So the old line asserted a write the ruled product must NOT
+    // make. Re-pointed at the per-quote truth using the pattern already
+    // proven in leadgen-rework-acceptance-builder.gesture.spec.ts's
+    // "#11D 'Set as this quote's default' is a single atomic PER-QUOTE swap
+    // (D5)" test: (1) exactly one per-quote default and it is the LAST one
+    // set, (2) a DIFFERENT quote is untouched — i.e. genuinely per-quote,
+    // not a renamed global, and (3) the global is_default was never written.
+    // Three assertions where there was one; the atomic-swap claim is intact.
+    // -----------------------------------------------------------------
+    const quoteRow = await json<{ default_template_id: string | null }>(
+      await apiCtx.get(`${LG_API}/quotes/${seed.quotePublicId}`),
+      "quote row re-fetch",
+    );
+    expect(quoteRow.default_template_id, "exactly one per-quote default remains — the last one set (atomic swap)").toBe(t2.public_id);
+
+    const otherSeed = await seedQuote(apiCtx, "default-other", true);
+    const otherRow = await json<{ default_template_id: string | null }>(
+      await apiCtx.get(`${LG_API}/quotes/${otherSeed.quotePublicId}`),
+      "other quote row",
+    );
+    expect(otherRow.default_template_id, "another quote's default is untouched — the swap is PER-QUOTE, not global").not.toBe(t2.public_id);
+
     const defaultRecords = await json<{ items: CreatedTemplate[] }>(
       await apiCtx.get(`${LG_API}/frame-template-records`),
       "template records re-fetch",
     );
-    expect(defaultRecords.items.filter((t) => t.is_default).map((t) => t.public_id)).toEqual([t2.public_id]);
+    expect(
+      defaultRecords.items.filter((t) => t.is_default).map((t) => t.public_id),
+      "the per-quote control never writes the GLOBAL is_default flag (D5)",
+    ).not.toContain(t2.public_id);
   });
 
   test("Apply to funnel: preview-before-apply + confirm, and Cancel leaves the funnel untouched", async ({ page }) => {

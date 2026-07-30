@@ -144,8 +144,26 @@ async function putFrame(request: APIRequestContext, funnelPublicId: string, fram
   );
 }
 
+// R2 P6 terminal clearance (ruling R-A) — RE-POINTED, not retired, not
+// relaxed. `#lg-preview-iframe` (the §4.1 frame-studio canvas) was deleted by
+// the P3b board rewrite, but the frame canvas itself MOVED rather than
+// vanished: the Templates tab owns it now as `#lg-tpl-canvas-iframe`
+// (quotes-tabs/templates.ts:809), fed by the same POST /variants/:id/preview.
+// Probed by hand on 8901 at f808e33: that endpoint, given a valid
+// draft_frame_config, returns html carrying 9 `data-frame-region` stamps
+// (background/header/logo/progress/image/section_slot/back/brand_logos/footer),
+// 2 `.lg-frame-brand-logos` and 4 `.lg-frame-image` nodes. Same regions, same
+// assertions, new iframe id. Precedent: leadgen-rework-p4-templates.gesture
+// .spec.ts and __p5b-quotes-ia.spec.ts both frameLocator this exact canvas.
 function canvas(page: Page): FrameLocator {
-  return page.frameLocator("#lg-preview-iframe");
+  return page.frameLocator("#lg-tpl-canvas-iframe");
+}
+// The canvas lives under the Templates tab, so any test asserting on it must
+// be on that tab first (mirrors leadgen-rework-p4-templates.gesture.spec.ts).
+async function openTemplatesTab(page: Page): Promise<void> {
+  await page.locator('.lg-qtab[data-tab="templates"]').click();
+  await expect(page.locator('[data-panel="templates"]')).toHaveClass(/active/);
+  await expect(page.locator('[data-tplbox-panel="progress"]')).toBeVisible({ timeout: 15_000 });
 }
 // R2 P6 (stale WAIT, not a weakened assertion): this gate used to wait for
 // `#lg-preview-iframe` → `[data-frame-region='section_slot']`. That iframe is
@@ -268,6 +286,10 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
     );
 
     await openEditor(page, seed.quotePublicId);
+    // RE-POINTED (ruling R-A): the frame canvas moved to the Templates tab.
+    // `#lg-site-select` is the editor's top-level Preview-site chip
+    // (ui-quotes.ts:725), not tab-scoped, so the journey is identical.
+    await openTemplatesTab(page);
     await page.locator("#lg-site-select").selectOption(logoSiteId);
     const logoImg = canvas(page).locator("[data-frame-region='logo'] img.lg-logo-img");
     await expect(logoImg, "the REAL uploaded logo resolves").toBeVisible({ timeout: 20_000 });
@@ -348,18 +370,40 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
   test('Item 10D — progress style picker is a real aligned control; "numbered" is authored + renders DISTINCT from "bar" live; all 6 styles pairwise-unique', async ({ page, browserName }) => {
     const seed = await seedQuote(apiCtx, "prog");
     await openEditor(page, seed.quotePublicId);
-    await canvas(page).locator("[data-frame-region='progress']").first().click();
-    const panel = page.locator('[data-region-panel="progress"]');
+    // ---------------------------------------------------------------------
+    // RE-POINTED 2026-07-30 (R2 P6 terminal clearance, ruling R-A). The
+    // canvas-click route into a `[data-region-panel="progress"]` inspector was
+    // deleted with the §4.1 frame studio (`grep -rn 'data-region-panel="'
+    // src/` = 0 renders; the only hits are funnel.ts's orphaned island JS).
+    // R2 §8.3 moved the picker into the Templates tab's Progress box (I) and
+    // changed its SHAPE: 5 thumbnail cards (`.lg-tpl2-ptype`) + a
+    // visually-hidden "hidden" proxy radio the Show-progress-bar switch
+    // drives, instead of 6 label-left/radio-right rows. The Image15 row-
+    // alignment sub-assertion therefore describes a superseded control and is
+    // NOT carried over (its behavioural half is covered by
+    // leadgen-rework-p4-templates.gesture.spec.ts "Progress type picker
+    // updates the canvas (a live, pre-Save preview round trip)").
+    // Everything else here is kept and made STRICTER than before: the old
+    // version only counted 6 rows; this asserts the exact 6-value style SET,
+    // that exactly 5 of them are real operator-visible cards, and that
+    // "hidden" is the toggle rather than a 6th card. The load-bearing B-4.7
+    // leg below (author "numbered" through the REAL picker -> save -> live
+    // pairwise-distinctness across the 5 rendering styles) is untouched.
+    // ---------------------------------------------------------------------
+    await openTemplatesTab(page);
+    await page.locator('[data-tplbox-pick="progress"]').click();
+    const panel = page.locator('[data-tplbox-panel="progress"]');
     await expect(panel).toBeVisible();
-    const rows = panel.locator(".lg-progress-style-opt");
-    await expect(rows, "all 6 progress styles are offered (hidden/bar/dots/numbered/percent/icon_on_track)").toHaveCount(6);
-    // Editor layout fix (Image15): the radio sits RIGHT of its label on every row.
-    for (let i = 0; i < 6; i++) {
-      const labelBox = await rows.nth(i).locator(".lg-progress-style-label").boundingBox();
-      const radioBox = await rows.nth(i).locator('input[type="radio"]').boundingBox();
-      expect(radioBox!.x, `row ${i}: radio x > label x`).toBeGreaterThan(labelBox!.x);
-    }
-    await rows.filter({ has: page.locator('input[value="numbered"]') }).locator('input[type="radio"]').check();
+    const styleRadios = panel.locator('input[data-frame-key="progress.style"]');
+    await expect(styleRadios, "all 6 progress styles are offered (hidden/bar/dots/numbered/percent/icon_on_track)").toHaveCount(6);
+    const styleValues = await styleRadios.evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value).sort());
+    expect(styleValues, "the exact style set is offered").toEqual(["bar", "dots", "hidden", "icon_on_track", "numbered", "percent"]);
+    // §8.3: exactly the 5 RENDERING styles are operator-visible thumbnail
+    // cards — "hidden" is the Show-progress-bar switch, never a 6th card.
+    await expect(panel.locator(".lg-tpl2-ptype"), "5 real styles as thumbnail cards").toHaveCount(5);
+    await expect(panel.locator("#lg-tpl-progress-show-checkbox"), "'hidden' is reached by the switch").toBeVisible();
+    await panel.locator('input[data-frame-key="progress.style"][value="numbered"]').check({ force: true });
+    await expect(panel.locator('input[data-frame-key="progress.style"][value="numbered"]')).toBeChecked();
     const framePut = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().includes(`/funnels/${seed.funnelPublicId}/frame`));
     await page.locator("#lg-variant-save").click();
     expect((await framePut).status()).toBe(200);
@@ -615,6 +659,30 @@ test.describe("Round-4 acceptance — Quotes tab: Templates/frame elements (regi
     await expect(imgRow.locator("[data-img-item-gen-error]"), "no persona chosen -> inline error, no network call").toContainText("Choose a persona first.");
     expect(personaImageRequests).toBe(0);
     await personaSel.selectOption("young_woman");
+    // ---------------------------------------------------------------------
+    // R2 P6 terminal clearance (ruling R-E) — ROOT CAUSE of this test's only
+    // remaining failure, and a SAFETY repair, not a relaxation.
+    // This leg's whole point is the SECOND zero-cost guard: "a persona is
+    // chosen but NO preview site is selected -> a different inline error, and
+    // STILL zero calls to the billable endpoint". The test ASSUMED the
+    // no-preview-site precondition instead of establishing it. It does not
+    // hold for this fixture: seedQuote() creates an ACTIVE site, and the
+    // editor island auto-adopts the first `option[data-badge="Active"]` into
+    // its `siteId` on boot (quotes-tabs/funnel.ts, the [data-site-select]
+    // sync IIFE). With `siteId` truthy the guard at funnel.ts:3088 is skipped
+    // by design and the island issues a REAL POST /assets/persona-image —
+    // measured here: the row showed the server's failure text "The persona
+    // image could not be generated. Please try again."
+    // (assets-handlers.ts:334) instead of the guard text, i.e. this test WAS
+    // calling the billable endpoint, contradicting its own header's "a real
+    // billable OpenAI call is NEVER triggered here". Selecting the explicit
+    // "CMS fallback branding" option (value "", shared.ts:931) establishes
+    // the stated precondition, so the guard is actually exercised and the
+    // zero-call assertion below becomes meaningful rather than incidental.
+    // (__p5b-quotes-ia.spec.ts's twin passes only because its sites are not
+    // Active-badged, so nothing is auto-adopted.)
+    // ---------------------------------------------------------------------
+    await page.locator("#lg-site-select").selectOption("");
     await generateBtn.click();
     await expect(imgRow.locator("[data-img-item-gen-error]"), "persona chosen but no preview site -> a DIFFERENT error, still zero calls").toContainText("Choose a preview site");
     expect(personaImageRequests, "the billable endpoint is NEVER called by these client-side guards").toBe(0);
