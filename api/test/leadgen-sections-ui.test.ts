@@ -1123,7 +1123,8 @@ describeDb("§9.2 executed island — runPreview against the REAL preview handle
     // nothing (E5: never attributes for the client to interpret)
     expect(srcdoc).toContain('aria-checked="true"');
     expect(srcdoc).toContain("lg-selected");
-    expect(srcdoc).toContain('aria-pressed="true"');
+    // ADJ-R8: selected state now emits aria-checked (role="radio"), never aria-pressed
+    expect(srcdoc).not.toContain('aria-pressed="true"');
     expect(out.frame.className).toBe("lg-preview-frame");
   });
 
