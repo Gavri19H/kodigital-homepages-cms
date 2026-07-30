@@ -266,6 +266,138 @@ describe("§6.8 slider type picker", () => {
     expect(src).toContain("props.currency_affix = true");
     expect(src).not.toContain("node.type =");
   });
+
+  // P4 S4c found the picker/render drift inverted from the original probe: the
+  // §6.8 renders (S4a, 1e2ea09) were fixed to FLANK a prominent value with the
+  // -/+ buttons on one row, then a SEPARATE full track+handle+captions below —
+  // but the stepper THUMBNAIL still depicted [-box][mini-track][+box], a
+  // smaller/different anatomy than the render now delivers. This asserts the
+  // thumbnail's OWN markup (never the render's) carries the render's real
+  // structural signature.
+  function stepperThumbSvg(): string {
+    const marker = 'data-set-slider-type="stepper"';
+    const btnStart = INSPECTOR.indexOf(marker);
+    expect(btnStart, "stepper slider-type button present").toBeGreaterThan(-1);
+    const thumbStart = INSPECTOR.indexOf('class="studio-slider-type-thumb"', btnStart);
+    const svgStart = INSPECTOR.indexOf("<svg", thumbStart);
+    const svgEnd = INSPECTOR.indexOf("</svg>", svgStart) + "</svg>".length;
+    return INSPECTOR.slice(svgStart, svgEnd);
+  }
+
+  it("the stepper thumbnail depicts -/+ FLANKING a prominent value on one row, a SEPARATE track+handle, and captions below (the render's structural signature)", () => {
+    const svg = stepperThumbSvg();
+
+    // Row 1: two outline (fill:none) boxes — the - and + buttons.
+    const outlineBoxes = [
+      ...svg.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="[\d.]+" fill="none"/g),
+    ];
+    expect(outlineBoxes.length, "exactly two outline boxes (- and +)").toBe(2);
+    const minusX = Number(outlineBoxes[0]![1]);
+    const plusX = Number(outlineBoxes[1]![1]);
+    expect(plusX, "the + box sits right of the - box").toBeGreaterThan(minusX);
+    const row1Top = Number(outlineBoxes[0]![2]);
+    const row1Bottom = row1Top + Number(outlineBoxes[0]![4]);
+
+    // A solid (filled) value chip sits BETWEEN the two boxes on that same row
+    // — the prominent value, flanked by -/+, never a track segment.
+    const chip = svg.match(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="[\d.]+" fill="#1B3A5C"\/>/);
+    expect(chip, "a solid value chip flanked by the two buttons").not.toBeNull();
+    const chipX = Number(chip![1]);
+    expect(chipX, "value chip is right of the - box").toBeGreaterThan(minusX);
+    expect(chipX, "value chip is left of the + box").toBeLessThan(plusX);
+
+    // The pre-fix anatomy wedged a mini track directly on the button row —
+    // assert no track-colored line overlaps that row at all.
+    const trackColorLines = [
+      ...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)" stroke="#E1E6EE"/g),
+    ];
+    expect(trackColorLines.length, "exactly one grey track line (the real, separate track)").toBe(1);
+    const trackOverlapsButtonRow = trackColorLines.some((m) => {
+      const y1 = Number(m[2]);
+      const y2 = Number(m[4]);
+      return (y1 >= row1Top && y1 <= row1Bottom) || (y2 >= row1Top && y2 <= row1Bottom);
+    });
+    expect(trackOverlapsButtonRow, "no track-colored line overlaps the button row").toBe(false);
+
+    // Row 2: the SEPARATE full-width track + dark fill + circular handle,
+    // strictly below row 1 — same idiom as the single/dual_range siblings.
+    const trackY = Number(trackColorLines[0]![2]);
+    expect(trackY, "the track sits below the button/value row").toBeGreaterThan(row1Bottom);
+    const fillLine = svg.match(/<line x1="[\d.]+" y1="[\d.]+" x2="[\d.]+" y2="[\d.]+" stroke="#1B3A5C" stroke-width="4"/);
+    expect(fillLine, "a dark fill line on the track").not.toBeNull();
+    const handle = svg.match(/<circle cx="([\d.]+)" cy="([\d.]+)" r="[\d.]+" fill="#fff" stroke="#1B3A5C"/);
+    expect(handle, "a circular handle riding the track").not.toBeNull();
+    expect(Number(handle![2]), "the handle sits on the track's own row").toBeCloseTo(trackY, 1);
+
+    // Row 3: two caption marks below the track, flanking the far left/right
+    // (min/max), same as the render's bottom captions.
+    const captions = [...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="[\d.]+" stroke="#9AA9BD"/g)];
+    expect(captions.length, "two caption marks (min + max)").toBe(2);
+    const capY = Number(captions[0]![2]);
+    expect(capY, "captions sit below the track").toBeGreaterThan(trackY);
+    const leftCapX = Number(captions[0]![1]);
+    const rightCapX = Number(captions[1]![1]);
+    expect(rightCapX - leftCapX, "captions flank opposite edges, like the render's min/max").toBeGreaterThan(40);
+  });
+
+  // P4 FIX-FIRST (F-5) — the SAME picker/render drift class, on from_to. The
+  // §6.8 render (presets.ts renderDualTrackRange, Image13) is ONE full-width
+  // track carrying TWO handles, a value pill on each handle, min/max captions
+  // under the track, and the two labelled From/To number inputs BELOW all of
+  // it; the thumbnail depicted [box]—[short stub track, NO handles]—[box],
+  // i.e. the inputs FLANKING a stub instead of sitting below a real range.
+  function thumbSvgOf(type: string): string {
+    const btnStart = INSPECTOR.indexOf(`data-set-slider-type="${type}"`);
+    expect(btnStart, `${type} slider-type button present`).toBeGreaterThan(-1);
+    const thumbStart = INSPECTOR.indexOf('class="studio-slider-type-thumb"', btnStart);
+    const svgStart = INSPECTOR.indexOf("<svg", thumbStart);
+    return INSPECTOR.slice(svgStart, INSPECTOR.indexOf("</svg>", svgStart) + "</svg>".length);
+  }
+
+  it("the from_to thumbnail depicts ONE full-width track with TWO handles + pills and the From/To inputs BELOW it (the render's structural signature)", () => {
+    const svg = thumbSvgOf("from_to");
+
+    // ONE real track, spanning the thumbnail's full width — never a stub
+    // wedged between the two boxes (x1 was 26, x2 was 44 of 70 before).
+    const trackLines = [...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="[\d.]+" stroke="#E1E6EE"/g)];
+    expect(trackLines.length, "exactly one grey track line").toBe(1);
+    const trackX1 = Number(trackLines[0]![1]);
+    const trackX2 = Number(trackLines[0]![3]);
+    const trackY = Number(trackLines[0]![2]);
+    expect(trackX1, "the track starts at the left edge").toBeLessThanOrEqual(4);
+    expect(trackX2, "the track runs to the right edge").toBeGreaterThanOrEqual(66);
+
+    // TWO handles ON that track, with the dark fill spanning BETWEEN them.
+    const handles = [...svg.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="[\d.]+" fill="#fff" stroke="#1B3A5C"/g)];
+    expect(handles.length, "exactly two handles (from + to)").toBe(2);
+    for (const h of handles) expect(Number(h[2]), "each handle rides the track's row").toBeCloseTo(trackY, 1);
+    const hx = handles.map((h) => Number(h[1]));
+    expect(hx[1], "the two handles are apart, the To handle right of the From handle").toBeGreaterThan(hx[0]! + 10);
+    const fill = svg.match(/<line x1="([\d.]+)" y1="[\d.]+" x2="([\d.]+)" y2="[\d.]+" stroke="#1B3A5C" stroke-width="4"/);
+    expect(fill, "a dark fill line on the track").not.toBeNull();
+    expect(Number(fill![1]), "the fill starts at the From handle").toBeCloseTo(hx[0]!, 1);
+    expect(Number(fill![2]), "the fill ends at the To handle").toBeCloseTo(hx[1]!, 1);
+
+    // A value pill ABOVE each handle (Image13's readouts — absent before).
+    const pills = [...svg.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="[\d.]+" fill="#1B3A5C"\/>/g)];
+    expect(pills.length, "exactly two value pills").toBe(2);
+    for (const [i, p] of pills.entries()) {
+      expect(Number(p[2]) + Number(p[4]), "the pill sits ABOVE the track").toBeLessThanOrEqual(trackY);
+      expect(Number(p[1]) + Number(p[3]) / 2, "the pill is centred on its own handle").toBeCloseTo(hx[i]!, 1);
+    }
+
+    // The two From/To INPUT boxes sit BELOW the track, side by side — never
+    // flanking it on the track's own row (the pre-fix anatomy).
+    const boxes = [...svg.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="[\d.]+" fill="none"/g)];
+    expect(boxes.length, "exactly two input boxes (From + To)").toBe(2);
+    for (const b of boxes) expect(Number(b[2]), "the input box sits BELOW the track").toBeGreaterThan(trackY);
+    expect(Number(boxes[1]![1]), "the To box sits right of the From box").toBeGreaterThan(Number(boxes[0]![1]));
+
+    // Two caption marks under the track, like the render's min/max line.
+    const captions = [...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="[\d.]+" y2="[\d.]+" stroke="#9AA9BD"/g)];
+    expect(captions.length, "two caption marks (min + max)").toBe(2);
+    expect(Number(captions[0]![2]), "captions sit below the track").toBeGreaterThan(trackY);
+  });
 });
 
 // =============================================================================

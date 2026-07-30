@@ -1,0 +1,20 @@
+
+=== canvas run 2026-07-30T00:30:57.524Z ===
+CANVAS rv7k_single: .lg-range-handle count=1
+CANVAS rv7k_step: .lg-range-stepper-btn count=2
+CANVAS rv7k_ft: .lg-range-ft-label count=2
+CANVAS rv7k_dual: .lg-range-handle-max count=1
+CANVAS rv7k_radial: .lg-range-radial-outer count=1
+studio-canvas-1280.png written
+inspector label field present=1
+
+=== canvas run 2026-07-30T00:34:46.383Z ===
+CANVAS rv7k_single: .lg-range-handle count=1
+CANVAS rv7k_step: .lg-range-stepper-btn count=2
+CANVAS rv7k_ft: .lg-range-ft-label count=2
+CANVAS rv7k_dual: .lg-range-handle-max count=1
+CANVAS rv7k_radial: .lg-range-radial-outer count=1
+studio-canvas-1280.png written
+P2 LIVE REFLECT: radial dial before=1 after picking Single: dial=0 track=1
+restored: dial=1
+re-save after restore -> 200

@@ -898,43 +898,291 @@ export function funnelChromeCss(
       "background-color": rangeQuestion.filledTrackColor,
       "border-radius": rangeQuestion.trackRadius,
     }),
-    // Native range input drives keyboard + role=slider semantics; the visual
-    // track/fill above sit behind it. The input itself is transparent.
+    // R2 P4 §6.8 (design-pack studio-panels.html §6.8) — the handle sits ON the
+    // track. It is a child of .lg-range-fill pinned to the fill's edge, so the
+    // ONE property the runtime already writes live (fill width,
+    // render.updateRangeDisplay) carries it: `left:100%` = the single/max
+    // handle, `left:0` = the min handle of a two-handle track. Translating by
+    // -50%/-50% centres it on that edge and on the track's mid-line — which is
+    // the whole fix for the probe's "handle renders detached ~20px BELOW the
+    // track" (that was the native input's own thumb, painted in normal flow
+    // under the track; the input is now an overlay with a transparent thumb).
+    rule(`${scope} .lg-range-handle`, {
+      position: "absolute",
+      left: "100%",
+      top: "50%",
+      transform: "translate(-50%,-50%)",
+      width: rangeQuestion.thumbSize,
+      height: rangeQuestion.thumbSize,
+      "border-radius": radius.full,
+      background: rangeQuestion.thumbBackground,
+      border: rangeQuestion.thumbBorder,
+      "box-shadow": rangeQuestion.thumbShadow,
+      "box-sizing": "border-box",
+      // The native thumb underneath is the hit target — the visible handle must
+      // never swallow the drag.
+      "pointer-events": "none",
+      "z-index": "2",
+    }),
+    rule(`${scope} .lg-range-handle-min`, { left: "0" }),
+    rule(`${scope} .lg-range-handle-max`, { left: "100%" }),
+    // Image12/Image13: the value pill riding each handle of a two-handle track.
+    rule(`${scope} .lg-range-handle-value`, {
+      position: "absolute",
+      bottom: `calc(100% + ${spacing.sm})`,
+      left: "50%",
+      transform: "translateX(-50%)",
+      "white-space": "nowrap",
+      "font-size": "0.8125rem",
+      "font-weight": "700",
+      "line-height": "1",
+      padding: "5px 9px",
+      "border-radius": radius.sm,
+      background: rangeQuestion.filledTrackColor,
+      color: color.card,
+    }),
+    // ...but a pill CENTRED on an end handle hangs off the card (the min pill
+    // over the left edge, the max pill clipped on the right — seen in the P4
+    // 375 drive). Anchor the end pills INWARD: the min pill starts at its
+    // handle's left edge, the max pill ends at its handle's right edge.
+    //
+    // R2 P4 FIX-FIRST (F-2): that anchor holds the readout on-card only while
+    // the handle IS at its own end. DRIVEN, it fails — the review drove the min
+    // handle to the clamp at 375 and measured the min pill at x=319.1..393.0,
+    // documentElement.scrollWidth=393 vs innerWidth=375 (18px of horizontal
+    // overflow, pill visibly cut). So the inward anchor is now PROPORTIONAL to
+    // the handle's own position: engine.ts (syncDualRange) publishes --lg-a /
+    // --lg-b (the two handle percentages it already computes to place the fill)
+    // and each pill slides inward by that fraction of its OWN width.
+    //   min at   0% -> translateX(  -0%) = the anchored-left rest state
+    //   min at  95% -> translateX( -95%) = the readout hangs left of its handle
+    //   max at 100% -> translateX(   0%) = the anchored-right rest state
+    //   max at   5% -> translateX( +95%) = the readout hangs right of its handle
+    // Both ends therefore keep the whole pill between the handle and the far
+    // side of the track, at EVERY position and at both viewports. Unset (the
+    // server's own render, both handles at the rails) the 0/100 fallbacks give
+    // exactly the at-rest anchoring above — Image13's pinned frame is unchanged.
+    rule(`${scope} .lg-range-handle-min .lg-range-handle-value`, {
+      left: "0",
+      transform: "translateX(calc(var(--lg-a,0) * -1%))",
+    }),
+    rule(`${scope} .lg-range-handle-max .lg-range-handle-value`, {
+      left: "auto",
+      right: "0",
+      transform: "translateX(calc((100 - var(--lg-b,100)) * 1%))",
+    }),
+    // P4 cleanup (S4b pin-fidelity finding): the INWARD anchor above is what
+    // keeps Image13's SEPARATED pins on-card — but engine.ts's clamp rule
+    // (syncDualRange) can land the two handles one `step` apart, and both
+    // pills still reach inward toward each other, colliding
+    // (p4_fromto-1280-clamped.png). `.lg-range-fill`'s own box already IS the
+    // live pixel gap between the two handles (engine.ts writes its left/width
+    // from both inputs every drag) — a container query on that box reacts to
+    // the SAME already-written value with ZERO new runtime bytes; no engine.ts
+    // change. S4b measured (measurements.txt): separated gap 142.6–146.7px
+    // (must stay exactly as painted above — Image13 fidelity) vs clamped gap
+    // 3.2–16.3px (must degrade). 96px sits ~47px inside the separated floor
+    // and ~80px outside the clamped ceiling — clears both with margin. Below
+    // it, the min pill is pushed a full pill-height-plus-gap ABOVE the max
+    // pill (stacked, not collided) — both values stay readable.
+    rule(`${scope} .lg-range-from-to .lg-range-fill,${scope} .lg-range-dual .lg-range-fill`, {
+      "container-type": "inline-size",
+      "container-name": "lg-range-fill",
+    }),
+    `@container lg-range-fill (max-width:96px){${scope} .lg-range-handle-min .lg-range-handle-value{bottom:calc(100% + ${spacing.sm} + ${spacing.xl})}}`,
+    // Native range input drives recording + keyboard + role=slider semantics.
+    // It is laid EXACTLY over its track: inflated by one thumb width and pulled
+    // half a thumb left, so the native thumb's centre travels the track's true
+    // 0–100% — pixel-aligned with the visible .lg-range-handle at every value.
+    // The thumb paints nothing (the handle div is the visual); the input keeps
+    // its own focus ring.
     rule(`${scope} .lg-range-input`, {
       "-webkit-appearance": "none",
       appearance: "none",
-      width: "100%",
+      position: "absolute",
+      top: "50%",
+      left: `calc(${rangeQuestion.thumbSize} * -0.5)`,
+      width: `calc(100% + ${rangeQuestion.thumbSize})`,
+      height: "44px",
+      transform: "translateY(-50%)",
       background: "transparent",
       margin: "0",
-      "min-height": "44px",
+      "z-index": "3",
     }),
+    rule(`${scope} .lg-range-input::-webkit-slider-runnable-track`, { background: "transparent" }),
+    rule(`${scope} .lg-range-input::-moz-range-track`, { background: "transparent" }),
     rule(`${scope} .lg-range-input::-webkit-slider-thumb`, {
       "-webkit-appearance": "none",
       appearance: "none",
       width: rangeQuestion.thumbSize,
       height: rangeQuestion.thumbSize,
       "border-radius": radius.full,
-      background: rangeQuestion.thumbBackground,
-      border: rangeQuestion.thumbBorder,
-      "box-shadow": rangeQuestion.thumbShadow,
+      background: "transparent",
+      border: "0",
       cursor: "pointer",
     }),
     rule(`${scope} .lg-range-input::-moz-range-thumb`, {
       width: rangeQuestion.thumbSize,
       height: rangeQuestion.thumbSize,
       "border-radius": radius.full,
-      background: rangeQuestion.thumbBackground,
-      border: rangeQuestion.thumbBorder,
-      "box-shadow": rangeQuestion.thumbShadow,
+      background: "transparent",
+      border: "0",
       cursor: "pointer",
     }),
+    // from_to / dual_range: BOTH handle inputs cover the SAME track, so the
+    // input surface itself must be transparent to the pointer and only the
+    // thumbs grabbable — otherwise the top input would eat every drag.
+    rule(`${scope} .lg-range-input-dual`, { "pointer-events": "none" }),
+    rule(`${scope} .lg-range-input-dual::-webkit-slider-thumb`, { "pointer-events": "auto" }),
+    rule(`${scope} .lg-range-input-dual::-moz-range-thumb`, { "pointer-events": "auto" }),
     rule(`${scope} .lg-range-minmax`, {
       display: "flex",
       "justify-content": "space-between",
       color: rangeQuestion.minMaxLabelColor,
       "font-size": "0.8125rem",
-      "margin-top": spacing.sm,
+      // Clears the handle, which now overhangs the 8px track by half a thumb.
+      "margin-top": `calc(${rangeQuestion.thumbSize} * 0.5)`,
     }),
+    // §6.8 stepper (Image10): −/＋ FLANK the readout in one centred row, each a
+    // ≥44px styled target — they were tiny, unstyled and stacked far-left.
+    rule(`${scope} .lg-range-stepper-row`, {
+      display: "flex",
+      "align-items": "center",
+      "justify-content": "center",
+      gap: spacing.md,
+      margin: `${spacing.md} 0`,
+    }),
+    rule(`${scope} .lg-range-stepper-row .lg-range-value`, { margin: "0" }),
+    rule(`${scope} .lg-range-stepper-btn`, {
+      display: "inline-flex",
+      "align-items": "center",
+      "justify-content": "center",
+      width: "48px",
+      height: "48px",
+      "flex-shrink": "0",
+      "border-radius": radius.md,
+      border: `2px solid ${color.primary}`,
+      background: color.card,
+      color: color.primary,
+      "font-size": "1.5rem",
+      "line-height": "1",
+      "font-weight": "600",
+      cursor: "pointer",
+      transition: `background-color ${transitions.btnHoverMs}ms`,
+    }),
+    rule(`${scope} .lg-range-stepper-btn:hover`, { background: color.primaryGhost }),
+    // The two-handle tracks carry value pills ABOVE their handles, so the track
+    // needs the pill's own height as clearance — without it the pills paint
+    // over the question label (the P4 drive caught exactly that).
+    //
+    // R2 P4 FIX-FIRST-2 (N-2): 40px is clearance for ONE pill row. The
+    // container query below STACKS a second row when the handles clamp
+    // together, and the closure review measured that row landing ON the
+    // operator's label at the low clamp (1280: label 130.6..146.6, raised min
+    // pill 116.6..139.6 — a 30px overrun; the values stayed legible, the label
+    // did not). Absolutely-positioned pills reserve no layout space, so this
+    // margin IS the reservation and it has to hold BOTH rows. Measured budget
+    // at 1280 (labelBottom = the track's margin-box top): the base pill row's
+    // top sits at labelBottom + margin - 38 (15px of handle overhang + gap,
+    // plus the 23px pill), and the stacked row is one `xl` higher — so the
+    // margin must be 40 + xl + a gap. `sm` is that gap, giving a measured 10px
+    // between the label and the stacked pill at both viewports. The stack's own
+    // lift is left exactly as it was. Cost at rest: the single pill row now
+    // breathes ~42px under the label instead of grazing it by 2px.
+    rule(`${scope} .lg-range-from-to .lg-range-track,${scope} .lg-range-dual .lg-range-track`, {
+      "margin-top": `calc(40px + ${spacing.xl} + ${spacing.sm})`,
+    }),
+    // §6.8 from_to (Image13): two LABELLED number inputs under the track.
+    rule(`${scope} .lg-range-from-to-inputs`, {
+      display: "flex",
+      gap: spacing.md,
+      "margin-top": spacing.md,
+    }),
+    rule(`${scope} .lg-range-ft-field`, {
+      flex: "1 1 0",
+      display: "flex",
+      "flex-direction": "column",
+      gap: spacing.xs,
+      "min-width": "0",
+    }),
+    rule(`${scope} .lg-range-ft-label`, {
+      "font-size": "0.8125rem",
+      "font-weight": "600",
+      color: page.textSecondaryColor,
+    }),
+    rule(`${scope} .lg-range-from,${scope} .lg-range-to`, { width: "100%" }),
+    // §6.8 radial (Image14): a REAL circular dial. --lg-deg drives BOTH the
+    // conic-gradient arc (inline, per value) and the ring handle's angle, so
+    // one custom-property write moves the whole dial.
+    rule(`${scope} .lg-range-radial`, {
+      display: "flex",
+      "flex-direction": "column",
+      "align-items": "center",
+      position: "relative",
+      "--lg-radial-size": "176px",
+      "--lg-radial-band": "18px",
+    }),
+    rule(`${scope} .lg-range-radial-outer`, {
+      position: "relative",
+      width: "var(--lg-radial-size)",
+      height: "var(--lg-radial-size)",
+      "border-radius": radius.full,
+      display: "flex",
+      "align-items": "center",
+      "justify-content": "center",
+      margin: `${spacing.md} 0`,
+    }),
+    rule(`${scope} .lg-range-radial-inner`, {
+      position: "relative",
+      width: "calc(var(--lg-radial-size) - var(--lg-radial-band) * 2)",
+      height: "calc(var(--lg-radial-size) - var(--lg-radial-band) * 2)",
+      "border-radius": radius.full,
+      background: color.card,
+      display: "flex",
+      "align-items": "center",
+      "justify-content": "center",
+      margin: "0",
+      padding: `0 ${spacing.sm}`,
+      "box-sizing": "border-box",
+      "line-height": "1.1",
+      "z-index": "1",
+    }),
+    rule(`${scope} .lg-range-radial-handle`, {
+      position: "absolute",
+      top: "50%",
+      left: "50%",
+      width: rangeQuestion.thumbSize,
+      height: rangeQuestion.thumbSize,
+      "margin-top": `calc(${rangeQuestion.thumbSize} * -0.5)`,
+      "margin-left": `calc(${rangeQuestion.thumbSize} * -0.5)`,
+      "border-radius": radius.full,
+      "box-sizing": "border-box",
+      "z-index": "2",
+      "pointer-events": "none",
+      transform:
+        "rotate(var(--lg-deg,0deg)) translateY(calc((var(--lg-radial-size) - var(--lg-radial-band)) * -0.5))",
+    }),
+    // The radial's keyboard control lives invisibly over the dial (the dial is
+    // painted by the divs above); :focus-within gives it a visible focus ring.
+    rule(`${scope} .lg-range-radial-input`, {
+      position: "absolute",
+      top: "0",
+      left: "0",
+      width: "100%",
+      height: "100%",
+      transform: "none",
+      opacity: "0",
+      "pointer-events": "none",
+    }),
+    rule(`${scope} .lg-range-radial:focus-within .lg-range-radial-outer`, {
+      "box-shadow": `0 0 0 3px ${color.primaryWash}`,
+    }),
+  );
+  // 375: the dial shrinks; the from_to fields stack so both labels stay
+  // readable at the mobile card width.
+  mobile.push(
+    rule(`${scope} .lg-range-radial`, { "--lg-radial-size": "140px", "--lg-radial-band": "15px" }),
+    rule(`${scope} .lg-range-from-to-inputs`, { gap: spacing.sm }),
   );
 
   // ---- primary button + continue + auto-advance (§14.2 primaryButton) -----

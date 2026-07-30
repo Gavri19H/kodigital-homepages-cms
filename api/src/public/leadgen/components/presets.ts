@@ -956,6 +956,50 @@ function formatRangeValue(n: number, format: string | undefined, currency: strin
   return n.toLocaleString("en-US");
 }
 
+// R2 P4 §6.8 (design-pack studio-panels.html §6.8 "Rendered visitor examples")
+// — the ONE handle element every slider type paints ON the track. It is a CHILD
+// OF `.lg-range-fill`, pinned by CSS to the fill's edge (left:100% for the
+// single/max handle, left:0 for the min handle): the runtime ALREADY writes the
+// fill's width live (render.updateRangeDisplay), so the handle follows the value
+// with zero engine bytes. The probe's "handle renders detached ~20px BELOW the
+// track" was the native <input type=range> sitting in NORMAL FLOW under the
+// track div and painting its own thumb there; the input now overlays the track
+// (styles.ts .lg-range-input) with a transparent thumb, so the handle a visitor
+// grabs is exactly the handle they see. Decorative (the real control is the
+// input) ⇒ aria-hidden.
+function rangeHandle(
+  rq: DefaultFunnelDesign["rangeQuestion"],
+  design: DefaultFunnelDesign,
+  variant: "" | "min" | "max",
+  readout?: string,
+  filled?: string,
+): string {
+  return (
+    `<div class="lg-range-handle${variant === "" ? "" : ` lg-range-handle-${variant}`}" aria-hidden="true"` +
+    style({
+      background: rq.thumbBackground,
+      border: rq.thumbBorder,
+      "box-shadow": rq.thumbShadow,
+    }) +
+    `>` +
+    // Image12/Image13: each handle of a two-handle slider carries its own value
+    // readout pill riding the handle (so it tracks the value for free).
+    (readout === undefined
+      ? ""
+      : `<span class="lg-range-handle-value"${style({ background: filled, color: design.color.card })}>${esc(readout)}</span>`) +
+    `</div>`
+  );
+}
+
+// The min/max caption line (§6.8 `.slider-minmax`; Image10 "$5,000"/"$500,000",
+// Image11 "0"/"100", Image13 "$0"/"$100 000") — the probe found it MISSING on
+// stepper/from_to/dual_range.
+function rangeMinMax(node: LeadgenComponentNode, min: number, max: number, format: "number" | "currency", currency: string): string {
+  const minLabel = propStr(node, "minLabel") ?? formatRangeValue(min, format, currency);
+  const maxLabel = propStr(node, "maxLabel") ?? formatRangeValue(max, format, currency);
+  return `<div class="lg-range-minmax"><span>${esc(minLabel)}</span><span>${esc(maxLabel)}</span></div>`;
+}
+
 function renderRange(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
@@ -975,8 +1019,6 @@ function renderRange(
   // re-pointed) role; legacy `#hex` renders as-is.
   const filled = ovColor(node, "rangeColor", design, ctx) ?? rq.filledTrackColor;
   const displayValue = formatRangeValue(value, format, currency);
-  const minLabel = propStr(node, "minLabel") ?? formatRangeValue(min, format, currency);
-  const maxLabel = propStr(node, "maxLabel") ?? formatRangeValue(max, format, currency);
   return (
     labelLine(node) +
     // S2-3 (register §C): data-currency rides the wrapper so the runtime's
@@ -986,8 +1028,13 @@ function renderRange(
     // (empty prefix).
     `<div class="lg-range"${hydration(node)} data-format="${format}"${attr("data-currency", format === "currency" ? currency : undefined)}>` +
     `<div class="lg-range-value"${style({ color: rq.valueColor, "font-family": rq.valueFontFamily })}>${esc(displayValue)}</div>` +
+    // §6.8 single: readout ABOVE a track carrying fill + ONE handle, captions
+    // below. The input is INSIDE the track (CSS overlays it edge-to-edge,
+    // inflated by one thumb width so the invisible native thumb's travel is
+    // exactly the visible handle's 0–100%) — that is the detached-handle fix.
     `<div class="lg-range-track"${style({ "background-color": rq.unfilledTrackColor })}>` +
-    `<div class="lg-range-fill"${style({ width: `${pct}%`, "background-color": filled })}></div>` +
+    `<div class="lg-range-fill"${style({ width: `${pct}%`, "background-color": filled })}>` +
+    rangeHandle(rq, design, "") +
     `</div>` +
     // S2-3: data-lg-input marks the range so the engine's delegated input
     // listener records the dragged value AND drives updateRangeDisplay live.
@@ -999,7 +1046,8 @@ function renderRange(
     attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field) +
     attr("data-internal-field", node.internal_field) +
     `>` +
-    `<div class="lg-range-minmax"><span>${esc(minLabel)}</span><span>${esc(maxLabel)}</span></div>` +
+    `</div>` +
+    rangeMinMax(node, min, max, format, currency) +
     // CONDUCTOR FIX (P4b regression): the auto error slot is the LAST CHILD of
     // the field box (`.lg-range`), never a card-level sibling — "" (no slot)
     // is a no-op concatenation, byte-identical to pre-fix.
@@ -1065,13 +1113,17 @@ function renderStepperRange(
   return (
     labelLine(node) +
     `<div class="lg-range lg-range-stepper"${hydration(node)} data-format="${format}"${attr("data-currency", format === "currency" ? currency : undefined)} data-slider-type="stepper">` +
+    // §6.8 / Image10: the −/＋ buttons FLANK the big value readout (they were
+    // tiny, unstyled and stacked far-left before this slice — styles.ts now
+    // paints the .lg-range-stepper-row as a centered, 48px-target row).
     `<div class="lg-range-stepper-row">` +
     `<button type="button" class="lg-range-stepper-btn lg-range-stepper-dec" data-lg-step="dec" aria-label="Decrease">&minus;</button>` +
     `<div class="lg-range-value"${style({ color: rq.valueColor, "font-family": rq.valueFontFamily })}>${esc(formatRangeValue(value, format, currency))}</div>` +
     `<button type="button" class="lg-range-stepper-btn lg-range-stepper-inc" data-lg-step="inc" aria-label="Increase">&#65291;</button>` +
     `</div>` +
     `<div class="lg-range-track"${style({ "background-color": rq.unfilledTrackColor, "margin-top": design.spacing.md })}>` +
-    `<div class="lg-range-fill"${style({ width: `${pct}%`, "background-color": filled })}></div>` +
+    `<div class="lg-range-fill"${style({ width: `${pct}%`, "background-color": filled })}>` +
+    rangeHandle(rq, design, "") +
     `</div>` +
     `<input class="lg-range-input" type="range" role="slider" data-lg-input` +
     ` min="${min}" max="${max}" step="${step}" value="${value}"` +
@@ -1079,21 +1131,31 @@ function renderStepperRange(
     attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field) +
     attr("data-internal-field", node.internal_field) +
     `>` +
+    `</div>` +
+    // Image10's captions ("$5,000" / "$500,000") — MISSING before this slice.
+    rangeMinMax(node, min, max, format, currency) +
     slot +
     `</div>` +
     fieldHelperLine(node)
   );
 }
 
-// from_to = min,max,step, two NUMBER inputs synced to a track; sub-fields
-// {base}_min/{base}_max. No authored default (the §6.8 rail has no Default
-// control for this type) — the initial position is the full [min,max] span.
-function renderFromToRange(
+// §6.8 from_to + dual_range share ONE track carrying TWO handles (the probe's
+// "two stacked separate tracks" / "no visible handles" defects). Each handle is
+// a REAL native <input type="range"> laid over the SAME track (styles.ts
+// .lg-range-input-dual: pointer-events only on the thumbs, so either handle is
+// grabbable even where they overlap) inside its own [data-lg-field] wrapper —
+// so dragging or arrow-keying EITHER handle records its {base}_min/{base}_max
+// sub-field through the existing engine path, with zero engine bytes. The
+// visible handles ride the fill's two edges (left:0 / left:100%) and carry the
+// Image12/13 value pills.
+function renderDualTrackRange(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   format: "number" | "currency",
   ctx: LeadgenSectionRenderCtx | undefined,
   slot: string,
+  kind: "from_to" | "dual_range",
 ): string {
   const rq = design.rangeQuestion;
   const min = propNum(node, "min") ?? 0;
@@ -1102,66 +1164,45 @@ function renderFromToRange(
   const currency = propStr(node, "currency") ?? "$";
   const filled = ovColor(node, "rangeColor", design, ctx) ?? rq.filledTrackColor;
   const fields = rangeMinMaxFieldNames(node);
-  return (
-    labelLine(node) +
-    `<div class="lg-range lg-range-from-to"${hydration(node)} data-format="${format}"${attr("data-currency", format === "currency" ? currency : undefined)} data-slider-type="from_to">` +
-    `<div class="lg-range-track"${style({ "background-color": rq.unfilledTrackColor })}>` +
-    `<div class="lg-range-fill"${style({ left: "0%", width: "100%", "background-color": filled })}></div>` +
-    `<div class="lg-range-handle" style="left:0%" role="presentation" aria-hidden="true"></div>` +
-    `<div class="lg-range-handle" style="left:100%" role="presentation" aria-hidden="true"></div>` +
-    `</div>` +
-    // S2.3 engine contract: each sub-field is a WRAPPING [data-lg-field]
-    // element containing its own [data-lg-input] (the SAME shape §6.10's
-    // address per-field wrapper uses) — not the attribute on the input itself.
-    `<div class="lg-range-from-to-inputs"${style({ display: "flex", gap: design.spacing.sm })}>` +
-    `<span${attr("data-lg-field", fields.min)}><input class="lg-input lg-range-from" type="number" data-lg-input` +
-    ` min="${min}" max="${max}" step="${step}" value="${min}" aria-label="From"></span>` +
-    `<span${attr("data-lg-field", fields.max)}><input class="lg-input lg-range-to" type="number" data-lg-input` +
-    ` min="${min}" max="${max}" step="${step}" value="${max}" aria-label="To"></span>` +
-    `</div>` +
-    slot +
-    `</div>` +
-    fieldHelperLine(node)
-  );
-}
-
-// dual_range = from_to with TWO drag handles instead of number inputs; SAME
-// data contract ({base}_min/{base}_max). Each handle is a REAL native
-// <input type="range"> (own data-lg-input + data-lg-field) so dragging OR
-// keyboard-focusing EITHER handle records natively; S2.3 may later overlay
-// them visually onto one track (drag-engine polish) — stacked-but-labeled is
-// the safe, fully-functional SSR baseline.
-function renderDualRangeRange(
-  node: LeadgenComponentNode,
-  design: DefaultFunnelDesign,
-  format: "number" | "currency",
-  ctx: LeadgenSectionRenderCtx | undefined,
-  slot: string,
-): string {
-  const rq = design.rangeQuestion;
-  const min = propNum(node, "min") ?? 0;
-  const max = propNum(node, "max") ?? 100;
-  const step = propNum(node, "step") ?? 1;
-  const currency = propStr(node, "currency") ?? "$";
-  const filled = ovColor(node, "rangeColor", design, ctx) ?? rq.filledTrackColor;
-  const fields = rangeMinMaxFieldNames(node);
-  // S2.3 engine contract: each handle is a WRAPPING [data-lg-field] element
-  // containing its own [data-lg-input] range (the SAME shape from_to/address
-  // per-field wrappers use) — not the attribute on the input itself.
-  const handle = (label: string, field: string, value: number): string =>
-    `<span${attr("data-lg-field", field)}>` +
-    `<div class="lg-range-track"${style({ "background-color": rq.unfilledTrackColor })}>` +
-    `<div class="lg-range-fill"${style({ width: "100%", "background-color": filled })}></div>` +
-    `</div>` +
-    `<input class="lg-range-input" type="range" role="slider" data-lg-input` +
+  // No authored default for either type (the §6.8 rails carry no Default
+  // control) — the initial handles sit on the full [min,max] span.
+  const fromLabel = kind === "from_to" ? "From" : "Minimum";
+  const toLabel = kind === "from_to" ? "To" : "Maximum";
+  // Image13's inputs are LABELLED "From ($)" / "To ($)" — the currency rides
+  // the label (a number input cannot hold "$20,000"), so the same affix the
+  // readouts/captions use is visible on both fields.
+  const affix = format === "currency" ? ` (${currency})` : "";
+  const idBase = `lg-ft-${fields.min}`;
+  const handleInput = (label: string, field: string, value: number): string =>
+    `<span${attr("data-lg-field", field)}><input class="lg-range-input lg-range-input-dual" type="range" role="slider" data-lg-input` +
     ` min="${min}" max="${max}" step="${step}" value="${value}"` +
-    ` aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}" aria-label="${esc(label)}">` +
-    `</span>`;
+    ` aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}" aria-label="${esc(label)}"></span>`;
   return (
     labelLine(node) +
-    `<div class="lg-range lg-range-dual"${hydration(node)} data-format="${format}"${attr("data-currency", format === "currency" ? currency : undefined)} data-slider-type="dual_range">` +
-    `<div class="lg-range-dual-handle lg-range-dual-min">${handle("Minimum", fields.min, min)}</div>` +
-    `<div class="lg-range-dual-handle lg-range-dual-max">${handle("Maximum", fields.max, max)}</div>` +
+    `<div class="lg-range ${kind === "from_to" ? "lg-range-from-to" : "lg-range-dual"}"${hydration(node)} data-format="${format}"${attr("data-currency", format === "currency" ? currency : undefined)} data-slider-type="${kind}">` +
+    `<div class="lg-range-track"${style({ "background-color": rq.unfilledTrackColor })}>` +
+    `<div class="lg-range-fill"${style({ left: "0%", width: "100%", "background-color": filled })}>` +
+    rangeHandle(rq, design, "min", formatRangeValue(min, format, currency), filled) +
+    rangeHandle(rq, design, "max", formatRangeValue(max, format, currency), filled) +
+    `</div>` +
+    handleInput(fromLabel, fields.min, min) +
+    handleInput(toLabel, fields.max, max) +
+    `</div>` +
+    rangeMinMax(node, min, max, format, currency) +
+    // from_to ONLY: the two labelled number inputs (dual_range is handles-only,
+    // §6.8 "dual_range (= from_to, handles not inputs)"). Each is the SAME
+    // WRAPPING [data-lg-field] + [data-lg-input] shape §6.10's address
+    // per-field inputs use, so it records with zero engine bytes.
+    (kind === "from_to"
+      ? `<div class="lg-range-from-to-inputs">` +
+        `<div class="lg-range-ft-field"><label class="lg-range-ft-label" for="${esc(`${idBase}-from`)}">${esc(`${fromLabel}${affix}`)}</label>` +
+        `<span${attr("data-lg-field", fields.min)}><input id="${esc(`${idBase}-from`)}" class="lg-input lg-range-from" type="number" data-lg-input` +
+        ` min="${min}" max="${max}" step="${step}" value="${min}" aria-label="${esc(`${fromLabel}${affix}`)}"></span></div>` +
+        `<div class="lg-range-ft-field"><label class="lg-range-ft-label" for="${esc(`${idBase}-to`)}">${esc(`${toLabel}${affix}`)}</label>` +
+        `<span${attr("data-lg-field", fields.max)}><input id="${esc(`${idBase}-to`)}" class="lg-input lg-range-to" type="number" data-lg-input` +
+        ` min="${min}" max="${max}" step="${step}" value="${max}" aria-label="${esc(`${toLabel}${affix}`)}"></span></div>` +
+        `</div>`
+      : "") +
     slot +
     `</div>` +
     fieldHelperLine(node)
@@ -1171,10 +1212,13 @@ function renderDualRangeRange(
 // radial = single, circular rendering (min,max,step; defaultValue optional).
 // S2.3 engine contract: radial is the "single" SUBSTRATE — ONE real native
 // <input type="range"> carries role=slider + static aria-valuemin/valuemax
-// (the engine syncs aria-valuenow); the conic-gradient arc is PURELY
-// presentational server-side CSS (no engine pointer geometry, §6.8 "= single,
-// circular rendering"), so the decorative wrapper is aria-hidden and carries
-// NO role/aria-value* of its own — never two competing slider landmarks.
+// (the engine syncs aria-valuenow) and remains the keyboard control (§6.8
+// "Keyboard: ↑/↓ or ←/→ adjust by one step (role=slider)"); styles.ts lays it
+// invisibly over the dial. The dial itself (arc + ring handle + centre value)
+// is the VISUAL widget and stays aria-hidden with NO role/aria-value* of its
+// own — never two competing slider landmarks. R2 P4 S4b owns the ring POINTER
+// drag; it needs exactly one write per move: `--lg-deg` on
+// [class~="lg-range-radial-outer"] (arc + handle both follow it).
 function renderRadialRange(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
@@ -1195,10 +1239,19 @@ function renderRadialRange(
   return (
     labelLine(node) +
     `<div class="lg-range lg-range-radial"${hydration(node)} data-format="${format}"${attr("data-currency", format === "currency" ? currency : undefined)} data-slider-type="radial">` +
-    `<div class="lg-range-radial-outer" aria-hidden="true"${style({ background: `conic-gradient(${filled} 0deg ${deg}deg, ${rq.unfilledTrackColor} ${deg}deg 360deg)` })}>` +
-    `<div class="lg-range-radial-inner"${style({ color: rq.valueColor, "font-family": rq.valueFontFamily })}>${esc(formatRangeValue(value, format, currency))}</div>` +
+    // Image14: a REAL circular dial — a conic-gradient ring (the LIVE arc), a
+    // draggable handle sitting ON the ring, and the big centre value. `--lg-deg`
+    // is the ONE property that drives both the arc sweep and the handle's
+    // rotation, so the runtime moves the whole dial by writing a single custom
+    // property. The centre also carries `lg-range-value`: that class is what
+    // render.updateRangeDisplay rewrites on every input event, which is the
+    // root-cause fix for the probe's "centre value FROZEN while the real value
+    // changes" (the old markup used a class the runtime never looked for).
+    `<div class="lg-range-radial-outer" aria-hidden="true"${style({ "--lg-deg": `${deg}deg`, background: `conic-gradient(${filled} 0deg var(--lg-deg), ${rq.unfilledTrackColor} var(--lg-deg) 360deg)` })}>` +
+    `<div class="lg-range-radial-handle"${style({ background: rq.thumbBackground, border: rq.thumbBorder, "box-shadow": rq.thumbShadow })}></div>` +
+    `<div class="lg-range-value lg-range-radial-inner"${style({ color: rq.valueColor, "font-family": rq.valueFontFamily })}>${esc(formatRangeValue(value, format, currency))}</div>` +
     `</div>` +
-    `<input class="lg-range-input" type="range" role="slider" data-lg-input` +
+    `<input class="lg-range-input lg-range-radial-input" type="range" role="slider" data-lg-input` +
     ` min="${min}" max="${max}" step="${step}" value="${value}"` +
     ` aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}"` +
     attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field) +
@@ -1225,9 +1278,9 @@ export function renderNumberRangeQuestion(
     case "stepper":
       return renderStepperRange(node, design, format, ctx, slot);
     case "from_to":
-      return renderFromToRange(node, design, format, ctx, slot);
+      return renderDualTrackRange(node, design, format, ctx, slot, "from_to");
     case "dual_range":
-      return renderDualRangeRange(node, design, format, ctx, slot);
+      return renderDualTrackRange(node, design, format, ctx, slot, "dual_range");
     case "radial":
       return renderRadialRange(node, design, format, ctx, slot);
     case "single":

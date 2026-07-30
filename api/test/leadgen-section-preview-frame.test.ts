@@ -845,6 +845,89 @@ const R2_P1_QUESTION_GRID_RULES = [
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-qgrid-q{min-width:0;max-width:100%}`,
 ];
 
+// R2 P4 S4a (contract §5.5 / design-pack §6.8 "Rendered visitor examples"):
+// the five slider types now render the PINNED anatomy — handle ON the track,
+// stepper −/＋ row, ONE track with TWO handles, a real radial dial — so
+// styles.ts grew a NET-NEW block of range rules and CHANGED three
+// pre-existing ones. Same lockstep discipline as every entry above (a drift in
+// styles.ts fails here): the net-new rules are wholesale-stripped, the changed
+// rules are reverse-mapped to their pre-P4 text, so this pin still proves
+// "nothing ELSE moved". None of them can alter this fixture's content (it
+// carries no slider node at all) — they are sheet-level deltas only.
+const R2_P4_RQ = defaultFunnelDesign.rangeQuestion;
+const R2_P4_RANGE_NEW_RULES = [
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle{position:absolute;left:100%;top:50%;transform:translate(-50%,-50%);width:${R2_P4_RQ.thumbSize};height:${R2_P4_RQ.thumbSize};border-radius:${defaultFunnelDesign.radius.full};background:${R2_P4_RQ.thumbBackground};border:${R2_P4_RQ.thumbBorder};box-shadow:${R2_P4_RQ.thumbShadow};box-sizing:border-box;pointer-events:none;z-index:2}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-min{left:0}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-max{left:100%}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-value{position:absolute;bottom:calc(100% + ${defaultFunnelDesign.spacing.sm});left:50%;transform:translateX(-50%);white-space:nowrap;font-size:0.8125rem;font-weight:700;line-height:1;padding:5px 9px;border-radius:${defaultFunnelDesign.radius.sm};background:${R2_P4_RQ.filledTrackColor};color:${defaultFunnelDesign.color.card}}`,
+  // P4 FIX-FIRST (F-2): these two NET-NEW rules' bodies changed from
+  // `transform:none` to a proportional inward slide driven by engine.ts's
+  // --lg-a / --lg-b, because the static anchor pushed the min pill off-card
+  // once the handle was DRIVEN (measured at 375: pill x=319.1..393.0,
+  // scrollWidth 393 vs innerWidth 375). Still net-new-since-the-frozen-capture
+  // rules, so they stay in the wholesale-strip list — only their literal text
+  // is re-captured here. Nothing else in the sheet moved.
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-min .lg-range-handle-value{left:0;transform:translateX(calc(var(--lg-a,0) * -1%))}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-max .lg-range-handle-value{left:auto;right:0;transform:translateX(calc((100 - var(--lg-b,100)) * 1%))}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-input::-webkit-slider-runnable-track{background:transparent}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-input::-moz-range-track{background:transparent}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-input-dual{pointer-events:none}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-input-dual::-webkit-slider-thumb{pointer-events:auto}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-input-dual::-moz-range-thumb{pointer-events:auto}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-stepper-row{display:flex;align-items:center;justify-content:center;gap:${defaultFunnelDesign.spacing.md};margin:${defaultFunnelDesign.spacing.md} 0}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-stepper-row .lg-range-value{margin:0}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-stepper-btn{display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;flex-shrink:0;border-radius:${defaultFunnelDesign.radius.md};border:2px solid ${defaultFunnelDesign.color.primary};background:${defaultFunnelDesign.color.card};color:${defaultFunnelDesign.color.primary};font-size:1.5rem;line-height:1;font-weight:600;cursor:pointer;transition:background-color ${defaultFunnelDesign.transitions.btnHoverMs}ms}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-stepper-btn:hover{background:${defaultFunnelDesign.color.primaryGhost}}`,
+  // P4 FIX-FIRST-2 (N-2): this NET-NEW rule's body changed from a flat 40px
+  // (clearance for ONE pill row) to clearance for the STACKED second row too —
+  // the closure review measured the raised min pill landing on the operator's
+  // question label at the low clamp. Still a net-new-since-the-frozen-capture
+  // rule, so it stays in the wholesale-strip list; only its literal text is
+  // re-captured here. Nothing else in the sheet moved.
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-from-to .lg-range-track,${DEFAULT_FUNNEL_SCOPE} .lg-range-dual .lg-range-track{margin-top:calc(40px + ${defaultFunnelDesign.spacing.xl} + ${defaultFunnelDesign.spacing.sm})}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-from-to-inputs{display:flex;gap:${defaultFunnelDesign.spacing.md};margin-top:${defaultFunnelDesign.spacing.md}}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-ft-field{flex:1 1 0;display:flex;flex-direction:column;gap:${defaultFunnelDesign.spacing.xs};min-width:0}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-ft-label{font-size:0.8125rem;font-weight:600;color:${defaultFunnelDesign.page.textSecondaryColor}}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-from,${DEFAULT_FUNNEL_SCOPE} .lg-range-to{width:100%}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-radial{display:flex;flex-direction:column;align-items:center;position:relative;--lg-radial-size:176px;--lg-radial-band:18px}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-radial-outer{position:relative;width:var(--lg-radial-size);height:var(--lg-radial-size);border-radius:${defaultFunnelDesign.radius.full};display:flex;align-items:center;justify-content:center;margin:${defaultFunnelDesign.spacing.md} 0}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-radial-inner{position:relative;width:calc(var(--lg-radial-size) - var(--lg-radial-band) * 2);height:calc(var(--lg-radial-size) - var(--lg-radial-band) * 2);border-radius:${defaultFunnelDesign.radius.full};background:${defaultFunnelDesign.color.card};display:flex;align-items:center;justify-content:center;margin:0;padding:0 ${defaultFunnelDesign.spacing.sm};box-sizing:border-box;line-height:1.1;z-index:1}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-radial-handle{position:absolute;top:50%;left:50%;width:${R2_P4_RQ.thumbSize};height:${R2_P4_RQ.thumbSize};margin-top:calc(${R2_P4_RQ.thumbSize} * -0.5);margin-left:calc(${R2_P4_RQ.thumbSize} * -0.5);border-radius:${defaultFunnelDesign.radius.full};box-sizing:border-box;z-index:2;pointer-events:none;transform:rotate(var(--lg-deg,0deg)) translateY(calc((var(--lg-radial-size) - var(--lg-radial-band)) * -0.5))}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-radial-input{position:absolute;top:0;left:0;width:100%;height:100%;transform:none;opacity:0;pointer-events:none}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-radial:focus-within .lg-range-radial-outer{box-shadow:0 0 0 3px ${defaultFunnelDesign.color.primaryWash}}`,
+  // the two mobile-block additions (dial shrink + tighter from/to gap)
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-radial{--lg-radial-size:140px;--lg-radial-band:15px}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-from-to-inputs{gap:${defaultFunnelDesign.spacing.sm}}`,
+  // P4 cleanup (Item 1, S4b pin-fidelity finding): a `@container` query on the
+  // two-handle `.lg-range-fill` (its own box IS the live handle gap) raises
+  // the min pill clear of the max pill once the clamp narrows that gap below
+  // 96px — CSS only, no engine change, no other rule's text touched.
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-from-to .lg-range-fill,${DEFAULT_FUNNEL_SCOPE} .lg-range-dual .lg-range-fill{container-type:inline-size;container-name:lg-range-fill}`,
+  `\n@container lg-range-fill (max-width:96px){${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-min .lg-range-handle-value{bottom:calc(100% + ${defaultFunnelDesign.spacing.sm} + ${defaultFunnelDesign.spacing.xl})}}`,
+];
+// The three CHANGED rules, NEW -> pre-P4 text (targeted full-rule replaces,
+// the R5_*_RULE idiom): the input became the track overlay (its thumb now
+// paints nothing — the .lg-range-handle div is the visual), and the captions
+// gained the clearance the overhanging handle needs.
+const R2_P4_RANGE_CHANGED_RULES: ReadonlyArray<readonly [string, string]> = [
+  [
+    `${DEFAULT_FUNNEL_SCOPE} .lg-range-input{-webkit-appearance:none;appearance:none;position:absolute;top:50%;left:calc(${R2_P4_RQ.thumbSize} * -0.5);width:calc(100% + ${R2_P4_RQ.thumbSize});height:44px;transform:translateY(-50%);background:transparent;margin:0;z-index:3}`,
+    `${DEFAULT_FUNNEL_SCOPE} .lg-range-input{-webkit-appearance:none;appearance:none;width:100%;background:transparent;margin:0;min-height:44px}`,
+  ],
+  [
+    `${DEFAULT_FUNNEL_SCOPE} .lg-range-input::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:${R2_P4_RQ.thumbSize};height:${R2_P4_RQ.thumbSize};border-radius:${defaultFunnelDesign.radius.full};background:transparent;border:0;cursor:pointer}`,
+    `${DEFAULT_FUNNEL_SCOPE} .lg-range-input::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:${R2_P4_RQ.thumbSize};height:${R2_P4_RQ.thumbSize};border-radius:${defaultFunnelDesign.radius.full};background:${R2_P4_RQ.thumbBackground};border:${R2_P4_RQ.thumbBorder};box-shadow:${R2_P4_RQ.thumbShadow};cursor:pointer}`,
+  ],
+  [
+    `${DEFAULT_FUNNEL_SCOPE} .lg-range-input::-moz-range-thumb{width:${R2_P4_RQ.thumbSize};height:${R2_P4_RQ.thumbSize};border-radius:${defaultFunnelDesign.radius.full};background:transparent;border:0;cursor:pointer}`,
+    `${DEFAULT_FUNNEL_SCOPE} .lg-range-input::-moz-range-thumb{width:${R2_P4_RQ.thumbSize};height:${R2_P4_RQ.thumbSize};border-radius:${defaultFunnelDesign.radius.full};background:${R2_P4_RQ.thumbBackground};border:${R2_P4_RQ.thumbBorder};box-shadow:${R2_P4_RQ.thumbShadow};cursor:pointer}`,
+  ],
+  [
+    `${DEFAULT_FUNNEL_SCOPE} .lg-range-minmax{display:flex;justify-content:space-between;color:${R2_P4_RQ.minMaxLabelColor};font-size:0.8125rem;margin-top:calc(${R2_P4_RQ.thumbSize} * 0.5)}`,
+    `${DEFAULT_FUNNEL_SCOPE} .lg-range-minmax{display:flex;justify-content:space-between;color:${R2_P4_RQ.minMaxLabelColor};font-size:0.8125rem;margin-top:${defaultFunnelDesign.spacing.sm}}`,
+  ],
+];
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -1024,10 +1107,17 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
   const cssMinusP1b = ROUND4_P1B_RULES.reduce((s, r) => s.split(r).join(""), cssMinusEl);
   // R2 P1 §①: strip the two net-new QuestionGrid container rules (see their
   // constant above — the only base-sheet delta this slice adds).
-  const cssMinusAll = R2_P1_QUESTION_GRID_RULES.reduce((s, r) => s.split(r).join(""), cssMinusP1b);
+  const cssMinusGrid = R2_P1_QUESTION_GRID_RULES.reduce((s, r) => s.split(r).join(""), cssMinusP1b);
+  // R2 P4 S4a: strip the net-new §6.8 slider rules, then reverse-map the three
+  // changed ones to their pre-P4 text (see the constants above).
+  const cssMinusRange = R2_P4_RANGE_NEW_RULES.reduce((s, r) => s.split(r).join(""), cssMinusGrid);
+  const cssMinusAll = R2_P4_RANGE_CHANGED_RULES.reduce(
+    (s, [next, prev]) => s.split(next).join(prev),
+    cssMinusRange,
+  );
   expect(
     cssMinusAll,
-    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty)",
+    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules",
   ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));

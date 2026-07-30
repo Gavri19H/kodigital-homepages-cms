@@ -1,0 +1,20 @@
+
+=== touch run 2026-07-30T00:39:49.561Z ===
+re-author -> 200
+re-activate -> 200
+SSR ready
+
+=== touch run 2026-07-30T00:40:07.124Z ===
+re-author -> 200
+re-activate -> 200
+SSR ready
+  touch-action on dial = "auto"
+  touch-action on dual rails = "auto"
+TOUCH SWIPE around the ring: value 45 -> 38  centre="38"  --lg-deg=137deg
+  page scrollY 404 -> 404 (a scroll means the touch drag was stolen by the page)
+TOUCH drag of the dual MAX handle: 100 -> 60
+baseline: from box=0 to box=40000 rails=[0,40000]
+AFTER typing 90000 into "From ($)" (To=40000):
+   VISIBLE  From box="90000"  To box="40000"  pills=[$35,000 , $40,000]
+   RECORDED rails=[35000 , 40000]
+   ENGINE answers = {}

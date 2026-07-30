@@ -1,0 +1,80 @@
+REVIEW P4 visitor drive 2026-07-30T00:17:57.967Z
+SSR converged in 48ms: data-lg-question="rv7k_radial"
+
+================ VIEWPORT 1280 ================
+SINGLE(1280) readout="$37" input=37 role=slider aria-now=37
+  track y=257.3 h=8.0 centreY=261.3 | handle centreY=261.3 DELTA=0.0px  handleSize=28.0x28.0
+  fill x=387.0 w=187.2 (=37.0% of track) | handle centreX=574.2 fillRightEdge=574.2 dX=0.0
+  minmax="$0$100" count=1
+  AFTER DRAG -> input=72 readout="$72" aria=72
+    handle centreX=751.3 (target 751.3) centreYdelta=0.0 fillW=364.3 => 72.0%
+  AFTER 3x ArrowLeft -> input=69 readout="$69" handleCentreX=736.1 (moved -15.2px)
+STEPPER(1280) readout="$170,000" input=170000
+  minus box=48.0x48.0 @x=508.5 | value @x=572.5..707.5 | plus box=48.0x48.0 @x=723.5  FLANKS=true
+  row centred? rowX=387.0 rowW=506.0 minusLeftGap=121.5 plusRightGap=121.5
+  track centreY=415.3 handle centreY=415.3 DELTA=0.0
+  CAPTIONS count=1 text="$5,000$500,000"
+  AFTER 2x + -> input=180000 readout="$180,000" handleCentreX=564.1 (was 554.0)
+  AFTER DRAG -> input=300000 readout="$300,000" handleCentreX=690.6
+  AFTER ArrowRight -> input=305000 readout="$305,000"
+FROM_TO(1280) rails=2 tracks=1 handles=2
+  pills=[$0 , $100,000] captions="$0$100,000"
+  labels=[From ($) , To ($)] inputs=[0 , 100000] rails=[0 , 100000]
+  track x=387.0 w=506.0 | fill x=387.0 w=506.0 | hMin cX=387.0 cYd=0.0 | hMax cX=893.0 cYd=0.0
+  AFTER DRAGS rails=[20000 , 60000] inputs=[20000 , 60000] pills=[$20,000 , $60,000]
+    fill x=488.2 w=202.4 spans [20.0% .. 60.0%] | hMin cX=488.2 hMax cX=690.6 | fillEdges=488.2/690.6
+  AFTER 2x ArrowRight on min rail -> rails=[30000 , 60000] inputs=[30000 , 60000] pills=[$30,000 , $60,000]
+  AFTER typing 75000 into "To" -> rails=[30000 , 75000] pills=[$30,000 , $75,000] fillW=227.7
+DUAL(1280) tracks=1 handles=2 rails=2 numberInputs=0
+  pills=[0 , 100] captions="0100"
+  hMin cYd=0.0 hMax cYd=0.0
+  AFTER DRAGS rails=[18 , 78] pills=[18 , 78]
+    fill spans [18.0% .. 78.0%] hMin cX=478.1 hMax cX=781.7 fillL=478.1 fillR=781.7
+  AFTER 4x ArrowLeft on max rail -> rails=[18 , 74] pills=[18 , 74]
+RADIAL(1280) outer=176.0x176.0 round=9999px inner=140.0x140.0 centre="45" input=45
+  --lg-deg=162deg expected=162deg  bg=conic-gradient(rgb(27, 58, 92) 0deg, rgb(27, 58, 92) 162deg, rgb(232, 238, 244) 162deg, rgb(232, 238, 244) 360deg)
+  ring handle box=35.3x35.3 centre=(664.4,850.4) dialCentre=(640.0,775.3) radius=79.0 (dial r=88.0)
+  AFTER RING DRAG to 3 o'clock -> input=25 centre="25" --lg-deg=90deg aria=25
+    handle centre=(719.0,775.3) expected≈(719.0,775.3)
+  AFTER RING DRAG to 6 o'clock -> input=50 centre="50" --lg-deg=180deg
+  AFTER 5x ArrowUp -> input=55 centre="55" --lg-deg=198deg handleCentre=(615.6,850.4)
+composite all-five-1280-top.png written
+
+================ VIEWPORT 375 ================
+SINGLE(375) readout="$37" input=37 role=slider aria-now=37
+  track y=205.6 h=8.0 centreY=209.6 | handle centreY=209.6 DELTA=0.0px  handleSize=28.0x28.0
+  fill x=29.0 w=117.3 (=37.0% of track) | handle centreX=146.3 fillRightEdge=146.3 dX=0.0
+  minmax="$0$100" count=1
+  AFTER DRAG -> input=72 readout="$72" aria=72
+    handle centreX=257.2 (target 257.2) centreYdelta=0.0 fillW=228.2 => 72.0%
+  AFTER 3x ArrowLeft -> input=69 readout="$69" handleCentreX=247.7 (moved -9.5px)
+STEPPER(375) readout="$170,000" input=170000
+  minus box=48.0x48.0 @x=56.0 | value @x=120.0..255.0 | plus box=48.0x48.0 @x=271.0  FLANKS=true
+  row centred? rowX=29.0 rowW=317.0 minusLeftGap=27.0 plusRightGap=27.0
+  track centreY=355.6 handle centreY=355.6 DELTA=0.0
+  CAPTIONS count=1 text="$5,000$500,000"
+  AFTER 2x + -> input=180000 readout="$180,000" handleCentreX=139.9 (was 133.6)
+  AFTER DRAG -> input=300000 readout="$300,000" handleCentreX=219.2
+  AFTER ArrowRight -> input=305000 readout="$305,000"
+FROM_TO(375) rails=2 tracks=1 handles=2
+  pills=[$0 , $100,000] captions="$0$100,000"
+  labels=[From ($) , To ($)] inputs=[0 , 100000] rails=[0 , 100000]
+  track x=29.0 w=317.0 | fill x=29.0 w=317.0 | hMin cX=29.0 cYd=0.0 | hMax cX=346.0 cYd=0.0
+  AFTER DRAGS rails=[20000 , 60000] inputs=[20000 , 60000] pills=[$20,000 , $60,000]
+    fill x=92.4 w=126.8 spans [20.0% .. 60.0%] | hMin cX=92.4 hMax cX=219.2 | fillEdges=92.4/219.2
+  AFTER 2x ArrowRight on min rail -> rails=[30000 , 60000] inputs=[30000 , 60000] pills=[$30,000 , $60,000]
+  AFTER typing 75000 into "To" -> rails=[30000 , 75000] pills=[$30,000 , $75,000] fillW=142.6
+DUAL(375) tracks=1 handles=2 rails=2 numberInputs=0
+  pills=[0 , 100] captions="0100"
+  hMin cYd=0.0 hMax cYd=0.0
+  AFTER DRAGS rails=[18 , 78] pills=[18 , 78]
+    fill spans [18.0% .. 78.0%] hMin cX=86.0 hMax cX=276.2 fillL=86.0 fillR=276.2
+  AFTER 4x ArrowLeft on max rail -> rails=[18 , 74] pills=[18 , 74]
+RADIAL(375) outer=140.0x140.0 round=9999px inner=110.0x110.0 centre="45" input=45
+  --lg-deg=162deg expected=162deg  bg=conic-gradient(rgb(27, 58, 92) 0deg, rgb(27, 58, 92) 162deg, rgb(232, 238, 244) 162deg, rgb(232, 238, 244) 360deg)
+  ring handle box=35.3x35.3 centre=(206.8,682.0) dialCentre=(187.5,622.6) radius=62.5 (dial r=70.0)
+  AFTER RING DRAG to 3 o'clock -> input=25 centre="25" --lg-deg=90deg aria=25
+    handle centre=(250.0,622.6) expected≈(248.5,622.6)
+  AFTER RING DRAG to 6 o'clock -> input=50 centre="50" --lg-deg=180deg
+  AFTER 5x ArrowUp -> input=55 centre="55" --lg-deg=198deg handleCentre=(168.2,682.0)
+composite all-five-375-top.png written

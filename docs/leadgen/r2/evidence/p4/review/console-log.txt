@@ -1,0 +1,14 @@
+
+=== console probe 2026-07-30T00:47:02.451Z ===
+author -> 200
+activate -> 200
+
+=== console probe 2026-07-30T00:47:25.453Z ===
+author -> 200
+activate -> 200
+single: value=73
+stepper: value=85
+from_to: value=15
+dual_range: value=3
+radial: value=28
+CONSOLE errors/warnings during the whole drive: 0

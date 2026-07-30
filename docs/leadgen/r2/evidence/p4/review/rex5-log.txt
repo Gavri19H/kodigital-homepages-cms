@@ -1,0 +1,71 @@
+REX5 FINAL CLOSURE (2fb53ed) 2026-07-30T02:13:54.891Z
+author+map -> 200
+activate -> 200
+SSR ready
+
+########## VIEWPORT 1280 ##########
+A(1280) start  From="35000" To="100000" rails=[35000,100000] pills=[$35,000,$100,000]
+A(1280) typed "60000" into To key-by-key -> From="35000" To="60000" rails=[35000,60000] pills=[$35,000,$60,000]   [want 60000]
+B(1280) typed "45000" into From -> From="45000" To="80000" rails=[45000,80000] pills=[$45,000,$80,000]   [want 45000]
+C(1280) clear+retype From 15000 then 70000 -> From="70000" To="80000" rails=[70000,80000] pills=[$70,000,$80,000]   [want 70000, To=80000]
+D(1280) pasted "35000" into To (pre-commit) -> From="10000" To="35000" rails=[10000,35000] pills=[$10,000,$35,000]
+D(1280) after commit -> From="10000" To="35000" rails=[10000,35000] pills=[$10,000,$35,000]   [want To=35000]
+E(1280) typed out-of-order "90000" into From (To=40000) -> From="35000" To="40000" rails=[35000,40000] pills=[$35,000,$40,000]   [want box==rail==35000]
+F(1280) typed out-of-order "10000" into To (From=50000) -> From="50000" To="55000" rails=[50000,55000] pills=[$50,000,$55,000]   [want box==rail]
+G(1280) out-of-order "5000" into To committed with ENTER -> From="20000" To="25000" rails=[20000,25000] pills=[$20,000,$25,000]   [box==rail?]
+H(1280) out-of-order "5000" typed into To, NOT committed -> From="20000" To="5000" rails=[20000,25000] pills=[$20,000,$25,000]
+H(1280) after dragging the MIN rail with the To box uncommitted -> From="10000" To="25000" rails=[10000,25000] pills=[$10,000,$25,000]
+
+########## VIEWPORT 375 ##########
+A(375) start  From="35000" To="100000" rails=[35000,100000] pills=[$35,000,$100,000]
+A(375) typed "60000" into To key-by-key -> From="35000" To="60000" rails=[35000,60000] pills=[$35,000,$60,000]   [want 60000]
+B(375) typed "45000" into From -> From="45000" To="80000" rails=[45000,80000] pills=[$45,000,$80,000]   [want 45000]
+C(375) clear+retype From 15000 then 70000 -> From="70000" To="80000" rails=[70000,80000] pills=[$70,000,$80,000]   [want 70000, To=80000]
+D(375) pasted "35000" into To (pre-commit) -> From="10000" To="35000" rails=[10000,35000] pills=[$10,000,$35,000]
+D(375) after commit -> From="10000" To="35000" rails=[10000,35000] pills=[$10,000,$35,000]   [want To=35000]
+E(375) typed out-of-order "90000" into From (To=40000) -> From="35000" To="40000" rails=[35000,40000] pills=[$35,000,$40,000]   [want box==rail==35000]
+F(375) typed out-of-order "10000" into To (From=50000) -> From="50000" To="55000" rails=[50000,55000] pills=[$50,000,$55,000]   [want box==rail]
+G(375) out-of-order "5000" into To committed with ENTER -> From="20000" To="25000" rails=[20000,25000] pills=[$20,000,$25,000]   [box==rail?]
+H(375) out-of-order "5000" typed into To, NOT committed -> From="20000" To="5000" rails=[20000,25000] pills=[$20,000,$25,000]
+H(375) after dragging the MIN rail with the To box uncommitted -> From="10000" To="25000" rails=[10000,25000] pills=[$10,000,$25,000]
+I start (UNCOMMITTED out-of-order 90000 in From, To=40000) -> From="90000" To="40000" rails=[35000,40000] pills=[$35,000,$40,000]
+I after clicking the carrier (blur fires change) -> From="35000" To="40000" rails=[35000,40000] pills=[$35,000,$40,000]
+I /lg/auction -> 200
+N-2 REST (0/100000) @1280: label "undefined" bottom=? | topPill y=188.6 => CLEARANCE=NaNpx | pills x [376.0..411.5] [823.5..904.0] | scrollWidth=1280/1280
+N-2 LOW clamp @1280: label "undefined" bottom=? | topPill y=156.6 => CLEARANCE=NaNpx | pills x [376.0..411.5] [420.0..485.1] | scrollWidth=1280/1280
+N-2 HIGH clamp @1280: label "undefined" bottom=? | topPill y=156.6 => CLEARANCE=NaNpx | pills x [786.6..860.4] [823.5..904.0] | scrollWidth=1280/1280
+
+=== N-2 re-measure 2026-07-30T02:15:11.064Z ===
+DOM children of the from_to question: ["DIV.lg-range-track","DIV.lg-range-minmax","DIV.lg-range-from-to-inputs","P.lg-error lg-error-auto"]
+N-2 REST @1280: label="undefined" (.null) bottom=? topPill=188.6 => CLEARANCE=NaNpx | pills[376.0..411.5][823.5..904.0] scrollWidth=1280/1280
+N-2 LOW clamp @1280: label="undefined" (.null) bottom=? topPill=156.6 => CLEARANCE=NaNpx | pills[376.0..411.5][420.0..485.1] scrollWidth=1280/1280
+N-2 HIGH clamp @1280: label="undefined" (.null) bottom=? topPill=156.6 => CLEARANCE=NaNpx | pills[786.6..860.4][823.5..904.0] scrollWidth=1280/1280
+N-2 @1280 SUMMARY rest=NaNpx low=NaNpx high=NaNpx  rails=[95000,100000]
+
+=== N-2 re-measure 2026-07-30T02:15:34.943Z ===
+DOM children of the from_to question: ["prev=SPAN.lg-label","prevText=From / To — Price band"]
+N-2 REST @1280: label="From / To — Price band" (.lg-label) bottom=146.6 topPill=188.6 => CLEARANCE=42.0px | pills[376.0..411.5][823.5..904.0] scrollWidth=1280/1280
+N-2 LOW clamp @1280: label="From / To — Price band" (.lg-label) bottom=146.6 topPill=156.6 => CLEARANCE=10.0px | pills[376.0..411.5][420.0..485.1] scrollWidth=1280/1280
+N-2 HIGH clamp @1280: label="From / To — Price band" (.lg-label) bottom=146.6 topPill=156.6 => CLEARANCE=10.0px | pills[786.6..860.4][823.5..904.0] scrollWidth=1280/1280
+N-2 @1280 SUMMARY rest=42.0px low=10.0px high=10.0px  rails=[95000,100000]
+N-2 REST @375: label="From / To — Price band" (.lg-label) bottom=131.6 topPill=173.6 => CLEARANCE=42.0px | pills[18.0..53.5][276.5..357.0] scrollWidth=375/375
+N-2 LOW clamp @375: label="From / To — Price band" (.lg-label) bottom=131.6 topPill=141.6 => CLEARANCE=10.0px | pills[18.0..53.5][52.6..117.6] scrollWidth=375/375
+N-2 HIGH clamp @375: label="From / To — Price band" (.lg-label) bottom=131.6 topPill=141.6 => CLEARANCE=10.0px | pills[249.0..322.8][276.5..357.0] scrollWidth=375/375
+N-2 @375 SUMMARY rest=42.0px low=10.0px high=10.0px  rails=[95000,100000]
+A-e2e: To box="60000" rails=[35000,60000]
+A-e2e /lg/auction -> 200
+
+=== census 2026-07-30T02:20:35.786Z ===
+activate -> 200
+CENSUS single@1280: value/readout=1 track=1 fill=1 handles=1 captions=1 stepperBtns=0 ftLabels=0 dial=0 ringHandle=0 | DRAG 37 -> 62
+CENSUS stepper@1280: value/readout=1 track=1 fill=1 handles=1 captions=1 stepperBtns=2 ftLabels=0 dial=0 ringHandle=0 | DRAG 170000 -> 310000
+CENSUS from_to@1280: value/readout=0 track=1 fill=1 handles=2 captions=1 stepperBtns=0 ftLabels=2 dial=0 ringHandle=0 | DRAG 0 -> 60000
+CENSUS dual_range@1280: value/readout=0 track=1 fill=1 handles=2 captions=1 stepperBtns=0 ftLabels=0 dial=0 ringHandle=0 | DRAG 0 -> 62
+CENSUS radial@1280: value/readout=1 track=0 fill=0 handles=0 captions=0 stepperBtns=0 ftLabels=0 dial=1 ringHandle=1 | DRAG 45 -> 25
+CENSUS @1280 overflow: scrollWidth=1280/1280
+CENSUS single@375: value/readout=1 track=1 fill=1 handles=1 captions=1 stepperBtns=0 ftLabels=0 dial=0 ringHandle=0 | DRAG 37 -> 62
+CENSUS stepper@375: value/readout=1 track=1 fill=1 handles=1 captions=1 stepperBtns=2 ftLabels=0 dial=0 ringHandle=0 | DRAG 170000 -> 315000
+CENSUS from_to@375: value/readout=0 track=1 fill=1 handles=2 captions=1 stepperBtns=0 ftLabels=2 dial=0 ringHandle=0 | DRAG 0 -> 60000
+CENSUS dual_range@375: value/readout=0 track=1 fill=1 handles=2 captions=1 stepperBtns=0 ftLabels=0 dial=0 ringHandle=0 | DRAG 0 -> 62
+CENSUS radial@375: value/readout=1 track=0 fill=0 handles=0 captions=0 stepperBtns=0 ftLabels=0 dial=1 ringHandle=1 | DRAG 45 -> 25
+CENSUS @375 overflow: scrollWidth=375/375

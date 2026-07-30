@@ -76,6 +76,28 @@ function asEl(el: FakeElement): Element {
   return el as unknown as Element;
 }
 
+class FakeStyle {
+  props = new Map<string, string>();
+  setProperty(k: string, v: string): void {
+    this.props.set(k, v);
+  }
+  getPropertyValue(k: string): string {
+    return this.props.get(k) ?? "";
+  }
+  get left(): string {
+    return this.getPropertyValue("left");
+  }
+  set left(v: string) {
+    this.setProperty("left", v);
+  }
+  get width(): string {
+    return this.getPropertyValue("width");
+  }
+  set width(v: string) {
+    this.setProperty("width", v);
+  }
+}
+
 class FakeElement {
   tag: string;
   attrs = new Map<string, string>();
@@ -83,17 +105,22 @@ class FakeElement {
   children: FakeElement[] = [];
   parentElement: FakeElement | null = null;
   textContent = "";
-  style: Record<string, string> = {};
+  // S4b: a real CSSStyleDeclaration, because custom properties (--lg-deg, the
+  // radial's ONE live property) are NOT settable as plain object keys in a
+  // browser either — only via setProperty. `left`/`width` stay plain
+  // assignments for render.updateRangeDisplay and the two-handle fill.
+  style = new FakeStyle();
+  // S4b: the dial's box, set by the radial tests so a pointer angle is real.
+  rect = { left: 0, top: 0, width: 0, height: 0 };
   listeners = new Map<string, Array<(ev: unknown) => void>>();
   ownerDocument: FakeDocument | undefined;
   hidden = false;
   focusedCount = 0;
   constructor(tag = "div", attrs: Record<string, string> = {}) {
     this.tag = tag;
-    for (const [k, v] of Object.entries(attrs)) {
-      if (k === "class") for (const c of v.split(/\s+/)) { if (c !== "") this.classSet.add(c); }
-      else this.attrs.set(k, v);
-    }
+    // S4b: route through setAttribute so construction and later writes agree
+    // (class -> classList, style -> CSSStyleDeclaration incl. --lg-deg).
+    for (const [k, v] of Object.entries(attrs)) this.setAttribute(k, v);
   }
   get classList() {
     const set = this.classSet;
@@ -112,7 +139,22 @@ class FakeElement {
   }
   setAttribute(name: string, value: string): void {
     if (name === "hidden") this.hidden = true;
+    // S4b: parsed SERVER markup arrives through this path, so class/style must
+    // land where the runtime reads them (classList / CSSStyleDeclaration).
+    if (name === "class") {
+      for (const c of String(value).split(/\s+/)) if (c !== "") this.classSet.add(c);
+      return;
+    }
+    if (name === "style") {
+      for (const decl of String(value).split(";")) {
+        const at = decl.indexOf(":");
+        if (at > 0) this.style.setProperty(decl.slice(0, at).trim(), decl.slice(at + 1).trim());
+      }
+    }
     this.attrs.set(name, String(value));
+  }
+  getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
+    return this.rect;
   }
   removeAttribute(name: string): void {
     if (name === "hidden") this.hidden = false;
@@ -165,7 +207,15 @@ class FakeInputElement extends FakeElement {
   checked = false;
   selectionStart: number | null = 0;
   selectionEnd: number | null = 0;
-  constructor(attrs: Record<string, string> = {}) { super("input", attrs); }
+  constructor(attrs: Record<string, string> = {}) {
+    super("input", attrs);
+    // S4b: parsed SERVER markup carries type/value as ATTRIBUTES; a real
+    // HTMLInputElement reflects both onto the properties the runtime reads.
+    const t = this.getAttribute("type");
+    if (t !== null) this.type = t;
+    const v = this.getAttribute("value");
+    if (v !== null) this.value = v;
+  }
   // The mask fill parks the caret via setSelectionRange (§6.9) — the fake mirrors
   // the real HTMLInputElement API so the caret assertion exercises the real path.
   setSelectionRange(start: number, end: number): void {
@@ -189,8 +239,13 @@ interface FakeDocument {
   querySelector(selector: string): FakeElement | null;
   getElementById(id: string): FakeElement | null;
   addEventListener(type: string, fn: unknown, opts?: unknown): void;
+  // S4b: the radial drag's move stream rides the DOCUMENT (a drag that leaves
+  // the card must keep tracking), so document listeners are now RECORDED and
+  // replayable instead of dropped.
+  dispatch(type: string, ev: Record<string, unknown>): void;
 }
 function fakeDocument(): FakeDocument {
+  const listeners = new Map<string, Array<(ev: unknown) => void>>();
   const doc: FakeDocument = {
     cookie: "", referrer: "", visibilityState: "visible", head: new FakeElement("head"),
     createElement(tag: string): FakeElement {
@@ -200,7 +255,14 @@ function fakeDocument(): FakeDocument {
     },
     querySelector: () => null,
     getElementById: () => null,
-    addEventListener: () => undefined,
+    addEventListener(type: string, fn: unknown): void {
+      const list = listeners.get(type) ?? [];
+      list.push(fn as (ev: unknown) => void);
+      listeners.set(type, list);
+    },
+    dispatch(type: string, ev: Record<string, unknown>): void {
+      for (const fn of [...(listeners.get(type) ?? [])]) fn(ev);
+    },
   };
   return doc;
 }
@@ -871,5 +933,445 @@ describe("§4.2 — default provenance + hidden⇒not-required/not-persisted on 
       .sort();
     const engineList = [...NON_ANSWER_PRODUCING_TYPES].sort();
     expect(engineList).toEqual(registryNonProducing);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R2 P4 S4b — the §6.8 sliders MOVING, driven over the REAL server markup.
+//
+// HONESTY (mission-loop E10/E11): CODE HEALTH, not the acceptance. These are
+// deliberately NOT hand-built-both-sides tests — every DOM below is the
+// byte-for-byte output of the real renderNumberRangeQuestion (presets.ts,
+// S4a-committed) parsed into this file's fake DOM, and every value change is
+// driven through the engine's own delegated input/click/pointer listeners, so
+// the PRODUCER side of the boundary is the genuine artifact. The
+// driven-product proof (real pointer drags + keyboard on a live /lg funnel at
+// 1280 and 375, measured before/after) lives in
+// docs/leadgen/r2/evidence/p4/s4b/. Green here + a frozen arc on screen = FAIL.
+// ---------------------------------------------------------------------------
+
+const VOID_TAGS = new Set(["input", "br", "img", "hr", "meta", "link"]);
+const ENTITIES: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", minus: "−", "#65291": "＋", nbsp: " ",
+};
+function decodeEntities(s: string): string {
+  return s.replace(/&(#?\w+);/g, (all, name: string) => ENTITIES[name] ?? all);
+}
+// presets.ts emits well-formed, double-quoted, entity-escaped HTML from string
+// templates, so a tolerant tag scanner is enough to turn the SERVER's own bytes
+// into the DOM the runtime then drives.
+function parseSsr(html: string): FakeElement[] {
+  const root = mk("body");
+  const stack: FakeElement[] = [root];
+  let last = 0;
+  for (const m of html.matchAll(/<\/?([a-zA-Z][\w-]*)((?:\s+[\w:-]+(?:="[^"]*")?)*)\s*\/?>/g)) {
+    const at = m.index ?? 0;
+    const text = html.slice(last, at);
+    const top = stack[stack.length - 1] as FakeElement;
+    if (text.trim() !== "") top.textContent = decodeEntities(text);
+    last = at + m[0].length;
+    const tag = (m[1] as string).toLowerCase();
+    if (m[0].startsWith("</")) {
+      if (stack.length > 1) stack.pop();
+      continue;
+    }
+    const attrs: Record<string, string> = {};
+    for (const a of (m[2] ?? "").matchAll(/([\w:-]+)(?:="([^"]*)")?/g)) {
+      attrs[a[1] as string] = decodeEntities(a[2] ?? "");
+    }
+    const el = mk(tag, attrs);
+    top.appendChild(el);
+    if (!VOID_TAGS.has(tag)) stack.push(el);
+  }
+  const tail = html.slice(last);
+  const top = stack[stack.length - 1] as FakeElement;
+  if (tail.trim() !== "") top.textContent = decodeEntities(tail);
+  return [...root.children];
+}
+
+// The §6.8 markup the runtime drives. It is NOT the producer — presets.ts is —
+// but it is not free-floating either: `test/leadgen-slider-anatomy-r2.test.ts`
+// ("the runtime's hook contract") asserts, against the REAL renderComponent
+// output for all five types, that every hook named below is exactly what the
+// server emits. That suite lives in the WORKER tsconfig program because
+// presets.ts reaches src/env.ts through content-schema -> leadgen/payload,
+// while THIS file lives in the DOM-lib runtime program — the two programs
+// cannot import each other's halves today (tsconfig.runtime.json carries
+// `types: []`), so the contract is pinned there and consumed here. The real
+// end-to-end boundary proof is the driven product:
+// test-ui/leadgen-r2p4-s4b-slider-drive.spec.ts over the live server.
+function sliderHtml(p: Record<string, unknown>): string {
+  const n = (k: string, d: number): number => (typeof p[k] === "number" ? (p[k] as number) : d);
+  const kind = String(p["slider_type"] ?? "single");
+  const min = n("min", 0);
+  const max = n("max", 100);
+  const step = n("step", 1);
+  const value = n("default", min);
+  const cur = p["currency_affix"] === true ? String(p["currency"] ?? "$") : "";
+  const curAttr = cur === "" ? "" : ` data-currency="${cur}"`;
+  const fmt = (v: number): string => cur + v.toLocaleString("en-US");
+  const pctOfRail = (v: number): number => (max > min ? Math.round(((v - min) / (max - min)) * 100) : 0);
+  const hydrate = ` data-lg-question="q_s" data-lg-field="amount" data-internal-field="amount"`;
+  const rail = (extra: string, v: number): string =>
+    `<input class="lg-range-input${extra}" type="range" role="slider" data-lg-input min="${min}" max="${max}" step="${step}" value="${v}" aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${v}">`;
+  const handle = (variant: string, readout: string): string =>
+    `<div class="lg-range-handle${variant === "" ? "" : ` lg-range-handle-${variant}`}" aria-hidden="true">` +
+    (readout === "" ? "" : `<span class="lg-range-handle-value">${readout}</span>`) +
+    `</div>`;
+  const minmax = `<div class="lg-range-minmax"><span>${fmt(min)}</span><span>${fmt(max)}</span></div>`;
+  if (kind === "from_to" || kind === "dual_range") {
+    return (
+      `<div class="lg-range lg-range-${kind === "from_to" ? "from-to" : "dual"}"${hydrate}${curAttr} data-slider-type="${kind}">` +
+      `<div class="lg-range-track">` +
+      `<div class="lg-range-fill" style="left:0%;width:100%">` +
+      handle("min", fmt(min)) +
+      handle("max", fmt(max)) +
+      `</div>` +
+      `<span data-lg-field="amount_min">${rail(" lg-range-input-dual", min)}</span>` +
+      `<span data-lg-field="amount_max">${rail(" lg-range-input-dual", max)}</span>` +
+      `</div>` +
+      minmax +
+      (kind === "from_to"
+        ? `<div class="lg-range-from-to-inputs">` +
+          `<div class="lg-range-ft-field"><span data-lg-field="amount_min"><input class="lg-input lg-range-from" type="number" data-lg-input min="${min}" max="${max}" step="${step}" value="${min}"></span></div>` +
+          `<div class="lg-range-ft-field"><span data-lg-field="amount_max"><input class="lg-input lg-range-to" type="number" data-lg-input min="${min}" max="${max}" step="${step}" value="${max}"></span></div>` +
+          `</div>`
+        : "") +
+      `</div>`
+    );
+  }
+  if (kind === "radial") {
+    const deg = (pctOfRail(value) / 100) * 360;
+    return (
+      `<div class="lg-range lg-range-radial"${hydrate}${curAttr} data-slider-type="radial">` +
+      `<div class="lg-range-radial-outer" aria-hidden="true" style="--lg-deg:${deg}deg">` +
+      `<div class="lg-range-radial-handle"></div>` +
+      `<div class="lg-range-value lg-range-radial-inner">${fmt(value)}</div>` +
+      `</div>` +
+      rail(" lg-range-radial-input", value) +
+      `</div>`
+    );
+  }
+  const stepper = kind === "stepper";
+  return (
+    `<div class="lg-range${stepper ? " lg-range-stepper" : ""}"${hydrate}${curAttr}${stepper ? ` data-slider-type="stepper"` : ""}>` +
+    (stepper
+      ? `<div class="lg-range-stepper-row">` +
+        `<button type="button" class="lg-range-stepper-btn lg-range-stepper-dec" data-lg-step="dec" aria-label="Decrease">-</button>` +
+        `<div class="lg-range-value">${fmt(value)}</div>` +
+        `<button type="button" class="lg-range-stepper-btn lg-range-stepper-inc" data-lg-step="inc" aria-label="Increase">+</button>` +
+        `</div>`
+      : `<div class="lg-range-value">${fmt(value)}</div>`) +
+    `<div class="lg-range-track">` +
+    `<div class="lg-range-fill" style="width:${pctOfRail(value)}%">` +
+    handle("", "") +
+    `</div>` +
+    rail("", value) +
+    `</div>` +
+    minmax +
+    `</div>`
+  );
+}
+
+interface SliderRig {
+  answers: () => Record<string, unknown>;
+  q: (sel: string) => FakeElement;
+  all: (sel: string) => FakeElement[];
+  input: (sel: string) => FakeInputElement;
+  fire: (el: FakeElement) => void;
+  press: (el: FakeElement) => void;
+  key: (el: FakeInputElement, dir: 1 | -1) => void;
+  down: (el: FakeElement, x: number, y: number) => void;
+  move: (x: number, y: number) => void;
+  release: () => void;
+}
+
+async function sliderRig(props: Record<string, unknown>): Promise<SliderRig> {
+  DOC = fakeDocument();
+  const html = sliderHtml(props);
+  const sec = mk("section", { "data-lg-section": "", "data-lg-section-id": "lgs_1", "data-lg-index": "0" });
+  for (const el of parseSsr(html)) sec.appendChild(el);
+  sec.appendChild(mk("button", { "data-lg-continue": "" }));
+  const root = mk("div", { id: "lg-funnel-root" }, [mk("main", { "data-lg-mount": "" }, [sec])]);
+  const comp: LgComponentConfig = {
+    type: "NumberRangeQuestion", question_id: "q_s", internal_field: "amount", answer_type: "number", props,
+  } as LgComponentConfig;
+  const { answers } = await boot(baseConfig([section("lgs_1", 0, [comp])]), root, { preview: true });
+  const doc = DOC;
+  const q = (sel: string): FakeElement => {
+    const el = root.querySelector(sel);
+    expect(el, `the SERVER markup carries ${sel}`).not.toBeNull();
+    return el as FakeElement;
+  };
+  return {
+    answers,
+    q,
+    all: (sel) => root.querySelectorAll(sel),
+    input: (sel) => q(sel) as FakeInputElement,
+    fire: (el) => root.dispatch("input", el),
+    press: (el) => root.dispatch("click", el),
+    key: (el, dir) => {
+      // A native range input applies +/-step ITSELF on the arrow keys and then
+      // fires `input`; the engine never sees the keydown. Model exactly that.
+      const step = Number(el.getAttribute("step") || 1);
+      const min = Number(el.getAttribute("min") || 0);
+      const max = Number(el.getAttribute("max") || 100);
+      const next = Number(el.value) + dir * step;
+      el.value = String(next < min ? min : next > max ? max : next);
+      root.dispatch("input", el);
+    },
+    down: (el, x, y) => root.dispatch("pointerdown", el, { clientX: x, clientY: y, buttons: 1 }),
+    move: (x, y) => doc.dispatch("pointermove", { clientX: x, clientY: y, buttons: 1 }),
+    release: () => doc.dispatch("pointermove", { clientX: 0, clientY: 0, buttons: 0 }),
+  };
+}
+
+const pctOf = (s: string): number => Number(s.replace("%", ""));
+
+describe("§6.8 single — a drag and a keypress move the readout, the fill and aria", () => {
+  it("a drag to 75 of 0..100 moves fill 0%->75%, the readout and aria-valuenow together", async () => {
+    const r = await sliderRig({ min: 0, max: 100, step: 1, default: 0, slider_type: "single" });
+    const input = r.input(".lg-range-input");
+    const fill = r.q(".lg-range-fill");
+    const value = r.q(".lg-range-value");
+    expect(pctOf(fill.style.width)).toBe(0);
+    expect(value.textContent).toBe("0");
+
+    input.value = "75";
+    r.fire(input);
+
+    expect(pctOf(fill.style.width)).toBe(75);
+    expect(value.textContent).toBe("75");
+    expect(input.getAttribute("aria-valuenow")).toBe("75");
+    expect(r.answers()["amount"]).toBe("75");
+  });
+
+  it("keyboard (one native step) moves the same three surfaces; currency formats the readout", async () => {
+    const r = await sliderRig({ min: 0, max: 1000, step: 250, default: 0, slider_type: "single", currency_affix: true, currency: "$" });
+    const input = r.input(".lg-range-input");
+    r.key(input, 1);
+    expect(input.value).toBe("250");
+    expect(r.q(".lg-range-value").textContent).toBe("$250");
+    expect(pctOf(r.q(".lg-range-fill").style.width)).toBe(25);
+    expect(input.getAttribute("aria-valuenow")).toBe("250");
+  });
+});
+
+describe("§6.8 stepper — the -/+ buttons step by the REQUIRED step and stop at the rail", () => {
+  it("+ steps 0->5->10 (fill and readout follow); - at min stays at min", async () => {
+    const r = await sliderRig({ min: 0, max: 20, step: 5, default: 0, slider_type: "stepper" });
+    const input = r.input(".lg-range-input");
+    r.press(r.q(".lg-range-stepper-inc"));
+    expect(input.value).toBe("5");
+    expect(pctOf(r.q(".lg-range-fill").style.width)).toBe(25);
+    expect(r.q(".lg-range-value").textContent).toBe("5");
+    r.press(r.q(".lg-range-stepper-inc"));
+    expect(input.value).toBe("10");
+    expect(input.getAttribute("aria-valuenow")).toBe("10");
+
+    input.value = "0";
+    r.press(r.q(".lg-range-stepper-dec"));
+    expect(input.value).toBe("0");
+    expect(r.answers()["amount"]).toBe("0");
+  });
+
+  it("+ past max clamps at max (never past the rail)", async () => {
+    const r = await sliderRig({ min: 0, max: 20, step: 15, default: 0, slider_type: "stepper" });
+    const input = r.input(".lg-range-input");
+    r.press(r.q(".lg-range-stepper-inc"));
+    expect(input.value).toBe("15");
+    r.press(r.q(".lg-range-stepper-inc"));
+    expect(input.value).toBe("20");
+    expect(pctOf(r.q(".lg-range-fill").style.width)).toBe(100);
+  });
+});
+
+for (const kind of ["from_to", "dual_range"] as const) {
+  describe(`§6.8 ${kind} — both handles move independently, the fill spans BETWEEN them`, () => {
+    const base = { min: 0, max: 100000, step: 1000, slider_type: kind, currency_affix: true, currency: "$" };
+
+    it("the SSR opens at the full span, then each rail moves its OWN side", async () => {
+      const r = await sliderRig(base);
+      const rails = r.all(".lg-range-input-dual") as FakeInputElement[];
+      expect(rails.length).toBe(2);
+      const [lo, hi] = rails as [FakeInputElement, FakeInputElement];
+      const fill = r.q(".lg-range-fill");
+      const pills = r.all(".lg-range-handle-value");
+      expect([pctOf(fill.style.left), pctOf(fill.style.width)]).toEqual([0, 100]);
+      expect(pills.map((p) => p.textContent)).toEqual(["$0", "$100,000"]);
+
+      // MAX handle down to 75,000 — left edge unmoved, span shrinks, max pill only.
+      hi.value = "75000";
+      r.fire(hi);
+      expect([pctOf(fill.style.left), pctOf(fill.style.width)]).toEqual([0, 75]);
+      expect(pills.map((p) => p.textContent)).toEqual(["$0", "$75,000"]);
+      expect(lo.value).toBe("0");
+
+      // MIN handle up to 25,000 — left edge moves, span shrinks from the left.
+      lo.value = "25000";
+      r.fire(lo);
+      expect([pctOf(fill.style.left), pctOf(fill.style.width)]).toEqual([25, 50]);
+      expect(pills.map((p) => p.textContent)).toEqual(["$25,000", "$75,000"]);
+      expect(hi.value).toBe("75000");
+
+      expect(r.answers()["amount_min"]).toBe("25000");
+      expect(r.answers()["amount_max"]).toBe("75000");
+      expect(lo.getAttribute("aria-valuenow")).toBe("25000");
+      expect(hi.getAttribute("aria-valuenow")).toBe("75000");
+      expect(lo.getAttribute("role")).toBe("slider");
+      expect(hi.getAttribute("role")).toBe("slider");
+    });
+
+    it("CLAMP: a handle dragged past its neighbour stops ONE step short; the neighbour never moves", async () => {
+      const r = await sliderRig(base);
+      const [lo, hi] = r.all(".lg-range-input-dual") as [FakeInputElement, FakeInputElement];
+      hi.value = "40000";
+      r.fire(hi);
+
+      // min pushed WAY past max -> parked at max-step, max untouched.
+      lo.value = "90000";
+      r.fire(lo);
+      expect(lo.value).toBe("39000");
+      expect(hi.value).toBe("40000");
+      expect(r.answers()["amount_min"]).toBe("39000"); // the CLAMP records, not 90000
+      expect(r.answers()["amount_max"]).toBe("40000");
+
+      // ...and symmetrically, max dragged below min stops one step above it.
+      hi.value = "1000";
+      r.fire(hi);
+      expect(hi.value).toBe("40000");
+      expect(lo.value).toBe("39000");
+      expect(r.answers()["amount_max"]).toBe("40000");
+      // The gap means the two thumbs never share a pixel -> both stay grabbable.
+      expect(Number(hi.value) - Number(lo.value)).toBe(1000);
+    });
+  });
+}
+
+describe("§6.8 from_to — the labelled number fields and the rails are ONE value", () => {
+  const base = { min: 0, max: 100, step: 1, slider_type: "from_to" };
+
+  it("dragging a rail rewrites its labelled field; typing in a field moves the rail, fill and pill", async () => {
+    const r = await sliderRig(base);
+    const [lo, hi] = r.all(".lg-range-input-dual") as [FakeInputElement, FakeInputElement];
+    const from = r.input(".lg-range-from");
+    const to = r.input(".lg-range-to");
+    const fill = r.q(".lg-range-fill");
+
+    hi.value = "80";
+    r.fire(hi);
+    expect(to.value).toBe("80");
+    expect(from.value).toBe("0");
+
+    from.value = "30";
+    r.fire(from);
+    expect(lo.value).toBe("30");
+    expect([pctOf(fill.style.left), pctOf(fill.style.width)]).toEqual([30, 50]);
+    expect(r.all(".lg-range-handle-value").map((p) => p.textContent)).toEqual(["30", "80"]);
+    expect(r.answers()["amount_min"]).toBe("30");
+
+    // Out of the rail entirely -> clamped into it, and the clamp is recorded.
+    to.value = "9999";
+    r.fire(to);
+    expect(hi.value).toBe("100");
+    expect(r.answers()["amount_max"]).toBe("100");
+  });
+
+  it("clearing a field is never re-filled under the visitor's caret", async () => {
+    const r = await sliderRig(base);
+    const from = r.input(".lg-range-from");
+    from.value = "";
+    r.fire(from);
+    expect(from.value).toBe("");
+  });
+});
+
+describe("§6.8 radial — the arc angle, the ring handle and the centre all follow the value", () => {
+  const base = { min: 0, max: 100, step: 1, default: 0, slider_type: "radial" };
+
+  it("the drag hook can reach the real control from the dial box the pointer hits", async () => {
+    const r = await sliderRig(base);
+    const outer = r.q(".lg-range-radial-outer");
+    // The engine resolves the control as outer.parentElement's radial input —
+    // assert that SERVER contract here, so a presets.ts reshape fails loudly.
+    const input = (outer.parentElement as FakeElement).querySelector(".lg-range-radial-input");
+    expect(input).not.toBeNull();
+    expect((input as FakeElement).getAttribute("role")).toBe("slider");
+    // Exactly ONE slider landmark for the dial (the real input); the dial itself
+    // stays aria-hidden with no role of its own.
+    expect(r.all('[role="slider"]').length).toBe(1);
+    expect(outer.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("a KEYBOARD step moves --lg-deg and the centre readout together (the frozen-arc fix)", async () => {
+    const r = await sliderRig({ ...base, default: 45 });
+    const outer = r.q(".lg-range-radial-outer");
+    const centre = r.q(".lg-range-radial-inner");
+    const input = r.input(".lg-range-radial-input");
+    expect(outer.style.getPropertyValue("--lg-deg")).toBe("162deg"); // SSR: 45% of 360
+    expect(centre.textContent).toBe("45");
+
+    r.key(input, 1);
+    expect(input.value).toBe("46");
+    expect(centre.textContent).toBe("46");
+    expect(outer.style.getPropertyValue("--lg-deg")).toBe("166deg"); // 46% of 360 = 165.6
+    expect(input.getAttribute("aria-valuenow")).toBe("46");
+
+    r.key(input, -1);
+    expect(outer.style.getPropertyValue("--lg-deg")).toBe("162deg");
+  });
+
+  it("a POINTER DRAG around the ring sets the value from the angle (0deg = 12 o'clock, clockwise)", async () => {
+    const r = await sliderRig(base);
+    const outer = r.q(".lg-range-radial-outer");
+    outer.rect = { left: 100, top: 100, width: 200, height: 200 }; // centre (200,200)
+    const input = r.input(".lg-range-radial-input");
+    const centre = r.q(".lg-range-radial-inner");
+
+    // 3 o'clock = a quarter turn clockwise = 25 of 0..100.
+    r.down(outer, 300, 200);
+    expect(input.value).toBe("25");
+    expect(centre.textContent).toBe("25");
+    expect(outer.style.getPropertyValue("--lg-deg")).toBe("90deg");
+    expect(input.focusedCount).toBeGreaterThan(0); // keyboard continues the drag
+
+    // Drag on to 6 o'clock (half a turn) then 9 o'clock (three quarters).
+    r.move(200, 300);
+    expect(input.value).toBe("50");
+    expect(outer.style.getPropertyValue("--lg-deg")).toBe("180deg");
+    r.move(100, 200);
+    expect(input.value).toBe("75");
+    expect(outer.style.getPropertyValue("--lg-deg")).toBe("270deg");
+    expect(centre.textContent).toBe("75");
+    expect(input.getAttribute("aria-valuenow")).toBe("75");
+    expect(r.answers()["amount"]).toBe("75");
+  });
+
+  it("the drag snaps to `step`, and a release ends it", async () => {
+    const r = await sliderRig({ min: 0, max: 100, step: 25, default: 0, slider_type: "radial" });
+    const outer = r.q(".lg-range-radial-outer");
+    outer.rect = { left: 0, top: 0, width: 100, height: 100 }; // centre (50,50)
+    const input = r.input(".lg-range-radial-input");
+
+    r.down(outer, 90, 40); // ~0.28 of a turn -> snaps to 25
+    expect(input.value).toBe("25");
+    r.move(50, 90); // half a turn -> 50
+    expect(input.value).toBe("50");
+
+    r.release(); // buttons=0 releases the grab
+    r.move(90, 50); // a quarter turn — must NOT move a released dial
+    expect(input.value).toBe("50");
+  });
+
+  it("a pointerdown that is not on a dial releases a previous grab", async () => {
+    const r = await sliderRig(base);
+    const outer = r.q(".lg-range-radial-outer");
+    outer.rect = { left: 0, top: 0, width: 100, height: 100 };
+    const input = r.input(".lg-range-radial-input");
+    r.down(outer, 90, 50);
+    expect(input.value).toBe("25");
+    r.down(r.q("[data-lg-continue]"), 0, 0); // press elsewhere
+    r.move(50, 90);
+    expect(input.value).toBe("25"); // the stale dial never resumes
   });
 });

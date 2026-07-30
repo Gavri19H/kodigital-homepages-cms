@@ -1,0 +1,47 @@
+=== P4 FIX-FIRST drive 2026-07-30T01:06:03.027Z ===
+AUTHOR from_to section -> HTTP 200
+  re-save activation -> HTTP 200
+F-1 typed 90000 into From (To=40000) -> box=[90000,40000] rails=[35000,40000] pills=[$35,000 , $40,000]
+F-1 /lg/auction answers = {"p4ff_price_band_max":{"value":"40000","answer_source":"user_selected"},"p4ff_price_band_min":{"value":"35000","answer_source":"user_selected"},"r2fix_carrier":{"value":"acme_insurance","answer_source":"user_selected"}}
+F-1 VERDICT: box="90000" vs payload p4ff_price_band_min=[object Object] vs rail=35000 vs pill=$35,000
+=== P4 FIX-FIRST drive 2026-07-30T01:06:34.587Z ===
+AUTHOR from_to section -> HTTP 200
+  re-save activation -> HTTP 200
+F-1 typed 90000 into From (To=40000) -> box=[90000,40000] rails=[35000,40000] pills=[$35,000 , $40,000]
+F-1 /lg/auction answers = {"p4ff_price_band_max":{"value":"40000","answer_source":"user_selected"},"p4ff_price_band_min":{"value":"35000","answer_source":"user_selected"},"r2fix_carrier":{"value":"acme_insurance","answer_source":"user_selected"}}
+F-1 VERDICT: box="90000" vs payload p4ff_price_band_min=35000 vs rail=35000 vs pill=$35,000
+=== P4 FIX-FIRST drive 2026-07-30T01:06:50.402Z ===
+AUTHOR from_to section -> HTTP 200
+  re-save activation -> HTTP 200
+F-2 @375 AT REST: scrollWidth=375 innerWidth=375
+F-2 @375 AFTER DRIVE rails=[95000 , 100000] pills=[$95,000 , $100,000]
+  minPill x=319.1..393.0 | maxPill x=276.5..357.0 | track x=29.0..346.0 | card x=8.0..367.0
+  OVERFLOW: scrollWidth=393 innerWidth=375 overflowPx=18
+=== P4 FIX-FIRST drive 2026-07-30T01:08:08.544Z ===
+AUTHOR from_to section -> HTTP 200
+  re-save activation -> HTTP 200
+F-1 typed 90000 into From (To=40000) -> box=[35000,40000] rails=[35000,40000] pills=[$35,000 , $40,000]
+F-1 /lg/auction answers = {"p4ff_price_band_max":{"value":"40000","answer_source":"user_selected"},"p4ff_price_band_min":{"value":"35000","answer_source":"user_selected"},"r2fix_carrier":{"value":"acme_insurance","answer_source":"user_selected"}}
+F-1 VERDICT: box="35000" vs payload p4ff_price_band_min=35000 vs rail=35000 vs pill=$35,000
+F-2 @375 AT REST: scrollWidth=375 innerWidth=375
+F-2 @375 AFTER DRIVE rails=[95000 , 100000] pills=[$95,000 , $100,000]
+  minPill x=249.0..322.8 | maxPill x=276.5..357.0 | track x=29.0..346.0 | card x=8.0..367.0
+  OVERFLOW: scrollWidth=375 innerWidth=375 overflowPx=0
+F-2 @1280 AT REST: scrollWidth=1280 innerWidth=1280
+F-2 @1280 AFTER DRIVE rails=[95000 , 100000] pills=[$95,000 , $100,000]
+  minPill x=786.6..860.4 | maxPill x=823.5..904.0 | track x=387.0..893.0 | card x=340.0..940.0
+  OVERFLOW: scrollWidth=1280 innerWidth=1280 overflowPx=0
+=== P4 FIX-FIRST drive 2026-07-30T01:15:39.730Z ===
+AUTHOR from_to section -> HTTP 200
+  re-save activation -> HTTP 200
+F-1 typed 90000 into From (To=40000) -> box=[35000,40000] rails=[35000,40000] pills=[$35,000 , $40,000]
+F-1 /lg/auction answers = {"p4ff_price_band_max":{"value":"40000","answer_source":"user_selected"},"p4ff_price_band_min":{"value":"35000","answer_source":"user_selected"},"r2fix_carrier":{"value":"acme_insurance","answer_source":"user_selected"}}
+F-1 VERDICT: box="35000" vs payload p4ff_price_band_min=35000 vs rail=35000 vs pill=$35,000
+F-2 @375 AT REST: scrollWidth=375 innerWidth=375
+F-2 @375 AFTER DRIVE rails=[95000 , 100000] pills=[$95,000 , $100,000]
+  minPill x=249.0..322.8 | maxPill x=276.5..357.0 | track x=29.0..346.0 | card x=8.0..367.0
+  OVERFLOW: scrollWidth=375 innerWidth=375 overflowPx=0
+F-2 @1280 AT REST: scrollWidth=1280 innerWidth=1280
+F-2 @1280 AFTER DRIVE rails=[95000 , 100000] pills=[$95,000 , $100,000]
+  minPill x=786.6..860.4 | maxPill x=823.5..904.0 | track x=387.0..893.0 | card x=340.0..940.0
+  OVERFLOW: scrollWidth=1280 innerWidth=1280 overflowPx=0

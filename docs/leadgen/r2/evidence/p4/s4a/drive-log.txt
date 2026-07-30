@@ -1,0 +1,35 @@
+
+Running 5 tests using 1 worker
+
+AUTHOR five sliders (currency_affix=true) -> HTTP 200
+  re-save activation (mints a fresh lg-shell key) -> HTTP 200
+SSR converged in 20ms (1 poll(s)): the five authored sliders
+SINGLE @1280: readout="$37" captions=[$0 , $100] track(h=8.0) handle(28.0x28.0) |handleCY-trackCY|=0.00px |handleCX-fillRight|=0.00px
+STEPPER @1280: "$170,000" dec(48x48)@533 value@640 inc(48x48)@748 sameRow=true captions=[$5,000 , $500,000] |handleCY-trackCY|=0.00px
+FROM_TO @1280: handles cy=[460.6,460.6] trackCY=460.6 sameTrack=true pills=[$0 , $100,000] captions=[$0 , $100,000] labels=[From ($) , To ($)] numberInputs=[0 , 100000]
+DUAL @1280: oneTrack=true handles=[477,803] sameY=true onTrack=true readouts=[0 , 100] captions=[0 , 100]
+RADIAL @1280: dial=176x176 round=true radius=9999px arc="conic-gradient(rgb(27, 58, 92) 0deg, rgb(27, 58, 92) 162deg,…" --lg-deg=162deg centre="45" handleDistFromCentre=79.0px expectedRingR≈79.0px
+  ✓  1 [chromium] › test-ui/leadgen-r2p4-slider-drive.spec.ts:248:3 › the five §6.8 sliders render + measure correctly at 1280 (1.7s)
+SINGLE @375: readout="$37" captions=[$0 , $100] track(h=8.0) handle(28.0x28.0) |handleCY-trackCY|=0.00px |handleCX-fillRight|=0.00px
+STEPPER @375: "$170,000" dec(48x48)@80 value@188 inc(48x48)@295 sameRow=true captions=[$5,000 , $500,000] |handleCY-trackCY|=0.00px
+FROM_TO @375: handles cy=[412.3,412.3] trackCY=412.3 sameTrack=true pills=[$0 , $100,000] captions=[$0 , $100,000] labels=[From ($) , To ($)] numberInputs=[0 , 100000]
+DUAL @375: oneTrack=true handles=[29,346] sameY=true onTrack=true readouts=[0 , 100] captions=[0 , 100]
+RADIAL @375: dial=140x140 round=true radius=9999px arc="conic-gradient(rgb(27, 58, 92) 0deg, rgb(27, 58, 92) 162deg,…" --lg-deg=162deg centre="45" handleDistFromCentre=62.5px expectedRingR≈62.5px
+  ✓  2 [chromium] › test-ui/leadgen-r2p4-slider-drive.spec.ts:248:3 › the five §6.8 sliders render + measure correctly at 375 (1.9s)
+LIVE single: readout $37 -> $45; handle x 597.6 -> 623.7
+LIVE stepper: readout $170,000 -> $180,000; handle x 584.6 -> 591.1
+LIVE radial: centre 45 -> 55 (input value=55); --lg-deg 162deg -> 162deg [S4b owes the arc/handle write: --lg-deg on .lg-range-radial-outer]
+  ✓  3 [chromium] › test-ui/leadgen-r2p4-slider-drive.spec.ts:387:1 › live value changes: what moves today (keyboard on the real control) (1.8s)
+S4b-HANDOFF p4_fromto: max input value=75000 ; fill x/w 477/326 -> 477/245 ; handles 477/722 ; pills=[$0 , $100,000] [S4b owes: recompute .lg-range-fill left+width from BOTH inputs and rewrite both .lg-range-handle-value texts]
+S4b-HANDOFF p4_dual: max input value=95 ; fill x/w 477/326 -> 477/310 ; handles 477/787 ; pills=[0 , 100] [S4b owes: recompute .lg-range-fill left+width from BOTH inputs and rewrite both .lg-range-handle-value texts]
+  ✓  4 [chromium] › test-ui/leadgen-r2p4-slider-drive.spec.ts:442:1 › S4b handoff: measured two-handle live behaviour today (1.3s)
+AUTHOR five sliders (currency_affix=false) -> HTTP 200
+  re-save activation (mints a fresh lg-shell key) -> HTTP 200
+SSR converged in 19ms (1 poll(s)): currency OFF
+AUTHOR five sliders (currency_affix=true) -> HTTP 200
+  re-save activation (mints a fresh lg-shell key) -> HTTP 200
+SSR converged in 31ms (1 poll(s)): currency ON
+CURRENCY TOGGLE: save OFF=HTTP 200 readout="37" captions=[0 , 100] | save ON=HTTP 200 readout="$37" captions=[$0 , $100]
+  ✓  5 [chromium] › test-ui/leadgen-r2p4-slider-drive.spec.ts:466:1 › the $ affix toggles OFF then ON with no save error, and the render follows (4.0s)
+
+  5 passed (12.9s)

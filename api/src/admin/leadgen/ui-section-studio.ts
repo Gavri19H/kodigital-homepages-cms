@@ -2279,8 +2279,25 @@ function renderSliderTypePicker(): string {
   const THUMBS: Record<string, string> = {
     single: `<svg width="70" height="10" viewBox="0 0 70 10"><line x1="2" y1="5" x2="68" y2="5" stroke="#E1E6EE" stroke-width="4" stroke-linecap="round"/><line x1="2" y1="5" x2="34" y2="5" stroke="#1B3A5C" stroke-width="4" stroke-linecap="round"/><circle cx="34" cy="5" r="4.5" fill="#fff" stroke="#1B3A5C" stroke-width="2"/></svg>`,
     dual_range: `<svg width="70" height="10" viewBox="0 0 70 10"><line x1="2" y1="5" x2="68" y2="5" stroke="#E1E6EE" stroke-width="4" stroke-linecap="round"/><line x1="20" y1="5" x2="50" y2="5" stroke="#1B3A5C" stroke-width="4" stroke-linecap="round"/><circle cx="20" cy="5" r="4.5" fill="#fff" stroke="#1B3A5C" stroke-width="2"/><circle cx="50" cy="5" r="4.5" fill="#fff" stroke="#1B3A5C" stroke-width="2"/></svg>`,
-    stepper: `<svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="3" width="13" height="13" rx="3" fill="none" stroke="#1B3A5C" stroke-width="1.6"/><line x1="4" y1="9.5" x2="9" y2="9.5" stroke="#1B3A5C" stroke-width="1.6"/><line x1="28" y1="6" x2="42" y2="6" stroke="#E1E6EE" stroke-width="3" stroke-linecap="round"/><line x1="28" y1="6" x2="35" y2="6" stroke="#1B3A5C" stroke-width="3" stroke-linecap="round"/><rect x="57" y="3" width="13" height="13" rx="3" fill="none" stroke="#1B3A5C" stroke-width="1.6"/><line x1="60" y1="9.5" x2="67" y2="9.5" stroke="#1B3A5C" stroke-width="1.6"/><line x1="63.5" y1="6" x2="63.5" y2="13" stroke="#1B3A5C" stroke-width="1.6"/></svg>`,
-    from_to: `<svg width="70" height="14" viewBox="0 0 70 14"><rect x="0" y="2" width="20" height="10" rx="2" fill="none" stroke="#9AA9BD" stroke-width="1.4"/><line x1="26" y1="7" x2="44" y2="7" stroke="#1B3A5C" stroke-width="3" stroke-linecap="round"/><rect x="50" y="2" width="20" height="10" rx="2" fill="none" stroke="#9AA9BD" stroke-width="1.4"/></svg>`,
+    // P4 S4c fix: the render (§6.8, S4a) FLANKS a prominent value with the -/+
+    // buttons on one row, then a SEPARATE full track+handle+captions below —
+    // this thumbnail used to wedge a mini track directly between the buttons
+    // (a different, smaller anatomy than the render delivers). Now: row 1 is
+    // the two button outlines flanking a solid value chip (no track on that
+    // row); row 2 is a real track+fill+handle (same idiom as single/dual_range
+    // below); row 3 is two caption marks (min/max), same as the render's
+    // bottom captions. Kept inside the existing 30px thumb box (no container
+    // resize needed).
+    stepper: `<svg width="70" height="28" viewBox="0 0 70 28"><rect x="0" y="0" width="10" height="10" rx="2.5" fill="none" stroke="#1B3A5C" stroke-width="1.6"/><line x1="2.2" y1="5" x2="7.8" y2="5" stroke="#1B3A5C" stroke-width="1.6"/><rect x="14" y="1" width="42" height="8" rx="2" fill="#1B3A5C"/><rect x="60" y="0" width="10" height="10" rx="2.5" fill="none" stroke="#1B3A5C" stroke-width="1.6"/><line x1="62.2" y1="5" x2="67.8" y2="5" stroke="#1B3A5C" stroke-width="1.6"/><line x1="65" y1="2.2" x2="65" y2="7.8" stroke="#1B3A5C" stroke-width="1.6"/><line x1="2" y1="16" x2="68" y2="16" stroke="#E1E6EE" stroke-width="4" stroke-linecap="round"/><line x1="2" y1="16" x2="34" y2="16" stroke="#1B3A5C" stroke-width="4" stroke-linecap="round"/><circle cx="34" cy="16" r="3.5" fill="#fff" stroke="#1B3A5C" stroke-width="2"/><line x1="2" y1="25" x2="12" y2="25" stroke="#9AA9BD" stroke-width="2" stroke-linecap="round"/><line x1="58" y1="25" x2="68" y2="25" stroke="#9AA9BD" stroke-width="2" stroke-linecap="round"/></svg>`,
+    // P4 FIX-FIRST fix (F-5, the same drift class S4c fixed for the stepper):
+    // the render (§6.8/Image13) is ONE full-width track carrying TWO handles,
+    // a value pill riding each handle, min/max captions under the track, and
+    // the two labelled From/To number inputs BELOW all of it — this thumbnail
+    // used to depict [box]—[short track, NO handles]—[box], inputs FLANKING a
+    // stub with no handles and no pills at all. Now, top to bottom: two value
+    // pills, then the real track+fill+two handles, then the two captions, then
+    // the two input boxes side by side. Kept inside the existing 30px thumb box.
+    from_to: `<svg width="70" height="28" viewBox="0 0 70 28"><rect x="13" y="0" width="14" height="6" rx="1.5" fill="#1B3A5C"/><rect x="43" y="0" width="14" height="6" rx="1.5" fill="#1B3A5C"/><line x1="2" y1="12" x2="68" y2="12" stroke="#E1E6EE" stroke-width="4" stroke-linecap="round"/><line x1="20" y1="12" x2="50" y2="12" stroke="#1B3A5C" stroke-width="4" stroke-linecap="round"/><circle cx="20" cy="12" r="3.5" fill="#fff" stroke="#1B3A5C" stroke-width="2"/><circle cx="50" cy="12" r="3.5" fill="#fff" stroke="#1B3A5C" stroke-width="2"/><line x1="2" y1="18" x2="10" y2="18" stroke="#9AA9BD" stroke-width="1.6" stroke-linecap="round"/><line x1="60" y1="18" x2="68" y2="18" stroke="#9AA9BD" stroke-width="1.6" stroke-linecap="round"/><rect x="0" y="21" width="32" height="7" rx="2" fill="none" stroke="#9AA9BD" stroke-width="1.4"/><rect x="38" y="21" width="32" height="7" rx="2" fill="none" stroke="#9AA9BD" stroke-width="1.4"/></svg>`,
     radial: `<svg width="34" height="24" viewBox="0 0 34 24"><circle cx="17" cy="12" r="10" fill="none" stroke="#E1E6EE" stroke-width="3.5"/><path d="M17 2a10 10 0 018.5 15.3" fill="none" stroke="#1B3A5C" stroke-width="3.5" stroke-linecap="round"/></svg>`,
   };
   const CARDS: ReadonlyArray<{ value: string; name: string }> = [

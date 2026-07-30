@@ -1,0 +1,36 @@
+
+=== REVIEW auction/clamp run 2026-07-30T00:20:31.337Z ===
+375 OVERFLOW: scrollWidth=375 innerWidth=375 ok=true
+
+=== REVIEW auction/clamp run 2026-07-30T00:20:50.479Z ===
+375 OVERFLOW: scrollWidth=375 innerWidth=375 ok=true
+  DEBUG boxes track={"x":29,"y":385.59375,"width":317,"height":8} hMin={"x":15,"y":375.59375,"width":28,"height":28}
+
+=== REVIEW auction/clamp run 2026-07-30T00:21:20.635Z ===
+375 OVERFLOW: scrollWidth=375 innerWidth=375 ok=true
+  DEBUG boxes track={"x":29,"y":385.59375,"width":317,"height":8} hMin={"x":15,"y":375.59375,"width":28,"height":28}
+
+=== REVIEW auction/clamp run 2026-07-30T00:21:51.959Z ===
+375 OVERFLOW: scrollWidth=375 innerWidth=375 ok=true
+  DEBUG boxes track={"x":29,"y":385.59375,"width":317,"height":8} hMin={"x":15,"y":375.59375,"width":28,"height":28}
+  probe move(10,10) OK
+  probe move(29,390) OK
+
+=== REVIEW auction/clamp run 2026-07-30T00:22:09.595Z ===
+375 OVERFLOW: scrollWidth=375 innerWidth=375 ok=true
+  DEBUG boxes track={"x":29,"y":385.59375,"width":317,"height":8} hMin={"x":15,"y":375.59375,"width":28,"height":28}
+  probe move(10,10) OK
+  probe move(29,390) OK
+    drag args NaN,NaN -> NaN,NaN
+
+=== REVIEW auction/clamp run 2026-07-30T00:22:25.620Z ===
+375 OVERFLOW: scrollWidth=375 innerWidth=375 ok=true
+  DEBUG boxes track={"x":29,"y":385.59375,"width":317,"height":8} hMin={"x":15,"y":375.59375,"width":28,"height":28}
+  probe move(10,10) OK
+  probe move(29,390) OK
+CLAMP(375) rails=[95000 , 100000] pills=[$95,000 , $100,000]
+  pill boxes: min x=319.1..393.0 y=315.6 | max x=276.5..357.0 y=347.6 | horizontalOverlap=37.8px verticalOffset=32.0
+  onCard? minPillLeft=319.1 maxPillRight=357.0 viewport=375
+  after re-separating: rails=[95000 , 100000] (BOTH handles still reachable)
+FT authored via labelled inputs -> from=35000 to=85000
+DUAL driven -> [23 , 67]

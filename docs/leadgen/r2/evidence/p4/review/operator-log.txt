@@ -1,0 +1,29 @@
+REVIEW P4 operator drive 2026-07-30T00:14:31.310Z
+SEED five type-less sliders -> HTTP 200
+PICKER for rv7k_single: 5 type cards = Single | Dual range | Stepper | From / To | Radial
+PICKER for rv7k_step: 5 type cards = Single | Dual range | Stepper | From / To | Radial
+PICKER for rv7k_ft: 5 type cards = Single | Dual range | Stepper | From / To | Radial
+PICKER for rv7k_dual: 5 type cards = Single | Dual range | Stepper | From / To | Radial
+PICKER for rv7k_radial: 5 type cards = Single | Dual range | Stepper | From / To | Radial
+STORED rv7k_single: slider_type=single type=NumberRangeQuestion answer_type=number currency_affix=true
+STORED rv7k_step: slider_type=stepper type=NumberRangeQuestion answer_type=number currency_affix=true
+STORED rv7k_ft: slider_type=from_to type=NumberRangeQuestion answer_type=number currency_affix=true
+STORED rv7k_dual: slider_type=dual_range type=NumberRangeQuestion answer_type=number currency_affix=undefined
+STORED rv7k_radial: slider_type=radial type=NumberRangeQuestion answer_type=number currency_affix=undefined
+CURRENCY ON for all five -> studio save HTTP 200
+  visible save-error banner count: 0
+  ON rv7k_single: currency_affix=true type=NumberRangeQuestion answer_type=number slider_type=single
+  ON rv7k_step: currency_affix=true type=NumberRangeQuestion answer_type=number slider_type=stepper
+  ON rv7k_ft: currency_affix=true type=NumberRangeQuestion answer_type=number slider_type=from_to
+  ON rv7k_dual: currency_affix=true type=NumberRangeQuestion answer_type=number slider_type=dual_range
+  ON rv7k_radial: currency_affix=true type=NumberRangeQuestion answer_type=number slider_type=radial
+CURRENCY OFF for all five -> studio save HTTP 200
+  visible save-error banner count: 0
+  OFF rv7k_single: currency_affix=undefined type=NumberRangeQuestion answer_type=number slider_type=single
+  OFF rv7k_step: currency_affix=undefined type=NumberRangeQuestion answer_type=number slider_type=stepper
+  OFF rv7k_ft: currency_affix=undefined type=NumberRangeQuestion answer_type=number slider_type=from_to
+  OFF rv7k_dual: currency_affix=undefined type=NumberRangeQuestion answer_type=number slider_type=dual_range
+  OFF rv7k_radial: currency_affix=undefined type=NumberRangeQuestion answer_type=number slider_type=radial
+FINAL authored state: single:$=true stepper:$=true from_to:$=true dual_range:$=false radial:$=false
+picker-375.png captured
+ACTIVATION re-save -> HTTP 409

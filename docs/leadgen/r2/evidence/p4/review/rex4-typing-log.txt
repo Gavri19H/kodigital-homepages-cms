@@ -1,0 +1,38 @@
+
+=== keystroke trace 2026-07-30T01:24:37.935Z ===
+start: From="35000" To="100000" rails=[35000,100000]
+the visitor now wants To = 60000 and types it:
+   [clear]  field="40000"
+   press '6' -> field="100000"  rails=[35000,100000]
+   press '0' -> field="100000"  rails=[35000,100000]
+   press '0' -> field="100000"  rails=[35000,100000]
+   press '0' -> field="100000"  rails=[35000,100000]
+   press '0' -> field="100000"  rails=[35000,100000]
+FINAL: To field="100000"  rails=[35000,100000]  (the visitor asked for 60000)
+/lg/auction -> 200
+F-2 max->30% @375: rails=[0,30000] minPill 18.0..53.5 maxPill 113.0..186.7 | scrollWidth=375/375 offLeft=0.0 offRight=0.0
+F-2 max->10% @375: rails=[0,10000] minPill 18.0..53.5 maxPill 64.5..136.2 | scrollWidth=375/375 offLeft=0.0 offRight=0.0
+F-2 max->5% @375: rails=[0,5000] minPill 18.0..53.5 maxPill 52.6..117.6 | scrollWidth=375/375 offLeft=0.0 offRight=0.0
+F-2 max->30% @1280: rails=[0,30000] minPill 376.0..411.5 maxPill 527.7..601.4 | scrollWidth=1280/1280 offLeft=0.0 offRight=0.0
+F-2 max->10% @1280: rails=[0,10000] minPill 376.0..411.5 maxPill 441.4..513.1 | scrollWidth=1280/1280 offLeft=0.0 offRight=0.0
+F-2 max->5% @1280: rails=[0,5000] minPill 376.0..411.5 maxPill 420.0..485.1 | scrollWidth=1280/1280 offLeft=0.0 offRight=0.0
+
+=== clean-clear trace 2026-07-30T01:25:40.421Z ===
+A. start -> field(From)="35000" field(To)="100000" rails=[35000,100000]
+A. visitor wants To=60000; clears the box with a REAL clear then types the digits:
+   [fill("")] -> field(From)="35000" field(To)="" rails=[35000,100000]
+   typed '6' -> field(From)="35000" field(To)="40000" rails=[35000,40000]
+   typed '0' -> field(From)="35000" field(To)="100000" rails=[35000,100000]
+   typed '0' -> field(From)="35000" field(To)="100000" rails=[35000,100000]
+   typed '0' -> field(From)="35000" field(To)="100000" rails=[35000,100000]
+   typed '0' -> field(From)="35000" field(To)="100000" rails=[35000,100000]
+A. FINAL -> field(From)="35000" field(To)="100000" rails=[35000,100000]   [asked for 60000]
+B. start -> field(From)="0" field(To)="40000" rails=[0,40000]
+B. visitor wants From=20000 and types it:
+   typed '2' -> field(From)="2" field(To)="40000" rails=[0,40000]
+   typed '0' -> field(From)="20" field(To)="40000" rails=[0,40000]
+   typed '0' -> field(From)="200" field(To)="40000" rails=[0,40000]
+   typed '0' -> field(From)="2000" field(To)="40000" rails=[0,40000]
+   typed '0' -> field(From)="20000" field(To)="40000" rails=[20000,40000]
+B. FINAL -> field(From)="20000" field(To)="40000" rails=[20000,40000]   [asked for 20000]
+/lg/auction -> 200

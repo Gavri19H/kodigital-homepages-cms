@@ -1,0 +1,6 @@
+
+=== silent divergence 2026-07-30T00:41:12.975Z ===
+map sub-fields -> 200
+activate -> 200
+VISITOR SEES: From box="90000"  To box="40000"
+/lg/auction -> 200
