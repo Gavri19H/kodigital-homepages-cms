@@ -180,10 +180,22 @@ function canvas(page: Page): FrameLocator {
   return page.frameLocator("#lg-preview-iframe");
 }
 
+// R2 P6 (stale WAIT, not a weakened assertion): this gate used to wait for
+// `#lg-preview-iframe` → `[data-frame-region='section_slot']`. That iframe is
+// the §4.1 FRAME STUDIO canvas the P3b board rewrite DELETED — `grep -rn
+// "lg-preview-iframe" src/` now returns exactly ONE hit, a `byId()` lookup
+// inside quotes-tabs/funnel.ts's orphaned island (zero renders), and the
+// editor's landing tab is the board (`[data-board]`, the surface
+// leadgen-rework-p3b-board.gesture.spec.ts drives). The gate's JOB is
+// unchanged — "the quote editor for this quote is loaded and interactive" —
+// it is simply pointed at DOM that exists. NONE of this file's tests touch
+// `canvas()` after opening the editor (they drive the Themes tab, the preset
+// picker, the delete confirm, the A/B fork and the A/B tab), so nothing this
+// file asserts about the product is added or removed by this change.
 async function openEditor(page: Page, quotePublicId: string, variantPublicId?: string): Promise<void> {
   const qs = variantPublicId ? `?variant=${encodeURIComponent(variantPublicId)}` : "";
   await page.goto(`/admin/leadgen/quotes/${quotePublicId}/edit${qs}`, { waitUntil: "domcontentloaded" });
-  await expect(canvas(page).locator("[data-frame-region='section_slot']")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator("[data-board]")).toBeVisible({ timeout: 20_000 });
 }
 
 const shellUrl = (s: SeededQuote): string => `http://${s.host}:${PW_PORT}/lg/${s.slug}`;

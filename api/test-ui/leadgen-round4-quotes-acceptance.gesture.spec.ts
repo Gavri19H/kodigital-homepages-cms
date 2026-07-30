@@ -147,9 +147,20 @@ async function putFrame(request: APIRequestContext, funnelPublicId: string, fram
 function canvas(page: Page): FrameLocator {
   return page.frameLocator("#lg-preview-iframe");
 }
+// R2 P6 (stale WAIT, not a weakened assertion): this gate used to wait for
+// `#lg-preview-iframe` → `[data-frame-region='section_slot']`. That iframe is
+// the §4.1 FRAME STUDIO canvas the P3b board rewrite DELETED — `grep -rn
+// "lg-preview-iframe" src/` returns exactly ONE hit, a `byId()` lookup inside
+// quotes-tabs/funnel.ts's orphaned island (zero renders) — so 16 of this
+// file's 18 tests died in the gate, most of them without ever touching the
+// canvas. The gate now waits for the editor's real landing surface
+// (`[data-board]`, the P3b board). Same job, DOM that exists. The
+// canvas-region assertions inside the two tests that really do drive the
+// retired canvas are LEFT UNTOUCHED so they still fail at their own
+// assertion and go to the rewrite-or-retire ruling list.
 async function openEditor(page: Page, quotePublicId: string): Promise<void> {
   await page.goto(`/admin/leadgen/quotes/${quotePublicId}/edit`, { waitUntil: "domcontentloaded" });
-  await expect(canvas(page).locator("[data-frame-region='section_slot']")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator("[data-board]")).toBeVisible({ timeout: 20_000 });
 }
 const shellUrl = (s: { host: string; slug: string }) => `http://${s.host}:${PW_PORT}/lg/${s.slug}`;
 async function ready(page: Page): Promise<void> {

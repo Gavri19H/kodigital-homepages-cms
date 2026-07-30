@@ -316,3 +316,198 @@ DB+wrangler+seed cycle where re-run — not batch artifacts)
   .spec.ts` / `leadgen-theme-manager.spec.ts` (cascade-skips downstream of the P1/P9
   failures above, serial-mode). The remaining `dnr` counts were not individually re-audited
   for skip-vs-cascade given the volume; each traces to a listed failure in the same file.
+
+---
+
+# SECTION 2 — P6 second pass: one product fix + battery clearance (re-measured)
+
+Everything above is the ORIGINAL measurement run and is left byte-intact. This
+section reports (a) a product layout defect fixed in `src/`, and (b) the
+continued clearance, all re-measured by hand on port 8901 with the same ritual
+(`npm run db:reset:local` → `npx wrangler dev --port 8901 --ip 127.0.0.1
+--var DEV_BYPASS_AUTH:true --var ADMIN_HOST:127.0.0.1` → `npm run
+seed:leadgen-fixture` → `PW_PORT=8901 npx playwright test <file> --workers=1`),
+one full reset/restart/reseed cycle per `*.gesture.spec.ts` file.
+
+## A. The §8.4 themes-manager layout defect (owner clause ③) — FIXED in src
+
+`src/admin/leadgen/ui-theme-manager.ts` packed the editor controls
+(`data-pin="8.4-editor-controls"`) beside the live canvas
+(`data-pin="8.4-live-canvas"`) in ONE flex row with **no `flex-wrap`** and an
+**unshrinkable** `flex:0 0 340px` canvas. The flexible editor child absorbed the
+whole deficit whenever the centre column's inner width fell below
+`<editor> + 26 + 340`, computing to width **0** and hiding every §10.3/§10.4
+control it holds.
+
+Measured on the real page, both ways (`test-ui/leadgen-r2p6-themefix-drive.spec.ts`,
+6 tests; screenshots in `docs/leadgen/r2/evidence/p6/themefix/`):
+
+| viewport | `.tm-body` | editor col BEFORE | editor col AFTER | canvas AFTER | anatomy AFTER |
+|---|---|---|---|---|---|
+| 1280 | 980 | **0px** | **304px** | 304px | stacked (canvas under controls) |
+| 1366 | 1066 | **24px** | **390px** | 340px | stacked |
+| 1440 | 1140 | **98px** | **464px** | 340px | stacked |
+| 1600 | 1300 | 258px | **258px** | **340px** | side-by-side — UNCHANGED |
+| 375 | — | scrollWidth 375 = innerWidth 375 | 375 = 375 | — | no horizontal overflow |
+
+Drive spec: **0/6 → 6/6** (before: 1280/1366/1440 failed `editor width > 240`,
+received 0 / 24 / 98).
+
+Treatment (deliberate): `flex-wrap:wrap` on the row, editor basis `1 1 240px`,
+canvas `0 1 340px;min-width:0`. Flex line-breaking uses the items' *hypothetical*
+sizes, so the editor's basis is the explicit "how much room does BESIDE require"
+knob: `240 + 26 + 340 = 606px` of centre-inner. At 1600 the centre's inner width
+is 624px ⇒ still ONE line at exactly today's 258/340 split; below ~1582 viewport
+the canvas wraps under the controls (DOM order kept) and the editor takes the
+full line instead of collapsing. The canvas may now shrink (grow still 0), so on
+its own line it fits a narrow column instead of overflowing it. No media query —
+the trigger is the column's OWN width, so the `?embed=1` standalone shell (no
+admin nav) degrades on the same rule.
+
+`test-ui/leadgen-theme-manager.spec.ts` (NOT edited): **1/11 → 11/11**. (The
+Section-1 table records 0/11 for it; the sibling fixture re-point committed at
+`8354ddb` had already taken it to 1/11 before this layout fix.)
+
+## B. Per-file re-measurement (Section-1 baseline → now)
+
+| File | §1 baseline | now | Δ pass | what did it |
+|---|---|---|---|---|
+| `leadgen-theme-manager.spec.ts` | 0/11 (10 dnr) | **11/11** | +11 | `8354ddb` fixture + the §8.4 layout fix above |
+| `leadgen-round4-quotes-acceptance.gesture.spec.ts` | 2/18 | **12/18** | +10 | stale `openEditor` wait re-pointed |
+| `leadgen-p3a-placement.gesture.spec.ts` | 18/28 (5 skip) | **23/28** (5 skip, 0 fail) | +5 | 2 remaining activation sites given the mandatory shared page |
+| `__p6b-theme-mgr.spec.ts` | 3/8 | **7/8** | +4 | stale `openEditor` wait re-pointed |
+| `__p6a-theme.spec.ts` | 0/3 (2 dnr) | **3/3** | +3 | `8354ddb` (verified in use here) |
+| `leadgen-runtime.spec.ts` | 0/3 (2 dnr) | **3/3** | +3 | `8354ddb` (verified) |
+| `leadgen-p4a-behavior.spec.ts` | 0/3 (1 dnr) | **3/3** | +3 | `8354ddb` (verified) |
+| `leadgen-p1-geometry.gesture.spec.ts` | 10/16 (3 skip) | **13/16** (3 skip, 0 fail) | +3 | `8354ddb` (verified) — the `:8899` hardcode is gone |
+| `__p5b-quotes-ia.spec.ts` | 1/7 | **3/7** | +2 | stale `openEditor` wait re-pointed |
+| `leadgen-rework-acceptance-routing.gesture.spec.ts` | 27/34 | **29/34** | +2 | `8354ddb` (verified) |
+| `leadgen-p4c-rules.gesture.spec.ts` | 4/8 (2 dnr) | **6/8** (2 skip, 0 fail) | +2 | `8354ddb` (verified) |
+| `leadgen-rework-p3b-board.gesture.spec.ts` | 30/32 | **32/32** | +2 | `8354ddb` (verified) |
+| `leadgen-p2a-element-freedom.gesture.spec.ts` | 20/22 (1 skip) | **21/22** (1 skip, 0 fail) | +1 | `8354ddb` (verified) |
+| `leadgen-runtime-v25.spec.ts` | 0/6 (5 dnr) | **1/6** | +1 | shared-page seed added — file no longer dies in `beforeAll` |
+| `leadgen-rework-p4-templates.gesture.spec.ts` | 6/8 | 6/8 | 0 | unchanged (2 open, below) |
+| `leadgen-visual.spec.ts` | 8/10 | 8/10 | 0 | frozen baselines — ruling needed |
+| `leadgen-v31-gate1c-baselines.spec.ts` | 0/7 (6 dnr) | 0/7 | 0 | frozen baselines — ruling needed |
+| `leadgen-r2p6-themefix-drive.spec.ts` (NEW) | — | **6/6** | +6 | new §8.4 layout drive |
+
+## C. NEW grand totals
+
+Section-1 numbers with the re-measured files substituted (no double counting —
+these figures SUBSUME the `8354ddb` slice's "+55" claim, whose edits live in the
+files re-measured above):
+
+- **Tests: 678 passed / 803 discovered. Failed: 77. Skipped-or-did-not-run: 48.**
+  (678 + 77 + 48 = 803 ✓ — was 626 / 108 / 69.) **+52 passing.**
+- **Files fully clean: 59/90** (was 50). Files with ≥1 failure: **31** (was 40).
+- Including the new `leadgen-r2p6-themefix-drive.spec.ts`: **684 passed / 809
+  discovered in 91 files, 60 clean.**
+
+## D. Root cause corrected: "P1b" is DELETED DOM, not fixture completeness
+
+Section 1's P1b attributed `openEditor()`'s canvas timeout to bare fixtures.
+That is wrong, and the diagnostic is direct: `grep -rn "lg-preview-iframe" src/`
+returns **exactly one hit** — `var canvas = byId('lg-preview-iframe')` inside
+`quotes-tabs/funnel.ts`'s island — and **zero renders**. The failure screenshot
+(`test-artifacts/__p6b-theme-mgr-…-chromium/test-failed-1.png`) shows the editor
+loading perfectly onto the P3b **board** (Section library / Shared first page /
+Routing rules); `ui-quotes.ts:4` names that tab "Funnel builder (04 §4.1 FRAME
+STUDIO)". The P3b board rewrite replaced the §4.1 frame-studio canvas, exactly
+as it deleted `#lg-structure-panel`. `POST /variants/:id/preview` (what the
+Templates canvas renders) returns **0** `data-frame-region` stamps, so no admin
+surface renders them today.
+
+Consequence: three files' `openEditor()` gate waited on deleted DOM, killing
+tests that never touch a canvas. The gate — and ONLY the gate — was re-pointed
+at the editor's real landing surface (`[data-board]`). Every canvas-region
+assertion INSIDE the individual tests was left exactly as written, so the tests
+that genuinely drive the retired canvas still fail at their own assertion and
+appear in the ruling list below.
+
+## E. Still red — with causes (nothing papered over)
+
+**Retired-DOM class (needs a rewrite-or-retire ruling; no test deleted):**
+- `__p3b-structure.spec.ts` 0/2 (`#lg-structure-panel`) — **recommend RETIRE.**
+  Every behaviour it asserts is covered on the current board:
+  `leadgen-rework-p3b-board.gesture.spec.ts` S5.3 items 1–4b (add page, "+
+  section" popover, A/B slot on the shared page, cross-page move — now 32/32)
+  and `leadgen-r2p6-d11c-drive.spec.ts` (`[data-shared-ruled-dialog]` /
+  `[data-ruled-case]` / `[data-ruled-field]` = the ruled-slot editor, 11C-A page
+  order). Nothing it asserts would go uncovered.
+- `__p4b-rules.spec.ts` 0/3 (`#lg-routing-rules-root`) — **recommend RETIRE
+  tests 2–3, REWRITE test 1's selector.** Tests 2–3 (author/save/reload/toggle/
+  duplicate; offer-NAME picker persists `target_offer_id`+`redirect_pct`) are
+  re-covered by `leadgen-rework-p3b-rules.gesture.spec.ts` (16/16). Test 1
+  ("standalone Rules tab is gone; the panel is embedded in the Funnel builder
+  tab's right column") is still a TRUE and load-bearing structural claim — only
+  its mount id moved (`#lg-routing-rules-root` → `.lg-board-right[data-rules-rail]`,
+  `funnel.ts:708`).
+- `__p5b-quotes-ia.spec.ts` 3/7 — the 4 fails all drive the retired §4.1 canvas
+  (`[data-frame-region='logo'] img.lg-logo-img`, `.lg-frame-brand-logos img`,
+  `.lg-frame-image img`, and a `[data-frame-region='progress']` click).
+- `leadgen-round4-quotes-acceptance.gesture.spec.ts` 12/18 — Item 10B (canvas
+  logo) and Item 10D (canvas progress click) are the same class, ×2 engines.
+- `__p6b-theme-mgr.spec.ts` 7/8 — the one fail asserts `[data-fork-variant]`
+  inside the A/B panel; that attribute renders NOWHERE (`funnel.ts:3855` only
+  READS it). "Fork this variant" was superseded by `#lg-add-variant` under the
+  Rework M1 single-active-variant gate (`ab.ts:68-99,162`).
+
+**Frozen baselines that predate the rework (rebaselining is an owner-visible
+decision — NOT taken here):**
+- `leadgen-visual.spec.ts` 8/10 — `leadgen-runtime-{desktop,mobile}.png` height
+  1940 vs the current 1899 ⇒ `pixelDiffRatio` returns its literal sentinel `1`.
+- `leadgen-v31-gate1c-baselines.spec.ts` 0/7 — `01-build-default` ratio
+  **0.03394831730769231** vs budget 0.001 (1 fail + 6 same-describe dnr).
+
+**Open causes:**
+- `leadgen-runtime-v25.spec.ts` 1/6 — the shared-page seed added to
+  `seedLegacyPinLiveFunnel` (`leadgen-e-seed.ts`; it 409'd
+  `activation.shared_page` and killed the whole `beforeAll`) unblocks the file,
+  and the 5 remaining failures are now MEASURED instead of dnr: the mandatory
+  shared first page renders as step 1, so the file's `TRAVERSAL` indices and its
+  `aria-valuenow 1→2→3` expectation are off by one, and the committed byte-pin
+  fixture (`test/fixtures/leadgen-legacy-pin/legacy-shell.html`) predates the
+  shared page. Net +1 pass, +4 measured failures, −5 dnr.
+- `leadgen-rework-p4-templates.gesture.spec.ts` 6/8 — (a) "set default is a
+  single atomic swap": the UI swap PASSES (chip1 loses `is-default`, chip2 gains
+  it); the last line still asserts the **global** `frame-template-records`
+  default, which R2 ruling D5 deliberately made **per-quote**. Re-pointing it at
+  the quote-scoped default is a ruling-grounded rewrite, not a relaxation — left
+  for the ruling. (b) "section picker + theme switcher": `#lg-tpl-theme-select`
+  option is rendered **disabled** (61 retries / 30s) — same shape as the
+  builder spec's `#11D` fail; not root-caused.
+- `leadgen-rework-acceptance-routing.gesture.spec.ts` 29/34 — 2× a template
+  picker menu item `"ACC6C Picker {uniq}"` never becoming visible (both
+  engines), 1× a firefox shared-page A/B slot, plus harness noise. The P11
+  `.lg-board-left` strict-mode cause named in Section 1 is GONE (the spec now
+  scopes to `.lg-board-left[data-pin="8.2-left-library"]`, line 137).
+- `leadgen-round4-quotes-acceptance.gesture.spec.ts` Item 10G — `[data-tplbox-
+  panel="images"] [data-img-item-row] [data-img-item-gen-error]` never surfaces.
+  That element DOES exist (`templates.ts:611`), so this is a live-surface failure,
+  not retired DOM. Cause open.
+
+**Harness (EADDRNOTAVAIL) — reconfirmed, and it is now the dominant noise source
+on repeat runs.** `leadgen-p4c-rules.gesture.spec.ts` measured 0/8 (6 fails, ALL
+`connect EADDRNOTAVAIL 127.0.0.1:8901`) inside the sequential cycle, then **6/8
+with zero failures** on an isolated re-run. A second isolated re-run of
+`leadgen-rework-acceptance-routing.gesture.spec.ts` late in the session returned
+9/34 with 23 of the 25 failures EADDRNOTAVAIL — the 29/34 above is the valid
+measurement. Any single-file number in this section that looks worse than
+Section 1 should be re-run in isolation before it is believed.
+
+## F. Specs touched in this pass — before/after assertions
+
+| Spec | assertion BEFORE | assertion AFTER | stronger/same/weaker |
+|---|---|---|---|
+| `test-ui/leadgen-theme-manager.spec.ts` | — | **NOT TOUCHED** (it asserted the correct thing; the product was fixed) | same |
+| `test-ui/__p6b-theme-mgr.spec.ts` | gate: `#lg-preview-iframe` → `[data-frame-region='section_slot']` visible | gate: `[data-board]` visible | same claim ("the editor is loaded"), on DOM that exists; no test in the file uses `canvas()` afterwards |
+| `test-ui/__p5b-quotes-ia.spec.ts` | same stale gate | `[data-board]` visible; every in-test canvas assertion LEFT AS IS | same; the 4 canvas tests still fail honestly |
+| `test-ui/leadgen-round4-quotes-acceptance.gesture.spec.ts` | same stale gate | `[data-board]` visible; both canvas tests LEFT AS IS | same; 10B/10D still fail honestly |
+| `test-ui/leadgen-e-seed.ts` (`seedLegacyPinLiveFunnel`) | activated a quote with NO shared page ⇒ 409, `beforeAll` died | calls the file's own `seedTrivialSharedPage` first (same precedent `seedPatternQuote` already uses) | same assertions; a precondition satisfied, none relaxed |
+| `test-ui/leadgen-p3a-placement.gesture.spec.ts` (2 MINOR-2 tests) | variant-only sections ⇒ activation 409 | pass-through section on the variant + section-under-test on the shared page — the file's OWN documented pattern from its "P3a live" test | same; composed order and every geometry assertion unchanged |
+| `test-ui/leadgen-r2p6-themefix-drive.spec.ts` (NEW) | — | editor width > 240 + 5 leaf controls visible + Advanced really opens + canvas visible, at 1280/1366/1440/1600; 1600 side-by-side with canvas exactly 340; 375 `scrollWidth <= innerWidth` | new coverage |
+
+No spec's assertion was weakened. `docs/leadgen/r2/evidence/{p3,p4,p5}` and
+`test-ui/__screenshots__` are untouched (`git status` clean outside `p6/`).
+`npx tsc --noEmit` exit **0**. `LEADGEN_RUNTIME_JS_BYTES = 52762` (≤ 53248,
+unchanged — the fix is admin-side).

@@ -850,7 +850,13 @@ test.describe("P3 review MINOR-2 — a hidden row member collapses its slot on t
       "quote create",
     );
     const variantId = quote.funnels[0]!.variants[0]!.public_id;
-    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: s.id }] } }), "variant sections");
+    // R2 P6: the SAME Rework §4.3-1 treatment this file already applies to its
+    // "P3a live" test above (mandatory shared first page; the section under
+    // test IS page 1 so it moves onto the shared page, composed order and every
+    // assertion below unchanged). Without it activation 409s
+    // `activation.shared_page` and the test never reaches its own subject.
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: await createPassThroughSection(request, "P3 review MINOR-2") }] } }), "variant sections");
+    await seedSharedFirstPage(request, quote.public_id, [s.id]);
     await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p3rev-min2" } }), "activation");
 
     await page.goto(`http://${host}:${PORT}/lg/p3rev-min2`, { waitUntil: "load" });
@@ -935,7 +941,9 @@ test.describe("P3 review MINOR-2 — a hidden row member collapses its slot on t
       "quote create",
     );
     const variantId = quote.funnels[0]!.variants[0]!.public_id;
-    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: s.id }] } }), "variant sections");
+    // R2 P6: same Rework §4.3-1 treatment as the sibling MINOR-2 test above.
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: await createPassThroughSection(request, "P3 review MINOR-2 container") }] } }), "variant sections");
+    await seedSharedFirstPage(request, quote.public_id, [s.id]);
     await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p3rev-min2c" } }), "activation");
 
     await page.goto(`http://${host}:${PORT}/lg/p3rev-min2c`, { waitUntil: "load" });

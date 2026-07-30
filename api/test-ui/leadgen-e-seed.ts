@@ -624,6 +624,17 @@ export async function seedLegacyPinLiveFunnel(
     "e3 legacy pin variant sections",
   );
   // Deliberately NO PUT /funnels/:id/frame — frame_config_json stays NULL.
+  // R2 P6: the SAME §4.3-1/§4.3-15 activation precondition seedPatternQuote
+  // already satisfies above (seedTrivialSharedPage) applies here too — this
+  // helper predates it and 409'd `activation.shared_page: "The shared first
+  // page needs at least one section."`, killing this file's whole beforeAll
+  // (1 fail + 5 did-not-run). Identical trivial ContinueButton shared page,
+  // same precedent, activity/vertical matched to this quote's own.
+  await seedTrivialSharedPage(request, quote.public_id, {
+    activity: "quote_funnel",
+    vertical: "life",
+    uniq: quote.public_id,
+  });
   await activateQuoteOnSite(request, quote.public_id, siteId, "legacy-pin");
   return { host, slug: "legacy-pin", sectionPublicIds: sections.map((s) => s.publicId) };
 }
