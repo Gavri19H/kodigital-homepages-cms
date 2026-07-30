@@ -12071,7 +12071,22 @@ export const SECTION_STUDIO_SCRIPT = `
           v = inputs[j].value;
           if (v !== '') { choice[f] = v; }
         }
-        if (choice.label === undefined && choice.value === undefined) { continue; }
+        // P5-F2 (ADJ-A7 fix-first): a row the operator ADDED but left fully
+        // blank (both label and value empty) used to bail out of this loop
+        // iteration here — vanishing from props.other.choices before
+        // computeIssues() or the server validator ever saw it, so the "No
+        // issues" chip could read clean while the row silently never
+        // persisted. The discriminator for "was a row ever added" is
+        // rows.length itself (the outer listEl.querySelectorAll
+        // ('[data-other-row]') scan above): an untouched editor has ZERO row
+        // elements and never reaches this loop at all, so the
+        // enabled-and-choices-non-empty check below still clears props.other
+        // exactly as before. A row that DOES exist here — even fully blank —
+        // now survives into choices[], the same shape the value-without-
+        // label row already got one case over, so computeIssues()'s existing
+        // missing-label/invalid-value/missing-analytics-id checks (and the
+        // unchanged server validateOtherEditor) flag it identically instead
+        // of discarding it pre-validation.
         if (choice.value !== undefined && choice.analytics_id === undefined) { choice.analytics_id = choice.value; }
         choices.push(choice);
       }
@@ -14239,6 +14254,14 @@ export const SECTION_STUDIO_SCRIPT = `
     otherAddEl.addEventListener('click', function () {
       var listEl = document.querySelector('[data-other-values]');
       if (listEl) { listEl.appendChild(buildOtherValueRow({})); }
+      // P5-F2 (ADJ-A7 fix-first): every other OTHER-list mutation re-collects
+      // immediately (move up/down and Remove already call collectOther() —
+      // see otherValueMoveBtn / the row's Remove button above). Add was the
+      // one mutation that left the freshly appended blank row invisible to
+      // the model (and therefore to computeIssues()) until some LATER
+      // keystroke happened to touch any row. Collecting right here is what
+      // makes the new blank row surface as a visible issue immediately.
+      collectOther();
     });
   }
   // Rework §6.10: the address field-set editor — "+ Add field" toggles the
