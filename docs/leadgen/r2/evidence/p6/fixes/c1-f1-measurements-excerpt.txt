@@ -1,0 +1,12 @@
+F-1 VERDICT: box="35000" vs payload p4ff_price_band_min=35000 vs rail=35000 vs pill=$35,000
+F-1 typed 90000 into From (To=40000) -> box=[90000,40000] rails=[35000,40000] pills=[$35,000 , $40,000]
+F-1 /lg/auction answers = {"p4ff_price_band_max":{"value":"40000","answer_source":"user_selected"},"p4ff_price_band_min":{"value":"35000","answer_source":"user_selected"},"r2fix_carrier":{"value":"acme_insurance","answer_source":"user_selected"}}
+F-1 VERDICT: box="90000" vs payload p4ff_price_band_min=35000 vs rail=35000 vs pill=$35,000
+F-1 mid-typing (caret in From): box=[90000,40000] rails=[35000,40000] pills=[$35,000 , $40,000]
+F-1 typed 90000 into From (To=40000), COMMITTED -> box=[35000,40000] rails=[35000,40000] pills=[$35,000 , $40,000]
+F-1 /lg/auction answers = {"p4ff_price_band_max":{"value":"40000","answer_source":"user_selected"},"p4ff_price_band_min":{"value":"35000","answer_source":"user_selected"},"r2fix_carrier":{"value":"acme_insurance","answer_source":"user_selected"}}
+F-1 VERDICT: box="35000" vs payload p4ff_price_band_min=35000 vs rail=35000 vs pill=$35,000
+F-1 mid-typing (caret in From): box=[90000,40000] rails=[35000,40000] pills=[$35,000 , $40,000]
+F-1 typed 90000 into From (To=40000), COMMITTED -> box=[35000,40000] rails=[35000,40000] pills=[$35,000 , $40,000]
+F-1 /lg/auction answers = {"p4ff_price_band_max":{"value":"40000","answer_source":"user_selected"},"p4ff_price_band_min":{"value":"35000","answer_source":"user_selected"},"r2fix_carrier":{"value":"acme_insurance","answer_source":"user_selected"}}
+F-1 VERDICT: box="35000" vs payload p4ff_price_band_min=35000 vs rail=35000 vs pill=$35,000

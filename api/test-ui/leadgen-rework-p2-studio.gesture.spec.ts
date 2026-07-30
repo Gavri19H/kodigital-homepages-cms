@@ -477,9 +477,32 @@ test.describe("LeadGen Rework P2 — studio shared paths + runtime widgets (gest
 
   // =========================================================================
   // (d) §4.1 starter — clicking the "Questions on one screen" palette tile
-  // inserts 2 labeled TwoButtonYesNo components on the canvas.
+  // inserts 2 labeled TwoButtonYesNo questions INSIDE one QuestionGrid
+  // container.
+  //
+  // P6 C2/C3 RE-RULED (LEADGEN-R2-FIX-CONTRACT.md, "CROSS-AUDIT (the key
+  // planning failure)"): this assertion used to read the 2 starter questions
+  // off the TOP LEVEL of content_json.components and carried the message
+  // "2 real, independent components — no grid". That is the PRIOR contract's
+  // §4.1, which the R2 contract names as the planning failure itself: "the
+  // prior contract §4.1 removed the one-unit grid and replaced it with 'N
+  // independent components' + a 'Questions on one screen' starter (a scaffold
+  // that inserts two loose YesNo components). It reinterpreted 'the grid must
+  // not be one unit' as 'there is no container at all.' The owner's model is
+  // the opposite: one container whose children are independent-field
+  // questions." Demanded end state #1 is "ONE palette component ('Question
+  // grid' / 'Questions on one screen')" and #2 "Each question records to its
+  // OWN field". P1 built exactly that (register SRC-1a; insertQuestionsOnOneScreen
+  // now splices the questions into a QuestionGrid, and ADJ-R3 makes it honor a
+  // selected container). Own-hand diagnosis of the old failure: the save is
+  // NOT lossy — the persisted tree read straight back off the API was
+  // ContinueButton / QuestionGrid > [TwoButtonYesNo answer1 "Question 1",
+  // TwoButtonYesNo answer2 "Question 2"]; the old filter simply never
+  // descended into children, so it counted 0. The check below is the re-ruled
+  // one and is STRICTER: ONE container, its 2 children, their own fields and
+  // labels, AND no loose top-level starter question left behind.
   // =========================================================================
-  test("(d) §4.1 starter — the 'Questions on one screen' tile inserts 2 labeled TwoButtonYesNo components", async ({ page, request }) => {
+  test("(d) §4.1 starter — the 'Questions on one screen' tile inserts 2 labeled TwoButtonYesNo questions inside ONE QuestionGrid container", async ({ page, request }) => {
     const s = await createStudioSection(request, `LGP2 starter ${uniq}`, [
       { type: "ContinueButton", question_id: "q_cont", props: { label: "Continue" } },
     ]);
@@ -498,13 +521,18 @@ test.describe("LeadGen Rework P2 — studio shared paths + runtime widgets (gest
 
     await saveStudioAwaitOk(page, s.public_id);
     const saved = await fetchSection(request, s.public_id);
-    const starterNodes = saved.content_json.components.filter((c) => c["type"] === "TwoButtonYesNo") as Array<{
-      internal_field?: string;
-      props?: { label?: string };
-    }>;
-    expect(starterNodes, "2 real, independent components — no grid").toHaveLength(2);
+    type Node = { type?: string; internal_field?: string; props?: { label?: string }; children?: Node[] };
+    const roots = saved.content_json.components as Node[];
+    const grids = roots.filter((c) => c.type === "QuestionGrid");
+    expect(grids, "ONE Question-grid container holds the starter (contract §2 ①, register SRC-1a)").toHaveLength(1);
+    expect(
+      roots.filter((c) => c.type === "TwoButtonYesNo"),
+      "no loose top-level starter question — the questions live INSIDE the container",
+    ).toHaveLength(0);
+    const starterNodes = (grids[0]!.children ?? []).filter((c) => c.type === "TwoButtonYesNo");
+    expect(starterNodes, "2 independent-field questions as the container's children").toHaveLength(2);
     const fields = starterNodes.map((n) => n.internal_field).sort();
-    expect(fields, "the §4.1-documented field names").toEqual(["answer1", "answer2"]);
+    expect(fields, "each question records to its OWN field (contract §2 ②)").toEqual(["answer1", "answer2"]);
     const labels = starterNodes.map((n) => n.props?.label).sort();
     expect(labels, "the §4.1-documented labels").toEqual(["Question 1", "Question 2"]);
   });
