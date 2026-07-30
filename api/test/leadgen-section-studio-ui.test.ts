@@ -707,6 +707,11 @@ function libraryTileBlock(html: string, dataName: string, fromIndex = 0): string
 }
 
 // §5.5 the exact 20 synonym strings, in §5.2 table order, with their group.
+// P5 S5c (ADJ-A6 / D6 RULED yes) added ONE post-golden tile: standalone
+// "phone" in answer-fields, right after Contact (same "post-golden addition"
+// precedent as "questions on one screen starter" — golden:false in
+// golden-allowlist.json, no byte-parity SVG check, see leadgen-v31-gate1-
+// parity.test.ts's own scoped-to-golden-names loop).
 const EXPECTED_TILES: ReadonlyArray<[group: string, dataName: string, label: string]> = [
   ["suggested", "short text", "Short text"],
   ["suggested", "buttons", "Buttons"],
@@ -724,6 +729,7 @@ const EXPECTED_TILES: ReadonlyArray<[group: string, dataName: string, label: str
   ["answer-fields", "date", "Date"],
   ["answer-fields", "slider scale", "Slider"],
   ["answer-fields", "contact name email phone", "Contact"],
+  ["answer-fields", "phone", "Phone"],
   ["answer-fields", "address zip location", "Address"],
   ["content", "text legal note reassurance disclosure", "Text"],
   ["content", "image logo picture", "Image / Logo"],
@@ -756,7 +762,7 @@ describeDb("section studio SSR — §5 component library (v3.1)", () => {
     expect(html).not.toMatch(/data-library-items="content"[^>]* hidden/);
   });
 
-  it("§5.5 the EXACT data-name synonym tiles ride the palette (20 v3.1 + the §4.1 'Questions on one screen' starter = 21 unique), in §5.2 order, each inside its correct group", async () => {
+  it("§5.5 the EXACT data-name synonym tiles ride the palette (20 v3.1 + the §4.1 'Questions on one screen' starter + P5 S5c's standalone Phone = 22 unique), in §5.2 order, each inside its correct group", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
@@ -773,9 +779,9 @@ describeDb("section studio SSR — §5 component library (v3.1)", () => {
       expect(block, `tile "${dataName}" label`).toContain(`>${label}<`);
       expect(block, `tile "${dataName}" is a data-tile`).toContain("data-tile");
     }
-    // 24 tile instances total (21 unique names incl. the §4.1 "Questions on one
-    // screen" starter; Buttons/Cards/Short text repeat once each across
-    // Suggested + Answer fields = 3 duplicates).
+    // 25 tile instances total (22 unique names incl. the §4.1 "Questions on one
+    // screen" starter + P5 S5c's standalone Phone; Buttons/Cards/Short text
+    // repeat once each across Suggested + Answer fields = 3 duplicates).
     expect((html.match(/data-tile /g) ?? []).length).toBe(EXPECTED_TILES.length);
   });
 
@@ -796,6 +802,7 @@ describeDb("section studio SSR — §5 component library (v3.1)", () => {
       date: "DateQuestion",
       "slider scale": "NumberRangeQuestion",
       "contact name email phone": "Stack",
+      phone: "PhoneInputQuestion",
       "address zip location": "AddressAutocompleteQuestion",
       "text legal note reassurance disclosure": "TextBlock",
       "image logo picture": "ImageBlock",
@@ -1282,6 +1289,11 @@ const MODEL_FUNCS = [
   "collectMapsToggle",
   "collectMapsJob",
   "renderMapsBanner",
+  // P5 S5c (ADJ-A9): the tree-wide "a Maps-enabled field has zero jobs" risk
+  // banner + the keyless-degrade key-state reader it and the Address
+  // field-set editor share.
+  "mapsKeyIsConfigured",
+  "renderMapsJobRiskBanner",
 ] as const;
 
 interface StudioSandbox {
@@ -3171,6 +3183,28 @@ function mapsBannerStub(keyConfigured: boolean): MapsBannerStub {
   };
 }
 
+// P5 S5c (ADJ-A9) — the tree-wide "Maps job risk" banner stub: read/write,
+// matching renderMapsJobRiskBanner's own hidden + data-maps-job-risk-qid
+// read-and-write contract.
+interface MapsJobRiskBannerStub {
+  hidden: boolean;
+  attrs: Record<string, string>;
+  getAttribute(k: string): string | null;
+  setAttribute(k: string, v: string): void;
+}
+function mapsJobRiskBannerStub(): MapsJobRiskBannerStub {
+  return {
+    hidden: true,
+    attrs: {},
+    getAttribute(k: string) {
+      return this.attrs[k] ?? null;
+    },
+    setAttribute(k: string, v: string) {
+      this.attrs[k] = v;
+    },
+  };
+}
+
 interface MapsHiddenStub {
   hidden: boolean;
 }
@@ -3189,6 +3223,7 @@ function mapsDocStub(opts: {
   zeroJobBanner?: MapsHiddenStub;
   validateCopy?: MapsTextStub;
   keyMissingBanner?: MapsBannerStub;
+  jobRiskBanner?: MapsJobRiskBannerStub;
 }): Record<string, unknown> {
   const jobsBlock = opts.jobsBlock ?? { hidden: true };
   const zeroJobBanner = opts.zeroJobBanner ?? { hidden: true };
@@ -3203,6 +3238,7 @@ function mapsDocStub(opts: {
       if (sel === "[data-maps-zero-job-banner]") return zeroJobBanner;
       if (sel === "[data-maps-validate-copy]") return validateCopy;
       if (sel === "[data-studio-maps-banner]") return opts.keyMissingBanner ?? null;
+      if (sel === "[data-studio-maps-job-risk-banner]") return opts.jobRiskBanner ?? null;
       return null;
     },
     querySelectorAll(sel: string) {
@@ -3397,6 +3433,35 @@ describeDb("section studio — §9 field-level Maps config (job-based model, Pha
     expect(banner.hidden).toBe(true);
   });
 
+  // P5 S5c (ADJ-A9): the operator can DISCOVER a "Maps enabled, zero jobs
+  // picked" misconfiguration from the top of the Studio (whole-tree walk,
+  // like renderMapsBanner) instead of only hitting a bare 409 at the Quote's
+  // activation preflight. content-schema.ts's maps_no_job is a save-time
+  // WARNING but an activation-preflight ERROR (§9.3) — this banner closes
+  // that discoverability gap PRE-emptively, in-Studio.
+  it("EXECUTED: the Maps job-risk banner shows tree-wide for ANY zero-job Maps-enabled field (not just the selected one), names the offending qid, and clears once a job is picked", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const riskBanner = mapsJobRiskBannerStub();
+    const probe = studioProbe(html, MAPS_CONTENT, mapsDocStub({ jobRiskBanner: riskBanner }));
+    // nothing Maps-enabled yet → hidden
+    probe.run("renderMapsJobRiskBanner()");
+    expect(riskBanner.hidden).toBe(true);
+    // q_zip: Maps enabled, ALL jobs false → the risk is real, tree-wide,
+    // regardless of which node (if any) is "selected" in the island.
+    probe.run(
+      "findRef('q_zip').node.props = { maps: { enabled: true, jobs: { validate: false, auction: false, autocomplete: false } } }",
+    );
+    probe.run("renderMapsJobRiskBanner()");
+    expect(riskBanner.hidden).toBe(false);
+    expect(riskBanner.attrs["data-maps-job-risk-qid"]).toBe("q_zip");
+    // picking a job clears the risk
+    probe.run("findRef('q_zip').node.props.maps.jobs.validate = true;");
+    probe.run("renderMapsJobRiskBanner()");
+    expect(riskBanner.hidden).toBe(true);
+  });
+
   it("round-trip: props.maps {enabled,jobs} → content JSON → REAL validator clean → renderComponent translates to the runtime's flat data-lg-maps wire keys (the preset seam)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
@@ -3432,10 +3497,30 @@ describeDb("section studio — §9 field-level Maps config (job-based model, Pha
       .replace(/&gt;/g, ">")
       .replace(/&amp;/g, "&");
     expect(JSON.parse(decoded)).toEqual({ enable_autocomplete: false, validate: true });
-    // the address twin: an UNCONFIGURED address node keeps the "{}" compat
-    // fallback (runtime defaults; graceful no-op)
+    // P5 S5a (D3 composite-by-default) STRENGTHENING: the address twin is an
+    // UNCONFIGURED node (no props.fields authored) — it no longer renders the
+    // retired single bare input + a "{}" compat fallback. It now renders the
+    // SAME 4-field street/city/state/zip composite the studio inspector's own
+    // default shows (renderAddressFieldSet + ADDRESS_DEFAULT_FIELD_SPECS),
+    // with REAL data-lg-field names and a REAL (non-empty) data-lg-maps
+    // config on the field driving Places autocomplete (defaults to street —
+    // Maps defaults ON for an unconfigured node, isNewMapsShape's own
+    // fallback), carrying the sibling-fill map to the other 3 fields.
     const addrNode = flattenComponents(roundTripped.components).find((n) => n.question_id === "q_addr");
-    expect(renderComponent(addrNode!, defaultFunnelDesign)).toContain('data-lg-maps="{}"');
+    const addrRendered = renderComponent(addrNode!, defaultFunnelDesign);
+    expect(addrRendered).toContain('data-lg-field="address_line_street"');
+    expect(addrRendered).toContain('data-lg-field="address_line_city"');
+    expect(addrRendered).toContain('data-lg-field="address_line_state"');
+    expect(addrRendered).toContain('data-lg-field="address_line_zip"');
+    expect(addrRendered).not.toContain('data-lg-maps="{}"');
+    const addrMapsMatch = addrRendered.match(/data-lg-maps="([^"]*)"/);
+    expect(addrMapsMatch, "the autocomplete-driving field carries a REAL data-lg-maps config").not.toBeNull();
+    const addrMapsDecoded = addrMapsMatch![1]!.replace(/&quot;/g, '"');
+    expect(JSON.parse(addrMapsDecoded)).toEqual({
+      enabled: true,
+      jobs: { validate: false, auction: false, autocomplete: true },
+      fills: { city: "address_line_city", state: "address_line_state", zip: "address_line_zip" },
+    });
   });
 });
 
@@ -3667,6 +3752,89 @@ describeDb("P4 fix — B9 §6.4 choiceDisplay-only edits persist (EXECUTED wirin
     ]);
     // the mutated model is server-valid (the §6.5 props.other shape)
     expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+  });
+
+  // P5 S5c (ADJ-A7): an "Other" value row the operator leaves with an empty
+  // label is NEVER silently dropped — collectOther() already PRESERVES it
+  // (missing only the `label` key); before this fix the studio's issues chip
+  // never looked at props.other at all, so "No structural issues" could read
+  // clean while the row was actually invalid — a save round-trip was the
+  // FIRST the operator would hear about it. FAIL-BEFORE/PASS-AFTER: reverting
+  // computeIssues()'s new props.other mirror reproduces the silent-chip gap
+  // (computeIssues() returns [] for this exact model); with the fix in place
+  // the SAME model surfaces a VISIBLE, clickable issue — cross-checked
+  // against the REAL server validator so the client mirror and server truth
+  // agree on what's actually wrong (E10/E11: one real side of this boundary
+  // is the actual validateSectionContent call, not a hand-typed expectation).
+  it("ADJ-A7: an other-value row with an empty label is preserved (never silently dropped) AND surfaces as a VISIBLE studio issue matching the REAL server rejection", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const CHOICES_MODEL = {
+      components: [
+        {
+          type: "ButtonAnswerGroup",
+          question_id: "q_make",
+          internal_field: "car_make",
+          answer_type: "enum",
+          choices: [{ label: "Toyota", value: "toyota", analytics_id: "c_toyota" }],
+        },
+      ],
+    };
+    const otherFieldInput = (f: string, v: string) => ({ getAttribute: () => f, value: v });
+    const otherRow = {
+      querySelectorAll(sel: string) {
+        return sel === "[data-other-field]"
+          ? [otherFieldInput("label", ""), otherFieldInput("value", "diesel"), otherFieldInput("analytics_id", "")]
+          : [];
+      },
+    };
+    const otherList = {
+      querySelectorAll(sel: string) {
+        return sel === "[data-other-row]" ? [otherRow] : [];
+      },
+    };
+    const enabledCb = { checked: true, type: "checkbox" };
+    const fieldsWrap = { hidden: false };
+    const labelInput = { value: "" };
+    const docStub = {
+      getElementById() {
+        return null;
+      },
+      querySelector(sel: string) {
+        if (sel === "[data-other-enabled]") return enabledCb;
+        if (sel === "[data-other-fields]") return fieldsWrap;
+        if (sel === "[data-other-label]") return labelInput;
+        if (sel === "[data-other-values]") return otherList;
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    };
+    const probe = studioProbe(html, CHOICES_MODEL, docStub as unknown as Record<string, unknown>);
+    probe.run(
+      [
+        sliceIslandFunction(island, "capsOf"),
+        sliceIslandFunction(island, "cap"),
+        sliceIslandFunction(island, "collectOther"),
+      ].join("\n"),
+    );
+    probe.sandbox.selectedQuestionId = "q_make";
+    probe.run("collectOther()");
+    const node = probe.run("findRef('q_make').node") as { props?: { other?: { choices?: Array<Record<string, unknown>> } } };
+    // preserved — the row survives with the value/analytics_id it had, just
+    // no label key (never removed from the array).
+    expect(node.props?.other?.choices).toEqual([{ value: "diesel", analytics_id: "diesel" }]);
+    // VISIBLE in the issues chip — computeIssues() is already sliced via
+    // MODEL_FUNCS by studioProbe's own baseline.
+    const issues = probe.run("computeIssues()") as Array<{ qid: string; message: string }>;
+    expect(issues.some((i) => i.qid === "q_make" && /Other.*missing its label/.test(i.message)), JSON.stringify(issues)).toBe(true);
+    // …and it MATCHES the real server rejection for the identical content —
+    // the client mirror isn't inventing its own rule.
+    const serverErrors = validateSectionContent(probe.sandbox.state.content).errors;
+    expect(serverErrors.some((e) => e.code === "invalid_choice" && e.path.includes("props.other.choices[0].label"))).toBe(true);
   });
 });
 
@@ -4237,6 +4405,42 @@ describeDb("v2.5 §5.2 EXECUTED — binding model (vm-probe of the served code)"
     expect(issues[0]!.qid).toBe("q_free");
     expect(issues[0]!.message).toContain("Question headline"); // label, not type id
     expect(issues[0]!.message).not.toContain("QuestionHeadline");
+  });
+
+  // P5 S5c (ADJ-A5): "Studio 'No issues' chip vs server-only icon rule -> save
+  // 400 the operator can't predict." req.choice_icon/choice_image
+  // (studioTypeMeta's own `required` projection, content-schema.ts §14.4) was
+  // computed server-side but never mirrored into computeIssues() — an
+  // IconCardAnswerGrid/ImageCardAnswerGrid choice missing its icon/image
+  // looked "clean" in the chip and only 400'd at save. FAIL-BEFORE/
+  // PASS-AFTER: reverting the req.choice_icon/choice_image checks reproduces
+  // the gap (computeIssues() returns [] for these exact nodes); cross-checked
+  // against the REAL server validator so the mirror matches server truth.
+  it("ADJ-A5: an IconCardAnswerGrid/ImageCardAnswerGrid choice missing its icon/image is a VISIBLE studio issue, matching the REAL server 400", async () => {
+    const probe = await boundProbe({
+      components: [
+        {
+          type: "IconCardAnswerGrid",
+          question_id: "q_icon",
+          internal_field: "icon_field",
+          answer_type: "enum",
+          choices: [{ label: "A", value: "a", analytics_id: "a" }], // no icon
+        },
+        {
+          type: "ImageCardAnswerGrid",
+          question_id: "q_image",
+          internal_field: "image_field",
+          answer_type: "enum",
+          choices: [{ label: "B", value: "b", analytics_id: "b" }], // no imageMediaId
+        },
+      ],
+    });
+    const issues = probe.run(`computeIssues()`) as Array<{ qid: string; message: string }>;
+    expect(issues.some((i) => i.qid === "q_icon" && /missing its icon/.test(i.message)), JSON.stringify(issues)).toBe(true);
+    expect(issues.some((i) => i.qid === "q_image" && /missing its image/.test(i.message)), JSON.stringify(issues)).toBe(true);
+    const serverErrors = validateSectionContent(probe.sandbox.state.content).errors;
+    expect(serverErrors.some((e) => e.code === "invalid_choice" && /requires a per-choice icon/.test(e.message))).toBe(true);
+    expect(serverErrors.some((e) => e.code === "invalid_choice" && /requires a per-choice imageMediaId/.test(e.message))).toBe(true);
   });
 
   it("the legacy link banner renders BOTH cases from the live model and its buttons run the real link handlers", async () => {

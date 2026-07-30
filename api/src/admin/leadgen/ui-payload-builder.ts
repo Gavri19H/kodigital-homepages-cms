@@ -620,11 +620,20 @@ function renderEditorTemplate(): string {
         <span class="lg-pb-chip" data-pb-choice-chips hidden></span>
       </div>
       <p class="alert alert-warning" data-pb-main-warn hidden></p>
-      <div class="lg-pb-other-controls">
-        <label class="form-label lg-pb-required"><input type="checkbox" data-pb-field="otherGroupEnabled" /> Group extra choices under &quot;Other&quot;</label>
-        <input type="text" class="form-input" data-pb-field="otherGroupLabel" placeholder="Other" aria-label="Other group label" />
-        <label class="form-label lg-pb-required"><input type="checkbox" data-pb-field="searchableOther" /> Searchable &quot;Other&quot; panel</label>
-      </div>
+      <!-- P5 S5c — Issue #10 remnant REMOVED: the "Group extra choices under
+           Other"/"Searchable Other panel" authoring controls (otherGroupEnabled/
+           otherGroupLabel/searchableOther, writing node.choiceDisplay) were
+           leftover wiring from the pre-rework choiceDisplay/Other-group
+           mechanism the STUDIO already retired (§10 — see presets.ts:
+           "the §10-retired choiceDisplay/Other-group mechanism is fully
+           removed"; ui-section-studio.ts's own collectChoices asserts
+           choiceDisplay stays undefined for anything it authors). Nothing in
+           the funnel runtime has read these fields since that retirement, so
+           this control let an operator author a setting with zero live
+           effect. fillValueMapCompact's READ of any pre-existing legacy
+           node.choiceDisplay (mains/otherGroup chip preview) stays — this
+           only removes the ability to author a NEW one. "Main choice?" /
+           mainValues is a SEPARATE, still-live mechanism and is untouched. -->
       <p class="form-help">A value the map misses is INVALID at runtime — invalid falls to the field's fallback (miss &#8658; invalid &#8658; fallback).</p>
     </div>
 
@@ -656,6 +665,34 @@ function renderEditorTemplate(): string {
         <p class="form-help">Typed by the field type: number fields send numbers, text fields send text.</p>
       </div>
       <p class="form-help">Preview: yes &#8594; <span class="lg-pb-chip" data-pb-bool-chip-true></span> &#183; no &#8594; <span class="lg-pb-chip" data-pb-bool-chip-false></span></p>
+    </div>
+
+    <!-- P5 S5c (SRC-7B / owner A.1 #7B verbatim: "I can define that I want
+         the currency will be passed to the offer in the auction and I can
+         define that only the number is sent, and I can define that the
+         number will be sent as string"). The output-format control — a
+         first-class visual pick, emitting the formatCurrency/toNumber/
+         toString transform step exactly the way the date panel above emits
+         formatDate (LEADGEN_TRANSFORM_KINDS, src/leadgen/payload.ts) — no
+         raw JSON, matching the date/boolean panels' own idiom. Additive to
+         the base "Number" type (not a mutually-exclusive pseudo-type like
+         Date): a number field can carry BOTH a value map above AND an
+         output format here (05 §12.7 pipeline order: value_map, then
+         transform). -->
+    <div data-pb-panel="outputformat" hidden>
+      <h4 class="form-label">Output format</h4>
+      <select class="form-select" data-pb-field="output_format" aria-label="Number output format">
+        <option value="">Just the number (no formatting)</option>
+        <option value="formatCurrency">Currency string ($170,000)</option>
+        <option value="toNumber">Number (force numeric)</option>
+        <option value="toString">Number as string ("170000")</option>
+      </select>
+      <p class="form-help">Stored as the transform pipeline (formatCurrency / toNumber / toString) &#8212; no JSON to type.</p>
+      <div class="lg-pb-grid-2">
+        <div><label class="form-label">Try a sample number</label><input type="number" class="form-input" data-pb-outputformat-sample aria-label="Sample number input" /></div>
+        <div><label class="form-label">Output preview</label><span class="lg-pb-chip" data-pb-outputformat-preview>&#8212;</span></div>
+      </div>
+      <p class="form-help" data-pb-outputformat-invalid-note hidden>An empty or non-numeric sample is INVALID at runtime &#8658; the field's fallback is sent instead.</p>
     </div>
 
     <div data-pb-panel="object" hidden>
@@ -1346,7 +1383,6 @@ export const PAYLOAD_BUILDER_STYLES = `
 .lg-pb-vm-search{max-width:220px}
 .lg-pb-vm-count{margin:6px 0}
 .lg-pb-file-btn{position:relative;overflow:hidden}
-.lg-pb-other-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0}
 .lg-pb-cond-row{display:grid;grid-template-columns:1.2fr .8fr 1.4fr auto;gap:6px;align-items:start;margin-bottom:6px}
 @media (max-width:760px){.lg-pb-cond-row{grid-template-columns:1fr}}
 .lg-pb-cond-preview{font-size:13px;font-style:italic;color:var(--c-muted)}
@@ -1592,6 +1628,22 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     return node.type === 'string' && Object.prototype.toString.call(node.transform) === '[object Array]' &&
       node.transform.length === 1 && node.transform[0] && node.transform[0].kind === 'formatDate';
   }
+  // P5 S5c (SRC-7B) — a ONE-step transform pipeline whose kind is one of the
+  // 3 output-format kinds this control offers. Unlike isDateNode this is
+  // ADDITIVE to the base "number" type (no pseudo-dtype swap): a number field
+  // keeps its value-map/valid-values panels AND gets this one too, matching
+  // the real pipeline order (value_map, then transform — 05 §12.7). The kind
+  // list is INLINED (not a module-level var) so this function stays fully
+  // self-contained for isolated vm-probe slicing, the same discipline
+  // collectMapsFill/renderMapsJobRiskBanner document elsewhere in this phase.
+  function isOutputFormatNode(node) {
+    var k = Object.prototype.toString.call(node.transform) === '[object Array]' && node.transform.length === 1 && node.transform[0]
+      ? node.transform[0].kind : null;
+    return k === 'formatCurrency' || k === 'toNumber' || k === 'toString';
+  }
+  function outputFormatKindOf(node) {
+    return isOutputFormatNode(node) ? node.transform[0].kind : '';
+  }
   function displayTypeOf(node) {
     if (isDateNode(node)) { return 'date'; }
     return node.type || 'string';
@@ -1642,7 +1694,10 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     for (k in node) {
       if (hasOwn(node, k) && KNOWN_NODE_KEYS.indexOf(k) === -1) { reasons.push('key ' + k); }
     }
-    if (node.transform !== undefined && !isDateNode(node)) { reasons.push('transform pipeline'); }
+    // P5 S5c (SRC-7B): a first-class output-format pick (formatCurrency/
+    // toNumber/toString) is authored through the visual control above, same
+    // as isDateNode's formatDate — neither forces "Advanced" anymore.
+    if (node.transform !== undefined && !isDateNode(node) && !isOutputFormatNode(node)) { reasons.push('transform pipeline'); }
     if (node.conditional !== undefined && isRecordVal(node.conditional)) {
       if (KNOWN_COND_OPS.indexOf(node.conditional.op) === -1) { reasons.push('conditional'); }
     } else if (node.conditional !== undefined) { reasons.push('conditional'); }
@@ -2649,6 +2704,60 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     if (chipF) { chipF.textContent = displayScalar(hasOwn(vm, 'false') ? vm['false'] : false); }
   }
 
+  // P5 S5c (SRC-7B) — a pure client mirror of payload.ts's transformFormatCurrency
+  // (server logic, LOGIC-FOR-LOGIC, never re-derived): a leading "$" + thousands
+  // separators, no forced decimals, negative sign OUTSIDE the symbol. Preview-only
+  // (the server step is authoritative at request time); null = INVALID (matches
+  // clientFormatDate's own null-on-invalid idiom).
+  function clientFormatCurrency(n) {
+    if (typeof n !== 'number' || !isFinite(n)) { return null; }
+    var negative = n < 0;
+    var digits = String(Math.abs(n));
+    if (!/^\\d+(\\.\\d+)?$/.test(digits)) { return null; }
+    var dot = digits.indexOf('.');
+    var whole = dot === -1 ? digits : digits.slice(0, dot);
+    var rest = dot === -1 ? '' : digits.slice(dot);
+    var grouped = whole.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');
+    return (negative ? '-' : '') + '$' + grouped + rest;
+  }
+  function updateOutputFormatPreview(bodyEl, node) {
+    var sampleEl = bodyEl.querySelector('[data-pb-outputformat-sample]');
+    var preview = bodyEl.querySelector('[data-pb-outputformat-preview]');
+    if (!preview) { return; }
+    var kind = outputFormatKindOf(node);
+    var raw = sampleEl ? sampleEl.value : '';
+    var n = raw === '' ? NaN : Number(raw);
+    var invalidNote = bodyEl.querySelector('[data-pb-outputformat-invalid-note]');
+    if (kind === '' || raw === '' || !isFinite(n)) {
+      if (raw === '' || !isFinite(n)) {
+        preview.textContent = 'invalid \\u2192 fallback' + (node.fallback !== undefined ? ' (' + displayScalar(node.fallback) + ')' : ' (field omitted)');
+        if (invalidNote) { invalidNote.hidden = false; }
+      } else {
+        preview.textContent = String(n) + ' \\u2192 ' + String(n) + ' (unformatted)';
+        if (invalidNote) { invalidNote.hidden = true; }
+      }
+      return;
+    }
+    if (invalidNote) { invalidNote.hidden = true; }
+    var out;
+    if (kind === 'formatCurrency') { out = clientFormatCurrency(n); }
+    else if (kind === 'toNumber') { out = n; }
+    else { out = String(n); }
+    if (out === null) {
+      preview.textContent = 'invalid \\u2192 fallback' + (node.fallback !== undefined ? ' (' + displayScalar(node.fallback) + ')' : ' (field omitted)');
+      if (invalidNote) { invalidNote.hidden = false; }
+    } else {
+      preview.textContent = String(n) + ' \\u2192 ' + String(out);
+    }
+  }
+  function fillOutputFormatPanel(bodyEl, node) {
+    var sel = bodyEl.querySelector('[data-pb-field="output_format"]');
+    if (sel) { sel.value = outputFormatKindOf(node); }
+    var sampleEl = bodyEl.querySelector('[data-pb-outputformat-sample]');
+    if (sampleEl && sampleEl.value === '') { sampleEl.value = '170000'; }
+    updateOutputFormatPreview(bodyEl, node);
+  }
+
   function fillChips(box, values, removable) {
     clearChildren(box);
     var i, chip, x;
@@ -3101,6 +3210,9 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     show(bodyEl, '[data-pb-panel="validvalues"]', isAnswer && !freeText && (dtype === 'string' || dtype === 'enum' || dtype === 'number'));
     show(bodyEl, '[data-pb-panel="date"]', dtype === 'date');
     show(bodyEl, '[data-pb-panel="boolean"]', dtype === 'boolean' && isAnswer);
+    // P5 S5c (SRC-7B) — additive to "number" (a number answer can ALSO carry
+    // a value map above; this is the separate output-format-on-send concern).
+    show(bodyEl, '[data-pb-panel="outputformat"]', isAnswer && dtype === 'number');
     show(bodyEl, '[data-pb-panel="object"]', dtype === 'object');
     show(bodyEl, '[data-pb-panel="array"]', dtype === 'array');
     show(bodyEl, '[data-pb-panel="defaults"]', node.source !== 'token' && dtype !== 'object' && dtype !== 'array');
@@ -3223,13 +3335,15 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     }
     fillValueMapCompact(bodyEl, node);
     fillFreeTextPanel(bodyEl, node);
-    setVal(bodyEl, '[data-pb-field="otherGroupEnabled"]', !!(node.choiceDisplay && node.choiceDisplay.otherGroupEnabled));
-    setVal(bodyEl, '[data-pb-field="otherGroupLabel"]', node.choiceDisplay ? node.choiceDisplay.otherGroupLabel : '');
-    setVal(bodyEl, '[data-pb-field="searchableOther"]', !!(node.choiceDisplay && node.choiceDisplay.searchableOther));
+    // P5 S5c — Issue #10 remnant: the otherGroupEnabled/otherGroupLabel/
+    // searchableOther populate calls that used to live here are removed along
+    // with their now-gone SSR controls (see the removal note above the
+    // data-pb-panel="valuemap" markup).
     var vvBox = bodyEl.querySelector('[data-pb-validvalues-chips]');
     if (vvBox) { fillChips(vvBox, node.valid_values || [], true); }
     if (dtype2 === 'date') { fillDatePanel(bodyEl, node); }
     if (dtype2 === 'boolean' && node.source === 'answer') { fillBooleanPanel(bodyEl, node); }
+    if (dtype2 === 'number' && node.source === 'answer') { fillOutputFormatPanel(bodyEl, node); }
     if (dtype2 === 'object') {
       var pre = bodyEl.querySelector('[data-pb-subtree-preview]');
       if (pre) {
@@ -3439,19 +3553,11 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         afterModelChange();
         return;
       }
-      if (field === 'otherGroupEnabled' || field === 'searchableOther' || field === 'otherGroupLabel') {
-        var cd = isRecordVal(node.choiceDisplay) ? node.choiceDisplay : {};
-        if (field === 'otherGroupLabel') {
-          if (trimStr(t.value) === '') { delete cd.otherGroupLabel; } else { cd.otherGroupLabel = t.value; }
-        } else if (t.checked) { cd[field] = true; } else { delete cd[field]; }
-        var anyKey = false;
-        var ck;
-        for (ck in cd) { if (hasOwn(cd, ck)) { anyKey = true; } }
-        if (anyKey) { node.choiceDisplay = cd; } else { delete node.choiceDisplay; }
-        renderEditor();
-        afterModelChange();
-        return;
-      }
+      // P5 S5c — Issue #10 remnant REMOVED: the otherGroupEnabled/
+      // otherGroupLabel/searchableOther collect branch that used to write
+      // node.choiceDisplay from this now-gone control is removed (see the
+      // markup removal note above data-pb-panel="valuemap"). "Main choice?"
+      // (mainValues, vmApplyRowsToNode) is unaffected.
       if (field === 'date_format' || field === 'date_format_custom') {
         var fmtSel = editorEl.querySelector('[data-pb-field="date_format"]');
         var customIn = editorEl.querySelector('[data-pb-field="date_format_custom"]');
@@ -3460,6 +3566,17 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         if (trimStr(fmt) !== '') { applyDateFormat(node, fmt); }
         refreshAdvReasons(item);
         updateDatePreview(editorEl, node);
+        afterModelChange();
+        return;
+      }
+      // P5 S5c (SRC-7B) — the ONE-step transform pipeline, exactly the way
+      // date_format writes formatDate above ("" removes the whole pipeline;
+      // never a partial/malformed step — a real kind or nothing).
+      if (field === 'output_format') {
+        if (t.value === '') { delete node.transform; }
+        else { node.transform = [{ kind: t.value }]; }
+        refreshAdvReasons(item);
+        updateOutputFormatPreview(editorEl, node);
         afterModelChange();
         return;
       }
@@ -3546,6 +3663,9 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         return;
       }
       if (t.getAttribute('data-pb-date-sample') !== null) { updateDatePreview(editorEl, item.node); }
+      // P5 S5c (SRC-7B) — preview-only, no model write (mirrors the date
+      // sample input above).
+      if (t.getAttribute('data-pb-outputformat-sample') !== null) { updateOutputFormatPreview(editorEl, item.node); }
       if (t.getAttribute('data-pb-bool-true') !== null || t.getAttribute('data-pb-bool-false') !== null) {
         var presetSel = editorEl.querySelector('[data-pb-field="bool_preset"]');
         if (presetSel && presetSel.value === 'custom') {

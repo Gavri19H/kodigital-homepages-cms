@@ -18,18 +18,25 @@
 //         successor for its shared-choices-across-rows shape] — used to
 //         prove an MQG whose shared choices number 6 (with 2 rows) SAVES
 //         (2xx), orphans pruned, never the raw 2-4 "pill set" 400 (R4-34).
-//   AC-6  review-round finding 3: the studio/preview-only markup
-//         (.lg-address-composite / .lg-mqg-empty) is truly INVISIBLE on the
-//         REAL live /lg/:slug route (serve.ts's serveFunnelShell — NOT
-//         /sections/preview, which carries .lg-preview itself) — proved via
-//         getComputedStyle + offsetParent in a real browser DOM, not a CSS-
-//         rule-text pin. A zero-row MultiQuestionGrid can never be SAVED
-//         through the app (validateSectionContent rejects an empty rows
-//         array), so it is seeded the same way genuinely pre-existing legacy
-//         content would exist: a section saved valid, then its content_json
-//         directly corrupted in the SAME local D1 the dev server reads (the
-//         listicles-analytics-mirror.spec.ts `wrangler d1 execute --local`
-//         precedent) — never through a product-code bypass.
+//   AC-6  review-round finding 3: the studio/preview-only .lg-mqg-empty
+//         markup is truly INVISIBLE on the REAL live /lg/:slug route
+//         (serve.ts's serveFunnelShell — NOT /sections/preview, which
+//         carries .lg-preview itself) — proved via getComputedStyle +
+//         offsetParent in a real browser DOM, not a CSS-rule-text pin. [P5
+//         S5a / D3 STRENGTHENING: .lg-address-composite was the SAME kind of
+//         studio/preview-only decorative stand-in for an unconfigured
+//         Address — that whole mechanism is RETIRED (4 REAL street/city/
+//         state/zip inputs render everywhere now, never a decorative
+//         composite), so AC-6 now instead proves the composite class never
+//         renders at all AND the real fields are VISIBLE on live, same as
+//         every other real funnel input.] A zero-row MultiQuestionGrid can
+//         never be SAVED through the app (validateSectionContent rejects an
+//         empty rows array), so it is seeded the same way genuinely
+//         pre-existing legacy content would exist: a section saved valid,
+//         then its content_json directly corrupted in the SAME local D1 the
+//         dev server reads (the listicles-analytics-mirror.spec.ts
+//         `wrangler d1 execute --local` precedent) — never through a
+//         product-code bypass.
 //
 // chromium-only: every action is a plain click / fill / selectOption — no
 // gesture/drag machinery. AC-6 additionally drives a REAL tenant-host live
@@ -438,7 +445,7 @@ test.describe("P1b AC-5 — MQG with 6 shared choices saves (orphans pruned) [RE
 // AC-6 — review-round finding 3: live-DOM invisibility proof (not a CSS-text pin)
 // ---------------------------------------------------------------------------
 test.describe("P1b AC-6 — studio-only markup is truly invisible on the live /lg funnel", () => {
-  test("an Address composite + zero-row MQG empty-state ship display:none + no box on the REAL live route; the live root carries no .lg-preview", async ({
+  test("P5 S5a: the retired .lg-address-composite class never renders + the real 4-field Address is VISIBLE on live; the zero-row MQG empty-state still ships display:none + no box; the live root carries no .lg-preview", async ({
     page,
   }) => {
     const host = `p1b-live-${uniq}.e2e.test`;
@@ -519,21 +526,34 @@ test.describe("P1b AC-6 — studio-only markup is truly invisible on the live /l
     // scoped CSS rule this test targets).
     await passSharedPage(page);
 
-    // Both studio/preview-only elements are PRESENT in the live DOM (the
-    // renderer emits them unconditionally) …
+    // P5 S5a (D3 composite-by-default) STRENGTHENING: .lg-address-composite
+    // was a studio/preview-ONLY decorative stand-in for an unconfigured
+    // Address, unconditionally emitted then hidden via CSS outside
+    // .lg-preview — that whole mechanism is RETIRED. An unconfigured Address
+    // now renders the SAME 4 REAL street/city/state/zip <input> fields
+    // everywhere (studio canvas, preview, and this live route) — real,
+    // functional inputs are never "studio-only markup," so the correct proof
+    // is now the OPPOSITE of AC-6's original premise: the retired class never
+    // renders anywhere, and the real fields are VISIBLE (not display:none)
+    // on this live route, exactly like every other real funnel input.
     const composite = page.locator(".lg-address-composite");
-    const empty = page.locator(".lg-mqg-empty");
-    await expect(composite).toHaveCount(1);
-    await expect(empty).toHaveCount(1);
-
-    // … but truly invisible: computed display is 'none' AND each has no box
-    // (offsetParent null — the two-signal invisibility proof, not a CSS-rule
-    // string comparison).
-    for (const [name, loc] of [["address composite", composite] as const, ["mqg empty-state", empty] as const]) {
-      const display = await loc.evaluate((el) => getComputedStyle(el).display);
-      expect(display, `${name} computed display`).toBe("none");
-      const hasBox = await loc.evaluate((el) => (el as HTMLElement).offsetParent !== null);
-      expect(hasBox, `${name} offsetParent (should be null / no box)`).toBe(false);
+    await expect(composite, "the retired decorative composite class never renders").toHaveCount(0);
+    const addrFields = page.locator('[data-lg-question="addr1"] .lg-address-field-wrap input.lg-input');
+    await expect(addrFields, "all 4 real address fields render").toHaveCount(4);
+    for (let i = 0; i < 4; i++) {
+      await expect(addrFields.nth(i), `address field ${i} is visible on the live route`).toBeVisible();
     }
+
+    // The zero-row MultiQuestionGrid empty-state is UNCHANGED by this phase —
+    // still studio/preview-only, still PRESENT-but-invisible on live (the
+    // renderer emits it unconditionally; a CSS rule hides it outside
+    // .lg-preview). Two-signal invisibility proof (computed display + no
+    // box), not a CSS-rule string comparison.
+    const empty = page.locator(".lg-mqg-empty");
+    await expect(empty).toHaveCount(1);
+    const emptyDisplay = await empty.evaluate((el) => getComputedStyle(el).display);
+    expect(emptyDisplay, "mqg empty-state computed display").toBe("none");
+    const emptyHasBox = await empty.evaluate((el) => (el as HTMLElement).offsetParent !== null);
+    expect(emptyHasBox, "mqg empty-state offsetParent (should be null / no box)").toBe(false);
   });
 });

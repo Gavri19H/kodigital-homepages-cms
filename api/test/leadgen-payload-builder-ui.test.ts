@@ -716,23 +716,25 @@ describeDb("payload builder §6.3/§6.4 — value-map table + choiceDisplay", ()
     expect(html.split("miss &#8658; invalid &#8658; fallback").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("§6.4 Other-grouping controls: Main checkbox column, count chips, soft >9 warn, searchableOther + otherGroupLabel", async () => {
+  // P5 S5c — Issue #10 remnant REMOVED: otherGroupEnabled/otherGroupLabel/
+  // searchableOther were leftover authoring controls for the choiceDisplay
+  // "Other group" mechanism the STUDIO already retired (§10) and the funnel
+  // runtime never reads (presets.ts: "the §10-retired choiceDisplay/
+  // Other-group mechanism is fully removed") — an operator could toggle them
+  // with zero live effect. "Main choice?" (mainValues) is a SEPARATE,
+  // still-live mechanism and keeps its own controls/chips/warn threshold.
+  it("§6.4 Main-choice controls: Main checkbox column, count chips, soft >9 warn — the retired otherGroup/searchableOther authoring controls are GONE", async () => {
     const { html } = await richEditorPage();
-    for (const hook of [
-      'data-pb-field="otherGroupEnabled"',
-      'data-pb-field="otherGroupLabel"',
-      'data-pb-field="searchableOther"',
-      "data-pb-choice-chips",
-      "data-pb-main-warn",
-      "data-vm-count-chips",
-      "data-vm-main-warn",
-    ]) {
-      expect(html, `choiceDisplay hook ${hook}`).toContain(hook);
+    for (const hook of ["data-pb-choice-chips", "data-pb-main-warn", "data-vm-count-chips", "data-vm-main-warn"]) {
+      expect(html, `Main-choice hook ${hook}`).toContain(hook);
     }
     // emission target + soft-warn threshold live in the script
     expect(html).toContain("mainValues");
     expect(html).toContain("more than 9 gets crowded");
-    expect(html).toContain('placeholder="Other"');
+    // the retired remnant control is gone from the SSR markup
+    for (const hook of ['data-pb-field="otherGroupEnabled"', 'data-pb-field="otherGroupLabel"', 'data-pb-field="searchableOther"']) {
+      expect(html, `retired hook ${hook} must be gone`).not.toContain(hook);
+    }
   });
 
   // MINOR-6 (adversarial): a `"` only opens a quoted cell when the cell buffer
@@ -861,6 +863,44 @@ describeDb("payload builder §6.5–§6.7 — free text / date / boolean", () =>
     expect(html).toContain("data-pb-date-invalid-note");
     // emission is the existing formatDate transform, never typed JSON
     expect(html).toContain("formatDate");
+  });
+
+  // P5 S5c (SRC-7B, owner A.1 #7B verbatim: "I can define that I want the
+  // currency will be passed to the offer in the auction and I can define
+  // that only the number is sent, and I can define that the number will be
+  // sent as string"). A first-class visual control, emitting formatCurrency/
+  // toNumber/toString exactly the way the date panel above emits formatDate
+  // (LEADGEN_TRANSFORM_KINDS, src/leadgen/payload.ts) — never raw JSON.
+  it("SRC-7B: the output-format picker offers currency/number/string, live-previews, and is EXCLUDED from computeAdvReasons' transform-pipeline Advanced-drawer flag", async () => {
+    const { html } = await richEditorPage();
+    const block = selectBlock(html, 'data-pb-field="output_format"');
+    expect(optionValues(block)).toEqual(["", "formatCurrency", "toNumber", "toString"]);
+    expect(block).toContain("Currency string");
+    expect(block).toContain("Number as string");
+    expect(html).toContain("data-pb-outputformat-sample");
+    expect(html).toContain("data-pb-outputformat-preview");
+    expect(html).toContain("data-pb-outputformat-invalid-note");
+    // emission is the real transform kinds, never typed JSON
+    expect(html).toContain("formatCurrency");
+    // isOutputFormatNode recognizes exactly the 3 kinds this control offers
+    // (the SAME real function computeAdvReasons consults to skip the generic
+    // "transform pipeline" Advanced-drawer flag, mirroring isDateNode's own
+    // carve-out for formatDate) — a 4th, unrelated kind (e.g. trim) does not
+    // match, so it still routes to Advanced.
+    const script = extractScripts(html).find((s) => s.includes("function isOutputFormatNode("));
+    expect(script, "isOutputFormatNode island present").toBeDefined();
+    const source = sliceIslandFunction(script!, "isOutputFormatNode");
+    const sandbox = runInNewContext(
+      `${source}\n({
+        currency: isOutputFormatNode({ transform: [{ kind: "formatCurrency" }] }),
+        num: isOutputFormatNode({ transform: [{ kind: "toNumber" }] }),
+        str: isOutputFormatNode({ transform: [{ kind: "toString" }] }),
+        trim: isOutputFormatNode({ transform: [{ kind: "trim" }] }),
+        none: isOutputFormatNode({}),
+      })`,
+      {},
+    ) as { currency: boolean; num: boolean; str: boolean; trim: boolean; none: boolean };
+    expect(sandbox).toEqual({ currency: true, num: true, str: true, trim: false, none: false });
   });
 
   it("§6.7 boolean presets: the 6 options with exact value_map emissions + preview chips", async () => {

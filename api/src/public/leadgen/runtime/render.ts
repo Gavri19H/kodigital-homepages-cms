@@ -81,12 +81,20 @@ export function applyComponentVisibility(
 // Selection classes on choice click (§3.5.3). Single-select: the chosen
 // [data-lg-choice] gets SELECTED_CLASS, its siblings in the same question
 // block lose it. Multi-select (array value): every member value is marked.
+// P5 S5c (ADJ-R8): the SSR choice buttons (presets.ts renderButtonAnswerGroup/
+// renderTwoButtonYesNo/renderIconCardAnswerGrid/renderMultiChoiceCardGroup)
+// all emit role="radio"/role="checkbox" aria-checked="false" — NEVER
+// aria-pressed (that pairs with role="button" only). This used to write
+// aria-pressed, an attribute name the SSR markup never has, so the pixel
+// selection (SELECTED_CLASS) and the accessibility-tree selection diverged
+// on every click across Yes/No, Buttons, and Cards alike. aria-checked is the
+// one the SSR role scheme actually calls for.
 export function applySelectionClasses(questionEl: Element, value: unknown): void {
   const values = Array.isArray(value) ? value.map((v) => String(v)) : [String(value)];
   questionEl.querySelectorAll("[data-lg-choice]").forEach((el) => {
     const isOn = values.indexOf(el.getAttribute("data-lg-choice") || "") !== -1;
     el.classList[isOn ? "add" : "remove"](SELECTED_CLASS);
-    el.setAttribute("aria-pressed", isOn ? "true" : "false");
+    el.setAttribute("aria-checked", isOn ? "true" : "false");
   });
 }
 

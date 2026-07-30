@@ -215,6 +215,13 @@ const TILE_SVG = {
     '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><circle cx="13" cy="11" r="4.5" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><path d="M6 24c0-4 4-6 7-6s7 2 7 6" fill="none" stroke="#1B3A5C" stroke-width="1.3" stroke-linecap="round"/><line x1="25" y1="10" x2="40" y2="10" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="25" y1="16" x2="40" y2="16" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="25" y1="22" x2="35" y2="22" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/></svg>',
   address:
     '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><path d="M14 5c4 0 6 3 6 6 0 4-6 11-6 11S8 15 8 11c0-3 2-6 6-6z" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><circle cx="14" cy="11" r="2" fill="#1B3A5C"/><line x1="25" y1="11" x2="40" y2="11" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="25" y1="17" x2="36" y2="17" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/></svg>',
+  // P5 S5c (ADJ-A6 / D6 RULED yes) — a POST-golden tile (no v3.1 golden SVG;
+  // same "question grid…" precedent register golden:false), so byte-for-byte
+  // parity with a golden asset is not asserted for this glyph. A simple
+  // handset silhouette + 2 field lines, matching the contact/address tiles'
+  // own "icon + field lines" composition and stroke/fill palette.
+  phone:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><path d="M9.5 8.2c-.7 1.7-.2 4 1.6 6.4 1.9 2.4 3.9 3.8 5.7 4.3.8.2 1.5-.1 1.9-.8l.7-1.6c.3-.6.1-1.2-.4-1.6l-1.7-1.3c-.5-.4-1.1-.4-1.6 0l-.6.5c-1-.6-1.8-1.6-2.4-2.6l.5-.7c.3-.5.3-1.1-.1-1.5l-1.4-1.8c-.4-.5-1-.5-1.6-.3l-1.5.8c-.7.4-1.3 1.1-1.6 2.2z" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3" stroke-linejoin="round"/><line x1="25" y1="10" x2="40" y2="10" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="25" y1="16" x2="36" y2="16" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/></svg>',
   text: '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><text x="5" y="19" font-family="Newsreader,serif" font-size="15" font-weight="600" fill="#1B3A5C">Aa</text><line x1="26" y1="10" x2="41" y2="10" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="26" y1="16" x2="41" y2="16" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="26" y1="22" x2="35" y2="22" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/></svg>',
   image:
     '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="5" width="34" height="20" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.4"/><circle cx="14" cy="12" r="2.4" fill="#F5C518"/><path d="M9 23l7-7 5 5 4-4 6 6" fill="none" stroke="#1B3A5C" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -278,6 +285,11 @@ export const STUDIO_LIBRARY_GROUPS: readonly StudioGroup[] = [
         childTypes: ["NameFieldsGroup", "EmailInputQuestion", "PhoneInputQuestion"],
         svg: TILE_SVG.contact,
       },
+      // P5 S5c (ADJ-A6 / D6 RULED yes): "no standalone Phone tile — phone
+      // exists ONLY inside the Contact stack." PhoneInputQuestion + its mask
+      // machinery are unchanged (both already correct per probe 4b) — this
+      // is ONLY a new palette entry point onto the SAME existing type.
+      { dataName: "phone", label: "Phone", defaultType: "PhoneInputQuestion", svg: TILE_SVG.phone },
       { dataName: "address zip location", label: "Address", defaultType: "AddressAutocompleteQuestion", svg: TILE_SVG.address },
     ],
   },
@@ -928,16 +940,23 @@ function frameDotStyle(on: boolean): string {
 function renderActivityVerticalPickers(view: StudioSectionView): string {
   const dropdownChevron = (color: string): string =>
     `<svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  // P5 S5c (ADJ-A7): these two native selects sat in a shrinkable flex row
+  // with no min-width/flex-shrink guard — cramped alongside the question
+  // strip's other controls, the browser was free to squeeze them narrower
+  // than their OWN placeholder text ("Choose an activity"/"Choose a
+  // vertical"), truncating to "Choose..". flex-shrink:0 + a min-width keep
+  // the placeholder legible at any strip width; the select's own visual
+  // treatment (chip border/padding/chevron) is unchanged.
   return `<div style="display:flex;align-items:center;gap:8px">
       <span style="font-size:11px;color:${STUDIO_COLOR.faint};font-weight:600">Activity</span>
-      <div class="studio-pair" data-pair-empty="${view.activity === ""}" style="display:inline-flex;align-items:center;gap:4px;padding:5px 8px 5px 10px;background:${view.activity === "" ? STUDIO_COLOR.issuesChipBg : STUDIO_COLOR.white};border:1px ${view.activity === "" ? "dashed" : "solid"} ${STUDIO_COLOR.lineControl};border-radius:7px;font-size:12.5px;font-weight:600">
-        <select id="lg-section-activity" name="activity" data-studio-activity required aria-required="true" style="border:0;background:transparent;font:inherit;color:${view.activity === "" ? STUDIO_COLOR.faint : "inherit"};outline:none">${savedOption(view.activity, "Choose an activity")}</select>
+      <div class="studio-pair" data-pair-empty="${view.activity === ""}" style="display:inline-flex;align-items:center;gap:4px;padding:5px 8px 5px 10px;background:${view.activity === "" ? STUDIO_COLOR.issuesChipBg : STUDIO_COLOR.white};border:1px ${view.activity === "" ? "dashed" : "solid"} ${STUDIO_COLOR.lineControl};border-radius:7px;font-size:12.5px;font-weight:600;flex-shrink:0">
+        <select id="lg-section-activity" name="activity" data-studio-activity required aria-required="true" style="border:0;background:transparent;font:inherit;color:${view.activity === "" ? STUDIO_COLOR.faint : "inherit"};outline:none;min-width:11ch">${savedOption(view.activity, "Choose an activity")}</select>
         ${dropdownChevron(STUDIO_COLOR.faint)}
         <button type="button" class="studio-pair-new-btn" data-studio-new-activity title="Create a new activity" aria-label="Create a new activity" style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:0;border-radius:50%;background:${STUDIO_COLOR.issuesChipBg};color:${STUDIO_COLOR.faint};cursor:pointer;font-size:13px;line-height:1;padding:0">+</button>
       </div>
       <span style="font-size:11px;color:${STUDIO_COLOR.faint};font-weight:600;margin-left:4px">Vertical</span>
-      <div class="studio-pair" data-pair-empty="${view.vertical === ""}" style="display:inline-flex;align-items:center;gap:4px;padding:5px 8px 5px 10px;background:${view.vertical === "" ? STUDIO_COLOR.issuesChipBg : STUDIO_COLOR.white};border:1px ${view.vertical === "" ? "dashed" : "solid"} ${STUDIO_COLOR.lineControl};border-radius:7px;font-size:12.5px;font-weight:600">
-        <select id="lg-section-vertical" name="vertical" data-studio-vertical required aria-required="true" style="border:0;background:transparent;font:inherit;color:${view.vertical === "" ? STUDIO_COLOR.faint : "inherit"};outline:none">${savedOption(view.vertical, "Choose a vertical")}</select>
+      <div class="studio-pair" data-pair-empty="${view.vertical === ""}" style="display:inline-flex;align-items:center;gap:4px;padding:5px 8px 5px 10px;background:${view.vertical === "" ? STUDIO_COLOR.issuesChipBg : STUDIO_COLOR.white};border:1px ${view.vertical === "" ? "dashed" : "solid"} ${STUDIO_COLOR.lineControl};border-radius:7px;font-size:12.5px;font-weight:600;flex-shrink:0">
+        <select id="lg-section-vertical" name="vertical" data-studio-vertical required aria-required="true" style="border:0;background:transparent;font:inherit;color:${view.vertical === "" ? STUDIO_COLOR.faint : "inherit"};outline:none;min-width:10ch">${savedOption(view.vertical, "Choose a vertical")}</select>
         ${dropdownChevron(STUDIO_COLOR.faint)}
         <button type="button" class="studio-pair-new-btn" data-studio-new-vertical title="Create a new vertical" aria-label="Create a new vertical" style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:0;border-radius:50%;background:${STUDIO_COLOR.issuesChipBg};color:${STUDIO_COLOR.faint};cursor:pointer;font-size:13px;line-height:1;padding:0">+</button>
       </div>
@@ -2332,6 +2351,12 @@ function renderSliderTypePicker(): string {
 // an option on the Maps tab (§6.10 "unchanged as an option") — a per-field
 // 'autofill' mode is offered only while Maps is enabled, with the note below.
 function renderAddressFieldSet(): string {
+  // P5 S5c (Maps honesty, SRC-6 item 4 / ADJ-A9): data-address-maps-note is no
+  // longer static boilerplate — populateAddressFieldSet rewrites its text live
+  // from the REAL key/toggle state (mapsKeyIsConfigured/addressMapsEnabled) so
+  // a keyless environment states the Manual degrade PLAINLY instead of the
+  // per-field Mode select just silently never offering "Autofill" with no
+  // explanation. The string below is only the pre-JS/first-paint fallback.
   return `<div class="lg-inspector-field" data-address-fieldset-block hidden>
         <div class="studio-panel-eyebrow">Fields</div>
         <button type="button" class="btn btn-sm btn-outline" data-address-preset-plain>Plain text address</button>
@@ -3374,6 +3399,16 @@ export function renderSectionStudio(
   // configured (the exact no-op contract copy). Key state rides as a data
   // attribute so the island never needs a second bootstrap blob.
   const mapsBanner = `<p class="studio-maps-banner" data-studio-maps-banner data-maps-key-configured="${mapsKeyConfigured ? "true" : "false"}" hidden role="status" aria-live="polite">No Google-Maps browser key is configured &#8212; Autocomplete/validation will no-op; manual entry still works. The per-field Maps config stays saved and activates once the key is added.</p>`;
+  // P5 S5c (ADJ-A9): a SECOND, tree-wide banner — independent of which node is
+  // selected — for "a Maps-enabled field has zero jobs picked." The Maps tab's
+  // own amber zero-job banner (data-maps-zero-job-banner) only paints once the
+  // OFFENDING node is selected; this mirrors renderMapsBanner's own
+  // always-visible, walk-the-whole-tree idiom so the operator can discover +
+  // jump to the fix BEFORE clicking Activate, instead of only learning about
+  // it from a bare 409 at the Quote's activation preflight (content-schema.ts
+  // maps_no_job is a save-time WARNING but an activation-preflight ERROR —
+  // §9.3 / the activation PUT's 409 rule).
+  const mapsJobRiskBanner = `<p class="studio-maps-banner studio-maps-job-risk-banner" data-studio-maps-job-risk-banner hidden role="status" aria-live="polite">A Maps-enabled field has no job selected (Validate / Auction / Autocomplete) &#8212; it will BLOCK activation until fixed. <button type="button" class="studio-link-btn" data-maps-job-risk-jump>Fix it &#8594;</button></p>`;
   // v3.1 audit-round G FIX 1a: the whole Studio page is wrapped in .studio-root
   // so the chrome's `var(--c-primary)` resolves to the golden's brand NAVY (§3),
   // scope-overriding the admin SHELL's generic #2563eb (layout.ts) WITHOUT
@@ -3384,6 +3419,7 @@ export function renderSectionStudio(
   return `<div class="studio-root">${renderStudioTopBar(view, summary, statusPillHtml, initialIssueCount(view.content))}
 ${renderStudioSettings(view, mapsKeyConfigured)}
 ${mapsBanner}
+${mapsJobRiskBanner}
 <div class="lg-editor-grid studio-grid">
   <div class="card studio-cell-library">${renderStudioLibrary(design, view.content)}</div>
   <div class="card studio-cell-canvas">${renderStudioCanvas(view.content, design, { headline_text: view.headline_text, subheadline_text: view.subheadline_text })}</div>
@@ -4176,6 +4212,7 @@ export const SECTION_STUDIO_SCRIPT = `
     clearRefusal();
     renderIssues();
     renderMapsBanner();
+    renderMapsJobRiskBanner();
     renderBoundChips();
     updatePaletteBindItems();
     renderBindBanner();
@@ -5886,11 +5923,15 @@ export const SECTION_STUDIO_SCRIPT = `
   // internal_field input is already DISABLED for containers, this catches
   // legacy/pasted/imported content that control never wrote),
   // bind_type_mismatch/duplicate_bind (the Advanced raw-JSON surface can
-  // hand-author an invalid one), and invalid_choice basics (label/value/
-  // analytics_id). Still server-authoritative-only (NOT mirrored client-side):
-  // answer_type_mismatch, non_curated_override_key/arbitrary_css_override/
-  // invalid_override_value, choice_display_invalid, invalid_field_prop,
-  // invalid_maps_prop, invalid_size_override, children_not_allowed,
+  // hand-author an invalid one), invalid_choice basics (label/value/
+  // analytics_id/icon/imageMediaId — P5 S5c ADJ-A5 added the per-type
+  // choice_icon/choice_image requirement, studioTypeMeta's own "required"
+  // projection, closing the "No issues chip vs server-only icon rule -> 400"
+  // gap), and (ADJ-A7) the §6.5 authored "Other" values' own label/value/
+  // analytics_id/uniqueness/cap. Still server-authoritative-only (NOT
+  // mirrored client-side): answer_type_mismatch, non_curated_override_key/
+  // arbitrary_css_override/invalid_override_value, choice_display_invalid,
+  // invalid_field_prop, invalid_maps_prop, invalid_size_override, children_not_allowed,
   // container_prop_invalid, bound_node_carries_text, content_not_object/
   // components_not_array/node_not_object (shapes the island's own model can't
   // produce), and the 3 non-blocking WARNING codes (frame_scope_component,
@@ -5984,8 +6025,13 @@ export const SECTION_STUDIO_SCRIPT = `
         issues.push({ qid: node.question_id, message: label + ' needs at least one choice' });
       }
       // invalid_choice basics mirror (label / value / analytics_id — the
-      // fields REQUIRED unconditionally per content-schema.ts; the per-type
-      // icon/imageMediaId variants stay server-only).
+      // fields REQUIRED unconditionally per content-schema.ts). P5 S5c
+      // (ADJ-A5): the per-type icon/imageMediaId requirement (content-
+      // schema.ts §14.4, req.choice_icon/choice_image — already projected
+      // into studioTypeMeta's "required" blob) is now ALSO mirrored here, so
+      // an IconCardAnswerGrid/ImageCardAnswerGrid choice missing its
+      // icon/image is a VISIBLE studio issue instead of a save-time 400 the
+      // "No issues" chip gave no warning about.
       if (node.choices && node.choices.length > 0) {
         var ci, choice, vt;
         for (ci = 0; ci < node.choices.length; ci++) {
@@ -5995,6 +6041,34 @@ export const SECTION_STUDIO_SCRIPT = `
           vt = typeof choice.value;
           if (vt !== 'string' && vt !== 'number' && vt !== 'boolean') { issues.push({ qid: node.question_id, message: label + ' has a choice with an invalid value' }); }
           if (trimStr(choice.analytics_id) === '') { issues.push({ qid: node.question_id, message: label + ' has a choice missing its analytics id' }); }
+          if (req.choice_icon === true && trimStr(choice.icon) === '') { issues.push({ qid: node.question_id, message: label + ' has a choice missing its icon' }); }
+          if (req.choice_image === true && trimStr(choice.imageMediaId) === '') { issues.push({ qid: node.question_id, message: label + ' has a choice missing its image' }); }
+        }
+      }
+      // P5 S5c (ADJ-A7): §6.5 authored "Other" values mirror — label/value/
+      // analytics_id required per value, unique vs the base choices, capped
+      // at 50 (content-schema.ts validateOtherEditor) — so a row an operator
+      // leaves without a label is VISIBLE here pre-save, never only
+      // discovered as a bare 400 (or, worse, believed "saved fine" off a
+      // chip that never looked at props.other at all).
+      if (node.props && node.props.other && node.props.other.enabled === true && node.props.other.choices && node.props.other.choices.length > 0) {
+        var otherBaseValues = {}, obi;
+        if (node.choices) {
+          for (obi = 0; obi < node.choices.length; obi++) {
+            var obc = node.choices[obi];
+            if (obc && (typeof obc.value === 'string' || typeof obc.value === 'number' || typeof obc.value === 'boolean')) { otherBaseValues[String(obc.value)] = true; }
+          }
+        }
+        var otherChoices = node.props.other.choices, oi, oc, ovt;
+        if (otherChoices.length > 50) { issues.push({ qid: node.question_id, message: label + ' has more than 50 "Other" values (max 50)' }); }
+        for (oi = 0; oi < otherChoices.length; oi++) {
+          oc = otherChoices[oi];
+          if (!oc || typeof oc !== 'object') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value that is not valid' }); continue; }
+          if (trimStr(oc.label) === '') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value missing its label' }); }
+          ovt = typeof oc.value;
+          if (ovt !== 'string' && ovt !== 'number' && ovt !== 'boolean') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value with an invalid value' }); }
+          else if (otherBaseValues[String(oc.value)]) { issues.push({ qid: node.question_id, message: label + ' has an "Other" value that duplicates a base choice' }); }
+          if (trimStr(oc.analytics_id) === '') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value missing its analytics id' }); }
         }
       }
       var i, k, props = node.props || {};
@@ -6058,6 +6132,38 @@ export const SECTION_STUDIO_SCRIPT = `
       if (nodeMapsEnabled(n)) { enabled = true; }
     });
     el.hidden = !enabled;
+  }
+
+  // P5 S5c — the REAL (browser key) configured state, read off the SAME data
+  // attribute renderMapsBanner already consumes (server-computed via
+  // resolveBrowserMapsKey, ui-sections.ts) so the island never needs a second
+  // bootstrap blob for it. Used to gate the Address field-set editor's
+  // per-field "Autofill" Mode option honestly (ADJ-A9/Maps honesty): the
+  // per-node "Validate with Google Maps" toggle alone does NOT mean autofill
+  // will actually run — that also needs a real key.
+  function mapsKeyIsConfigured() {
+    var el = document.querySelector('[data-studio-maps-banner]');
+    return !!el && el.getAttribute('data-maps-key-configured') === 'true';
+  }
+
+  // ADJ-A9 — discoverability for the activation-preflight "pick a job" 409.
+  // §9.3 (content-schema.ts): maps.enabled with zero jobs picked is only a
+  // save-time WARNING (the Maps tab's own data-maps-zero-job-banner covers
+  // that, but ONLY while the offending node happens to be selected) — the
+  // SAME condition is a BLOCKING error at the Quote's activation preflight.
+  // This walks the whole tree (like renderMapsBanner) so the risk is visible
+  // from the top of the Studio regardless of selection, with a "Fix it" jump
+  // to the first offending field — before the operator ever reaches Activate.
+  function renderMapsJobRiskBanner() {
+    var el = document.querySelector('[data-studio-maps-job-risk-banner]');
+    if (!el) { return; }
+    var offendingQid = null;
+    walkTree(state.content.components, 1, function (n) {
+      if (offendingQid !== null) { return; }
+      if (mapsConfigEnabledOf(n) && !mapsAnyJobOn(mapsJobsOf(n))) { offendingQid = n.question_id || ''; }
+    });
+    el.hidden = offendingQid === null;
+    el.setAttribute('data-maps-job-risk-qid', offendingQid || '');
   }
 
   // --- §5.2 bind UI: hidden chips, palette disabling, the legacy link banner ---
@@ -6174,6 +6280,7 @@ export const SECTION_STUDIO_SCRIPT = `
     clearRefusal();
     renderIssues();
     renderMapsBanner();
+    renderMapsJobRiskBanner();
     renderBoundChips();
     updatePaletteBindItems();
     renderBindBanner();
@@ -12071,8 +12178,15 @@ export const SECTION_STUDIO_SCRIPT = `
     modeSel.className = 'form-input';
     modeSel.setAttribute('data-address-field-mode', '');
     var manualOpt = document.createElement('option'); manualOpt.value = 'manual'; manualOpt.textContent = 'Manual'; modeSel.appendChild(manualOpt);
-    if (mapsOn) { var autoOpt = document.createElement('option'); autoOpt.value = 'autofill'; autoOpt.textContent = 'Autofill'; modeSel.appendChild(autoOpt); }
-    modeSel.value = (fieldSpec.mode === 'autofill' && mapsOn) ? 'autofill' : 'manual';
+    // P5 S5c (Maps honesty): "Autofill" needs BOTH this node's Maps toggle on
+    // (mapsOn) AND a REAL browser key — offering it with no key would allow
+    // the operator to author a mode that can never actually run (the field
+    // just silently behaves as Manual at runtime with no clue why). Keyless
+    // degrades the Mode select to Manual-only; populateAddressFieldSet's
+    // data-address-maps-note says so in plain words right above this table.
+    var autofillAllowed = mapsOn && mapsKeyIsConfigured();
+    if (autofillAllowed) { var autoOpt = document.createElement('option'); autoOpt.value = 'autofill'; autoOpt.textContent = 'Autofill'; modeSel.appendChild(autoOpt); }
+    modeSel.value = (fieldSpec.mode === 'autofill' && autofillAllowed) ? 'autofill' : 'manual';
     modeSel.addEventListener('change', collectAddressFields);
     modeCell.appendChild(modeSel);
     wrap.appendChild(modeCell);
@@ -12182,6 +12296,21 @@ export const SECTION_STUDIO_SCRIPT = `
     renderAddressAddMenu(node);
     var menu = document.querySelector('[data-address-add-menu]');
     if (menu) { menu.hidden = true; }
+    // P5 S5c (Maps honesty): state the keyless degrade PLAINLY instead of a
+    // static disclaimer that reads the same whether the field set above is
+    // silently locked to Manual or not. Three real states, in plain words.
+    var addrMapsOn = addressMapsEnabled(node);
+    var addrKeyOk = mapsKeyIsConfigured();
+    var mapsNote = document.querySelector('[data-address-maps-note]');
+    if (mapsNote) {
+      if (!addrKeyOk) {
+        mapsNote.textContent = 'No Google-Maps key is configured — Autofill mode is unavailable right now, so every field here stays Manual. Add a key to enable it (the field set above still works either way).';
+      } else if (!addrMapsOn) {
+        mapsNote.textContent = 'Autofill needs Google Maps — turn it on in the Maps tab to offer it for these fields.';
+      } else {
+        mapsNote.textContent = 'Google Maps is on for this field — pick which field(s) below use Autofill mode.';
+      }
+    }
   }
   function collectAddressFields() {
     var node = selectedNode();
@@ -13811,6 +13940,19 @@ export const SECTION_STUDIO_SCRIPT = `
   var mf;
   for (mf = 0; mf < mapsFillEls.length; mf++) {
     mapsFillEls[mf].addEventListener('change', function () { collectMapsFill(this); });
+  }
+  // ADJ-A9: the tree-wide "job risk" banner's "Fix it" jump — reads the CURRENT
+  // offending qid off the banner's own data attribute at click time (same
+  // "read fresh, never a stale closure" idiom as issueFocusHandler/
+  // saveProblemFocusHandler above), then selects that component so the
+  // operator lands right on the Maps tab's own zero-job banner + job checkboxes.
+  var mapsJobRiskBtn = document.querySelector('[data-maps-job-risk-jump]');
+  if (mapsJobRiskBtn) {
+    mapsJobRiskBtn.addEventListener('click', function () {
+      var banner = document.querySelector('[data-studio-maps-job-risk-banner]');
+      var qid = banner ? banner.getAttribute('data-maps-job-risk-qid') : '';
+      if (qid) { selectComponent(qid); }
+    });
   }
 
   // §8.5 Style tab: Width/Height presets, Reset, Corners, Border color.
@@ -16468,6 +16610,7 @@ export const SECTION_STUDIO_SCRIPT = `
   updatePendingUi();
   renderIssues();
   renderMapsBanner();
+  renderMapsJobRiskBanner();
   renderBoundChips();
   updatePaletteBindItems();
   renderBindBanner();

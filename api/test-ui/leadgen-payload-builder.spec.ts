@@ -229,10 +229,13 @@ test.describe.serial("LeadGen fix-P2 — payload builder (G5, 06 §6.13/§6.14)"
     // mapping (visual toggle, §6.5).
     await page.locator('#lg-pb-editor [data-pb-field="free_text"]').click();
     await expect(page.locator("#lg-pb-editor [data-pb-valuemap-open]")).toBeVisible();
-    // §6.4 Other grouping controls (before opening the editor so the modal's
-    // derived Other column renders).
-    await page.locator('#lg-pb-editor [data-pb-field="otherGroupEnabled"]').click();
-    await page.locator('#lg-pb-editor [data-pb-field="searchableOther"]').click();
+    // P5 S5c — Issue #10 remnant REMOVED: the otherGroupEnabled/searchableOther
+    // "Group extra choices under Other" controls that used to be clicked here
+    // are gone (retired choiceDisplay mechanism, zero live runtime effect —
+    // see the removal note in ui-payload-builder.ts). "Main choice?" below is
+    // the SEPARATE, still-live mechanism this journey continues to exercise.
+    await expect(page.locator('#lg-pb-editor [data-pb-field="otherGroupEnabled"]')).toHaveCount(0);
+    await expect(page.locator('#lg-pb-editor [data-pb-field="searchableOther"]')).toHaveCount(0);
 
     await page.locator("#lg-pb-editor [data-pb-valuemap-open]").click();
     const vmModal = page.locator("#lg-pb-valuemap-modal");
@@ -262,17 +265,22 @@ test.describe.serial("LeadGen fix-P2 — payload builder (G5, 06 §6.13/§6.14)"
 
     // Third main via the row action (row 0 = aaa_ins).
     await vmModal.locator('tr[data-vm-row="0"] [data-vm-row-act="main"]').click();
-    // §6.4 count chips + derived Other column (col 5; col 4 is the Main
-    // checkbox): non-main rows read "Other", main rows read "".
+    // §6.4 count chips (unconditional "X main · Y in Other" format, unaffected
+    // by the retired otherGroupEnabled toggle) + derived Other column (col 5;
+    // col 4 is the Main checkbox) — with otherGroupEnabled now unauthorable
+    // (Issue #10 remnant removed), the derived column always reads the
+    // em-dash placeholder, main or not.
     await expect(vmModal.locator("[data-vm-count-chips]")).toHaveText("3 main · 9 in Other");
-    await expect(vmModal.locator('tr[data-vm-row="1"] td').nth(5)).toHaveText("Other");
-    await expect(vmModal.locator('tr[data-vm-row="0"] td').nth(5)).toHaveText("");
+    await expect(vmModal.locator('tr[data-vm-row="1"] td').nth(5)).toHaveText("—");
+    await expect(vmModal.locator('tr[data-vm-row="0"] td').nth(5)).toHaveText("—");
     await page.screenshot({ path: `${SHOT_DIR}/01-value-map-modal.png` });
 
     await vmModal.locator("[data-vm-apply]").click();
     await expect(vmModal).toBeHidden();
+    // the editor panel's OWN chip DOES branch on otherGroupEnabled — with no
+    // way left to author it true, this is the "else mains>0" wording now.
     await expect(page.locator("#lg-pb-editor [data-pb-choice-chips]")).toHaveText(
-      "3 main · 9 in Other",
+      "3 main · 12 values",
     );
 
     // §6.10 condition — field + operator + value through dropdowns, live
@@ -418,8 +426,11 @@ test.describe.serial("LeadGen fix-P2 — payload builder (G5, 06 §6.13/§6.14)"
     expect((carrier.choiceDisplay?.mainValues ?? []).sort()).toEqual(
       ["aaa_ins", "geico", "progressive"].sort(),
     );
-    expect(carrier.choiceDisplay?.otherGroupEnabled).toBe(true);
-    expect(carrier.choiceDisplay?.searchableOther).toBe(true);
+    // P5 S5c — Issue #10 remnant REMOVED: otherGroupEnabled/searchableOther
+    // are no longer authorable (retired choiceDisplay mechanism), so a fresh
+    // journey through this UI never sets them.
+    expect(carrier.choiceDisplay?.otherGroupEnabled).toBeUndefined();
+    expect(carrier.choiceDisplay?.searchableOther).toBeUndefined();
     expect(carrier.conditional).toEqual({ when: "state", op: "in", values: ["CA", "TX"] });
 
     // Date mode — the existing formatDate transform, no transform JSON typed.
