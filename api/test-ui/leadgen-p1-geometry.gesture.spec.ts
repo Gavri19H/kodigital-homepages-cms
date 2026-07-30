@@ -53,6 +53,11 @@
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { defaultFunnelDesign as D } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { seedActiveSite } from "./listicles-p6-seed";
+// P6 terminal: the three live /lg legs below hardcoded :8899, so they
+// ERR_CONNECTION_REFUSED under any other PW_PORT even with a healthy server.
+// The header documents 8899 only as the CONVENTION; honour the env like every
+// other live-funnel spec in the suite.
+import { PW_PORT } from "./utils/base-url";
 
 const LG_API = "/api/admin/leadgen";
 const uniq = Date.now();
@@ -466,7 +471,7 @@ test.describe("P1a geometry gate — live /lg funnel (§12 parity)", () => {
 
     // ---- desktop /lg render ----
     await page.setViewportSize({ width: 1280, height: 1400 });
-    await page.goto(`http://${host}:8899/lg/p1geo`, { waitUntil: "load" });
+    await page.goto(`http://${host}:${PW_PORT}/lg/p1geo`, { waitUntil: "load" });
     await passSharedPage(page);
     await expect(page.locator('[data-question-id="q_btn"]').first()).toBeVisible({ timeout: 15_000 });
     const live = await page.evaluate(() => {
@@ -609,7 +614,7 @@ test.describe("P1a geometry gate — CardPanel nesting (MINOR-1, adversarial rev
     await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p1geo-panel" } }), "activation (panel)");
 
     await page.setViewportSize({ width: 1280, height: 1400 });
-    await page.goto(`http://${host}:8899/lg/p1geo-panel`, { waitUntil: "load" });
+    await page.goto(`http://${host}:${PW_PORT}/lg/p1geo-panel`, { waitUntil: "load" });
     await passSharedPage(page);
     await expect(page.locator('[data-question-id="q_panel_yn"]').first()).toBeVisible({ timeout: 15_000 });
     const measured = await page.evaluate(() => {
@@ -684,7 +689,7 @@ test.describe("P1a geometry gate — F2 mobile partial-row card collapse (advers
     await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p1geo-f2" } }), "activation (f2)");
 
     await page.setViewportSize({ width: 375, height: 1400 });
-    await page.goto(`http://${host}:8899/lg/p1geo-f2`, { waitUntil: "load" });
+    await page.goto(`http://${host}:${PW_PORT}/lg/p1geo-f2`, { waitUntil: "load" });
     await passSharedPage(page);
     await expect(page.locator('[data-question-id="q_cards_f2"]').first()).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(200);

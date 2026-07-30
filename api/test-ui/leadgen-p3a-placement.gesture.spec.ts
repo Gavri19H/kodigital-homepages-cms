@@ -23,6 +23,7 @@
 import { test, expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { defaultFunnelDesign as D } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { seedActiveSite } from "./listicles-p6-seed";
+import { seedSharedFirstPage, createPassThroughSection } from "./leadgen-shared-page-seed";
 import { realDragFromLocator } from "./utils/real-input";
 import { assertOverlayAligned } from "./utils/effect-assert";
 
@@ -225,7 +226,12 @@ test.describe("P3a structured placement — live /lg funnel (§12 parity + mobil
       "quote create",
     );
     const variantId = quote.funnels[0]!.variants[0]!.public_id;
-    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: s.id }] } }), "variant sections");
+    // Rework §4.3-1: the quote's shared first page is mandatory for activation and
+    // resolver.ts composes [...sharedPages, ...variantPages] — the section under test IS
+    // page 1, so it moves onto the shared page. Composed order (and therefore every
+    // geometry/index assertion below) is unchanged.
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: await createPassThroughSection(request, "P3a live") }] } }), "variant sections");
+    await seedSharedFirstPage(request, quote.public_id, [s.id]);
     await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p3a" } }), "activation");
 
     // Desktop (default 1280 viewport → the 600px content column): SAME geometry
@@ -630,7 +636,12 @@ test.describe("P3b drag-formed row -> live /lg parity (chromium; firefox-skip)",
       "quote create",
     );
     const variantId = quote.funnels[0]!.variants[0]!.public_id;
-    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: s.id }] } }), "variant sections");
+    // Rework §4.3-1: the quote's shared first page is mandatory for activation and
+    // resolver.ts composes [...sharedPages, ...variantPages] — the section under test IS
+    // page 1, so it moves onto the shared page. Composed order (and therefore every
+    // geometry/index assertion below) is unchanged.
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: await createPassThroughSection(request, "P3b live") }] } }), "variant sections");
+    await seedSharedFirstPage(request, quote.public_id, [s.id]);
     await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p3b" } }), "activation");
 
     await page.goto(`http://${host}:${PORT}/lg/p3b`, { waitUntil: "load" });
@@ -704,7 +715,12 @@ test.describe("P3b drag-formed row -> live /lg parity (chromium; firefox-skip)",
       "quote create",
     );
     const variantId = quote.funnels[0]!.variants[0]!.public_id;
-    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: s.id }] } }), "variant sections");
+    // Rework §4.3-1: the quote's shared first page is mandatory for activation and
+    // resolver.ts composes [...sharedPages, ...variantPages] — the section under test IS
+    // page 1, so it moves onto the shared page. Composed order (and therefore every
+    // geometry/index assertion below) is unchanged.
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: await createPassThroughSection(request, "P3b join3") }] } }), "variant sections");
+    await seedSharedFirstPage(request, quote.public_id, [s.id]);
     await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p3b-join3" } }), "activation");
 
     await page.goto(`http://${host}:${PORT}/lg/p3b-join3`, { waitUntil: "load" });

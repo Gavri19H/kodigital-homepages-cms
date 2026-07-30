@@ -9,6 +9,7 @@
 
 import { type APIRequestContext } from "@playwright/test";
 import { seedActiveSite } from "./listicles-p6-seed";
+import { seedSharedFirstPage, createPassThroughSection } from "./leadgen-shared-page-seed";
 
 const LG_API = "/api/admin/leadgen";
 
@@ -80,10 +81,19 @@ export async function seedActivatedFunnel(
     "section create",
   );
 
+  // Rework §4.3-1: the shared first page is mandatory for activation and resolver.ts
+  // composes [...sharedPages, ...variantPages]. The P14 section IS page 1, so it moves
+  // onto the shared page; the variant keeps a trailing pass-through page so the funnel
+  // still satisfies "every active funnel needs at least one page with a section". The
+  // pass-through carries NO question and no address component, so the §28 runtime-JS
+  // budget and the §27 gtag assertions (both page-1 measurements) are unaffected.
   await json(
-    await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: section.id }] } }),
+    await request.put(`${LG_API}/variants/${variantId}`, {
+      data: { sections: [{ section_id: await createPassThroughSection(request, `P14 ${uniq}`) }] },
+    }),
     "variant sections",
   );
+  await seedSharedFirstPage(request, quote.public_id, [section.id]);
 
   const ga4MeasurementId = opts.ga4MeasurementId ?? null;
   const activationData: Record<string, unknown> = { enabled: true, slug: opts.slug };

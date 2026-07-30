@@ -29,6 +29,7 @@
 import { test, expect, request as playwrightRequest, type APIRequestContext } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { seedActiveSite } from "./listicles-p6-seed";
+import { seedSharedFirstPage, createPassThroughSection } from "./leadgen-shared-page-seed";
 import { PW_PORT } from "./utils/base-url";
 
 test.use({
@@ -90,10 +91,17 @@ async function seedActivatedFunnel(request: APIRequestContext): Promise<SeededFu
     "section create",
   );
 
+  // Rework §4.3-1: the shared first page is mandatory for activation and resolver.ts
+  // composes [...sharedPages, ...variantPages]. The P7 section IS page 1, so it moves
+  // onto the shared page; the variant keeps a trailing pass-through page so the funnel
+  // still satisfies "every active funnel needs at least one page with a section".
   await json(
-    await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: section.id }] } }),
+    await request.put(`${LG_API}/variants/${variantId}`, {
+      data: { sections: [{ section_id: await createPassThroughSection(request, "P7") }] },
+    }),
     "variant sections",
   );
+  await seedSharedFirstPage(request, quote.public_id, [section.id]);
   await json(
     await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, {
       data: { enabled: true, slug: "p7" },

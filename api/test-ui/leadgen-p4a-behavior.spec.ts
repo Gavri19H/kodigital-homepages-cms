@@ -19,6 +19,7 @@ import { test, expect, request as playwrightRequest, type APIRequestContext } fr
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { seedActiveSite } from "./listicles-p6-seed";
+import { seedSharedFirstPage, createPassThroughSection } from "./leadgen-shared-page-seed";
 import { PW_PORT } from "./utils/base-url";
 
 test.use({ launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] } });
@@ -66,7 +67,17 @@ async function seedFunnel(request: APIRequestContext, tag: string, sections: Arr
     sectionPubs[s.key] = created.public_id;
     attach.push({ section_id: created.id });
   }
-  await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: attach } }), "variant sections");
+  // Rework §4.3-1: the quote's shared first page is mandatory for activation, and
+  // resolver.ts composes [...sharedPages, ...variantPages] — so this fixture's FIRST
+  // section becomes the shared page and the rest stay on the variant. Composed order,
+  // section_index and [data-lg-index="N"] are unchanged. A single-section fixture keeps
+  // the variant non-empty (the gate's second half) with a trailing pass-through page,
+  // which leaves page 1 — the page these drives assert on — untouched.
+  const [firstAttach, ...restAttach] = attach;
+  const variantSections =
+    restAttach.length > 0 ? restAttach : [{ section_id: await createPassThroughSection(request, `P4a ${tag}`) }];
+  await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: variantSections } }), "variant sections");
+  await seedSharedFirstPage(request, quote.public_id, [firstAttach!.section_id]);
   await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: tag } }), "activation");
   return { host, slug: tag, variantId, sectionIds, sectionPubs };
 }

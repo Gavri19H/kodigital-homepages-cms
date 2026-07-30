@@ -28,6 +28,7 @@
 
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { renderHeaderCta } from "../src/public/leadgen/designs/frame";
+import { seedSharedFirstPage } from "./leadgen-shared-page-seed";
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -422,8 +423,13 @@ test.describe("P1d fix-round — sections Usage panel shows the rules leg (usage
     // funnel rule's target_section_id" seed via HTTP: attach a rule
     // targeting the section WITHOUT ever placing it in the variant's own
     // `sections` order — the two references are independent.
+    // Rework M3/D5 §5-M3 (migration 0048) retired skip_section/show_section from
+    // FUNNEL_RULE_TYPES — routing moved to leadgen_quote_routing_rules — so the old
+    // rule_type 400s at the save gate. `disqualification` is one of the four surviving
+    // types and carries the SAME target_section_id reference this test is about (the
+    // section is referenced ONLY by a rule, never placed in the variant's order).
     const ruleRes = await page.request.put(`${LG_API}/variants/${variantPublicId}`, {
-      data: { rules: [{ rule_type: "skip_section", target_section_id: section.id }] },
+      data: { rules: [{ rule_type: "disqualification", target_section_id: section.id }] },
     });
     expect(ruleRes.ok(), `rule attach HTTP ${ruleRes.status()}`).toBeTruthy();
 
@@ -446,7 +452,10 @@ test.describe("P1d fix-round — sections Usage panel shows the rules leg (usage
     // handlers.ts) embeds the owning Quote's name — proves the panel is
     // rendering the REAL row.name text, not just a bare count.
     await expect(panel).toContainText(`P1d rule-usage quote ${uniq}`);
-    await expect(panel).not.toContainText("Not used by any funnel variant or rule.");
+    // The rework added the shared page to this sentence — sections-handlers renders
+    // "Not used by any funnel variant, shared page, or rule." Asserting the RETIRED
+    // wording here would pass vacuously, so pin the live one.
+    await expect(panel).not.toContainText("Not used by any funnel variant, shared page, or rule.");
   });
 });
 
@@ -458,8 +467,23 @@ test.describe("P1d AC-3 — guarded quote Delete surfaces the plain-language 409
   test("deleting a quote with a live site activation shows the server's message verbatim, not a raw error", async ({
     page,
   }) => {
-    const quote = await createQuote(page.request, `P1d guarded ${uniq}`);
+    const quote = await createQuoteWithVariant(page.request, `P1d guarded ${uniq}`);
     const site = await createSite(page.request, `P1d Guard Site ${uniq}`);
+    // Rework §4.3-1/§4.3-15: activation now hard-blocks (409 quote_activation_blocked,
+    // activation.shared_page) unless the quote's shared first page carries >=1 section
+    // AND every active funnel has a page with a section. This test is about the DELETE
+    // guard, so give the fixture the minimum ruled-legal shape to reach an activation.
+    const sharedSec = await createSection(page.request, `P1d guarded shared ${uniq}`);
+    const variantSec = await createSection(page.request, `P1d guarded variant ${uniq}`);
+    const guardVariantId = quote.funnels?.[0]?.variants?.[0]?.public_id;
+    expect(guardVariantId, "quote create seeded a control variant").toBeTruthy();
+    await json(
+      await page.request.put(`${LG_API}/variants/${guardVariantId}`, {
+        data: { sections: [{ section_id: variantSec.id }] },
+      }),
+      "p1d guarded variant sections",
+    );
+    await seedSharedFirstPage(page.request, quote.public_id, [sharedSec.id]);
     const activation = await page.request.put(`${LG_API}/quotes/${quote.public_id}/activation/${site.id}`, {
       data: { slug: `p1d-guarded-${uniq}` },
     });

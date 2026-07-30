@@ -131,7 +131,15 @@ test.describe('LeadGen Section Studio R4b — Maps-tab authoring (S3-6 degradati
     const stateSelect = page.locator('select[data-maps-fill-slot="state"]');
     const streetSelect = page.locator('select[data-maps-fill-slot="street"]');
     const cityOptionValues = await citySelect.locator('option').evaluateAll((opts) => opts.map((o) => (o as HTMLOptionElement).value));
-    expect(cityOptionValues, 'city slot offers city/state, not zip (self)').toEqual(['', 'city', 'state']);
+    // Round-4 A-6 (P1a deliverable 9c) added a fourth option: while a slot is UNSET the
+    // picker injects a one-click `Create "{base}_{slot}"` default-field entry whose
+    // value is the node-namespaced field name (ui-section-studio.ts). The unset city
+    // slot therefore reads ['', 'zip_city', 'city', 'state']. Pinned in full — stricter
+    // than the old 3-option expectation, since it also pins that option's exact value —
+    // and the original claim is re-stated explicitly below: the node's OWN field is
+    // never offered as a fill target for itself.
+    expect(cityOptionValues, 'city slot offers create-default + city/state').toEqual(['', 'zip_city', 'city', 'state']);
+    expect(cityOptionValues, 'the ZIP node never offers zip (self) as a fill target').not.toContain('zip');
 
     // Pick targets: the "City" slot fills the section's `city` field, the
     // "State" slot fills `state`. Leave "street"/"zip" as "Don't fill".

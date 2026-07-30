@@ -236,8 +236,51 @@ async function ensureThemesFixture(request: APIRequestContext): Promise<{
   }
 
   if (variantBId === undefined) {
-    variantBId = (await json<FunnelVariantApi>(await request.post(`${LG_API}/funnels/${autoFunnelId}/variants`, { data: {} }), 'create variant B'))
-      .public_id;
+    // Rework M1 (§4.3-10, quotes-handlers.ts SINGLE_ACTIVE_VARIANT_MESSAGE): "with no
+    // running test a funnel has exactly one active variant. A second active variant is
+    // only allowed as an arm of a running A/B test." A bare
+    // POST /funnels/:id/variants therefore 409s now and cascaded this whole file.
+    // Take the ruled path createAbTest's own allocation_note spells out: create the
+    // experiment, START it (the lone control is already at Σ=10000), then FORK the
+    // running variant to bootstrap the 2nd equal arm. This fixture's A/B badges and
+    // 60/40 split are now backed by a REAL running test, which is strictly closer to
+    // what the themes UI renders than the old rule-breaking bare create was.
+    const abTest = await json<{ public_id: string; status: string }>(
+      await request.post(`${LG_API}/funnels/${autoFunnelId}/experiments`, { data: { name: `${AUTO_FUNNEL_NAME} A/B` } }),
+      'create A/B test (variant B bootstrap)',
+    );
+    const started = await json<{ status: string }>(
+      await request.post(`${LG_API}/experiments/${abTest.public_id}/start`, { data: {} }),
+      'start A/B test (variant B bootstrap)',
+    );
+    if (started.status !== 'running') throw new Error(`A/B test did not start: ${started.status}`);
+    variantBId = (
+      await json<FunnelVariantApi>(await request.post(`${LG_API}/variants/${variantAId}/fork`, { data: {} }), 'fork variant B')
+    ).public_id;
+  }
+
+  // §16.2 line 35 ("changing allocations bumps the revision and cleanly re-buckets")
+  // makes putVariantHandler REFUSE a traffic_allocation_bp change while a test RUNS —
+  // the ruled rebalance path is stop -> edit -> start. This fixture (and the
+  // "re-point the split away from 60/40" test below) only needs the two arms to
+  // EXIST so the themes UI renders its A/B badges and percentages; it never asserts
+  // running-test semantics. Converge the funnel to "2 active arms, no running test"
+  // on EVERY run — including a run that inherits a still-running test from an earlier
+  // one — which is exactly the free "draft tuning" state quotes-handlers.ts describes.
+  // GET /quotes/:id/structure is the projection that carries funnels[].ab_tests
+  // (quotesStructureHandler); the plain quote detail does not.
+  const abState = await json<{ funnels: Array<{ public_id: string; ab_tests?: Array<{ public_id: string; status: string }> }> }>(
+    await request.get(`${LG_API}/quotes/${quotePublicId}/structure`),
+    'fixture quote structure (A/B test state)',
+  );
+  const runningTest = (abState.funnels.find((f) => f.public_id === autoFunnelId)?.ab_tests ?? []).find(
+    (t) => t.status === 'running',
+  );
+  if (runningTest !== undefined) {
+    await json(
+      await request.post(`${LG_API}/experiments/${runningTest.public_id}/stop`, { data: {} }),
+      'stop the running A/B test (allocation edits are locked while it runs)',
+    );
   }
   if (homeFunnelId === undefined) {
     homeFunnelId = (

@@ -26,6 +26,7 @@
 import { test, expect, request as playwrightRequest, type APIRequestContext, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { seedActiveSite } from "./listicles-p6-seed";
+import { seedSharedFirstPage } from "./leadgen-shared-page-seed";
 import { PW_PORT } from "./utils/base-url";
 
 test.use({ launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] } });
@@ -96,11 +97,15 @@ async function seedP3aFunnel(request: APIRequestContext, tag: string): Promise<S
   const abA = await mkSection("Page2AbA", "f_aba");
   const abB = await mkSection("Page2AbB", "f_abb");
 
+  // Rework §4.3-1: the quote's shared first page is mandatory for activation and
+  // resolver.ts composes [...sharedPages, ...variantPages]. Page 1 (the single fixed
+  // slot) therefore BECOMES the shared page and the variant keeps page 2 — the funnel
+  // is still exactly 2 composed pages, so data-lg-progress-total stays "2" and the
+  // ruled/AB slot is still page 2.
   await json(
     await request.put(`${LG_API}/variants/${variantId}`, {
       data: {
         pages: [
-          { name: "Page 1", slots: [{ kind: "fixed", section_id: fixed }] },
           {
             name: "Page 2",
             slots: [
@@ -117,6 +122,7 @@ async function seedP3aFunnel(request: APIRequestContext, tag: string): Promise<S
     }),
     "variant pages",
   );
+  await seedSharedFirstPage(request, quote.public_id, [fixed], "Page 1");
 
   // Minimal frame so a [data-lg-progress] mount renders (baseFrameDefaults'
   // progress.style:"bar" default) — the frameless legacy shell has none.

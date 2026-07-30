@@ -138,8 +138,18 @@ test.describe("P1c B — studio canvas choice-decoration grid fix (P1a HIGH conc
       const group = doc.querySelector('[data-question-id="q_btn"]');
       const cells = group ? [...group.querySelectorAll(".lg-btn-answer")].map((c) => rect(c)!) : [];
       const xButtons = group ? [...group.querySelectorAll(".studio-choice-x")].map((x) => rect(x)!) : [];
-      const ghosts = group ? [...group.querySelectorAll(".studio-choice-ghost")].map((g) => rect(g)!) : [];
-      return { ok: true as const, cells, xButtons, ghosts };
+      // Rework §6.1 (#1/#3/#9) renamed AND re-parented this affordance: the
+      // "+ Add choice" ghost is no longer a `.studio-choice-ghost` grid cell
+      // INSIDE the component — ui-section-studio.ts now emits a
+      // `.studio-add-ghost-btn[data-choice-ghost=<qid>]` inside a
+      // `.studio-add-ghost-row` SIBLING inserted immediately after the
+      // component root. Query the ruled hook from the document (it is outside
+      // `group` by design) and additionally PIN the sibling-ness the ruling
+      // introduced, so this assertion is strictly stronger than before.
+      const ghostEls = [...doc.querySelectorAll('[data-choice-ghost="q_btn"]')];
+      const ghosts = ghostEls.map((g) => rect(g)!);
+      const ghostInsideComponent = ghostEls.some((g) => group !== null && group.contains(g));
+      return { ok: true as const, cells, xButtons, ghosts, ghostInsideComponent };
     });
     expect(snap.ok, "studio canvas iframe + the answer group must render").toBe(true);
     if (!snap.ok) return;
@@ -164,6 +174,11 @@ test.describe("P1c B — studio canvas choice-decoration grid fix (P1a HIGH conc
     }
     expect(snap.ghosts.length, "the + Add choice ghost tile renders once").toBe(1);
     expect(snap.ghosts[0]!.w, "ghost tile must be visible").toBeGreaterThan(0);
+    expect(snap.ghosts[0]!.h, "ghost tile must be visible (nonzero height)").toBeGreaterThan(0);
+    // Rework §6.1: the ghost is a SIBLING row, never inside the component's
+    // border — that is exactly what keeps the group's geometry identical
+    // with and without it (the live == edit claim this file gates).
+    expect(snap.ghostInsideComponent, "the + Add choice ghost must sit OUTSIDE the component root (§6.1)").toBe(false);
 
     await page.screenshot({ path: "test-artifacts/p1c-canvas-decoration.png" });
   });

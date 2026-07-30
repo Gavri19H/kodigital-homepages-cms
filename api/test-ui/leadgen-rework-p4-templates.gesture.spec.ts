@@ -161,7 +161,11 @@ test.describe("LeadGen Rework P4 — Templates tab (contract §8.3)", () => {
     const themeOptionCount = await themeSelect.locator("option").count();
     if (themeOptionCount > 1) {
       const [req] = await Promise.all([
-        page.waitForRequest((r) => r.url().includes("/preview") && r.request().method() === "POST"),
+        // P6 terminal: a waitForRequest predicate receives a Request, which has NO
+        // .request() — the old form threw "r.request is not a function" before the
+        // predicate could ever match (the sibling builder spec fixed this already).
+        // waitForRESPONSE predicates below are untouched: those DO get a Response.
+        page.waitForRequest((r) => r.url().includes("/preview") && r.method() === "POST"),
         themeSelect.selectOption({ index: 1 }),
       ]);
       expect(req.method()).toBe("POST");
@@ -255,6 +259,7 @@ test.describe("LeadGen Rework P4 — Templates tab (contract §8.3)", () => {
     await expect(page.locator(`[data-tpl-chip="${copyPublicId}"]`)).toHaveCount(0, { timeout: 10_000 });
   });
 
+  const SET_QUOTE_DEFAULT = "Set as this quote’s default"; // U+2019, exactly as templates.ts renders it
   test("set default is a single atomic swap", async ({ page }) => {
     const seed = await seedQuote(apiCtx, "default", true);
     const u = Date.now();
@@ -265,12 +270,16 @@ test.describe("LeadGen Rework P4 — Templates tab (contract §8.3)", () => {
     const chip1 = page.locator(`[data-tpl-chip="${t1.public_id}"]`);
     const chip2 = page.locator(`[data-tpl-chip="${t2.public_id}"]`);
     await expect(chip1).toBeVisible({ timeout: 10_000 });
+    // R2 ruling D5 (contract §7 D5) re-scoped this control to be PER-QUOTE and
+    // renamed it — templates.ts renders `Set as this quote’s default`, so the old
+    // exact substring never matched and the click timed out (stale spec, not a
+    // product defect). Same atomic-swap claim, driven through the ruled control.
     await chip1.locator("[data-tpl-more]").click();
-    await page.locator('.lg-tpl2-tpl-menu button', { hasText: "Set as default" }).click();
+    await page.locator('.lg-tpl2-tpl-menu button', { hasText: SET_QUOTE_DEFAULT }).click();
     await expect(chip1).toHaveClass(/is-default/, { timeout: 10_000 });
 
     await chip2.locator("[data-tpl-more]").click();
-    await page.locator('.lg-tpl2-tpl-menu button', { hasText: "Set as default" }).click();
+    await page.locator('.lg-tpl2-tpl-menu button', { hasText: SET_QUOTE_DEFAULT }).click();
     await expect(chip2).toHaveClass(/is-default/, { timeout: 10_000 });
     // atomic swap: exactly one default remains — chip1 no longer carries it.
     await expect(chip1).not.toHaveClass(/is-default/, { timeout: 10_000 });

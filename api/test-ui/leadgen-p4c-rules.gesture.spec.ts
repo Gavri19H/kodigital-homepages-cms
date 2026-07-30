@@ -50,6 +50,7 @@
 import { test, expect, request as playwrightRequest, type APIRequestContext, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { seedActiveSite } from "./listicles-p6-seed";
+import { seedSharedFirstPage, createPassThroughSection } from "./leadgen-shared-page-seed";
 import { PW_PORT } from "./utils/base-url";
 
 test.use({ launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] } });
@@ -257,7 +258,12 @@ test.describe("PC-12 leg 3 — LIVE: conditional Continue hides until met, shows
       headline_text: "You made it",
       content_json: JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q9", internal_field: "z" }] }),
     });
-    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: section.id }, { section_id: next.id }] } }), "variant sections");
+    // Rework §4.3-1: the quote's shared first page is mandatory for activation and
+    // resolver.ts composes [...sharedPages, ...variantPages] — the section under test IS
+    // page 1, so it moves onto the shared page. Composed order (and therefore every
+    // geometry/index assertion below) is unchanged.
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: next.id }] } }), "variant sections");
+    await seedSharedFirstPage(request, quote.public_id, [section.id]);
     await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: tag } }), "activation");
     return { host, slug: tag };
   }
@@ -367,7 +373,12 @@ test.describe("PC-12 leg 4 — LIVE: a typed-boolean Show-if on a TwoButtonYesNo
         ],
       }),
     });
-    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: section.id }] } }), "variant sections");
+    // Rework §4.3-1: the quote's shared first page is mandatory for activation and
+    // resolver.ts composes [...sharedPages, ...variantPages] — the section under test IS
+    // page 1, so it moves onto the shared page. Composed order (and therefore every
+    // geometry/index assertion below) is unchanged.
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: await createPassThroughSection(request, `PC12 ${tag}`) }] } }), "variant sections");
+    await seedSharedFirstPage(request, quote.public_id, [section.id]);
     await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: tag } }), "activation");
     return { host, slug: tag };
   }
