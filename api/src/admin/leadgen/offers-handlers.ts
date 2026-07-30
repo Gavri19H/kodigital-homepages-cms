@@ -2159,13 +2159,49 @@ export async function listPayloadSchemasHandler(c: AdminContext): Promise<Respon
 // new version becomes the active schema). The stored schema_json's `version`
 // field is REWRITTEN to the allocated per-offer sequence so the two counters
 // can never drift.
+//
+// R2 P5 F10 (defect 1) — `carrierParseJson` is TRI-STATE:
+//   undefined → CARRY FORWARD the offer's currently-ACTIVE version's parse
+//               pair (carrier_parse_json + carrier_parse_version) — the SAME
+//               pair the §7.3 clone path preserves. Saving a SCHEMA must not
+//               silently destroy the RESPONSE-PARSING configuration: the
+//               operator changed a schema, not their parser. Before this fix
+//               every schema-only save (the "Save schema version" button, which
+//               POSTs `{schema_json}` with no parse key, and the §11.2
+//               from-example generator) wrote NULL into the new ACTIVE version,
+//               so validation.ts pushed `carrier_parse_missing` and activation
+//               409'd with "Response parsing (carrier parse) is not configured".
+//   null      → EXPLICIT CLEAR (wire: `"carrier_parse_json": null` — the key
+//               PRESENT and null). The column goes NULL and carrier_parse_version
+//               falls back to the column default (1).
+//   string    → EXPLICIT REPLACE (the serialized config), version default 1 —
+//               byte-identical to the pre-fix behaviour for this branch.
+// A FIRST-EVER schema (no active predecessor) carries nothing and is allowed
+// with no parse config, exactly as before.
 async function createSchemaVersion(
   db: D1Database,
   offer: LeadgenOfferRow,
   rawSchema: Record<string, unknown>,
-  carrierParseJson: string | null,
+  carrierParseJson: string | null | undefined,
   source: LeadgenPayloadSchemaSource,
 ): Promise<LeadgenOfferPayloadSchemaRow | null> {
+  let parseJson: string | null = carrierParseJson === undefined ? null : carrierParseJson;
+  let parseVersion = 1;
+  if (carrierParseJson === undefined) {
+    const activeId = offer.active_payload_schema_id;
+    if (activeId !== null && activeId !== undefined) {
+      const active = await db
+        .prepare(
+          "SELECT carrier_parse_json, carrier_parse_version FROM leadgen_offer_payload_schemas WHERE id = ? LIMIT 1",
+        )
+        .bind(activeId)
+        .first<{ carrier_parse_json: string | null; carrier_parse_version: number | null }>();
+      if (active !== null) {
+        parseJson = active.carrier_parse_json;
+        parseVersion = Number(active.carrier_parse_version ?? 1);
+      }
+    }
+  }
   const nextRow = await db
     .prepare(
       "SELECT COALESCE(MAX(version), 0) + 1 AS v FROM leadgen_offer_payload_schemas WHERE offer_id = ?",
@@ -2179,10 +2215,10 @@ async function createSchemaVersion(
     db
       .prepare(
         `INSERT INTO leadgen_offer_payload_schemas
-           (public_id, offer_id, version, schema_json, carrier_parse_json, source, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           (public_id, offer_id, version, schema_json, carrier_parse_json, carrier_parse_version, source, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .bind(publicId, offer.id, version, schemaText, carrierParseJson, source, null),
+      .bind(publicId, offer.id, version, schemaText, parseJson, parseVersion, source, null),
     db
       .prepare(
         `UPDATE leadgen_offers
@@ -2229,9 +2265,17 @@ export async function createPayloadSchemaHandler(c: AdminContext): Promise<Respo
     );
   }
 
-  let carrierParseJson: string | null = null;
+  // R2 P5 F10 (defect 1) — the wire distinguishes ABSENT from EXPLICIT NULL:
+  //   key absent      → `undefined` → createSchemaVersion CARRIES FORWARD the
+  //                     active version's parse pair (a schema-only save never
+  //                     destroys the operator's response-parsing config);
+  //   `..._json: null` → `null`      → EXPLICIT CLEAR;
+  //   an object        → validated + serialized → EXPLICIT REPLACE.
+  let carrierParseJson: string | null | undefined;
   const rawParse = body["carrier_parse_json"];
-  if (rawParse !== undefined && rawParse !== null) {
+  if (rawParse === null) {
+    carrierParseJson = null;
+  } else if (rawParse !== undefined) {
     // Mirror parseProviderResponse's own config gate (§11.7): an object with
     // a fields map, rejected at SAVE instead of degrading every parse.
     if (!isRecord(rawParse) || !isRecord(rawParse["fields"])) {
@@ -2298,11 +2342,15 @@ export async function createPayloadSchemaFromExampleHandler(c: AdminContext): Pr
     );
   }
 
+  // R2 P5 F10 (defect 1): `undefined`, NOT `null` — this endpoint's wire has no
+  // carrier_parse_json key at all, so it is the "key absent ⇒ carry forward"
+  // case. Generating a schema from a pasted example must not destroy the
+  // offer's response-parsing config any more than the manual save may.
   const created = await createSchemaVersion(
     c.env.DB,
     row,
     schema as unknown as Record<string, unknown>,
-    null,
+    undefined,
     "auto_from_example",
   );
   if (created === null) return c.json({ error: "Insert failed" }, 500);

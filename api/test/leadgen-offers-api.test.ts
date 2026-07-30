@@ -1666,6 +1666,221 @@ describeDb("payload-schemas — §11.8 immutable versioning + active pointer", (
   });
 });
 
+// --- R2 P5 F10 (defect 1): a schema-only save must NOT destroy the parser ---------------------
+//
+// Owner A.1 #7B (verbatim): "the currency is only a graphic feature, I can
+// define that I want the currency will be passed to the offer in the auction
+// and I can define that only the number is sent, and I can define that the
+// number will be sent as string". The operator's path to "define" that is the
+// Offers Payload Builder — and SAVING is part of that path. Before this fix the
+// builder's own "Save schema version" button (which POSTs `{schema_json}` with
+// NO carrier_parse_json key) wrote NULL into the new ACTIVE version, so
+// validation.ts pushed `carrier_parse_missing` and the R5 activation gate 409'd
+// with "Response parsing (carrier parse) is not configured".
+//
+// Wire contract proven here, all through the REAL endpoints:
+//   key ABSENT          → carry forward carrier_parse_json + carrier_parse_version
+//   "carrier_parse_json": null → explicit clear
+//   an object           → explicit replace
+
+const F10_PARSE_CONFIG = {
+  carriers_path: "data.carriers",
+  fields: { carrier_name: "name", bid: "price.amount", click_url: "url" },
+};
+
+// Drive an offer to a state where the ONLY thing standing between it and
+// §5.1 eligibility is the carrier parse: valid active schema + production
+// endpoint + a PASSED provider test (auction_instance_id IS NULL — the
+// LEADGEN_TEST_STATUS_SUBSELECT discipline).
+async function f10ReadyOffer(
+  sdb: SqliteDb,
+  env: Env,
+): Promise<OfferDetail> {
+  const offer = await createOffer(env);
+  const patched = await admin.request(
+    `${API}/offers/${offer.id}`,
+    jsonInit("PATCH", { endpoint_production: "https://provider.example.com/quotes" }),
+    env,
+  );
+  expect(patched.status, await patched.clone().text()).toBe(200);
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)",
+    )
+    .run(offer.public_id);
+  // v1 WITH the parser — the operator's "define the currency handling" save.
+  const res = await admin.request(
+    `${API}/offers/${offer.id}/payload-schemas`,
+    jsonInit("POST", { schema_json: VALID_SCHEMA, carrier_parse_json: F10_PARSE_CONFIG }),
+    env,
+  );
+  expect(res.status, await res.clone().text()).toBe(201);
+  return offer;
+}
+
+function activeSchemaRow(sdb: SqliteDb, offerId: number): {
+  id: number;
+  version: number;
+  carrier_parse_json: string | null;
+  carrier_parse_version: number;
+} {
+  return sdb
+    .prepare(
+      `SELECT s.id, s.version, s.carrier_parse_json, s.carrier_parse_version
+         FROM leadgen_offers o JOIN leadgen_offer_payload_schemas s ON s.id = o.active_payload_schema_id
+        WHERE o.id = ?`,
+    )
+    .get(offerId) as { id: number; version: number; carrier_parse_json: string | null; carrier_parse_version: number };
+}
+
+async function offerEligibility(env: Env, offerId: number | string): Promise<{ eligible: boolean; reasons: string[] }> {
+  const res = await admin.request(`${API}/offers/${offerId}`, {}, env);
+  expect(res.status).toBe(200);
+  return ((await res.json()) as { eligibility: { eligible: boolean; reasons: string[] } }).eligibility;
+}
+
+describeDb("payload-schemas — R2 P5 F10: an omitted carrier_parse_json CARRIES FORWARD", () => {
+  it("a schema-only save keeps the parse config + version on the new ACTIVE version, and activation stops reporting carrier_parse_missing", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await f10ReadyOffer(sdb, env);
+
+    const v1 = activeSchemaRow(sdb, offer.id);
+    expect(v1.version).toBe(1);
+    expect(v1.carrier_parse_json).toBe(JSON.stringify(F10_PARSE_CONFIG));
+    const beforeEligibility = await offerEligibility(env, offer.id);
+    expect(beforeEligibility.reasons).toEqual([]);
+    expect(beforeEligibility.eligible).toBe(true);
+
+    // The builder's "Save schema version" wire, verbatim: schema_json ONLY.
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: VALID_SCHEMA }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const created = (await res.json()) as { id: number; version: number; carrier_parse_json: unknown };
+    expect(created.version).toBe(2);
+    // the API echo already carries the preserved config
+    expect(created.carrier_parse_json).toEqual(F10_PARSE_CONFIG);
+
+    // the ACTIVE pointer moved to the new version AND that version carries the
+    // parse pair the predecessor had.
+    const v2 = activeSchemaRow(sdb, offer.id);
+    expect(v2.id).toBe(created.id);
+    expect(v2.version).toBe(2);
+    expect(v2.carrier_parse_json).toBe(JSON.stringify(F10_PARSE_CONFIG));
+    expect(v2.carrier_parse_version).toBe(v1.carrier_parse_version);
+
+    // §11.8 immutability: v1's own parse column is untouched.
+    const v1After = sdb
+      .prepare("SELECT carrier_parse_json FROM leadgen_offer_payload_schemas WHERE id = ?")
+      .get(v1.id) as { carrier_parse_json: string | null };
+    expect(v1After.carrier_parse_json).toBe(JSON.stringify(F10_PARSE_CONFIG));
+
+    // the activation input (evaluateDynamicOffersEligibility — the SAME verdict
+    // the R5 quote-activation preflight recomputes) is clean.
+    const after = await offerEligibility(env, offer.id);
+    expect(after.reasons).not.toContain("carrier_parse_missing");
+    expect(after.reasons).toEqual([]);
+    expect(after.eligible).toBe(true);
+  });
+
+  it("carries a NON-default carrier_parse_version forward (not a hardcoded 1)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await f10ReadyOffer(sdb, env);
+    // The column is NOT NULL DEFAULT 1 but holds whatever a seed / clone chain
+    // left behind — pin that the carry reads the predecessor, not a literal.
+    sdb
+      .prepare("UPDATE leadgen_offer_payload_schemas SET carrier_parse_version = 7 WHERE offer_id = ?")
+      .run(offer.id);
+
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: VALID_SCHEMA }),
+      env,
+    );
+    expect(res.status).toBe(201);
+    const v2 = activeSchemaRow(sdb, offer.id);
+    expect(v2.version).toBe(2);
+    expect(v2.carrier_parse_version).toBe(7);
+    expect(v2.carrier_parse_json).toBe(JSON.stringify(F10_PARSE_CONFIG));
+  });
+
+  it("an EXPLICIT null clears the parse config (and activation reports carrier_parse_missing again)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await f10ReadyOffer(sdb, env);
+
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: VALID_SCHEMA, carrier_parse_json: null }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const created = (await res.json()) as { id: number; version: number; carrier_parse_json: unknown };
+    expect(created.version).toBe(2);
+    expect(created.carrier_parse_json).toBeNull();
+
+    const v2 = activeSchemaRow(sdb, offer.id);
+    expect(v2.id).toBe(created.id);
+    expect(v2.carrier_parse_json).toBeNull();
+    expect(v2.carrier_parse_version).toBe(1);
+
+    const after = await offerEligibility(env, offer.id);
+    expect(after.reasons).toContain("carrier_parse_missing");
+    expect(after.eligible).toBe(false);
+  });
+
+  it("an EXPLICIT object still REPLACES the carried config", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await f10ReadyOffer(sdb, env);
+    const replacement = { fields: { carrier_name: "carrier", bid: "cpc" } };
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: VALID_SCHEMA, carrier_parse_json: replacement }),
+      env,
+    );
+    expect(res.status).toBe(201);
+    const v2 = activeSchemaRow(sdb, offer.id);
+    expect(v2.carrier_parse_json).toBe(JSON.stringify(replacement));
+  });
+
+  it("a FIRST-EVER schema (no active predecessor) still saves with no parse config", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    const before = sdb
+      .prepare("SELECT active_payload_schema_id FROM leadgen_offers WHERE id = ?")
+      .get(offer.id) as { active_payload_schema_id: number | null };
+    expect(before.active_payload_schema_id).toBeNull();
+
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: VALID_SCHEMA }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const v1 = activeSchemaRow(sdb, offer.id);
+    expect(v1.version).toBe(1);
+    expect(v1.carrier_parse_json).toBeNull();
+    expect(v1.carrier_parse_version).toBe(1);
+    expect((await offerEligibility(env, offer.id)).reasons).toContain("carrier_parse_missing");
+  });
+
+  it("§11.2 from-example generation also carries the parse config forward", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await f10ReadyOffer(sdb, env);
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas/from-example`,
+      jsonInit("POST", { example: { quote: { zip: "10001" } } }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const v2 = activeSchemaRow(sdb, offer.id);
+    expect(v2.version).toBe(2);
+    expect(v2.carrier_parse_json).toBe(JSON.stringify(F10_PARSE_CONFIG));
+    expect((await offerEligibility(env, offer.id)).reasons).not.toContain("carrier_parse_missing");
+  });
+});
+
 // --- §6.1 last_test_at — the additive detail timestamp --------------------------------------
 
 describeDb("offer detail last_test_at — §6.1 right-column chip source", () => {

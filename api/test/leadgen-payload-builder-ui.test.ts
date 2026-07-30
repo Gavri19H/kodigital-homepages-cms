@@ -39,6 +39,8 @@ import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
 import { COMPUTED_REGISTRY, LEADGEN_COMPUTED_KEYS } from "../src/leadgen/computed";
 import { CANONICAL_MACROS } from "../src/leadgen/macros";
+import { COMPONENT_CATALOG } from "../src/public/leadgen/components/registry";
+import { validateSectionContent } from "../src/public/leadgen/components/content-schema";
 import {
   buildPayload,
   LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES,
@@ -365,25 +367,56 @@ async function postSchema(
 
 // Link a Section carrying answer components → builder_context.linked_fields
 // (offers-handlers.readLinkedSectionFields parses content_json.components).
+//
+// R2 P5 F10 (defect 2): the four component types are REAL COMPONENT_CATALOG
+// names. They used to be `ChoiceGroup` / `YesNoQuestion` / `NumberQuestion` —
+// names no catalog entry carries, so validateSectionContent (content-schema.ts
+// §8.x) REFUSES to save such content with `unknown_component_type … not in the
+// component catalog`. The fixture only ever "passed" because the pre-F9
+// projection echoed `internal_field` blindly; the canonical fieldsOf
+// derivation correctly yields NOTHING for a type outside the catalog
+// (produces === null), so the fixture was asserting over content the product
+// cannot produce. LINK_SECTION_CONTENT_IS_SAVEABLE below pins the fixture to
+// the REAL save-side validator so it can never drift back.
+// Everything the save-side validator demands is here on purpose: `question_id`
+// (required + unique), a per-choice `analytics_id` (§22 tracking), and an
+// `answer_type` that AGREES with the catalog's `produces` — DateQuestion
+// produces "string", so the old `answer_type: "date"` was a second thing the
+// product would have refused (`answer_type_mismatch`).
+const LINK_SECTION_CONTENT = {
+  components: [
+    {
+      id: "q1",
+      question_id: "q_homeowner",
+      type: "ButtonAnswerGroup",
+      internal_field: "homeowner",
+      answer_type: "enum",
+      choices: [
+        { value: "own", label: "I own my home", analytics_id: "own" },
+        { value: "rent", label: "I rent", analytics_id: "rent" },
+        { value: "other_situation", label: "Something else", analytics_id: "other_situation" },
+      ],
+    },
+    { id: "q2", question_id: "q_dob", type: "DateQuestion", internal_field: "dob", answer_type: "string" },
+    {
+      id: "q3",
+      question_id: "q_newsletter",
+      type: "TwoButtonYesNo",
+      internal_field: "newsletter",
+      answer_type: "boolean",
+    },
+    {
+      id: "q4",
+      question_id: "q_driver_1_age",
+      type: "NumberInputQuestion",
+      internal_field: "driver_1_age",
+      answer_type: "number",
+    },
+  ],
+} as const;
+
 function linkSection(sdb: SqliteDb, offerId: number, sectionName: string): void {
-  const contentJson = JSON.stringify({
-    components: [
-      {
-        id: "q1",
-        type: "ChoiceGroup",
-        internal_field: "homeowner",
-        answer_type: "enum",
-        choices: [
-          { value: "own", label: "I own my home" },
-          { value: "rent", label: "I rent" },
-          { value: "other_situation", label: "Something else" },
-        ],
-      },
-      { id: "q2", type: "DateQuestion", internal_field: "dob", answer_type: "date" },
-      { id: "q3", type: "YesNoQuestion", internal_field: "newsletter", answer_type: "boolean" },
-      { id: "q4", type: "NumberQuestion", internal_field: "driver_1_age", answer_type: "number" },
-    ],
-  });
+  const contentJson = JSON.stringify(LINK_SECTION_CONTENT);
   sdb
     .prepare(
       "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json) VALUES (?, ?, 'quote_funnel', 'auto', 'H', ?)",
@@ -2255,6 +2288,42 @@ describeDb("payload builder §6.14/M2 — no normal-mode JSON input reachable", 
 // Bootstrap-data islands — JSON round-trip + builder_context passthrough
 // ---------------------------------------------------------------------------
 
+// R2 P5 F10 (defect 2): the linked-Section fixture is pinned to the REAL
+// save-side validator (validateSectionContent — the same function
+// sections-handlers runs on every Section save) and to the REAL catalog. A
+// fixture the product would REFUSE to save can never again produce a green
+// projection assertion here.
+describe("payload builder — the linked-Section fixture is content the product accepts", () => {
+  it("every fixture component type is in COMPONENT_CATALOG and produces an answer", () => {
+    const types = LINK_SECTION_CONTENT.components.map((c) => c.type);
+    expect(types).toEqual([
+      "ButtonAnswerGroup",
+      "DateQuestion",
+      "TwoButtonYesNo",
+      "NumberInputQuestion",
+    ]);
+    const notInCatalog = types.filter(
+      (t) => !Object.prototype.hasOwnProperty.call(COMPONENT_CATALOG, t),
+    );
+    expect(notInCatalog).toEqual([]);
+    for (const t of types) {
+      expect(
+        COMPONENT_CATALOG[t as keyof typeof COMPONENT_CATALOG].produces,
+        `${t}.produces`,
+      ).not.toBeNull();
+    }
+  });
+
+  it("validateSectionContent ACCEPTS the fixture (no unknown_component_type)", () => {
+    const verdict = validateSectionContent(JSON.parse(JSON.stringify(LINK_SECTION_CONTENT)));
+    expect(
+      verdict.errors.map((e) => `${e.code} ${e.path}`),
+      "save-side validator errors",
+    ).toEqual([]);
+    expect(verdict.ok).toBe(true);
+  });
+});
+
 describeDb("payload builder — bootstrap islands", () => {
   it("lg-payload-data round-trips: schema, computed options, hints, offer + builder_context.linked_fields", async () => {
     const { html } = await richEditorPage();
@@ -2279,12 +2348,23 @@ describeDb("payload builder — bootstrap islands", () => {
     // builder_context (LANDED shape): active_schema.nodes + linked_fields
     expect(data.builder_context.active_schema?.nodes).toHaveLength(RICH_SCHEMA.root.children.length);
     const fields = data.builder_context.linked_fields;
-    expect(fields.length).toBeGreaterThanOrEqual(4);
+    // R2 P5 F10 (defect 2): EXACT, not ">= 4" — each of the four REAL catalog
+    // components in the linked Section projects exactly one answer field, in
+    // content order, with the answer_type the catalog `produces`.
+    expect(fields.map((f) => [f["internal_field"], f["answer_type"], f["choice_count"]])).toEqual([
+      ["homeowner", "enum", 3],
+      ["dob", "string", 0],
+      ["newsletter", "boolean", 0],
+      ["driver_1_age", "number", 0],
+    ]);
     const homeowner = fields.find((f) => f["internal_field"] === "homeowner");
     expect(homeowner).toBeDefined();
     expect(homeowner!["section_name"]).toBe("Home Details");
     expect(homeowner!["answer_type"]).toBe("enum");
     expect(homeowner!["choice_count"]).toBe(3);
+    // The island projection is DELIBERATELY narrowed (offerBuilderContext):
+    // readLinkedSectionFields also carries component_type + props, which the
+    // island does not need and does not ship.
     expect(Object.keys(homeowner!).sort()).toEqual([
       "answer_type",
       "choice_count",
