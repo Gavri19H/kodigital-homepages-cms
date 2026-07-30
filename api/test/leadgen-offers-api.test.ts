@@ -1176,6 +1176,103 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
     expect(fields.map((f) => f.answer_type)).toEqual(["string", "enum"]);
     expect(fields.map((f) => f.choice_count)).toEqual([0, 1]);
   });
+
+  // --- R2 P5 F8 (SRC-6B) — multi-field components offer their SUB-FIELDS ----
+  //
+  // Owner A.1 #6 (verbatim): "Also, be aware that every component that include
+  // more than one field- each field is potentially answering another offer
+  // field in different formats per offer!!!" Contract §5.6 requires that
+  // mapping to be authorable through the payload builder's UI, never raw JSON
+  // — so the §6.2 Section-field picker MUST offer the sub-field the visitor
+  // actually records ({base}_zip), not just the component's base key.
+  //
+  // Expectations below are LITERAL names (never re-derived from the source
+  // function), asserted through the real GET /offers/:id projection.
+
+  const ADDR_NODE = (props: Record<string, unknown>): Record<string, unknown> => ({
+    type: "AddressAutocompleteQuestion",
+    question_id: "q_addr",
+    internal_field: "addr",
+    props,
+  });
+
+  it("SRC-6B: an unconfigured (4-field) Address projects its SUB-FIELD keys, not the base", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "Addr Sec", [
+      { type: "FreeTextQuestion", question_id: "q_a", internal_field: "field_a", answer_type: "string" },
+      ADDR_NODE({}),
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual([
+      "field_a",
+      "addr_street",
+      "addr_city",
+      "addr_state",
+      "addr_zip",
+    ]);
+    // the BASE key is absent — fieldsOf never projects it, so no Offer may be
+    // pointed at a field the visitor will never record.
+    expect(fields.map((f) => f.internal_field)).not.toContain("addr");
+    // each sub-field carries its OWN metadata: a text input (string), no enum
+    // domain — not the parent component's catalog "object".
+    const subs = fields.filter((f) => f.internal_field.startsWith("addr_"));
+    expect(subs.map((f) => f.answer_type)).toEqual(["string", "string", "string", "string"]);
+    expect(subs.map((f) => f.choice_count)).toEqual([0, 0, 0, 0]);
+  });
+
+  it("SRC-6B: an authored maps.fills rename is offered under the RENAMED name", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "Addr Renamed", [
+      ADDR_NODE({ maps: { enabled: true, fills: { zip: "postal_code_x" } } }),
+    ]);
+    const names = (await linkedFields(env, offer.id)).map((f) => f.internal_field);
+    expect(names).toEqual(["addr_street", "addr_city", "addr_state", "postal_code_x"]);
+    expect(names).not.toContain("addr_zip");
+  });
+
+  it("SRC-6B: a full_address-alone Address still projects ONE entry under the base key", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "Addr Free Text", [
+      ADDR_NODE({ fields: [{ field: "full_address", label: "Your address", mode: "autofill" }] }),
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual(["addr"]);
+    // unchanged metadata for the base entry (the catalog `produces`).
+    expect(fields[0]!.answer_type).toBe("object");
+    expect(fields[0]!.choice_count).toBe(0);
+  });
+
+  it("SRC-6B: a street-only Address projects ONE entry, named for the key it records", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "Addr Street Only", [
+      ADDR_NODE({ fields: [{ field: "street", label: "Street", mode: "manual" }] }),
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual(["addr_street"]);
+    expect(fields[0]!.answer_type).toBe("string");
+  });
+
+  it("SRC-6B: a non-address multi-entry Section keeps its exact projection (no address expansion leaks)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "No Addr", [
+      { type: "ZIPInputQuestion", question_id: "q_z", internal_field: "zip_only", answer_type: "string" },
+      {
+        type: "NumberRangeQuestion",
+        question_id: "q_n",
+        internal_field: "coverage",
+        answer_type: "number",
+        props: { slider_type: "stepper" },
+      },
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual(["zip_only", "coverage"]);
+    expect(fields.map((f) => f.answer_type)).toEqual(["string", "number"]);
+  });
 });
 
 // --- analytics ---------------------------------------------------------------------------

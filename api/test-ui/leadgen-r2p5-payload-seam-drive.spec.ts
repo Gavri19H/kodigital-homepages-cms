@@ -31,6 +31,12 @@
 //        → ONE Address sub-field ({base}_zip) reaches TWO Offers in TWO
 //          formats, both picked from the SAME control on a STRING answer
 //          (which the panel only became authorable for in P5 F1).
+//        P5 F8 closes the other half: the sub-field's IDENTITY is now SELECTED
+//        in the Section-field picker (readLinkedSectionFields expands an
+//        Address into the keys its renderer records), so this leg authors the
+//        SRC-6B mapping with ZERO raw JSON — the Advanced drawer is never
+//        opened. Contract §5.6: through the payload builder's UI, never raw
+//        JSON.
 //
 // Prerequisites (mission smoke lane, not CI): local wrangler dev on PW_PORT with
 // the r2fix fixture seeded (npm run seed:leadgen-fixture) — this spec builds its
@@ -50,6 +56,10 @@ const SITE_HOST = "r2fix.e2e.test";
 const MOCK_BASE = "http://127.0.0.1:8788";
 const MOCK_URL = `${MOCK_BASE}/mock`;
 const EVIDENCE_DIR = "../docs/leadgen/r2/evidence/p5/s5b";
+// P5 F8's own evidence: the Section-field picker showing the Address
+// sub-fields the SRC-6B mapping is authored from.
+const F8_EVIDENCE_DIR = "../docs/leadgen/r2/evidence/p5/f8";
+let PICKER_SHOT_TAKEN = false;
 
 // PER-RUN identity: the slug, the Section/Offer/quote names, the answer keys
 // and the ZIP all carry this run's stamp, so no assertion below can be
@@ -300,38 +310,47 @@ async function authorSchemaThroughControl(page: Page, offerPublicId: string, spe
   const amountPreview = await pickOutputFormat(page, spec.amountFormat, String(AMOUNT_FINAL));
   log(`AUTHOR ${spec.name} · ${amountPath(spec)} <- "${spec.amountFormat}" · preview "${amountPreview.preview}" · sends ${amountPreview.json}`);
 
-  // the SRC-6B address sub-field child
+  // the SRC-6B address sub-field child — IDENTITY *and* FORMAT by clicking
+  // (P5 F8). The picker now lists an AddressAutocompleteQuestion as the answer
+  // keys its renderer really records ({base}_street/_city/_state/_zip, a
+  // maps.fills rename included), so the ZIP sub-field is SELECTED here like any
+  // other Section field. Zero raw JSON: the Advanced drawer is never opened on
+  // this leg (contract §5.6 — authored through the payload builder's UI).
   if (spec.zipLeaf !== undefined && spec.zipFormat !== undefined) {
     await page.locator("#lg-pb-add-field").click();
     await renameSelected(page, spec.zipLeaf, zipPath(spec) as string);
-    // ADJACENT (reported, NOT fixed by this slice): the Section-field picker is
-    // built from offers-handlers.readLinkedSectionFields, which lists ONE entry
-    // per component internal_field — an AddressAutocompleteQuestion therefore
-    // contributes only its BASE key, never the {base}_zip key its renderer
-    // actually records. So the ZIP node's IDENTITY has to come through the
-    // per-field Advanced drawer here. The FORMAT — this slice's subject — is
-    // still picked by clicking the control, on a STRING answer, which is only
-    // possible because P5 F1 stopped gating the panel to numbers.
     const zipOptions = await page.locator("#lg-pb-editor [data-pb-answer-picker] option").allInnerTexts();
     expect(
       zipOptions.some((o) => o.startsWith(`${ADDR_ZIP_FIELD} `)),
-      "ADJ: when the answer picker learns to expand Address sub-fields, drop the Advanced-drawer step below and select the ZIP here",
+      `the Section-field picker offers the Address SUB-FIELD ${ADDR_ZIP_FIELD}; options = ${JSON.stringify(zipOptions)}`,
+    ).toBe(true);
+    // …and it offers the OTHER three sub-fields too, never the bare base key
+    // (which no visitor records — see offers-handlers readLinkedSectionFields).
+    for (const slot of ["street", "city", "state"] as const) {
+      expect(
+        zipOptions.some((o) => o.startsWith(`${ADDR_BASE}_${slot} `)),
+        `the picker offers ${ADDR_BASE}_${slot}`,
+      ).toBe(true);
+    }
+    expect(
+      zipOptions.some((o) => o.startsWith(`${ADDR_BASE} (`)),
+      "the picker does NOT offer the Address base key (the visitor never records it)",
     ).toBe(false);
-    await page.locator("#lg-pb-editor details[data-pb-advanced] summary").click();
-    const rawTa = page.locator("#lg-pb-editor [data-pb-field-raw]");
-    await expect(rawTa).toBeVisible();
-    await page.waitForTimeout(500);
-    await rawTa.fill(
-      JSON.stringify(
-        { path: zipPath(spec), name: spec.zipLeaf, type: "string", source: "answer", internal_field: ADDR_ZIP_FIELD },
-        null,
-        2,
-      ),
-    );
-    await page.locator("#lg-pb-editor [data-pb-field-raw-apply]").click();
+    await page.locator("#lg-pb-editor [data-pb-answer-picker]").selectOption(ADDR_ZIP_FIELD);
     await expect(page.locator("#lg-pb-editor [data-pb-answer-picker]")).toHaveValue(ADDR_ZIP_FIELD);
+    if (!PICKER_SHOT_TAKEN) {
+      // The evidence shot is taken AFTER the pick: a native <select> renders its
+      // option list in an OS popup no screenshot can capture, so the proof is
+      // the CHOSEN sub-field standing in the Section-field control (plus the
+      // full option list dumped verbatim beside it).
+      await page.locator("#lg-pb-editor [data-pb-answer-picker]").scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `${F8_EVIDENCE_DIR}/answer-picker-subfield-selected-1400.png`, fullPage: false });
+      writeFileSync(`${F8_EVIDENCE_DIR}/answer-picker-options.txt`, `${zipOptions.join("\n")}\n`, "utf8");
+      log(`PICKER options = ${JSON.stringify(zipOptions)}`);
+      PICKER_SHOT_TAKEN = true;
+    }
     const zipPreview = await pickOutputFormat(page, spec.zipFormat, ZIP_TYPED);
-    log(`AUTHOR ${spec.name} · ${String(zipPath(spec))} <- "${spec.zipFormat}" · preview "${zipPreview.preview}" · sends ${zipPreview.json}`);
+    log(`AUTHOR ${spec.name} · ${String(zipPath(spec))} <- picked field "${ADDR_ZIP_FIELD}" · format "${spec.zipFormat}" · preview "${zipPreview.preview}" · sends ${zipPreview.json}`);
   }
 
   // A clean schema, then SAVE from this page (no schema JSON was ever posted).
@@ -596,6 +615,7 @@ function leadOf(payload: Record<string, unknown>): Record<string, unknown> {
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(300_000);
   mkdirSync(EVIDENCE_DIR, { recursive: true });
+  mkdirSync(F8_EVIDENCE_DIR, { recursive: true });
   const ctx = await playwrightRequest.newContext({ baseURL: ORIGIN });
 
   const sites = await api<{ resource?: Array<{ id: string; domain: string }> }>(ctx, "get", "/api/admin/sites");

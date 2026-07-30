@@ -41,6 +41,11 @@ import {
 } from "../../leadgen/payload";
 import { COMPONENT_CATALOG } from "../../public/leadgen/components/registry";
 import { flattenComponents, type LeadgenComponentNode } from "../../public/leadgen/components/content-schema";
+// R2 P5 F8 (SRC-6B): THE address answer-key derivation — the renderer's own
+// resolution, exported by presets.ts and already consumed by answers.ts
+// fieldsOf. Imported (never re-listed) so the §6.2 picker cannot drift from
+// what the visitor records.
+import { leadgenAddressAnswerFields } from "../../public/leadgen/components/presets";
 import {
   LEADGEN_BID_SOURCES,
   LEADGEN_CAP_COUNT_BY,
@@ -350,9 +355,10 @@ function isChoicePrimitive(value: unknown): value is string | number | boolean {
 
 // Enumerate the answer fields of every Section linked to the Offer: parse
 // each linked Section's content_json and keep the components carrying a
-// non-empty internal_field (the countQuestions convention — multi-field
-// components like NameFieldsGroup/AddressAutocompleteQuestion expose no
-// single internal_field and are outside the §6.2 single-field picker).
+// non-empty internal_field (the countQuestions convention). R2 P5 F8: such a
+// component contributes ONE entry per answer key it really records — an
+// AddressAutocompleteQuestion expands to its sub-fields (see the SRC-6B block
+// below); every other component contributes its single internal_field.
 // answer_type falls back to the catalog's `produces` when the node omits it.
 // ONE query via the join (a single bound param — no IN() list, trivially
 // inside the 100-binding limit); rows ordered by section_name for a
@@ -397,8 +403,6 @@ export async function readLinkedSectionFields(
       if (!isRecord(raw)) continue;
       const internalField = raw["internal_field"];
       if (typeof internalField !== "string" || internalField.trim() === "") continue;
-      if (seen.has(internalField)) continue;
-      seen.add(internalField);
       const componentType = typeof raw["type"] === "string" ? raw["type"] : "";
       const catalogProduces = Object.prototype.hasOwnProperty.call(COMPONENT_CATALOG, componentType)
         ? COMPONENT_CATALOG[componentType as keyof typeof COMPONENT_CATALOG].produces
@@ -417,16 +421,57 @@ export async function readLinkedSectionFields(
           });
         }
       }
-      out.push({
-        internal_field: internalField,
-        section_public_id: section.public_id,
-        section_name: section.section_name,
-        answer_type: answerType,
-        choice_count: choices.length,
-        component_type: componentType,
-        choices,
-        props: isRecord(raw["props"]) ? (raw["props"] as Record<string, unknown>) : {},
-      });
+      // R2 P5 F8 (SRC-6B) — a MULTI-FIELD component projects the answer keys
+      // the VISITOR ACTUALLY RECORDS, one picker entry per sub-field.
+      //
+      // Owner A.1 #6 (verbatim): "Also, be aware that every component that
+      // include more than one field- each field is potentially answering
+      // another offer field in different formats per offer!!!" — that is only
+      // authorable by CLICKING (contract §5.6: through the payload builder's
+      // UI, never raw JSON) if the sub-field's IDENTITY is offered here. It was
+      // not: an AddressAutocompleteQuestion contributed ONE entry keyed on its
+      // internal_field ("addr"), while the renderer records addr_street /
+      // addr_city / addr_state / addr_zip (or a maps.fills rename) and
+      // answers.ts fieldsOf projects exactly those. Pointing an Offer at
+      // addr_zip therefore needed the Advanced raw-JSON drawer.
+      //
+      // leadgenAddressAnswerFields IS that derivation (presets.ts — the
+      // renderer's own resolution, the same function fieldsOf consumes), so
+      // picker == fieldsOf == what the visitor records, by construction and
+      // with no second list to drift (the ADJ-N24 class).
+      //
+      // Unchanged by design: a lone `full_address` composite derives to the
+      // BARE base, so a free-text Address still projects exactly one entry
+      // under its own key, with its own answer_type/choices; every non-address
+      // component takes the `[internalField]` path verbatim. The base key is
+      // NOT added alongside sub-fields — fieldsOf does not project it, so the
+      // visitor never records it and offering it would point an Offer at a
+      // field that never arrives.
+      const addressFields =
+        componentType === "AddressAutocompleteQuestion"
+          ? leadgenAddressAnswerFields(raw as unknown as LeadgenComponentNode)
+          : null;
+      const projected =
+        addressFields !== null && addressFields.length > 0 ? addressFields : [internalField];
+      for (const field of projected) {
+        if (seen.has(field)) continue;
+        seen.add(field);
+        // A derived sub-field is a plain text input ⇒ "string" (the type
+        // answers.ts fieldsOf gives it, NOT the parent's catalog "object"),
+        // and it carries no enum domain of its own ⇒ 0 choices. The base-key
+        // entry keeps the node's own metadata exactly as before.
+        const isDerivedSubField = field !== internalField;
+        out.push({
+          internal_field: field,
+          section_public_id: section.public_id,
+          section_name: section.section_name,
+          answer_type: isDerivedSubField ? "string" : answerType,
+          choice_count: isDerivedSubField ? 0 : choices.length,
+          component_type: componentType,
+          choices: isDerivedSubField ? [] : choices,
+          props: isRecord(raw["props"]) ? (raw["props"] as Record<string, unknown>) : {},
+        });
+      }
     }
   }
   return out;
