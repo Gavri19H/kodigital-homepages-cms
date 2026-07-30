@@ -892,6 +892,15 @@ describe("§6.10 / M9 — address renders per props.fields[]", () => {
     expect(html).toContain('data-lg-field="addr_state"');
     expect(html).toContain('data-lg-field="addr_zip"');
     expect((html.match(/data-lg-input/g) ?? []).length).toBe(4);
+    // P5-F5 addition: each of the 4 visible field labels is present and for-associated with its input's id
+    expect(html).toContain('<label class="lg-address-field-label" for="lg-addr-addr_street">Street address</label>');
+    expect(html).toContain('<label class="lg-address-field-label" for="lg-addr-addr_city">City</label>');
+    expect(html).toContain('<label class="lg-address-field-label" for="lg-addr-addr_state">State</label>');
+    expect(html).toContain('<label class="lg-address-field-label" for="lg-addr-addr_zip">ZIP code</label>');
+    expect(html).toContain('id="lg-addr-addr_street"');
+    expect(html).toContain('id="lg-addr-addr_city"');
+    expect(html).toContain('id="lg-addr-addr_state"');
+    expect(html).toContain('id="lg-addr-addr_zip"');
   });
 
   it("a corrupt/malformed props.fields (not an array, or an unrecognized field kind) falls back to the DEFAULT 4-field composite render defensively (never throws — same D3 default as fully-absent fields[])", () => {
