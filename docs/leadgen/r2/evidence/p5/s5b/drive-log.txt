@@ -1,23 +1,35 @@
-AUTHOR offer "P5B Offer A — currency passed" -> id=2 schema_v=3 test=HTTP 200
-AUTHOR offer "P5B Offer B — number only" -> id=3 schema_v=3 test=HTTP 200
-AUTHOR offer "P5B Offer C — number as string" -> id=4 schema_v=3 test=HTTP 200
-SETUP quote=lgq_01KYRHC0FYM77KXZYB6Q0JPXY9 variant=lgn_01KYRHC0FYJR8KP3C0375RJ9PW section=lgs_01KYRHC0GQGBXDYW9S2DAYZRR3 slug=r2p5b
-SETUP offers=lgo_01KYRHC0DJD9ACVKH9GDSQC930 lgo_01KYRHC0EFX7740MG86N1E478V lgo_01KYRHC0F7R1E2GZKFZP0KBAKE (A currency · B number · C number-as-string)
+CREATE offer "P5B Offer A 57mk1356 — currency passed" -> id=4 public=lgo_01KYRVYKTFH9FQ3G0SDHTHDYD5
+CREATE offer "P5B Offer B 57mk1356 — number only" -> id=5 public=lgo_01KYRVYKV0JHQPG6Q40X8HGM0F
+CREATE offer "P5B Offer C 57mk1356 — number as string" -> id=6 public=lgo_01KYRVYKVFJHDBA4GEEJJHC3CD
+LINK section -> offers [4, 5, 6] HTTP 200
+AUTHOR P5B Offer A 57mk1356 — currency passed · lead.p5b_amount_currency <- "formatCurrency" · preview "170000 → $170,000" · sends "$170,000"
+AUTHOR P5B Offer A 57mk1356 — currency passed · lead.p5b_zone_text <- "toString" · preview "05047 → 05047" · sends "05047"
+AUTHOR P5B Offer B 57mk1356 — number only · lead.p5b_amount_number <- "toNumber" · preview "170000 → 170000" · sends 170000
+AUTHOR P5B Offer B 57mk1356 — number only · lead.p5b_zone_num <- "toNumber" · preview "05047 → 5047" · sends 5047
+AUTHOR P5B Offer C 57mk1356 — number as string · lead.p5b_amount_string <- "toString" · preview "170000 → 170000" · sends "170000"
+STORED P5B Offer A 57mk1356 — currency passed v2: [{"p":"lead","t":"object"},{"p":"lead.p5b_amount_currency","t":"string","x":[{"kind":"formatCurrency"}]},{"p":"lead.p5b_zone_text","t":"string","x":[{"kind":"toString"}]}]
+STORED P5B Offer B 57mk1356 — number only v2: [{"p":"lead","t":"object"},{"p":"lead.p5b_amount_number","t":"number","x":[{"kind":"toNumber"}]},{"p":"lead.p5b_zone_num","t":"number","x":[{"kind":"toNumber"}]}]
+STORED P5B Offer C 57mk1356 — number as string v2: [{"p":"lead","t":"object"},{"p":"lead.p5b_amount_string","t":"string","x":[{"kind":"toString"}]}]
+TEST P5B Offer A 57mk1356 — currency passed -> HTTP 200
+TEST P5B Offer B 57mk1356 — number only -> HTTP 200
+TEST P5B Offer C 57mk1356 — number as string -> HTTP 200
+SETUP run=57mk1356 quote=lgq_01KYRVYKW4TF3G3HHVCJXAKDN1 variant=lgn_01KYRVYKW4A5PJHZ8NKTX3Q65Z section=lgs_01KYRVYKWMR5M969WH3BNFGQVW slug=r2p5b-57mk1356 zip=05047
+SETUP offers=lgo_01KYRVYKTFH9FQ3G0SDHTHDYD5 lgo_01KYRVYKV0JHQPG6Q40X8HGM0F lgo_01KYRVYKVFJHDBA4GEEJJHC3CD (A currency · B number · C number-as-string)
 AUTHOR section [composite (unconfigured, D3 default)] -> HTTP 200
-SSR converged in 41ms (1 poll(s)): composite address + currency stepper
-DRIVE typed=4218 Kestrel Way / Hoboken / NJ / 07032 · readout="$170,000" · visitor RECORDED keys = [p5b_addr_city, p5b_addr_state, p5b_addr_street, p5b_addr_zip, p5b_amount]
-DRIVE auction_instance_id=01KYRHRYHY7PR9261X1RMK3KYM
-PAYLOAD offer-1 (lgo_01KYRHC0DJD9ACVKH9GDSQC930) {"lead":{"p5b_amount_currency":"$170,000","p5b_zone_text":"07032"}}
-PAYLOAD offer-2 (lgo_01KYRHC0EFX7740MG86N1E478V) {"lead":{"p5b_amount_number":170000,"p5b_zone_num":7032}}
-PAYLOAD offer-3 (lgo_01KYRHC0F7R1E2GZKFZP0KBAKE) {"lead":{"p5b_amount_string":"170000"}}
-ANSWER-MAP value_transform rows (5): lead.p5b_amount_currency=[{"kind":"formatCurrency"}] | lead.p5b_amount_number=[{"kind":"toNumber"}] | lead.p5b_amount_string=[{"kind":"toString"}] | lead.p5b_zone_num=[{"kind":"toNumber"}] | lead.p5b_zone_text=[{"kind":"trim"}]
+SSR converged in 22ms (1 poll(s)): composite address + currency stepper
+DRIVE typed=57mk1356 Kestrel Way / Hoboken / NJ / 05047 · readout="$170,000" · visitor RECORDED keys = [p5b_addr_57mk1356_city, p5b_addr_57mk1356_state, p5b_addr_57mk1356_street, p5b_addr_57mk1356_zip, p5b_amount_57mk1356]
+DRIVE auction_instance_id=01KYRVYR52B4CEXWH8YSK7XTAY
+PAYLOAD offer-1 (lgo_01KYRVYKTFH9FQ3G0SDHTHDYD5) {"lead":{"p5b_amount_currency":"$170,000","p5b_zone_text":"05047"}}
+PAYLOAD offer-2 (lgo_01KYRVYKV0JHQPG6Q40X8HGM0F) {"lead":{"p5b_amount_number":170000,"p5b_zone_num":5047}}
+PAYLOAD offer-3 (lgo_01KYRVYKVFJHDBA4GEEJJHC3CD) {"lead":{"p5b_amount_string":"170000"}}
+ANSWER-MAP value_transform rows (5): lead.p5b_amount_currency=[{"kind":"formatCurrency"}] | lead.p5b_amount_number=[{"kind":"toNumber"}] | lead.p5b_amount_string=[{"kind":"toString"}] | lead.p5b_zone_num=[{"kind":"toNumber"}] | lead.p5b_zone_text=[{"kind":"toString"}]
 AUTHOR section [free-text (full_address)] -> HTTP 200
 SSR converged in 14ms (1 poll(s)): free-text address
-DRIVE typed=4218 Kestrel Way, Hoboken, NJ 07032 · readout="$170,000" · visitor RECORDED keys = [p5b_addr, p5b_amount]
-DRIVE auction_instance_id=01KYRHS2GY058VFKB8TKS7AZVY
+DRIVE typed=57mk1356 Kestrel Way, Hoboken, NJ 05047 · readout="$170,000" · visitor RECORDED keys = [p5b_addr_57mk1356, p5b_amount_57mk1356]
+DRIVE auction_instance_id=01KYRVYW7HDXF321201V6M02ZG
 PAYLOAD free-text offer-1 {"lead":{"p5b_amount_currency":"$170,000"}}
 AUTHOR section [street-only] -> HTTP 200
-SSR converged in 13ms (1 poll(s)): street-only address
-DRIVE typed=4218 Kestrel Way · readout="$170,000" · visitor RECORDED keys = [p5b_addr_street, p5b_amount]
-DRIVE auction_instance_id=01KYRHS5VYDHXW2PRPS8BEF59D
+SSR converged in 9ms (1 poll(s)): street-only address
+DRIVE typed=57mk1356 Kestrel Way · readout="$170,000" · visitor RECORDED keys = [p5b_addr_57mk1356_street, p5b_amount_57mk1356]
+DRIVE auction_instance_id=01KYRVYZM6PFKE30Y6D11AS7CW
 PAYLOAD street-only offer-1 {"lead":{"p5b_amount_currency":"$170,000"}}
