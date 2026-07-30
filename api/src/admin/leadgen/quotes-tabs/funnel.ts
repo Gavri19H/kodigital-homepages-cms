@@ -3397,7 +3397,25 @@ export const QUOTE_EDITOR_SCRIPT = `
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); });
   }
 
+  // P6 fixes3 (E1): the A/B tab now carries the server's fork precondition on
+  // the button itself (data-add-variant-state, computed in quotes-tabs/ab.ts)
+  // and disables it with a visible reason. The Themes tab's "A/B this theme"
+  // hits the SAME fork endpoint from a panel that shows no such state, so it
+  // reads that attribute and names the next step instead of prompting the
+  // operator straight into the 409. Returns null when a fork can proceed.
+  function addVariantBlockedReason() {
+    var btn = byId('lg-add-variant');
+    if (!btn) { return null; }
+    var state = btn.getAttribute('data-add-variant-state');
+    if (!state || state === 'ready') { return null; }
+    var why = byId('lg-add-variant-why');
+    var txt = why ? String(why.textContent || '').replace(/\\s+/g, ' ').trim() : '';
+    return txt || 'A second variant is only allowed as an arm of a running A/B test \\u2014 create one on the A/B tab, start it, then add the variant.';
+  }
+
   function forkWithAllocation(themeIdOrNull) {
+    var blockedWhy = addVariantBlockedReason();
+    if (blockedWhy) { showMsg('lg-quote-error', blockedWhy); return; }
     var pctStr = window.prompt("New variant's share of traffic, in percent (the rest stays with the current variant):", '50');
     if (pctStr === null) { return; }
     var pct = parseFloat(pctStr);

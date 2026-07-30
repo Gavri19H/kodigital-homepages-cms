@@ -65,6 +65,39 @@ export function renderAbPanel(structure: StructureBody, selected: VariantNode): 
   const activeTest = running ?? tests[0] ?? null; // ab_tests are newest-first
   const canDeleteArm = variants.length > 1 && running === null;
 
+  // P6 fixes3 (E1) — the ADJ-A9 treatment applied to "Add variant". The server
+  // (quotes-handlers.ts forkVariantHandler) allows a SECOND active variant only
+  // as the bootstrap of a RUNNING test's 2nd arm; every other state 409s with
+  // "…set one up from the A/B tab" — which is where the operator already IS.
+  // Same shape the owner rejected once as ADJ-A9 (a requirement only learnable
+  // by triggering the failure), so it gets the same fix: state the requirement
+  // BEFORE the failing action. The button now carries the server's own
+  // precondition, and the required order is written on the tab.
+  const activeVariants = variants.filter((v) => (v.status ?? "active") === "active");
+  const addVariantState =
+    activeVariants.length === 0 || (running !== null && activeVariants.length === 1)
+      ? "ready" // matches forkVariantHandler: no active variant at all, or the 1→2 arm bootstrap
+      : running !== null
+        ? "arms-frozen" // a running test's arm SET is frozen (a 3rd arm is never allowed)
+        : activeTest !== null
+          ? "not-running" // a test exists but is draft/stopped — start it first
+          : "no-test"; // the pre-A/B state — create the test first
+  const ADD_VARIANT_REASONS: Record<string, string> = {
+    "no-test":
+      'a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press "Create A/B test", then "Start A/B test", then add the variant.',
+    "not-running": `a second variant exists only as an arm of a RUNNING A/B test, and this funnel's test is ${activeTest?.status ?? "not running"} — press "Start A/B test" first, then add the variant.`,
+    "arms-frozen": `this running test already has its ${activeVariants.length} arms and the arm set is frozen while it runs — press "Stop A/B test" first, then change the arms.`,
+  };
+  const addVariantReason = ADD_VARIANT_REASONS[addVariantState] ?? "";
+  const addVariantAttrs =
+    addVariantState === "ready"
+      ? ""
+      : ` disabled aria-disabled="true" aria-describedby="lg-add-variant-why" title="${escapeHtml(addVariantReason)}"`;
+  const addVariantWhy =
+    addVariantState === "ready"
+      ? ""
+      : `\n    <p class="form-help lg-ab-add-why" id="lg-add-variant-why" data-add-variant-blocked="${escapeHtml(addVariantState)}" role="status">&#9888; <strong>Add variant is unavailable:</strong> ${escapeHtml(addVariantReason)}</p>`;
+
   const allocRows = variants
     .map((v) => {
       const pct = v.traffic_allocation_bp / 100;
@@ -126,9 +159,10 @@ export function renderAbPanel(structure: StructureBody, selected: VariantNode): 
     <p class="lg-alloc-summary">Σ = <strong data-alloc-sum>&mdash;</strong> <span data-alloc-sum-note class="form-help"></span></p>
     <div class="toolbar">
       <button type="button" id="lg-save-allocations" class="btn btn-primary">Save allocations</button>
-      <button type="button" id="lg-add-variant" class="btn btn-secondary">Add variant&#8230;</button>
+      <button type="button" id="lg-add-variant" class="btn btn-secondary" data-add-variant-state="${escapeHtml(addVariantState)}"${addVariantAttrs}>Add variant&#8230;</button>
       ${lifecycle}
     </div>
+    <p class="form-help lg-ab-order" data-ab-order>Order to A/B this funnel: <strong>1.</strong> Create A/B test &rarr; <strong>2.</strong> Start A/B test &rarr; <strong>3.</strong> Add variant (it becomes the test&#39;s second arm, split 50/50). Until a test is running the funnel keeps exactly one variant.</p>${addVariantWhy}
   </div>
   ${preview}
 </div>`;

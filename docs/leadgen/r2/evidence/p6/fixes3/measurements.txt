@@ -1,0 +1,94 @@
+
+===== run 2026-07-30T14:24:11.384Z =====
+E1 no-test  state=no-test disabled=true
+E1 no-test  reason = "⚠ Add variant is unavailable: a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press \"Create A/B test\", then \"Start A/B test\", then add the variant."
+E1 order    = "Order to A/B this funnel: 1. Create A/B test → 2. Start A/B test → 3. Add variant (it becomes the test's second arm, split 50/50). Until a test is running the funnel keeps exactly one variant."
+e1-blocked-no-test @375 scrollWidth=375 innerWidth=375 overflow=no
+
+===== run 2026-07-30T14:24:19.836Z =====
+E2 L1 stored A theme = {"scales":{"radius":"sharp"},"version":1}
+E2 L1 stored B theme = {"scales":{"radius":"round"},"version":1}
+e2-live-radius-sharp @375 scrollWidth=375 innerWidth=375 overflow=no
+e2-live-radius-round @375 scrollWidth=375 innerWidth=375 overflow=no
+E2 L3 emitted --lg-radius-* A(sharp) = {"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+E2 L3 emitted --lg-radius-* B(round) = {"sm":"10px","md":"14px","lg":"20px","xl":"20px","full":"9999px"}
+E2 L4 element counts A=28 B=40
+E2 L4 shared elements compared = 32
+E2 L4 PAINTED RADIUS DIFFERENCES (0):
+E2 L4 non-zero radii that are IDENTICAL in both (5):
+  SAME button.lg-btn.lg-btn-answer: 10px
+  SAME button.lg-btn.lg-continue: 10px
+  SAME div.lg-progress-fill: 9999px
+  SAME div.lg-progress-track: 9999px
+  SAME div.lg-question-card: 16px
+
+===== run 2026-07-30T14:27:09.481Z =====
+E1 no-test  state=no-test disabled=true
+E1 no-test  reason = "⚠ Add variant is unavailable: a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press \"Create A/B test\", then \"Start A/B test\", then add the variant."
+E1 order    = "Order to A/B this funnel: 1. Create A/B test → 2. Start A/B test → 3. Add variant (it becomes the test's second arm, split 50/50). Until a test is running the funnel keeps exactly one variant."
+e1-blocked-no-test @375 scrollWidth=375 innerWidth=375 overflow=no
+E1 fork-before-any-test HTTP 409 body={"error":"This funnel already has an active variant. A second active variant is only allowed as an arm of a running A/B test — set one up from the A/B tab."}
+
+===== run 2026-07-30T14:27:51.383Z =====
+E1 no-test  state=no-test disabled=true
+E1 no-test  reason = "⚠ Add variant is unavailable: a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press \"Create A/B test\", then \"Start A/B test\", then add the variant."
+E1 order    = "Order to A/B this funnel: 1. Create A/B test → 2. Start A/B test → 3. Add variant (it becomes the test's second arm, split 50/50). Until a test is running the funnel keeps exactly one variant."
+e1-blocked-no-test @375 scrollWidth=375 innerWidth=375 overflow=no
+E1 fork-before-any-test HTTP 409 body={"error":"This funnel already has an active variant. A second active variant is only allowed as an arm of a running A/B test — set one up from the A/B tab."}
+E1 not-running reason = "⚠ Add variant is unavailable: a second variant exists only as an arm of a RUNNING A/B test, and this funnel's test is draft — press \"Start A/B test\" first, then add the variant."
+e1-blocked-not-running @375 scrollWidth=375 innerWidth=375 overflow=no
+E1 ready    state=ready disabled=false
+e1-ready-running-test @375 scrollWidth=375 innerWidth=375 overflow=no
+E1 arms before=1 after=2
+E1 arm allocations after fork = ["50","50"]
+e1-forked-two-arms @375 scrollWidth=375 innerWidth=375 overflow=no
+E1 arms-frozen reason = "⚠ Add variant is unavailable: this running test already has its 2 arms and the arm set is frozen while it runs — press \"Stop A/B test\" first, then change the arms."
+e1-arms-frozen @375 scrollWidth=375 innerWidth=375 overflow=no
+E2 L1 stored A theme = {"scales":{"radius":"sharp"},"version":1}
+E2 L1 stored B theme = {"scales":{"radius":"round"},"version":1}
+e2-live-radius-sharp @375 scrollWidth=375 innerWidth=375 overflow=no
+e2-live-radius-round @375 scrollWidth=375 innerWidth=375 overflow=no
+E2 L3 emitted --lg-radius-* A(sharp) = {"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+E2 L3 emitted --lg-radius-* B(round) = {"sm":"10px","md":"14px","lg":"20px","xl":"20px","full":"9999px"}
+E2 L4 element counts A=28 B=40
+E2 L4 shared elements compared = 32
+E2 L4 PAINTED RADIUS DIFFERENCES (3):
+  DIFF button.lg-btn.lg-btn-answer: A=6px B=14px
+  DIFF button.lg-btn.lg-continue: A=6px B=14px
+  DIFF div.lg-question-card: A=10px B=20px
+E2 L4 non-zero radii that are IDENTICAL in both (2):
+  SAME div.lg-progress-fill: 9999px
+  SAME div.lg-progress-track: 9999px
+
+===== run 2026-07-30T14:28:56.265Z =====
+
+===== run 2026-07-30T14:29:28.904Z =====
+E1 no-test  state=no-test disabled=true
+E1 no-test  reason = "⚠ Add variant is unavailable: a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press \"Create A/B test\", then \"Start A/B test\", then add the variant."
+E1 order    = "Order to A/B this funnel: 1. Create A/B test → 2. Start A/B test → 3. Add variant (it becomes the test's second arm, split 50/50). Until a test is running the funnel keeps exactly one variant."
+e1-blocked-no-test @375 scrollWidth=375 innerWidth=375 overflow=no
+E1 fork-before-any-test HTTP 409 body={"error":"This funnel already has an active variant. A second active variant is only allowed as an arm of a running A/B test — set one up from the A/B tab."}
+E1 not-running reason = "⚠ Add variant is unavailable: a second variant exists only as an arm of a RUNNING A/B test, and this funnel's test is draft — press \"Start A/B test\" first, then add the variant."
+e1-blocked-not-running @375 scrollWidth=375 innerWidth=375 overflow=no
+E1 ready    state=ready disabled=false
+e1-ready-running-test @375 scrollWidth=375 innerWidth=375 overflow=no
+E1 arms before=1 after=2
+E1 arm allocations after fork = ["50","50"]
+e1-forked-two-arms @375 scrollWidth=375 innerWidth=375 overflow=no
+E1 arms-frozen reason = "⚠ Add variant is unavailable: this running test already has its 2 arms and the arm set is frozen while it runs — press \"Stop A/B test\" first, then change the arms."
+e1-arms-frozen @375 scrollWidth=375 innerWidth=375 overflow=no
+E2 L1 stored A theme = {"scales":{"radius":"sharp"},"version":1}
+E2 L1 stored B theme = {"scales":{"radius":"round"},"version":1}
+e2-live-radius-sharp @375 scrollWidth=375 innerWidth=375 overflow=no
+e2-live-radius-round @375 scrollWidth=375 innerWidth=375 overflow=no
+E2 L3 emitted --lg-radius-* A(sharp) = {"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+E2 L3 emitted --lg-radius-* B(round) = {"sm":"10px","md":"14px","lg":"20px","xl":"20px","full":"9999px"}
+E2 L4 element counts A=28 B=40
+E2 L4 shared elements compared = 32
+E2 L4 PAINTED RADIUS DIFFERENCES (3):
+  DIFF button.lg-btn.lg-btn-answer: A=6px B=14px
+  DIFF button.lg-btn.lg-continue: A=6px B=14px
+  DIFF div.lg-question-card: A=10px B=20px
+E2 L4 non-zero radii that are IDENTICAL in both (2):
+  SAME div.lg-progress-fill: 9999px
+  SAME div.lg-progress-track: 9999px
