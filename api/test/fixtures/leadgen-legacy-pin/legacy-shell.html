@@ -35,8 +35,8 @@
 [data-funnel-design="default-funnel"] .lg-range-handle-min{left:0}
 [data-funnel-design="default-funnel"] .lg-range-handle-max{left:100%}
 [data-funnel-design="default-funnel"] .lg-range-handle-value{position:absolute;bottom:calc(100% + 0.5rem);left:50%;transform:translateX(-50%);white-space:nowrap;font-size:0.8125rem;font-weight:700;line-height:1;padding:5px 9px;border-radius:6px;background:#1B3A5C;color:#FFFFFF}
-[data-funnel-design="default-funnel"] .lg-range-handle-min .lg-range-handle-value{left:0;transform:none}
-[data-funnel-design="default-funnel"] .lg-range-handle-max .lg-range-handle-value{left:auto;right:0;transform:none}
+[data-funnel-design="default-funnel"] .lg-range-handle-min .lg-range-handle-value{left:0;transform:translateX(calc(var(--lg-a,0) * -1%))}
+[data-funnel-design="default-funnel"] .lg-range-handle-max .lg-range-handle-value{left:auto;right:0;transform:translateX(calc((100 - var(--lg-b,100)) * 1%))}
 [data-funnel-design="default-funnel"] .lg-range-from-to .lg-range-fill,[data-funnel-design="default-funnel"] .lg-range-dual .lg-range-fill{container-type:inline-size;container-name:lg-range-fill}
 @container lg-range-fill (max-width:96px){[data-funnel-design="default-funnel"] .lg-range-handle-min .lg-range-handle-value{bottom:calc(100% + 0.5rem + 2rem)}}
 [data-funnel-design="default-funnel"] .lg-range-input{-webkit-appearance:none;appearance:none;position:absolute;top:50%;left:calc(28px * -0.5);width:calc(100% + 28px);height:44px;transform:translateY(-50%);background:transparent;margin:0;z-index:3}
