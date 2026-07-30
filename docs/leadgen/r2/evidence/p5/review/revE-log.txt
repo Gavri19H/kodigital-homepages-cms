@@ -1,0 +1,18 @@
+A5 icon selects present = 2
+A5 icon "__custom__" -> "" ; CHIP = {"t":"1 issue","c":"1"}
+A5 issue items = []
+A5 SAVE status = 400 body={"error":"Validation failed","fields":{"content.components[1].choices[0].icon":"IconCardAnswerGrid requires a per-choice icon (§14.4)"}}
+A5 save-problems = {"hidden":false,"text":"Save failed — 1 field need attention:IconCardAnswerGrid requires a per-choice Icon (§14.4)"}
+SRC-9 geometry (3 cards) = {"justify":"normal","gridL":387,"gridR":893,"gridW":506,"cards":[{"l":387,"r":636,"w":249},{"l":644,"r":893,"w":249}],"ghost":{"l":387,"w":98,"insideQuestion":false}}
+A7 [data-other-row] count: after enable=1, after +Add value=2
+A7 CHIP with an untouched (empty) added row = {"t":"1 issue","c":"1"}
+A7 CHIP with value-but-no-label row = {"t":"2 issues","c":"2"}
+A7 issue items = []
+A7 rows before save=3; SAVE=400
+A7 save-problems = {"hidden":false,"text":"Save failed — 2 fields need attention:IconCardAnswerGrid requires a per-choice Icon (§14.4)choice.Label is required"}
+A7 PERSISTED props.other = undefined
+DIALOG 
+A9 maps toggle count = 1
+A9 banners = {"top":{"hidden":false,"qid":"q_ms72op3j_abyq","text":"A Maps-enabled field has no job selected (Validate / Auction / Autocomplete) — it will BLOCK activation until fixed. Fix it →"},"tab":{"hidden":false,"text":"Pick at least one job for Maps, or turn it off — otherwise it does nothing at runtime."}}
+A9 banner after selecting ANOTHER node = {"hidden":false,"qid":"q_ms72op3j_abyq"}
+A9 after Fix-it jump, selected marker = null

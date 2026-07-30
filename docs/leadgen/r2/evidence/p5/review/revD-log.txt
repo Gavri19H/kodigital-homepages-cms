@@ -1,0 +1,21 @@
+
+FAILED post /api/admin/leadgen/sections 400: {"error":"Validation failed","fields":{"status":"Status must be one of active|archived"}}
+section lgs_01KYRQS02MHWWVB4D1DR8FBFAH
+CHIP initial = {"text":"No issues","count":"0"}
+CHIP after inserting Cards = {"text":"No issues","count":"0"}
+SRC-9 cards geometry = {"justify":"normal","textAlign":"start","gridW":506,"gridL":387,"cards":[{"l":387,"w":249},{"l":644,"w":249}]}
+SRC-9 add-choice ghost = {"text":"+ Add choice","w":98,"isSibling":false,"parentTag":"studio-add-ghost-row"}
+SRC-9 add-choice: choices 2 -> 3
+CHIP after add-choice = {"text":"No issues","count":"0"}
+ISSUE LIST = []
+SAVE response = 200
+SAVE problems box = {"hidden":true,"text":""}
+A7 other-editor block = {"hidden":false}
+A7 other value rows after +Add value = 2
+CHIP with empty-label Other row = {"text":"No issues","count":"0"}
+A7 ISSUE LIST = []
+A7 save response = 200
+A7 save problems = {"hidden":true,"text":""}
+A7 persisted props.other = {"enabled":true,"choices":[{"label":"Other option","value":"other_option","analytics_id":"other_option"}]}
+SRC-10 dropdown inspector = {"blockHidden":true,"mentionsOtherGroup":false}
+A9 maps toggle count = 0

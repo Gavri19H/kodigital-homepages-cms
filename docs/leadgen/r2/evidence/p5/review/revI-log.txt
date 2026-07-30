@@ -1,0 +1,20 @@
+
+FAILED post /api/admin/leadgen/sections 400: {"error":"Validation failed","fields":{"content.components[1].props.label":"a question group has no shared 'label' — there is no 'Main question' — each question carries its own label"}}
+P3 frame PUT = PUT failed: put /api/admin/leadgen/funnels/lgf_01KYRRF1DV56GAJ8G1PBDVMDQA/frame 400: {"error":"Validation failed","fields":{"frame_config_json":"frame_config_json must be a JSON object"}}
+SSR converged
+P1 dependent BEFORE Yes = {"disp":"inline-block","h":54}
+P1 dependent AFTER Yes (default untouched) = {"disp":"inline-block","h":54,"selVal":null}
+P3 live footer = null
+P1 Continue with default UNTOUCHED: still-on-page=false recorded={"rvi_current":{"value":"rvi_kestrel","answer_source":"default_applied"},"rvi_insured":{"value":"true","answer_source":"user_selected"}}
+P3 frame PUT = PUT failed: put /api/admin/leadgen/funnels/lgf_01KYRRF1DV56GAJ8G1PBDVMDQA/frame 400: {"error":"Validation failed","problems":[{"path":"frame.footer.blocks[2].links[0].href","scope":"frame","severity":"error","mes
+SSR converged
+P1 dependent BEFORE Yes = {"disp":"inline-block","h":54}
+P1 dependent AFTER Yes (default untouched) = {"disp":"inline-block","h":54,"selVal":null}
+P3 live footer = null
+P1 Continue with default UNTOUCHED: still-on-page=false recorded={"rvi_current":{"value":"rvi_kestrel","answer_source":"default_applied"},"rvi_insured":{"value":"true","answer_source":"user_selected"}}
+P3 frame PUT = PUT 200
+SSR converged
+P1 dependent BEFORE Yes = {"disp":"inline-block","h":54}
+P1 dependent AFTER Yes (default untouched) = {"disp":"inline-block","h":54,"selVal":null}
+P3 live footer = {"txt":"REVI legal cornerREVI Insurance Services — a fresh-reviewer footer.PrivacyTermsREVI advertising disclosure block.","links":["Privacy","Terms"]}
+P1 Continue with default UNTOUCHED: still-on-page=false recorded={"rvi_current":{"value":"rvi_kestrel","answer_source":"default_applied"},"rvi_insured":{"value":"true","answer_source":"user_selected"}}

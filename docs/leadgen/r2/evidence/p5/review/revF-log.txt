@@ -1,0 +1,28 @@
+
+FAILED post /api/admin/leadgen/sections 400: {"error":"Validation failed","fields":{"content.components[2].answer_type":"answer_type 'string' does not match catalog produces 'enum'","content.components[3].answer_type":"answer_type 'string' does not match catalog produces 'enum'"}}
+SSR converged
+R8 BEFORE any click = [{"qid":"rvf_yn","choices":[{"v":"true","role":"radio","checked":"false","pressed":null,"sel":false},{"v":"false","role":"radio","checked":"false","pressed":null,"sel":false}]},{"qid":"rvf_btn","choices":[{"v":"rvf_prog","role":"radio","checked":"false","pressed":null,"sel":false},{"v":"rvf_sf","role":"radio","checked":"false","pressed":null,"sel":false},{"v":"rvf_far","role":"radio","checked":"false","pressed":null,"sel":false},{"v":"rvf_kestrel","role":null,"checked":null,"pressed":null,"sel":false},{"v":"rvf_marlowe","role":null,"checked":null,"pressed":null,"sel":false}]},{"qid":"rvf_cards","choices":[{"v":"rvf_basic","role":"radio","checked":"false","pressed":null,"sel":false},{"v":"rvf_std","role":"radio","checked":"false","pressed":null,"sel":false},{"v":"rvf_prem","role":"radio","checked":"false","pressed":null,"sel":false},{"v":"rvf_custom","role":null,"checked":null,"pressed":null,"sel":false}]}]
+R8 AFTER clicks = [{"qid":"rvf_yn","choices":[{"v":"true","role":"radio","checked":"true","pressed":null,"sel":true},{"v":"false","role":"radio","checked":"false","pressed":null,"sel":false}]},{"qid":"rvf_btn","choices":[{"v":"rvf_prog","role":"radio","checked":"false","pressed":null,"sel":false},{"v":"rvf_sf","role":"radio","checked":"false","pressed":null,"sel":false},{"v":"rvf_far","role":"radio","checked":"true","pressed":null,"sel":true},{"v":"rvf_kestrel","role":null,"checked":"false","pressed":null,"sel":false},{"v":"rvf_marlowe","role":null,"checked":"false","pressed":null,"sel":false}]},{"qid":"rvf_cards","choices":[{"v":"rvf_basic","role":"radio","checked":"false","pressed":null,"sel":false},{"v":"rvf_std","role":"radio","checked":"false","pressed":null,"sel":false},{"v":"rvf_prem","role":"radio","checked":"true","pressed":null,"sel":true},{"v":"rvf_custom","role":null,"checked":"false","pressed":null,"sel":false}]}]
+SRC-8 Other dropdowns = [{"qid":"rvf_btn","hasSelect":true,"opts":["Choose…","Kestrel Mutual","Marlowe General"],"selW":0},{"qid":"rvf_cards","hasSelect":true,"opts":["Choose…","Weehawken Custom"],"selW":0}]
+SRC-9 visitor card row = {"justify":"normal","gridL":387,"gridR":893,"firstL":387,"lastR":0,"n":4}
+FAILED locator.click: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for locator('[data-lg-question="rvf_phone"] input').first()[22m
+
+
+=== G2 ===
+OTHER triggers = [{"q":"rvf_btn","txt":"Other","w":109},{"q":"rvf_cards","txt":"Other","w":163}]
+BTN panel after trigger = {"hidden":false,"w":109,"h":56,"opts":["Choose…","Kestrel Mutual","Marlowe General"]}
+BTN other value = rvf_marlowe
+CARD panel after trigger = {"hidden":false,"w":163,"opts":["Choose…","Weehawken Custom"]}
+CARDS geom = {"justify":"normal","gridL":387,"gridR":893,"leftGap":0,"rightGap":343,"vis":[{"v":"rvf_basic","l":387,"r":550,"w":163},{"v":"rvf_std","l":558,"r":722,"w":163},{"v":"rvf_prem","l":730,"r":893,"w":163},{"v":"OTHER","l":387,"r":550,"w":163}]}
+INPUTS = [{"type":"tel","im":"tel","ph":"(___)-___-____","f":"rvf_phone"}]
+
+=== H phone ===
+phone count=1 placeholder="(___)-___-____"
+SRC-5 after 2015 -> "(201)-5__-____"
+SRC-5 after 201555 -> "(201)-555-____"
+SRC-5 block msgs = [{"f":"rvf_phone","t":"Enter a complete phone number."}]
+SRC-5 still on page = true
+SRC-5 complete -> "(201)-555-1234"
+SRC-5 after complete: still-on-page=false recorded={"rvf_phone":{"value":"2015551234","answer_source":"user_selected"}}

@@ -1,0 +1,29 @@
+AUTHOR offer "REV5 Offer ONE — zip as text" id=2 test=HTTP 200
+AUTHOR offer "REV5 Offer TWO — zip as number" id=3 test=HTTP 200
+SETUP quote=lgq_01KYRQ57KXTATS27E7Y97RQR2A section=lgs_01KYRQ57MCB804TD1ZWMWCETY4 offers=lgo_01KYRQ57HRFTSJB0JERZMRTZ8F lgo_01KYRQ57JYCXF3725HS9TZCBGZ
+AUTHOR section [1 free-text] HTTP 200
+SSR converged 30ms: free-text
+S1 recorded keys = ["rv5addr"] values={"rv5addr":{"value":"911 Marlowe Terrace, Weehawken, NJ 07086","answer_source":"user_selected"}}
+S1 PAYLOAD lgo_01KYRQ57HRFTSJB0JERZMRTZ8F {"lead":{"rv5_full":"911 Marlowe Terrace, Weehawken, NJ 07086"}}
+S1 PAYLOAD lgo_01KYRQ57JYCXF3725HS9TZCBGZ {"lead":{"rv5_full":"911 Marlowe Terrace, Weehawken, NJ 07086"}}
+AUTHOR section [2 street-only] HTTP 200
+SSR converged 37ms: street-only
+S2 recorded keys = ["rv5addr_street"] values={"rv5addr_street":{"value":"911 Marlowe Terrace","answer_source":"user_selected"}}
+S2 PAYLOAD lgo_01KYRQ57HRFTSJB0JERZMRTZ8F {"lead":{"rv5_street":"911 Marlowe Terrace"}}
+S2 PAYLOAD lgo_01KYRQ57JYCXF3725HS9TZCBGZ {"lead":{"rv5_street":"911 Marlowe Terrace"}}
+AUTHOR section [3 street+city+manual zip5] HTTP 200
+SSR converged 18ms: composite w/ zip5
+S3 BADZIP error nodes = [{"for":"rv5addr_street","hidden":true,"text":"","rect":0,"disp":"none"},{"for":"rv5addr_city","hidden":true,"text":"","rect":0,"disp":"none"},{"for":"rv5addr_zip","hidden":false,"text":"Enter a valid 5-digit ZIP code.","rect":17,"disp":"block"},{"for":"rv5addr","hidden":true,"text":"","rect":0,"disp":"none"}]
+S3 BADZIP error texts = ["","","Enter a valid 5-digit ZIP code.","Enter a valid 5-digit ZIP code.",""]
+S3 BADZIP visible-at-375 = [{"for":"rv5addr_zip","text":"Enter a valid 5-digit ZIP code.","top":311.59375,"h":17,"inViewport":true}]
+S3 url before=http://r2fix.e2e.test:8901/lg/rv5addr?_cb=1785388517036 after=http://r2fix.e2e.test:8901/lg/rv5addr?_cb=1785388517036
+S3 recorded keys = ["rv5addr_city","rv5addr_street","rv5addr_zip"] values={"rv5addr_street":{"value":"911 Marlowe Terrace","answer_source":"user_selected"},"rv5addr_city":{"value":"Weehawken","answer_source":"user_selected"},"rv5addr_zip":{"value":"07086","answer_source":"user_selected"}}
+S3 PAYLOAD lgo_01KYRQ57HRFTSJB0JERZMRTZ8F {"lead":{"rv5_zone_text":"07086","rv5_street":"911 Marlowe Terrace","rv5_city":"Weehawken"}}
+S3 PAYLOAD lgo_01KYRQ57JYCXF3725HS9TZCBGZ {"lead":{"rv5_zone_num":7086,"rv5_street":"911 Marlowe Terrace","rv5_city":"Weehawken"}}
+AUTHOR section [4 unconfigured (D3)] HTTP 200
+SSR converged 13ms: D3 composite
+S4 D3 composite fields = [{"field":"rv5addr_street","placeholder":"Street address","typeable":true,"visible":true},{"field":"rv5addr_city","placeholder":"City","typeable":true,"visible":true},{"field":"rv5addr_state","placeholder":"State","typeable":true,"visible":true},{"field":"rv5addr_zip","placeholder":"ZIP code","typeable":true,"visible":true}]
+S4 legacy bare single .lg-address-input count = 0
+S4 recorded keys = ["rv5addr_city","rv5addr_state","rv5addr_street","rv5addr_zip"] values={"rv5addr_street":{"value":"911 Marlowe Terrace","answer_source":"user_selected"},"rv5addr_city":{"value":"Weehawken","answer_source":"user_selected"},"rv5addr_state":{"value":"NJ","answer_source":"user_selected"},"rv5addr_zip":{"value":"07086","answer_source":"user_selected"}}
+S4 PAYLOAD lgo_01KYRQ57HRFTSJB0JERZMRTZ8F {"lead":{"rv5_zone_text":"07086","rv5_street":"911 Marlowe Terrace","rv5_city":"Weehawken"}}
+S4 PAYLOAD lgo_01KYRQ57JYCXF3725HS9TZCBGZ {"lead":{"rv5_zone_num":7086,"rv5_street":"911 Marlowe Terrace","rv5_city":"Weehawken"}}
