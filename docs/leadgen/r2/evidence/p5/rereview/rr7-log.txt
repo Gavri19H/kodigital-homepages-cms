@@ -1,0 +1,7 @@
+I(a) no-fallback: preview="invalid → fallback (field omitted)" sentAs="(field omitted)" invalidNoteVisible=true
+I(b) NOTE: no [data-pb-field="fallback"] control found; skipping the fallback leg
+I(b) with-fallback: preview="invalid → fallback (field omitted)" sentAs="(field omitted)"
+I validation summary = "✓ No issues — the schema looks good."
+I test tool -> 200
+I wiring warnings = []
+I PROVIDER ROW = {}

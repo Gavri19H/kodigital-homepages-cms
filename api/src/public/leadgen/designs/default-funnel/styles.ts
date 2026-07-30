@@ -1388,12 +1388,14 @@ export function funnelChromeCss(
       background: `var(--lg-answer-bg, ${iconCard.hoverBackground})`,
     }),
     // R2 (adversarial review, pre-existing discovery): the LIVE runtime marks
-    // a selected choice with the `.lg-selected` CLASS + aria-pressed
-    // (render.ts SELECTED_CLASS) — NEVER aria-checked/data-selected (those
-    // are set only by the studio canvas/preview simulator). Every selected
-    // rule below now keys on ALL THREE so the live funnel actually paints a
-    // selection, not just the studio surfaces. ZERO runtime changes — the
-    // fix is entirely selector-side.
+    // a selected choice with the `.lg-selected` CLASS + aria-checked
+    // (render.ts SELECTED_CLASS; P5 S5c ADJ-R8 fixed the runtime to ALWAYS
+    // write aria-checked, matching the SSR role=radio/checkbox markup — it
+    // never wrote aria-pressed after that fix). Every selected rule below
+    // still keys on ALL THREE selectors so a selection paints regardless of
+    // which one a given surface (live funnel vs. studio canvas/preview
+    // simulator) happens to set. ZERO runtime changes were needed for the
+    // CSS itself — the fix was entirely selector-side.
     rule(
       `${scope} .lg-btn.lg-btn-answer[aria-checked="true"], ${scope} .lg-btn.lg-btn-answer[data-selected="true"], ${scope} .lg-btn.lg-btn-answer.lg-selected`,
       {
@@ -1746,6 +1748,16 @@ export function funnelChromeCss(
       color: page.textSecondaryColor,
       "margin-bottom": spacing.xs,
     }),
+    // P5-F3 (owner A.1 #6 Image8): the per-SUB-FIELD label renderAddressFieldSet
+    // now renders above each field of a multi-field composite — a DEDICATED
+    // class (not .lg-label, which stays the ONE whole-field-set/question
+    // label per §6.3) so the two never collide, same typography.
+    rule(`${scope} .lg-address-field-label`, {
+      display: "block",
+      "font-size": subheadline.fontSize,
+      color: page.textSecondaryColor,
+      "margin-bottom": spacing.xs,
+    }),
     rule(`${scope} .lg-input`, {
       width: "100%",
       "box-sizing": "border-box",
@@ -1810,6 +1822,17 @@ export function funnelChromeCss(
       "pointer-events": "none",
     }),
     rule(`${scope} .lg-currency-input`, { "padding-left": spacing.xl }),
+    // P5-F3 (owner A.1 #8 "Other" dropdown): the authored-Other <select>
+    // (otherSelectMarkup) is a direct grid item of the SAME .lg-answer-group/
+    // .lg-card-grid the choices use, auto-placed into ONE narrow track next
+    // to its .lg-other-trigger — .lg-input's width:100% above then only
+    // ever fills that one column, clipping long authored option text
+    // ("Weehawken Cus…"). Spanning the full row instead gives it the
+    // container's own already-mobile-safe width (never narrower than a
+    // column, never wider than the container, so 375px can't overflow)
+    // without touching the trigger's own placement or the grid's own
+    // column count/centering.
+    rule(`${scope} select.lg-other-select`, { "grid-column": "1 / -1" }),
   );
 
   // ---- validation: error / helper / legal (§14.2 validation) --------------
@@ -2278,28 +2301,15 @@ export function funnelChromeCss(
       "border-radius": radius.md,
       "margin-top": spacing.xs,
     }),
-    // A-6/P-6: the Address composite preview (Street/City/State/ZIP chips marked
-    // "auto-filled"). display:none by default keeps the LIVE render a single
-    // autocomplete input (behavior unchanged); shown only under `.lg-preview`.
-    rule(`${scope} .lg-address-composite`, { display: "none" }),
-    rule(`${scope}.lg-preview .lg-address-composite`, {
-      display: "block",
-      "margin-top": spacing.sm,
-      padding: spacing.sm,
-      border: `1px dashed ${page.textSecondaryColor}`,
-      "border-radius": radius.md,
-    }),
-    rule(`${scope}.lg-preview .lg-address-composite-note`, {
-      display: "block",
-      "font-size": "12px",
-      color: page.textSecondaryColor,
-      "margin-bottom": spacing.xs,
-    }),
-    rule(`${scope}.lg-preview .lg-address-composite-fields`, {
-      display: "flex",
-      "flex-wrap": "wrap",
-      gap: spacing.xs,
-    }),
+    // P5-F3: the A-6/P-6 Address composite preview (`.lg-address-composite`,
+    // `-composite-note`, `-composite-fields` — the studio-only decorative
+    // "what WOULD auto-fill" box) is REMOVED here — it was the pre-D3 L-192
+    // fallback's own preview; since R2 P5 S5a (owner D3) the visitor's
+    // address renders the REAL 4-field composite directly (renderAddressFieldSet),
+    // so no renderer has emitted these three classes since (grepped clean
+    // across src/ before this deletion). `.lg-address-chip*` below is a
+    // DIFFERENT, still-referenced-only-here decorative artifact of the same
+    // retired preview and is left untouched (out of this slice's scope).
     rule(`${scope}.lg-preview .lg-address-chip`, {
       display: "inline-flex",
       "flex-direction": "column",

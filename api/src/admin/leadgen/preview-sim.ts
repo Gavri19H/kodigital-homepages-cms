@@ -20,11 +20,13 @@
 //
 // RUNTIME PARITY (read-only mirrors of src/public/leadgen/runtime/*):
 //   selected   → runtime/render.ts applySelectionClasses: SELECTED_CLASS
-//                ("lg-selected") + aria-pressed="true" on the matching
-//                [data-lg-choice], aria-pressed="false" on its siblings. On
-//                top, the preset's own initial aria-checked="false" flips to
-//                "true" (role=radio/checkbox checked form) and a dropdown's
-//                matching <option> gains `selected` (placeholder loses it).
+//                ("lg-selected") + aria-checked="true" on the matching
+//                [data-lg-choice], aria-checked="false" on all other choices.
+//                NOTE: markSelectionInSlice is NOT a pure mirror — it
+//                additionally special-cases <option> tags (toggling native
+//                `selected`) to approximate native <select> display semantics,
+//                which the runtime function never does. A dropdown's matching
+//                <option> gains `selected` (placeholder loses it).
 //   error      → runtime/render.ts setFieldError: the [data-lg-field] block
 //                gains ERROR_CLASS ("lg-error"), its [data-lg-input] gains
 //                aria-invalid="true", and the [data-lg-error-for] slot shows
@@ -225,9 +227,11 @@ function markSelectionInSlice(slice: string, values: readonly string[]): string 
       selectedAnOption = true;
       return `${tag.slice(0, tag.length - 1)} selected>`;
     }
-    // applySelectionClasses mirror: aria-pressed on EVERY choice of the
-    // answered question; class + checked form only on the match.
-    let next = setTagAttr(tag, "aria-pressed", isOn ? "true" : "false");
+    // applySelectionClasses mirror (P5 tail — kept in lockstep with the P5
+    // S5c ADJ-R8 runtime fix): aria-checked true/false on EVERY choice of
+    // the answered question, matching the SSR aria-checked="false" default
+    // this is layered over; class also added on the match.
+    let next = setTagAttr(tag, "aria-checked", isOn ? "true" : "false");
     if (isOn) {
       next = addClassToTag(next, "lg-selected");
       next = setTagAttr(next, "aria-checked", "true");

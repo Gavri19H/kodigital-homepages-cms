@@ -393,7 +393,9 @@ describe("R1 E1-NEW-4 — a TwoButtonYesNo default paints its button selected on
     // `component.choices !== undefined` guard skipped this — choices is never
     // projected for TwoButtonYesNo).
     expect(dom.ynYes.classSet.has(render.SELECTED_CLASS)).toBe(true);
-    expect(dom.ynYes.getAttribute("aria-pressed")).toBe("true");
+    // P5 S5c (ADJ-R8): aria-checked (role="radio" is what the SSR markup
+    // actually ships), not aria-pressed (that pairs with role="button" only).
+    expect(dom.ynYes.getAttribute("aria-checked")).toBe("true");
     expect(dom.ynNo.classSet.has(render.SELECTED_CLASS)).toBe(false);
   });
 });

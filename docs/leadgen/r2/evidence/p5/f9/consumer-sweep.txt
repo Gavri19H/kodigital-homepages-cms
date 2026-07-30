@@ -1,0 +1,258 @@
+
+ RUN  v2.1.9 /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api
+
+stdout | test/leadgen-offers-api.test.ts > A1 guarded hard delete — DELETE /offers/:id?mode=hard (07 §7.2) > archives by default; hard-deletes a clean offer permanently
+{"event":"leadgen_offer_hard_delete","offer_public_id":"lgo_01KYRYJTMF1HNCJBGKSY4HTBP0","offer_name":"Test Offer","cascaded":{"leadgen_offer_region_rules":0,"leadgen_offer_headers":0,"leadgen_offer_cap_counters":0,"leadgen_offer_payload_schemas":0,"leadgen_offer_placements":1}}
+
+stderr | test/leadgen-offers-api.test.ts > duplicate — F7 one-transaction atomicity + F13 source-placement-id guard (07 §7.3) > F7: a MID-BATCH child failure rolls back the whole clone — parent offer row included (no compensating delete)
+Error: UNIQUE constraint failed: leadgen_offer_placements.offer_id, leadgen_offer_placements.placement_id
+    at Object.run (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/test/leadgen-offers-api.test.ts:83:38)
+    at Object.batch (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/test/leadgen-offers-api.test.ts:100:40)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at duplicateOfferHandler (/Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/offers-handlers.ts:1742:3)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:17)
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/src/admin/leadgen/router.ts:169:3
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:17)
+    at dispatch (file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/compose.js:22:17)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/node_modules/hono/dist/hono-base.js:301:25
+    at /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/test/leadgen-offers-api.test.ts:2225:17 {
+  code: 'ERR_SQLITE_ERROR',
+  errcode: 2067,
+  errstr: 'constraint failed'
+}
+
+stdout | test/leadgen-offers-api.test.ts > hard delete — F12a cascade row-count proofs + F6 structured audit log (07 §7.2) > F12a: ?mode=hard cascades ALL 5 own-child tables — BEFORE/AFTER row counts
+{"event":"leadgen_offer_hard_delete","offer_public_id":"lgo_01KYRYJTSMT6ZAPFMPSRDK0WZM","offer_name":"RichOffer","cascaded":{"leadgen_offer_region_rules":2,"leadgen_offer_headers":1,"leadgen_offer_cap_counters":1,"leadgen_offer_payload_schemas":2,"leadgen_offer_placements":1}}
+
+ ✓ test/leadgen-offers-api.test.ts > POST /offers — §10.1 create modal > creates the draft offer + its default placement atomically (lgo_/lgpl_, is_default=1)
+ ✓ test/leadgen-offers-api.test.ts > POST /offers — §10.1 create modal > rejects every missing §10.1 required field with a field-keyed 400
+ ✓ test/leadgen-offers-api.test.ts > POST /offers — §10.1 create modal > rejects the illegal §10.2 flag combo (calls_provider_api=0 + bid_source=response)
+ ✓ test/leadgen-offers-api.test.ts > POST /offers — §10.1 create modal > rejects a non-JSON body
+ ✓ test/leadgen-offers-api.test.ts > GET /offers — §8.2/§9.2 filters + paging > filters by search / provider / vertical / activity / status / offer_type / dynamic
+ ✓ test/leadgen-offers-api.test.ts > GET /offers — §8.2/§9.2 filters + paging > rejects invalid enum filter values with 400
+ ✓ test/leadgen-offers-api.test.ts > GET /offers — §8.2/§9.2 filters + paging > pages with the 03 §8.4 paging envelope and carries default_placement_id
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/search — typeahead (03 §8.2) > is registered BEFORE /offers/:id (static-before-param) and returns the search envelope
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/search — typeahead (03 §8.2) > matches on name only, filters activity+vertical, active only, name-ordered, LIMIT 20
+ ✓ test/leadgen-offers-api.test.ts > PATCH /offers/:id — partial update + nested collections > updates scalars via dual id (public_id) with merge-then-revalidate
+ ✓ test/leadgen-offers-api.test.ts > PATCH /offers/:id — partial update + nested collections > replace-sets headers[] (value kinds validated; macro templates normalized)
+ ✓ test/leadgen-offers-api.test.ts > PATCH /offers/:id — partial update + nested collections > rejects bad headers: unknown macro, control chars, bad secret name, duplicate name
+ ✓ test/leadgen-offers-api.test.ts > PATCH /offers/:id — partial update + nested collections > replace-sets region_rules[] minting lgrr_ for new rows, preserving provided ids
+ ✓ test/leadgen-offers-api.test.ts > PATCH /offers/:id — partial update + nested collections > rejects invalid region rules (empty values, bad enums, foreign public_id shape)
+ ✓ test/leadgen-offers-api.test.ts > PATCH /offers/:id — partial update + nested collections > rejects each §10.3 client-mode violation at save
+ ✓ test/leadgen-offers-api.test.ts > PATCH /offers/:id — partial update + nested collections > enforces the §10.5 banner template guards at save and persists normalized
+ ✓ test/leadgen-offers-api.test.ts > PATCH /offers/:id — partial update + nested collections > enforces §10.6 cap coherence and §10.2 flag combo on the MERGED state
+ ✓ test/leadgen-offers-api.test.ts > PATCH /offers/:id — partial update + nested collections > validates cap_fallback_offer_id referentially (unknown + self)
+ ✓ test/leadgen-offers-api.test.ts > PATCH /offers/:id — partial update + nested collections > 400s on an empty PATCH and on unknown fields (active_payload_schema_id is not PATCHable)
+ ✓ test/leadgen-offers-api.test.ts > PATCH /offers/:id — placements[] replace-set (04 §10.1 / 03 §9.2) > preserves rows by lgpl_ public_id (same DB row id), mints new, deletes omitted
+ ✓ test/leadgen-offers-api.test.ts > PATCH /offers/:id — placements[] replace-set (04 §10.1 / 03 §9.2) > moves the default between rows in one PATCH (uq_leadgen_offerplacement_default holds both sides)
+ ✓ test/leadgen-offers-api.test.ts > PATCH /offers/:id — placements[] replace-set (04 §10.1 / 03 §9.2) > rejects zero defaults, two defaults, an empty set, and duplicate placement_id (typed)
+ ✓ test/leadgen-offers-api.test.ts > PATCH /offers/:id — placements[] replace-set (04 §10.1 / 03 §9.2) > rejects a foreign/unknown lgpl_ public_id and a malformed one
+ ✓ test/leadgen-offers-api.test.ts > PATCH /offers/:id — placements[] replace-set (04 §10.1 / 03 §9.2) > refuses removing a placement referenced by leadgen_auction_offers (typed guard)
+ ✓ test/leadgen-offers-api.test.ts > DELETE /offers/:id — archive semantics (03 §9.6) > flips status to archived, never hard-deletes; archived offers stay filterable
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id/usage — sections + auctions joins > returns the Sections mapping to it and the Auctions it participates in
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id/usage — sections + auctions joins > an unused offer references nothing and is delete-eligible
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > a question NESTED inside a layout container surfaces in linked_fields (pre-fix: dropped)
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > a DEEPLY nested question (CardPanel ⊃ Stack ⊃ question) surfaces with its enum metadata
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > a FLAT Section's projection is unchanged — same fields, same order, same metadata
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: an unconfigured (4-field) Address projects its SUB-FIELD keys, not the base
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: an authored maps.fills rename is offered under the RENAMED name
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a full_address-alone Address still projects ONE entry under the base key
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a street-only Address projects ONE entry, named for the key it records
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a non-address multi-entry Section keeps its exact projection (no address expansion leaks)
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a from_to slider projects loan_min + loan_max as NUMBERS, never the base
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a dual_range slider projects the SAME two number sub-fields
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: single / stepper / radial sliders still project the SCALAR base
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a NameFieldsGroup projects the sub-fields it records (it carries no internal_field at all)
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.linked_fields — §8.5 nested questions > SRC-6B: a NON-PRODUCING node that references a question's field contributes NOTHING
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id/analytics — §10.7 NULLIF-guarded ratios > zero rows → zero counts and NULL ratios (never fake 0 ratios)
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id/analytics — §10.7 NULLIF-guarded ratios > computes the exact §10.7 formulas over the ranged mirror sum
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id/analytics — §10.7 NULLIF-guarded ratios > rejects malformed date params
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id/cap — §10.6 near-real-time status > reads the current-period counter and computes exceeded
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id/cap — §10.6 near-real-time status > returns zeros + exceeded=false when no counter row exists
+ ✓ test/leadgen-offers-api.test.ts > GET /offers/:id builder_context.active_schema — §12.5 additive field_label > every node carries field_label (authored label > humanized leaf); the stored schema bytes gain nothing
+ ✓ test/leadgen-offers-api.test.ts > payload-schemas — §11.8 immutable versioning + active pointer > creates v1 then v2; the active pointer moves; v1 stays byte-identical
+ ✓ test/leadgen-offers-api.test.ts > payload-schemas — §11.8 immutable versioning + active pointer > rejects an invalid schema with the typed §11.5 error list
+ ✓ test/leadgen-offers-api.test.ts > payload-schemas — §11.8 immutable versioning + active pointer > rejects a carrier_parse_json without a fields map
+ ✓ test/leadgen-offers-api.test.ts > payload-schemas — §11.8 immutable versioning + active pointer > persists carrier_parse_json byte-identical on the new version (§11.6 — the parser versions WITH the schema)
+ ✓ test/leadgen-offers-api.test.ts > offer detail last_test_at — §6.1 right-column chip source > is null without any test run (create response + GET detail)
+ ✓ test/leadgen-offers-api.test.ts > offer detail last_test_at — §6.1 right-column chip source > returns MAX(created_at) of TEST-TOOL rows as an ISO string; runtime auction rows NEVER count
+ ✓ test/leadgen-offers-api.test.ts > offer detail last_test_at — §6.1 right-column chip source > another offer's test rows never leak in (.bind-scoped by public_id)
+ ✓ test/leadgen-offers-api.test.ts > payload-schemas — §6.5/§6.9 additive node fields persist verbatim (§6.14) > free_text_* + computed default/fallback refs save (201, no warnings) and round-trip byte-faithfully
+ ✓ test/leadgen-offers-api.test.ts > payload-schemas — §6.5/§6.9 additive node fields persist verbatim (§6.14) > a bad free-text config / unknown computed ref key REJECT the save with the typed blocking codes
+ ✓ test/leadgen-offers-api.test.ts > payload-schemas/from-example — §11.2 automatic generation > infers a VALID editable schema, persists it as the next active version
+ ✓ test/leadgen-offers-api.test.ts > payload-schemas/from-example — §11.2 automatic generation > accepts a pasted JSON STRING example and rejects a malformed one
+ ✓ test/leadgen-offers-api.test.ts > GET /verticals + /activities — 03 §8.2 Shared filter options > unions DISTINCT non-empty values from offers ∪ sections ∪ quotes, deduped + sorted
+ ✓ test/leadgen-offers-api.test.ts > GET /verticals + /activities — 03 §8.2 Shared filter options > returns { items: [] } on an empty DB and both paths carry no-store
+ ✓ test/leadgen-offers-api.test.ts > GET /verticals + /activities — 03 §8.2 Shared filter options > GET /verticals?activity= filters every union leg; the bare path stays the global union
+ ✓ test/leadgen-offers-api.test.ts > A2 duplicate — POST /offers/:id/duplicate (07 §7.3) > clones to a paused draft: new lgo_/lgpl_ ids, required new default placement, untested, nothing operational copied
+ ✓ test/leadgen-offers-api.test.ts > A1 guarded hard delete — DELETE /offers/:id?mode=hard (07 §7.2) > archives by default; hard-deletes a clean offer permanently
+ ✓ test/leadgen-offers-api.test.ts > A3 usage inventory — GET /offers/:id/usage (07 §7.4) > reports the full reference-kind set + delete_eligibility; provider-logs/analytics are warning-only
+ ✓ test/leadgen-offers-api.test.ts > A1 referenced hard-delete is blocked — 409 + usage report (07 §7.2) > a funnel_rule target AND an auction backfill source block ?mode=hard with the two new kinds
+ ✓ test/leadgen-offers-api.test.ts > A3 usage inventory — populated fixture (07 §7.4) > reports every named kind with real counts; warning-only kinds never block
+ ✓ test/leadgen-offers-api.test.ts > GET /offers — F5 §7.1 per-row test_status chip field > derives passed/failed/untested from the LATEST TEST-TOOL run; runtime auction rows never count
+ ✓ test/leadgen-offers-api.test.ts > duplicate — F7 one-transaction atomicity + F13 source-placement-id guard (07 §7.3) > F13: 400s when default_placement_id equals ANY source placement id (default or extra)
+ ✓ test/leadgen-offers-api.test.ts > duplicate — F7 one-transaction atomicity + F13 source-placement-id guard (07 §7.3) > F7: a validation failure BEFORE the batch leaves zero offer rows (missing default_placement_id)
+ ✓ test/leadgen-offers-api.test.ts > duplicate — F7 one-transaction atomicity + F13 source-placement-id guard (07 §7.3) > F13b: a reserved __needs_value__ default_placement_id is a typed 400 (never the old mid-batch 500), zero clone rows
+ ✓ test/leadgen-offers-api.test.ts > duplicate — F7 one-transaction atomicity + F13 source-placement-id guard (07 §7.3) > F7: a MID-BATCH child failure rolls back the whole clone — parent offer row included (no compensating delete)
+ ✓ test/leadgen-offers-api.test.ts > duplicate — F7 one-transaction atomicity + F13 source-placement-id guard (07 §7.3) > F7 structural: duplicate NEVER writes leadgen_offers via a standalone run() — the parent INSERT rides the batch (crash-window proof)
+ ✓ test/leadgen-offers-api.test.ts > duplicate — F12 copy-set matrix / blanked sentinels / non-copy proofs (07 §7.3, §7.7) > F12b: each copy checkbox independently copies vs skips, DB-proven (incl. F13a cap_fallback_offer_id under the cap flag)
+ ✓ test/leadgen-offers-api.test.ts > duplicate — F12 copy-set matrix / blanked sentinels / non-copy proofs (07 §7.3, §7.7) > F12c: extra source placements clone as __needs_value__ sentinel DB rows + copied.extra_placements_blanked
+ ✓ test/leadgen-offers-api.test.ts > duplicate — F12 copy-set matrix / blanked sentinels / non-copy proofs (07 §7.3, §7.7) > F12d: operational data is NEVER copied — zero analytics/cap-counter/provider-log/test/revenue rows keyed to the clone
+ ✓ test/leadgen-offers-api.test.ts > hard delete — F12a cascade row-count proofs + F6 structured audit log (07 §7.2) > F12a: ?mode=hard cascades ALL 5 own-child tables — BEFORE/AFTER row counts
+ ✓ test/leadgen-offers-api.test.ts > hard delete — F12a cascade row-count proofs + F6 structured audit log (07 §7.2) > F6: hard delete emits the structured audit event with per-child-table cascaded counts
+ ✓ test/leadgen-offers-api.test.ts > usage — F12e every-kind fixture + F8 true multi-table counts (07 §7.4) > populates all 13 kinds ≥1 and every count is the TRUE summed row count in one response
+ ✓ test/leadgen-offers-api.test.ts > quotes_indirect — a quote-owned shared-page Section also counts (Rework M2 owner axis) > counts + blocks a hard delete when the Offer's Section is placed ONLY on a quote's shared page (no variant reference)
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.1 — three-pane shell > renders the tree / editor / right-column panes with toolbar, search and templates
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.1 — three-pane shell > normal mode has NO dotted-path typing and none of the old raw-input rows (M2)
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.1 — three-pane shell > last-Test chip: untested for a fresh offer; passed for a fully-proven offer
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.1 — three-pane shell > rename impact warning + descendant rewrite hooks ride the island script
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.1 — three-pane shell > §6.1 last-Test chip SSRs `passed <ts>` / `failed <ts>` from the additive last_test_at
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.2 — grouped source picker > renders the UI groups with exact members and storage-encoded option values
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.2 — grouped source picker > Computed dropdown = registry keys ONLY, each option label — description (example)
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.2 — grouped source picker > the full 32-macro list rides Advanced-only optgroups; the flat select is gone (M2)
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.2 — grouped source picker > inexpressible members are OMITTED, never disabled-but-visible (postal / page_view_id / auction_instance_id)
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.3/§6.4 — value-map table + choiceDisplay > modal table renders the 7 live §6.3 columns exactly, in order — the retired Other-group column is GONE
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.3/§6.4 — value-map table + choiceDisplay > actions: Add value · Add many · Bulk paste · Import CSV (client-side, column mapping) · search · sort
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.3/§6.4 — value-map table + choiceDisplay > MINOR-2: the retired Other-group vocabulary is absent from the SERVED bytes (column, chip wording, row action, comments)
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.3/§6.4 — value-map table + choiceDisplay > footer: unmapped-internal-values warning + the miss ⇒ invalid ⇒ fallback reminder
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.3/§6.4 — value-map table + choiceDisplay > §6.4 Main-choice controls: Main checkbox column, count chips, soft >9 warn — the retired otherGroup/searchableOther authoring controls are GONE
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.3/§6.4 — value-map table + choiceDisplay > MINOR-6: CSV parser only quotes at cell start — a mid-cell quote does not swallow the comma
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.3/§6.4 — value-map table + choiceDisplay > nano-7: value-map apply guards reserved internal keys explicitly (not a silent no-op)
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.5–§6.7 — free text / date / boolean > §6.5 free-text toggle with explanation; mapping disabled visually, required/default/fallback kept
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.5–§6.7 — free text / date / boolean > §6.5 constraints: max-length input + pattern preset select (+custom input) live in the NORMAL-mode panel
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.5–§6.7 — free text / date / boolean > §6.5 the island script represents the new fields (KNOWN_NODE_KEYS) and mirrors the typed error
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.5–§6.7 — free text / date / boolean > §6.5 a schema with free-text constraints round-trips through the bootstrap island
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.5–§6.7 — free text / date / boolean > §6.6 date format picker: the formatDate-expressible formats + Custom; Unix timestamp OMITTED
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.5–§6.7 — free text / date / boolean > SRC-7B: the output-format picker offers currency/number/string, live-previews, and is EXCLUDED from computeAdvReasons' transform-pipeline Advanced-drawer flag
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.5–§6.7 — free text / date / boolean > §6.7 boolean presets: the 6 options with exact value_map emissions + preview chips
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the output format writes type AND transform > ATOMIC: each option writes node.type AND node.transform together (As entered leaves the Type select in charge)
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the output format writes type AND transform > NO HIDDEN STATE: every node the control writes is recognized by isOutputFormatNode (the control can always display what is stored)
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the output format writes type AND transform > MINOR-3: the inlined kind list == the control's <option> values == a subset of the exported LEADGEN_TRANSFORM_KINDS
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the output format writes type AND transform > E11: the island preview == the REAL buildPayload output across {4 options} × {170000, 0, "07032", "", "abc"}
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the output format writes type AND transform > D9: the control's own three nodes send "$170,000" · 170000 · "170000" for the same 170000 answer
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the output format writes type AND transform > owner #6-second: the panel is authorable for STRING answers too (an address sub-field), date nodes excluded
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the output format writes type AND transform > the panel's own markup: sample box takes TEXT (a leading-zero ZIP survives), JSON-shape chip, type-owned note
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.8 — object/array builders > object panel: child builder + subtree preview; array panel: item type + EXACTLY the 3 supported sources
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.9 — default/fallback > both controls offer Disabled · Static · Computed · Copied-from-field with inputs typed by the field
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.9 — default/fallback > §6.9 computed option: BOTH slots carry a registry dropdown rendered through the §6.2 computed helper
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.9 — default/fallback > §6.9 the island script EMITS the typed object and re-detects it (round-trip logic present)
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.9 — default/fallback > §6.9 a schema with computed default/fallback refs round-trips through the bootstrap island
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.10 — condition builder > operator list = the supported evaluator ops + empty-sugar ONLY; contains/OR omitted entirely
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.10 — condition builder > AND-row + OR guidance, live preview sentence, and evaluator-exact sugar emission
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.10 — condition builder > F-1: an explicit '=' pick sticks through the read→render cycle and reaches eq+true (no is_empty snap-back)
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.10 — condition builder > eq WITH a value survives render→read round-trips without collapsing to sugar; stored empty eq/neq still render the sugar ops
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.10 — condition builder > F-1: an enum field's condition value is a dropdown of its Section choices; the picked value stores TYPED
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.10 — condition builder > F-1: in/not_in use a chips editor — add/remove tokens store the values array; enum entry is a select, string entry is text
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.10 — condition builder > F-1 residual: number/currency-typed no-choices fields store finite numeric chip tokens as NUMBERS; string fields keep strings
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder — retro-audit regressions (F-2/F-4/F-5) > F-5: the client free-text validator flags nested + alternation bombs (depth-aware, matching the server); linear patterns stay clean
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder — retro-audit regressions (F-2/F-4/F-5) > F-4: renamePrefix rewrites a populated subtree's descendant paths and returns the moved items
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder — retro-audit regressions (F-2/F-4/F-5) > F-4: value-map rows→apply→storage→rows round-trips executed, typed outputs + main flags intact
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder — retro-audit regressions (F-2/F-4/F-5) > F-2: dropping a row onto the other group regroups it via the shared mutation; mainValues updates on apply
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.11 — validation panel > summary + issue rows + Jump hooks + the blocking-codes footer from the payload.ts export
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.11 — validation panel > every blocking + warning code carries an operator fix hint in the island
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.11 — validation panel > server 400 schema_errors render through the same panel: save + test paths are wired
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.12 — Test tab > generated sample-answer form + regenerate + per-Offer draft persistence (POST/PUT sample-answers)
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.12 — Test tab > simulated-context panel: collapsed by default, realistic US defaults, override keys only
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.12 — Test tab > placement picker: visible with >1 placements (default pre-selected); hidden for a single placement
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.12 — Test tab > environment select requires an explicit production confirm; result view echoes context_used
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.12 — Test tab > Advanced raw-JSON answers editor round-trips with the form (form→JSON / JSON→form)
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.14/M2 — no normal-mode JSON input reachable > every raw-JSON input (data-raw-json) sits inside a data-lg-advanced drawer
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder §6.14/M2 — no normal-mode JSON input reachable > no JSON-shaped placeholder input exists outside Advanced drawers
+ × test/leadgen-payload-builder-ui.test.ts > payload builder — bootstrap islands > lg-payload-data round-trips: schema, computed options, hints, offer + builder_context.linked_fields
+   → expected 1 to be greater than or equal to 4
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder — bootstrap islands > lg-test-data round-trips: placements + endpoint configuration flags
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder — XSS discipline > hostile schema labels + placement labels render escaped; islands cannot break the script tag
+ ✓ test/leadgen-payload-builder-ui.test.ts > payload builder — ES5-only inline scripts > every inline <script> on the rich editor page is ES5 and parses standalone (node --check)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections — create + §12.1 derived rebuild > creates the section (lgs_) and rebuilds both derived indexes from content_json
+ ✓ test/leadgen-sections-api.test.ts > POST /sections — create + §12.1 derived rebuild > rejects a Section missing a §12.1 required field
+ ✓ test/leadgen-sections-api.test.ts > POST /sections — create + §12.1 derived rebuild > PC-A1: accepts auto_advance for an ELIGIBLE single-choice section (201)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections — create + §12.1 derived rebuild > PC-A1: rejects auto_advance on a MULTI-component section (400, names the Continue rule)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections — create + §12.1 derived rebuild > PC-A1: rejects auto_advance on a dropdown-only (no-click) section (400)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections — create + §12.1 derived rebuild > PC-A1: PATCH switching a button section to auto_advance with 2 producers is rejected (400)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections — create + §12.1 derived rebuild > PATCH replaces the derived index set (add then swap the mapped Offer)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections — create + §12.1 derived rebuild > a scalar-only PATCH preserves the mapping graph (round-trips stored edges)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections — create + §12.1 derived rebuild > B1: a GET→PATCH round-trip preserves output_value_map + value_transform (no silent wipe)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections — create + §12.1 derived rebuild > Round-4 re-pin: DELETE hard-deletes an unreferenced section (row gone); archiving moves to PATCH {status:'archived'} (row stays)
+ ✓ test/leadgen-sections-api.test.ts > §12.4 — mapping into an archived / mismatched Offer is blocked > blocks mapping into an archived Offer
+ ✓ test/leadgen-sections-api.test.ts > §12.4 — mapping into an archived / mismatched Offer is blocked > blocks mapping into an activity/vertical-mismatched Offer
+ ✓ test/leadgen-sections-api.test.ts > §12.4 — mapping into an archived / mismatched Offer is blocked > blocks mapping into an Offer with no active payload schema
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §14.9 desktop + mobile (no persist) > renders both viewports from a draft content_json + the scoped chrome CSS
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §14.9 desktop + mobile (no persist) > rejects a malformed content_json (only rejection path, §30.6)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §14.9 desktop + mobile (no persist) > is registered BEFORE /sections/:id (static-before-param)
+ ✓ test/leadgen-sections-api.test.ts > GET /sections/:id/offers — activity+vertical Offers + mappings (§12.4) > lists only activity+vertical-matching active Offers + the current mappings
+ ✓ test/leadgen-sections-api.test.ts > GET /sections/:id/usage — funnel-variant join (P7 tables exist in 0036) > returns the funnel variants ordering the Section
+ ✓ test/leadgen-sections-api.test.ts > GET /sections/:id/usage — funnel-variant join (P7 tables exist in 0036) > returns an empty list for an unused Section
+ ✓ test/leadgen-sections-api.test.ts > GET /sections/:id/usage — funnel-variant join (P7 tables exist in 0036) > returns a shared-page usage row (quote_id-owned, variant_id NULL) with no funnel/variant identity
+ ✓ test/leadgen-sections-api.test.ts > GET /sections/:id/usage — funnel-variant join (P7 tables exist in 0036) > blocks DELETE with 409 when the Section is used ONLY via a quote's shared page
+ ✓ test/leadgen-sections-api.test.ts > GET /sections/:id/analytics — §12.9 NULLIF ratios + distribution > zero rows → zero counts + NULL ratios (never fake 0)
+ ✓ test/leadgen-sections-api.test.ts > GET /sections/:id/analytics — §12.9 NULLIF ratios + distribution > computes the §12.9 ratios over the ranged mirror + per-question distribution %
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/:id/validate-payload — §12.11 per-Offer preview > generates the payload + completeness score per Offer (the §16 example)
+ ✓ test/leadgen-sections-api.test.ts > GET /sections/:id — dual-id, no-store headers, 404 semantics > resolves by BOTH the numeric id and the lgs_ public id
+ ✓ test/leadgen-sections-api.test.ts > GET /sections/:id — dual-id, no-store headers, 404 semantics > carries private, no-store + nosniff on every response (§8.1)
+ ✓ test/leadgen-sections-api.test.ts > GET /sections/:id — dual-id, no-store headers, 404 semantics > 404s on unknown / foreign-kind / malformed ids
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §12.3/§14.9 conditional dependency preview > no sample_answers ⇒ classic full render, no dependencies block (backward compatible)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §12.3/§14.9 conditional dependency preview > sample answers HIDE the dependent when its condition is unmet (rendered AND reported)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §12.3/§14.9 conditional dependency preview > sample answers REVEAL the dependent when met; a visible required unanswered field blocks continue
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §9.2 (E5) parameterization > legacy body (no new params) → byte-identical preview.{css,desktop,mobile,component_count} (regression pin)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §9.2 (E5) parameterization > design_id resolves through the REAL registry: wrapper attr + CSS scope carry the RESOLVED id
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §9.2 (E5) parameterization > unknown design_id → the default design (§14.1), resolved id echoed
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §9.2 (E5) parameterization > viewport param → preview.html carries exactly that viewport's markup
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §9.2 (E5) parameterization > sim "selected" server-renders the runtime selection markup (aria-checked/lg-selected) into buttons
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §9.2 (E5) parameterization > sim "selected" on a dropdown selects the REAL <option> and deselects the placeholder
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §9.2 (E5) parameterization > sim "error" server-renders setFieldError markup (lg-error + aria-invalid + visible required message)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §9.2 (E5) parameterization > sim "validation_success" / "validation_error" mark answered fields with the success/error conventions
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §9.2 (E5) parameterization > sim "dependency" via sim.answers drops the hidden LEAF while the container WRAPPER survives
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §9.2 (E5) parameterization > sim.answers OVERRIDE legacy sample_answers (overlay order: sample_answers < sim.answers < flow)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §9.2 (E5) parameterization > sim.flow reduces later-entries-win and drives the selected basis (even without state=selected)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/preview — §9.2 (E5) parameterization > malformed §9.2 params → 400 with the offending field named
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/:id/validate-payload — §12.8 ZIP validation > flags a malformed ZIP when address_validation_enabled + a ZIP component
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/:id/validate-payload — §12.8 ZIP validation > a well-formed 5-digit ZIP passes maps.validateZip
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/:id/validate-payload — §12.8 ZIP validation > address_validation is null when the toggle is off (the leg does not apply)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/:id/validate-payload — §12.8 ZIP validation > a field's OWN props.maps.jobs.validate:false wins over an ENABLED address_validation_enabled column — preview shows NO zip validation (the fix-round regression scenario, verbatim)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/:id/validate-payload — §12.8 ZIP validation > a field's OWN props.maps.jobs.validate:true still validates even when address_validation_enabled is OFF (per-field precedence both directions)
+ ✓ test/leadgen-sections-api.test.ts > POST /sections/:id/validate-payload — §12.8 ZIP validation > a field with NO props.maps at all still falls back to the legacy address_validation_enabled column (§12 no-regression for pre-v3.1 content)
+ ✓ test/leadgen-answers.test.ts > normalizeAnswers — §12.7 pivot + §12.6 answer_source > normalizes a boolean UI answer (Yes → true) and marks user_selected
+ ✓ test/leadgen-answers.test.ts > normalizeAnswers — §12.7 pivot + §12.6 answer_source > applies an untouched default as default_applied (§12.6)
+ ✓ test/leadgen-answers.test.ts > normalizeAnswers — §12.7 pivot + §12.6 answer_source > distinguishes user_confirmed_default from user_selected (§12.6)
+ ✓ test/leadgen-answers.test.ts > normalizeAnswers — §12.7 pivot + §12.6 answer_source > omits an invalid raw value with no default (never fabricates)
+ ✓ test/leadgen-answers.test.ts > normalizeAnswers — §12.7 pivot + §12.6 answer_source > MINOR-2: a non-producing node's internal_field never re-coerces a producer's answer (ValidationError referencing homeowner)
+ ✓ test/leadgen-answers.test.ts > normalizeAnswers — §12.7 pivot + §12.6 answer_source > expands NameFieldsGroup + AddressAutocomplete sub-fields (§12.8) under the RENDERED field names
+ ✓ test/leadgen-answers.test.ts > normalizeAnswers — §12.7 pivot + §12.6 answer_source > normalizeAnswerValue covers every answer_type branch
+ ✓ test/leadgen-answers.test.ts > §16 worked example — Yes → true / "Y" / "yes" / 1 > one normalized boolean answer yields the correct per-provider shape
+ ✓ test/leadgen-answers.test.ts > §16 worked example — Yes → true / "Y" / "yes" / 1 > generateOfferPayload runs both legs end-to-end from raw UI answers
+ ✓ test/leadgen-answers.test.ts > buildOfferPayload — transform + coercion branches (§12.11 order) > mapBoolean transform
+ ✓ test/leadgen-answers.test.ts > buildOfferPayload — transform + coercion branches (§12.11 order) > mapEnum transform
+ ✓ test/leadgen-answers.test.ts > buildOfferPayload — transform + coercion branches (§12.11 order) > formatDate transform (UTC tokens)
+ ✓ test/leadgen-answers.test.ts > buildOfferPayload — transform + coercion branches (§12.11 order) > formatPhone transform (10 digits)
+ ✓ test/leadgen-answers.test.ts > buildOfferPayload — transform + coercion branches (§12.11 order) > toNumber transform
+ ✓ test/leadgen-answers.test.ts > buildOfferPayload — transform + coercion branches (§12.11 order) > toString transform
+ ✓ test/leadgen-answers.test.ts > buildOfferPayload — transform + coercion branches (§12.11 order) > trim transform
+ ✓ test/leadgen-answers.test.ts > buildOfferPayload — transform + coercion branches (§12.11 order) > provider type coercion without a map/transform (number ← string, string ← number)
+ ✓ test/leadgen-answers.test.ts > buildOfferPayload — transform + coercion branches (§12.11 order) > value_map MISS → fallback (a final value)
+ ✓ test/leadgen-answers.test.ts > buildOfferPayload — transform + coercion branches (§12.11 order) > absent answer → default (a final value)
+ ✓ test/leadgen-answers.test.ts > buildOfferPayload — transform + coercion branches (§12.11 order) > absent answer, no default → the node cleans away (cleanObject)
+ ✓ test/leadgen-answers.test.ts > buildOfferPayload — transform + coercion branches (§12.11 order) > answerMappingToNode maps the edge into a source:'answer' node
+ ✓ test/leadgen-answers.test.ts > buildOfferPayload — transform + coercion branches (§12.11 order) > providerNodeType coerces an unknown provider type to string
+ ✓ test/leadgen-answers.test.ts > buildOfferPayload — transform + coercion branches (§12.11 order) > multi-field payload: two edges write distinct paths
+ ✓ test/leadgen-answers.test.ts > normalizeAnswers — §8.5 nested equivalents match flat results > normalizes a nested boolean answer exactly like the flat Section
+ ✓ test/leadgen-answers.test.ts > normalizeAnswers — §8.5 nested equivalents match flat results > applies a nested untouched default as default_applied exactly like flat
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/leadgen-payload-builder-ui.test.ts > payload builder — bootstrap islands > lg-payload-data round-trips: schema, computed options, hints, offer + builder_context.linked_fields
+AssertionError: expected 1 to be greater than or equal to 4
+ ❯ test/leadgen-payload-builder-ui.test.ts:2282:27
+    2280|     expect(data.builder_context.active_schema?.nodes).toHaveLength(RIC…
+    2281|     const fields = data.builder_context.linked_fields;
+    2282|     expect(fields.length).toBeGreaterThanOrEqual(4);
+       |                           ^
+    2283|     const homeowner = fields.find((f) => f["internal_field"] === "home…
+    2284|     expect(homeowner).toBeDefined();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 210 passed (211)
+   Start at  10:24:50
+   Duration  4.85s (transform 979ms, setup 0ms, collect 1.75s, tests 2.56s, environment 0ms, prepare 80ms)
+

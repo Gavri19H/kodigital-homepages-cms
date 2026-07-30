@@ -11,7 +11,7 @@
 //   ① Zero-JSON authoring E2E — object node with children + array-of-objects
 //     (toolbar Add object/Add array + child builders), answer field with a
 //     value map (Add many "internal=provider" + Import CSV with a main
-//     column, main/Other grouping, count chips), date field with a format
+//     column, main-choice grouping, count chips), date field with a format
 //     pick (live input→output preview), boolean field with a preset (chips),
 //     a condition (field+op+value dropdowns, live preview sentence), a
 //     Static default + a Computed-registry fallback; SAVE → 201; stored
@@ -229,10 +229,12 @@ test.describe.serial("LeadGen fix-P2 — payload builder (G5, 06 §6.13/§6.14)"
     // mapping (visual toggle, §6.5).
     await page.locator('#lg-pb-editor [data-pb-field="free_text"]').click();
     await expect(page.locator("#lg-pb-editor [data-pb-valuemap-open]")).toBeVisible();
-    // §6.4 Other grouping controls (before opening the editor so the modal's
-    // derived Other column renders).
-    await page.locator('#lg-pb-editor [data-pb-field="otherGroupEnabled"]').click();
-    await page.locator('#lg-pb-editor [data-pb-field="searchableOther"]').click();
+    // P5 S5c / P5 F1 — the retired choiceDisplay "Other group" mechanism is
+    // gone from this builder end to end: no authoring toggles, no derived
+    // column, no row action, no chip wording. "Main choice?" below is the
+    // SEPARATE, still-live mechanism this journey continues to exercise.
+    await expect(page.locator('#lg-pb-editor [data-pb-field="otherGroupEnabled"]')).toHaveCount(0);
+    await expect(page.locator('#lg-pb-editor [data-pb-field="searchableOther"]')).toHaveCount(0);
 
     await page.locator("#lg-pb-editor [data-pb-valuemap-open]").click();
     const vmModal = page.locator("#lg-pb-valuemap-modal");
@@ -262,17 +264,23 @@ test.describe.serial("LeadGen fix-P2 — payload builder (G5, 06 §6.13/§6.14)"
 
     // Third main via the row action (row 0 = aaa_ins).
     await vmModal.locator('tr[data-vm-row="0"] [data-vm-row-act="main"]').click();
-    // §6.4 count chips + derived Other column (col 5; col 4 is the Main
-    // checkbox): non-main rows read "Other", main rows read "".
-    await expect(vmModal.locator("[data-vm-count-chips]")).toHaveText("3 main · 9 in Other");
-    await expect(vmModal.locator('tr[data-vm-row="1"] td').nth(5)).toHaveText("Other");
-    await expect(vmModal.locator('tr[data-vm-row="0"] td').nth(5)).toHaveText("");
+    // P5 F1 (MINOR-2) — the §6.4 count chip speaks the ONE live mechanism
+    // ("X main · Y values"); the retired Other-group column, its permanent
+    // em-dash cells and the "Move to Other" row action are GONE from the
+    // rendered modal (they read choiceDisplay.otherGroupEnabled, which nothing
+    // has been able to author since the §10 retirement).
+    await expect(vmModal.locator("[data-vm-count-chips]")).toHaveText("3 main · 12 values");
+    await expect(vmModal.locator('[data-vm-col="other"]')).toHaveCount(0);
+    await expect(vmModal.locator('[data-vm-row-act="other"]')).toHaveCount(0);
+    await expect(vmModal.locator("thead th")).toHaveCount(8); // 7 live columns + Actions
+    await expect(vmModal).not.toContainText("Other group?");
     await page.screenshot({ path: `${SHOT_DIR}/01-value-map-modal.png` });
 
     await vmModal.locator("[data-vm-apply]").click();
     await expect(vmModal).toBeHidden();
+    // the editor panel's own chip speaks the same one live wording
     await expect(page.locator("#lg-pb-editor [data-pb-choice-chips]")).toHaveText(
-      "3 main · 9 in Other",
+      "3 main · 12 values",
     );
 
     // §6.10 condition — field + operator + value through dropdowns, live
@@ -405,7 +413,7 @@ test.describe.serial("LeadGen fix-P2 — payload builder (G5, 06 §6.13/§6.14)"
     // evaluator-exact typed boolean (the builder emits `true`, not "true").
     expect(homeowner.conditional).toEqual({ when: "homeowner", op: "eq", value: true });
 
-    // Value map + choiceDisplay + conditional.
+    // Value map + choiceDisplay.mainValues + conditional.
     const carrier = byPath.get("lead.carrier")!;
     expect(carrier.source).toBe("answer");
     expect(carrier.internal_field).toBe("carrier");
@@ -418,8 +426,11 @@ test.describe.serial("LeadGen fix-P2 — payload builder (G5, 06 §6.13/§6.14)"
     expect((carrier.choiceDisplay?.mainValues ?? []).sort()).toEqual(
       ["aaa_ins", "geico", "progressive"].sort(),
     );
-    expect(carrier.choiceDisplay?.otherGroupEnabled).toBe(true);
-    expect(carrier.choiceDisplay?.searchableOther).toBe(true);
+    // P5 S5c — Issue #10 remnant REMOVED: otherGroupEnabled/searchableOther
+    // are no longer authorable (retired choiceDisplay mechanism), so a fresh
+    // journey through this UI never sets them.
+    expect(carrier.choiceDisplay?.otherGroupEnabled).toBeUndefined();
+    expect(carrier.choiceDisplay?.searchableOther).toBeUndefined();
     expect(carrier.conditional).toEqual({ when: "state", op: "in", values: ["CA", "TX"] });
 
     // Date mode — the existing formatDate transform, no transform JSON typed.
@@ -552,6 +563,84 @@ test.describe.serial("LeadGen fix-P2 — payload builder (G5, 06 §6.13/§6.14)"
     expect(modalRows.find((r) => r.internal === "geico")?.output).toBe("GEICO-PREF");
     await page.keyboard.press("Escape");
     await expect(vmModal).toBeHidden();
+  });
+
+  // -------------------------------------------------------------------------
+  // ⑥ P5 F1 — the Output format OWNS the sent type (owner A.1 #7B + #6-second)
+  // -------------------------------------------------------------------------
+  //
+  // Driven, on a STRING answer (lead.zip) — a field the panel was not even
+  // offered on before P5 F1, which is what made owner #6-second ("each field is
+  // potentially answering another offer field in different formats per offer")
+  // unauthorable through this control. The disagreement the old code could
+  // reach by clicking (transform written, type left behind) is now reachable
+  // ONLY through the Advanced drawer, and when it is reached the panel says so
+  // instead of reading "✓ No issues" over a field the runtime drops.
+  test("⑥ P5 F1: the Output format writes the sent type too — a type/format disagreement is BLOCKING, the control still displays it, and re-picking repairs both halves", async ({ page }) => {
+    test.setTimeout(90_000);
+    await openPayloadTab(page, offerA.offerPublicId);
+    await expect(page.locator("#lg-pb-validation-summary")).toHaveText(
+      "✓ No issues — the schema looks good.",
+    );
+
+    // A fresh answer field starts as a STRING — and now carries the control.
+    await page.locator("#lg-pb-add-field").click();
+    await renameSelected(page, "zip_format_probe", "zip_format_probe");
+    await page.locator("#lg-pb-editor [data-pb-answer-picker]").selectOption("zip");
+    const control = page.locator('#lg-pb-editor [data-pb-field="output_format"]');
+    const typeSel = page.locator('#lg-pb-editor [data-pb-field="type"]');
+    await expect(control, "the output-format control is authorable for a STRING answer").toBeVisible();
+    await expect(typeSel).toBeEnabled();
+
+    // One pick decides BOTH halves: the transform and the sent type. The
+    // sample box takes text, so a leading-zero ZIP survives the typing.
+    await page.locator("#lg-pb-editor [data-pb-outputformat-sample]").fill("07032");
+    await control.selectOption("toNumber");
+    await expect(typeSel).toHaveValue("number");
+    await expect(typeSel, "while a format is picked it owns the type — no second answer").toBeDisabled();
+    await expect(page.locator("#lg-pb-editor [data-pb-outputformat-json]")).toHaveText("7032");
+    await expect(page.locator("#lg-pb-validation-summary")).toHaveText(
+      "✓ No issues — the schema looks good.",
+    );
+
+    // "Number as string" on the SAME field: the JSON chip shows the shape
+    // change the operator asked for (quoted), which the old preview could not.
+    await control.selectOption("toString");
+    await expect(typeSel).toHaveValue("string");
+    await expect(page.locator("#lg-pb-editor [data-pb-outputformat-json]")).toHaveText('"07032"');
+
+    // The ONLY way left to make type and format disagree — the raw drawer.
+    await page.locator("#lg-pb-editor details[data-pb-advanced] summary").click();
+    const rawTa = page.locator("#lg-pb-editor [data-pb-field-raw]");
+    await expect(rawTa).toBeVisible();
+    await page.waitForTimeout(500);
+    const node = JSON.parse(await rawTa.inputValue()) as StoredNode;
+    expect(node.type).toBe("string");
+    expect(node.transform).toEqual([{ kind: "toString" }]);
+    node.type = "number"; // the pre-fix shape: a currency string into a number field
+    node.transform = [{ kind: "formatCurrency" }];
+    await rawTa.fill(JSON.stringify(node, null, 2));
+    await page.locator("#lg-pb-editor [data-pb-field-raw-apply]").click();
+
+    // NOT "✓ No issues": the runtime coerces AFTER the transform, so this
+    // configuration ships nothing at all.
+    await expect(page.locator("#lg-pb-validation-summary")).toHaveText("Schema has 1 issue.");
+    await expect(page.locator("#lg-pb-validation-list")).toContainText("output format sends");
+    // the control still DISPLAYS the stored format (no hidden state)…
+    await expect(control).toHaveValue("formatCurrency");
+    // …and the preview refuses to claim a value the runtime would discard
+    await expect(page.locator("#lg-pb-editor [data-pb-outputformat-preview]")).toContainText("invalid");
+    await page.screenshot({ path: `${SHOT_DIR}/06-output-format-type-disagreement.png`, fullPage: true });
+
+    // "As entered" hands the type back; re-picking the format repairs both.
+    await control.selectOption("");
+    await expect(typeSel).toBeEnabled();
+    await control.selectOption("formatCurrency");
+    await expect(typeSel).toHaveValue("string");
+    await expect(typeSel).toBeDisabled();
+    await expect(page.locator("#lg-pb-validation-summary")).toHaveText(
+      "✓ No issues — the schema looks good.",
+    );
   });
 
   // -------------------------------------------------------------------------

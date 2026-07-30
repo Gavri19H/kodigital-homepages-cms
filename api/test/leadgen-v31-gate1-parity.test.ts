@@ -513,7 +513,7 @@ describe("Gate 1a parity — component library tile SVGs (Appendix D, source-con
   // position (one insert seeds 2 independent TwoButtonYesNo components, no
   // shared-grid data model). Pin updated to the contracted new reality; the
   // exhaustive 13-tile count + order this test proves is unchanged.
-  it("§5.6 Answer-fields group holds the 12 v3.1 contract tiles + the §4.1 'Questions on one screen' starter, in order", () => {
+  it("§5.6 Answer-fields group holds the 12 v3.1 contract tiles + the §4.1 'Questions on one screen' starter + P5 S5c's standalone Phone (ADJ-A6 / D6 RULED yes), in order", () => {
     const group = STUDIO_LIBRARY_GROUPS.find((g) => g.key === "answer-fields")!;
     expect(group.tiles.map((t) => t.label)).toEqual([
       "Buttons",
@@ -528,6 +528,7 @@ describe("Gate 1a parity — component library tile SVGs (Appendix D, source-con
       "Date",
       "Slider",
       "Contact",
+      "Phone",
       "Address",
     ]);
   });

@@ -654,6 +654,11 @@ const LAYER_B_STUBS = [
   // are out of THIS file's concern — only the wrap's hidden-state is tracked.
   "function addressFieldsOf() { return []; }",
   "function addressMapsEnabled() { return false; }",
+  // P5 S5c (Maps honesty): populateAddressFieldSet's own keyless-degrade note
+  // now also reads mapsKeyIsConfigured() — stubbed the same way its sibling
+  // addressMapsEnabled() is (this file's concern is the wrap's hidden-state,
+  // not the Maps key/degrade wording).
+  "function mapsKeyIsConfigured() { return false; }",
   "function buildAddressRow() { return { attrs: {}, children: [], getAttribute: function () { return null; }, setAttribute: function () {}, appendChild: function (c) { return c; }, querySelector: function () { return null; }, querySelectorAll: function () { return []; }, addEventListener: function () {} }; }",
   "function renderAddressAddMenu() {}",
 ];

@@ -21,6 +21,7 @@ import { getFunnelDesign } from "../../public/leadgen/designs/registry";
 import type { FunnelDesign } from "../../public/leadgen/designs/registry";
 import {
   hasFieldMapsConfig,
+  leadgenAddressZipAnswerField,
   mapsJobsFor,
   renderSectionComponents,
   renderSectionComponentsVisible,
@@ -107,7 +108,11 @@ import {
   type RebuildResult,
 } from "../../leadgen/sections";
 import type { FieldErrors } from "../../leadgen/validation";
-import type { LeadgenPayloadNodeType, LeadgenTransformStep } from "../../leadgen/payload";
+import {
+  LEADGEN_TRANSFORM_KINDS,
+  type LeadgenPayloadNodeType,
+  type LeadgenTransformStep,
+} from "../../leadgen/payload";
 import { buildWhereClause, type FilterCondition } from "../query-filters";
 import {
   buildPaging,
@@ -161,15 +166,14 @@ const PAYLOAD_NODE_TYPES: ReadonlySet<string> = new Set([
   "object",
   "array",
 ]);
-const TRANSFORM_KINDS: ReadonlySet<string> = new Set([
-  "mapBoolean",
-  "mapEnum",
-  "formatDate",
-  "formatPhone",
-  "toNumber",
-  "toString",
-  "trim",
-]);
+// R2 P5 (SRC-7B): the answer-map `value_transform` allow-list is the payload
+// module's OWN exported list — never a hand-copy. This set was a verbatim
+// duplicate of payload.ts's TRANSFORM_KINDS, so adding the SRC-7B
+// `formatCurrency` kind to the runtime union alone would have left the admin
+// save gate rejecting ("value_transform contains an unknown step") a pipeline
+// the builder honors. ONE source of truth, imported (the same idiom
+// LEADGEN_PAYLOAD_NODE_TYPES already carries for node types).
+const TRANSFORM_KINDS: ReadonlySet<string> = new Set(LEADGEN_TRANSFORM_KINDS);
 
 // ---------------------------------------------------------------------------
 // Row → API mapping (03 §8.5)
@@ -2761,15 +2765,12 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
 }
 
 // §12.8 ZIP internal-field discovery: a ZIPInputQuestion contributes its own
-// `internal_field`; an AddressAutocompleteQuestion contributes its zip sub-field
-// (one of `props.internal_fields`, default set street/city/state/zip). Mirrors
-// answers.ts fieldsOf so the fields checked here == the fields normalizeAnswers
-// produced (no divergent field vocabulary).
-// Mirrors answers.ts `fieldsOf` exactly so the ZIP check probes the SAME
-// internal fields normalizeAnswers populates: a top-level `internal_field`
-// wins for any node (incl. AddressAutocompleteQuestion); otherwise an
-// AddressAutocompleteQuestion expands to `props.internal_fields` (default
-// street/city/state/zip). Then keeps only the zip-ish fields. Carries the
+// `internal_field`; an AddressAutocompleteQuestion contributes the ZIP key its
+// RENDERED field set actually records (presets.ts leadgenAddressZipAnswerField
+// — maps.fills.<slot> override, else `{base}_zip`; a lone full_address
+// composite ⇒ the base). R2 P5 (SRC-6 seam): that is the SAME derivation
+// answers.ts fieldsOf now expands with, so the fields checked here == the
+// fields normalizeAnswers produced (no divergent field vocabulary). Carries the
 // owning NODE alongside each field name (not just the string) so
 // zipValidation (below) can read that node's OWN props.maps for the v3.1
 // §9.3 per-field precedence gate — a container AddressAutocompleteQuestion's
@@ -2793,19 +2794,15 @@ function zipFieldsOfContent(
     if (type === "ZIPInputQuestion") {
       if (topField !== null) push(topField, node);
     } else if (type === "AddressAutocompleteQuestion") {
-      if (topField !== null) {
-        // A singular top-level internal_field is what normalizeAnswers uses;
-        // count it only if it is itself a ZIP field.
-        if (/zip/i.test(topField)) push(topField, node);
-      } else {
-        const props = isRecord(node["props"]) ? (node["props"] as Record<string, unknown>) : {};
-        const fields = Array.isArray(props["internal_fields"])
-          ? (props["internal_fields"] as unknown[])
-          : ["street", "city", "state", "zip"];
-        for (const f of fields) {
-          if (typeof f === "string" && /zip/i.test(f)) push(f, node);
-        }
-      }
+      // R2 P5 (SRC-6 seam): the ZIP key the VISITOR records — presets.ts
+      // leadgenAddressZipAnswerField, the SAME resolution answers.ts fieldsOf
+      // now expands with, so this check probes a field normalizeAnswers
+      // actually produced. The old two-branch read (a zip-ish top-level
+      // internal_field, else the bare props.internal_fields entries) named
+      // keys no renderer has emitted since M9 — an authored Address's ZIP was
+      // never validated here at all.
+      const zipField = leadgenAddressZipAnswerField(node);
+      if (zipField !== null) push(zipField, node);
     }
   }
   return out;

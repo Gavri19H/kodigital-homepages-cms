@@ -22,6 +22,11 @@ import { runInNewContext } from "node:vm";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
+// P5-F2 (ADJ-A7 fix-first): cross-check the client issues-chip mirror against
+// the REAL server validator (the same function sections-handlers.ts calls at
+// save time) — never a hand-built stand-in for the server side of the
+// boundary (E11).
+import { validateSectionContent } from "../src/public/leadgen/components/content-schema";
 // D2: ui-question-builder.ts is DELETED — its §12.11 mapping-grid cell-state
 // assertions are ported to test/leadgen-section-studio-ui.test.ts (the studio
 // island's edgeMapState/mapStateNote decode, executed from the served page).
@@ -1123,7 +1128,8 @@ describeDb("§9.2 executed island — runPreview against the REAL preview handle
     // nothing (E5: never attributes for the client to interpret)
     expect(srcdoc).toContain('aria-checked="true"');
     expect(srcdoc).toContain("lg-selected");
-    expect(srcdoc).toContain('aria-pressed="true"');
+    // ADJ-R8: selected state now emits aria-checked (role="radio"), never aria-pressed
+    expect(srcdoc).not.toContain('aria-pressed="true"');
     expect(out.frame.className).toBe("lg-preview-frame");
   });
 
@@ -1157,5 +1163,459 @@ describeDb("§9.2 executed island — runPreview against the REAL preview handle
     expect(markup).not.toMatch(/class="[^"]*\blg-selected\b[^"]*"/);
     // …and the probe frame is PARKED (only ONE runtime document at a time)
     expect(out.probeFrame.attrs.has("srcdoc")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P5-F2 (ADJ-A7 fix-first) — SOURCE-OF-TRUTH.md A.1 #8 requires "Other" on
+// Buttons/Cards; the R2 §5.7 A7 regression clause requires "the empty-label
+// row is either preserved or rejected with a visible message (never silently
+// dropped)". An Other-value row the operator ADDS and leaves fully blank
+// (both label and value empty) must never be silently dropped. Driven
+// (E10/E11) against the REAL served island — collectOther/computeIssues/the
+// "+ Add value" click handler are sliced byte-identical from the page, cross-
+// checked against the REAL server validator (validateSectionContent) —
+// never a hand-built stand-in for either side of the boundary.
+// ---------------------------------------------------------------------------
+
+function studioIsland(html: string): string {
+  const island = extractScripts(html).find((s) => s.includes("function collectOther("));
+  expect(island, "studio island present").toBeDefined();
+  return island!;
+}
+
+// Grab a bare `var X = ...; if (X) { ... }`-shaped statement block (the
+// "+ Add value" wiring is not a `function name(...)` — sliceIslandFunction's
+// marker does not match it) by balancing braces from the first `{` at/after
+// the given start marker — the same algorithm sliceIslandFunction uses.
+function sliceIslandBlock(script: string, startsWith: string): string {
+  const start = script.indexOf(startsWith);
+  expect(start, `island block starting "${startsWith}"`).toBeGreaterThan(-1);
+  const open = script.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < script.length; i += 1) {
+    if (script[i] === "{") depth += 1;
+    else if (script[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return script.slice(start, i + 1);
+    }
+  }
+  throw new Error(`unbalanced braces while slicing island block "${startsWith}"`);
+}
+
+// A `var NAME = {...};` or `var NAME = [...];` statement — OTHER_VALUE_FIELDS
+// (array) plus CHOICE_FIELD_LABELS/CHOICE_FIELD_PLACEHOLDERS (objects) that
+// buildOtherValueRow/choiceCellWrap read.
+function sliceIslandVar(script: string, name: string): string {
+  const marker = `var ${name} = `;
+  const start = script.indexOf(marker);
+  expect(start, `island var ${name} present`).toBeGreaterThan(-1);
+  const openIdx = start + marker.length;
+  const openChar = script[openIdx];
+  const closeChar = openChar === "[" ? "]" : "}";
+  let depth = 0;
+  for (let i = openIdx; i < script.length; i += 1) {
+    if (script[i] === openChar) depth += 1;
+    else if (script[i] === closeChar) {
+      depth -= 1;
+      if (depth === 0) return `${script.slice(start, i + 1)};`;
+    }
+  }
+  throw new Error(`unbalanced while slicing island var ${name}`);
+}
+
+interface FakeTextNode {
+  nodeType: number;
+  textContent: string;
+}
+
+interface FakeEl {
+  tag: string;
+  className: string;
+  value: string;
+  checked: boolean;
+  hidden: boolean;
+  attrs: Map<string, string>;
+  children: Array<FakeEl | FakeTextNode>;
+  listeners: Record<string, Array<() => void>>;
+  setAttribute(k: string, v: string): void;
+  getAttribute(k: string): string | null;
+  removeAttribute(k: string): void;
+  addEventListener(ev: string, fn: () => void): void;
+  appendChild<T extends FakeEl | FakeTextNode>(c: T): T;
+  querySelectorAll(sel: string): FakeEl[];
+}
+
+function isFakeEl(n: FakeEl | FakeTextNode): n is FakeEl {
+  return Object.prototype.hasOwnProperty.call(n, "attrs");
+}
+
+// A minimal but REAL element stub — just enough DOM surface for
+// buildOtherValueRow/choiceCellWrap/otherValueMoveBtn to construct a row and
+// for collectOther()'s rows[i].querySelectorAll('[data-other-field]') to find
+// its inputs (nested two levels deep), exactly like a real descendant query.
+function makeFakeEl(tag: string): FakeEl {
+  const attrs = new Map<string, string>();
+  const children: Array<FakeEl | FakeTextNode> = [];
+  const listeners: Record<string, Array<() => void>> = {};
+  const el: FakeEl = {
+    tag,
+    className: "",
+    value: "",
+    checked: false,
+    hidden: false,
+    attrs,
+    children,
+    listeners,
+    setAttribute(k, v) {
+      attrs.set(k, String(v));
+    },
+    getAttribute(k) {
+      return attrs.has(k) ? attrs.get(k)! : null;
+    },
+    removeAttribute(k) {
+      attrs.delete(k);
+    },
+    addEventListener(ev, fn) {
+      if (!listeners[ev]) { listeners[ev] = []; }
+      listeners[ev]!.push(fn);
+    },
+    appendChild(c) {
+      children.push(c);
+      return c;
+    },
+    querySelectorAll(sel: string): FakeEl[] {
+      const m = sel.match(/^\[([a-zA-Z0-9-]+)\]$/);
+      const attrName = m ? m[1]! : "";
+      const out: FakeEl[] = [];
+      const walk = (node: FakeEl | FakeTextNode): void => {
+        if (isFakeEl(node)) {
+          if (attrName !== "" && node.attrs.has(attrName)) out.push(node);
+          node.children.forEach(walk);
+        }
+      };
+      children.forEach(walk);
+      return out;
+    },
+  };
+  return el;
+}
+
+function otherAddDocument(routes: Record<string, FakeEl>): Record<string, unknown> {
+  return {
+    createElement(tag: string): FakeEl {
+      return makeFakeEl(tag);
+    },
+    createTextNode(t: string): FakeTextNode {
+      return { nodeType: 3, textContent: String(t) };
+    },
+    querySelector(sel: string): FakeEl | null {
+      return routes[sel] ?? null;
+    },
+  };
+}
+
+interface OtherProbeSandbox {
+  state: { content: { components: unknown[] } };
+  studioMeta: Record<string, unknown>;
+  MAX_DEPTH: number;
+  selectedQuestionId: string | null;
+  document: Record<string, unknown>;
+  [k: string]: unknown;
+}
+
+interface OtherProbe {
+  sandbox: OtherProbeSandbox;
+  run(expr: string): unknown;
+}
+
+// Boot a vm with computeIssues/collectOther + their pure/model collaborators
+// sliced byte-identical from the SERVED island (never re-implemented).
+function otherStudioProbe(html: string, content: unknown, docStub: Record<string, unknown>): OtherProbe {
+  const island = studioIsland(html);
+  const meta = extractJsonBlob(html, "lg-studio-meta");
+  const sandbox: OtherProbeSandbox = {
+    state: { content: JSON.parse(JSON.stringify(content)) as { components: unknown[] } },
+    studioMeta: meta,
+    MAX_DEPTH: (meta["max_depth"] as number) ?? 4,
+    selectedQuestionId: null,
+    document: docStub,
+  };
+  const source = [
+    "function afterModelChange() {}",
+    sliceIslandFunction(island, "trimStr"),
+    sliceIslandFunction(island, "typeMeta"),
+    sliceIslandFunction(island, "isContainerType"),
+    sliceIslandFunction(island, "capsOf"),
+    sliceIslandFunction(island, "cap"),
+    sliceIslandFunction(island, "typeLabel"),
+    sliceIslandFunction(island, "bindNodeType"),
+    sliceIslandFunction(island, "walkTree"),
+    sliceIslandFunction(island, "findRefIn"),
+    sliceIslandFunction(island, "findRef"),
+    sliceIslandFunction(island, "selectedNode"),
+    sliceIslandFunction(island, "ensureObj"),
+    sliceIslandFunction(island, "cleanupEmpty"),
+    sliceIslandFunction(island, "computeIssues"),
+    sliceIslandFunction(island, "collectOther"),
+  ].join("\n");
+  runInNewContext(source, sandbox);
+  return {
+    sandbox,
+    run(expr: string): unknown {
+      return runInNewContext(expr, sandbox);
+    },
+  };
+}
+
+const OTHER_BASE_CONTENT = {
+  components: [
+    {
+      type: "ButtonAnswerGroup",
+      question_id: "q_make",
+      internal_field: "car_make",
+      answer_type: "enum",
+      choices: [{ label: "Toyota", value: "toyota", analytics_id: "c_toyota" }],
+    },
+  ],
+};
+
+// A hand-built docStub row (no DOM construction needed) representing an
+// already-authored [data-other-row] with the given label/value/analytics_id
+// input values.
+function otherRowStub(label: string, value: string, analyticsId: string): { querySelectorAll(sel: string): unknown[] } {
+  const field = (f: string, v: string) => ({ getAttribute: () => f, value: v });
+  return {
+    querySelectorAll(sel: string) {
+      return sel === "[data-other-field]" ? [field("label", label), field("value", value), field("analytics_id", analyticsId)] : [];
+    },
+  };
+}
+
+// P5-F11: `enabledCb` defaults to a FRESH { checked: true } literal (the
+// existing call sites' behavior, unchanged) but callers that need to inspect
+// the checkbox's `.checked` state AFTER collectOther()/populateOtherEditor()
+// have run (P5-F11's "never silently unchecked" assertion) can pass their
+// OWN persistent reference in.
+function otherDocStub(rows: unknown[], labelValue: string, enabledCb: { checked: boolean } = { checked: true }): Record<string, unknown> {
+  const otherList = {
+    querySelectorAll(sel: string) {
+      return sel === "[data-other-row]" ? rows : [];
+    },
+  };
+  return {
+    getElementById: () => null,
+    querySelector(sel: string) {
+      if (sel === "[data-other-enabled]") return enabledCb;
+      if (sel === "[data-other-fields]") return { hidden: false };
+      if (sel === "[data-other-label]") return { value: labelValue };
+      if (sel === "[data-other-values]") return otherList;
+      return null;
+    },
+    querySelectorAll: () => [],
+  };
+}
+
+describeDb("P5-F2 (ADJ-A7 fix-first) — an empty Other row is never silently dropped", () => {
+  it("clicking + Add value and leaving both inputs empty surfaces a VISIBLE issue and never silently persists (fail-before/pass-after)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
+    const island = studioIsland(html);
+
+    const enabledCb = makeFakeEl("input");
+    enabledCb.checked = true; // Other already enabled
+    const fieldsWrap = makeFakeEl("div");
+    const labelEl = makeFakeEl("input");
+    const listEl = makeFakeEl("div"); // starts with ZERO rows — nothing authored yet
+    const addBtn = makeFakeEl("button");
+    const routes: Record<string, FakeEl> = {
+      "[data-other-enabled]": enabledCb,
+      "[data-other-fields]": fieldsWrap,
+      "[data-other-label]": labelEl,
+      "[data-other-values]": listEl,
+      "[data-other-add]": addBtn,
+    };
+
+    const probe = otherStudioProbe(html, OTHER_BASE_CONTENT, otherAddDocument(routes));
+    probe.run(
+      [
+        sliceIslandVar(island, "OTHER_VALUE_FIELDS"),
+        sliceIslandVar(island, "CHOICE_FIELD_LABELS"),
+        sliceIslandVar(island, "CHOICE_FIELD_PLACEHOLDERS"),
+        sliceIslandFunction(island, "choiceCellWrap"),
+        sliceIslandFunction(island, "otherValueMoveBtn"),
+        sliceIslandFunction(island, "buildOtherValueRow"),
+      ].join("\n"),
+    );
+    probe.sandbox.selectedQuestionId = "q_make";
+    // register the REAL "+ Add value" click wiring, byte-identical to the
+    // served island — never a re-implementation of its logic.
+    probe.run(sliceIslandBlock(island, "var otherAddEl = document.querySelector('[data-other-add]');"));
+    expect(addBtn.listeners["click"]?.length, "click handler registered").toBe(1);
+
+    expect(listEl.children.length, "no row before the click").toBe(0);
+    addBtn.listeners["click"]![0]!(); // simulate the operator's click
+
+    expect(listEl.children.length, "the click appends one row").toBe(1);
+    const node = probe.sandbox.state.content.components[0] as {
+      props?: { other?: { choices?: Array<Record<string, unknown>> } };
+    };
+    // the click alone (no keystroke) already reached the model — the row is
+    // preserved (not silently dropped before validation could see it).
+    expect(node.props?.other?.choices, "the blank row reached props.other.choices").toEqual([{}]);
+
+    // VISIBLE in the issues chip — the operator-facing text, not an internal flag.
+    const issues = probe.run("computeIssues()") as Array<{ qid: string | null; message: string }>;
+    const otherIssues = issues.filter((i) => i.qid === "q_make" && i.message.includes('"Other"'));
+    expect(otherIssues.length, JSON.stringify(issues)).toBeGreaterThan(0);
+    expect(otherIssues.some((i) => i.message.includes("missing its label")), JSON.stringify(otherIssues)).toBe(true);
+
+    // save blocked — the REAL server validator (the same function the save
+    // route calls) rejects this exact content, matching the value-without-
+    // label row's already-working rejection one row over.
+    const serverResult = validateSectionContent(probe.sandbox.state.content);
+    expect(serverResult.ok).toBe(false);
+    expect(
+      serverResult.errors.some((e) => e.code === "invalid_choice" && e.path.includes("props.other.choices[0].label")),
+      JSON.stringify(serverResult.errors),
+    ).toBe(true);
+
+    // never silently dropped: the row is STILL in the model after the
+    // blocked save (nothing purges it) — exactly where the operator left it.
+    expect(node.props?.other?.choices).toEqual([{}]);
+  });
+
+  it("regression guard: an Other row with a value but an empty label still fires the existing 'missing its label' issue", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
+    const probe = otherStudioProbe(html, OTHER_BASE_CONTENT, otherDocStub([otherRowStub("", "diesel", "")], ""));
+    probe.sandbox.selectedQuestionId = "q_make";
+    probe.run("collectOther()");
+    const node = probe.sandbox.state.content.components[0] as {
+      props?: { other?: { choices?: Array<Record<string, unknown>> } };
+    };
+    expect(node.props?.other?.choices).toEqual([{ value: "diesel", analytics_id: "diesel" }]);
+    const issues = probe.run("computeIssues()") as Array<{ qid: string | null; message: string }>;
+    expect(
+      issues.some((i) => i.qid === "q_make" && /"Other".*missing its label/.test(i.message)),
+      JSON.stringify(issues),
+    ).toBe(true);
+  });
+
+  it("Other enabled, label+value filled: no issue; the choice persists validly", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
+    const probe = otherStudioProbe(html, OTHER_BASE_CONTENT, otherDocStub([otherRowStub("Diesel", "diesel", "c_diesel")], "Fuel type"));
+    probe.sandbox.selectedQuestionId = "q_make";
+    probe.run("collectOther()");
+    const node = probe.sandbox.state.content.components[0] as {
+      props?: { other?: { enabled?: boolean; label?: string; choices?: Array<Record<string, unknown>> } };
+    };
+    expect(node.props?.other).toEqual({
+      enabled: true,
+      label: "Fuel type",
+      choices: [{ label: "Diesel", value: "diesel", analytics_id: "c_diesel" }],
+    });
+    const issues = probe.run("computeIssues()") as Array<{ message: string }>;
+    expect(issues.some((i) => i.message.includes('"Other"')), JSON.stringify(issues)).toBe(false);
+    const serverResult = validateSectionContent(probe.sandbox.state.content);
+    expect(serverResult.errors.filter((e) => e.path.includes("props.other"))).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // P5-F11 fix-first -- the IDENTICAL ADJ-A7 class applied to the ENABLE FLAG
+  // rather than a value row. Driven repro: enable Other (a starter row is
+  // auto-seeded) then remove that row -- the checkbox stays checked but the
+  // values list is now empty. collectOther() used to take the SAME `else`
+  // branch as an explicit uncheck and silently `delete props.other`: the "No
+  // issues" chip read clean, save 200'd, and on reload "Enable Other" came
+  // back unchecked -- the operator checked a box, the product quietly
+  // unchecked it, and nothing said so. This test SUPERSEDES the
+  // identically-shaped test this replaces (which asserted that exact silent
+  // clear as correct for `otherDocStub([], "")` -- it was the bug this fixes).
+  //
+  // Discriminator: collectOther's keep-vs-delete decision is now the
+  // checkbox's own `enabled` boolean ALONE, never choices.length. An
+  // explicit uncheck (enabled === false) is the only path that still
+  // deletes props.other; it cannot misfire into this zero-rows-but-checked
+  // case because that case has enabled === true by construction (the
+  // operator never touched the checkbox to get here). computeIssues() then
+  // mirrors the schema's "choices non-empty" rule as a VISIBLE issue for the
+  // retained empty-choices shape -- the same preserve-then-let-validation-
+  // flag-it mechanism P5-F2 (ADJ-A7) established one row over, reused
+  // rather than reinvented.
+  // -------------------------------------------------------------------------
+  it("P5-F11: Other enabled with ZERO value rows is a VISIBLE issue, the real server validator blocks the save, and the enable checkbox is never silently unchecked (fail-before/pass-after)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
+    const island = studioIsland(html);
+    const enabledCb = { checked: true }; // Other IS enabled; every row has since been removed
+    const probe = otherStudioProbe(html, OTHER_BASE_CONTENT, otherDocStub([], "", enabledCb));
+    probe.sandbox.selectedQuestionId = "q_make";
+    probe.run("collectOther()");
+    const node = probe.sandbox.state.content.components[0] as {
+      props?: { other?: { enabled?: boolean; choices?: Array<Record<string, unknown>> } };
+    };
+    // never silently unchecked-by-omission: props.other is RETAINED (enabled
+    // stays true) instead of being deleted just because choices is empty.
+    expect(node.props?.other, "enabled Other with zero rows is preserved, not dropped").toEqual({ enabled: true, choices: [] });
+
+    // VISIBLE in the issues chip -- the operator-facing text, not an internal flag.
+    const issues = probe.run("computeIssues()") as Array<{ qid: string | null; message: string }>;
+    const otherIssues = issues.filter((i) => i.qid === "q_make" && i.message.includes('"Other"'));
+    expect(otherIssues.length, JSON.stringify(issues)).toBeGreaterThan(0);
+    expect(
+      otherIssues.some((i) => i.message.includes('has "Other" enabled with no values')),
+      JSON.stringify(otherIssues),
+    ).toBe(true);
+
+    // save blocked -- the REAL server validator (the same function the save
+    // route calls) rejects this exact content: props.other.choices must be
+    // a non-empty array once props.other is present at all.
+    const serverResult = validateSectionContent(probe.sandbox.state.content);
+    expect(serverResult.ok).toBe(false);
+    expect(
+      serverResult.errors.some((e) => e.code === "invalid_field_prop" && e.path.includes("props.other.choices")),
+      JSON.stringify(serverResult.errors),
+    ).toBe(true);
+
+    // the enable checkbox is never silently unchecked: simulating the exact
+    // "on reload" redraw the defect described (populateOtherEditor
+    // re-reading the model) still finds enabled === true and keeps the box
+    // checked -- it was never flipped by anything in the blocked-save path.
+    probe.run(
+      [sliceIslandFunction(island, "clearChildren"), sliceIslandFunction(island, "populateOtherEditor")].join("\n"),
+    );
+    probe.run("populateOtherEditor(state.content.components[0])");
+    expect(enabledCb.checked, "the enable checkbox stays checked after the blocked save").toBe(true);
+  });
+
+  // Constraint 1 (must not regress): an EXPLICIT uncheck still deletes
+  // props.other silently and cleanly -- that is the operator saying so, and
+  // it stays frictionless. The signal is enabledCb.checked === false, which
+  // cannot coincide with the zero-rows-but-checked case above (that case is
+  // checked === true by definition).
+  it("constraint: explicitly UNCHECKING Other still deletes props.other silently and cleanly (no issue, no complaint)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
+    const enabledCb = { checked: false }; // the operator just unchecked the box
+    const probe = otherStudioProbe(
+      html,
+      OTHER_BASE_CONTENT,
+      otherDocStub([otherRowStub("Diesel", "diesel", "c_diesel")], "Fuel type", enabledCb),
+    );
+    probe.sandbox.selectedQuestionId = "q_make";
+    probe.run("collectOther()");
+    const node = probe.sandbox.state.content.components[0] as { props?: { other?: unknown } };
+    expect(node.props?.other, "explicit uncheck deletes props.other cleanly").toBeUndefined();
+    const issues = probe.run("computeIssues()") as Array<{ message: string }>;
+    expect(issues.some((i) => i.message.includes('"Other"')), JSON.stringify(issues)).toBe(false);
+    const serverResult = validateSectionContent(probe.sandbox.state.content);
+    expect(serverResult.errors.filter((e) => e.path.includes("props.other"))).toEqual([]);
   });
 });

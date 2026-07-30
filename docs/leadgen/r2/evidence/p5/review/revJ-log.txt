@@ -1,0 +1,4 @@
+top-bar tabs = ["Pages","Quotes"]
+templates canvas = null
+selects on templates tab = 3
+P2 progress-style live reflect = null

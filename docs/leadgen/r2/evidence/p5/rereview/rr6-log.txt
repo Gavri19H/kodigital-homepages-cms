@@ -1,0 +1,10 @@
+FRAME PUT -> 200 {"frame_config":{"template":"centered","version":1,"footer":{"enabled":true,"typography_scope":{"size":"s"},"blocks":[{"type":"heading","align":"left","html":"RRG-9htqz798 Legal Notice","level":4},{"t
+SETUP slug=rrg-9htqz798 funnel=lgf_01KYS2T5H8818SK7E72NMNJ4DM
+SSR ok grid
+H1 dependent visible BEFORE answering the trigger = false
+H1 dependent visible AFTER = true; its default value = "marlowe_mutual"
+H1 Continue -> auction HTTP 200
+H1 recorded answers = {"rrg_carrier_9htqz798":{"value":"marlowe_mutual","answer_source":"default_applied"},"rrg_insured_9htqz798":{"value":"true","answer_source":"user_selected"}}
+H2 footer 1280 = {"present":true,"childCount":7,"text":"RRG-9htqz798 Legal NoticeRRG-9htqz798-ABOUTRRG-9htqz798-ITEM-ARRG-9htqz798-ITEM-BTerms And ConditionsPrivacy PolicyR2Fix Fixture SiteRRG-9htqz798 1 Peregrine Ct, Weehawken NJRRG-9htqz798-DISCLOSURE","links":["Terms And Conditions","Privacy Policy"],"height":255,"overflow":false}
+H2 footer 375 = {"n":7,"overflow":false}
+H3 To-handle before=500000 after=500000; bubbles=[]

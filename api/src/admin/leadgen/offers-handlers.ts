@@ -41,6 +41,11 @@ import {
 } from "../../leadgen/payload";
 import { COMPONENT_CATALOG } from "../../public/leadgen/components/registry";
 import { flattenComponents, type LeadgenComponentNode } from "../../public/leadgen/components/content-schema";
+// R2 P5 F9 (SRC-6B): THE canonical answer-space derivation — the same function
+// normalizeAnswers runs over the submitted envelope. Imported (never re-listed,
+// never per-type re-derived) so the §6.2 picker cannot drift from the keys the
+// visitor actually records, for EVERY component type.
+import { fieldsOf as leadgenAnswerFieldsOf } from "../../leadgen/answers";
 import {
   LEADGEN_BID_SOURCES,
   LEADGEN_CAP_COUNT_BY,
@@ -348,12 +353,15 @@ function isChoicePrimitive(value: unknown): value is string | number | boolean {
   return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
 }
 
-// Enumerate the answer fields of every Section linked to the Offer: parse
-// each linked Section's content_json and keep the components carrying a
-// non-empty internal_field (the countQuestions convention — multi-field
-// components like NameFieldsGroup/AddressAutocompleteQuestion expose no
-// single internal_field and are outside the §6.2 single-field picker).
-// answer_type falls back to the catalog's `produces` when the node omits it.
+// Enumerate the answer fields of every Section linked to the Offer: parse each
+// linked Section's content_json and project EVERY component through the ONE
+// canonical answer-space derivation (answers.ts fieldsOf — see the SRC-6B block
+// below), so each component contributes exactly the answer keys the visitor
+// will record: the two {base}_min/{base}_max numbers of a dual_range/from_to
+// slider, an Address's sub-fields, a NameFieldsGroup's first/last, the scalar
+// internal_field of every other question — and NOTHING for a non-producing
+// node. answer_type is the derivation's own type, falling back to the catalog's
+// `produces` only when a node carries an empty one.
 // ONE query via the join (a single bound param — no IN() list, trivially
 // inside the 100-binding limit); rows ordered by section_name for a
 // deterministic picker; per-Section duplicate internal_fields keep the first.
@@ -395,18 +403,14 @@ export async function readLinkedSectionFields(
     // are preserved unchanged.
     for (const raw of flattenComponents(parsed["components"] as unknown as LeadgenComponentNode[]) as unknown[]) {
       if (!isRecord(raw)) continue;
-      const internalField = raw["internal_field"];
-      if (typeof internalField !== "string" || internalField.trim() === "") continue;
-      if (seen.has(internalField)) continue;
-      seen.add(internalField);
+      // The node's own key, used ONLY to tell a DERIVED sub-field apart from
+      // the scalar base below. A node may carry none (NameFieldsGroup) — the
+      // derivation still speaks for it, so this is no longer a skip condition.
+      const internalField = typeof raw["internal_field"] === "string" ? raw["internal_field"] : "";
       const componentType = typeof raw["type"] === "string" ? raw["type"] : "";
       const catalogProduces = Object.prototype.hasOwnProperty.call(COMPONENT_CATALOG, componentType)
         ? COMPONENT_CATALOG[componentType as keyof typeof COMPONENT_CATALOG].produces
         : null;
-      const answerType =
-        typeof raw["answer_type"] === "string" && raw["answer_type"] !== ""
-          ? raw["answer_type"]
-          : (catalogProduces ?? "string");
       const choices: Array<{ value: string | number | boolean; label: string }> = [];
       if (Array.isArray(raw["choices"])) {
         for (const choice of raw["choices"]) {
@@ -417,16 +421,56 @@ export async function readLinkedSectionFields(
           });
         }
       }
-      out.push({
-        internal_field: internalField,
-        section_public_id: section.public_id,
-        section_name: section.section_name,
-        answer_type: answerType,
-        choice_count: choices.length,
-        component_type: componentType,
-        choices,
-        props: isRecord(raw["props"]) ? (raw["props"] as Record<string, unknown>) : {},
-      });
+      // R2 P5 F9 (SRC-6B) — EVERY component projects the answer keys the
+      // VISITOR ACTUALLY RECORDS, from the ONE canonical derivation.
+      //
+      // Owner A.1 #6 (verbatim): "Also, be aware that every component that
+      // include more than one field- each field is potentially answering
+      // another offer field in different formats per offer!!!" — that is only
+      // authorable by CLICKING (contract §5.6: through the payload builder's
+      // UI, never raw JSON) if each sub-field's IDENTITY is offered here.
+      //
+      // F8 fixed the ADDRESS case by name. That was type-specific and the
+      // owner's clause is not: `fieldsOf` (answers.ts — the derivation
+      // normalizeAnswers runs over the submitted envelope) already expands a
+      // dual_range/from_to slider into {base}_min/{base}_max NUMBERS (§6.8 M7),
+      // a NameFieldsGroup into its first/last, an Address into its recorded
+      // sub-fields, and returns NOTHING for a non-producing node — its own
+      // comment says these exist "so the field universe, rules pickers and
+      // per-offer mapping see them", and this picker is that per-offer mapping.
+      // So the per-type branch is GONE: one derivation, every consumer, every
+      // component type — including any future one, with no second list to drift
+      // (the ADJ-N24 class).
+      //
+      // Consequences, all deliberate: a from_to slider offers its two sub-
+      // fields and NOT the base (no visitor ever records the base); a
+      // NameFieldsGroup carrying no internal_field of its own now surfaces at
+      // all; a ValidationError/HelperText that REFERENCES a question's field
+      // stops claiming one; and a lone `full_address` Address takes the
+      // derivation's "string" (it is one text input), not the catalog's
+      // "object". Each entry's answer_type is the derivation's, falling back to
+      // the catalog only for a node carrying an empty one.
+      for (const spec of leadgenAnswerFieldsOf(raw as unknown as LeadgenComponentNode)) {
+        if (seen.has(spec.field)) continue;
+        seen.add(spec.field);
+        // A DERIVED sub-field carries no enum domain of its own ⇒ 0 choices.
+        // The scalar base entry keeps the node's own metadata exactly as before.
+        const isDerivedSubField = spec.field !== internalField;
+        // Stored content_json is untyped JSON: a node CAN carry answer_type ""
+        // (which the derivation passes straight through), so the catalog
+        // fallback the pre-F9 projection applied is preserved for that case.
+        const derivedType: string = spec.answerType;
+        out.push({
+          internal_field: spec.field,
+          section_public_id: section.public_id,
+          section_name: section.section_name,
+          answer_type: derivedType !== "" ? derivedType : (catalogProduces ?? "string"),
+          choice_count: isDerivedSubField ? 0 : choices.length,
+          component_type: componentType,
+          choices: isDerivedSubField ? [] : choices,
+          props: isRecord(raw["props"]) ? (raw["props"] as Record<string, unknown>) : {},
+        });
+      }
     }
   }
   return out;
@@ -2115,13 +2159,49 @@ export async function listPayloadSchemasHandler(c: AdminContext): Promise<Respon
 // new version becomes the active schema). The stored schema_json's `version`
 // field is REWRITTEN to the allocated per-offer sequence so the two counters
 // can never drift.
+//
+// R2 P5 F10 (defect 1) — `carrierParseJson` is TRI-STATE:
+//   undefined → CARRY FORWARD the offer's currently-ACTIVE version's parse
+//               pair (carrier_parse_json + carrier_parse_version) — the SAME
+//               pair the §7.3 clone path preserves. Saving a SCHEMA must not
+//               silently destroy the RESPONSE-PARSING configuration: the
+//               operator changed a schema, not their parser. Before this fix
+//               every schema-only save (the "Save schema version" button, which
+//               POSTs `{schema_json}` with no parse key, and the §11.2
+//               from-example generator) wrote NULL into the new ACTIVE version,
+//               so validation.ts pushed `carrier_parse_missing` and activation
+//               409'd with "Response parsing (carrier parse) is not configured".
+//   null      → EXPLICIT CLEAR (wire: `"carrier_parse_json": null` — the key
+//               PRESENT and null). The column goes NULL and carrier_parse_version
+//               falls back to the column default (1).
+//   string    → EXPLICIT REPLACE (the serialized config), version default 1 —
+//               byte-identical to the pre-fix behaviour for this branch.
+// A FIRST-EVER schema (no active predecessor) carries nothing and is allowed
+// with no parse config, exactly as before.
 async function createSchemaVersion(
   db: D1Database,
   offer: LeadgenOfferRow,
   rawSchema: Record<string, unknown>,
-  carrierParseJson: string | null,
+  carrierParseJson: string | null | undefined,
   source: LeadgenPayloadSchemaSource,
 ): Promise<LeadgenOfferPayloadSchemaRow | null> {
+  let parseJson: string | null = carrierParseJson === undefined ? null : carrierParseJson;
+  let parseVersion = 1;
+  if (carrierParseJson === undefined) {
+    const activeId = offer.active_payload_schema_id;
+    if (activeId !== null && activeId !== undefined) {
+      const active = await db
+        .prepare(
+          "SELECT carrier_parse_json, carrier_parse_version FROM leadgen_offer_payload_schemas WHERE id = ? LIMIT 1",
+        )
+        .bind(activeId)
+        .first<{ carrier_parse_json: string | null; carrier_parse_version: number | null }>();
+      if (active !== null) {
+        parseJson = active.carrier_parse_json;
+        parseVersion = Number(active.carrier_parse_version ?? 1);
+      }
+    }
+  }
   const nextRow = await db
     .prepare(
       "SELECT COALESCE(MAX(version), 0) + 1 AS v FROM leadgen_offer_payload_schemas WHERE offer_id = ?",
@@ -2135,10 +2215,10 @@ async function createSchemaVersion(
     db
       .prepare(
         `INSERT INTO leadgen_offer_payload_schemas
-           (public_id, offer_id, version, schema_json, carrier_parse_json, source, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           (public_id, offer_id, version, schema_json, carrier_parse_json, carrier_parse_version, source, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .bind(publicId, offer.id, version, schemaText, carrierParseJson, source, null),
+      .bind(publicId, offer.id, version, schemaText, parseJson, parseVersion, source, null),
     db
       .prepare(
         `UPDATE leadgen_offers
@@ -2185,9 +2265,17 @@ export async function createPayloadSchemaHandler(c: AdminContext): Promise<Respo
     );
   }
 
-  let carrierParseJson: string | null = null;
+  // R2 P5 F10 (defect 1) — the wire distinguishes ABSENT from EXPLICIT NULL:
+  //   key absent      → `undefined` → createSchemaVersion CARRIES FORWARD the
+  //                     active version's parse pair (a schema-only save never
+  //                     destroys the operator's response-parsing config);
+  //   `..._json: null` → `null`      → EXPLICIT CLEAR;
+  //   an object        → validated + serialized → EXPLICIT REPLACE.
+  let carrierParseJson: string | null | undefined;
   const rawParse = body["carrier_parse_json"];
-  if (rawParse !== undefined && rawParse !== null) {
+  if (rawParse === null) {
+    carrierParseJson = null;
+  } else if (rawParse !== undefined) {
     // Mirror parseProviderResponse's own config gate (§11.7): an object with
     // a fields map, rejected at SAVE instead of degrading every parse.
     if (!isRecord(rawParse) || !isRecord(rawParse["fields"])) {
@@ -2254,11 +2342,15 @@ export async function createPayloadSchemaFromExampleHandler(c: AdminContext): Pr
     );
   }
 
+  // R2 P5 F10 (defect 1): `undefined`, NOT `null` — this endpoint's wire has no
+  // carrier_parse_json key at all, so it is the "key absent ⇒ carry forward"
+  // case. Generating a schema from a pasted example must not destroy the
+  // offer's response-parsing config any more than the manual save may.
   const created = await createSchemaVersion(
     c.env.DB,
     row,
     schema as unknown as Record<string, unknown>,
-    null,
+    undefined,
     "auto_from_example",
   );
   if (created === null) return c.json({ error: "Insert failed" }, 500);

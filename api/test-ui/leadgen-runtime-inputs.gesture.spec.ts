@@ -206,7 +206,9 @@ test.describe("R1 Test C — real-input runtime answer integrity (firefox)", () 
     await expect(yes).toBeVisible();
     // The default_applied answer paints the button selected on entry.
     await expect(yes).toHaveClass(/lg-selected/);
-    await expect(yes).toHaveAttribute("aria-pressed", "true");
+    // P5 S5c (ADJ-R8): aria-checked (role="radio" is what the SSR markup
+    // actually ships), not aria-pressed (that pairs with role="button" only).
+    await expect(yes).toHaveAttribute("aria-checked", "true");
     await expect(sectionAt(page, 1).locator('[data-lg-choice="false"]')).not.toHaveClass(/lg-selected/);
   });
 

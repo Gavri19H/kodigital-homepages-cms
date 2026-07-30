@@ -1,0 +1,4 @@
+picker entries while the slider is SINGLE:   Choose a Section field… | p5b_amount_6u1i4953 (number) | p5b_addr_6u1i4953_street (string) | p5b_addr_6u1i4953_city (string) | p5b_addr_6u1i4953_state (string) | p5b_addr_6u1i4953_zip (string) | p5b_range_6u1i4953 (number)
+picker entries once it becomes FROM_TO:      Choose a Section field… | p5b_amount_6u1i4953 (number) | p5b_addr_6u1i4953_street (string) | p5b_addr_6u1i4953_city (string) | p5b_addr_6u1i4953_state (string) | p5b_addr_6u1i4953_zip (string) | p5b_range_6u1i4953_min (number) | p5b_range_6u1i4953_max (number) | p5b_range_6u1i4953 (not on a linked Section)
+saved-but-unoffered mapping, selected option: p5b_range_6u1i4953 (not on a linked Section)
+saved-but-unoffered mapping, meta line:       Mapped to p5b_range_6u1i4953

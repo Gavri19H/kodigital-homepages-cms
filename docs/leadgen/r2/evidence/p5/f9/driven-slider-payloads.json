@@ -1,0 +1,17 @@
+{
+  "run": "6u1i4953",
+  "step": 857,
+  "driven": {
+    "p5b_range_6u1i4953_min": 10857,
+    "p5b_range_6u1i4953_max": 400857
+  },
+  "auction_instance_id": "01KYRYJ869J4M77EA4XBN7D0KS",
+  "sent_as_chip": {
+    "offer_a": "\"$10,857\"",
+    "offer_b": "400857"
+  },
+  "dispatched": {
+    "offer_a": "$10,857",
+    "offer_b": 400857
+  }
+}

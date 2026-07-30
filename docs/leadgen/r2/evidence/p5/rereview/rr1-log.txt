@@ -1,0 +1,23 @@
+AUTHOR RRV A 86xm7861 lead.rrv_amt_cur fmt=formatCurrency preview="170000 → $170,000" sentAs="$170,000" type=string typeDisabled=true
+AUTHOR RRV A 86xm7861 lead.rrv_zone_text field=rrv_addr_86xm7861_zip fmt=toString preview="04686 → 04686" sentAs="04686" type=string
+AUTHOR RRV A 86xm7861 lead.rrv_span_from field=rrv_span_86xm7861_min fmt=formatCurrency preview="10535 → $10,535" sentAs="$10,535"
+VALIDATION RRV A 86xm7861: ✓ No issues — the schema looks good.
+AUTHOR RRV B 86xm7861 lead.rrv_amt_num fmt=toNumber preview="170000 → 170000" sentAs=170000 type=number typeDisabled=true
+AUTHOR RRV B 86xm7861 lead.rrv_zone_num field=rrv_addr_86xm7861_zip fmt=toNumber preview="04686 → 4686" sentAs=4686 type=number
+AUTHOR RRV B 86xm7861 lead.rrv_span_to field=rrv_span_86xm7861_max fmt=toNumber preview="400535 → 400535" sentAs=400535
+VALIDATION RRV B 86xm7861: ✓ No issues — the schema looks good.
+AUTHOR RRV C 86xm7861 lead.rrv_amt_str fmt=toString preview="170000 → 170000" sentAs="170000" type=string typeDisabled=true
+VALIDATION RRV C 86xm7861: ✓ No issues — the schema looks good.
+STORED RRV A 86xm7861 v2: [{"p":"lead","t":"object"},{"p":"lead.rrv_amt_cur","t":"string","x":[{"kind":"formatCurrency"}],"f":"rrv_amount_86xm7861"},{"p":"lead.rrv_zone_text","t":"string","x":[{"kind":"toString"}],"f":"rrv_addr_86xm7861_zip"},{"p":"lead.rrv_span_from","t":"string","x":[{"kind":"formatCurrency"}],"f":"rrv_span_86xm7861_min"}]
+STORED RRV B 86xm7861 v2: [{"p":"lead","t":"object"},{"p":"lead.rrv_amt_num","t":"number","x":[{"kind":"toNumber"}],"f":"rrv_amount_86xm7861"},{"p":"lead.rrv_zone_num","t":"number","x":[{"kind":"toNumber"}],"f":"rrv_addr_86xm7861_zip"},{"p":"lead.rrv_span_to","t":"number","x":[{"kind":"toNumber"}],"f":"rrv_span_86xm7861_max"}]
+STORED RRV C 86xm7861 v2: [{"p":"lead","t":"object"},{"p":"lead.rrv_amt_str","t":"string","x":[{"kind":"toString"}],"f":"rrv_amount_86xm7861"}]
+SETUP run=86xm7861 slug=rrv-86xm7861 zip=04686 rangeStep=535 offers=lgo_01KYS0QD3MQBMVBTBCEY8DAHC0 lgo_01KYS0QD4M082DT7WKZVC334FP lgo_01KYS0QD59C0YV4ADKTHQW8EXR
+SSR ok composite + sliders in 27ms
+VISITOR amount readout = "$170,000"
+VISITOR recorded keys = [rrv_addr_86xm7861_city, rrv_addr_86xm7861_state, rrv_addr_86xm7861_street, rrv_addr_86xm7861_zip, rrv_amount_86xm7861, rrv_span_86xm7861_max, rrv_span_86xm7861_min]
+VISITOR answers = {"rrv_amount_86xm7861":{"value":"170000","answer_source":"user_selected"},"rrv_span_86xm7861_min":{"value":"10535","answer_source":"user_selected"},"rrv_span_86xm7861_max":{"value":"400550","answer_source":"user_selected"},"rrv_addr_86xm7861_street":{"value":"86xm7861 Peregrine Ct","answer_source":"user_selected"},"rrv_addr_86xm7861_city":{"value":"Weehawken","answer_source":"user_selected"},"rrv_addr_86xm7861_state":{"value":"NJ","answer_source":"user_selected"},"rrv_addr_86xm7861_zip":{"value":"04686","answer_source":"user_selected"}}
+auction_instance_id = 01KYS0QJ7P215DP203W99B4K1D
+PROVIDER ROW lgo_01KYS0QD3MQBMVBTBCEY8DAHC0 => {"lead":{"rrv_amt_cur":"$170,000","rrv_zone_text":"04686","rrv_span_from":"$10,535"}}
+PROVIDER ROW lgo_01KYS0QD4M082DT7WKZVC334FP => {"lead":{"rrv_amt_num":170000,"rrv_zone_num":4686,"rrv_span_to":400550}}
+PROVIDER ROW lgo_01KYS0QD59C0YV4ADKTHQW8EXR => {"lead":{"rrv_amt_str":"170000"}}
+VISITOR slider recorded min="10535" max="400550"

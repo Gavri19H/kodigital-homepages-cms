@@ -1,0 +1,3 @@
+before: valuemap panel visible=true
+after currency pick: valuemapPanelHidden=false summary="✓ No issues — the schema looks good."
+node raw = { "path": "amt", "name": "amt", "type": "string", "required": false, "source": "answer", "internal_field": "rrv5_num_8sb21637", "value_map": { "170000": "BIG" }, "transform": [ { "kind": "formatCurrency" } ] }

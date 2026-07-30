@@ -310,7 +310,9 @@ test.describe("Group 1 — answers, defaults, auto-advance (11 §11.2 / 03 §3.4
     const yes = sectionAt(page, 1).locator('[data-lg-choice="true"]');
     await yes.click();
     await expect(yes).toHaveClass(/lg-selected/);
-    await expect(yes).toHaveAttribute("aria-pressed", "true");
+    // P5 S5c (ADJ-R8): aria-checked (role="radio" is what the SSR markup
+    // actually ships), not aria-pressed (that pairs with role="button" only).
+    await expect(yes).toHaveAttribute("aria-checked", "true");
 
     // §11.6: no answer_click beacon after a scripted answer = FAIL.
     const clicks = await waitForEventCount(events, "answer_click", 1);

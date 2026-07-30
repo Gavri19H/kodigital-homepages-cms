@@ -105,10 +105,15 @@ function derivePresetsSizeConsumingTypes(): string[] {
   // widened consumption to the choice/button/card/dropdown renderers, which
   // apply the per-ITEM size axis via choiceItemStyle( (buttons/cards/multi/other-
   // group + renderCardGrid itself) and the dropdown <select> via fieldStyleAttr(;
-  // the two icon/image grid wrappers delegate to renderCardGrid(. Adding
-  // choiceItemStyle( and renderCardGrid( keeps the derivation SOURCE-DERIVED and
-  // drift-proof: any future renderer that consumes size through one of these
-  // five call sites is caught.
+  // the two icon/image grid wrappers delegate to renderCardGrid(. R2 P5 S5a
+  // (owner D3): renderAddressAutocompleteQuestion itself became a thin
+  // dispatcher onto renderAddressFieldSet (the composite-by-default fix), the
+  // SAME "helper renderer other renderers delegate size-styling through"
+  // shape renderTextInput/renderCardGrid already are here — so
+  // renderAddressFieldSet( joins them for the identical reason. Adding
+  // choiceItemStyle(, renderCardGrid( and renderAddressFieldSet( keeps the
+  // derivation SOURCE-DERIVED and drift-proof: any future renderer that
+  // consumes size through one of these six call sites is caught.
   const consumingFnNames = new Set<string>();
   const fnMatches = [...src.matchAll(/(?:export )?function (render\w+)\(/g)];
   for (const fm of fnMatches) {
@@ -119,7 +124,8 @@ function derivePresetsSizeConsumingTypes(): string[] {
       body.includes("fieldSizeStyle(") ||
       body.includes("renderTextInput(") ||
       body.includes("choiceItemStyle(") ||
-      body.includes("renderCardGrid(")
+      body.includes("renderCardGrid(") ||
+      body.includes("renderAddressFieldSet(")
     ) {
       consumingFnNames.add(fm[1]!);
     }

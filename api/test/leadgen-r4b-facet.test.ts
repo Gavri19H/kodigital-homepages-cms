@@ -112,14 +112,32 @@ describe("R4b S3-6 — collectMapsAuctionFields", () => {
     expect(collectMapsAuctionFields(content([plain, zipNode({ enabled: false, jobs: { auction: true } })]))).toEqual([]);
   });
 
-  it("AddressAutocompleteQuestion contributes its `zip` sub-field", () => {
+  // R2 P5 (SRC-6 field-name SEAM): the contributed ZIP key is the one the
+  // RENDERER emits (`{base}_zip`, base = internal_field || question_id ||
+  // "address") — the key normalizeAnswers now populates from a driven visitor.
+  // The old literal "zip" was an answer nobody has recorded since M9, so the §9
+  // facet read an absent value on every authored Address.
+  it("AddressAutocompleteQuestion contributes its RENDERED `{base}_zip` sub-field", () => {
     const addr = {
       type: "AddressAutocompleteQuestion",
       question_id: "q_a",
       answer_type: "string",
       props: { maps: newShape({ auction: true }) },
     } as unknown as LeadgenComponentNode;
-    expect(collectMapsAuctionFields(content([addr]))).toEqual([{ zipField: "zip", validate: false, auction: true }]);
+    expect(collectMapsAuctionFields(content([addr]))).toEqual([
+      { zipField: "q_a_zip", validate: false, auction: true },
+    ]);
+    // a maps.fills override renames the very same slot (one derivation)
+    const overridden = {
+      type: "AddressAutocompleteQuestion",
+      question_id: "q_b",
+      internal_field: "home",
+      answer_type: "string",
+      props: { maps: { ...newShape({ auction: true }), fills: { zip: "home_postal" } } },
+    } as unknown as LeadgenComponentNode;
+    expect(collectMapsAuctionFields(content([overridden]))).toEqual([
+      { zipField: "home_postal", validate: false, auction: true },
+    ]);
   });
 });
 

@@ -288,10 +288,11 @@ describe("Gate 4 probe 7 — Palette integrity", () => {
     expect(groupKeys).not.toContain("choices");
     expect(groupKeys).not.toContain("inputs");
     // the merged group holds the 12 v3.1 contract answer-control tiles (§5.2)
-    // PLUS the P5 (PC-10) MultiQuestionGrid "Question grid" tile = 13 — choice-
+    // PLUS the P5 (PC-10) MultiQuestionGrid "Question grid" tile = 13, PLUS
+    // P5 S5c's standalone Phone tile (ADJ-A6 / D6 RULED yes) = 14 — choice-
     // based AND typed-input, no longer split into two top-level groups.
     const answerFields = STUDIO_LIBRARY_GROUPS.find((g) => g.key === "answer-fields")!;
-    expect(answerFields.tiles.length).toBe(13);
+    expect(answerFields.tiles.length).toBe(14);
   });
 });
 

@@ -1,0 +1,63 @@
+OFFER REV7B Offer ONE — currency passed id=4 pub=lgo_01KYRQAGYC22NGYJM6V51BJH10
+OFFER REV7B Offer TWO — number only id=5 pub=lgo_01KYRQAGZ2NVQ566SCNNG17FV3
+OFFER REV7B Offer THREE — number string id=6 pub=lgo_01KYRQAGZJH4S70MWK1RTKGGBD
+REV7B Offer ONE — currency passed: source options=["answer","static","macro:ip","macro:ua","macro:referer","macro:url","macro:country","macro:state","macro:city","computed:timezone","macro:language","macro:utm_source","macro:utm_medium","macro:utm_content","macro:traffic_source","macro:placement","macro:sub1","macro:sub2","macro:sub3","macro:sub4","macro:sub5","macro:cpc","macro:fbclid","macro:fbc","macro:session_id","macro:offer_id","macro:offer_name","placement","computed:request_timestamp","computed:request_timestamp_ms","computed:unix_timestamp","computed:iso_timestamp","computed:today_date_utc","computed:current_date_utc","computed:current_datetime_utc","computed:current_hour_utc","computed:current_hour_est","computed:current_day_of_week_utc","computed:current_day_of_week_est","computed:timezone","token"]
+REV7B Offer ONE — currency passed: outputformat panel visible (type=number) = true
+REV7B Offer ONE — currency passed: output-format options = [{"v":"","t":"Just the number (no formatting)"},{"v":"formatCurrency","t":"Currency string ($170,000)"},{"v":"toNumber","t":"Number (force numeric)"},{"v":"toString","t":"Number as string (\"170000\")"}]
+REV7B Offer ONE — currency passed: UI preview says = "170000 → $170,000"
+REV7B Offer ONE — currency passed: after save, alerts=["Client mode: the request runs in the browser. No secret is ever exposed — remove secret_ref headers and the API token secret; endpoints must be https and CORS-enabled (validated on save)."]
+REV7B Offer ONE — currency passed: console errors=["Failed to load resource: the server responded with a status of 404 (Not Found)"]
+REV7B Offer ONE — currency passed: STORED schema = {"version":1,"root":{"type":"object","children":[{"path":"rv7b_amt_currency","name":"rv7b_amt_currency","type":"number","required":false,"source":"answer","internal_field":"rv7b_amount","transform":[{"kind":"formatCurrency"}]}]}}
+REV7B Offer TWO — number only: source options=["answer","static","macro:ip","macro:ua","macro:referer","macro:url","macro:country","macro:state","macro:city","computed:timezone","macro:language","macro:utm_source","macro:utm_medium","macro:utm_content","macro:traffic_source","macro:placement","macro:sub1","macro:sub2","macro:sub3","macro:sub4","macro:sub5","macro:cpc","macro:fbclid","macro:fbc","macro:session_id","macro:offer_id","macro:offer_name","placement","computed:request_timestamp","computed:request_timestamp_ms","computed:unix_timestamp","computed:iso_timestamp","computed:today_date_utc","computed:current_date_utc","computed:current_datetime_utc","computed:current_hour_utc","computed:current_hour_est","computed:current_day_of_week_utc","computed:current_day_of_week_est","computed:timezone","token"]
+REV7B Offer TWO — number only: outputformat panel visible (type=number) = true
+REV7B Offer TWO — number only: output-format options = [{"v":"","t":"Just the number (no formatting)"},{"v":"formatCurrency","t":"Currency string ($170,000)"},{"v":"toNumber","t":"Number (force numeric)"},{"v":"toString","t":"Number as string (\"170000\")"}]
+REV7B Offer TWO — number only: UI preview says = "170000 → 170000"
+REV7B Offer TWO — number only: after save, alerts=["Client mode: the request runs in the browser. No secret is ever exposed — remove secret_ref headers and the API token secret; endpoints must be https and CORS-enabled (validated on save)."]
+REV7B Offer TWO — number only: console errors=["Failed to load resource: the server responded with a status of 404 (Not Found)"]
+REV7B Offer TWO — number only: STORED schema = {"version":1,"root":{"type":"object","children":[{"path":"rv7b_amt_number","name":"rv7b_amt_number","type":"number","required":false,"source":"answer","internal_field":"rv7b_amount","transform":[{"kind":"toNumber"}]}]}}
+REV7B Offer THREE — number string: source options=["answer","static","macro:ip","macro:ua","macro:referer","macro:url","macro:country","macro:state","macro:city","computed:timezone","macro:language","macro:utm_source","macro:utm_medium","macro:utm_content","macro:traffic_source","macro:placement","macro:sub1","macro:sub2","macro:sub3","macro:sub4","macro:sub5","macro:cpc","macro:fbclid","macro:fbc","macro:session_id","macro:offer_id","macro:offer_name","placement","computed:request_timestamp","computed:request_timestamp_ms","computed:unix_timestamp","computed:iso_timestamp","computed:today_date_utc","computed:current_date_utc","computed:current_datetime_utc","computed:current_hour_utc","computed:current_hour_est","computed:current_day_of_week_utc","computed:current_day_of_week_est","computed:timezone","token"]
+REV7B Offer THREE — number string: outputformat panel visible (type=number) = true
+REV7B Offer THREE — number string: output-format options = [{"v":"","t":"Just the number (no formatting)"},{"v":"formatCurrency","t":"Currency string ($170,000)"},{"v":"toNumber","t":"Number (force numeric)"},{"v":"toString","t":"Number as string (\"170000\")"}]
+REV7B Offer THREE — number string: UI preview says = "170000 → 170000"
+REV7B Offer THREE — number string: after save, alerts=["Client mode: the request runs in the browser. No secret is ever exposed — remove secret_ref headers and the API token secret; endpoints must be https and CORS-enabled (validated on save)."]
+REV7B Offer THREE — number string: console errors=["Failed to load resource: the server responded with a status of 404 (Not Found)"]
+REV7B Offer THREE — number string: STORED schema = {"version":1,"root":{"type":"object","children":[{"path":"rv7b_amt_string","name":"rv7b_amt_string","type":"number","required":false,"source":"answer","internal_field":"rv7b_amount","transform":[{"kind":"toString"}]}]}}
+REV7B Offer ONE — currency passed: test-tool HTTP 200 sent=""
+REV7B Offer TWO — number only: test-tool HTTP 200 sent=""
+REV7B Offer THREE — number string: test-tool HTTP 200 sent=""
+WARN ineligible: ["carrier_parse_missing"]
+FAILED: put /api/admin/leadgen/quotes/lgq_01KYRQDZC1PV3Y2QV37ZMNB1VD/activation/st_80bca00d1a584b61 409: {"error":"quote_activation_blocked","quote_id":"lgq_01KYRQDZC1PV3Y2QV37ZMNB1VD","funnel_id":"lgf_01KYRQDZC1NRA99HYQ6S9AWG38","funnel_variant_id":"lgn_01KYRQDZC19X5G33SCNEY90FR7","blocks":[{"section_id":"","section_name":"","offer_id":"lgo_01KYRQAGYC22NGYJM6V51BJH10","offer_name":"REV7B Offer ONE — currency passed","code":"offer_ineligible","fields":["carrier_parse_missing"],"fix_links":{"offer_schema":"/admin/leadgen/offers/lgo_01KYRQAGYC22NGYJM6V51BJH10/edit#payload"}},{"section_id":"","section_name":"","offer_id":"lgo_01KYRQAGZ2NVQ566SCNNG17FV3","offer_name":"REV7B Offer TWO — number only","code":"offer_ineligible","fields":["carrier_parse_missing"],"fix_links":{"offer_schema":"/admin/lead
+
+=== B2 ===
+REPOST REV7B Offer ONE — currency passed: UI-authored schema_json (verbatim) = {"version":1,"root":{"type":"object","children":[{"path":"rv7b_amt_currency","name":"rv7b_amt_currency","type":"number","required":false,"source":"answer","internal_field":"rv7b_amount","transform":[{"kind":"formatCurrency"}]}]}}
+REV7B Offer ONE — currency passed: test HTTP 200
+REPOST REV7B Offer TWO — number only: UI-authored schema_json (verbatim) = {"version":1,"root":{"type":"object","children":[{"path":"rv7b_amt_number","name":"rv7b_amt_number","type":"number","required":false,"source":"answer","internal_field":"rv7b_amount","transform":[{"kind":"toNumber"}]}]}}
+REV7B Offer TWO — number only: test HTTP 200
+REPOST REV7B Offer THREE — number string: UI-authored schema_json (verbatim) = {"version":1,"root":{"type":"object","children":[{"path":"rv7b_amt_string","name":"rv7b_amt_string","type":"number","required":false,"source":"answer","internal_field":"rv7b_amount","transform":[{"kind":"toString"}]}]}}
+REV7B Offer THREE — number string: test HTTP 200
+SSR converged: REV7B section
+VISITOR slider readout = "$170,000" (D9 target $170,000)
+VISITOR recorded = {"rv7b_amount":{"value":"170000","answer_source":"user_selected"}}
+PAYLOAD [REV7B Offer ONE — currency passed] lgo_01KYRQAGYC22NGYJM6V51BJH10 => {}
+PAYLOAD [REV7B Offer TWO — number only] lgo_01KYRQAGZ2NVQ566SCNNG17FV3 => {"rv7b_amt_number":170000}
+PAYLOAD [REV7B Offer THREE — number string] lgo_01KYRQAGZJH4S70MWK1RTKGGBD => {"rv7b_amt_string":170000}
+
+=== B3 ===
+
+FAILED locator.click: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for getByRole('button', { name: 'Payload', exact: true }).first()[22m
+
+
+=== B3 dance ===
+preview chip (type=number) = "170000 → $170,000"
+schema validation panel says: ✓ No issues — the schema looks good.
+builder Sample payload preview = "{\n  \"version\": 1,\n  \"root\": {\n    \"type\": \"object\",\n    \"children\": [\n      {\n        \"path\": \"rv7b_amt_dance\",\n        \"name\": \"rv7b_amt_dance\",\n        \"type\": \"number\",\n        \"required\": false,\n "
+AFTER switching Type=Text: output-format panel visible = false
+Live JSON preview after dance = "{ \"version\": 1, \"root\": { \"type\": \"object\", \"children\": [ { \"path\": \"rv7b_amt_dance\", \"name\": \"rv7b_amt_dance\", \"type\": \"string\", \"required\": false, \"source\": \"answer\", \"internal_field\": \"rv7b_amount\", \"transform\": [ { \"kind\": \"formatCurrency\" } ] } ] } }"
+advanced-managed badge visible after dance = false
+STORED after dance = {"version":1,"root":{"type":"object","children":[{"path":"rv7b_amt_dance","name":"rv7b_amt_dance","type":"string","required":false,"source":"answer","internal_field":"rv7b_amount","transform":[{"kind":"formatCurrency"}]}]}}
+test HTTP 200
+re-wire warnings=[]
+PAYLOAD lgo_01KYRQJ5XQZYN76VB59T48VTEE => {"rv7b_amt_dance":"$170,000"}
+(offer FOUR public id = lgo_01KYRQJ5XQZYN76VB59T48VTEE)

@@ -1,0 +1,2 @@
+@1600: {"activity":{"text":"Choose an activity","selW":160,"textW":113,"truncated":false},"vertical":{"text":"Choose a vertical","selW":160,"textW":106,"truncated":false},"bodyScroll":1600,"inner":1600}
+@1280: {"activity":{"text":"Choose an activity","selW":160,"textW":113,"truncated":false},"vertical":{"text":"Choose a vertical","selW":160,"textW":106,"truncated":false},"bodyScroll":1280,"inner":1280}

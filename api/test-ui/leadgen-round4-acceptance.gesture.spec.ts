@@ -817,9 +817,17 @@ test.describe("Round-4 acceptance — Section Studio & Lists (register R4-01..R4
     await expect(addressNode, "Address inserts as one composite node").toHaveCount(1);
 
     // VISIBLE composite structure on canvas — not a bare single input
-    // indistinguishable from a text field (the A-6 defect, inverted).
-    await expect(addressNode.locator(".lg-address-composite"), "canvas renders the visible composite structure").toHaveCount(1);
-    await expect(addressNode.locator(".lg-address-chip"), "the composite shows role chips (street/city/state/zip)").not.toHaveCount(0);
+    // indistinguishable from a text field (the A-6 defect, inverted). P5 S5a
+    // (D3 composite-by-default) STRENGTHENING: the decorative
+    // .lg-address-composite/.lg-address-chip preview classes this test used
+    // to assert are RETIRED — an unconfigured Address now renders the SAME
+    // FOUR REAL street/city/state/zip fields the studio inspector's own
+    // default field set shows (renderAddressFieldSet +
+    // ADDRESS_DEFAULT_FIELD_SPECS), not a decorative stand-in for them.
+    await expect(addressNode.locator(".lg-address-composite"), "the retired decorative composite class is gone").toHaveCount(0);
+    await expect(addressNode.locator(".lg-address-chip"), "the retired decorative chip class is gone").toHaveCount(0);
+    await expect(addressNode.locator(".lg-address-field-wrap"), "canvas renders all 4 REAL address fields").toHaveCount(4);
+    await expect(addressNode.locator(".lg-address-field-wrap input.lg-input"), "each field is a real typeable input").toHaveCount(4);
 
     // LeadGen Rework §6.10/§10 (own-hand-verified, ui-section-studio.ts:7914-
     // 7918 + :2345-2363/:11372-11376): the old "Address is a fixed type" lock

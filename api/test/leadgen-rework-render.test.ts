@@ -87,7 +87,7 @@ describe("A-6a byte-identity sweep — pre-P2 fixtures render byte-identical", (
     expect(renderComponent(node, DESIGN)).toBe(frozen["plainDropdown"]);
   });
 
-  it("a legacy address (no props.fields[] at all — L-192)", () => {
+  it("a legacy address (no props.fields[] at all) — owner D3 (R2 P5): renders the 4-field default composite, re-captured off this SAME node", () => {
     const node: LeadgenComponentNode = {
       type: "AddressAutocompleteQuestion",
       question_id: "q_addr",
@@ -873,7 +873,7 @@ describe("§6.10 / M9 — address renders per props.fields[]", () => {
     expect(html).toContain("data-lg-input");
   });
 
-  it("absent props.fields[] (legacy, un-migrated shape) renders EXACTLY today's composite — L-192, verified against the SAME frozen A-6a fixture", () => {
+  it("absent props.fields[] (legacy, un-migrated shape) now renders the DEFAULT 4-field composite (owner D3, R2 P5 — supersedes the pre-D3 L-192 single-input pin), verified against the SAME frozen A-6a fixture", () => {
     const legacy: LeadgenComponentNode = {
       type: "AddressAutocompleteQuestion",
       question_id: "q_addr",
@@ -884,10 +884,26 @@ describe("§6.10 / M9 — address renders per props.fields[]", () => {
     const frozen = JSON.parse(
       readFileSync(join(HERE, "fixtures", "p2-prerender", "pre-p2-render.json"), "utf8"),
     ) as Record<string, string>;
-    expect(renderComponent(legacy, DESIGN)).toBe(frozen["legacyAddress"]);
+    const html = renderComponent(legacy, DESIGN);
+    expect(html).toBe(frozen["legacyAddress"]);
+    // D3's own words: the 4 real fields, not a decorative preview.
+    expect(html).toContain('data-lg-field="addr_street"');
+    expect(html).toContain('data-lg-field="addr_city"');
+    expect(html).toContain('data-lg-field="addr_state"');
+    expect(html).toContain('data-lg-field="addr_zip"');
+    expect((html.match(/data-lg-input/g) ?? []).length).toBe(4);
+    // P5-F5 addition: each of the 4 visible field labels is present and for-associated with its input's id
+    expect(html).toContain('<label class="lg-address-field-label" for="lg-addr-addr_street">Street address</label>');
+    expect(html).toContain('<label class="lg-address-field-label" for="lg-addr-addr_city">City</label>');
+    expect(html).toContain('<label class="lg-address-field-label" for="lg-addr-addr_state">State</label>');
+    expect(html).toContain('<label class="lg-address-field-label" for="lg-addr-addr_zip">ZIP code</label>');
+    expect(html).toContain('id="lg-addr-addr_street"');
+    expect(html).toContain('id="lg-addr-addr_city"');
+    expect(html).toContain('id="lg-addr-addr_state"');
+    expect(html).toContain('id="lg-addr-addr_zip"');
   });
 
-  it("a corrupt/malformed props.fields (not an array, or an unrecognized field kind) falls back to the legacy composite render defensively (never throws)", () => {
+  it("a corrupt/malformed props.fields (not an array, or an unrecognized field kind) falls back to the DEFAULT 4-field composite render defensively (never throws — same D3 default as fully-absent fields[])", () => {
     const corrupt: LeadgenComponentNode = {
       type: "AddressAutocompleteQuestion",
       question_id: "q_addr",
@@ -896,7 +912,7 @@ describe("§6.10 / M9 — address renders per props.fields[]", () => {
       props: { provider: "google", fields: "not-an-array" },
     } as LeadgenComponentNode;
     expect(() => renderComponent(corrupt, DESIGN)).not.toThrow();
-    expect(renderComponent(corrupt, DESIGN)).toContain("lg-address-input");
+    expect(renderComponent(corrupt, DESIGN)).toContain('data-lg-field="addr_street"');
   });
 });
 

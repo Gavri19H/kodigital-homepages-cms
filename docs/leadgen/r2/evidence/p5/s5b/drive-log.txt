@@ -1,0 +1,54 @@
+CREATE offer "P5B Offer A 6u1i4953 — currency passed" -> id=14 public=lgo_01KYRYHSG98VT3YH8GF2YF6CV9
+CREATE offer "P5B Offer B 6u1i4953 — number only" -> id=15 public=lgo_01KYRYHSHM6J0F8WEGDKDCW0W7
+CREATE offer "P5B Offer C 6u1i4953 — number as string" -> id=16 public=lgo_01KYRYHSJXVE28D4WRWAQM67WZ
+LINK section -> offers [14, 15, 16] HTTP 200
+AUTHOR P5B Offer A 6u1i4953 — currency passed · lead.p5b_amount_currency <- "formatCurrency" · preview "170000 → $170,000" · sends "$170,000"
+PICKER options = ["Choose a Section field…","p5b_amount_6u1i4953 (number)","p5b_addr_6u1i4953_street (string)","p5b_addr_6u1i4953_city (string)","p5b_addr_6u1i4953_state (string)","p5b_addr_6u1i4953_zip (string)","p5b_range_6u1i4953_min (number)","p5b_range_6u1i4953_max (number)"]
+AUTHOR P5B Offer A 6u1i4953 — currency passed · lead.p5b_zone_text <- picked field "p5b_addr_6u1i4953_zip" · format "toString" · preview "04113 → 04113" · sends "04113"
+F9 PICKER options = ["Choose a Section field…","p5b_amount_6u1i4953 (number)","p5b_addr_6u1i4953_street (string)","p5b_addr_6u1i4953_city (string)","p5b_addr_6u1i4953_state (string)","p5b_addr_6u1i4953_zip (string)","p5b_range_6u1i4953_min (number)","p5b_range_6u1i4953_max (number)"]
+F9 AUTHOR P5B Offer A 6u1i4953 — currency passed · lead.p5b_span_from <- picked field "p5b_range_6u1i4953_min" · format "formatCurrency" · preview "10857 → $10,857" · sends "$10,857"
+AUTHOR P5B Offer B 6u1i4953 — number only · lead.p5b_amount_number <- "toNumber" · preview "170000 → 170000" · sends 170000
+AUTHOR P5B Offer B 6u1i4953 — number only · lead.p5b_zone_num <- picked field "p5b_addr_6u1i4953_zip" · format "toNumber" · preview "04113 → 4113" · sends 4113
+F9 AUTHOR P5B Offer B 6u1i4953 — number only · lead.p5b_span_to <- picked field "p5b_range_6u1i4953_max" · format "toNumber" · preview "400857 → 400857" · sends 400857
+AUTHOR P5B Offer C 6u1i4953 — number as string · lead.p5b_amount_string <- "toString" · preview "170000 → 170000" · sends "170000"
+STORED P5B Offer A 6u1i4953 — currency passed v2: [{"p":"lead","t":"object"},{"p":"lead.p5b_amount_currency","t":"string","x":[{"kind":"formatCurrency"}]},{"p":"lead.p5b_zone_text","t":"string","x":[{"kind":"toString"}]},{"p":"lead.p5b_span_from","t":"string","x":[{"kind":"formatCurrency"}]}]
+STORED P5B Offer B 6u1i4953 — number only v2: [{"p":"lead","t":"object"},{"p":"lead.p5b_amount_number","t":"number","x":[{"kind":"toNumber"}]},{"p":"lead.p5b_zone_num","t":"number","x":[{"kind":"toNumber"}]},{"p":"lead.p5b_span_to","t":"number","x":[{"kind":"toNumber"}]}]
+STORED P5B Offer C 6u1i4953 — number as string v2: [{"p":"lead","t":"object"},{"p":"lead.p5b_amount_string","t":"string","x":[{"kind":"toString"}]}]
+TEST P5B Offer A 6u1i4953 — currency passed -> HTTP 200
+TEST P5B Offer B 6u1i4953 — number only -> HTTP 200
+TEST P5B Offer C 6u1i4953 — number as string -> HTTP 200
+SETUP run=6u1i4953 quote=lgq_01KYRYHSKK0T64AX4YCJ175NR6 variant=lgn_01KYRYHSKK4ST7AR2X10CZBKVC section=lgs_01KYRYHSMBY7ZM172T44PXNFV4 slug=r2p5b-6u1i4953 zip=04113
+SETUP offers=lgo_01KYRYHSG98VT3YH8GF2YF6CV9 lgo_01KYRYHSHM6J0F8WEGDKDCW0W7 lgo_01KYRYHSJXVE28D4WRWAQM67WZ (A currency · B number · C number-as-string)
+AUTHOR section [composite (unconfigured, D3 default)] -> HTTP 200
+SSR converged in 17ms (1 poll(s)): composite address + currency stepper
+DRIVE typed=6u1i4953 Kestrel Way / Hoboken / NJ / 04113 · readout="$170,000" · visitor RECORDED keys = [p5b_addr_6u1i4953_city, p5b_addr_6u1i4953_state, p5b_addr_6u1i4953_street, p5b_addr_6u1i4953_zip, p5b_amount_6u1i4953]
+DRIVE auction_instance_id=01KYRYHX8KDX4TVCKTQ5V8J1GK
+PAYLOAD offer-1 (lgo_01KYRYHSG98VT3YH8GF2YF6CV9) {"lead":{"p5b_amount_currency":"$170,000","p5b_zone_text":"04113"}}
+PAYLOAD offer-2 (lgo_01KYRYHSHM6J0F8WEGDKDCW0W7) {"lead":{"p5b_amount_number":170000,"p5b_zone_num":4113}}
+PAYLOAD offer-3 (lgo_01KYRYHSJXVE28D4WRWAQM67WZ) {"lead":{"p5b_amount_string":"170000"}}
+ANSWER-MAP value_transform rows (5): lead.p5b_amount_currency=[{"kind":"formatCurrency"}] | lead.p5b_amount_number=[{"kind":"toNumber"}] | lead.p5b_amount_string=[{"kind":"toString"}] | lead.p5b_zone_num=[{"kind":"toNumber"}] | lead.p5b_zone_text=[{"kind":"toString"}]
+AUTHOR section [free-text (full_address)] -> HTTP 200
+SSR converged in 13ms (1 poll(s)): free-text address
+DRIVE typed=6u1i4953 Kestrel Way, Hoboken, NJ 04113 · readout="$170,000" · visitor RECORDED keys = [p5b_addr_6u1i4953, p5b_amount_6u1i4953]
+DRIVE auction_instance_id=01KYRYJ16N7KDAYHEC1DVGGXRQ
+PAYLOAD free-text offer-1 {"lead":{"p5b_amount_currency":"$170,000"}}
+AUTHOR section [street-only] -> HTTP 200
+SSR converged in 14ms (1 poll(s)): street-only address
+DRIVE typed=6u1i4953 Kestrel Way · readout="$170,000" · visitor RECORDED keys = [p5b_addr_6u1i4953_street, p5b_amount_6u1i4953]
+DRIVE auction_instance_id=01KYRYJ4HKG4YYFHRKT0RG1290
+PAYLOAD street-only offer-1 {"lead":{"p5b_amount_currency":"$170,000"}}
+AUTHOR section [from_to slider + composite address] -> HTTP 200
+SSR converged in 16ms (1 poll(s)): from_to slider sub-fields
+DRIVE typed=10857 / 400857 · readout="$170,000" · visitor RECORDED keys = [p5b_amount_6u1i4953, p5b_range_6u1i4953_max, p5b_range_6u1i4953_min]
+DRIVE auction_instance_id=01KYRYJ869J4M77EA4XBN7D0KS
+F9 DRIVE envelope p5b_range_6u1i4953_min="10857" p5b_range_6u1i4953_max="400857"
+F9 PAYLOAD offer-1 (lgo_01KYRYHSG98VT3YH8GF2YF6CV9) {"lead":{"p5b_amount_currency":"$170,000","p5b_span_from":"$10,857"}}
+F9 PAYLOAD offer-2 (lgo_01KYRYHSHM6J0F8WEGDKDCW0W7) {"lead":{"p5b_amount_number":170000,"p5b_span_to":400857}}
+F9 PAYLOAD offer-3 (lgo_01KYRYHSJXVE28D4WRWAQM67WZ) {"lead":{"p5b_amount_string":"170000"}}
+F9 SENT-AS chips: offer-1 "$10,857" · offer-2 400857
+AUTHOR section [single slider (base key offered)] -> HTTP 200
+F9 FLAG-LEG options while SINGLE = ["Choose a Section field…","p5b_amount_6u1i4953 (number)","p5b_addr_6u1i4953_street (string)","p5b_addr_6u1i4953_city (string)","p5b_addr_6u1i4953_state (string)","p5b_addr_6u1i4953_zip (string)","p5b_range_6u1i4953 (number)"]
+F9 FLAG-LEG saved Offer C mapping lead.p5b_span_legacy <- "p5b_range_6u1i4953" (single slider)
+AUTHOR section [from_to (base key no longer recorded)] -> HTTP 200
+F9 FLAG-LEG selected option = "p5b_range_6u1i4953 (not on a linked Section)" · meta = "Mapped to p5b_range_6u1i4953"
+F9 FLAG-LEG options after the switch = ["Choose a Section field…","p5b_amount_6u1i4953 (number)","p5b_addr_6u1i4953_street (string)","p5b_addr_6u1i4953_city (string)","p5b_addr_6u1i4953_state (string)","p5b_addr_6u1i4953_zip (string)","p5b_range_6u1i4953_min (number)","p5b_range_6u1i4953_max (number)","p5b_range_6u1i4953 (not on a linked Section)"]

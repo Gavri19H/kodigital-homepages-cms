@@ -39,9 +39,14 @@ import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
 import { COMPUTED_REGISTRY, LEADGEN_COMPUTED_KEYS } from "../src/leadgen/computed";
 import { CANONICAL_MACROS } from "../src/leadgen/macros";
+import { COMPONENT_CATALOG } from "../src/public/leadgen/components/registry";
+import { validateSectionContent } from "../src/public/leadgen/components/content-schema";
 import {
+  buildPayload,
   LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES,
   LEADGEN_PAYLOAD_WARNING_ERROR_CODES,
+  LEADGEN_TRANSFORM_KINDS,
+  type LeadgenPayloadSchema,
 } from "../src/leadgen/payload";
 import {
   PAYLOAD_BOOLEAN_PRESETS,
@@ -362,25 +367,56 @@ async function postSchema(
 
 // Link a Section carrying answer components → builder_context.linked_fields
 // (offers-handlers.readLinkedSectionFields parses content_json.components).
+//
+// R2 P5 F10 (defect 2): the four component types are REAL COMPONENT_CATALOG
+// names. They used to be `ChoiceGroup` / `YesNoQuestion` / `NumberQuestion` —
+// names no catalog entry carries, so validateSectionContent (content-schema.ts
+// §8.x) REFUSES to save such content with `unknown_component_type … not in the
+// component catalog`. The fixture only ever "passed" because the pre-F9
+// projection echoed `internal_field` blindly; the canonical fieldsOf
+// derivation correctly yields NOTHING for a type outside the catalog
+// (produces === null), so the fixture was asserting over content the product
+// cannot produce. LINK_SECTION_CONTENT_IS_SAVEABLE below pins the fixture to
+// the REAL save-side validator so it can never drift back.
+// Everything the save-side validator demands is here on purpose: `question_id`
+// (required + unique), a per-choice `analytics_id` (§22 tracking), and an
+// `answer_type` that AGREES with the catalog's `produces` — DateQuestion
+// produces "string", so the old `answer_type: "date"` was a second thing the
+// product would have refused (`answer_type_mismatch`).
+const LINK_SECTION_CONTENT = {
+  components: [
+    {
+      id: "q1",
+      question_id: "q_homeowner",
+      type: "ButtonAnswerGroup",
+      internal_field: "homeowner",
+      answer_type: "enum",
+      choices: [
+        { value: "own", label: "I own my home", analytics_id: "own" },
+        { value: "rent", label: "I rent", analytics_id: "rent" },
+        { value: "other_situation", label: "Something else", analytics_id: "other_situation" },
+      ],
+    },
+    { id: "q2", question_id: "q_dob", type: "DateQuestion", internal_field: "dob", answer_type: "string" },
+    {
+      id: "q3",
+      question_id: "q_newsletter",
+      type: "TwoButtonYesNo",
+      internal_field: "newsletter",
+      answer_type: "boolean",
+    },
+    {
+      id: "q4",
+      question_id: "q_driver_1_age",
+      type: "NumberInputQuestion",
+      internal_field: "driver_1_age",
+      answer_type: "number",
+    },
+  ],
+} as const;
+
 function linkSection(sdb: SqliteDb, offerId: number, sectionName: string): void {
-  const contentJson = JSON.stringify({
-    components: [
-      {
-        id: "q1",
-        type: "ChoiceGroup",
-        internal_field: "homeowner",
-        answer_type: "enum",
-        choices: [
-          { value: "own", label: "I own my home" },
-          { value: "rent", label: "I rent" },
-          { value: "other_situation", label: "Something else" },
-        ],
-      },
-      { id: "q2", type: "DateQuestion", internal_field: "dob", answer_type: "date" },
-      { id: "q3", type: "YesNoQuestion", internal_field: "newsletter", answer_type: "boolean" },
-      { id: "q4", type: "NumberQuestion", internal_field: "driver_1_age", answer_type: "number" },
-    ],
-  });
+  const contentJson = JSON.stringify(LINK_SECTION_CONTENT);
   sdb
     .prepare(
       "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json) VALUES (?, ?, 'quote_funnel', 'auto', 'H', ?)",
@@ -652,7 +688,11 @@ describeDb("payload builder §6.2 — grouped source picker", () => {
 // ---------------------------------------------------------------------------
 
 describeDb("payload builder §6.3/§6.4 — value-map table + choiceDisplay", () => {
-  it("modal table renders the 8 §6.3 columns exactly, in order", async () => {
+  // P5 F1 (MINOR-2): the "Other group?" column is GONE — it rendered
+  // node.choiceDisplay.otherGroupEnabled, retired in §10 and unauthorable
+  // anywhere since, so every cell was a permanent em-dash placeholder. The
+  // remaining 7 columns are the live §6.3 set.
+  it("modal table renders the 7 live §6.3 columns exactly, in order — the retired Other-group column is GONE", async () => {
     const { html } = await richEditorPage();
     const expected = [
       "Display label",
@@ -660,7 +700,6 @@ describeDb("payload builder §6.3/§6.4 — value-map table + choiceDisplay", ()
       "Provider output value",
       "Output type",
       "Main choice?",
-      "Other group?",
       "Analytics label",
       "Notes",
     ];
@@ -678,10 +717,10 @@ describeDb("payload builder §6.3/§6.4 — value-map table + choiceDisplay", ()
       "output",
       "output_type",
       "main",
-      "other",
       "analytics_label",
       "notes",
     ]);
+    expect(html, "the retired Other-group column header is gone").not.toContain("Other group?");
   });
 
   it("actions: Add value · Add many · Bulk paste · Import CSV (client-side, column mapping) · search · sort", async () => {
@@ -702,10 +741,45 @@ describeDb("payload builder §6.3/§6.4 — value-map table + choiceDisplay", ()
       expect(html, `vm hook ${hook}`).toContain(hook);
     }
     // row actions + CSV parse live in the script
-    for (const s of ["Mark as main", "Move to Other", "parseCsv", "FileReader", "data-vm-row-act"]) {
+    for (const s of ["Mark as main", "parseCsv", "FileReader", "data-vm-row-act"]) {
       expect(html, `vm script ${s}`).toContain(s);
     }
     expect(html).toContain("internal=provider");
+  });
+
+  // P5 F1 (MINOR-2): every trace of the retired Other-group vocabulary is gone
+  // from what this builder SERVES — the column, the "N in Other" chip wording,
+  // the "Move to Other" row action AND the HTML/JS comments that still named
+  // the dead otherGroupEnabled/searchableOther/"Group extra choices under
+  // Other" controls in the bytes shipped to the browser.
+  it("MINOR-2: the retired Other-group vocabulary is absent from the SERVED bytes (column, chip wording, row action, comments)", async () => {
+    const { html } = await richEditorPage();
+    for (const dead of [
+      "Other group?",
+      'data-vm-col="other"',
+      "Move to Other",
+      "Group extra choices under Other",
+      "Searchable Other panel",
+      "in Other",
+      "moving some to Other",
+    ]) {
+      expect(html, `retired Other-group token still served: ${dead}`).not.toContain(dead);
+    }
+    // The retired KEYS survive only as PRESERVED STORED DATA on a legacy node
+    // (the RICH_SCHEMA fixture carries one, and the builder round-trips unknown
+    // keys verbatim) — never as code, a control or a served comment. The
+    // island script must not mention them at all.
+    const islandCode = extractScripts(html).join("\n");
+    for (const dead of ["otherGroupEnabled", "otherGroupLabel", "searchableOther"]) {
+      expect(islandCode, `retired key still referenced by the island: ${dead}`).not.toContain(dead);
+    }
+    // the still-live Main-choice mechanism is untouched
+    expect(html).toContain("Main choice?");
+    expect(html).toContain("mainValues");
+    expect(html).toContain("Mark as main");
+    // both count chips now speak the one live wording
+    expect(html).toContain("' main \\u00b7 ' + rows.length + ' values'");
+    expect(html).toContain("' main \\u00b7 ' + entries.length + ' values'");
   });
 
   it("footer: unmapped-internal-values warning + the miss ⇒ invalid ⇒ fallback reminder", async () => {
@@ -716,23 +790,25 @@ describeDb("payload builder §6.3/§6.4 — value-map table + choiceDisplay", ()
     expect(html.split("miss &#8658; invalid &#8658; fallback").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("§6.4 Other-grouping controls: Main checkbox column, count chips, soft >9 warn, searchableOther + otherGroupLabel", async () => {
+  // P5 S5c — Issue #10 remnant REMOVED: otherGroupEnabled/otherGroupLabel/
+  // searchableOther were leftover authoring controls for the choiceDisplay
+  // "Other group" mechanism the STUDIO already retired (§10) and the funnel
+  // runtime never reads (presets.ts: "the §10-retired choiceDisplay/
+  // Other-group mechanism is fully removed") — an operator could toggle them
+  // with zero live effect. "Main choice?" (mainValues) is a SEPARATE,
+  // still-live mechanism and keeps its own controls/chips/warn threshold.
+  it("§6.4 Main-choice controls: Main checkbox column, count chips, soft >9 warn — the retired otherGroup/searchableOther authoring controls are GONE", async () => {
     const { html } = await richEditorPage();
-    for (const hook of [
-      'data-pb-field="otherGroupEnabled"',
-      'data-pb-field="otherGroupLabel"',
-      'data-pb-field="searchableOther"',
-      "data-pb-choice-chips",
-      "data-pb-main-warn",
-      "data-vm-count-chips",
-      "data-vm-main-warn",
-    ]) {
-      expect(html, `choiceDisplay hook ${hook}`).toContain(hook);
+    for (const hook of ["data-pb-choice-chips", "data-pb-main-warn", "data-vm-count-chips", "data-vm-main-warn"]) {
+      expect(html, `Main-choice hook ${hook}`).toContain(hook);
     }
     // emission target + soft-warn threshold live in the script
     expect(html).toContain("mainValues");
     expect(html).toContain("more than 9 gets crowded");
-    expect(html).toContain('placeholder="Other"');
+    // the retired remnant control is gone from the SSR markup
+    for (const hook of ['data-pb-field="otherGroupEnabled"', 'data-pb-field="otherGroupLabel"', 'data-pb-field="searchableOther"']) {
+      expect(html, `retired hook ${hook} must be gone`).not.toContain(hook);
+    }
   });
 
   // MINOR-6 (adversarial): a `"` only opens a quoted cell when the cell buffer
@@ -863,6 +939,46 @@ describeDb("payload builder §6.5–§6.7 — free text / date / boolean", () =>
     expect(html).toContain("formatDate");
   });
 
+  // P5 S5c (SRC-7B, owner A.1 #7B verbatim: "I can define that I want the
+  // currency will be passed to the offer in the auction and I can define
+  // that only the number is sent, and I can define that the number will be
+  // sent as string"). A first-class visual control, emitting formatCurrency/
+  // toNumber/toString exactly the way the date panel above emits formatDate
+  // (LEADGEN_TRANSFORM_KINDS, src/leadgen/payload.ts) — never raw JSON.
+  it("SRC-7B: the output-format picker offers currency/number/string, live-previews, and is EXCLUDED from computeAdvReasons' transform-pipeline Advanced-drawer flag", async () => {
+    const { html } = await richEditorPage();
+    const block = selectBlock(html, 'data-pb-field="output_format"');
+    expect(optionValues(block)).toEqual(["", "formatCurrency", "toNumber", "toString"]);
+    expect(block).toContain("Currency string");
+    expect(block).toContain("Number as string");
+    expect(html).toContain("data-pb-outputformat-sample");
+    expect(html).toContain("data-pb-outputformat-preview");
+    expect(html).toContain("data-pb-outputformat-invalid-note");
+    // emission is the real transform kinds, never typed JSON
+    expect(html).toContain("formatCurrency");
+    // isOutputFormatNode recognizes exactly the 3 kinds this control offers
+    // (the SAME real function computeAdvReasons consults to skip the generic
+    // "transform pipeline" Advanced-drawer flag, mirroring isDateNode's own
+    // carve-out for formatDate) — a 4th, unrelated kind (e.g. trim) does not
+    // match, so it still routes to Advanced.
+    const script = extractScripts(html).find((s) => s.includes("function isOutputFormatNode("));
+    expect(script, "isOutputFormatNode island present").toBeDefined();
+    const source = ["outputFormatTypeFor", "isOutputFormatNode"]
+      .map((n) => sliceIslandFunction(script!, n))
+      .join("\n");
+    const sandbox = runInNewContext(
+      `${source}\n({
+        currency: isOutputFormatNode({ transform: [{ kind: "formatCurrency" }] }),
+        num: isOutputFormatNode({ transform: [{ kind: "toNumber" }] }),
+        str: isOutputFormatNode({ transform: [{ kind: "toString" }] }),
+        trim: isOutputFormatNode({ transform: [{ kind: "trim" }] }),
+        none: isOutputFormatNode({}),
+      })`,
+      {},
+    ) as { currency: boolean; num: boolean; str: boolean; trim: boolean; none: boolean };
+    expect(sandbox).toEqual({ currency: true, num: true, str: true, trim: false, none: false });
+  });
+
   it("§6.7 boolean presets: the 6 options with exact value_map emissions + preview chips", async () => {
     const { html } = await richEditorPage();
     const block = selectBlock(html, 'data-pb-field="bool_preset"');
@@ -880,6 +996,238 @@ describeDb("payload builder §6.5–§6.7 — free text / date / boolean", () =>
     expect(html).toContain("data-pb-bool-chip-true");
     expect(html).toContain("data-pb-bool-chip-false");
     expect(html).toContain("data-pb-bool-custom");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P5 F1 — the output-format control OWNS the emitted shape (owner A.1 #7B +
+// A.1 #6 second imperative, ruling D9)
+// ---------------------------------------------------------------------------
+//
+// The defect this pins closed: the control wrote node.transform ONLY. payload.ts
+// resolveNode runs coerceToType AFTER applyTransformPipeline, so the stored
+// type had the last word and silently undid the pick — "Currency string" on a
+// number field emitted {} (field DROPPED) and "Number as string" emitted an
+// unquoted 170000, while this panel previewed "170000 → $170,000" and the
+// validation panel read "✓ No issues". Three surfaces agreeing over a runtime
+// that threw the value away.
+//
+// E11: the preview matrix below compares the ISLAND's own mirror against the
+// REAL buildPayload from src/leadgen/payload.ts — one side of the boundary is
+// always the real artifact, never two hand-built sides.
+
+interface OutputFormatIsland {
+  outputFormatTypeFor(kind: string | null): string | null;
+  isOutputFormatNode(node: Record<string, unknown>): boolean;
+  outputFormatKindOf(node: Record<string, unknown>): string;
+  applyOutputFormat(node: Record<string, unknown>, kind: string): void;
+  outputFormatPreviewValue(node: Record<string, unknown>, raw: unknown): unknown;
+}
+
+// The REAL served island functions, sliced out of the REAL rendered page.
+function outputFormatIsland(html: string): { island: OutputFormatIsland; source: string } {
+  const script = extractScripts(html).find((s) => s.includes("function outputFormatPreviewValue("));
+  expect(script, "output-format island present").toBeDefined();
+  const names = [
+    "trimStr",
+    "isRecordVal",
+    "outputFormatTypeFor",
+    "isOutputFormatNode",
+    "outputFormatKindOf",
+    "applyOutputFormat",
+    "clientFormatCurrency",
+    "clientRunOutputFormat",
+    "clientCoerceToType",
+    "outputFormatPreviewValue",
+  ];
+  const source = names.map((n) => sliceIslandFunction(script!, n)).join("\n");
+  const island = runInNewContext(
+    `${source}\n({
+      outputFormatTypeFor: outputFormatTypeFor,
+      isOutputFormatNode: isOutputFormatNode,
+      outputFormatKindOf: outputFormatKindOf,
+      applyOutputFormat: applyOutputFormat,
+      outputFormatPreviewValue: outputFormatPreviewValue
+    })`,
+    {},
+  ) as OutputFormatIsland;
+  return { island, source };
+}
+
+// One answer node, exactly as the builder stores it, fed to the REAL runtime.
+function realPayload(node: Record<string, unknown>, answer: unknown): Record<string, unknown> {
+  const schema = {
+    version: 1,
+    root: {
+      type: "object",
+      children: [{ path: "lead.amt", name: "amt", source: "answer", internal_field: "amount", ...node }],
+    },
+  } as unknown as LeadgenPayloadSchema;
+  return buildPayload(schema, { answers: { amount: answer } });
+}
+
+describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the output format writes type AND transform", () => {
+  // The owner's three formats, plus "As entered". Each row is the WHOLE
+  // contract of one <option>: what it stores, and what 170000 becomes.
+  const TABLE = [
+    { option: "", type: undefined as string | undefined, transform: undefined as unknown },
+    { option: "formatCurrency", type: "string", transform: [{ kind: "formatCurrency" }] },
+    { option: "toNumber", type: "number", transform: [{ kind: "toNumber" }] },
+    { option: "toString", type: "string", transform: [{ kind: "toString" }] },
+  ];
+
+  it("ATOMIC: each option writes node.type AND node.transform together (As entered leaves the Type select in charge)", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    for (const row of TABLE) {
+      // start from the pre-fix hazard shape: a plain number answer node
+      const node: Record<string, unknown> = { type: "number" };
+      island.applyOutputFormat(node, row.option);
+      expect(node["transform"], `${row.option || "(as entered)"} transform`).toEqual(row.transform);
+      expect(node["type"], `${row.option || "(as entered)"} type`).toBe(row.type ?? "number");
+      // and re-picking is idempotent, never a partial step
+      island.applyOutputFormat(node, row.option);
+      expect(node["transform"]).toEqual(row.transform);
+    }
+    // "As entered" on a STRING node leaves that type alone too
+    const strNode: Record<string, unknown> = { type: "string", transform: [{ kind: "toNumber" }] };
+    island.applyOutputFormat(strNode, "");
+    expect(strNode).toEqual({ type: "string" });
+  });
+
+  it("NO HIDDEN STATE: every node the control writes is recognized by isOutputFormatNode (the control can always display what is stored)", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    for (const row of TABLE.filter((r) => r.option !== "")) {
+      const node: Record<string, unknown> = { type: "number" };
+      island.applyOutputFormat(node, row.option);
+      expect(island.isOutputFormatNode(node), `${row.option} recognized`).toBe(true);
+      expect(island.outputFormatKindOf(node)).toBe(row.option);
+      // …and the recognizer is type-BLIND, so a legacy/raw-JSON node whose
+      // type contradicts its format is still DISPLAYED (and flagged), never
+      // silently hidden with a live transform.
+      const contradicting = { type: "boolean", transform: [{ kind: row.option }] };
+      expect(island.isOutputFormatNode(contradicting)).toBe(true);
+      expect(island.outputFormatTypeFor(row.option)).not.toBe("boolean");
+    }
+  });
+
+  // MINOR-3: the island inlines its kind list (self-contained for vm-probe
+  // slicing). This pins that copy set-equal to the control's own <option>
+  // values AND inside the exported LEADGEN_TRANSFORM_KINDS, so the copies can
+  // never drift apart again.
+  it("MINOR-3: the inlined kind list == the control's <option> values == a subset of the exported LEADGEN_TRANSFORM_KINDS", async () => {
+    const { html } = await richEditorPage();
+    const { island, source } = outputFormatIsland(html);
+    const optionKinds = optionValues(selectBlock(html, 'data-pb-field="output_format"')).filter((v) => v !== "");
+    const inlined = [...sliceIslandFunction(source, "outputFormatTypeFor").matchAll(/kind === '([A-Za-z]+)'/g)].map(
+      (m) => m[1] as string,
+    );
+    expect(inlined.slice().sort()).toEqual(optionKinds.slice().sort());
+    for (const kind of inlined) {
+      expect([...LEADGEN_TRANSFORM_KINDS], `${kind} is a real transform kind`).toContain(kind);
+      expect(["string", "number"], `${kind} maps to a real node type`).toContain(island.outputFormatTypeFor(kind));
+    }
+    // a kind the control does NOT offer is not claimed by it
+    expect(island.outputFormatTypeFor("trim")).toBeNull();
+    expect(island.outputFormatTypeFor("formatDate")).toBeNull();
+  });
+
+  // E11 — the truthful preview. The island mirror must agree with the REAL
+  // buildPayload for every option × every sample, including the shapes that
+  // used to lie: currency-into-number (dropped) and number-as-string (emitted
+  // unquoted).
+  it("E11: the island preview == the REAL buildPayload output across {4 options} × {170000, 0, \"07032\", \"\", \"abc\"}", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const RAWS = ["170000", "0", "07032", "", "abc"];
+    const rows: string[] = [];
+    for (const option of TABLE.map((r) => r.option)) {
+      // "As entered" is exercised on BOTH types the Type select can hold.
+      const baseTypes = option === "" ? ["string", "number"] : ["number"];
+      for (const baseType of baseTypes) {
+        for (const raw of RAWS) {
+          const node: Record<string, unknown> = { type: baseType };
+          island.applyOutputFormat(node, option);
+          const previewed = island.outputFormatPreviewValue(node, raw);
+          const payload = realPayload(node, raw);
+          const lead = (payload["lead"] ?? {}) as Record<string, unknown>;
+          const emitted = Object.prototype.hasOwnProperty.call(lead, "amt") ? lead["amt"] : undefined;
+          // buildPayload's cleanObject drops "" (and undefined) fields, so the
+          // island's "" and undefined both mean "no field sent".
+          if (previewed === undefined || previewed === "") {
+            expect(emitted, `${option || "(as entered)"}/${baseType} "${raw}": field must be ABSENT`).toBeUndefined();
+          } else {
+            expect(emitted, `${option || "(as entered)"}/${baseType} "${raw}"`).toBe(previewed);
+            expect(typeof emitted, `${option || "(as entered)"}/${baseType} "${raw}" JSON type`).toBe(typeof previewed);
+          }
+          rows.push(`${option || "(as entered)"}/${baseType} "${raw}" -> ${JSON.stringify(emitted ?? null)}`);
+        }
+      }
+    }
+    // 3 formats × 1 base type + "As entered" × 2 base types, all × 5 samples
+    expect(rows).toHaveLength(25);
+  });
+
+  // Ruling D9 + the two shapes the owner named, through the STORED node the
+  // control writes — the exact bytes one 170000 answer becomes per offer.
+  it("D9: the control's own three nodes send \"$170,000\" · 170000 · \"170000\" for the same 170000 answer", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const sent = (option: string): unknown => {
+      const node: Record<string, unknown> = { type: "number" };
+      island.applyOutputFormat(node, option);
+      return ((realPayload(node, 170000)["lead"] ?? {}) as Record<string, unknown>)["amt"];
+    };
+    expect(sent("formatCurrency")).toBe("$170,000");
+    expect(sent("toNumber")).toBe(170000);
+    expect(sent("toString")).toBe("170000");
+    // the pre-fix shapes are now unreachable through the control: a
+    // number-typed currency node DROPS the field, a number-typed toString node
+    // emits an unquoted number. Both are what the control USED to store.
+    const preFixCurrency = { type: "number", transform: [{ kind: "formatCurrency" }] };
+    const preFixString = { type: "number", transform: [{ kind: "toString" }] };
+    expect(realPayload(preFixCurrency, 170000)).toEqual({});
+    expect(((realPayload(preFixString, 170000)["lead"] ?? {}) as Record<string, unknown>)["amt"]).toBe(170000);
+  });
+
+  // Owner A.1 #6 second imperative: "every component that include more than
+  // one field- each field is potentially answering another offer field in
+  // different formats per offer!!!" — an Address sub-field is a STRING answer,
+  // so a number-only panel made that unauthorable through the named control.
+  it("owner #6-second: the panel is authorable for STRING answers too (an address sub-field), date nodes excluded", async () => {
+    const { html } = await richEditorPage();
+    // the visibility predicate itself, read from the served island
+    const script = extractScripts(html).find((s) => s.includes('data-pb-panel="outputformat"'));
+    expect(script, "visibility island present").toBeDefined();
+    expect(script).toContain("isAnswer && !isDateNode(node) && (dtype === 'number' || dtype === 'string'");
+    // and the runtime half: a string ZIP answer reaches two offers in two
+    // formats, both authored by this control (the SRC-6B pair).
+    const { island } = outputFormatIsland(html);
+    const asText: Record<string, unknown> = { type: "string" };
+    island.applyOutputFormat(asText, "toString");
+    const asNumber: Record<string, unknown> = { type: "string" };
+    island.applyOutputFormat(asNumber, "toNumber");
+    expect(asNumber["type"]).toBe("number");
+    expect(((realPayload(asText, "07032")["lead"] ?? {}) as Record<string, unknown>)["amt"]).toBe("07032");
+    expect(((realPayload(asNumber, "07032")["lead"] ?? {}) as Record<string, unknown>)["amt"]).toBe(7032);
+  });
+
+  it("the panel's own markup: sample box takes TEXT (a leading-zero ZIP survives), JSON-shape chip, type-owned note", async () => {
+    const { html } = await richEditorPage();
+    const block = selectBlock(html, 'data-pb-field="output_format"');
+    expect(optionValues(block)).toEqual(["", "formatCurrency", "toNumber", "toString"]);
+    expect(block).toContain("As entered (no formatting)");
+    expect(html).toContain('<input type="text" inputmode="decimal" class="form-input" data-pb-outputformat-sample');
+    expect(html).not.toContain('type="number" class="form-input" data-pb-outputformat-sample');
+    expect(html).toContain("Try a sample value");
+    expect(html).toContain("data-pb-outputformat-json");
+    expect(html).toContain("data-pb-outputformat-type-note");
+    // the Type select is disabled while a format owns the sent type
+    expect(html).toContain("typeSel.disabled = isOutputFormatNode(node);");
+    // and a type/format disagreement is a BLOCKING issue, never "✓ No issues"
+    expect(html).toContain("output format sends");
+    expect(html).toContain("transform_invalid");
   });
 });
 
@@ -1940,6 +2288,42 @@ describeDb("payload builder §6.14/M2 — no normal-mode JSON input reachable", 
 // Bootstrap-data islands — JSON round-trip + builder_context passthrough
 // ---------------------------------------------------------------------------
 
+// R2 P5 F10 (defect 2): the linked-Section fixture is pinned to the REAL
+// save-side validator (validateSectionContent — the same function
+// sections-handlers runs on every Section save) and to the REAL catalog. A
+// fixture the product would REFUSE to save can never again produce a green
+// projection assertion here.
+describe("payload builder — the linked-Section fixture is content the product accepts", () => {
+  it("every fixture component type is in COMPONENT_CATALOG and produces an answer", () => {
+    const types = LINK_SECTION_CONTENT.components.map((c) => c.type);
+    expect(types).toEqual([
+      "ButtonAnswerGroup",
+      "DateQuestion",
+      "TwoButtonYesNo",
+      "NumberInputQuestion",
+    ]);
+    const notInCatalog = types.filter(
+      (t) => !Object.prototype.hasOwnProperty.call(COMPONENT_CATALOG, t),
+    );
+    expect(notInCatalog).toEqual([]);
+    for (const t of types) {
+      expect(
+        COMPONENT_CATALOG[t as keyof typeof COMPONENT_CATALOG].produces,
+        `${t}.produces`,
+      ).not.toBeNull();
+    }
+  });
+
+  it("validateSectionContent ACCEPTS the fixture (no unknown_component_type)", () => {
+    const verdict = validateSectionContent(JSON.parse(JSON.stringify(LINK_SECTION_CONTENT)));
+    expect(
+      verdict.errors.map((e) => `${e.code} ${e.path}`),
+      "save-side validator errors",
+    ).toEqual([]);
+    expect(verdict.ok).toBe(true);
+  });
+});
+
 describeDb("payload builder — bootstrap islands", () => {
   it("lg-payload-data round-trips: schema, computed options, hints, offer + builder_context.linked_fields", async () => {
     const { html } = await richEditorPage();
@@ -1964,12 +2348,23 @@ describeDb("payload builder — bootstrap islands", () => {
     // builder_context (LANDED shape): active_schema.nodes + linked_fields
     expect(data.builder_context.active_schema?.nodes).toHaveLength(RICH_SCHEMA.root.children.length);
     const fields = data.builder_context.linked_fields;
-    expect(fields.length).toBeGreaterThanOrEqual(4);
+    // R2 P5 F10 (defect 2): EXACT, not ">= 4" — each of the four REAL catalog
+    // components in the linked Section projects exactly one answer field, in
+    // content order, with the answer_type the catalog `produces`.
+    expect(fields.map((f) => [f["internal_field"], f["answer_type"], f["choice_count"]])).toEqual([
+      ["homeowner", "enum", 3],
+      ["dob", "string", 0],
+      ["newsletter", "boolean", 0],
+      ["driver_1_age", "number", 0],
+    ]);
     const homeowner = fields.find((f) => f["internal_field"] === "homeowner");
     expect(homeowner).toBeDefined();
     expect(homeowner!["section_name"]).toBe("Home Details");
     expect(homeowner!["answer_type"]).toBe("enum");
     expect(homeowner!["choice_count"]).toBe(3);
+    // The island projection is DELIBERATELY narrowed (offerBuilderContext):
+    // readLinkedSectionFields also carries component_type + props, which the
+    // island does not need and does not ship.
     expect(Object.keys(homeowner!).sort()).toEqual([
       "answer_type",
       "choice_count",

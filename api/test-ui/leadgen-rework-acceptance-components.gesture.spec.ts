@@ -602,20 +602,29 @@ test.describe("#3 — mark/validate/record across Buttons, Cards, Dropdown, Yes/
     await s1.locator("[data-lg-continue]").click();
     await expect(sectionAt(page, 2), "blocked — required fields empty").toBeHidden();
 
-    // Buttons — mark on click.
+    // Buttons — mark on click. P5 S5c (ADJ-R8): applySelectionClasses now
+    // writes aria-checked (matching the SSR role="radio" these buttons ship
+    // with) instead of an aria-pressed the SSR markup never has — the pixel
+    // selection and the accessibility-tree selection must agree.
     const btn = s1.locator('[data-lg-question="q_btn"] [data-lg-choice="b1"]');
+    await expect(btn, "buttons start unchecked").toHaveAttribute("aria-checked", "false");
     await btn.click();
     await expect(btn, "buttons mark selected").toHaveClass(/lg-selected/);
+    await expect(btn, "ADJ-R8: buttons aria-checked reaches assistive tech").toHaveAttribute("aria-checked", "true");
     // Cards — mark on click.
     const card = s1.locator('[data-lg-question="q_card"] [data-lg-choice="c1"]');
+    await expect(card, "cards start unchecked").toHaveAttribute("aria-checked", "false");
     await card.click();
     await expect(card, "cards mark selected").toHaveClass(/lg-selected/);
+    await expect(card, "ADJ-R8: cards aria-checked reaches assistive tech").toHaveAttribute("aria-checked", "true");
     // Dropdown — records the selection (the <select> IS the [data-lg-question] node).
     await s1.locator('[data-lg-question="q_drop"]').selectOption("d1");
     // Yes/No — mark on click.
     const yes = s1.locator('[data-lg-question="q_yn"] [data-lg-choice="true"]');
+    await expect(yes, "yes/no starts unchecked").toHaveAttribute("aria-checked", "false");
     await yes.click();
     await expect(yes, "yes/no marks selected").toHaveClass(/lg-selected/);
+    await expect(yes, "ADJ-R8: yes/no aria-checked reaches assistive tech").toHaveAttribute("aria-checked", "true");
 
     // All four validate → Continue advances.
     await s1.locator("[data-lg-continue]").click();

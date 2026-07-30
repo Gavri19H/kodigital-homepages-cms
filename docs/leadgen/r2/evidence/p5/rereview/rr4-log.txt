@@ -1,0 +1,13 @@
+SETUP a7 section=lgs_01KYS22MFB5WHPD4Q5QZJE73M7
+E1 rows after enable = 1 (starter seeded)
+E1 rows after +Add = 2; chip before="No issues" after="3 issues"
+E1 SAVE -> status=400 body={"error":"Validation failed","fields":{"content.components[0].props.other.choices[1].label":"choice.label is required","content.components[0].props.other.choices[1].value":"choice.value must be a string, number, or boolean","content.components[0].props.other.choices[1].analytics_id":"choice.analytics_id is required (§22 tracking)"}}
+E1 PERSISTED props.other = undefined
+E2 chip with value-but-no-label = "1 issue"
+E3 chip after enable-only = "No issues"
+E3 after enable-save props.other = {"enabled":true,"choices":[{"label":"Other option","value":"other_option","analytics_id":"other_option"}]}
+E3 after disable-save props.other = undefined
+F triggers: buttons=1 cards=1
+F buttons Other options = ["Choose…","btn Weehawken Custom Mutual","btn Palisades Reciprocal"]
+F cards Other options  = ["Choose…","card Weehawken Custom Mutual","card Palisades Reciprocal"]
+F 375 overflow check scrollWidth=375 innerWidth=375

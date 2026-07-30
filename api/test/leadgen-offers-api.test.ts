@@ -1176,6 +1176,194 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
     expect(fields.map((f) => f.answer_type)).toEqual(["string", "enum"]);
     expect(fields.map((f) => f.choice_count)).toEqual([0, 1]);
   });
+
+  // --- R2 P5 F8 (SRC-6B) — multi-field components offer their SUB-FIELDS ----
+  //
+  // Owner A.1 #6 (verbatim): "Also, be aware that every component that include
+  // more than one field- each field is potentially answering another offer
+  // field in different formats per offer!!!" Contract §5.6 requires that
+  // mapping to be authorable through the payload builder's UI, never raw JSON
+  // — so the §6.2 Section-field picker MUST offer the sub-field the visitor
+  // actually records ({base}_zip), not just the component's base key.
+  //
+  // Expectations below are LITERAL names (never re-derived from the source
+  // function), asserted through the real GET /offers/:id projection.
+
+  const ADDR_NODE = (props: Record<string, unknown>): Record<string, unknown> => ({
+    type: "AddressAutocompleteQuestion",
+    question_id: "q_addr",
+    internal_field: "addr",
+    props,
+  });
+
+  it("SRC-6B: an unconfigured (4-field) Address projects its SUB-FIELD keys, not the base", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "Addr Sec", [
+      { type: "FreeTextQuestion", question_id: "q_a", internal_field: "field_a", answer_type: "string" },
+      ADDR_NODE({}),
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual([
+      "field_a",
+      "addr_street",
+      "addr_city",
+      "addr_state",
+      "addr_zip",
+    ]);
+    // the BASE key is absent — fieldsOf never projects it, so no Offer may be
+    // pointed at a field the visitor will never record.
+    expect(fields.map((f) => f.internal_field)).not.toContain("addr");
+    // each sub-field carries its OWN metadata: a text input (string), no enum
+    // domain — not the parent component's catalog "object".
+    const subs = fields.filter((f) => f.internal_field.startsWith("addr_"));
+    expect(subs.map((f) => f.answer_type)).toEqual(["string", "string", "string", "string"]);
+    expect(subs.map((f) => f.choice_count)).toEqual([0, 0, 0, 0]);
+  });
+
+  it("SRC-6B: an authored maps.fills rename is offered under the RENAMED name", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "Addr Renamed", [
+      ADDR_NODE({ maps: { enabled: true, fills: { zip: "postal_code_x" } } }),
+    ]);
+    const names = (await linkedFields(env, offer.id)).map((f) => f.internal_field);
+    expect(names).toEqual(["addr_street", "addr_city", "addr_state", "postal_code_x"]);
+    expect(names).not.toContain("addr_zip");
+  });
+
+  it("SRC-6B: a full_address-alone Address still projects ONE entry under the base key", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "Addr Free Text", [
+      ADDR_NODE({ fields: [{ field: "full_address", label: "Your address", mode: "autofill" }] }),
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual(["addr"]);
+    // R2 P5 F9 — the DERIVATION's type, not the catalog's. fieldsOf types this
+    // key "string" (a lone full_address is ONE text input, and the value the
+    // visitor posts is a string that normalizeAnswerValue would REJECT as an
+    // "object"); the picker must say the same thing the answer space does.
+    expect(fields[0]!.answer_type).toBe("string");
+    expect(fields[0]!.choice_count).toBe(0);
+  });
+
+  it("SRC-6B: a street-only Address projects ONE entry, named for the key it records", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "Addr Street Only", [
+      ADDR_NODE({ fields: [{ field: "street", label: "Street", mode: "manual" }] }),
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual(["addr_street"]);
+    expect(fields[0]!.answer_type).toBe("string");
+  });
+
+  it("SRC-6B: a non-address multi-entry Section keeps its exact projection (no address expansion leaks)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "No Addr", [
+      { type: "ZIPInputQuestion", question_id: "q_z", internal_field: "zip_only", answer_type: "string" },
+      {
+        type: "NumberRangeQuestion",
+        question_id: "q_n",
+        internal_field: "coverage",
+        answer_type: "number",
+        props: { slider_type: "stepper" },
+      },
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual(["zip_only", "coverage"]);
+    expect(fields.map((f) => f.answer_type)).toEqual(["string", "number"]);
+  });
+
+  // --- R2 P5 F9 (SRC-6B) — EVERY component, from the ONE derivation --------
+  //
+  // Owner A.1 #6 says "every component that include more than one field", not
+  // "the address". F8 expanded the Address by name; the picker now projects
+  // answers.ts `fieldsOf` for EVERY node, so it offers exactly the keys the
+  // visitor will record whatever the component is. Every expectation below is
+  // a LITERAL key/type asserted through the real GET /offers/:id projection.
+
+  const SLIDER = (sliderType: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    type: "NumberRangeQuestion",
+    question_id: `q_${sliderType}`,
+    internal_field: "loan",
+    props: { min: 10_000, max: 500_000, step: 5_000, slider_type: sliderType, ...extra },
+  });
+
+  it("SRC-6B: a from_to slider projects loan_min + loan_max as NUMBERS, never the base", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "FromTo Sec", [
+      { type: "FreeTextQuestion", question_id: "q_a", internal_field: "field_a", answer_type: "string" },
+      // the §6.8 authored shape: a from_to slider legitimately declares
+      // answer_type "object" (content-schema's dual-slider carve-out) — the
+      // picker must NOT hand that type to the sub-fields.
+      { ...SLIDER("from_to"), answer_type: "object" },
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual(["field_a", "loan_min", "loan_max"]);
+    expect(fields.map((f) => f.internal_field)).not.toContain("loan");
+    const subs = fields.filter((f) => f.internal_field.startsWith("loan_"));
+    expect(subs.map((f) => f.answer_type)).toEqual(["number", "number"]);
+    expect(subs.map((f) => f.choice_count)).toEqual([0, 0]);
+  });
+
+  it("SRC-6B: a dual_range slider projects the SAME two number sub-fields", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "DualRange Sec", [{ ...SLIDER("dual_range"), answer_type: "object" }]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual(["loan_min", "loan_max"]);
+    // the node's own authored answer_type ("object", the §6.8 carve-out) never
+    // reaches the sub-fields — each one is a number.
+    expect(fields.map((f) => f.answer_type)).toEqual(["number", "number"]);
+  });
+
+  it("SRC-6B: single / stepper / radial sliders still project the SCALAR base", async () => {
+    for (const sliderType of ["single", "stepper", "radial"] as const) {
+      const { sdb, env } = newHarness();
+      const offer = await createOffer(env);
+      seedSectionLinked(sdb, offer.id, `${sliderType} Sec`, [SLIDER(sliderType)]);
+      const fields = await linkedFields(env, offer.id);
+      expect(fields.map((f) => f.internal_field), sliderType).toEqual(["loan"]);
+      expect(fields[0]!.answer_type, sliderType).toBe("number");
+      // the scalar entry keeps the node's own props (the sample-answer
+      // generator reads props.min) — unchanged by this fix.
+      expect(fields[0]!.internal_field, sliderType).toBe("loan");
+    }
+  });
+
+  it("SRC-6B: a NameFieldsGroup projects the sub-fields it records (it carries no internal_field at all)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "Name Sec", [
+      { type: "NameFieldsGroup", question_id: "q_name", props: { fields: ["given", "family"] } },
+      { type: "FreeTextQuestion", question_id: "q_b", internal_field: "field_b", answer_type: "string" },
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    // pre-fix the whole component was SKIPPED (no internal_field ⇒ `continue`),
+    // so neither name key could be picked in the §6.2 picker.
+    expect(fields.map((f) => f.internal_field)).toEqual(["given", "family", "field_b"]);
+    expect(fields.slice(0, 2).map((f) => f.answer_type)).toEqual(["string", "string"]);
+    expect(fields.slice(0, 2).map((f) => f.choice_count)).toEqual([0, 0]);
+  });
+
+  it("SRC-6B: a NON-PRODUCING node that references a question's field contributes NOTHING", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "NonProducing Sec", [
+      { type: "FreeTextQuestion", question_id: "q_a", internal_field: "field_a", answer_type: "string" },
+      // a ValidationError CARRIES the field it decorates (its error-slot
+      // binding) but never CLAIMS an answer name — catalog produces === null,
+      // so fieldsOf gives it no field and the picker must not offer one.
+      { type: "ValidationError", question_id: "q_err", internal_field: "err_only" },
+      { type: "HelperText", question_id: "q_help", internal_field: "help_only", props: { text: "hi" } },
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual(["field_a"]);
+  });
 });
 
 // --- analytics ---------------------------------------------------------------------------
@@ -1475,6 +1663,221 @@ describeDb("payload-schemas — §11.8 immutable versioning + active pointer", (
       active_payload_schema_id: number;
     };
     expect(active.active_payload_schema_id).toBe(created.id);
+  });
+});
+
+// --- R2 P5 F10 (defect 1): a schema-only save must NOT destroy the parser ---------------------
+//
+// Owner A.1 #7B (verbatim): "the currency is only a graphic feature, I can
+// define that I want the currency will be passed to the offer in the auction
+// and I can define that only the number is sent, and I can define that the
+// number will be sent as string". The operator's path to "define" that is the
+// Offers Payload Builder — and SAVING is part of that path. Before this fix the
+// builder's own "Save schema version" button (which POSTs `{schema_json}` with
+// NO carrier_parse_json key) wrote NULL into the new ACTIVE version, so
+// validation.ts pushed `carrier_parse_missing` and the R5 activation gate 409'd
+// with "Response parsing (carrier parse) is not configured".
+//
+// Wire contract proven here, all through the REAL endpoints:
+//   key ABSENT          → carry forward carrier_parse_json + carrier_parse_version
+//   "carrier_parse_json": null → explicit clear
+//   an object           → explicit replace
+
+const F10_PARSE_CONFIG = {
+  carriers_path: "data.carriers",
+  fields: { carrier_name: "name", bid: "price.amount", click_url: "url" },
+};
+
+// Drive an offer to a state where the ONLY thing standing between it and
+// §5.1 eligibility is the carrier parse: valid active schema + production
+// endpoint + a PASSED provider test (auction_instance_id IS NULL — the
+// LEADGEN_TEST_STATUS_SUBSELECT discipline).
+async function f10ReadyOffer(
+  sdb: SqliteDb,
+  env: Env,
+): Promise<OfferDetail> {
+  const offer = await createOffer(env);
+  const patched = await admin.request(
+    `${API}/offers/${offer.id}`,
+    jsonInit("PATCH", { endpoint_production: "https://provider.example.com/quotes" }),
+    env,
+  );
+  expect(patched.status, await patched.clone().text()).toBe(200);
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)",
+    )
+    .run(offer.public_id);
+  // v1 WITH the parser — the operator's "define the currency handling" save.
+  const res = await admin.request(
+    `${API}/offers/${offer.id}/payload-schemas`,
+    jsonInit("POST", { schema_json: VALID_SCHEMA, carrier_parse_json: F10_PARSE_CONFIG }),
+    env,
+  );
+  expect(res.status, await res.clone().text()).toBe(201);
+  return offer;
+}
+
+function activeSchemaRow(sdb: SqliteDb, offerId: number): {
+  id: number;
+  version: number;
+  carrier_parse_json: string | null;
+  carrier_parse_version: number;
+} {
+  return sdb
+    .prepare(
+      `SELECT s.id, s.version, s.carrier_parse_json, s.carrier_parse_version
+         FROM leadgen_offers o JOIN leadgen_offer_payload_schemas s ON s.id = o.active_payload_schema_id
+        WHERE o.id = ?`,
+    )
+    .get(offerId) as { id: number; version: number; carrier_parse_json: string | null; carrier_parse_version: number };
+}
+
+async function offerEligibility(env: Env, offerId: number | string): Promise<{ eligible: boolean; reasons: string[] }> {
+  const res = await admin.request(`${API}/offers/${offerId}`, {}, env);
+  expect(res.status).toBe(200);
+  return ((await res.json()) as { eligibility: { eligible: boolean; reasons: string[] } }).eligibility;
+}
+
+describeDb("payload-schemas — R2 P5 F10: an omitted carrier_parse_json CARRIES FORWARD", () => {
+  it("a schema-only save keeps the parse config + version on the new ACTIVE version, and activation stops reporting carrier_parse_missing", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await f10ReadyOffer(sdb, env);
+
+    const v1 = activeSchemaRow(sdb, offer.id);
+    expect(v1.version).toBe(1);
+    expect(v1.carrier_parse_json).toBe(JSON.stringify(F10_PARSE_CONFIG));
+    const beforeEligibility = await offerEligibility(env, offer.id);
+    expect(beforeEligibility.reasons).toEqual([]);
+    expect(beforeEligibility.eligible).toBe(true);
+
+    // The builder's "Save schema version" wire, verbatim: schema_json ONLY.
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: VALID_SCHEMA }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const created = (await res.json()) as { id: number; version: number; carrier_parse_json: unknown };
+    expect(created.version).toBe(2);
+    // the API echo already carries the preserved config
+    expect(created.carrier_parse_json).toEqual(F10_PARSE_CONFIG);
+
+    // the ACTIVE pointer moved to the new version AND that version carries the
+    // parse pair the predecessor had.
+    const v2 = activeSchemaRow(sdb, offer.id);
+    expect(v2.id).toBe(created.id);
+    expect(v2.version).toBe(2);
+    expect(v2.carrier_parse_json).toBe(JSON.stringify(F10_PARSE_CONFIG));
+    expect(v2.carrier_parse_version).toBe(v1.carrier_parse_version);
+
+    // §11.8 immutability: v1's own parse column is untouched.
+    const v1After = sdb
+      .prepare("SELECT carrier_parse_json FROM leadgen_offer_payload_schemas WHERE id = ?")
+      .get(v1.id) as { carrier_parse_json: string | null };
+    expect(v1After.carrier_parse_json).toBe(JSON.stringify(F10_PARSE_CONFIG));
+
+    // the activation input (evaluateDynamicOffersEligibility — the SAME verdict
+    // the R5 quote-activation preflight recomputes) is clean.
+    const after = await offerEligibility(env, offer.id);
+    expect(after.reasons).not.toContain("carrier_parse_missing");
+    expect(after.reasons).toEqual([]);
+    expect(after.eligible).toBe(true);
+  });
+
+  it("carries a NON-default carrier_parse_version forward (not a hardcoded 1)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await f10ReadyOffer(sdb, env);
+    // The column is NOT NULL DEFAULT 1 but holds whatever a seed / clone chain
+    // left behind — pin that the carry reads the predecessor, not a literal.
+    sdb
+      .prepare("UPDATE leadgen_offer_payload_schemas SET carrier_parse_version = 7 WHERE offer_id = ?")
+      .run(offer.id);
+
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: VALID_SCHEMA }),
+      env,
+    );
+    expect(res.status).toBe(201);
+    const v2 = activeSchemaRow(sdb, offer.id);
+    expect(v2.version).toBe(2);
+    expect(v2.carrier_parse_version).toBe(7);
+    expect(v2.carrier_parse_json).toBe(JSON.stringify(F10_PARSE_CONFIG));
+  });
+
+  it("an EXPLICIT null clears the parse config (and activation reports carrier_parse_missing again)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await f10ReadyOffer(sdb, env);
+
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: VALID_SCHEMA, carrier_parse_json: null }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const created = (await res.json()) as { id: number; version: number; carrier_parse_json: unknown };
+    expect(created.version).toBe(2);
+    expect(created.carrier_parse_json).toBeNull();
+
+    const v2 = activeSchemaRow(sdb, offer.id);
+    expect(v2.id).toBe(created.id);
+    expect(v2.carrier_parse_json).toBeNull();
+    expect(v2.carrier_parse_version).toBe(1);
+
+    const after = await offerEligibility(env, offer.id);
+    expect(after.reasons).toContain("carrier_parse_missing");
+    expect(after.eligible).toBe(false);
+  });
+
+  it("an EXPLICIT object still REPLACES the carried config", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await f10ReadyOffer(sdb, env);
+    const replacement = { fields: { carrier_name: "carrier", bid: "cpc" } };
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: VALID_SCHEMA, carrier_parse_json: replacement }),
+      env,
+    );
+    expect(res.status).toBe(201);
+    const v2 = activeSchemaRow(sdb, offer.id);
+    expect(v2.carrier_parse_json).toBe(JSON.stringify(replacement));
+  });
+
+  it("a FIRST-EVER schema (no active predecessor) still saves with no parse config", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    const before = sdb
+      .prepare("SELECT active_payload_schema_id FROM leadgen_offers WHERE id = ?")
+      .get(offer.id) as { active_payload_schema_id: number | null };
+    expect(before.active_payload_schema_id).toBeNull();
+
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: VALID_SCHEMA }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const v1 = activeSchemaRow(sdb, offer.id);
+    expect(v1.version).toBe(1);
+    expect(v1.carrier_parse_json).toBeNull();
+    expect(v1.carrier_parse_version).toBe(1);
+    expect((await offerEligibility(env, offer.id)).reasons).toContain("carrier_parse_missing");
+  });
+
+  it("§11.2 from-example generation also carries the parse config forward", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await f10ReadyOffer(sdb, env);
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas/from-example`,
+      jsonInit("POST", { example: { quote: { zip: "10001" } } }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const v2 = activeSchemaRow(sdb, offer.id);
+    expect(v2.version).toBe(2);
+    expect(v2.carrier_parse_json).toBe(JSON.stringify(F10_PARSE_CONFIG));
+    expect((await offerEligibility(env, offer.id)).reasons).not.toContain("carrier_parse_missing");
   });
 });
 
