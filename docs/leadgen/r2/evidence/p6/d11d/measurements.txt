@@ -211,3 +211,30 @@ n04-theme-B-ember @375 scrollWidth=375 innerWidth=375 overflow=no
 N04 canvas fingerprint before={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(245, 247, 250)","rootColor":"rgb(26, 31, 54)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(26, 31, 54)","elBorder":"rgb(26, 31, 54)"}
 N04 canvas fingerprint themeA={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(255, 255, 255)","rootColor":"rgb(16, 16, 16)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(16, 16, 16)","elBorder":"rgb(16, 16, 16)"}
 N04 canvas fingerprint themeB={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(255, 243, 230)","rootColor":"rgb(43, 33, 24)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(43, 33, 24)","elBorder":"rgb(43, 33, 24)"}
+
+===== run 2026-07-30T21:56:03.404Z =====
+N01 chips in quote A after 3 creates = 9
+n01-a-three-templates-saved @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-presets-listed-in-other-quote @375 scrollWidth=375 innerWidth=375 overflow=no
+n01-b-apply-preset-confirm @375 scrollWidth=375 innerWidth=375 overflow=no
+N01 quote B funnel.frame_template_id=8 (template P6D N01 Numbered acc6-n01-1785448563762280 id=8); effective progress.style=numbered; quote A funnel.frame_template_id=null
+n01-b-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 chip-menu labels = ["Rename…","Duplicate","Set as this quote’s default","Delete"]
+n02-default-defined @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 arms: A=lgn_01KYTGE68253731T4Q3DXRQFA8 tpl=null status=active | B=lgn_01KYTGE91F4GNZC5FFHQ28177T tpl=11 status=active
+n02-ab-two-templates @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-A-quote-default @375 scrollWidth=375 innerWidth=375 overflow=no
+n02-live-arm-B-ab-alt @375 scrollWidth=375 innerWidth=375 overflow=no
+N02 live arms served = 2: [["lgn_01KYTGE68253731T4Q3DXRQFA8",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--dots lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}],["lgn_01KYTGE91F4GNZC5FFHQ28177T",{"progressClass":"lg-frame-region lg-frame-progress lg-frame-progress--percent lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary","frameTemplate":"centered"}]]
+N03 columns @1280: left.x=274 w=292 | centre.x=578 w=322 | right.x=912 w=344
+N03 section picker options = ["P6D sec acc6-n03a-1785448575861583"]; canvas contains authored headline = true
+n03-canvas-real-section-middle @375 scrollWidth=375 innerWidth=375 overflow=no
+n03-empty-funnel-sample-in-real-frame @375 scrollWidth=375 innerWidth=375 overflow=no
+N03 empty-funnel canvas: frame edit (progress dots → hidden → back) re-rendered around the sample section
+n03-empty-funnel-frame-edit-rerender @375 scrollWidth=375 innerWidth=375 overflow=no
+N04 theme switcher options = ["Current theme","P6D N04 Midnight acc6-n04-1785448579596209","P6D N04 Ember acc6-n04-1785448579596209"]
+n04-theme-A-midnight @375 scrollWidth=375 innerWidth=375 overflow=no
+n04-theme-B-ember @375 scrollWidth=375 innerWidth=375 overflow=no
+N04 canvas fingerprint before={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(245, 247, 250)","rootColor":"rgb(26, 31, 54)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(26, 31, 54)","elBorder":"rgb(26, 31, 54)"}
+N04 canvas fingerprint themeA={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(255, 255, 255)","rootColor":"rgb(16, 16, 16)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(16, 16, 16)","elBorder":"rgb(16, 16, 16)"}
+N04 canvas fingerprint themeB={"bodyBg":"rgba(0, 0, 0, 0)","rootBg":"rgb(255, 243, 230)","rootColor":"rgb(43, 33, 24)","elBg":"rgba(0, 0, 0, 0)","elColor":"rgb(43, 33, 24)","elBorder":"rgb(43, 33, 24)"}

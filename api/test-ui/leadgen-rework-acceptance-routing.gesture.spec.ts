@@ -186,14 +186,27 @@ test.describe("#11C — builder structure, board authoring & rules (admin, both 
     await expect(pageCard.locator("[data-sec-chip]")).toHaveCount(1); // rejected — no duplicate
   });
 
-  // S6.2 fix (was the OPEN CONCERN this slice originally reported): the board
-  // template picker used to list built-in CODE ids (GET /frame-templates —
-  // "centered"/"header-footer"/…) that POST /apply-template rejected ("template
-  // does not exist") since apply-template resolves against the DB RECORDS. The
-  // picker now fetches GET /frame-template-records (frameTemplateRecordItems,
-  // quotes-tabs/funnel.ts) — the SAME source + public ids the Templates tab
-  // lists and apply-template resolves — so picking an item now actually applies.
-  test("#11C per-funnel theme picker jumps to Themes; template picker lists DB-record templates and applying one updates frame_template_id + the rendered frame", async ({ page }) => {
+  // R2 SRC-11B RE-POINT (P6 terminal). Owner ruling, verbatim in
+  // quotes-tabs/funnel.ts:5120-5124: "the themes and the templates are moving
+  // to the top bar, why you kept the old and wrong option in the funnel
+  // builder??" — the per-funnel-column Template pickchip no longer opens an
+  // embedded apply-popover; it NAVIGATES to the top-bar Templates tab, exactly
+  // like its Theme sibling. The popover this test used to drive
+  // ([data-template-menu] filled by openTemplatePicker/applyTemplate/
+  // frameTemplateRecordItems) is REMOVED by that ruling (funnel.ts:3735-3739;
+  // `frameTemplateRecordItems` now survives only inside that comment).
+  // [data-template-menu] still exists as the SHARED generic popover container
+  // (openPopoverList, funnel.ts:4456 — the "＋ section" picker), which is why
+  // the old locator resolved to an element that never lists templates.
+  // Nothing is relaxed: every assertion below is the ORIGINAL claim re-pointed
+  // at the ruled surface — the DB-record template is now located by its own
+  // public id ([data-tpl-chip], strictly stronger than the old hasText match
+  // on a generic menu row), and applying it goes through the Templates tab's
+  // real Apply-to-funnel dialog. The navigation half is also covered by
+  // leadgen-rework-p3b-board.gesture.spec.ts "template pickchip navigates to
+  // the top-bar Templates tab (no embedded popover)"; the apply half by
+  // leadgen-rework-acceptance-builder.gesture.spec.ts "#11D Apply to funnel".
+  test("#11C per-funnel theme picker jumps to Themes and the template pickchip jumps to Templates (SRC-11B); the Templates tab lists DB-record templates and applying one updates frame_template_id + the rendered frame", async ({ page }) => {
     const seed = await seedBoardQuote(apiCtx, "pickers");
     const u = uniqueTag("pickers-tpl");
     // a template with a DISTINCTIVE setting (footer.enabled:false) so the
@@ -206,19 +219,32 @@ test.describe("#11C — builder structure, board authoring & rules (admin, both 
     await col.locator("[data-theme-picker]").click();
     await expect(page.locator('[data-panel="themes"]')).toHaveClass(/active/, { timeout: 10_000 });
 
-    // template picker → a popover of the SAVED (DB-record) templates, incl. ours.
+    // template pickchip → the top-bar Templates TAB (SRC-11B), never an
+    // embedded builder popover.
     await page.locator('[data-tab="builder"]').click();
     await expect(page.locator("[data-board]")).toBeVisible();
     await page.locator(".lg-col-funnel").first().locator("[data-template-picker]").click();
-    const menu = page.locator("[data-template-menu]");
-    const item = menu.locator(".lg-menu-item", { hasText: `ACC6C Picker ${u}` });
-    await expect(item).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[data-panel="templates"]')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("[data-template-menu]"), "the removed embedded popover never opens for the Template chip").not.toBeVisible();
 
+    // the Templates tab LISTS the DB-record template — located by the record's
+    // own public id, and carrying its name.
+    const chip = page.locator(`[data-tpl-chip="${tpl.public_id}"]`);
+    await expect(chip).toBeVisible({ timeout: 10_000 });
+    await expect(chip).toContainText(`ACC6C Picker ${u}`);
+
+    // applying it goes through the tab's real Apply-to-funnel dialog.
+    await page.locator("#lg-tpl-apply-btn").click();
+    const applyDialog = page.locator("#lg-tpl-apply-dialog");
+    await expect(applyDialog.locator('[data-apply-state="choose"]')).toBeVisible({ timeout: 10_000 });
+    await page.locator(`[data-apply-choice="${tpl.public_id}"]`).click();
+    await expect(applyDialog.locator('[data-apply-state="confirm"]')).toBeVisible({ timeout: 10_000 });
     const [applyRes] = await Promise.all([
       page.waitForResponse((r) => r.url().includes("/apply-template") && r.request().method() === "POST"),
-      item.click(),
+      page.waitForNavigation({ waitUntil: "domcontentloaded" }).catch(() => null),
+      page.locator("#lg-tpl-apply-confirm-btn").click(),
     ]);
-    expect(applyRes.ok(), "apply-template succeeded (the DB-record public id resolves — the S6.2 fix)").toBe(true);
+    expect(applyRes.ok(), "apply-template succeeded (the DB-record public id resolves)").toBe(true);
 
     const funnelRow = await json<{ frame_template_id: number | null }>(await apiCtx.get(`${LG_API}/funnels/${seed.funnelPublicId}`), "funnel row");
     expect(funnelRow.frame_template_id, "the funnel's frame_template_id is updated").toBe(tpl.id);

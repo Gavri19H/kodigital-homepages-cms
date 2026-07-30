@@ -445,7 +445,24 @@ test.describe("P6b — theme A/B fork + the A/B tab's template-level reframe", (
     await expect(abPanel.locator("#lg-add-variant")).toBeVisible();
     await expect(abPanel.locator("#lg-add-variant")).toHaveCount(1);
     await expect(page.locator("[data-alloc-sum]")).toBeVisible();
-    await expect(page.locator(`[data-arm-variance="${seed.variantPublicId}"]`)).toHaveText("Control");
+    // RE-POINTED 2026-07-31 (R2 P6 terminal clearance). TWO stale things in one
+    // line, both settled by measurement + an owner ruling:
+    //  (a) the attribute is `data-arm-varies`, not `data-arm-variance`
+    //      (quotes-tabs/ab.ts:109 is the ONLY render; `grep -rn
+    //      "data-arm-variance" src/` = 0 hits, so the old locator could never
+    //      resolve);
+    //  (b) the expected TEXT "Control" is forbidden by the Rework M1 §8.5
+    //      ruling stated verbatim at ab.ts:56 — "No control label anywhere; the
+    //      funnel's single active variant with no running test is just its one
+    //      arm." `variantVariesLine` (ab.ts:41-50) renders "Base variant" for
+    //      the primary arm. The retired "Control" claim is not merely uncovered,
+    //      it is CONTRADICTED by a passing sibling:
+    //      leadgen-rework-acceptance-routing.gesture.spec.ts "#11C funnel A/B =
+    //      equal arms, no control label anywhere, delete-variant exists".
+    // The CLAIM this line makes — "the panel carries a per-arm what-varies
+    // summary keyed to the arm's public id" (this test's own title) — is
+    // unchanged and still an exact-text assertion.
+    await expect(page.locator(`[data-arm-varies="${seed.variantPublicId}"]`)).toHaveText("Base variant");
 
     const forkReq = page.waitForResponse((res) => res.request().method() === "POST" && /\/variants\/.+\/fork$/.test(res.url()));
     // SAME race as the theme-A/B test above: the page is already on a
@@ -473,8 +490,16 @@ test.describe("P6b — theme A/B fork + the A/B tab's template-level reframe", (
     const newRow = page.locator(`[data-variant="${forkBody.public_id}"]`);
     await expect(newRow).toBeVisible();
     // A plain "Add variant" fork changes nothing (same template/theme/
-    // sections/rules as control) — the honest, non-inflated summary.
-    await expect(newRow.locator("[data-arm-variance]")).toHaveText("Same as control (no differences yet)");
+    // sections/rules as the funnel's base arm) — the honest, non-inflated
+    // summary. RE-POINTED 2026-07-31 (same two stale things as line 448, same
+    // evidence): the attribute is `data-arm-varies` (ab.ts:109; `grep -rn
+    // "data-arm-variance" src/` = 0 hits) and the "control" wording is
+    // forbidden by the §8.5 ruling quoted at ab.ts:56. For a NON-primary arm
+    // with no override groups and the primary's frame_template_id,
+    // `variantVariesLine` (ab.ts:41-50) renders exactly "No layout or template
+    // changes yet" — the same "nothing differs yet" claim, exact-text, on the
+    // string the product actually ships.
+    await expect(newRow.locator("[data-arm-varies]")).toHaveText("No layout or template changes yet");
   });
 });
 

@@ -511,3 +511,328 @@ No spec's assertion was weakened. `docs/leadgen/r2/evidence/{p3,p4,p5}` and
 `test-ui/__screenshots__` are untouched (`git status` clean outside `p6/`).
 `npx tsc --noEmit` exit **0**. `LEADGEN_RUNTIME_JS_BYTES = 52762` (≤ 53248,
 unchanged — the fix is admin-side).
+
+---
+
+# SECTION 3 — P6 terminal close-out
+
+Sections 1 and 2 above are left byte-intact. This section (a) root-causes the two
+remaining chromium failures in `leadgen-rework-acceptance-routing.gesture.spec.ts`,
+(b) measures by hand everything that was still unverified or carried forward on
+someone else's claim, and (c) states the final counts and the residuals.
+
+Ritual, every measurement below, from `api/`:
+`pkill -f "wrangler dev --port 8901"` → `npm run db:reset:local` → `npx wrangler dev
+--port 8901 --ip 127.0.0.1 --var DEV_BYPASS_AUTH:true --var ADMIN_HOST:127.0.0.1`
+(background; `/health` polled to 200) → `npm run seed:leadgen-fixture` →
+`PW_PORT=8901 npx playwright test test-ui/<file> --workers=1 --reporter=list`.
+One full reset/restart/reseed cycle per `*.gesture.spec.ts` file. Port 8901 has a
+single owner: the manually started wrangler. `playwright.config.ts` sets
+`reuseExistingServer: !process.env.CI`, so Playwright's own `webServer` entry
+attaches to that process instead of trying to bind 8901 again — no
+"Address already in use" occurred in this pass. 8787 was never bound.
+
+## A. The EADDRNOTAVAIL caveat — read this before believing ANY red number
+
+This is harness noise, not product failure, and on repeat runs it is the dominant
+noise source. It is a local-resource limit, measured not guessed:
+`sysctl` reports `net.inet.ip.portrange.first: 49152` / `.last: 65535`
+(16,384 ephemeral ports) and `net.inet.tcp.msl: 15000` ⇒ a 30 s TIME_WAIT per
+closed socket. Sustained Playwright API traffic against `127.0.0.1:8901` exhausts
+that pool, and the kernel then refuses the local bind:
+`connect EADDRNOTAVAIL 127.0.0.1:8901 - Local (0.0.0.0:0)`.
+
+Measured instances in THIS pass (isolated numbers are the truth):
+
+| run | in-cycle result | EADDRNOTAVAIL in log | isolated re-run |
+|---|---|---|---|
+| `leadgen-rework-acceptance-routing.gesture` both engines | 23/34 (11 fail) | 8 + 1 cascade `Request context disposed` = 9 of the 11 | chromium **17/17**, firefox **17/17** |
+| `leadgen-round4-quotes-acceptance.gesture` both engines | 11/18 (7 fail) | 6 + 1 cascade = **7 of 7** | firefox **9/9** (chromium was already 9/9) |
+| `__p5a-frame` + `leadgen-patterns-v25` + `leadgen-quote-builder` (3-file batch) | 10/30 | first test of files 2 and 3 killed, 18 cascade-skips | **10/10**, **10/10**, **10/10** |
+| `__p6b-theme-mgr` immediately after a routing run | 2/8 | 5 | **5/8** after a drain (then 8/8, see §B/§D) |
+
+A second local-transport shape appears under the same pressure:
+`apiRequestContext.post: read ECONNRESET` on `POST /api/admin/leadgen/sections`
+(one chromium routing run, otherwise 16/17). Same class, same treatment.
+
+Method used from here on: between measurements, poll
+`netstat -an -p tcp | grep -c TIME_WAIT` and wait until it is under ~60.
+**Every count in §C/§E below comes from a run whose log contains 0
+`EADDRNOTAVAIL`** (checked per run with `grep -c EADDRNOTAVAIL`).
+
+## B. TASK 1 — the two remaining chromium failures, classified
+
+### B1 · routing test #4 (template picker) — **STALE SPEC against owner ruling R2 SRC-11B**
+
+Symptom: `expect(locator('[data-template-menu]').locator('.lg-menu-item')
+.filter({ hasText: 'ACC6C Picker …' })).toBeVisible()` → `element(s) not found`,
+10 s.
+
+Diagnostic, four independent legs:
+
+1. **The dispatch code carries the owner's own words.**
+   `src/admin/leadgen/quotes-tabs/funnel.ts:5120-5124`:
+   `// SRC-11B (owner: "the themes and the templates are moving to the top` /
+   `// bar, why you kept the old and wrong option in the funnel builder??").` /
+   `// NAVIGATES to the top-bar Templates tab — exactly like its Theme sibling` /
+   `// just above — never opens an embedded apply-popover in the builder.` /
+   `if (t.closest('[data-template-picker]')) { ev.stopPropagation(); gotoTab('templates'); return; }`
+2. **The popover the spec drove is REMOVED by that ruling.** `funnel.ts:3735-3739`:
+   "R2 SRC-11B: the per-funnel-column Template chip's OWN embedded apply-popover
+   (openTemplatePicker/applyTemplate/frameTemplateRecordItems) was ALSO removed".
+   `grep -rn "frameTemplateRecordItems" src/` = **1 hit**, and it is that comment.
+3. **The failure screenshot proves the product did the ruled thing.**
+   `test-artifacts/…-plate-id-the-rendered-frame-chromium/test-failed-1.png` shows
+   the editor already switched to the **Templates** tab, and the SAVED TEMPLATES
+   row contains the chip `ACC6C Picker acc6-pickers-tpl-1785446384431712` — the
+   DB-record template WAS listed, on the ruled surface. Nothing was missing.
+4. **`[data-template-menu]` still exists but is a different thing now** — the
+   shared generic popover container filled by `openPopoverList`
+   (`funnel.ts:4456`, the "＋ section" picker). That is why the old locator
+   resolved to a real element that never lists templates.
+
+Not a product defect; no `src/` change needed or made. A sibling spec already
+asserts the ruled behaviour and passes:
+`leadgen-rework-p3b-board.gesture.spec.ts` → "template pickchip navigates to the
+top-bar Templates tab (no embedded popover)" (that file: 32/32).
+Treatment = ruling-grounded re-point, both halves preserved (§D row 8).
+**Fail-before 0/1** (element(s) not found, 10 s) → **pass-after 1/1** (635 ms);
+then 17/17 chromium and 17/17 firefox on full-file isolated runs.
+
+### B2 · routing test #17 (all-actions, pct=100 leg 302s) — **HARNESS**
+
+A redirect leg that genuinely failed to 302 would be a real routing defect on
+owner clause SRC-11C-R, so this was established rather than waved off.
+
+1. **The 30.7 s duration is itself the diagnostic.** `playwright.config.ts`
+   declares no `timeout` (only `webServer` timeouts, 120 s / 30 s) and the spec
+   declares no `test.setTimeout` / `test.slow` — so the test timeout is
+   Playwright's default 30 000 ms. `expect(res1.status()).toBe(302)` is a
+   NON-retrying assertion on an already-resolved response; if it had failed it
+   would have failed in milliseconds with an "Expected 302 / Received …" diff.
+   A 30.7 s result therefore means the test never reached a failing expect —
+   it was killed by the harness timeout **inside a network call**. The only
+   network work before that assertion is `playwrightRequest.newContext()` +
+   `hostCtx.get(pathA, { headers: { Host }, maxRedirects: 0 })` — precisely the
+   surface that yields EADDRNOTAVAIL under §A pressure.
+2. **What the request actually does now, measured 4×** (solo `-g "all-actions"`
+   ×3 and in the full isolated file): **4 passes**, 1.1 s / 1.4 s / 1.4 s / 1.6 s.
+   Its first assertions after seeding are the raw `maxRedirects: 0` HTTP checks:
+   `res1.status() === 302` and
+   `res1.headers()['location'] === '/lg/lc/<offerA.public_id>'`, followed by the
+   sticky repeat `res2.status() === 302` with an identical `Location`. The
+   request fires and returns the governed offer URL. The pct=0 leg's D1 outcome
+   row (`routed_to_funnel` / `feed_name` = "premium" / `value_multiplier` = 3 /
+   `plane` = "entry") is asserted in the same passing test.
+
+No product defect; no `src/` change needed or made.
+
+## C. TASK 2 — everything unverified, re-measured first-hand
+
+Every file that was RED in Section 1 was re-run in this pass, plus the 4 new
+`leadgen-r2p6-*-drive` files and the three §1 "isolation" rows. `§1` = Section 1's
+table, `§2` = Section 2's table B.
+
+| File | §1 | §2 | **measured now** | 0 EADDR? |
+|---|---|---|---|---|
+| `__p6b-theme-mgr.spec.ts` | 3/8 | 7/8 (claimed; never re-run) | **8/8** | yes |
+| `leadgen-round4-quotes-acceptance.gesture.spec.ts` | 2/18 | 12/18 | **18/18** (chromium 9/9 + firefox 9/9) | yes |
+| `leadgen-rework-acceptance-routing.gesture.spec.ts` | 27/34 | 29/34 | **34/34** (chromium 17/17 + firefox 17/17) | yes |
+| `__p3b-structure.spec.ts` | 0/2 | — | **0/2** (2 retired-skip, **0 fail**) | yes |
+| `__p4b-rules.spec.ts` | 0/3 | — | **1/3** (2 retired-skip, **0 fail**) | yes |
+| `__p5b-quotes-ia.spec.ts` | 1/7 | 3/7 | **6/7** (1 retired-skip, **0 fail**) | yes |
+| `leadgen-runtime-v25.spec.ts` | 0/6 | 1/6 | **6/6** | yes |
+| `leadgen-rework-p4-templates.gesture.spec.ts` | 6/8 | 6/8 | **8/8** | yes |
+| `__p5a-frame.spec.ts` | 0/10 (batch) | — | **10/10** | yes |
+| `leadgen-patterns-v25.spec.ts` | 10/10 | — | **10/10** (0/10 inside a 3-file batch) | yes |
+| `leadgen-quote-builder.spec.ts` | 10/10 | — | **10/10** (0/10 inside the same batch) | yes |
+| `__p5c-assets.spec.ts` | 0/4 (iso 3/4) | — | **4/4** | yes |
+| `listicles-manual-qa.spec.ts` | 0/11 (iso 11/11) | — | **11/11** | yes |
+| `__p1d-lists.spec.ts` | 13/15 | — | **15/15** | yes |
+| `__p2b-phone.spec.ts` | 0/4 | — | **4/4** | yes |
+| `__p3a-pages.spec.ts` | 0/5 | — | **5/5** | yes |
+| `leadgen-ga4.spec.ts` | 0/4 | — | **4/4** | yes |
+| `leadgen-perf.spec.ts` | 0/3 | — | **3/3** | yes |
+| `leadgen-p4b-validation.spec.ts` | 1/14 | — | **8/14** (6 deliberate skip, **0 fail**) | yes |
+| `leadgen-offers.spec.ts` | 5/6 | — | **6/6** | yes |
+| `leadgen-p1c-editor-chrome.spec.ts` | 4/5 | — | **5/5** | yes |
+| `leadgen-r2p4-fixfirst-drive.spec.ts` | 0/3 | — | **3/3** | yes |
+| `leadgen-r4a-pipeline.spec.ts` | 7/9 | — | **9/9** | yes |
+| `leadgen-r4b-maps-tab.spec.ts` | 0/1 | — | **1/1** | yes |
+| `leadgen-u11u12-move-chromium-attempt.spec.ts` | 0/1 | — | **1/1** | yes |
+| `leadgen-u11u12-move.gesture.spec.ts` | 10/12 | — | **12/12** | yes |
+| `leadgen-rework-acceptance-inputs.gesture.spec.ts` | 21/22 | — | **22/22** | yes |
+| `leadgen-rework-acceptance-builder.gesture.spec.ts` | 21/24 | — | **24/24** | yes |
+| `leadgen-rework-p2-studio.gesture.spec.ts` | 8/10 | — | **10/10** | yes |
+| `leadgen-round4-acceptance.gesture.spec.ts` | 17/18 | — | **18/18** | yes |
+| `leadgen-round4-funnel-acceptance.gesture.spec.ts` | 7/8 | — | **8/8** | yes |
+| `leadgen-r2p6-d11c-drive.spec.ts` (new) | — | — | **10/10** | yes |
+| `leadgen-r2p6-d11d-drive.spec.ts` (new) | — | — | **4/4** | yes |
+| `leadgen-r2p6-fixes3-drive.spec.ts` (new) | — | — | **2/2** | yes |
+| `leadgen-r2p6-themefix-drive.spec.ts` (new) | — | 6/6 | **6/6** | yes |
+| `leadgen-visual.spec.ts` | 8/10 | 8/10 | **8/10 — STILL RED (ruled)** | yes |
+| `leadgen-v31-gate1c-baselines.spec.ts` | 0/7 | 0/7 | **0/7 — STILL RED (ruled)** | yes |
+
+**Every one of Section 1's "REAL REGRESSION candidates" now measures green** on a
+fresh reset/restart/reseed cycle at HEAD `c5c2037` (+ the two spec re-points in
+§D): `leadgen-r2p4-fixfirst-drive` F-1 (slider box vs payload) 3/3;
+`leadgen-u11u12-move` + its chromium-attempt sibling 12/12 and 1/1;
+`leadgen-rework-p2-studio` (d) 10/10; `leadgen-rework-acceptance-inputs` #6
+22/22; `leadgen-round4-acceptance` Item 2 (firefox) 18/18;
+`leadgen-round4-funnel-acceptance` Item 10I 8/8;
+`leadgen-rework-acceptance-builder` "#11D layout" 24/24;
+`leadgen-round4-quotes-acceptance` Item 10G 18/18. Stated precisely: these are
+current measurements at HEAD, each on its own clean cycle; this pass did **not**
+bisect which intervening commit fixed which, and Section 1's runs carried both
+batch pressure and an accreted DB, either of which can also explain a red row.
+
+## D. Retire / re-point table for the whole of P6
+
+Every retirement names in-file the spec that now covers its claim. No assertion
+was weakened anywhere in P6; the two rows added by this pass are marked ★.
+
+| # | Spec · what changed | BEFORE | AFTER | covering spec for anything retired | strength |
+|---|---|---|---|---|---|
+| 1 | `__p6b-theme-mgr.spec.ts` editor gate | `#lg-preview-iframe` → `[data-frame-region='section_slot']` visible | `[data-board]` visible | n/a (gate re-point) | same |
+| 2 | `__p5b-quotes-ia.spec.ts` editor gate | same stale gate | `[data-board]`; in-test canvas assertions left as written | n/a | same |
+| 3 | `leadgen-round4-quotes-acceptance.gesture.spec.ts` editor gate | same stale gate | `[data-board]` | n/a | same |
+| 4 | `leadgen-e-seed.ts` `seedLegacyPinLiveFunnel` | activated a quote with no shared page ⇒ 409 | calls the file's own `seedTrivialSharedPage` first | n/a (precondition) | same |
+| 5 | `leadgen-p3a-placement.gesture.spec.ts` (2 MINOR-2 tests) | variant-only sections ⇒ activation 409 | pass-through section on the variant + section under test on the shared page | n/a | same |
+| 6 | `leadgen-r2p6-themefix-drive.spec.ts` (NEW, §2) | — | editor width > 240 + 5 leaf controls + canvas at 1280/1366/1440/1600, 375 no overflow | n/a | new coverage |
+| 7 | `__p3b-structure.spec.ts` — **2 describes RETIRED** (`test.describe.skip`, file header carries a claim→covering-spec map) | drove `#lg-structure-panel` | retired-skip, 0 fail | `leadgen-rework-p3b-board.gesture.spec.ts` (32/32) + `leadgen-r2p6-d11c-drive.spec.ts` (10/10; `[data-shared-ruled-dialog]` 11C-B) | same claims, live DOM |
+| 8 ★ | `leadgen-rework-acceptance-routing.gesture.spec.ts` test #4 — **re-pointed to ruling SRC-11B** | click `[data-template-picker]` → expect a `[data-template-menu] .lg-menu-item` matching the template NAME → click it → `/apply-template` → `frame_template_id` + `effective_frame.footer.enabled===false` | click `[data-template-picker]` → `[data-panel="templates"]` visible **and `[data-template-menu]` NOT visible** → `[data-tpl-chip="<record public_id>"]` visible + contains the name → real Apply-to-funnel dialog (`#lg-tpl-apply-btn` → `[data-apply-choice="<public_id>"]` → `[data-apply-state="confirm"]` → `#lg-tpl-apply-confirm-btn`) → **same** `/apply-template` ok + **same** `frame_template_id` + **same** `footer.enabled===false` | the navigation half is independently covered by `leadgen-rework-p3b-board.gesture.spec.ts` "template pickchip navigates to the top-bar Templates tab (no embedded popover)"; the apply half by `leadgen-rework-acceptance-builder.gesture.spec.ts` "#11D Apply to funnel" | **stronger** — the record is now located by its own public id instead of a `hasText` match on a generic menu row, and the removed popover is asserted absent |
+| 9 | `__p4b-rules.spec.ts` — **2 tests RETIRED** (`test.skip`, retirement reason + covering spec written into the test title), test 1 re-pointed | `#lg-routing-rules-root` | tests 2–3 retired-skip; test 1 re-pointed to `.lg-board-right[data-rules-rail]` + 3 added structural assertions | `leadgen-rework-p3b-rules.gesture.spec.ts` (16/16) | stronger for test 1 |
+| 10 | `__p5b-quotes-ia.spec.ts` — 1 test RETIRED (`test.skip`, reason in the title) + canvas re-points | drove the 6-row `.lg-progress-style-opt` editor | retired-skip; the rest re-pointed at the Templates-tab canvas | `leadgen-rework-p4-templates.gesture.spec.ts` Progress leg | same |
+| 11 | `leadgen-rework-p4-templates.gesture.spec.ts` "set default" | 1 assertion on the **global** `frame-template-records` default | 3 **per-quote** assertions matching ruling D5 | n/a | stronger |
+| 12 | `leadgen-round4-quotes-acceptance.gesture.spec.ts` 10B/10D/10G | canvas assertions on the retired §4.1 surface | re-pointed to the Templates-tab canvas; 10D from a row-alignment check to an exact six-value set | n/a | stronger for 10D |
+| 13 | `leadgen-runtime-v25.spec.ts` | `beforeAll` 409'd on `activation.shared_page` | cause fixed in the e2e mirror seed; the committed byte-pin fixture proven byte-identical (same sha256 before/after a classified recapture) | n/a | same |
+| 14 ★ | `__p6b-theme-mgr.spec.ts` lines 448 + 494 — **re-pointed off a forbidden label** | `[data-arm-variance="<id>"]` toHaveText **"Control"**; `[data-variant=…] [data-arm-variance]` toHaveText **"Same as control (no differences yet)"** | `[data-arm-varies="<id>"]` toHaveText **"Base variant"**; `[data-arm-varies]` toHaveText **"No layout or template changes yet"** | the retired "Control" wording is not merely uncovered, it is CONTRADICTED by a passing sibling: `leadgen-rework-acceptance-routing.gesture.spec.ts` "#11C funnel A/B = equal arms, no control label anywhere, delete-variant exists" | same — still exact-text, on the string the product ships |
+
+Row 14's evidence: `grep -rn "data-arm-variance" src/` = **0 hits** (the old
+locator could never resolve); the render is `data-arm-varies`
+(`quotes-tabs/ab.ts:109`, the only emitter) and its text comes from
+`variantVariesLine` (`ab.ts:41-50`) — "Base variant" for the primary arm,
+"No layout or template changes yet" for a fork with no overrides and the
+primary's `frame_template_id`. The label ban is the owner ruling stated verbatim
+at `ab.ts:56`: *"No control label anywhere; the funnel's single active variant
+with no running test is just its one arm."*
+Fail-before/pass-after for row 14: **5/8 → 7/8** (line 448 fixed) **→ 8/8**
+(line 494 fixed).
+
+## E. Final per-file counts and grand totals
+
+Authoritative discovery, run from `api/`:
+`PW_PORT=8901 npx playwright test --list` → **`Total: 825 tests in 94 files`**
+(94 `test-ui/*.spec.ts`; `*-seed.ts` / `*-helpers.ts` are helpers, not specs).
+Section 1's 803-in-90 plus the four `leadgen-r2p6-*-drive` files
+(10 + 4 + 2 + 6 = 22) = 825 exactly.
+
+- **Tests: 792 passed / 825 discovered. Failed: 3. Skipped: 30.**
+  792 + 3 + 30 = **825** ✓
+- **Files with ≥1 failure: 2 of 94. Files fully clean: 92 of 94.**
+- Basis, stated so it can be audited rather than trusted: **every file that was
+  red in Section 1 (40 files) was re-run first-hand in this pass**, as were the
+  4 new drive files and 3 §1-green files (`__p5a-frame`, `leadgen-patterns-v25`,
+  `leadgen-quote-builder`) — 37 files re-measured here in total (§C). The
+  remaining Section-1-green files are carried forward at their Section-1
+  measured numbers; nothing in this pass touched their code paths.
+
+The 30 skips, itemised (all deliberate or retirement skips — the only cascade
+group is the last row, behind the single ruled visual failure):
+
+| file | skips | kind |
+|---|---|---|
+| `leadgen-p3a-placement.gesture.spec.ts` | 5 | deliberate |
+| `leadgen-p1-geometry.gesture.spec.ts` | 3 | deliberate (firefox can't resolve a dynamic `*.e2e.test` host) |
+| `leadgen-p2a-element-freedom.gesture.spec.ts` | 1 | deliberate, same reason |
+| `leadgen-rework-p4-themes.gesture.spec.ts` | 2 | deliberate ("covered at the unit level") |
+| `leadgen-p4c-rules.gesture.spec.ts` | 2 | deliberate |
+| `leadgen-p4b-validation.spec.ts` | 6 | deliberate (that run reported **0 failed**, so none is a cascade) |
+| `__p3b-structure.spec.ts` | 2 | retirement (`test.describe.skip`, covering spec named in-title) |
+| `__p4b-rules.spec.ts` | 2 | retirement (`test.skip`, covering spec named in-title) |
+| `__p5b-quotes-ia.spec.ts` | 1 | retirement (`test.skip`, covering spec named in-title) |
+| `leadgen-v31-gate1c-baselines.spec.ts` | 6 | cascade — same serial describe, behind the 1 ruled failure |
+
+## F. Residuals — every still-failing test, and why it ships red
+
+**Both residual failures are in the two frozen VISUAL baseline suites, which are
+ruled owner-visible and STAY RED. Neither was rebaselined.**
+
+### F1 · `leadgen-visual.spec.ts` — 8/10, 2 failing
+`leadgen-runtime-desktop` and `leadgen-runtime-mobile`, both logging
+`[visual-baseline] …: changed-pixel ratio=1`.
+That `1` is **the literal sentinel, not "100% of pixels differ"**:
+`pixelDiffRatio` returns `1` unconditionally on any dimension mismatch
+(`if (ia.width!==ib.width || ia.height!==ib.height) return 1`). Measured with
+`sips`: committed baselines are **1280×1940** and **375×2618**
+(`test-ui/__screenshots__/leadgen-runtime-{desktop,mobile}.png`, committed Jul 24
+`fc6e84c5`); this pass's captures are **1280×1899** and **375×2577** — exactly
+**−41 px on both**.
+Ruled layout change that explains it, named by comparing the committed baseline
+against this pass's capture side by side: the **R2 P4 currency-slider alignment
+fix**. In the baseline the round thumb is knocked onto its own line below the
+rail (rail ≈ y770, thumb centre ≈ y796, `$10,000`/`$1M+` labels ≈ y838); at HEAD
+the thumb is centred **on** the rail (rail+thumb ≈ y770, labels ≈ y797) and
+everything below shifts up by that same 41 px. That is exactly the geometry
+`leadgen-r2p4-slider-drive.spec.ts` (6/6) and
+`leadgen-r2p4-s4b-slider-drive.spec.ts` (7/7) assert as correct.
+**It is NOT the theme-editor wrap fix** — that fix lives in
+`src/admin/leadgen/ui-theme-manager.ts` and cannot affect the composed `/lg`
+runtime page these two baselines capture.
+Ship red: rebaselining is an owner-visible decision.
+
+### F2 · `leadgen-v31-gate1c-baselines.spec.ts` — 0/7, 1 failing + 6 cascade
+`01-build-default` logs `changed-pixel ratio=0.033947716346153844` against a
+budget of `0.001`. Both images are **1280×2600**, so unlike F1 this is a **real
+3.39% pixel diff**, not the sentinel.
+Ruled change, named by comparing `test-ui/__screenshots__/leadgen-v31-gate1c/
+01-build-default.png` (committed at `b8c302e`, Jul 21) with this pass's capture:
+the **section-studio component library** changed. The ANSWER FIELDS group gained
+a **"Phone"** tile (13 → 14 tiles) and **"Question grid" was renamed "Questions
+on one screen"**. Every tile below the rename moves down one row (~70 px), and
+the LAYOUT hint block plus the whole "Preview in a quote" bar below it shift
+~15 px — which is where the 3.39% lives.
+**Also NOT the theme-editor wrap fix**: that could only move states 6 ("Themes —
+Navy") and 7 ("Themes — Bold Yellow"), and those never execute — state 1 fails
+first and the remaining 6 states are cascade-skipped in the same serial describe.
+Ship red: not rebaselined.
+
+### F3 · Claims covered NOWHERE at browser level — stated plainly, not buried
+1. **The browser-visible auction marker.** The ordering RULE is covered:
+   `test/leadgen-funnel.test.ts` "auctionEntryPosition — the auction runs after
+   the MAX position (no 'final' flag)" and `test/leadgen-quotes-api.test.ts`
+   (`auction_entry_position` on the real variant + structure endpoints, ~lines
+   490/514/757). What is uncovered is the **marker's DOM presence on a
+   variant-PREVIEW render** — `quotes-handlers.ts` renders
+   `data-auction-after-position` / "Auction runs after this section (§15.3 max
+   position)" and **no `test-ui` spec drives it today**. Stated in-file at
+   `test-ui/__p3b-structure.spec.ts:58-69`.
+2. **The literal "Icon on track" label.** The only assertion of that exact
+   string anywhere in `test-ui/` is inside the RETIRED `test.skip(...)` at
+   `test-ui/__p5b-quotes-ia.spec.ts:425` (the 6-row `.lg-progress-style-opt`
+   editor it drove was replaced by the §8.3 `.lg-tpl2-ptype` thumbnail grid).
+   `PROGRESS_TYPE_OPTIONS` is the single render source and its option set is
+   exercised by `leadgen-rework-p4-templates.gesture.spec.ts`'s Progress leg,
+   but **no executing spec asserts the literal string**. Stated in-file at
+   `test-ui/__p5b-quotes-ia.spec.ts:414-420`. For the record: the string IS
+   rendered — it is legible in this pass's own captured admin screenshot
+   (`test-artifacts/leadgen-v31-gate1c/01-build-default.png`, Progress panel,
+   "Icon on track" style tile) — but a screenshot is not an assertion, so the
+   claim stays listed as uncovered.
+
+## G. Hygiene for this pass
+
+- **`src/` untouched.** No product change was needed for either TASK 1 failure.
+- Specs touched: `test-ui/leadgen-rework-acceptance-routing.gesture.spec.ts`
+  (§D row 8) and `test-ui/__p6b-theme-mgr.spec.ts` (§D row 14). Nothing weakened;
+  both re-points are ruling-grounded and carry the evidence in-file.
+- `npx tsc --noEmit` exit **0**.
+- `LEADGEN_RUNTIME_JS_BYTES = 52762` (≤ 53248) — unchanged, as expected with no
+  `src/` change.
+- Screenshot hazard handled: `leadgen-r2p4-fixfirst-drive.spec.ts` overwrote four
+  committed captures under `docs/leadgen/r2/evidence/p4/fixfirst/`; those were
+  restored with `git checkout -- docs/leadgen/r2/evidence/p4/`. After that,
+  `git status --short` outside `docs/leadgen/r2/evidence/p6/` lists exactly the
+  two spec files above. `test-ui/__screenshots__/` is untouched — no baseline was
+  rewritten (both visual suites only write a baseline when one does not already
+  exist; their per-run evidence copies go to `test-artifacts/`).
