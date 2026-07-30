@@ -1,0 +1,23 @@
+AUTHOR offer "P5B Offer A — currency passed" -> id=2 schema_v=3 test=HTTP 200
+AUTHOR offer "P5B Offer B — number only" -> id=3 schema_v=3 test=HTTP 200
+AUTHOR offer "P5B Offer C — number as string" -> id=4 schema_v=3 test=HTTP 200
+SETUP quote=lgq_01KYRHC0FYM77KXZYB6Q0JPXY9 variant=lgn_01KYRHC0FYJR8KP3C0375RJ9PW section=lgs_01KYRHC0GQGBXDYW9S2DAYZRR3 slug=r2p5b
+SETUP offers=lgo_01KYRHC0DJD9ACVKH9GDSQC930 lgo_01KYRHC0EFX7740MG86N1E478V lgo_01KYRHC0F7R1E2GZKFZP0KBAKE (A currency · B number · C number-as-string)
+AUTHOR section [composite (unconfigured, D3 default)] -> HTTP 200
+SSR converged in 41ms (1 poll(s)): composite address + currency stepper
+DRIVE typed=4218 Kestrel Way / Hoboken / NJ / 07032 · readout="$170,000" · visitor RECORDED keys = [p5b_addr_city, p5b_addr_state, p5b_addr_street, p5b_addr_zip, p5b_amount]
+DRIVE auction_instance_id=01KYRHRYHY7PR9261X1RMK3KYM
+PAYLOAD offer-1 (lgo_01KYRHC0DJD9ACVKH9GDSQC930) {"lead":{"p5b_amount_currency":"$170,000","p5b_zone_text":"07032"}}
+PAYLOAD offer-2 (lgo_01KYRHC0EFX7740MG86N1E478V) {"lead":{"p5b_amount_number":170000,"p5b_zone_num":7032}}
+PAYLOAD offer-3 (lgo_01KYRHC0F7R1E2GZKFZP0KBAKE) {"lead":{"p5b_amount_string":"170000"}}
+ANSWER-MAP value_transform rows (5): lead.p5b_amount_currency=[{"kind":"formatCurrency"}] | lead.p5b_amount_number=[{"kind":"toNumber"}] | lead.p5b_amount_string=[{"kind":"toString"}] | lead.p5b_zone_num=[{"kind":"toNumber"}] | lead.p5b_zone_text=[{"kind":"trim"}]
+AUTHOR section [free-text (full_address)] -> HTTP 200
+SSR converged in 14ms (1 poll(s)): free-text address
+DRIVE typed=4218 Kestrel Way, Hoboken, NJ 07032 · readout="$170,000" · visitor RECORDED keys = [p5b_addr, p5b_amount]
+DRIVE auction_instance_id=01KYRHS2GY058VFKB8TKS7AZVY
+PAYLOAD free-text offer-1 {"lead":{"p5b_amount_currency":"$170,000"}}
+AUTHOR section [street-only] -> HTTP 200
+SSR converged in 13ms (1 poll(s)): street-only address
+DRIVE typed=4218 Kestrel Way · readout="$170,000" · visitor RECORDED keys = [p5b_addr_street, p5b_amount]
+DRIVE auction_instance_id=01KYRHS5VYDHXW2PRPS8BEF59D
+PAYLOAD street-only offer-1 {"lead":{"p5b_amount_currency":"$170,000"}}

@@ -3088,6 +3088,75 @@ function m9AddressFieldName(
   return typeof f === "string" && f.trim() !== "" ? f.trim() : `${base}_${kind}`;
 }
 
+// The node-namespacing base every Address answer key hangs off:
+// internal_field, else question_id, else the literal "address". The SAME
+// precedence content-schema.ts collectKnownAnswerFields and runtime/
+// validation.ts addressBase already use.
+function m9AddressBase(node: LeadgenComponentNode): string {
+  if (typeof node.internal_field === "string" && node.internal_field.trim() !== "") {
+    return node.internal_field.trim();
+  }
+  if (typeof node.question_id === "string" && node.question_id !== "") return node.question_id;
+  return "address";
+}
+
+function m9AddressFills(node: LeadgenComponentNode): Record<string, unknown> {
+  const maps = node.props?.["maps"];
+  const mapsObj = maps !== null && typeof maps === "object" ? (maps as Record<string, unknown>) : {};
+  const fills = mapsObj["fills"];
+  return fills !== null && typeof fills === "object" ? (fills as Record<string, unknown>) : {};
+}
+
+// R2 P5 (SRC-6 field-name SEAM): the answer keys an AddressAutocompleteQuestion
+// ACTUALLY records, in render order — THE derivation, exported so the answer
+// space cannot drift from the markup.
+//
+// This is renderAddressAutocompleteQuestion's own resolution, read out instead
+// of re-implemented: props.fields[] (else the D3 default 4-field spec) → each
+// spec's `data-lg-field` (m9AddressFieldName: maps.fills.<slot> override,
+// else `{base}_{slot}` — the naming owner Image8 pins), and a lone
+// `full_address` composite → the BARE base, because that branch's only
+// [data-lg-field] is the wrapper's own hydration() attribute.
+//
+// Before this export, answers.ts fieldsOf claimed the BARE `props
+// .internal_fields` names (street/city/state/zip) that NO renderer has emitted
+// since M9 — so a driven visitor's `address_zip` matched no field spec and the
+// whole address was dropped from normalizeAnswers, and therefore from every
+// Offer payload built off it. content-schema.ts collectKnownAnswerFields (the
+// save gate / activation preflight / studio rule-picker universe) already
+// spoke `{base}_{slot}`; fieldsOf was the last holdout of the dead vocabulary.
+export function leadgenAddressAnswerFields(node: LeadgenComponentNode): string[] {
+  const specs = readAddressFieldSpecs(node) ?? ADDRESS_DEFAULT_FIELD_SPECS;
+  const base = m9AddressBase(node);
+  const fills = m9AddressFills(node);
+  const out: string[] = [];
+  for (const spec of specs) {
+    const name =
+      spec.field === "full_address"
+        ? base
+        : m9AddressFieldName(base, fills, spec.field as Exclude<LeadgenAddressFieldKind, "full_address">);
+    if (!out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+// The ZIP-family answer key an Address contributes (v3.1 §9 Maps auction/
+// validate jobs), from the SAME resolution as leadgenAddressAnswerFields: the
+// rendered `zip` field's own key, or — for a lone `full_address` composite —
+// the base key, whose one string holds the whole address (deriveLocationFacet
+// still parses a ZIP out of it). An Address rendering NO zip field contributes
+// no ZIP-family answer at all: null. (The pre-seam code returned the literal
+// "zip", or the last bare internal_fields entry — neither of which any visitor
+// has recorded since M9, so the §9 facet silently read an absent answer.)
+export function leadgenAddressZipAnswerField(node: LeadgenComponentNode): string | null {
+  const specs = readAddressFieldSpecs(node) ?? ADDRESS_DEFAULT_FIELD_SPECS;
+  if (specs.some((s) => s.field === "zip")) {
+    return m9AddressFieldName(m9AddressBase(node), m9AddressFills(node), "zip");
+  }
+  if (specs.length === 1 && specs[0]?.field === "full_address") return m9AddressBase(node);
+  return null;
+}
+
 // Rework §6.10/M9: N separate labeled inputs, ORDER/LABELS/MODE per
 // props.fields[]. Each self-declares data-lg-field (so the EXISTING generic
 // handleInputEvent `closest("[data-lg-field]")` records it — the SAME
@@ -3108,15 +3177,12 @@ function renderAddressFieldSet(
   const provider = propStr(node, "provider") ?? "google";
   const addressMapsRaw = node.props?.["maps"];
   const addressMapsEnabled = isNewMapsShape(addressMapsRaw) ? addressMapsRaw.enabled === true : true;
-  const addrBase =
-    typeof node.internal_field === "string" && node.internal_field.trim() !== ""
-      ? node.internal_field.trim()
-      : typeof node.question_id === "string" && node.question_id !== ""
-        ? node.question_id
-        : "address";
-  const addrMapsObj = addressMapsRaw !== null && typeof addressMapsRaw === "object" ? (addressMapsRaw as Record<string, unknown>) : {};
-  const addrFillsObj =
-    addrMapsObj["fills"] !== null && typeof addrMapsObj["fills"] === "object" ? (addrMapsObj["fills"] as Record<string, unknown>) : {};
+  // R2 P5: the base + fills reads are the SHARED m9AddressBase/m9AddressFills
+  // helpers (identical precedence to the inline reads they replace), so this
+  // renderer and the exported leadgenAddressAnswerFields the answer space now
+  // consumes are literally the same derivation.
+  const addrBase = m9AddressBase(node);
+  const addrFillsObj = m9AddressFills(node);
   // full_address may only appear alone (content-schema save gate) — a single
   // composite input, same semantics as the legacy renderer's one field.
   if (specs.length === 1 && specs[0]!.field === "full_address") {

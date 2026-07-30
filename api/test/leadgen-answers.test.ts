@@ -15,6 +15,7 @@ import {
   type LeadgenAnswerMapping,
 } from "../src/leadgen/answers";
 import type { LeadgenSectionContent } from "../src/public/leadgen/components/content-schema";
+import { leadgenAddressAnswerFields } from "../src/public/leadgen/components/presets";
 
 // A single-question Section: "Are you insured?" → TwoButtonYesNo (boolean).
 function yesNoContent(withDefault = false): LeadgenSectionContent {
@@ -99,24 +100,41 @@ describe("normalizeAnswers — §12.7 pivot + §12.6 answer_source", () => {
     expect(sources["homeowner"]).toBe("user_selected");
   });
 
-  it("expands NameFieldsGroup + AddressAutocomplete sub-fields (§12.8)", () => {
+  // R2 P5 (SRC-6 field-name SEAM): the Address sub-field names are the keys the
+  // RENDERER emits as data-lg-field — `{base}_{slot}` (base = internal_field ||
+  // question_id || "address"), i.e. what a driven visitor actually records —
+  // NOT the bare props.internal_fields names this test used to assert, which no
+  // renderer has emitted since M9. The pin below is the renderer's own export
+  // (presets.ts leadgenAddressAnswerFields), so the two can never drift apart
+  // silently again. NameFieldsGroup is unchanged (first/last).
+  it("expands NameFieldsGroup + AddressAutocomplete sub-fields (§12.8) under the RENDERED field names", () => {
+    const addressNode = { type: "AddressAutocompleteQuestion", question_id: "a1" } as const;
     const content: LeadgenSectionContent = {
-      components: [
-        { type: "NameFieldsGroup", question_id: "n1" },
-        { type: "AddressAutocompleteQuestion", question_id: "a1" },
-      ],
+      components: [{ type: "NameFieldsGroup", question_id: "n1" }, { ...addressNode }],
     };
+    expect(leadgenAddressAnswerFields(addressNode as never)).toEqual([
+      "a1_street",
+      "a1_city",
+      "a1_state",
+      "a1_zip",
+    ]);
     const { answers } = normalizeAnswers(content, {
       first: "  Ada  ",
       last: "Lovelace",
-      street: "1 Rue",
-      city: "Paris",
-      state: "IDF",
-      zip: "75001",
+      a1_street: "1 Rue",
+      a1_city: "Paris",
+      a1_state: "IDF",
+      a1_zip: "75001",
+      // the dead bare-name vocabulary must claim NOTHING
+      zip: "00000",
+      street: "nowhere",
     });
     expect(answers["first"]).toBe("Ada"); // trimmed
     expect(answers["last"]).toBe("Lovelace");
-    expect(answers["zip"]).toBe("75001");
+    expect(answers["a1_zip"]).toBe("75001");
+    expect(answers["a1_street"]).toBe("1 Rue");
+    expect(answers["zip"]).toBeUndefined();
+    expect(answers["street"]).toBeUndefined();
   });
 
   it("normalizeAnswerValue covers every answer_type branch", () => {

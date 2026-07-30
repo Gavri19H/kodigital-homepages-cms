@@ -50,7 +50,11 @@ import type { LeadgenAnswerSource } from "../admin/leadgen/db-types";
 // v3.1 §9 (S3-6) auction location facet seam. mapsJobsFor is the ONE §9.3
 // per-field precedence reader (presets.ts — no import cycle: presets never
 // imports this module); deriveLocationFacet is the pure facet primitive (maps.ts).
-import { mapsJobsFor } from "../public/leadgen/components/presets";
+import {
+  leadgenAddressAnswerFields,
+  leadgenAddressZipAnswerField,
+  mapsJobsFor,
+} from "../public/leadgen/components/presets";
 import { deriveLocationFacet, type LeadgenLocationFacet } from "./maps";
 
 // ---------------------------------------------------------------------------
@@ -249,6 +253,35 @@ function fieldsOf(node: LeadgenComponentNode): FieldSpec[] {
     }));
   }
 
+  // R2 P5 (SRC-6 field-name SEAM) — an Address contributes the keys the
+  // VISITOR ACTUALLY RECORDS, and it does so BEFORE the scalar branch below.
+  //
+  // Owner A.1 #6 (verbatim): "every component that include more than one
+  // field- each field is potentially answering another offer field in
+  // different formats per offer!!!" — that is only true if the multi-field
+  // component's sub-fields REACH the answer space at all. They did not:
+  //   * the scalar branch ran FIRST, so an Address carrying internal_field
+  //     "address" (the studio default-seeds exactly that) claimed ONE field
+  //     named `address` — of answerType "object" (catalog produces), which
+  //     normalizeAnswerValue rejects for the string a text input posts; and
+  //   * the Address branch it never reached claimed the BARE props
+  //     .internal_fields names (street/city/state/zip) that NO renderer has
+  //     emitted since M9 — the visitor records `{base}_{slot}` (Image8).
+  // Either way every address sub-answer was dropped before normalization, so
+  // no offer payload could carry one — let alone in per-offer formats.
+  // leadgenAddressAnswerFields (presets.ts) IS the renderer's own resolution,
+  // so these names are the [data-lg-field] names by construction; each is a
+  // text input ⇒ answerType "string" (the same type the pre-M9 sub-field
+  // branch used and the type content-schema/validation already assume).
+  if (node.type === "AddressAutocompleteQuestion") {
+    return leadgenAddressAnswerFields(node).map((field) => ({
+      field,
+      answerType: "string" as LeadgenAnswerType,
+      hasDefault: false,
+      defaultValue: undefined,
+    }));
+  }
+
   if (isNonEmptyString(node.internal_field)) {
     const authored = authoredDefault(node);
     return [
@@ -264,10 +297,6 @@ function fieldsOf(node: LeadgenComponentNode): FieldSpec[] {
   }
   if (node.type === "NameFieldsGroup") {
     const names = asStringArray(node.props?.["fields"], ["first", "last"]);
-    return names.map((field) => ({ field, answerType: "string", hasDefault: false, defaultValue: undefined }));
-  }
-  if (node.type === "AddressAutocompleteQuestion") {
-    const names = asStringArray(node.props?.["internal_fields"], ["street", "city", "state", "zip"]);
     return names.map((field) => ({ field, answerType: "string", hasDefault: false, defaultValue: undefined }));
   }
   return [];
@@ -434,8 +463,10 @@ function mapsZipFieldOf(node: LeadgenComponentNode): string | null {
     return isNonEmptyString(node.internal_field) ? node.internal_field : null;
   }
   if (node.type === "AddressAutocompleteQuestion") {
-    const subs = asStringArray(node.props?.["internal_fields"], ["street", "city", "state", "zip"]);
-    return subs.includes("zip") ? "zip" : (subs[subs.length - 1] ?? null);
+    // R2 P5 (SRC-6 seam): the RENDERED zip field's own key (presets.ts, the
+    // same resolution fieldsOf now uses) — the facet must read the key
+    // normalizeAnswers actually populated, not the bare literal "zip".
+    return leadgenAddressZipAnswerField(node);
   }
   return null;
 }

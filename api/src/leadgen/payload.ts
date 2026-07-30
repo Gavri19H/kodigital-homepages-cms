@@ -120,14 +120,42 @@ export interface LeadgenPayloadConditionGroup {
 }
 
 // The normative transform pipeline steps (05 §12, `value_transform`).
+//
+// R2 P5 (SRC-7B, owner A.1 #7B verbatim): "I can define that I want the
+// currency will be passed to the offer in the auction and I can define that
+// only the number is sent, and I can define that the number will be sent as
+// string". Two of those three output formats were ALREADY one-shot kinds
+// (`toNumber` = only the number; `toString` = the number as a string); the
+// currency-PASSED format had none — the "low level slopy logic" the owner
+// named. `formatCurrency` is that missing third kind (ONE additive step, the
+// same shape as the existing formatDate/formatPhone display formatters), so
+// all three formats are now expressible per-offer on the SAME answer.
 export type LeadgenTransformStep =
   | { kind: "mapBoolean" }
   | { kind: "mapEnum"; map: Record<string, unknown> }
   | { kind: "formatDate"; format: string }
   | { kind: "formatPhone" }
+  | { kind: "formatCurrency" }
   | { kind: "toNumber" }
   | { kind: "toString" }
   | { kind: "trim" };
+
+// The ONE allow-list of transform kinds (05 §12). Exported — the admin
+// answer-map validator (admin/leadgen/sections-handlers.ts parseTransformSteps)
+// IMPORTS this array instead of hand-copying it, the same single-source-of-
+// truth idiom LEADGEN_PAYLOAD_NODE_TYPES already carries: two hand-copied sets
+// drift the moment one side gains a kind, and a kind the runtime honors but a
+// validator rejects is an unsaveable (or unbuildable) money-path field.
+export const LEADGEN_TRANSFORM_KINDS = [
+  "mapBoolean",
+  "mapEnum",
+  "formatDate",
+  "formatPhone",
+  "formatCurrency",
+  "toNumber",
+  "toString",
+  "trim",
+] as const;
 
 export interface LeadgenPayloadNode {
   // Dotted placement path into the built payload (`data.home_own`). Numeric
@@ -391,16 +419,7 @@ const CONDITION_OPS: readonly LeadgenConditionOp[] = [
   "not_in",
 ] as const;
 const CONDITION_OP_SET: ReadonlySet<string> = new Set(CONDITION_OPS);
-const TRANSFORM_KINDS = [
-  "mapBoolean",
-  "mapEnum",
-  "formatDate",
-  "formatPhone",
-  "toNumber",
-  "toString",
-  "trim",
-] as const;
-const TRANSFORM_KIND_SET: ReadonlySet<string> = new Set(TRANSFORM_KINDS);
+const TRANSFORM_KIND_SET: ReadonlySet<string> = new Set(LEADGEN_TRANSFORM_KINDS);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -426,7 +445,7 @@ function validateTransformSteps(
       errors.push({
         code: "transform_invalid",
         path,
-        message: `unknown transform step (allowed: ${TRANSFORM_KINDS.join(", ")})`,
+        message: `unknown transform step (allowed: ${LEADGEN_TRANSFORM_KINDS.join(", ")})`,
       });
       continue;
     }
@@ -1024,6 +1043,46 @@ function transformFormatPhone(value: unknown): unknown {
   return digits.length === 10 ? digits : undefined;
 }
 
+// formatCurrency — the SRC-7B "currency is passed to the offer" output format
+// (owner ruling D9): the emitted string is EXACTLY the visitor-facing shape the
+// §6.8 currency slider paints (Image10) — a leading `$` plus thousands
+// separators, no forced decimals: 170000 → "$170,000".
+//
+// Deterministic + locale-free BY CONSTRUCTION (no Intl, whose grouping/format
+// is runtime- and ICU-version-dependent — a money-path value may not change
+// shape because the edge upgraded). Input may be a number OR a string; the
+// string leg strips `$`, thousands commas and whitespace first, so the step is
+// IDEMPOTENT (formatCurrency ∘ formatCurrency = formatCurrency) and a display-
+// shaped answer normalizes the same as the raw number. A negative amount keeps
+// its sign OUTSIDE the symbol (-$1,234). Anything that does not resolve to a
+// finite plain-decimal number (empty, NaN, Infinity, or a magnitude big enough
+// that JS switches to exponent notation, ≥1e21 — not a currency amount) is
+// INVALID → the node takes its fallback, exactly like formatPhone/formatDate.
+function transformFormatCurrency(value: unknown): unknown {
+  let n: number | undefined;
+  if (typeof value === "number") {
+    n = Number.isFinite(value) ? value : undefined;
+  } else if (typeof value === "string") {
+    const cleaned = value.replace(/[$,\s]/g, "");
+    if (cleaned !== "") {
+      const parsed = Number(cleaned);
+      n = Number.isFinite(parsed) ? parsed : undefined;
+    }
+  }
+  if (n === undefined) return undefined;
+  const negative = n < 0;
+  const digits = String(Math.abs(n));
+  // Exponent notation (1e21+) / anything non plain-decimal: INVALID, never a
+  // silently mis-grouped money string.
+  if (!/^\d+(\.\d+)?$/.test(digits)) return undefined;
+  const dot = digits.indexOf(".");
+  const whole = dot === -1 ? digits : digits.slice(0, dot);
+  const rest = dot === -1 ? "" : digits.slice(dot);
+  // Group the integer part in threes from the right (the §14.5 display shape).
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${negative ? "-" : ""}$${grouped}${rest}`;
+}
+
 function applyTransformStep(value: unknown, step: LeadgenTransformStep): unknown {
   switch (step.kind) {
     case "mapBoolean":
@@ -1038,6 +1097,8 @@ function applyTransformStep(value: unknown, step: LeadgenTransformStep): unknown
       return transformFormatDate(value, step.format);
     case "formatPhone":
       return transformFormatPhone(value);
+    case "formatCurrency":
+      return transformFormatCurrency(value);
     case "toNumber": {
       if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
       if (typeof value === "string" && value.trim() !== "") {
