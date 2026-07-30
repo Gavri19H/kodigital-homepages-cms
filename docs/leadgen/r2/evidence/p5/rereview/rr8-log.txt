@@ -1,0 +1,4 @@
+J chips: preview="invalid → fallback (FBSENT9ule4924)" sentAs="FBSENT9ule4924" validation="✓ No issues — the schema looks good."
+J save -> 201 {"id":21,"public_id":"lgp_01KYS3CDFYTRNFJC60QVKT2H8C","offer_id":21,"version":1,"schema_json":{"version":1,"root":{"type":"object","children":[{"path":"lead","name":"lead","type":"object","required":f
+J wiring warnings = []
+J PROVIDER ROW = {"lead":{"street_fb":"FBSENT9ule4924"}}

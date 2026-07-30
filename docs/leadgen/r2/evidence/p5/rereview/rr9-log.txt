@@ -1,0 +1,5 @@
+SETUP section=lgs_01KYS3FTHKXKZZ3XVGTX6Y7EZX
+K rows after enable = 1
+K after removing all: rows=0 enableCheckbox=true chip="No issues"
+K PERSISTED props.other = undefined
+K after reload: enableCheckbox=false

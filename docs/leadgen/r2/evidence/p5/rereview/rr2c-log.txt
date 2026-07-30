@@ -1,0 +1,6 @@
+SETUP offer=lgo_01KYS19FY4GE7ZV9480E6RV81F
+PRE validation = ✓ No issues — the schema looks good.
+SNAP = {"summary":"Schema has 1 issue.","list":"amttransform_invalidthe \"formatCurrency\" output format sends text, but the field Type is number — the runtime re-coerces after the format, so the value would be dropped. Re-pick the Output format to fix both at once.The transform is not a supported pipeline for this field — re-pick the Output format (it sets the transform and the sent type together), or fix it in the Advanced drawer.Jump","ofValue":"formatCurrency","ofPanelHidden":false,"typeValue":"number","typeDisabled":true,"badgeHidden":true,"raw":"{ \"path\": \"amt\", \"name\": \"amt\", \"type\": \"number\", \"required\": false, \"source\": \"answer\", \"internal_field\": \"rrv4_num_8jn3a877\", \"transform\": [ { \"kind\": \"formatCurrency\" } ] }"}
+CONSOLE ERRORS = ["console.error: Failed to load resource: the server responded with a status of 404 (Not Found)"]
+SAVE status observed = 0
+STORED = []

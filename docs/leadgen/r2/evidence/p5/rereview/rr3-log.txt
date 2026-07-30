@@ -1,0 +1,18 @@
+SETUP offer=lgo_01KYS1THKXGQSW47AASY6P9N8T section=lgs_01KYS1THMVT9PDY163TF75DPA0 quote=lgq_01KYS1THNH30E1T6Q97N57WDJR
+C first-ever schema save -> 201
+C parse save -> 201
+C versions after parse save: [{"v":1,"parse":"NULL","pv":1},{"v":2,"parse":"SET","pv":1}]
+C schema-only save after format change -> 201
+C versions after schema-only save: [{"v":1,"parse":"NULL","pv":1},{"v":2,"parse":"SET","pv":1},{"v":3,"parse":"SET","pv":1}]
+C test run -> 200
+C auction wiring warnings = []
+C ACTIVATION -> HTTP 200 {"id":4,"site_id":"st_caad9b25c66a46b0","quote_id":4,"enabled":true,"slug":"rrc-8vm8s453","settings_overrides_json":null,"created_at":1785399693,"updated_at":1785399693,"preview_url":"https://r2fix.e2e.test/lg/rrc-8vm8s453","activation_preflight":{"ok":true,"quote_id":"lgq_01KYS1THNH30E1T6Q97N57WDJR","funnel_id":"lgf_01KYS1THNHW1FN2ZMPV7BXBJQ0","funnel_variant_id":"lgn_01KYS1THNH46GX7HTRZZ65FEEV","blocks":[],"computed_at":1785399693562,"problems":[]}}
+C explicit clear POST -> 201
+C versions after explicit clear: [{"v":1,"parse":"NULL","pv":1},{"v":2,"parse":"SET","pv":1},{"v":3,"parse":"SET","pv":1},{"v":4,"parse":"NULL","pv":1}]
+C after clear, auction warnings = [{"offer_id":"lgo_01KYS1THKXGQSW47AASY6P9N8T","eligible":false,"reasons":["carrier_parse_missing"]}]
+D picker (from_to authored) = ["Choose a Section field…","rrc_num_8vm8s453 (number)","rrc_span_8vm8s453_min (number)","rrc_span_8vm8s453_max (number)"]
+D saved mapping to rrc_span_8vm8s453_min
+D re-authored the slider as "single" (base rrc_span_8vm8s453 recorded; rrc_span_8vm8s453_min gone)
+D after re-author: picker value="(none)" selectedText="(none)" containsStaleOption=false
+D picker options now = []
+D validation summary="✓ No issues — the schema looks good." list=""

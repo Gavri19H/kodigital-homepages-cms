@@ -1,0 +1,5 @@
+SETUP offer=lgo_01KYS0XYY781ARM9BSP0JJ4F10
+RAW BEFORE = { "path": "amt", "name": "amt", "type": "number", "required": false, "source": "answer", "internal_field": "rrv3_num_8bjjh949" }
+RAW APPLY error visible=false text=""
+RAW AFTER = { "path": "amt", "name": "amt", "type": "number", "required": false, "source": "answer", "internal_field": "rrv3_num_8bjjh949", "transform": [ { "kind": "formatCurrency" } ] }
+LIVE JSON PREVIEW = 

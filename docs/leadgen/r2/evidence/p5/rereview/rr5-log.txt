@@ -1,0 +1,10 @@
+SETUP section=lgs_01KYS26XKPGT7HNCQ90J2SJZZC slug=rrf-94b3u382
+AUTHOR autofill street+city, manual zip5
+SSR ok zip5 composite
+G3 1280 = {"fieldKeys":["rrf_addr_94b3u382","rrf_addr_94b3u382_street","rrf_addr_94b3u382_city","rrf_addr_94b3u382_zip"],"subLabels":["Street address","City","ZIP code"],"inputCount":3,"scrollW":1280,"innerW":1280}
+G3 bad-ZIP messages = ["ZIP codeEnter a valid 5-digit ZIP code."]
+G3 after good ZIP = []
+AUTHOR unconfigured (D3)
+SSR ok D3 composite
+G4 1280 = {"fieldKeys":["rrf_addr_94b3u382","rrf_addr_94b3u382_street","rrf_addr_94b3u382_city","rrf_addr_94b3u382_state","rrf_addr_94b3u382_zip"],"subLabels":["Street address","City","State","ZIP code"],"inputCount":4,"scrollW":1280,"innerW":1280}
+G4 375 = {"fieldKeys":["rrf_addr_94b3u382","rrf_addr_94b3u382_street","rrf_addr_94b3u382_city","rrf_addr_94b3u382_state","rrf_addr_94b3u382_zip"],"subLabels":["Street address","City","State","ZIP code"],"inputCount":4,"scrollW":375,"innerW":375}
