@@ -3223,11 +3223,38 @@ function renderAddressFieldSet(
   // additive: absent props.icon / design_overrides ⇒ "", byte-identical to a
   // field-set authored with neither.
   const icon = fieldLeadingIcon(node);
+  // P5-F3 (owner A.1 #6 "poorly designed with poor logic" — Image8): a
+  // placeholder alone vanishes the instant a visitor types, so a 4-field
+  // composite left every sub-field unlabeled once filled (sighted visitors
+  // got no persistent label; only aria-label kept screen readers informed).
+  // Scope guard: a GENUINE multi-field composite ONLY (specs.length > 1) —
+  // a single-field address (full_address already returns above; a lone
+  // street-only field set falls through this same map with specs.length
+  // === 1) keeps the question's own labelLine as its only label, exactly as
+  // today, so neither owner-graded-PERFECT single-field scenario changes a
+  // byte.
+  const isMultiField = specs.length > 1;
   const fieldHtml = specs
     .map((f, i) => {
       const kind = f.field as Exclude<LeadgenAddressFieldKind, "full_address">;
       const fieldName = m9AddressFieldName(addrBase, addrFillsObj, kind);
       const label = f.label ?? ADDRESS_FIELD_DEFAULT_LABEL[kind];
+      // Same lg-ft-* idiom renderRangeQuestion's from_to sub-fields already
+      // use (idBase + explicit for/id) — fieldName is already the unique-
+      // per-node-per-field key (m9AddressFieldName), so prefixing it is
+      // enough to make a valid, collision-safe DOM id.
+      const fieldId = `lg-addr-${fieldName}`;
+      // A DEDICATED class, not the general question-level .lg-label (labelLine)
+      // — this is a per-SUB-FIELD label inside ONE composite, an orthogonal
+      // §6.3 concern; reusing .lg-label collided with the pre-existing "ONE
+      // label above the whole field-set" / byte-identity fixture assertions
+      // that key on that exact class/string (leadgen-rework-render.test.ts,
+      // out of this slice's ownership) — a dedicated class avoids that
+      // collision entirely while rendering identical typography (mirrored
+      // rule, styles.ts).
+      const fieldLabelHtml = isMultiField
+        ? `<label class="lg-address-field-label"${attr("for", fieldId)}>${esc(label)}</label>`
+        : "";
       const isAutocompleteField = i === autocompleteIndex;
       // Fill targets: every OTHER autofill-mode field's resolved name (M9
       // Google-Maps fill mapping — the SAME 4-key {street,city,state,zip}
@@ -3252,7 +3279,7 @@ function renderAddressFieldSet(
         : fieldAppearanceStyle(node, design);
       const input =
         `<input class="lg-input" type="text" data-lg-input${inputStyleAttr}` +
-        `${attr("placeholder", label)}${attr("aria-label", label)}` +
+        `${isMultiField ? attr("id", fieldId) : ""}${attr("placeholder", label)}${attr("aria-label", label)}` +
         (isAutocompleteField ? ` autocomplete="street-address" data-address-autocomplete="true"` : "") +
         zip5Attrs +
         (f.required ? " required" : "") +
@@ -3267,6 +3294,7 @@ function renderAddressFieldSet(
         : input;
       return (
         `<span class="lg-address-field-wrap"${attr("data-lg-field", fieldName)}${mapsAttr}>` +
+        fieldLabelHtml +
         boxedInput +
         // ADJ-A2: a per-field slot so a required/zip5/custom-format failure on
         // THIS field (validateSection keys it to fieldName) has somewhere to
