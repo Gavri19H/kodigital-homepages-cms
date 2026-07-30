@@ -1050,7 +1050,7 @@ describeDb("POST /sections/preview — §9.2 (E5) parameterization", () => {
     expect(desktop.body.preview.html).toContain("lg-preview-desktop");
   });
 
-  it('sim "selected" server-renders the runtime selection markup (aria-checked/aria-pressed/lg-selected) into buttons', async () => {
+  it('sim "selected" server-renders the runtime selection markup (aria-checked/lg-selected) into buttons', async () => {
     const { env } = newHarness();
     const dflt = await postPreview(env, { content_json: JSON.stringify(CHOICES_CONTENT) });
     const { status, body } = await postPreview(env, {
@@ -1062,16 +1062,18 @@ describeDb("POST /sections/preview — §9.2 (E5) parameterization", () => {
     // visibly different from the default render
     expect(body.preview.desktop).not.toBe(dflt.body.preview.desktop);
 
-    // the matching choice: the preset's aria-checked flips true + the runtime's
-    // applySelectionClasses conventions (lg-selected + aria-pressed="true")
+    // the matching choice: the preset's initial aria-checked="false" flips to
+    // "true" + the runtime's applySelectionClasses conventions (lg-selected).
+    // P5 S5c (ADJ-R8) fixed the runtime to write aria-checked, never
+    // aria-pressed — the sim mirror was fixed in lockstep (P5 tail item 2).
     const on = choiceTag(body.preview.desktop, "allstate");
     expect(on).toContain('aria-checked="true"');
-    expect(on).toContain('aria-pressed="true"');
+    expect(on).not.toContain("aria-pressed");
     expect(on).toContain("lg-selected");
-    // its sibling: aria-pressed="false" (applySelectionClasses), initial
-    // aria-checked="false" untouched, NO selected class
+    // its sibling: aria-checked stays "false" (applySelectionClasses sets it
+    // explicitly on every choice), NO selected class, no aria-pressed anywhere
     const off = choiceTag(body.preview.desktop, "geico");
-    expect(off).toContain('aria-pressed="false"');
+    expect(off).not.toContain("aria-pressed");
     expect(off).toContain('aria-checked="false"');
     expect(off).not.toContain("lg-selected");
     // both viewports carry the same server-rendered state
@@ -1191,7 +1193,8 @@ describeDb("POST /sections/preview — §9.2 (E5) parameterization", () => {
     expect(on).toContain('aria-checked="true"');
     expect(on).toContain("lg-selected");
     const off = choiceTag(body.preview.desktop, "geico");
-    expect(off).toContain('aria-pressed="false"');
+    expect(off).toContain('aria-checked="false"');
+    expect(off).not.toContain("aria-pressed");
     expect(off).not.toContain("lg-selected");
   });
 

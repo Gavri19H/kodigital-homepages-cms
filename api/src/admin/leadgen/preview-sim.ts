@@ -225,9 +225,11 @@ function markSelectionInSlice(slice: string, values: readonly string[]): string 
       selectedAnOption = true;
       return `${tag.slice(0, tag.length - 1)} selected>`;
     }
-    // applySelectionClasses mirror: aria-pressed on EVERY choice of the
-    // answered question; class + checked form only on the match.
-    let next = setTagAttr(tag, "aria-pressed", isOn ? "true" : "false");
+    // applySelectionClasses mirror (P5 tail — kept in lockstep with the P5
+    // S5c ADJ-R8 runtime fix): aria-checked true/false on EVERY choice of
+    // the answered question, matching the SSR aria-checked="false" default
+    // this is layered over; class also added on the match.
+    let next = setTagAttr(tag, "aria-checked", isOn ? "true" : "false");
     if (isOn) {
       next = addClassToTag(next, "lg-selected");
       next = setTagAttr(next, "aria-checked", "true");

@@ -542,8 +542,9 @@ function selectedMarkerMarkup(marker: LeadgenSelectedMarker): string {
 //      inline `display:none` on the badge would additionally BEAT any later
 //      rule, so the swap could never fire; and
 //   2. nothing in the runtime could flip it either: render.ts
-//      applySelectionClasses toggles SELECTED_CLASS + aria-pressed on
-//      `[data-lg-choice]` BUTTONS only — it never touches the marker spans.
+//      applySelectionClasses toggles SELECTED_CLASS + aria-checked (P5 S5c
+//      ADJ-R8) on `[data-lg-choice]` BUTTONS only — it never touches the
+//      marker spans.
 // There is also no existing base rule to feed with a var: the base sheet has
 // no `.lg-check-*` rule at all (that is the bug).
 //
@@ -3183,6 +3184,14 @@ function renderAddressFieldSet(
   // consumes are literally the same derivation.
   const addrBase = m9AddressBase(node);
   const addrFillsObj = m9AddressFills(node);
+  // P5 tail (owner A.1 #6 "the mapping of what is auto-filled per field
+  // should definatly be an option"): jobs.validate is the SAME authored
+  // per-field toggle mapsJobsFor already resolves for the single-field
+  // renderers below (renderZIPInputQuestion/renderAddressAutocompleteQuestion)
+  // — reused here so the field-set's autocomplete field honours it too
+  // instead of hardcoding it off, falling back to today's default (false)
+  // when unauthored.
+  const addrJobs = mapsJobsFor(node);
   // full_address may only appear alone (content-schema save gate) — a single
   // composite input, same semantics as the legacy renderer's one field.
   if (specs.length === 1 && specs[0]!.field === "full_address") {
@@ -3233,7 +3242,7 @@ function renderAddressFieldSet(
       const mapsAttr = isAutocompleteField
         ? attr(
             "data-lg-maps",
-            JSON.stringify({ enabled: true, jobs: { validate: false, auction: false, autocomplete: true }, fills: fillsForMapsConfig }),
+            JSON.stringify({ enabled: true, jobs: { validate: addrJobs.validate, auction: false, autocomplete: true }, fills: fillsForMapsConfig }),
           )
         : "";
       const zip5Attrs = kind === "zip" && f.zip5 ? ` inputmode="numeric" pattern="\\d{5}" maxlength="5"` : "";

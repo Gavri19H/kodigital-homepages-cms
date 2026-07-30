@@ -1388,12 +1388,14 @@ export function funnelChromeCss(
       background: `var(--lg-answer-bg, ${iconCard.hoverBackground})`,
     }),
     // R2 (adversarial review, pre-existing discovery): the LIVE runtime marks
-    // a selected choice with the `.lg-selected` CLASS + aria-pressed
-    // (render.ts SELECTED_CLASS) — NEVER aria-checked/data-selected (those
-    // are set only by the studio canvas/preview simulator). Every selected
-    // rule below now keys on ALL THREE so the live funnel actually paints a
-    // selection, not just the studio surfaces. ZERO runtime changes — the
-    // fix is entirely selector-side.
+    // a selected choice with the `.lg-selected` CLASS + aria-checked
+    // (render.ts SELECTED_CLASS; P5 S5c ADJ-R8 fixed the runtime to ALWAYS
+    // write aria-checked, matching the SSR role=radio/checkbox markup — it
+    // never wrote aria-pressed after that fix). Every selected rule below
+    // still keys on ALL THREE selectors so a selection paints regardless of
+    // which one a given surface (live funnel vs. studio canvas/preview
+    // simulator) happens to set. ZERO runtime changes were needed for the
+    // CSS itself — the fix was entirely selector-side.
     rule(
       `${scope} .lg-btn.lg-btn-answer[aria-checked="true"], ${scope} .lg-btn.lg-btn-answer[data-selected="true"], ${scope} .lg-btn.lg-btn-answer.lg-selected`,
       {
