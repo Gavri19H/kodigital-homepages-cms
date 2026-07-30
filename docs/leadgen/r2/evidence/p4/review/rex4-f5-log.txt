@@ -1,0 +1,4 @@
+
+=== F-5 2026-07-30T01:33:31.673Z ===
+picker cards: 5 -> Single | Dual range | Stepper | From / To | Radial
+rex4-f5-picker-1280.png + rex4-f5-thumb-from_to.png captured

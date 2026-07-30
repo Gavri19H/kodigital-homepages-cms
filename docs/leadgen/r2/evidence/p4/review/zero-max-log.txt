@@ -1,0 +1,16 @@
+
+=== zero-max 2026-07-30T00:45:11.257Z ===
+author negative-range sliders -> 200 
+activate -> 200
+REST rails=[-100000 , 0] pills=[-100,000 , 0] captions="-100,0000"
+AFTER MIN DRAG rails=[-60000 , 0] pills=[-60,000 , 0]
+  fill spans [40.0% .. 100.0%] (handle should sit at 40%)
+STEPPER(-50..0) after 8 clicks of + : input=0 readout="0" (must not exceed 0)
+
+=== zero-max 2026-07-30T00:45:40.174Z ===
+author negative-range sliders -> 200 
+activate -> 200
+REST rails=[-10 , 0] pills=[-10 , 0] captions="-100"
+AFTER MIN DRAG rails=[-5 , 0] pills=[-5 , 0]
+  fill spans [50.0% .. 100.0%] (the dragged MIN handle was released at 50% of the track)
+STEPPER(-50..0) after 8 clicks of + : input=0 readout="0" (must not exceed 0)

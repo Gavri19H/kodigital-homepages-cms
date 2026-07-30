@@ -1,0 +1,32 @@
+REX4 closure drive (af330ee) 2026-07-30T01:23:01.194Z
+payload schema v2 -> 201
+author + map 4 sub-fields -> 200 
+activation (ADJ-N20 workaround) -> 200 
+SSR ready
+baseline From="0" To="40000" rails=[0,40000]
+F-1 REPRO (typed 90000 into "From ($)" with To=40000):
+   FIELD From="35000" To="40000"  |  RAILS [35000,40000]  |  PILLS [$35,000 , $40,000]
+   AGREE? field==rail -> true
+   /lg/auction -> 200
+F-1b(a) typed "35000" into From char-by-char (To=100000): FIELD="35000" rails=[35000,100000]
+F-1b(b) typed "60000" into To char-by-char (From=35000): FIELD="100000" rails=[35000,100000]
+
+--- F-2 sweep @375 (track x=29.0..346.0, card x=8.0..367.0) ---
+  min->0%: rails=[0,100000] minPill x=18.0..53.5 maxPill x=276.5..357.0 vGap=0.0 | scrollWidth=375/375 offCard=0.0px
+  min->25%: rails=[25000,100000] minPill x=78.9..152.2 maxPill x=276.5..357.0 vGap=0.0 | scrollWidth=375/375 offCard=0.0px
+  min->50%: rails=[50000,100000] minPill x=139.7..213.3 maxPill x=276.5..357.0 vGap=0.0 | scrollWidth=375/375 offCard=0.0px
+  min->75%: rails=[75000,100000] minPill x=201.2..273.9 maxPill x=276.5..357.0 vGap=32.0 | scrollWidth=375/375 offCard=0.0px
+  min->95%: rails=[95000,100000] minPill x=249.0..322.8 maxPill x=276.5..357.0 vGap=32.0 | scrollWidth=375/375 offCard=0.0px
+  min->100%: rails=[95000,100000] minPill x=249.0..322.8 maxPill x=276.5..357.0 vGap=32.0 | scrollWidth=375/375 offCard=0.0px
+  max->2%: rails=[95000,100000] minPill x=249.0..322.8 maxPill x=276.5..357.0 | scrollWidth=375/375
+  WORST off-card overshoot across the sweep @375: 0.0px
+
+--- F-2 sweep @1280 (track x=387.0..893.0, card x=340.0..940.0) ---
+  min->0%: rails=[0,100000] minPill x=376.0..411.5 maxPill x=823.5..904.0 vGap=0.0 | scrollWidth=1280/1280 offCard=0.0px
+  min->25%: rails=[25000,100000] minPill x=484.2..557.5 maxPill x=823.5..904.0 vGap=0.0 | scrollWidth=1280/1280 offCard=0.0px
+  min->50%: rails=[50000,100000] minPill x=592.2..665.8 maxPill x=823.5..904.0 vGap=0.0 | scrollWidth=1280/1280 offCard=0.0px
+  min->75%: rails=[75000,100000] minPill x=701.0..773.7 maxPill x=823.5..904.0 vGap=0.0 | scrollWidth=1280/1280 offCard=0.0px
+  min->95%: rails=[95000,100000] minPill x=786.6..860.4 maxPill x=823.5..904.0 vGap=32.0 | scrollWidth=1280/1280 offCard=0.0px
+  min->100%: rails=[95000,100000] minPill x=786.6..860.4 maxPill x=823.5..904.0 vGap=32.0 | scrollWidth=1280/1280 offCard=0.0px
+  max->2%: rails=[95000,100000] minPill x=786.6..860.4 maxPill x=823.5..904.0 | scrollWidth=1280/1280
+  WORST off-card overshoot across the sweep @1280: 0.0px

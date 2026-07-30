@@ -1,0 +1,11 @@
+
+=== edge run 2026-07-30T00:28:24.786Z ===
+CLAMP(375) rails=[95000 , 100000] pills=[$95,000 , $100,000]
+  minPill x=319.1..393.0 y=315.6 | maxPill x=276.5..357.0 y=347.6 | vGap=32.0
+  OFF-CARD? minPillRight=393.0 vs viewport 375 => overflowPx=18.0 ; doc scrollWidth=393/375
+CLAMP(1280) rails=[95000 , 100000] pills=[$95,000 , $100,000]
+  minPill x=856.7..930.5 y=416.3 | maxPill x=823.5..904.0 y=448.3 | vGap=32.0
+  OFF-CARD? minPillRight=930.5 vs viewport 1280 => overflowPx=0.0 ; doc scrollWidth=1280/1280
+FT set -> [35000 , 85000]
+DUAL set -> [23 , 67]
+/lg/auction -> 200
