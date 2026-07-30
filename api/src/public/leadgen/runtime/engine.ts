@@ -562,14 +562,27 @@ function syncDualRange(wrap: Element, moved: HTMLInputElement): string | null {
   // that emitted the two rails found above, so they are never absent here.
   const span = max - min || 1;
   const pa = Math.round(((a - min) / span) * 100);
-  const fill = wrap.querySelector(".lg-range-fill") as HTMLElement;
-  fill.style.left = pa + "%";
-  fill.style.width = Math.round(((b - min) / span) * 100) - pa + "%";
+  const pb = Math.round(((b - min) / span) * 100);
+  const fs = (wrap.querySelector(".lg-range-fill") as HTMLElement).style;
+  fs.left = pa + "%";
+  fs.width = pb - pa + "%";
+  // R2 P4 FIX-FIRST (F-2): publish the two handle POSITIONS the fill was just
+  // placed from. styles.ts's pill rules read them to slide each readout inward
+  // in proportion to how close its handle is to that end of the track, so a
+  // driven handle can never push its pill off the card (measured: the min pill
+  // ran to x=393 at a 375 viewport). Same already-computed percentages, no new
+  // geometry; unset (server render, both handles at the rails) the CSS
+  // fallbacks 0/100 reproduce the at-rest anchoring byte-for-byte.
+  fs.setProperty("--lg-a", `${pa}`);
+  fs.setProperty("--lg-b", `${pb}`);
   // One pass per side (0 = min/left, 1 = max/right): the rail carries the
-  // clamped value + aria; from_to's labelled number field mirrors it (never the
-  // one being typed into — dual_range has none, hence the undefined test); and
-  // the handle's OWN pill carries its readout, byte-identical to the server's
-  // formatRangeValue (presets.ts).
+  // clamped value + aria; from_to's labelled number field mirrors it — INCLUDING
+  // the one being typed into (R2 P4 FIX-FIRST F-1: skipping it left the box
+  // reading a number that never left the browser while the rail, the pill and
+  // the /lg/auction payload all carried the clamped one — the visitor saw
+  // 90000, the buyer was billed 35000). dual_range has no such field, hence the
+  // undefined test. The handle's OWN pill carries its readout, byte-identical
+  // to the server's formatRangeValue (presets.ts).
   const pill = wrap.querySelectorAll(".lg-range-handle-value");
   const cur = wrap.getAttribute("data-currency") || "";
   [a, b].forEach((v, i) => {
@@ -578,7 +591,7 @@ function syncDualRange(wrap: Element, moved: HTMLInputElement): string | null {
     rl.value = s;
     rl.setAttribute(ARIA_NOW, s);
     const nu = num[i];
-    if (nu !== undefined && nu !== moved) nu.value = s;
+    if (nu !== undefined) nu.value = s;
     (pill[i] as Element).textContent = cur + v.toLocaleString("en-US");
   });
   return `${top ? b : a}`;

@@ -944,13 +944,32 @@ export function funnelChromeCss(
     // ...but a pill CENTRED on an end handle hangs off the card (the min pill
     // over the left edge, the max pill clipped on the right — seen in the P4
     // 375 drive). Anchor the end pills INWARD: the min pill starts at its
-    // handle's left edge, the max pill ends at its handle's right edge, so a
-    // 0%/100% handle keeps its readout fully on-card at both viewports.
-    rule(`${scope} .lg-range-handle-min .lg-range-handle-value`, { left: "0", transform: "none" }),
+    // handle's left edge, the max pill ends at its handle's right edge.
+    //
+    // R2 P4 FIX-FIRST (F-2): that anchor holds the readout on-card only while
+    // the handle IS at its own end. DRIVEN, it fails — the review drove the min
+    // handle to the clamp at 375 and measured the min pill at x=319.1..393.0,
+    // documentElement.scrollWidth=393 vs innerWidth=375 (18px of horizontal
+    // overflow, pill visibly cut). So the inward anchor is now PROPORTIONAL to
+    // the handle's own position: engine.ts (syncDualRange) publishes --lg-a /
+    // --lg-b (the two handle percentages it already computes to place the fill)
+    // and each pill slides inward by that fraction of its OWN width.
+    //   min at   0% -> translateX(  -0%) = the anchored-left rest state
+    //   min at  95% -> translateX( -95%) = the readout hangs left of its handle
+    //   max at 100% -> translateX(   0%) = the anchored-right rest state
+    //   max at   5% -> translateX( +95%) = the readout hangs right of its handle
+    // Both ends therefore keep the whole pill between the handle and the far
+    // side of the track, at EVERY position and at both viewports. Unset (the
+    // server's own render, both handles at the rails) the 0/100 fallbacks give
+    // exactly the at-rest anchoring above — Image13's pinned frame is unchanged.
+    rule(`${scope} .lg-range-handle-min .lg-range-handle-value`, {
+      left: "0",
+      transform: "translateX(calc(var(--lg-a,0) * -1%))",
+    }),
     rule(`${scope} .lg-range-handle-max .lg-range-handle-value`, {
       left: "auto",
       right: "0",
-      transform: "none",
+      transform: "translateX(calc((100 - var(--lg-b,100)) * 1%))",
     }),
     // P4 cleanup (S4b pin-fidelity finding): the INWARD anchor above is what
     // keeps Image13's SEPARATED pins on-card — but engine.ts's clamp rule

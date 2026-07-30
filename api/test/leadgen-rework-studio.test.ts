@@ -339,6 +339,65 @@ describe("§6.8 slider type picker", () => {
     const rightCapX = Number(captions[1]![1]);
     expect(rightCapX - leftCapX, "captions flank opposite edges, like the render's min/max").toBeGreaterThan(40);
   });
+
+  // P4 FIX-FIRST (F-5) — the SAME picker/render drift class, on from_to. The
+  // §6.8 render (presets.ts renderDualTrackRange, Image13) is ONE full-width
+  // track carrying TWO handles, a value pill on each handle, min/max captions
+  // under the track, and the two labelled From/To number inputs BELOW all of
+  // it; the thumbnail depicted [box]—[short stub track, NO handles]—[box],
+  // i.e. the inputs FLANKING a stub instead of sitting below a real range.
+  function thumbSvgOf(type: string): string {
+    const btnStart = INSPECTOR.indexOf(`data-set-slider-type="${type}"`);
+    expect(btnStart, `${type} slider-type button present`).toBeGreaterThan(-1);
+    const thumbStart = INSPECTOR.indexOf('class="studio-slider-type-thumb"', btnStart);
+    const svgStart = INSPECTOR.indexOf("<svg", thumbStart);
+    return INSPECTOR.slice(svgStart, INSPECTOR.indexOf("</svg>", svgStart) + "</svg>".length);
+  }
+
+  it("the from_to thumbnail depicts ONE full-width track with TWO handles + pills and the From/To inputs BELOW it (the render's structural signature)", () => {
+    const svg = thumbSvgOf("from_to");
+
+    // ONE real track, spanning the thumbnail's full width — never a stub
+    // wedged between the two boxes (x1 was 26, x2 was 44 of 70 before).
+    const trackLines = [...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="[\d.]+" stroke="#E1E6EE"/g)];
+    expect(trackLines.length, "exactly one grey track line").toBe(1);
+    const trackX1 = Number(trackLines[0]![1]);
+    const trackX2 = Number(trackLines[0]![3]);
+    const trackY = Number(trackLines[0]![2]);
+    expect(trackX1, "the track starts at the left edge").toBeLessThanOrEqual(4);
+    expect(trackX2, "the track runs to the right edge").toBeGreaterThanOrEqual(66);
+
+    // TWO handles ON that track, with the dark fill spanning BETWEEN them.
+    const handles = [...svg.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="[\d.]+" fill="#fff" stroke="#1B3A5C"/g)];
+    expect(handles.length, "exactly two handles (from + to)").toBe(2);
+    for (const h of handles) expect(Number(h[2]), "each handle rides the track's row").toBeCloseTo(trackY, 1);
+    const hx = handles.map((h) => Number(h[1]));
+    expect(hx[1], "the two handles are apart, the To handle right of the From handle").toBeGreaterThan(hx[0]! + 10);
+    const fill = svg.match(/<line x1="([\d.]+)" y1="[\d.]+" x2="([\d.]+)" y2="[\d.]+" stroke="#1B3A5C" stroke-width="4"/);
+    expect(fill, "a dark fill line on the track").not.toBeNull();
+    expect(Number(fill![1]), "the fill starts at the From handle").toBeCloseTo(hx[0]!, 1);
+    expect(Number(fill![2]), "the fill ends at the To handle").toBeCloseTo(hx[1]!, 1);
+
+    // A value pill ABOVE each handle (Image13's readouts — absent before).
+    const pills = [...svg.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="[\d.]+" fill="#1B3A5C"\/>/g)];
+    expect(pills.length, "exactly two value pills").toBe(2);
+    for (const [i, p] of pills.entries()) {
+      expect(Number(p[2]) + Number(p[4]), "the pill sits ABOVE the track").toBeLessThanOrEqual(trackY);
+      expect(Number(p[1]) + Number(p[3]) / 2, "the pill is centred on its own handle").toBeCloseTo(hx[i]!, 1);
+    }
+
+    // The two From/To INPUT boxes sit BELOW the track, side by side — never
+    // flanking it on the track's own row (the pre-fix anatomy).
+    const boxes = [...svg.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="[\d.]+" fill="none"/g)];
+    expect(boxes.length, "exactly two input boxes (From + To)").toBe(2);
+    for (const b of boxes) expect(Number(b[2]), "the input box sits BELOW the track").toBeGreaterThan(trackY);
+    expect(Number(boxes[1]![1]), "the To box sits right of the From box").toBeGreaterThan(Number(boxes[0]![1]));
+
+    // Two caption marks under the track, like the render's min/max line.
+    const captions = [...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="[\d.]+" y2="[\d.]+" stroke="#9AA9BD"/g)];
+    expect(captions.length, "two caption marks (min + max)").toBe(2);
+    expect(Number(captions[0]![2]), "captions sit below the track").toBeGreaterThan(trackY);
+  });
 });
 
 // =============================================================================

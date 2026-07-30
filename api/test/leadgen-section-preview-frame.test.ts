@@ -860,8 +860,15 @@ const R2_P4_RANGE_NEW_RULES = [
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-min{left:0}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-max{left:100%}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-value{position:absolute;bottom:calc(100% + ${defaultFunnelDesign.spacing.sm});left:50%;transform:translateX(-50%);white-space:nowrap;font-size:0.8125rem;font-weight:700;line-height:1;padding:5px 9px;border-radius:${defaultFunnelDesign.radius.sm};background:${R2_P4_RQ.filledTrackColor};color:${defaultFunnelDesign.color.card}}`,
-  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-min .lg-range-handle-value{left:0;transform:none}`,
-  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-max .lg-range-handle-value{left:auto;right:0;transform:none}`,
+  // P4 FIX-FIRST (F-2): these two NET-NEW rules' bodies changed from
+  // `transform:none` to a proportional inward slide driven by engine.ts's
+  // --lg-a / --lg-b, because the static anchor pushed the min pill off-card
+  // once the handle was DRIVEN (measured at 375: pill x=319.1..393.0,
+  // scrollWidth 393 vs innerWidth 375). Still net-new-since-the-frozen-capture
+  // rules, so they stay in the wholesale-strip list — only their literal text
+  // is re-captured here. Nothing else in the sheet moved.
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-min .lg-range-handle-value{left:0;transform:translateX(calc(var(--lg-a,0) * -1%))}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-max .lg-range-handle-value{left:auto;right:0;transform:translateX(calc((100 - var(--lg-b,100)) * 1%))}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-input::-webkit-slider-runnable-track{background:transparent}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-input::-moz-range-track{background:transparent}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-input-dual{pointer-events:none}`,

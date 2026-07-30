@@ -19,11 +19,13 @@ import { mkdirSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { PW_PORT } from "./utils/base-url";
 
-// The admin plane is host-gated to ADMIN_HOST (wrangler.toml dev value:
-// "localhost"), so the authoring context must speak that host — 127.0.0.1
-// 404s the ADMIN_HOST safety net (P4 cleanup fix; S4b's sibling spec already
-// uses this same host).
-const ORIGIN = `http://localhost:${PW_PORT}`;
+// The admin plane is host-gated to ADMIN_HOST, and under the DOCUMENTED runner
+// that host is 127.0.0.1 — playwright.config.ts:281 launches wrangler with
+// `--var ADMIN_HOST:127.0.0.1`, and a CLI --var OVERRIDES wrangler.toml's
+// `ADMIN_HOST = "localhost"`. So `localhost` 404s here whenever playwright
+// boots its own webServer (it only ever worked against a hand-started server).
+// DO NOT flip this back to localhost.
+const ORIGIN = `http://127.0.0.1:${PW_PORT}`;
 const SITE_HOST = "r2fix.e2e.test";
 const FUNNEL_SLUG = "r2fix";
 const SHOT_DIR = "../docs/leadgen/r2/evidence/p4/s4a";
