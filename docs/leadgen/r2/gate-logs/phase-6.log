@@ -9362,3 +9362,34 @@ differs, so the measured tree IS the shipped tree:
 
 api/ delta (expect empty):
   [0 api files changed]
+
+== CORRECTION (scoped re-review MINOR-1 + MINOR-2) ==
+
+MINOR-1 — step [8] did NOT run against the stamped tree, and this header
+previously implied it did. Timeline, reconstructed by the reviewer and confirmed:
+  11:57:05Z  header written, HEAD=4c8f591, porcelain clean
+  11:57:10Z  vitest starts (149.79s)
+  11:59:07Z  commit 34898bb lands — the 8 new register rows (conductor edited
+             the register WHILE the ritual was still running)
+  11:59:55Z  RITUAL COMPLETE
+So [8] printed 'rows checked: 132' (the HEAD value); the stamped sha 4c8f591
+carries 124. Stages [1]-[6] measured the stamped tree; [8] measured the tip.
+This is the softer form of exactly the ambiguity ADJ-N43 opens, reproduced by me
+in the very log that claims not to reproduce it. Substance is unaffected --
+check_register at HEAD is 132 rows / 0 violations, re-run independently by the
+reviewer -- but the record now says which tree each stage saw.
+
+MINOR-2 — section [7] was prose with no raw output, which defeats the purpose
+of a gate log. The measured per-file battery data it summarised:
+
+  discovered (playwright --list): 825 tests in 94 files
+  passed 792 · failed 3 · skipped 30   (792+3+30 = 825, sums)
+  files clean 92 of 94
+  the 3 failures, both files ruled owner-visible under ADJ-N36:
+    leadgen-visual                8/10 — dimension sentinel, 1940->1899 / 2618->2577px
+                                        (the ruled P4 slider thumb-on-rail fix)
+    leadgen-v31-gate1c-baselines  1 fail + 6 never-executed — 3.3948% diff from the
+                                        Phone tile (D6) + 'Question grid' rename
+  per-file table and residual classification: BROWSER-BATTERY.md sections 1-3
+  harness caveat: EADDRNOTAVAIL (ephemeral port exhaustion) manufactures failures
+  on unpaced runs — one file measured 0/8 in-cycle and 6/8 isolated. Isolated wins.
