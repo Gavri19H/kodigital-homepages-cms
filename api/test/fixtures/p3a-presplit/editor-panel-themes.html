@@ -260,6 +260,11 @@
   // from the two byte-identical CSS-stack tables (see this module's
   // recordFontToInlineId above) — the 8 self-hosted families pair exactly.
   var PRESET_FONT_BRIDGE = {"Poppins":"poppins","Space Grotesk":"space_grotesk","Fraunces":"fraunces","Playfair Display":"playfair","Manrope":"manrope","DM Sans":"dm_sans","Work Sans":"work_sans","Lexend":"lexend"};
+  // R2 F-1 follow-up: the record's controls.corners -> inline scales.radius,
+  // SERIALIZED from the same compile-checked table resolveTokens reads on the
+  // preset path (theme.ts THEME_RECORD_CORNERS_TO_RADIUS_SCALE), so the two
+  // corner ladders can never drift apart.
+  var PRESET_CORNERS_BRIDGE = {"sharp":"sharp","rounded":"soft","pill":"round"};
   function hasAnyKey(o) {
     var k;
     for (k in o) { if (Object.prototype.hasOwnProperty.call(o, k)) { return true; } }
@@ -269,27 +274,15 @@
     return (typeof name === 'string' && Object.prototype.hasOwnProperty.call(PRESET_FONT_BRIDGE, name))
       ? PRESET_FONT_BRIDGE[name] : null;
   }
-  // RESOLVE an applied preset into inline values.
-  //
-  // R2 P2 FIX-FIRST-2 (MINOR residue): typography.headline_font/body_font DO
-  // resolve now — every family whose record stack is byte-identical to an
-  // inline THEME_FONT_IDS stack maps to that id (PRESET_FONT_BRIDGE above), so
-  // a preset's fonts survive the operator's first control edit.
-  //
-  // Values with genuinely NO inline counterpart (kept resolving from the base
-  // design, exactly as before this resolve step existed — mapping them would
-  // INVENT a value the preset never expressed):
-  //   • typography.headline_font/body_font when the family is "Newsreader"/"Inter"/"Roboto Mono" —
-  //     record-only families; no THEME_FONT_IDS id produces those CSS stacks.
-  //   • typography.base_px — an absolute pixel size; the inline axis
-  //     (typography.size s|m|l) is a x0.9/x1/x1.1 ramp over the BASE design's
-  //     tokens, so no px value maps onto it.
-  //   • controls.field_height/button_size/corners — the inline theme_json
-  //     vocabulary HAS no controls axis at all: theme.ts's ThemeJson declares
-  //     none, validateTheme's THEME_TOP_KEYS rejects a 'controls' key outright
-  //     (a 400), and EffectiveTokens.theme_controls is populated ONLY when a
-  //     RECORD is present (resolveTokens: 'if (record !== null)'). These three
-  //     cannot be carried by ANY inline theme_json — not a mapping choice.
+  // RESOLVE an applied preset into inline values. The operator's first rail
+  // edit FORKS theme_json from a {theme_id} pointer into inline values, and
+  // the record then drops out of resolution entirely — so anything NOT carried
+  // across this fork is silently lost. Carried: palette, button_style,
+  // display_size, the mappable fonts, and (R2 F-1 follow-up) controls.corners
+  // as its exact inline counterpart scales.radius. Deliberately NOT carried,
+  // because no inline axis expresses them: the "Newsreader"/"Inter"/"Roboto Mono" font families,
+  // typography.base_px, controls.field_height and controls.button_size.
+  // Full rationale in this module's TypeScript comment above.
   function inlineThemeFromPreset(rec) {
     var out = {};
     var palette = {};
@@ -324,6 +317,21 @@
       var bodyId = presetFontId(typ.body_font);
       if (bodyId !== null) { tp.body = bodyId; }
       if (hasAnyKey(tp)) { out.typography = tp; }
+    }
+    // R2 F-1 FOLLOW-UP — carry the preset's Corners across the fork, as the
+    // inline word for the same shape (PRESET_CORNERS_BRIDGE above). A record
+    // ALWAYS carries a corners value (the manager's own default is 'rounded'),
+    // and 'rounded' -> 'soft' is the identity resolveTokens already defaulted
+    // to, so pinning it explicitly is byte-identical in paint while making the
+    // operator's actual choice durable. An absent or off-table value writes
+    // NOTHING (no scales key at all) — byte-identical to before this carry.
+    var ctrls = (rec && rec.controls) || null;
+    if (ctrls) {
+      var sc = {};
+      if (typeof ctrls.corners === 'string' && Object.prototype.hasOwnProperty.call(PRESET_CORNERS_BRIDGE, ctrls.corners)) {
+        sc.radius = PRESET_CORNERS_BRIDGE[ctrls.corners];
+      }
+      if (hasAnyKey(sc)) { out.scales = sc; }
     }
     return out;
   }
