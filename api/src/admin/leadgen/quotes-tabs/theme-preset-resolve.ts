@@ -26,12 +26,13 @@
 // family.
 //
 // Declares, in the including IIFE's scope: PRESET_ROLE_BRIDGE,
-// PRESET_EXTRA_ROLE_BRIDGE, PRESET_FONT_BRIDGE, hasAnyKey(o),
-// inlineThemeFromPreset(rec), PRESET_LOAD_FAILED_MESSAGE,
+// PRESET_EXTRA_ROLE_BRIDGE, PRESET_FONT_BRIDGE, PRESET_CORNERS_BRIDGE,
+// hasAnyKey(o), inlineThemeFromPreset(rec), PRESET_LOAD_FAILED_MESSAGE,
 // presetInlineOrAbort(themeId).
 import {
   THEME_FONT_IDS,
   THEME_FONT_STACKS,
+  THEME_RECORD_CORNERS_TO_RADIUS_SCALE,
   THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE,
   THEME_RECORD_FONT_NAMES,
   THEME_RECORD_FONT_STACKS,
@@ -69,6 +70,49 @@ function unmappableFontNames(): readonly string[] {
   return THEME_RECORD_FONT_NAMES.filter((n) => bridge[n] === undefined);
 }
 
+// ---------------------------------------------------------------------------
+// R2 F-1 FOLLOW-UP — WHY controls.corners IS CARRIED ACROSS THE FORK.
+//
+// This rationale lives HERE, in TypeScript, and not inside the emitted snippet
+// below: the snippet is shipped verbatim into two admin pages on every load, so
+// prose belongs on the compile side, not the wire.
+//
+// THE FORK. Inline theme_json and a {theme_id} preset are MUTUALLY EXCLUSIVE by
+// construction: validateTheme rejects the combination outright ("theme_id can't
+// be combined with other theme settings", a 400), and resolveTokens empties
+// `theme` for a reference (isThemeIdRef) while loading `record` ONLY for a pure
+// reference. So the operator's first Themes-rail edit converts theme_json from
+// a pointer into inline values, and the record leaves resolution for good.
+// Every preset value this resolver does not carry is SILENTLY LOST at that
+// instant — the exact class of defect the owner has rejected repeatedly.
+//
+// THE MEASURED LOSS (live visitor page, both arms, driven through the real
+// Themes manager + the real rail): apply a PILL preset -> painted card/answer/
+// continue 20/14/14; then edit ONE unrelated rail control (a colour) -> 16/10/
+// 10. Sharp: 10/6/6 -> 16/10/10. The stored theme_json went from
+// {"theme_id":"thm_..."} to {"palette":{...}} with no corner value anywhere.
+// The operator changed a colour and lost their corner shape, with nothing said.
+//
+// WHY IT IS FIXABLE NOW. Until F-1 the honest line in this module was that
+// controls.corners "cannot be carried by ANY inline theme_json — not a mapping
+// choice", because the inline vocabulary had no controls axis. F-1
+// (THEME_RECORD_CORNERS_TO_RADIUS_SCALE in designs/theme.ts) gave the record's
+// corner words an exact counterpart in the §9.3 radius SCALE —
+// sharp/rounded/pill -> sharp/soft/round — so corners now has precisely the
+// "byte-identical counterpart" property the font bridge above relies on. That
+// sentence is therefore no longer true of corners, and has been corrected.
+//
+// WHY CARRY AT THE FORK, rather than keep the record alive beside the inline
+// overrides: the mutual exclusivity above is an INVARIANT of both the validator
+// and the resolver, so blending them would mean inventing a record-vs-inline
+// precedence — a SECOND corner mechanism that would drift from applyRadiusScale
+// the first time either ladder moved, and would resurrect the very trap F-1
+// closed. Translating the record's word into the inline word it already equals
+// keeps ONE derivation (applyRadiusScale) for both paths and adds no new
+// resolution rule: after the fork the funnel is a plain inline theme like any
+// other. field_height/button_size stay uncarried for the original reason —
+// unlike corners they have no equivalent inline axis to be translated INTO.
+// ---------------------------------------------------------------------------
 export function themePresetResolveSnippet(): string {
   const fontBridge = recordFontToInlineId();
   const unmappable = unmappableFontNames()
@@ -87,6 +131,11 @@ export function themePresetResolveSnippet(): string {
   // from the two byte-identical CSS-stack tables (see this module's
   // recordFontToInlineId above) — the 8 self-hosted families pair exactly.
   var PRESET_FONT_BRIDGE = ${JSON.stringify(fontBridge)};
+  // R2 F-1 follow-up: the record's controls.corners -> inline scales.radius,
+  // SERIALIZED from the same compile-checked table resolveTokens reads on the
+  // preset path (theme.ts THEME_RECORD_CORNERS_TO_RADIUS_SCALE), so the two
+  // corner ladders can never drift apart.
+  var PRESET_CORNERS_BRIDGE = ${JSON.stringify(THEME_RECORD_CORNERS_TO_RADIUS_SCALE)};
   function hasAnyKey(o) {
     var k;
     for (k in o) { if (Object.prototype.hasOwnProperty.call(o, k)) { return true; } }
@@ -96,27 +145,15 @@ export function themePresetResolveSnippet(): string {
     return (typeof name === 'string' && Object.prototype.hasOwnProperty.call(PRESET_FONT_BRIDGE, name))
       ? PRESET_FONT_BRIDGE[name] : null;
   }
-  // RESOLVE an applied preset into inline values.
-  //
-  // R2 P2 FIX-FIRST-2 (MINOR residue): typography.headline_font/body_font DO
-  // resolve now — every family whose record stack is byte-identical to an
-  // inline THEME_FONT_IDS stack maps to that id (PRESET_FONT_BRIDGE above), so
-  // a preset's fonts survive the operator's first control edit.
-  //
-  // Values with genuinely NO inline counterpart (kept resolving from the base
-  // design, exactly as before this resolve step existed — mapping them would
-  // INVENT a value the preset never expressed):
-  //   • typography.headline_font/body_font when the family is ${unmappable} —
-  //     record-only families; no THEME_FONT_IDS id produces those CSS stacks.
-  //   • typography.base_px — an absolute pixel size; the inline axis
-  //     (typography.size s|m|l) is a x0.9/x1/x1.1 ramp over the BASE design's
-  //     tokens, so no px value maps onto it.
-  //   • controls.field_height/button_size/corners — the inline theme_json
-  //     vocabulary HAS no controls axis at all: theme.ts's ThemeJson declares
-  //     none, validateTheme's THEME_TOP_KEYS rejects a 'controls' key outright
-  //     (a 400), and EffectiveTokens.theme_controls is populated ONLY when a
-  //     RECORD is present (resolveTokens: 'if (record !== null)'). These three
-  //     cannot be carried by ANY inline theme_json — not a mapping choice.
+  // RESOLVE an applied preset into inline values. The operator's first rail
+  // edit FORKS theme_json from a {theme_id} pointer into inline values, and
+  // the record then drops out of resolution entirely — so anything NOT carried
+  // across this fork is silently lost. Carried: palette, button_style,
+  // display_size, the mappable fonts, and (R2 F-1 follow-up) controls.corners
+  // as its exact inline counterpart scales.radius. Deliberately NOT carried,
+  // because no inline axis expresses them: the ${unmappable} font families,
+  // typography.base_px, controls.field_height and controls.button_size.
+  // Full rationale in this module's TypeScript comment above.
   function inlineThemeFromPreset(rec) {
     var out = {};
     var palette = {};
@@ -151,6 +188,21 @@ export function themePresetResolveSnippet(): string {
       var bodyId = presetFontId(typ.body_font);
       if (bodyId !== null) { tp.body = bodyId; }
       if (hasAnyKey(tp)) { out.typography = tp; }
+    }
+    // R2 F-1 FOLLOW-UP — carry the preset's Corners across the fork, as the
+    // inline word for the same shape (PRESET_CORNERS_BRIDGE above). A record
+    // ALWAYS carries a corners value (the manager's own default is 'rounded'),
+    // and 'rounded' -> 'soft' is the identity resolveTokens already defaulted
+    // to, so pinning it explicitly is byte-identical in paint while making the
+    // operator's actual choice durable. An absent or off-table value writes
+    // NOTHING (no scales key at all) — byte-identical to before this carry.
+    var ctrls = (rec && rec.controls) || null;
+    if (ctrls) {
+      var sc = {};
+      if (typeof ctrls.corners === 'string' && Object.prototype.hasOwnProperty.call(PRESET_CORNERS_BRIDGE, ctrls.corners)) {
+        sc.radius = PRESET_CORNERS_BRIDGE[ctrls.corners];
+      }
+      if (hasAnyKey(sc)) { out.scales = sc; }
     }
     return out;
   }
