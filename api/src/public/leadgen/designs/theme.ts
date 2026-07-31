@@ -594,6 +594,44 @@ export type ThemeRecordButtonSize = (typeof THEME_RECORD_BUTTON_SIZES)[number];
 export const THEME_RECORD_CORNERS = ["sharp", "rounded", "pill"] as const;
 export type ThemeRecordCorners = (typeof THEME_RECORD_CORNERS)[number];
 
+// R2 F-1 — the record path's corner vocabulary bridged onto the §9.3 radius
+// SCALE, exactly the way THEME_RECORD_ROLE_TO_TOKEN_ROLE bridges the record's
+// colour roles onto FUNNEL_TOKEN_ROLES.
+//
+// DEFECT this closes (MEASURED on the live visitor page, three arms of ONE
+// preset flipped through the real Themes-manager control: card 16px / answer
+// 10px / continue 10px for sharp AND rounded AND pill, and identical
+// --lg-radius-* on all three): a funnel whose theme_json is a {theme_id}
+// REFERENCE gets `theme = {}` from isThemeIdRef in resolveTokens, so
+// `theme.scales?.radius` is ALWAYS undefined on the preset path and radiusScale
+// pinned to the "soft" identity — applyRadiusScale returned early on its zero
+// shift and the P6 painted-corner shift (which genuinely works for inline
+// theming) never ran. `controls.corners` reached EffectiveTokens.theme_controls
+// and no consumer read it: the operator's very first act in the Themes manager
+// (build a preset, pick Pill, look at the funnel) painted square corners.
+//
+// WHY A BRIDGE AND NOT A SECOND MECHANISM: the two vocabularies are the SAME
+// 3-step corner language spelled in each path's own words, so the record's word
+// is translated ONCE, here, into the value `radiusScale` already carries — one
+// derivation (applyRadiusScale), both paths. A parallel "record corners"
+// applier would have to re-derive the nearest-step component shift and would
+// drift from the inline path the first time either side changed.
+//
+// The mapping is the order-preserving pairing of the two 3-value ladders
+// (tighter / identity / looser). `rounded` is the record DEFAULT that every
+// theme the shipped UI creates carries (ui-theme-manager.ts wireNewTheme) and
+// it maps to `soft`, the SAME identity resolveTokens defaulted to before this
+// bridge existed — so every pre-F-1 preset, and every funnel with no theme at
+// all, renders byte-identically (applyRadiusScale still returns early on the
+// zero shift). Only an operator who deliberately picks Sharp or Pill moves a
+// pixel. `satisfies` keeps it exhaustive: a new corners value or a renamed
+// radius scale is a compile error here, never a silent no-op.
+export const THEME_RECORD_CORNERS_TO_RADIUS_SCALE = {
+  sharp: "sharp",
+  rounded: "soft",
+  pill: "round",
+} as const satisfies Record<ThemeRecordCorners, ThemeRadiusScale>;
+
 // §10.4 "Buttons & inputs — the shared size language" — the record fields the
 // §7 field-size resolver (a PARALLEL slice, content-schema/registry/presets)
 // reads as the funnel-theme-default layer of its own size resolution; this
@@ -904,7 +942,16 @@ export function resolveTokens(
 
   // --- scales (§9.3) --------------------------------------------------------
   const spacingScale: ThemeSpacingScale = theme.scales?.spacing ?? "regular";
-  const radiusScale: ThemeRadiusScale = theme.scales?.radius ?? "soft";
+  // R2 F-1: a resolved theme RECORD's `controls.corners` IS this path's radius
+  // scale (THEME_RECORD_CORNERS_TO_RADIUS_SCALE above), so the preset path and
+  // the inline path converge on the ONE derivation below (applyRadiusScale)
+  // instead of a second, drift-prone corner mechanism. The two inputs are
+  // mutually exclusive by construction — `theme` is {} whenever a record is
+  // present (isThemeIdRef) and `record` is null on the inline path — so this
+  // ?? chain never blends them; the inline term stays FIRST anyway, preserving
+  // the existing precedence for any caller that supplies both. Absent record /
+  // `rounded` (the UI's default) resolves to "soft", the pre-F-1 value.
+  const radiusScale: ThemeRadiusScale = theme.scales?.radius ?? safeRecordCorners(record) ?? "soft";
   const shadowScale: ThemeShadowScale = theme.scales?.shadow ?? "mid";
   applySpacingScale(design, spacingScale);
   applyRadiusScale(design, radiusScale);
@@ -1116,6 +1163,22 @@ function safeRecordDisplaySize(value: unknown): ThemeDisplaySizeScale {
   return typeof value === "string" && (THEME_DISPLAY_SIZE_SCALES as readonly string[]).includes(value)
     ? (value as ThemeDisplaySizeScale)
     : "m";
+}
+
+// R2 F-1 — a resolved ThemeRecord's `controls.corners` as the §9.3 radius
+// scale it names, or undefined when there is no record / no recognisable value
+// (so resolveTokens's ?? chain falls through to the "soft" identity and the
+// design stays byte-identical). Defense in depth mirrors safeRecordDisplaySize:
+// controls.corners IS validated at write time (themes-handlers.ts
+// validateThemeBody) and re-checked on the KV read (theme-store.ts
+// isThemeRecordShape), but a value off the closed table must never reach
+// THEME_RADIUS_SHIFTS — an undefined shift would make applyRadiusScale's
+// `shift === 0` early-out miss and clamp every radius step to base.sm.
+function safeRecordCorners(record: ThemeRecord | null): ThemeRadiusScale | undefined {
+  const corners: unknown = record?.controls?.corners;
+  return typeof corners === "string" && (THEME_RECORD_CORNERS as readonly string[]).includes(corners)
+    ? THEME_RECORD_CORNERS_TO_RADIUS_SCALE[corners as ThemeRecordCorners]
+    : undefined;
 }
 
 // P6 THEME v2 (follow-on ruling) — defense-in-depth validation for a

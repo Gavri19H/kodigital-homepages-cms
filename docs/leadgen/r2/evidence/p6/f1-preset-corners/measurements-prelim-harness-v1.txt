@@ -1,0 +1,81 @@
+
+===== ARM=before run 2026-07-31T00:24:37.893Z =====
+
+===== ARM=before run 2026-07-31T00:24:39.181Z =====
+[before] B inline=sharp PAINTED card=10px answer=6px continue=6px progressTrack=9999px progressFill=9999px vars={"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+[before] b-inline-sharp @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] B inline=round PAINTED card=20px answer=14px continue=14px progressTrack=9999px progressFill=9999px vars={"sm":"10px","md":"14px","lg":"20px","xl":"20px","full":"9999px"}
+[before] b-inline-round @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] B SUMMARY inline sharp=10px/6px/6px round=20px/14px/14px
+
+===== ARM=probe run 2026-07-31T00:25:05.681Z =====
+
+===== ARM=before run 2026-07-31T00:25:29.303Z =====
+[before] A preset created id=thm_new-theme-3
+
+===== ARM=before run 2026-07-31T00:25:30.451Z =====
+[before] B inline=sharp PAINTED card=10px answer=6px continue=6px progressTrack=9999px progressFill=9999px vars={"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+[before] b-inline-sharp @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] B inline=round PAINTED card=20px answer=14px continue=14px progressTrack=9999px progressFill=9999px vars={"sm":"10px","md":"14px","lg":"20px","xl":"20px","full":"9999px"}
+[before] b-inline-round @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] B SUMMARY inline sharp=10px/6px/6px round=20px/14px/14px
+[before] C no-theme chrome <style> bytes=31906 sha256=ad1463b1cf9bc39ee0e73cc80efe52b0eb5bdbe199ba7cdd3e85d1b5532b666c
+[before] C no-theme PAINTED card=16px answer=10px continue=10px progressTrack=ABSENT progressFill=ABSENT vars={"sm":"6px","md":"10px","lg":"14px","xl":"20px","full":"9999px"}
+[before] c-no-theme @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] C SUMMARY no-theme=16px/10px/10px
+
+===== ARM=before run 2026-07-31T00:25:57.362Z =====
+[before] A preset created id=thm_new-theme-4
+[before] A PATCH corners=sharp HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"sharp"}
+[before] A apply-preset PUT HTTP 200
+[before] A stored funnel theme_json = {"theme_id":"thm_new-theme-4"}
+[before] A corners=sharp PAINTED card=16px answer=10px continue=10px progressTrack=9999px progressFill=9999px vars={"sm":"6px","md":"10px","lg":"14px","xl":"20px","full":"9999px"}
+[before] a-preset-sharp @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] A PATCH corners=rounded HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"rounded"}
+[before] A corners=rounded PAINTED card=16px answer=10px continue=10px progressTrack=9999px progressFill=9999px vars={"sm":"6px","md":"10px","lg":"14px","xl":"20px","full":"9999px"}
+[before] a-preset-rounded @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] A PATCH corners=pill HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"pill"}
+[before] A corners=pill PAINTED card=16px answer=10px continue=10px progressTrack=9999px progressFill=9999px vars={"sm":"6px","md":"10px","lg":"14px","xl":"20px","full":"9999px"}
+[before] a-preset-pill @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] A SUMMARY sharp=16px/10px/10px
+[before] A SUMMARY rounded=16px/10px/10px
+[before] A SUMMARY pill=16px/10px/10px
+
+===== ARM=before run 2026-07-31T00:26:08.466Z =====
+[before] B inline=sharp PAINTED card=10px answer=6px continue=6px progressTrack=9999px progressFill=9999px vars={"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+[before] b-inline-sharp @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] B inline=round PAINTED card=20px answer=14px continue=14px progressTrack=9999px progressFill=9999px vars={"sm":"10px","md":"14px","lg":"20px","xl":"20px","full":"9999px"}
+[before] b-inline-round @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] B SUMMARY inline sharp=10px/6px/6px round=20px/14px/14px
+[before] C no-theme chrome <style> bytes=31906 sha256=ad1463b1cf9bc39ee0e73cc80efe52b0eb5bdbe199ba7cdd3e85d1b5532b666c
+[before] C no-theme PAINTED card=16px answer=10px continue=10px progressTrack=ABSENT progressFill=ABSENT vars={"sm":"6px","md":"10px","lg":"14px","xl":"20px","full":"9999px"}
+[before] c-no-theme @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] C SUMMARY no-theme=16px/10px/10px
+
+===== ARM=after run 2026-07-31T00:27:53.571Z =====
+[after] A preset created id=thm_new-theme-5
+[after] A PATCH corners=sharp HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"sharp"}
+[after] A apply-preset PUT HTTP 200
+[after] A stored funnel theme_json = {"theme_id":"thm_new-theme-5"}
+[after] A corners=sharp PAINTED card=10px answer=6px continue=6px progressTrack=9999px progressFill=9999px vars={"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+[after] a-preset-sharp @375 scrollWidth=375 innerWidth=375 overflow=no
+[after] A PATCH corners=rounded HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"rounded"}
+[after] A corners=rounded PAINTED card=10px answer=6px continue=6px progressTrack=9999px progressFill=9999px vars={"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+[after] a-preset-rounded @375 scrollWidth=375 innerWidth=375 overflow=no
+[after] A PATCH corners=pill HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"pill"}
+[after] A corners=pill PAINTED card=10px answer=6px continue=6px progressTrack=9999px progressFill=9999px vars={"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+[after] a-preset-pill @375 scrollWidth=375 innerWidth=375 overflow=no
+[after] A SUMMARY sharp=10px/6px/6px
+[after] A SUMMARY rounded=10px/6px/6px
+[after] A SUMMARY pill=10px/6px/6px
+
+===== ARM=after run 2026-07-31T00:28:04.377Z =====
+[after] B inline=sharp PAINTED card=10px answer=6px continue=6px progressTrack=9999px progressFill=9999px vars={"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+[after] b-inline-sharp @375 scrollWidth=375 innerWidth=375 overflow=no
+[after] B inline=round PAINTED card=20px answer=14px continue=14px progressTrack=9999px progressFill=9999px vars={"sm":"10px","md":"14px","lg":"20px","xl":"20px","full":"9999px"}
+[after] b-inline-round @375 scrollWidth=375 innerWidth=375 overflow=no
+[after] B SUMMARY inline sharp=10px/6px/6px round=20px/14px/14px
+[after] C no-theme chrome <style> bytes=31906 sha256=ad1463b1cf9bc39ee0e73cc80efe52b0eb5bdbe199ba7cdd3e85d1b5532b666c
+[after] C no-theme PAINTED card=16px answer=10px continue=10px progressTrack=ABSENT progressFill=ABSENT vars={"sm":"6px","md":"10px","lg":"14px","xl":"20px","full":"9999px"}
+[after] c-no-theme @375 scrollWidth=375 innerWidth=375 overflow=no
+[after] C SUMMARY no-theme=16px/10px/10px
