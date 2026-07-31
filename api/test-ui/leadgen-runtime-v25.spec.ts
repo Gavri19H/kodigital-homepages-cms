@@ -255,11 +255,27 @@ async function answerAndContinue(page: Page, index: number, choiceValue: string)
   await expect(current).toBeHidden();
 }
 
-// The row-①/③/④ traversal answers (section order: YesNo → icon cards; slide 3
-// is never advanced past — that would trigger the auction, §3.5.6).
+// R2 P6 terminal clearance (ruling R-C) — the ONE permitted shift.
+// §4.3-1/§4.3-15 make a shared FIRST page mandatory, and seedPatternQuote
+// satisfies it with a ContinueButton-only page (leadgen-e-seed.ts
+// seedTrivialSharedPage). Every funnel these rows drive therefore serves that
+// shared page as slide 0, and the authored sections keep their own relative
+// order one index later. This helper advances past it — a real engine step on
+// the real control, never a skipped assertion.
+async function passSharedFirstPage(page: Page): Promise<void> {
+  const shared = sectionAt(page, 0);
+  await expect(shared, "the mandatory §4.3-1 shared first page is slide 0").toBeVisible();
+  await shared.locator("[data-lg-continue]").click();
+  await expect(sectionAt(page, 1)).toBeVisible();
+  await expect(shared).toBeHidden();
+}
+
+// The row-①/③/④ traversal answers (authored section order: YesNo → icon cards;
+// the LAST slide is never advanced past — that would trigger the auction,
+// §3.5.6). Indices are 1-based-into-the-DOM because of the shared page above.
 const TRAVERSAL: ReadonlyArray<{ index: number; choice: string }> = [
-  { index: 0, choice: "true" },
-  { index: 1, choice: "self" },
+  { index: 1, choice: "true" },
+  { index: 2, choice: "self" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -386,11 +402,15 @@ test.describe("LeadGen v2.5.1 §15.3 Runtime rows — live /lg fixtures (E3)", (
     test.setTimeout(120_000);
     await gotoReady(page, siteA.host, SLUG_A);
 
+    // R2 P6 (ruling R-C): step off the mandatory shared first page, then
+    // capture the THREE authored Sections exactly as this row always did.
+    await passSharedFirstPage(page);
+
     // Slide 1 capture, then drive the REAL engine to slides 2 and 3.
     const captures: FrameCapture[] = [];
     const units: Array<{ sectionId: string; html: string }> = [];
     const progress = page.locator("[data-lg-progress]");
-    await expect(progress).toHaveAttribute("aria-valuenow", "1");
+    await expect(progress).toHaveAttribute("aria-valuenow", "2");
     captures.push(await captureFrameRegions(page));
     units.push(await captureVisibleUnit(page));
     for (const step of TRAVERSAL) {
@@ -484,18 +504,26 @@ test.describe("LeadGen v2.5.1 §15.3 Runtime rows — live /lg fixtures (E3)", (
       return Number(value);
     };
 
-    await expect(progress).toHaveAttribute("aria-valuemax", "3");
+    // R2 P6 (ruling R-C): the mandatory §4.3-1 shared first page is a real
+    // step, so the funnel is 4 slides deep and the progress mount reports
+    // valuemax 4. The claim is unchanged and now covers one MORE step:
+    // aria-valuenow strictly increases 1 → 2 → 3 → 4 in section order.
+    await expect(progress).toHaveAttribute("aria-valuemax", "4");
     await expect(progress).toHaveAttribute("aria-valuenow", "1");
+    observed.push(await readNow());
+    await passSharedFirstPage(page);
+    await expect(progress).toHaveAttribute("aria-valuenow", "2");
+    await expect(progress).toHaveAttribute("aria-valuemax", "4");
     observed.push(await readNow());
     for (const step of TRAVERSAL) {
       await answerAndContinue(page, step.index, step.choice);
       await expect(progress).toHaveAttribute("aria-valuenow", String(step.index + 2));
-      await expect(progress).toHaveAttribute("aria-valuemax", "3");
+      await expect(progress).toHaveAttribute("aria-valuemax", "4");
       observed.push(await readNow());
     }
 
     // Strictly increasing, in section order, over the full variant length.
-    expect(observed).toEqual([1, 2, 3]);
+    expect(observed).toEqual([1, 2, 3, 4]);
     for (let i = 1; i < observed.length; i += 1) {
       expect(observed[i]!, `step ${i + 1} strictly greater than step ${i}`).toBeGreaterThan(
         observed[i - 1]!,
@@ -505,7 +533,7 @@ test.describe("LeadGen v2.5.1 §15.3 Runtime rows — live /lg fixtures (E3)", (
     // The E3-found valuetext staleness is FIXED at HEAD (header A11Y note):
     // updateProgress re-stamps mounts that SSR aria-valuetext, so slide 3
     // reads the CURRENT step — asserted, no longer a logged observation.
-    await expect(progress).toHaveAttribute("aria-valuetext", "Step 3 of 3");
+    await expect(progress).toHaveAttribute("aria-valuetext", "Step 4 of 4");
   });
 
   test("④ footer and disclosure persist across slides — present at every step", async ({ page }) => {
@@ -530,7 +558,11 @@ test.describe("LeadGen v2.5.1 §15.3 Runtime rows — live /lg fixtures (E3)", (
       );
     };
 
+    // R2 P6 (ruling R-C): the chrome must persist on the mandatory shared
+    // first page too — one MORE slide asserted than before, not one fewer.
     await assertChromePresent(1);
+    await passSharedFirstPage(page);
+    await assertChromePresent(2);
     for (const step of TRAVERSAL) {
       await answerAndContinue(page, step.index, step.choice);
       await assertChromePresent(step.index + 2);
@@ -549,9 +581,13 @@ test.describe("LeadGen v2.5.1 §15.3 Runtime rows — live /lg fixtures (E3)", (
     // DOM shape over EVERY slide's subtree (hidden ones included): exactly one
     // [data-lg-continue], inside .lg-continue-slot, at the END of the section
     // subtree, AFTER the question unit (11 §11.5 / C3).
+    // R2 P6 (ruling R-C): 3 slides now — the mandatory §4.3-1 shared first
+    // page plus the two authored ones. The C3 "exactly one control, in the
+    // slot, at the END, below the unit" shape is asserted on ALL THREE (one
+    // more slide than before), so the shift strengthens the row.
     const sections = page.locator("section[data-lg-section]");
-    await expect(sections).toHaveCount(2);
-    for (let i = 0; i < 2; i += 1) {
+    await expect(sections).toHaveCount(3);
+    for (let i = 0; i < 3; i += 1) {
       const section = sections.nth(i);
       await expect(section.locator("[data-lg-continue]"), `slide ${i + 1} control count`).toHaveCount(1);
       await expect(section.locator(".lg-continue-slot [data-lg-continue]")).toHaveCount(1);
@@ -567,7 +603,18 @@ test.describe("LeadGen v2.5.1 §15.3 Runtime rows — live /lg fixtures (E3)", (
         };
       });
       expect(shape.slotIsLastChild, `slide ${i + 1}: slot is the END of the section subtree`).toBe(true);
-      expect(shape.slotAfterQuestion, `slide ${i + 1}: slot sits BELOW the question unit`).toBe(true);
+      if (i === 0) {
+        // R2 P6 (ruling R-C): slide 0 is the mandatory §4.3-1 shared first
+        // page, a ContinueButton-only section with NO question unit, so
+        // "the slot sits BELOW the unit" has no unit to be below. Assert the
+        // part that IS meaningful there — no question unit at all, and the one
+        // control still lives in the slot at the END of the subtree (checked
+        // above for every slide, this one included). The two AUTHORED slides
+        // keep the full C3 assertion, exactly as before this shift.
+        await expect(section.locator("[data-lg-question]"), "the shared first page carries no question unit").toHaveCount(0);
+      } else {
+        expect(shape.slotAfterQuestion, `slide ${i + 1}: slot sits BELOW the question unit`).toBe(true);
+      }
     }
 
     // Slide 1's authored ContinueButton node: in-node visual suppressed (count
@@ -575,15 +622,22 @@ test.describe("LeadGen v2.5.1 §15.3 Runtime rows — live /lg fixtures (E3)", (
     const visibleContinue = page.locator(
       "section[data-lg-section]:not([hidden]) [data-lg-continue]",
     );
+    // R2 P6 (ruling R-C): slide 0 is now the shared first page, so the
+    // authored "Keep going" slide is reached one step later. Step off the
+    // shared page on its own real slot control first — which also proves the
+    // shared page obeys the same one-control invariant live.
+    await expect(visibleContinue).toHaveCount(1);
+    await passSharedFirstPage(page);
     await expect(visibleContinue).toHaveCount(1);
     await expect(visibleContinue).toHaveText("Keep going");
 
-    // The slot control is the REAL advance affordance: answer + click → slide 2,
-    // whose node-less unit renders the theme-default copy — still exactly one.
-    await sectionAt(page, 0).locator('[data-lg-choice="home"]').click();
+    // The slot control is the REAL advance affordance: answer + click → the
+    // next slide, whose node-less unit renders the theme-default copy — still
+    // exactly one.
+    await sectionAt(page, 1).locator('[data-lg-choice="home"]').click();
     await visibleContinue.click();
-    await expect(sectionAt(page, 1)).toBeVisible();
-    await expect(sectionAt(page, 0)).toBeHidden();
+    await expect(sectionAt(page, 2)).toBeVisible();
+    await expect(sectionAt(page, 1)).toBeHidden();
     await expect(visibleContinue).toHaveCount(1);
     await expect(visibleContinue).toHaveText("Continue");
   });
@@ -618,6 +672,22 @@ test.describe("LeadGen v2.5.1 §15.3 Runtime rows — live /lg fixtures (E3)", (
 
     // P2 — the three minted section ids → the pin's fixed ids, positionally;
     // each occurs exactly twice (the <section> wrapper + its #lg-config row).
+    // P2a (R2 P6, ruling R-C) — the mandatory §4.3-1 shared first page. The
+    // pin harness seeds its own shared section with the FIXED direct-SQL id
+    // `lgs_` + 19×"0" + "LEGACY1" (test/leadgen-frame-legacy-pin.test.ts:399);
+    // the e2e mirror can only mint a ULID for it, so it is normalized onto the
+    // pin's id by the SAME positional rule P2 uses for the three variant
+    // sections, with the same "exactly twice" occurrence assertion (section
+    // wrapper + #lg-config row). NOT a relaxation: it ADDS a pinned id to the
+    // byte-compare rather than excusing one.
+    const PINNED_SHARED_ID = `lgs_${"0".repeat(19)}LEGACY1`;
+    expect(legacy.sharedSectionPublicId).toMatch(/^lgs_[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(
+      countOccurrences(normalized, legacy.sharedSectionPublicId),
+      "live shared-page section id occurrence count",
+    ).toBe(2);
+    normalized = normalized.split(legacy.sharedSectionPublicId).join(PINNED_SHARED_ID);
+
     expect(legacy.sectionPublicIds).toHaveLength(3);
     legacy.sectionPublicIds.forEach((liveId, i) => {
       expect(liveId).toMatch(/^lgs_[0-9A-HJKMNP-TV-Z]{26}$/);
@@ -646,7 +716,20 @@ test.describe("LeadGen v2.5.1 §15.3 Runtime rows — live /lg fixtures (E3)", (
     // engine ready, first pinned question visible, and ZERO [data-frame-region]
     // elements in the document (the legacy shell renders none).
     await gotoReady(page, legacy.host, legacy.slug);
-    await expect(page.locator('[data-lg-question="q_ins"]')).toBeVisible();
+    // R2 P6 (ruling R-C): the pin funnel's own shared first page ("Shared",
+    // question qs1) is slide 0 — in the COMMITTED FIXTURE too, verified by
+    // reading it — so the pin's first authored question (q_ins) is slide 1.
+    // The pin's shared section is a bare TwoButtonYesNo with NO ContinueButton
+    // component, so the legacy shell renders that slide with no
+    // [data-lg-continue] control (frozen legacy behaviour, which is exactly
+    // what this row pins). The engine is therefore proven live by a REAL
+    // answer click that the runtime records, rather than by an advance:
+    await expect(page.locator('[data-lg-question="qs1"]')).toBeVisible();
+    const sharedYes = page.locator('[data-lg-question="qs1"] [data-lg-choice="true"]');
+    await sharedYes.click();
+    await expect(sharedYes, "the engine records a real answer on the legacy shell").toHaveAttribute("aria-checked", "true");
+    // …and the pin's own first authored question is present on the next slide.
+    await expect(page.locator('[data-lg-question="q_ins"]')).toHaveCount(1);
     await expect(page.locator("[data-frame-region]")).toHaveCount(0);
     const mountChildren = await page
       .locator("[data-lg-mount]")

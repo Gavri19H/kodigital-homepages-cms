@@ -15,6 +15,7 @@
 import { test, expect, request as playwrightRequest, type APIRequestContext, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { seedActiveSite } from "./listicles-p6-seed";
+import { seedSharedFirstPage } from "./leadgen-shared-page-seed";
 import { PW_PORT } from "./utils/base-url";
 
 test.use({ launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] } });
@@ -77,12 +78,17 @@ async function seedPhoneFunnel(request: APIRequestContext, tag: string, phoneFor
     await request.post(`${LG_API}/sections`, { data: { activity: "quote_funnel", vertical: "life", status: "active", ...NEXT } }),
     "NEXT section create",
   );
+  // Rework §4.3-1: the phone section IS this funnel's first page, so it lives on the
+  // quote's shared first page (mandatory since the rework) and the variant keeps NEXT.
+  // resolver.ts composes [...sharedPages, ...variantPages] — the visitor still lands on
+  // the phone section at index 0, exactly as before.
   await json(
     await request.put(`${LG_API}/variants/${variantId}`, {
-      data: { sections: [{ section_id: phoneSection.id }, { section_id: nextSection.id }] },
+      data: { sections: [{ section_id: nextSection.id }] },
     }),
     "variant sections",
   );
+  await seedSharedFirstPage(request, quote.public_id, [phoneSection.id]);
   await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: tag } }), "activation");
   return { host, slug: tag };
 }

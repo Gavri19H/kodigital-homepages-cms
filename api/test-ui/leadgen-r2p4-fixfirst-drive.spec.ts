@@ -213,8 +213,36 @@ async function dragTo(page: Page, from: { x: number; y: number }, to: { x: numbe
 
 // ---------------------------------------------------------------------------
 // F-1 — the typed box and the recorded/auctioned number must be the SAME number
+//
+// P6 C1 RE-RULED, at the COMMIT point (measured, not assumed). This test used
+// to read the From box straight after fill() — i.e. WITH THE CARET STILL IN IT,
+// since Playwright's fill() dispatches `input` and never `change` — and require
+// it to already equal the payload. R2 P4 FIX-FIRST round 2 deliberately re-ruled
+// exactly that instant: round 1's box-mirroring on every `input` was itself the
+// N-1 regression ("syncDualRange rewrote the box under the caret on every
+// `input`, which committed the one-step anti-deadlock clamp into that box and
+// made most intended numbers unreachable ('6' -> '40000' -> '400000' -> max)"),
+// so engine.ts's `typing` flag now leaves ONLY the box under the caret alone and
+// reconciles it on `change` (blur/Enter), while "every other surface — rails,
+// aria, pills, fill, and the RECORDED answer — still carries the clamped value
+// on every keystroke, so a mid-typing submit can never bill an unclamped
+// number". The superseding acceptance is leadgen-r2p4-fixround2-drive.spec.ts's
+// N-1 matrix (both fields x both viewports x type-up/type-down/clear-and-retype/
+// paste/out-of-order, plus the provider-row payload), whose expectAgreement() is
+// commented "F-1's guarantee at commit" and whose payload case 2 is this very
+// out-of-order drive.
+//
+// Own-hand measurement of the pre-change failure (c1-before-fixfirst.log): with
+// To=40000 and 90000 typed into From, box=[90000,40000] BUT rails=[35000,40000],
+// pills=[$35,000 , $40,000] and the /lg/auction payload p4ff_price_band_min=35000
+// — the divergence was confined to the box under the caret, and the money path
+// already carried the number the rails and pills were showing. So the check
+// below now asserts BOTH halves and is strictly stronger than the one it
+// replaces: (i) mid-typing, the rails and pills ALREADY read the clamp (nothing
+// unseen can be billed if the visitor submits right then), and (ii) at COMMIT
+// the box, its rail, its pill and the /lg/auction payload are one number.
 // ---------------------------------------------------------------------------
-test("F-1: a typed out-of-order From is never silently replaced — the box and the /lg/auction payload carry the same number", async ({
+test("F-1: a typed out-of-order From is never silently replaced — at commit the box and the /lg/auction payload carry the same number", async ({
   page,
 }) => {
   const posts = captureAuction(page);
@@ -233,11 +261,31 @@ test("F-1: a typed out-of-order From is never silently replaced — the box and 
   await from.fill(String(TYPED_FROM));
   await page.waitForTimeout(250);
 
+  // (i) MID-TYPING (the caret is still in the From box; fill() dispatches
+  // `input`, never `change`). FIX-FIRST-2 / N-1 exempts ONLY the box under the
+  // caret here; every other surface — rails, aria, pills, fill and the RECORDED
+  // answer — already carries the clamp, which is what makes a mid-typing submit
+  // safe. Asserted below as the safety invariant, not merely logged.
+  const typingBoxFrom = await from.inputValue();
+  const typingRails = [await rails.nth(0).inputValue(), await rails.nth(1).inputValue()];
+  const typingPills = await pills.allTextContents();
+  say(
+    `F-1 mid-typing (caret in From): box=[${typingBoxFrom},${await to.inputValue()}] rails=[${typingRails.join(",")}] pills=[${typingPills.join(" , ")}]`,
+  );
+  expect(Number(typingRails[0]), "mid-typing, the rail ALREADY carries the clamp").toBe(TO_VALUE - STEP);
+  expect(typingPills[0], "mid-typing, the pill ALREADY reads the clamp — nothing unseen can be billed").toBe(
+    `$${(TO_VALUE - STEP).toLocaleString("en-US")}`,
+  );
+
+  // (ii) COMMIT — the real visitor gesture that ends the edit (blur; Enter is
+  // the same `change`). This is where F-1's guarantee is defined and observable.
+  await from.blur();
+  await page.waitForTimeout(200);
   const boxFrom = await from.inputValue();
   const boxTo = await to.inputValue();
   const railV = [await rails.nth(0).inputValue(), await rails.nth(1).inputValue()];
   const pillV = await pills.allTextContents();
-  say(`F-1 typed ${TYPED_FROM} into From (To=${TO_VALUE}) -> box=[${boxFrom},${boxTo}] rails=[${railV.join(",")}] pills=[${pillV.join(" , ")}]`);
+  say(`F-1 typed ${TYPED_FROM} into From (To=${TO_VALUE}), COMMITTED -> box=[${boxFrom},${boxTo}] rails=[${railV.join(",")}] pills=[${pillV.join(" , ")}]`);
   await page.screenshot({ path: `${SHOT_DIR}/f1-typed-1280.png`, fullPage: false });
 
   // Complete the funnel so the REAL auction carries the recorded answer.
@@ -252,7 +300,7 @@ test("F-1: a typed out-of-order From is never silently replaced — the box and 
 
   // The clamp itself is CORRECT and must stay (anti-deadlock, one step short).
   expect(Number(railV[0]), "the one-step clamp still holds").toBe(TO_VALUE - STEP);
-  // The defect: the screen and the payload disagreed.
+  // The defect: the screen and the payload disagreed — asserted at COMMIT.
   expect(boxFrom, "the From box shows the number that was actually recorded").toBe(payloadMin);
   expect(boxFrom, "the From box agrees with its own rail").toBe(railV[0]);
   expect(pillV[0], "the min pill agrees with the box").toBe(`$${Number(boxFrom).toLocaleString("en-US")}`);

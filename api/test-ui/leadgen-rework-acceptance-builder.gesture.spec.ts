@@ -273,17 +273,32 @@ test.describe("#11D — Templates tab", () => {
     expect(funnelB.frame_template_id).toBe(rec!.id);
   });
 
-  // §11D "default template seeds new funnels": the DEFAULT-TEMPLATE mechanism
-  // (a single is_default template, atomic swap) is proven here through the real
-  // UI. The AUTO-ASSIGN half ("seeds new funnels") is proven in the next test,
+  // §11D "define the 'default' template" (SRC-11D-N02). P6 terminal correction:
+  // this test drove a control named "Set as default" that asserted the GLOBAL
+  // leadgen_frame_templates.is_default flag. R2 ruling D5 (contract §7 D5,
+  // migration 0055 leadgen_quote_default_template) re-scoped that control to be
+  // PER-QUOTE and renamed it — templates.ts:1899 now adds
+  // `Set as this quote’s default`, which PATCHes /quotes/:id
+  // {default_template_id}; the global is_default stays as the cross-quote
+  // FALLBACK, written elsewhere. The old label therefore never appears and the
+  // menu click timed out on BOTH engines (stale spec, not a product defect —
+  // the live menu reads ["Rename…","Duplicate","Set as this quote’s
+  // default","Delete"]). Re-pointed at the ruled control, with the atomicity
+  // claim kept and STRENGTHENED to D5's actual contract: exactly one default
+  // per quote, the previous chip loses it, another quote is untouched, and the
+  // global flag is not what this menu writes.
+  //
+  // The AUTO-ASSIGN half ("seeds new funnels") is proven in the next test,
   // below — S6.2 fix: createQuoteFunnelHandler now stamps the current
   // is_default template's id onto every funnel created via "+ Add funnel"
-  // (create-time; a later "Set as default" swap never retroactively re-skins
-  // an existing funnel). The quote's auto-created FIRST funnel is deliberately
+  // (create-time; a later default swap never retroactively re-skins an
+  // existing funnel). The quote's auto-created FIRST funnel is deliberately
   // NOT seeded this way (STAGING-SIGNOFF §6 owner-decision disclosure).
-  test("#11D 'Set as default' is a single atomic swap — the default-template mechanism", async ({ page }) => {
+  const SET_QUOTE_DEFAULT = "Set as this quote’s default"; // U+2019, exactly as the island renders it
+  test("#11D 'Set as this quote's default' is a single atomic PER-QUOTE swap (D5) — the default-template mechanism", async ({ page }) => {
     const u = uniqueTag("11d-def");
     const seed = await seedQuote(apiCtx, "11d-def", true);
+    const other = await seedQuote(apiCtx, "11d-def-other", true);
     const t1 = await createTemplate(apiCtx, `ACC6 Def A ${u}`);
     const t2 = await createTemplate(apiCtx, `ACC6 Def B ${u}`);
 
@@ -292,16 +307,26 @@ test.describe("#11D — Templates tab", () => {
     const chip2 = page.locator(`[data-tpl-chip="${t2.public_id}"]`);
     await expect(chip1).toBeVisible({ timeout: 10_000 });
     await chip1.locator("[data-tpl-more]").click();
-    await page.locator(".lg-tpl2-tpl-menu button", { hasText: "Set as default" }).click();
+    await page.locator(".lg-tpl2-tpl-menu button", { hasText: SET_QUOTE_DEFAULT }).click();
     await expect(chip1).toHaveClass(/is-default/, { timeout: 10_000 });
+    await expect(chip1.locator(".lg-tpl2-tpl-chip-default-badge")).toHaveText("DEFAULT FOR THIS QUOTE");
 
     await chip2.locator("[data-tpl-more]").click();
-    await page.locator(".lg-tpl2-tpl-menu button", { hasText: "Set as default" }).click();
+    await page.locator(".lg-tpl2-tpl-menu button", { hasText: SET_QUOTE_DEFAULT }).click();
     await expect(chip2).toHaveClass(/is-default/, { timeout: 10_000 });
     await expect(chip1).not.toHaveClass(/is-default/, { timeout: 10_000 }); // atomic: only one default
+    await expect(page.locator("[data-tpl-chip].is-default"), "atomic: exactly one default chip in this quote").toHaveCount(1);
 
+    // Persisted (migration 0055's PK-upsert): the quote row carries EXACTLY the
+    // last-set template — one row per quote, so the swap can never leave two.
+    const row = await json<{ default_template_id: string | null }>(await apiCtx.get(`${LG_API}/quotes/${seed.quotePublicId}`), "quote row");
+    expect(row.default_template_id, "exactly one per-quote default, the last set").toBe(t2.public_id);
+    // D5's point: the swap is scoped to THIS quote…
+    const otherRow = await json<{ default_template_id: string | null }>(await apiCtx.get(`${LG_API}/quotes/${other.quotePublicId}`), "other quote row");
+    expect(otherRow.default_template_id, "another quote's default is untouched (per-quote, not global)").not.toBe(t2.public_id);
+    // …and this control never flips the cross-quote GLOBAL fallback flag.
     const records = await json<{ items: Array<{ public_id: string; is_default: boolean }> }>(await apiCtx.get(`${LG_API}/frame-template-records`), "records");
-    expect(records.items.filter((t) => t.is_default).map((t) => t.public_id), "exactly one default, the last set").toEqual([t2.public_id]);
+    expect(records.items.filter((t) => t.is_default).map((t) => t.public_id), "the per-quote control never writes the global is_default").not.toContain(t2.public_id);
   });
 
   // S6.2 fix (GAP 3): the current default template SEEDS a funnel created via
@@ -398,6 +423,21 @@ test.describe("#11D — Templates tab", () => {
   test("#11D layout = elements-left / live-canvas-middle / settings-right; section picker + theme switch re-render; no-sections fixture", async ({ page }) => {
     // with a section: the picker has a real option + the canvas renders it.
     const withSec = await seedQuote(apiCtx, "11d-lay", true);
+    // P6 D4: seed a REAL preset so the theme-switch round trip below is
+    // exercised on EVERY run instead of being skipped/misfired on the option
+    // count (see its own comment) — strictly more coverage, never less.
+    const switcherTheme = `ACC6 11D Theme ${uniqueTag("11d-thm")}`;
+    await json(
+      await apiCtx.post(`${LG_API}/themes`, {
+        data: {
+          name: switcherTheme,
+          roles: { brand_primary: "#123456", accent: "#654321", page_bg: "#FFFFFF", card: "#FFFFFF", text: "#101010", success: "#0E7C3A", error: "#B23A2C" },
+          typography: { headline_font: "Inter", body_font: "Inter", base_px: 16 },
+          controls: { field_height: "medium", button_size: "m", corners: "rounded" },
+        },
+      }),
+      "11D switcher theme",
+    );
     await openTemplatesTab(page, withSec.quotePublicId);
     // three-column layout markers
     await expect(page.locator("#lg-tpl-canvas-iframe")).toBeVisible();
@@ -423,14 +463,25 @@ test.describe("#11D — Templates tab", () => {
     // finally executes — a data-dependent trigger for a plain code defect, not
     // a timing race. Own-hand reproduced (attempt 1/1): exact TypeError,
     // firefox, full both-engine run. Fix: `r` IS the Request — just `r.method()`.
-    const themeOpts = await page.locator("#lg-tpl-theme-select option").count();
-    if (themeOpts > 1) {
-      const [req] = await Promise.all([
-        page.waitForRequest((r) => r.url().includes("/preview") && r.method() === "POST"),
-        page.locator("#lg-tpl-theme-select").selectOption({ index: 1 }),
-      ]);
-      expect(req.method()).toBe("POST");
-    }
+    // P6 D4 (root cause of the "option at index 1 is disabled" fail, own-hand
+    // reproduced deterministically on a ZERO-theme database): `themeOpts > 1`
+    // is NOT "a real preset exists". templates.ts populateThemeSwitcher appends
+    // a DISABLED placeholder option — "No themes yet — create one in the Themes
+    // tab" (its deliberate B7 honesty affordance) — when GET /themes returns an
+    // EMPTY list, so the select carries 2 options while offering 0 selectable
+    // themes and selectOption({index:1}) retried 61× against a disabled option.
+    // The option is disabled BY DESIGN (nothing is unreachable: it is an
+    // informational row, and the "+ New theme…" button beside it reaches the
+    // authoring surface). With the preset seeded above, index 1 is now always
+    // the real, ENABLED preset — asserted, not assumed, before the switch.
+    const themeOptions = page.locator("#lg-tpl-theme-select option");
+    await expect(page.locator("#lg-tpl-theme-select option", { hasText: switcherTheme }), "the seeded preset is listed").toHaveCount(1, { timeout: 10_000 });
+    await expect(themeOptions.nth(1), "a real preset row is selectable (not the disabled empty-state row)").toBeEnabled();
+    const [req] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes("/preview") && r.method() === "POST"),
+      page.locator("#lg-tpl-theme-select").selectOption({ index: 1 }),
+    ]);
+    expect(req.method()).toBe("POST");
 
     // no-sections quote → the canvas renders the Appendix A-9 fixture through
     // the REAL renderer (a real control element, not a hand-authored empty div).

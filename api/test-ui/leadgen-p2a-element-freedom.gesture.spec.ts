@@ -50,6 +50,7 @@ import { test, expect, type APIRequestContext, type Page } from "@playwright/tes
 import { defaultFunnelDesign as D } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { baseTokenForRole } from "../src/public/leadgen/designs/theme";
 import { seedActiveSite } from "./listicles-p6-seed";
+import { seedSharedFirstPage, createPassThroughSection } from "./leadgen-shared-page-seed";
 
 const LG_API = "/api/admin/leadgen";
 const uniq = Date.now();
@@ -466,7 +467,12 @@ test.describe("P2a per-element freedom — live /lg funnel (§12 parity + select
       "quote create",
     );
     const variantId = quote.funnels[0]!.variants[0]!.public_id;
-    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: s.id }] } }), "variant sections");
+    // Rework §4.3-1: the quote's shared first page is mandatory for activation and
+    // resolver.ts composes [...sharedPages, ...variantPages] — the section under test IS
+    // page 1, so it moves onto the shared page. Composed order (and therefore every
+    // geometry/index assertion below) is unchanged.
+    await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: await createPassThroughSection(request, "P2a live") }] } }), "variant sections");
+    await seedSharedFirstPage(request, quote.public_id, [s.id]);
     await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "p2a" } }), "activation");
 
     await page.goto(`http://${host}:${PORT}/lg/p2a`, { waitUntil: "load" });

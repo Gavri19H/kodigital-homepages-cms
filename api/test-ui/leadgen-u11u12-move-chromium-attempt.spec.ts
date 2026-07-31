@@ -105,6 +105,19 @@ test.describe("R7 U11a — chromium POSITIVE gate: the U13 sandbox+CSP fix deliv
     await anyChoice.click({ timeout: 8000 });
     const tag = frame(page).locator('[data-move-handle="q_btn"]');
     await expect(tag).toBeVisible({ timeout: 8000 });
+    // P6 C2 (harness gap, measured — NOT a product change; the cross-engine
+    // gate leadgen-u11u12-move.gesture.spec.ts carries the full diagnosis):
+    // revealing the tag by clicking a choice also runs the product's own
+    // §6.2/§6.4 focusChoiceRow, which scrollIntoView()s + focuses the matching
+    // inspector row and drives the studio's BODY scroller (clientHeight 720,
+    // scrollHeight 2357) to scrollTop 651 — at the default 1280x720 viewport
+    // that puts this tag at page y=-63.1, ABOVE the viewport. toBeVisible()
+    // still passes, but realDragFromLocator drives raw page.mouse at that box,
+    // so mouse.down() is undeliverable and the drag never starts. Scrolling
+    // the handle into view is the operator's own gesture; the drag below stays
+    // a fully hit-tested page.mouse drag. The zip box is measured AFTER this
+    // scroll on purpose — it moves with it.
+    await tag.scrollIntoViewIfNeeded();
 
     const zipField = frame(page).locator('[data-question-id="q_zip"]');
     await expect(zipField).toBeVisible();

@@ -422,6 +422,9 @@ describeDb("R2 P2 tail — item 2: normalizedThemePut resolves a theme_id preset
       // R2 P2 FIX-FIRST-2: the shared snippet grew the font bridge + the
       // fail-closed preset read normalizedThemePut now calls.
       sliceIslandVar(island, "PRESET_FONT_BRIDGE"),
+      // Terminal F-1b: inlineThemeFromPreset now also reads this bridge to
+      // carry the preset's Corners across the fork.
+      sliceIslandVar(island, "PRESET_CORNERS_BRIDGE"),
       sliceIslandVar(island, "PRESET_LOAD_FAILED_MESSAGE"),
       sliceIslandFunction(island, "hasAnyKey"),
       sliceIslandFunction(island, "presetFontId"),

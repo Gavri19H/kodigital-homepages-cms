@@ -26,6 +26,7 @@
 import { test, expect, request as playwrightRequest, type APIRequestContext } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { seedActiveSite } from "./listicles-p6-seed";
+import { seedSharedFirstPage, createPassThroughSection } from "./leadgen-shared-page-seed";
 import { PW_PORT } from "./utils/base-url";
 
 test.use({ launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] } });
@@ -58,7 +59,16 @@ async function seedFunnel(request: APIRequestContext, tag: string, sections: Arr
     );
     attach.push({ section_id: created.id });
   }
-  await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: attach } }), "variant sections");
+  // Rework §4.3-1: the quote's shared first page is mandatory for activation, and
+  // resolver.ts composes [...sharedPages, ...variantPages] — so this fixture's FIRST
+  // section becomes the shared page and the rest stay on the variant. Composed order,
+  // section_index and [data-lg-index="N"] are unchanged. A single-section fixture keeps
+  // the variant non-empty (the gate's second half) with a trailing pass-through page.
+  const [firstAttach, ...restAttach] = attach;
+  const variantSections =
+    restAttach.length > 0 ? restAttach : [{ section_id: await createPassThroughSection(request, `P4b ${tag}`) }];
+  await json(await request.put(`${LG_API}/variants/${variantId}`, { data: { sections: variantSections } }), "variant sections");
+  await seedSharedFirstPage(request, quote.public_id, [firstAttach!.section_id]);
   await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: tag } }), "activation");
   return { host, slug: tag };
 }
@@ -316,12 +326,17 @@ test.describe("PC-5/PC-A5 combined — studio Min token picker -> live enforce",
       await request.post(`${LG_API}/sections`, { data: { activity: "quote_funnel", vertical: "life", status: "active", ...NEXT.body } }),
       "date-studio NEXT section create",
     );
+    // Rework §4.3-1 (same move as seedFunnel above): the studio-authored section IS
+    // page 1, so it lives on the quote's mandatory shared first page and the variant
+    // keeps NEXT. resolver.ts composes [...sharedPages, ...variantPages], so the
+    // studio section is still index 0 and Continue still bumps to index 1.
     await json(
       await request.put(`${LG_API}/variants/${variantId}`, {
-        data: { sections: [{ section_id: studioSection.id }, { section_id: nextCreated.id }] },
+        data: { sections: [{ section_id: nextCreated.id }] },
       }),
       "variant sections",
     );
+    await seedSharedFirstPage(request, quote.public_id, [studioSection.id]);
     await json(await request.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, { data: { enabled: true, slug: "datestudio" } }), "activation");
 
     const today = new Date();

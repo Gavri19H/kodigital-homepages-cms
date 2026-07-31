@@ -3330,10 +3330,25 @@ export const QUOTE_EDITOR_SCRIPT = `
   function loadThemePresetOptions() {
     var sel = byId('lg-theme-preset-select');
     if (!sel) { return; }
-    var keep = sel.value;
     fetch('/api/admin/leadgen/themes', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
       .then(function (r) { return r.json(); })
       .then(function (body) {
+        // P6 D3 FIX: snapshot the picker's value HERE (at resolve time), not
+        // before the fetch. This function is called from FOUR places — the
+        // eager boot call, wireThemePresets, the activate('themes') tab hook
+        // and the presets-iframe 'load' handler — and a single editor load was
+        // measured issuing SEVEN concurrent GET /themes. With the snapshot
+        // taken before the fetch, any preset the operator picks WHILE one is
+        // in flight is destroyed when it resolves: clearChildren() wipes the
+        // <option>s and the stale keep ('' — the value from before the pick)
+        // never restores it, so the select silently falls back to the "Choose
+        // a preset…" placeholder. Measured live (chromium, real trusted click,
+        // 2nd of 10 runs): selectOption() succeeded, the 7th /themes GET
+        // finished 1ms later, the select's own value read back "" and "A/B
+        // this theme" answered with the product's own bail message "Pick a
+        // preset first, then A/B it." — zero network. Reading the value at
+        // resolve time preserves whatever the operator has chosen by then.
+        var keep = sel.value;
         var items = (body && body.items) || [];
         clearChildren(sel);
         var placeholder = document.createElement('option');
@@ -3382,7 +3397,25 @@ export const QUOTE_EDITOR_SCRIPT = `
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); });
   }
 
+  // P6 fixes3 (E1): the A/B tab now carries the server's fork precondition on
+  // the button itself (data-add-variant-state, computed in quotes-tabs/ab.ts)
+  // and disables it with a visible reason. The Themes tab's "A/B this theme"
+  // hits the SAME fork endpoint from a panel that shows no such state, so it
+  // reads that attribute and names the next step instead of prompting the
+  // operator straight into the 409. Returns null when a fork can proceed.
+  function addVariantBlockedReason() {
+    var btn = byId('lg-add-variant');
+    if (!btn) { return null; }
+    var state = btn.getAttribute('data-add-variant-state');
+    if (!state || state === 'ready') { return null; }
+    var why = byId('lg-add-variant-why');
+    var txt = why ? String(why.textContent || '').replace(/\\s+/g, ' ').trim() : '';
+    return txt || 'A second variant is only allowed as an arm of a running A/B test \\u2014 create one on the A/B tab, start it, then add the variant.';
+  }
+
   function forkWithAllocation(themeIdOrNull) {
+    var blockedWhy = addVariantBlockedReason();
+    if (blockedWhy) { showMsg('lg-quote-error', blockedWhy); return; }
     var pctStr = window.prompt("New variant's share of traffic, in percent (the rest stays with the current variant):", '50');
     if (pctStr === null) { return; }
     var pct = parseFloat(pctStr);

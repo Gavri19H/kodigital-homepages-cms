@@ -843,9 +843,32 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], ca
   // nested INSIDE the SAME outer flex:1 1 auto CENTER column (rails stay
   // 300/320, unchanged — only this column's OWN internal layout gains a
   // second child). All EXISTING editor content below is UNCHANGED.
+  //
+  // R2 P6 (measured layout defect, owner clause ③): this row had NO
+  // flex-wrap and an UNSHRINKABLE flex:0 0 340px canvas, so on any viewport
+  // where the centre column's inner width fell below <editor>+26+340 the
+  // flexible editor child absorbed the entire deficit and computed to
+  // width 0 — every §10.3/§10.4 control it holds was hidden. Measured on
+  // the real page BEFORE this change (rails 300+320 + the admin nav's
+  // 300px): editor width 0px @1280, 24px @1366, 98px @1440 — i.e. broken on
+  // every ordinary laptop; only ≥~1650 rendered.
+  //
+  // Degrade chosen: keep the §8.4 side-by-side anatomy WHEREVER IT FITS and
+  // wrap to a stack where it does not. flex-wrap breaks a line on the items'
+  // HYPOTHETICAL (un-shrunk) sizes, so the editor's basis is the explicit
+  // "how much room does BESIDE require" knob: 240 + 26 gap + 340 canvas =
+  // 606px of centre-inner. At 1600 the centre's inner width is 624px ⇒ one
+  // line, editor 258 / canvas 340 — byte-for-byte today's anatomy. Below
+  // ~1582 viewport the canvas wraps UNDER the controls (DOM order kept) and
+  // the editor takes the full line instead of collapsing. The canvas is now
+  // flex:0 1 (shrink allowed, grow still 0) with min-width:0 so on its own
+  // line it fits a narrow column instead of overflowing it, while keeping
+  // its designed 340px wherever there is room. No media query: the trigger
+  // is this column's OWN width, so the ?embed=1 standalone shell (no admin
+  // nav) degrades on the same rule.
   return `<div style="flex:1 1 auto;overflow-y:auto;padding:24px 28px;min-width:0">
-    <div style="display:flex;gap:26px;align-items:flex-start">
-    <div style="flex:1 1 320px;min-width:0" data-pin="8.4-editor-controls">
+    <div style="display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start">
+    <div style="flex:1 1 240px;min-width:0" data-pin="8.4-editor-controls">
       <div style="display:flex;align-items:center;gap:13px;margin-bottom:5px">
         ${bigSwatch(theme.roles.brand_primary, false)}
         <!-- R4a E3-NEW-6: the server already supports PATCH {name}
@@ -931,7 +954,7 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], ca
         Delete theme
       </button>
     </div>
-    <div style="flex:0 0 340px" data-pin="8.4-live-canvas">
+    <div style="flex:0 1 340px;min-width:0" data-pin="8.4-live-canvas">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <span style="font-size:11px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:${TM_COLOR.sectionEyebrow}">Live preview — this theme</span>
         <span style="font-size:10.5px;color:${TM_COLOR.roleSub};font-weight:600">server-rendered</span>

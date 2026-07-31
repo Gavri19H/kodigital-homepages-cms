@@ -108,19 +108,35 @@ test.describe('R4a E3-NEW-1 — first-save problems[] survive (no longer silentl
     await page.locator('#lg-section-headline').fill('Are you currently insured?');
 
     // Activity/Vertical start empty on a fresh DB — use the modal
-    // (promptNewSharedValue opens the modal, user fills input and clicks
-    // Create; the §8.2 business gate fires window.confirm, which we handle).
-    page.on('dialog', (d) => { if (d.type() === 'confirm') void d.accept(); });
+    // (promptNewSharedValue opens the modal, user fills input and clicks Create).
+    // R2 P2 FIX-FIRST (MINOR-3) turned the §8.2 "No Offers exist yet" business gate
+    // from a native window.confirm into the studio's OWN two-button modal
+    // (#lg-no-offers-confirm-modal, "Cancel" / "Create anyway"). A page.on('dialog')
+    // handler therefore never sees it and the overlay stays open, blocking every
+    // later click — the 60s timeout this test used to die on. Answer the ruled
+    // control instead, and ASSERT the gate actually appeared (stricter than the old
+    // blanket dialog-accept, which could not tell a fired gate from a missing one).
+    // Any OTHER native dialog is now a failure, not a silent accept.
+    page.on('dialog', (d) => { throw new Error(`unexpected native dialog: ${d.message()}`); });
+    const answerNoOffersGate = async (): Promise<void> => {
+      const gate = page.locator('#lg-no-offers-confirm-modal');
+      await expect(gate, 'the §8.2 no-Offers gate must open on a fresh DB').toBeVisible({ timeout: 10_000 });
+      await expect(gate.locator('[data-no-offers-question]')).toContainText('No Offers exist');
+      await gate.locator('[data-no-offers-confirm]').click();
+      await expect(gate).toBeHidden({ timeout: 10_000 });
+    };
 
     // Create new activity
     await page.locator('[data-studio-new-activity]').click();
     await page.locator('#lg-new-shared-value-input').fill(activity);
     await page.locator('[data-new-shared-value-create]').click();
+    await answerNoOffersGate();
 
     // Create new vertical
     await page.locator('[data-studio-new-vertical]').click();
     await page.locator('#lg-new-shared-value-input').fill(vertical);
     await page.locator('[data-new-shared-value-create]').click();
+    await answerNoOffersGate();
 
     // add a SECOND Continue button (the first is added here too — a fresh
     // Section seeds none) — triggers the non-blocking duplicate_continue
@@ -347,11 +363,12 @@ test.describe('R4a E3-S1 — sections list Usage is an inline expandable panel, 
     await row.getByRole('button', { name: /More actions/i }).click();
     await usageBtn.click();
     await expect(panelRow).toBeVisible();
-    // Fix-round (usage-panel coherence): the empty-state copy now covers
-    // BOTH legs sectionUsageHandler returns (variants AND rules, P1c commit
-    // 3943892) — "Not used by any funnel variant." alone would be untrue
-    // whenever a rule-only reference exists; this section has neither.
-    await expect(panelRow).toContainText('Not used by any funnel variant or rule.');
+    // Fix-round (usage-panel coherence): the empty-state copy covers EVERY leg
+    // sectionUsageHandler returns. The rework added a third — the quote's shared
+    // first page (§4.3-1) — so ui-sections.ts:456 now renders
+    // "Not used by any funnel variant, shared page, or rule."; this section has
+    // none of the three.
+    await expect(panelRow).toContainText('Not used by any funnel variant, shared page, or rule.');
     await expect(usageBtn).toHaveAttribute('aria-expanded', 'true');
     await page.screenshot({ path: `${SHOT_DIR}/07-usage-panel-expanded.png` });
 

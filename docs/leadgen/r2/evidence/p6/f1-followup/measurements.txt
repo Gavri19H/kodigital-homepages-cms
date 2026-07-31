@@ -1,0 +1,136 @@
+
+===== ARM=before run 2026-07-31T11:25:09.551Z =====
+[before] A preset created id=thm_new-theme
+[before] A PATCH corners=pill HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"pill"}
+[before] A stored theme_json BEFORE colour edit = {"theme_id":"thm_new-theme"}
+[before] A activation re-PUT (fresh shell key) HTTP 200
+[before] A 1-PRESET-APPLIED corners=pill PAINTED card=20px answer=14px continue=14px answerBg=rgb(255, 255, 255) progressTrack=9999px vars={"sm":"10px","md":"14px","lg":"20px","xl":"20px","full":"9999px"}
+[before] pill-1-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] A colour-edit PUT HTTP 200
+[before] A stored theme_json AFTER colour edit = {"palette":{"brand_primary":"accent","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"}}
+[before] A activation re-PUT (fresh shell key) HTTP 200
+[before] A 2-AFTER-COLOUR-EDIT corners=pill PAINTED card=16px answer=10px continue=10px answerBg=rgb(255, 255, 255) progressTrack=9999px vars={"sm":"6px","md":"10px","lg":"14px","xl":"20px","full":"9999px"}
+[before] pill-2-after-colour-edit @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] A SUMMARY pill: before=20px/14px/14px after=16px/10px/10px answerBg before=rgb(255, 255, 255) after=rgb(255, 255, 255)
+
+===== ARM=before run 2026-07-31T11:25:20.972Z =====
+[before] B preset created id=thm_new-theme-2
+[before] B PATCH corners=sharp HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"sharp"}
+[before] B stored theme_json BEFORE colour edit = {"theme_id":"thm_new-theme-2"}
+[before] B activation re-PUT (fresh shell key) HTTP 200
+[before] B 1-PRESET-APPLIED corners=sharp PAINTED card=10px answer=6px continue=6px answerBg=rgb(255, 255, 255) progressTrack=9999px vars={"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+[before] sharp-1-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] B colour-edit PUT HTTP 200
+[before] B stored theme_json AFTER colour edit = {"palette":{"brand_primary":"accent","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"}}
+[before] B activation re-PUT (fresh shell key) HTTP 200
+[before] B 2-AFTER-COLOUR-EDIT corners=sharp PAINTED card=16px answer=10px continue=10px answerBg=rgb(255, 255, 255) progressTrack=9999px vars={"sm":"6px","md":"10px","lg":"14px","xl":"20px","full":"9999px"}
+[before] sharp-2-after-colour-edit @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] B SUMMARY sharp: before=10px/6px/6px after=16px/10px/10px answerBg before=rgb(255, 255, 255) after=rgb(255, 255, 255)
+
+===== ARM=before-v2 run 2026-07-31T11:26:52.615Z =====
+[before-v2] A preset created id=thm_new-theme-3
+[before-v2] A PATCH corners=pill HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"pill"}
+[before-v2] A stored theme_json BEFORE colour edit = {"theme_id":"thm_new-theme-3"}
+[before-v2] A activation re-PUT (fresh shell key) HTTP 200
+[before-v2] A 1-PRESET-APPLIED corners=pill PAINTED card=20px answer=14px continue=14px continueBg=rgb(27, 58, 92) progressTrack=9999px vars={"sm":"10px","md":"14px","lg":"20px","xl":"20px","full":"9999px"}
+[before-v2] pill-1-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+[before-v2] A colour-edit PUT HTTP 200
+[before-v2] A stored theme_json AFTER colour edit = {"palette":{"brand_primary":"error","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"}}
+[before-v2] A activation re-PUT (fresh shell key) HTTP 200
+[before-v2] A 2-AFTER-COLOUR-EDIT corners=pill PAINTED card=16px answer=10px continue=10px continueBg=rgb(27, 58, 92) progressTrack=9999px vars={"sm":"6px","md":"10px","lg":"14px","xl":"20px","full":"9999px"}
+[before-v2] pill-2-after-colour-edit @375 scrollWidth=375 innerWidth=375 overflow=no
+[before-v2] A SUMMARY pill: before=20px/14px/14px after=16px/10px/10px continueBg before=rgb(27, 58, 92) after=rgb(27, 58, 92)
+
+===== ARM=before-v2 run 2026-07-31T11:27:03.208Z =====
+[before-v2] B preset created id=thm_new-theme-4
+[before-v2] B PATCH corners=sharp HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"sharp"}
+[before-v2] B stored theme_json BEFORE colour edit = {"theme_id":"thm_new-theme-4"}
+[before-v2] B activation re-PUT (fresh shell key) HTTP 200
+[before-v2] B 1-PRESET-APPLIED corners=sharp PAINTED card=10px answer=6px continue=6px continueBg=rgb(27, 58, 92) progressTrack=9999px vars={"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+[before-v2] sharp-1-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+[before-v2] B colour-edit PUT HTTP 200
+[before-v2] B stored theme_json AFTER colour edit = {"palette":{"brand_primary":"error","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"}}
+[before-v2] B activation re-PUT (fresh shell key) HTTP 200
+[before-v2] B 2-AFTER-COLOUR-EDIT corners=sharp PAINTED card=16px answer=10px continue=10px continueBg=rgb(27, 58, 92) progressTrack=9999px vars={"sm":"6px","md":"10px","lg":"14px","xl":"20px","full":"9999px"}
+[before-v2] sharp-2-after-colour-edit @375 scrollWidth=375 innerWidth=375 overflow=no
+[before-v2] B SUMMARY sharp: before=10px/6px/6px after=16px/10px/10px continueBg before=rgb(27, 58, 92) after=rgb(27, 58, 92)
+
+===== ARM=BEFORE run 2026-07-31T11:28:33.893Z =====
+[BEFORE] A preset created id=thm_new-theme-5
+[BEFORE] A PATCH corners=pill HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"pill"}
+[BEFORE] A stored theme_json BEFORE colour edit = {"theme_id":"thm_new-theme-5"}
+[BEFORE] A activation re-PUT (fresh shell key) HTTP 200
+[BEFORE] A 1-PRESET-APPLIED corners=pill PAINTED card=20px answer=14px continue=14px --lg-primary=#1B3A5C progressTrack=9999px vars={"sm":"10px","md":"14px","lg":"20px","xl":"20px","full":"9999px"}
+[BEFORE] pill-1-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+[BEFORE] A colour-edit PUT HTTP 200
+[BEFORE] A stored theme_json AFTER colour edit = {"palette":{"brand_primary":"error","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"}}
+[BEFORE] A activation re-PUT (fresh shell key) HTTP 200
+[BEFORE] A 2-AFTER-COLOUR-EDIT corners=pill PAINTED card=16px answer=10px continue=10px --lg-primary=#D32F2F progressTrack=9999px vars={"sm":"6px","md":"10px","lg":"14px","xl":"20px","full":"9999px"}
+[BEFORE] pill-2-after-colour-edit @375 scrollWidth=375 innerWidth=375 overflow=no
+[BEFORE] A SUMMARY pill: before=20px/14px/14px after=16px/10px/10px --lg-primary before=#1B3A5C after=#D32F2F
+
+===== ARM=BEFORE run 2026-07-31T11:28:44.566Z =====
+[BEFORE] B preset created id=thm_new-theme-6
+[BEFORE] B PATCH corners=sharp HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"sharp"}
+[BEFORE] B stored theme_json BEFORE colour edit = {"theme_id":"thm_new-theme-6"}
+[BEFORE] B activation re-PUT (fresh shell key) HTTP 200
+[BEFORE] B 1-PRESET-APPLIED corners=sharp PAINTED card=10px answer=6px continue=6px --lg-primary=#1B3A5C progressTrack=9999px vars={"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+[BEFORE] sharp-1-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+[BEFORE] B colour-edit PUT HTTP 200
+[BEFORE] B stored theme_json AFTER colour edit = {"palette":{"brand_primary":"error","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"}}
+[BEFORE] B activation re-PUT (fresh shell key) HTTP 200
+[BEFORE] B 2-AFTER-COLOUR-EDIT corners=sharp PAINTED card=16px answer=10px continue=10px --lg-primary=#D32F2F progressTrack=9999px vars={"sm":"6px","md":"10px","lg":"14px","xl":"20px","full":"9999px"}
+[BEFORE] sharp-2-after-colour-edit @375 scrollWidth=375 innerWidth=375 overflow=no
+[BEFORE] B SUMMARY sharp: before=10px/6px/6px after=16px/10px/10px --lg-primary before=#1B3A5C after=#D32F2F
+
+===== ARM=AFTER run 2026-07-31T11:31:22.167Z =====
+[AFTER] A preset created id=thm_new-theme
+[AFTER] A PATCH corners=pill HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"pill"}
+[AFTER] A stored theme_json BEFORE colour edit = {"theme_id":"thm_new-theme"}
+[AFTER] A activation re-PUT (fresh shell key) HTTP 200
+[AFTER] A 1-PRESET-APPLIED corners=pill PAINTED card=20px answer=14px continue=14px --lg-primary=#1B3A5C progressTrack=9999px vars={"sm":"10px","md":"14px","lg":"20px","xl":"20px","full":"9999px"}
+[AFTER] pill-1-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+[AFTER] A colour-edit PUT HTTP 200
+[AFTER] A stored theme_json AFTER colour edit = {"palette":{"brand_primary":"error","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"},"scales":{"radius":"round"}}
+[AFTER] A activation re-PUT (fresh shell key) HTTP 200
+[AFTER] A 2-AFTER-COLOUR-EDIT corners=pill PAINTED card=20px answer=14px continue=14px --lg-primary=#D32F2F progressTrack=9999px vars={"sm":"10px","md":"14px","lg":"20px","xl":"20px","full":"9999px"}
+[AFTER] pill-2-after-colour-edit @375 scrollWidth=375 innerWidth=375 overflow=no
+[AFTER] A SUMMARY pill: before=20px/14px/14px after=20px/14px/14px --lg-primary before=#1B3A5C after=#D32F2F
+[AFTER] B preset created id=thm_new-theme-2
+[AFTER] B PATCH corners=sharp HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"sharp"}
+[AFTER] B stored theme_json BEFORE colour edit = {"theme_id":"thm_new-theme-2"}
+[AFTER] B activation re-PUT (fresh shell key) HTTP 200
+[AFTER] B 1-PRESET-APPLIED corners=sharp PAINTED card=10px answer=6px continue=6px --lg-primary=#1B3A5C progressTrack=9999px vars={"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+[AFTER] sharp-1-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+[AFTER] B colour-edit PUT HTTP 200
+[AFTER] B stored theme_json AFTER colour edit = {"palette":{"brand_primary":"error","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"},"scales":{"radius":"sharp"}}
+[AFTER] B activation re-PUT (fresh shell key) HTTP 200
+[AFTER] B 2-AFTER-COLOUR-EDIT corners=sharp PAINTED card=10px answer=6px continue=6px --lg-primary=#D32F2F progressTrack=9999px vars={"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+[AFTER] sharp-2-after-colour-edit @375 scrollWidth=375 innerWidth=375 overflow=no
+[AFTER] B SUMMARY sharp: before=10px/6px/6px after=10px/6px/6px --lg-primary before=#1B3A5C after=#D32F2F
+
+===== ARM=AFTER-FINAL run 2026-07-31T11:42:45.775Z =====
+[AFTER-FINAL] A preset created id=thm_new-theme
+[AFTER-FINAL] A PATCH corners=pill HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"pill"}
+[AFTER-FINAL] A stored theme_json BEFORE colour edit = {"theme_id":"thm_new-theme"}
+[AFTER-FINAL] A activation re-PUT (fresh shell key) HTTP 200
+[AFTER-FINAL] A 1-PRESET-APPLIED corners=pill PAINTED card=20px answer=14px continue=14px --lg-primary=#1B3A5C progressTrack=9999px vars={"sm":"10px","md":"14px","lg":"20px","xl":"20px","full":"9999px"}
+[AFTER-FINAL] pill-1-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+[AFTER-FINAL] A colour-edit PUT HTTP 200
+[AFTER-FINAL] A stored theme_json AFTER colour edit = {"palette":{"brand_primary":"error","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"},"scales":{"radius":"round"}}
+[AFTER-FINAL] A activation re-PUT (fresh shell key) HTTP 200
+[AFTER-FINAL] A 2-AFTER-COLOUR-EDIT corners=pill PAINTED card=20px answer=14px continue=14px --lg-primary=#D32F2F progressTrack=9999px vars={"sm":"10px","md":"14px","lg":"20px","xl":"20px","full":"9999px"}
+[AFTER-FINAL] pill-2-after-colour-edit @375 scrollWidth=375 innerWidth=375 overflow=no
+[AFTER-FINAL] A SUMMARY pill: before=20px/14px/14px after=20px/14px/14px --lg-primary before=#1B3A5C after=#D32F2F
+[AFTER-FINAL] B preset created id=thm_new-theme-2
+[AFTER-FINAL] B PATCH corners=sharp HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"sharp"}
+[AFTER-FINAL] B stored theme_json BEFORE colour edit = {"theme_id":"thm_new-theme-2"}
+[AFTER-FINAL] B activation re-PUT (fresh shell key) HTTP 200
+[AFTER-FINAL] B 1-PRESET-APPLIED corners=sharp PAINTED card=10px answer=6px continue=6px --lg-primary=#1B3A5C progressTrack=9999px vars={"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+[AFTER-FINAL] sharp-1-preset-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+[AFTER-FINAL] B colour-edit PUT HTTP 200
+[AFTER-FINAL] B stored theme_json AFTER colour edit = {"palette":{"brand_primary":"error","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"},"scales":{"radius":"sharp"}}
+[AFTER-FINAL] B activation re-PUT (fresh shell key) HTTP 200
+[AFTER-FINAL] B 2-AFTER-COLOUR-EDIT corners=sharp PAINTED card=10px answer=6px continue=6px --lg-primary=#D32F2F progressTrack=9999px vars={"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+[AFTER-FINAL] sharp-2-after-colour-edit @375 scrollWidth=375 innerWidth=375 overflow=no
+[AFTER-FINAL] B SUMMARY sharp: before=10px/6px/6px after=10px/6px/6px --lg-primary before=#1B3A5C after=#D32F2F

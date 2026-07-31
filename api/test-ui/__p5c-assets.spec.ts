@@ -28,6 +28,7 @@
 import { test, expect, request as playwrightRequest, type APIRequestContext, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { seedActiveSite } from "./listicles-p6-seed";
+import { seedSharedFirstPage, createPassThroughSection } from "./leadgen-shared-page-seed";
 import { PW_PORT } from "./utils/base-url";
 
 test.use({ launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] } });
@@ -84,10 +85,18 @@ async function seedLogoFunnel(
     await request.post(`${LG_API}/sections`, { data: { activity: "quote_funnel", vertical: "life", status: "active", ...yesNoSection(`${safe}-s1`, "f_p5c_1") } }),
     "section create",
   );
+  // Rework §4.3-1: the shared first page is mandatory for activation and resolver.ts
+  // composes [...sharedPages, ...variantPages]. The yes/no section IS page 1, so it
+  // moves onto the shared page; the variant keeps a trailing pass-through page so the
+  // funnel still satisfies "every active funnel needs at least one page with a
+  // section". Every assertion here reads the FRAME (brand logos) on page 1.
   await json(
-    await request.put(`${LG_API}/variants/${variantId}`, { data: { pages: [{ name: "Page 1", slots: [{ kind: "fixed", section_id: section.public_id }] }] } }),
+    await request.put(`${LG_API}/variants/${variantId}`, {
+      data: { pages: [{ name: "Page 2", slots: [{ kind: "fixed", section_id: await createPassThroughSection(request, `P5c ${uniq}`) }] }] },
+    }),
     "variant pages",
   );
+  await seedSharedFirstPage(request, quote.public_id, [section.public_id], "Page 1");
   await json(
     await request.put(`${LG_API}/funnels/${funnelId}/frame`, {
       data: { frame_config_json: { version: 1, template: "centered", brand_logos: brandLogos } },

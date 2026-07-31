@@ -99,6 +99,40 @@ unattributed. `editor-panel-ab.html`, `editor-panel-activation.html`,
 confirmed byte-for-byte identical otherwise; `editor-panel-themes.html` and
 `editor-panel-analytics.html` were already current (zero drift).
 
+2026-07-30 re-capture (R2 P6 terminal): exactly TWO fixtures changed —
+`editor-panel-ab.html` and `editor-full.html`; the other nine were re-run through
+the same ritual and restored byte-for-byte from their pre-capture bytes after a
+normalized diff proved they carried ZERO content change (fresh ULIDs only), so
+their sha256s are unchanged. 39 real (normalized) changed lines, all three hunks
+classified, 0 unattributed:
+
+* **hunk 1 — 4 lines, both fixtures** (`9ab6baa`, `ab.ts` +36/-1): the A/B tab's
+  add-variant affordance now states the requirement before the failing action —
+  `#lg-add-variant` gains `data-add-variant-state="no-test" disabled
+  aria-disabled aria-describedby=lg-add-variant-why` + a `title`, plus the
+  `data-ab-order` required-order line and the `data-add-variant-blocked` reason
+  element. This is the only A/B-tab change; nothing else in
+  `editor-panel-ab.html` moved.
+* **hunk 2 — 17 lines, `editor-full.html` only** (`9449528`, `funnel.ts` +16/-1):
+  `loadThemePresetOptions` moves its `var keep = sel.value` snapshot inside the
+  `.then` (resolve time, not pre-fetch) + its 15-line rationale comment. This
+  commit recaptured NO fixture, which is why the "full page is byte-identical"
+  leg was already failing at `9ab6baa` before this round: the leg is **stale
+  capture, not an unsound assertion and not a product defect**.
+* **hunk 3 — 18 lines, `editor-full.html` only** (`9ab6baa`, `funnel.ts` +18):
+  `addVariantBlockedReason()` + the guard it adds to `forkWithAllocation`, so the
+  Themes tab's "A/B this theme" reads hunk 1's attribute and names the next step
+  instead of prompting into the 409.
+
+Hunks 2 and 3 live in the trailing `<script>` region outside every `data-panel`
+div (`P6 D3 FIX` and `addVariantBlockedReason` appear in ZERO panel fixtures;
+the only `data-panel=` occurrence past them is a JS string literal at full-page
+line 6741), so no per-tab fixture can catch that class of change — only
+`editor-full.html` — the same structural situation as the 2026-07-23 note above.
+Determinism re-proven this round: the capture script was run twice and both
+changed fixtures were byte-identical between runs after normalization, ruling
+out any new un-normalized wall-clock/entropy source in the full page.
+
 ## Rolling analytics window (CLOSED — normalized, does not drift)
 
 The two `quotes-list-*.html` fixtures embed `resolveTimeframe`'s default rolling

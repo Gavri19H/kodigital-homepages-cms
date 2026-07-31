@@ -138,6 +138,31 @@ async function selectAndMoveViaTag(
   await anyChoice.click({ timeout: 8000 });
   const tag = frame(page).locator(`[data-move-handle="${groupQid}"]`);
   await expect(tag).toBeVisible({ timeout: 8000 });
+  // P6 C2 (harness gap, measured — NOT a product change): the choice click the
+  // line above uses to REVEAL the tag also runs the product's own §6.2/§6.4
+  // focusChoiceRow (ui-section-studio.ts) — it scrollIntoView()s + focuses the
+  // matching row in the RIGHT-HAND inspector, which scrolls the studio's
+  // scroller (BODY: clientHeight 720, scrollHeight 2357) from scrollTop 0 to
+  // 651. Measured consequence at the default 1280x720 viewport: the canvas
+  // iframe's top goes to page y=-157.75 and this group's name tag — the ONLY
+  // grab surface a choice-covered group has — lands at page y=-63.1, ABOVE the
+  // viewport. toBeVisible() still passes (a non-empty box scrolled out of view
+  // is "visible" to Playwright), but realDragFromLocator drives raw page.mouse
+  // at that box's coordinates and never scrolls, so mouse.down() at y=-63.1 is
+  // undeliverable: the drag never starts and the order is unchanged. Proven by
+  // direct diagnosis (temporary instrumentation of the box/scroll geometry +
+  // the post-drag canvas DOM order): WITHOUT this line tagBox.y=-63.1 and the
+  // post-drag DOM order is q_head,q_btn,q_zip,q_cont (unmoved); WITH it
+  // tagBox.y=349.9 and the SAME drag yields q_head,q_zip,q_btn,q_cont and
+  // persists. Scrolling the handle into view is the real operator's own
+  // gesture (they scroll back to the canvas before grabbing), and the drag
+  // below stays a fully hit-tested page.mouse drag — nothing is dispatchEvent-
+  // based (register root rule / M1). Same harness class this file's 5th test
+  // already documents for the BOTTOM edge ("off-screen and UNREACHABLE by a
+  // real page.mouse move — not a product bug, a viewport-too-short test
+  // harness gap"); this is its TOP-edge twin. The target box below is measured
+  // AFTER the scroll on purpose — it moves with it.
+  await tag.scrollIntoViewIfNeeded();
   const targetEl = frame(page).locator(`[data-question-id="${targetQid}"]`);
   await expect(targetEl).toBeVisible();
   const targetBox = await targetEl.boundingBox();

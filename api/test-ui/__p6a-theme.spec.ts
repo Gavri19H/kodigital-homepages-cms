@@ -20,6 +20,7 @@
 
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { seedActiveSite } from "./listicles-p6-seed";
+import { seedSharedFirstPage, createPassThroughSection } from "./leadgen-shared-page-seed";
 import { PW_PORT } from "./utils/base-url";
 
 test.use({ launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] } });
@@ -108,16 +109,23 @@ async function seedFunnel(request: APIRequestContext, tag: string, withTheme: bo
   const variantId = quote.funnels[0]!.variants[0]!.public_id;
 
   const field = `f_${safe.replace(/-/g, "_")}`;
-  const section = await json<{ public_id: string }>(
+  const section = await json<{ id: number; public_id: string }>(
     await request.post(`${LG_API}/sections`, { data: richSection(`${safe}-q1`, field) }),
     "section create",
   );
+  // Rework §4.3-1: the shared first page is mandatory for activation and resolver.ts
+  // composes [...sharedPages, ...variantPages]. The themed section IS page 1, so it
+  // moves onto the shared page and the variant keeps a trailing pass-through page (the
+  // gate also demands every active funnel have >=1 page with a section). The theme
+  // assertions all read page 1, which still renders the same rich section.
+  const passThroughId = await createPassThroughSection(request, `P6a ${safe}`);
   await json(
     await request.put(`${LG_API}/variants/${variantId}`, {
-      data: { pages: [{ name: "Page 1", slots: [{ kind: "fixed", section_id: section.public_id }] }] },
+      data: { pages: [{ name: "Page 2", slots: [{ kind: "fixed", section_id: passThroughId }] }] },
     }),
     "variant pages",
   );
+  await seedSharedFirstPage(request, quote.public_id, [section.id]);
   await json(
     await request.put(`${LG_API}/funnels/${funnelId}/frame`, { data: { frame_config_json: FRAME_CONFIG } }),
     "funnel frame",

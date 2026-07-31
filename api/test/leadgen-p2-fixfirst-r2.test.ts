@@ -1037,6 +1037,9 @@ describeDb("R2 P2 FIX-FIRST-2 FIX 2 — a preset's mappable fonts survive the fi
       sliceIslandVar(island, "PRESET_ROLE_BRIDGE"),
       sliceIslandVar(island, "PRESET_EXTRA_ROLE_BRIDGE"),
       sliceIslandVar(island, "PRESET_FONT_BRIDGE"),
+      // Terminal F-1b: inlineThemeFromPreset now also reads this bridge to
+      // carry the preset's Corners across the fork.
+      sliceIslandVar(island, "PRESET_CORNERS_BRIDGE"),
       sliceIslandVar(island, "PRESET_LOAD_FAILED_MESSAGE"),
       sliceIslandFunction(island, "hasAnyKey"),
       sliceIslandFunction(island, "presetFontId"),

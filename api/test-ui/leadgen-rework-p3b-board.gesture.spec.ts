@@ -109,7 +109,13 @@ test.describe("P3b Funnel-builder board — live journeys (§8.2)", () => {
     // pinned desktop width for the screenshot + no-body-scroll proof (MUST-PIN 1)
     await page.setViewportSize({ width: 1280, height: 900 });
 
-    await expect(page.locator(".lg-board-left")).toBeVisible();
+    // Two co-existing tab panels stamp class `lg-board-left` on their own left rail —
+    // the funnel tab's section library (funnel.ts data-pin="8.2-left-library") and the
+    // themes tab's chooser (themes.ts data-pin="r2-theme-chooser"). Both are in the DOM
+    // at once, so the bare class is a strict-mode violation (2 elements). This assertion
+    // is about the LIBRARY rail, so pin its own ruled hook — stricter than the class,
+    // which could have been satisfied by the wrong panel.
+    await expect(page.locator('.lg-board-left[data-pin="8.2-left-library"]')).toBeVisible();
     await expect(page.locator(".lg-col-shared")).toBeVisible();
     await expect(page.locator(".lg-col-funnel")).toHaveCount(1);
     await expect(page.locator("[data-add-funnel]")).toBeVisible();

@@ -1,0 +1,65 @@
+
+===== RR1 F-1 (nonce=rrms8wb25n) 2026-07-31T12:05:08.667Z =====
+[RR1] seed host=rr1b25n-1785499509056429.e2e.test slug=rr1b25n funnel=lgf_01KYW10RDZH9PJ927PHV8DW212
+[RR1] preset created id=thm_new-theme
+[RR1] preset name stored = RR-scoped rrms8wb25n
+[RR1] PATCH corners=sharp HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"sharp"}
+[RR1] apply-preset PUT HTTP 200
+[RR1] stored funnel theme_json = {"theme_id":"thm_new-theme"}
+[RR1] preset corners=sharp card=10px answer=6px continue=6px track=9999px fill=9999px btnBg=rgb(27, 58, 92) vars={"sm":"6px","md":"6px","lg":"10px","xl":"14px","full":"9999px"}
+[RR1] f1-preset-sharp @375 scrollWidth=375 innerWidth=375 overflow=no
+[RR1] PATCH corners=pill HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"pill"}
+[RR1] preset corners=pill card=20px answer=14px continue=14px track=9999px fill=9999px btnBg=rgb(27, 58, 92) vars={"sm":"10px","md":"14px","lg":"20px","xl":"20px","full":"9999px"}
+[RR1] f1-preset-pill @375 scrollWidth=375 innerWidth=375 overflow=no
+[RR1] PATCH corners=rounded HTTP 200 stored={"field_height":"medium","button_size":"m","corners":"rounded"}
+[RR1] preset corners=rounded card=16px answer=10px continue=10px track=9999px fill=9999px btnBg=rgb(27, 58, 92) vars={"sm":"6px","md":"10px","lg":"14px","xl":"20px","full":"9999px"}
+[RR1] f1-preset-rounded @375 scrollWidth=375 innerWidth=375 overflow=no
+[RR1] SUMMARY sharp=10px/6px/6px pill=20px/14px/14px rounded=16px/10px/10px
+
+===== RR2 F-1b (nonce=rr2ms8wepzi) 2026-07-31T12:07:59.518Z =====
+[RR2] pill preset thm_new-theme-2 applied to funnel lgf_01KYW15Z7KWKSMJCCB57N6NVKB
+[RR2] A 1-preset-applied pill card=20px answer=14px continue=14px --lg-primary=#1B3A5C shadow=rgba(20, 32, 54, 0.1) 0px 8px 28px 0px track=9999px
+[RR2] f1b-a-pill-1-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+[RR2] A stored theme_json AFTER colour edit = {"palette":{"brand_primary":"error","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"},"scales":{"radius":"round"}}
+[RR2] A 2-after-colour-edit pill card=20px answer=14px continue=14px --lg-primary=#D32F2F shadow=rgba(20, 32, 54, 0.1) 0px 8px 28px 0px track=9999px
+[RR2] f1b-a-pill-2-after-colour @375 scrollWidth=375 innerWidth=375 overflow=no
+[RR2] sharp preset thm_new-theme-3 applied to funnel lgf_01KYW1689XG5HAEXSKD5VYJM7P
+[RR2] B 1-preset-applied sharp card=10px answer=6px continue=6px --lg-primary=#1B3A5C shadow=rgba(20, 32, 54, 0.1) 0px 8px 28px 0px track=9999px
+[RR2] f1b-b-sharp-1-applied @375 scrollWidth=375 innerWidth=375 overflow=no
+[RR2] B stored theme_json AFTER shadow edit = {"palette":{"brand_primary":"#1B3A5C","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"},"scales":{"radius":"sharp","shadow":"high"},"version":1}
+[RR2] B 2-after-shadow-edit sharp card=10px answer=6px continue=6px --lg-primary=#1B3A5C shadow=rgba(20, 32, 54, 0.1) 0px 8px 28px 0px track=9999px
+[RR2] f1b-b-sharp-2-after-shadow @375 scrollWidth=375 innerWidth=375 overflow=no
+
+===== RR3 regressions (nonce=rr3ms8whjxv) 2026-07-31T12:10:11.650Z =====
+[RR3] R-1 inline=sharp card=10px answer=6px cont=6px track=9999px fill=9999px primary=#1B3A5C shadowLg=0 8px 24px rgba(27,58,92,.08) headFont=Newsreader, serif contBg=rgb(27, 58, 92)
+[RR3] r1-inline-sharp @375 scrollWidth=375 innerWidth=375 overflow=no
+[RR3] R-1 inline=round card=20px answer=14px cont=14px track=9999px fill=9999px primary=#1B3A5C shadowLg=0 8px 24px rgba(27,58,92,.08) headFont=Newsreader, serif contBg=rgb(27, 58, 92)
+[RR3] r1-inline-round @375 scrollWidth=375 innerWidth=375 overflow=no
+[RR3] R-2 no-theme chrome <style> bytes=31906 sha256=ad1463b1cf9bc39ee0e73cc80efe52b0eb5bdbe199ba7cdd3e85d1b5532b666c
+[RR3] R-2 no-theme card=16px answer=10px cont=10px track=ABSENT fill=ABSENT primary=#1B3A5C shadowLg=0 8px 24px rgba(27,58,92,.08) headFont=Newsreader, serif contBg=rgb(27, 58, 92)
+[RR3] r2-no-theme @375 scrollWidth=375 innerWidth=375 overflow=no
+[RR3] R-3 baseline (no theme) card=16px answer=10px cont=10px track=9999px fill=9999px primary=#1B3A5C shadowLg=0 8px 24px rgba(27,58,92,.08) headFont=Newsreader, serif contBg=rgb(27, 58, 92)
+[RR3] R-3 preset thm_new-theme-4
+
+===== RR3 regressions (nonce=rr3ms8wi2rs) 2026-07-31T12:10:36.056Z =====
+[RR3] R-4 editor-controls @1280 width=304 height=1712.46875
+[RR3] R-4 Corners 'Pill' segment @1280 visible-box={"x":717.46875,"y":1448.625,"width":35.53125,"height":30}
+[RR3] R-4 themes manager @375 scrollWidth=375 innerWidth=375 overflow=no
+
+===== RR4 colours+fonts (nonce=rr4ms8wjkkx) 2026-07-31T12:11:45.791Z =====
+[RR4] R-3 baseline (no theme) card=16px answer=10px cont=10px primary=#1B3A5C headFont=Newsreader, serif contBg=rgb(27, 58, 92)
+[RR4] r3-baseline-no-theme @375 scrollWidth=375 innerWidth=375 overflow=no
+[RR4] R-3 preset thm_new-theme-6
+[RR4] R-3 stored preset roles.brand_primary=#7B2FF7 headline_font=Playfair Display corners=rounded
+[RR4] R-3 preset applied (colour+font) card=16px answer=10px cont=10px primary=#7B2FF7 headFont="Playfair Display", Georgia, "Times New Roman", serif contBg=rgb(27, 58, 92)
+[RR4] r3-preset-colour-font @375 scrollWidth=375 innerWidth=375 overflow=no
+
+===== RR5 fork+reapply (nonce=rr5ms8wxmz6) 2026-07-31T12:22:42.081Z =====
+[RR5] preset thm_new-theme-7 corners=pill
+[RR5] preset thm_new-theme-8 corners=sharp
+[RR5] 1 pill preset applied card=20px answer=14px cont=14px primary=#1B3A5C track=9999px
+[RR5] rail Corners select BEFORE the fork (funnel paints 20px pill) = ""
+[RR5] 2 after colour fork card=20px answer=14px cont=14px primary=#D32F2F track=9999px
+[RR5] rail Corners select AFTER the fork = "round"
+[RR5] stored theme_json after RE-apply = {"theme_id":"thm_new-theme-8"}
+[RR5] 3 after re-applying a SHARP preset card=10px answer=6px cont=6px primary=#1B3A5C track=9999px

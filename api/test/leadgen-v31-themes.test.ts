@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { createContext, runInContext } from "node:vm";
 import admin from "../src/admin/router";
 import { mintPublicId } from "../src/leadgen/ids";
 import type { Env } from "../src/env";
@@ -24,8 +25,17 @@ import {
   resolveTokens,
   validateTheme,
   winningThemeId,
+  THEME_RADIUS_SCALES,
+  THEME_RECORD_CORNERS,
+  THEME_RECORD_CORNERS_TO_RADIUS_SCALE,
   type ThemeRecord,
+  type ThemeRecordCorners,
 } from "../src/public/leadgen/designs/theme";
+// R2 F-1 FOLLOW-UP — the REAL shipped island source text (not a hand-built
+// copy): quotes-tabs/theme-preset-resolve.ts exports the ES5 snippet that BOTH
+// admin islands interpolate verbatim, so evaluating it here exercises the same
+// bytes the operator's browser runs.
+import { themePresetResolveSnippet } from "../src/admin/leadgen/quotes-tabs/theme-preset-resolve";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 // Re-review fix round — theme-store.ts's own read-layer defense-in-depth
 // (getThemeRecord/readThemeRecords) tested DIRECTLY, no HTTP: proves the
@@ -195,6 +205,206 @@ describe("themes v3.1 — resolveTokens theme_id path (§10.4 record → existin
     expect(eff.roles.brand_primary).toBe("#0B5FFF");
     expect(eff.roles.accent).toBe("#AA3300");
     expect(eff.design.color.primary).toBe("#0B5FFF");
+  });
+});
+
+// ===========================================================================
+// 3b. R2 F-1 (+ its follow-up) — the CORNERS -> RADIUS derivation, pinned.
+//
+// WHY THIS BLOCK EXISTS: both halves of this derivation were proven only by a
+// Playwright drive on a live funnel, and Playwright does not run in CI. A
+// future edit to EITHER ladder (the record's corner vocabulary, or the §9.3
+// radius scale's component shift) would therefore fail on a real operator's
+// funnel instead of here. These pin the FULL mapping — every ThemeRecordCorners
+// value to its radius scale AND to the painted component corner values that
+// scale produces (the exact numbers measured on the live page).
+//
+// The painted numbers below are the live-drive measurements, per corners value:
+//   sharp  -> question card 10px · answer/continue 6px
+//   rounded-> question card 16px · answer/continue 10px  (the base identity)
+//   pill   -> question card 20px · answer/continue 14px
+// ===========================================================================
+
+// The three corners an operator actually looks at, resolved from the design the
+// record produces. `.lg-question-card` paints questionCard.borderRadius,
+// `.lg-continue` paints primaryButton.borderRadius, and the card-grid answers
+// paint content.cardRadius — three of the fields applyRadiusScale shifts.
+const PAINTED_CORNERS: Record<
+  ThemeRecordCorners,
+  { scale: string; questionCard: string; primaryButton: string; contentCard: string; radius: Record<string, string> }
+> = {
+  sharp: {
+    scale: "sharp",
+    questionCard: "10px",
+    primaryButton: "6px",
+    contentCard: "10px",
+    radius: { sm: "6px", md: "6px", lg: "10px", xl: "14px", full: "9999px" },
+  },
+  rounded: {
+    scale: "soft",
+    questionCard: "16px",
+    primaryButton: "10px",
+    contentCard: "14px",
+    radius: { sm: "6px", md: "10px", lg: "14px", xl: "20px", full: "9999px" },
+  },
+  pill: {
+    scale: "round",
+    questionCard: "20px",
+    primaryButton: "14px",
+    contentCard: "20px",
+    radius: { sm: "10px", md: "14px", lg: "20px", xl: "20px", full: "9999px" },
+  },
+};
+
+const recordWithCorners = (corners: ThemeRecordCorners): ThemeRecord => ({
+  ...THEME_RECORD_FIXTURE,
+  controls: { ...THEME_RECORD_FIXTURE.controls, corners },
+});
+
+describe("R2 F-1 — a theme RECORD's controls.corners drives the painted corners (§9.3 radius scale)", () => {
+  it("the bridge table is TOTAL over THEME_RECORD_CORNERS and lands only on real radius scales", () => {
+    // A new corners value with no radius scale — or a scale renamed out from
+    // under the bridge — fails HERE rather than silently painting square.
+    expect(Object.keys(THEME_RECORD_CORNERS_TO_RADIUS_SCALE).sort()).toEqual([...THEME_RECORD_CORNERS].sort());
+    for (const corners of THEME_RECORD_CORNERS) {
+      expect(THEME_RADIUS_SCALES).toContain(THEME_RECORD_CORNERS_TO_RADIUS_SCALE[corners]);
+    }
+    // The mapping itself, spelled out (the order-preserving pairing of the two
+    // 3-step ladders): tighter / identity / looser.
+    expect(THEME_RECORD_CORNERS_TO_RADIUS_SCALE).toEqual({ sharp: "sharp", rounded: "soft", pill: "round" });
+  });
+
+  it("this test's own pin table covers every corners value (no value can be added untested)", () => {
+    expect(Object.keys(PAINTED_CORNERS).sort()).toEqual([...THEME_RECORD_CORNERS].sort());
+  });
+
+  for (const corners of THEME_RECORD_CORNERS) {
+    const want = PAINTED_CORNERS[corners];
+    it(`corners=${corners} resolves to radius scale '${want.scale}' and paints card ${want.questionCard} / button ${want.primaryButton}`, () => {
+      const eff = resolveTokens(base, { theme_id: "thm_navy" }, null, recordWithCorners(corners));
+      expect(eff.design.radius).toEqual(want.radius);
+      expect(eff.design.questionCard.borderRadius).toBe(want.questionCard);
+      expect(eff.design.primaryButton.borderRadius).toBe(want.primaryButton);
+      expect(eff.design.content.cardRadius).toBe(want.contentCard);
+      // The progress pill's semantic "fully round" never shifts.
+      expect(eff.design.radius.full).toBe("9999px");
+    });
+
+    it(`corners=${corners} is the SAME derivation as the inline scales.radius='${want.scale}' path (one applyRadiusScale, two vocabularies)`, () => {
+      // The invariant F-1 was built on: the record path and the inline path are
+      // the same 3-step corner language in each path's own words, so they must
+      // land on an IDENTICAL design. A second, parallel corner mechanism would
+      // break this the first time either side moved.
+      const viaRecord = resolveTokens(base, { theme_id: "thm_navy" }, null, recordWithCorners(corners));
+      const viaInline = resolveTokens(base, { scales: { radius: want.scale as "sharp" | "soft" | "round" } }, null);
+      expect(viaRecord.design.radius).toEqual(viaInline.design.radius);
+      expect(viaRecord.design.questionCard.borderRadius).toBe(viaInline.design.questionCard.borderRadius);
+      expect(viaRecord.design.primaryButton.borderRadius).toBe(viaInline.design.primaryButton.borderRadius);
+      expect(viaRecord.design.content.cardRadius).toBe(viaInline.design.content.cardRadius);
+    });
+  }
+
+  it("an off-table corners value degrades to the 'soft' identity — never an undefined shift", () => {
+    const tampered = { ...THEME_RECORD_FIXTURE, controls: { ...THEME_RECORD_FIXTURE.controls, corners: "wobbly" } };
+    const eff = resolveTokens(base, { theme_id: "thm_navy" }, null, tampered as unknown as ThemeRecord);
+    expect(eff.design.radius).toEqual(PAINTED_CORNERS.rounded.radius);
+    expect(eff.design.questionCard.borderRadius).toBe("16px");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3c. R2 F-1 FOLLOW-UP — the SILENT-LOSS path: the operator's corners must
+//     survive the fork to inline theme_json.
+//
+// MEASURED defect (live page, both arms): apply a Pill preset -> painted
+// 20/14/14; then edit ONE unrelated rail control (a colour) -> 16/10/10. Sharp:
+// 10/6/6 -> 16/10/10. Mechanism: inline theme_json and a {theme_id} preset are
+// MUTUALLY EXCLUSIVE (validateTheme rejects the combination; resolveTokens
+// empties `theme` for a reference and only loads `record` for a pure one), so
+// the first rail edit FORKS theme_json from a pointer into inline values via
+// theme-preset-resolve.ts's inlineThemeFromPreset — and anything that resolver
+// does not carry is silently lost at that moment. Corners was not carried.
+//
+// This drives the REAL shipped island source (themePresetResolveSnippet — the
+// same bytes both admin islands interpolate into their own IIFE) rather than a
+// re-implementation, then feeds its output through the REAL validateTheme +
+// resolveTokens: record -> fork -> inline theme_json -> painted corners, end to
+// end, with no hand-built side (E11).
+// ---------------------------------------------------------------------------
+
+interface PresetResolveIsland {
+  inlineThemeFromPreset: (rec: unknown) => Record<string, unknown>;
+}
+
+function loadPresetResolveIsland(): PresetResolveIsland {
+  // The snippet is ES5 statement text meant to be inlined into an IIFE; it only
+  // DECLARES (no top-level side effects, and its one fetch lives inside a
+  // function body), so evaluating it in a bare isolated context and handing
+  // back the declared function is exactly what the browser island does. A
+  // fresh context — not this module's scope — so the snippet can neither see
+  // nor perturb the test's own bindings.
+  const sandbox = createContext({});
+  const fn = runInContext(
+    `${themePresetResolveSnippet()}\ninlineThemeFromPreset;`,
+    sandbox,
+    { filename: "theme-preset-resolve.island.js" },
+  ) as PresetResolveIsland["inlineThemeFromPreset"];
+  return { inlineThemeFromPreset: fn };
+}
+
+describe("R2 F-1 follow-up — a preset's corners SURVIVE the fork to inline theme_json (the silent-loss path)", () => {
+  const island = loadPresetResolveIsland();
+
+  for (const corners of THEME_RECORD_CORNERS) {
+    const want = PAINTED_CORNERS[corners];
+
+    it(`corners=${corners}: the resolved inline theme carries scales.radius='${want.scale}'`, () => {
+      const inline = island.inlineThemeFromPreset(recordWithCorners(corners));
+      expect(inline["scales"]).toEqual({ radius: want.scale });
+    });
+
+    it(`corners=${corners}: the forked inline theme is ACCEPTED by validateTheme and still paints ${want.questionCard}/${want.primaryButton}`, () => {
+      const inline = island.inlineThemeFromPreset(recordWithCorners(corners));
+      // The fork's product must be a LEGAL inline theme — the PUT that follows
+      // it in the island is validated by exactly this function.
+      const validation = validateTheme(inline);
+      expect(validation.problems.filter((p) => p.severity === "error")).toEqual([]);
+      expect(validation.theme).not.toBeNull();
+
+      // ...and it must paint what the preset painted. `record` is null here on
+      // purpose: after the fork the record is OUT of resolution entirely, which
+      // is precisely why an uncarried value was lost.
+      const eff = resolveTokens(base, validation.theme, null, null);
+      expect(eff.design.questionCard.borderRadius).toBe(want.questionCard);
+      expect(eff.design.primaryButton.borderRadius).toBe(want.primaryButton);
+      expect(eff.design.content.cardRadius).toBe(want.contentCard);
+      expect(eff.design.radius).toEqual(want.radius);
+    });
+
+    it(`corners=${corners}: the funnel's corners look the SAME before and after the fork (nothing silently discarded)`, () => {
+      const beforeFork = resolveTokens(base, { theme_id: "thm_navy" }, null, recordWithCorners(corners));
+      const inline = island.inlineThemeFromPreset(recordWithCorners(corners));
+      const afterFork = resolveTokens(base, validateTheme(inline).theme, null, null);
+      expect(afterFork.design.radius).toEqual(beforeFork.design.radius);
+      expect(afterFork.design.questionCard.borderRadius).toBe(beforeFork.design.questionCard.borderRadius);
+      expect(afterFork.design.primaryButton.borderRadius).toBe(beforeFork.design.primaryButton.borderRadius);
+      expect(afterFork.design.content.cardRadius).toBe(beforeFork.design.content.cardRadius);
+    });
+  }
+
+  it("a record with NO recognisable corners writes no scales key at all (byte-identical to pre-carry)", () => {
+    const noCorners = { ...THEME_RECORD_FIXTURE, controls: { field_height: "medium", button_size: "m" } };
+    expect(island.inlineThemeFromPreset(noCorners)["scales"]).toBeUndefined();
+    const offTable = { ...THEME_RECORD_FIXTURE, controls: { ...THEME_RECORD_FIXTURE.controls, corners: "wobbly" } };
+    expect(island.inlineThemeFromPreset(offTable)["scales"]).toBeUndefined();
+    expect(island.inlineThemeFromPreset(null)["scales"]).toBeUndefined();
+  });
+
+  it("the carry is ADDITIVE — the palette/typography values the fork already rescued are untouched", () => {
+    const inline = island.inlineThemeFromPreset(recordWithCorners("pill"));
+    expect((inline["palette"] as Record<string, string>)["brand_primary"]).toBe("#0B5FFF");
+    expect((inline["palette"] as Record<string, string>)["card_background"]).toBe("#F9FAFC");
+    expect(inline["scales"]).toEqual({ radius: "round" });
   });
 });
 

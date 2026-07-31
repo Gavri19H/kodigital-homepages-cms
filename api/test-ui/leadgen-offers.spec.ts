@@ -210,9 +210,18 @@ test.describe.serial('LeadGen Offers — CP2 click-through', () => {
 
     // §7.1: row actions now live behind a kebab menu — open it, then pick the
     // Archive menuitem (scoped to this offer's row).
+    // S2.4 admin-UI fix: opening a kebab REPARENTS its menu to <body> with
+    // position:fixed (ui-offers.ts kebabMenuScript — escapes the table's stacking
+    // context), so a row-scoped locator stops resolving the moment the menu opens.
+    // Read this row's own offer id off the still-in-row button first, then locate the
+    // portalled menuitem by that exact id — same "it must be THIS row's offer" claim,
+    // pinned to the public_id instead of to DOM ancestry. The __p1d-lists quotes tests
+    // already document and use this exact workaround.
+    const archiveOfferId = await row.locator('[data-offer-archive]').first().getAttribute('data-offer-archive');
+    expect(archiveOfferId, 'the row kebab carries this offer public_id').toBeTruthy();
     await row.getByRole('button', { name: /More actions/i }).click();
     page.once('dialog', (dialog) => void dialog.accept());
-    await row.locator('[data-offer-archive]').click();
+    await page.locator(`[data-offer-archive="${archiveOfferId}"]`).click();
     await expect(page.locator('.toast')).toContainText('Offer archived');
 
     // The archive flow reloads the list (§9.6 reversible status flip — the

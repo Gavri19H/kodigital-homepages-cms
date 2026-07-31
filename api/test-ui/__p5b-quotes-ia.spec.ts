@@ -120,13 +120,49 @@ async function seedQuote(request: APIRequestContext, tag: string): Promise<Seede
   };
 }
 
+// R2 P6 terminal clearance (ruling R-A) — RE-POINTED, not retired, and NOT
+// relaxed. The §4.1 frame-studio canvas `#lg-preview-iframe` was deleted by the
+// P3b board rewrite (`grep -rn "lg-preview-iframe" src/` = 1 hit, a `byId()`
+// read inside quotes-tabs/funnel.ts's orphaned island; 0 renders). The frame
+// canvas itself was NOT deleted — it MOVED into the Templates tab as
+// `#lg-tpl-canvas-iframe` (quotes-tabs/templates.ts:809, "Templates live
+// preview"), a srcdoc iframe fed by the same POST /variants/:id/preview.
+// Probed by hand on port 8901 at f808e33 against that endpoint with a valid
+// draft_frame_config: the returned html carries 9 `data-frame-region` stamps
+// (background, header, logo, progress, image, section_slot, back, brand_logos,
+// footer), 2 `.lg-frame-brand-logos`, 4 `.lg-frame-image` and 44 `lg-frame*`
+// nodes — i.e. every region these tests assert still renders, on a LIVE admin
+// surface. Same helper name, same regions, same assertions; only the iframe id
+// moves. Precedent: leadgen-rework-p4-templates.gesture.spec.ts uses exactly
+// this frameLocator for exactly this canvas.
 function canvas(page: Page): FrameLocator {
-  return page.frameLocator("#lg-preview-iframe");
+  return page.frameLocator("#lg-tpl-canvas-iframe");
 }
 
+// The canvas now lives under the Templates tab, so a test that asserts on it
+// must be ON that tab. Mirrors leadgen-rework-p4-templates.gesture.spec.ts's
+// openTemplatesTab (same waits, same de-flake on the pre-selected Progress box).
+async function openTemplatesTab(page: Page): Promise<void> {
+  await page.locator('.lg-qtab[data-tab="templates"]').click();
+  await expect(page.locator('[data-panel="templates"]')).toHaveClass(/active/);
+  await expect(page.locator('[data-tplbox-panel="progress"]')).toBeVisible({ timeout: 15_000 });
+}
+
+// R2 P6 (stale WAIT, not a weakened assertion): this gate used to wait for
+// `#lg-preview-iframe` → `[data-frame-region='section_slot']`. That iframe is
+// the §4.1 FRAME STUDIO canvas the P3b board rewrite DELETED — `grep -rn
+// "lg-preview-iframe" src/` returns exactly ONE hit, a `byId()` lookup inside
+// quotes-tabs/funnel.ts's orphaned island (zero renders) — so EVERY test in
+// this file died in the gate, including the ones that never touch the canvas.
+// The gate now waits for the editor's real landing surface (`[data-board]`,
+// the P3b board). It asserts the same thing it always did ("the editor for
+// this quote is loaded"); the canvas-region assertions INSIDE the individual
+// tests are deliberately LEFT AS THEY ARE, so a test that genuinely needs the
+// retired canvas still fails, loudly, at its own assertion — that subset is
+// reported for a rewrite-or-retire ruling, never quietly relaxed here.
 async function openEditor(page: Page, quotePublicId: string): Promise<void> {
   await page.goto(`/admin/leadgen/quotes/${quotePublicId}/edit`, { waitUntil: "domcontentloaded" });
-  await expect(canvas(page).locator("[data-frame-region='section_slot']")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator("[data-board]")).toBeVisible({ timeout: 20_000 });
 }
 
 test.beforeAll(() => {
@@ -346,7 +382,47 @@ test.describe("P5b — progress editor Image15 layout: aligned rows, the mark ri
     await ctx.dispose();
   });
 
-  test("every style row is aligned; the radio's x sits right of the label's x; rows stack vertically", async ({ page }) => {
+  // =========================================================================
+  // RETIRED 2026-07-30 (R2 P6 terminal clearance, ruling R-A) — `.skip`ped,
+  // not deleted. UNLIKE this file's other canvas tests (re-pointed above,
+  // because the canvas merely MOVED), this one asserts a LAYOUT the product
+  // deliberately replaced, so there is nothing equivalent to re-point at.
+  //
+  // WHY: the Image15 progress editor was a vertical list of SIX
+  // `.lg-progress-style-opt` rows, each "label left / radio right", reached by
+  // clicking the canvas's progress region. R2 §8.3 replaced it with the
+  // Templates tab's Progress box (I): a THUMBNAIL GRID of FIVE cards
+  // (`renderProgressTypePicker` -> `.lg-tpl2-ptype-grid` /`.lg-tpl2-ptype` with
+  // a `.lg-tpl2-ptype-thumb` per card) plus a "Show progress bar" switch and a
+  // visually-hidden 6th proxy radio. The panel's own copy states the change:
+  // "5 real styles (Bar/Dots/Numbered/Percent/Icon on track) — 'Hidden' is the
+  // toggle below, not a 6th style." Measured at f808e33:
+  //   grep -rn "lg-progress-style-opt" src/  -> 1 hit, shared.ts:574, CSS ONLY
+  //   grep -rn "data-region-panel" src/      -> only funnel.ts's orphaned
+  //     island JS (3546-3559), 0 SSR renders
+  // So `expect(count).toBe(6)`, `radio.x > label.x` and `rows.last() == "Icon
+  // on track"` are all assertions about a superseded control.
+  //
+  // WHERE THE SURVIVING CLAIMS ARE ASSERTED:
+  //  * the progress style picker really drives the frame (the behaviour this
+  //    layout test was the cosmetic half of)
+  //      -> leadgen-rework-p4-templates.gesture.spec.ts "Progress type picker
+  //         updates the canvas (a live, pre-Save preview round trip)" — checks
+  //         `dots`, asserts [data-frame-region="progress"] count 1 on the live
+  //         canvas, toggles Show-progress-bar off -> count 0, back on ->
+  //         restores the last real style.
+  //  * "Icon on track" is labelled correctly (not the old "Percent" mislabel)
+  //      -> PROGRESS_TYPE_OPTIONS is the single render source for both the old
+  //         and the new picker; its label set is asserted through the box in
+  //         the same spec's Progress leg. NOTE, stated rather than hidden: no
+  //         test-ui spec asserts the literal string "Icon on track" today —
+  //         that one sub-claim is uncovered at the browser level and is listed
+  //         as a residual in docs/leadgen/r2/evidence/p6/BROWSER-BATTERY.md §3.
+  //  * the Templates panel's own geometry (no clipping/overlap at 1280/375)
+  //      -> leadgen-rework-p4-templates.gesture.spec.ts's panel/canvas
+  //         geometry legs and leadgen-r2p5-s5c-drive.spec.ts.
+  // =========================================================================
+  test.skip("every style row is aligned; the radio's x sits right of the label's x; rows stack vertically [RETIRED: the 6-row .lg-progress-style-opt editor was replaced by the §8.3 .lg-tpl2-ptype thumbnail grid; behaviour covered by leadgen-rework-p4-templates.gesture.spec.ts]", async ({ page }) => {
     await openEditor(page, seed.quotePublicId);
     await canvas(page).locator("[data-frame-region='progress']").first().click();
     const panel = page.locator('[data-region-panel="progress"]');
@@ -436,6 +512,11 @@ test.describe("P5b — 10B admin leg: the builder/Templates preview resolves the
 
   test("a site WITH a logo shows the real logo img; a logo-less site shows the A-8 fallback chip", async ({ page }) => {
     await openEditor(page, seed.quotePublicId);
+    // RE-POINTED (ruling R-A): the frame canvas moved to the Templates tab —
+    // see the `canvas()` helper's note. `#lg-site-select` is the editor's
+    // top-level Preview-site chip (ui-quotes.ts:725), NOT tab-scoped, so the
+    // journey is unchanged: pick a preview site, watch the canvas resolve it.
+    await openTemplatesTab(page);
 
     await page.locator("#lg-site-select").selectOption(seed.siteWithLogo.id);
     const logoImg = canvas(page).locator("[data-frame-region='logo'] img.lg-logo-img");
@@ -517,10 +598,11 @@ test.describe("P5b — SVG upload hook (brand logos) + the Images box (H, incl. 
     const frameBody = (await frameRes.json()) as { frame_config: { brand_logos?: { items: Array<{ media_id?: string }> } } };
     expect(frameBody.frame_config.brand_logos?.items[0]?.media_id).toBe(storageKey);
 
-    // The canvas lives under the "Funnel builder" tab, a SEPARATE top-level
-    // tab from "Templates" (the IA restructure this phase mandates) — same
-    // reactivation this phase's leadgen-quote-builder.spec.ts row (8) needed.
-    await page.locator('.lg-qtab[data-tab="builder"]').click();
+    // RE-POINTED (ruling R-A): the canvas used to live under the "Funnel
+    // builder" tab, so this test switched tabs before asserting. The P3b board
+    // rewrite deleted that canvas and the Templates tab now OWNS the live
+    // preview (#lg-tpl-canvas-iframe), so we stay where we already are. The
+    // assertion below is untouched.
 
     // Renders live on the canvas (P5a's brand_logos -> renderLogoStrip <img>).
     const img = canvas(page).locator(".lg-frame-brand-logos img.lg-logo-strip-img");
@@ -604,10 +686,9 @@ test.describe("P5b — SVG upload hook (brand logos) + the Images box (H, incl. 
     await expect(row2.locator("[data-img-item-alt]")).toHaveValue("Friendly advisor portrait");
     await expect(row2.locator("[data-img-item-slot]")).toHaveValue("below_section");
 
-    // The canvas lives under the "Funnel builder" tab, a SEPARATE top-level
-    // tab from "Templates" (the IA restructure this phase mandates) — same
-    // reactivation this phase's leadgen-quote-builder.spec.ts row (8) needed.
-    await page.locator('.lg-qtab[data-tab="builder"]').click();
+    // RE-POINTED (ruling R-A): same move as the brand-logo test above — the
+    // canvas is now the Templates tab's own #lg-tpl-canvas-iframe, and we are
+    // already on that tab, so the builder-tab hop is gone. Assertion untouched.
 
     // Renders live on the canvas (P5a's first-class `images` element).
     const canvasImg = canvas(page).locator(".lg-frame-image img.lg-frame-image-img");

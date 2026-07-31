@@ -180,10 +180,22 @@ function canvas(page: Page): FrameLocator {
   return page.frameLocator("#lg-preview-iframe");
 }
 
+// R2 P6 (stale WAIT, not a weakened assertion): this gate used to wait for
+// `#lg-preview-iframe` → `[data-frame-region='section_slot']`. That iframe is
+// the §4.1 FRAME STUDIO canvas the P3b board rewrite DELETED — `grep -rn
+// "lg-preview-iframe" src/` now returns exactly ONE hit, a `byId()` lookup
+// inside quotes-tabs/funnel.ts's orphaned island (zero renders), and the
+// editor's landing tab is the board (`[data-board]`, the surface
+// leadgen-rework-p3b-board.gesture.spec.ts drives). The gate's JOB is
+// unchanged — "the quote editor for this quote is loaded and interactive" —
+// it is simply pointed at DOM that exists. NONE of this file's tests touch
+// `canvas()` after opening the editor (they drive the Themes tab, the preset
+// picker, the delete confirm, the A/B fork and the A/B tab), so nothing this
+// file asserts about the product is added or removed by this change.
 async function openEditor(page: Page, quotePublicId: string, variantPublicId?: string): Promise<void> {
   const qs = variantPublicId ? `?variant=${encodeURIComponent(variantPublicId)}` : "";
   await page.goto(`/admin/leadgen/quotes/${quotePublicId}/edit${qs}`, { waitUntil: "domcontentloaded" });
-  await expect(canvas(page).locator("[data-frame-region='section_slot']")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator("[data-board]")).toBeVisible({ timeout: 20_000 });
 }
 
 const shellUrl = (s: SeededQuote): string => `http://${s.host}:${PW_PORT}/lg/${s.slug}`;
@@ -418,12 +430,39 @@ test.describe("P6b — theme A/B fork + the A/B tab's template-level reframe", (
     await page.locator('.lg-qtab[data-tab="ab"]').click();
     await expect(abPanel).toHaveClass(/active/);
     await expect(page.locator("#lg-add-variant")).toBeVisible();
-    // "Fork this variant" renders TWICE (the always-visible top variant bar,
-    // AND this panel's own toolbar, both pre-existing) — scope to the A/B
-    // panel's copy specifically, avoiding a strict-mode ambiguity.
-    await expect(abPanel.locator("[data-fork-variant]")).toBeVisible();
+    // RE-POINTED 2026-07-30 (R2 P6 terminal clearance, ruling R-A). This line
+    // asserted the old "Fork this variant" button (`[data-fork-variant]`),
+    // which renders NOWHERE today: `grep -rn "data-fork-variant" src/` = 1
+    // hit, quotes-tabs/funnel.ts:3855, and that is a READ
+    // (`el.getAttribute('data-fork-variant')`), not a render. Rework M1's
+    // single-active-variant gate (§4.3-10) replaced free forking with the
+    // gated `#lg-add-variant` control (quotes-tabs/ab.ts:162, which also
+    // renders the disabled state + `#lg-add-variant-why` reason). The CLAIM —
+    // "the A/B panel itself offers the add-an-arm control, not just some other
+    // surface" — is unchanged and kept SCOPED to the panel exactly as before
+    // (the original comment's whole point), and the rest of this test already
+    // drives the real fork through `#lg-add-variant` a few lines below.
+    await expect(abPanel.locator("#lg-add-variant")).toBeVisible();
+    await expect(abPanel.locator("#lg-add-variant")).toHaveCount(1);
     await expect(page.locator("[data-alloc-sum]")).toBeVisible();
-    await expect(page.locator(`[data-arm-variance="${seed.variantPublicId}"]`)).toHaveText("Control");
+    // RE-POINTED 2026-07-31 (R2 P6 terminal clearance). TWO stale things in one
+    // line, both settled by measurement + an owner ruling:
+    //  (a) the attribute is `data-arm-varies`, not `data-arm-variance`
+    //      (quotes-tabs/ab.ts:109 is the ONLY render; `grep -rn
+    //      "data-arm-variance" src/` = 0 hits, so the old locator could never
+    //      resolve);
+    //  (b) the expected TEXT "Control" is forbidden by the Rework M1 §8.5
+    //      ruling stated verbatim at ab.ts:56 — "No control label anywhere; the
+    //      funnel's single active variant with no running test is just its one
+    //      arm." `variantVariesLine` (ab.ts:41-50) renders "Base variant" for
+    //      the primary arm. The retired "Control" claim is not merely uncovered,
+    //      it is CONTRADICTED by a passing sibling:
+    //      leadgen-rework-acceptance-routing.gesture.spec.ts "#11C funnel A/B =
+    //      equal arms, no control label anywhere, delete-variant exists".
+    // The CLAIM this line makes — "the panel carries a per-arm what-varies
+    // summary keyed to the arm's public id" (this test's own title) — is
+    // unchanged and still an exact-text assertion.
+    await expect(page.locator(`[data-arm-varies="${seed.variantPublicId}"]`)).toHaveText("Base variant");
 
     const forkReq = page.waitForResponse((res) => res.request().method() === "POST" && /\/variants\/.+\/fork$/.test(res.url()));
     // SAME race as the theme-A/B test above: the page is already on a
@@ -451,8 +490,16 @@ test.describe("P6b — theme A/B fork + the A/B tab's template-level reframe", (
     const newRow = page.locator(`[data-variant="${forkBody.public_id}"]`);
     await expect(newRow).toBeVisible();
     // A plain "Add variant" fork changes nothing (same template/theme/
-    // sections/rules as control) — the honest, non-inflated summary.
-    await expect(newRow.locator("[data-arm-variance]")).toHaveText("Same as control (no differences yet)");
+    // sections/rules as the funnel's base arm) — the honest, non-inflated
+    // summary. RE-POINTED 2026-07-31 (same two stale things as line 448, same
+    // evidence): the attribute is `data-arm-varies` (ab.ts:109; `grep -rn
+    // "data-arm-variance" src/` = 0 hits) and the "control" wording is
+    // forbidden by the §8.5 ruling quoted at ab.ts:56. For a NON-primary arm
+    // with no override groups and the primary's frame_template_id,
+    // `variantVariesLine` (ab.ts:41-50) renders exactly "No layout or template
+    // changes yet" — the same "nothing differs yet" claim, exact-text, on the
+    // string the product actually ships.
+    await expect(newRow.locator("[data-arm-varies]")).toHaveText("No layout or template changes yet");
   });
 });
 

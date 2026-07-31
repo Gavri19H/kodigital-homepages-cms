@@ -83,6 +83,11 @@ export interface VariantNode {
   funnel_variant_id: string;
   variant_label: string;
   traffic_allocation_bp: number;
+  // P6 fixes3 (E1): the row's lifecycle status ('active' | 'archived' | …),
+  // carried by variantRowToApi's `...row` spread. Optional so pre-existing
+  // hand-built structure literals in tests still typecheck; the A/B panel
+  // treats a missing value as 'active' (the pre-status default).
+  status?: string;
   funnel_design_id: string;
   auction_id: number | null;
   lander_enabled: boolean;
