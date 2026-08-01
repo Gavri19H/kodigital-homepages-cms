@@ -144,6 +144,9 @@ EVENTS_FIREHOSE_STREAM = "homepage-events"
 LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
 LEADGEN_EVENTS_FIREHOSE_STREAM = "leadgen-events"
 LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS = "LEADGEN_S2S_TOKEN_FACEBOOK,LISTICLE_S2S_TOKEN_FACEBOOK"
+# Staging stays disabled ON PURPOSE: [env.staging] declares `services = []`, so
+# there is no CONVERSIONS_CORE service binding here — enabling the proxy would
+# point it at nothing. Production (below) mirrors the live deployed "true"/"true".
 CONVERSIONS_UI_ENABLED = "false"
 CONVERSIONS_PROXY_ENABLED = "false"
 CONVERSIONS_ACTOR_AUDIENCE = "kodigital-conversions-core"
@@ -193,8 +196,16 @@ EVENTS_FIREHOSE_STREAM = "homepage-events"
 LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
 LEADGEN_EVENTS_FIREHOSE_STREAM = "leadgen-events"
 LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS = "LEADGEN_S2S_TOKEN_FACEBOOK,LISTICLE_S2S_TOKEN_FACEBOOK"
-CONVERSIONS_UI_ENABLED = "false"
-CONVERSIONS_PROXY_ENABLED = "false"
+# MATCHES LIVE PRODUCTION. A CI deploy OVERWRITES the Dashboard, so these must
+# mirror what is actually running or the deploy silently turns the Conversions
+# product off. Read off the active production version
+# 4f2db4f9-0c6f-469a-9a85-701f78691e9d (100% traffic, deployed 2026-08-01):
+#   env.CONVERSIONS_UI_ENABLED ("true") / env.CONVERSIONS_PROXY_ENABLED ("true")
+# Staging deliberately keeps both "false": [env.staging] declares `services = []`
+# (no CONVERSIONS_CORE service binding exists there), so enabling the proxy on
+# staging would point it at nothing.
+CONVERSIONS_UI_ENABLED = "true"
+CONVERSIONS_PROXY_ENABLED = "true"
 CONVERSIONS_ACTOR_AUDIENCE = "kodigital-conversions-core"
 CONVERSIONS_ACTOR_ENVIRONMENT = "production"
 ADMIN_HOST = "cms.kodigital.app"
@@ -245,8 +256,14 @@ id = "77bb281de4fb4008a06b0993eb8b1774"
 binding = "MEDIA"
 bucket_name = "kodigital-homepages-cms-media"
 
-# Non-secret target name only. The proxy flag remains false and no deployment,
-# binding provisioning or secret mutation is authorized by this story.
+# Non-secret target name only; no deployment, binding provisioning or secret
+# mutation is authorized here. TARGET VERIFIED against the account, do not
+# "correct" it to the binding name: `wrangler deployments list --name
+# kodigital-conversions-core` returns a live 100% deployment, while
+# `--name CONVERSIONS_CORE` returns "This Worker does not exist on your
+# account. [code: 10007]". The active production version 4f2db4f9 lists this
+# binding as `env.CONVERSIONS_CORE (kodigital-conversions-core)` — CONVERSIONS_CORE
+# is the BINDING name, kodigital-conversions-core is the SERVICE it points at.
 [[env.production.services]]
 binding = "CONVERSIONS_CORE"
 service = "kodigital-conversions-core"

@@ -624,9 +624,25 @@ describe("Conversions and Reporting Preact build contract", () => {
     }
   });
 
-  it("pins the Worker-first static-assets binding and disabled flags", () => {
+  it("pins the Worker-first static-assets binding and the per-environment Conversions flags", () => {
     const config = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
     expect(config).toMatch(/\[assets\]\s+directory\s*=\s*"\.\/public"\s+binding\s*=\s*"ADMIN_ASSETS"\s+run_worker_first\s*=\s*true/);
-    expect(config.match(/CONVERSIONS_UI_ENABLED\s*=\s*"false"/g)).toHaveLength(3);
+    // Was a bare `3 x "false"` count. PRODUCTION IS NOW ENABLED ON PURPOSE: a CI
+    // deploy overwrites the Dashboard, and the live production version
+    // 4f2db4f9-0c6f-469a-9a85-701f78691e9d serves CONVERSIONS_UI_ENABLED="true" /
+    // CONVERSIONS_PROXY_ENABLED="true" — shipping "false" would silently turn the
+    // Conversions product off. Local [vars] and staging stay disabled because
+    // [env.staging] declares `services = []`, i.e. no CONVERSIONS_CORE binding to
+    // proxy to. Strengthened, not relaxed: this now pins WHICH block holds WHICH
+    // value for BOTH flags instead of counting one flag's occurrences.
+    expect(config.match(/CONVERSIONS_UI_ENABLED\s*=\s*"false"/g)).toHaveLength(2);
+    expect(config.match(/CONVERSIONS_PROXY_ENABLED\s*=\s*"false"/g)).toHaveLength(2);
+    const staging = config.slice(config.indexOf("[env.staging.vars]"), config.indexOf("[env.production]"));
+    expect(staging).toMatch(/CONVERSIONS_UI_ENABLED\s*=\s*"false"/);
+    expect(staging).toMatch(/CONVERSIONS_PROXY_ENABLED\s*=\s*"false"/);
+    const production = config.slice(config.indexOf("[env.production.vars]"));
+    expect(production).toMatch(/CONVERSIONS_UI_ENABLED\s*=\s*"true"/);
+    expect(production).toMatch(/CONVERSIONS_PROXY_ENABLED\s*=\s*"true"/);
+    expect(production).toMatch(/\[\[env\.production\.services\]\]\s+binding\s*=\s*"CONVERSIONS_CORE"\s+service\s*=\s*"kodigital-conversions-core"/);
   });
 });

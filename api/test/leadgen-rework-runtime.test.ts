@@ -964,25 +964,42 @@ function parseSsr(html: string): FakeElement[] {
   const root = mk("body");
   const stack: FakeElement[] = [root];
   let last = 0;
-  for (const m of html.matchAll(/<\/?([a-zA-Z][\w-]*)((?:\s+[\w:-]+(?:="[^"]*")?)*)\s*\/?>/g)) {
-    const at = m.index ?? 0;
-    const text = html.slice(last, at);
-    const top = stack[stack.length - 1] as FakeElement;
-    if (text.trim() !== "") top.textContent = decodeEntities(text);
-    last = at + m[0].length;
-    const tag = (m[1] as string).toLowerCase();
-    if (m[0].startsWith("</")) {
-      if (stack.length > 1) stack.pop();
-      continue;
-    }
-    const attrs: Record<string, string> = {};
-    for (const a of (m[2] ?? "").matchAll(/([\w:-]+)(?:="([^"]*)")?/g)) {
-      attrs[a[1] as string] = decodeEntities(a[2] ?? "");
-    }
-    const el = mk(tag, attrs);
-    top.appendChild(el);
-    if (!VOID_TAGS.has(tag)) stack.push(el);
-  }
+  // Scanned with explicit /g regexes driven by String#replace, NOT String#matchAll.
+  // This file is in the tsconfig.runtime.json program, which pins target ES2019 /
+  // lib ["ES2019","DOM"] ON PURPOSE: these are the BROWSER bundle's modules, and
+  // raising lib to ES2020 would let runtime source start using ES2020 runtime APIs
+  // that esbuild will not polyfill down to an ES2019 target. matchAll is ES2020
+  // lib, so it cannot be used here (TS2550). A /g regex + replace-callback visits
+  // exactly the same matches, in the same order, with the same capture groups and
+  // the same offset matchAll reports, so the parse — and every assertion driven
+  // over the DOM it builds — is unchanged. The replacement string is discarded;
+  // `replace` is used only as an ES2019-safe global scanner.
+  html.replace(
+    /<\/?([a-zA-Z][\w-]*)((?:\s+[\w:-]+(?:="[^"]*")?)*)\s*\/?>/g,
+    (whole: string, tagName: string, attrSrc: string | undefined, at: number) => {
+      const text = html.slice(last, at);
+      const top = stack[stack.length - 1] as FakeElement;
+      if (text.trim() !== "") top.textContent = decodeEntities(text);
+      last = at + whole.length;
+      const tag = tagName.toLowerCase();
+      if (whole.startsWith("</")) {
+        if (stack.length > 1) stack.pop();
+        return whole;
+      }
+      const attrs: Record<string, string> = {};
+      (attrSrc ?? "").replace(
+        /([\w:-]+)(?:="([^"]*)")?/g,
+        (attrWhole: string, name: string, value: string | undefined) => {
+          attrs[name] = decodeEntities(value ?? "");
+          return attrWhole;
+        },
+      );
+      const el = mk(tag, attrs);
+      top.appendChild(el);
+      if (!VOID_TAGS.has(tag)) stack.push(el);
+      return whole;
+    },
+  );
   const tail = html.slice(last);
   const top = stack[stack.length - 1] as FakeElement;
   if (tail.trim() !== "") top.textContent = decodeEntities(tail);

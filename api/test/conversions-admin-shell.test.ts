@@ -91,8 +91,15 @@ describe("Conversions disabled route shell", () => {
       scripts: "var pagePin = true;",
       styles: ".pin{display:block}",
     });
-    expect(Buffer.byteLength(html)).toBe(18147);
-    expect(sha256(html)).toBe("0b35c0c8a3fb96ce7245fcaff55a4045bcd031ffa83c9e69e5cd3ccfa2cd69a0");
+    // Re-pinned by the Conversions x LeadGen-R2 reconcile merge: the LeadGen
+    // lineage grew the SHARED adminLayout, so the legacy no-options render is
+    // 20312 bytes / sha b7d6e8df… where the Conversions lineage froze 18147
+    // bytes / sha 0b35c0c8…. Only the two frozen constants moved — the CLAIM
+    // this test exists to defend (a pre-existing adminLayout call must not leak
+    // ANY Conversions markup or a module script into the legacy shell) is
+    // unchanged and still asserted below, and both still hold.
+    expect(Buffer.byteLength(html)).toBe(20312);
+    expect(sha256(html)).toBe("b7d6e8dfbed2479f70d06eb78e5e08a387715b2a463c50882ec6e96067c6408b");
     expect(html).not.toContain("Conversions");
     expect(html).not.toContain('type="module"');
   });

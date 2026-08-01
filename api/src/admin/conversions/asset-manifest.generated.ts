@@ -11,7 +11,7 @@ export const ADMIN_ASSET_MANIFEST = {
       etag: "\"sha256-440f18d941c77d8e4574c5bf3494107b8d72f098c27b60a512d57a151ef831ac\"",
       sha256: "440f18d941c77d8e4574c5bf3494107b8d72f098c27b60a512d57a151ef831ac",
       bytes: 156338,
-      gzipBytes: 41831,
+      gzipBytes: 41759,
     },
     css: {
       fileName: "conversions.c7d2cf4b7616d207.css",
@@ -20,7 +20,7 @@ export const ADMIN_ASSET_MANIFEST = {
       etag: "\"sha256-c7d2cf4b7616d2078d79c845af005f6f1bd15d0f8441b19449b65c04ed131af7\"",
       sha256: "c7d2cf4b7616d2078d79c845af005f6f1bd15d0f8441b19449b65c04ed131af7",
       bytes: 22095,
-      gzipBytes: 4230,
+      gzipBytes: 4248,
     },
   },
   reporting: {
@@ -31,7 +31,7 @@ export const ADMIN_ASSET_MANIFEST = {
       etag: "\"sha256-6c7f5bf63785d17e47d1e1b2c2492b46c56a62c088fa30b67cc5d72343c3cac6\"",
       sha256: "6c7f5bf63785d17e47d1e1b2c2492b46c56a62c088fa30b67cc5d72343c3cac6",
       bytes: 87563,
-      gzipBytes: 26340,
+      gzipBytes: 26324,
     },
     css: {
       fileName: "reporting.c7d2cf4b7616d207.css",
@@ -40,7 +40,7 @@ export const ADMIN_ASSET_MANIFEST = {
       etag: "\"sha256-c7d2cf4b7616d2078d79c845af005f6f1bd15d0f8441b19449b65c04ed131af7\"",
       sha256: "c7d2cf4b7616d2078d79c845af005f6f1bd15d0f8441b19449b65c04ed131af7",
       bytes: 22095,
-      gzipBytes: 4230,
+      gzipBytes: 4248,
     },
   },
 } as const;

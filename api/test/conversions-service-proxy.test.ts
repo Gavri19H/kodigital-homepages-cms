@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+import { HAS_CONVERSIONS_CORE, coreUrl, importCore } from "./helpers/conversions-core-root";
 import type { AccessAuthVariables, AccessContext } from "../src/auth/access-auth";
 import type { Env } from "../src/env";
 import {
@@ -46,14 +47,17 @@ interface AdminContractFixture {
   }>;
 }
 
-const CMS_CORE_FIXTURE = JSON.parse(readFileSync(new URL(
-  "../../../kodigital-conversions/packages/testing/fixtures/cms-core-binding.v1.json",
-  import.meta.url,
-), "utf8")) as CmsCoreFixture;
-const ADMIN_CONTRACT_FIXTURE = JSON.parse(readFileSync(new URL(
-  "../../../kodigital-conversions/packages/contracts/generated/admin-contracts.v1.json",
-  import.meta.url,
-), "utf8")) as AdminContractFixture;
+// Core's REAL fixtures, resolved independently of where this worktree lives —
+// see ./helpers/conversions-core-root. Read eagerly ONLY when a Core checkout
+// exists; otherwise these stay empty and the whole suite below is skipped, so
+// no test ever observes the empty value. Types at the ~10 call sites are
+// unchanged.
+const CMS_CORE_FIXTURE = (HAS_CONVERSIONS_CORE
+  ? JSON.parse(readFileSync(coreUrl("packages/testing/fixtures/cms-core-binding.v1.json"), "utf8"))
+  : {}) as CmsCoreFixture;
+const ADMIN_CONTRACT_FIXTURE = (HAS_CONVERSIONS_CORE
+  ? JSON.parse(readFileSync(coreUrl("packages/contracts/generated/admin-contracts.v1.json"), "utf8"))
+  : {}) as AdminContractFixture;
 const SIGNING_KEY_B64URL = CMS_CORE_FIXTURE.signing_key_b64url;
 const FIXTURE_DIGEST = "32a8e45b65de7251aafd2995c229321faf889edd9525b3d9fcb36f026d1d5538";
 
@@ -137,7 +141,19 @@ function mutation(path: string, body: JsonValue, headers: Record<string, string>
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
-describe("Conversions private service proxy", () => {
+// SKIPPED WHOLE WITHOUT A CONVERSIONS CORE CHECKOUT (Core is a separate repo;
+// `.github/workflows/deploy.yml` checks out only this one). Not a partial guard:
+// the shared `env()` helper feeds EVERY test the HMAC signing key out of Core's
+// own cms-core-binding.v1.json fixture, so with no Core there is no test here
+// that still means what it claims. What the skip costs: the CMS<->Core proxy
+// boundary proofs — route/operation/bootstrap-policy parity against Core's
+// generated admin-contracts.v1.json, Core's EV-037 verifier accepting a
+// CMS-signed envelope, and the end-to-end drive against Core's real
+// apps/core/src/index.mjs with the shared raw key and exact Connection body.
+// Nothing in this repo can substitute; the claim IS agreement with the other
+// side. Every assertion is unchanged and runs verbatim whenever Core is present
+// (CONVERSIONS_CORE_ROOT=<path to kodigital-conversions>).
+describe.skipIf(!HAS_CONVERSIONS_CORE)("Conversions private service proxy", () => {
   it("locks the canonical target, complete 71-route seam and 61-operation authority policy to Core", () => {
     expect(CMS_CANONICAL_TARGET_POLICY).toEqual(ADMIN_CONTRACT_FIXTURE.canonical_target_policy);
     expect(CMS_PROXY_ROUTE_POLICIES).toHaveLength(71);
@@ -428,10 +444,8 @@ describe("Conversions private service proxy", () => {
       expected_side_effect_mode: "none",
       destination_class: "none",
     });
-    // @ts-expect-error sibling EV-037 verifier is an intentionally untyped test-only ESM fixture
-    const runtime = await import("../../../kodigital-conversions/packages/security/actor-envelope.mjs");
-    // @ts-expect-error sibling protected-authority fixture is intentionally untyped ESM
-    const authority = await import("../../../kodigital-conversions/packages/security/protected-port-authority.mjs");
+    const runtime = await importCore("packages/security/actor-envelope.mjs");
+    const authority = await importCore("packages/security/protected-port-authority.mjs");
     await expect(runtime.verifyActorEnvelope(envelope,
       authority.createIsolatedActorVerifierCapability(isolatedRecord({
       expectedIssuer: "kodigital_cms_authority",
@@ -705,8 +719,7 @@ describe("Conversions private service proxy", () => {
   it("passes the actual Core binding boundary with the shared raw key, exact Connection body and schedule precondition", async () => {
     // Test-only sibling import: CMS production code remains repository- and
     // runtime-independent and calls only the configured Fetcher binding.
-    // @ts-expect-error sibling greenfield Core is intentionally untyped ESM
-    const runtimeCore = await import("../../../kodigital-conversions/apps/core/src/index.mjs");
+    const runtimeCore = await importCore("apps/core/src/index.mjs");
     const replayDb = {
       prepare: (sql: string) => ({
         bind() { return this; },

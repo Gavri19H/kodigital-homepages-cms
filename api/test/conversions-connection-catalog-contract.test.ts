@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
+import { CONVERSIONS_CORE_ROOT, HAS_CONVERSIONS_CORE } from "./helpers/conversions-core-root";
 import {
   CONNECTION_ADAPTERS,
   CONNECTION_CONFIG_SECTIONS,
@@ -27,8 +28,11 @@ interface AdminContractsFile {
   readonly body_contracts: Readonly<Record<string, SchemaNode>>;
 }
 
-const WORKSPACE = resolve(import.meta.dirname, "../../..");
-const CORE_ROOT = resolve(WORKSPACE, "kodigital-conversions");
+// Resolved independently of where this worktree lives — see
+// ./helpers/conversions-core-root. Empty string when Core is absent; every
+// `resolve(CORE_ROOT, ...)` below sits inside a test body that only runs under
+// the `describe.skipIf(!HAS_CONVERSIONS_CORE)` guard, so it is never evaluated.
+const CORE_ROOT = CONVERSIONS_CORE_ROOT ?? "";
 
 function isObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -170,8 +174,20 @@ function runNativeCoreValidation(input: {
   )) as { readonly bodyCount: number; readonly credentialCount: number; readonly result: "PASS" };
 }
 
+// The three `it.skipIf(!HAS_CONVERSIONS_CORE)` tests below are SKIPPED WITHOUT A
+// CONVERSIONS CORE CHECKOUT (Core is a separate repo; CI checks out only this
+// one). What those skips cost: each runs the CMS connection catalog against
+// Core's REAL generated admin-contracts.v1.json schema and Core's REAL
+// request/connection-repository validators in a child process — the 13 adapters
+// with their defaults and editable paths, every documented UI draft being
+// accepted by Core, and the write-only credential allowlist. Nothing in this
+// repo can substitute: the claim IS agreement with the other side. Assertions
+// are unchanged and run verbatim whenever Core is present
+// (CONVERSIONS_CORE_ROOT=<path to kodigital-conversions>). The fourth test is
+// pure in-repo catalog behaviour and is deliberately NOT guarded — it must keep
+// running everywhere.
 describe("Connections UI/Core closed-contract parity", () => {
-  it("keeps all 13 UI adapters, defaults, and editable paths inside the exact Core schema", () => {
+  it.skipIf(!HAS_CONVERSIONS_CORE)("keeps all 13 UI adapters, defaults, and editable paths inside the exact Core schema", () => {
     const contracts = JSON.parse(readFileSync(
       resolve(CORE_ROOT, "packages/contracts/generated/admin-contracts.v1.json"),
       "utf8",
@@ -215,7 +231,7 @@ describe("Connections UI/Core closed-contract parity", () => {
     }
   });
 
-  it("turns every documented UI draft into a body accepted by Core schema and semantics", () => {
+  it.skipIf(!HAS_CONVERSIONS_CORE)("turns every documented UI draft into a body accepted by Core schema and semantics", () => {
     const bodies = CONNECTION_ADAPTERS.map((definition) => ({
         name: `${definition.label} contract fixture`,
         direction: definition.direction,
@@ -268,7 +284,7 @@ describe("Connections UI/Core closed-contract parity", () => {
     expect(valueAtPath(status200, "response.status")).toBe(200);
   });
 
-  it("keeps every write-only credential choice inside Core's adapter allowlist", () => {
+  it.skipIf(!HAS_CONVERSIONS_CORE)("keeps every write-only credential choice inside Core's adapter allowlist", () => {
     const credentialTypes = [
       "bearer_token",
       "provider_token",

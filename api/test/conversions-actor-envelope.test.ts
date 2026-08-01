@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { HAS_CONVERSIONS_CORE, importCore } from "./helpers/conversions-core-root";
 import type { AccessContext } from "../src/auth/access-auth";
 import type { Env } from "../src/env";
 import {
@@ -110,13 +111,18 @@ describe("Conversions bootstrap actor context", () => {
     expect(getBootstrapWarning(production, NOW_SECONDS + 14 * 86_400)).toBeUndefined();
   });
 
-  it("byte-matches and passes the frozen EV-037 runtime verifier without a production runtime import", async () => {
+  // SKIPPED WITHOUT A CONVERSIONS CORE CHECKOUT (see ./helpers/conversions-core-root).
+  // What the skip costs: the cross-repo byte-match proving that CMS's own
+  // WebCrypto envelope signature is identical to the one Core's frozen EV-037
+  // runtime produces, and that Core's verifier accepts a CMS-issued envelope.
+  // No in-repo test can stand in — the whole point is the OTHER side of the
+  // boundary. Every assertion below is unchanged and runs verbatim whenever
+  // Core is present (CONVERSIONS_CORE_ROOT=<path to kodigital-conversions>).
+  it.skipIf(!HAS_CONVERSIONS_CORE)("byte-matches and passes the frozen EV-037 runtime verifier without a production runtime import", async () => {
     // The sibling runtime import is test-only by design; CMS production code
     // independently implements WebCrypto signing across the service boundary.
-    // @ts-expect-error sibling EV-037 verifier is an intentionally untyped ESM fixture
-    const runtime = await import("../../../kodigital-conversions/packages/security/actor-envelope.mjs");
-    // @ts-expect-error sibling protected-authority fixture is intentionally untyped ESM
-    const authority = await import("../../../kodigital-conversions/packages/security/protected-port-authority.mjs");
+    const runtime = await importCore("packages/security/actor-envelope.mjs");
+    const authority = await importCore("packages/security/protected-port-authority.mjs");
     const issued = await issueBootstrapActorContext(env(), identity(), NOW_SECONDS * 1_000);
     const runtimeEnvelope = runtime.issueActorEnvelope(issued.envelope.payload,
       authority.createIsolatedActorSigningCapability(isolatedRecord({ purpose: "actor" })));
