@@ -1,0 +1,40 @@
+# Production deploy dry-run — reconciled tree (conductor's own run)
+# branch reconcile/conversions-x-leadgen-r2 @ d9d05ae
+# 2026-08-01T22:58:44Z
+
+
+ ⛅️ wrangler 4.115.0
+────────────────────
+✨ Read 46 files from the assets directory /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/public
+Total Upload: 5710.10 KiB / gzip: 1526.05 KiB
+Your Worker has access to the following bindings:
+Binding                                                                                      Resource                  
+env.CACHE (77bb281de4fb4008a06b0993eb8b1774)                                                 KV Namespace              
+env.PROVISION_QUEUE (kodigital-provisioning)                                                 Queue                     
+env.DB (kodigital-homepages-cms-db)                                                          D1 Database               
+env.MEDIA (kodigital-homepages-cms-media)                                                    R2 Bucket                 
+env.CONVERSIONS_CORE (kodigital-conversions-core)                                            Worker                    
+env.ADMIN_ASSETS                                                                             Assets                    
+env.APP_ENV ("production")                                                                   Environment Variable      
+env.AWS_REGION ("us-east-1")                                                                 Environment Variable      
+env.EVENTS_FIREHOSE_STREAM ("homepage-events")                                               Environment Variable      
+env.LISTICLE_EVENTS_FIREHOSE_STREAM ("listicle-events")                                      Environment Variable      
+env.LEADGEN_EVENTS_FIREHOSE_STREAM ("leadgen-events")                                        Environment Variable      
+env.LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS ("LEADGEN_S2S_TOKEN_FACEBOOK,LISTICLE_S...")        Environment Variable      
+env.CONVERSIONS_UI_ENABLED ("true")                                                          Environment Variable      
+env.CONVERSIONS_PROXY_ENABLED ("true")                                                       Environment Variable      
+env.CONVERSIONS_ACTOR_AUDIENCE ("kodigital-conversions-core")                                Environment Variable      
+env.CONVERSIONS_ACTOR_ENVIRONMENT ("production")                                             Environment Variable      
+env.ADMIN_HOST ("cms.kodigital.app")                                                         Environment Variable      
+env.ADMIN_BASE_URL ("https://cms.kodigital.app")                                             Environment Variable      
+env.ADMIN_BASE_PATH ("/admin")                                                               Environment Variable      
+env.CACHE_API_ENABLED ("true")                                                               Environment Variable      
+env.HTML_CACHE_TTL_SECONDS ("300")                                                           Environment Variable      
+env.OPENAI_TEXT_MODEL ("gpt-5.5")                                                            Environment Variable      
+env.OPENAI_IMAGE_MODEL ("gpt-image-2")                                                       Environment Variable      
+env.SITE_PROVISIONING_DRY_RUN ("false")                                                      Environment Variable      
+env.SITE_PROVISIONING_ALLOW_ROUTE_MUTATION ("true")                                          Environment Variable      
+env.CF_ACCESS_TEAM_DOMAIN ("kodigital2.cloudflareaccess.com")                                Environment Variable      
+env.CF_ACCESS_AUD ("ec9b3610a2b4774ef4ff1eb95e0438b4ec72d...")                               Environment Variable      
+
+--dry-run: exiting now.
