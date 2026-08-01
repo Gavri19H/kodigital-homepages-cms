@@ -73,6 +73,7 @@ export interface PageFormValues {
 
 export interface PagesBranding {
   userEmail?: string;
+  conversionsUiEnabled?: boolean;
 }
 
 const PAGE_TYPES: ReadonlyArray<{ value: string; label: string }> = [
@@ -270,6 +271,7 @@ export function pagesListPage(
     title: "Pages",
     activePath: "/admin/pages",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     scripts: PAGES_LIST_SCRIPT + listFilterScript,
   });
@@ -468,6 +470,7 @@ export function pageFormPage(
     title,
     activePath: "/admin/pages",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     styles: BLOCK_EDITOR_COLOR_TOKENS + editorStyles,
     scripts: editorScripts + blockEditorMountScript("Start writing your page...") + PAGE_FORM_SCRIPT,

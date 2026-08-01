@@ -69,6 +69,7 @@ export interface OffersPageProps {
 
 export interface ListiclesBranding {
   userEmail?: string;
+  conversionsUiEnabled?: boolean;
 }
 
 // UI labels for the §9 enums (values are the validation.ts wire literals).
@@ -1021,6 +1022,7 @@ ${renderDialogShell()}`;
     title: "Listicles",
     activePath: "/admin/listicles/offers",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     styles: LISTICLES_STYLES,
     scripts: LST_SHARED_SCRIPT + OFFERS_PAGE_SCRIPT + listFilterScript,

@@ -911,6 +911,7 @@ ${renderDialogShell()}`;
     title: "Listicles",
     activePath: "/admin/listicles/sections",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     styles:
       LISTICLES_STYLES +
@@ -946,6 +947,7 @@ export function listiclesSectionNotFoundPage(branding: ListiclesBranding = {}): 
     title: "Listicles",
     activePath: "/admin/listicles/sections",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     styles: LISTICLES_STYLES,
     scripts: LST_SHARED_SCRIPT,

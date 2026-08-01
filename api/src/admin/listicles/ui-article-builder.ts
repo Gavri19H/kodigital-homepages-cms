@@ -2435,6 +2435,7 @@ ${renderDialogShell()}`;
     title: "Listicles",
     activePath: "/admin/listicles/articles",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     styles: LISTICLES_STYLES + heroImageStyles + BUILDER_STYLES,
     scripts:
@@ -2461,6 +2462,7 @@ export function listiclesArticleNotFoundPage(branding: ListiclesBranding = {}): 
     title: "Listicles",
     activePath: "/admin/listicles/articles",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     styles: LISTICLES_STYLES,
     scripts: LST_SHARED_SCRIPT,

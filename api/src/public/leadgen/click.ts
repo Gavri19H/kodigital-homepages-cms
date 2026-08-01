@@ -36,6 +36,7 @@
 // prevents the resolved 302 (or the safe no-redirect fallback).
 
 import type { Env } from "../../env";
+import type { WaitUntilContext } from "../../wait-until-context";
 import { mintPublicId } from "../../leadgen/ids";
 import { incrementCap, effectiveCountBy, type LeadgenCapOffer } from "../../leadgen/caps";
 import {
@@ -230,7 +231,7 @@ function buildClickEvent(
 // side effect is FAIL-OPEN so the caller can always 302 (or safely not).
 export async function resolveLeadgenClick(
   env: Env,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   input: LeadgenClickInput,
 ): Promise<LeadgenClickResult> {
   const now = input.now ?? Date.now();

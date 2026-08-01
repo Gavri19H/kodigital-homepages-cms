@@ -47,6 +47,7 @@ import {
   // legal-links leg before resolveSiteBranding.
   resolveEffectiveFrameOnly,
 } from "../../public/leadgen/resolver";
+import type { WaitUntilContext } from "../../wait-until-context";
 import {
   auctionEntryPosition,
   resolveFunnelIdentity,
@@ -359,7 +360,7 @@ function redirectAllowlist(env: AdminContext["env"]): string[] {
 // idiom so §28 invalidation rides waitUntil where a context exists and degrades to
 // a no-op where it doesn't. Invalidation is ALWAYS non-blocking and can NEVER
 // break the admin write (also matches the listicles/leadgen runtime pattern).
-function safeExecutionCtx(c: AdminContext): ExecutionContext {
+function safeExecutionCtx(c: AdminContext): WaitUntilContext {
   try {
     return c.executionCtx;
   } catch {
@@ -367,10 +368,7 @@ function safeExecutionCtx(c: AdminContext): ExecutionContext {
       waitUntil(): void {
         /* no-op outside workerd (unit-test harness) */
       },
-      passThroughOnException(): void {
-        /* no-op */
-      },
-    } as unknown as ExecutionContext;
+    };
   }
 }
 

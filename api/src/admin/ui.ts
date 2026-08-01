@@ -11,6 +11,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { Env } from '../env';
+import { isConversionsUiEnabled } from '../env';
 import type { AccessAuthVariables } from '../auth/access-auth';
 import {
   adminLayout,
@@ -54,8 +55,11 @@ function getUserEmail(c: AdminContext): string | undefined {
   return undefined;
 }
 
-function branding(c: AdminContext): { userEmail?: string } {
-  return data.getAdminBranding(getUserEmail(c));
+function branding(c: AdminContext): { userEmail?: string; conversionsUiEnabled: boolean } {
+  return {
+    ...data.getAdminBranding(getUserEmail(c)),
+    conversionsUiEnabled: isConversionsUiEnabled(c.env.CONVERSIONS_UI_ENABLED),
+  };
 }
 
 async function resolveSiteId(
@@ -397,7 +401,7 @@ adminUi.get('/admin/ai-generations', async (c) => {
             ? `/admin/ai-generations?page=${page + 1}&page_size=${pageSize}`
             : null,
       },
-      { userEmail: getUserEmail(c) },
+      branding(c),
     ),
   );
 });
@@ -417,7 +421,7 @@ adminUi.get('/admin/ai-generations/:id', async (c) => {
     .first<AiGenerationRow>();
   if (!row) {
     return c.html(
-      aiGenerationNotFoundPage(id, { userEmail: getUserEmail(c) }),
+      aiGenerationNotFoundPage(id, branding(c)),
       404,
     );
   }
@@ -440,7 +444,7 @@ adminUi.get('/admin/ai-generations/:id', async (c) => {
     updated_at: row.updated_at,
   };
   return c.html(
-    aiGenerationDetailPage(detail, { userEmail: getUserEmail(c) }),
+    aiGenerationDetailPage(detail, branding(c)),
   );
 });
 

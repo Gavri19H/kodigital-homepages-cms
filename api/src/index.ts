@@ -124,7 +124,9 @@ app.use("*", async (c, next) => {
     path === "/admin" ||
     path.startsWith("/admin/") ||
     path === "/api/admin" ||
-    path.startsWith("/api/admin/");
+    path.startsWith("/api/admin/") ||
+    path.startsWith("/assets/admin/conversions/") ||
+    path.startsWith("/assets/admin/reporting/");
   if (isAdminPath && requestHost !== adminHost) {
     c.header("Cache-Control", "no-store");
     c.header("X-Robots-Tag", "noindex, nofollow");
@@ -343,4 +345,5 @@ const queue = async (
 
 const worker = Object.assign(app, { scheduled, queue });
 
+export { ProviderConfigurationAuthority } from "./conversions-provider-configuration-worker";
 export default worker;

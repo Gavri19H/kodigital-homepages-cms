@@ -36,6 +36,7 @@ const REQUIRED_RUNTIME_SECRETS: readonly string[] = [
   "CF_ACCESS_AUD",
   "CLOUDFLARE_PROVISIONING_API_TOKEN",
   "CLOUDFLARE_CACHE_API_TOKEN",
+  "CONVERSIONS_ACTOR_SIGNING_KEY_B64URL",
 ];
 
 function readOrExit(path: string, label: string): string {

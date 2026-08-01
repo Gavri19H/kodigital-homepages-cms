@@ -70,6 +70,7 @@ import {
   EM_DASH,
   type UiContext,
   type ListBody,
+  type LeadgenBranding,
 } from "./ui";
 import {
   renderPayloadPanel,
@@ -1597,7 +1598,7 @@ const LG_OFFERS_LIST_ACTIONS_SCRIPT = `
 // List page assembly + route handlers
 // ---------------------------------------------------------------------------
 
-function offersListHtml(props: OffersPageProps, brand: { userEmail?: string }): string {
+function offersListHtml(props: OffersPageProps, brand: LeadgenBranding): string {
   const pager = renderListPager(
     {
       page: props.paging.page,
@@ -1632,6 +1633,7 @@ ${renderLgDialogShell()}
   return leadgenPageShell({
     activePath: "/admin/leadgen/offers",
     userEmail: brand.userEmail,
+    conversionsUiEnabled: brand.conversionsUiEnabled,
     content,
     styles: LG_OFFERS_STYLES,
     scripts: kebabMenuScript + LG_SHARED_SCRIPT + LG_OFFER_MODAL_SCRIPT + LG_OFFERS_LIST_ACTIONS_SCRIPT + listFilterScript,
@@ -2976,7 +2978,7 @@ interface EditorPageData {
   duplicated: DuplicatedInfo | null;
 }
 
-function offerEditorHtml(data: EditorPageData, brand: { userEmail?: string }): string {
+function offerEditorHtml(data: EditorPageData, brand: LeadgenBranding): string {
   const o = data.offer;
   const content = `${renderLeadgenTabs("offers")}
 <div id="lg-offer-editor" data-offer-id="${o.id}" data-offer-public-id="${escapeHtml(o.public_id)}" data-offer-name="${escapeHtml(o.offer_name)}">
@@ -3013,6 +3015,7 @@ function offerEditorHtml(data: EditorPageData, brand: { userEmail?: string }): s
   return leadgenPageShell({
     activePath: "/admin/leadgen/offers",
     userEmail: brand.userEmail,
+    conversionsUiEnabled: brand.conversionsUiEnabled,
     content,
     styles: LG_OFFERS_STYLES + PAYLOAD_BUILDER_STYLES,
     scripts:
@@ -3025,7 +3028,7 @@ function offerEditorHtml(data: EditorPageData, brand: { userEmail?: string }): s
 }
 
 // Mirrors listiclesSectionNotFoundPage: an in-shell 404 page, HTTP 404.
-function leadgenOfferNotFoundPage(brand: { userEmail?: string }): string {
+function leadgenOfferNotFoundPage(brand: LeadgenBranding): string {
   const content = `${renderLeadgenTabs("offers")}
 <div class="card"><div class="empty-state">
   <p>Offer not found.</p>
@@ -3034,6 +3037,7 @@ function leadgenOfferNotFoundPage(brand: { userEmail?: string }): string {
   return leadgenPageShell({
     activePath: "/admin/leadgen/offers",
     userEmail: brand.userEmail,
+    conversionsUiEnabled: brand.conversionsUiEnabled,
     content,
     styles: LG_OFFERS_STYLES,
     scripts: LG_SHARED_SCRIPT,

@@ -19,6 +19,10 @@
 
 import type { AdminContext } from "./shared";
 import { readJsonBody } from "./shared";
+import {
+  resolveAllowedOutboundSecretReference,
+  type OutboundSecretReferenceFailureCode,
+} from "../../env";
 
 export interface MediaPlatformRecord {
   id: number;
@@ -33,6 +37,21 @@ export interface MediaPlatformRecord {
 const MACRO_TOKEN_RE = /\{[a-zA-Z0-9_]+\}/g;
 const SECRET_NAME_RE = /^[A-Z][A-Z0-9_]*$/;
 const PLATFORM_RE = /^[a-z0-9_]+$/;
+
+function outboundSecretReferenceError(code: OutboundSecretReferenceFailureCode): string {
+  switch (code) {
+    case "invalid_syntax":
+      return "must be a valid secret binding name";
+    case "infrastructure_reference":
+      return "must not reference an infrastructure, signing, storage, or database credential";
+    case "prefix_required":
+      return "new outbound secret references must use the OFFER_TOKEN_ prefix";
+    case "not_allowed":
+      return "must be explicitly listed in LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS";
+    case "binding_missing":
+      return "the allowlisted secret binding is missing or empty";
+  }
+}
 
 // §20 template rules (distinct from the §9.4 OFFER macro registry — the S2S
 // template legitimately uses {value}/{currency}/{event_name}/{auth_token},
@@ -108,7 +127,11 @@ export async function createMediaPlatformHandler(c: AdminContext): Promise<Respo
     if (typeof body.auth_secret_ref !== "string" || !SECRET_NAME_RE.test(body.auth_secret_ref)) {
       fields.auth_secret_ref = "must be a secret NAME (UPPER_SNAKE), never a token value";
     } else {
-      authSecretRef = body.auth_secret_ref;
+      const resolution = resolveAllowedOutboundSecretReference(c.env, body.auth_secret_ref, {
+        requireNewPrefix: true,
+      });
+      if (!resolution.ok) fields.auth_secret_ref = outboundSecretReferenceError(resolution.code);
+      else authSecretRef = resolution.name;
     }
   }
 
@@ -156,6 +179,7 @@ export async function patchMediaPlatformHandler(c: AdminContext): Promise<Respon
   const fields: Record<string, string> = {};
   const sets: string[] = [];
   const binds: Array<string | number | null> = [];
+  let effectiveSecretRef = existing.auth_secret_ref;
 
   if (body.enabled !== undefined) {
     sets.push("enabled = ?");
@@ -174,17 +198,26 @@ export async function patchMediaPlatformHandler(c: AdminContext): Promise<Respon
     if (body.auth_secret_ref === null || body.auth_secret_ref === "") {
       sets.push("auth_secret_ref = ?");
       binds.push(null);
+      effectiveSecretRef = null;
     } else if (typeof body.auth_secret_ref !== "string" || !SECRET_NAME_RE.test(body.auth_secret_ref)) {
       fields.auth_secret_ref = "must be a secret NAME (UPPER_SNAKE), never a token value";
     } else {
       sets.push("auth_secret_ref = ?");
       binds.push(body.auth_secret_ref);
+      effectiveSecretRef = body.auth_secret_ref;
     }
   }
   if (body.event_name !== undefined) {
     const ev = typeof body.event_name === "string" && body.event_name.trim() !== "" ? body.event_name.trim() : "Purchase";
     sets.push("event_name = ?");
     binds.push(ev);
+  }
+
+  if (effectiveSecretRef !== null && fields.auth_secret_ref === undefined) {
+    const resolution = resolveAllowedOutboundSecretReference(c.env, effectiveSecretRef, {
+      requireNewPrefix: effectiveSecretRef !== existing.auth_secret_ref,
+    });
+    if (!resolution.ok) fields.auth_secret_ref = outboundSecretReferenceError(resolution.code);
   }
 
   if (Object.keys(fields).length > 0) return c.json({ error: "Validation failed", fields }, 400);

@@ -253,6 +253,7 @@ ${renderDialogShell()}`;
     title: "Listicles",
     activePath: "/admin/listicles/sections",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     styles: LISTICLES_STYLES,
     scripts: kebabMenuScript + LST_SHARED_SCRIPT + SECTIONS_PAGE_SCRIPT + listFilterScript,
@@ -717,6 +718,7 @@ ${renderDialogShell()}`;
     title: "Listicles",
     activePath: "/admin/listicles/articles",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     styles: LISTICLES_STYLES,
     scripts:

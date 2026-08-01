@@ -1,0 +1,457 @@
+#!/usr/bin/env tsx
+import { createHash } from "node:crypto";
+import { gzipSync } from "node:zlib";
+import { build } from "esbuild";
+import {
+  lstatSync,
+  mkdirSync,
+  opendirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, parse, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const API_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+export const CONVERSIONS_ENTRY = resolve(API_ROOT, "src/admin/conversions/app/index.tsx");
+export const REPORTING_ENTRY = resolve(API_ROOT, "src/admin/reporting/app/index.tsx");
+export const ADMIN_ASSET_MANIFEST_PATH = resolve(
+  API_ROOT,
+  "src/admin/conversions/asset-manifest.generated.ts",
+);
+export const CONVERSIONS_OUTPUT_DIR = resolve(API_ROOT, "public/assets/admin/conversions");
+export const REPORTING_OUTPUT_DIR = resolve(API_ROOT, "public/assets/admin/reporting");
+export const CONVERSIONS_JS_GZIP_BUDGET = 500 * 1024;
+export const REPORTING_JS_GZIP_BUDGET = 650 * 1024;
+export const ADMIN_CSS_GZIP_BUDGET = 64 * 1024;
+export const MAX_MANAGED_ASSET_FILES_PER_PRODUCT = 128;
+
+export interface GeneratedAsset {
+  fileName: string;
+  url: string;
+  contentType: string;
+  etag: string;
+  sha256: string;
+  bytes: number;
+  gzipBytes: number;
+  content: string;
+}
+
+export interface BuiltProduct {
+  name: "conversions" | "reporting";
+  outputDirectory: string;
+  js: GeneratedAsset;
+  css: GeneratedAsset;
+}
+
+export interface ConversionsAdminBuild {
+  conversions: BuiltProduct;
+  reporting: BuiltProduct;
+  manifestSource: string;
+}
+
+export interface CommittedBuildSnapshot {
+  manifestSource: string | null;
+  directoryEntries: Record<string, string[]>;
+  entryKinds: Record<string, "regular_file" | "directory" | "symlink" | "other" | "missing">;
+  files: Record<string, Buffer | null>;
+}
+
+function sha256(content: string | Uint8Array): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+function makeAsset(
+  content: string,
+  product: BuiltProduct["name"],
+  extension: "js" | "css",
+): GeneratedAsset {
+  const hash = sha256(content);
+  const fileName = `${product}.${hash.slice(0, 16)}.${extension}`;
+  return {
+    fileName,
+    url: `/assets/admin/${product}/${fileName}`,
+    contentType: extension === "js" ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8",
+    etag: `"sha256-${hash}"`,
+    sha256: hash,
+    bytes: Buffer.byteLength(content, "utf8"),
+    gzipBytes: gzipSync(content, { level: 9 }).byteLength,
+    content,
+  };
+}
+
+function assetLiteral(asset: GeneratedAsset): string {
+  return `{
+      fileName: ${JSON.stringify(asset.fileName)},
+      url: ${JSON.stringify(asset.url)},
+      contentType: ${JSON.stringify(asset.contentType)},
+      etag: ${JSON.stringify(asset.etag)},
+      sha256: ${JSON.stringify(asset.sha256)},
+      bytes: ${asset.bytes},
+      gzipBytes: ${asset.gzipBytes},
+    }`;
+}
+
+async function buildProduct(
+  name: BuiltProduct["name"],
+  entry: string,
+  outputDirectory: string,
+  jsGzipBudget: number,
+): Promise<BuiltProduct> {
+  const result = await build({
+    entryPoints: [entry],
+    outdir: "out",
+    entryNames: name,
+    bundle: true,
+    format: "esm",
+    platform: "browser",
+    target: "es2020",
+    jsx: "automatic",
+    jsxImportSource: "preact",
+    minify: true,
+    charset: "ascii",
+    legalComments: "none",
+    sourcemap: false,
+    write: false,
+    logLevel: "silent",
+  });
+  const jsOutput = result.outputFiles.find((output) => output.path.endsWith(".js"));
+  const cssOutput = result.outputFiles.find((output) => output.path.endsWith(".css"));
+  if (jsOutput === undefined || cssOutput === undefined) {
+    throw new Error(`${name} build must emit one JavaScript and one CSS output`);
+  }
+  const product: BuiltProduct = {
+    name,
+    outputDirectory,
+    js: makeAsset(jsOutput.text, name, "js"),
+    css: makeAsset(cssOutput.text, name, "css"),
+  };
+  if (product.js.gzipBytes > jsGzipBudget) {
+    throw new Error(`${name} JavaScript gzip size ${product.js.gzipBytes} exceeds ${jsGzipBudget}`);
+  }
+  if (product.css.gzipBytes > ADMIN_CSS_GZIP_BUDGET) {
+    throw new Error(`${name} CSS gzip size ${product.css.gzipBytes} exceeds ${ADMIN_CSS_GZIP_BUDGET}`);
+  }
+  if (/sourceMappingURL|\beval\s*\(|\bnew\s+Function\b/.test(product.js.content)) {
+    throw new Error(`${name} bundle contains a forbidden source map or dynamic-code marker`);
+  }
+  return product;
+}
+
+export async function buildConversionsAdminAssets(): Promise<ConversionsAdminBuild> {
+  const conversions = await buildProduct(
+    "conversions",
+    CONVERSIONS_ENTRY,
+    CONVERSIONS_OUTPUT_DIR,
+    CONVERSIONS_JS_GZIP_BUDGET,
+  );
+  const reporting = await buildProduct(
+    "reporting",
+    REPORTING_ENTRY,
+    REPORTING_OUTPUT_DIR,
+    REPORTING_JS_GZIP_BUDGET,
+  );
+  const manifestSource =
+    "// AUTO-GENERATED by `npm run build:conversions-admin`.\n" +
+    "// DO NOT EDIT. `npm run verify:conversions-admin` rebuilds and byte-diffs this manifest and all four assets.\n" +
+    "// ES2020 ESM; minified; production bundles have no source maps.\n\n" +
+    "export const ADMIN_ASSET_MANIFEST = {\n" +
+    "  conversions: {\n" +
+    `    js: ${assetLiteral(conversions.js)},\n` +
+    `    css: ${assetLiteral(conversions.css)},\n` +
+    "  },\n" +
+    "  reporting: {\n" +
+    `    js: ${assetLiteral(reporting.js)},\n` +
+    `    css: ${assetLiteral(reporting.css)},\n` +
+    "  },\n" +
+    "} as const;\n";
+  return { conversions, reporting, manifestSource };
+}
+
+function readText(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function managedPathChain(path: string): string[] {
+  const absolute = resolve(path);
+  const root = parse(absolute).root;
+  const parts = absolute.slice(root.length).split(sep).filter(Boolean);
+  const chain = [root];
+  for (const part of parts) chain.push(resolve(chain[chain.length - 1] ?? root, part));
+  return chain;
+}
+
+export function assertManagedDirectoryBoundary(path: string, allowMissingLeaf = false): void {
+  const chain = managedPathChain(path);
+  for (let index = 0; index < chain.length; index += 1) {
+    const current = chain[index]!;
+    let status: ReturnType<typeof lstatSync>;
+    try {
+      status = lstatSync(current);
+    } catch {
+      if (allowMissingLeaf && index === chain.length - 1) return;
+      throw new Error(`managed asset directory boundary ${current} is missing or inaccessible`);
+    }
+    if (status.isSymbolicLink()) {
+      throw new Error(`managed asset directory boundary ${current} is a symbolic link`);
+    }
+    if (!status.isDirectory()) {
+      throw new Error(`managed asset directory boundary ${current} is not a directory`);
+    }
+  }
+}
+
+function assertManagedRegularFileBoundary(path: string, allowMissing = false): void {
+  assertManagedDirectoryBoundary(dirname(path));
+  let status: ReturnType<typeof lstatSync>;
+  try {
+    status = lstatSync(path);
+  } catch {
+    if (allowMissing) return;
+    throw new Error(`managed asset file ${path} is missing or inaccessible`);
+  }
+  if (status.isSymbolicLink()) throw new Error(`managed asset file ${path} is a symbolic link`);
+  if (!status.isFile()) throw new Error(`managed asset file ${path} is not a regular file`);
+}
+
+function readDirectory(path: string): string[] {
+  assertManagedDirectoryBoundary(path);
+  const directory = opendirSync(path);
+  const entries: string[] = [];
+  try {
+    for (;;) {
+      const entry = directory.readSync();
+      if (entry === null) break;
+      entries.push(entry.name);
+      if (entries.length > MAX_MANAGED_ASSET_FILES_PER_PRODUCT) {
+        throw new Error(`managed asset directory exceeds ${MAX_MANAGED_ASSET_FILES_PER_PRODUCT} entries`);
+      }
+    }
+  } finally {
+    directory.closeSync();
+  }
+  return entries.sort();
+}
+
+function readEntryKind(path: string): CommittedBuildSnapshot["entryKinds"][string] {
+  try {
+    const status = lstatSync(path);
+    if (status.isSymbolicLink()) return "symlink";
+    if (status.isFile()) return "regular_file";
+    if (status.isDirectory()) return "directory";
+    return "other";
+  } catch {
+    return "missing";
+  }
+}
+
+function readBytes(path: string): Buffer | null {
+  try {
+    return readFileSync(path);
+  } catch {
+    return null;
+  }
+}
+
+export function readCommittedBuildSnapshot(built: ConversionsAdminBuild): CommittedBuildSnapshot {
+  const products = [built.conversions, built.reporting];
+  const directoryEntries: Record<string, string[]> = {};
+  const entryKinds: CommittedBuildSnapshot["entryKinds"] = {};
+  const files: Record<string, Buffer | null> = {};
+  for (const product of products) assertManagedDirectoryBoundary(product.outputDirectory);
+  assertManagedRegularFileBoundary(ADMIN_ASSET_MANIFEST_PATH);
+  for (const product of products) {
+    const entries = readDirectory(product.outputDirectory);
+    directoryEntries[product.outputDirectory] = entries;
+    for (const entry of entries) {
+      const path = resolve(product.outputDirectory, entry);
+      const kind = readEntryKind(path);
+      entryKinds[path] = kind;
+      if (kind !== "regular_file") {
+        throw new Error(`${product.name} asset ${entry} is not a regular file`);
+      }
+    }
+  }
+  for (const product of products) {
+    for (const entry of directoryEntries[product.outputDirectory] ?? []) {
+      const path = resolve(product.outputDirectory, entry);
+      files[path] = readBytes(path);
+    }
+  }
+  return {
+    manifestSource: readText(ADMIN_ASSET_MANIFEST_PATH),
+    directoryEntries,
+    entryKinds,
+    files,
+  };
+}
+
+function jsBudget(product: BuiltProduct): number {
+  return product.name === "conversions" ? CONVERSIONS_JS_GZIP_BUDGET : REPORTING_JS_GZIP_BUDGET;
+}
+
+function retainedAssetBudget(product: BuiltProduct, extension: "js" | "css"): number {
+  return extension === "css" ? ADMIN_CSS_GZIP_BUDGET : jsBudget(product);
+}
+
+export function assertCommittedBuild(
+  built: ConversionsAdminBuild,
+  snapshot: CommittedBuildSnapshot = readCommittedBuildSnapshot(built),
+): void {
+  if (snapshot.manifestSource !== built.manifestSource) {
+    throw new Error("committed admin asset manifest is stale");
+  }
+  for (const product of [built.conversions, built.reporting]) {
+    const actualNames = snapshot.directoryEntries[product.outputDirectory] ?? [];
+    if (actualNames.length > MAX_MANAGED_ASSET_FILES_PER_PRODUCT) {
+      throw new Error(`${product.name} asset directory exceeds the bounded entry limit`);
+    }
+    if (new Set(actualNames).size !== actualNames.length) {
+      throw new Error(`${product.name} asset directory contains duplicate entries`);
+    }
+
+    const activeAssets = new Map(
+      [product.js, product.css].map((asset) => [asset.fileName, asset] as const),
+    );
+    const generatedName = new RegExp(`^${product.name}\\.([0-9a-f]{16})\\.(js|css)$`);
+    for (const entry of actualNames) {
+      const match = generatedName.exec(entry);
+      if (match === null) {
+        throw new Error(`${product.name} asset ${entry} has an invalid content-addressed filename`);
+      }
+      const path = resolve(product.outputDirectory, entry);
+      if (snapshot.entryKinds[path] !== "regular_file") {
+        throw new Error(`${product.name} asset ${entry} is not a regular file`);
+      }
+      const content = snapshot.files[path];
+      if (!Buffer.isBuffer(content)) {
+        throw new Error(`${product.name} asset ${entry} is unreadable`);
+      }
+      const extension = match[2] as "js" | "css";
+      const gzipBytes = gzipSync(content, { level: 9 }).byteLength;
+      const budget = retainedAssetBudget(product, extension);
+      if (gzipBytes > budget) {
+        throw new Error(`${product.name} ${extension} asset ${entry} exceeds ${budget}`);
+      }
+      const contentHash = sha256(content);
+      const active = activeAssets.get(entry);
+      if (active !== undefined) {
+        const expected = Buffer.from(active.content, "utf8");
+        if (
+          !content.equals(expected)
+          || content.byteLength !== active.bytes
+          || contentHash !== active.sha256
+          || gzipBytes !== active.gzipBytes
+        ) {
+          throw new Error(`committed ${product.name} ${entry} is stale`);
+        }
+      }
+      if (contentHash.slice(0, 16) !== match[1]) {
+        throw new Error(`${product.name} asset ${entry} content hash does not match its filename`);
+      }
+    }
+
+    for (const asset of activeAssets.values()) {
+      if (!actualNames.includes(asset.fileName)) {
+        throw new Error(`committed ${product.name} ${asset.fileName} is missing`);
+      }
+    }
+  }
+}
+
+export function writeBuiltProduct(product: BuiltProduct): void {
+  assertManagedDirectoryBoundary(product.outputDirectory, true);
+  try {
+    lstatSync(product.outputDirectory);
+  } catch {
+    mkdirSync(product.outputDirectory);
+  }
+  assertManagedDirectoryBoundary(product.outputDirectory);
+  for (const entry of readDirectory(product.outputDirectory)) {
+    const path = resolve(product.outputDirectory, entry);
+    if (readEntryKind(path) !== "regular_file") {
+      throw new Error(`${product.name} asset ${entry} is not a regular file`);
+    }
+  }
+  for (const asset of [product.js, product.css]) {
+    const path = resolve(product.outputDirectory, asset.fileName);
+    assertManagedRegularFileBoundary(path, true);
+    writeFileSync(path, asset.content, "utf8");
+  }
+}
+
+function preflightBuiltProduct(product: BuiltProduct): void {
+  assertManagedDirectoryBoundary(product.outputDirectory);
+  for (const entry of readDirectory(product.outputDirectory)) {
+    const path = resolve(product.outputDirectory, entry);
+    if (readEntryKind(path) !== "regular_file") {
+      throw new Error(`${product.name} asset ${entry} is not a regular file`);
+    }
+  }
+  for (const asset of [product.js, product.css]) {
+    assertManagedRegularFileBoundary(resolve(product.outputDirectory, asset.fileName), true);
+  }
+}
+
+export function preflightConversionsAdminWrite(
+  built: ConversionsAdminBuild,
+  manifestPath = ADMIN_ASSET_MANIFEST_PATH,
+): void {
+  preflightBuiltProduct(built.conversions);
+  preflightBuiltProduct(built.reporting);
+  assertManagedRegularFileBoundary(manifestPath, true);
+}
+
+export function writeConversionsAdminBuild(
+  built: ConversionsAdminBuild,
+  manifestPath = ADMIN_ASSET_MANIFEST_PATH,
+): void {
+  preflightConversionsAdminWrite(built, manifestPath);
+  writeBuiltProduct(built.conversions);
+  writeBuiltProduct(built.reporting);
+  assertManagedRegularFileBoundary(manifestPath, true);
+  writeFileSync(manifestPath, built.manifestSource, "utf8");
+}
+
+function productSummary(product: BuiltProduct): string {
+  return (
+    `  ${product.name} JS ${product.js.fileName}: ${product.js.bytes} bytes/${product.js.gzipBytes} gzip\n` +
+    `  ${product.name} CSS ${product.css.fileName}: ${product.css.bytes} bytes/${product.css.gzipBytes} gzip`
+  );
+}
+
+async function main(): Promise<void> {
+  const built = await buildConversionsAdminAssets();
+  if (process.argv.includes("--check")) {
+    assertCommittedBuild(built);
+    console.log(
+      `verify:conversions-admin PASS — manifest and four physical assets byte-identical\n` +
+        `${productSummary(built.conversions)}\n${productSummary(built.reporting)}`,
+    );
+    return;
+  }
+  writeConversionsAdminBuild(built);
+  console.log(
+    `build:conversions-admin PASS — ${ADMIN_ASSET_MANIFEST_PATH}\n` +
+      `${productSummary(built.conversions)}\n${productSummary(built.reporting)}`,
+  );
+}
+
+const invokedDirectly = (() => {
+  try {
+    return fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "");
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly) {
+  main().catch((error) => {
+    console.error(`build:conversions-admin failed: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  });
+}

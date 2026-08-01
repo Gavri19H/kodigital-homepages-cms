@@ -38,6 +38,7 @@ export type SettingsValueMap = { [key: string]: string | number | null | undefin
 
 export interface SettingsBranding {
   userEmail?: string;
+  conversionsUiEnabled?: boolean;
 }
 
 export const SETTING_KEYS: ReadonlyArray<string> = [
@@ -1224,6 +1225,7 @@ export function settingsPage(
     title: "Settings",
     activePath: "/admin/settings",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     styles: SETTINGS_STYLES,
     scripts: SETTINGS_SCRIPT,

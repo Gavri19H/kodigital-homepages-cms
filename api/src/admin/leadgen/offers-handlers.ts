@@ -29,7 +29,11 @@
 //     vertical/activity-carrying entities (fixed-literal reads).
 
 import type { Context } from "hono";
-import type { Env } from "../../env";
+import {
+  resolveAllowedOutboundSecretReference,
+  type Env,
+  type OutboundSecretReferenceFailureCode,
+} from "../../env";
 import { isPublicId, mintPublicId, type PublicIdKind } from "../../leadgen/ids";
 import { readCapStatus, capExceeded } from "../../leadgen/caps";
 import { validateBannerUrlTemplate, normalizeTemplate, findUnknownMacros } from "../../leadgen/macros";
@@ -190,6 +194,21 @@ const SECRET_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // RFC 9110 token grammar for header/param names — rejects header injection
 // (colons, CR/LF, spaces) at save time.
 const HTTP_TOKEN_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+function outboundSecretReferenceError(code: OutboundSecretReferenceFailureCode): string {
+  switch (code) {
+    case "invalid_syntax":
+      return "must be a valid secret binding name";
+    case "infrastructure_reference":
+      return "must not reference an infrastructure, signing, storage, or database credential";
+    case "prefix_required":
+      return "new outbound secret references must use the OFFER_TOKEN_ prefix";
+    case "not_allowed":
+      return "must be explicitly listed in LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS";
+    case "binding_missing":
+      return "the allowlisted secret binding is missing or empty";
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Row resolution + Row→API mapping (03 §8.5)
@@ -1210,6 +1229,38 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
   const placementInputs =
     body["placements"] !== undefined ? collectPlacementInputs(body["placements"], errors) : null;
 
+  // Conversions plan §18.7: validate database-selected outbound references at
+  // save time and require every newly introduced name to use OFFER_TOKEN_. A
+  // pre-existing legacy reference may be re-saved only while it remains
+  // explicitly allowlisted and backed by a non-empty binding.
+  if (updates.has("api_token_secret_ref")) {
+    const candidate = updates.get("api_token_secret_ref");
+    if (typeof candidate === "string") {
+      const resolution = resolveAllowedOutboundSecretReference(c.env, candidate, {
+        requireNewPrefix: candidate !== existing.api_token_secret_ref,
+      });
+      if (!resolution.ok) {
+        errors["api_token_secret_ref"] = outboundSecretReferenceError(resolution.code);
+      }
+    }
+  }
+  if (headerInputs !== null) {
+    const existingSecretRefs = new Set(
+      (await readOfferHeaders(c.env.DB, existing.id))
+        .filter((row) => row.value_kind === "secret_ref")
+        .map((row) => row.value_text ?? ""),
+    );
+    headerInputs.forEach((header, index) => {
+      if (header.value_kind !== "secret_ref") return;
+      const resolution = resolveAllowedOutboundSecretReference(c.env, header.value_text, {
+        requireNewPrefix: !existingSecretRefs.has(header.value_text),
+      });
+      if (!resolution.ok) {
+        errors[`headers[${index}].value_text`] = outboundSecretReferenceError(resolution.code);
+      }
+    });
+  }
+
   const unknownScalars = Object.keys(body).filter(
     (key) =>
       key !== "headers" &&
@@ -1589,6 +1640,15 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
   const tokenPlacement = copyEndpointConfig ? src.api_token_placement : null;
   const tokenParam = copyEndpointConfig ? src.api_token_param_name : null;
   const requestMethod = copyEndpointConfig ? src.request_method : null;
+  if (tokenRef !== null) {
+    const resolution = resolveAllowedOutboundSecretReference(c.env, tokenRef, { requireNewPrefix: true });
+    if (!resolution.ok) {
+      return c.json(
+        { error: "Validation failed", fields: { api_token_secret_ref: outboundSecretReferenceError(resolution.code) } },
+        400,
+      );
+    }
+  }
 
   // Source placements read BEFORE any write: the F13 guard below + the
   // blank-sentinel cloning both consume them, and §7.3 "one transaction"
@@ -1708,6 +1768,20 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
       .bind(src.id)
       .all<{ header_name: string; value_kind: string; value_text: string | null }>();
     for (const h of headers.results ?? []) {
+      if (h.value_kind === "secret_ref" && h.value_text !== null) {
+        const resolution = resolveAllowedOutboundSecretReference(c.env, h.value_text, {
+          requireNewPrefix: true,
+        });
+        if (!resolution.ok) {
+          return c.json(
+            {
+              error: "Validation failed",
+              fields: { headers: outboundSecretReferenceError(resolution.code) },
+            },
+            400,
+          );
+        }
+      }
       stmts.push(
         c.env.DB.prepare(
           "INSERT INTO leadgen_offer_headers (offer_id, header_name, value_kind, value_text) VALUES ((SELECT id FROM leadgen_offers WHERE public_id = ?), ?, ?, ?)",

@@ -1385,6 +1385,9 @@ export async function runAuction(
       const result =
         resultByRow.get(rowKey(b.offer.public_id, b.placement_public_id)) ??
         resultByOffer.get(b.offer.public_id);
+      // Carrier/banner projections also consume the scrubbed response. The
+      // only surviving raw provider bytes are in the encrypt-only debug record;
+      // an echoed credential can never become public carrier copy or a URL.
       const responseContext = result?.parsed ?? (result?.body ?? null);
       const parseResult = result === undefined
         ? { carriers: [], errors: [] }

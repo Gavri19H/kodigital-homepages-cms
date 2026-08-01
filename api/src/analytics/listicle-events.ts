@@ -19,6 +19,7 @@
 
 import { sendToFirehose } from "./firehose";
 import type { Env } from "../env";
+import type { WaitUntilContext } from "../wait-until-context";
 
 // The §16 event-type set (6 types; `offer_impression` is first-class §9.3).
 export const LISTICLE_EVENT_TYPES = [
@@ -195,7 +196,7 @@ export interface ListicleEmitOutcome {
 // exactly, pointed at LISTICLE_EVENTS_FIREHOSE_STREAM. Never throws.
 export function emitListicleRecords(
   env: Env,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   records: ListicleStreamRecord[],
 ): ListicleEmitOutcome {
   if (records.length === 0) return { status: "empty", records: 0 };

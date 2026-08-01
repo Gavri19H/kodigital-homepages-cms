@@ -155,7 +155,8 @@ function buildEnv(db: D1Database, kv: KVNamespace, extra: Record<string, string>
     SITE_PROVISIONING_DRY_RUN: "true",
     SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
     LEADGEN_CONFIG_SIGNING_KEY: SIGNING_KEY,
-    LEADGEN_TEST_SECRET: SECRET_VALUE,
+    LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS: "OFFER_TOKEN_TEST_SECRET",
+    OFFER_TOKEN_TEST_SECRET: SECRET_VALUE,
     ...extra,
   } as unknown as Env;
 }
@@ -246,7 +247,7 @@ function seedOffer(sdb: SqliteDb, opts: SeedOfferOpts = {}): SeededOffer {
       dynamic ? 1 : 0,
       bidSource,
       opts.staticBid ?? null,
-      opts.headerSecret || opts.tokenInPayload ? "LEADGEN_TEST_SECRET" : null,
+      opts.headerSecret || opts.tokenInPayload ? "OFFER_TOKEN_TEST_SECRET" : null,
       opts.tokenInPayload ? "payload" : opts.headerSecret ? "header" : null,
       opts.tokenInPayload ? null : opts.headerSecret ? "X-Api-Token" : null,
       opts.capEnabled ? 1 : 0,
@@ -270,7 +271,7 @@ function seedOffer(sdb: SqliteDb, opts: SeedOfferOpts = {}): SeededOffer {
 
   if (opts.headerSecret) {
     sdb
-      .prepare("INSERT INTO leadgen_offer_headers (offer_id, header_name, value_kind, value_text) VALUES (?, 'X-Api-Token', 'secret_ref', 'LEADGEN_TEST_SECRET')")
+      .prepare("INSERT INTO leadgen_offer_headers (offer_id, header_name, value_kind, value_text) VALUES (?, 'X-Api-Token', 'secret_ref', 'OFFER_TOKEN_TEST_SECRET')")
       .run(offer.id);
   }
 
@@ -793,6 +794,86 @@ describeDb("leadgen §19 writes — secret never to D1 + dry-run writes nothing"
     expect(persisted.request_payload_redacted_json).not.toContain(SECRET_VALUE);
     expect(persisted.response_redacted_json ?? "").not.toContain(SECRET_VALUE);
     expect(persisted.debug_ref).toBeNull(); // absent key ⇒ no blob + NULL debug_ref
+  });
+
+  it("provider-echoed outbound secrets are scrubbed from the public result and every D1 response column", async () => {
+    const echoedSecret = "runtime !'()~ /+%?=Z";
+    const { sdb, env } = harness({ OFFER_TOKEN_TEST_SECRET: echoedSecret }); // no debug key: raw echo cannot persist
+    const auction = seedAuction(sdb);
+    const o1 = seedOffer(sdb, { headerSecret: true });
+    attachOffer(sdb, auction.id, o1, 0);
+    const encodedSecret = encodeURIComponent(echoedSecret);
+    const formSecret = new URLSearchParams({ token: echoedSecret }).toString().slice("token=".length);
+    const doubleFormSecret = new URLSearchParams({ token: formSecret }).toString().slice("token=".length);
+    stubFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            carriers: [
+              {
+                name: `Acme ${formSecret}`,
+                bid: 12,
+                url: `https://acme.example/click?echo=${doubleFormSecret}`,
+                logo: "https://acme.example/logo.png",
+              },
+            ],
+            echoed_token: echoedSecret,
+            echoed_encoded_token: encodedSecret,
+            echoed_form_token: formSecret,
+            echoed_double_form_token: doubleFormSecret,
+          }),
+          { status: 200 },
+        ),
+    );
+
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(
+      env,
+      {
+        resolved: makeResolved(),
+        bundle,
+        environment: "production",
+        binding: NO_BINDING,
+        session_id: null,
+        raw_answers: {},
+        clicked: [],
+      },
+      { dryRun: true },
+    );
+
+    expect(result.status).toBe("ok");
+    for (const secretVariant of [echoedSecret, encodedSecret, formSecret, doubleFormSecret]) {
+      expect(result.banners_html).not.toContain(secretVariant);
+      expect(JSON.stringify(result.banners)).not.toContain(secretVariant);
+      expect(JSON.stringify(result.events)).not.toContain(secretVariant);
+    }
+
+    const providerRow = result.provider_log_rows[0];
+    expect(providerRow).toBeDefined();
+    expect(providerRow!.response_redacted_json).toContain("[REDACTED]");
+    for (const secretVariant of [echoedSecret, encodedSecret, formSecret, doubleFormSecret]) {
+      expect(providerRow!.response_redacted_json).not.toContain(secretVariant);
+      expect(providerRow!.parsed_carriers_json).not.toContain(secretVariant);
+    }
+    // The raw response is retained only in the encrypt-only debug carrier.
+    expect(JSON.stringify(providerRow!.debug_record)).toContain(echoedSecret);
+
+    await persistAuctionResult(env, result);
+    const persisted = sdb
+      .prepare(
+        "SELECT response_redacted_json, parsed_carriers_json, debug_ref FROM leadgen_provider_request_log WHERE offer_public_id = ? AND auction_instance_id IS NOT NULL",
+      )
+      .get(o1.offer_public_id) as {
+      response_redacted_json: string | null;
+      parsed_carriers_json: string;
+      debug_ref: string | null;
+    };
+    expect(persisted.response_redacted_json).toContain("[REDACTED]");
+    for (const secretVariant of [echoedSecret, encodedSecret, formSecret, doubleFormSecret]) {
+      expect(persisted.response_redacted_json ?? "").not.toContain(secretVariant);
+      expect(persisted.parsed_carriers_json).not.toContain(secretVariant);
+    }
+    expect(persisted.debug_ref).toBeNull();
   });
 
   it("payload token secret is masked in D1; the full debug blob is AES-encrypted (no plaintext secret)", async () => {

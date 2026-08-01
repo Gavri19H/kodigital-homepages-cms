@@ -116,6 +116,7 @@ function buildEnv(db: D1Database): Env {
     SITE_PROVISIONING_DRY_RUN: "true",
     SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
     DEV_BYPASS_AUTH: "true",
+    LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS: "OFFER_TOKEN_PROVIDER",
   } as Env;
 }
 
@@ -286,7 +287,7 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     const { sdb, env } = harness();
     // env resolves the offer's token secret ref → the token node is injectable
     // (masked). readEnvSecret reads env[name]; the real value never enters the preview.
-    const envWithSecret = { ...env, PROVIDER_TOKEN: "super-secret-never-shown" } as typeof env;
+    const envWithSecret = { ...env, OFFER_TOKEN_PROVIDER: "super-secret-never-shown" } as typeof env;
     const auction = seedAuction(sdb);
     // an offer whose ACTIVE schema pulls EVERY non-answer source class: a
     // request-scoped macro (utm_source), the three OFFER-scoped macros
@@ -296,7 +297,7 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     const offerPublic = mintPublicId("offer");
     sdb.prepare(
       `INSERT INTO leadgen_offers (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type, calls_provider_api, bid_source, request_execution_mode, request_method, api_token_placement, api_token_secret_ref, endpoint_production, endpoint_staging, status)
-       VALUES (?, 'MacroOffer', 'P', 'quote_funnel', 'life', 's2s_postback', 'cpc', 1, 'response', 'server', 'POST', 'payload', 'PROVIDER_TOKEN', 'https://p.example/q', 'https://s.example/q', 'active')`,
+       VALUES (?, 'MacroOffer', 'P', 'quote_funnel', 'life', 's2s_postback', 'cpc', 1, 'response', 'server', 'POST', 'payload', 'OFFER_TOKEN_PROVIDER', 'https://p.example/q', 'https://s.example/q', 'active')`,
     ).run(offerPublic);
     const offerId = (sdb.prepare("SELECT id FROM leadgen_offers WHERE public_id = ?").get(offerPublic) as { id: number }).id;
     const schemaJson = JSON.stringify({
@@ -352,7 +353,7 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
   });
 
   it("S1 token gate: a payload+server offer whose secret does NOT resolve (null ref OR env-drift) shows NO token field (matches the engine, never a spurious mask)", async () => {
-    const { sdb, env } = harness(); // env has NO PROVIDER_TOKEN → secret unresolvable
+    const { sdb, env } = harness(); // env has NO OFFER_TOKEN_PROVIDER → secret unresolvable
     const auction = seedAuction(sdb);
     const offerPublic = mintPublicId("offer");
     // payload placement + server mode (the token WOULD inject) BUT api_token_secret_ref
@@ -381,13 +382,13 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     sdb.prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)").run(offerPublic);
     sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, placementRowId, offerId);
 
-    // Second offer — ENV-DRIFT: api_token_secret_ref IS set ('PROVIDER_TOKEN') but
-    // the env lacks that key (harness env has no PROVIDER_TOKEN) → readEnvSecret
+    // Second offer — ENV-DRIFT: api_token_secret_ref is allowlisted but the
+    // env lacks that binding, so the narrow resolver reports it unavailable.
     // returns undefined → unresolvable, distinct from the null-ref case above.
     const driftPublic = mintPublicId("offer");
     sdb.prepare(
       `INSERT INTO leadgen_offers (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type, calls_provider_api, bid_source, request_execution_mode, request_method, api_token_placement, api_token_secret_ref, endpoint_production, endpoint_staging, status)
-       VALUES (?, 'EnvDriftOffer', 'P', 'quote_funnel', 'life', 's2s_postback', 'cpc', 1, 'response', 'server', 'POST', 'payload', 'PROVIDER_TOKEN', 'https://p.example/q', 'https://s.example/q', 'active')`,
+       VALUES (?, 'EnvDriftOffer', 'P', 'quote_funnel', 'life', 's2s_postback', 'cpc', 1, 'response', 'server', 'POST', 'payload', 'OFFER_TOKEN_PROVIDER', 'https://p.example/q', 'https://s.example/q', 'active')`,
     ).run(driftPublic);
     const driftId = (sdb.prepare("SELECT id FROM leadgen_offers WHERE public_id = ?").get(driftPublic) as { id: number }).id;
     const driftSchemaPublic = mintPublicId("payload_schema_version");

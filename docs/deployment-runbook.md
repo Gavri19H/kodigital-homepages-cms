@@ -84,6 +84,69 @@ git status --porcelain
 Expected: empty output. A non-empty working tree means uncommitted
 config changes that would NOT be deployed; commit and re-push first.
 
+### Section 18.7 outbound secret-reference gate
+
+Apply this additional gate to any release containing the LeadGen/Listicles
+outbound secret-reference hardening. It is value-free: never print, copy, or
+store a secret value in deployment evidence.
+
+1. Inventory all database-selected outbound reference names in both staging
+   and production before deployment. Record only source, reference name,
+   offer status or platform enabled state, and row count:
+
+   ```sql
+   SELECT 'leadgen_offers.api_token_secret_ref' AS source,
+          api_token_secret_ref AS secret_ref, status AS state, COUNT(*) AS row_count
+     FROM leadgen_offers
+    WHERE api_token_secret_ref IS NOT NULL AND TRIM(api_token_secret_ref) <> ''
+    GROUP BY api_token_secret_ref, status
+   UNION ALL
+   SELECT 'leadgen_offer_headers.value_text', h.value_text, o.status, COUNT(*)
+     FROM leadgen_offer_headers h
+     JOIN leadgen_offers o ON o.id = h.offer_id
+    WHERE h.value_kind = 'secret_ref' AND h.value_text IS NOT NULL AND TRIM(h.value_text) <> ''
+    GROUP BY h.value_text, o.status
+   UNION ALL
+   SELECT 'leadgen_media_platforms.auth_secret_ref', auth_secret_ref,
+          CAST(enabled AS TEXT), COUNT(*)
+     FROM leadgen_media_platforms
+    WHERE auth_secret_ref IS NOT NULL AND TRIM(auth_secret_ref) <> ''
+    GROUP BY auth_secret_ref, enabled
+   UNION ALL
+   SELECT 'listicle_media_platforms.auth_secret_ref', auth_secret_ref,
+          CAST(enabled AS TEXT), COUNT(*)
+     FROM listicle_media_platforms
+    WHERE auth_secret_ref IS NOT NULL AND TRIM(auth_secret_ref) <> ''
+    GROUP BY auth_secret_ref, enabled
+   ORDER BY source, secret_ref, state;
+   ```
+
+2. The exact set of legitimate inventory names must equal the intended entries
+   in the environment's `LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS`. No wildcard,
+   substring, or prefix matching is permitted. Every newly introduced offer or
+   provider token name must begin `OFFER_TOKEN_`. A legitimate non-prefixed
+   legacy name requires an explicit allowlist entry and a tracked rename.
+3. Use `wrangler secret list --env staging|production` to confirm, by name only,
+   that each allowlisted reference has a Worker secret binding. Stop on a
+   missing binding. Never use a command that reads or echoes the value.
+4. Run `npm run typecheck`, `npm test`, and `npm run verify:all`. The security
+   tests must prove that a missing binding and infrastructure names such as
+   `CH_PASSWORD`, Cloudflare provisioning tokens, signing keys, and database
+   credentials fail before `fetch`.
+5. Deploy to staging only. Confirm ordinary enabled LeadGen/Listicles sends are
+   behaviorally unchanged, and confirm a deliberately disallowed reference is
+   rejected at save with no outbound request. Logs/evidence may contain the
+   offer/platform ID and typed error code, but no credential name unless it is
+   operationally required and no credential value under any circumstance.
+6. Production deployment and any deliberate production send require the
+   release owner's explicit approval. After approval, deploy and observe normal
+   traffic; do not create a synthetic partner send merely to prove the gate.
+
+Rollback is the previous Worker deployment. This story adds no D1 migration.
+If ordinary traffic produces `secret_reference_invalid`, first compare the
+value-free inventory, allowlist, and secret-binding name list; never weaken the
+runtime check or add an infrastructure credential to the allowlist.
+
 ## Flight — Staging
 
 Staging is the rehearsal env. Always deploy staging first; never

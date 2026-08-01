@@ -22,8 +22,9 @@
 // auction/ingest never runs.
 
 import { Hono } from "hono";
-import type { Context } from "hono";
+import type { Context, ExecutionContext as HonoExecutionContext } from "hono";
 import type { Env } from "../../env";
+import type { WaitUntilContext } from "../../wait-until-context";
 import { publicSiteContextMiddleware, type PublicSiteVariables } from "../middleware";
 import { serveFunnelShell, serveLeadgenConfig, leadgenNoStoreHeaders } from "./serve";
 import { serveLeadgenAuction } from "./serve-auction";
@@ -554,7 +555,7 @@ async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
 // Hono's c.executionCtx GETTER throws where no ExecutionContext exists (unit-
 // test harnesses); the resolver's Firehose emit rides waitUntil, so the context
 // is captured once behind a no-op fallback (the listicles/leadgen idiom).
-function safeExecutionCtx(c: { executionCtx: ExecutionContext }): ExecutionContext {
+function safeExecutionCtx(c: { executionCtx: WaitUntilContext }): WaitUntilContext {
   try {
     return c.executionCtx;
   } catch {
@@ -562,10 +563,7 @@ function safeExecutionCtx(c: { executionCtx: ExecutionContext }): ExecutionConte
       waitUntil(): void {
         /* no-op outside workerd */
       },
-      passThroughOnException(): void {
-        /* no-op */
-      },
-    } as unknown as ExecutionContext;
+    };
   }
 }
 
@@ -880,7 +878,7 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
 // /lg/* middleware above already ran (tenant-host; admin host → 404) before this
 // direct route, so the beacon is public + tenant-scoped + never body-reflecting.
 async function serveLeadgenTrack(c: PublicContext): Promise<Response> {
-  let execCtx: ExecutionContext | undefined;
+  let execCtx: HonoExecutionContext | undefined;
   try {
     execCtx = c.executionCtx;
   } catch {

@@ -11,6 +11,7 @@
 
 import { sendToFirehose } from "./firehose";
 import type { Env } from "../env";
+import type { WaitUntilContext } from "../wait-until-context";
 
 // One row in the Athena `homepage.events` table. Keys MUST stay exactly these
 // lowercase names — they map 1:1 to the Athena schema. All fields are strings
@@ -72,7 +73,7 @@ export function parseDeviceOs(ua: string): { device: string; os: string } {
 // without blocking the beacon response. No-op (and never throws) otherwise.
 export function emitEvents(
   env: Env,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   events: HomepageEvent[],
 ): void {
   if (events.length === 0) return;

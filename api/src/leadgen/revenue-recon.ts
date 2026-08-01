@@ -28,6 +28,7 @@
 // inject a write-capable client to prove the ship/refresh logic.
 
 import type { Env } from "../env";
+import type { WaitUntilContext } from "../wait-until-context";
 import {
   createLeadgenChClient,
   type CreateChClientOptions,
@@ -68,21 +69,18 @@ export interface RevenueCronOptions extends CreateChClientOptions {
   // The scheduled handler's ExecutionContext — carries the m3 revenue_received
   // Firehose emission (emitLeadgenRecords rides ctx.waitUntil). Absent (legacy
   // callers/harnesses) ⇒ a no-op-waitUntil context; emission stays fail-open.
-  ctx?: ExecutionContext;
+  ctx?: WaitUntilContext;
 }
 
 // The runtime-routes safeExecutionCtx idiom: a no-op ExecutionContext for
 // callers without one (unit harnesses / legacy invocations) — the emission's
 // promise floats with its own .catch, never blocking or throwing.
-function noopExecutionCtx(): ExecutionContext {
+function noopExecutionCtx(): WaitUntilContext {
   return {
     waitUntil(): void {
       /* no-op outside workerd */
     },
-    passThroughOnException(): void {
-      /* no-op */
-    },
-  } as unknown as ExecutionContext;
+  };
 }
 
 // --- §29 D1 → CH revenue shipper --------------------------------------------

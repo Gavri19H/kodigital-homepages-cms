@@ -20,15 +20,17 @@
 // conversion and a provider postback for the SAME conversion do not double-fire
 // the pixel. The KV key uses the LEADGEN dedupe prefix `lg_s2s:`.
 //
-// Secrets (§30.2): the `{auth_token}` macro resolves the platform row's
-// `auth_secret_ref` via readEnvSecret; an ABSENT secret ⇒ the token resolves
-// EMPTY and the platform fires tokenless per its own template (no-op-safe,
-// never a throw).
+// Secrets (§30.2 + conversions plan §18.7): a configured `auth_secret_ref`
+// must be safe, explicitly allowlisted, and bound to a non-empty value. Any
+// failure returns before fetch; a configured token can never degrade into a
+// tokenless partner request.
 
 import type { Env } from "../env";
-import { readEnvSecret } from "../env";
+import { resolveAllowedOutboundSecretReference } from "../env";
+import type { WaitUntilContext } from "../wait-until-context";
 import { resolveMacros } from "./macros";
 import { createLeadgenChClient, type LeadgenChClient } from "./clickhouse";
+import { safeErrorCode, safeErrorName } from "../safety/safe-error";
 
 export interface MediaPlatformRow {
   id: number;
@@ -187,7 +189,7 @@ async function alreadyFired(
 // fire is registered on ctx.waitUntil so it never blocks the caller.
 export async function dispatchMatchedConversionS2S(
   env: Env,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   db: D1Database,
   click: S2SClickContext,
   revenue: S2SRevenueContext,
@@ -206,14 +208,29 @@ export async function dispatchMatchedConversionS2S(
     const eventName =
       (revenue.event_name ?? "").trim() || (platform.event_name ?? "").trim() || "Purchase";
 
+    let authToken = "";
+    if (platform.auth_secret_ref !== null && platform.auth_secret_ref !== "") {
+      const resolution = resolveAllowedOutboundSecretReference(env, platform.auth_secret_ref);
+      if (!resolution.ok) {
+        console.error(JSON.stringify({
+          message: "leadgen outbound secret reference rejected",
+          platform: platform.platform,
+          code: resolution.code,
+        }));
+        return {
+          status: "failed",
+          platform: platform.platform,
+          reason: `outbound secret reference rejected: ${resolution.code}`,
+        };
+      }
+      authToken = resolution.value;
+    }
+
+    // Do not consume the conversion's dedupe slot when configuration fails.
+    // Operators can repair the binding and safely replay the same conversion.
     if (await alreadyFired(env, platform.platform, click.click_id, eventName, revenue.conversion_id ?? "")) {
       return { status: "deduped", platform: platform.platform };
     }
-
-    const authToken =
-      platform.auth_secret_ref !== null && platform.auth_secret_ref !== ""
-        ? (readEnvSecret(env, platform.auth_secret_ref) ?? "")
-        : "";
 
     // P4a (D-2, roast minor-7): the highest-priority MATCHED routing rule's
     // multiplier REPLACES the platform base for this conversion (single value,
@@ -250,7 +267,7 @@ export async function dispatchMatchedConversionS2S(
         // Log the error NAME only — never the message: a fetch rejection can
         // embed the request URL, which carries the resolved {auth_token} query
         // param (§30.3 "access tokens redacted in all logs").
-        console.error(`[lg-s2s] ${platform.platform} pixel failed: ${err instanceof Error ? err.name : "error"}`);
+        console.error(`[lg-s2s] ${platform.platform} pixel failed: ${safeErrorName(err)}`);
       });
     try {
       ctx.waitUntil(fire);
@@ -261,9 +278,9 @@ export async function dispatchMatchedConversionS2S(
     }
     return { status: "fired", platform: platform.platform };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[lg-s2s] dispatch error: ${msg.slice(0, 200)}`);
-    return { status: "failed", reason: msg.slice(0, 200) };
+    const code = safeErrorCode("dispatch_error", err);
+    console.error(`[lg-s2s] ${code}`);
+    return { status: "failed", reason: code };
   }
 }
 
@@ -326,8 +343,7 @@ export async function resolveClickContextFromCh(
       ...(funnelAttemptId !== "" ? { funnel_attempt_id: funnelAttemptId } : {}),
     };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[lg-s2s] CH click-context lookup failed: ${msg.slice(0, 200)}`);
+    console.error(`[lg-s2s] CH click-context lookup failed: ${safeErrorName(err)}`);
     return null;
   }
 }

@@ -25,8 +25,10 @@ const HEADER_SECRET = "hdr-SECRET-456";
 
 function buildEnv(extra: Record<string, string> = {}): Env {
   return {
-    LEADGEN_TEST_PROVIDER_TOKEN: PROVIDER_TOKEN,
-    LEADGEN_TEST_HEADER_SECRET: HEADER_SECRET,
+    LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS:
+      "OFFER_TOKEN_TEST_PROVIDER,OFFER_TOKEN_TEST_HEADER,OFFER_TOKEN_MISSING,OFFER_TOKEN_MISSING_HEADER",
+    OFFER_TOKEN_TEST_PROVIDER: PROVIDER_TOKEN,
+    OFFER_TOKEN_TEST_HEADER: HEADER_SECRET,
     ...extra,
   } as unknown as Env;
 }
@@ -54,7 +56,7 @@ function makeOffer(overrides: Partial<LeadgenOfferRow> = {}): LeadgenOfferRow {
     request_method: "POST",
     endpoint_production: "https://api.provider.example.com/quotes",
     endpoint_staging: "https://staging.provider.example.com/quotes",
-    api_token_secret_ref: "LEADGEN_TEST_PROVIDER_TOKEN",
+    api_token_secret_ref: "OFFER_TOKEN_TEST_PROVIDER",
     api_token_placement: "header",
     api_token_param_name: "X-Api-Token",
     active_payload_schema_id: 10,
@@ -76,7 +78,7 @@ function makeHeaders(): LeadgenOfferHeaderRow[] {
   return [
     { id: 1, offer_id: 1, header_name: "X-Static", value_kind: "static", value_text: "fixed-value", created_at: 0 },
     { id: 2, offer_id: 1, header_name: "X-Macro", value_kind: "macro", value_text: "{offer_id}", created_at: 0 },
-    { id: 3, offer_id: 1, header_name: "X-Secret", value_kind: "secret_ref", value_text: "LEADGEN_TEST_HEADER_SECRET", created_at: 0 },
+    { id: 3, offer_id: 1, header_name: "X-Secret", value_kind: "secret_ref", value_text: "OFFER_TOKEN_TEST_HEADER", created_at: 0 },
   ];
 }
 
@@ -234,6 +236,33 @@ describe("fetchProvider — error taxonomy (never throws)", () => {
     const result = await fetchProvider(buildEnv(), makeOffer(), makeHeaders(), makeSchema(), makeCtx(), "staging");
     expect(result.error_reason).toBe("network_error");
     expect(result.timed_out).toBe(false);
+    expect(result.error_text).toBe("provider_fetch_failed:Error");
+  });
+
+  it("never persists a rejected fetch message or custom name containing query/header secrets", async () => {
+    const offer = makeOffer({ api_token_placement: "query", api_token_param_name: "token" });
+    stubFetch((url, init) => {
+      const sentHeaders = init.headers as Record<string, string>;
+      const err = new Error(`fetch rejected for ${url}; header=${sentHeaders["X-Secret"]}`);
+      err.name = `ProviderError-${PROVIDER_TOKEN}-${HEADER_SECRET}`;
+      throw err;
+    });
+
+    const result = await fetchProvider(
+      buildEnv(),
+      offer,
+      makeHeaders(),
+      makeSchema(),
+      makeCtx(),
+      "staging",
+    );
+
+    expect(result.error_reason).toBe("network_error");
+    expect(result.error_text).toBe("provider_fetch_failed:UnknownError");
+    expect(result.redacted_log.error_text).toBe("provider_fetch_failed:UnknownError");
+    const persistedShape = JSON.stringify(result.redacted_log);
+    expect(persistedShape).not.toContain(PROVIDER_TOKEN);
+    expect(persistedShape).not.toContain(HEADER_SECRET);
   });
 
   it("a 200 non-JSON body → malformed_response, parsed undefined", async () => {
@@ -261,22 +290,113 @@ describe("fetchProvider — error taxonomy (never throws)", () => {
 // ---------------------------------------------------------------------------
 
 describe("fetchProvider — header + token resolution (§11.3-11.4 / §30.2)", () => {
-  it("absent secret ⇒ typed no-op note, the leg is NOT sent, the request still fires", async () => {
+  it("missing allowlisted binding fails closed before fetch", async () => {
     const calls = stubFetch(() => new Response("{}", { status: 200 }));
-    const offer = makeOffer({ api_token_secret_ref: "LEADGEN_MISSING_TOKEN" });
+    const offer = makeOffer({ api_token_secret_ref: "OFFER_TOKEN_MISSING" });
     const headers: LeadgenOfferHeaderRow[] = [
-      { id: 1, offer_id: 1, header_name: "X-Secret", value_kind: "secret_ref", value_text: "LEADGEN_MISSING_HDR", created_at: 0 },
+      { id: 1, offer_id: 1, header_name: "X-Secret", value_kind: "secret_ref", value_text: "OFFER_TOKEN_MISSING_HEADER", created_at: 0 },
     ];
     const result = await fetchProvider(buildEnv(), offer, headers, makeSchema(), makeCtx(), "staging");
 
-    expect(calls).toHaveLength(1); // never a throw
-    const sentHeaders = calls[0]?.init.headers as Record<string, string>;
-    expect(sentHeaders["X-Secret"]).toBeUndefined();
-    expect(sentHeaders["X-Api-Token"]).toBeUndefined();
+    expect(calls).toHaveLength(0);
+    expect(result.error_reason).toBe("secret_reference_invalid");
     expect(result.notes).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ scope: "token", code: "secret_absent", secret_ref: "LEADGEN_MISSING_TOKEN" }),
+        expect.objectContaining({ scope: "token", code: "secret_absent", secret_ref: "OFFER_TOKEN_MISSING" }),
         expect.objectContaining({ scope: "header", code: "secret_absent", header_name: "X-Secret" }),
+      ]),
+    );
+  });
+
+  it.each([
+    {
+      label: "missing allowlisted",
+      secretRef: "OFFER_TOKEN_MISSING",
+      env: buildEnv(),
+      code: "secret_absent",
+    },
+    {
+      label: "disallowed",
+      secretRef: "OFFER_TOKEN_NOT_ALLOWED",
+      env: buildEnv(),
+      code: "secret_not_allowed",
+    },
+    {
+      label: "infrastructure",
+      secretRef: "CH_PASSWORD",
+      env: buildEnv({
+        LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS: "CH_PASSWORD",
+        CH_PASSWORD: "must-never-be-sent",
+      }),
+      code: "secret_infrastructure_reference",
+    },
+    {
+      label: "valid but forbidden in client mode",
+      secretRef: "OFFER_TOKEN_TEST_PROVIDER",
+      env: buildEnv(),
+      code: "secret_mode_invalid",
+    },
+  ])("client-mode row with $label token ref fails closed with zero fetches", async ({ secretRef, env, code }) => {
+    const calls = stubFetch(() => new Response("{}", { status: 200 }));
+    const offer = makeOffer({
+      request_execution_mode: "client",
+      api_token_secret_ref: secretRef,
+    });
+
+    const result = await fetchProvider(env, offer, [], makeSchema(), makeCtx(), "staging");
+
+    expect(calls).toHaveLength(0);
+    expect(result.error_reason).toBe("secret_reference_invalid");
+    expect(result.notes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ scope: "token", code, secret_ref: secretRef })]),
+    );
+  });
+
+  it.each([
+    {
+      label: "valid but forbidden in client mode",
+      secretRef: "OFFER_TOKEN_TEST_HEADER",
+      env: buildEnv(),
+      code: "secret_mode_invalid",
+    },
+    {
+      label: "missing binding",
+      secretRef: "OFFER_TOKEN_MISSING_HEADER",
+      env: buildEnv(),
+      code: "secret_absent",
+    },
+    {
+      label: "disallowed",
+      secretRef: "OFFER_TOKEN_NOT_ALLOWED",
+      env: buildEnv(),
+      code: "secret_not_allowed",
+    },
+    {
+      label: "infrastructure",
+      secretRef: "CH_PASSWORD",
+      env: buildEnv({
+        LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS: "CH_PASSWORD",
+        CH_PASSWORD: "must-never-be-sent",
+      }),
+      code: "secret_infrastructure_reference",
+    },
+  ])("client-mode row with $label secret header fails closed with zero fetches", async ({ secretRef, env, code }) => {
+    const calls = stubFetch(() => new Response("{}", { status: 200 }));
+    const offer = makeOffer({
+      request_execution_mode: "client",
+      api_token_secret_ref: null,
+    });
+    const headers: LeadgenOfferHeaderRow[] = [
+      { id: 1, offer_id: 1, header_name: "X-Secret", value_kind: "secret_ref", value_text: secretRef, created_at: 0 },
+    ];
+
+    const result = await fetchProvider(env, offer, headers, makeSchema(), makeCtx(), "staging");
+
+    expect(calls).toHaveLength(0);
+    expect(result.error_reason).toBe("secret_reference_invalid");
+    expect(result.notes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: "header", code, header_name: "X-Secret", secret_ref: secretRef }),
       ]),
     );
   });
@@ -316,6 +436,79 @@ describe("fetchProvider — header + token resolution (§11.3-11.4 / §30.2)", (
     const sentHeaders = calls[0]?.init.headers as Record<string, string>;
     expect(JSON.stringify(sentHeaders)).not.toContain(PROVIDER_TOKEN);
   });
+
+  const echoedResponseCases = (["header", "query", "payload"] as const).flatMap((placement) =>
+    ([
+      { kind: "2xx JSON", status: 200, json: true },
+      { kind: "non-2xx JSON", status: 500, json: true },
+      { kind: "2xx text", status: 200, json: false },
+      { kind: "non-2xx text", status: 500, json: false },
+    ] as const).map((response) => ({ placement, ...response })),
+  );
+
+  it.each(echoedResponseCases)(
+    "$placement token + secret header are scrubbed from $kind safe projections",
+    async ({ placement, status, json }) => {
+      const providerSecret = "provider !'()~ /+%?= Secret";
+      const headerSecret = "header !'()~ /+%?= Secret";
+      const encodedProvider = encodeURIComponent(providerSecret);
+      const encodedHeader = encodeURIComponent(headerSecret);
+      const formProvider = new URLSearchParams({ token: providerSecret }).toString().slice("token=".length);
+      const formHeader = new URLSearchParams({ token: headerSecret }).toString().slice("token=".length);
+      const doubleFormProvider = new URLSearchParams({ token: formProvider }).toString().slice("token=".length);
+      const doubleFormHeader = new URLSearchParams({ token: formHeader }).toString().slice("token=".length);
+      stubFetch(() => {
+        const echoed = {
+          [`key-${providerSecret}`]: `embedded-before-${providerSecret}-after`,
+          encoded_provider: encodedProvider,
+          encoded_header: encodedHeader,
+          form_provider: formProvider,
+          form_header: formHeader,
+          carriers: [{ name: `Carrier ${formProvider}`, bid: 3.2, url: `https://p.test/?h=${doubleFormHeader}` }],
+        };
+        return new Response(
+          json
+            ? JSON.stringify(echoed)
+            : `failure raw=${providerSecret}; encoded=${encodedProvider}; form=${formProvider}; form2=${doubleFormProvider}; header=${headerSecret}; header_encoded=${encodedHeader}; header_form=${formHeader}; header_form2=${doubleFormHeader}`,
+          { status },
+        );
+      });
+      const offer = makeOffer({
+        api_token_placement: placement,
+        api_token_param_name: placement === "query" ? "token" : "X-Api-Token",
+      });
+      const result = await fetchProvider(
+        buildEnv({
+          OFFER_TOKEN_TEST_PROVIDER: providerSecret,
+          OFFER_TOKEN_TEST_HEADER: headerSecret,
+        }),
+        offer,
+        makeHeaders(),
+        makeSchema(placement === "payload"),
+        makeCtx(),
+        "staging",
+      );
+
+      for (const safeProjection of [result.body, result.parsed, result.redacted_log]) {
+        const bytes = JSON.stringify(safeProjection) ?? "";
+        expect(bytes).not.toContain(providerSecret);
+        expect(bytes).not.toContain(headerSecret);
+        expect(bytes).not.toContain(encodedProvider);
+        expect(bytes).not.toContain(encodedHeader);
+        expect(bytes).not.toContain(formProvider);
+        expect(bytes).not.toContain(formHeader);
+        expect(bytes).not.toContain(doubleFormProvider);
+        expect(bytes).not.toContain(doubleFormHeader);
+      }
+      expect(result.debug.response_body).toContain(providerSecret); // encrypt-only/internal raw record
+      if (json) {
+        expect(result.redacted_log.response_redacted_json).toContain("[REDACTED]");
+      } else {
+        expect(result.redacted_log.response_redacted_json).toBeNull();
+        expect(result.body).toContain("[REDACTED]");
+      }
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

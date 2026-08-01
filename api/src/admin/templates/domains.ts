@@ -40,6 +40,7 @@ export interface VerticalEntry {
 
 export interface DomainsBranding {
   userEmail?: string;
+  conversionsUiEnabled?: boolean;
 }
 
 // T35 [BCL-068]: per-row Actions menu. The same markup is rendered into
@@ -539,6 +540,7 @@ export function domainsPage(
     title: "Domains",
     activePath: "/admin/domains",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content: content,
     styles: MODAL_STYLES,
     scripts: MODAL_SCRIPT + DOMAINS_ACTIONS_SCRIPT,

@@ -21,8 +21,19 @@ runbook and `docs/local-dev-vars.md` for the local-setup runbook.
 | `CF_ACCESS_AUD`                      | Cloudflare Access application AUD claim (per-application, 64-char hex).        | staging, prod     |
 | `CLOUDFLARE_PROVISIONING_API_TOKEN`  | Worker-runtime token used to create / update zones + routes during provisioning. | staging, prod   |
 | `CLOUDFLARE_CACHE_API_TOKEN`         | Worker-runtime token scoped to Cache Purge only — used after a publish.        | staging, prod     |
+| `CONVERSIONS_ACTOR_SIGNING_KEY_B64URL` | Signs permanent Conversions actor and operation-scope envelopes; identical raw key is bound to Core as `ACTOR_CONTEXT_HMAC_KEY_B64URL`. | staging, prod |
 | `ALLOWED_CF_SERVICE_TOKEN_IDS`       | Optional CSV allowlist of Access service-token names (matched on `common_name`). | optional        |
 | `DEV_BYPASS_AUTH`                    | Local dev escape hatch. Set `true` in `.dev.vars`. Double-gated on `APP_ENV != "production"`. | local only |
+| `LEADGEN_S2S_TOKEN_FACEBOOK`         | Legacy outbound LeadGen media-platform token; usable only when explicitly allowlisted and bound. | optional; required before enabling its row |
+| `LISTICLE_S2S_TOKEN_FACEBOOK`        | Legacy outbound Listicles media-platform token; usable only when explicitly allowlisted and bound. | optional; required before enabling its row |
+
+`LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS` is a non-secret, comma-separated exact
+allowlist in `api/wrangler.toml`, not a Worker secret. Database-selected
+outbound references are resolved only when the name is safe, appears exactly in
+that allowlist, and has a non-empty secret binding. Newly introduced names use
+`OFFER_TOKEN_`; the two non-prefixed Facebook names above are legacy entries
+that require planned renames. See the section 18.7 gate in
+`docs/deployment-runbook.md`.
 
 ### Phase 1.5 token-split rationale
 
@@ -85,6 +96,11 @@ the minimum permissions needed:
    Re-using a production token in staging makes a staging bug capable
    of mutating production zones — treat tokens like passwords, not like
    shared library functions.
+7. `CONVERSIONS_ACTOR_SIGNING_KEY_B64URL` and Core
+   `ACTOR_CONTEXT_HMAC_KEY_B64URL` are two bindings of one environment-specific
+   32-byte HMAC key. Provision Core first and CMS second so CMS cannot issue
+   envelopes before Core can verify them. Confirm names only; never record the
+   value in source, logs, evidence, tickets, or shell history.
 
 ## Adding a new secret
 
@@ -98,3 +114,9 @@ the minimum permissions needed:
 5. If the secret is consumed by CI, add it as a GitHub repository secret
    and reference it in the workflow file. Document the click flow in
    `docs/github-secrets-setup.md`.
+
+For a database-selected outbound partner token, also add the exact name to
+`LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS`, use the `OFFER_TOKEN_` prefix, and
+complete the value-free inventory plus staging checks in the deployment
+runbook. Never add infrastructure, signing, storage, database, or inbound
+authentication credentials to the outbound allowlist.

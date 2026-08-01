@@ -30,6 +30,7 @@ export interface MediaListEntry {
 
 export interface MediaBranding {
   userEmail?: string;
+  conversionsUiEnabled?: boolean;
 }
 
 const KIND_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
@@ -521,6 +522,7 @@ export function mediaListPage(
     title: "Media",
     activePath: "/admin/media",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     styles: MEDIA_STYLES,
     scripts: MEDIA_SCRIPTS,

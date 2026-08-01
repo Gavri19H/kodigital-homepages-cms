@@ -28,6 +28,7 @@
 
 import { sendToFirehose } from "./firehose";
 import { readEnvSecret, type Env } from "../env";
+import type { WaitUntilContext } from "../wait-until-context";
 
 // The LeadGen event-type set — 31 types (DEV-23). §22.3 flatly enumerates 30,
 // but it DROPPED `offer_impression`, which §6.4 normatively DEFINES (the sibling
@@ -302,7 +303,7 @@ export const LEADGEN_EVENTS_FIREHOSE_STREAM_VAR = "LEADGEN_EVENTS_FIREHOSE_STREA
 // beacon/click response is never affected.
 export function emitLeadgenRecords(
   env: Env,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   records: LeadgenStreamRecord[],
 ): LeadgenEmitOutcome {
   if (records.length === 0) return { status: "empty", records: 0 };

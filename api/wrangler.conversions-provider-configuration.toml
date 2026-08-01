@@ -1,0 +1,27 @@
+name = "kodigital-conversions-provider-configuration-local"
+main = "src/conversions-provider-configuration-worker.ts"
+compatibility_date = "2026-05-06"
+
+# Private service-binding target only: deliberately no routes, custom domains,
+# workers.dev publication, schedules, queues, buckets or production section.
+workers_dev = false
+
+[vars]
+APP_ENV = "test"
+CONVERSIONS_ACTOR_AUDIENCE = "kodigital-conversions-core"
+CONVERSIONS_ACTOR_ENVIRONMENT = "test"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kodigital-homepages-cms-db"
+# Deliberately non-live local placeholder. A real binding is a deployment-stage
+# production mutation and remains withheld.
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+# Required encrypted secrets (never plaintext vars):
+# CONVERSIONS_ACTOR_SIGNING_KEY_B64URL
+# CMS_PROVIDER_PREPARE_REQUEST_HMAC_KEY_B64URL
+# CMS_PROVIDER_PREPARE_RESPONSE_HMAC_KEY_B64URL
+# CMS_PROVIDER_EXECUTE_REQUEST_HMAC_KEY_B64URL
+# CMS_PROVIDER_EXECUTE_RESPONSE_HMAC_KEY_B64URL

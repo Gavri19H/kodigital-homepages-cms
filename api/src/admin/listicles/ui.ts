@@ -22,6 +22,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Env } from "../../env";
+import { isConversionsUiEnabled } from "../../env";
 import type { AccessAuthVariables } from "../../auth/access-auth";
 import listicleApi from "./router";
 import * as data from "../data";
@@ -75,11 +76,14 @@ const shellNoStore = async (
 listicleUi.use("/admin/listicles", shellNoStore);
 listicleUi.use("/admin/listicles/*", shellNoStore);
 
-function branding(c: UiContext): { userEmail?: string } {
+function branding(c: UiContext): { userEmail?: string; conversionsUiEnabled: boolean } {
   const access = c.get("access");
   const email =
     access && access.mode === "identity" ? access.email : undefined;
-  return data.getAdminBranding(email);
+  return {
+    ...data.getAdminBranding(email),
+    conversionsUiEnabled: isConversionsUiEnabled(c.env.CONVERSIONS_UI_ENABLED),
+  };
 }
 
 const EMPTY_PAGING: Paging = {

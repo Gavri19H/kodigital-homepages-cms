@@ -23,6 +23,7 @@
 // same http(s)-or-local-path gate. Everything else 302s to "/".
 
 import type { Env } from "../../env";
+import type { WaitUntilContext } from "../../wait-until-context";
 import { resolveMacros } from "../../listicles/macros";
 import { readCookie, genSessionId } from "./experiment-pick";
 import { parseKoCtx, KO_CTX_COOKIE, type KoCtx } from "./ko-ctx";
@@ -46,7 +47,7 @@ import { bumpListicleDailyAcceptCounter } from "../../analytics/listicle-reconci
 // whatever its Variables), so the route registers host-independently.
 export interface LcContext {
   env: Env;
-  executionCtx: ExecutionContext;
+  executionCtx: WaitUntilContext;
   req: {
     param(name: string): string | undefined;
     query(): Record<string, string>;

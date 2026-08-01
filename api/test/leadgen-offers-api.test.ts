@@ -165,7 +165,12 @@ function buildEnv(db: D1Database): Env {
     SITE_PROVISIONING_DRY_RUN: "true",
     SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
     DEV_BYPASS_AUTH: "true",
-  };
+    LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS:
+      "OFFER_TOKEN_HEADER,OFFER_TOKEN_PROVIDER,OFFER_TOKEN_PROV_KEY",
+    OFFER_TOKEN_HEADER: "header-secret-value",
+    OFFER_TOKEN_PROVIDER: "provider-secret-value",
+    OFFER_TOKEN_PROV_KEY: "provider-key-value",
+  } as unknown as Env;
 }
 
 const DatabaseSync = loadDatabaseSync();
@@ -480,7 +485,7 @@ describeDb("PATCH /offers/:id — partial update + nested collections", () => {
         headers: [
           { header_name: "X-Static", value_kind: "static", value_text: "fixed-value" },
           { header_name: "X-Macro", value_kind: "macro", value_text: "{clickid}" },
-          { header_name: "X-Secret", value_kind: "secret_ref", value_text: "LEADGEN_PROVIDER_KEY" },
+          { header_name: "X-Secret", value_kind: "secret_ref", value_text: "OFFER_TOKEN_HEADER" },
         ],
       }),
       env,
@@ -494,7 +499,7 @@ describeDb("PATCH /offers/:id — partial update + nested collections", () => {
       // {clickid} alias normalizes to the canonical {click_id} at save
       { header_name: "X-Macro", value_kind: "macro", value_text: "{click_id}" },
       // §30.2: the secret NAME only — never a secret value
-      { header_name: "X-Secret", value_kind: "secret_ref", value_text: "LEADGEN_PROVIDER_KEY" },
+      { header_name: "X-Secret", value_kind: "secret_ref", value_text: "OFFER_TOKEN_HEADER" },
     ]);
 
     // REPLACE-set: the next PATCH's list fully replaces the stored rows.
@@ -532,6 +537,72 @@ describeDb("PATCH /offers/:id — partial update + nested collections", () => {
       const body = (await res.json()) as { fields: Record<string, string> };
       expect(body.fields[key], `fields.${key}`).toBeTruthy();
     }
+  });
+
+  it("fails closed when saving disallowed infrastructure or missing outbound bindings", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    Object.assign(env as unknown as Record<string, unknown>, {
+      LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS:
+        "OFFER_TOKEN_HEADER,OFFER_TOKEN_PROVIDER,OFFER_TOKEN_PROV_KEY,OFFER_TOKEN_MISSING,CH_PASSWORD,CF_API_TOKEN,GITHUB_TOKEN",
+      CH_PASSWORD: "must-never-be-selected-by-an-offer",
+      CF_API_TOKEN: "must-never-be-selected-by-an-offer",
+      GITHUB_TOKEN: "must-never-be-selected-by-an-offer",
+    });
+
+    const infrastructureToken = await admin.request(
+      `${API}/offers/${offer.id}`,
+      jsonInit("PATCH", { api_token_secret_ref: "CH_PASSWORD" }),
+      env,
+    );
+    expect(infrastructureToken.status).toBe(400);
+    expect(
+      ((await infrastructureToken.json()) as { fields: Record<string, string> }).fields.api_token_secret_ref,
+    ).toContain("infrastructure");
+
+    for (const reference of ["CF_API_TOKEN", "GITHUB_TOKEN"]) {
+      const commonInfrastructureToken = await admin.request(
+        `${API}/offers/${offer.id}`,
+        jsonInit("PATCH", { api_token_secret_ref: reference }),
+        env,
+      );
+      expect(commonInfrastructureToken.status).toBe(400);
+      expect(
+        ((await commonInfrastructureToken.json()) as { fields: Record<string, string> })
+          .fields.api_token_secret_ref,
+      ).toContain("infrastructure");
+    }
+
+    const missingToken = await admin.request(
+      `${API}/offers/${offer.id}`,
+      jsonInit("PATCH", { api_token_secret_ref: "OFFER_TOKEN_MISSING" }),
+      env,
+    );
+    expect(missingToken.status).toBe(400);
+    expect(((await missingToken.json()) as { fields: Record<string, string> }).fields.api_token_secret_ref).toContain(
+      "missing or empty",
+    );
+
+    const infrastructureHeader = await admin.request(
+      `${API}/offers/${offer.id}`,
+      jsonInit("PATCH", {
+        headers: [{ header_name: "X-Key", value_kind: "secret_ref", value_text: "CH_PASSWORD" }],
+      }),
+      env,
+    );
+    expect(infrastructureHeader.status).toBe(400);
+    expect(
+      ((await infrastructureHeader.json()) as { fields: Record<string, string> }).fields["headers[0].value_text"],
+    ).toContain("infrastructure");
+
+    const persisted = sdb
+      .prepare("SELECT api_token_secret_ref FROM leadgen_offers WHERE id = ?")
+      .get(offer.id) as { api_token_secret_ref: string | null };
+    expect(persisted.api_token_secret_ref).toBeNull();
+    expect(
+      (sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_offer_headers WHERE offer_id = ?").get(offer.id) as { n: number })
+        .n,
+    ).toBe(0);
   });
 
   it("replace-sets region_rules[] minting lgrr_ for new rows, preserving provided ids", async () => {
@@ -612,7 +683,7 @@ describeDb("PATCH /offers/:id — partial update + nested collections", () => {
     const offerA = await createOffer(env, { placements: ["ca-1"] });
     const resA = await admin.request(
       `${API}/offers/${offerA.id}`,
-      jsonInit("PATCH", { request_execution_mode: "client", api_token_secret_ref: "PROVIDER_TOKEN" }),
+      jsonInit("PATCH", { request_execution_mode: "client", api_token_secret_ref: "OFFER_TOKEN_PROVIDER" }),
       env,
     );
     expect(resA.status).toBe(400);
@@ -622,11 +693,14 @@ describeDb("PATCH /offers/:id — partial update + nested collections", () => {
 
     // (b) switching to client mode while a STORED secret_ref header exists
     const offerB = await createOffer(env, { placements: ["cb-1"] });
-    await admin.request(
+    const storedHeader = await admin.request(
       `${API}/offers/${offerB.id}`,
-      jsonInit("PATCH", { headers: [{ header_name: "X-Key", value_kind: "secret_ref", value_text: "K1" }] }),
+      jsonInit("PATCH", {
+        headers: [{ header_name: "X-Key", value_kind: "secret_ref", value_text: "OFFER_TOKEN_HEADER" }],
+      }),
       env,
     );
+    expect(storedHeader.status).toBe(200);
     const resB = await admin.request(
       `${API}/offers/${offerB.id}`,
       jsonInit("PATCH", { request_execution_mode: "client" }),
@@ -2509,7 +2583,7 @@ describeDb("duplicate — F12 copy-set matrix / blanked sentinels / non-copy pro
         endpoint_production: "https://prov.example.com/q",
         endpoint_staging: "https://stg.example.com/q",
         request_method: "POST",
-        api_token_secret_ref: "PROV_KEY",
+        api_token_secret_ref: "OFFER_TOKEN_PROV_KEY",
         api_token_placement: "header",
         api_token_param_name: "Authorization",
         headers: [{ header_name: "X-Static", value_kind: "static", value_text: "v1" }],
@@ -2576,7 +2650,7 @@ describeDb("duplicate — F12 copy-set matrix / blanked sentinels / non-copy pro
     expect(defaults.row.endpoint_production).toBe("https://prov.example.com/q");
     expect(defaults.row.endpoint_staging).toBe("https://stg.example.com/q");
     expect(defaults.row.request_method).toBe("POST");
-    expect(defaults.row.api_token_secret_ref).toBe("PROV_KEY");
+    expect(defaults.row.api_token_secret_ref).toBe("OFFER_TOKEN_PROV_KEY");
     expect(defaults.row.api_token_placement).toBe("header");
     expect(defaults.row.api_token_param_name).toBe("Authorization");
     expect(defaults.headers, "headers ride the endpoint-config box").toBe(1);

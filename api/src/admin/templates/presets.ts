@@ -70,6 +70,7 @@ export interface PresetFormEntry {
 
 export interface PresetsBranding {
   userEmail?: string;
+  conversionsUiEnabled?: boolean;
 }
 
 // Use-case category enum — the routing key generators select a preset by
@@ -343,6 +344,7 @@ export function presetsListPage(
     title: "AI Presets",
     activePath: "/admin/presets",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     styles: PRESETS_LIST_STYLES,
     scripts: PRESETS_LIST_SCRIPT,
@@ -694,6 +696,7 @@ export function presetFormPage(
     title,
     activePath: "/admin/presets",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content: renderPresets(preset),
     styles: PRESET_FORM_STYLES,
     scripts: PRESET_FORM_SCRIPT,

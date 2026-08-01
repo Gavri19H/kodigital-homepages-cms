@@ -13,10 +13,12 @@
 // carries the built payload + masked headers with null
 // response/status/latency/carriers.
 //
-// Secret handling (§30.2 — normative):
-//   * resolved via readEnvSecret(env, <name>); an ABSENT secret is a TYPED
-//     no-op (`notes[]` entry) — that leg simply does not attach, NEVER a
-//     throw, and the request still fires.
+// Secret handling (§30.2 + conversions plan §18.7 — normative):
+//   * database references are syntax checked, infrastructure-key rejected,
+//     exact-allowlisted and resolved through the narrow outbound wrapper;
+//   * a missing/disallowed binding is a typed fail-closed response before any
+//     provider request. A configured credential leg never degrades to a
+//     tokenless request.
 //   * secret VALUES are SENT to the provider but NEVER returned to the
 //     frontend and NEVER stored in an admin-visible column: header values →
 //     "[REDACTED]", the payload token node → "[REDACTED]" (masked at its
@@ -34,7 +36,11 @@
 //     with `expirationTtl: 259200` — the KV TTL enforces the §30.3 72-hour
 //     debug-blob retention mechanically. debug_ref = that opaque key.
 
-import { readEnvSecret } from "../../env";
+import {
+  readEnvSecret,
+  resolveAllowedOutboundSecretReference,
+  type OutboundSecretReferenceFailureCode,
+} from "../../env";
 import { ulid } from "../../leadgen/ids";
 import { resolveMacros } from "../../leadgen/macros";
 import {
@@ -48,8 +54,16 @@ import {
   buildLeadgenRuntimeContext,
   type LeadgenRuntimeContextOverrides,
 } from "../../leadgen/runtime-context";
-import { REDACTED_VALUE, maskPaths, maskSecretHeaders, redactPii } from "../../leadgen/redact";
+import {
+  REDACTED_VALUE,
+  maskPaths,
+  maskSecretHeaders,
+  redactPii,
+  redactSecretText,
+  redactSecretValues,
+} from "../../leadgen/redact";
 import { parseProviderResponse } from "../../public/leadgen/auction/parse";
+import { safeErrorCode, safeErrorName } from "../../safety/safe-error";
 import type { LeadgenOfferPayloadSchemaRow, LeadgenOfferRow } from "./db-types";
 import {
   readOfferHeaders,
@@ -73,11 +87,20 @@ export const DEBUG_BLOB_TTL_SECONDS = 259_200; // 72 h — §30.3 retention via 
 // prefix + encryptDebugBlob + randomHex are the single shared implementation.
 export const DEBUG_REF_PREFIX = "lg-debug:";
 
-// A typed no-op note (§30.2): the leg that could not attach, and why. Never
-// an HTTP failure — the test still runs without that leg.
+// A typed diagnostic note (§30.2): the credential leg that failed and why.
+// Credential failures produce a 422 before fetch; non-credential attachment
+// notes retain the existing typed behavior.
 export interface LeadgenTestNote {
   scope: "header" | "token";
-  code: "secret_absent" | "token_param_name_missing" | "token_node_missing";
+  code:
+    | "secret_absent"
+    | "secret_not_allowed"
+    | "secret_name_invalid"
+    | "secret_infrastructure_reference"
+    | "secret_prefix_required"
+    | "secret_mode_invalid"
+    | "token_param_name_missing"
+    | "token_node_missing";
   header_name?: string;
   secret_ref?: string;
   message: string;
@@ -89,6 +112,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function is2xx(status: number | null): boolean {
   return status !== null && status >= 200 && status < 300;
+}
+
+function secretFailureNoteCode(
+  code: OutboundSecretReferenceFailureCode,
+): LeadgenTestNote["code"] {
+  switch (code) {
+    case "binding_missing":
+      return "secret_absent";
+    case "not_allowed":
+      return "secret_not_allowed";
+    case "invalid_syntax":
+      return "secret_name_invalid";
+    case "infrastructure_reference":
+      return "secret_infrastructure_reference";
+    case "prefix_required":
+      return "secret_prefix_required";
+  }
 }
 
 // The B5 overridable simulated-context fields (fix-contract v2.4 04 §4.7.2):
@@ -338,15 +378,32 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     typeof offer.api_token_secret_ref === "string" && offer.api_token_secret_ref.trim() !== ""
       ? offer.api_token_secret_ref.trim()
       : null;
-  const tokenValue = secretRef !== null ? readEnvSecret(c.env, secretRef) : undefined;
-  if (secretRef !== null && tokenValue === undefined) {
-    // §30.2: absent secret ⇒ that leg no-ops, typed — never a throw.
-    notes.push({
-      scope: "token",
-      code: "secret_absent",
-      secret_ref: secretRef,
-      message: `secret '${secretRef}' is not configured; token leg skipped`,
-    });
+  const serverMode = offer.request_execution_mode === "server";
+  let secretResolutionFailed = false;
+  const resolvedSecretValues = new Set<string>();
+  let tokenValue: string | undefined;
+  if (secretRef !== null) {
+    const resolution = resolveAllowedOutboundSecretReference(c.env, secretRef);
+    if (resolution.ok && !serverMode) {
+      secretResolutionFailed = true;
+      notes.push({
+        scope: "token",
+        code: "secret_mode_invalid",
+        secret_ref: secretRef,
+        message: "client-mode offers may not configure an outbound token reference",
+      });
+    } else if (resolution.ok) {
+      tokenValue = resolution.value;
+      resolvedSecretValues.add(resolution.value);
+    } else {
+      secretResolutionFailed = true;
+      notes.push({
+        scope: "token",
+        code: secretFailureNoteCode(resolution.code),
+        secret_ref: secretRef,
+        message: `outbound token reference rejected (${resolution.code})`,
+      });
+    }
   }
 
   const payload = buildPayload(schema, {
@@ -378,18 +435,32 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     } else if (row.value_kind === "macro") {
       sentHeaders[row.header_name] = resolveMacros(valueText, macroValues);
     } else {
-      const resolved = valueText === "" ? undefined : readEnvSecret(c.env, valueText);
-      if (resolved === undefined) {
+      const resolution =
+        valueText === ""
+          ? ({ ok: false, code: "invalid_syntax" } as const)
+          : resolveAllowedOutboundSecretReference(c.env, valueText);
+      if (!resolution.ok) {
+        secretResolutionFailed = true;
         notes.push({
           scope: "header",
-          code: "secret_absent",
+          code: secretFailureNoteCode(resolution.code),
           header_name: row.header_name,
           secret_ref: valueText,
-          message: `secret '${valueText}' is not configured; header '${row.header_name}' skipped`,
+          message: `outbound header reference rejected (${resolution.code})`,
+        });
+      } else if (!serverMode) {
+        secretResolutionFailed = true;
+        notes.push({
+          scope: "header",
+          code: "secret_mode_invalid",
+          header_name: row.header_name,
+          secret_ref: valueText,
+          message: "client-mode offers may not configure an outbound secret header",
         });
       } else {
-        sentHeaders[row.header_name] = resolved;
+        sentHeaders[row.header_name] = resolution.value;
         secretHeaderNames.add(row.header_name.toLowerCase());
+        resolvedSecretValues.add(resolution.value);
       }
     }
   }
@@ -456,6 +527,31 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     computed: simulatedCtx.computed,
   };
 
+  if (secretResolutionFailed) {
+    console.error(JSON.stringify({
+      message: "leadgen test outbound secret reference rejected",
+      offer_public_id: offer.public_id,
+      code: "secret_reference_invalid",
+    }));
+    return c.json({
+      dry_run: dryRun,
+      environment,
+      endpoint: displayUrl,
+      method,
+      request: {
+        payload: maskPaths(payload, tokenPaths),
+        headers: maskSecretHeaders(sentHeaders, secretHeaderNames),
+      },
+      response: { status: null, latency_ms: null, body: null },
+      parse: { carriers: null, errors: [] },
+      response_field_paths: [],
+      notes,
+      provider_error_reason: "secret_reference_invalid",
+      debug_ref: null,
+      context_used: contextUsed,
+    }, 422);
+  }
+
   if (dryRun) {
     return c.json({
       dry_run: true,
@@ -496,9 +592,9 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     bodyText = await response.text();
     if (!is2xx(statusCode)) providerErrorReason = `http_${statusCode}`;
   } catch (err) {
-    const name = err instanceof Error ? err.name : "";
+    const name = safeErrorName(err);
     providerErrorReason = name === "AbortError" ? "timeout" : "network_error";
-    errorText = (err instanceof Error ? err.message : String(err)).slice(0, 200);
+    errorText = safeErrorCode("provider_fetch_failed", err);
   } finally {
     clearTimeout(timer);
   }
@@ -519,6 +615,12 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
   if (providerErrorReason === null && bodyText !== null && bodyText !== "" && !responseIsJson) {
     providerErrorReason = "malformed_response";
   }
+  const secretValues = [...resolvedSecretValues];
+  const safeResponseJson = responseIsJson
+    ? redactSecretValues(responseJson, secretValues)
+    : undefined;
+  const safeBodyText = bodyText === null ? null : redactSecretText(bodyText, secretValues);
+  const safeParsedCarriers = redactSecretValues(parseResult.carriers, secretValues) as typeof parseResult.carriers;
 
   // --- persist sample_response_json (§11.6) --------------------------------
   // Only a 2xx JSON body becomes THE sample — an error page must never
@@ -527,14 +629,16 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     await c.env.DB.prepare(
       "UPDATE leadgen_offer_payload_schemas SET sample_response_json = ? WHERE id = ?",
     )
-      .bind(bodyText, schemaRow.id)
+      .bind(JSON.stringify(safeResponseJson), schemaRow.id)
       .run();
   }
 
   // Available response field paths for the §10.5 macro chips — the Stage-A
   // inferrer already enumerates every addressable leaf path.
   const responseFieldPaths = responseIsJson
-    ? inferSchemaFromExample(responseJson).root.children.map((node) => node.path)
+    ? inferSchemaFromExample(responseJson).root.children.map((node) =>
+        redactSecretText(node.path, secretValues),
+      )
     : [];
 
   // --- encrypted debug blob (authored convention — see module header) ------
@@ -585,8 +689,8 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
       latencyMs,
       JSON.stringify(maskedHeaders),
       JSON.stringify(redactPii(maskedPayload)),
-      responseIsJson ? JSON.stringify(redactPii(responseJson)) : null,
-      JSON.stringify(parseResult.carriers),
+      responseIsJson ? JSON.stringify(redactPii(safeResponseJson)) : null,
+      JSON.stringify(safeParsedCarriers),
       debugRef,
       providerErrorReason,
       errorText,
@@ -611,10 +715,10 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     response: {
       status: statusCode,
       latency_ms: latencyMs,
-      body: responseIsJson ? responseJson : bodyText,
+      body: responseIsJson ? safeResponseJson : safeBodyText,
     },
     parse: {
-      carriers: parseResult.carriers,
+      carriers: safeParsedCarriers,
       errors: parseResult.errors,
     },
     response_field_paths: responseFieldPaths,

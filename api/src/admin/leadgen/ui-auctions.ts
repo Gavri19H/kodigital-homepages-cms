@@ -28,6 +28,7 @@ import {
   renderLeadgenTabs,
   statusBadge,
   type ListBody,
+  type LeadgenBranding,
   type UiContext,
 } from "./ui";
 import type { Paging } from "./router";
@@ -281,6 +282,7 @@ ${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging
     leadgenPageShell({
       activePath: "/admin/leadgen/auction",
       userEmail: branding(c).userEmail,
+      conversionsUiEnabled: branding(c).conversionsUiEnabled,
       content,
       styles: LG_AUCTIONS_STYLES,
       scripts: kebabMenuScript + AUCTION_LIST_SCRIPT + listFilterScript,
@@ -498,6 +500,7 @@ export async function leadgenAuctionsNewPage(c: UiContext): Promise<Response> {
     leadgenPageShell({
       activePath: "/admin/leadgen/auction",
       userEmail: branding(c).userEmail,
+      conversionsUiEnabled: branding(c).conversionsUiEnabled,
       content,
       styles: LG_AUCTIONS_STYLES,
       scripts: AUCTION_NEW_SCRIPT,
@@ -901,7 +904,7 @@ function auctionEditorHtml(
   quoteOptions: string,
   activity: string,
   verticals: string[],
-  brand: { userEmail?: string },
+  brand: LeadgenBranding,
   relocatedQuotes: RelocatedRuleQuote[],
   defaultQuotePublicId: string | null,
 ): string {
@@ -941,6 +944,7 @@ function auctionEditorHtml(
   return leadgenPageShell({
     activePath: "/admin/leadgen/auction",
     userEmail: brand.userEmail,
+    conversionsUiEnabled: brand.conversionsUiEnabled,
     content,
     styles: LG_AUCTIONS_STYLES,
     // §13-D5: RULES_BUILDER_SCRIPT (window.lgRulesBuilder, the shared §21.4
@@ -950,7 +954,7 @@ function auctionEditorHtml(
   });
 }
 
-function auctionNotFoundPage(brand: { userEmail?: string }): string {
+function auctionNotFoundPage(brand: LeadgenBranding): string {
   const content = `${renderLeadgenTabs("auction")}
 <div class="card"><div class="empty-state">
   <p>Auction not found.</p>
@@ -959,6 +963,7 @@ function auctionNotFoundPage(brand: { userEmail?: string }): string {
   return leadgenPageShell({
     activePath: "/admin/leadgen/auction",
     userEmail: brand.userEmail,
+    conversionsUiEnabled: brand.conversionsUiEnabled,
     content,
     styles: LG_AUCTIONS_STYLES,
   });

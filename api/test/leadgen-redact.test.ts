@@ -15,6 +15,8 @@ import {
   maskPaths,
   maskSecretHeaders,
   redactPii,
+  redactSecretText,
+  redactSecretValues,
 } from "../src/leadgen/redact";
 import { sha256Hex } from "../src/public/leadgen/auction/parse";
 
@@ -149,6 +151,55 @@ describe("maskSecretHeaders — §30.2 secret values never returned", () => {
   it("accepts mixed-case names in the secret set", () => {
     const out = maskSecretHeaders({ authorization: "Bearer t" }, new Set(["Authorization"]));
     expect(out["authorization"]).toBe(REDACTED_VALUE);
+  });
+});
+
+describe("resolved outbound secret response redaction", () => {
+  const secret = "tok !'()~ /+%?=Z";
+  const encoded = encodeURIComponent(secret);
+
+  function formEncode(value: string): string {
+    return new URLSearchParams({ token: value }).toString().slice("token=".length);
+  }
+
+  it("scrubs literal, embedded, URI/form encoded, mixed-hex-case and every second encoding layer", () => {
+    const mixedHex = encoded.replace("%2F", "%2f");
+    const formEncoded = formEncode(secret);
+    const secondLayers = [
+      encodeURIComponent(encoded),
+      formEncode(encoded),
+      encodeURIComponent(formEncoded),
+      formEncode(formEncoded),
+    ];
+    const input = [
+      `literal=${secret}`,
+      `embedded=before${secret}after`,
+      `encoded=${encoded}`,
+      `mixed=${mixedHex}`,
+      `form=${formEncoded}`,
+      ...secondLayers.map((value, index) => `layer${index}=${value}`),
+    ].join("|");
+
+    const output = redactSecretText(input, [secret]);
+    expect(output).not.toContain(secret);
+    expect(output).not.toContain(encoded);
+    expect(output).not.toContain(mixedHex);
+    expect(output).not.toContain(formEncoded);
+    for (const value of secondLayers) expect(output).not.toContain(value);
+    expect(output.match(/\[REDACTED\]/g)?.length).toBe(9);
+  });
+
+  it("deep-scrubs JSON string values and keys without mutating non-string scalars", () => {
+    const output = redactSecretValues({
+      [`key-${secret}`]: `value-${secret}`,
+      nested: [{ encoded, count: 2, ok: false, none: null }],
+    }, [secret]);
+    const bytes = JSON.stringify(output);
+    expect(bytes).not.toContain(secret);
+    expect(bytes).not.toContain(encoded);
+    expect(bytes).toContain(REDACTED_VALUE);
+    expect(bytes).toContain('"count":2');
+    expect(bytes).toContain('"ok":false');
   });
 });
 

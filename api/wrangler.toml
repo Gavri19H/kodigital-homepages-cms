@@ -3,6 +3,14 @@ main = "src/index.ts"
 compatibility_date = "2026-05-06"
 account_id = "a05d7505b71c6cd931e436defe670509"
 
+# Section 6.2 admin bundles live in ./public. The Worker remains first for all
+# routes; only the two manifest-pinned /assets/admin/{conversions,reporting}/*
+# paths are explicitly forwarded to this binding by the authenticated router.
+[assets]
+directory = "./public"
+binding = "ADMIN_ASSETS"
+run_worker_first = true
+
 # This worker shares the Cloudflare account with the sibling project a2z-cf-cms-v1
 # (TheIWise). All bindings below are kodigital-homepages-cms-* placeholders only —
 # this Phase 1.5 scaffold MUST NOT bind to or modify any TheIWise resource.
@@ -33,6 +41,18 @@ LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
 # are wrangler SECRETS, never here). Same reuse posture as the Listicles stream;
 # the worker no-ops until the stream exists in AWS.
 LEADGEN_EVENTS_FIREHOSE_STREAM = "leadgen-events"
+# Section 18.7: exact, non-secret allowlist for database-selected outbound
+# credential bindings. The two current production rows are disabled legacy
+# S2S names; new offer/provider references must use OFFER_TOKEN_* in code.
+LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS = "LEADGEN_S2S_TOKEN_FACEBOOK,LISTICLE_S2S_TOKEN_FACEBOOK"
+CONVERSIONS_UI_ENABLED = "false"
+# Independent Conversions service proxy gate. Runtime identity/workspace/role/
+# capability/account scope is resolved only from the CMS D1 authority. The HMAC
+# key is a Wrangler secret named CONVERSIONS_ACTOR_SIGNING_KEY_B64URL and must
+# never be added here.
+CONVERSIONS_PROXY_ENABLED = "false"
+CONVERSIONS_ACTOR_AUDIENCE = "kodigital-conversions-core"
+CONVERSIONS_ACTOR_ENVIRONMENT = "development"
 # Listicles Phase 9 revenue pipeline (§19/§20/§24) uses ONLY encrypted secrets —
 # NONE appear here (they are set via `wrangler secret put`, Dashboard/CI only,
 # exactly like the AWS + CH creds). Typed optional in api/src/env.ts; full names
@@ -77,6 +97,12 @@ id = "77bb281de4fb4008a06b0993eb8b1774"
 binding = "MEDIA"
 bucket_name = "kodigital-homepages-cms-media"
 
+# Non-secret local service-binding placeholder. It is never contacted while
+# CONVERSIONS_PROXY_ENABLED remains false.
+[[services]]
+binding = "CONVERSIONS_CORE"
+service = "kodigital-conversions-core-local"
+
 
 # rescue-4 v3 — parallel provisioning fan-out. The two heavy gen steps enqueue
 # one message per article/image unit; Cloudflare runs the queue() consumer
@@ -108,6 +134,8 @@ head_sampling_rate = 1
 
 [env.staging]
 name = "kodigital-homepages-cms-worker-staging"
+services = []
+queues = { producers = [], consumers = [] }
 
 [env.staging.vars]
 APP_ENV = "staging"
@@ -115,6 +143,11 @@ AWS_REGION = "us-east-1"
 EVENTS_FIREHOSE_STREAM = "homepage-events"
 LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
 LEADGEN_EVENTS_FIREHOSE_STREAM = "leadgen-events"
+LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS = "LEADGEN_S2S_TOKEN_FACEBOOK,LISTICLE_S2S_TOKEN_FACEBOOK"
+CONVERSIONS_UI_ENABLED = "false"
+CONVERSIONS_PROXY_ENABLED = "false"
+CONVERSIONS_ACTOR_AUDIENCE = "kodigital-conversions-core"
+CONVERSIONS_ACTOR_ENVIRONMENT = "staging"
 ADMIN_HOST = "staging-cms.kodigital.app"
 ADMIN_BASE_URL = "https://staging-cms.kodigital.app"
 ADMIN_BASE_PATH = "/admin"
@@ -126,9 +159,6 @@ SITE_PROVISIONING_DRY_RUN = "true"
 SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
 CF_ACCESS_TEAM_DOMAIN = "kodigital2.cloudflareaccess.com"
 CF_ACCESS_AUD = "ec9b3610a2b4774ef4ff1eb95e0438b4ec72d9e943971828c5179bfaed7d1a28"
-
-[env.staging.triggers]
-crons = ["* * * * *"]
 
 [env.staging.observability]
 enabled = true
@@ -148,17 +178,9 @@ id = "77bb281de4fb4008a06b0993eb8b1774"
 binding = "MEDIA"
 bucket_name = "kodigital-homepages-cms-media"
 
-[[env.staging.queues.producers]]
-binding = "PROVISION_QUEUE"
-queue = "kodigital-provisioning-staging"
-
-[[env.staging.queues.consumers]]
-queue = "kodigital-provisioning-staging"
-max_batch_size = 1
-max_batch_timeout = 5
-max_retries = 5
-max_concurrency = 10
-dead_letter_queue = "kodigital-provisioning-staging-dlq"
+# Preserve the currently deployed staging trigger topology during the disabled
+# Conversions seam rollout. Staging has no cron, queue, or Conversions Core
+# service target; those capabilities require separate provisioning authority.
 
 
 [env.production]
@@ -170,6 +192,11 @@ AWS_REGION = "us-east-1"
 EVENTS_FIREHOSE_STREAM = "homepage-events"
 LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
 LEADGEN_EVENTS_FIREHOSE_STREAM = "leadgen-events"
+LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS = "LEADGEN_S2S_TOKEN_FACEBOOK,LISTICLE_S2S_TOKEN_FACEBOOK"
+CONVERSIONS_UI_ENABLED = "false"
+CONVERSIONS_PROXY_ENABLED = "false"
+CONVERSIONS_ACTOR_AUDIENCE = "kodigital-conversions-core"
+CONVERSIONS_ACTOR_ENVIRONMENT = "production"
 ADMIN_HOST = "cms.kodigital.app"
 ADMIN_BASE_URL = "https://cms.kodigital.app"
 ADMIN_BASE_PATH = "/admin"
@@ -218,6 +245,12 @@ id = "77bb281de4fb4008a06b0993eb8b1774"
 binding = "MEDIA"
 bucket_name = "kodigital-homepages-cms-media"
 
+# Non-secret target name only. The proxy flag remains false and no deployment,
+# binding provisioning or secret mutation is authorized by this story.
+[[env.production.services]]
+binding = "CONVERSIONS_CORE"
+service = "kodigital-conversions-core"
+
 [[env.production.queues.producers]]
 binding = "PROVISION_QUEUE"
 queue = "kodigital-provisioning"
@@ -229,4 +262,3 @@ max_batch_timeout = 5
 max_retries = 5
 max_concurrency = 10
 dead_letter_queue = "kodigital-provisioning-dlq"
-

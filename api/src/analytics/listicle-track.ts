@@ -37,6 +37,7 @@
 
 import { Hono } from "hono";
 import type { Env } from "../env";
+import type { WaitUntilContext } from "../wait-until-context";
 import {
   LISTICLE_EVENT_TYPES,
   blankListicleEvent,
@@ -265,7 +266,7 @@ export function deriveConversionBookingKey(clientEventId: string, event: Listicl
 
 export async function processConversionEvent(
   env: Env,
-  execCtx: ExecutionContext,
+  execCtx: WaitUntilContext,
   event: ListicleEvent,
   opts?: { now?: Date; fetchImpl?: typeof fetch; clientEventId?: string },
 ): Promise<ConversionWiringOutcome> {
@@ -326,7 +327,7 @@ const listicleTrackRouter = new Hono<{ Bindings: Env }>();
 // Hono's c.executionCtx GETTER throws where no ExecutionContext exists
 // (unit-test harnesses) — the beacon must 204 regardless, so the context is
 // captured once behind a no-op fallback.
-function safeExecutionCtx(c: { executionCtx: ExecutionContext }): ExecutionContext {
+function safeExecutionCtx(c: { executionCtx: WaitUntilContext }): WaitUntilContext {
   try {
     return c.executionCtx;
   } catch {
@@ -334,10 +335,7 @@ function safeExecutionCtx(c: { executionCtx: ExecutionContext }): ExecutionConte
       waitUntil(): void {
         /* no-op outside workerd */
       },
-      passThroughOnException(): void {
-        /* no-op */
-      },
-    } as unknown as ExecutionContext;
+    };
   }
 }
 

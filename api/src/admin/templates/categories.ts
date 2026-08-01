@@ -40,6 +40,7 @@ export interface CategoryListEntry {
 
 export interface CategoriesBranding {
   userEmail?: string;
+  conversionsUiEnabled?: boolean;
 }
 
 const VERTICAL_SLUGS: ReadonlyArray<string> = [
@@ -521,6 +522,7 @@ export function categoriesListPage(
     title: "Categories",
     activePath: "/admin/categories",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     styles: MODAL_STYLES,
     scripts: CATEGORIES_LIST_SCRIPT + listFilterScript,

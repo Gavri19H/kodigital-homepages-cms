@@ -33,6 +33,7 @@ export interface AiGenerationDetailEntry {
 
 export interface AiGenerationDetailBranding {
   userEmail?: string;
+  conversionsUiEnabled?: boolean;
 }
 
 function renderJsonBlock(label: string, raw: string | null): string {
@@ -86,6 +87,7 @@ export function aiGenerationDetailPage(
     title: `AI Generation ${generation.id}`,
     activePath: "/admin/ai-generations",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
   });
 }
@@ -106,6 +108,7 @@ export function aiGenerationNotFoundPage(
     title: "AI Generation not found",
     activePath: "/admin/ai-generations",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
   });
 }

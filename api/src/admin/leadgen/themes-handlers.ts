@@ -49,6 +49,7 @@ import {
 // theme_id" scan (§10.5 "no back-reference stored").
 import { invalidateOnVariantPublish } from "../../public/leadgen/invalidate";
 import type { Env } from "../../env";
+import type { WaitUntilContext } from "../../wait-until-context";
 
 export { LEADGEN_THEMES_KV_KEY, getThemeRecord, readThemeRecords, themeRecordExists };
 
@@ -359,7 +360,7 @@ function mintThemeId(name: string, existing: ReadonlySet<string>): string {
 // duplicated here per this codebase's small-helper convention (isRecord is
 // duplicated the same way in every handler file). Invalidation is ALWAYS
 // non-blocking and can never break the PATCH response.
-function safeExecutionCtx(c: AdminContext): ExecutionContext {
+function safeExecutionCtx(c: AdminContext): WaitUntilContext {
   try {
     return c.executionCtx;
   } catch {
@@ -367,10 +368,7 @@ function safeExecutionCtx(c: AdminContext): ExecutionContext {
       waitUntil(): void {
         /* no-op outside workerd (unit-test harness) */
       },
-      passThroughOnException(): void {
-        /* no-op */
-      },
-    } as unknown as ExecutionContext;
+    };
   }
 }
 

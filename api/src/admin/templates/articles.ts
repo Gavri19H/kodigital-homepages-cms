@@ -100,6 +100,7 @@ export interface ArticleFormValues {
 
 export interface ArticlesBranding {
   userEmail?: string;
+  conversionsUiEnabled?: boolean;
 }
 
 // Active list-filter state (URL query params) so selects render their
@@ -339,6 +340,7 @@ export function articlesListPage(
     title: "Articles",
     activePath: "/admin/articles",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     styles: ARTICLES_LIST_STYLES,
     scripts: ARTICLES_LIST_SCRIPT,
@@ -559,6 +561,7 @@ export function articleFormPage(
     title,
     activePath: "/admin/articles",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     styles: BLOCK_EDITOR_COLOR_TOKENS + editorStyles + aiAssistantStyles + heroImageStyles + workflowPanelStyles,
     scripts:

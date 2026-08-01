@@ -115,7 +115,9 @@ function buildEnv(db: D1Database): Env {
     SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
     DEV_BYPASS_AUTH: "true",
     // A resolved S2S token VALUE — must NEVER appear in any admin response.
-    LEADGEN_S2S_TOKEN_FACEBOOK: "super-secret-token-value",
+    LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS: "OFFER_TOKEN_FACEBOOK,LEADGEN_S2S_TOKEN_FACEBOOK",
+    OFFER_TOKEN_FACEBOOK: "super-secret-token-value",
+    LEADGEN_S2S_TOKEN_FACEBOOK: "legacy-super-secret-token-value",
   } as unknown as Env;
 }
 
@@ -149,7 +151,7 @@ describeDb("§26 media-platforms admin CRUD", () => {
     const env = newEnv();
     const createRes = await admin.request(
       API,
-      jsonInit("POST", { platform: "facebook", postback_url_template: TEMPLATE, auth_secret_ref: "LEADGEN_S2S_TOKEN_FACEBOOK", value_multiplier: 1.5 }),
+      jsonInit("POST", { platform: "facebook", postback_url_template: TEMPLATE, auth_secret_ref: "OFFER_TOKEN_FACEBOOK", value_multiplier: 1.5 }),
       env,
     );
     expect(createRes.status, `create: ${await createRes.clone().text()}`).toBe(201);
@@ -220,13 +222,13 @@ describeDb("§26 media-platforms admin CRUD", () => {
     const env = newEnv();
     await admin.request(
       API,
-      jsonInit("POST", { platform: "facebook", postback_url_template: TEMPLATE, auth_secret_ref: "LEADGEN_S2S_TOKEN_FACEBOOK" }),
+      jsonInit("POST", { platform: "facebook", postback_url_template: TEMPLATE, auth_secret_ref: "OFFER_TOKEN_FACEBOOK" }),
       env,
     );
     const listRes = await admin.request(API, {}, env);
     const rawText = await listRes.clone().text();
     // The NAME is surfaced (operators need it to know which secret is wired)…
-    expect(rawText).toContain("LEADGEN_S2S_TOKEN_FACEBOOK");
+    expect(rawText).toContain("OFFER_TOKEN_FACEBOOK");
     // …but the resolved secret VALUE is NEVER anywhere in the response.
     expect(rawText).not.toContain("super-secret-token-value");
   });
@@ -239,5 +241,53 @@ describeDb("§26 media-platforms admin CRUD", () => {
       env,
     );
     expect(res.status).toBe(400);
+  });
+
+  it("rejects infrastructure, missing, and newly introduced legacy provider references before insert", async () => {
+    const env = newEnv();
+    Object.assign(env as unknown as Record<string, unknown>, {
+      LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS:
+        "OFFER_TOKEN_FACEBOOK,OFFER_TOKEN_MISSING,LEADGEN_S2S_TOKEN_FACEBOOK,CH_PASSWORD,CF_API_TOKEN",
+      CH_PASSWORD: "must-never-be-selected-by-a-platform",
+      CF_API_TOKEN: "must-never-be-selected-by-a-platform",
+    });
+
+    const cases = [
+      { platform: "infra", ref: "CH_PASSWORD", expected: "infrastructure" },
+      { platform: "commoninfra", ref: "CF_API_TOKEN", expected: "infrastructure" },
+      { platform: "missing", ref: "OFFER_TOKEN_MISSING", expected: "missing or empty" },
+      { platform: "legacynew", ref: "LEADGEN_S2S_TOKEN_FACEBOOK", expected: "OFFER_TOKEN_" },
+    ];
+    for (const item of cases) {
+      const res = await admin.request(
+        API,
+        jsonInit("POST", {
+          platform: item.platform,
+          postback_url_template: TEMPLATE,
+          auth_secret_ref: item.ref,
+        }),
+        env,
+      );
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { fields: Record<string, string> }).fields.auth_secret_ref).toContain(item.expected);
+    }
+
+    const listRes = await admin.request(API, {}, env);
+    expect(((await listRes.json()) as { media_platforms: PlatformRow[] }).media_platforms).toHaveLength(0);
+  });
+
+  it("allows an unchanged explicitly allowlisted bound legacy reference to be enabled", async () => {
+    const env = newEnv();
+    await env.DB.prepare(
+      `INSERT INTO leadgen_media_platforms
+         (platform, enabled, postback_url_template, auth_secret_ref, event_name, value_multiplier)
+       VALUES (?, 0, ?, ?, ?, 1)`,
+    )
+      .bind("facebook", TEMPLATE, "LEADGEN_S2S_TOKEN_FACEBOOK", "Lead")
+      .run();
+
+    const res = await admin.request(`${API}/facebook`, jsonInit("PATCH", { enabled: true }), env);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { media_platform: PlatformRow }).media_platform.enabled).toBe(1);
   });
 });

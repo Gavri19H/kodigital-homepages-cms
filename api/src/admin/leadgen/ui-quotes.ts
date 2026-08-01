@@ -30,6 +30,7 @@ import {
   renderLeadgenTabs,
   statusBadge,
   type ListBody,
+  type LeadgenBranding,
   type UiContext,
 } from "./ui";
 import { listFunnelDesignOptions } from "./quotes-handlers";
@@ -505,6 +506,7 @@ ${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging
     leadgenPageShell({
       activePath: "/admin/leadgen/quotes",
       userEmail: branding(c).userEmail,
+      conversionsUiEnabled: branding(c).conversionsUiEnabled,
       content,
       styles: LG_QUOTES_STYLES,
       scripts: kebabMenuScript + QUOTE_LIST_SCRIPT + listFilterScript,
@@ -655,6 +657,7 @@ export async function leadgenQuotesNewPage(c: UiContext): Promise<Response> {
     leadgenPageShell({
       activePath: "/admin/leadgen/quotes",
       userEmail: branding(c).userEmail,
+      conversionsUiEnabled: branding(c).conversionsUiEnabled,
       content,
       styles: LG_QUOTES_STYLES,
       scripts: QUOTE_NEW_SCRIPT,
@@ -684,7 +687,7 @@ function quoteEditorHtml(
   // assembled by leadgenQuoteEditorPage (the SAME "tab payload" function that
   // already builds answerFields/quoteDataBlob) and threaded to the board.
   railData: QuoteRulesRailData,
-  brand: { userEmail?: string },
+  brand: LeadgenBranding,
   // FIX 8c: whether POST /api/admin/ai/image is usable — false hides the
   // picker's "Generate with AI" affordance (§8.4).
   aiImageAvailable = false,
@@ -772,6 +775,7 @@ function quoteEditorHtml(
   return leadgenPageShell({
     activePath: "/admin/leadgen/quotes",
     userEmail: brand.userEmail,
+    conversionsUiEnabled: brand.conversionsUiEnabled,
     content,
     styles: LG_QUOTES_STYLES,
     // P3b follow-up: QUOTE_RULES_SCRIPT (§8.2 RIGHT rail island) added.
@@ -788,7 +792,7 @@ function quoteEditorHtml(
 }
 
 
-function quoteNotFoundPage(brand: { userEmail?: string }): string {
+function quoteNotFoundPage(brand: LeadgenBranding): string {
   const content = `${renderLeadgenTabs("quotes")}
 <div class="card"><div class="empty-state">
   <p>Quote not found.</p>
@@ -797,6 +801,7 @@ function quoteNotFoundPage(brand: { userEmail?: string }): string {
   return leadgenPageShell({
     activePath: "/admin/leadgen/quotes",
     userEmail: brand.userEmail,
+    conversionsUiEnabled: brand.conversionsUiEnabled,
     content,
     styles: LG_QUOTES_STYLES,
   });

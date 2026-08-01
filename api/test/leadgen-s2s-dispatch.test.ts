@@ -2,10 +2,11 @@
 // the REAL 0038 leadgen_media_platforms table (node:sqlite). Proves: platform
 // match (case-insensitive, disabled fires nothing), deriveFbc, {value} = revenue
 // × value_multiplier, KV dedupe (no double-fire, distinct conversion_id re-fires,
-// prefix lg_s2s:), absent-secret tokenless no-op, non-2xx LOGGED-not-thrown,
+// prefix lg_s2s:), missing-secret fail-closed without dedupe poisoning,
+// non-2xx LOGGED-not-thrown,
 // fetch-throws contained, and CH-backed click-context resolution.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
 import {
   deriveFbc,
@@ -103,7 +104,14 @@ function makeCtx(): { ctx: ExecutionContext; tasks: Array<Promise<unknown>> } {
 }
 
 function buildEnv(kv: KVNamespace, extra?: Record<string, string>): Env {
-  return { DB: {} as D1Database, CACHE: kv, MEDIA: {} as R2Bucket, APP_ENV: "test", ...(extra ?? {}) } as unknown as Env;
+  return {
+    DB: {} as D1Database,
+    CACHE: kv,
+    MEDIA: {} as R2Bucket,
+    APP_ENV: "test",
+    LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS: "LEADGEN_S2S_TOKEN_FACEBOOK",
+    ...(extra ?? {}),
+  } as unknown as Env;
 }
 
 function seedPlatform(
@@ -119,6 +127,10 @@ function seedPlatform(
 
 const DatabaseSync = loadDatabaseSync();
 const describeDb = DatabaseSync === null ? describe.skip : describe;
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function freshDb(): { sdb: SqliteDb; db: D1Database } {
   const sdb = new (DatabaseSync as DatabaseSyncCtor)(":memory:");
@@ -205,18 +217,24 @@ describeDb("dispatchMatchedConversionS2S — §26 fire / value×multiplier / ded
     expect(f.calls).toHaveLength(2);
   });
 
-  it("absent secret ⇒ tokenless no-op ({auth_token} empty), still fires, never throws", async () => {
+  it("missing allowlisted secret binding fails closed before fetch", async () => {
     const { sdb, db } = freshDb();
     seedPlatform(sdb, { platform: "facebook", enabled: 1, auth_secret_ref: "LEADGEN_S2S_TOKEN_FACEBOOK" });
-    const env = buildEnv(makeKv()); // secret NOT set
+    const kv = makeKv();
+    const env = buildEnv(kv); // secret NOT set
     const { ctx, tasks } = makeCtx();
     const f = makeFetch("ok");
     const out = await dispatchMatchedConversionS2S(env, ctx, db, CLICK, revenue, { now: 1, fetchImpl: f.impl });
-    expect(out.status).toBe("fired");
+    expect(out).toEqual({
+      status: "failed",
+      platform: "facebook",
+      reason: "outbound secret reference rejected: binding_missing",
+    });
+    const replay = await dispatchMatchedConversionS2S(env, ctx, db, CLICK, revenue, { now: 1, fetchImpl: f.impl });
+    expect(replay.status).toBe("failed");
     await Promise.all(tasks);
-    const url = f.calls[0]?.url ?? "";
-    expect(url.endsWith("token=")).toBe(true); // {auth_token} resolved EMPTY (tokenless)
-    expect(url.includes("token=tok")).toBe(false);
+    expect(f.calls).toHaveLength(0);
+    expect(kv.store.size).toBe(0);
   });
 
   it("a disabled platform fires nothing (skipped)", async () => {
@@ -246,14 +264,55 @@ describeDb("dispatchMatchedConversionS2S — §26 fire / value×multiplier / ded
     await expect(Promise.all(tasks)).resolves.toBeDefined(); // the fire promise settles, no throw
   });
 
-  it("a fetch that throws is contained in the fire promise (dispatch never rejects)", async () => {
+  it("a fetch rejection is contained and logs no URL token or custom error-name bytes", async () => {
     const { sdb, db } = freshDb();
-    seedPlatform(sdb, { platform: "facebook", enabled: 1 });
+    seedPlatform(sdb, { platform: "facebook", enabled: 1, auth_secret_ref: "LEADGEN_S2S_TOKEN_FACEBOOK" });
     const { ctx, tasks } = makeCtx();
-    const f = makeFetch("throw");
-    const out = await dispatchMatchedConversionS2S(buildEnv(makeKv()), ctx, db, CLICK, revenue, { fetchImpl: f.impl });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const err = new Error(`network down for ${String(input)} with lg-secret-value`);
+      err.name = "SecretName-lg-secret-value";
+      throw err;
+    }) as typeof fetch;
+    const out = await dispatchMatchedConversionS2S(
+      buildEnv(makeKv(), { LEADGEN_S2S_TOKEN_FACEBOOK: "lg-secret-value" }),
+      ctx,
+      db,
+      CLICK,
+      revenue,
+      { fetchImpl },
+    );
     expect(out.status).toBe("fired");
     await expect(Promise.all(tasks)).resolves.toBeDefined(); // .catch swallowed the throw
+    const logged = JSON.stringify(errorSpy.mock.calls);
+    expect(logged).toContain("pixel failed: UnknownError");
+    expect(logged).not.toContain("lg-secret-value");
+  });
+
+  it("a synchronous outbound throw returns a safe code and logs no URL token", async () => {
+    const { sdb, db } = freshDb();
+    seedPlatform(sdb, { platform: "facebook", enabled: 1, auth_secret_ref: "LEADGEN_S2S_TOKEN_FACEBOOK" });
+    const { ctx } = makeCtx();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = ((input: RequestInfo | URL) => {
+      const err = new Error(`sync failure for ${String(input)} with lg-secret-value`);
+      err.name = "SecretName-lg-secret-value";
+      throw err;
+    }) as typeof fetch;
+
+    const out = await dispatchMatchedConversionS2S(
+      buildEnv(makeKv(), { LEADGEN_S2S_TOKEN_FACEBOOK: "lg-secret-value" }),
+      ctx,
+      db,
+      CLICK,
+      { ...revenue, conversion_id: "sync" },
+      { fetchImpl },
+    );
+
+    expect(out).toEqual({ status: "failed", reason: "dispatch_error:UnknownError" });
+    const logged = JSON.stringify(errorSpy.mock.calls);
+    expect(logged).toContain("dispatch_error:UnknownError");
+    expect(logged).not.toContain("lg-secret-value");
   });
 
   it("value×multiplier preserves a 0 multiplier (reports value 0, not coerced to 1)", async () => {

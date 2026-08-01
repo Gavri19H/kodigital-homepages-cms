@@ -24,6 +24,7 @@ export interface AiGenerationListEntry {
 
 export interface AiGenerationsListBranding {
   userEmail?: string;
+  conversionsUiEnabled?: boolean;
 }
 
 export interface AiGenerationsPaging {
@@ -109,6 +110,7 @@ export function aiGenerationsListPage(
     title: "AI Generations",
     activePath: "/admin/ai-generations",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
   });
 }

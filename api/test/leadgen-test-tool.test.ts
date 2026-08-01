@@ -200,9 +200,10 @@ function buildEnv(db: D1Database, kv: KVNamespace, extra: Record<string, string>
     SITE_PROVISIONING_DRY_RUN: "true",
     SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
     DEV_BYPASS_AUTH: "true",
-    // per-offer provider secrets resolved by readEnvSecret(env, <name>)
-    LEADGEN_TEST_PROVIDER_TOKEN: PROVIDER_TOKEN,
-    LEADGEN_TEST_HEADER_SECRET: HEADER_SECRET,
+    LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS:
+      "OFFER_TOKEN_TEST_PROVIDER,OFFER_TOKEN_TEST_HEADER,OFFER_TOKEN_MISSING,OFFER_TOKEN_MISSING_HEADER",
+    OFFER_TOKEN_TEST_PROVIDER: PROVIDER_TOKEN,
+    OFFER_TOKEN_TEST_HEADER: HEADER_SECRET,
     ...extra,
   } as Env;
 }
@@ -287,13 +288,13 @@ async function setupOffer(
       endpoint_production: PRODUCTION_URL,
       ...(options.skipEndpointStaging === true ? {} : { endpoint_staging: STAGING_URL }),
       request_method: "POST",
-      api_token_secret_ref: "LEADGEN_TEST_PROVIDER_TOKEN",
+      api_token_secret_ref: "OFFER_TOKEN_TEST_PROVIDER",
       api_token_placement: options.tokenPlacement ?? "header",
       api_token_param_name: options.tokenPlacement === "query" ? "token" : "X-Api-Token",
       headers: [
         { header_name: "X-Static", value_kind: "static", value_text: "fixed-value" },
         { header_name: "X-Macro", value_kind: "macro", value_text: "{offer_id}" },
-        { header_name: "X-Secret", value_kind: "secret_ref", value_text: "LEADGEN_TEST_HEADER_SECRET" },
+        { header_name: "X-Secret", value_kind: "secret_ref", value_text: "OFFER_TOKEN_TEST_HEADER" },
       ],
     }),
     env,
@@ -348,7 +349,7 @@ interface TestToolResponse {
   // carriers is null ONLY on a §11.1 dry run (no response to parse).
   parse: { carriers: Array<Record<string, unknown>> | null; errors: Array<Record<string, unknown>> };
   response_field_paths: string[];
-  notes: Array<{ scope: string; code: string; header_name?: string }>;
+  notes: Array<{ scope: string; code: string; header_name?: string; secret_ref?: string }>;
   provider_error_reason: string | null;
   debug_ref: string | null;
 }
@@ -500,6 +501,30 @@ describeDb("POST /offers/:id/test — token placements (§11.3–11.4)", () => {
     expect(JSON.stringify(body)).not.toContain(PROVIDER_TOKEN);
   });
 
+  it("does not expose or persist secrets echoed by a rejected query-token fetch", async () => {
+    const h = await setupOffer({ tokenPlacement: "query" });
+    stubFetch((url, init) => {
+      const headers = init.headers as Record<string, string>;
+      const err = new Error(`provider rejected ${url}; header=${headers["X-Secret"]}`);
+      err.name = `Poisoned-${PROVIDER_TOKEN}-${HEADER_SECRET}`;
+      throw err;
+    });
+
+    const { status, body } = await runTest(h, {
+      environment: "staging",
+      sample_answers: SAMPLE_ANSWERS,
+    });
+    const log = lastLogRow(h.sdb);
+
+    expect(status).toBe(200);
+    expect(body.provider_error_reason).toBe("network_error");
+    expect(log?.["error_text"]).toBe("provider_fetch_failed:UnknownError");
+    expect(JSON.stringify(body)).not.toContain(PROVIDER_TOKEN);
+    expect(JSON.stringify(body)).not.toContain(HEADER_SECRET);
+    expect(JSON.stringify(log)).not.toContain(PROVIDER_TOKEN);
+    expect(JSON.stringify(log)).not.toContain(HEADER_SECRET);
+  });
+
   it("payload placement: token node carries the real value outbound, masked everywhere else", async () => {
     const h = await setupOffer({ withTokenNode: true, tokenPlacement: "payload" });
     const calls = stubFetch(() => new Response(JSON.stringify(PROVIDER_BODY), { status: 200 }));
@@ -519,35 +544,190 @@ describeDb("POST /offers/:id/test — token placements (§11.3–11.4)", () => {
     expect(JSON.stringify(body)).not.toContain(PROVIDER_TOKEN);
     expect(JSON.stringify(log)).not.toContain(PROVIDER_TOKEN);
   });
+
+  const echoedResponseCases = (["header", "query", "payload"] as const).flatMap((placement) =>
+    ([
+      { kind: "2xx JSON", status: 200, json: true },
+      { kind: "non-2xx JSON", status: 500, json: true },
+      { kind: "2xx text", status: 200, json: false },
+      { kind: "non-2xx text", status: 500, json: false },
+    ] as const).map((response) => ({ placement, ...response })),
+  );
+
+  it.each(echoedResponseCases)(
+    "$placement token + secret header never enter admin/D1 projections for $kind",
+    async ({ placement, status, json }) => {
+      const providerSecret = "admin provider !'()~ /+%?= Secret";
+      const headerSecret = "admin header !'()~ /+%?= Secret";
+      const encodedProvider = encodeURIComponent(providerSecret);
+      const encodedHeader = encodeURIComponent(headerSecret);
+      const formProvider = new URLSearchParams({ token: providerSecret }).toString().slice("token=".length);
+      const formHeader = new URLSearchParams({ token: headerSecret }).toString().slice("token=".length);
+      const doubleFormProvider = new URLSearchParams({ token: formProvider }).toString().slice("token=".length);
+      const doubleFormHeader = new URLSearchParams({ token: formHeader }).toString().slice("token=".length);
+      const h = await setupOffer({
+        tokenPlacement: placement,
+        withTokenNode: placement === "payload",
+        envExtra: {
+          OFFER_TOKEN_TEST_PROVIDER: providerSecret,
+          OFFER_TOKEN_TEST_HEADER: headerSecret,
+        },
+      });
+      stubFetch(() => {
+        const echoed = {
+          [`key-${providerSecret}`]: `embedded-${providerSecret}`,
+          encoded_provider: encodedProvider,
+          encoded_header: encodedHeader,
+          form_provider: formProvider,
+          form_header: formHeader,
+          carriers: [{ name: `Carrier ${formProvider}`, bid: 3.2, url: `https://p.test/?h=${doubleFormHeader}` }],
+        };
+        return new Response(
+          json
+            ? JSON.stringify(echoed)
+            : `raw=${providerSecret}; encoded=${encodedProvider}; form=${formProvider}; form2=${doubleFormProvider}; header=${headerSecret}; header_encoded=${encodedHeader}; header_form=${formHeader}; header_form2=${doubleFormHeader}`,
+          { status },
+        );
+      });
+
+      const { body } = await runTest(h, { environment: "staging", sample_answers: {} });
+      const log = lastLogRow(h.sdb);
+      const sample = h.sdb
+        .prepare("SELECT sample_response_json FROM leadgen_offer_payload_schemas WHERE id = ?")
+        .get(h.schemaId) as { sample_response_json: string | null };
+
+      for (const safeProjection of [body, log, sample.sample_response_json]) {
+        const bytes = JSON.stringify(safeProjection);
+        expect(bytes).not.toContain(providerSecret);
+        expect(bytes).not.toContain(headerSecret);
+        expect(bytes).not.toContain(encodedProvider);
+        expect(bytes).not.toContain(encodedHeader);
+        expect(bytes).not.toContain(formProvider);
+        expect(bytes).not.toContain(formHeader);
+        expect(bytes).not.toContain(doubleFormProvider);
+        expect(bytes).not.toContain(doubleFormHeader);
+      }
+      expect(JSON.stringify(body)).toContain("[REDACTED]");
+      expect(String(log?.["parsed_carriers_json"])).not.toContain(providerSecret);
+      if (status === 200 && json) {
+        expect(sample.sample_response_json).toContain("[REDACTED]");
+      } else {
+        expect(sample.sample_response_json).toBeNull();
+      }
+    },
+  );
 });
 
 // --- §30.2 absent secrets = typed no-ops --------------------------------------------
 
-describeDb("POST /offers/:id/test — absent secrets no-op (§30.2)", () => {
-  it("skips the unresolvable legs with typed notes and still fires the request", async () => {
+describeDb("POST /offers/:id/test — missing secret binding (§30.2 / §18.7)", () => {
+  it("fails closed before fetch with typed notes", async () => {
     const h = await setupOffer();
-    // point the offer at secrets that DO NOT exist in env
-    await admin.request(
+    // The admin save gate requires the binding to exist. Save while present,
+    // then simulate deployment drift by removing it before the runtime lookup.
+    const mutableEnv = h.env as unknown as Record<string, unknown>;
+    mutableEnv["OFFER_TOKEN_MISSING"] = "temporary";
+    mutableEnv["OFFER_TOKEN_MISSING_HEADER"] = "temporary";
+    const patch = await admin.request(
       `${API}/offers/${h.offerId}`,
       jsonInit("PATCH", {
-        api_token_secret_ref: "LEADGEN_MISSING_TOKEN",
-        headers: [{ header_name: "X-Secret", value_kind: "secret_ref", value_text: "LEADGEN_MISSING_HDR" }],
+        api_token_secret_ref: "OFFER_TOKEN_MISSING",
+        headers: [{ header_name: "X-Secret", value_kind: "secret_ref", value_text: "OFFER_TOKEN_MISSING_HEADER" }],
       }),
       h.env,
     );
+    expect(patch.status).toBe(200);
+    delete mutableEnv["OFFER_TOKEN_MISSING"];
+    delete mutableEnv["OFFER_TOKEN_MISSING_HEADER"];
     const calls = stubFetch(() => new Response(JSON.stringify(PROVIDER_BODY), { status: 200 }));
     const { status, body } = await runTest(h, { environment: "staging", sample_answers: {} });
 
-    expect(status).toBe(200); // never a throw
-    const sentHeaders = calls[0]?.init.headers as Record<string, string>;
-    expect(sentHeaders["X-Secret"]).toBeUndefined(); // leg no-opped
-    expect(sentHeaders["X-Api-Token"]).toBeUndefined();
+    expect(status).toBe(422);
+    expect(calls).toHaveLength(0);
+    expect(body.provider_error_reason).toBe("secret_reference_invalid");
     expect(body.notes).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ scope: "token", code: "secret_absent", secret_ref: "LEADGEN_MISSING_TOKEN" }),
+        expect.objectContaining({ scope: "token", code: "secret_absent", secret_ref: "OFFER_TOKEN_MISSING" }),
         expect.objectContaining({ scope: "header", code: "secret_absent", header_name: "X-Secret" }),
       ]),
     );
+  });
+
+  it.each([
+    {
+      label: "valid but forbidden in client mode",
+      secretRef: "OFFER_TOKEN_TEST_HEADER",
+      code: "secret_mode_invalid",
+    },
+    {
+      label: "missing binding",
+      secretRef: "OFFER_TOKEN_MISSING_HEADER",
+      code: "secret_absent",
+    },
+    {
+      label: "disallowed",
+      secretRef: "OFFER_TOKEN_NOT_ALLOWED",
+      code: "secret_not_allowed",
+    },
+    {
+      label: "infrastructure",
+      secretRef: "CH_PASSWORD",
+      code: "secret_infrastructure_reference",
+    },
+  ])("client-mode row with $label secret header fails before admin Test fetch/write", async ({ secretRef, code }) => {
+    const h = await setupOffer();
+    const mutableEnv = h.env as unknown as Record<string, unknown>;
+    if (secretRef === "CH_PASSWORD") {
+      mutableEnv["LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS"] = "CH_PASSWORD";
+      mutableEnv["CH_PASSWORD"] = "must-never-be-sent";
+    }
+    h.sdb.prepare(
+      "UPDATE leadgen_offers SET request_execution_mode = 'client', api_token_secret_ref = NULL WHERE id = ?",
+    ).run(h.offerId);
+    h.sdb.prepare(
+      "UPDATE leadgen_offer_headers SET value_text = ? WHERE offer_id = ? AND value_kind = 'secret_ref'",
+    ).run(secretRef, h.offerId);
+    const calls = stubFetch(() => new Response(JSON.stringify(PROVIDER_BODY), { status: 200 }));
+
+    const { status, body } = await runTest(h, { environment: "staging", sample_answers: {} });
+
+    expect(status).toBe(422);
+    expect(calls).toHaveLength(0);
+    expect(body.provider_error_reason).toBe("secret_reference_invalid");
+    expect(body.notes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: "header", code, header_name: "X-Secret", secret_ref: secretRef }),
+      ]),
+    );
+    const persisted = h.sdb
+      .prepare("SELECT COUNT(*) AS count FROM leadgen_provider_request_log")
+      .get() as { count: number };
+    expect(persisted.count).toBe(0);
+  });
+
+  it("client-mode row with a valid token ref fails before admin Test fetch/write", async () => {
+    const h = await setupOffer();
+    h.sdb.prepare("DELETE FROM leadgen_offer_headers WHERE offer_id = ? AND value_kind = 'secret_ref'").run(h.offerId);
+    h.sdb.prepare("UPDATE leadgen_offers SET request_execution_mode = 'client' WHERE id = ?").run(h.offerId);
+    const calls = stubFetch(() => new Response(JSON.stringify(PROVIDER_BODY), { status: 200 }));
+
+    const { status, body } = await runTest(h, { environment: "staging", sample_answers: {} });
+
+    expect(status).toBe(422);
+    expect(calls).toHaveLength(0);
+    expect(body.notes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "token",
+          code: "secret_mode_invalid",
+          secret_ref: "OFFER_TOKEN_TEST_PROVIDER",
+        }),
+      ]),
+    );
+    const persisted = h.sdb
+      .prepare("SELECT COUNT(*) AS count FROM leadgen_provider_request_log")
+      .get() as { count: number };
+    expect(persisted.count).toBe(0);
   });
 });
 

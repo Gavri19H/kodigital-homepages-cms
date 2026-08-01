@@ -32,6 +32,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Env } from "../../env";
+import { isConversionsUiEnabled } from "../../env";
 import type { AccessAuthVariables } from "../../auth/access-auth";
 import leadgenApi, { type Paging } from "./router";
 import * as data from "../data";
@@ -87,11 +88,19 @@ const shellNoStore = async (
 leadgenUi.use("/admin/leadgen", shellNoStore);
 leadgenUi.use("/admin/leadgen/*", shellNoStore);
 
-export function branding(c: UiContext): { userEmail?: string } {
+export interface LeadgenBranding {
+  userEmail?: string;
+  conversionsUiEnabled: boolean;
+}
+
+export function branding(c: UiContext): LeadgenBranding {
   const access = c.get("access");
   const email =
     access && access.mode === "identity" ? access.email : undefined;
-  return data.getAdminBranding(email);
+  return {
+    ...data.getAdminBranding(email),
+    conversionsUiEnabled: isConversionsUiEnabled(c.env.CONVERSIONS_UI_ENABLED),
+  };
 }
 
 export const EMPTY_PAGING: Paging = {
@@ -169,6 +178,7 @@ export const LEADGEN_STYLES = `
 export function leadgenPageShell(options: {
   activePath: string;
   userEmail?: string;
+  conversionsUiEnabled: boolean;
   content: string;
   styles?: string;
   scripts?: string;
@@ -177,6 +187,7 @@ export function leadgenPageShell(options: {
     title: "LeadGen",
     activePath: options.activePath,
     userEmail: options.userEmail,
+    conversionsUiEnabled: options.conversionsUiEnabled,
     content: options.content,
     styles: LEADGEN_STYLES + (options.styles ?? ""),
     scripts: options.scripts ?? "",

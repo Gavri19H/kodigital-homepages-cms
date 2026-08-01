@@ -34,6 +34,7 @@ export interface TagListEntry {
 
 export interface TagsBranding {
   userEmail?: string;
+  conversionsUiEnabled?: boolean;
 }
 
 function renderSiteOptions(sites: ReadonlyArray<SiteOption>, selected?: string | null): string {
@@ -253,6 +254,7 @@ export function tagsListPage(
     title: "Tags",
     activePath: "/admin/tags",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
     styles: MODAL_STYLES,
     scripts: TAGS_LIST_SCRIPT + listFilterScript,

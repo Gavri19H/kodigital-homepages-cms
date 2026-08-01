@@ -79,14 +79,15 @@ function inMemoryKv(): KVNamespace {
     async list() { return { keys: [], list_complete: true, cacheStatus: null }; },
   } as unknown as KVNamespace;
 }
-function buildEnv(db: D1Database, extra?: Partial<Env>): Env {
+function buildEnv(db: D1Database, extra?: Record<string, unknown>): Env {
   return {
     DB: db, CACHE: inMemoryKv(), MEDIA: {} as R2Bucket,
     APP_ENV: "test", ADMIN_HOST: "localhost", ADMIN_BASE_URL: "http://localhost:8787", ADMIN_BASE_PATH: "/admin",
     CACHE_API_ENABLED: "false", HTML_CACHE_TTL_SECONDS: "60", OPENAI_TEXT_MODEL: "t", OPENAI_IMAGE_MODEL: "i",
     SITE_PROVISIONING_DRY_RUN: "true", SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false", DEV_BYPASS_AUTH: "true",
+    LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS: "OFFER_TOKEN_LISTICLE_FACEBOOK,LISTICLE_S2S_TOKEN_FACEBOOK",
     ...extra,
-  } as Env;
+  } as unknown as Env;
 }
 
 interface MockOpts { matched?: string[]; captureInsert?: (rows: Array<Record<string, unknown>>) => void; captureCmd?: (sql: string) => void; configured?: boolean; }
@@ -311,21 +312,21 @@ d("§20 media-platforms admin CRUD", () => {
   it("create → 201 enabled=0 default, stores auth_secret_ref NAME (never the token value)", async () => {
     // The env HOLDS the actual secret value; the CRUD must store/return only
     // the ref NAME — the resolved token value must never appear in a response.
-    const secretEnv = buildEnv(d1FromSqlite(sdb), { LISTICLE_S2S_TOKEN_FACEBOOK: "super-secret-token-value" });
+    const secretEnv = buildEnv(d1FromSqlite(sdb), { OFFER_TOKEN_LISTICLE_FACEBOOK: "super-secret-token-value" });
     const res = await admin.request(base, jsonInit("POST", {
       platform: "facebook",
       postback_url_template: "https://fb.example/tr?c={click_id}&v={value}&t={auth_token}",
-      auth_secret_ref: "LISTICLE_S2S_TOKEN_FACEBOOK",
+      auth_secret_ref: "OFFER_TOKEN_LISTICLE_FACEBOOK",
       event_name: "Purchase",
     }), secretEnv);
     expect(res.status).toBe(201);
     const body = await res.json() as { media_platform: Record<string, unknown> };
     expect(body.media_platform.enabled).toBe(0); // disabled by default
-    expect(body.media_platform.auth_secret_ref).toBe("LISTICLE_S2S_TOKEN_FACEBOOK");
+    expect(body.media_platform.auth_secret_ref).toBe("OFFER_TOKEN_LISTICLE_FACEBOOK");
     // the token VALUE must never be reflected (only the ref NAME is stored).
     expect(JSON.stringify(body)).not.toContain("super-secret-token-value");
     const stored = sdb.prepare("SELECT auth_secret_ref FROM listicle_media_platforms WHERE platform='facebook'").get() as Record<string, unknown>;
-    expect(stored.auth_secret_ref).toBe("LISTICLE_S2S_TOKEN_FACEBOOK");
+    expect(stored.auth_secret_ref).toBe("OFFER_TOKEN_LISTICLE_FACEBOOK");
   });
 
   it("rejects a value-looking auth_secret_ref (must be an UPPER_SNAKE name)", async () => {
@@ -336,6 +337,54 @@ d("§20 media-platforms admin CRUD", () => {
     }), env);
     expect(res.status).toBe(400);
     expect((await res.json() as { fields: Record<string, string> }).fields.auth_secret_ref).toBeDefined();
+  });
+
+  it("rejects infrastructure, missing, and newly introduced legacy references before insert", async () => {
+    const hardenedEnv = buildEnv(d1FromSqlite(sdb), {
+      LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS:
+        "OFFER_TOKEN_LISTICLE_FACEBOOK,OFFER_TOKEN_MISSING,LISTICLE_S2S_TOKEN_FACEBOOK,CH_PASSWORD,GITHUB_TOKEN",
+      CH_PASSWORD: "must-never-be-selected-by-a-platform",
+      GITHUB_TOKEN: "must-never-be-selected-by-a-platform",
+      LISTICLE_S2S_TOKEN_FACEBOOK: "legacy-bound-token",
+    });
+    const cases = [
+      { platform: "infra", ref: "CH_PASSWORD", expected: "infrastructure" },
+      { platform: "commoninfra", ref: "GITHUB_TOKEN", expected: "infrastructure" },
+      { platform: "missing", ref: "OFFER_TOKEN_MISSING", expected: "missing or empty" },
+      { platform: "legacynew", ref: "LISTICLE_S2S_TOKEN_FACEBOOK", expected: "OFFER_TOKEN_" },
+    ];
+
+    for (const item of cases) {
+      const res = await admin.request(base, jsonInit("POST", {
+        platform: item.platform,
+        postback_url_template: "https://partner.example/t?c={click_id}&t={auth_token}",
+        auth_secret_ref: item.ref,
+      }), hardenedEnv);
+      expect(res.status).toBe(400);
+      expect((await res.json() as { fields: Record<string, string> }).fields.auth_secret_ref).toContain(item.expected);
+    }
+
+    expect((sdb.prepare("SELECT COUNT(*) AS n FROM listicle_media_platforms").get() as { n: number }).n).toBe(0);
+  });
+
+  it("allows an unchanged explicitly allowlisted bound legacy reference to be enabled", async () => {
+    const legacyEnv = buildEnv(d1FromSqlite(sdb), {
+      LISTICLE_S2S_TOKEN_FACEBOOK: "legacy-bound-token",
+    });
+    sdb.prepare(
+      `INSERT INTO listicle_media_platforms
+         (platform, enabled, postback_url_template, auth_secret_ref, event_name)
+       VALUES (?, 0, ?, ?, ?)`,
+    ).run(
+      "facebook",
+      "https://fb.example/t?c={click_id}&t={auth_token}",
+      "LISTICLE_S2S_TOKEN_FACEBOOK",
+      "Lead",
+    );
+
+    const res = await admin.request(`${base}/facebook`, jsonInit("PATCH", { enabled: true }), legacyEnv);
+    expect(res.status).toBe(200);
+    expect((await res.json() as { media_platform: Record<string, unknown> }).media_platform.enabled).toBe(1);
   });
 
   it("rejects a macro in the host position + a non-absolute template", async () => {

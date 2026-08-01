@@ -22,7 +22,7 @@ import { mintPublicId } from "../../leadgen/ids";
 import { conditionsHash } from "../../leadgen/auction-rules";
 import type { LeadgenCarrierMatch } from "../../leadgen/auction-rules";
 import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
-import { readEnvSecret } from "../../env";
+import { resolveAllowedOutboundSecretReference } from "../../env";
 import { buildPayload } from "../../leadgen/payload";
 import { redactPii, REDACTED_VALUE } from "../../leadgen/redact";
 import { buildLeadgenRuntimeContext } from "../../leadgen/runtime-context";
@@ -1797,15 +1797,17 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
           // §7.6 "masked": a source:"token" node renders present-but-MASKED, but
           // ONLY when the engine would actually inject it — payload placement +
           // server mode AND a secret that RESOLVES in this env (fetch.ts + the
-          // Test-tool peer gate identically). We use readEnvSecret purely as a
-          // boolean presence gate; the REAL secret value NEVER enters the preview
+          // Test-tool peer gate identically). We use the allowlisted outbound
+          // wrapper purely as a boolean presence gate; the REAL value NEVER enters the preview
           // — the masked sentinel does. An offer with a missing/undeployed secret
           // therefore shows NO token field, exactly as the live payload would.
           const secretRef =
             typeof r.api_token_secret_ref === "string" && r.api_token_secret_ref.trim() !== ""
               ? r.api_token_secret_ref.trim()
               : null;
-          const tokenResolvable = secretRef !== null && readEnvSecret(c.env, secretRef) !== undefined;
+          const tokenResolution =
+            secretRef === null ? null : resolveAllowedOutboundSecretReference(c.env, secretRef);
+          const tokenResolvable = tokenResolution?.ok === true;
           // EXACT payload: answers + this offer's macros/computed + its
           // provider-facing placement (source:"placement"). redactPii masks any
           // PII in the resolved fields before return.

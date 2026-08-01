@@ -6,7 +6,7 @@
 // resolution, and processConversionEvent (in-site payout + conversion cap +
 // clean-only §31.8 + S2S from the event's own context).
 
-import { describe, expect, it, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -87,6 +87,7 @@ function buildEnv(db: D1Database, extra?: Partial<Env>): Env {
     APP_ENV: "test", ADMIN_HOST: "localhost", ADMIN_BASE_URL: "http://localhost:8787", ADMIN_BASE_PATH: "/admin",
     CACHE_API_ENABLED: "false", HTML_CACHE_TTL_SECONDS: "60", OPENAI_TEXT_MODEL: "t", OPENAI_IMAGE_MODEL: "i",
     SITE_PROVISIONING_DRY_RUN: "true", SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
+    LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS: "LISTICLE_S2S_TOKEN_FACEBOOK",
     LISTICLE_S2S_TOKEN_FACEBOOK: "fb-token-xyz",
     ...extra,
   } as Env;
@@ -106,6 +107,10 @@ function seedPlatform(sdb: SqliteDb, opts: { platform: string; enabled: number; 
 
 const ctor = loadDatabaseSync();
 const d = ctor ? describe : describe.skip;
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 d("s2s deriveFbc + platform lookup", () => {
   it("deriveFbc: keeps fbc, else derives from fbclid, else empty", () => {
@@ -157,6 +162,37 @@ d("dispatchMatchedConversionS2S", () => {
     expect(firedUrl).toContain(encodeURIComponent("fb.1.555.FBCLID1")); // fbc derived from fbclid
   });
 
+  it("missing allowlisted secret binding fails closed without consuming the dedupe slot", async () => {
+    seedPlatform(sdb, {
+      platform: "facebook",
+      enabled: 1,
+      auth: "LISTICLE_S2S_TOKEN_FACEBOOK",
+      template: "https://fb.example/tr?c={click_id}&t={auth_token}",
+    });
+    env = buildEnv(db, { LISTICLE_S2S_TOKEN_FACEBOOK: undefined });
+    const { ctx, settle } = makeExecCtx();
+    let fired = false;
+    const fetchImpl = (async () => {
+      fired = true;
+      return new Response("", { status: 200 });
+    }) as typeof fetch;
+    const args = [
+      env,
+      ctx,
+      db,
+      { click_id: "ckMissing", traffic_source: "facebook", fbc: "", fbclid: "" },
+      { value: "1", currency: "USD" },
+      { fetchImpl },
+    ] as const;
+
+    const first = await dispatchMatchedConversionS2S(...args);
+    const replay = await dispatchMatchedConversionS2S(...args);
+    await settle();
+    expect(first.status).toBe("failed");
+    expect(replay.status).toBe("failed");
+    expect(fired).toBe(false);
+  });
+
   it("disabled/absent platform → skipped, NO fire", async () => {
     seedPlatform(sdb, { platform: "facebook", enabled: 0, template: "https://fb/t?c={click_id}" });
     const { ctx, settle } = makeExecCtx();
@@ -191,14 +227,53 @@ d("dispatchMatchedConversionS2S", () => {
     expect(count).toBe(1);
   });
 
-  it("pixel failure is logged, never thrown", async () => {
-    seedPlatform(sdb, { platform: "facebook", enabled: 1, template: "https://fb/t?c={click_id}" });
+  it("pixel rejection is logged with a safe class only, never a token-bearing message/name", async () => {
+    seedPlatform(sdb, {
+      platform: "facebook",
+      enabled: 1,
+      auth: "LISTICLE_S2S_TOKEN_FACEBOOK",
+      template: "https://fb/t?c={click_id}&token={auth_token}",
+    });
     const { ctx, settle } = makeExecCtx();
-    const fetchImpl = (async () => { throw new Error("network down"); }) as typeof fetch;
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const err = new Error(`network down for ${String(input)} and fb-token-xyz`);
+      err.name = "SecretName-fb-token-xyz";
+      throw err;
+    }) as typeof fetch;
     const outcome = await dispatchMatchedConversionS2S(env, ctx, db,
       { click_id: "ckErr", traffic_source: "facebook", fbc: "", fbclid: "" }, { value: "1", currency: "USD" }, { fetchImpl });
     expect(outcome.status).toBe("fired"); // registered; the failure is swallowed on waitUntil
     await expect(settle()).resolves.toBeUndefined(); // never throws
+    const logged = JSON.stringify(errorSpy.mock.calls);
+    expect(logged).toContain("pixel failed: UnknownError");
+    expect(logged).not.toContain("fb-token-xyz");
+  });
+
+  it("a synchronous outbound throw returns a safe code and logs no token bytes", async () => {
+    seedPlatform(sdb, {
+      platform: "facebook",
+      enabled: 1,
+      auth: "LISTICLE_S2S_TOKEN_FACEBOOK",
+      template: "https://fb/t?c={click_id}&token={auth_token}",
+    });
+    const { ctx } = makeExecCtx();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = ((input: RequestInfo | URL) => {
+      const err = new Error(`sync failure for ${String(input)} and fb-token-xyz`);
+      err.name = "SecretName-fb-token-xyz";
+      throw err;
+    }) as typeof fetch;
+
+    const outcome = await dispatchMatchedConversionS2S(env, ctx, db,
+      { click_id: "ckSync", traffic_source: "facebook", fbc: "", fbclid: "" },
+      { value: "1", currency: "USD", conversion_id: "sync" },
+      { fetchImpl });
+
+    expect(outcome).toEqual({ status: "failed", reason: "dispatch_error:UnknownError" });
+    const logged = JSON.stringify(errorSpy.mock.calls);
+    expect(logged).toContain("dispatch_error:UnknownError");
+    expect(logged).not.toContain("fb-token-xyz");
   });
 });
 

@@ -27,6 +27,7 @@ export interface RecentArticle {
 
 export interface DashboardBranding {
   userEmail?: string;
+  conversionsUiEnabled?: boolean;
 }
 
 interface StatEntry {
@@ -119,6 +120,7 @@ export function dashboardPage(
     title: "Dashboard",
     activePath: "/admin",
     userEmail: branding.userEmail,
+    conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
   });
 }

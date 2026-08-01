@@ -182,7 +182,9 @@ function buildEnv(db: D1Database): Env {
     SITE_PROVISIONING_DRY_RUN: "true",
     SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
     DEV_BYPASS_AUTH: "true",
-  };
+    LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS: "OFFER_TOKEN_UI_PROVIDER",
+    OFFER_TOKEN_UI_PROVIDER: "ui-test-secret-value",
+  } as unknown as Env;
 }
 
 const DatabaseSync = loadDatabaseSync();
@@ -608,7 +610,7 @@ describeDb("leadgen offer editor (BINDING RULING tab union)", () => {
       endpoint_production: "https://provider.example/api/quotes",
       request_method: "POST",
       headers: [
-        { header_name: "x-api-key", value_kind: "secret_ref", value_text: "PROVIDER_KEY" },
+        { header_name: "x-api-key", value_kind: "secret_ref", value_text: "OFFER_TOKEN_UI_PROVIDER" },
       ],
       region_rules: [
         { dimension: "state", action: "exclude", values: ["CA", "NY"], priority: 10, enabled: true },
@@ -635,7 +637,7 @@ describeDb("leadgen offer editor (BINDING RULING tab union)", () => {
     // Request tab SSR: endpoints + header replace-set row + token editor
     expect(html).toContain('value="https://provider.example/api/quotes"');
     expect(html).toContain('value="x-api-key"');
-    expect(html).toContain('value="PROVIDER_KEY"');
+    expect(html).toContain('value="OFFER_TOKEN_UI_PROVIDER"');
     expect(html).toContain('name="api_token_placement"');
     expect(html).toContain('id="lg-client-mode-warning"');
     // Region rules SSR: the stored rule row with its lgrr_ identity + values

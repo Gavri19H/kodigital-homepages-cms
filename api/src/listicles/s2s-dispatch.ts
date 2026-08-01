@@ -27,9 +27,11 @@
 // provider postback for the SAME conversion do not double-fire the pixel.
 
 import type { Env } from "../env";
-import { readEnvSecret } from "../env";
+import { resolveAllowedOutboundSecretReference } from "../env";
+import type { WaitUntilContext } from "../wait-until-context";
 import { resolveMacros } from "./macros";
 import { createListicleChClient, type ListicleChClient } from "./clickhouse";
+import { safeErrorCode, safeErrorName } from "../safety/safe-error";
 
 export interface MediaPlatformRow {
   id: number;
@@ -140,7 +142,7 @@ async function alreadyFired(
 // fire is registered on ctx.waitUntil so it never blocks the caller.
 export async function dispatchMatchedConversionS2S(
   env: Env,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   db: D1Database,
   click: S2SClickContext,
   revenue: S2SRevenueContext,
@@ -157,13 +159,29 @@ export async function dispatchMatchedConversionS2S(
     const now = opts?.now ?? Date.now();
     const eventName = (revenue.event_name ?? "").trim() || (platform.event_name ?? "").trim() || "Purchase";
 
+    let authToken = "";
+    if (platform.auth_secret_ref !== null && platform.auth_secret_ref !== "") {
+      const resolution = resolveAllowedOutboundSecretReference(env, platform.auth_secret_ref);
+      if (!resolution.ok) {
+        console.error(JSON.stringify({
+          message: "listicle outbound secret reference rejected",
+          platform: platform.platform,
+          code: resolution.code,
+        }));
+        return {
+          status: "failed",
+          platform: platform.platform,
+          reason: `outbound secret reference rejected: ${resolution.code}`,
+        };
+      }
+      authToken = resolution.value;
+    }
+
+    // Do not consume the conversion's dedupe slot when configuration fails.
+    // Operators can repair the binding and safely replay the same conversion.
     if (await alreadyFired(env, platform.platform, click.click_id, eventName, revenue.conversion_id ?? "")) {
       return { status: "deduped", platform: platform.platform };
     }
-
-    const authToken = platform.auth_secret_ref !== null && platform.auth_secret_ref !== ""
-      ? (readEnvSecret(env, platform.auth_secret_ref) ?? "")
-      : "";
 
     const macroValues: Record<string, string> = {
       click_id: click.click_id,
@@ -187,9 +205,8 @@ export async function dispatchMatchedConversionS2S(
         }
       })
       .catch((err) => {
-        const msg = err instanceof Error ? err.message : String(err);
         // §20: failures are LOGGED, NEVER thrown, NEVER block ingestion.
-        console.error(`[lst-s2s] ${platform.platform} pixel failed: ${msg.slice(0, 200)}`);
+        console.error(`[lst-s2s] ${platform.platform} pixel failed: ${safeErrorName(err)}`);
       });
     try {
       ctx.waitUntil(fire);
@@ -200,9 +217,9 @@ export async function dispatchMatchedConversionS2S(
     }
     return { status: "fired", platform: platform.platform };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[lst-s2s] dispatch error: ${msg.slice(0, 200)}`);
-    return { status: "failed", reason: msg.slice(0, 200) };
+    const code = safeErrorCode("dispatch_error", err);
+    console.error(`[lst-s2s] ${code}`);
+    return { status: "failed", reason: code };
   }
 }
 
@@ -257,8 +274,7 @@ export async function resolveClickContextFromCh(
       offer_id: String(click.offer_id ?? ""),
     };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[lst-s2s] CH click-context lookup failed: ${msg.slice(0, 200)}`);
+    console.error(`[lst-s2s] CH click-context lookup failed: ${safeErrorName(err)}`);
     return null;
   }
 }

@@ -1353,6 +1353,7 @@ export async function leadgenThemeManagerPage(c: UiContext): Promise<Response> {
       : leadgenPageShell({
           activePath: "/admin/leadgen/sections",
           userEmail: branding(c).userEmail,
+          conversionsUiEnabled: branding(c).conversionsUiEnabled,
           content,
           styles: THEME_MGR_STYLES,
           scripts,

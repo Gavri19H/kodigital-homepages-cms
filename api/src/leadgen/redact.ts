@@ -107,6 +107,119 @@ export function redactPii(value: unknown): unknown {
   }
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Percent escapes are case-insensitive (`%2F` == `%2f`). Build a literal
+// pattern that permits either hex case without making the unescaped secret
+// bytes case-insensitive.
+function encodedLiteralPattern(value: string): RegExp {
+  let pattern = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index] ?? "";
+    if (
+      char === "%" &&
+      index + 2 < value.length &&
+      /^[0-9A-Fa-f]{2}$/.test(value.slice(index + 1, index + 3))
+    ) {
+      const hex = value.slice(index + 1, index + 3);
+      pattern += "%";
+      for (const digit of hex) {
+        pattern += /[A-Fa-f]/.test(digit)
+          ? `[${digit.toUpperCase()}${digit.toLowerCase()}]`
+          : digit;
+      }
+      index += 2;
+    } else {
+      pattern += escapeRegex(char);
+    }
+  }
+  return new RegExp(pattern, "g");
+}
+
+function formEncodeComponent(value: string): string {
+  const params = new URLSearchParams();
+  params.append("v", value);
+  return params.toString().slice(2); // remove the fixed `v=` prefix
+}
+
+// Build the literal plus every URI/form encoding combination to depth two.
+// The mixed combinations matter when a form-encoded value is embedded in a
+// URI (or vice versa). URLSearchParams implements the actual HTML form
+// algorithm, including ! ' ( ) ~, rather than the incomplete `%20` -> `+`
+// approximation.
+function secretEncodingVariants(secret: string): string[] {
+  const variants = new Set<string>([secret]);
+  let frontier = [secret];
+  for (let depth = 0; depth < 2; depth += 1) {
+    const next: string[] = [];
+    for (const value of frontier) {
+      for (const encoded of [encodeURIComponent(value), formEncodeComponent(value)]) {
+        if (!variants.has(encoded)) {
+          variants.add(encoded);
+          next.push(encoded);
+        }
+      }
+    }
+    frontier = next;
+  }
+  return [...variants].sort((left, right) => right.length - left.length);
+}
+
+// Scrub resolved outbound credential VALUES from an arbitrary response text.
+// Providers and proxies sometimes echo request URLs or authorization material
+// inside a larger diagnostic string. Cover the literal, standards-compliant
+// URI/form encodings, and every additional URI/form layer. Values are matched
+// exactly and case-sensitively; only hex case inside percent escapes varies.
+export function redactSecretText(
+  text: string,
+  secretValues: readonly string[],
+): string {
+  let output = text;
+  const unique = [...new Set(secretValues.filter((value) => value !== ""))]
+    .sort((left, right) => right.length - left.length);
+  for (const secret of unique) {
+    for (const variant of secretEncodingVariants(secret)) {
+      output = output.replace(encodedLiteralPattern(variant), REDACTED_VALUE);
+    }
+  }
+  return output;
+}
+
+function walkSecrets(value: unknown, secretValues: readonly string[], depth: number): unknown {
+  if (depth > MAX_DEPTH) return REDACTED_VALUE;
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") return redactSecretText(value, secretValues);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => walkSecrets(item, secretValues, depth + 1));
+  }
+  if (isRecord(value)) {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      const safeKey = redactSecretText(key, secretValues);
+      out[safeKey] = walkSecrets(item, secretValues, depth + 1);
+    }
+    return out;
+  }
+  return REDACTED_VALUE;
+}
+
+// Deep-scrub response JSON before it enters any admin-visible response or D1
+// projection. Internal parsing and the encrypt-only debug record retain the
+// raw provider bytes; this function is for safe projections only.
+export function redactSecretValues(
+  value: unknown,
+  secretValues: readonly string[],
+): unknown {
+  try {
+    return walkSecrets(value, secretValues, 0);
+  } catch {
+    return REDACTED_VALUE;
+  }
+}
+
 // Mask secret-bearing header VALUES (§30.2/§30.3: secret_ref-kind headers +
 // the token header): names in `secretNames` (matched case-insensitively) →
 // "[REDACTED]"; every other header passes verbatim.

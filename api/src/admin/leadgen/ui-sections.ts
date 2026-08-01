@@ -30,6 +30,7 @@ import {
   statusBadge,
   studioActivePill,
   type ListBody,
+  type LeadgenBranding,
   type UiContext,
 } from "./ui";
 import type { Paging } from "./router";
@@ -569,6 +570,7 @@ ${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging
     leadgenPageShell({
       activePath: "/admin/leadgen/sections",
       userEmail: branding(c).userEmail,
+      conversionsUiEnabled: branding(c).conversionsUiEnabled,
       content,
       styles: LG_SECTIONS_STYLES,
       scripts: kebabMenuScript + SECTION_LIST_SCRIPT + listFilterScript,
@@ -670,7 +672,7 @@ function renderSectionEditorChrome(isNew: boolean): string {
   <div class="alert alert-warning" data-studio-save-problems hidden role="status" aria-live="polite"></div>`;
 }
 
-function sectionEditorHtml(data: EditorData, brand: { userEmail?: string }): string {
+function sectionEditorHtml(data: EditorData, brand: LeadgenBranding): string {
   const s = data.section;
   const isNew = s === null;
   const view = toStudioView(s);
@@ -703,7 +705,7 @@ function sectionEditorHtml(data: EditorData, brand: { userEmail?: string }): str
 }
 
 // In-shell 404 (mirrors leadgenOfferNotFoundPage).
-function sectionNotFoundPage(brand: { userEmail?: string }): string {
+function sectionNotFoundPage(brand: LeadgenBranding): string {
   const content = `${renderLeadgenTabs("sections")}
 <div class="card"><div class="empty-state">
   <p>Section not found.</p>
@@ -712,6 +714,7 @@ function sectionNotFoundPage(brand: { userEmail?: string }): string {
   return leadgenPageShell({
     activePath: "/admin/leadgen/sections",
     userEmail: brand.userEmail,
+    conversionsUiEnabled: brand.conversionsUiEnabled,
     content,
     styles: LG_SECTIONS_STYLES,
   });

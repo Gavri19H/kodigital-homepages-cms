@@ -27,6 +27,7 @@
 
 import type { Env } from "../../env";
 import { readEnvSecret } from "../../env";
+import type { WaitUntilContext } from "../../wait-until-context";
 import { ulid } from "../../leadgen/ids";
 import {
   blankLeadgenEvent,
@@ -211,7 +212,7 @@ function buildRevenueEvent(eventType: "conversion" | "revenue_received", now: nu
 
 function emitRevenueEvents(
   env: Env,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   now: number,
   dims: RevenueEventDims,
   opts: { conversion: boolean; revenueReceived: boolean },
@@ -232,7 +233,7 @@ function emitRevenueEvents(
 
 export async function ingestProviderPostback(
   env: Env,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   provider: string,
   req: Request,
   opts?: IngestOptions,
@@ -436,7 +437,7 @@ export async function ingestProviderPostback(
 
 export async function ingestBrowserPixel(
   env: Env,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   token: string,
   req: Request,
   opts?: IngestOptions,

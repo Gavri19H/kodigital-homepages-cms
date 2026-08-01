@@ -9,8 +9,8 @@
 // handlers.ts) EXACTLY for request construction + secret masking, so the
 // auction runtime and the Test tool can never diverge:
 //   * headers (04 §11.3): value_kind static → verbatim; macro → resolveMacros;
-//     secret_ref → readEnvSecret (ABSENT ⇒ typed no-op note, leg skipped,
-//     NEVER a throw — 09 §30.2).
+//     secret_ref → narrow allowlist+binding resolver (any failure ⇒ typed
+//     fail-closed result before fetch, never a tokenless request).
 //   * token placement (04 §11.3-11.4): header | query (masked in the echoed
 //     URL) | payload (injected by buildPayload's token node, server mode only).
 //   * environment routing (04 §11.6): endpoint_production | endpoint_staging.
@@ -32,12 +32,20 @@
 // labelled encrypt-only, mirroring the §11.6 proxy's pre-encryption blob. The
 // `redacted_log` shape itself is secret-free by construction.
 
-import type { Env } from "../../../env";
-import { readEnvSecret } from "../../../env";
+import type { Env, OutboundSecretReferenceFailureCode } from "../../../env";
+import { resolveAllowedOutboundSecretReference } from "../../../env";
 import { ulid } from "../../../leadgen/ids";
 import { resolveMacros } from "../../../leadgen/macros";
 import { buildPayload, type LeadgenPayloadSchema } from "../../../leadgen/payload";
-import { REDACTED_VALUE, maskPaths, maskSecretHeaders, redactPii } from "../../../leadgen/redact";
+import {
+  REDACTED_VALUE,
+  maskPaths,
+  maskSecretHeaders,
+  redactPii,
+  redactSecretText,
+  redactSecretValues,
+} from "../../../leadgen/redact";
+import { safeErrorCode, safeErrorName } from "../../../safety/safe-error";
 import type {
   LeadgenEnvironment,
   LeadgenOfferHeaderRow,
@@ -54,6 +62,8 @@ import type {
 //                        (fix-contract v2.4 04 §4.7.1: context absence is a
 //                        PROGRAMMING error → typed exclusion; a payload built
 //                        against an empty macro set is never silently POSTed),
+//   secret_reference_invalid — a configured credential reference is unsafe,
+//                        disallowed, missing or empty (no request is made),
 //   http_<status>      — a non-2xx HTTP status.
 export type LeadgenProviderErrorReason =
   | "timeout"
@@ -61,14 +71,23 @@ export type LeadgenProviderErrorReason =
   | "malformed_response"
   | "no_endpoint"
   | "no_runtime_context"
+  | "secret_reference_invalid"
   | `http_${number}`;
 
-// A typed no-op note (09 §30.2), structurally identical to the §11.6
-// Test-tool note: the leg that could not attach, and why. NEVER an exception —
-// the request still fires without that leg.
+// A typed diagnostic note (09 §30.2), structurally identical to the §11.6
+// Test-tool note: the credential leg that failed and why. NEVER an exception;
+// any credential-resolution note accompanies a fail-closed, pre-fetch result.
 export interface LeadgenFetchNote {
   scope: "header" | "token";
-  code: "secret_absent" | "token_param_name_missing" | "token_node_missing";
+  code:
+    | "secret_absent"
+    | "secret_not_allowed"
+    | "secret_name_invalid"
+    | "secret_infrastructure_reference"
+    | "secret_prefix_required"
+    | "secret_mode_invalid"
+    | "token_param_name_missing"
+    | "token_node_missing";
   header_name?: string;
   secret_ref?: string;
   message: string;
@@ -173,6 +192,23 @@ function boundedTimeout(timeoutMs: number): number {
   return Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.floor(timeoutMs) : DEFAULT_TIMEOUT_MS;
 }
 
+function secretFailureNoteCode(
+  code: OutboundSecretReferenceFailureCode,
+): LeadgenFetchNote["code"] {
+  switch (code) {
+    case "binding_missing":
+      return "secret_absent";
+    case "not_allowed":
+      return "secret_not_allowed";
+    case "invalid_syntax":
+      return "secret_name_invalid";
+    case "infrastructure_reference":
+      return "secret_infrastructure_reference";
+    case "prefix_required":
+      return "secret_prefix_required";
+  }
+}
+
 // Sentinel the timeout arm of the race resolves with (distinct from any
 // Response). Boxed so a Response can never be mistaken for it.
 const TIMEOUT_SENTINEL = { __lg_timeout: true } as const;
@@ -198,6 +234,8 @@ export async function fetchProvider(
   const missingRuntimeContext = ctx.macros === undefined;
   const macroValues: Readonly<Record<string, string>> = ctx.macros ?? {};
   const serverMode = offer.request_execution_mode === "server";
+  let secretResolutionFailed = false;
+  const resolvedSecretValues = new Set<string>();
 
   const endpointRaw = environment === "staging" ? offer.endpoint_staging : offer.endpoint_production;
   const endpoint = typeof endpointRaw === "string" ? endpointRaw.trim() : "";
@@ -207,17 +245,33 @@ export async function fetchProvider(
     typeof offer.api_token_secret_ref === "string" && offer.api_token_secret_ref.trim() !== ""
       ? offer.api_token_secret_ref.trim()
       : null;
-  // A secret token is only ever resolved for a SERVER-mode Offer (04 §10.3:
-  // client-mode Offers may reference no secret) — no secret ever leaks through
-  // the server fetch of a mis-routed client Offer.
-  const tokenValue = secretRef !== null && serverMode ? readEnvSecret(env, secretRef) : undefined;
-  if (secretRef !== null && serverMode && tokenValue === undefined) {
-    notes.push({
-      scope: "token",
-      code: "secret_absent",
-      secret_ref: secretRef,
-      message: `secret '${secretRef}' is not configured; token leg skipped`,
-    });
+  // Every configured reference is validated, even on an inconsistent
+  // client-mode row. Client mode may reference no secret (§10.3), so a valid
+  // binding on such a row still fails closed rather than producing a tokenless
+  // server fetch.
+  let tokenValue: string | undefined;
+  if (secretRef !== null) {
+    const resolution = resolveAllowedOutboundSecretReference(env, secretRef);
+    if (!resolution.ok) {
+      secretResolutionFailed = true;
+      notes.push({
+        scope: "token",
+        code: secretFailureNoteCode(resolution.code),
+        secret_ref: secretRef,
+        message: `outbound token reference rejected (${resolution.code})`,
+      });
+    } else if (!serverMode) {
+      secretResolutionFailed = true;
+      notes.push({
+        scope: "token",
+        code: "secret_mode_invalid",
+        secret_ref: secretRef,
+        message: "client-mode offers may not configure an outbound token reference",
+      });
+    } else {
+      tokenValue = resolution.value;
+      resolvedSecretValues.add(resolution.value);
+    }
   }
 
   // --- build payload (04 §11.5 — token node injected only for payload placement + server mode)
@@ -248,18 +302,32 @@ export async function fetchProvider(
       sentHeaders[row.header_name] = resolveMacros(valueText, macroValues);
     } else {
       // secret_ref
-      const resolved = valueText === "" ? undefined : readEnvSecret(env, valueText);
-      if (resolved === undefined) {
+      const resolution =
+        valueText === ""
+          ? ({ ok: false, code: "invalid_syntax" } as const)
+          : resolveAllowedOutboundSecretReference(env, valueText);
+      if (!resolution.ok) {
+        secretResolutionFailed = true;
         notes.push({
           scope: "header",
-          code: "secret_absent",
+          code: secretFailureNoteCode(resolution.code),
           header_name: row.header_name,
           secret_ref: valueText,
-          message: `secret '${valueText}' is not configured; header '${row.header_name}' skipped`,
+          message: `outbound header reference rejected (${resolution.code})`,
+        });
+      } else if (!serverMode) {
+        secretResolutionFailed = true;
+        notes.push({
+          scope: "header",
+          code: "secret_mode_invalid",
+          header_name: row.header_name,
+          secret_ref: valueText,
+          message: "client-mode offers may not configure an outbound secret header",
         });
       } else {
-        sentHeaders[row.header_name] = resolved;
+        sentHeaders[row.header_name] = resolution.value;
         secretHeaderNames.add(row.header_name.toLowerCase());
+        resolvedSecretValues.add(resolution.value);
       }
     }
   }
@@ -324,6 +392,11 @@ export async function fetchProvider(
     latencyMs: number,
     timedOut: boolean,
   ): FetchProviderResult => {
+    const secretValues = [...resolvedSecretValues];
+    const safeBodyText = bodyText === null ? null : redactSecretText(bodyText, secretValues);
+    const safeParsedJson = responseIsJson
+      ? redactSecretValues(parsedJson, secretValues)
+      : undefined;
     const maskedHeaders = maskSecretHeaders(sentHeaders, secretHeaderNames);
     const maskedPayload = maskPaths(payload, tokenPaths);
     const redacted_log: LeadgenProviderRequestLogRedacted = {
@@ -336,7 +409,7 @@ export async function fetchProvider(
       latency_ms: latencyMs,
       request_headers_redacted_json: JSON.stringify(maskedHeaders),
       request_payload_redacted_json: JSON.stringify(redactPii(maskedPayload)),
-      response_redacted_json: responseIsJson ? JSON.stringify(redactPii(parsedJson)) : null,
+      response_redacted_json: responseIsJson ? JSON.stringify(redactPii(safeParsedJson)) : null,
       provider_error_reason: errorReason,
       error_text: errorText,
     };
@@ -355,7 +428,7 @@ export async function fetchProvider(
       environment,
       status,
       latency_ms: latencyMs,
-      body: bodyText,
+      body: safeBodyText,
       error_reason: errorReason,
       error_text: errorText,
       timed_out: timedOut,
@@ -363,9 +436,24 @@ export async function fetchProvider(
       redacted_log,
       debug,
     };
-    if (responseIsJson) result.parsed = parsedJson;
+    if (responseIsJson) result.parsed = safeParsedJson;
     return result;
   };
+
+  // Section 18.7: a configured secret leg must never degrade to a request
+  // without that credential. This gate is before every provider fetch.
+  if (secretResolutionFailed) {
+    return buildResult(
+      null,
+      null,
+      undefined,
+      false,
+      "secret_reference_invalid",
+      "outbound secret reference rejected",
+      0,
+      false,
+    );
+  }
 
   // --- 04 §4.7.1 context gate: a missing runtime context is a typed no-call
   // exclusion (never a silent empty-macro POST) — checked BEFORE the endpoint
@@ -416,14 +504,14 @@ export async function fetchProvider(
       if (!is2xx(responseStatus)) errorReason = `http_${responseStatus}`;
     }
   } catch (err) {
-    const name = err instanceof Error ? err.name : "";
+    const name = safeErrorName(err);
     if (name === "AbortError") {
       timedOut = true;
       errorReason = "timeout";
     } else {
       errorReason = "network_error";
     }
-    errorText = (err instanceof Error ? err.message : String(err)).slice(0, 200);
+    errorText = safeErrorCode("provider_fetch_failed", err);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
@@ -501,8 +589,7 @@ export async function fetchProvidersParallel(
     // change ever lets one through, synthesize a network_error result so the
     // batch stays whole rather than propagating the rejection.
     const req = requests[index];
-    const reason = outcome.reason;
-    const message = (reason instanceof Error ? reason.message : String(reason)).slice(0, 200);
+    const message = safeErrorCode("provider_fetch_failed", outcome.reason);
     return {
       provider_request_id: mintId(),
       offer_public_id: req?.offer.public_id ?? "",

@@ -44,6 +44,11 @@ CLOUDFLARE_PROVISIONING_API_TOKEN=PASTE_CLOUDFLARE_PROVISIONING_TOKEN_FROM_DASHB
 # cannot escalate to zone/route mutation.
 CLOUDFLARE_CACHE_API_TOKEN=PASTE_CLOUDFLARE_CACHE_PURGE_TOKEN_FROM_DASHBOARD
 
+# Permanent Conversions actor-context HMAC key. Use the unpadded base64url
+# encoding of exactly 32 random bytes. CMS and Core receive the identical
+# value under different secret names; never commit or log the real value.
+CONVERSIONS_ACTOR_SIGNING_KEY_B64URL=
+
 # Optional: comma-separated allowlist of Cloudflare Access service
 # token names (matched against the JWT common_name claim). When set,
 # only listed tokens may access /api/admin/* in service-token mode.

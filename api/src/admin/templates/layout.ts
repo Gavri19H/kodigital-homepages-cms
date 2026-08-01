@@ -14,6 +14,9 @@ export interface AdminLayoutOptions {
   content: string;
   scripts?: string;
   styles?: string;
+  stylesheets?: ReadonlyArray<string>;
+  moduleScripts?: ReadonlyArray<string>;
+  conversionsUiEnabled?: boolean;
 }
 
 interface NavEntry {
@@ -34,6 +37,8 @@ const ICON_LISTICLES = `<svg width="20" height="20" viewBox="0 0 24 24" fill="no
 // LeadGen (contract 01 §5.1): funnel/filter glyph in the same feather
 // outline style as the other sidebar icons.
 const ICON_LEADGEN = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>`;
+const ICON_CONVERSIONS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V9"></path><path d="M10 19V5"></path><path d="M16 19v-7"></path><path d="M22 19V3"></path></svg>`;
+const ICON_REPORTING = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="M7 16l4-4 3 3 5-7"></path></svg>`;
 const ICON_MEDIA = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 const ICON_CATEGORIES = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
 const ICON_TAGS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>`;
@@ -276,12 +281,46 @@ function isActive(activePath: string | undefined, href: string): boolean {
   return false;
 }
 
-function renderSidebar(activePath: string | undefined): string {
-  const items = NAV_ENTRIES.map((item) => {
+function renderSidebar(activePath: string | undefined, conversionsUiEnabled = false): string {
+  if (!conversionsUiEnabled) {
+    const items = NAV_ENTRIES.map((item) => {
+      const active = isActive(activePath, item.href);
+      const cls = active ? "nav-item active" : "nav-item";
+      return `<li><a href="${item.href}" class="${cls}">${item.icon}<span>${escapeHtml(item.label)}</span></a></li>`;
+    }).join("");
+    return `<aside class="admin-sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <a href="/admin" class="logo">${LOGO_BADGE}<span class="logo-text">${escapeHtml(BRAND_TEXT)}</span></a>
+  </div>
+  <nav class="sidebar-nav" aria-label="Admin sections"><ul>${items}</ul></nav>
+  <div class="sidebar-footer"><a href="/" class="nav-item" target="_blank" rel="noopener">${ICON_EXTERNAL}<span>View Site</span></a></div>
+</aside>`;
+  }
+  const renderEntry = (item: NavEntry): string => {
     const active = isActive(activePath, item.href);
     const cls = active ? "nav-item active" : "nav-item";
     return `<li><a href="${item.href}" class="${cls}">${item.icon}<span>${escapeHtml(item.label)}</span></a></li>`;
+  };
+  const before = NAV_ENTRIES.slice(0, 6).map(renderEntry).join("");
+  const after = NAV_ENTRIES.slice(6).map(renderEntry).join("");
+  const conversionLinks = [
+    { href: "/admin/conversions/flows", label: "Flows" },
+    { href: "/admin/conversions/connections", label: "Connections" },
+    { href: "/admin/conversions/activity", label: "Activity" },
+    { href: "/admin/conversions/controls", label: "Controls" },
+  ].map((item) => {
+    const active = isActive(activePath, item.href);
+    const cls = active ? "nav-item nav-subitem active" : "nav-item nav-subitem";
+    const current = active ? ' aria-current="page"' : "";
+    return `<li><a href="${item.href}" class="${cls}"${current}><span>${item.label}</span></a></li>`;
   }).join("");
+  const reportingActive = isActive(activePath, "/admin/reporting");
+  const reportingClass = reportingActive ? "nav-item active" : "nav-item";
+  const reportingCurrent = reportingActive ? ' aria-current="page"' : "";
+  const items = `${before}<li class="admin-nav-group" data-admin-nav-group="conversions">
+    <div class="admin-nav-group-label">${ICON_CONVERSIONS}<span>Conversions</span></div>
+    <ul class="admin-nav-sublist">${conversionLinks}</ul>
+  </li><li><a href="/admin/reporting" class="${reportingClass}"${reportingCurrent}>${ICON_REPORTING}<span>Reporting</span></a></li>${after}`;
   return `<aside class="admin-sidebar" id="sidebar">
   <div class="sidebar-header">
     <a href="/admin" class="logo">${LOGO_BADGE}<span class="logo-text">${escapeHtml(BRAND_TEXT)}</span></a>
@@ -292,12 +331,29 @@ function renderSidebar(activePath: string | undefined): string {
 }
 
 const MOBILE_MENU_BTN = `<button class="mobile-menu-btn" onclick="toggleSidebar()" aria-label="Toggle navigation"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button>`;
+const CONVERSIONS_MOBILE_MENU_BTN = `<button class="mobile-menu-btn" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button>`;
 
 export function adminLayout(options: AdminLayoutOptions): string {
-  const { title, activePath, userEmail, content, scripts = "", styles = "" } = options;
+  const {
+    title,
+    activePath,
+    userEmail,
+    content,
+    scripts = "",
+    styles = "",
+    stylesheets = [],
+    moduleScripts = [],
+    conversionsUiEnabled = false,
+  } = options;
   const safeTitle = escapeHtml(title);
   const userBlock = userEmail
     ? `<span class="user-email">${escapeHtml(userEmail)}</span>`
+    : "";
+  const stylesheetTags = stylesheets.length > 0
+    ? "\n" + stylesheets.map((href) => `  <link rel="stylesheet" href="${escapeHtml(href)}">`).join("\n")
+    : "";
+  const moduleScriptTags = moduleScripts.length > 0
+    ? "\n" + moduleScripts.map((src) => `  <script type="module" src="${escapeHtml(src)}"></script>`).join("\n")
     : "";
   return `<!DOCTYPE html>
 <html lang="en">
@@ -306,22 +362,22 @@ export function adminLayout(options: AdminLayoutOptions): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex,nofollow">
   <title>${safeTitle} | ${escapeHtml(BRAND_TEXT)}</title>
-  <style>${ADMIN_STYLES}${styles}</style>
+  <style>${ADMIN_STYLES}${styles}${conversionsUiEnabled ? CONVERSIONS_NAV_STYLES : ""}</style>${stylesheetTags}
 </head>
 <body data-area="admin">
   <p data-marker="kodigital-admin-shell" hidden>shell</p>
   <div class="admin-layout">
-    ${renderSidebar(activePath)}
+    ${renderSidebar(activePath, conversionsUiEnabled)}
     <main class="admin-main">
       <header class="admin-header">
-        ${MOBILE_MENU_BTN}
+        ${conversionsUiEnabled ? CONVERSIONS_MOBILE_MENU_BTN : MOBILE_MENU_BTN}
         <h1 class="page-title">${safeTitle}</h1>
         <div class="header-actions">${userBlock}</div>
       </header>
       <div class="admin-content">${content}</div>
     </main>
   </div>
-  <script>${ADMIN_SCRIPTS}${scripts}</script>
+  <script>${ADMIN_SCRIPTS}${conversionsUiEnabled ? CONVERSIONS_NAV_SCRIPTS : ""}${scripts}</script>${moduleScriptTags}
 </body>
 </html>`;
 }
@@ -473,6 +529,203 @@ html,body{height:100%;overflow-x:hidden}
 .toolbar-filters{display:flex;gap:8px}
 @media (max-width:768px){.admin-sidebar{transform:translateX(-100%)}.admin-sidebar.open{transform:translateX(0)}.admin-main{margin-left:0}.mobile-menu-btn{display:block}.admin-content{padding:16px}.stats-grid{grid-template-columns:1fr 1fr}}
 @media (max-width:480px){.stats-grid{grid-template-columns:1fr}.toolbar{flex-direction:column;align-items:stretch}.toolbar-search{max-width:none}}
+`;
+
+const CONVERSIONS_NAV_STYLES = `
+.admin-nav-group{margin:4px 0}
+.admin-nav-group-label{display:flex;align-items:center;gap:12px;padding:10px 16px;color:var(--c-text);font-weight:650}
+.sidebar-nav .admin-nav-sublist{list-style:none;margin:0;padding:0}
+.nav-subitem{padding:8px 16px 8px 48px;font-size:13px}
+.admin-nav-group a:focus-visible,.sidebar-nav a[href="/admin/reporting"]:focus-visible{outline:3px solid #111827;outline-offset:-3px}
+@media (max-width:768px){.admin-sidebar{visibility:hidden}.admin-sidebar.open{visibility:visible}}
+@media (prefers-reduced-motion:reduce){.admin-sidebar{transition-duration:0s!important;animation-duration:0s!important}}
+@media (forced-colors:active){.admin-nav-group a:focus-visible,.sidebar-nav a[href="/admin/reporting"]:focus-visible{outline-color:CanvasText}}
+`;
+
+// Enhanced-navigation-only lifecycle for the legacy off-canvas sidebar. This
+// stays out of the default layout bytes and uses ES5 syntax like ADMIN_SCRIPTS.
+// On mobile the closed sidebar is inert and absent from the accessibility
+// tree; on desktop it is always restored before its toggle becomes hidden.
+const CONVERSIONS_NAV_SCRIPTS = `
+(function () {
+  var sidebar = document.getElementById('sidebar');
+  var menuBtn = document.querySelector('.mobile-menu-btn');
+  if (!sidebar || !menuBtn) { return; }
+
+  var media = window.matchMedia ? window.matchMedia('(max-width: 768px)') : null;
+  var motion = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  var wasMobile = media ? media.matches : window.innerWidth <= 768;
+  var focusTimer = null;
+  var focusFrame = null;
+  var sidebarWasOpenAtClick = false;
+  var lastFocusedElement = document.activeElement;
+
+  function isMobile() {
+    return media ? media.matches : window.innerWidth <= 768;
+  }
+
+  function prefersReducedMotion() {
+    return motion ? motion.matches : false;
+  }
+
+  function setSidebarHidden(hidden) {
+    if (hidden) {
+      sidebar.setAttribute('inert', '');
+      sidebar.setAttribute('aria-hidden', 'true');
+      sidebar.inert = true;
+    } else {
+      sidebar.removeAttribute('inert');
+      sidebar.removeAttribute('aria-hidden');
+      sidebar.inert = false;
+    }
+  }
+
+  function clearFocusDelay() {
+    if (focusTimer !== null) {
+      window.clearTimeout(focusTimer);
+      focusTimer = null;
+    }
+    if (focusFrame !== null) {
+      window.cancelAnimationFrame(focusFrame);
+      focusFrame = null;
+    }
+  }
+
+  function focusFirstSidebarLink() {
+    var target;
+    if (!isMobile() || !sidebar.classList.contains('open')) { return; }
+    target = sidebar.querySelector('a[href]');
+    if (target) { target.focus(); }
+  }
+
+  function scheduleSidebarFocus() {
+    if (prefersReducedMotion()) {
+      if (window.requestAnimationFrame) {
+        focusFrame = window.requestAnimationFrame(function () {
+          focusFrame = null;
+          focusFirstSidebarLink();
+        });
+      } else {
+        focusFirstSidebarLink();
+      }
+      return;
+    }
+    focusTimer = window.setTimeout(function () {
+      focusTimer = null;
+      focusFirstSidebarLink();
+    }, 320);
+  }
+
+  function closeSidebar(restoreFocus) {
+    clearFocusDelay();
+    sidebar.classList.remove('open');
+    menuBtn.setAttribute('aria-expanded', 'false');
+    if (restoreFocus || sidebar.contains(document.activeElement)) {
+      menuBtn.focus();
+    }
+    setSidebarHidden(true);
+  }
+
+  function openSidebar() {
+    clearFocusDelay();
+    setSidebarHidden(false);
+    sidebar.classList.add('open');
+    menuBtn.setAttribute('aria-expanded', 'true');
+    scheduleSidebarFocus();
+  }
+
+  function syncMotionPreference() {
+    if (prefersReducedMotion() && sidebar.classList.contains('open')) {
+      sidebar.style.transition = 'none';
+      sidebar.offsetWidth;
+      sidebar.style.removeProperty('transition');
+    }
+    if (isMobile() && sidebar.classList.contains('open') &&
+        !sidebar.contains(document.activeElement)) {
+      clearFocusDelay();
+      scheduleSidebarFocus();
+    }
+  }
+
+  function syncViewport() {
+    var mobile = isMobile();
+    if (mobile) {
+      if (!wasMobile) {
+        closeSidebar(sidebar.contains(document.activeElement) || sidebar.contains(lastFocusedElement));
+      } else if (sidebar.classList.contains('open')) {
+        setSidebarHidden(false);
+        menuBtn.setAttribute('aria-expanded', 'true');
+      } else {
+        closeSidebar(false);
+      }
+    } else {
+      clearFocusDelay();
+      // A media-query transition from off-canvas to desktop would otherwise
+      // leave a newly focused sidebar link briefly outside the viewport.
+      sidebar.style.transition = 'none';
+      sidebar.classList.remove('open');
+      setSidebarHidden(false);
+      menuBtn.setAttribute('aria-expanded', 'true');
+      sidebar.offsetWidth;
+      if (document.activeElement === menuBtn || (wasMobile && lastFocusedElement === menuBtn)) {
+        var target = sidebar.querySelector('a[href]');
+        if (target) { target.focus(); }
+      }
+      window.setTimeout(function () {
+        sidebar.style.removeProperty('transition');
+      }, 0);
+    }
+    wasMobile = mobile;
+  }
+
+  window.toggleSidebar = function () {
+    if (!isMobile()) {
+      syncViewport();
+      return;
+    }
+    if (sidebar.classList.contains('open')) {
+      closeSidebar(true);
+    } else {
+      openSidebar();
+    }
+  };
+
+  document.addEventListener('focusin', function (event) {
+    lastFocusedElement = event.target;
+  });
+
+  document.addEventListener('click', function () {
+    sidebarWasOpenAtClick = isMobile() && sidebar.classList.contains('open');
+  }, true);
+
+  document.addEventListener('click', function (event) {
+    if (sidebarWasOpenAtClick &&
+        !sidebar.contains(event.target) &&
+        !menuBtn.contains(event.target)) {
+      closeSidebar(true);
+    }
+    sidebarWasOpenAtClick = false;
+  });
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && isMobile() && sidebar.classList.contains('open')) {
+      event.preventDefault();
+      closeSidebar(true);
+    }
+  });
+
+  if (media && media.addEventListener) {
+    media.addEventListener('change', syncViewport);
+  } else {
+    window.addEventListener('resize', syncViewport);
+  }
+  if (motion && motion.addEventListener) {
+    motion.addEventListener('change', syncMotionPreference);
+  } else if (motion && motion.addListener) {
+    motion.addListener(syncMotionPreference);
+  }
+  syncViewport();
+}());
 `;
 
 // Ported legacy admin script, converted to strict ES5: var-only bindings,

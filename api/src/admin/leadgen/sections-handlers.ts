@@ -50,6 +50,7 @@ import type { EffectiveFrameConfig } from "../../public/leadgen/designs/frames";
 // exported helper themes-handlers.ts calls, no new invalidation channel.
 import { invalidateOnVariantPublish } from "../../public/leadgen/invalidate";
 import type { Env } from "../../env";
+import type { WaitUntilContext } from "../../wait-until-context";
 // v3.1 §10.6/§12: the preview theme_id override re-uses the SAME PURE
 // resolveTokens the runtime/composed-preview path already calls (theme.ts);
 // getThemeRecord is the KV `lg-funnel-themes` lookup (themes-handlers.ts owns
@@ -986,7 +987,7 @@ export async function getSectionHandler(c: AdminContext): Promise<Response> {
 // node:sqlite unit-test harness passes none) — the SAME safeExecutionCtx idiom
 // themes-handlers.ts / quotes-handlers.ts use, duplicated here per this
 // codebase's small-helper convention.
-function safeExecutionCtx(c: AdminContext): ExecutionContext {
+function safeExecutionCtx(c: AdminContext): WaitUntilContext {
   try {
     return c.executionCtx;
   } catch {
@@ -994,10 +995,7 @@ function safeExecutionCtx(c: AdminContext): ExecutionContext {
       waitUntil(): void {
         /* no-op outside workerd (unit-test harness) */
       },
-      passThroughOnException(): void {
-        /* no-op */
-      },
-    } as unknown as ExecutionContext;
+    };
   }
 }
 

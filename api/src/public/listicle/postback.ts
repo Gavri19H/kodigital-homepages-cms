@@ -24,6 +24,7 @@
 
 import { Hono } from "hono";
 import type { Env } from "../../env";
+import type { WaitUntilContext } from "../../wait-until-context";
 import { readEnvSecret } from "../../env";
 import {
   queueRevenueUnmatched,
@@ -265,14 +266,13 @@ export function utcDateFromEventTs(eventTs: number | null, now: Date): string {
   return now.toISOString().slice(0, 10);
 }
 
-function safeExecutionCtx(c: { executionCtx: ExecutionContext }): ExecutionContext {
+function safeExecutionCtx(c: { executionCtx: WaitUntilContext }): WaitUntilContext {
   try {
     return c.executionCtx;
   } catch {
     return {
       waitUntil(): void {},
-      passThroughOnException(): void {},
-    } as unknown as ExecutionContext;
+    };
   }
 }
 
