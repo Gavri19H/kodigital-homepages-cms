@@ -253,10 +253,21 @@ describe("R2 P3 blocker — a SAVED TEMPLATE alone composes a frame (contract §
 describe("R2 P3 blocker — the three editor wirings element J needs (SOURCE-OF-TRUTH A.2)", () => {
   const panel = renderTemplatesTabPanel(true, []);
 
-  it("UI gap 1: the footer box G exposes footer.enabled (the operator can turn the footer on)", () => {
-    const box = panel.slice(panel.indexOf('data-tplbox-panel="footer"'), panel.indexOf('data-tplbox-panel="images"'));
-    expect(box, "element G must carry the footer.enabled control").toContain('data-frame-key="footer.enabled"');
-    expect(box).toContain('type="checkbox"');
+  // R2 P7: the footer panel is now rendered LAST (owner ruling — it is element
+  // J, a "seperate template element"), so slicing to a HARD-CODED next-panel id
+  // ("images") produced an empty string and vacuously broke this check. The
+  // slice is now order-independent: footer panel start → whichever
+  // data-tplbox-panel comes next, or the end of the markup if it is last. The
+  // assertion itself is unchanged and still scoped to the footer box alone.
+  const footerStart = panel.indexOf('data-tplbox-panel="footer"');
+  const nextPanel = panel.indexOf('data-tplbox-panel="', footerStart + 1);
+  const footerBox = panel.slice(footerStart, nextPanel === -1 ? panel.length : nextPanel);
+
+  it("UI gap 1: the footer box J exposes footer.enabled (the operator can turn the footer on)", () => {
+    expect(footerStart, "the footer panel is rendered at all").toBeGreaterThan(-1);
+    expect(footerBox.length, "the footer slice is non-empty (guards the vacuous-slice class)").toBeGreaterThan(500);
+    expect(footerBox, "element J must carry the footer.enabled control").toContain('data-frame-key="footer.enabled"');
+    expect(footerBox).toContain('type="checkbox"');
   });
 
   // The island is a plain-ES5 source string. This runs the REAL shipped

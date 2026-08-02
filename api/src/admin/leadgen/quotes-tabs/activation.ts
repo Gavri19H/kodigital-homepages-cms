@@ -154,7 +154,62 @@ export function renderPublishBadge(preflight: ActivationPreflight | null): strin
   if (preflight === null) return "";
   const counts = publishChipCounts(preflight);
   const verdict = preflight.ok && counts.errors === 0 ? "ok" : "blocked";
-  return `<span id="lg-publish-badge" class="lg-chip lg-publish-chip" data-publish-verdict="${verdict}" data-publish-errors="${counts.errors}" data-publish-warnings="${counts.warnings}">${escapeHtml(publishChipLabel(counts))}</span>`;
+  return `<span id="lg-publish-badge" class="lg-chip lg-publish-chip" data-publish-verdict="${verdict}" data-publish-errors="${counts.errors}" data-publish-warnings="${counts.warnings}">${escapeHtml(publishChipLabel(counts))}</span>${renderPublishReasons(preflight)}`;
+}
+
+
+// ---------------------------------------------------------------------------
+// R2 P7 (owner: "Blocked (2 errors)" — "what ARE the two errors?").
+//
+// The count alone is not an affordance: the reasons existed ONLY inside the
+// Activation tab's preflight panel, so the operator had to leave the tab they
+// were standing on to learn why they were blocked. This is the SAME shape P5
+// already closed for ADJ-A9 (a bare 409 the operator could not predict): state
+// the requirement BEFORE / WITHOUT the failing action. So the head bar now
+// spells the reasons out next to the chip, with each reason's own deep link.
+//
+// Reason ORDER is the chip's own count order — preflight blocks first, then
+// error-severity problems — so "Blocked (N errors)" and the list always agree
+// on N. The ES5 re-renderer (quotes-tabs/funnel.ts updatePublishBadge) rebuilds
+// this EXACT structure from the same two arrays.
+// ---------------------------------------------------------------------------
+
+// One blocking reason in the operator's own words. Blocks reuse the preflight
+// card's composition ("Section: ZIP · Offer: NextInsure · Missing required
+// provider fields: …"); problems use the server's own message.
+export function publishBlockingReasons(
+  preflight: ActivationPreflight,
+): ReadonlyArray<{ text: string; fixUrl: string }> {
+  const out: Array<{ text: string; fixUrl: string }> = [];
+  for (const b of preflight.blocks) {
+    const parts: string[] = [];
+    if (b.section_name !== "") parts.push(`Section: ${b.section_name}`);
+    if (b.offer_name !== "") parts.push(`Offer: ${b.offer_name}`);
+    const fields = (b.fields ?? []).map((f) => (b.code === "offer_ineligible" ? eligibilityReasonLabel(f) : f));
+    parts.push(preflightCodeLabel(b.code) + (fields.length > 0 ? `: ${fields.join(", ")}` : ""));
+    out.push({ text: parts.join(" · "), fixUrl: b.fix_links?.section_mapping ?? "" });
+  }
+  for (const p of preflight.problems ?? []) {
+    if (p.severity !== "error") continue;
+    out.push({ text: p.message, fixUrl: typeof p.fix_url === "string" ? p.fix_url : "" });
+  }
+  return out;
+}
+
+
+function renderPublishReasons(preflight: ActivationPreflight): string {
+  const reasons = publishBlockingReasons(preflight);
+  if (reasons.length === 0) return "";
+  const rows = reasons
+    .map((r) => {
+      const fix =
+        r.fixUrl !== ""
+          ? `<a class="lg-publish-why-fix" href="${escapeHtml(r.fixUrl)}">${escapeHtml(problemFixLabel(r.fixUrl))}</a>`
+          : "";
+      return `<li data-publish-reason>${escapeHtml(r.text)}${fix}</li>`;
+    })
+    .join("");
+  return `<div id="lg-publish-why" class="lg-publish-why" data-publish-why-count="${reasons.length}" role="group" aria-label="Why this Quote cannot be published"><span class="lg-publish-why-title">To publish, fix ${reasons.length === 1 ? "this" : `these ${reasons.length}`}:</span><ol class="lg-publish-why-list">${rows}</ol></div>`;
 }
 
 

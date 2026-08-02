@@ -559,6 +559,14 @@ export const LG_QUOTES_STYLES = `
 .lg-chip strong{color:var(--c-text)}
 .lg-publish-chip[data-publish-verdict=blocked]{background:var(--c-danger-bg,#fdecea);color:var(--c-danger,#8a1f11);border-color:var(--c-danger,#e5a49a)}
 .lg-publish-chip[data-publish-verdict=ok]{background:var(--c-success-bg,#e9f7ef);color:var(--c-success,#186a3b);border-color:var(--c-success,#a9dfbf)}
+/* R2 P7 — the reasons behind "Blocked (N errors)", stated in the head bar so the
+   operator never has to open another tab to learn WHY. flex-basis:100% makes it
+   wrap onto its own full-width line inside .lg-editor-head (flex-wrap:wrap). */
+.lg-publish-why{flex:1 0 100%;order:99;background:var(--c-danger-bg,#fdecea);border:1px solid var(--c-danger,#e5a49a);border-radius:8px;padding:8px 12px;font-size:12.5px;color:var(--c-danger,#8a1f11)}
+.lg-publish-why-title{display:block;font-weight:700;margin-bottom:4px}
+.lg-publish-why-list{margin:0;padding-left:18px}
+.lg-publish-why-list li{margin:2px 0;line-height:1.45}
+.lg-publish-why-fix{margin-left:8px;font-weight:600;color:inherit;text-decoration:underline}
 .lg-scope-head{font-size:12px;color:var(--c-muted);border-bottom:1px solid var(--c-border);padding-bottom:6px;margin-bottom:8px}
 .lg-scope-head strong{color:var(--c-text)}
 .lg-scope-chip{display:inline-block;border:1px solid var(--c-border);border-radius:999px;padding:0 8px;font-size:11px;margin-left:6px;color:var(--c-muted)}

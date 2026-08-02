@@ -17,7 +17,7 @@
 //      INSIDE the composed frame (sample_section:true). The retired second
 //      endpoint (POST /sections/preview, a frameless card) is GONE from the
 //      island.
-//   2. Every Funnel-layout element A–I changes the canvas: the SAME endpoint
+//   2. Every Funnel-layout element A–J changes the canvas: the SAME endpoint
 //      the canvas calls, given that element's draft edit, returns HTML that
 //      differs from the unedited baseline (a per-element self-diff, array-
 //      shaped elements C/D/E/F/G/H included).
@@ -393,7 +393,7 @@ describeDb("R2 ② canvas — ONE preview endpoint serves the empty funnel too",
 });
 
 // ===========================================================================
-// 2 · Every element A–I changes the canvas (per-element self-diff)
+// 2 · Every element A–J changes the canvas (per-element self-diff)
 // ===========================================================================
 
 // One draft edit per Funnel-layout element, over the SAME base frame. Each
@@ -407,12 +407,15 @@ const ELEMENT_EDITS: ReadonlyArray<{ letter: string; name: string; patch: Record
   { letter: "D", name: "Disclosure", patch: { disclosure: { entries: [{ location: "top", mode: "full", text: "R2 disclosure copy", align: "center" }] } }, marker: "R2 disclosure copy" },
   { letter: "E", name: "Free text", patch: { free_text: [{ id: "ft_r2", slot: "above_section", align: "center", blocks: [{ type: "paragraph", html: "R2 free text block" }] }] }, marker: "R2 free text block" },
   { letter: "F", name: "Brand logos", patch: { brand_logos: { enabled: true, layout: "row", slot: "below_section", align: "center", items: [{ url: "https://cdn.example.com/partner.png", alt: "R2 partner logo", size: "m" }] } }, marker: "R2 partner logo" },
-  { letter: "G", name: "Footer", patch: { footer: { enabled: true, show_on: "all", blocks: [{ type: "about_paragraph", align: "left", text: "R2 footer about copy" }] } }, marker: "R2 footer about copy" },
+  // R2 P7: the footer tile is lettered J (owner ruling, SOURCE-OF-TRUTH A.2).
+  // This field is the test's display label only — the assertion below is the
+  // canvas diff, unchanged.
+  { letter: "J", name: "Footer", patch: { footer: { enabled: true, show_on: "all", blocks: [{ type: "about_paragraph", align: "left", text: "R2 footer about copy" }] } }, marker: "R2 footer about copy" },
   { letter: "H", name: "Images", patch: { images: [{ id: "img_r2", url: "https://cdn.example.com/persona.png", alt: "R2 persona portrait", slot: "above_section", size: "m", align: "center" }] }, marker: "R2 persona portrait" },
   { letter: "I", name: "Progress", patch: { progress: { style: "numbered", show_label: true } }, marker: "lg-frame-progress--numbered" },
 ];
 
-describeDb("R2 ② canvas — EVERY funnel-layout element A–I changes the canvas", () => {
+describeDb("R2 ② canvas — EVERY funnel-layout element A–J changes the canvas", () => {
   for (const el of ELEMENT_EDITS) {
     it(`${el.letter} · ${el.name}: the edit renders (canvas HTML differs from the unedited baseline)`, async () => {
       const fx = await seedFixture(2);

@@ -33,6 +33,8 @@ import { renderQuoteFrame, LG_BANNERS_MOUNT_HTML } from "../src/public/leadgen/d
 import type { RenderQuoteFrameInput } from "../src/public/leadgen/designs/frame";
 import type { SiteBranding } from "../src/leadgen/branding";
 import { renderTemplatesTabPanel } from "../src/admin/leadgen/quotes-tabs/templates";
+import { renderPublishBadge, publishBlockingReasons } from "../src/admin/leadgen/quotes-tabs/activation";
+import { QUOTE_EDITOR_SCRIPT } from "../src/admin/leadgen/quotes-tabs/funnel";
 
 const TEMPLATES_TS_SOURCE = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/admin/leadgen/quotes-tabs/templates.ts"),
@@ -78,10 +80,40 @@ describe("R2 P3 element J — TPLBOX_CARDS stays a single footer entry (contract
     expect(matches.length).toBe(1);
   });
 
-  it("the rendered panel has exactly one data-tplbox-panel=\"footer\" editor and one G footer picker card", () => {
+  it("the rendered panel has exactly one data-tplbox-panel=\"footer\" editor and one footer picker card", () => {
     const panel = renderTemplatesTabPanel(true, []);
     expect((panel.match(/data-tplbox-panel="footer"/g) ?? []).length).toBe(1);
     expect((panel.match(/data-tplbox-pick="footer"/g) ?? []).length).toBe(1);
+  });
+
+  // R2 P7 (owner: "the 'J' element, I don't see it in the Quotes"). A.2 names
+  // the footer element "J" and calls it a "seperate template element"; A.1
+  // item 11.D names the progress bar "I". Both owner letters hold, the footer
+  // is LAST, and A–F keep the letters the owner's other references use.
+  it("the footer tile is lettered J, sits LAST, and neither A–F nor I·Progress moved", () => {
+    const panel = renderTemplatesTabPanel(true, []);
+    const tiles = [...panel.matchAll(/lg-tplbox-card-letter">([A-Z])<\/span>\s*<span>([^<]+)</g)].map(
+      (m) => `${m[1]}:${m[2]}`,
+    );
+    expect(tiles).toEqual([
+      "A:Background",
+      "B:Logo",
+      "C:Phone / URL",
+      "D:Disclosure",
+      "E:Free text",
+      "F:Brand logos",
+      "H:Images",
+      "I:Progress",
+      "J:Footer",
+    ]);
+    // the footer's own editor heading agrees with its tile letter
+    expect(panel).toContain("<h3>J &middot; Footer</h3>");
+    expect(panel).not.toContain("<h3>G &middot; Footer</h3>");
+    // A.2's "seperate template element" is separate ON THE SCREEN too: its own
+    // group, below the in-page elements.
+    expect(panel).toContain('id="lg-tplbox-grid-separate"');
+    expect(panel).toContain("Bottom of the page &mdash; separate template element");
+    expect(panel.indexOf('id="lg-tplbox-grid-separate"')).toBeGreaterThan(panel.indexOf('id="lg-tplbox-grid"'));
   });
 });
 
@@ -356,5 +388,118 @@ describe("R2 P3 element J — RENDER (designs/frame.ts, real renderQuoteFrame): 
     } as FrameConfig);
     expect(html).toContain("&lt;b&gt;not markup&lt;/b&gt;");
     expect(html).not.toContain("<b>not markup</b>");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R2 P7 · Finding 2 — the owner's second report: "Blocked (2 errors)" named no
+// reason, so the operator had to leave the tab they were standing on to learn
+// why. Same defect shape as ADJ-A9 (a bare 409 the operator could not predict).
+// ---------------------------------------------------------------------------
+
+describe("R2 P7 — the publish chip STATES its blocking reasons next to the count", () => {
+  // The exact preflight the owner's quote produces (Insurance / Car / draft /
+  // no sections / no logo), captured live on 127.0.0.1:8901 from the REAL
+  // GET /quotes/:id/activation: blocks=0, problems=2, both error-severity.
+  const OWNER_PREFLIGHT = {
+    ok: true,
+    quote_id: "lgq_ownerCar",
+    funnel_id: "lgf_ownerCar",
+    funnel_variant_id: "lgn_ownerCar",
+    computed_at: 0,
+    blocks: [],
+    problems: [
+      {
+        path: "activation.shared_page",
+        scope: "section",
+        severity: "error",
+        message: "The shared first page needs at least one section.",
+        fix_url: "/admin/leadgen/quotes/lgq_ownerCar/edit",
+      },
+      {
+        path: "activation.funnel.lgf_ownerCar",
+        scope: "section",
+        severity: "error",
+        message: "Funnel 'car — Funnel A' needs at least one page with a section.",
+        fix_url: "/admin/leadgen/quotes/lgq_ownerCar/edit",
+      },
+    ],
+  } as unknown as Parameters<typeof renderPublishBadge>[0];
+
+  it("the chip still reads 'Blocked (2 errors)' — the count copy is untouched", () => {
+    expect(renderPublishBadge(OWNER_PREFLIGHT)).toContain(">Blocked (2 errors)<");
+  });
+
+  it("FAIL-BEFORE/PASS-AFTER: the two reasons ship WITH the chip, no extra click", () => {
+    const html = renderPublishBadge(OWNER_PREFLIGHT) ?? "";
+    expect(html).toContain('id="lg-publish-why"');
+    expect(html).toContain('data-publish-why-count="2"');
+    expect((html.match(/data-publish-reason/g) ?? []).length).toBe(2);
+    expect(html).toContain("The shared first page needs at least one section.");
+    expect(html).toContain("needs at least one page with a section.");
+  });
+
+  it("the reason count and the chip count can never disagree (both derive from blocks + error problems)", () => {
+    const reasons = publishBlockingReasons(OWNER_PREFLIGHT!);
+    expect(reasons.length).toBe(2);
+    const html = renderPublishBadge(OWNER_PREFLIGHT) ?? "";
+    const chip = /data-publish-errors="(\d+)"/.exec(html);
+    expect(chip?.[1]).toBe(String(reasons.length));
+  });
+
+  it("a warning-only preflight stays 'Ready (1 warning)' and emits NO reasons block", () => {
+    const warnOnly = {
+      ...(OWNER_PREFLIGHT as unknown as Record<string, unknown>),
+      problems: [{ path: "frame.x", scope: "frame", severity: "warning", message: "Cosmetic", fix_url: "" }],
+    } as unknown as Parameters<typeof renderPublishBadge>[0];
+    const html = renderPublishBadge(warnOnly) ?? "";
+    expect(html).toContain(">Ready (1 warning)<");
+    expect(html).not.toContain('id="lg-publish-why"');
+  });
+
+  it("blocks (not just problems) are named too, reusing the preflight card's own wording", () => {
+    const withBlock = {
+      ...(OWNER_PREFLIGHT as unknown as Record<string, unknown>),
+      ok: false,
+      problems: [],
+      blocks: [
+        {
+          section_id: 1,
+          section_name: "ZIP",
+          offer_id: 2,
+          offer_name: "NextInsure",
+          code: "missing_required_provider_fields",
+          fields: ["current_insurance.carrier"],
+          fix_links: { section_mapping: "/admin/leadgen/quotes/lgq_ownerCar/sections/1" },
+        },
+      ],
+    } as unknown as Parameters<typeof renderPublishBadge>[0];
+    const reasons = publishBlockingReasons(withBlock!);
+    expect(reasons.length).toBe(1);
+    expect(reasons[0]?.text).toBe(
+      "Section: ZIP · Offer: NextInsure · Missing required provider fields: current_insurance.carrier",
+    );
+    expect(renderPublishBadge(withBlock)).toContain("Review slide");
+  });
+
+  it("the ES5 island mirrors the SSR structure (so a live re-render cannot strand stale reasons)", () => {
+    for (const token of [
+      "function publishBlockingReasons(preflight)",
+      "function updatePublishReasons(badge, preflight)",
+      "updatePublishReasons(badge, preflight);",
+      "lg-publish-why",
+      "data-publish-reason",
+      "data-publish-why-count",
+    ]) {
+      expect(QUOTE_EDITOR_SCRIPT, `island token ${token}`).toContain(token);
+    }
+    // ES5 island discipline: the two functions this leg adds use no let/const/
+    // arrow/template-literal syntax.
+    const added = QUOTE_EDITOR_SCRIPT.slice(
+      QUOTE_EDITOR_SCRIPT.indexOf("function publishBlockingReasons(preflight)"),
+      QUOTE_EDITOR_SCRIPT.indexOf("function preflightFixLink("),
+    );
+    expect(added.length).toBeGreaterThan(500);
+    expect(added).not.toMatch(/\blet\s|\bconst\s|=>/);
   });
 });

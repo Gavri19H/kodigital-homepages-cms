@@ -1,0 +1,104 @@
+
+===== before run 2026-08-02T12:19:13.144Z =====
+
+===== before run 2026-08-02T12:19:13.450Z =====
+[F2] quote=lgq_01KZ16KYXKZGRWJG0HH622ZZHB blocks=0 problems=2 errors=2
+[F2]   error | activation.shared_page | The shared first page needs at least one section.
+[F2]   error | activation.funnel.lgf_01KZ16KYXKE7Q0ABZZSF546E9S | Funnel 'car 1785673153455 — Funnel A' needs at least one page with a section.
+[F2] chip text = "Blocked (2 errors)"
+[F2] reasons element present = false
+[shot] before-f2-publish-chip-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] before-f2-publish-chip-375: scrollWidth=375 innerWidth=375 overflow=false
+
+===== before run 2026-08-02T12:19:31.894Z =====
+[fixture] quote=lgq_01KZ16B41BX5F093CMKQCZJ6Q6
+[A.2-1] toolbar buttons = ["bold","italic","link"]
+[A.2-1] textarea after Bold = "<strong>Acme</strong> Insurance Services"
+[shot] before-f1-freetext-toolbar-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] before-f1-freetext-toolbar-375: scrollWidth=375 innerWidth=375 overflow=false
+[A.2-2] picker rows loaded from the Pages tab = 5: ["About R2Fix Fixture Site (/about)","Contact R2Fix Fixture Site (/contact)","Do Not Sell My Personal Information (/do-not-sell)","Privacy Policy (/privacy-policy)","Terms of Service (/terms)"]
+[A.2-2] checked after choosing one = 1
+[shot] before-f1-legal-picker-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] before-f1-legal-picker-375: scrollWidth=375 innerWidth=375 overflow=false
+[A.2-3/4] footer block types = ["about_paragraph=About paragraph / company details","link_row=Link row","disclosure=Disclosure","logo=Logo","address=Address","socials=Social links","heading=Heading","list=List"]
+[A.2-3] logo sources = ["site","manual"]
+[shot] before-f1-logo-block-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] before-f1-logo-block-375: scrollWidth=375 innerWidth=375 overflow=false
+
+===== before run 2026-08-02T12:19:40.791Z =====
+[fixture] quote=lgq_01KZ16B41BX5F093CMKQCZJ6Q6
+[A.2-6] elements list order/letters = ["A:background","B:logo","C:cta","D:disclosure","E:free_text","F:brand_logos","G:footer","H:images","I:progress"]
+[A.2-6] footer panel heading = "G · Footer"
+[shot] before-f1-elements-list-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] before-f1-elements-list-375: scrollWidth=375 innerWidth=375 overflow=false
+[F2] quote=lgq_01KZ16MTG9GNRQ85A9JFTRQZDC blocks=0 problems=2 errors=2
+[F2]   error | activation.shared_page | The shared first page needs at least one section.
+[F2]   error | activation.funnel.lgf_01KZ16MTG9VKJXHJNWF9RQFD7K | Funnel 'car 1785673181703 — Funnel A' needs at least one page with a section.
+[F2] chip text = "Blocked (2 errors)"
+[F2] reasons element present = false
+[shot] before-f2-publish-chip-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] before-f2-publish-chip-375: scrollWidth=375 innerWidth=375 overflow=false
+
+===== before run 2026-08-02T12:20:28.040Z =====
+[fixture] quote=lgq_01KZ16B41BX5F093CMKQCZJ6Q6
+[A.2-5] colour strips=3 fontOptions=["Newsreader","Inter","Roboto Mono","Poppins","Space Grotesk","Fraunces","Playfair Display","Manrope","DM Sans","Work Sans","Lexend"] sizeOptions=["s","m","l","xl"]
+[A.2-5] rendered footer-scoped custom properties = []
+
+===== before run 2026-08-02T12:21:29.655Z =====
+[fixture] quote=lgq_01KZ16B41BX5F093CMKQCZJ6Q6
+[A.2-1] toolbar buttons = ["bold","italic","link"]
+[A.2-1] textarea after Bold = "<strong>Acme</strong> Insurance Services"
+[shot] before-f1-freetext-toolbar-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] before-f1-freetext-toolbar-375: scrollWidth=375 innerWidth=375 overflow=false
+[A.2-2] picker rows loaded from the Pages tab = 5: ["About R2Fix Fixture Site (/about)","Contact R2Fix Fixture Site (/contact)","Do Not Sell My Personal Information (/do-not-sell)","Privacy Policy (/privacy-policy)","Terms of Service (/terms)"]
+[A.2-2] checked after choosing one = 1
+[shot] before-f1-legal-picker-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] before-f1-legal-picker-375: scrollWidth=375 innerWidth=375 overflow=false
+[A.2-3/4] footer block types = ["about_paragraph=About paragraph / company details","link_row=Link row","disclosure=Disclosure","logo=Logo","address=Address","socials=Social links","heading=Heading","list=List"]
+[A.2-3] logo sources = ["site","manual"]
+[shot] before-f1-logo-block-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] before-f1-logo-block-375: scrollWidth=375 innerWidth=375 overflow=false
+[A.2-5] colour strips=3 fontOptions=["Newsreader","Inter","Roboto Mono","Poppins","Space Grotesk","Fraunces","Playfair Display","Manrope","DM Sans","Work Sans","Lexend"] sizeOptions=["s","m","l","xl"]
+[A.2-5] rendered .lg-frame-footer2 nodes = 41
+[A.2-5] rendered footer-scoped custom properties = ["--lg-footer-bg:var(--lg-role-brand_primary)","--lg-footer-fg:var(--lg-role-text_primary)","--lg-footer-link:var(--lg-role-accent)","--lg-footer-size:var(--lg-footer-size-xl)","--lg-footer-font:'Newsreader',Georgia,serif"]
+[A.2-6] elements list order/letters = ["A:background","B:logo","C:cta","D:disclosure","E:free_text","F:brand_logos","G:footer","H:images","I:progress"]
+[A.2-6] footer panel heading = "G · Footer"
+[shot] before-f1-elements-list-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] before-f1-elements-list-375: scrollWidth=375 innerWidth=375 overflow=false
+[F2] quote=lgq_01KZ16R80PA6E0SGX8Z03QAZPN blocks=0 problems=2 errors=2
+[F2]   error | activation.shared_page | The shared first page needs at least one section.
+[F2]   error | activation.funnel.lgf_01KZ16R80PCTWY2D441JPZV540 | Funnel 'car 1785673293844 — Funnel A' needs at least one page with a section.
+[F2] chip text = "Blocked (2 errors)"
+[F2] reasons element present = false
+[shot] before-f2-publish-chip-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] before-f2-publish-chip-375: scrollWidth=375 innerWidth=375 overflow=false
+
+===== after run 2026-08-02T12:32:09.237Z =====
+[fixture] quote=lgq_01KZ16B41BX5F093CMKQCZJ6Q6
+[A.2-1] toolbar buttons = ["bold","italic","link"]
+[A.2-1] textarea after Bold = "<strong>Acme</strong> Insurance Services"
+[shot] after-f1-freetext-toolbar-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] after-f1-freetext-toolbar-375: scrollWidth=375 innerWidth=375 overflow=false
+[A.2-2] picker rows loaded from the Pages tab = 5: ["About R2Fix Fixture Site (/about)","Contact R2Fix Fixture Site (/contact)","Do Not Sell My Personal Information (/do-not-sell)","Privacy Policy (/privacy-policy)","Terms of Service (/terms)"]
+[A.2-2] checked after choosing one = 1
+[shot] after-f1-legal-picker-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] after-f1-legal-picker-375: scrollWidth=375 innerWidth=375 overflow=false
+[A.2-3/4] footer block types = ["about_paragraph=About paragraph / company details","link_row=Link row","disclosure=Disclosure","logo=Logo","address=Address","socials=Social links","heading=Heading","list=List"]
+[A.2-3] logo sources = ["site","manual"]
+[shot] after-f1-logo-block-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] after-f1-logo-block-375: scrollWidth=375 innerWidth=375 overflow=false
+[A.2-5] colour strips=3 fontOptions=["Newsreader","Inter","Roboto Mono","Poppins","Space Grotesk","Fraunces","Playfair Display","Manrope","DM Sans","Work Sans","Lexend"] sizeOptions=["s","m","l","xl"]
+[A.2-5] rendered .lg-frame-footer2 nodes = 41
+[A.2-5] rendered footer-scoped custom properties = ["--lg-footer-bg:var(--lg-role-brand_primary)","--lg-footer-fg:var(--lg-role-text_primary)","--lg-footer-link:var(--lg-role-accent)","--lg-footer-size:var(--lg-footer-size-xl)","--lg-footer-font:'Newsreader',Georgia,serif"]
+[A.2-6] elements list order/letters = ["A:background","B:logo","C:cta","D:disclosure","E:free_text","F:brand_logos","H:images","I:progress","J:footer"]
+[A.2-6] footer panel heading = "J · Footer"
+[shot] after-f1-elements-list-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] after-f1-elements-list-375: scrollWidth=375 innerWidth=375 overflow=false
+[F2] quote=lgq_01KZ17BRK62Q21RQP93P90GN08 blocks=0 problems=2 errors=2
+[F2]   error | activation.shared_page | The shared first page needs at least one section.
+[F2]   error | activation.funnel.lgf_01KZ17BRK69BN3TFM7HV8SWCPF | Funnel 'car 1785673933412 — Funnel A' needs at least one page with a section.
+[F2] chip text = "Blocked (2 errors)"
+[F2] reasons element present = true
+[F2] reasons visible-without-clicking = true; reasons = ["The shared first page needs at least one section.Open Quote Builder","Funnel 'car 1785673933412 — Funnel A' needs at least one page with a section.Open Quote Builder"]
+[shot] after-f2-publish-chip-1280: scrollWidth=1280 innerWidth=1280 overflow=false
+[shot] after-f2-publish-chip-375: scrollWidth=375 innerWidth=375 overflow=false

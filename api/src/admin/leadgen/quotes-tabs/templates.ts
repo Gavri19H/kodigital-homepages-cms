@@ -527,7 +527,7 @@ function renderFooterBlockRowTemplate(): string {
 // currently asserts absent (that conflict is reported, never edited away).
 function renderTplBoxFooter(): string {
   return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="footer">
-  <h3>G &middot; Footer</h3>
+  <h3>J &middot; Footer</h3>
   <p class="form-help">Bottom-of-page blocks (company details / links / disclosure / logo / address / socials / heading / list), with their own palette, font family and sizes &mdash; independent of the main template.</p>
   ${frameControl("Show the footer", frameCheck("Render the footer at the bottom of every funnel page", "footer.enabled"))}
   <h4>Palette &amp; typography scope</h4>
@@ -735,6 +735,30 @@ function renderTplBoxProgress(): string {
 }
 
 
+// R2 P7 (owner: "the 'J' element, I don't see it in the Quotes") — the footer
+// tile is lettered **J** and sits LAST, in its own group.
+//
+// Why this exact treatment, given two owner-verbatim letter anchors that cannot
+// both be contiguous:
+//   * SOURCE-OF-TRUTH A.2 — "Add a bottom of the page template management …
+//     this is seperate template element …" → new Funnel-Layout Element "J".
+//   * SOURCE-OF-TRUTH A.1 item 11.D — "Add a 'I' 'funnel layout element' -
+//     progress bar" → Progress is "I", and re-lettering it would break the
+//     owner's OTHER anchor.
+// Nine tiles cannot fill A..J (ten slots), so EXACTLY ONE letter is unused no
+// matter what. The owner never said "G"; they said the footer is "J". So the
+// footer alone changes letter, every other tile keeps the letter the owner has
+// already been looking at (A-F unchanged, H Images, I Progress), and G is the
+// one letter left vacant — the unavoidable cost of contract §5.4's ONE-footer-
+// tile rule (the owner's own numbering implied a tenth tile, i.e. two footers).
+// The tile also MOVES to the end and renders under its own "Bottom of the page"
+// group heading, so the screen reads the way A.2 describes it: a *separate*
+// template element that comes after the others.
+//
+// §5.4 invariant: still EXACTLY ONE footer-keyed entry in this array — the
+// array-entry literal is grep-asserted (count === 1) by
+// test/leadgen-element-j-r2.test.ts, so do not repeat that literal anywhere
+// in this file, comments included.
 const TPLBOX_CARDS: ReadonlyArray<{ key: string; letter: string; label: string }> = [
   { key: "background", letter: "A", label: "Background" },
   { key: "logo", letter: "B", label: "Logo" },
@@ -742,10 +766,14 @@ const TPLBOX_CARDS: ReadonlyArray<{ key: string; letter: string; label: string }
   { key: "disclosure", letter: "D", label: "Disclosure" },
   { key: "free_text", letter: "E", label: "Free text" },
   { key: "brand_logos", letter: "F", label: "Brand logos" },
-  { key: "footer", letter: "G", label: "Footer" },
   { key: "images", letter: "H", label: "Images" },
   { key: "progress", letter: "I", label: "Progress" },
+  { key: "footer", letter: "J", label: "Footer" },
 ];
+
+// The one tile A.2 calls a "seperate template element" — rendered in its own
+// group below the in-page elements rather than inline with them.
+const TPLBOX_SEPARATE_KEY = "footer";
 
 
 // ---------------------------------------------------------------------------
@@ -753,16 +781,25 @@ const TPLBOX_CARDS: ReadonlyArray<{ key: string; letter: string; label: string }
 // load (matching the pack's Pin 1), so the settings column starts non-empty.
 // ---------------------------------------------------------------------------
 
-function renderElementsList(): string {
-  const cards = TPLBOX_CARDS.map(
-    (c) =>
-      `<button type="button" class="lg-tplbox-card${c.key === "progress" ? " selected" : ""}" data-tplbox-pick="${escapeHtml(c.key)}">
+function tplBoxCard(c: { key: string; letter: string; label: string }): string {
+  return `<button type="button" class="lg-tplbox-card${c.key === "progress" ? " selected" : ""}" data-tplbox-pick="${escapeHtml(c.key)}">
     <span class="lg-tplbox-card-letter">${escapeHtml(c.letter)}</span>
     <span>${escapeHtml(c.label)}</span>
-  </button>`,
-  ).join("");
+  </button>`;
+}
+
+function renderElementsList(): string {
+  // R2 P7: the in-page elements first, then A.2's "seperate template element"
+  // (J · Footer) under its own heading so the separation is on the screen and
+  // not only in the letter.
+  const inPage = TPLBOX_CARDS.filter((c) => c.key !== TPLBOX_SEPARATE_KEY).map(tplBoxCard).join("");
+  const separate = TPLBOX_CARDS.filter((c) => c.key === TPLBOX_SEPARATE_KEY).map(tplBoxCard).join("");
   return `<div class="lg-tpl2-eyebrow">Funnel-layout elements</div>
-  <div class="lg-tplbox-grid" id="lg-tplbox-grid">${cards}</div>`;
+  <div class="lg-tplbox-grid" id="lg-tplbox-grid">${inPage}</div>
+  <div class="lg-tpl2-divider"></div>
+  <div class="lg-tpl2-eyebrow">Bottom of the page &mdash; separate template element</div>
+  <div class="lg-tplbox-grid lg-tplbox-grid-separate" id="lg-tplbox-grid-separate">${separate}</div>
+  <p class="form-help">Its own colours, font and sizes &mdash; independent of the main template.</p>`;
 }
 
 
@@ -775,9 +812,9 @@ function renderSettingsColumn(answerFields: readonly QuoteRulesRailAnswerField[]
     ${renderTplBoxDisclosure()}
     ${renderTplBoxFreeText()}
     ${renderTplBoxBrandLogos()}
-    ${renderTplBoxFooter()}
     ${renderTplBoxImages()}
     ${renderTplBoxProgress()}
+    ${renderTplBoxFooter()}
   </div>`;
 }
 

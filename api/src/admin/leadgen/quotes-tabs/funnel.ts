@@ -807,6 +807,82 @@ export const QUOTE_EDITOR_SCRIPT = `
     badge.setAttribute('data-publish-warnings', String(warnings));
     clearChildren(badge);
     badge.appendChild(document.createTextNode(publishChipText(errors, warnings)));
+    updatePublishReasons(badge, preflight);
+  }
+
+  // R2 P7 — mirrors activation.ts publishBlockingReasons EXACTLY (blocks first,
+  // then error-severity problems), so the chip's count and the reasons list can
+  // never disagree after a live re-render.
+  function publishBlockingReasons(preflight) {
+    var out = [];
+    var blocks = preflight.blocks || [];
+    var problems = preflight.problems || [];
+    var i;
+    var j;
+    for (i = 0; i < blocks.length; i++) {
+      var b = blocks[i] || {};
+      var parts = [];
+      if (b.section_name) { parts.push('Section: ' + b.section_name); }
+      if (b.offer_name) { parts.push('Offer: ' + b.offer_name); }
+      var fields = b.fields || [];
+      var mapped = [];
+      for (j = 0; j < fields.length; j++) {
+        mapped.push(b.code === 'offer_ineligible' ? eligibilityLabel(fields[j]) : fields[j]);
+      }
+      parts.push(preflightCodeLabel(b.code) + (mapped.length > 0 ? ': ' + mapped.join(', ') : ''));
+      out.push({ text: parts.join(' · '), fixUrl: (b.fix_links && b.fix_links.section_mapping) || '' });
+    }
+    for (i = 0; i < problems.length; i++) {
+      var p = problems[i];
+      if (!p || p.severity !== 'error') { continue; }
+      out.push({ text: p.message || '', fixUrl: typeof p.fix_url === 'string' ? p.fix_url : '' });
+    }
+    return out;
+  }
+
+  // Rebuilds (or removes) the "#lg-publish-why" block the SSR renderer emits as
+  // the chip's next sibling. Created on demand so a quote that STARTS publishable
+  // still gets the reasons the moment a live re-render blocks it.
+  function updatePublishReasons(badge, preflight) {
+    var reasons = publishBlockingReasons(preflight);
+    var why = byId('lg-publish-why');
+    if (reasons.length === 0) {
+      if (why && why.parentNode) { why.parentNode.removeChild(why); }
+      return;
+    }
+    if (!why) {
+      why = document.createElement('div');
+      why.id = 'lg-publish-why';
+      why.setAttribute('role', 'group');
+      why.setAttribute('aria-label', 'Why this Quote cannot be published');
+      if (badge.parentNode) { badge.parentNode.insertBefore(why, badge.nextSibling); }
+    }
+    why.className = 'lg-publish-why';
+    why.setAttribute('data-publish-why-count', String(reasons.length));
+    clearChildren(why);
+    var title = document.createElement('span');
+    title.className = 'lg-publish-why-title';
+    title.appendChild(document.createTextNode(
+      'To publish, fix ' + (reasons.length === 1 ? 'this' : 'these ' + reasons.length) + ':',
+    ));
+    why.appendChild(title);
+    var list = document.createElement('ol');
+    list.className = 'lg-publish-why-list';
+    var i;
+    for (i = 0; i < reasons.length; i++) {
+      var li = document.createElement('li');
+      li.setAttribute('data-publish-reason', '');
+      li.appendChild(document.createTextNode(reasons[i].text));
+      if (reasons[i].fixUrl) {
+        var a = document.createElement('a');
+        a.className = 'lg-publish-why-fix';
+        a.setAttribute('href', reasons[i].fixUrl);
+        a.appendChild(document.createTextNode(problemFixLabel(reasons[i].fixUrl)));
+        li.appendChild(a);
+      }
+      list.appendChild(li);
+    }
+    why.appendChild(list);
   }
 
   function preflightFixLink(href, label) {

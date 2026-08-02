@@ -204,12 +204,16 @@ describeDb("Quotes editor — Templates tab (contract §8.3, P4 rebuild)", () =>
     expect(panel).toContain('id="lg-tplbox-editor"');
   });
 
-  it("lists elements A through I (the 8 pre-existing boxes + the new Progress box)", async () => {
+  // R2 P7 (owner ruling, SOURCE-OF-TRUTH A.2 "→ new Funnel-Layout Element
+  // \"J\"") — the footer tile is lettered J, not G, and sits last. Every OTHER
+  // letter/label pair below is unchanged and asserted exactly as before; only
+  // the footer's letter moves, because the owner's own words name it J.
+  it("lists the 8 in-page elements (A–F, H, I) plus the separate footer element J", async () => {
     const { html } = await editorHtml();
     const panel = templatesPanelSlice(html);
     const letters: Array<[string, string]> = [
       ["A", "Background"], ["B", "Logo"], ["C", "Phone / URL"], ["D", "Disclosure"],
-      ["E", "Free text"], ["F", "Brand logos"], ["G", "Footer"], ["H", "Images"], ["I", "Progress"],
+      ["E", "Free text"], ["F", "Brand logos"], ["H", "Images"], ["I", "Progress"], ["J", "Footer"],
     ];
     for (const [letter, label] of letters) {
       expect(panel, `card ${letter} letter`).toContain(`>${letter}<`);
