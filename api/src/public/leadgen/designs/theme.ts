@@ -303,13 +303,84 @@ export type ThemeRadiusStep = (typeof THEME_RADIUS_STEPS)[number];
 export const THEME_SHADOW_STEPS = ["none", "sm", "md", "lg", "xl"] as const;
 export type ThemeShadowStep = (typeof THEME_SHADOW_STEPS)[number];
 
-export const THEME_BUTTON_MIN_HEIGHTS = ["m", "l"] as const;
+// §10.4 "Buttons & inputs — THE SHARED SIZE LANGUAGE": ONE px ladder, spelled
+// in each path's own vocabulary. Declared here (before its first consumer) and
+// consumed by every size table in this module + presets.ts's HEIGHT_PRESET_CSS,
+// so the theme tier and the per-node override tier can never drift apart.
+export const SHARED_SIZE_LANGUAGE_PX = ["44px", "52px", "60px"] as const;
+
+// R2 F-3 (gap 2) — THE PAIRED PADDING, and WHY the ladder needs one.
+//
+// MEASURED at HEAD on the live visitor page (evidence p7-owner/fork-survival,
+// ARM=before): field_height small/medium/large emitted min-height 44/52/60 but
+// PAINTED 54/54/60. `.lg-input`'s own intrinsic box is 54px (2x16px padding +
+// an 18px line box + 2x2px border), so a 44px and a 52px FLOOR are both under
+// it — measurably governed, visually identical at 2 of 3 steps. From the
+// operator's chair that is still a control that does nothing.
+//
+// THE SEMANTIC THIS MODULE STANDARDISES ON: the FLOOR (`min-height`), for the
+// theme tier AND the per-node override tier (presets.ts). Reasons, in order:
+//   1. A floor CANNOT clip. An exact `height:44px` on this box leaves 8px of
+//      content area for an 18px line — the text is cut. `height` would have to
+//      be re-justified for every font, zoom level and UA default line box; a
+//      floor degrades gracefully (a taller line box simply grows the field).
+//   2. presets.ts ALREADY DOCUMENTS this semantic for both idioms ("Applied as
+//      `min-height` on the item/text idioms … so a preset only ever FLOORS the
+//      box — it never clips"). The choice family honours it; the text-input
+//      family emitted a bare `height:` — code vs its own stated contract.
+//   3. It makes all three families (theme base rule, choice items, text
+//      inputs) speak ONE semantic instead of two.
+// A floor alone, though, is exactly what produced 54/54/60. So each rung of the
+// ladder ALSO carries the vertical padding that puts the intrinsic box ON the
+// rung: the floor then IS the painted height, and the three steps are visibly
+// distinct. Content is never clipped, because the floor still only floors.
+//
+// ONE DERIVATION, never a second ladder: FIELD_BOX_CHROME_PX is the measured
+// non-padding part of the box (18px line box + 2x2px border = 22px) and every
+// padding value — the three preset rungs AND a hand-dragged custom_px — comes
+// from the same subtraction below.
+const FIELD_BOX_CHROME_PX = 22;
+
+// FLOOR, never round: rounding an odd target up would push the intrinsic box
+// PAST the floor by a pixel and the floor would stop governing. Flooring keeps
+// the intrinsic box at or just under the rung, so the floor is what paints. The
+// three ladder rungs divide exactly (44/52/60 -> 11/15/19); only a hand-dragged
+// odd custom_px ever hits the remainder.
+export function fieldPaddingBlockForPx(px: number): string {
+  const pad = (px - FIELD_BOX_CHROME_PX) / 2;
+  return `${pad > 0 ? Math.floor(pad) : 0}px`;
+}
+
+export const THEME_BUTTON_MIN_HEIGHTS = ["s", "m", "l"] as const;
 export type ThemeButtonMinHeight = (typeof THEME_BUTTON_MIN_HEIGHTS)[number];
 
-// m = the measured base primaryButton.minHeight; l = the taller variant.
+// R2 F-3 (gap 1): WIDENED from ["m","l"] to the full shared ladder. The record
+// path's `controls.button_size` vocabulary IS s/m/l, and until this change the
+// inline vocabulary had no `s` — so a preset's Button size = Small had no
+// inline counterpart to be carried into and was DISCARDED the moment the
+// operator's first rail edit forked theme_json (measured: painted button
+// min-height 60px -> 52px after editing one colour). Widening a closed enum is
+// additive: `m`/`l` keep their exact values and every stored theme stays valid.
 const BUTTON_MIN_HEIGHT_CSS: Record<ThemeButtonMinHeight, string> = {
-  m: "52px",
-  l: "60px",
+  s: SHARED_SIZE_LANGUAGE_PX[0],
+  m: SHARED_SIZE_LANGUAGE_PX[1],
+  l: SHARED_SIZE_LANGUAGE_PX[2],
+};
+
+// R2 F-3 (gap 1) — the INLINE field-height axis that did not exist before.
+// `controls.field_height` had NO inline counterpart at all, so it too was lost
+// at the fork (measured: painted field min-height 60px -> 44px, box 60px ->
+// 54px, after editing one colour). This is the `button_defaults`/`card_defaults`
+// idiom applied to the field box, spelled in the record's OWN words so the
+// preset->inline bridge is a compile-checked identity rather than a translation
+// table that can drift.
+export const THEME_FIELD_MIN_HEIGHTS = ["small", "medium", "large"] as const;
+export type ThemeFieldMinHeight = (typeof THEME_FIELD_MIN_HEIGHTS)[number];
+
+const FIELD_MIN_HEIGHT_CSS: Record<ThemeFieldMinHeight, string> = {
+  small: SHARED_SIZE_LANGUAGE_PX[0],
+  medium: SHARED_SIZE_LANGUAGE_PX[1],
+  large: SHARED_SIZE_LANGUAGE_PX[2],
 };
 
 export const THEME_BUTTON_CASINGS = ["none", "upper"] as const;
@@ -459,6 +530,13 @@ export interface ThemeCardDefaults {
   shadow?: ThemeShadowStep;
 }
 
+// R2 F-3 — the FIELD's inline component defaults (the third member of the
+// button_defaults/card_defaults family). Absent ⇒ the base design's own
+// `.lg-input` box, byte-identical to before this axis existed.
+export interface ThemeFieldDefaults {
+  min_height?: ThemeFieldMinHeight;
+}
+
 // Palette values: a #hex colour literal (allowed, but flagged as a warning —
 // custom colours skip the design system, §9.3/§9.4) OR another role name (an
 // alias, resolved against the BASE design's value for that role — never
@@ -472,6 +550,7 @@ export interface ThemeJson {
   scales?: ThemeScales;
   button_defaults?: ThemeButtonDefaults;
   card_defaults?: ThemeCardDefaults;
+  field_defaults?: ThemeFieldDefaults;
 }
 
 // Layer 3 (§9.2): the `theme` sub-object of a Variant's frame_overrides_json.
@@ -667,7 +746,31 @@ export const THEME_RECORD_CORNERS_TO_RADIUS_SCALE = {
 //
 // `satisfies` keeps both tables exhaustive: a new size word is a compile error
 // here, never a silent no-op.
-const SHARED_SIZE_LANGUAGE_PX = ["44px", "52px", "60px"] as const;
+// (SHARED_SIZE_LANGUAGE_PX is declared above, next to its first consumer.)
+
+// R2 F-3 (gap 1) — THE TWO SIZE CONTROLS' PRESET->INLINE BRIDGES, the exact
+// counterparts of THEME_RECORD_CORNERS_TO_RADIUS_SCALE above and the reason
+// field_height/button_size can now survive the fork at all.
+//
+// Both are the IDENTITY on the word, because the inline vocabularies added in
+// this change (THEME_FIELD_MIN_HEIGHTS, the widened THEME_BUTTON_MIN_HEIGHTS)
+// are deliberately spelled in the RECORD's own words. `satisfies` is what makes
+// that load-bearing rather than a coincidence: rename or re-order either
+// vocabulary and this is a compile error, never a silent mis-map. Declaring the
+// bridge explicitly (instead of letting the caller assume the words match) is
+// also what lets theme-preset-resolve.ts SERIALIZE it into the admin island —
+// the island can never hand-copy a stale table.
+export const THEME_RECORD_BUTTON_SIZE_TO_INLINE_MIN_HEIGHT = {
+  s: "s",
+  m: "m",
+  l: "l",
+} as const satisfies Record<ThemeRecordButtonSize, ThemeButtonMinHeight>;
+
+export const THEME_RECORD_FIELD_HEIGHT_TO_INLINE_MIN_HEIGHT = {
+  small: "small",
+  medium: "medium",
+  large: "large",
+} as const satisfies Record<ThemeRecordFieldHeight, ThemeFieldMinHeight>;
 
 export const THEME_RECORD_BUTTON_SIZE_TO_MIN_HEIGHT = {
   s: SHARED_SIZE_LANGUAGE_PX[0],
@@ -1040,11 +1143,21 @@ export function resolveTokens(
   // step (THEME_RECORD_BUTTON_SIZE_TO_MIN_HEIGHT above). Record-only, exactly
   // like corners' record arm: absent record / off-table value -> undefined ->
   // the token is left at its current value, byte-identical to pre-F-2.
-  applyButtonSizeStep(design, safeRecordButtonSize(record));
+  //
+  // R2 F-3: …and its INLINE counterpart, `button_defaults.min_height`, which
+  // is what carries the operator's choice across the preset->inline fork. The
+  // inline term is FIRST for the same reason radiusScale's is: the two inputs
+  // are mutually exclusive by construction, and where a caller supplies both
+  // the explicit inline value wins. (button_defaults.min_height is ALSO applied
+  // in the component-defaults block further down, which is where it landed
+  // before this change; both write the same token from the same table, so the
+  // order is immaterial — this position is what makes the record and inline
+  // paths converge on ONE applier.)
+  applyButtonSizeStep(design, inlineButtonMinHeight(theme) ?? safeRecordButtonSize(record));
   // R2 F-2: and the record's `controls.field_height` IS the base field box's
   // min-height (styles.ts `.lg-input`), on the same shared ladder. Same
-  // record-only, fail-soft contract.
-  applyFieldHeightStep(design, safeRecordFieldHeight(record));
+  // record-only, fail-soft contract — plus (R2 F-3) the same inline arm.
+  applyFieldHeightStep(design, inlineFieldMinHeight(theme) ?? safeRecordFieldHeight(record));
 
   // --- typography (§9.3) ----------------------------------------------------
   const sizeScale: ThemeSizeScale = theme.typography?.size ?? "m";
@@ -1202,6 +1315,11 @@ export function resolveTokens(
   if (record !== null) {
     result.theme_controls = record.controls;
     result.theme_typography = record.typography;
+  } else {
+    // R2 F-3: the forked (inline) funnel publishes the SAME node-tier
+    // inherit-default the preset published — see inlineThemeControls.
+    const inlineControls = inlineThemeControls(theme);
+    if (inlineControls !== undefined) result.theme_controls = inlineControls;
   }
   return result;
 }
@@ -1294,9 +1412,77 @@ function safeRecordFieldHeight(record: ThemeRecord | null): string | undefined {
     : undefined;
 }
 
+// R2 F-3 (gap 2): the floor ALONE painted 54/54/60 — see the
+// FIELD_BOX_CHROME_PX rationale above. Writing the paired vertical padding puts
+// the intrinsic box ON the chosen rung, so the floor IS the painted height and
+// the three steps are visibly distinct. The HORIZONTAL padding is read back off
+// the design's own token (never re-typed), so a design that changes its side
+// padding keeps it. undefined = no record / unrecognised value = both tokens
+// untouched, byte-identical.
 function applyFieldHeightStep(design: EffectiveFunnelDesign, minHeight: string | undefined): void {
   if (minHeight === undefined) return;
   design.input.minHeight = minHeight;
+  design.input.padding = withBlockPadding(design.input.padding, fieldPaddingBlockForPx(Number.parseFloat(minHeight)));
+}
+
+// Replace ONLY the block (top/bottom) component of a CSS `padding` shorthand,
+// preserving the inline (left/right) component exactly as the design declared
+// it. An unrecognised shorthand shape is left untouched (fail-soft: the floor
+// still applies, the box just keeps the base padding) rather than emitting a
+// malformed declaration.
+function withBlockPadding(padding: string, block: string): string {
+  const parts = padding.trim().split(/\s+/);
+  if (parts.length === 1) return `${block} ${parts[0]}`;
+  if (parts.length === 2) return `${block} ${parts[1]}`;
+  if (parts.length === 3) return `${block} ${parts[1]} ${block}`;
+  if (parts.length === 4) return `${block} ${parts[1]} ${block} ${parts[3]}`;
+  return padding;
+}
+
+// R2 F-3 — the INLINE arms of the two size appliers. Same closed-vocabulary
+// defense-in-depth as the record arms above (validateTheme is the authoritative
+// write-time gate; a stored blob that bypassed it can never reach the lookup).
+function inlineButtonMinHeight(theme: ThemeJson): string | undefined {
+  const value: unknown = theme.button_defaults?.min_height;
+  return typeof value === "string" && (THEME_BUTTON_MIN_HEIGHTS as readonly string[]).includes(value)
+    ? BUTTON_MIN_HEIGHT_CSS[value as ThemeButtonMinHeight]
+    : undefined;
+}
+
+function inlineFieldMinHeight(theme: ThemeJson): string | undefined {
+  const value: unknown = theme.field_defaults?.min_height;
+  return typeof value === "string" && (THEME_FIELD_MIN_HEIGHTS as readonly string[]).includes(value)
+    ? FIELD_MIN_HEIGHT_CSS[value as ThemeFieldMinHeight]
+    : undefined;
+}
+
+// R2 F-3 — the per-NODE size tier's inherit-default, on the inline path.
+//
+// `theme_controls` used to be published ONLY for a resolved record, so the
+// instant an operator's rail edit forked theme_json the node tier's
+// "absent axis inherits the theme default" chain (presets.ts resolveFieldSize)
+// silently dropped from the preset's field_height back to
+// DEFAULT_SIZE_THEME_CONTROLS — the SAME silent-loss shape one layer down.
+// Publishing the inline axes in the same shape closes it: a node whose
+// design_overrides.size omits the height key keeps inheriting the operator's
+// chosen step after the fork. Absent inline axes ⇒ undefined ⇒ byte-identical
+// to before (the node tier's own DEFAULT_SIZE_THEME_CONTROLS still applies).
+function inlineThemeControls(theme: ThemeJson): ThemeRecordControls | undefined {
+  const field: unknown = theme.field_defaults?.min_height;
+  const button: unknown = theme.button_defaults?.min_height;
+  const known =
+    (typeof field === "string" && (THEME_FIELD_MIN_HEIGHTS as readonly string[]).includes(field)) ||
+    (typeof button === "string" && (THEME_BUTTON_MIN_HEIGHTS as readonly string[]).includes(button));
+  if (!known) return undefined;
+  return {
+    field_height: (typeof field === "string" && (THEME_FIELD_MIN_HEIGHTS as readonly string[]).includes(field)
+      ? field
+      : "medium") as ThemeRecordFieldHeight,
+    button_size: (typeof button === "string" && (THEME_BUTTON_MIN_HEIGHTS as readonly string[]).includes(button)
+      ? button
+      : "m") as ThemeRecordButtonSize,
+    corners: "rounded",
+  };
 }
 
 function safeRecordCorners(record: ThemeRecord | null): ThemeRadiusScale | undefined {
@@ -1576,6 +1762,10 @@ const THEME_TOP_KEYS: ReadonlySet<string> = new Set([
   "scales",
   "button_defaults",
   "card_defaults",
+  // R2 F-3: the inline field box (see ThemeFieldDefaults). Without this key the
+  // preset->inline fork had nowhere to put the operator's Field height and
+  // discarded it.
+  "field_defaults",
 ]);
 
 const HEX_COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
@@ -1745,6 +1935,12 @@ export function validateTheme(raw: unknown): ThemeValidation {
     radius: "radius_step",
     shadow: "shadow_step",
   });
+  // R2 F-3 — the field box, validated through the SAME helper (unknown key ->
+  // error, off-vocabulary value -> error) so the new axis can never be looser
+  // than its two siblings.
+  validateComponentDefaults(raw["field_defaults"], "theme.field_defaults", "field", push, {
+    min_height: "field_min_height",
+  });
 
   const hasErrors = problems.some((p) => p.severity === "error");
   return { theme: hasErrors ? null : (raw as ThemeJson), problems };
@@ -1755,6 +1951,7 @@ type DefaultsFieldKind =
   | "radius_step"
   | "shadow_step"
   | "min_height"
+  | "field_min_height"
   | "casing"
   | "btn_fill"
   | "btn_layout"
@@ -1801,6 +1998,10 @@ function validateComponentDefaults(
     } else if (kind === "min_height") {
       if (!(THEME_BUTTON_MIN_HEIGHTS as readonly string[]).includes(value as string)) {
         push("error", path, `The ${label} ${human} must be one of: ${THEME_BUTTON_MIN_HEIGHTS.join(", ")}.`);
+      }
+    } else if (kind === "field_min_height") {
+      if (!(THEME_FIELD_MIN_HEIGHTS as readonly string[]).includes(value as string)) {
+        push("error", path, `The ${label} ${human} must be one of: ${THEME_FIELD_MIN_HEIGHTS.join(", ")}.`);
       }
     } else if (kind === "btn_fill") {
       if (!(THEME_BUTTON_STYLES as readonly string[]).includes(value as string)) {

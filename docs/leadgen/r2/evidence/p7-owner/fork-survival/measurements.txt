@@ -1,0 +1,149 @@
+
+===== ARM=before run 2026-08-02T13:30:10.211Z =====
+
+===== ARM=before run 2026-08-02T13:30:11.276Z =====
+
+===== ARM=before run 2026-08-02T13:30:11.868Z =====
+[before] C no-theme chrome <style> bytes=31906 sha256=ad1463b1cf9bc39ee0e73cc80efe52b0eb5bdbe199ba7cdd3e85d1b5532b666c
+[before] C no-theme .lg-input rule = .lg-input{width:100%;box-sizing:border-box;padding:16px 18px;border:2px solid #D2D9E5;border-color:var(--lg-field-border, #D2D9E5);border-radius:12px;font-size:1rem;font-family:inherit;color:#1A1F36;min-height:44px;background:#FFFFFF}
+[before] C no-theme .lg-btn rule = .lg-btn{display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;background:#1B3A5C;color:#FFFFFF;padding:14px 16px;min-height:52px;border-radius:10px;border:0;font-family:'Sora',sans-serif;font-size:0.9375rem;font-weight:600;cursor:pointer;box-sizing:border-box;transition:background var(--lg-transition-btn) var(--lg-btn-easing)}
+[before] C SUMMARY no-theme button=52px/52px card=16px
+[before] c-no-theme @375 scrollWidth=375 innerWidth=375 overflow=no
+
+===== ARM=before run 2026-08-02T13:30:28.031Z =====
+
+===== ARM=before run 2026-08-02T13:30:28.974Z =====
+
+===== ARM=before run 2026-08-02T13:30:29.577Z =====
+[before] C no-theme chrome <style> bytes=31906 sha256=ad1463b1cf9bc39ee0e73cc80efe52b0eb5bdbe199ba7cdd3e85d1b5532b666c
+[before] C no-theme .lg-input rule = .lg-input{width:100%;box-sizing:border-box;padding:16px 18px;border:2px solid #D2D9E5;border-color:var(--lg-field-border, #D2D9E5);border-radius:12px;font-size:1rem;font-family:inherit;color:#1A1F36;min-height:44px;background:#FFFFFF}
+[before] C no-theme .lg-btn rule = .lg-btn{display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;background:#1B3A5C;color:#FFFFFF;padding:14px 16px;min-height:52px;border-radius:10px;border:0;font-family:'Sora',sans-serif;font-size:0.9375rem;font-weight:600;cursor:pointer;box-sizing:border-box;transition:background var(--lg-transition-btn) var(--lg-btn-easing)}
+[before] C SUMMARY no-theme button=52px/52px card=16px
+[before] c-no-theme @375 scrollWidth=375 innerWidth=375 overflow=no
+
+===== ARM=before run 2026-08-02T13:30:57.762Z =====
+[before] A preset thm_f3-preset-acc6-f3a-1785677458234396 controls = {"field_height":"large","button_size":"l","corners":"pill"}
+[before] A stored theme_json PRE-FORK = {"theme_id":"thm_f3-preset-acc6-f3a-1785677458234396"}
+[before] A apply-preset: served chrome <style> changed after 0 polls (sentinel-nev -> aeec0d948ea6)
+
+===== ARM=before run 2026-08-02T13:31:21.412Z =====
+[before] B small: served chrome <style> changed after 0 polls (sentinel-nev -> e0720c852341)
+
+===== ARM=before run 2026-08-02T13:31:43.021Z =====
+[before] C no-theme chrome <style> bytes=31906 sha256=ad1463b1cf9bc39ee0e73cc80efe52b0eb5bdbe199ba7cdd3e85d1b5532b666c
+[before] C no-theme .lg-input rule = .lg-input{width:100%;box-sizing:border-box;padding:16px 18px;border:2px solid #D2D9E5;border-color:var(--lg-field-border, #D2D9E5);border-radius:12px;font-size:1rem;font-family:inherit;color:#1A1F36;min-height:44px;background:#FFFFFF}
+[before] C no-theme .lg-btn rule = .lg-btn{display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;background:#1B3A5C;color:#FFFFFF;padding:14px 16px;min-height:52px;border-radius:10px;border:0;font-family:'Sora',sans-serif;font-size:0.9375rem;font-weight:600;cursor:pointer;box-sizing:border-box;transition:background var(--lg-transition-btn) var(--lg-btn-easing)}
+[before] C SUMMARY no-theme button=52px/52px card=16px
+[before] c-no-theme @375 scrollWidth=375 innerWidth=375 overflow=no
+
+===== ARM=before run 2026-08-02T13:32:17.541Z =====
+[before] A preset thm_f3-preset-acc6-f3a-1785677537935838 controls = {"field_height":"large","button_size":"l","corners":"pill"}
+[before] A stored theme_json PRE-FORK = {"theme_id":"thm_f3-preset-acc6-f3a-1785677537935838"}
+[before] A apply-preset: served chrome <style> changed after 0 polls (sentinel-nev -> aeec0d948ea6)
+[before] A BEFORE fork (preset applied) PAINTED field min-height=60px box=60px padding=16px/16px | button min-height=60px box=0px | card radius=20px
+[before] a-before-fork @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] A stored theme_json POST-FORK = {"palette":{"brand_primary":"accent","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"},"scales":{"radius":"round"}}
+[before] A post-fork: served chrome <style> changed after 0 polls (aeec0d948ea6 -> 55c85921451a)
+[before] A AFTER fork (one colour edited) PAINTED field min-height=44px box=54px padding=16px/16px | button min-height=52px box=0px | card radius=20px
+[before] a-after-fork @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] A SUMMARY before field=60px/60px button=60px/0px card=20px | after field=44px/54px button=52px/0px card=20px
+
+===== ARM=before run 2026-08-02T13:32:24.227Z =====
+[before] B small: served chrome <style> changed after 0 polls (sentinel-nev -> e0720c852341)
+[before] B field_height=small PAINTED field min-height=44px box=54px padding=16px/16px | button min-height=52px box=0px | card radius=16px
+[before] b-field-small @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] B medium: served chrome <style> changed after 0 polls (e0720c852341 -> e82dd265be5a)
+[before] B field_height=medium PAINTED field min-height=52px box=54px padding=16px/16px | button min-height=52px box=0px | card radius=16px
+[before] b-field-medium @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] B large: served chrome <style> changed after 0 polls (e82dd265be5a -> 371da16b54c6)
+[before] B field_height=large PAINTED field min-height=60px box=60px padding=16px/16px | button min-height=52px box=0px | card radius=16px
+[before] b-field-large @375 scrollWidth=375 innerWidth=375 overflow=no
+[before] B SUMMARY painted field boxes small/medium/large = [54,54,60] (min-height ["44px","52px","60px"], padding ["16px/16px","16px/16px","16px/16px"])
+
+===== ARM=before run 2026-08-02T13:32:27.898Z =====
+[before] C no-theme chrome <style> bytes=31906 sha256=ad1463b1cf9bc39ee0e73cc80efe52b0eb5bdbe199ba7cdd3e85d1b5532b666c
+[before] C no-theme .lg-input rule = .lg-input{width:100%;box-sizing:border-box;padding:16px 18px;border:2px solid #D2D9E5;border-color:var(--lg-field-border, #D2D9E5);border-radius:12px;font-size:1rem;font-family:inherit;color:#1A1F36;min-height:44px;background:#FFFFFF}
+[before] C no-theme .lg-btn rule = .lg-btn{display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;background:#1B3A5C;color:#FFFFFF;padding:14px 16px;min-height:52px;border-radius:10px;border:0;font-family:'Sora',sans-serif;font-size:0.9375rem;font-weight:600;cursor:pointer;box-sizing:border-box;transition:background var(--lg-transition-btn) var(--lg-btn-easing)}
+[before] C SUMMARY no-theme button=52px/52px card=16px
+[before] c-no-theme @375 scrollWidth=375 innerWidth=375 overflow=no
+
+===== ARM=after run 2026-08-02T13:55:39.727Z =====
+[after] A preset thm_f3-preset-acc6-f3a-1785678939987585 controls = {"field_height":"large","button_size":"l","corners":"pill"}
+[after] A stored theme_json PRE-FORK = {"theme_id":"thm_f3-preset-acc6-f3a-1785678939987585"}
+[after] A apply-preset: served chrome <style> changed after 0 polls (sentinel-nev -> f09ccaa69d96)
+[after] A BEFORE fork (preset applied) PAINTED field min-height=60px box=60px padding=19px/19px | button min-height=60px box=0px | card radius=20px
+[after] a-before-fork @375 scrollWidth=375 innerWidth=375 overflow=no
+[after] A stored theme_json POST-FORK = {"palette":{"brand_primary":"accent","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"},"scales":{"radius":"round"},"field_defaults":{"min_height":"large"},"button_defaults":{"min_height":"l"}}
+[after] A post-fork: served chrome <style> changed after 0 polls (f09ccaa69d96 -> 0bb770ecb770)
+[after] A AFTER fork (one colour edited) PAINTED field min-height=60px box=60px padding=19px/19px | button min-height=60px box=0px | card radius=20px
+[after] a-after-fork @375 scrollWidth=375 innerWidth=375 overflow=no
+[after] A SUMMARY before field=60px/60px button=60px/0px card=20px | after field=60px/60px button=60px/0px card=20px
+[after] B small: served chrome <style> changed after 0 polls (sentinel-nev -> 17375209662e)
+[after] B field_height=small PAINTED field min-height=44px box=44px padding=11px/11px | button min-height=52px box=0px | card radius=16px
+[after] b-field-small @375 scrollWidth=375 innerWidth=375 overflow=no
+[after] B medium: served chrome <style> changed after 0 polls (17375209662e -> cef6d693d3c6)
+[after] B field_height=medium PAINTED field min-height=52px box=52px padding=15px/15px | button min-height=52px box=0px | card radius=16px
+[after] b-field-medium @375 scrollWidth=375 innerWidth=375 overflow=no
+[after] B large: served chrome <style> changed after 0 polls (cef6d693d3c6 -> 295cb4ccd752)
+[after] B field_height=large PAINTED field min-height=60px box=60px padding=19px/19px | button min-height=52px box=0px | card radius=16px
+[after] b-field-large @375 scrollWidth=375 innerWidth=375 overflow=no
+[after] B SUMMARY painted field boxes small/medium/large = [44,52,60] (min-height ["44px","52px","60px"], padding ["11px/11px","15px/15px","19px/19px"])
+[after] C no-theme chrome <style> bytes=31906 sha256=ad1463b1cf9bc39ee0e73cc80efe52b0eb5bdbe199ba7cdd3e85d1b5532b666c
+[after] C no-theme .lg-input rule = .lg-input{width:100%;box-sizing:border-box;padding:16px 18px;border:2px solid #D2D9E5;border-color:var(--lg-field-border, #D2D9E5);border-radius:12px;font-size:1rem;font-family:inherit;color:#1A1F36;min-height:44px;background:#FFFFFF}
+[after] C no-theme .lg-btn rule = .lg-btn{display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;background:#1B3A5C;color:#FFFFFF;padding:14px 16px;min-height:52px;border-radius:10px;border:0;font-family:'Sora',sans-serif;font-size:0.9375rem;font-weight:600;cursor:pointer;box-sizing:border-box;transition:background var(--lg-transition-btn) var(--lg-btn-easing)}
+[after] C SUMMARY no-theme button=52px/52px card=16px
+[after] c-no-theme @375 scrollWidth=375 innerWidth=375 overflow=no
+
+===== ARM=after-v2 run 2026-08-02T13:56:33.877Z =====
+[after-v2] A preset thm_f3-preset-acc6-f3a-1785678994273980 controls = {"field_height":"large","button_size":"l","corners":"pill"}
+[after-v2] A stored theme_json PRE-FORK = {"theme_id":"thm_f3-preset-acc6-f3a-1785678994273980"}
+[after-v2] A apply-preset: served chrome <style> changed after 0 polls (sentinel-nev -> f09ccaa69d96)
+[after-v2] A BEFORE fork (preset applied) PAINTED field min-height=60px box=60px padding=19px/19px | button min-height=60px box=60px | card radius=20px
+[after-v2] a-before-fork @375 scrollWidth=375 innerWidth=375 overflow=no
+[after-v2] A stored theme_json POST-FORK = {"palette":{"brand_primary":"accent","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"},"scales":{"radius":"round"},"field_defaults":{"min_height":"large"},"button_defaults":{"min_height":"l"}}
+[after-v2] A post-fork: served chrome <style> changed after 0 polls (f09ccaa69d96 -> 0bb770ecb770)
+[after-v2] A AFTER fork (one colour edited) PAINTED field min-height=60px box=60px padding=19px/19px | button min-height=60px box=60px | card radius=20px
+[after-v2] a-after-fork @375 scrollWidth=375 innerWidth=375 overflow=no
+[after-v2] A SUMMARY before field=60px/60px button=60px/60px card=20px | after field=60px/60px button=60px/60px card=20px
+[after-v2] B small: served chrome <style> changed after 0 polls (sentinel-nev -> 17375209662e)
+[after-v2] B field_height=small PAINTED field min-height=44px box=44px padding=11px/11px | button min-height=52px box=52px | card radius=16px
+[after-v2] b-field-small @375 scrollWidth=375 innerWidth=375 overflow=no
+[after-v2] B medium: served chrome <style> changed after 0 polls (17375209662e -> cef6d693d3c6)
+[after-v2] B field_height=medium PAINTED field min-height=52px box=52px padding=15px/15px | button min-height=52px box=52px | card radius=16px
+[after-v2] b-field-medium @375 scrollWidth=375 innerWidth=375 overflow=no
+[after-v2] B large: served chrome <style> changed after 0 polls (cef6d693d3c6 -> 295cb4ccd752)
+[after-v2] B field_height=large PAINTED field min-height=60px box=60px padding=19px/19px | button min-height=52px box=52px | card radius=16px
+[after-v2] b-field-large @375 scrollWidth=375 innerWidth=375 overflow=no
+[after-v2] B SUMMARY painted field boxes small/medium/large = [44,52,60] (min-height ["44px","52px","60px"], padding ["11px/11px","15px/15px","19px/19px"])
+[after-v2] C no-theme chrome <style> bytes=31906 sha256=ad1463b1cf9bc39ee0e73cc80efe52b0eb5bdbe199ba7cdd3e85d1b5532b666c
+[after-v2] C no-theme .lg-input rule = .lg-input{width:100%;box-sizing:border-box;padding:16px 18px;border:2px solid #D2D9E5;border-color:var(--lg-field-border, #D2D9E5);border-radius:12px;font-size:1rem;font-family:inherit;color:#1A1F36;min-height:44px;background:#FFFFFF}
+[after-v2] C no-theme .lg-btn rule = .lg-btn{display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;background:#1B3A5C;color:#FFFFFF;padding:14px 16px;min-height:52px;border-radius:10px;border:0;font-family:'Sora',sans-serif;font-size:0.9375rem;font-weight:600;cursor:pointer;box-sizing:border-box;transition:background var(--lg-transition-btn) var(--lg-btn-easing)}
+[after-v2] C SUMMARY no-theme button=52px/52px card=16px
+[after-v2] c-no-theme @375 scrollWidth=375 innerWidth=375 overflow=no
+
+===== ARM=after-final run 2026-08-02T14:00:29.334Z =====
+[after-final] A preset thm_f3-preset-acc6-f3a-1785679229722994 controls = {"field_height":"large","button_size":"l","corners":"pill"}
+[after-final] A stored theme_json PRE-FORK = {"theme_id":"thm_f3-preset-acc6-f3a-1785679229722994"}
+[after-final] A apply-preset: served chrome <style> changed after 0 polls (sentinel-nev -> f09ccaa69d96)
+[after-final] A BEFORE fork (preset applied) PAINTED field min-height=60px box=60px padding=19px/19px | button min-height=60px box=60px | card radius=20px
+[after-final] a-before-fork @375 scrollWidth=375 innerWidth=375 overflow=no
+[after-final] A stored theme_json POST-FORK = {"palette":{"brand_primary":"accent","accent":"#2E6BB0","page_background":"#FFFFFF","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"},"scales":{"radius":"round"},"field_defaults":{"min_height":"large"},"button_defaults":{"min_height":"l"}}
+[after-final] A post-fork: served chrome <style> changed after 0 polls (f09ccaa69d96 -> 0bb770ecb770)
+[after-final] A AFTER fork (one colour edited) PAINTED field min-height=60px box=60px padding=19px/19px | button min-height=60px box=60px | card radius=20px
+[after-final] a-after-fork @375 scrollWidth=375 innerWidth=375 overflow=no
+[after-final] A SUMMARY before field=60px/60px button=60px/60px card=20px | after field=60px/60px button=60px/60px card=20px
+[after-final] B small: served chrome <style> changed after 0 polls (sentinel-nev -> 17375209662e)
+[after-final] B field_height=small PAINTED field min-height=44px box=44px padding=11px/11px | button min-height=52px box=52px | card radius=16px
+[after-final] b-field-small @375 scrollWidth=375 innerWidth=375 overflow=no
+[after-final] B medium: served chrome <style> changed after 0 polls (17375209662e -> cef6d693d3c6)
+[after-final] B field_height=medium PAINTED field min-height=52px box=52px padding=15px/15px | button min-height=52px box=52px | card radius=16px
+[after-final] b-field-medium @375 scrollWidth=375 innerWidth=375 overflow=no
+[after-final] B large: served chrome <style> changed after 0 polls (cef6d693d3c6 -> 295cb4ccd752)
+[after-final] B field_height=large PAINTED field min-height=60px box=60px padding=19px/19px | button min-height=52px box=52px | card radius=16px
+[after-final] b-field-large @375 scrollWidth=375 innerWidth=375 overflow=no
+[after-final] B SUMMARY painted field boxes small/medium/large = [44,52,60] (min-height ["44px","52px","60px"], padding ["11px/11px","15px/15px","19px/19px"])
+[after-final] C no-theme chrome <style> bytes=31906 sha256=ad1463b1cf9bc39ee0e73cc80efe52b0eb5bdbe199ba7cdd3e85d1b5532b666c
+[after-final] C no-theme .lg-input rule = .lg-input{width:100%;box-sizing:border-box;padding:16px 18px;border:2px solid #D2D9E5;border-color:var(--lg-field-border, #D2D9E5);border-radius:12px;font-size:1rem;font-family:inherit;color:#1A1F36;min-height:44px;background:#FFFFFF}
+[after-final] C no-theme .lg-btn rule = .lg-btn{display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;background:#1B3A5C;color:#FFFFFF;padding:14px 16px;min-height:52px;border-radius:10px;border:0;font-family:'Sora',sans-serif;font-size:0.9375rem;font-weight:600;cursor:pointer;box-sizing:border-box;transition:background var(--lg-transition-btn) var(--lg-btn-easing)}
+[after-final] C SUMMARY no-theme button=52px/52px card=16px
+[after-final] c-no-theme @375 scrollWidth=375 innerWidth=375 overflow=no

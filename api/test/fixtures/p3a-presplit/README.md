@@ -151,3 +151,20 @@ visibly carries the NEW future dates (proving the fake clock took effect,
 ruling out a vacuous pass) yet still compares byte-identical to the frozen
 fixture. This fixture pair therefore never needs re-capture for date drift alone
 (only for an actual renderer change, like every other fixture here).
+
+2026-08-02 re-capture (R2 F-3 — the two SIZE rails): exactly TWO fixtures
+changed, `editor-panel-themes.html` and `editor-full.html`. The Themes rail's
+"Button height" select gained an `s`/Small option (its vocabulary now reads the
+exported `THEME_BUTTON_MIN_HEIGHTS`, widened to the full shared s/m/l ladder
+instead of a hand-typed `["m","l"]`), a NEW "Fields" group with a "Field height"
+select (`field_defaults.min_height`) was added below Buttons, and the shared
+preset-resolve island gained its two new bridges
+(`PRESET_BUTTON_SIZE_BRIDGE`/`PRESET_FIELD_HEIGHT_BRIDGE`) plus the corrected
+"what the fork carries" comment. Both are needed because a preset's Field height
+and Button size had NO inline counterpart and were silently discarded the moment
+the operator's first rail edit forked `theme_json` (measured on the live page:
+painted field 60px -> 44px, button 60px -> 52px, after editing one colour).
+Scope-verified: `editor-panel-{ab,activation,analytics,builder,templates}`,
+`quotes-list-{empty,seeded}`, `quotes-new` and `quotes-not-found` were
+re-captured by the same ritual and RESTORED byte-for-byte from their pre-capture
+bytes after the diff proved minted-id noise only — 12/12 green afterwards.

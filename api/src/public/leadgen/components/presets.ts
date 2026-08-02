@@ -80,6 +80,7 @@ import {
   isFunnelTokenRole,
   readButtonStyle,
   THEME_RECORD_FIELD_HEIGHT_TO_MIN_HEIGHT,
+  fieldPaddingBlockForPx,
 } from "../designs/theme";
 // R2 P1 §① (owner A.1 #4 / probe 4a): the ONE definition of the §6.6 mark
 // rules lives in the design sheet; this module emits it demand-driven for the
@@ -2235,14 +2236,23 @@ function sizeAxisCssValue(axis: LeadgenResolvedSizeAxis, axisKind: "width" | "he
 function sizeStyleEntries(
   node: LeadgenComponentNode,
   ctx: LeadgenSectionRenderCtx | undefined,
-): { width?: string; height?: string } {
+): { width?: string; height?: string; paddingBlock?: string } {
   const sizeOverride = node.design_overrides?.size;
   if (sizeOverride === undefined) return {};
   const controls = ctx?.theme_controls ?? DEFAULT_SIZE_THEME_CONTROLS;
   const resolved = resolveFieldSize(sizeOverride, controls);
+  const height = sizeAxisCssValue(resolved.height, "height");
   return {
     width: sizeAxisCssValue(resolved.width, "width"),
-    height: sizeAxisCssValue(resolved.height, "height"),
+    height,
+    // R2 F-3 (gap 2): the height's PAIRED vertical padding, from designs/
+    // theme.ts's ONE derivation (fieldPaddingBlockForPx) — the same subtraction
+    // the theme tier uses on the base `.lg-input` rule. Without it a floor
+    // under the field's intrinsic 54px box paints nothing (measured 54/54/60
+    // for small/medium/large); with it the floor IS the painted box. A
+    // hand-dragged custom_px rides the identical formula, so the preset rungs
+    // and a drag stay one scale.
+    paddingBlock: height === undefined ? undefined : fieldPaddingBlockForPx(Number.parseFloat(height)),
   };
 }
 
@@ -2293,7 +2303,15 @@ function fieldSizeStyle(node: LeadgenComponentNode, ctx: LeadgenSectionRenderCtx
   // R7 U11b: the .lg-currency/.lg-address OUTER wrapper is a block <div> →
   // auto side-margins center it on a fixed width; {} for full/unauthored keeps
   // this byte-identical (the pre-R7 currency/address size pins hold).
-  return style({ ...sz, ...widthCenteringEntries(sz.width, { align: node.layout?.align }) });
+  // R2 F-3 (gap 2): the height rides as a FLOOR here too — an exact `height:`
+  // on a composite control's wrapper clips its own children. The paired padding
+  // is NOT applied to a wrapper: the padding ladder sizes the FIELD BOX, and a
+  // wrapper's padding would inset the control instead of resizing it.
+  return style({
+    width: sz.width,
+    "min-height": sz.height,
+    ...widthCenteringEntries(sz.width, { align: node.layout?.align }),
+  });
 }
 
 // v3.1 §8.5b/§11.5 Style tab "Corners" (Sharp/Rounded/Pill) -> §3.3 radii
@@ -2413,7 +2431,20 @@ function fieldStyleAttr(
   // auto side-margins center it on a fixed width. {} for full/unauthored →
   // byte-identical (order: width,height,border-radius,--lg-field-border first,
   // then the centering keys only when a fixed width is present).
-  return style({ ...sz, ...appearanceStyleEntries(node, design), ...widthCenteringEntries(sz.width, { block: true, align: node.layout?.align }) });
+  // R2 F-3 (gap 2): `height` -> `min-height` + the paired vertical padding.
+  // This element IS the field box, so it is where the ladder has to land. The
+  // FLOOR is the semantic this codebase standardises on (designs/theme.ts
+  // FIELD_BOX_CHROME_PX rationale) and the one this module's own doc comment
+  // above already claimed for the text idiom — `height:44px` on a 16px-padded
+  // 16px-font input leaves 8px of content area and CLIPS the text.
+  return style({
+    width: sz.width,
+    "min-height": sz.height,
+    "padding-top": sz.paddingBlock,
+    "padding-bottom": sz.paddingBlock,
+    ...appearanceStyleEntries(node, design),
+    ...widthCenteringEntries(sz.width, { block: true, align: node.layout?.align }),
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -65,9 +65,11 @@
 import { escapeHtml } from "../../templates/layout";
 import {
   THEME_BUTTON_LAYOUTS,
+  THEME_BUTTON_MIN_HEIGHTS,
   THEME_BUTTON_SELECTED_STYLES,
   THEME_BUTTON_STYLES,
   THEME_DISPLAY_SIZE_SCALES,
+  THEME_FIELD_MIN_HEIGHTS,
   THEME_FONT_IDS,
   THEME_RADIUS_SCALES,
   THEME_RADIUS_STEPS,
@@ -138,6 +140,20 @@ const THEME_FONT_LABELS: Readonly<Record<string, string>> = {
 };
 
 
+// R2 F-3 — the two SIZE rails.
+//
+// "Button height" used to hard-code its vocabulary as ["m","l"]; it now reads
+// the EXPORTED enum, which was widened to the full shared s/m/l ladder so a
+// preset's Button size = Small has an inline home to be carried into when the
+// operator's first rail edit forks theme_json. A hand-typed list here could
+// silently fall behind that enum again — that drift is the whole defect class.
+// "Field height" is NEW: the field box had no inline axis at all, which is
+// exactly why a preset's Field height was discarded at the fork (measured:
+// painted 60px -> 44px after editing one colour). Labels live out here so the
+// emitted panel markup carries no comment/whitespace noise on the wire.
+const BUTTON_HEIGHT_LABELS: Readonly<Record<string, string>> = { s: "Small", m: "Medium", l: "Large" };
+const FIELD_HEIGHT_LABELS: Readonly<Record<string, string>> = { small: "Small", medium: "Medium", large: "Large" };
+
 function renderThemeEditorPanel(isControl: boolean): string {
   const paletteRows = ROLE_META.map(
     (r) => `<div class="lg-theme-role-row" data-theme-role="${escapeHtml(r.role)}">
@@ -188,8 +204,12 @@ function renderThemeEditorPanel(isControl: boolean): string {
   ${frameControl("Button text", renderRoleStrip("theme:button_defaults.text_role"))}
   <div class="lg-scalars">
     ${themeSelect("Button corners", "button_defaults.radius", THEME_RADIUS_STEPS)}
-    ${themeSelect("Button height", "button_defaults.min_height", ["m", "l"], { m: "Medium", l: "Large" })}
+    ${themeSelect("Button height", "button_defaults.min_height", THEME_BUTTON_MIN_HEIGHTS, BUTTON_HEIGHT_LABELS)}
     ${themeSelect("Button casing", "button_defaults.casing", ["none", "upper"], { none: "As written", upper: "UPPERCASE" })}
+  </div>
+  <h3>Fields</h3>
+  <div class="lg-scalars">
+    ${themeSelect("Field height", "field_defaults.min_height", THEME_FIELD_MIN_HEIGHTS, FIELD_HEIGHT_LABELS)}
   </div>
   <h4>Button style</h4>
   <p class="form-help">Three independent looks (Images 38&#8211;40) &#8212; mix and match; each defaults to today's look.</p>

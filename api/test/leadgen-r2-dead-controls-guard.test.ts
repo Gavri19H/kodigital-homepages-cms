@@ -26,15 +26,38 @@
 //   logo prop -> real effectiveFrame() config -> the real renderQuoteFrame().
 // A control is ALIVE iff flipping it (and nothing else) changes those bytes.
 //
+// R2 F-3 — THE SECOND HALF OF THE CLASS: A CONTROL THAT PAINTS, THEN IS LOST.
+//
+// The probes above prove "this control has a consumer". That is NOT the whole
+// class, and the hole let two more instances ship: `field_height` and
+// `button_size` painted correctly under a {theme_id} preset and were then
+// DISCARDED the instant the operator's first Themes-rail edit forked
+// theme_json into inline values (measured on the live page: field min-height
+// 60px -> 44px, button 60px -> 52px, after editing one colour). From the
+// operator's chair a control whose effect evaporates on the next unrelated edit
+// is as dead as one that never painted.
+//
+// So every theme control is ALSO driven through the REAL fork — the shipped
+// island source themePresetResolveSnippet() evaluated and called, then its
+// output through the REAL validateTheme + resolveTokens + the same painted
+// surfaces — and must paint the SAME bytes on both sides. Nothing is hand-built
+// on either side of that boundary (E11): the preset side is a real record, the
+// inline side is whatever the shipped island actually produced from it.
+//
 // SELF-TEST. The last describe block feeds the very same probes a SYNTHETIC new
 // dead control — a key the renderers have never heard of — and asserts the
-// probe reports it dead. A guard nobody has seen fail is not a guard.
+// probe reports it dead; and a SYNTHETIC control that paints but is dropped by
+// the fork resolver, asserting the fork probe reports it LOST. A guard nobody
+// has seen fail is not a guard.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createContext, runInContext } from "node:vm";
 
 import { describe, expect, it } from "vitest";
+
+import { themePresetResolveSnippet } from "../src/admin/leadgen/quotes-tabs/theme-preset-resolve";
 
 import { renderSectionComponents } from "../src/public/leadgen/components/presets";
 import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
@@ -45,8 +68,8 @@ import * as framesModule from "../src/public/leadgen/designs/frames";
 import { effectiveFrame } from "../src/public/leadgen/designs/frames";
 import type { FrameConfig } from "../src/public/leadgen/designs/frames";
 import * as themeModule from "../src/public/leadgen/designs/theme";
-import { resolveTokens } from "../src/public/leadgen/designs/theme";
-import type { ThemeRecord } from "../src/public/leadgen/designs/theme";
+import { resolveTokens, validateTheme } from "../src/public/leadgen/designs/theme";
+import type { ThemeJson, ThemeRecord } from "../src/public/leadgen/designs/theme";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(HERE, "..", "src", "public", "leadgen", "designs");
@@ -246,6 +269,98 @@ function deadThemeControls(controls: ReadonlyArray<{ name: string; vocabulary: r
   return dead;
 }
 
+// ---------------------------------------------------------------------------
+// PROBE 1b (R2 F-3) — the SAME painted surfaces, on the far side of the
+// preset -> inline FORK.
+//
+// The fork is performed by the REAL shipped island: theme-preset-resolve.ts
+// exports the ES5 source text both admin islands interpolate verbatim, so
+// evaluating it and calling inlineThemeFromPreset runs the same bytes the
+// operator's browser runs. Its product then goes through the REAL validateTheme
+// (the PUT that follows it in the island is gated by exactly this function) and
+// the REAL resolveTokens with `record` NULL — because after the fork the record
+// is out of resolution entirely, which is precisely why an uncarried value was
+// lost.
+// ---------------------------------------------------------------------------
+
+type InlineFromPreset = (rec: unknown) => Record<string, unknown>;
+
+function loadPresetResolveIsland(): InlineFromPreset {
+  // Statement text meant to be inlined into an IIFE: it only DECLARES (its one
+  // fetch lives inside a function body), so evaluating it in a fresh isolated
+  // context and handing back the declared function is what the browser does.
+  const sandbox = createContext({});
+  return runInContext(`${themePresetResolveSnippet()}\ninlineThemeFromPreset;`, sandbox, {
+    filename: "theme-preset-resolve.island.js",
+  }) as InlineFromPreset;
+}
+
+const inlineThemeFromPreset = loadPresetResolveIsland();
+
+// Every leaf of the resolved design, as `path -> value`. Comparing WHOLE
+// painted pages across the fork would be meaningless — a preset and an inline
+// theme legitimately differ elsewhere (typography.base_px has no inline
+// counterpart at all) — so the probe below compares only the tokens the control
+// under test actually moves.
+function flattenTokens(value: unknown, prefix = "", out: Map<string, string> = new Map()): Map<string, string> {
+  if (value === null || typeof value !== "object") {
+    out.set(prefix, String(value));
+    return out;
+  }
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    flattenTokens(child, prefix === "" ? key : `${prefix}.${key}`, out);
+  }
+  return out;
+}
+
+function tokensForRecordControls(controls: Record<string, string>): Map<string, string> {
+  const record = themeRecordWith(controls);
+  return flattenTokens(resolveTokens(defaultFunnelDesign, { theme_id: record.id }, null, record).design);
+}
+
+// The forked product of a record, through the REAL island + the REAL validator
+// + the REAL resolver with `record` null (after the fork the record is out of
+// resolution entirely — which is exactly why an uncarried value was lost).
+function tokensAfterFork(
+  controls: Record<string, string>,
+  fork: InlineFromPreset = inlineThemeFromPreset,
+): Map<string, string> {
+  const inline = fork(themeRecordWith(controls));
+  const validation = validateTheme(inline);
+  expect(
+    validation.problems.filter((p) => p.severity === "error"),
+    `the fork's product is a LEGAL inline theme (the island PUTs it): ${JSON.stringify(inline)}`,
+  ).toEqual([]);
+  return flattenTokens(resolveTokens(defaultFunnelDesign, validation.theme, null, null).design);
+}
+
+// A control is LOST-ACROSS-THE-FORK iff some value of it moves design tokens
+// under the preset and those SAME tokens do not land on the SAME values after
+// the fork. Deriving the watched token set from the control's own effect keeps
+// this structural (no hand-listed "field_height owns input.minHeight" table)
+// while still catching a carry that is dropped, collapsed OR mis-mapped.
+function lostAcrossFork(
+  controls: ReadonlyArray<{ name: string; vocabulary: readonly string[] }>,
+  fork: InlineFromPreset = inlineThemeFromPreset,
+): string[] {
+  const lost: string[] = [];
+  const baseTokens = tokensForRecordControls(BASE_CONTROLS);
+  for (const control of controls) {
+    for (const value of control.vocabulary) {
+      const withValue = { ...BASE_CONTROLS, [control.name]: value };
+      const presetTokens = tokensForRecordControls(withValue);
+      const moved = [...presetTokens.keys()].filter((k) => presetTokens.get(k) !== baseTokens.get(k));
+      if (moved.length === 0) continue; // this value IS the base value (or the control is dead — probe 1's job)
+      const forked = tokensAfterFork(withValue, fork);
+      if (moved.some((k) => forked.get(k) !== presetTokens.get(k))) {
+        lost.push(control.name);
+        break;
+      }
+    }
+  }
+  return lost;
+}
+
 function deadLogoProps(props: ReadonlyArray<{ name: string; values: readonly [unknown, unknown] }>): string[] {
   const dead: string[] = [];
   for (const prop of props) {
@@ -325,10 +440,99 @@ describe("R2 F-2 dead-control guard — theme.controls", () => {
     );
   });
 
-  it("no theme record (an inline-themed or unthemed funnel) is byte-identical — the appliers are record-only", () => {
+  it("no theme at all (an unthemed funnel) is byte-identical — every applier is opt-in", () => {
     const withoutRecord = resolveTokens(defaultFunnelDesign);
     expect(withoutRecord.design.input.minHeight).toBe(defaultFunnelDesign.input.minHeight);
+    expect(withoutRecord.design.input.padding).toBe(defaultFunnelDesign.input.padding);
     expect(withoutRecord.design.primaryButton.minHeight).toBe(defaultFunnelDesign.primaryButton.minHeight);
+    expect(withoutRecord.theme_controls).toBeUndefined();
+    // …and an inline theme that authors NEITHER size axis is equally untouched.
+    const colourOnly = resolveTokens(defaultFunnelDesign, { palette: { brand_primary: "#123456" } }, null, null);
+    expect(colourOnly.design.input.minHeight).toBe(defaultFunnelDesign.input.minHeight);
+    expect(colourOnly.design.input.padding).toBe(defaultFunnelDesign.input.padding);
+    expect(colourOnly.design.primaryButton.minHeight).toBe(defaultFunnelDesign.primaryButton.minHeight);
+    expect(colourOnly.theme_controls).toBeUndefined();
+  });
+
+  // R2 F-3 — the ladder must be VISIBLE, not merely declared. A floor under the
+  // field's own intrinsic box paints nothing (measured 54/54/60 for
+  // small/medium/large at HEAD), so each rung carries the padding that puts the
+  // intrinsic box ON the rung. Asserted as the arithmetic the browser performs:
+  // 2*padding + the 22px non-padding chrome == the floor.
+  it("field_height's three rungs are VISIBLY distinct — padding tracks the floor (not just a declared min-height)", () => {
+    const seen = themeControlVocabulary("field_height").map((value) => {
+      const painted = paintedForThemeControls({ ...BASE_CONTROLS, field_height: value });
+      const rule = /\.lg-input\{([^}]*)\}/.exec(painted)?.[1] ?? "";
+      const minHeight = /min-height:([0-9]+)px/.exec(rule)?.[1];
+      const padding = /padding:([0-9]+)px ([0-9]+)px/.exec(rule);
+      return {
+        value,
+        minHeight: Number(minHeight),
+        padBlock: Number(padding?.[1]),
+        padInline: padding?.[2],
+      };
+    });
+    for (const step of seen) {
+      expect(2 * step.padBlock + 22, `field_height=${step.value} paints its own floor`).toBe(step.minHeight);
+      // The horizontal padding is the design's own, never rewritten.
+      expect(step.padInline, `field_height=${step.value} keeps the design's side padding`).toBe("18");
+    }
+    expect(seen.map((s) => s.minHeight)).toEqual([44, 52, 60]);
+    expect(new Set(seen.map((s) => s.padBlock)).size, "three distinct paddings").toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1b. R2 F-3 — every theme control SURVIVES the preset -> inline fork.
+// ---------------------------------------------------------------------------
+
+describe("R2 F-3 dead-control guard — theme.controls survive the preset -> inline fork", () => {
+  const fields = declaredFields(path.join(SRC, "theme.ts"), "ThemeRecordControls");
+
+  it("EVERY declared control paints the SAME bytes before and after the operator's first rail edit", () => {
+    const allowlisted = new Set(NON_PAINTING_ALLOWLIST.map((a) => a.control));
+    const probed = fields
+      .filter((f) => !allowlisted.has(f.name))
+      .map((f) => ({ name: f.name, vocabulary: themeControlVocabulary(f.name) }));
+    expect(probed.length).toBeGreaterThanOrEqual(3);
+    expect(lostAcrossFork(probed)).toEqual([]);
+  });
+
+  // Per-control named legs, so a regression names the guilty knob.
+  for (const control of ["field_height", "button_size", "corners"]) {
+    it(`${control} survives the fork at every value in its vocabulary`, () => {
+      expect(lostAcrossFork([{ name: control, vocabulary: themeControlVocabulary(control) }])).toEqual([]);
+    });
+  }
+
+  it("the fork's product carries an inline counterpart for every control (never a partial rescue)", () => {
+    const inline = inlineThemeFromPreset(
+      themeRecordWith({ field_height: "large", button_size: "l", corners: "pill" }),
+    );
+    expect(inline["field_defaults"]).toEqual({ min_height: "large" });
+    expect((inline["button_defaults"] as Record<string, unknown>)["min_height"]).toBe("l");
+    expect(inline["scales"]).toEqual({ radius: "round" });
+  });
+
+  it("the node tier's inherit-default survives too (theme_controls is published on the forked funnel)", () => {
+    const controls = { field_height: "large", button_size: "l", corners: "pill" };
+    const before = resolveTokens(defaultFunnelDesign, { theme_id: "thm_probe" }, null, themeRecordWith(controls));
+    const inline = validateTheme(inlineThemeFromPreset(themeRecordWith(controls))).theme;
+    const after = resolveTokens(defaultFunnelDesign, inline, null, null);
+    expect(after.theme_controls?.field_height).toBe(before.theme_controls?.field_height);
+    expect(after.theme_controls?.button_size).toBe(before.theme_controls?.button_size);
+  });
+
+  it("a record with NO recognisable controls forks to a theme with no size keys (byte-identical to pre-carry)", () => {
+    const inline = inlineThemeFromPreset({ ...themeRecordWith({}), controls: {} });
+    expect(inline["field_defaults"]).toBeUndefined();
+    expect(inline["scales"]).toBeUndefined();
+    expect((inline["button_defaults"] as Record<string, unknown> | undefined)?.["min_height"]).toBeUndefined();
+    const offTable = inlineThemeFromPreset(
+      themeRecordWith({ field_height: "gigantic", button_size: "xxl", corners: "wobbly" }),
+    );
+    expect(offTable["field_defaults"]).toBeUndefined();
+    expect(offTable["scales"]).toBeUndefined();
   });
 });
 
@@ -426,5 +630,47 @@ describe("R2 F-2 dead-control guard — the guard itself fails on a NEW dead con
 
   it("a NEW theme control with no exported vocabulary constant fails loudly (never silently skipped)", () => {
     expect(() => themeControlVocabulary("shadow_depth")).toThrow(/no exported vocabulary constant/);
+  });
+
+  // R2 F-3 — the fork probe's OWN proof. A control that paints perfectly under
+  // the preset but that the fork resolver forgets is the exact shape
+  // field_height and button_size had at HEAD; the probe must report it LOST.
+  // The synthetic defect is injected where the real one lived: a fork resolver
+  // that drops one carry. Everything else — the record, the validator, the
+  // renderers — stays the real thing.
+  it("a control that PAINTS but is dropped by the fork resolver is reported LOST", () => {
+    const forkThatForgetsFieldHeight: InlineFromPreset = (rec) => {
+      const inline = inlineThemeFromPreset(rec);
+      delete inline["field_defaults"];
+      return inline;
+    };
+    expect(
+      lostAcrossFork(
+        [{ name: "field_height", vocabulary: themeControlVocabulary("field_height") }],
+        forkThatForgetsFieldHeight,
+      ),
+      "the probe catches a carry the fork resolver dropped",
+    ).toEqual(["field_height"]);
+
+    // …and the SAME probe still calls all three real controls survivors, so the
+    // detector is discriminating rather than universally negative.
+    expect(
+      lostAcrossFork([
+        { name: "field_height", vocabulary: themeControlVocabulary("field_height") },
+        { name: "button_size", vocabulary: themeControlVocabulary("button_size") },
+        { name: "corners", vocabulary: themeControlVocabulary("corners") },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("a control the fork carries to the WRONG value is reported LOST (not just an absent key)", () => {
+    const forkThatMisMaps: InlineFromPreset = (rec) => {
+      const inline = inlineThemeFromPreset(rec);
+      inline["field_defaults"] = { min_height: "small" };
+      return inline;
+    };
+    expect(
+      lostAcrossFork([{ name: "field_height", vocabulary: themeControlVocabulary("field_height") }], forkThatMisMaps),
+    ).toEqual(["field_height"]);
   });
 });

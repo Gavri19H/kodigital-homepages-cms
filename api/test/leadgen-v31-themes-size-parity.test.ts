@@ -391,6 +391,19 @@ describeDb("theme_controls threading (v3.1 §7/§12, adversarial review MAJOR-1)
   // inherit theme default") on all 3 paths — this test's OWN purpose (proving
   // theme_controls threading reaches the render) is fulfilled MORE completely
   // now that both axes are observable, not just the custom_px width.
+  //
+  // R2 F-3 (gap 2) — the pinned string moved from `height:60px` to
+  // `min-height:60px;padding-top:19px;padding-bottom:19px`, and the pin is
+  // still an exact full-attribute match. WHY: `height:60px` is an EXACT height
+  // on a box whose padding is unrelated to it — at the small rung
+  // (`height:44px`, 16px padding, a 16px font) it leaves 8px of content area
+  // and CLIPS the text. designs/theme.ts now standardises BOTH tiers on the
+  // FLOOR semantic presets.ts already documented for this idiom, and pairs each
+  // rung with the vertical padding that puts the intrinsic box ON the rung (so
+  // the floor is also VISIBLE — measured 54/54/60 before, 44/52/60 after).
+  // 19px = fieldPaddingBlockForPx(60), the same single derivation the theme
+  // tier uses. This test's own purpose — theme_controls threading reaches the
+  // render on all 3 paths — is unchanged and still proven byte-exactly.
   it("PATH 1/3 — runtime GET /lg/:slug renders the node's custom_px width inline (ctx reaches fieldSizeStyle)", async () => {
     const fx = await seedActivatedFixture("size-runtime", true);
     await assignTheme(fx.h.env, fx.funnelPublicId);
@@ -398,7 +411,7 @@ describeDb("theme_controls threading (v3.1 §7/§12, adversarial review MAJOR-1)
     const res = await app.request(`${TENANT_ORIGIN}/lg/size-runtime`, {}, fx.h.env);
     expect(res.status, await res.clone().text()).toBe(200);
     const html = await res.text();
-    expect(html).toContain('style="width:384px;height:60px;display:block;margin-left:auto;margin-right:auto"');
+    expect(html).toContain('style="width:384px;min-height:60px;padding-top:19px;padding-bottom:19px;display:block;margin-left:auto;margin-right:auto"');
   });
 
   it("PATH 2/3 — POST /sections/preview (section-in-frame) renders the SAME custom_px width", async () => {
@@ -417,7 +430,7 @@ describeDb("theme_controls threading (v3.1 §7/§12, adversarial review MAJOR-1)
     );
     expect(res.status, `preview: ${await res.clone().text()}`).toBe(200);
     const body = (await res.json()) as { preview: { desktop: string } };
-    expect(body.preview.desktop).toContain('style="width:384px;height:60px;display:block;margin-left:auto;margin-right:auto"');
+    expect(body.preview.desktop).toContain('style="width:384px;min-height:60px;padding-top:19px;padding-bottom:19px;display:block;margin-left:auto;margin-right:auto"');
   });
 
   it("PATH 3/3 — POST /variants/:id/preview (composed-variant preview) renders the SAME custom_px width", async () => {
@@ -431,7 +444,7 @@ describeDb("theme_controls threading (v3.1 §7/§12, adversarial review MAJOR-1)
     );
     expect(res.status, `composed preview: ${await res.clone().text()}`).toBe(200);
     const body = (await res.json()) as { preview: { html: string } };
-    expect(body.preview.html).toContain('style="width:384px;height:60px;display:block;margin-left:auto;margin-right:auto"');
+    expect(body.preview.html).toContain('style="width:384px;min-height:60px;padding-top:19px;padding-bottom:19px;display:block;margin-left:auto;margin-right:auto"');
   });
 
   it("REGRESSION — absent design_overrides.size renders NO style attribute on the field, on all 3 paths (byte-identical, strictly additive)", async () => {

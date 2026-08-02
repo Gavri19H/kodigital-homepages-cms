@@ -20,6 +20,21 @@
 //   LEADGEN_P3A_PIN_UPDATE=1 npx vitest run test/leadgen-p3a-backcompat.test.ts
 // rewrites the fixture then FAILS on purpose (an update run never passes) —
 // rerun without the flag to verify.
+//
+// 2026-08-02 re-mint (R2 F-3, gap 2 — the size SEMANTIC). Exactly two emitted
+// declarations moved, both on design_overrides.size nodes:
+//   text input (fieldStyleAttr)  width:384px;height:52px;display:block;…
+//     -> width:384px;min-height:52px;padding-top:15px;padding-bottom:15px;display:block;…
+//   currency/address wrapper (fieldSizeStyle)  width:384px;height:52px;…
+//     -> width:384px;min-height:52px;…
+// WHY: an exact `height:` is a clipping declaration — at the small rung
+// (height:44px, 16px padding, a 16px font) it leaves 8px of content area and
+// cuts the text. Both tiers now speak the FLOOR semantic presets.ts already
+// documented for these idioms ("a preset only ever FLOORS the box — it never
+// clips"), and the field box additionally carries the paired vertical padding
+// that makes the floor VISIBLE (small and medium both painted 54px before).
+// The align/centering keys this file exists to freeze are UNCHANGED, and every
+// no-layout node WITHOUT design_overrides.size is still byte-identical.
 import { describe, expect, it } from "vitest";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

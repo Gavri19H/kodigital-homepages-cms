@@ -200,8 +200,12 @@
   <div class="form-group"><label class="form-label">Button text</label><div class="lg-role-strip" data-role-strip="theme:button_defaults.text_role"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="theme:button_defaults.text_role" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="theme:button_defaults.text_role" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="theme:button_defaults.text_role" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="theme:button_defaults.text_role" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="theme:button_defaults.text_role" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="theme:button_defaults.text_role" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="theme:button_defaults.text_role" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="theme:button_defaults.text_role" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="theme:button_defaults.text_role" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="theme:button_defaults.text_role" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="theme:button_defaults.text_role" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="theme:button_defaults.text_role" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="theme:button_defaults.text_role" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="theme:button_defaults.text_role" title="Secondary button" aria-label="Secondary button"></button></div></div>
   <div class="lg-scalars">
     <div class="form-group"><label class="form-label">Button corners</label><select class="form-select" data-theme-key="button_defaults.radius"><option value="">Inherit from base design</option><option value="sm">sm</option><option value="md">md</option><option value="lg">lg</option><option value="xl">xl</option><option value="full">full</option></select></div>
-    <div class="form-group"><label class="form-label">Button height</label><select class="form-select" data-theme-key="button_defaults.min_height"><option value="">Inherit from base design</option><option value="m">Medium</option><option value="l">Large</option></select></div>
+    <div class="form-group"><label class="form-label">Button height</label><select class="form-select" data-theme-key="button_defaults.min_height"><option value="">Inherit from base design</option><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select></div>
     <div class="form-group"><label class="form-label">Button casing</label><select class="form-select" data-theme-key="button_defaults.casing"><option value="">Inherit from base design</option><option value="none">As written</option><option value="upper">UPPERCASE</option></select></div>
+  </div>
+  <h3>Fields</h3>
+  <div class="lg-scalars">
+    <div class="form-group"><label class="form-label">Field height</label><select class="form-select" data-theme-key="field_defaults.min_height"><option value="">Inherit from base design</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select></div>
   </div>
   <h4>Button style</h4>
   <p class="form-help">Three independent looks (Images 38&#8211;40) &#8212; mix and match; each defaults to today's look.</p>
@@ -265,6 +269,11 @@
   // preset path (theme.ts THEME_RECORD_CORNERS_TO_RADIUS_SCALE), so the two
   // corner ladders can never drift apart.
   var PRESET_CORNERS_BRIDGE = {"sharp":"sharp","rounded":"soft","pill":"round"};
+  // R2 F-3: button_size -> button_defaults.min_height, field_height ->
+  // field_defaults.min_height — SERIALIZED from the same satisfies-pinned
+  // tables designs/theme.ts declares (rationale in this module's TS comment).
+  var PRESET_BUTTON_SIZE_BRIDGE = {"s":"s","m":"m","l":"l"};
+  var PRESET_FIELD_HEIGHT_BRIDGE = {"small":"small","medium":"medium","large":"large"};
   function hasAnyKey(o) {
     var k;
     for (k in o) { if (Object.prototype.hasOwnProperty.call(o, k)) { return true; } }
@@ -278,11 +287,12 @@
   // edit FORKS theme_json from a {theme_id} pointer into inline values, and
   // the record then drops out of resolution entirely — so anything NOT carried
   // across this fork is silently lost. Carried: palette, button_style,
-  // display_size, the mappable fonts, and (R2 F-1 follow-up) controls.corners
-  // as its exact inline counterpart scales.radius. Deliberately NOT carried,
-  // because no inline axis expresses them: the "Newsreader"/"Inter"/"Roboto Mono" font families,
-  // typography.base_px, controls.field_height and controls.button_size.
-  // Full rationale in this module's TypeScript comment above.
+  // display_size, the mappable fonts, and — as their exact inline counterparts
+  // — ALL THREE of ThemeRecordControls: corners -> scales.radius (R2 F-1),
+  // button_size -> button_defaults.min_height and field_height ->
+  // field_defaults.min_height (R2 F-3). Deliberately NOT carried, because no
+  // inline axis expresses them: the "Newsreader"/"Inter"/"Roboto Mono" font families and
+  // typography.base_px. Full rationale in this module's TypeScript comment.
   function inlineThemeFromPreset(rec) {
     var out = {};
     var palette = {};
@@ -301,12 +311,11 @@
     }
     if (hasAnyKey(palette)) { out.palette = palette; }
     var bstyle = (rec && rec.button_style) || null;
+    var bd = {};
     if (bstyle) {
-      var bd = {};
       if (bstyle.fill) { bd.fill = bstyle.fill; }
       if (bstyle.layout) { bd.layout = bstyle.layout; }
       if (bstyle.selected) { bd.selected = bstyle.selected; }
-      if (hasAnyKey(bd)) { out.button_defaults = bd; }
     }
     var typ = (rec && rec.typography) || null;
     if (typ) {
@@ -325,6 +334,10 @@
     // to, so pinning it explicitly is byte-identical in paint while making the
     // operator's actual choice durable. An absent or off-table value writes
     // NOTHING (no scales key at all) — byte-identical to before this carry.
+    // R2 F-3 — the SAME carry, for the other two controls. Each writes only
+    // when the stored word is on its own closed bridge, so an absent or
+    // off-table value writes NOTHING (byte-identical to before this carry) and
+    // a corrupt record can never PUT an unvalidatable inline theme.
     var ctrls = (rec && rec.controls) || null;
     if (ctrls) {
       var sc = {};
@@ -332,7 +345,16 @@
         sc.radius = PRESET_CORNERS_BRIDGE[ctrls.corners];
       }
       if (hasAnyKey(sc)) { out.scales = sc; }
+      if (typeof ctrls.button_size === 'string' && Object.prototype.hasOwnProperty.call(PRESET_BUTTON_SIZE_BRIDGE, ctrls.button_size)) {
+        bd.min_height = PRESET_BUTTON_SIZE_BRIDGE[ctrls.button_size];
+      }
+      var fd = {};
+      if (typeof ctrls.field_height === 'string' && Object.prototype.hasOwnProperty.call(PRESET_FIELD_HEIGHT_BRIDGE, ctrls.field_height)) {
+        fd.min_height = PRESET_FIELD_HEIGHT_BRIDGE[ctrls.field_height];
+      }
+      if (hasAnyKey(fd)) { out.field_defaults = fd; }
     }
+    if (hasAnyKey(bd)) { out.button_defaults = bd; }
     return out;
   }
   // R2 P2 FIX-FIRST-2 (MINOR, fail-closed): fetching the applied preset is

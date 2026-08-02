@@ -27,12 +27,15 @@
 //
 // Declares, in the including IIFE's scope: PRESET_ROLE_BRIDGE,
 // PRESET_EXTRA_ROLE_BRIDGE, PRESET_FONT_BRIDGE, PRESET_CORNERS_BRIDGE,
-// hasAnyKey(o), inlineThemeFromPreset(rec), PRESET_LOAD_FAILED_MESSAGE,
+// PRESET_BUTTON_SIZE_BRIDGE, PRESET_FIELD_HEIGHT_BRIDGE, hasAnyKey(o),
+// inlineThemeFromPreset(rec), PRESET_LOAD_FAILED_MESSAGE,
 // presetInlineOrAbort(themeId).
 import {
   THEME_FONT_IDS,
   THEME_FONT_STACKS,
+  THEME_RECORD_BUTTON_SIZE_TO_INLINE_MIN_HEIGHT,
   THEME_RECORD_CORNERS_TO_RADIUS_SCALE,
+  THEME_RECORD_FIELD_HEIGHT_TO_INLINE_MIN_HEIGHT,
   THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE,
   THEME_RECORD_FONT_NAMES,
   THEME_RECORD_FONT_STACKS,
@@ -110,8 +113,41 @@ function unmappableFontNames(): readonly string[] {
 // closed. Translating the record's word into the inline word it already equals
 // keeps ONE derivation (applyRadiusScale) for both paths and adds no new
 // resolution rule: after the fork the funnel is a plain inline theme like any
-// other. field_height/button_size stay uncarried for the original reason —
-// unlike corners they have no equivalent inline axis to be translated INTO.
+// other.
+//
+// ---------------------------------------------------------------------------
+// R2 F-3 — …AND WHY controls.field_height AND controls.button_size ARE NOW
+// CARRIED TOO. This paragraph REPLACES this module's previous closing sentence,
+// "field_height/button_size stay uncarried for the original reason — unlike
+// corners they have no equivalent inline axis to be translated INTO." That
+// sentence was true of the vocabulary as it stood and false as a resting place:
+// closing only the reported arm of a defect class and leaving its twins is the
+// same silent loss the owner rejected in ADJ-A7, P5-F11 and P6-FIX-1.
+//
+// THE MEASURED LOSS (live visitor page, real Themes manager + real rail, both
+// arms — docs/leadgen/r2/evidence/p7-owner/fork-survival/measurements.txt):
+// apply a preset with Field height = Large, Button size = L and Corners = Pill
+// -> painted field min-height 60px (box 60px), button min-height 60px, card
+// radius 20px. Then click ONE colour in the rail -> field min-height 44px (box
+// 54px), button min-height 52px; corners held at 20px (the F-1 carry working).
+// The stored theme_json went from {"theme_id":…} to a palette + scales.radius
+// object with no size anywhere. The operator changed a colour and lost both
+// sizes, with nothing said.
+//
+// WHAT CHANGED SO THEY CAN BE CARRIED: designs/theme.ts now gives each of them
+// the inline axis it lacked — `button_defaults.min_height` WIDENED from ["m","l"]
+// to the full shared s/m/l ladder, and a new `field_defaults.min_height`
+// (small/medium/large), both validated by validateTheme and both offered on the
+// rail. Each inline vocabulary is deliberately spelled in the RECORD's own
+// words, so the bridges below are compile-checked IDENTITIES
+// (THEME_RECORD_*_TO_INLINE_MIN_HEIGHT, `satisfies`-pinned at their
+// declaration) — exactly the "byte-identical counterpart" property the font and
+// corners bridges rely on, and the SAME single carry idiom, not a second
+// mechanism. Nothing in ThemeRecordControls is uncarried now.
+//
+// STILL NOT CARRIED, and honestly so: the record-only font families (the ones
+// unmappableFontNames() computes) and typography.base_px — those genuinely have
+// no inline counterpart.
 // ---------------------------------------------------------------------------
 export function themePresetResolveSnippet(): string {
   const fontBridge = recordFontToInlineId();
@@ -136,6 +172,11 @@ export function themePresetResolveSnippet(): string {
   // preset path (theme.ts THEME_RECORD_CORNERS_TO_RADIUS_SCALE), so the two
   // corner ladders can never drift apart.
   var PRESET_CORNERS_BRIDGE = ${JSON.stringify(THEME_RECORD_CORNERS_TO_RADIUS_SCALE)};
+  // R2 F-3: button_size -> button_defaults.min_height, field_height ->
+  // field_defaults.min_height — SERIALIZED from the same satisfies-pinned
+  // tables designs/theme.ts declares (rationale in this module's TS comment).
+  var PRESET_BUTTON_SIZE_BRIDGE = ${JSON.stringify(THEME_RECORD_BUTTON_SIZE_TO_INLINE_MIN_HEIGHT)};
+  var PRESET_FIELD_HEIGHT_BRIDGE = ${JSON.stringify(THEME_RECORD_FIELD_HEIGHT_TO_INLINE_MIN_HEIGHT)};
   function hasAnyKey(o) {
     var k;
     for (k in o) { if (Object.prototype.hasOwnProperty.call(o, k)) { return true; } }
@@ -149,11 +190,12 @@ export function themePresetResolveSnippet(): string {
   // edit FORKS theme_json from a {theme_id} pointer into inline values, and
   // the record then drops out of resolution entirely — so anything NOT carried
   // across this fork is silently lost. Carried: palette, button_style,
-  // display_size, the mappable fonts, and (R2 F-1 follow-up) controls.corners
-  // as its exact inline counterpart scales.radius. Deliberately NOT carried,
-  // because no inline axis expresses them: the ${unmappable} font families,
-  // typography.base_px, controls.field_height and controls.button_size.
-  // Full rationale in this module's TypeScript comment above.
+  // display_size, the mappable fonts, and — as their exact inline counterparts
+  // — ALL THREE of ThemeRecordControls: corners -> scales.radius (R2 F-1),
+  // button_size -> button_defaults.min_height and field_height ->
+  // field_defaults.min_height (R2 F-3). Deliberately NOT carried, because no
+  // inline axis expresses them: the ${unmappable} font families and
+  // typography.base_px. Full rationale in this module's TypeScript comment.
   function inlineThemeFromPreset(rec) {
     var out = {};
     var palette = {};
@@ -172,12 +214,11 @@ export function themePresetResolveSnippet(): string {
     }
     if (hasAnyKey(palette)) { out.palette = palette; }
     var bstyle = (rec && rec.button_style) || null;
+    var bd = {};
     if (bstyle) {
-      var bd = {};
       if (bstyle.fill) { bd.fill = bstyle.fill; }
       if (bstyle.layout) { bd.layout = bstyle.layout; }
       if (bstyle.selected) { bd.selected = bstyle.selected; }
-      if (hasAnyKey(bd)) { out.button_defaults = bd; }
     }
     var typ = (rec && rec.typography) || null;
     if (typ) {
@@ -196,6 +237,10 @@ export function themePresetResolveSnippet(): string {
     // to, so pinning it explicitly is byte-identical in paint while making the
     // operator's actual choice durable. An absent or off-table value writes
     // NOTHING (no scales key at all) — byte-identical to before this carry.
+    // R2 F-3 — the SAME carry, for the other two controls. Each writes only
+    // when the stored word is on its own closed bridge, so an absent or
+    // off-table value writes NOTHING (byte-identical to before this carry) and
+    // a corrupt record can never PUT an unvalidatable inline theme.
     var ctrls = (rec && rec.controls) || null;
     if (ctrls) {
       var sc = {};
@@ -203,7 +248,16 @@ export function themePresetResolveSnippet(): string {
         sc.radius = PRESET_CORNERS_BRIDGE[ctrls.corners];
       }
       if (hasAnyKey(sc)) { out.scales = sc; }
+      if (typeof ctrls.button_size === 'string' && Object.prototype.hasOwnProperty.call(PRESET_BUTTON_SIZE_BRIDGE, ctrls.button_size)) {
+        bd.min_height = PRESET_BUTTON_SIZE_BRIDGE[ctrls.button_size];
+      }
+      var fd = {};
+      if (typeof ctrls.field_height === 'string' && Object.prototype.hasOwnProperty.call(PRESET_FIELD_HEIGHT_BRIDGE, ctrls.field_height)) {
+        fd.min_height = PRESET_FIELD_HEIGHT_BRIDGE[ctrls.field_height];
+      }
+      if (hasAnyKey(fd)) { out.field_defaults = fd; }
     }
+    if (hasAnyKey(bd)) { out.button_defaults = bd; }
     return out;
   }
   // R2 P2 FIX-FIRST-2 (MINOR, fail-closed): fetching the applied preset is
