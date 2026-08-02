@@ -33,7 +33,12 @@ import { renderQuoteFrame, LG_BANNERS_MOUNT_HTML } from "../src/public/leadgen/d
 import type { RenderQuoteFrameInput } from "../src/public/leadgen/designs/frame";
 import type { SiteBranding } from "../src/leadgen/branding";
 import { renderTemplatesTabPanel } from "../src/admin/leadgen/quotes-tabs/templates";
-import { renderPublishBadge, publishBlockingReasons } from "../src/admin/leadgen/quotes-tabs/activation";
+import {
+  renderPublishBadge,
+  publishBlockingReasons,
+  publishFixTarget,
+  isQuoteEditorSelfLink,
+} from "../src/admin/leadgen/quotes-tabs/activation";
 import { QUOTE_EDITOR_SCRIPT } from "../src/admin/leadgen/quotes-tabs/funnel";
 
 const TEMPLATES_TS_SOURCE = readFileSync(
@@ -501,5 +506,157 @@ describe("R2 P7 — the publish chip STATES its blocking reasons next to the cou
     );
     expect(added.length).toBeGreaterThan(500);
     expect(added).not.toMatch(/\blet\s|\bconst\s|=>/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R2 P7 FIX-FIRST (owner) — D1: "Open Quote Builder", offered to an operator
+// already standing in the Quote Builder. Every blocking reason must point at
+// the CONTROL that clears it; a reason with no single control ships NO link,
+// because a link that lands on the current screen is worse than none.
+// D2: the board names the blocking page on the column itself.
+// ---------------------------------------------------------------------------
+
+describe("R2 P7 FIX-FIRST — every blocking reason points at the control that clears it", () => {
+  const SELF = "/admin/leadgen/quotes/lgq_ownerCar/edit";
+  const problem = (path: string, message: string, fix_url = SELF): Record<string, unknown> => ({
+    path,
+    scope: "section",
+    severity: "error",
+    message,
+    fix_url,
+  });
+  const pf = (problems: Array<Record<string, unknown>>, blocks: Array<Record<string, unknown>> = []): Parameters<typeof renderPublishBadge>[0] =>
+    ({
+      ok: blocks.length === 0,
+      quote_id: "lgq_ownerCar",
+      funnel_id: "lgf_ownerCar",
+      funnel_variant_id: "lgn_ownerCar",
+      computed_at: 0,
+      blocks,
+      problems,
+    }) as unknown as Parameters<typeof renderPublishBadge>[0];
+
+  // The owner's live state: quote Car_ins, draft, Funnel builder tab open,
+  // shared first page EMPTY while the funnel's PAGE 1 holds a section.
+  const OWNER = pf([problem("activation.shared_page", "The shared first page needs at least one section.")]);
+
+  it("FAIL-BEFORE: the owner's one reason no longer links to the page the operator is standing on", () => {
+    const html = renderPublishBadge(OWNER) ?? "";
+    // the exact <a href=".../edit">Open Quote Builder</a> the owner was shown
+    expect(html).not.toContain(`href="${SELF}"`);
+    expect(html).not.toContain(">Open Quote Builder<");
+    expect(isQuoteEditorSelfLink(SELF)).toBe(true);
+  });
+
+  it("PASS-AFTER: it points at the Shared first page column's own ＋ section control", () => {
+    const html = renderPublishBadge(OWNER) ?? "";
+    expect(html).toContain('data-publish-fix-tab="builder"');
+    expect(html).toContain('data-publish-fix-sel="[data-shared-col] [data-add-shared-section]"');
+    expect(html).toContain("Add the shared page&#39;s first section");
+    expect((html.match(/data-publish-reason/g) ?? []).length).toBe(1);
+  });
+
+  it("a funnel reason aims at THAT funnel's own page affordance (page card first, else + Add page)", () => {
+    const target = publishFixTarget("activation.funnel.lgf_ownerCar", SELF);
+    expect(target?.tab).toBe("builder");
+    expect(target?.sel).toBe(
+      '[data-funnel-col][data-funnel-public-id="lgf_ownerCar"] [data-add-section],[data-funnel-col][data-funnel-public-id="lgf_ownerCar"] [data-add-page]',
+    );
+    expect(target?.label).toBe("Add a section to this funnel");
+  });
+
+  // The AUDIT the owner asked for: every reason publishBlockingReasons() can
+  // emit, with its target — or a stated reason it has none.
+  const AUDIT: Array<[string, string | null]> = [
+    ["activation.shared_page", "[data-shared-col] [data-add-shared-section]"],
+    ["activation.funnel.lgf_ownerCar", '[data-funnel-col][data-funnel-public-id="lgf_ownerCar"] [data-add-section],[data-funnel-col][data-funnel-public-id="lgf_ownerCar"] [data-add-page]'],
+    ["activation.default_funnel", "[data-funnel-col] [data-funnel-kebab]"],
+    ["activation.rule.lgr_owner1", '[data-qr-card][data-rule-public-id="lgr_owner1"]'],
+    // no single control: the same section sits on two pages, either copy can go
+    ["activation.section_uniqueness", null],
+    ["frame", '.lg-qpanel[data-panel="templates"]'],
+    ["frame.trust_strip.logos[0].alt", '.lg-qpanel[data-panel="templates"]'],
+    ["theme", '.lg-qpanel[data-panel="themes"]'],
+    ["theme.palette.accent", '.lg-qpanel[data-panel="themes"]'],
+  ];
+
+  it.each(AUDIT)("audited reason path %s resolves to its control (%s)", (path, sel) => {
+    expect(publishFixTarget(path, SELF)?.sel ?? null).toBe(sel);
+  });
+
+  it("NO reason ever renders a link back to this editor page (the ADJ-A9 invariant)", () => {
+    const html = renderPublishBadge(pf(AUDIT.map(([p]) => problem(p, `msg ${p}`)))) ?? "";
+    expect((html.match(/data-publish-reason/g) ?? []).length).toBe(AUDIT.length);
+    expect(html).not.toContain(`href="${SELF}"`);
+    expect(html).not.toContain(">Open Quote Builder<");
+    // the one audited no-target path ships no affordance at all rather than a
+    // link that lands nowhere
+    expect((html.match(/data-publish-fix-sel=/g) ?? []).length).toBe(AUDIT.length - 1);
+  });
+
+  it("a genuine cross-screen fix keeps its link (Review slide / Open site settings)", () => {
+    const html =
+      renderPublishBadge(
+        pf([
+          problem("section.lgs_1.content", "Slide 2 'ZIP' contains funnel-layout elements", "/admin/leadgen/sections/lgs_1/edit"),
+          problem("site.logo", "This site has no logo", "/admin/settings?site_id=st_1"),
+        ]),
+      ) ?? "";
+    expect(html).toContain('href="/admin/leadgen/sections/lgs_1/edit"');
+    expect(html).toContain(">Review slide<");
+    expect(html).toContain(">Open site settings<");
+  });
+
+  it("the ES5 island mirrors the target map + the D2 board markers 1:1", () => {
+    for (const token of [
+      "function publishFixTarget(path, fixUrl)",
+      "function isQuoteEditorSelfLink(fixUrl)",
+      "function publishReasonFixNode(reason)",
+      "function revealPublishFixTarget(tab, sel)",
+      "function syncBoardBlockMarkers(preflight)",
+      "data-publish-fix-sel",
+      "data-publish-fix-tab",
+      "data-publish-fix-flash",
+      "data-col-block",
+      "data-col-blocking",
+      "syncBoardBlockMarkers(preflight);",
+      "syncBoardBlockMarkers(lgData.preflight || null);",
+      "[data-shared-col] [data-add-shared-section]",
+      "[data-funnel-col] [data-funnel-kebab]",
+      "'[data-qr-card][data-rule-public-id=\"' + pid + '\"]'",
+    ]) {
+      expect(QUOTE_EDITOR_SCRIPT, `island token ${token}`).toContain(token);
+    }
+    const added = QUOTE_EDITOR_SCRIPT.slice(
+      QUOTE_EDITOR_SCRIPT.indexOf("function isQuoteEditorSelfLink(fixUrl)"),
+      QUOTE_EDITOR_SCRIPT.indexOf("function preflightFixLink("),
+    );
+    expect(added.length).toBeGreaterThan(2000);
+    expect(added).not.toMatch(/\blet\s|\bconst\s|=>/);
+  });
+
+  it("D2: the marker copy names the problem AND the owner's shared-first model", () => {
+    // "the first page is shared by all the funnels" — stated on the board, at
+    // the moment the shared page is the thing blocking, not only at publish.
+    expect(QUOTE_EDITOR_SCRIPT).toContain(
+      "Empty \\u2014 and every funnel starts with this page, before its own. Publishing is blocked until it has a section.",
+    );
+    expect(QUOTE_EDITOR_SCRIPT).toContain("No page with a section yet. Publishing is blocked until this funnel has one.");
+    // quiet when nothing blocks: markers are cleared before any repaint and
+    // only re-added per named error reason
+    expect(QUOTE_EDITOR_SCRIPT).toContain("clearBoardBlockMarkers();");
+    expect(QUOTE_EDITOR_SCRIPT).toContain("if (!preflight) { return; }");
+  });
+
+  it("an unexpected public_id never reaches a selector", () => {
+    expect(publishFixTarget('activation.funnel.x"]:has(script)', SELF)).toBeNull();
+    expect(publishFixTarget("activation.rule.a b", SELF)).toBeNull();
+  });
+
+  it("warning-only stays quiet — no reasons, no targets", () => {
+    const html = renderPublishBadge(pf([{ path: "frame.x", scope: "frame", severity: "warning", message: "Cosmetic", fix_url: "" }])) ?? "";
+    expect(html).toContain(">Ready (1 warning)<");
+    expect(html).not.toContain("data-publish-fix-sel");
   });
 });

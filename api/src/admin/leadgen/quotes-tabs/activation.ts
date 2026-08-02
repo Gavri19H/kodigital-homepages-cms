@@ -174,26 +174,126 @@ export function renderPublishBadge(preflight: ActivationPreflight | null): strin
 // this EXACT structure from the same two arrays.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// R2 P7 FIX-FIRST (owner, D1). The first cut of this panel labelled EVERY
+// self-referential fix_url "Open Quote Builder" — offered to an operator who is
+// ALREADY standing in the Quote Builder, on the very tab that holds the thing
+// to fix. That is the SAME ADJ-A9 shape the owner rejected once ("set one up
+// from the A/B tab", shown while on the A/B tab), reproduced by the fix for it.
+//
+// So a reason now carries a TARGET: the in-page control that CLEARS it (an
+// editor sub-tab + a CSS selector + the operator copy naming that control).
+// The island reveals it — switch tabs ONLY when the target lives on another
+// tab, then scroll/focus/flash the affordance itself.
+//
+// Where no single control clears a reason, the reason carries NO target and NO
+// link: a link that lands on the screen the operator is already on is worse
+// than no link. `activation.section_uniqueness` (the same section sits on two
+// pages — either copy can go, so there are two candidate controls, not one) is
+// the deliberate no-target case.
+// ---------------------------------------------------------------------------
+
+export interface PublishFixTarget {
+  tab: string; // the editor sub-tab that owns the control ("" = already here)
+  sel: string; // CSS selector of the control that clears the reason
+  label: string; // the operator copy naming that control
+}
+
+// A fix_url that IS this editor page. `problemFixLabel` calls it "Open Quote
+// Builder"; on the Quote Builder itself it is a link to nowhere.
+export function isQuoteEditorSelfLink(fixUrl: string): boolean {
+  return /^\/admin\/leadgen\/quotes\/[A-Za-z0-9_-]+\/edit$/.test(fixUrl);
+}
+
+// public_ids are ULID-shaped (`lgf_01H…`); anything else never reaches a
+// selector — an unexpected id degrades to "no target" rather than injecting.
+function safeId(id: string): string {
+  return /^[A-Za-z0-9_-]+$/.test(id) ? id : "";
+}
+
+// The audited path → control map. Every error-severity `Problem.path` the
+// activation preflight can emit is listed; `""` (a preflight block, which has
+// no path) and any unlisted path fall through to null and keep their genuine
+// cross-screen fix_link (Open Section Mapping / Review slide / site settings).
+export function publishFixTarget(path: string, fixUrl: string): PublishFixTarget | null {
+  if (path === "activation.shared_page") {
+    return {
+      tab: "builder",
+      sel: "[data-shared-col] [data-add-shared-section]",
+      label: "Add the shared page's first section",
+    };
+  }
+  if (path.indexOf("activation.funnel.") === 0) {
+    const pid = safeId(path.slice("activation.funnel.".length));
+    if (pid === "") return null;
+    // querySelector returns the FIRST match in document order: a funnel that
+    // HAS a page card resolves to that card's "＋ section"; an empty funnel
+    // column has no page card, so it resolves to its "+ Add page".
+    const col = `[data-funnel-col][data-funnel-public-id="${pid}"]`;
+    return { tab: "builder", sel: `${col} [data-add-section],${col} [data-add-page]`, label: "Add a section to this funnel" };
+  }
+  if (path === "activation.default_funnel") {
+    // "Set as default" lives in a funnel column's own kebab menu, so the
+    // control is per-funnel: land on the first funnel column's options button
+    // (the operator still chooses WHICH funnel is default).
+    return { tab: "builder", sel: "[data-funnel-col] [data-funnel-kebab]", label: "Set a default funnel" };
+  }
+  if (path.indexOf("activation.rule.") === 0) {
+    const pid = safeId(path.slice("activation.rule.".length));
+    if (pid === "") return null;
+    return { tab: "builder", sel: `[data-qr-card][data-rule-public-id="${pid}"]`, label: "Open this rule" };
+  }
+  // Schema/validation rows on the funnel layout and theme. Their paths address
+  // CONFIG keys (`frame.trust_strip.logos[0].alt`, `theme.palette.accent`),
+  // and the Templates/Themes panels key their controls on a different
+  // vocabulary (data-frame-key / data-role-pick), so the honest target is the
+  // owning tab — still a real jump AWAY from where the operator stands.
+  if (path === "frame" || path.indexOf("frame.") === 0) {
+    return { tab: "templates", sel: '.lg-qpanel[data-panel="templates"]', label: "Open the Templates tab" };
+  }
+  if (path === "theme" || path.indexOf("theme.") === 0) {
+    return { tab: "themes", sel: '.lg-qpanel[data-panel="themes"]', label: "Open the Themes tab" };
+  }
+  void fixUrl;
+  return null;
+}
+
 // One blocking reason in the operator's own words. Blocks reuse the preflight
 // card's composition ("Section: ZIP · Offer: NextInsure · Missing required
 // provider fields: …"); problems use the server's own message.
 export function publishBlockingReasons(
   preflight: ActivationPreflight,
-): ReadonlyArray<{ text: string; fixUrl: string }> {
-  const out: Array<{ text: string; fixUrl: string }> = [];
+): ReadonlyArray<{ text: string; fixUrl: string; target: PublishFixTarget | null }> {
+  const out: Array<{ text: string; fixUrl: string; target: PublishFixTarget | null }> = [];
   for (const b of preflight.blocks) {
     const parts: string[] = [];
     if (b.section_name !== "") parts.push(`Section: ${b.section_name}`);
     if (b.offer_name !== "") parts.push(`Offer: ${b.offer_name}`);
     const fields = (b.fields ?? []).map((f) => (b.code === "offer_ineligible" ? eligibilityReasonLabel(f) : f));
     parts.push(preflightCodeLabel(b.code) + (fields.length > 0 ? `: ${fields.join(", ")}` : ""));
-    out.push({ text: parts.join(" · "), fixUrl: b.fix_links?.section_mapping ?? "" });
+    const fixUrl = b.fix_links?.section_mapping ?? "";
+    out.push({ text: parts.join(" · "), fixUrl, target: publishFixTarget("", fixUrl) });
   }
   for (const p of preflight.problems ?? []) {
     if (p.severity !== "error") continue;
-    out.push({ text: p.message, fixUrl: typeof p.fix_url === "string" ? p.fix_url : "" });
+    const fixUrl = typeof p.fix_url === "string" ? p.fix_url : "";
+    out.push({ text: p.message, fixUrl, target: publishFixTarget(p.path, fixUrl) });
   }
   return out;
+}
+
+
+// The reason's affordance: the in-page target button when one exists, else the
+// genuine cross-screen link, else NOTHING (never a link back to this page).
+// The ES5 re-renderer builds the same three branches.
+export function renderPublishReasonFix(r: { fixUrl: string; target: PublishFixTarget | null }): string {
+  if (r.target !== null) {
+    return `<button type="button" class="lg-publish-why-fix" data-publish-fix-tab="${escapeHtml(r.target.tab)}" data-publish-fix-sel="${escapeHtml(r.target.sel)}">${escapeHtml(r.target.label)}</button>`;
+  }
+  if (r.fixUrl !== "" && !isQuoteEditorSelfLink(r.fixUrl)) {
+    return `<a class="lg-publish-why-fix" href="${escapeHtml(r.fixUrl)}">${escapeHtml(problemFixLabel(r.fixUrl))}</a>`;
+  }
+  return "";
 }
 
 
@@ -201,13 +301,7 @@ function renderPublishReasons(preflight: ActivationPreflight): string {
   const reasons = publishBlockingReasons(preflight);
   if (reasons.length === 0) return "";
   const rows = reasons
-    .map((r) => {
-      const fix =
-        r.fixUrl !== ""
-          ? `<a class="lg-publish-why-fix" href="${escapeHtml(r.fixUrl)}">${escapeHtml(problemFixLabel(r.fixUrl))}</a>`
-          : "";
-      return `<li data-publish-reason>${escapeHtml(r.text)}${fix}</li>`;
-    })
+    .map((r) => `<li data-publish-reason>${escapeHtml(r.text)}${renderPublishReasonFix(r)}</li>`)
     .join("");
   return `<div id="lg-publish-why" class="lg-publish-why" data-publish-why-count="${reasons.length}" role="group" aria-label="Why this Quote cannot be published"><span class="lg-publish-why-title">To publish, fix ${reasons.length === 1 ? "this" : `these ${reasons.length}`}:</span><ol class="lg-publish-why-list">${rows}</ol></div>`;
 }

@@ -808,6 +808,7 @@ export const QUOTE_EDITOR_SCRIPT = `
     clearChildren(badge);
     badge.appendChild(document.createTextNode(publishChipText(errors, warnings)));
     updatePublishReasons(badge, preflight);
+    syncBoardBlockMarkers(preflight);
   }
 
   // R2 P7 — mirrors activation.ts publishBlockingReasons EXACTLY (blocks first,
@@ -830,14 +831,55 @@ export const QUOTE_EDITOR_SCRIPT = `
         mapped.push(b.code === 'offer_ineligible' ? eligibilityLabel(fields[j]) : fields[j]);
       }
       parts.push(preflightCodeLabel(b.code) + (mapped.length > 0 ? ': ' + mapped.join(', ') : ''));
-      out.push({ text: parts.join(' · '), fixUrl: (b.fix_links && b.fix_links.section_mapping) || '' });
+      var bFix = (b.fix_links && b.fix_links.section_mapping) || '';
+      out.push({ text: parts.join(' · '), fixUrl: bFix, target: publishFixTarget('', bFix) });
     }
     for (i = 0; i < problems.length; i++) {
       var p = problems[i];
       if (!p || p.severity !== 'error') { continue; }
-      out.push({ text: p.message || '', fixUrl: typeof p.fix_url === 'string' ? p.fix_url : '' });
+      var pFix = typeof p.fix_url === 'string' ? p.fix_url : '';
+      out.push({ text: p.message || '', fixUrl: pFix, target: publishFixTarget(p.path || '', pFix) });
     }
     return out;
+  }
+
+  // R2 P7 FIX-FIRST (owner, D1) — mirrors activation.ts publishFixTarget /
+  // isQuoteEditorSelfLink EXACTLY. A reason points at the CONTROL that clears
+  // it; a fix_url that is this very editor page is dropped, never rendered as
+  // "Open Quote Builder" to an operator already standing in the Quote Builder.
+  function isQuoteEditorSelfLink(fixUrl) {
+    return /^\\/admin\\/leadgen\\/quotes\\/[A-Za-z0-9_-]+\\/edit$/.test(String(fixUrl || ''));
+  }
+  function publishSafeId(id) { return /^[A-Za-z0-9_-]+$/.test(id) ? id : ''; }
+  function publishFixTarget(path, fixUrl) {
+    var p = String(path || '');
+    var pid;
+    var col;
+    if (p === 'activation.shared_page') {
+      return { tab: 'builder', sel: '[data-shared-col] [data-add-shared-section]', label: "Add the shared page's first section" };
+    }
+    if (p.indexOf('activation.funnel.') === 0) {
+      pid = publishSafeId(p.slice('activation.funnel.'.length));
+      if (pid === '') { return null; }
+      col = '[data-funnel-col][data-funnel-public-id="' + pid + '"]';
+      return { tab: 'builder', sel: col + ' [data-add-section],' + col + ' [data-add-page]', label: 'Add a section to this funnel' };
+    }
+    if (p === 'activation.default_funnel') {
+      return { tab: 'builder', sel: '[data-funnel-col] [data-funnel-kebab]', label: 'Set a default funnel' };
+    }
+    if (p.indexOf('activation.rule.') === 0) {
+      pid = publishSafeId(p.slice('activation.rule.'.length));
+      if (pid === '') { return null; }
+      return { tab: 'builder', sel: '[data-qr-card][data-rule-public-id="' + pid + '"]', label: 'Open this rule' };
+    }
+    if (p === 'frame' || p.indexOf('frame.') === 0) {
+      return { tab: 'templates', sel: '.lg-qpanel[data-panel="templates"]', label: 'Open the Templates tab' };
+    }
+    if (p === 'theme' || p.indexOf('theme.') === 0) {
+      return { tab: 'themes', sel: '.lg-qpanel[data-panel="themes"]', label: 'Open the Themes tab' };
+    }
+    if (fixUrl) { return null; }
+    return null;
   }
 
   // Rebuilds (or removes) the "#lg-publish-why" block the SSR renderer emits as
@@ -873,16 +915,134 @@ export const QUOTE_EDITOR_SCRIPT = `
       var li = document.createElement('li');
       li.setAttribute('data-publish-reason', '');
       li.appendChild(document.createTextNode(reasons[i].text));
-      if (reasons[i].fixUrl) {
-        var a = document.createElement('a');
-        a.className = 'lg-publish-why-fix';
-        a.setAttribute('href', reasons[i].fixUrl);
-        a.appendChild(document.createTextNode(problemFixLabel(reasons[i].fixUrl)));
-        li.appendChild(a);
-      }
+      var fixNode = publishReasonFixNode(reasons[i]);
+      if (fixNode) { li.appendChild(fixNode); }
       list.appendChild(li);
     }
     why.appendChild(list);
+  }
+
+  // The three branches the SSR renderPublishReasonFix renders, DOM-built:
+  // in-page target button > genuine cross-screen link > nothing.
+  function publishReasonFixNode(reason) {
+    if (reason.target) {
+      var btn = document.createElement('button');
+      btn.setAttribute('type', 'button');
+      btn.className = 'lg-publish-why-fix';
+      btn.setAttribute('data-publish-fix-tab', reason.target.tab);
+      btn.setAttribute('data-publish-fix-sel', reason.target.sel);
+      btn.appendChild(document.createTextNode(reason.target.label));
+      return btn;
+    }
+    if (reason.fixUrl && !isQuoteEditorSelfLink(reason.fixUrl)) {
+      var a = document.createElement('a');
+      a.className = 'lg-publish-why-fix';
+      a.setAttribute('href', reason.fixUrl);
+      a.appendChild(document.createTextNode(problemFixLabel(reason.fixUrl)));
+      return a;
+    }
+    return null;
+  }
+
+  // Reveal the control a reason points at. Owner's rule: "If they are already
+  // on that tab, do not navigate — just reveal and highlight the target."
+  function revealPublishFixTarget(tab, sel) {
+    if (!hasBoardQuery()) { return false; }
+    var tabBtn = tab ? document.querySelector('.lg-qtab[data-tab="' + tab + '"]') : null;
+    var alreadyHere = !tabBtn || (' ' + tabBtn.className + ' ').indexOf(' active ') !== -1;
+    if (!alreadyHere) { activate(tab); }
+    var node = null;
+    try { node = sel ? document.querySelector(sel) : null; } catch (eSel) { node = null; }
+    if (!node) { return false; }
+    if (node.scrollIntoView) { node.scrollIntoView({ block: 'center', inline: 'nearest' }); }
+    var prev = document.querySelector('[data-publish-fix-flash]');
+    if (prev) { prev.removeAttribute('data-publish-fix-flash'); }
+    node.setAttribute('data-publish-fix-flash', '1');
+    if (!node.getAttribute('tabindex') && node.tagName !== 'BUTTON' && node.tagName !== 'A' && node.tagName !== 'INPUT') {
+      node.setAttribute('tabindex', '-1');
+    }
+    if (node.focus) { try { node.focus({ preventScroll: true }); } catch (eFocus) { node.focus(); } }
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // R2 P7 FIX-FIRST (owner, D2) — the board itself names the blocking page.
+  //
+  // The owner's board showed an EMPTY "Shared first page" column that was the
+  // whole reason publishing was blocked, and nothing on that column said so:
+  // the operator had to read a banner at the top and map it back to a column.
+  // So every column a blocking reason names now carries an inline marker, in
+  // the operator's own words. Quiet by construction: the markers are rebuilt
+  // from the SAME error-severity reasons the chip counts, so zero reasons =
+  // zero markers.
+  //
+  // The shared column's copy also states the owner's own model out loud ("the
+  // first page is shared by all the funnels") at the moment it matters —
+  // dropping the first question into a funnel's page 1 is a reasonable thing
+  // to do, and the board should say the shared page comes first and is empty
+  // instead of only complaining at publish time.
+  // -------------------------------------------------------------------------
+  var BOARD_BLOCK_COPY = {
+    shared: 'Empty \\u2014 and every funnel starts with this page, before its own. Publishing is blocked until it has a section.',
+    funnel: 'No page with a section yet. Publishing is blocked until this funnel has one.'
+  };
+
+  // The island also boots inside the seam suite's minimal DOM stub (no
+  // querySelector/querySelectorAll), so every board-marker entry point is
+  // capability-checked — the markers are progressive enhancement over the SSR
+  // board, never a boot dependency.
+  function hasBoardQuery() {
+    return typeof document !== 'undefined' && document !== null
+      && typeof document.querySelector === 'function'
+      && typeof document.querySelectorAll === 'function';
+  }
+
+  function clearBoardBlockMarkers() {
+    var olds = document.querySelectorAll('[data-col-block]');
+    var i;
+    for (i = 0; i < olds.length; i++) { if (olds[i].parentNode) { olds[i].parentNode.removeChild(olds[i]); } }
+    var cols = document.querySelectorAll('[data-col-blocking]');
+    for (i = 0; i < cols.length; i++) { cols[i].removeAttribute('data-col-blocking'); }
+  }
+
+  function markBoardColumnBlocked(col, kind) {
+    if (!col || col.querySelector('[data-col-block]')) { return; }
+    col.setAttribute('data-col-blocking', '1');
+    var head = col.querySelector('.lg-col-head') || col;
+    var note = document.createElement('div');
+    note.className = 'lg-col-block';
+    note.setAttribute('data-col-block', kind);
+    note.setAttribute('role', 'note');
+    var ico = document.createElement('span');
+    ico.className = 'lg-col-block-ico';
+    ico.setAttribute('aria-hidden', 'true');
+    ico.appendChild(document.createTextNode('\\u26a0'));
+    note.appendChild(ico);
+    var msg = document.createElement('span');
+    msg.appendChild(document.createTextNode(BOARD_BLOCK_COPY[kind] || ''));
+    note.appendChild(msg);
+    head.appendChild(note);
+  }
+
+  function syncBoardBlockMarkers(preflight) {
+    if (!hasBoardQuery()) { return; }
+    if (!document.querySelector('[data-board]')) { return; }
+    clearBoardBlockMarkers();
+    if (!preflight) { return; }
+    var problems = preflight.problems || [];
+    var i;
+    for (i = 0; i < problems.length; i++) {
+      var p = problems[i];
+      if (!p || p.severity !== 'error') { continue; }
+      var path = String(p.path || '');
+      if (path === 'activation.shared_page') {
+        markBoardColumnBlocked(document.querySelector('[data-shared-col]'), 'shared');
+      } else if (path.indexOf('activation.funnel.') === 0) {
+        var pid = publishSafeId(path.slice('activation.funnel.'.length));
+        if (pid === '') { continue; }
+        markBoardColumnBlocked(document.querySelector('[data-funnel-col][data-funnel-public-id="' + pid + '"]'), 'funnel');
+      }
+    }
   }
 
   function preflightFixLink(href, label) {
@@ -1122,6 +1282,15 @@ export const QUOTE_EDITOR_SCRIPT = `
       activate(target);
     }
   });
+  // R2 P7 FIX-FIRST (owner, D1): a blocking reason's button reveals the control
+  // that CLEARS it — tab-switching only when that control is on another tab.
+  document.addEventListener('click', function (ev) {
+    var el = ev.target;
+    while (el && el.getAttribute && !el.getAttribute('data-publish-fix-sel')) { el = el.parentNode; }
+    if (!el || !el.getAttribute) { return; }
+    if (ev.preventDefault) { ev.preventDefault(); }
+    revealPublishFixTarget(el.getAttribute('data-publish-fix-tab') || '', el.getAttribute('data-publish-fix-sel') || '');
+  });
 
   // --- §10 / §8.9 (S5.3) REMOVED: the dead Round-4 "structure panel" island -
   // The old pages/slots/rules editor (byId('lg-section-list') / ('lg-rule-list')
@@ -1313,6 +1482,10 @@ export const QUOTE_EDITOR_SCRIPT = `
     try { return JSON.parse(el.textContent || el.innerText || 'null'); } catch (e) { return null; }
   }
   var lgData = readBlob('lg-quote-data') || {};
+  // R2 P7 FIX-FIRST (owner, D2): paint the board's blocking markers from the
+  // SSR preflight at boot, so the offending column says so on FIRST paint (not
+  // only after a save re-renders the chip).
+  syncBoardBlockMarkers(lgData.preflight || null);
   var frameState = lgData.frame || { frame_config: null, effective_frame: null, template_defaults: {}, problems: [] };
   var themeState = lgData.theme || { theme: null, effective_tokens: {}, problems: [] };
   var tokens = themeState.effective_tokens || {};
