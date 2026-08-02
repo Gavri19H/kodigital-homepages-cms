@@ -75,7 +75,12 @@ import type {
 // build-time-vendored Tabler (MIT) subset (scripts/build-icons.mjs output) —
 // see fieldLeadingIcon / the renderCardGrid iconSlot below.
 import { LEADGEN_ICONS, leadgenIconSvg } from "./icons.generated";
-import { baseTokenForRole, isFunnelTokenRole, readButtonStyle } from "../designs/theme";
+import {
+  baseTokenForRole,
+  isFunnelTokenRole,
+  readButtonStyle,
+  THEME_RECORD_FIELD_HEIGHT_TO_MIN_HEIGHT,
+} from "../designs/theme";
 // R2 P1 §① (owner A.1 #4 / probe 4a): the ONE definition of the §6.6 mark
 // rules lives in the design sheet; this module emits it demand-driven for the
 // author-opted case ONLY (selectedMarkStyleBlock below). Import direction is
@@ -2200,7 +2205,12 @@ const DEFAULT_SIZE_THEME_CONTROLS: ThemeRecordControls = {
 // `custom` stays the literal stored/clamped/snapped number (grounded, never a
 // lookup) — byte-identical to before.
 const WIDTH_PRESET_CSS: Record<string, string> = { s: "300px", m: "384px", l: "480px", full: "100%" };
-const HEIGHT_PRESET_CSS: Record<string, string> = { small: "44px", medium: "52px", large: "60px" };
+// R2 F-2: the HEIGHT ladder is no longer hand-typed here. It IS
+// designs/theme.ts's THEME_RECORD_FIELD_HEIGHT_TO_MIN_HEIGHT — the same table
+// the theme tier writes into the `.lg-input` base token — so the per-node
+// override tier and the funnel-theme tier can never drift onto two ladders
+// (the failure mode the F-1 corners rationale calls out). Same 44/52/60.
+const HEIGHT_PRESET_CSS: Record<string, string> = { ...THEME_RECORD_FIELD_HEIGHT_TO_MIN_HEIGHT };
 function sizeAxisCssValue(axis: LeadgenResolvedSizeAxis, axisKind: "width" | "height"): string | undefined {
   if (axis.mode === "custom") return `${axis.px}px`;
   // A stale/corrupt stored preset name (design_overrides is a loose map) falls
@@ -3585,16 +3595,28 @@ export function renderTrustBar(node: LeadgenComponentNode, _design: DefaultFunne
 // (props.logos — never child nodes). Media reference flows to src exactly like
 // ImageCardAnswerGrid's imageMediaId; rows without a mediaId are skipped.
 // Fully class-driven (no inline style).
-function logoStripLogos(node: LeadgenComponentNode): Array<{ mediaId: string; alt: string }> {
+// R2 F-2 — the PER-LOGO size (element F "Size", FrameBrandLogoItem.size).
+// The admin has always written it (templates.ts data-bl-item-size) and the
+// editor has always hydrated it back (funnel.ts), but renderBrandLogos mapped
+// each item to {mediaId, alt} and DROPPED it here, and no CSS class for it
+// existed: the operator picked Small/Medium/Large per logo and the strip never
+// moved. A size that survives the map rides as a MODIFIER CLASS (never inline
+// CSS — this renderer is "fully class-driven"); styles.ts turns the class into
+// the `--lg-logo-max-h` custom property the strip's max-height already reads.
+// Absent/unrecognised size emits NO extra class ⇒ byte-identical for every
+// section-level LogoStrip node and every pre-F-2 stored strip.
+const LOGO_STRIP_SIZES: ReadonlySet<string> = new Set(["s", "m", "l"]);
+function logoStripLogos(node: LeadgenComponentNode): Array<{ mediaId: string; alt: string; size?: string }> {
   const raw = node.props?.["logos"];
   if (!Array.isArray(raw)) return [];
-  const out: Array<{ mediaId: string; alt: string }> = [];
+  const out: Array<{ mediaId: string; alt: string; size?: string }> = [];
   for (const logo of raw) {
     if (typeof logo !== "object" || logo === null || Array.isArray(logo)) continue;
     const r = logo as Record<string, unknown>;
     const mediaId = typeof r["mediaId"] === "string" ? r["mediaId"] : "";
     if (mediaId === "") continue;
-    out.push({ mediaId, alt: typeof r["alt"] === "string" ? r["alt"] : "" });
+    const size = typeof r["size"] === "string" && LOGO_STRIP_SIZES.has(r["size"]) ? r["size"] : undefined;
+    out.push({ mediaId, alt: typeof r["alt"] === "string" ? r["alt"] : "", size });
   }
   return out;
 }
@@ -3603,7 +3625,8 @@ export function renderLogoStrip(node: LeadgenComponentNode, _design: DefaultFunn
   const logos = logoStripLogos(node)
     .map(
       (logo) =>
-        `<img class="lg-logo-strip-img" src="${esc(logo.mediaId)}" alt="${esc(logo.alt)}" loading="lazy">`,
+        `<img class="lg-logo-strip-img${logo.size === undefined ? "" : ` lg-logo-strip-img--${logo.size}`}"` +
+        ` src="${esc(logo.mediaId)}" alt="${esc(logo.alt)}" loading="lazy">`,
     )
     .join("");
   return `<div class="lg-logo-strip"${hydration(node)}>${logos}</div>`;

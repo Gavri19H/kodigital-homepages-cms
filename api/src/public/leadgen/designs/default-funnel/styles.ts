@@ -1782,7 +1782,13 @@ export function funnelChromeCss(
       "font-size": input.fontSize,
       "font-family": "inherit",
       color: page.textColor,
-      "min-height": "44px",
+      // R2 F-2: was the literal "44px". Now the `input.minHeight` token, which
+      // a resolved theme record's controls.field_height writes (theme.ts
+      // applyFieldHeightStep) — so the Themes manager's "Field height" governs
+      // every un-overridden field, and a per-node design_overrides.size still
+      // wins over it by inline-style cascade exactly as before. The base token
+      // value is "44px", so an unthemed / inline-themed funnel is identical.
+      "min-height": input.minHeight,
       background: color.card,
     }),
     rule(`${scope} .lg-input:focus`, {
@@ -2690,6 +2696,21 @@ export function funnelChromeCss(
         "max-height": logoStrip.logoMaxHeight,
         width: "auto",
       }),
+      // R2 F-2 — THE ELEMENT-F PER-LOGO SIZE LADDER (FrameBrandLogoItem.size,
+      // FRAME_SIZES s/m/l). The admin has always offered "Logo size" per logo
+      // and always saved it; frame.ts dropped it and no class existed, so the
+      // control chose nothing. The three rules live HERE, inside the
+      // frame-regions block, for two reasons: (1) a per-logo size is an
+      // element-F concern — the section-scoped base sheet (frameRegions off)
+      // stays byte-identical, so every section preview/pin is untouched;
+      // (2) SPECIFICITY — the sibling rule immediately above is a descendant
+      // selector (0-2-0), so a bare `.lg-logo-strip-img--l` (0-1-0) could never
+      // win. Matching its 0-2-0 shape and following it in source order does.
+      // `m` = the token itself (the identity: the admin writes 'm' by default,
+      // so an existing strip paints exactly as before); s/l are the real steps.
+      rule(`${scope} .lg-frame-brand-logos .lg-logo-strip-img--s`, { "max-height": "24px" }),
+      rule(`${scope} .lg-frame-brand-logos .lg-logo-strip-img--m`, { "max-height": logoStrip.logoMaxHeight }),
+      rule(`${scope} .lg-frame-brand-logos .lg-logo-strip-img--l`, { "max-height": "48px" }),
       // ---- 10C CTA / phone slots -------------------------------------------
       rule(`${scope} .lg-frame-cta`, {
         "max-width": content.maxWidth,

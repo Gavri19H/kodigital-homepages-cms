@@ -632,11 +632,91 @@ export const THEME_RECORD_CORNERS_TO_RADIUS_SCALE = {
   pill: "round",
 } as const satisfies Record<ThemeRecordCorners, ThemeRadiusScale>;
 
+// R2 F-2 — the record path's BUTTON-SIZE vocabulary bridged onto the primary
+// button's own min-height token, the same shape F-1 used for corners.
+//
+// DEFECT this closes: `controls.button_size` was written by the Themes manager
+// (ui-theme-manager.ts:914 "Button size"), validated (themes-handlers.ts),
+// persisted to KV, re-checked on read (theme-store.ts) and published on
+// EffectiveTokens.theme_controls — and then read by NOBODY. A grep of the whole
+// public runtime for `button_size` returned only this type, the fallback
+// constant DEFAULT_SIZE_THEME_CONTROLS and prose; content-schema.ts said so
+// verbatim ("not consumed by this resolver"). The operator's Button size S/M/L
+// under a heading that promises "Every question inherits these" moved zero
+// pixels — the dead-control class the owner rejected the last build for.
+//
+// THE LADDER IS NOT INVENTED. presets.ts's own HEIGHT_PRESET_CSS documents its
+// three steps by CITING this design's button heights: "medium = 52px — the
+// theme Button-size M min-height", "large = 60px — the theme Button-size L
+// min-height", "small = 44px — the base `.lg-input` min-height". §10.4's title
+// says the same thing in words: "Buttons & inputs — THE SHARED SIZE LANGUAGE".
+// So the field ladder and the button ladder are literally ONE px ladder spelled
+// in each path's vocabulary — declared ONCE below and consumed by both, so the
+// two can never drift (presets.ts's HEIGHT_PRESET_CSS is now built from the
+// field-height table, not a second hand-typed copy).
+//
+// `m` -> "52px" IS defaultFunnelDesign.primaryButton.minHeight and `medium` ->
+// "52px"… no: `small` -> "44px" IS the base `.lg-input` min-height. Each
+// vocabulary's DEFAULT therefore lands on the value its target already had —
+// button `m` = 52px (the manager's wireNewTheme default), field `medium` is the
+// record default but the base input floor is `small`/44px, so a default record
+// DOES raise an untouched field from 44 to 52. That is the §10.4 contract
+// sentence quoted verbatim in content-schema.ts — "a field with no `size`
+// override resolves to `controls.field_height`" — and the manager's own printed
+// promise above the control, "Every question inherits these."
+//
+// `satisfies` keeps both tables exhaustive: a new size word is a compile error
+// here, never a silent no-op.
+const SHARED_SIZE_LANGUAGE_PX = ["44px", "52px", "60px"] as const;
+
+export const THEME_RECORD_BUTTON_SIZE_TO_MIN_HEIGHT = {
+  s: SHARED_SIZE_LANGUAGE_PX[0],
+  m: SHARED_SIZE_LANGUAGE_PX[1],
+  l: SHARED_SIZE_LANGUAGE_PX[2],
+} as const satisfies Record<ThemeRecordButtonSize, string>;
+
+// R2 F-2 — the record path's FIELD-HEIGHT vocabulary on the SAME ladder.
+//
+// DEFECT this closes: `controls.field_height` did reach a consumer, but only
+// one that could never fire for the operator who set it. presets.ts's
+// sizeStyleEntries returns {} the instant a node carries NO
+// `design_overrides.size` — which is every field on a funnel nobody has styled
+// on the canvas — so the theme tier applied ONLY to a node that already had a
+// size override with the height key missing. Set Field height = Large in the
+// Themes manager, look at the funnel: nothing moves. Measured on the live
+// visitor page before this fix (see the slice report): small/medium/large all
+// painted the identical 55px field.
+//
+// WHY THE TOKEN AND NOT AN INLINE STYLE: emitting the theme tier as an inline
+// `height:` on each un-overridden `.lg-input` would contradict a standing
+// acceptance pin — leadgen-v31-themes-size-parity.test.ts asserts, for a funnel
+// WITH a theme assigned, that an absent `design_overrides.size` leaves the
+// field with no style attribute at all ("data-lg-input style=" must not
+// appear). The BASE CSS layer is the correct home for a funnel-wide default
+// anyway: `.lg-input`'s min-height stops being a hard-coded literal and becomes
+// the `input.minHeight` token this applier writes, so a per-node override's
+// inline height still wins by cascade exactly as before.
+export const THEME_RECORD_FIELD_HEIGHT_TO_MIN_HEIGHT = {
+  small: SHARED_SIZE_LANGUAGE_PX[0],
+  medium: SHARED_SIZE_LANGUAGE_PX[1],
+  large: SHARED_SIZE_LANGUAGE_PX[2],
+} as const satisfies Record<ThemeRecordFieldHeight, string>;
+
 // §10.4 "Buttons & inputs — the shared size language" — the record fields the
 // §7 field-size resolver (a PARALLEL slice, content-schema/registry/presets)
 // reads as the funnel-theme-default layer of its own size resolution; this
-// module only resolves + exposes them (never interprets e.g. `field_height`
-// into pixels itself — that math belongs to the size resolver).
+// module resolves + exposes them, and (R2 F-2) interprets `button_size` and
+// `field_height` into the two design TOKENS above.
+//
+// That last part reverses this comment's original "never interprets
+// `field_height` into pixels itself — that math belongs to the size resolver".
+// It had to: the size resolver only ever runs for a node that carries a
+// `design_overrides.size`, so leaving the math there left the theme control
+// dead for every un-styled field, and the button pill never reaches the size
+// resolver at all. The px ladder is NOT duplicated by the move — it is declared
+// once here (SHARED_SIZE_LANGUAGE_PX) and presets.ts's HEIGHT_PRESET_CSS is
+// built FROM it, so the per-node override tier and the theme tier remain one
+// ladder with one owner.
 export interface ThemeRecordControls {
   field_height: ThemeRecordFieldHeight;
   button_size: ThemeRecordButtonSize;
@@ -956,6 +1036,15 @@ export function resolveTokens(
   applySpacingScale(design, spacingScale);
   applyRadiusScale(design, radiusScale);
   applyShadowScale(design, shadowScale);
+  // R2 F-2: the record's `controls.button_size` IS the primary pill's height
+  // step (THEME_RECORD_BUTTON_SIZE_TO_MIN_HEIGHT above). Record-only, exactly
+  // like corners' record arm: absent record / off-table value -> undefined ->
+  // the token is left at its current value, byte-identical to pre-F-2.
+  applyButtonSizeStep(design, safeRecordButtonSize(record));
+  // R2 F-2: and the record's `controls.field_height` IS the base field box's
+  // min-height (styles.ts `.lg-input`), on the same shared ladder. Same
+  // record-only, fail-soft contract.
+  applyFieldHeightStep(design, safeRecordFieldHeight(record));
 
   // --- typography (§9.3) ----------------------------------------------------
   const sizeScale: ThemeSizeScale = theme.typography?.size ?? "m";
@@ -1174,6 +1263,42 @@ function safeRecordDisplaySize(value: unknown): ThemeDisplaySizeScale {
 // isThemeRecordShape), but a value off the closed table must never reach
 // THEME_RADIUS_SHIFTS — an undefined shift would make applyRadiusScale's
 // `shift === 0` early-out miss and clamp every radius step to base.sm.
+// R2 F-2 — a resolved ThemeRecord's `controls.button_size` as the primary
+// pill's min-height, or undefined when there is no record / no recognisable
+// value (so the token keeps its current value and the design stays
+// byte-identical). Same defense-in-depth as safeRecordCorners: the value IS
+// validated at write time (themes-handlers.ts validateThemeBody) and re-checked
+// on the KV read (theme-store.ts isThemeRecordShape), but an off-table value
+// must never reach the lookup and write `undefined` into a CSS declaration.
+function safeRecordButtonSize(record: ThemeRecord | null): string | undefined {
+  const size: unknown = record?.controls?.button_size;
+  return typeof size === "string" && (THEME_RECORD_BUTTON_SIZES as readonly string[]).includes(size)
+    ? THEME_RECORD_BUTTON_SIZE_TO_MIN_HEIGHT[size as ThemeRecordButtonSize]
+    : undefined;
+}
+
+// Write the resolved button height step onto the design token styles.ts reads
+// for `.lg-btn`/`.lg-continue`/`.lg-auto-advance` (min-height). undefined =
+// no record / unrecognised value = leave the token untouched.
+function applyButtonSizeStep(design: EffectiveFunnelDesign, minHeight: string | undefined): void {
+  if (minHeight === undefined) return;
+  design.primaryButton.minHeight = minHeight;
+}
+
+// R2 F-2 — the same pair for `controls.field_height` -> the base `.lg-input`
+// min-height token (styles.ts). Same defense-in-depth + fail-soft contract.
+function safeRecordFieldHeight(record: ThemeRecord | null): string | undefined {
+  const height: unknown = record?.controls?.field_height;
+  return typeof height === "string" && (THEME_RECORD_FIELD_HEIGHTS as readonly string[]).includes(height)
+    ? THEME_RECORD_FIELD_HEIGHT_TO_MIN_HEIGHT[height as ThemeRecordFieldHeight]
+    : undefined;
+}
+
+function applyFieldHeightStep(design: EffectiveFunnelDesign, minHeight: string | undefined): void {
+  if (minHeight === undefined) return;
+  design.input.minHeight = minHeight;
+}
+
 function safeRecordCorners(record: ThemeRecord | null): ThemeRadiusScale | undefined {
   const corners: unknown = record?.controls?.corners;
   return typeof corners === "string" && (THEME_RECORD_CORNERS as readonly string[]).includes(corners)

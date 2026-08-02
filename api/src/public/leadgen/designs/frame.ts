@@ -730,16 +730,21 @@ function renderFreeTextEntry(entry: FrameFreeTextEntry): string {
 // layout class. Page targeting + alignment as for free text.
 function renderBrandLogos(cfg: FrameBrandLogosConfig, design: DefaultFunnelDesign): string {
   if (!cfg.enabled) return "";
+  // R2 F-2 — CARRY the per-logo `size`. It was saved by the admin's Logo-size
+  // select and hydrated back into it, but this map dropped it before
+  // renderLogoStrip ever saw it, so the operator's Small/Medium/Large chose
+  // nothing. `size` now rides through to the strip's per-image modifier class
+  // (presets.ts logoStripLogos); an item with no size is unchanged.
   const logos = (cfg.items ?? [])
-    .map((it): { mediaId: string; alt: string } | null => {
+    .map((it): { mediaId: string; alt: string; size?: string } | null => {
       const src = isNonEmptyStr(it.media_id)
         ? mediaUrl(it.media_id as string)
         : isNonEmptyStr(it.url)
           ? (it.url as string)
           : null;
-      return src === null ? null : { mediaId: src, alt: it.alt };
+      return src === null ? null : { mediaId: src, alt: it.alt, size: it.size };
     })
-    .filter((l): l is { mediaId: string; alt: string } => l !== null);
+    .filter((l): l is { mediaId: string; alt: string; size?: string } => l !== null);
   if (logos.length === 0) return "";
   const strip = renderLogoStrip(frameNode("LogoStrip", "frame_brand_logos", { logos }), design);
   const gating = pageTargetGating(cfg.pages);

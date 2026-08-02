@@ -145,7 +145,11 @@ export const defaultFunnelDesign = {
   // R7 U12: field box side padding 18px + radius 12px per golden :884
   // (fieldBoxStyle "padding:16px 18px;border-radius:12px"). padding 1rem(=16px
   // all sides)→"16px 18px" (16 vertical / 18 horizontal); borderRadius 10→12.
-  input:{padding:"16px 18px",border:"2px solid #D2D9E5",borderRadius:"12px",fontSize:"1rem",focusBorderColor:"#1B3A5C",errorBorderColor:"#D32F2F",placeholderColor:"#718096"},
+  // R2 F-2: `minHeight` was a hard-coded "44px" literal inside styles.ts's
+  // `.lg-input` rule. It is a TOKEN now (same value ⇒ identity) so a resolved
+  // theme record's controls.field_height can drive it (theme.ts
+  // applyFieldHeightStep) — the shared s/m/l size language, 44/52/60.
+  input:{padding:"16px 18px",border:"2px solid #D2D9E5",borderRadius:"12px",fontSize:"1rem",minHeight:"44px",focusBorderColor:"#1B3A5C",errorBorderColor:"#D32F2F",placeholderColor:"#718096"},
   dropdown:{inherits:"input",chevronSvgFill:"#5A6178"},
   validation:{errorTextColor:"#D32F2F",errorFontSize:"0.875rem",successColor:"#0E7C3A",helperColor:"#718096"},
   transitions:{stepFadeInMs:"300",cardHoverMs:"150",btnHoverMs:"200",btnEasing:"cubic-bezier(.34,1.56,.64,1)",progressFillMs:"400"},
