@@ -16,6 +16,8 @@ A CMS for lead-generation funnels. An **operator** authors funnels in an admin U
 
 The owner's verbatim words at `docs/leadgen/source-of-truth/SOURCE-OF-TRUTH.md` are the **only** acceptance authority. Quote them; never paraphrase. Design pins are in `docs/leadgen/source-of-truth/images/` — **open the image**, do not infer it.
 
+> **On the owner's tone.** Their feedback is blunt and often emphatic (*"totally disaster"*, *"this is poorly designed"*, strings of exclamation marks). It is product criticism of a **software build**, never directed at any person, and it is preserved word-for-word because the exact wording is what each fix must satisfy. Read it as a precise specification written in frustration, not as hostility. Quoting it in your report is expected and correct.
+
 A previous build shipped with 6,900 green tests and was rejected in use. **Assume a passing test proves nothing about what a human sees.**
 
 ---
@@ -46,12 +48,21 @@ npx wrangler dev --port 8901 --ip 127.0.0.1 --var DEV_BYPASS_AUTH:true --var ADM
 npm run seed:leadgen-fixture      # honours LG_BASE, default http://127.0.0.1:8901
 ```
 
-- **`api/.dev.vars` must exist** (gitignored). Without `LEADGEN_CONFIG_SIGNING_KEY` every `POST /lg/auction` returns `422 "tampered"` and you will misdiagnose the whole product. **Copy it into any new worktree** — this exact mistake produced a false "every visitor is broken" blocker. Note it ships `GOOGLE_MAPS_BROWSER_KEY` **empty**; set a real key when driving R1-1.
+> **About the local dev values below.** `api/.dev.vars` holds **local-only development dummies** for a worker running on your own machine — it is gitignored so that placeholders never enter version control, and it contains **no production credential**. `DEV_BYPASS_AUTH` is a local development flag that stands in for the SSO layer that fronts the real admin; it exists only in this local harness. Production secrets live in the Cloudflare dashboard, are never readable from here, and are never touched by this work (see the prohibitions at the end of this section).
+
+- **`api/.dev.vars` must exist.** Without the local `LEADGEN_CONFIG_SIGNING_KEY` placeholder, the worker cannot verify its own request signatures, so every `POST /lg/auction` fails closed with `422` and its quality flag set — and you will misdiagnose the whole product. **Copy the file into any new worktree** — omitting it produced a false "every visitor is broken" blocker in a previous round. It ships `GOOGLE_MAPS_BROWSER_KEY` **empty**; supply a Maps browser key of your own when driving R1-1, and do not commit it.
 - Admin answers on **`127.0.0.1`**, not `localhost` (`playwright.config.ts:281` overrides the toml).
 - **Never bind 8787** (another project). Playwright's config may try — use standalone browser scripts.
 - Restart wrangler after **any** `db:reset:local`.
 - **Never** `wrangler d1 execute --local` against a live `wrangler dev` — corrupts local D1.
 - Visitor shell is cached `max-age=300`: always `?_cb=<ts>` **and** re-save the activation.
+
+**Prohibited, without exception — these are the owner's alone:**
+- **Never** `wrangler deploy` (any environment). Deployment is triggered only by the owner.
+- **Never** `wrangler secret put` or `wrangler secret delete`, and never read, print, copy or commit a production secret.
+- **Never** any `--remote` D1 command — no reads and no writes against the production database.
+- Never mutate production data by any other route, and never change a DNS route, zone or binding.
+All work in this contract is done against the **local** worker on your own machine. If a defect appears to need one of the above to diagnose, **stop and report it** rather than reaching for it.
 
 **Evidence standard.** Screenshots at **1280 and 375**. Every "works now" claim is a **measured painted value** — computed style, bounding box, DB row, provider-log row, or an intercepted network call. **A changed CSS byte is not proof** (three controls below change bytes and paint nothing visible). Artifacts → `docs/leadgen/r2/evidence/p8/<id>/`.
 
