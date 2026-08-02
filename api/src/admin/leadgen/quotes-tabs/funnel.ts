@@ -1365,23 +1365,10 @@ export const QUOTE_EDITOR_SCRIPT = `
   var themeDirty = false;
   var overridesDirty = false;
   var overrideMode = {};
-  var viewport = 'desktop';
-  var previewMode = 'section';
-  var currentSlideId = slideList.length > 0 ? slideList[0].public_id : null;
-  var pages = [];
-  var pageIndex = 0;
-  // Phase D stepper perf (16 "all-slides stepper perf"): above this slide
-  // count, mode:'all' fetches ONE composed page per step (the additive
-  // page:k protocol) instead of the full pages[]; at or below it the eager
-  // pages[] flow is byte-identical to Phase B. pageCount is the stepper's
-  // authoritative total in BOTH flows; knownSectionCount tracks the server's
-  // section_count echo (boot value = the SSR slide list).
-  var LAZY_SLIDES_THRESHOLD = 8;
-  var pageCount = 0;
-  var knownSectionCount = slideList.length;
-  function lazyAllMode() { return knownSectionCount > LAZY_SLIDES_THRESHOLD; }
-  var lastCss = '';
-  var selectedRegion = null;
+  // R2 P7: the dead frame-studio canvas took its state with it (viewport,
+  // previewMode, currentSlideId, pages/pageIndex/pageCount, the lazy-stepper
+  // threshold, lastCss, selectedRegion). siteId stays — the persona-image and
+  // media-upload paths read it and [data-site-select] still sets it.
   var siteId = '';
 
   function templateDefaults(id) {
@@ -1463,7 +1450,6 @@ export const QUOTE_EDITOR_SCRIPT = `
     }
     markDirty();
     updateOverrideBadge();
-    schedulePreview();
   }
   function updateOverrideBadge() {
     var badge = byId('lg-override-badge');
@@ -1504,7 +1490,6 @@ export const QUOTE_EDITOR_SCRIPT = `
     }
     populateAllControls();
     updateOverrideBadge();
-    schedulePreview();
   });
 
   // --- inspector control binding ---------------------------------------------
@@ -1876,7 +1861,6 @@ export const QUOTE_EDITOR_SCRIPT = `
     markDirty();
     paintSwatches();
     markStripSelection();
-    schedulePreview();
   }
   // R2 P2 FIX-FIRST-2 (MAJOR-1 residue) — THE CONVERGENT PALETTE SEAM
   // (producer side; the consumer is quotes-tabs/themes.ts's own island).
@@ -1910,7 +1894,6 @@ export const QUOTE_EDITOR_SCRIPT = `
       paintSwatches();
       markStripSelection();
       updateOverrideBadge();
-      schedulePreview();
     } else {
       if (!isRecordVal(workingTheme.palette)) { workingTheme.palette = {}; }
       writeThemeValue('palette.' + role, value);
@@ -1939,7 +1922,7 @@ export const QUOTE_EDITOR_SCRIPT = `
       delete workingOverrides.theme.palette[resetRole];
       overridesDirty = true;
       markDirty();
-      paintSwatches(); markStripSelection(); updateOverrideBadge(); schedulePreview();
+      paintSwatches(); markStripSelection(); updateOverrideBadge();
       emitPaletteDraft(resetRole, null);
       return;
     }
@@ -3251,147 +3234,29 @@ export const QUOTE_EDITOR_SCRIPT = `
     });
   }());
 
-  // --- the canvas (server-rendered composed page in a srcdoc iframe) ---------
-  var canvas = byId('lg-preview-iframe');
-  var previewTimer = null;
-  // DEV-58 (Phase D): the draft params mirror the STORED columns 1:1 —
-  // draft_frame_config = the working FUNNEL frame, draft_theme = the working
-  // funnel theme, and UNSAVED per-arm override edits ride the ADDITIVE
-  // draft_frame_overrides param (the same frame+theme split as the stored
-  // column). The server substitutes the WORKING overrides for the stored
-  // ones in the same composition slot, so re-editing a field that ALREADY
-  // has a stored override previews the WORKING value exactly (render-only;
-  // nothing persists).
-  // R2 handoff (S2a's templates.ts idiom, adopted here — funnel.ts's
-  // collectors are SHARED save+preview, unlike templates.ts's separate
-  // canvas-only one): a half-typed images row (no media_id AND no url yet)
-  // cannot render and would 400 the WHOLE preview. This filters ONLY the
-  // draft CLONE the preview POST sends — workingFrame/workingOverrides (and
-  // therefore the actual Save PUT, funnelBase + '/frame' /
-  // frame_overrides_json) are UNTOUCHED, so Save still validates an
-  // incomplete row exactly as before ("save keeps validating").
-  function stripIncompleteImagesForPreview(images) {
-    if (!images || !images.length) { return images; }
-    var out = []; var i;
-    for (i = 0; i < images.length; i++) {
-      var it = images[i];
-      if (it && (it.media_id || it.url)) { out.push(it); }
-    }
-    return out;
-  }
-  function draftFrameConfig() {
-    var d = deepClone(workingFrame);
-    if (d.template === undefined) { d.template = currentTemplateId(); }
-    d.version = 1;
-    if (d.images) { d.images = stripIncompleteImagesForPreview(d.images); }
-    return d;
-  }
-  function draftTheme() {
-    return deepClone(workingTheme);
-  }
-  // Attach the per-arm overrides draft ONLY while the arm has unsaved
-  // override edits ({} substitutes "no overrides" for this render — the
-  // preview mirror of the save payload's null). Untouched arms keep the
-  // server-side STORED merge.
-  function draftOverridesParam(body) {
-    if (overridesDirty) {
-      var ov = deepClone(workingOverrides);
-      if (ov.images) { ov.images = stripIncompleteImagesForPreview(ov.images); }
-      body.draft_frame_overrides = ov;
-    }
-    return body;
-  }
-  function canvasStatus(text) {
-    var el = byId('lg-canvas-status');
-    if (el) { clearChildren(el); if (text) { el.appendChild(document.createTextNode(text)); } }
-  }
-  var REGION_SELECT_CSS = '[data-frame-region]{cursor:pointer}' +
-    '.lg-region-sel{outline:3px solid #2563eb;outline-offset:-3px}';
-  function setCanvasDoc(bodyHtml, css) {
-    if (!canvas) { return; }
-    canvas.style.width = viewport === 'mobile' ? '375px' : '1280px';
-    var doc = '<!doctype html><html><head><meta charset="utf-8"><style>' + (css || '') + REGION_SELECT_CSS + '</style></head><body>' + (bodyHtml || '') + '</body></html>';
-    canvas.setAttribute('srcdoc', doc);
-  }
-  function slideStillPresent(publicId) {
-    if (!publicId) { return false; }
-    var rows = root.querySelectorAll('.lg-section-row[data-section-public-id]');
-    var i;
-    for (i = 0; i < rows.length; i++) {
-      if (rows[i].getAttribute('data-section-public-id') === publicId) { return true; }
-    }
-    return false;
-  }
-  function previewBody(draftF) {
-    var body = draftOverridesParam({
-      mode: previewMode,
-      viewport: viewport,
-      draft_frame_config: draftF === undefined ? draftFrameConfig() : draftF,
-      draft_theme: draftTheme()
-    });
-    if (siteId) { body.site_id = siteId; }
-    // a removed/unsaved slide must not ride the POST (the server 400s on a
-    // public id outside the PERSISTED order) — fall back to the first slide.
-    if (previewMode === 'section' && currentSlideId && slideStillPresent(currentSlideId)) {
-      body.section_public_id = currentSlideId;
-    }
-    // Phase D stepper perf: long funnels fetch ONE composed page per step.
-    if (previewMode === 'all' && lazyAllMode()) { body.page = pageIndex + 1; }
-    return body;
-  }
-  // ONE preview endpoint for the canvas AND the theme mini preview (13 §13.4).
-  function previewUrl() { return '/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId) + '/preview'; }
-  // Monotonic render-request sequence: two overlapping preview POSTs can
-  // resolve out of order, and a stale (older) response must never overwrite
-  // the newer render. Every renderPreview call takes the next seq; a response
-  // (or failure) applies only while its seq is still the latest issued.
-  var previewSeq = 0;
-  function renderPreview(draftF) {
-    previewSeq += 1;
-    var seq = previewSeq;
-    fetch(previewUrl(), {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify(previewBody(draftF))
-    }).then(function (r) {
-      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
-    }).then(function (res) {
-      if (seq !== previewSeq) { return; } // stale — a newer request owns the canvas
-      if (!res.ok) {
-        canvasStatus(res.body && res.body.error ? 'Preview failed: ' + res.body.error : 'Preview failed');
-        return;
-      }
-      canvasStatus('');
-      var p = res.body.preview || {};
-      lastCss = p.css || '';
-      if (typeof p.section_count === 'number') { knownSectionCount = p.section_count; }
-      if (previewMode === 'all') {
-        if (typeof p.page === 'number') {
-          // Phase D lazy leg: ONE composed page (html) for step p.page.
-          pages = [];
-          pageCount = typeof p.section_count === 'number' ? p.section_count : 0;
-          if (pageIndex >= pageCount) { pageIndex = pageCount > 0 ? pageCount - 1 : 0; }
-          setCanvasDoc(p.html || '', lastCss);
-          updateStepLabel();
-        } else {
-          pages = p.pages || [];
-          pageCount = pages.length;
-          if (pageIndex >= pages.length) { pageIndex = 0; }
-          setCanvasDoc(pages[pageIndex] || '', lastCss);
-          updateStepLabel();
-        }
-      } else {
-        setCanvasDoc(p.html || '', lastCss);
-      }
-    }).catch(function () {
-      if (seq !== previewSeq) { return; } // stale failure — never clobber the newer render's status
-      canvasStatus('Preview failed: network error');
-    });
-  }
-  function schedulePreview() {
-    if (previewTimer) { window.clearTimeout(previewTimer); }
-    previewTimer = window.setTimeout(function () { previewTimer = null; renderPreview(); }, 300);
-  }
+  // R2 P7 (conformance sweep §4 "Exists but cannot be reached") — THE FRAME-
+  // STUDIO CANVAS ISLAND IS GONE. The P3b board rewrite deleted its DOM
+  // (renderBuilderPanel emits board + library + rules rail + dialogs: no
+  // iframe, no toolbar, no inspector, no banner) but left the whole island
+  // behind: #lg-preview-iframe / #lg-canvas-status / [data-region-panel] /
+  // #lg-slot-banner / [data-viewport-btn] / [data-preview-mode-btn] /
+  // #lg-step-* all resolve to 0 nodes in the served page, so the canvas var
+  // was permanently null and setCanvasDoc returned at its first guard.
+  //
+  // It was not merely clutter: schedulePreview() still fired from 11 live call
+  // sites (boot + every frame/theme/palette/site edit) and renderPreview POSTed
+  // /variants/:id/preview — a real server compose per builder edit — then threw
+  // the whole composed response into the null iframe. Removed here with every
+  // now-unreachable call site and the state that served only them (canvas,
+  // previewTimer, previewSeq, viewport, previewMode, pages/pageIndex/pageCount,
+  // knownSectionCount/LAZY_SLIDES_THRESHOLD/lazyAllMode, lastCss,
+  // selectedRegion, currentSlideId).
+  //
+  // The Templates tab's canvas (#lg-tpl-canvas-iframe) is a DIFFERENT, LIVE
+  // island with its own renderCanvasPreview/scheduleCanvasPreview against the
+  // same endpoint (quotes-tabs/templates.ts) — untouched, still previewing.
+  // siteId stays: the persona-image and upload paths below read it, and the
+  // [data-site-select] handler that sets it is emitted by templates.ts/shared.ts.
 
   // ==========================================================================
   // P6b — theme PRESETS (the KV lg-funnel-themes catalog): a picker to apply
@@ -3617,130 +3482,6 @@ export const QUOTE_EDITOR_SCRIPT = `
   // activate('themes') hook above also refreshes it on every switch).
   loadThemePresetOptions();
 
-  // --- region click-select (same-origin contentDocument delegation) ----------
-  function outlineSelection(doc) {
-    var all = doc.querySelectorAll('[data-frame-region]');
-    var i;
-    for (i = 0; i < all.length; i++) {
-      var name = all[i].getAttribute('data-frame-region');
-      var match = selectedRegion !== null && (name === selectedRegion || (selectedRegion === 'header' && name === 'logo'));
-      var cls = String(all[i].className || '').replace(/\\s*lg-region-sel/g, '');
-      all[i].className = match ? cls + ' lg-region-sel' : cls;
-    }
-  }
-  function showRegionPanel(name) {
-    var panels = root.querySelectorAll('[data-region-panel]');
-    var i;
-    for (i = 0; i < panels.length; i++) {
-      panels[i].className = panels[i].getAttribute('data-region-panel') === name
-        ? 'lg-inspector-panel lg-panel-card active' : 'lg-inspector-panel lg-panel-card';
-    }
-    var hint = byId('lg-inspector-hint');
-    if (hint) { hint.hidden = name !== null && name !== undefined; }
-  }
-  function hideSlotBanner() {
-    var banner = byId('lg-slot-banner');
-    if (banner) { banner.className = 'lg-slot-banner lg-hidden'; }
-  }
-  function showSlotBanner() {
-    var banner = byId('lg-slot-banner');
-    if (!banner) { return; }
-    var link = byId('lg-slot-banner-open');
-    if (link) {
-      link.setAttribute('href', currentSlideId
-        ? '/admin/leadgen/sections/' + encodeURIComponent(currentSlideId) + '/edit'
-        : '/admin/leadgen/sections');
-    }
-    banner.className = 'lg-slot-banner';
-  }
-  function selectRegion(name) {
-    selectedRegion = name;
-    showRegionPanel(name);
-    if (canvas && canvas.contentDocument) { outlineSelection(canvas.contentDocument); }
-  }
-  function onCanvasClick(ev) {
-    if (ev.preventDefault) { ev.preventDefault(); }
-    var node = ev.target;
-    var interior = false;
-    var region = null;
-    while (node && node.getAttribute) {
-      if (node.getAttribute('data-lg-section') !== null || node.getAttribute('data-lg-slot-placeholder') !== null) { interior = true; }
-      var r = node.getAttribute('data-frame-region');
-      if (r !== null && r !== undefined && r !== '') { region = r; break; }
-      node = node.parentNode;
-    }
-    if (region === 'logo') { region = 'header'; }
-    if (region === 'section_slot' && interior) { showSlotBanner(); return; }
-    hideSlotBanner();
-    // 04 §4.1/§4.4 background fallback: the .lg-frame-background layer is
-    // pointer-events:none BEHIND the content (frame CSS), so a canvas click
-    // can never target it. A click whose walk found NO region and NO
-    // slot-interior landed on #lg-funnel-root itself (or bare canvas) — the
-    // page background IS what was clicked. A real region hit above always
-    // wins (the walk broke on the nearest data-frame-region stamp).
-    if (region === null && !interior) { region = 'background'; }
-    if (region !== null) { selectRegion(region); }
-  }
-  if (canvas) {
-    canvas.addEventListener('load', function () {
-      var doc = canvas.contentDocument;
-      if (!doc) { return; }
-      doc.addEventListener('click', onCanvasClick);
-      outlineSelection(doc);
-    });
-  }
-
-  // --- toolbar: viewport / preview mode / stepper / site / variant mirror ----
-  function pressGroup(attr, value) {
-    var buttons = root.querySelectorAll('[' + attr + ']');
-    var i;
-    for (i = 0; i < buttons.length; i++) {
-      buttons[i].setAttribute('aria-pressed', buttons[i].getAttribute(attr) === value ? 'true' : 'false');
-    }
-  }
-  root.addEventListener('click', function (ev) {
-    var el = ev.target;
-    if (!el || !el.getAttribute) { return; }
-    var vp = el.getAttribute('data-viewport-btn');
-    if (vp !== null) { viewport = vp; pressGroup('data-viewport-btn', vp); schedulePreview(); return; }
-    var pm = el.getAttribute('data-preview-mode-btn');
-    if (pm !== null) {
-      previewMode = pm;
-      pressGroup('data-preview-mode-btn', pm);
-      var steps = byId('lg-step-controls');
-      if (steps) { steps.className = pm === 'all' ? 'lg-step-controls' : 'lg-step-controls lg-hidden'; }
-      pageIndex = 0;
-      schedulePreview();
-      return;
-    }
-  });
-  function updateStepLabel() {
-    var label = byId('lg-step-label');
-    if (label) {
-      clearChildren(label);
-      // pageCount == pages.length in the eager flow (byte-identical label);
-      // in the lazy flow it is the server's section_count echo.
-      label.appendChild(document.createTextNode('Slide ' + (pageCount === 0 ? 0 : pageIndex + 1) + ' of ' + pageCount));
-    }
-  }
-  (function () {
-    var prev = byId('lg-step-prev');
-    var next = byId('lg-step-next');
-    // Eager flow (≤ threshold): swap the already-fetched page locally.
-    // Lazy flow (> threshold): fetch the ONE composed page for the new step
-    // (renderPreview reads pageIndex through previewBody's page param); the
-    // label updates in renderPreview's completion path AFTER that per-step
-    // response lands — canvas and label always move together (a stale
-    // response never leaves the label ahead of the canvas; the seq guard
-    // drops it for both).
-    function showStep() {
-      if (lazyAllMode()) { renderPreview(); return; }
-      setCanvasDoc(pages[pageIndex] || '', lastCss);
-      updateStepLabel();
-    }
-    if (prev) { prev.addEventListener('click', function () { if (pageIndex > 0) { pageIndex--; showStep(); } }); }
-    if (next) { next.addEventListener('click', function () { if (pageIndex < pageCount - 1) { pageIndex++; showStep(); } }); }
-  }());
   (function () {
     var selects = root.querySelectorAll('[data-site-select]');
     var i;
@@ -3748,7 +3489,6 @@ export const QUOTE_EDITOR_SCRIPT = `
       siteId = this.value || '';
       var j;
       for (j = 0; j < selects.length; j++) { if (selects[j] !== this) { selects[j].value = siteId; } }
-      schedulePreview();
     }
     for (i = 0; i < selects.length; i++) { selects[i].addEventListener('change', onSiteChange); }
     // R2 handoff: sync this tab's site select at INIT so it agrees with the
@@ -3783,24 +3523,6 @@ export const QUOTE_EDITOR_SCRIPT = `
   // removed — confirmed dead for the SAME reason as #lg-variant-select
   // above (the P3b board rewrite removed the canvas's own variant-select
   // mirror along with the canvas that hosted it).
-
-  // --- structure panel: slide selection --------------------------------------
-  root.addEventListener('click', function (ev) {
-    var el = ev.target;
-    if (!el || !el.getAttribute || el.getAttribute('data-select-slide') === null) { return; }
-    var row = el;
-    while (row && row.getAttribute && row.getAttribute('data-section-public-id') === null) { row = row.parentNode; }
-    if (!row || !row.getAttribute) { return; }
-    currentSlideId = row.getAttribute('data-section-public-id') || null;
-    var rows = root.querySelectorAll('.lg-structure-row[data-section-public-id]');
-    var i;
-    for (i = 0; i < rows.length; i++) {
-      var cls = String(rows[i].className).replace(/\\s*lg-slide-current/g, '');
-      rows[i].className = rows[i] === row ? cls + ' lg-slide-current' : cls;
-    }
-    if (previewMode === 'section') { schedulePreview(); }
-  });
-
   // §10/S5.1: the OLD canvas-embedded "6-arrangement template picker" wiring
   // (togglePanel/#lg-template-btn/#lg-template-picker/showTemplateConfirm/
   // hideTemplateConfirm/#lg-template-confirm/the data-template-pick card
@@ -3823,7 +3545,6 @@ export const QUOTE_EDITOR_SCRIPT = `
   initOverrideSwitches();
   populateAllControls();
   updateOverrideBadge();
-  schedulePreview();
 
   // --- A/B (§16.2): allocation Σ, save, lifecycle (create/start/stop), preview -
   function allocInputs() { return root.querySelectorAll('[data-alloc-input]'); }

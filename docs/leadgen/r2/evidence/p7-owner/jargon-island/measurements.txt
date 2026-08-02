@@ -1,0 +1,93 @@
+R2 P7 — D1 rules-rail value jargon · D2 dead canvas island · D3 background flat-vs-brand
+Local instance: wrangler dev 127.0.0.1:8901 (DEV_BYPASS_AUTH, ADMIN_HOST=127.0.0.1)
+Fixture: quote lgq_01KZ1CQVY3X9CYG0W3HT93FBKV; section lgs_01KZ1CQVYKR8GSTJCX77F1EHME carries
+DropdownQuestion internal_field=rvw_credit_rvw7q3 (props.label "Credit score") with choices
+[{label:"Excellent",value:"excellent_rvw7q3"},{Good,good_rvw7q3},{Fair,fair_rvw7q3}].
+Rule authored through the real rail modal and SAVED: conditions_json
+{"groups":[{"field":"rvw_credit_rvw7q3","op":"eq","value":"excellent_rvw7q3"}]},
+actions target_funnel_id=1 / feed_name=short / value_multiplier=0.5.
+The SAME stored rule is re-rendered in both passes — conditions_json is byte-unchanged.
+
+================ D1 — the four sentence surfaces (literal strings) ================
+
+BEFORE (sources at HEAD 681ee4e)
+  SSR-CARD-CONDITIONS  :: R2Fix Fixture Carrier Buttons · Credit score is excellent_rvw7q3
+  CARD-CONDITIONS      :: R2Fix Fixture Carrier Buttons · Credit score is excellent_rvw7q3
+  MODAL-DRAFT-SENTENCE :: When R2Fix Fixture Carrier Buttons · Credit score is excellent_rvw7q3, → R2Fix Fixture Quote — Funnel A, Feed short, ×0.5.
+  BUILDER-SENTENCE     :: Matches when Answer: R2Fix Fixture Carrier Buttons · Credit score is "excellent_rvw7q3".
+  SSR-CARD-ACTIONS     :: → R2Fix Fixture Quote — Funnel AFeed short×0.5
+  CARD-ACTIONS         :: → R2Fix Fixture Quote — Funnel AFeed short×0.5
+  CONSOLE-ERRORS(1280) :: 0     CONSOLE-ERRORS(375) :: 0
+
+AFTER
+  SSR-CARD-CONDITIONS  :: R2Fix Fixture Carrier Buttons · Credit score is Excellent
+  CARD-CONDITIONS      :: R2Fix Fixture Carrier Buttons · Credit score is Excellent
+  MODAL-DRAFT-SENTENCE :: When R2Fix Fixture Carrier Buttons · Credit score is Excellent, → R2Fix Fixture Quote — Funnel A, Feed short, ×0.5.
+  BUILDER-SENTENCE     :: Matches when Answer: R2Fix Fixture Carrier Buttons · Credit score is "Excellent".
+  SSR-CARD-ACTIONS     :: → R2Fix Fixture Quote — Funnel AFeed short×0.5
+  CARD-ACTIONS         :: → R2Fix Fixture Quote — Funnel AFeed short×0.5
+  CONSOLE-ERRORS(1280) :: 0     CONSOLE-ERRORS(375) :: 0
+
+Degrade policy actually implemented (resolveChoiceValueText / choiceValueText / makeValueOf):
+  1. stored value matches a choice with a non-empty label -> the LABEL;
+  2. field HAS choices but no choice matches (removed/renamed answer) -> the token
+     humanized ("excellent_rvw7q3" -> "Excellent rvw7q3") — words, never a bare id;
+  3. field has NO choices (free text / number / UTM / device / state / custom) -> the
+     stored string VERBATIM, because there it IS what the rule matches and prettifying
+     it ("google_ads" -> "Google ads") would misstate the rule.
+Screens: before|after-d1-card-{1280,375}.png, before|after-d1-modal-draft-{1280,375}.png
+
+================ D2 — dead frame-studio canvas island ================
+
+Dead-DOM census in the SERVED page (document.getElementById / querySelectorAll counts,
+identical BEFORE and AFTER):
+  {"lg-preview-iframe":0,"lg-slot-banner":0,"lg-slot-banner-open":0,"lg-inspector-hint":0,
+   "lg-step-controls":0,"lg-step-label":0,"lg-canvas-status":0,"lg-override-badge":0,
+   "lg-theme-presets-frame":0,"lg-theme-btn":0,"[data-region-panel]":0,
+   "[data-viewport-btn]":0,"[data-preview-mode-btn]":0,"[data-frame-region]":0,
+   "LIVE #lg-tpl-canvas-iframe":1}
+
+POST /api/admin/leadgen/variants/:id/preview, same scripted drive (boot on Funnel builder,
+then 5 Templates-tab element-A/B edits, then a Themes-tab palette open):
+  BEFORE  boot=2   5 Templates edits=11   TOTAL=14   by origin {"templates(live)":8,"funnel(dead-canvas)":6}
+  AFTER   boot=1   5 Templates edits= 6   TOTAL= 8   by origin {"templates(live)":8}
+  => 6 of 14 preview composes (43%) were the dead canvas. Now 0.
+Origin split is by POST body: funnel.ts always sent the whole working theme object as
+draft_theme; templates.ts sends draft_theme only as {theme_id} (or omits it).
+
+Emitted admin island QUOTE_EDITOR_SCRIPT:
+  BEFORE 244949 chars   AFTER 232882 chars   removed 12067
+  funnel.ts source: 277584 -> 265503 bytes (removed 12081)
+
+Templates tab LIVE canvas still previews after the removal:
+  BEFORE {"present":1,"srcdocLen":70543,"hasFrameRegion":1,"hasBody":1}
+  AFTER  {"present":1,"srcdocLen":70646,"hasFrameRegion":1,"hasBody":1}
+  CONSOLE-ERRORS = 0 in both passes.
+Screens: before|after-d2-templates-canvas-{1280,375}.png
+
+================ D3 — background style flat vs brand ================
+
+Measured inside the LIVE Templates canvas iframe: getComputedStyle('.lg-frame-background')
+after selecting each option in element A's Style select. background.role = page_background.
+
+  BEFORE  flat           backgroundColor rgb(245, 247, 250)   backgroundImage none
+  BEFORE  brand          backgroundColor rgb(245, 247, 250)   backgroundImage none   <-- identical to flat
+  BEFORE  brand_gradient backgroundColor rgba(0, 0, 0, 0)     backgroundImage linear-gradient(160deg, rgb(27, 58, 92), rgb(42, 80, 128))
+
+  AFTER   flat           backgroundColor rgb(245, 247, 250)   backgroundImage none
+  AFTER   brand          backgroundColor rgb(27, 58, 92)      backgroundImage none   <-- brand_primary, solid
+  AFTER   brand_gradient backgroundColor rgba(0, 0, 0, 0)     backgroundImage linear-gradient(160deg, rgb(27, 58, 92), rgb(42, 80, 128))
+
+Treatment: brand = the brand colour SOLID (baseTokenForRole(design,"brand_primary")), which
+is what the admin's own template thumbnail has always painted for this option
+(quotes-tabs/shared.ts `.lg-tpl-thumb--bg-brand{background:var(--c-primary)}`) and what
+frames.ts's FrameBackgroundConfig requires ("brand/gradient resolve via roles — no raw CSS").
+flat stays the operator's own Color role pick. Three options, three distinct paints.
+Screens: before|after-d3-bg-{flat,brand,brand_gradient}-{1280,375}.png
+
+================ lane ================
+npm run typecheck   : clean (tsc --noEmit, no output)
+npm run verify:all  : exit 0; leadgen runtime size OK (52762 bytes, 99.1% of budget, cap 53248)
+npm test            : 10 failed / 7627 passed / 30 skipped (7667) — see the report; every
+                      failure is a test asserting the deleted dead canvas, plus the p3a
+                      byte-identity fixture that any editor-page change invalidates.

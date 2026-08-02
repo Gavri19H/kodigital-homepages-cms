@@ -47,6 +47,8 @@ import {
   type QuoteRulesRailAnswerField,
   type QuoteRulesRailData,
   type QuoteRulesRailFunnel,
+  // ADJ-N8 — the value→label pairs the rail threads to every sentence surface.
+  type RulesBuilderFieldChoice,
 } from "./ui-rules-builder";
 import {
   type QuoteListItem,
@@ -979,9 +981,16 @@ interface QuoteRulesRailRuleWire {
 // `props.label` is the question's OWN words (the same source the studio's grid
 // rows and dependency sentences read); a question that has none falls back to
 // its field id, so the rail is never blank.
+// R2 P7 (register ADJ-N8) — the OTHER half of the same sentence. MINOR-1 fixed
+// the FIELD side; the VALUE side kept printing the stored choice slug, so the
+// card read "… is excellent_rvw7q3" — literally the jargon owner A.1 #11C
+// named. The rail now carries each choice question's authored value→label map
+// (`node.choices`, §13.1, plus the §6.5 "Other" group's own choices, which are
+// equally selectable answers), and every sentence surface resolves through it.
 interface SectionFieldEntry {
   internal_field: string;
   label: string | null;
+  choices: RulesBuilderFieldChoice[];
 }
 function questionLabelOf(node: unknown): string | null {
   if (node === null || typeof node !== "object") return null;
@@ -990,17 +999,47 @@ function questionLabelOf(node: unknown): string | null {
   const label = (props as { label?: unknown }).label;
   return typeof label === "string" && label.trim() !== "" ? label.trim() : null;
 }
+function pushChoices(raw: unknown, into: RulesBuilderFieldChoice[], seen: Set<string>): void {
+  if (!Array.isArray(raw)) return;
+  for (const c of raw) {
+    if (c === null || typeof c !== "object") continue;
+    const v = (c as { value?: unknown }).value;
+    if (typeof v !== "string" && typeof v !== "number" && typeof v !== "boolean") continue;
+    const label = (c as { label?: unknown }).label;
+    if (typeof label !== "string" || label.trim() === "") continue;
+    const key = String(v);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    into.push({ value: key, label: label.trim() });
+  }
+}
+function questionChoicesOf(node: unknown): RulesBuilderFieldChoice[] {
+  if (node === null || typeof node !== "object") return [];
+  const out: RulesBuilderFieldChoice[] = [];
+  const seen = new Set<string>();
+  pushChoices((node as { choices?: unknown }).choices, out, seen);
+  const props = (node as { props?: unknown }).props;
+  if (props !== null && typeof props === "object") {
+    const other = (props as { other?: unknown }).other;
+    if (other !== null && typeof other === "object") {
+      pushChoices((other as { choices?: unknown }).choices, out, seen);
+    }
+  }
+  return out;
+}
 function internalFieldEntriesOf(node: unknown): SectionFieldEntry[] {
   if (node === null || typeof node !== "object") return [];
   const out: SectionFieldEntry[] = [];
   const own = (node as { internal_field?: unknown }).internal_field;
-  if (typeof own === "string" && own !== "") out.push({ internal_field: own, label: questionLabelOf(node) });
+  if (typeof own === "string" && own !== "")
+    out.push({ internal_field: own, label: questionLabelOf(node), choices: questionChoicesOf(node) });
   const children = (node as { children?: unknown }).children;
   if (Array.isArray(children)) {
     for (const child of children) {
       if (child === null || typeof child !== "object") continue;
       const f = (child as { internal_field?: unknown }).internal_field;
-      if (typeof f === "string" && f !== "") out.push({ internal_field: f, label: questionLabelOf(child) });
+      if (typeof f === "string" && f !== "")
+        out.push({ internal_field: f, label: questionLabelOf(child), choices: questionChoicesOf(child) });
     }
   }
   return out;
@@ -1032,10 +1071,21 @@ export function quoteRailAnswerFields(available: readonly AvailableSection[]): Q
         // this string IS the rule card's subject (qrFieldLabel returns it
         // verbatim) and the picker's option text. Section-qualified, because
         // two sections may ask the same question.
-        fields.push({
-          internal_field: entry.internal_field,
-          label: `${section.section_name} · ${entry.label ?? entry.internal_field}`,
-        });
+        // ADJ-N8: the value side rides with the field side — `choices` is the
+        // authored value→label map for a choice question, absent for every
+        // free-text/number field (which keeps rendering its value verbatim).
+        fields.push(
+          entry.choices.length > 0
+            ? {
+                internal_field: entry.internal_field,
+                label: `${section.section_name} · ${entry.label ?? entry.internal_field}`,
+                choices: entry.choices,
+              }
+            : {
+                internal_field: entry.internal_field,
+                label: `${section.section_name} · ${entry.label ?? entry.internal_field}`,
+              },
+        );
       }
     }
   }

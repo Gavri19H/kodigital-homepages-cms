@@ -147,14 +147,66 @@ export type RulesBuilderParseResult =
   | { ok: true; rows: RulesBuilderRow[] }
   | { ok: false; reason: string };
 
+// R2 P7 (register ADJ-N8, owner A.1 #11C "the rules you build are using
+// jargon") — the VALUE side of a condition sentence. A choice question stores
+// a slug (`excellent_rvw7q3`); the operator authored a LABEL ("Excellent").
+// Every sentence surface below resolves the stored value through this map so
+// the storage slug never reaches an operator sentence (§12.4 "raw storage keys
+// never surface"). `value` is stringified at collection time because a stored
+// choice value may be string | number | boolean (LeadgenChoice).
+export interface RulesBuilderFieldChoice {
+  value: string;
+  label: string;
+}
+
 export interface RulesBuilderField {
   internal_field: string;
   label: string;
+  // OPTIONAL and additive: a field with no authored choices (free text,
+  // number, UTM, custom) carries none and renders its value verbatim.
+  choices?: RulesBuilderFieldChoice[];
 }
 
 export interface RulesBuilderOffer {
   public_id: string;
   name: string;
+}
+
+// ADJ-N8 value-side resolution, shared by EVERY sentence surface (the SSR
+// rules-builder card, the SSR quote rules-rail card, and the two ES5 islands
+// that mirror them 1:1).
+//
+//   1. the stored value matches a choice with a non-empty label → the LABEL;
+//   2. the field HAS choices but the value matches none (a removed/renamed
+//      answer) → the token humanized ("excellent_rvw7q3" → "Excellent
+//      rvw7q3"), so a stale rule still reads as words, never as a bare id;
+//   3. the field has NO choices → the stored string VERBATIM. For free-text /
+//      UTM / number conditions the stored string IS what the rule matches, and
+//      prettifying it (`google_ads` → "Google ads") would misstate the rule.
+export function humanizeChoiceToken(token: string): string {
+  const spaced = token.replace(/[_-]+/g, " ").trim();
+  if (spaced === "") return token;
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+export function resolveChoiceValueText(
+  choices: readonly RulesBuilderFieldChoice[] | undefined,
+  value: RulesBuilderPrimitive | undefined,
+): string {
+  const raw = value === undefined || value === null ? "" : String(value);
+  if (choices === undefined || choices.length === 0) return raw;
+  for (const c of choices) {
+    if (c.value === raw && c.label !== "") return c.label;
+  }
+  return humanizeChoiceToken(raw);
+}
+
+function choicesOfField(
+  fields: readonly RulesBuilderField[],
+  field: string,
+): RulesBuilderFieldChoice[] | undefined {
+  for (const f of fields) if (f.internal_field === field) return f.choices;
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -341,39 +393,62 @@ export function serializeRows(rows: readonly RulesBuilderRow[]): string {
 // Sentences (plain-language; §6.10 live preview)
 // ---------------------------------------------------------------------------
 
-function fmtValue(v: RulesBuilderPrimitive | undefined): string {
+// ADJ-N8: `valueOf` resolves the STORED value to the operator's own words for
+// the row's field. Optional so existing callers (and the frozen exported
+// conditionsSentence signature) keep working unchanged.
+type RulesBuilderValueResolver = (field: string, v: RulesBuilderPrimitive | undefined) => string;
+
+function fmtValue(
+  v: RulesBuilderPrimitive | undefined,
+  field?: string,
+  valueOf?: RulesBuilderValueResolver,
+): string {
   if (typeof v === "boolean") return v ? "Yes" : "No";
-  if (typeof v === "number") return String(v);
+  if (typeof v === "number" && valueOf === undefined) return String(v);
   if (v === undefined || v === "") return '""';
+  if (valueOf !== undefined && field !== undefined) {
+    const resolved = valueOf(field, v);
+    if (typeof v === "number" && resolved === String(v)) return resolved;
+    return '"' + resolved + '"';
+  }
   return '"' + v + '"';
 }
 
-function fmtList(chips: readonly RulesBuilderChip[] | undefined): string {
+function fmtList(
+  chips: readonly RulesBuilderChip[] | undefined,
+  field?: string,
+  valueOf?: RulesBuilderValueResolver,
+): string {
   if (!chips || chips.length === 0) return "(no values yet)";
-  return chips.map((c) => fmtValue(c.value)).join(", ");
+  return chips.map((c) => fmtValue(c.value, field, valueOf)).join(", ");
 }
 
-function rowSentence(row: RulesBuilderRow, labelOf: (field: string) => string): string {
+function rowSentence(
+  row: RulesBuilderRow,
+  labelOf: (field: string) => string,
+  valueOf?: RulesBuilderValueResolver,
+): string {
   const label = row.field === "" ? "(choose a field)" : labelOf(row.field);
+  const f = row.field;
   switch (row.op) {
     case "eq":
-      return label + " is " + fmtValue(row.value);
+      return label + " is " + fmtValue(row.value, f, valueOf);
     case "neq":
-      return label + " is not " + fmtValue(row.value);
+      return label + " is not " + fmtValue(row.value, f, valueOf);
     case "gt":
-      return label + " is greater than " + fmtValue(row.value);
+      return label + " is greater than " + fmtValue(row.value, f, valueOf);
     case "lt":
-      return label + " is less than " + fmtValue(row.value);
+      return label + " is less than " + fmtValue(row.value, f, valueOf);
     case "gte":
-      return label + " is at least " + fmtValue(row.value);
+      return label + " is at least " + fmtValue(row.value, f, valueOf);
     case "lte":
-      return label + " is at most " + fmtValue(row.value);
+      return label + " is at most " + fmtValue(row.value, f, valueOf);
     case "range":
       return label + " is between " + String(row.from ?? 0) + " and " + String(row.to ?? 0);
     case "in":
-      return label + " is any of " + fmtList(row.values);
+      return label + " is any of " + fmtList(row.values, f, valueOf);
     case "not_in":
-      return label + " is none of " + fmtList(row.values);
+      return label + " is none of " + fmtList(row.values, f, valueOf);
     case "is_empty":
       return label + " is empty";
     case "not_empty":
@@ -403,10 +478,11 @@ function clustersOf(rows: readonly RulesBuilderRow[]): RowCluster[] {
 export function conditionsSentence(
   rows: readonly RulesBuilderRow[],
   labelOf: (field: string) => string,
+  valueOf?: RulesBuilderValueResolver,
 ): string {
   if (rows.length === 0) return "Always matches — no conditions.";
   const parts = clustersOf(normalizeClusterOrder(rows)).map((cluster) => {
-    const s = cluster.rows.map((r) => rowSentence(r, labelOf)).join(" or ");
+    const s = cluster.rows.map((r) => rowSentence(r, labelOf, valueOf)).join(" or ");
     return cluster.rows.length > 1 ? "(" + s + ")" : s;
   });
   return "Matches when " + parts.join(" and ") + ".";
@@ -499,6 +575,11 @@ function labelResolver(fields: readonly RulesBuilderField[]): (field: string) =>
     if (hit !== undefined) return hit.label;
     return field === "" ? "(choose a field)" : field;
   };
+}
+
+// ADJ-N8 twin of labelResolver for the VALUE side.
+function valueResolver(fields: readonly RulesBuilderField[]): RulesBuilderValueResolver {
+  return (field, v) => resolveChoiceValueText(choicesOfField(fields, field), v);
 }
 
 function renderFieldSelect(
@@ -689,7 +770,7 @@ function renderCard(view: RuleView, fields: readonly RulesBuilderField[]): strin
   } catch {
     // serializeRows output is always valid JSON; defensive only.
   }
-  const sentence = conditionsSentence(rows, labelResolver(fields));
+  const sentence = conditionsSentence(rows, labelResolver(fields), valueResolver(fields));
 
   return (
     `<section class="card lg-rb-card" data-lg-rb-card data-rule-index="${view.index}" data-mode="visual">` +
@@ -742,9 +823,27 @@ function sanitizeFields(fields: readonly RulesBuilderField[] | undefined): Rules
     if (typeof internal !== "string" || internal === "" || seen.has(internal)) continue;
     const label = typeof f["label"] === "string" && f["label"] !== "" ? (f["label"] as string) : internal;
     seen.add(internal);
-    out.push({ internal_field: internal, label });
+    const choices = sanitizeFieldChoices(f["choices"]);
+    out.push(choices === undefined ? { internal_field: internal, label } : { internal_field: internal, label, choices });
   }
   return out;
+}
+
+// ADJ-N8 — the value→label map, defensively narrowed (the host may thread any
+// shape). Stringifies the stored value so string|number|boolean choices all
+// compare against the row's serialized value the same way.
+function sanitizeFieldChoices(raw: unknown): RulesBuilderFieldChoice[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: RulesBuilderFieldChoice[] = [];
+  for (const c of raw) {
+    if (!isRecord(c)) continue;
+    const v = c["value"];
+    if (typeof v !== "string" && typeof v !== "number" && typeof v !== "boolean") continue;
+    const label = c["label"];
+    if (typeof label !== "string" || label.trim() === "") continue;
+    out.push({ value: String(v), label: label.trim() });
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 function sanitizeOffers(offers: readonly RulesBuilderOffer[] | undefined): RulesBuilderOffer[] {
@@ -760,9 +859,11 @@ function sanitizeOffers(offers: readonly RulesBuilderOffer[] | undefined): Rules
 }
 
 // FROZEN INTERFACE — the ui-quotes.ts sibling consumes exactly this.
+// ADJ-N8 widened it ADDITIVELY only: `choices` is optional, so every existing
+// caller type-checks and renders unchanged.
 export function renderRulesBuilderPanel(data: {
   rules: unknown[];
-  fields: { internal_field: string; label: string }[];
+  fields: { internal_field: string; label: string; choices?: RulesBuilderFieldChoice[] }[];
   offers: { public_id: string; name: string }[];
   target_input_id?: string;
 }): string {
@@ -973,30 +1074,59 @@ export const RULES_BUILDER_SCRIPT = `(function () {
 
   // ---- sentences ------------------------------------------------------------
 
-  function fmtValue(v) {
+  // ADJ-N8 mirror of resolveChoiceValueText/valueResolver: label → humanized
+  // token (choice field only) → verbatim (no choices).
+  function humanizeToken(token) {
+    var spaced = String(token).replace(/[_-]+/g, ' ').replace(/^\\s+|\\s+$/g, '');
+    if (spaced === '') { return String(token); }
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  }
+  function makeValueOf(fieldsArg) {
+    return function (field, v) {
+      var raw = (v === undefined || v === null) ? '' : String(v);
+      var i, j, choices;
+      for (i = 0; i < fieldsArg.length; i++) {
+        if (fieldsArg[i].internal_field !== field) { continue; }
+        choices = isArr(fieldsArg[i].choices) ? fieldsArg[i].choices : null;
+        if (!choices || choices.length === 0) { return raw; }
+        for (j = 0; j < choices.length; j++) {
+          if (String(choices[j].value) === raw && choices[j].label) { return String(choices[j].label); }
+        }
+        return humanizeToken(raw);
+      }
+      return raw;
+    };
+  }
+  function fmtValue(v, field, valueOf) {
     if (typeof v === 'boolean') { return v ? 'Yes' : 'No'; }
-    if (typeof v === 'number') { return String(v); }
+    if (typeof v === 'number' && !valueOf) { return String(v); }
     if (v === undefined || v === '') { return '""'; }
+    if (valueOf && field !== undefined) {
+      var resolved = valueOf(field, v);
+      if (typeof v === 'number' && resolved === String(v)) { return resolved; }
+      return '"' + resolved + '"';
+    }
     return '"' + v + '"';
   }
-  function fmtList(chips) {
+  function fmtList(chips, field, valueOf) {
     if (!chips || chips.length === 0) { return '(no values yet)'; }
     var parts = [];
     var i;
-    for (i = 0; i < chips.length; i++) { parts.push(fmtValue(chips[i].value)); }
+    for (i = 0; i < chips.length; i++) { parts.push(fmtValue(chips[i].value, field, valueOf)); }
     return parts.join(', ');
   }
-  function rowSentence(row, labelOf) {
+  function rowSentence(row, labelOf, valueOf) {
     var label = row.field === '' ? '(choose a field)' : labelOf(row.field);
-    if (row.op === 'eq') { return label + ' is ' + fmtValue(row.value); }
-    if (row.op === 'neq') { return label + ' is not ' + fmtValue(row.value); }
-    if (row.op === 'gt') { return label + ' is greater than ' + fmtValue(row.value); }
-    if (row.op === 'lt') { return label + ' is less than ' + fmtValue(row.value); }
-    if (row.op === 'gte') { return label + ' is at least ' + fmtValue(row.value); }
-    if (row.op === 'lte') { return label + ' is at most ' + fmtValue(row.value); }
+    var f = row.field;
+    if (row.op === 'eq') { return label + ' is ' + fmtValue(row.value, f, valueOf); }
+    if (row.op === 'neq') { return label + ' is not ' + fmtValue(row.value, f, valueOf); }
+    if (row.op === 'gt') { return label + ' is greater than ' + fmtValue(row.value, f, valueOf); }
+    if (row.op === 'lt') { return label + ' is less than ' + fmtValue(row.value, f, valueOf); }
+    if (row.op === 'gte') { return label + ' is at least ' + fmtValue(row.value, f, valueOf); }
+    if (row.op === 'lte') { return label + ' is at most ' + fmtValue(row.value, f, valueOf); }
     if (row.op === 'range') { return label + ' is between ' + String(finiteNum(row.from) ? row.from : 0) + ' and ' + String(finiteNum(row.to) ? row.to : 0); }
-    if (row.op === 'in') { return label + ' is any of ' + fmtList(row.values); }
-    if (row.op === 'not_in') { return label + ' is none of ' + fmtList(row.values); }
+    if (row.op === 'in') { return label + ' is any of ' + fmtList(row.values, f, valueOf); }
+    if (row.op === 'not_in') { return label + ' is none of ' + fmtList(row.values, f, valueOf); }
     if (row.op === 'is_empty') { return label + ' is empty'; }
     return label + ' is not empty';
   }
@@ -1010,7 +1140,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     }
     return out;
   }
-  function cardSentence(rows, labelOf) {
+  function cardSentence(rows, labelOf, valueOf) {
     if (rows.length === 0) { return 'Always matches \\u2014 no conditions.'; }
     var clusters = clustersOf(normalizeClusterOrder(rows));
     var parts = [];
@@ -1018,7 +1148,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     for (i = 0; i < clusters.length; i++) {
       var inner = [];
       var j;
-      for (j = 0; j < clusters[i].rows.length; j++) { inner.push(rowSentence(clusters[i].rows[j], labelOf)); }
+      for (j = 0; j < clusters[i].rows.length; j++) { inner.push(rowSentence(clusters[i].rows[j], labelOf, valueOf)); }
       var s = inner.join(' or ');
       parts.push(clusters[i].rows.length > 1 ? '(' + s + ')' : s);
     }
@@ -1084,7 +1214,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       state.ext.value = json;
       if (!silent) { fire(state.ext, 'input'); fire(state.ext, 'change'); }
     }
-    if (state.sentenceEl) { state.sentenceEl.textContent = cardSentence(state.rows, state.labelOf); }
+    if (state.sentenceEl) { state.sentenceEl.textContent = cardSentence(state.rows, state.labelOf, state.valueOf); }
     if (state.jsonEl && state.mode !== 'raw') {
       try { state.jsonEl.textContent = JSON.stringify(JSON.parse(json), null, 2); }
       catch (e) { state.jsonEl.textContent = json; }
@@ -1521,6 +1651,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     var mirror = data.rules.length === 1;
     var fields = isArr(data.fields) ? data.fields : [];
     var labelOf = makeLabelOf(fields);
+    var valueOf = makeValueOf(fields);
 
     var i;
     for (i = 0; i < data.rules.length; i++) {
@@ -1531,7 +1662,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       if (entry.unsupported_reason) {
         // Raw fallback: SSR already carries the exact original bytes in the
         // hidden input + Advanced view; the island must never rewrite them.
-        states.push({ index: entry.index, mode: 'raw', raw: entry.raw, rows: [], out: out, ext: null, mirror: false, labelOf: labelOf, fields: fields, card: card });
+        states.push({ index: entry.index, mode: 'raw', raw: entry.raw, rows: [], out: out, ext: null, mirror: false, labelOf: labelOf, valueOf: valueOf, fields: fields, card: card });
         continue;
       }
       var state = {
@@ -1543,6 +1674,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
         ext: ext,
         mirror: mirror,
         labelOf: labelOf,
+        valueOf: valueOf,
         fields: fields,
         card: card,
         zone: card.querySelector('[data-lg-rb-clusters]'),
@@ -1589,7 +1721,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       details.appendChild(pre);
       container.appendChild(details);
       out.value = rawString;
-      var rawState = { index: -1, mode: 'raw', raw: rawString, rows: [], out: out, ext: null, mirror: false, labelOf: makeLabelOf(fields), fields: fields, card: container };
+      var rawState = { index: -1, mode: 'raw', raw: rawString, rows: [], out: out, ext: null, mirror: false, labelOf: makeLabelOf(fields), valueOf: makeValueOf(fields), fields: fields, card: container };
       states.push(rawState);
       return { state: rawState, serialize: function () { return rawString; } };
     }
@@ -1621,6 +1753,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       ext: opts.mirrorEl || null,
       mirror: !!opts.mirrorEl,
       labelOf: makeLabelOf(fields),
+      valueOf: makeValueOf(fields),
       fields: fields,
       card: container,
       zone: zone,
@@ -1733,6 +1866,9 @@ export interface QuoteRulesRailOffer {
 export interface QuoteRulesRailAnswerField {
   internal_field: string;
   label: string;
+  // ADJ-N8 — the question's authored choice labels, so a condition on a
+  // choice/enum field reads "is Excellent", never "is excellent_rvw7q3".
+  choices?: RulesBuilderFieldChoice[];
 }
 
 // A rule row in the API shape (quoteRoutingRuleRowToApi): conditions_json is a
@@ -1858,15 +1994,27 @@ function qrFieldLabel(field: string, data: QuoteRulesRailData): string {
   return field;
 }
 
-function qrValueText(g: Record<string, unknown>): string {
+// ADJ-N8 — the rail's answer-field choice map for one field (the entry-known
+// sources UTM/device/state/hour/… are free-form and carry none).
+function qrFieldChoices(
+  field: string,
+  data: QuoteRulesRailData,
+): RulesBuilderFieldChoice[] | undefined {
+  for (const a of data.answer_fields) if (a.internal_field === field) return a.choices;
+  return undefined;
+}
+
+function qrValueText(g: Record<string, unknown>, field: string, data: QuoteRulesRailData): string {
   if (g["op"] === "range") return String(g["from"] ?? "") + "–" + String(g["to"] ?? "");
+  const choices = qrFieldChoices(field, data);
   if (g["op"] === "in" || g["op"] === "not_in") {
     const vals = Array.isArray(g["values"]) ? (g["values"] as unknown[]) : [];
-    return vals.map((v) => String(v)).join(", ");
+    return vals.map((v) => resolveChoiceValueText(choices, v as RulesBuilderPrimitive)).join(", ");
   }
   const v = g["value"];
   if (typeof v === "boolean") return v ? "Yes" : "No";
-  return v === undefined || v === null ? "" : String(v);
+  if (v === undefined || v === null) return "";
+  return resolveChoiceValueText(choices, v as RulesBuilderPrimitive);
 }
 
 // Condition summary chips (pack rule-field · Conditions). Each group -> one
@@ -1884,7 +2032,7 @@ function qrConditionChips(rule: QuoteRulesRailRule, data: QuoteRulesRailData): s
     const field = typeof g["field"] === "string" ? (g["field"] as string) : "";
     const op = typeof g["op"] === "string" ? (g["op"] as string) : "eq";
     const word = QR_OP_WORDS[op] ?? op;
-    chips.push(qrFieldLabel(field, data) + " " + word + " " + qrValueText(g));
+    chips.push(qrFieldLabel(field, data) + " " + word + " " + qrValueText(g, field, data));
   }
   return chips.length > 0 ? chips : ["Always"];
 }
@@ -2313,11 +2461,35 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     var m = { eq: 'is', neq: 'is not', gt: 'greater than', lt: 'less than', gte: 'at least', lte: 'at most', range: 'between', 'in': 'in', not_in: 'not in' };
     return m[op] || op;
   }
-  function valueText(g) {
+  // ADJ-N8 (owner A.1 #11C "using jargon") — mirror of the SSR
+  // qrFieldChoices/resolveChoiceValueText pair: a choice question's stored slug
+  // is printed as the operator's own choice LABEL; a slug with no surviving
+  // choice degrades to humanized words; a field with no choices (free text /
+  // UTM / number) keeps its stored string verbatim.
+  function humanizeChoiceToken(token) {
+    var spaced = String(token).replace(/[_-]+/g, ' ').replace(/^\\s+|\\s+$/g, '');
+    if (spaced === '') { return String(token); }
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  }
+  function choiceValueText(field, v) {
+    var raw = (v === undefined || v === null) ? '' : String(v);
+    var i, j, choices;
+    for (i = 0; i < answerFields.length; i++) {
+      if (answerFields[i].internal_field !== field) { continue; }
+      choices = isArr(answerFields[i].choices) ? answerFields[i].choices : null;
+      if (!choices || choices.length === 0) { return raw; }
+      for (j = 0; j < choices.length; j++) {
+        if (String(choices[j].value) === raw && choices[j].label) { return String(choices[j].label); }
+      }
+      return humanizeChoiceToken(raw);
+    }
+    return raw;
+  }
+  function valueText(g, field) {
     if (g.op === 'range') { return String(g.from == null ? '' : g.from) + '\\u2013' + String(g.to == null ? '' : g.to); }
-    if (g.op === 'in' || g.op === 'not_in') { var vals = isArr(g.values) ? g.values : []; var out = []; var i; for (i = 0; i < vals.length; i++) { out.push(String(vals[i])); } return out.join(', '); }
+    if (g.op === 'in' || g.op === 'not_in') { var vals = isArr(g.values) ? g.values : []; var out = []; var i; for (i = 0; i < vals.length; i++) { out.push(choiceValueText(field, vals[i])); } return out.join(', '); }
     if (typeof g.value === 'boolean') { return g.value ? 'Yes' : 'No'; }
-    return g.value == null ? '' : String(g.value);
+    return g.value == null ? '' : choiceValueText(field, g.value);
   }
   function conditionChips(rule) {
     var conditions = rule.conditions_json;
@@ -2327,7 +2499,7 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     for (i = 0; i < conditions.groups.length; i++) {
       var g = conditions.groups[i];
       if (!g || typeof g !== 'object') { continue; }
-      chips.push(fieldLabel(g.field || '') + ' ' + opWord(g.op || 'eq') + ' ' + valueText(g));
+      chips.push(fieldLabel(g.field || '') + ' ' + opWord(g.op || 'eq') + ' ' + valueText(g, g.field || ''));
     }
     return chips.length > 0 ? chips : ['Always'];
   }
@@ -2437,7 +2609,10 @@ export const QUOTE_RULES_SCRIPT = `(function () {
   function combinedFields() {
     var out = [];
     var i;
-    for (i = 0; i < answerFields.length; i++) { out.push({ internal_field: answerFields[i].internal_field, label: 'Answer: ' + answerFields[i].label }); }
+    // ADJ-N8 — the choice map rides along so the mounted §21.4 builder's own
+    // "Matches when ..." line resolves the value side too (the modal shows
+    // BOTH sentences; fixing only one leaves the jargon on screen).
+    for (i = 0; i < answerFields.length; i++) { out.push({ internal_field: answerFields[i].internal_field, label: 'Answer: ' + answerFields[i].label, choices: isArr(answerFields[i].choices) ? answerFields[i].choices : null }); }
     for (i = 0; i < entryFields.length; i++) { out.push({ internal_field: entryFields[i].internal_field, label: entryFields[i].label }); }
     return out;
   }

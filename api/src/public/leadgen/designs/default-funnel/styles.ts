@@ -2384,8 +2384,25 @@ export function funnelChromeCss(
       );
     }
     out.push(
-      // brand_gradient resolves via roles (§3.3 — no raw CSS at the config
-      // layer); flat/brand use the role class value above.
+      // §3.3 background STYLE — "brand/gradient resolve via roles — no raw CSS"
+      // (frames.ts FrameBackgroundConfig). Three DISTINCT treatments, emitted
+      // after the role loop so a style always wins over the bare role rule:
+      //
+      //   flat          → the operator's own Color pick (the role rule above).
+      //   brand         → the brand colour, SOLID (brand_primary).
+      //   brand_gradient→ brand_primary → brand_secondary.
+      //
+      // R2 P7 (conformance sweep, element A): `brand` used to emit NO rule at
+      // all, so it fell through to the same role value as `flat` and the two
+      // options painted identically (measured: both rgb(245,247,250)) —
+      // against contract §3's "every element visibly updates the canvas", and
+      // the dead-control class in another costume. Solid brand_primary is what
+      // the admin's own template thumbnail has always shown for this option
+      // (quotes-tabs/shared.ts `.lg-tpl-thumb--bg-brand{background:var(--c-primary)}`),
+      // so the render now agrees with the picker instead of contradicting it.
+      rule(`${scope} .lg-frame-background.lg-frame-bg-style-brand`, {
+        background: baseTokenForRole(design, "brand_primary"),
+      }),
       rule(`${scope} .lg-frame-background.lg-frame-bg-style-brand_gradient`, {
         background: `linear-gradient(160deg,${baseTokenForRole(design, "brand_primary")},${baseTokenForRole(design, "brand_secondary")})`,
       }),
