@@ -172,6 +172,21 @@ html,body{height:100%;overflow-x:hidden}
 .lg-publish-why-list{margin:0;padding-left:18px}
 .lg-publish-why-list li{margin:2px 0;line-height:1.45}
 .lg-publish-why-fix{margin-left:8px;font-weight:600;color:inherit;text-decoration:underline}
+/* R2 P7 FIX-FIRST (owner D1): the reason's affordance is a BUTTON that reveals
+   the control clearing it (the <a> branch survives only for genuine
+   cross-screen fixes), so it must read as the same inline link it replaced. */
+button.lg-publish-why-fix{background:none;border:0;padding:0;font:inherit;cursor:pointer}
+button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+/* The revealed control, flashed on arrival so "it took me somewhere" is
+   visible without hunting. */
+[data-publish-fix-flash]{outline:2px solid var(--c-danger,#b23a2c);outline-offset:3px;border-radius:6px;animation:lgFixFlash 1.6s ease-in-out 2}
+@keyframes lgFixFlash{0%,100%{box-shadow:0 0 0 0 rgba(178,58,44,.45)}50%{box-shadow:0 0 0 7px rgba(178,58,44,0)}}
+@media (prefers-reduced-motion:reduce){[data-publish-fix-flash]{animation:none}}
+/* R2 P7 FIX-FIRST (owner D2): the blocking page says so ON the board — quiet
+   whenever nothing blocks (the marker is only inserted for a named reason). */
+.lg-col[data-col-blocking]{box-shadow:inset 0 0 0 2px var(--c-danger,#e5a49a)}
+.lg-col-block{display:flex;gap:6px;align-items:flex-start;margin-top:8px;padding:6px 8px;border-radius:6px;background:var(--c-danger-bg,#fdecea);color:var(--c-danger,#8a1f11);font-size:11.5px;line-height:1.4;font-weight:600}
+.lg-col-block-ico{flex:0 0 auto}
 .lg-scope-head{font-size:12px;color:var(--c-muted);border-bottom:1px solid var(--c-border);padding-bottom:6px;margin-bottom:8px}
 .lg-scope-head strong{color:var(--c-text)}
 .lg-scope-chip{display:inline-block;border:1px solid var(--c-border);border-radius:999px;padding:0 8px;font-size:11px;margin-left:6px;color:var(--c-muted)}
@@ -382,7 +397,7 @@ html,body{height:100%;overflow-x:hidden}
         <div class="header-actions"></div>
       </header>
       <div class="admin-content"><nav class="leadgen-tabs" aria-label="LeadGen sections"><a href="/admin/leadgen/offers" class="leadgen-tab">Offers</a><a href="/admin/leadgen/sections" class="leadgen-tab">Sections</a><a href="/admin/leadgen/quotes" class="leadgen-tab active" aria-current="page">Quotes</a><a href="/admin/leadgen/auction" class="leadgen-tab">Auction</a></nav>
-<div id="lg-quote-editor" data-quote-id="1" data-quote-public-id="lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507" data-variant-public-id="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC" data-variant-funnel-id="lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ" data-variant-funnel-variant-id="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC" data-funnel-public-id="lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ">
+<div id="lg-quote-editor" data-quote-id="1" data-quote-public-id="lgq_01KZ1TK3G6SHKCS3VQ7ENRTTG2" data-variant-public-id="lgn_01KZ1TK3G638BR5544QRS4XP3F" data-variant-funnel-id="lgf_01KZ1TK3G64K0N32PZ5NRHJX8G" data-variant-funnel-variant-id="lgn_01KZ1TK3G638BR5544QRS4XP3F" data-funnel-public-id="lgf_01KZ1TK3G64K0N32PZ5NRHJX8G">
   <div class="lg-editor-head">
     <a href="/admin/leadgen/quotes" class="btn btn-outline">&#8592; Quotes</a>
     <h2 class="lg-editor-title" id="lg-quote-title">&lt;b&gt;Quote&lt;/b&gt;</h2>
@@ -395,14 +410,14 @@ html,body{height:100%;overflow-x:hidden}
     <span class="badge badge-draft">draft</span>
     <span class="lg-chip" data-quote-activity>Activity: <strong>quote_funnel</strong></span>
     <span class="lg-chip">life</span><span class="lg-chip">health</span>
-    <span id="lg-publish-badge" class="lg-chip lg-publish-chip" data-publish-verdict="blocked" data-publish-errors="1" data-publish-warnings="0">Blocked (1 error)</span><div id="lg-publish-why" class="lg-publish-why" data-publish-why-count="1" role="group" aria-label="Why this Quote cannot be published"><span class="lg-publish-why-title">To publish, fix this:</span><ol class="lg-publish-why-list"><li data-publish-reason>The shared first page needs at least one section.<a class="lg-publish-why-fix" href="/admin/leadgen/quotes/lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507/edit">Open Quote Builder</a></li></ol></div>
+    <span id="lg-publish-badge" class="lg-chip lg-publish-chip" data-publish-verdict="blocked" data-publish-errors="1" data-publish-warnings="0">Blocked (1 error)</span><div id="lg-publish-why" class="lg-publish-why" data-publish-why-count="1" role="group" aria-label="Why this Quote cannot be published"><span class="lg-publish-why-title">To publish, fix this:</span><ol class="lg-publish-why-list"><li data-publish-reason>The shared first page needs at least one section.<button type="button" class="lg-publish-why-fix" data-publish-fix-tab="builder" data-publish-fix-sel="[data-shared-col] [data-add-shared-section]">Add the shared page&#39;s first section</button></li></ol></div>
     <span class="lg-editor-spacer"></span>
     <span class="lg-chip" id="lg-site-chip">Preview site: <select id="lg-site-select" class="form-select" data-site-select aria-label="Preview site"><option value="">CMS fallback branding</option><option value="site-1" data-badge="Not activated yet">Site One — Not activated yet</option></select></span>
     <button type="button" id="lg-variant-save" class="btn btn-primary">Save</button>
     <button type="button" id="lg-publish-goto" class="btn btn-secondary" data-goto-tab="activation">Publish&#8230;</button>
   </div>
   <details class="lg-advanced"><summary>Advanced</summary>
-    <p class="form-help">Reference id: <code class="lg-editor-pubid">lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507</code></p>
+    <p class="form-help">Reference id: <code class="lg-editor-pubid">lgq_01KZ1TK3G6SHKCS3VQ7ENRTTG2</code></p>
   </details>
   <p id="lg-quote-error" class="alert alert-error" hidden role="alert"></p>
   <p id="lg-quote-ok" class="alert alert-success" hidden role="status"></p>
@@ -424,10 +439,10 @@ html,body{height:100%;overflow-x:hidden}
       <div class="lg-lib-filters" data-lib-filters><button type="button" class="lg-filter-pill active" data-lib-filter="">All</button><button type="button" class="lg-filter-pill" data-lib-filter="health">health</button><button type="button" class="lg-filter-pill" data-lib-filter="life">life</button></div>
     </div>
     <div class="lg-lib-list" data-lib-list>
-      <div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ1GZ0PQRRAQR4S76FE2WNTS" data-section-name="Second" data-vertical-key="health" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section Second to a page">
+      <div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ1TK3G7GAGTZ5PZJA2GBSXB" data-section-name="Second" data-vertical-key="health" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section Second to a page">
     <div class="lg-lc-top"><span class="lg-grip" aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span><span class="lg-lc-name">Second</span></div>
     <div class="lg-lc-meta"><span class="lg-chip-activity">quote_funnel · health</span><span class="lg-chip-inuse-here" data-pin="8.2-library-inuse-badge">In this funnel</span></div>
-  </div><div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ1GZ0PQ43Y2FR7DS5X5N21N" data-section-name="&lt;i&gt;First&lt;/i&gt;" data-vertical-key="life" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section &lt;i&gt;First&lt;/i&gt; to a page">
+  </div><div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ1TK3G7AFJAXGC74R89TSFE" data-section-name="&lt;i&gt;First&lt;/i&gt;" data-vertical-key="life" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section &lt;i&gt;First&lt;/i&gt; to a page">
     <div class="lg-lc-top"><span class="lg-grip" aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span><span class="lg-lc-name">&lt;i&gt;First&lt;/i&gt;</span></div>
     <div class="lg-lc-meta"><span class="lg-chip-activity">quote_funnel · life</span><span class="lg-chip-inuse-here" data-pin="8.2-library-inuse-badge">In this funnel</span></div>
   </div>
@@ -440,7 +455,7 @@ html,body{height:100%;overflow-x:hidden}
     <div class="lg-col-head">
       <span class="lg-col-tag"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2l2 5 5 .4-3.8 3.3 1.2 5L12 18l-4.6 2.7 1.2-5L4.8 7.4l5-.4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg> Shared · quote-owned</span>
       <div class="lg-col-title-row"><span class="lg-col-title">Shared first page</span></div>
-      <div class="lg-col-meta"><span class="lg-col-help">Every visitor sees this first — entry rules only pre-select the funnel (§4.3-2).</span></div>
+      <div class="lg-col-meta"><span class="lg-col-help">Every visitor sees this first — entry rules only pre-select the funnel.</span></div>
     </div>
     <div class="lg-col-body" data-shared-body>
       <div class="lg-page-card" data-shared-page-card>
@@ -451,7 +466,7 @@ html,body{height:100%;overflow-x:hidden}
       <div class="lg-hint-neutral">Only one shared page — its sections can be A/B'd per slot.</div>
     </div>
   </div>
-          <div class="lg-col lg-col-funnel is-default" data-funnel-col data-funnel-public-id="lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ" data-funnel-id="1" data-funnel-active-variant="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC" data-pin="8.2-funnel-column">
+          <div class="lg-col lg-col-funnel is-default" data-funnel-col data-funnel-public-id="lgf_01KZ1TK3G64K0N32PZ5NRHJX8G" data-funnel-id="1" data-funnel-active-variant="lgn_01KZ1TK3G638BR5544QRS4XP3F" data-pin="8.2-funnel-column">
     <div class="lg-col-head" data-pin="8.2-funnel-header">
       <div class="lg-col-title-row">
         <span class="lg-col-title" data-funnel-name data-pin="8.2-inline-rename" tabindex="0" role="textbox" aria-label="Funnel name (click to rename)">&lt;b&gt;Quote&lt;/b&gt; — Funnel A</span>
@@ -467,26 +482,26 @@ html,body{height:100%;overflow-x:hidden}
         <span class="lg-btn-ghost lg-col-preview" data-preview data-pin="8.2-preview" role="button" tabindex="0">Preview<svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       </div>
     </div>
-    <div class="lg-col-body" data-funnel-body><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ1GZ0PRS7HVT48RZ2GZXX84" data-page-index="0" data-pin="8.2-page-card">
+    <div class="lg-col-body" data-funnel-body><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ1TK3G8E6GZE52ZPRHRGJ3W" data-page-index="0" data-pin="8.2-page-card">
     <div class="lg-page-head">
       <span class="lg-grip lg-page-grip" data-page-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
       <span class="lg-page-num">Page 1</span>
       <span class="lg-kebab-btn lg-page-kebab" data-page-kebab data-chip-menu="page" role="button" tabindex="0" aria-label="Page options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
     </div>
-    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ1GZ0PQ43Y2FR7DS5X5N21N" data-slot-id="1" data-slot-kind="fixed">
+    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ1TK3G7AFJAXGC74R89TSFE" data-slot-id="1" data-slot-kind="fixed">
     <span class="lg-grip lg-chip-grip" data-chip-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
     <span class="lg-map-dot" data-mapping-status="none" title="No Offers selected yet"></span>
     <span class="lg-sc-name">&lt;i&gt;First&lt;/i&gt;</span>
     <span class="lg-kebab-btn lg-chip-kebab" data-chip-kebab data-chip-menu="funnel-chip" role="button" tabindex="0" aria-label="Section options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
   </div></div>
     <span class="lg-add-section" data-add-section role="button" tabindex="0"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg> ＋ section</span>
-  </div><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ1GZ0PRHKH63HJXBCDTYWMX" data-page-index="1" data-pin="8.2-page-card">
+  </div><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ1TK3G8DAHZ1G62JKMDVMV3" data-page-index="1" data-pin="8.2-page-card">
     <div class="lg-page-head">
       <span class="lg-grip lg-page-grip" data-page-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
       <span class="lg-page-num">Page 2</span>
       <span class="lg-kebab-btn lg-page-kebab" data-page-kebab data-chip-menu="page" role="button" tabindex="0" aria-label="Page options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
     </div>
-    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ1GZ0PQRRAQR4S76FE2WNTS" data-slot-id="2" data-slot-kind="fixed">
+    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ1TK3G7GAGTZ5PZJA2GBSXB" data-slot-id="2" data-slot-kind="fixed">
     <span class="lg-grip lg-chip-grip" data-chip-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
     <span class="lg-map-dot" data-mapping-status="none" title="No Offers selected yet"></span>
     <span class="lg-sc-name">Second</span>
@@ -504,7 +519,7 @@ html,body{height:100%;overflow-x:hidden}
       </div>
     </div>
     <div class="lg-board-right" data-rules-rail>
-      <div class="lg-qr-rail" id="lg-qr-rail" data-pin="8.2-rules-rail" data-quote-public-id="lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507"><style>
+      <div class="lg-qr-rail" id="lg-qr-rail" data-pin="8.2-rules-rail" data-quote-public-id="lgq_01KZ1TK3G6SHKCS3VQ7ENRTTG2"><style>
 .lg-qr-rail{display:flex;flex-direction:column;min-height:0}
 .lg-qr-head{padding:16px 16px 12px;border-bottom:1px solid rgba(20,32,54,.08)}
 .lg-qr-title{font-size:14px;font-weight:800;color:#14233a;margin-bottom:6px}
@@ -584,7 +599,7 @@ html,body{height:100%;overflow-x:hidden}
 .lg-qr-sentence{font-size:12px;color:#374966;background:#f7f9fb;border-radius:8px;padding:10px 12px;line-height:1.5}
 .lg-qr-sentlab{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#8894a8;display:block;margin-bottom:4px}
 .lg-qr-modal-foot{display:flex;justify-content:flex-end;gap:10px;padding-top:14px}
-</style><div class="lg-qr-head"><div class="lg-qr-title">Routing rules</div><div class="lg-qr-desc">Rules decide which funnel a visitor sees, and can tag the lead, set the FB multiplier, or redirect. Lowest priority number wins when more than one matches.</div></div><div class="lg-qr-colhead"><span class="lg-qr-cprio">Priority</span><span class="lg-qr-cname">Name · Checkpoint · Conditions · Actions · Status</span></div><div class="lg-qr-list" id="lg-qr-list" data-pin="8.2-rules-table"><div data-qr-cards></div><div class="lg-qr-newbtn" data-pin="8.2-new-rule-btn" role="button" tabindex="0" data-qr-new>+ New rule</div></div><div class="lg-qr-overlay" id="lg-qr-modal" data-pin="8.2-rule-modal" role="dialog" aria-modal="true" aria-label="Routing rule" hidden><div class="lg-qr-modal card"><div class="lg-qr-modal-head"><h3 id="lg-qr-modal-title">New routing rule</h3><span class="lg-qr-x" role="button" tabindex="0" data-qr-cancel aria-label="Close">✖</span></div><div class="lg-qr-modal-body"><div class="lg-qr-fieldblock" data-pin="8.2-rule-name"><label class="lg-qr-label" for="lg-qr-name">Rule name<span class="lg-qr-req">*</span> <span class="lg-qr-opt">· up to 80 characters</span></label><input class="form-input" id="lg-qr-name" type="text" maxlength="80" data-qr-modal-name /></div><div class="lg-qr-grid2"><div data-pin="4.3-3-checkpoint"><label class="lg-qr-label">Checkpoint <span class="lg-qr-opt">· read-only</span></label><div class="lg-qr-readonly" data-qr-modal-checkpoint>Entry</div><div class="lg-qr-help">Derived from the conditions — where this rule can first apply.</div><div class="lg-qr-callout warn" data-qr-modal-a6 data-pin="A-6-inline" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>This rule can never apply before a visitor enters a funnel that asks these questions.</span></div></div><div data-pin="8.2-rule-priority"><label class="lg-qr-label" for="lg-qr-priority">Priority</label><input class="form-input" id="lg-qr-priority" type="number" min="1" max="100" step="1" value="100" data-qr-modal-priority /><div class="lg-qr-help">1 = highest priority, 100 = lowest.</div></div></div><div class="lg-qr-cardblock" data-pin="8.2-rule-conditions"><div class="lg-qr-cbhead"><span class="lg-qr-cbtitle">Conditions</span><div class="lg-qr-seg" data-pin="8.2-anyall" data-qr-matchmode><span class="lg-qr-segitem active" data-qr-match="all" role="button" tabindex="0">Match ALL</span><span class="lg-qr-segitem" data-qr-match="any" role="button" tabindex="0">Match ANY</span></div></div><div id="lg-qr-cond-mount"></div><input type="hidden" data-qr-cond-out /><div class="lg-qr-help">Sources: answer fields (by name) · UTM Source/Medium/Campaign/Content · Device · OS · State · Hour · Weekday. Operators map to eq · neq · gt · lt · gte · lte.</div></div><div data-pin="4.3-9-actions"><div class="lg-qr-actions-head"><span class="lg-qr-cbtitle">Actions</span> <span class="lg-qr-opt">· pick at least one</span></div><div class="lg-qr-arow" data-pin="action-target-funnel" data-qr-action="target_funnel"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Target funnel</div><div class="lg-qr-adesc">Serve this funnel to matching visitors.</div><select class="form-select" data-qr-target-funnel aria-label="Target funnel"><option value="">— choose a funnel —</option><option value="lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ" data-funnel-id="1">&lt;b&gt;Quote&lt;/b&gt; — Funnel A (Default)</option></select></div></div><div class="lg-qr-arow" data-pin="action-feed-name" data-qr-action="feed_name"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Feed name</div><div class="lg-qr-adesc">Tag matching leads for analytics &amp; offer routing.</div><input class="form-input" type="text" list="lg-qr-feeds" data-qr-feed-name aria-label="Feed name" /><datalist id="lg-qr-feeds"></datalist><div class="lg-qr-help" data-qr-feed-help>No feed names used yet.</div></div></div><div class="lg-qr-arow" data-pin="action-fb-multiplier" data-qr-action="value_multiplier"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">FB multiplier</div><div class="lg-qr-adesc">Replaces the base S2S multiplier for this conversion.</div><input class="form-input" type="number" step="any" min="0" data-qr-multiplier aria-label="FB multiplier" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-pct" data-qr-action="redirect_pct"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect %</div><div class="lg-qr-adesc">0 = no redirect. Share of matching sessions sent to the target instead of our funnel; the rest continue with the other actions.</div><input class="form-input" type="number" step="any" min="0" max="100" data-qr-redirect-pct aria-label="Redirect percent" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-target" data-qr-action="redirect_target"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect target</div><div class="lg-qr-adesc">Where redirected sessions go — an offer, or an allowlisted URL.</div><div class="lg-qr-seg" data-qr-target-mode><span class="lg-qr-segitem active" data-qr-mode="offer" role="button" tabindex="0">Offer</span><span class="lg-qr-segitem" data-qr-mode="url" role="button" tabindex="0">Allowlisted URL</span></div><select class="form-select" data-qr-target-offer aria-label="Redirect offer"><option value="">— choose an offer —</option></select><div data-qr-url-wrap hidden><input class="form-input" type="text" data-qr-redirect-url aria-label="Allowlisted redirect URL" placeholder="https://…" /><div class="lg-qr-help">Only hosts on the site allowlist can be entered here.</div></div></div></div></div><div class="lg-qr-errmsg" data-pin="A-11-validation" data-qr-action-error hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span>Pick at least one action for this rule.</div><p class="alert alert-error lg-qr-error" data-qr-modal-error role="alert" hidden></p><div class="lg-qr-sentence" data-pin="8.2-rule-sentence"><span class="lg-qr-sentlab">In plain language</span> <span data-qr-sentence></span></div></div><div class="lg-qr-modal-foot"><span class="btn btn-outline" role="button" tabindex="0" data-qr-cancel>Cancel</span><span class="btn btn-primary" role="button" tabindex="0" data-qr-save>Save rule</span></div></div></div><script id="lg-qr-data" type="application/json">{"quote_public_id":"lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507","rules":[],"funnels":[{"id":1,"public_id":"lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ","name":"\u003cb>Quote\u003c/b> — Funnel A","is_default":true,"pages":[{"position":0,"fields":["f"]},{"position":1,"fields":["f"]}]}],"default_funnel_id":1,"shared_page_fields":[],"answer_fields":[{"internal_field":"f","label":"Second · f"}],"entry_fields":[{"internal_field":"utm_source","label":"UTM Source"},{"internal_field":"utm_medium","label":"UTM Medium"},{"internal_field":"utm_campaign","label":"UTM Campaign"},{"internal_field":"utm_content","label":"UTM Content"},{"internal_field":"device","label":"Device"},{"internal_field":"os","label":"OS"},{"internal_field":"state","label":"State"},{"internal_field":"hour","label":"Hour"},{"internal_field":"weekday","label":"Weekday"}],"offers":[],"feed_values":[]}</script></div>
+</style><div class="lg-qr-head"><div class="lg-qr-title">Routing rules</div><div class="lg-qr-desc">Rules decide which funnel a visitor sees, and can tag the lead, set the FB multiplier, or redirect. Lowest priority number wins when more than one matches.</div></div><div class="lg-qr-colhead"><span class="lg-qr-cprio">Priority</span><span class="lg-qr-cname">Name · Checkpoint · Conditions · Actions · Status</span></div><div class="lg-qr-list" id="lg-qr-list" data-pin="8.2-rules-table"><div data-qr-cards></div><div class="lg-qr-newbtn" data-pin="8.2-new-rule-btn" role="button" tabindex="0" data-qr-new>+ New rule</div></div><div class="lg-qr-overlay" id="lg-qr-modal" data-pin="8.2-rule-modal" role="dialog" aria-modal="true" aria-label="Routing rule" hidden><div class="lg-qr-modal card"><div class="lg-qr-modal-head"><h3 id="lg-qr-modal-title">New routing rule</h3><span class="lg-qr-x" role="button" tabindex="0" data-qr-cancel aria-label="Close">✖</span></div><div class="lg-qr-modal-body"><div class="lg-qr-fieldblock" data-pin="8.2-rule-name"><label class="lg-qr-label" for="lg-qr-name">Rule name<span class="lg-qr-req">*</span> <span class="lg-qr-opt">· up to 80 characters</span></label><input class="form-input" id="lg-qr-name" type="text" maxlength="80" data-qr-modal-name /></div><div class="lg-qr-grid2"><div data-pin="4.3-3-checkpoint"><label class="lg-qr-label">Checkpoint <span class="lg-qr-opt">· read-only</span></label><div class="lg-qr-readonly" data-qr-modal-checkpoint>Entry</div><div class="lg-qr-help">Derived from the conditions — where this rule can first apply.</div><div class="lg-qr-callout warn" data-qr-modal-a6 data-pin="A-6-inline" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>This rule can never apply before a visitor enters a funnel that asks these questions.</span></div></div><div data-pin="8.2-rule-priority"><label class="lg-qr-label" for="lg-qr-priority">Priority</label><input class="form-input" id="lg-qr-priority" type="number" min="1" max="100" step="1" value="100" data-qr-modal-priority /><div class="lg-qr-help">1 = highest priority, 100 = lowest.</div></div></div><div class="lg-qr-cardblock" data-pin="8.2-rule-conditions"><div class="lg-qr-cbhead"><span class="lg-qr-cbtitle">Conditions</span><div class="lg-qr-seg" data-pin="8.2-anyall" data-qr-matchmode><span class="lg-qr-segitem active" data-qr-match="all" role="button" tabindex="0">Match ALL</span><span class="lg-qr-segitem" data-qr-match="any" role="button" tabindex="0">Match ANY</span></div></div><div id="lg-qr-cond-mount"></div><input type="hidden" data-qr-cond-out /><div class="lg-qr-help">Sources: answer fields (by name) · UTM Source/Medium/Campaign/Content · Device · OS · State · Hour · Weekday. Operators map to eq · neq · gt · lt · gte · lte.</div></div><div data-pin="4.3-9-actions"><div class="lg-qr-actions-head"><span class="lg-qr-cbtitle">Actions</span> <span class="lg-qr-opt">· pick at least one</span></div><div class="lg-qr-arow" data-pin="action-target-funnel" data-qr-action="target_funnel"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Target funnel</div><div class="lg-qr-adesc">Serve this funnel to matching visitors.</div><select class="form-select" data-qr-target-funnel aria-label="Target funnel"><option value="">— choose a funnel —</option><option value="lgf_01KZ1TK3G64K0N32PZ5NRHJX8G" data-funnel-id="1">&lt;b&gt;Quote&lt;/b&gt; — Funnel A (Default)</option></select></div></div><div class="lg-qr-arow" data-pin="action-feed-name" data-qr-action="feed_name"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Feed name</div><div class="lg-qr-adesc">Tag matching leads for analytics &amp; offer routing.</div><input class="form-input" type="text" list="lg-qr-feeds" data-qr-feed-name aria-label="Feed name" /><datalist id="lg-qr-feeds"></datalist><div class="lg-qr-help" data-qr-feed-help>No feed names used yet.</div></div></div><div class="lg-qr-arow" data-pin="action-fb-multiplier" data-qr-action="value_multiplier"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">FB multiplier</div><div class="lg-qr-adesc">Replaces the base S2S multiplier for this conversion.</div><input class="form-input" type="number" step="any" min="0" data-qr-multiplier aria-label="FB multiplier" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-pct" data-qr-action="redirect_pct"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect %</div><div class="lg-qr-adesc">0 = no redirect. Share of matching sessions sent to the target instead of our funnel; the rest continue with the other actions.</div><input class="form-input" type="number" step="any" min="0" max="100" data-qr-redirect-pct aria-label="Redirect percent" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-target" data-qr-action="redirect_target"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect target</div><div class="lg-qr-adesc">Where redirected sessions go — an offer, or an allowlisted URL.</div><div class="lg-qr-seg" data-qr-target-mode><span class="lg-qr-segitem active" data-qr-mode="offer" role="button" tabindex="0">Offer</span><span class="lg-qr-segitem" data-qr-mode="url" role="button" tabindex="0">Allowlisted URL</span></div><select class="form-select" data-qr-target-offer aria-label="Redirect offer"><option value="">— choose an offer —</option></select><div data-qr-url-wrap hidden><input class="form-input" type="text" data-qr-redirect-url aria-label="Allowlisted redirect URL" placeholder="https://…" /><div class="lg-qr-help">Only hosts on the site allowlist can be entered here.</div></div></div></div></div><div class="lg-qr-errmsg" data-pin="A-11-validation" data-qr-action-error hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span>Pick at least one action for this rule.</div><p class="alert alert-error lg-qr-error" data-qr-modal-error role="alert" hidden></p><div class="lg-qr-sentence" data-pin="8.2-rule-sentence"><span class="lg-qr-sentlab">In plain language</span> <span data-qr-sentence></span></div></div><div class="lg-qr-modal-foot"><span class="btn btn-outline" role="button" tabindex="0" data-qr-cancel>Cancel</span><span class="btn btn-primary" role="button" tabindex="0" data-qr-save>Save rule</span></div></div></div><script id="lg-qr-data" type="application/json">{"quote_public_id":"lgq_01KZ1TK3G6SHKCS3VQ7ENRTTG2","rules":[],"funnels":[{"id":1,"public_id":"lgf_01KZ1TK3G64K0N32PZ5NRHJX8G","name":"\u003cb>Quote\u003c/b> — Funnel A","is_default":true,"pages":[{"position":0,"fields":["f"]},{"position":1,"fields":["f"]}]}],"default_funnel_id":1,"shared_page_fields":[],"answer_fields":[{"internal_field":"f","label":"Second · f"}],"entry_fields":[{"internal_field":"utm_source","label":"UTM Source"},{"internal_field":"utm_medium","label":"UTM Medium"},{"internal_field":"utm_campaign","label":"UTM Campaign"},{"internal_field":"utm_content","label":"UTM Content"},{"internal_field":"device","label":"Device"},{"internal_field":"os","label":"OS"},{"internal_field":"state","label":"State"},{"internal_field":"hour","label":"Hour"},{"internal_field":"weekday","label":"Weekday"}],"offers":[],"feed_values":[]}</script></div>
     </div>
   </div>
   <div class="lg-board-menus" data-board-menus>
@@ -601,7 +616,7 @@ html,body{height:100%;overflow-x:hidden}
     </div>
   </div>
   <div class="lg-template-menu lg-hidden" data-template-menu role="menu"></div>
-  <div class="lg-board-guard lg-hidden" data-funnel-settings role="dialog" aria-modal="true" aria-labelledby="lg-funnel-settings-title" data-settings-variant="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC">
+  <div class="lg-board-guard lg-hidden" data-funnel-settings role="dialog" aria-modal="true" aria-labelledby="lg-funnel-settings-title" data-settings-variant="lgn_01KZ1TK3G638BR5544QRS4XP3F">
     <div class="lg-board-guard-panel">
       <div class="lg-board-guard-head"><h3 id="lg-funnel-settings-title">Funnel settings</h3></div>
       <div class="lg-fsettings-body">
@@ -654,7 +669,7 @@ html,body{height:100%;overflow-x:hidden}
       </div>
     </div>
   </div>
-  <script type="application/json" id="lg-board-data">{"quote_public_id":"lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507","default_funnel_id":1,"shared_page_id":null,"shared_sections":[],"shared_slots":[],"funnels":[{"public_id":"lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ","id":1,"name":"\u003cb>Quote\u003c/b> — Funnel A","display_order":1,"is_default":true,"active_variant_public_id":"lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC","arms":1,"frame_template_id":null,"settings":{"variant_public_id":"lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC","lander_enabled":false,"lander_headline":"","lander_subheadline":"","lander_hero_media_url":"","funnel_design_id":"default","auction_id":null},"pages":[{"page_id":"lgpg_01KZ1GZ0PRS7HVT48RZ2GZXX84","slots":[{"slot_id":1,"kind":"fixed","section_ids":["lgs_01KZ1GZ0PQ43Y2FR7DS5X5N21N"],"allocations":null,"rules":null}]},{"page_id":"lgpg_01KZ1GZ0PRHKH63HJXBCDTYWMX","slots":[{"slot_id":2,"kind":"fixed","section_ids":["lgs_01KZ1GZ0PQRRAQR4S76FE2WNTS"],"allocations":null,"rules":null}]}]}],"sections":[{"public_id":"lgs_01KZ1GZ0PQRRAQR4S76FE2WNTS","name":"Second","activity":"quote_funnel","vertical":"health"},{"public_id":"lgs_01KZ1GZ0PQ43Y2FR7DS5X5N21N","name":"\u003ci>First\u003c/i>","activity":"quote_funnel","vertical":"life"}],"templates":[{"id":"centered","label":"Centered card"},{"id":"header-footer","label":"Site header + footer"},{"id":"header-cta","label":"Header + call CTA"},{"id":"full-background","label":"Full background"},{"id":"white-trust","label":"White + trust bar"},{"id":"minimal","label":"Minimal"}]}</script>
+  <script type="application/json" id="lg-board-data">{"quote_public_id":"lgq_01KZ1TK3G6SHKCS3VQ7ENRTTG2","default_funnel_id":1,"shared_page_id":null,"shared_sections":[],"shared_slots":[],"funnels":[{"public_id":"lgf_01KZ1TK3G64K0N32PZ5NRHJX8G","id":1,"name":"\u003cb>Quote\u003c/b> — Funnel A","display_order":1,"is_default":true,"active_variant_public_id":"lgn_01KZ1TK3G638BR5544QRS4XP3F","arms":1,"frame_template_id":null,"settings":{"variant_public_id":"lgn_01KZ1TK3G638BR5544QRS4XP3F","lander_enabled":false,"lander_headline":"","lander_subheadline":"","lander_hero_media_url":"","funnel_design_id":"default","auction_id":null},"pages":[{"page_id":"lgpg_01KZ1TK3G8E6GZE52ZPRHRGJ3W","slots":[{"slot_id":1,"kind":"fixed","section_ids":["lgs_01KZ1TK3G7AFJAXGC74R89TSFE"],"allocations":null,"rules":null}]},{"page_id":"lgpg_01KZ1TK3G8DAHZ1G62JKMDVMV3","slots":[{"slot_id":2,"kind":"fixed","section_ids":["lgs_01KZ1TK3G7GAGTZ5PZJA2GBSXB"],"allocations":null,"rules":null}]}]}],"sections":[{"public_id":"lgs_01KZ1TK3G7GAGTZ5PZJA2GBSXB","name":"Second","activity":"quote_funnel","vertical":"health"},{"public_id":"lgs_01KZ1TK3G7AFJAXGC74R89TSFE","name":"\u003ci>First\u003c/i>","activity":"quote_funnel","vertical":"life"}],"templates":[{"id":"centered","label":"Centered card"},{"id":"header-footer","label":"Site header + footer"},{"id":"header-cta","label":"Header + call CTA"},{"id":"full-background","label":"Full background"},{"id":"white-trust","label":"White + trust bar"},{"id":"minimal","label":"Minimal"}]}</script>
 </div>
   <div class="lg-qpanel" data-panel="templates">
   <style>
@@ -682,7 +697,18 @@ html,body{height:100%;overflow-x:hidden}
 .lg-tpl2-ptype{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 6px;border:1px solid var(--c-border);border-radius:8px;background:var(--c-card,#fff);flex:1 1 0;min-width:56px;cursor:pointer;position:relative}
 .lg-tpl2-ptype input{position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;margin:0;cursor:pointer}
 .lg-tpl2-ptype.active{border-color:var(--c-primary,#1B3A5C);border-width:2px;background:var(--c-bg,#f6f7f9)}
-.lg-tpl2-ptype-thumb{width:32px;height:14px;border-radius:3px;background:var(--c-border);display:block}
+.lg-tpl2-ptype-thumb{width:32px;height:14px;border-radius:3px;background:var(--c-border);display:block;position:relative;overflow:visible}
+/* R2 P7 (ADJ-N23: a picker must LOOK like what it produces) — each thumbnail
+   is a miniature of that style's real render: bar = a solid 60% fill; percent =
+   the same fill CANDY-STRIPED (styles.ts .lg-frame-progress--percent); dots =
+   three empty pills; numbered = three ringed badges over a caption line;
+   icon on track = the fill plus the round marker riding its edge. */
+.lg-tpl2-ptype-thumb--bar{background:linear-gradient(to right,var(--c-primary,#1B3A5C) 0 60%,var(--c-border) 60% 100%)}
+.lg-tpl2-ptype-thumb--percent{background:linear-gradient(to right,var(--c-primary,#1B3A5C) 0 60%,var(--c-border) 60% 100%);background-image:repeating-linear-gradient(135deg,rgba(255,255,255,.55) 0 3px,rgba(255,255,255,0) 3px 6px),linear-gradient(to right,var(--c-primary,#1B3A5C) 0 60%,var(--c-border) 60% 100%);box-shadow:inset 0 0 0 1px var(--c-muted)}
+.lg-tpl2-ptype-thumb--dots{background:transparent;background-image:radial-gradient(circle 4px at 6px 7px,var(--c-primary,#1B3A5C) 98%,transparent 100%),radial-gradient(circle 4px at 16px 7px,var(--c-border) 98%,transparent 100%),radial-gradient(circle 4px at 26px 7px,var(--c-border) 98%,transparent 100%)}
+.lg-tpl2-ptype-thumb--numbered{background:transparent;background-image:radial-gradient(circle 5px at 6px 5px,var(--c-primary,#1B3A5C) 98%,transparent 100%),radial-gradient(circle 5px at 16px 5px,transparent 55%,var(--c-muted) 60% 98%,transparent 100%),radial-gradient(circle 5px at 26px 5px,transparent 55%,var(--c-muted) 60% 98%,transparent 100%),linear-gradient(to right,var(--c-border) 0 100%);background-repeat:no-repeat;background-size:100% 12px,100% 12px,100% 12px,20px 2px;background-position:0 0,0 0,0 0,6px 13px}
+.lg-tpl2-ptype-thumb--icon_on_track{background:linear-gradient(to right,var(--c-primary,#1B3A5C) 0 60%,var(--c-border) 60% 100%)}
+.lg-tpl2-ptype-thumb--icon_on_track::after{content:"";position:absolute;left:60%;top:50%;width:12px;height:12px;transform:translate(-50%,-50%);border-radius:50%;background:var(--c-primary-dark,#123);border:2px solid #fff;box-shadow:0 1px 2px rgba(16,24,40,.25)}
 .lg-tpl2-ptype-label{font-size:10px;font-weight:700;text-align:center;color:var(--c-text)}
 .lg-tpl2-visually-hidden{position:absolute !important;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .lg-tpl2-seg{display:inline-flex;border:1px solid var(--c-border);border-radius:8px;overflow:hidden;width:100%}
@@ -765,12 +791,12 @@ html,body{height:100%;overflow-x:hidden}
     <span>Progress</span>
   </button></div>
   <div class="lg-tpl2-divider"></div>
-  <div class="lg-tpl2-eyebrow">Bottom of the page &mdash; separate template element</div>
+  <div class="lg-tpl2-eyebrow">Page footer</div>
   <div class="lg-tplbox-grid lg-tplbox-grid-separate" id="lg-tplbox-grid-separate"><button type="button" class="lg-tplbox-card" data-tplbox-pick="footer">
     <span class="lg-tplbox-card-letter">J</span>
     <span>Footer</span>
   </button></div>
-  <p class="form-help">Its own colours, font and sizes &mdash; independent of the main template.</p></div>
+  <p class="form-help">Sits at the bottom of every page and keeps its own colours, fonts and sizes.</p></div>
     <div class="lg-tpl2-center"><div class="lg-tpl2-canvas-shell">
     <div class="lg-tpl2-canvas-toolbar" id="lg-tpl-canvas-toolbar">
       <select class="form-select form-select-sm" id="lg-tpl-theme-select" aria-label="Theme switcher" style="max-width:180px">
@@ -805,7 +831,7 @@ html,body{height:100%;overflow-x:hidden}
 </div>
     <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="logo">
   <h3>B &middot; Logo</h3>
-  <p class="form-help">The header logo &mdash; sourced from the selected preview site's branding by default (10 &sect;10.1).</p>
+  <p class="form-help">The header logo &mdash; sourced from the selected preview site's branding by default.</p>
   <div class="form-group"><label class="form-label">Logo source</label><select class="form-select" data-frame-key="header.logo_source"><option value="site">Site logo (auto)</option><option value="cms_fallback">CMS fallback</option></select></div>
   <div class="form-group"><label class="form-label">Logo size</label><select class="form-select" data-frame-key="header.logo_size"><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select></div>
   <div class="form-group"><label class="form-label">Alignment</label><select class="form-select" data-frame-key="header.logo_align"><option value="left">Left</option><option value="center">Center</option></select></div>
@@ -1026,6 +1052,7 @@ html,body{height:100%;overflow-x:hidden}
       <span class="lg-tpl2-ptype-label">Icon on track</span>
     </label></div><input type="radio" id="lg-tpl-progress-hidden-radio" name="lg-progress-style" value="hidden" data-frame-key="progress.style" data-frame-radio="1" class="lg-tpl2-visually-hidden" aria-hidden="true" tabindex="-1" />
   <p class="form-help">5 real styles (Bar/Dots/Numbered/Percent/Icon on track) &mdash; "Hidden" is the toggle below, not a 6th style.</p>
+  <div class="form-group"><label class="form-label">Marker icon</label><select class="form-select" data-frame-key="progress.icon"><option value="dot">Plain dot</option><option value="car">Car</option><option value="shield">Shield</option><option value="check">Checkmark</option><option value="star">Star</option><option value="site_logo">This site&#39;s logo</option></select><p class="form-help">The mark that travels along the track. Used by the “Icon on track” style.</p></div>
 
   <label class="lg-tpl2-toggle-row">
     <span class="lg-tpl2-toggle-copy"><span class="lg-tpl2-toggle-title">Show progress bar</span></span>
@@ -1194,6 +1221,10 @@ html,body{height:100%;overflow-x:hidden}
 (function () {
   'use strict';
   var LG_API = '/api/admin/leadgen';
+  // R2 P7 D1 — the plain-words replacement for a logo image the browser could
+  // not load (see watchCanvasLogo below). Interpolated from the ONE server
+  // constant so the canvas and frame.ts can never drift apart.
+  var LOGO_UNREACHABLE_TEXT = "This site's logo image could not be loaded — re-upload it in Site settings.";
   var boot = null;
   var templates = [];
   // R2 D5 (contract §7 D5): this quote's PER-QUOTE default template override
@@ -1273,6 +1304,61 @@ html,body{height:100%;overflow-x:hidden}
     if (!frame) { return; }
     var doc = '<!doctype html><html><head><meta charset="utf-8"><style>' + (css || '') + '</style></head><body>' + (bodyHtml || '') + '</body></html>';
     frame.setAttribute('srcdoc', doc);
+    watchCanvasLogo(frame);
+  }
+
+  // R2 P7 D1 (owner SRC-11A: "I chose a site - why I don't see its logo????").
+  // Measured cause: the site's stored logo reference is resolved by the SERVER
+  // into <img class="lg-logo-img" src="/media/..."> with no way to know, at
+  // render time, whether that asset still exists. When it does not (a deleted
+  // or re-keyed media row) the browser collapses the <img> to its alt text —
+  // a ~143x18 sliver, "at most a tiny mark where the logo belongs", with no
+  // explanation at all. Activation state is NOT involved: an activated and a
+  // not-activated site with the same logo render byte-identically.
+  //
+  // The canvas is a sandboxed srcdoc iframe with scripting OFF, so nothing
+  // inside the document can react to the load failure; the ADMIN page can
+  // (sandbox="allow-same-origin" keeps contentDocument reachable). On a broken
+  // load we swap in the SAME plain-words chip the no-logo ladder already
+  // renders (frame.ts LOGO_FALLBACK_CHIP_TEXT), so the operator reads why the
+  // logo is missing instead of squinting at a sliver.
+  function replaceBrokenLogo(img) {
+    if (!img || img.getAttribute('data-logo-broken') === '1') { return; }
+    img.setAttribute('data-logo-broken', '1');
+    var doc = img.ownerDocument;
+    var chip = doc.createElement('span');
+    chip.className = 'lg-frame-logo-fallback';
+    chip.setAttribute('data-logo-unreachable', '1');
+    chip.setAttribute('style', 'display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#5A6470;background:#F6F8FB;border:1px dashed #E1E6EE;border-radius:20px;padding:7px 14px');
+    chip.appendChild(doc.createTextNode(LOGO_UNREACHABLE_TEXT));
+    if (img.parentNode) { img.parentNode.replaceChild(chip, img); }
+  }
+  function checkCanvasLogos(idoc) {
+    if (!idoc) { return; }
+    var imgs = idoc.querySelectorAll ? idoc.querySelectorAll('img.lg-logo-img') : [];
+    for (var i = 0; i < imgs.length; i++) {
+      var img = imgs[i];
+      // complete && naturalWidth === 0 is the browser's own "this load failed"
+      // state; a still-loading image is re-checked by the img's error handler.
+      if (img.complete && img.naturalWidth === 0) { replaceBrokenLogo(img); }
+      else if (!img.complete) { armLogoErrorHandler(img); }
+    }
+  }
+  function armLogoErrorHandler(img) {
+    if (img.getAttribute('data-logo-armed') === '1') { return; }
+    img.setAttribute('data-logo-armed', '1');
+    img.onerror = function () { replaceBrokenLogo(img); };
+  }
+  function watchCanvasLogo(frame) {
+    var run = function () {
+      var idoc = null;
+      try { idoc = frame.contentDocument; } catch (e) { idoc = null; }
+      checkCanvasLogos(idoc);
+    };
+    frame.onload = run;
+    // srcdoc can already be parsed when a re-render reuses the same document;
+    // one deferred pass covers that race without polling.
+    window.setTimeout(run, 250);
   }
 
   // R2 §3 ② (R6): ONE status sink, the REAL id (#lg-tpl-canvas-status). The
@@ -2647,7 +2733,7 @@ html,body{height:100%;overflow-x:hidden}
   <p class="form-help">Three independent looks (Images 38&#8211;40) &#8212; mix and match; each defaults to today's look.</p>
   <div class="lg-scalars">
     <div class="form-group"><label class="form-label">Fill</label><select class="form-select" data-theme-key="button_defaults.fill"><option value="">Inherit from base design</option><option value="fill">Solid (default)</option><option value="outline">Outline</option><option value="soft">Soft pill + shadow</option></select></div>
-    <div class="form-group"><label class="form-label">Answer layout</label><select class="form-select" data-theme-key="button_defaults.layout"><option value="">Inherit from base design</option><option value="grid">Grid (default)</option><option value="list">Single-column list</option><option value="card">Full-width cards (Image23)</option></select></div>
+    <div class="form-group"><label class="form-label">Answer layout</label><select class="form-select" data-theme-key="button_defaults.layout"><option value="">Inherit from base design</option><option value="grid">Grid (default)</option><option value="list">Single-column list</option><option value="card">Full-width cards</option></select></div>
     <div class="form-group"><label class="form-label">Selected style</label><select class="form-select" data-theme-key="button_defaults.selected"><option value="">Inherit from base design</option><option value="wash">Soft wash (default)</option><option value="mark">Bigger + check badge</option></select></div>
   </div>
   <h3>Cards</h3>
@@ -3242,23 +3328,23 @@ html,body{height:100%;overflow-x:hidden}
 </div>
   <div class="lg-qpanel" data-panel="ab">
   <div class="card">
-    <h3>Traffic allocation (§16.2)</h3>
+    <h3>Traffic allocation</h3>
     <p class="form-help">Test this funnel against variants of itself — a different template, theme, sections, or rules. Add a variant, change what you want on it, then split the traffic below (must sum to <strong>100%</strong>; stored as basis points, per-test Σ == 10000) before a test can start. Equal arms; no control.</p>
-    <div id="lg-ab-variant-list" class="lg-alloc-list"><div class="lg-alloc-row" data-variant="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC">
+    <div id="lg-ab-variant-list" class="lg-alloc-list"><div class="lg-alloc-row" data-variant="lgn_01KZ1TK3G638BR5544QRS4XP3F">
     <span class="lg-alloc-label"><strong>A</strong></span>
     <label class="lg-alloc-pct"><input type="number" class="form-input lg-alloc-input" data-alloc-input
-      data-variant-id="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC" data-variant-label="A"
+      data-variant-id="lgn_01KZ1TK3G638BR5544QRS4XP3F" data-variant-label="A"
       min="0" max="100" step="0.01" value="100" /> %</label>
-    <p class="form-help" data-arm-overrides="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC">Same layout as funnel (no overrides)</p>
-    <p class="form-help" data-arm-varies="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC">Base variant</p>
+    <p class="form-help" data-arm-overrides="lgn_01KZ1TK3G638BR5544QRS4XP3F">Same layout as funnel (no overrides)</p>
+    <p class="form-help" data-arm-varies="lgn_01KZ1TK3G638BR5544QRS4XP3F">Base variant</p>
     
-    <p class="form-help lg-hidden" data-delete-variant-err="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC" role="alert"></p>
+    <p class="form-help lg-hidden" data-delete-variant-err="lgn_01KZ1TK3G638BR5544QRS4XP3F" role="alert"></p>
   </div></div>
     <p class="lg-alloc-summary">Σ = <strong data-alloc-sum>&mdash;</strong> <span data-alloc-sum-note class="form-help"></span></p>
     <div class="toolbar">
       <button type="button" id="lg-save-allocations" class="btn btn-primary">Save allocations</button>
       <button type="button" id="lg-add-variant" class="btn btn-secondary" data-add-variant-state="no-test" disabled aria-disabled="true" aria-describedby="lg-add-variant-why" title="a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press &quot;Create A/B test&quot;, then &quot;Start A/B test&quot;, then add the variant.">Add variant&#8230;</button>
-      <button type="button" id="lg-create-experiment" class="btn btn-secondary" data-quote-public-id="lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507">Create A/B test</button>
+      <button type="button" id="lg-create-experiment" class="btn btn-secondary" data-quote-public-id="lgq_01KZ1TK3G6SHKCS3VQ7ENRTTG2">Create A/B test</button>
     </div>
     <p class="form-help lg-ab-order" data-ab-order>Order to A/B this funnel: <strong>1.</strong> Create A/B test &rarr; <strong>2.</strong> Start A/B test &rarr; <strong>3.</strong> Add variant (it becomes the test&#39;s second arm, split 50/50). Until a test is running the funnel keeps exactly one variant.</p>
     <p class="form-help lg-ab-add-why" id="lg-add-variant-why" data-add-variant-blocked="no-test" role="status">&#9888; <strong>Add variant is unavailable:</strong> a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press &quot;Create A/B test&quot;, then &quot;Start A/B test&quot;, then add the variant.</p>
@@ -3267,12 +3353,12 @@ html,body{height:100%;overflow-x:hidden}
 </div>
   <div class="lg-qpanel" data-panel="activation">
   <div class="card">
-    <h3>Activation preflight (§5.2)</h3>
-    <div id="lg-preflight-panel" data-preflight-state="blocked"><p class="lg-preflight-blocked-title">Cannot activate this Quote.</p><div id="lg-preflight-problems" data-problem-count="1"><div class="lg-problem-group" data-problem-scope="section"><h4 class="lg-problem-group-title">Slides</h4><div class="lg-problem-row" data-problem-severity="error" data-problem-path="activation.shared_page"><span class="lg-problem-chip" data-severity="error">Error</span><span class="lg-problem-msg">The shared first page needs at least one section.</span><a class="btn btn-sm btn-secondary" href="/admin/leadgen/quotes/lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507/edit">Open Quote Builder</a></div></div></div></div>
+    <h3>Activation preflight</h3>
+    <div id="lg-preflight-panel" data-preflight-state="blocked"><p class="lg-preflight-blocked-title">Cannot activate this Quote.</p><div id="lg-preflight-problems" data-problem-count="1"><div class="lg-problem-group" data-problem-scope="section"><h4 class="lg-problem-group-title">Slides</h4><div class="lg-problem-row" data-problem-severity="error" data-problem-path="activation.shared_page"><span class="lg-problem-chip" data-severity="error">Error</span><span class="lg-problem-msg">The shared first page needs at least one section.</span><a class="btn btn-sm btn-secondary" href="/admin/leadgen/quotes/lgq_01KZ1TK3G6SHKCS3VQ7ENRTTG2/edit">Open Quote Builder</a></div></div></div></div>
   </div>
   <div class="card">
-    <h3>Site activation (§17)</h3>
-    <p class="form-help">At most one enabled root (blank slug) per site (§17.1). Activating a second root while one is enabled is rejected — disable it or set a slug.</p>
+    <h3>Site activation</h3>
+    <p class="form-help">At most one enabled root (blank slug) per site. Activating a second root while one is enabled is rejected — disable it or set a slug.</p>
     <div id="lg-activation-list"><div class="lg-activation-row" data-site-id="site-1">
   <label class="lg-check"><input type="checkbox" data-site-enabled /> Site One</label>
   <input class="form-input" data-site-slug placeholder="slug (blank = root /lg)" value="" />
@@ -3284,7 +3370,7 @@ html,body{height:100%;overflow-x:hidden}
 </div>
   <div class="lg-qpanel" data-panel="analytics">
   <div class="card">
-    <h3>Funnel analytics (§15.6)</h3>
+    <h3>Funnel analytics</h3>
     <div class="table-wrapper">
       <table class="table" id="lg-analytics-table" aria-label="Funnel analytics">
         <thead><tr>
@@ -3317,7 +3403,7 @@ html,body{height:100%;overflow-x:hidden}
     <div class="lg-media-grid" id="lg-media-picker-grid"></div>
   </div>
 </div>
-  <script type="application/json" id="lg-quote-data">{"quote_public_id":"lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507","quote_id":"lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507","activity":"quote_funnel","selected_variant":"lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC","selected_variant_is_control":true,"funnel_public_id":"lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ","sections":[{"public_id":"lgs_01KZ1GZ0PQ43Y2FR7DS5X5N21N","name":"\u003ci>First\u003c/i>"},{"public_id":"lgs_01KZ1GZ0PQRRAQR4S76FE2WNTS","name":"Second"}],"frame":{"frame_config":null,"effective_frame":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"template_defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"problems":[]},"theme":{"theme":null,"effective_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"problems":[]},"base_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"templates":[{"id":"centered","label":"Centered card","defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-footer","label":"Site header + footer","defaults":{"version":1,"template":"header-footer","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"left","tagline":null,"secure_badge":{"enabled":true,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":true,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-cta","label":"Header + call CTA","defaults":{"version":1,"template":"header-cta","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"below_card","label":"Back","history_fallback":true},"disclosure":{"enabled":true,"location":"top_bar","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"full-background","label":"Full background","defaults":{"version":1,"template":"full-background","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"dots","position":"above_unit","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"brand_primary","image_media_id":null,"style":"brand"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"white-trust","label":"White + trust bar","defaults":{"version":1,"template":"white-trust","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"s","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"footer","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"card_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"minimal","label":"Minimal","defaults":{"version":1,"template":"minimal","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"under_header_left","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":false,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}}],"sites":[{"site_id":"site-1","site_name":"Site One","badge":"Not activated yet"}],"overrides":null,"preflight":{"ok":true,"quote_id":"lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507","funnel_id":"lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ","funnel_variant_id":"lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC","blocks":[],"computed_at":1785684001499,"problems":[{"path":"activation.shared_page","scope":"section","severity":"error","message":"The shared first page needs at least one section.","fix_url":"/admin/leadgen/quotes/lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507/edit"}]}}</script>
+  <script type="application/json" id="lg-quote-data">{"quote_public_id":"lgq_01KZ1TK3G6SHKCS3VQ7ENRTTG2","quote_id":"lgq_01KZ1TK3G6SHKCS3VQ7ENRTTG2","activity":"quote_funnel","selected_variant":"lgn_01KZ1TK3G638BR5544QRS4XP3F","selected_variant_is_control":true,"funnel_public_id":"lgf_01KZ1TK3G64K0N32PZ5NRHJX8G","sections":[{"public_id":"lgs_01KZ1TK3G7AFJAXGC74R89TSFE","name":"\u003ci>First\u003c/i>"},{"public_id":"lgs_01KZ1TK3G7GAGTZ5PZJA2GBSXB","name":"Second"}],"frame":{"frame_config":null,"effective_frame":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"template_defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"problems":[]},"theme":{"theme":null,"effective_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"problems":[]},"base_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"templates":[{"id":"centered","label":"Centered card","defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-footer","label":"Site header + footer","defaults":{"version":1,"template":"header-footer","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"left","tagline":null,"secure_badge":{"enabled":true,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":true,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-cta","label":"Header + call CTA","defaults":{"version":1,"template":"header-cta","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"below_card","label":"Back","history_fallback":true},"disclosure":{"enabled":true,"location":"top_bar","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"full-background","label":"Full background","defaults":{"version":1,"template":"full-background","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"dots","position":"above_unit","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"brand_primary","image_media_id":null,"style":"brand"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"white-trust","label":"White + trust bar","defaults":{"version":1,"template":"white-trust","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"s","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"footer","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"card_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"minimal","label":"Minimal","defaults":{"version":1,"template":"minimal","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"under_header_left","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":false,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}}],"sites":[{"site_id":"site-1","site_name":"Site One","badge":"Not activated yet"}],"overrides":null,"preflight":{"ok":true,"quote_id":"lgq_01KZ1TK3G6SHKCS3VQ7ENRTTG2","funnel_id":"lgf_01KZ1TK3G64K0N32PZ5NRHJX8G","funnel_variant_id":"lgn_01KZ1TK3G638BR5544QRS4XP3F","blocks":[],"computed_at":1785694096907,"problems":[{"path":"activation.shared_page","scope":"section","severity":"error","message":"The shared first page needs at least one section.","fix_url":"/admin/leadgen/quotes/lgq_01KZ1TK3G6SHKCS3VQ7ENRTTG2/edit"}]}}</script>
 </div></div>
     </main>
   </div>
@@ -3484,6 +3570,7 @@ if (!document.getElementById('toast-animations')) {
     clearChildren(badge);
     badge.appendChild(document.createTextNode(publishChipText(errors, warnings)));
     updatePublishReasons(badge, preflight);
+    syncBoardBlockMarkers(preflight);
   }
 
   // R2 P7 — mirrors activation.ts publishBlockingReasons EXACTLY (blocks first,
@@ -3506,14 +3593,55 @@ if (!document.getElementById('toast-animations')) {
         mapped.push(b.code === 'offer_ineligible' ? eligibilityLabel(fields[j]) : fields[j]);
       }
       parts.push(preflightCodeLabel(b.code) + (mapped.length > 0 ? ': ' + mapped.join(', ') : ''));
-      out.push({ text: parts.join(' · '), fixUrl: (b.fix_links && b.fix_links.section_mapping) || '' });
+      var bFix = (b.fix_links && b.fix_links.section_mapping) || '';
+      out.push({ text: parts.join(' · '), fixUrl: bFix, target: publishFixTarget('', bFix) });
     }
     for (i = 0; i < problems.length; i++) {
       var p = problems[i];
       if (!p || p.severity !== 'error') { continue; }
-      out.push({ text: p.message || '', fixUrl: typeof p.fix_url === 'string' ? p.fix_url : '' });
+      var pFix = typeof p.fix_url === 'string' ? p.fix_url : '';
+      out.push({ text: p.message || '', fixUrl: pFix, target: publishFixTarget(p.path || '', pFix) });
     }
     return out;
+  }
+
+  // R2 P7 FIX-FIRST (owner, D1) — mirrors activation.ts publishFixTarget /
+  // isQuoteEditorSelfLink EXACTLY. A reason points at the CONTROL that clears
+  // it; a fix_url that is this very editor page is dropped, never rendered as
+  // "Open Quote Builder" to an operator already standing in the Quote Builder.
+  function isQuoteEditorSelfLink(fixUrl) {
+    return /^\/admin\/leadgen\/quotes\/[A-Za-z0-9_-]+\/edit$/.test(String(fixUrl || ''));
+  }
+  function publishSafeId(id) { return /^[A-Za-z0-9_-]+$/.test(id) ? id : ''; }
+  function publishFixTarget(path, fixUrl) {
+    var p = String(path || '');
+    var pid;
+    var col;
+    if (p === 'activation.shared_page') {
+      return { tab: 'builder', sel: '[data-shared-col] [data-add-shared-section]', label: "Add the shared page's first section" };
+    }
+    if (p.indexOf('activation.funnel.') === 0) {
+      pid = publishSafeId(p.slice('activation.funnel.'.length));
+      if (pid === '') { return null; }
+      col = '[data-funnel-col][data-funnel-public-id="' + pid + '"]';
+      return { tab: 'builder', sel: col + ' [data-add-section],' + col + ' [data-add-page]', label: 'Add a section to this funnel' };
+    }
+    if (p === 'activation.default_funnel') {
+      return { tab: 'builder', sel: '[data-funnel-col] [data-funnel-kebab]', label: 'Set a default funnel' };
+    }
+    if (p.indexOf('activation.rule.') === 0) {
+      pid = publishSafeId(p.slice('activation.rule.'.length));
+      if (pid === '') { return null; }
+      return { tab: 'builder', sel: '[data-qr-card][data-rule-public-id="' + pid + '"]', label: 'Open this rule' };
+    }
+    if (p === 'frame' || p.indexOf('frame.') === 0) {
+      return { tab: 'templates', sel: '.lg-qpanel[data-panel="templates"]', label: 'Open the Templates tab' };
+    }
+    if (p === 'theme' || p.indexOf('theme.') === 0) {
+      return { tab: 'themes', sel: '.lg-qpanel[data-panel="themes"]', label: 'Open the Themes tab' };
+    }
+    if (fixUrl) { return null; }
+    return null;
   }
 
   // Rebuilds (or removes) the "#lg-publish-why" block the SSR renderer emits as
@@ -3549,16 +3677,134 @@ if (!document.getElementById('toast-animations')) {
       var li = document.createElement('li');
       li.setAttribute('data-publish-reason', '');
       li.appendChild(document.createTextNode(reasons[i].text));
-      if (reasons[i].fixUrl) {
-        var a = document.createElement('a');
-        a.className = 'lg-publish-why-fix';
-        a.setAttribute('href', reasons[i].fixUrl);
-        a.appendChild(document.createTextNode(problemFixLabel(reasons[i].fixUrl)));
-        li.appendChild(a);
-      }
+      var fixNode = publishReasonFixNode(reasons[i]);
+      if (fixNode) { li.appendChild(fixNode); }
       list.appendChild(li);
     }
     why.appendChild(list);
+  }
+
+  // The three branches the SSR renderPublishReasonFix renders, DOM-built:
+  // in-page target button > genuine cross-screen link > nothing.
+  function publishReasonFixNode(reason) {
+    if (reason.target) {
+      var btn = document.createElement('button');
+      btn.setAttribute('type', 'button');
+      btn.className = 'lg-publish-why-fix';
+      btn.setAttribute('data-publish-fix-tab', reason.target.tab);
+      btn.setAttribute('data-publish-fix-sel', reason.target.sel);
+      btn.appendChild(document.createTextNode(reason.target.label));
+      return btn;
+    }
+    if (reason.fixUrl && !isQuoteEditorSelfLink(reason.fixUrl)) {
+      var a = document.createElement('a');
+      a.className = 'lg-publish-why-fix';
+      a.setAttribute('href', reason.fixUrl);
+      a.appendChild(document.createTextNode(problemFixLabel(reason.fixUrl)));
+      return a;
+    }
+    return null;
+  }
+
+  // Reveal the control a reason points at. Owner's rule: "If they are already
+  // on that tab, do not navigate — just reveal and highlight the target."
+  function revealPublishFixTarget(tab, sel) {
+    if (!hasBoardQuery()) { return false; }
+    var tabBtn = tab ? document.querySelector('.lg-qtab[data-tab="' + tab + '"]') : null;
+    var alreadyHere = !tabBtn || (' ' + tabBtn.className + ' ').indexOf(' active ') !== -1;
+    if (!alreadyHere) { activate(tab); }
+    var node = null;
+    try { node = sel ? document.querySelector(sel) : null; } catch (eSel) { node = null; }
+    if (!node) { return false; }
+    if (node.scrollIntoView) { node.scrollIntoView({ block: 'center', inline: 'nearest' }); }
+    var prev = document.querySelector('[data-publish-fix-flash]');
+    if (prev) { prev.removeAttribute('data-publish-fix-flash'); }
+    node.setAttribute('data-publish-fix-flash', '1');
+    if (!node.getAttribute('tabindex') && node.tagName !== 'BUTTON' && node.tagName !== 'A' && node.tagName !== 'INPUT') {
+      node.setAttribute('tabindex', '-1');
+    }
+    if (node.focus) { try { node.focus({ preventScroll: true }); } catch (eFocus) { node.focus(); } }
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // R2 P7 FIX-FIRST (owner, D2) — the board itself names the blocking page.
+  //
+  // The owner's board showed an EMPTY "Shared first page" column that was the
+  // whole reason publishing was blocked, and nothing on that column said so:
+  // the operator had to read a banner at the top and map it back to a column.
+  // So every column a blocking reason names now carries an inline marker, in
+  // the operator's own words. Quiet by construction: the markers are rebuilt
+  // from the SAME error-severity reasons the chip counts, so zero reasons =
+  // zero markers.
+  //
+  // The shared column's copy also states the owner's own model out loud ("the
+  // first page is shared by all the funnels") at the moment it matters —
+  // dropping the first question into a funnel's page 1 is a reasonable thing
+  // to do, and the board should say the shared page comes first and is empty
+  // instead of only complaining at publish time.
+  // -------------------------------------------------------------------------
+  var BOARD_BLOCK_COPY = {
+    shared: 'Empty \u2014 and every funnel starts with this page, before its own. Publishing is blocked until it has a section.',
+    funnel: 'No page with a section yet. Publishing is blocked until this funnel has one.'
+  };
+
+  // The island also boots inside the seam suite's minimal DOM stub (no
+  // querySelector/querySelectorAll), so every board-marker entry point is
+  // capability-checked — the markers are progressive enhancement over the SSR
+  // board, never a boot dependency.
+  function hasBoardQuery() {
+    return typeof document !== 'undefined' && document !== null
+      && typeof document.querySelector === 'function'
+      && typeof document.querySelectorAll === 'function';
+  }
+
+  function clearBoardBlockMarkers() {
+    var olds = document.querySelectorAll('[data-col-block]');
+    var i;
+    for (i = 0; i < olds.length; i++) { if (olds[i].parentNode) { olds[i].parentNode.removeChild(olds[i]); } }
+    var cols = document.querySelectorAll('[data-col-blocking]');
+    for (i = 0; i < cols.length; i++) { cols[i].removeAttribute('data-col-blocking'); }
+  }
+
+  function markBoardColumnBlocked(col, kind) {
+    if (!col || col.querySelector('[data-col-block]')) { return; }
+    col.setAttribute('data-col-blocking', '1');
+    var head = col.querySelector('.lg-col-head') || col;
+    var note = document.createElement('div');
+    note.className = 'lg-col-block';
+    note.setAttribute('data-col-block', kind);
+    note.setAttribute('role', 'note');
+    var ico = document.createElement('span');
+    ico.className = 'lg-col-block-ico';
+    ico.setAttribute('aria-hidden', 'true');
+    ico.appendChild(document.createTextNode('\u26a0'));
+    note.appendChild(ico);
+    var msg = document.createElement('span');
+    msg.appendChild(document.createTextNode(BOARD_BLOCK_COPY[kind] || ''));
+    note.appendChild(msg);
+    head.appendChild(note);
+  }
+
+  function syncBoardBlockMarkers(preflight) {
+    if (!hasBoardQuery()) { return; }
+    if (!document.querySelector('[data-board]')) { return; }
+    clearBoardBlockMarkers();
+    if (!preflight) { return; }
+    var problems = preflight.problems || [];
+    var i;
+    for (i = 0; i < problems.length; i++) {
+      var p = problems[i];
+      if (!p || p.severity !== 'error') { continue; }
+      var path = String(p.path || '');
+      if (path === 'activation.shared_page') {
+        markBoardColumnBlocked(document.querySelector('[data-shared-col]'), 'shared');
+      } else if (path.indexOf('activation.funnel.') === 0) {
+        var pid = publishSafeId(path.slice('activation.funnel.'.length));
+        if (pid === '') { continue; }
+        markBoardColumnBlocked(document.querySelector('[data-funnel-col][data-funnel-public-id="' + pid + '"]'), 'funnel');
+      }
+    }
   }
 
   function preflightFixLink(href, label) {
@@ -3797,6 +4043,15 @@ if (!document.getElementById('toast-animations')) {
       var target = el.getAttribute('data-goto-tab');
       activate(target);
     }
+  });
+  // R2 P7 FIX-FIRST (owner, D1): a blocking reason's button reveals the control
+  // that CLEARS it — tab-switching only when that control is on another tab.
+  document.addEventListener('click', function (ev) {
+    var el = ev.target;
+    while (el && el.getAttribute && !el.getAttribute('data-publish-fix-sel')) { el = el.parentNode; }
+    if (!el || !el.getAttribute) { return; }
+    if (ev.preventDefault) { ev.preventDefault(); }
+    revealPublishFixTarget(el.getAttribute('data-publish-fix-tab') || '', el.getAttribute('data-publish-fix-sel') || '');
   });
 
   // --- §10 / §8.9 (S5.3) REMOVED: the dead Round-4 "structure panel" island -
@@ -4120,6 +4375,10 @@ if (!document.getElementById('toast-animations')) {
     try { return JSON.parse(el.textContent || el.innerText || 'null'); } catch (e) { return null; }
   }
   var lgData = readBlob('lg-quote-data') || {};
+  // R2 P7 FIX-FIRST (owner, D2): paint the board's blocking markers from the
+  // SSR preflight at boot, so the offending column says so on FIRST paint (not
+  // only after a save re-renders the chip).
+  syncBoardBlockMarkers(lgData.preflight || null);
   var frameState = lgData.frame || { frame_config: null, effective_frame: null, template_defaults: {}, problems: [] };
   var themeState = lgData.theme || { theme: null, effective_tokens: {}, problems: [] };
   var tokens = themeState.effective_tokens || {};

@@ -217,7 +217,7 @@ export const PAYLOAD_SOURCE_GROUPS: ReadonlyArray<PayloadSourceGroup> = [
       macroMember(
         "placement",
         "Placement (traffic param)",
-        "placement — the landing URL's placement param; used ONLY when no Offer placement is in scope (04 §4.3).",
+        "placement — the landing URL's placement param; used ONLY when no Offer placement is in scope.",
       ),
       macroMember("sub1", "sub1", "sub1 — tracking sub-id 1 from the landing URL."),
       macroMember("sub2", "sub2", "sub2 — tracking sub-id 2 from the landing URL."),
@@ -245,7 +245,7 @@ export const PAYLOAD_SOURCE_GROUPS: ReadonlyArray<PayloadSourceGroup> = [
       {
         value: "placement",
         label: "Placement ID",
-        help: "Placement ID — the participating Offer placement id (auction runtime picks the auction's placement; the Test tab uses your picked placement — 04 §4.5).",
+        help: "Placement ID — the participating Offer placement id (auction runtime picks the auction's placement; the Test tab uses your picked placement).",
       },
     ],
   },
@@ -1037,7 +1037,7 @@ export function renderPayloadPanel(props: PayloadPanelProps): string {
 // ---------------------------------------------------------------------------
 
 const HEADER_KIND_HELP =
-  "static = sent verbatim · macro = canonical-macro template · secret_ref = a wrangler secret NAME (the value is resolved server-side and never displayed, §30.2)";
+  "static = sent verbatim · macro = canonical-macro template · secret_ref = a wrangler secret NAME (the value is resolved server-side and never displayed)";
 
 function renderHeaderRow(header: LeadgenOfferHeaderApi | null): string {
   const name = header !== null ? escapeHtml(header.header_name) : "";
@@ -1061,11 +1061,11 @@ export function renderRequestPanel(
   const clientWarningHidden = offer.request_execution_mode === "client" ? "" : " hidden";
   const modeInputs = LEADGEN_EXECUTION_MODES.map((mode) => {
     const checked = offer.request_execution_mode === mode ? " checked" : "";
-    return `<label class="form-label lg-radio"><input type="radio" name="request_execution_mode" value="${mode}"${checked} /> ${mode === "server" ? "Server (default) — the Worker calls the provider; secrets resolve server-side" : "Client — the browser calls the provider (§10.3)"}</label>`;
+    return `<label class="form-label lg-radio"><input type="radio" name="request_execution_mode" value="${mode}"${checked} /> ${mode === "server" ? "Server (default) — the Worker calls the provider; secrets resolve server-side" : "Client — the browser calls the provider"}</label>`;
   }).join("");
   return `<section class="lg-editor-panel" data-lg-tab-panel="request" hidden>
   <div class="card">
-    <div class="card-header"><h3 class="card-title">Endpoints (§11.4)</h3></div>
+    <div class="card-header"><h3 class="card-title">Endpoints</h3></div>
     <div class="form-group">
       <label for="lg-endpoint-production" class="form-label">Production endpoint</label>
       <input id="lg-endpoint-production" name="endpoint_production" type="text" class="form-input" placeholder="https://provider.example/api/quotes" value="${escapeHtml(offer.endpoint_production ?? "")}" />
@@ -1083,19 +1083,19 @@ export function renderRequestPanel(
     </div>
   </div>
   <div class="card">
-    <div class="card-header"><h3 class="card-title">Execution mode (§10.3)</h3></div>
+    <div class="card-header"><h3 class="card-title">Execution mode</h3></div>
     <div class="form-group">${modeInputs}${fieldError("request_execution_mode")}</div>
     <p id="lg-client-mode-warning" class="alert alert-warning"${clientWarningHidden}>Client mode: the request runs in the browser. No secret is ever exposed — remove secret_ref headers and the API token secret; endpoints must be https and CORS-enabled (validated on save).</p>
   </div>
   <div class="card">
-    <div class="card-header"><h3 class="card-title">Headers (§11.3)</h3></div>
+    <div class="card-header"><h3 class="card-title">Headers</h3></div>
     <p class="form-help">${escapeHtml(HEADER_KIND_HELP)}</p>
     <div id="lg-headers-rows">${existingRows}</div>
     <button type="button" id="lg-header-add" class="btn btn-secondary">+ Add header</button>
     ${fieldError("headers")}
   </div>
   <div class="card">
-    <div class="card-header"><h3 class="card-title">API token (§11.3)</h3></div>
+    <div class="card-header"><h3 class="card-title">API token</h3></div>
     <div class="form-group">
       <label for="lg-token-placement" class="form-label">Token placement</label>
       <select id="lg-token-placement" name="api_token_placement" class="form-select">${options(LEADGEN_TOKEN_PLACEMENTS, offer.api_token_placement ?? "", "No token")}</select>
@@ -1109,7 +1109,7 @@ export function renderRequestPanel(
     <div class="form-group">
       <label for="lg-token-secret" class="form-label">Token secret ref (wrangler secret name)</label>
       <input id="lg-token-secret" name="api_token_secret_ref" type="text" class="form-input" placeholder="PROVIDER_API_TOKEN" value="${escapeHtml(offer.api_token_secret_ref ?? "")}" />
-      <span class="form-help">The secret NAME only — values live in Wrangler secrets and are never displayed (§30.2). Client-mode offers cannot use secret tokens (§10.3).</span>
+      <span class="form-help">The secret NAME only — values live in Wrangler secrets and are never displayed. Client-mode offers cannot use secret tokens.</span>
       ${fieldError("api_token_secret_ref")}
     </div>
   </div>
@@ -1190,11 +1190,11 @@ function renderResponseParsingPanel(activeSchema: PayloadBuilderSchemaInfo | nul
               `<button type="button" class="macro-chip" data-parse-chip="${escapeHtml(path)}">${escapeHtml(path)}</button>`,
           )
           .join("")
-      : `<p class="form-help">No sample response saved yet — run the Test tool; a 2xx JSON response is persisted as the sample and its field paths appear here (§11.6).</p>`;
+      : `<p class="form-help">No sample response saved yet — run the Test tool; a 2xx JSON response is persisted as the sample and its field paths appear here.</p>`;
   return `<div class="card">
-    <div class="card-header"><h3 class="card-title">Response parsing (§11.6/§11.7)</h3>
-      <span class="form-help">carrier_parse_json versions WITH the payload schema (§7.1 — a column on the schema-version row)</span></div>
-    <p class="form-help">Maps the provider response onto the canonical Carrier fields (§11.7) before the auction/banner layer sees it. Each field takes one or more dotted paths — comma-separated, first match wins. Saving creates the NEXT immutable schema version carrying this parser (§11.8).</p>
+    <div class="card-header"><h3 class="card-title">Response parsing</h3>
+      <span class="form-help">carrier_parse_json versions WITH the payload schema (a column on the schema-version row)</span></div>
+    <p class="form-help">Maps the provider response onto the canonical Carrier fields before the auction/banner layer sees it. Each field takes one or more dotted paths — comma-separated, first match wins. Saving creates the NEXT immutable schema version carrying this parser.</p>
     <div class="form-group">
       <label for="lg-parse-carriers-path" class="form-label">Carriers path</label>
       <input id="lg-parse-carriers-path" type="text" class="form-input" placeholder="carriers (empty = response root)" value="${escapeHtml(carriersPath)}" />
@@ -1254,7 +1254,7 @@ export function renderTestPanel(
   return `<section class="lg-editor-panel" data-lg-tab-panel="test" hidden>
   <div class="card">
     <div class="card-header"><h3 class="card-title">Test tool</h3></div>
-    <p class="form-help">Runs server-side so secrets stay masked ([REDACTED]) in everything echoed below (§30.2). A 2xx JSON response is persisted as the schema's sample response.</p>
+    <p class="form-help">Runs server-side so secrets stay masked ([REDACTED]) in everything echoed below. A 2xx JSON response is persisted as the schema's sample response.</p>
     ${eligibilityNote}
     <div class="form-group">
       <h4 class="form-label">Sample answers (generated from the active schema)</h4>
@@ -1269,13 +1269,13 @@ export function renderTestPanel(
     </div>
     <details id="lg-test-context" class="lg-test-context" data-test-context>
       <summary>Simulated visitor context (US defaults)</summary>
-      <p class="form-help">These values feed the SAME runtime context builder the live auction uses — Test and runtime cannot drift (04 §4.7.2). Blank fields fall back to the request's real values.</p>
+      <p class="form-help">These values feed the SAME runtime context builder the live auction uses — Test and runtime cannot drift. Blank fields fall back to the request's real values.</p>
       <div class="lg-pb-grid" data-test-context-grid>${contextInputs}</div>
     </details>
     <div class="form-group" id="lg-test-placement-wrap" data-test-placement-count="${placements.length}"${placementHidden}>
       <label for="lg-test-placement" class="form-label">Placement</label>
       <select id="lg-test-placement" class="form-select" aria-label="Test placement">${placementOptions}</select>
-      <span class="form-help">This Offer has ${placements.length} placements — the default is pre-selected; the one used is echoed in the result (04 §4.5).</span>
+      <span class="form-help">This Offer has ${placements.length} placements — the default is pre-selected; the one used is echoed in the result.</span>
     </div>
     <div class="form-group">
       <label for="lg-test-environment" class="form-label">Environment</label>
@@ -1314,7 +1314,7 @@ export function renderTestPanel(
       <div id="lg-test-parse-errors"></div>
       <h4 class="form-label">Extracted carriers</h4>
       <div id="lg-test-carriers"></div>
-      <h4 class="form-label">Response fields (macro chips, §10.5)</h4>
+      <h4 class="form-label">Response fields (macro chips)</h4>
       <p class="form-help">Click a chip to copy its {response:&#8230;} macro for the banner URL template.</p>
       <div id="lg-test-chips" class="macro-chips"></div>
       <div id="lg-test-macro-flags"></div>

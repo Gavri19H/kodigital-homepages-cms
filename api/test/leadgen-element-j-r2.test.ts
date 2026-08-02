@@ -117,7 +117,10 @@ describe("R2 P3 element J — TPLBOX_CARDS stays a single footer entry (contract
     // A.2's "seperate template element" is separate ON THE SCREEN too: its own
     // group, below the in-page elements.
     expect(panel).toContain('id="lg-tplbox-grid-separate"');
-    expect(panel).toContain("Bottom of the page &mdash; separate template element");
+    // R2 P7 D3 (owner: "why you left comments to yourself on the UI????") — the
+    // heading is product copy now; the GROUPING it asserts is unchanged.
+    expect(panel).toContain("<div class=\"lg-tpl2-eyebrow\">Page footer</div>");
+    expect(panel).not.toContain("separate template element");
     expect(panel.indexOf('id="lg-tplbox-grid-separate"')).toBeGreaterThan(panel.indexOf('id="lg-tplbox-grid"'));
   });
 });

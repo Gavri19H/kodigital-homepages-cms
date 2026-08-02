@@ -49,6 +49,39 @@ function rule(selector: string, pairs: Record<string, string>): string {
   return body === "" ? "" : `${selector}{${body}}`;
 }
 
+// R2 P7 (owner #D2 "where is the icon on track??? how do I define it????") —
+// the built-in glyph set behind frames.ts FRAME_PROGRESS_ICONS. Each entry is a
+// single-path 24×24 SVG used as a CSS MASK (so the mark takes the design's card
+// colour and needs no per-theme asset); `dot` paints no glyph (the bare disc,
+// byte-identical to the pre-P7 thumb) and `site_logo` paints a real image, so
+// neither appears here. Kept as code constants — never operator input — so the
+// data URI below can never carry authored bytes.
+const PROGRESS_ICON_MASKS: ReadonlyArray<readonly [string, string]> = [
+  [
+    "car",
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11h1a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-1v1a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-1H8v1a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-1H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h1zm2.1 0h9.8l-1-3H8.1l-1 3zM7 13.5a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4zm10 0a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4z'/></svg>",
+  ],
+  [
+    "shield",
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 2l8 3v6.2c0 4.7-3.2 8.9-8 10.8-4.8-1.9-8-6.1-8-10.8V5l8-3z'/></svg>",
+  ],
+  [
+    "check",
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M9.6 17.4l-5-5 1.8-1.8 3.2 3.2 8-8L19.4 7.6z'/></svg>",
+  ],
+  [
+    "star",
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.4-5.8-3-5.8 3 1.1-6.4L2.6 9.4l6.5-.9z'/></svg>",
+  ],
+];
+
+// The `#` and `<`/`>` bytes in a raw SVG data URI break CSS parsing in some
+// engines; percent-encode the whole document (the same discipline the dropdown
+// chevron rule above already applies to its one interpolated token).
+function svgDataUri(svg: string): string {
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
 // v2.5 13 §13.1 chrome-CSS extension switch. `frameRegions: true` appends the
 // frame-region rules (`.lg-frame-*`, emitted by designs/frame.ts markup) into
 // the SAME stylesheet — still one <style> block in the shell. Default OFF:
@@ -3058,19 +3091,101 @@ export function funnelChromeCss(
         "z-index": "2",
       }),
       // icon_on_track: a thumb rides the fill's right edge (distinct from bar).
+      // R2 P7 — the thumb grew from a bare 16px dot into a 22px round MARKER
+      // that carries the operator's chosen glyph (frame.ts emits
+      // .lg-frame-progress--icon-<id>). ::after paints the disc, ::before paints
+      // the glyph on top of it; BOTH ride the fill's right edge, so the engine's
+      // existing `fill.style.width` write is what makes the mark travel to the
+      // visitor's position — no runtime JS is added for this.
       rule(`${scope} .lg-frame-progress--icon_on_track .lg-progress-fill`, { position: "relative", overflow: "visible" }),
       rule(`${scope} .lg-frame-progress--icon_on_track .lg-progress-fill::after`, {
         content: '""',
         position: "absolute",
         right: "0",
         top: "50%",
-        width: "16px",
-        height: "16px",
+        width: "22px",
+        height: "22px",
         transform: "translate(50%,-50%)",
         "border-radius": "50%",
         background: color.primaryDark,
         border: `2px solid ${color.card}`,
         "box-shadow": shadow.sm,
+        "z-index": "1",
+      }),
+      // `dot` (the default, and the pre-P7 look) paints NO glyph — the disc
+      // alone. Every other id paints its mark in the card colour over the disc.
+      rule(
+        `${scope} .lg-frame-progress--icon_on_track:not(.lg-frame-progress--icon-dot) .lg-progress-fill::before`,
+        {
+          content: '""',
+          position: "absolute",
+          right: "0",
+          top: "50%",
+          width: "13px",
+          height: "13px",
+          transform: "translate(50%,-50%)",
+          "z-index": "2",
+          background: color.card,
+          "-webkit-mask-repeat": "no-repeat",
+          "mask-repeat": "no-repeat",
+          "-webkit-mask-position": "center",
+          "mask-position": "center",
+          "-webkit-mask-size": "contain",
+          "mask-size": "contain",
+        },
+      ),
+      ...PROGRESS_ICON_MASKS.map(([id, svg]) =>
+        rule(`${scope} .lg-frame-progress--icon-${id} .lg-progress-fill::before`, {
+          "-webkit-mask-image": `url("${svgDataUri(svg)}")`,
+          "mask-image": `url("${svgDataUri(svg)}")`,
+        }),
+      ),
+      // `site_logo`: the previewed site's own mark. frame.ts puts the resolved
+      // (CSS-token-safe) image URL on the region as --lg-progress-icon-url; a
+      // real image is PAINTED, never masked, so the brand keeps its colours,
+      // and the disc behind it turns into a white chip so any logo reads.
+      // The 4-class selectors are load-bearing: the generic glyph rule above
+      // (3 classes) and the per-role disc rule below (3 classes, emitted LATER)
+      // both write `background` SHORTHANDS that would otherwise erase the
+      // image. Measured, not assumed — at 3 classes the mark painted `none`.
+      rule(`${scope} .lg-frame-region.lg-frame-progress--icon_on_track.lg-frame-progress--icon-site_logo .lg-progress-fill::after`, {
+        background: color.card,
+        width: "26px",
+        height: "26px",
+      }),
+      rule(`${scope} .lg-frame-region.lg-frame-progress--icon_on_track.lg-frame-progress--icon-site_logo .lg-progress-fill::before`, {
+        width: "18px",
+        height: "18px",
+        background: "transparent",
+        "-webkit-mask-image": "none",
+        "mask-image": "none",
+        "background-image": "var(--lg-progress-icon-url)",
+        "background-repeat": "no-repeat",
+        "background-position": "center",
+        "background-size": "contain",
+      }),
+      // percent: the fill is CANDY-STRIPED, so a visitor tells it apart from
+      // the solid `bar` even before the % label is switched on (R2 P7 owner:
+      // "three of the five options are identical"). The stripes ride the fill
+      // colour, so every colour_role keeps working.
+      // The stripes ride an OVERLAY pseudo-element, never the fill's own
+      // background: renderProgressBar writes an INLINE `background:` SHORTHAND
+      // there (the token gradient), so painting background-image on the fill
+      // would have to !important it away and would erase that gradient. The
+      // overlay keeps every existing fill colour/gradient assertion true.
+      rule(`${scope} .lg-frame-progress--percent .lg-progress-fill`, {
+        position: "relative",
+        overflow: "hidden",
+      }),
+      rule(`${scope} .lg-frame-progress--percent .lg-progress-fill::after`, {
+        content: '""',
+        position: "absolute",
+        inset: "0",
+        "background-image":
+          "repeating-linear-gradient(135deg,rgba(255,255,255,.45) 0 4px,rgba(255,255,255,0) 4px 8px)",
+      }),
+      rule(`${scope} .lg-frame-progress--percent .lg-progress-track`, {
+        "box-shadow": `inset 0 0 0 1px ${color.border}`,
       }),
       // label honesty: a non-hidden dots/other label sink shows (dots stop
       // force-hiding when show_label is on — the sink is rendered without

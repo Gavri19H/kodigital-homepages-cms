@@ -11,7 +11,7 @@
 export function renderAnalyticsPanel(): string {
   return `<div class="lg-qpanel" data-panel="analytics">
   <div class="card">
-    <h3>Funnel analytics (§15.6)</h3>
+    <h3>Funnel analytics</h3>
     <div class="table-wrapper">
       <table class="table" id="lg-analytics-table" aria-label="Funnel analytics">
         <thead><tr>

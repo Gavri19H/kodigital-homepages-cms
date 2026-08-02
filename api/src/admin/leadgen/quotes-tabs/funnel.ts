@@ -367,7 +367,7 @@ function renderSharedColumn(sharedPage: SharedPageBody | null | undefined): stri
     <div class="lg-col-head">
       <span class="lg-col-tag">${BOARD_ICON.star} Shared · quote-owned</span>
       <div class="lg-col-title-row"><span class="lg-col-title">Shared first page</span></div>
-      <div class="lg-col-meta"><span class="lg-col-help">Every visitor sees this first — entry rules only pre-select the funnel (§4.3-2).</span></div>
+      <div class="lg-col-meta"><span class="lg-col-help">Every visitor sees this first — entry rules only pre-select the funnel.</span></div>
     </div>
     <div class="lg-col-body" data-shared-body>
       <div class="lg-page-card" data-shared-page-card>

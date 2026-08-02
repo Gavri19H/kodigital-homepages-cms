@@ -652,7 +652,7 @@ export async function leadgenQuotesNewPage(c: UiContext): Promise<Response> {
       <span class="form-help">Hold Ctrl/Cmd to select more than one, or type a new one and "+ Add".</span>
     </div>
     <button type="submit" id="lg-quote-new-save" class="btn btn-primary">Create Quote</button>
-    <span class="form-help">A funnel + control variant are created automatically (§15.1: every Quote has ≥1 variant).</span>
+    <span class="form-help">A funnel + control variant are created automatically (every Quote has at least one variant).</span>
   </form>
 </div>`;
   return c.html(

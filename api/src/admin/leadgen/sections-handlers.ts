@@ -813,9 +813,9 @@ async function prepareSave(c: AdminContext, body: Record<string, unknown>): Prom
     if (info === undefined) {
       refErrors[`selected_offers.${offerId}`] = `unknown offer id ${offerId}`;
     } else if (info.status !== "active") {
-      refErrors[`selected_offers.${offerId}`] = `offer is ${info.status} — only active Offers can be selected (§12.4)`;
+      refErrors[`selected_offers.${offerId}`] = `offer is ${info.status} — only active Offers can be selected`;
     } else if (info.activity !== value.activity || info.vertical !== value.vertical) {
-      refErrors[`selected_offers.${offerId}`] = "offer activity/vertical does not match the Section (§12.4)";
+      refErrors[`selected_offers.${offerId}`] = "offer activity/vertical does not match the Section";
     }
   }
   if (Object.keys(refErrors).length > 0) {
@@ -2950,7 +2950,7 @@ function parsePresetScalarMap(
   }
   for (const [key, value] of Object.entries(raw)) {
     if (!allowed.has(key)) {
-      errors[`${field}.${key}`] = `'${key}' is not a preset-capturable key (§6.6 — layout/design tokens only)`;
+      errors[`${field}.${key}`] = `'${key}' is not a preset-capturable key (layout/design tokens only)`;
       continue;
     }
     if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {

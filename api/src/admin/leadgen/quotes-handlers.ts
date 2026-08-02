@@ -4434,7 +4434,7 @@ export async function previewVariantHandler(c: AdminContext): Promise<Response> 
       const body = renderSectionComponents(nodes, design);
       const auctionMark =
         maxPosition !== null && rs.position === maxPosition
-          ? `<div class="lg-auction-entry" data-auction-after-position="${rs.position}">Auction runs after this section (§15.3 max position)</div>`
+          ? `<div class="lg-auction-entry" data-auction-after-position="${rs.position}">Auction runs after this section (max position)</div>`
           : "";
       return `<section class="lg-funnel-section" data-position="${rs.position}"><h2 class="lg-section-headline">${escapeHtml(rs.section.headline_text)}</h2><div class="lg-content">${body}</div>${auctionMark}</section>`;
     })
@@ -6806,7 +6806,7 @@ async function createAbTest(c: AdminContext, funnel: LeadgenFunnelRow, body: Rec
     {
       ...abTestRowToApi(row),
       allocation_note:
-        "the single active variant is already at Σ=10000 — start the test, then fork it to bootstrap a 2nd equal arm (§4.3-10)",
+        "the single active variant is already at Σ=10000 — start the test, then fork it to bootstrap a 2nd equal arm",
     },
     201,
   );

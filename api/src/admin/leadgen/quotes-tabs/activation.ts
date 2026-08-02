@@ -324,12 +324,12 @@ export function renderActivationPanel(activation: ActivationBody | null): string
     .join("");
   return `<div class="lg-qpanel" data-panel="activation">
   <div class="card">
-    <h3>Activation preflight (§5.2)</h3>
+    <h3>Activation preflight</h3>
     <div id="lg-preflight-panel" data-preflight-state="${preflightStateAttr(preflight)}">${renderPreflightPanelBody(preflight)}</div>
   </div>
   <div class="card">
-    <h3>Site activation (§17)</h3>
-    <p class="form-help">At most one enabled root (blank slug) per site (§17.1). Activating a second root while one is enabled is rejected — disable it or set a slug.</p>
+    <h3>Site activation</h3>
+    <p class="form-help">At most one enabled root (blank slug) per site. Activating a second root while one is enabled is rejected — disable it or set a slug.</p>
     <div id="lg-activation-list">${rows || `<p class="form-help" data-empty-activation>No sites available.</p>`}</div>
   </div>
 </div>`;

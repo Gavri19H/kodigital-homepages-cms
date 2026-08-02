@@ -55,6 +55,13 @@ export const FRAME_LOGO_ALIGNS = ["left", "center"] as const;
 // gives every style a distinct rule). ADDITIVE to the enum: pre-P5a stored
 // configs never carry `icon_on_track`, so validation/round-trip are unchanged.
 export const FRAME_PROGRESS_STYLES = ["hidden", "bar", "dots", "numbered", "percent", "icon_on_track"] as const;
+// R2 P7 (owner: "I chose 'icon on track' - where is the icon on track??? how do
+// I define it????"). WHICH mark rides the track is now authorable, not implied:
+// five built-in glyphs plus the previewed site's own logo. `dot` is the default
+// and reproduces the pre-P7 plain round thumb byte-for-byte, so every stored
+// config that predates this key renders exactly as it did.
+export const FRAME_PROGRESS_ICONS = ["dot", "car", "shield", "check", "star", "site_logo"] as const;
+export type FrameProgressIconId = (typeof FRAME_PROGRESS_ICONS)[number];
 export const FRAME_PROGRESS_POSITIONS = ["top", "under_header", "above_unit", "in_card"] as const;
 export const FRAME_PROGRESS_ALIGNS = ["left", "center", "right"] as const;
 export const FRAME_PROGRESS_WIDTHS = ["content", "full"] as const;
@@ -185,6 +192,10 @@ export interface FrameProgressConfig {
   // band. OPTIONAL + absent from defaults → pre-P5a configs stay byte-identical
   // (frame.ts falls back to "center").
   align?: (typeof FRAME_PROGRESS_ALIGNS)[number];
+  // R2 P7: which mark rides the track when style === "icon_on_track". OPTIONAL
+  // + absent from defaults (frame.ts falls back to "dot", the pre-P7 look), so
+  // no stored config changes shape. Ignored by every other style.
+  icon?: (typeof FRAME_PROGRESS_ICONS)[number];
 }
 
 // Behaviour is fixed (§3.3): previous Section per Variant order, hidden on the
@@ -1074,6 +1085,7 @@ const FRAME_GROUP_SPECS: Record<string, FrameGroupSpec> = {
       color_role: role,
       show_label: bool,
       align: oneOf(FRAME_PROGRESS_ALIGNS), // Round-4 P5a (10D)
+      icon: oneOf(FRAME_PROGRESS_ICONS), // R2 P7 — which mark rides the track
     },
   },
   back: {

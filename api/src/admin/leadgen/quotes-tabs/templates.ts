@@ -83,6 +83,7 @@ import {
   FRAME_LOGO_ALIGNS,
   FRAME_PAGE_TARGET_MODES,
   FRAME_PROGRESS_ALIGNS,
+  FRAME_PROGRESS_ICONS,
   FRAME_PROGRESS_POSITIONS,
   FRAME_PROGRESS_WIDTHS,
   FRAME_SIZES,
@@ -102,6 +103,17 @@ import {
   mediaPickerControl,
   renderFrameList,
 } from "./shared";
+
+// R2 P7 D1 (owner SRC-11A) — what the canvas says when the previewed site's
+// stored logo reference resolves to an image the browser cannot load. The
+// no-logo case already has its own honest chip (frame.ts
+// LOGO_FALLBACK_CHIP_TEXT, "No logo — set it in Site settings."); this is the
+// DIFFERENT, previously silent case: a logo IS configured, the file behind it
+// is gone, and the operator used to get a ~143x18 broken-image sliver instead
+// of a sentence. Exported so a test can assert the rendered copy by identity
+// rather than by re-typing the string.
+export const LOGO_UNREACHABLE_CANVAS_TEXT =
+  "This site's logo image could not be loaded — re-upload it in Site settings.";
 
 
 // ---------------------------------------------------------------------------
@@ -137,7 +149,7 @@ function renderTplBoxBackground(): string {
 function renderTplBoxLogo(): string {
   return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="logo">
   <h3>B &middot; Logo</h3>
-  <p class="form-help">The header logo &mdash; sourced from the selected preview site's branding by default (10 &sect;10.1).</p>
+  <p class="form-help">The header logo &mdash; sourced from the selected preview site's branding by default.</p>
   ${frameSelect("Logo source", "header.logo_source", ["site", "cms_fallback"], { site: "Site logo (auto)", cms_fallback: "CMS fallback" })}
   ${frameSelect("Logo size", "header.logo_size", FRAME_SIZES, { s: "Small", m: "Medium", l: "Large" })}
   ${frameSelect("Alignment", "header.logo_align", FRAME_LOGO_ALIGNS, { left: "Left", center: "Center" })}
@@ -713,6 +725,14 @@ function renderTplBoxProgress(): string {
   <div class="lg-tpl2-eyebrow">Style</div>
   ${renderProgressTypePicker()}
   <p class="form-help">5 real styles (Bar/Dots/Numbered/Percent/Icon on track) &mdash; "Hidden" is the toggle below, not a 6th style.</p>
+  ${frameSelect("Marker icon", "progress.icon", FRAME_PROGRESS_ICONS, {
+    dot: "Plain dot",
+    car: "Car",
+    shield: "Shield",
+    check: "Checkmark",
+    star: "Star",
+    site_logo: "This site's logo",
+  }, "The mark that travels along the track. Used by the “Icon on track” style.")}
 
   <label class="lg-tpl2-toggle-row">
     <span class="lg-tpl2-toggle-copy"><span class="lg-tpl2-toggle-title">Show progress bar</span></span>
@@ -792,14 +812,18 @@ function renderElementsList(): string {
   // R2 P7: the in-page elements first, then A.2's "seperate template element"
   // (J · Footer) under its own heading so the separation is on the screen and
   // not only in the letter.
+  // R2 P7 D3 (owner: "why you left comments to yourself on the UI????") — the
+  // heading and help below used to quote the contract at the operator
+  // ("separate template element", "independent of the main template"). The
+  // grouping is unchanged; only the words are now product copy.
   const inPage = TPLBOX_CARDS.filter((c) => c.key !== TPLBOX_SEPARATE_KEY).map(tplBoxCard).join("");
   const separate = TPLBOX_CARDS.filter((c) => c.key === TPLBOX_SEPARATE_KEY).map(tplBoxCard).join("");
   return `<div class="lg-tpl2-eyebrow">Funnel-layout elements</div>
   <div class="lg-tplbox-grid" id="lg-tplbox-grid">${inPage}</div>
   <div class="lg-tpl2-divider"></div>
-  <div class="lg-tpl2-eyebrow">Bottom of the page &mdash; separate template element</div>
+  <div class="lg-tpl2-eyebrow">Page footer</div>
   <div class="lg-tplbox-grid lg-tplbox-grid-separate" id="lg-tplbox-grid-separate">${separate}</div>
-  <p class="form-help">Its own colours, font and sizes &mdash; independent of the main template.</p>`;
+  <p class="form-help">Sits at the bottom of every page and keeps its own colours, fonts and sizes.</p>`;
 }
 
 
@@ -973,7 +997,18 @@ const TPL_STYLES = `
 .lg-tpl2-ptype{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 6px;border:1px solid var(--c-border);border-radius:8px;background:var(--c-card,#fff);flex:1 1 0;min-width:56px;cursor:pointer;position:relative}
 .lg-tpl2-ptype input{position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;margin:0;cursor:pointer}
 .lg-tpl2-ptype.active{border-color:var(--c-primary,#1B3A5C);border-width:2px;background:var(--c-bg,#f6f7f9)}
-.lg-tpl2-ptype-thumb{width:32px;height:14px;border-radius:3px;background:var(--c-border);display:block}
+.lg-tpl2-ptype-thumb{width:32px;height:14px;border-radius:3px;background:var(--c-border);display:block;position:relative;overflow:visible}
+/* R2 P7 (ADJ-N23: a picker must LOOK like what it produces) — each thumbnail
+   is a miniature of that style's real render: bar = a solid 60% fill; percent =
+   the same fill CANDY-STRIPED (styles.ts .lg-frame-progress--percent); dots =
+   three empty pills; numbered = three ringed badges over a caption line;
+   icon on track = the fill plus the round marker riding its edge. */
+.lg-tpl2-ptype-thumb--bar{background:linear-gradient(to right,var(--c-primary,#1B3A5C) 0 60%,var(--c-border) 60% 100%)}
+.lg-tpl2-ptype-thumb--percent{background:linear-gradient(to right,var(--c-primary,#1B3A5C) 0 60%,var(--c-border) 60% 100%);background-image:repeating-linear-gradient(135deg,rgba(255,255,255,.55) 0 3px,rgba(255,255,255,0) 3px 6px),linear-gradient(to right,var(--c-primary,#1B3A5C) 0 60%,var(--c-border) 60% 100%);box-shadow:inset 0 0 0 1px var(--c-muted)}
+.lg-tpl2-ptype-thumb--dots{background:transparent;background-image:radial-gradient(circle 4px at 6px 7px,var(--c-primary,#1B3A5C) 98%,transparent 100%),radial-gradient(circle 4px at 16px 7px,var(--c-border) 98%,transparent 100%),radial-gradient(circle 4px at 26px 7px,var(--c-border) 98%,transparent 100%)}
+.lg-tpl2-ptype-thumb--numbered{background:transparent;background-image:radial-gradient(circle 5px at 6px 5px,var(--c-primary,#1B3A5C) 98%,transparent 100%),radial-gradient(circle 5px at 16px 5px,transparent 55%,var(--c-muted) 60% 98%,transparent 100%),radial-gradient(circle 5px at 26px 5px,transparent 55%,var(--c-muted) 60% 98%,transparent 100%),linear-gradient(to right,var(--c-border) 0 100%);background-repeat:no-repeat;background-size:100% 12px,100% 12px,100% 12px,20px 2px;background-position:0 0,0 0,0 0,6px 13px}
+.lg-tpl2-ptype-thumb--icon_on_track{background:linear-gradient(to right,var(--c-primary,#1B3A5C) 0 60%,var(--c-border) 60% 100%)}
+.lg-tpl2-ptype-thumb--icon_on_track::after{content:"";position:absolute;left:60%;top:50%;width:12px;height:12px;transform:translate(-50%,-50%);border-radius:50%;background:var(--c-primary-dark,#123);border:2px solid #fff;box-shadow:0 1px 2px rgba(16,24,40,.25)}
 .lg-tpl2-ptype-label{font-size:10px;font-weight:700;text-align:center;color:var(--c-text)}
 .lg-tpl2-visually-hidden{position:absolute !important;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .lg-tpl2-seg{display:inline-flex;border:1px solid var(--c-border);border-radius:8px;overflow:hidden;width:100%}
@@ -1038,6 +1073,10 @@ const TPL_SCRIPT = `
 (function () {
   'use strict';
   var LG_API = '/api/admin/leadgen';
+  // R2 P7 D1 — the plain-words replacement for a logo image the browser could
+  // not load (see watchCanvasLogo below). Interpolated from the ONE server
+  // constant so the canvas and frame.ts can never drift apart.
+  var LOGO_UNREACHABLE_TEXT = ${JSON.stringify(LOGO_UNREACHABLE_CANVAS_TEXT)};
   var boot = null;
   var templates = [];
   // R2 D5 (contract §7 D5): this quote's PER-QUOTE default template override
@@ -1117,6 +1156,61 @@ const TPL_SCRIPT = `
     if (!frame) { return; }
     var doc = '<!doctype html><html><head><meta charset="utf-8"><style>' + (css || '') + '</style></head><body>' + (bodyHtml || '') + '</body></html>';
     frame.setAttribute('srcdoc', doc);
+    watchCanvasLogo(frame);
+  }
+
+  // R2 P7 D1 (owner SRC-11A: "I chose a site - why I don't see its logo????").
+  // Measured cause: the site's stored logo reference is resolved by the SERVER
+  // into <img class="lg-logo-img" src="/media/..."> with no way to know, at
+  // render time, whether that asset still exists. When it does not (a deleted
+  // or re-keyed media row) the browser collapses the <img> to its alt text —
+  // a ~143x18 sliver, "at most a tiny mark where the logo belongs", with no
+  // explanation at all. Activation state is NOT involved: an activated and a
+  // not-activated site with the same logo render byte-identically.
+  //
+  // The canvas is a sandboxed srcdoc iframe with scripting OFF, so nothing
+  // inside the document can react to the load failure; the ADMIN page can
+  // (sandbox="allow-same-origin" keeps contentDocument reachable). On a broken
+  // load we swap in the SAME plain-words chip the no-logo ladder already
+  // renders (frame.ts LOGO_FALLBACK_CHIP_TEXT), so the operator reads why the
+  // logo is missing instead of squinting at a sliver.
+  function replaceBrokenLogo(img) {
+    if (!img || img.getAttribute('data-logo-broken') === '1') { return; }
+    img.setAttribute('data-logo-broken', '1');
+    var doc = img.ownerDocument;
+    var chip = doc.createElement('span');
+    chip.className = 'lg-frame-logo-fallback';
+    chip.setAttribute('data-logo-unreachable', '1');
+    chip.setAttribute('style', 'display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#5A6470;background:#F6F8FB;border:1px dashed #E1E6EE;border-radius:20px;padding:7px 14px');
+    chip.appendChild(doc.createTextNode(LOGO_UNREACHABLE_TEXT));
+    if (img.parentNode) { img.parentNode.replaceChild(chip, img); }
+  }
+  function checkCanvasLogos(idoc) {
+    if (!idoc) { return; }
+    var imgs = idoc.querySelectorAll ? idoc.querySelectorAll('img.lg-logo-img') : [];
+    for (var i = 0; i < imgs.length; i++) {
+      var img = imgs[i];
+      // complete && naturalWidth === 0 is the browser's own "this load failed"
+      // state; a still-loading image is re-checked by the img's error handler.
+      if (img.complete && img.naturalWidth === 0) { replaceBrokenLogo(img); }
+      else if (!img.complete) { armLogoErrorHandler(img); }
+    }
+  }
+  function armLogoErrorHandler(img) {
+    if (img.getAttribute('data-logo-armed') === '1') { return; }
+    img.setAttribute('data-logo-armed', '1');
+    img.onerror = function () { replaceBrokenLogo(img); };
+  }
+  function watchCanvasLogo(frame) {
+    var run = function () {
+      var idoc = null;
+      try { idoc = frame.contentDocument; } catch (e) { idoc = null; }
+      checkCanvasLogos(idoc);
+    };
+    frame.onload = run;
+    // srcdoc can already be parsed when a re-render reuses the same document;
+    // one deferred pass covers that race without polling.
+    window.setTimeout(run, 250);
   }
 
   // R2 §3 ② (R6): ONE status sink, the REAL id (#lg-tpl-canvas-status). The

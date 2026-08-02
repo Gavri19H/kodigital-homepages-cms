@@ -78,6 +78,7 @@ import type {
   FramePageTarget,
   FrameHeaderConfig,
   FrameHeaderCtaConfig,
+  FrameProgressIconId,
   FrameTemplateId,
   FrameTrustRowConfig,
   FrameTrustStripConfig,
@@ -431,6 +432,7 @@ function renderProgressRegion(
   frame: EffectiveFrameConfig,
   design: DefaultFunnelDesign,
   sectionCount: number,
+  branding: SiteBranding | null,
 ): string {
   const p = frame.progress;
   if (p.style === "hidden") return "";
@@ -468,8 +470,11 @@ function renderProgressRegion(
     inner = renderProgressBar(frameNode("ProgressBar", "frame_progress", props), design);
   } else {
     // bar | icon_on_track — step semantics carry the section-order total; the
-    // icon thumb riding the fill edge is a CSS pseudo-element (styles.ts), so
-    // the markup is the shared ProgressBar and the engine drives the fill width.
+    // icon thumb riding the fill edge is a CSS pseudo-element pair on the fill
+    // (styles.ts), so the ProgressBar markup here is byte-identical for both
+    // styles and the ENGINE's existing `bar.style.width` write is what makes
+    // the mark travel — zero added runtime bytes, and quotes-handlers.ts's
+    // exact-substring advanceFrameProgress swap keeps matching unchanged.
     inner = renderProgressBar(
       frameNode("ProgressBar", "frame_progress", { mode: "step", step: 1, totalSteps: total }),
       design,
@@ -477,8 +482,38 @@ function renderProgressRegion(
     if ((p.style === "bar" || p.style === "icon_on_track") && !p.show_label) {
       classes += " lg-frame-progress--no-label";
     }
+    if (p.style === "icon_on_track") {
+      // R2 P7 (owner #D2: "where is the icon on track??? how do I define it????")
+      // — WHICH mark rides the track is authored in the I·Progress panel. The
+      // chosen glyph rides as a region class styles.ts paints; `site_logo`
+      // additionally needs the per-site image URL, which no static rule can
+      // know, so it rides as a custom property on this same region element.
+      const icon: FrameProgressIconId = p.icon ?? "dot";
+      classes += ` lg-frame-progress--icon-${icon}`;
+      if (icon === "site_logo") {
+        const url = brandingMarkUrl(branding);
+        // No resolvable mark → fall back to the plain thumb rather than emit an
+        // empty url() (a blank marker is worse than the default dot).
+        if (url === null) classes = classes.replace(" lg-frame-progress--icon-site_logo", " lg-frame-progress--icon-dot");
+        else hookAttrs += ` style="--lg-progress-icon-url:url(&quot;${escapeHtml(url)}&quot;)"`;
+      }
+    }
   }
   return region("progress", classes, inner, hookAttrs);
+}
+
+// R2 P7 — the site mark the `site_logo` progress icon rides. Deliberately
+// STRICTER than the header ladder's isSafeUrl gate: this value is interpolated
+// into a CSS `url("…")` token, so any character that could terminate the
+// string/declaration (quote, parenthesis, backslash, semicolon, brace, control
+// char, whitespace) disqualifies the URL outright instead of being escaped —
+// escapeHtml protects the ATTRIBUTE, this protects the STYLESHEET.
+const CSS_URL_SAFE_RE = /^(?:https?:\/\/|\/)[^"'()\\;{}<>\s]+$/;
+function brandingMarkUrl(branding: SiteBranding | null): string | null {
+  if (branding === null) return null;
+  const url = branding.logo_url;
+  if (url === null || !CSS_URL_SAFE_RE.test(url)) return null;
+  return url;
 }
 
 // 11 §11.2 back — one affordance per frame_config.back; the BackButton preset
@@ -1221,7 +1256,7 @@ export function renderQuoteFrame(input: RenderQuoteFrameInput): string {
     above_unit: "",
     in_card: "",
   };
-  progressAt[frame.progress.position] = renderProgressRegion(frame, design, sectionCount);
+  progressAt[frame.progress.position] = renderProgressRegion(frame, design, sectionCount, branding);
 
   const backAt: Record<EffectiveFrameConfig["back"]["position"], string> = {
     under_header_left: "",

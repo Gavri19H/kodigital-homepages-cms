@@ -491,9 +491,10 @@ describeDb("R2 ② canvas — element I · Progress: five styles, four distinct 
     }
   });
 
-  it("the four structurally-distinct renderers differ in the DOM (bar/icon_on_track share ProgressBar markup by design)", async () => {
+  it("all FIVE styles are distinct in the canvas — icon_on_track is a real style, not a bar alias", async () => {
     const fx = await seedFixture(3);
     const inner: Record<string, string> = {};
+    const whole: Record<string, string> = {};
     for (const style of FRAME_PROGRESS_STYLES.filter((s) => s !== "hidden")) {
       const { json } = await postPreview(fx, {
         mode: "section",
@@ -503,8 +504,12 @@ describeDb("R2 ② canvas — element I · Progress: five styles, four distinct 
       const html = json.preview.html ?? "";
       const region = sliceBalancedDiv(html, '<div class="lg-frame-region lg-frame-progress ');
       expect(region.length, `progress region rendered for ${style}`).toBeGreaterThan(0);
+      whole[style] = region;
       // strip the region's own modifier classes: what remains is the RENDERER.
-      inner[style] = region.replace(/lg-frame-progress--[a-z_]+/g, "");
+      // (whitespace collapsed so a differing NUMBER of stripped modifiers can
+      // never masquerade as a markup difference — the comparison below is
+      // about the emitted DOM, and `whole` above keeps the un-stripped truth.)
+      inner[style] = region.replace(/lg-frame-progress--[a-z_-]+/g, "").replace(/\s+/g, " ");
     }
     // dots = StepIndicator · numbered = numbered circles + "Step 1 of N" ·
     // percent = ProgressBar percent · bar = ProgressBar step.
@@ -519,9 +524,37 @@ describeDb("R2 ② canvas — element I · Progress: five styles, four distinct 
     expect(inner["numbered"]).toContain("Step 1 of 3");
     expect(inner["percent"]).toContain('data-mode="percent"');
     expect(inner["bar"]).toContain('data-mode="step"');
-    // bar vs icon_on_track: SAME inner markup, DIFFERENT modifier class — the
-    // visual difference is a CSS ::after thumb (a screenshot matter).
+    // R2 P7 D2 — the owner rejected exactly what this assertion used to RECORD
+    // ("three of the five options are identical … where is the icon on track???
+    // how do I define it????"): icon_on_track was a bar alias whose only
+    // difference was a modifier class. It now carries an AUTHORED marker
+    // identity, so the five REGIONS are five different strings.
+    const regions = FRAME_PROGRESS_STYLES.filter((s) => s !== "hidden").map((s) => whole[s] as string);
+    expect(new Set(regions).size, "the five progress styles emit five different regions").toBe(5);
+    expect(whole["icon_on_track"], "the marker choice rides the region, authorable per funnel").toContain(
+      "lg-frame-progress--icon-",
+    );
+    expect(whole["bar"], "bar carries no marker identity").not.toContain("lg-frame-progress--icon-");
+    // The INNER ProgressBar markup stays shared with `bar` ON PURPOSE and this
+    // is load-bearing, not laziness: quotes-handlers.ts advanceFrameProgress
+    // advances a composed preview by an EXACT substring swap of that preset's
+    // step-1 output, so a bespoke inner DOM would silently stop the per-step
+    // advance. The marker is painted by styles.ts off the region class and
+    // rides the fill's own right edge, which is what the engine already moves.
+    // The VISIBLE difference is proven where visibility can be measured:
+    // test-ui/__r2-logo-progress-drive.spec.ts (live page, 1280 + 375).
     expect(inner["icon_on_track"]).toBe(inner["bar"]);
+    // and the authored icon reaches the canvas
+    const { json: withIcon } = await postPreview(fx, {
+      mode: "section",
+      viewport: "desktop",
+      draft_frame_config: {
+        version: 1,
+        template: "centered",
+        progress: { style: "icon_on_track", show_label: true, icon: "car" },
+      },
+    });
+    expect(withIcon.preview.html ?? "").toContain("lg-frame-progress--icon-car");
   });
 });
 

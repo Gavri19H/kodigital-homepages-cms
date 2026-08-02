@@ -141,7 +141,7 @@ export function renderAbPanel(structure: StructureBody, selected: VariantNode): 
   const preview =
     activeTest !== null
       ? `<div class="card lg-ab-preview">
-    <h3>Assignment preview (§16.2)</h3>
+    <h3>Assignment preview</h3>
     <p class="form-help">Enter a sample session id to see which variant it deterministically buckets to (the same edge hash the runtime serves).</p>
     <div class="lg-ab-preview-row">
       <input type="text" class="form-input" id="lg-ab-preview-session" placeholder="sample ko_sid value" />
@@ -153,7 +153,7 @@ export function renderAbPanel(structure: StructureBody, selected: VariantNode): 
 
   return `<div class="lg-qpanel" data-panel="ab">
   <div class="card">
-    <h3>Traffic allocation (§16.2)</h3>
+    <h3>Traffic allocation</h3>
     <p class="form-help">Test this funnel against variants of itself — a different template, theme, sections, or rules. Add a variant, change what you want on it, then split the traffic below (must sum to <strong>100%</strong>; stored as basis points, per-test Σ == 10000) before a test can start. Equal arms; no control.</p>
     <div id="lg-ab-variant-list" class="lg-alloc-list">${allocRows || `<p class="form-help">No variants.</p>`}</div>
     <p class="lg-alloc-summary">Σ = <strong data-alloc-sum>&mdash;</strong> <span data-alloc-sum-note class="form-help"></span></p>

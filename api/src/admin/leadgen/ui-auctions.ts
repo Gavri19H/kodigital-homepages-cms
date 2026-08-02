@@ -493,7 +493,7 @@ export async function leadgenAuctionsNewPage(c: UiContext): Promise<Response> {
       </select>
     </div>
     <button type="submit" id="lg-auction-new-save" class="btn btn-primary">Create Auction</button>
-    <span class="form-help">The full winner logic, participating offers, rules, and banner are configured in the editor (§18–§21).</span>
+    <span class="form-help">The full winner logic, participating offers, rules, and banner are configured in the editor.</span>
   </form>
 </div>`;
   return c.html(
@@ -614,13 +614,13 @@ function renderSettingsPanel(a: LeadgenAuctionApi, participating: ParticipatingO
   const mixed = payoutTypes.length > 1;
   const showWarn = a.mixed_payout_warn && mixed;
   const warnBanner = showWarn
-    ? `<div class="lg-warn" data-mixed-payout-warn>Mixed payout types (${escapeHtml(payoutTypes.join(", "))}) in the participating set. <code>percentage_of_max</code> compares USD-normalized bids of different payout types — recommend <strong>absolute_bid</strong> (or per-type floors) for a mixed set (§18.1).</div>`
+    ? `<div class="lg-warn" data-mixed-payout-warn>Mixed payout types (${escapeHtml(payoutTypes.join(", "))}) in the participating set. <code>percentage_of_max</code> compares USD-normalized bids of different payout types — recommend <strong>absolute_bid</strong> (or per-type floors) for a mixed set.</div>`
     : "";
 
   return `<div class="lg-apanel active" data-panel="settings">
   ${warnBanner}
   <fieldset class="card">
-    <legend>Attribution &amp; type (§18.1)</legend>
+    <legend>Attribution &amp; type</legend>
     <div class="lg-scalars">
       <div class="form-group">
         <label class="form-label" for="lg-a-name">Auction name</label>
@@ -633,12 +633,12 @@ function renderSettingsPanel(a: LeadgenAuctionApi, participating: ParticipatingO
     </div>
     <div class="lg-scalars">
       ${selectField("lg-a-type", "Auction type", a.auction_type, [["static", "Static"], ["dynamic", "Dynamic"]], " data-auction-type")}
-      ${selectField("lg-a-winner", "Winner logic (§18.4)", a.winner_logic, [["highest_bid", "Highest bid"], ["average_bid", "Average bid"], ["sum_bids", "Sum of bids"]])}
+      ${selectField("lg-a-winner", "Winner logic", a.winner_logic, [["highest_bid", "Highest bid"], ["average_bid", "Average bid"], ["sum_bids", "Sum of bids"]])}
     </div>
   </fieldset>
 
   <fieldset class="card">
-    <legend>Floor (§18.3)</legend>
+    <legend>Floor</legend>
     <div class="lg-scalars">
       ${selectField("lg-a-floor-type", "Floor type", a.floor_type, [["percentage_of_max", "Percentage of top bid"], ["absolute_bid", "Absolute bid"]], " data-floor-type")}
       ${renderFloorField(a.floor_type, a.floor_value)}
@@ -646,12 +646,12 @@ function renderSettingsPanel(a: LeadgenAuctionApi, participating: ParticipatingO
   </fieldset>
 
   <fieldset class="card">
-    <legend>Surfacing, multi-offer &amp; limits (§18.5)</legend>
+    <legend>Surfacing, multi-offer &amp; limits</legend>
     <div class="lg-scalars">
       ${selectField("lg-a-multi", "Multi-offer", a.multi_offer, [["disabled", "Disabled (winner only)"], ["enabled", "Enabled (all, bid order)"], ["enabled_unique", "Enabled (unique by carrier)"]])}
       ${selectField("lg-a-render", "Render mode", a.render_mode, [["all_at_once", "All at once"], ["progressive", "Progressive"]])}
     </div>
-    ${toggleField("lg-a-surface-static", "Surface static/CPL-bid offers alongside the winner (§18.2)", a.surface_static_bid_offers)}
+    ${toggleField("lg-a-surface-static", "Surface static/CPL-bid offers alongside the winner", a.surface_static_bid_offers)}
     <div class="lg-scalars">
       ${numberField("lg-a-slots", "Banner slots count", a.banner_slots_count)}
       ${numberField("lg-a-max-per-offer", "Max carriers per offer", a.max_carriers_per_offer)}
@@ -663,7 +663,7 @@ function renderSettingsPanel(a: LeadgenAuctionApi, participating: ParticipatingO
   </fieldset>
 
   <fieldset class="card">
-    <legend>Backfill (§18.6)</legend>
+    <legend>Backfill</legend>
     <div class="lg-scalars">
       ${selectField("lg-a-backfill", "Backfill", a.backfill, [["disabled", "Disabled"], ["enabled", "Enabled"], ["enabled_unique", "Enabled (unique by carrier)"]])}
       ${selectField("lg-a-backfill-trigger", "Backfill trigger", a.backfill_trigger, [["on_slot_exhaustion", "On slot exhaustion"], ["on_click", "On click"], ["on_dismiss", "On dismiss"]])}
@@ -672,11 +672,11 @@ function renderSettingsPanel(a: LeadgenAuctionApi, participating: ParticipatingO
   </fieldset>
 
   <fieldset class="card">
-    <legend>Remove-clicked (§18.7) &amp; normalization</legend>
+    <legend>Remove-clicked &amp; normalization</legend>
     ${toggleField("lg-a-remove-clicked", "Remove clicked offers", a.remove_clicked_offers)}
     <div class="lg-scalars">
       ${selectField("lg-a-removal-scope", "Removal scope", a.removal_scope, [["offer", "Offer (whole clicked offer)"], ["carrier", "Carrier (only the clicked carrier)"]])}
-      ${numberField("lg-a-norm-version", "Carrier normalization version (§18.8)", a.carrier_normalization_version, "1", "1")}
+      ${numberField("lg-a-norm-version", "Carrier normalization version", a.carrier_normalization_version, "1", "1")}
     </div>
   </fieldset>
 
@@ -684,7 +684,7 @@ function renderSettingsPanel(a: LeadgenAuctionApi, participating: ParticipatingO
     <legend>Banner design &amp; warnings</legend>
     <div class="lg-scalars">
       ${selectField("lg-a-banner-design", "Banner design", a.banner_design_id, bannerDesignOptions(a.banner_design_id))}
-      ${toggleField("lg-a-mixed-warn", "Warn on mixed payout types (§18.1)", a.mixed_payout_warn)}
+      ${toggleField("lg-a-mixed-warn", "Warn on mixed payout types", a.mixed_payout_warn)}
     </div>
   </fieldset>
 </div>`;
@@ -714,7 +714,7 @@ function renderParticipatingPanel(a: LeadgenAuctionApi, participating: Participa
   const vertOptions = verticals.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
   return `<div class="lg-apanel" data-panel="participating">
   <div class="card">
-    <h3>Participating Offers (§18.5)</h3>
+    <h3>Participating Offers</h3>
     <div class="toolbar" data-offer-picker data-activity="${escapeHtml(activity)}">
       <input type="search" id="lg-a-offer-search" class="form-input" placeholder="Search offers…" aria-label="Search offers to add" />
       <select id="lg-a-offer-vertical" class="form-select" aria-label="Filter by vertical"><option value="">Any vertical</option>${vertOptions}</select>
@@ -726,7 +726,7 @@ function renderParticipatingPanel(a: LeadgenAuctionApi, participating: Participa
     </div>
     <button type="button" class="btn btn-primary" id="lg-a-participating-save">Save participating offers</button>
     <p id="lg-a-participating-msg" class="form-help" hidden></p>
-    <p class="form-help" data-eligibility-note>Ineligible dynamic offers do not block saving this auction (drafts may reference not-yet-ready offers), but they block activating any Quote this auction serves (05 §5.1/§5.2).</p>
+    <p class="form-help" data-eligibility-note>Ineligible dynamic offers do not block saving this auction (drafts may reference not-yet-ready offers), but they block activating any Quote this auction serves.</p>
   </div>
 </div>`;
 }
@@ -741,7 +741,7 @@ function renderRuleRow(r: LeadgenAuctionRuleApi): string {
     <span>priority ${r.priority}${r.strictly_override ? " · strictly_override" : ""}${r.enabled ? "" : " · disabled"}</span>
   </div>
   ${r.rule_level === "offer" ? `<p class="form-help">target offer id: ${r.target_offer_id ?? EM_DASH}</p>` : `<p class="form-help">carrier match: <code>${escapeHtml(carrierMatch || "{}")}</code></p>`}
-  <p class="form-help">IF (§21.4): <code>${escapeHtml(conditions)}</code></p>
+  <p class="form-help">IF: <code>${escapeHtml(conditions)}</code></p>
   <button type="button" class="btn btn-sm btn-danger" data-delete-rule="${escapeHtml(r.public_id)}">Delete rule</button>
 </div>`;
 }
@@ -752,11 +752,11 @@ function renderRulesPanel(rules: LeadgenAuctionRuleApi[]): string {
   const rulesHtml =
     rules.length === 0
       ? `<p class="form-help" data-rules-empty>No rules yet.</p>`
-      : `<h4>Offer-level (§21)</h4>${offerRules.map(renderRuleRow).join("") || `<p class="form-help">None.</p>`}
-<h4>Carrier-level (§21)</h4>${carrierRules.map(renderRuleRow).join("") || `<p class="form-help">None.</p>`}`;
+      : `<h4>Offer-level</h4>${offerRules.map(renderRuleRow).join("") || `<p class="form-help">None.</p>`}
+<h4>Carrier-level</h4>${carrierRules.map(renderRuleRow).join("") || `<p class="form-help">None.</p>`}`;
   return `<div class="lg-apanel" data-panel="rules">
   <div class="card">
-    <h3>Rules (§21) — offer-level &amp; carrier-level IF/THEN</h3>
+    <h3>Rules — offer-level &amp; carrier-level IF/THEN</h3>
     <div id="lg-a-rules-list">${rulesHtml}</div>
   </div>
   <div class="card" id="lg-a-rule-builder">
@@ -784,7 +784,7 @@ function renderRulesPanel(rules: LeadgenAuctionRuleApi[]): string {
       <textarea id="lg-r-carrier-match" class="form-input" rows="2" placeholder='{"carrier_keys":["acme"]}'></textarea>
     </div>
     <div class="form-group">
-      <label class="form-label" for="lg-r-conditions">IF — conditions JSON (§21.4 groups[])</label>
+      <label class="form-label" for="lg-r-conditions">IF — conditions JSON (groups[])</label>
       <textarea id="lg-r-conditions" class="form-input" rows="3">{"groups":[]}</textarea>
     </div>
     <label class="lg-check"><input type="checkbox" id="lg-r-strictly" /> strictly_override</label>
@@ -812,7 +812,7 @@ function renderBannerPanel(banner: BannerConfig): string {
   }).join("");
   return `<div class="lg-apanel" data-panel="banner">
   <div class="card">
-    <h3>Banner builder (§20)</h3>
+    <h3>Banner builder</h3>
     <div class="form-group">
       <label class="form-label">Mode</label>
       <label class="lg-check"><input type="radio" name="lg-banner-mode" value="manual" data-banner-mode${mode === "manual" ? " checked" : ""} /> Manual (static banner_config_json)</label>
@@ -832,7 +832,7 @@ function renderBannerPanel(banner: BannerConfig): string {
     </div>
 
     <div class="lg-banner-mode-panel${mode === "automatic" ? " active" : ""}" data-banner-panel="automatic">
-      <p class="form-help">Maps ONLY the canonical normalized Carrier fields → banner slot ids (§20). Saved provider sample responses configure each Offer's parser, not raw auction maps.</p>
+      <p class="form-help">Maps ONLY the canonical normalized Carrier fields → banner slot ids. Saved provider sample responses configure each Offer's parser, not raw auction maps.</p>
       <div id="lg-a-fieldmap">${fieldMapRows}</div>
     </div>
 
@@ -853,7 +853,7 @@ function renderBannerPanel(banner: BannerConfig): string {
 function renderSimulatorPanel(): string {
   return `<div class="lg-apanel" data-panel="simulator">
   <div class="card">
-    <h3>Simulator (§19.2 dry-run)</h3>
+    <h3>Simulator (dry-run)</h3>
     <p class="form-help" data-simulator-dryrun>Dry-run explainability trace against sample answers. No writes; staging-only carrier resolve.</p>
     <div class="form-group">
       <label class="form-label" for="lg-sim-answers">Sample answers (JSON, optional)</label>
@@ -873,7 +873,7 @@ function renderSimulatorPanel(): string {
 function renderAnalyticsPanel(): string {
   return `<div class="lg-apanel" data-panel="analytics">
   <div class="card">
-    <h3>Auction analytics (§18.9)</h3>
+    <h3>Auction analytics</h3>
     <div class="table-wrapper">
       <table class="table" id="lg-a-analytics-table" aria-label="Auction analytics">
         <thead><tr>

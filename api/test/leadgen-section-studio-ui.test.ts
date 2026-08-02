@@ -5339,7 +5339,9 @@ describeDb("wave 2 — §6.6 named presets (KV lg-component-presets)", () => {
     );
     expect(res.status).toBe(400);
     const badBody = (await res.json()) as { fields: Record<string, string> };
-    expect(badBody.fields["props_subset.text"]).toContain("§6.6");
+    expect(badBody.fields["props_subset.text"]).toContain("is not a preset-capturable key");
+    // R2 P7 D3: the operator-visible message no longer quotes a clause number
+    expect(badBody.fields["props_subset.text"]).not.toContain("§");
     // invalid: a non-curated override key
     res = await admin.request(
       `${API}/component-presets`,

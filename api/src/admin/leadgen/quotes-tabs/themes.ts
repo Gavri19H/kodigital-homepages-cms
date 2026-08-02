@@ -215,7 +215,7 @@ function renderThemeEditorPanel(isControl: boolean): string {
   <p class="form-help">Three independent looks (Images 38&#8211;40) &#8212; mix and match; each defaults to today's look.</p>
   <div class="lg-scalars">
     ${themeSelect("Fill", "button_defaults.fill", THEME_BUTTON_STYLES, { fill: "Solid (default)", outline: "Outline", soft: "Soft pill + shadow" })}
-    ${themeSelect("Answer layout", "button_defaults.layout", THEME_BUTTON_LAYOUTS, { grid: "Grid (default)", list: "Single-column list", card: "Full-width cards (Image23)" })}
+    ${themeSelect("Answer layout", "button_defaults.layout", THEME_BUTTON_LAYOUTS, { grid: "Grid (default)", list: "Single-column list", card: "Full-width cards" })}
     ${themeSelect("Selected style", "button_defaults.selected", THEME_BUTTON_SELECTED_STYLES, { wash: "Soft wash (default)", mark: "Bigger + check badge" })}
   </div>
   <h3>Cards</h3>

@@ -570,7 +570,7 @@ function renderCreateOfferModal(): string {
         ${fieldError("placements")}
       </fieldset>
       <fieldset class="form-group">
-        <legend class="form-label">Auction mode (§10.2) *</legend>
+        <legend class="form-label">Auction mode *</legend>
         ${renderModeRadios("lg-offer-mode")}
         ${fieldError("auction_mode")}
       </fieldset>
@@ -593,7 +593,7 @@ function renderCreateOfferModal(): string {
       </div>
       <div class="form-group">
         <label for="lg-offer-cap-enabled" class="form-label"><input id="lg-offer-cap-enabled" name="cap_enabled" type="checkbox" value="1" /> Enable offer cap</label>
-        <span class="form-help">Cap amount / timezone / count-by are configured in the editor's Cap tab (§10.6).</span>
+        <span class="form-help">Cap amount / timezone / count-by are configured in the editor's Cap tab.</span>
         ${fieldError("cap_enabled")}
       </div>
       <div class="form-group">
@@ -1830,7 +1830,7 @@ function renderBasicsPanel(o: OfferDetail): string {
       ${fieldError("offer_type")}
     </div>
     <fieldset class="form-group">
-      <legend class="form-label">Auction mode (§10.2)</legend>
+      <legend class="form-label">Auction mode</legend>
       ${modeRadios}
       <span class="form-help">Changing the mode reveals/hides the Static and Payload/Request/Test tabs.</span>
       ${fieldError("auction_mode")}
@@ -1841,10 +1841,10 @@ function renderBasicsPanel(o: OfferDetail): string {
       ${fieldError("status")}
     </div>
     <fieldset class="form-group">
-      <legend class="form-label">Placements (§10.1 — provider placement/feed id)</legend>
+      <legend class="form-label">Placements (provider placement/feed id)</legend>
       <div id="lg-placements-rows">${placementRows}</div>
       <button type="button" id="lg-placement-add" class="btn btn-sm btn-secondary">+ Add placement</button>
-      <span class="form-help">At least one placement; exactly one is the default (§10.1). A placement participating in an auction cannot be removed.</span>
+      <span class="form-help">At least one placement; exactly one is the default. A placement participating in an auction cannot be removed.</span>
       ${fieldError("placements")}
     </fieldset>
   </div>
@@ -1856,7 +1856,7 @@ function renderStaticPanel(o: OfferDetail): string {
   const hidden = o.bid_source === "static" || !o.calls_provider_api ? "" : " hidden";
   return `<section class="lg-editor-panel" data-lg-tab-panel="static"${hidden} hidden>
   <div class="card">
-    <div class="card-header"><h3 class="card-title">Static bid + banner (§10.2 / §10.5)</h3></div>
+    <div class="card-header"><h3 class="card-title">Static bid + banner</h3></div>
     <div class="form-group">
       <label for="lg-edit-bid-value" class="form-label">Static bid value</label>
       <input id="lg-edit-bid-value" name="static_bid_value" type="number" step="0.01" min="0" class="form-input" value="${o.static_bid_value !== null ? escapeHtml(String(o.static_bid_value)) : ""}" />
@@ -1873,7 +1873,7 @@ function renderStaticPanel(o: OfferDetail): string {
       ${fieldError("static_order")}
     </div>
     <div class="form-group">
-      <label for="lg-edit-banner-template" class="form-label">Banner URL template (§10.5)</label>
+      <label for="lg-edit-banner-template" class="form-label">Banner URL template</label>
       <textarea id="lg-edit-banner-template" name="banner_url_template" class="form-textarea" rows="2" placeholder="https://provider.example/c?cid={click_id}&amp;slug={response:slug}">${escapeHtml(o.banner_url_template ?? "")}</textarea>
       <span class="form-help">Resolves the 32 canonical macros + {response:&lt;path&gt;}. A required response macro missing at runtime drops the carrier; suffix ? marks a macro optional (e.g. {response:promo?}).</span>
       ${fieldError("banner_url_template")}
@@ -2023,7 +2023,7 @@ function renderRegionPanel(o: OfferDetail): string {
   const rows = o.region_rules.map((r) => renderRegionRuleRow(r)).join("");
   return `<section class="lg-editor-panel" data-lg-tab-panel="region" hidden>
   <div class="card">
-    <div class="card-header"><h3 class="card-title">Region rules (§10.4)</h3></div>
+    <div class="card-header"><h3 class="card-title">Region rules</h3></div>
     <p class="form-help" data-region-scope-help>${escapeHtml(REGION_RULES_SECTION_HELP)}</p>
     <p class="form-help" data-region-order-help>${escapeHtml(REGION_RULE_PRIORITY_LABEL)}: ${escapeHtml(REGION_RULE_PRIORITY_HELP)}</p>
     <div id="lg-region-rows">${rows}</div>
@@ -2046,7 +2046,7 @@ function renderCapPanel(o: OfferDetail, cap: OfferCapBody["cap"] | null, capErro
       : `<p class="alert alert-error" role="alert">${escapeHtml(capError ?? "Cap status unavailable")}</p>`;
   return `<section class="lg-editor-panel" data-lg-tab-panel="cap" hidden>
   <div class="card">
-    <div class="card-header"><h3 class="card-title">Cap (§10.6)</h3></div>
+    <div class="card-header"><h3 class="card-title">Cap</h3></div>
     ${statusCard}
     <div class="form-group">
       <label for="lg-edit-cap-enabled" class="form-label"><input id="lg-edit-cap-enabled" name="cap_enabled" type="checkbox" value="1"${capChecked} /> Enable offer cap</label>
@@ -2195,7 +2195,7 @@ function renderAnalyticsPanel(
       : `<p class="alert alert-error" role="alert">${escapeHtml(analyticsError ?? "Analytics unavailable")}</p>`;
   return `<section class="lg-editor-panel" data-lg-tab-panel="analytics" hidden>
   <div class="card">
-    <div class="card-header"><h3 class="card-title">Analytics (§10.7 — read-only)</h3>
+    <div class="card-header"><h3 class="card-title">Analytics (read-only)</h3>
       <div class="toolbar-filters">${renderTimeframeSelect(timeframe.key)}</div></div>
     ${cards}
   </div>

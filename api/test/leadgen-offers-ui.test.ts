@@ -762,7 +762,9 @@ describeDb("leadgen offer editor (BINDING RULING tab union)", () => {
     });
 
     let html = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
-    expect(html).toContain("Response parsing (§11.6/§11.7)");
+    expect(html).toContain("Response parsing");
+    // R2 P7 D3: clause numbers are not product copy
+    expect(html).not.toContain("Response parsing (§11.6/§11.7)");
     expect(html).toContain('id="lg-parse-save"');
     expect(html).toContain('id="lg-parse-errors"');
     expect(html).toMatch(/id="lg-parse-carriers-path"[^>]*value="data\.carriers"/);

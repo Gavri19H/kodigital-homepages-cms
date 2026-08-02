@@ -911,7 +911,7 @@ export async function putAuctionOffersHandler(c: AdminContext): Promise<Response
     }
     if (quoteActivity !== null) {
       if (ref.offer_activity !== quoteActivity || (quoteVerticals.length > 0 && !quoteVerticals.includes(ref.offer_vertical))) {
-        errors[`offers.${i}.offer_placement_id`] = "offer activity/vertical does not match the auction's Quote (§12.4)";
+        errors[`offers.${i}.offer_placement_id`] = "offer activity/vertical does not match the auction's Quote";
         continue;
       }
     }
