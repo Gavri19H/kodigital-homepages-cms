@@ -195,3 +195,34 @@ differs by exactly the 33-line R1 guard; `editor-panel-{ab,activation,
 builder}.html` differ by minted ids only (0 normalized lines). The dead-CSS
 removal note lives in TypeScript ABOVE the `LG_QUOTES_STYLES` template literal,
 not inside it, so it costs 0 served bytes on every leadgen admin page.
+
+2026-08-02 re-capture (P7 owner defect B2 — the dead funnel Preview button):
+exactly ONE fixture changed, `editor-full.html`
+(`88f5e69b…` -> `f4690b4c…`). `quotes-tabs/funnel.ts`'s `previewFunnel` read
+`res.body.html || res.body.preview_html` from `POST /variants/:id/preview`, keys
+that response has NEVER carried — it answers `{preview:{css,desktop,mobile,
+section_count,auction_entry_position},config}` for an empty body and
+`{preview:{css,html|pages,section_count},config}` for a v2.5 body — so every 200
+produced `html === ''`, closed the freshly-opened tab and showed the generic
+"Something went wrong. Please try again." banner. The read now takes
+`res.body.preview` (the SAME nesting `templates.ts` and `themes.ts` have always
+used) and wraps the returned markup + chrome CSS in a document for the new tab.
+
+Classification: **18 real (normalized) lines, -3/+15, ALL inside `previewFunnel`,
+0 unattributed** — the 3 deletions are the old `var html` / `!html` guard /
+`Blob([html])` lines and the 15 additions are the new `res.body.preview` read,
+the `p.desktop || p.html` pick, the 4-line document builder and 7 comment lines.
+Same structural situation as the 2026-07-23 and 2026-07-30 notes: `previewFunnel`
+sits in the trailing `<script>` region past every `data-panel` div, so no per-tab
+fixture can catch it — only `editor-full.html`, and indeed only the "full page"
+leg failed while all six tab-panel legs stayed green.
+
+Scope-verified: `editor-panel-{ab,activation,builder}.html` and
+`quotes-list-seeded.html` were re-captured by the same ritual and RESTORED
+byte-for-byte from their pre-capture bytes after the classifier (which applies
+this test's OWN `ID_RE`/`COMPUTED_AT_RE`/`ANALYTICS_DATE_RE` normalizers) proved
+0 normalized differing lines — minted-ULID noise only; `editor-panel-
+{analytics,templates,themes}.html`, `quotes-list-empty.html`, `quotes-new.html`
+and `quotes-not-found.html` came back byte-identical with no restore needed. Ten
+of the eleven sha256s are therefore unchanged from the previous capture. 12/12
+green afterwards.

@@ -4461,9 +4461,21 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (!variantPub) { return; }
     var w = window.open('about:blank', '_blank');
     req('POST', API + '/variants/' + encodeURIComponent(variantPub) + '/preview', {}).then(function (res) {
-      var html = (res.body && (res.body.html || res.body.preview_html)) || '';
-      if (!res.ok || !html) { if (w) { w.close(); } showInlineErr(null, firstFieldError(res.body)); return; }
-      var url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+      // R2 P7 B2: this endpoint answers {preview:{css,desktop,mobile,...}} (empty
+      // body) or {preview:{css,html|pages,...}} (v2.5 key) -- both nest under
+      // res.body.preview, as templates.ts/themes.ts already read it. The pre-fix
+      // res.body.html||res.body.preview_html read keys that never existed, so
+      // every 200 closed the new tab behind a generic "Something went wrong".
+      var p = (res.body && res.body.preview) || null;
+      var body = p ? (p.desktop || p.html || '') : '';
+      if (!res.ok || !body) { if (w) { w.close(); } showInlineErr(null, firstFieldError(res.body)); return; }
+      // Markup + chrome CSS arrive separately, so the tab needs a document
+      // around them. Static title: no author string is interpolated here.
+      var doc = '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+        + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        + '<title>Funnel preview</title><style>' + (p.css || '') + '</style>'
+        + '</head><body data-lg-funnel-preview="1">' + body + '</body></html>';
+      var url = URL.createObjectURL(new Blob([doc], { type: 'text/html' }));
       if (w) { w.location = url; } else { window.open(url, '_blank'); }
     });
   }

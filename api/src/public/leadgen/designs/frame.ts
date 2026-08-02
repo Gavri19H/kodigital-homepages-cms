@@ -609,8 +609,33 @@ function renderFooterRegion(
   // model with its own palette/typography scope. ABSENT → the legacy FooterBar
   // composition below is byte-identical.
   if ((f.blocks ?? []).length > 0 || f.palette_scope !== undefined || f.typography_scope !== undefined) {
-    return renderFooterV2(frame, branding, extraInner, sectionCount);
+    return renderFooterV2(frame, design, branding, extraInner, sectionCount);
   }
+  const hideMobile = f.hide_on_mobile || frame.mobile.hide_footer === true;
+  const classes =
+    `lg-frame-footer lg-frame-footer--show-${f.show_on}` + (hideMobile ? " lg-frame-footer--m-hide" : "");
+  const bakedHidden = f.show_on === "final" && sectionCount > 1 ? " hidden" : "";
+  return region(
+    "footer",
+    classes,
+    renderFooterLegacyInner(f, design, branding) + extraInner,
+    ` data-show-on="${f.show_on}"${bakedHidden}`,
+  );
+}
+
+// R2 P7 owner defect B3 — the footer's LEGACY composition (optional §10.2 logo
+// + the FooterBar preset over trust_text / links / description), extracted
+// VERBATIM from renderFooterRegion so BOTH footer render paths compose the
+// SAME content. Owner A.2 asks the footer to "use different color, font and
+// sizes then the main template"; a typography or palette scope is the control
+// that grants that, and it must restyle the footer that is there — never
+// replace it with an empty region (see renderFooterV2's own note). Callers
+// with neither blocks nor a scope get byte-identical output to pre-fix.
+function renderFooterLegacyInner(
+  f: FrameFooterConfig,
+  design: DefaultFunnelDesign,
+  branding: SiteBranding | null,
+): string {
   const links = (f.links_source === "site" ? (branding?.legal_links ?? []) : f.links).filter(
     (l) => l.label.trim() !== "" && l.href.trim() !== "",
   );
@@ -620,11 +645,7 @@ function renderFooterRegion(
   if (f.description !== null && f.description.trim() !== "") props["legalHtml"] = f.description;
   const bar = renderFooterBar(frameNode("FooterBar", "frame_footer", props), design);
   const logo = f.show_logo ? renderFooterLogo(branding) : "";
-  const hideMobile = f.hide_on_mobile || frame.mobile.hide_footer === true;
-  const classes =
-    `lg-frame-footer lg-frame-footer--show-${f.show_on}` + (hideMobile ? " lg-frame-footer--m-hide" : "");
-  const bakedHidden = f.show_on === "final" && sectionCount > 1 ? " hidden" : "";
-  return region("footer", classes, logo + bar + extraInner, ` data-show-on="${f.show_on}"${bakedHidden}`);
+  return logo + bar;
 }
 
 // §3.3 background — the page-background layer, selected by ROLE + STYLE
@@ -1090,13 +1111,31 @@ function renderSocials(block: FrameFooterBlock, alignA: string): string {
 }
 function renderFooterV2(
   frame: EffectiveFrameConfig,
+  design: DefaultFunnelDesign,
   branding: SiteBranding | null,
   extraInner: string,
   sectionCount: number,
 ): string {
   const f = frame.footer;
   if (!f.enabled || f.show_on === "never") return "";
-  const inner = (f.blocks ?? []).map((b) => renderFooterBlock(b, branding, f)).join("");
+  const blocks = f.blocks ?? [];
+  // R2 P7 owner defect B3 — CONTENT PRESERVATION (data loss, owner A.2).
+  // renderFooterRegion enters this scoped wrapper for EITHER authored blocks
+  // OR an authored palette/typography scope, because this wrapper is what
+  // carries footerScopeStyle + the `.lg-frame-footer2` rule that consumes
+  // --lg-footer-bg / -fg / -size / -font. Pre-fix, `inner` was ONLY the block
+  // map: an operator whose footer content is the legacy trust/links/legal bar
+  // (Contact / Privacy policy / Terms) picked a footer font or text size and
+  // the typography control silently DELETED the footer — every one of the 11
+  // fonts and 4 sizes rendered the region EMPTY, because setting the scope
+  // flipped the render path to a block model that had zero blocks. With no
+  // blocks authored the scoped wrapper now composes the very footer it was
+  // asked to restyle, so typography changes the typography and keeps the
+  // content. Blocks authored ⇒ byte-identical to pre-fix.
+  const inner =
+    blocks.length > 0
+      ? blocks.map((b) => renderFooterBlock(b, branding, f)).join("")
+      : renderFooterLegacyInner(f, design, branding);
   const hideMobile = f.hide_on_mobile || frame.mobile.hide_footer === true;
   const classes =
     `lg-frame-footer lg-frame-footer2 lg-frame-footer--show-${f.show_on}` +
