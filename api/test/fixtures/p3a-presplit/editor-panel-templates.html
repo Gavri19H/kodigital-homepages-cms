@@ -1070,6 +1070,30 @@
     return out;
   }
 
+  // R2 P7 D2 / R1 — the funnel studio's stripIncompleteImagesForPreview died
+  // with the dead §4.1 canvas; this is its equivalent on the LIVE canvas path,
+  // widened to the two shapes it never covered. frames.ts validateImages
+  // refuses an image row unless it has (media_id OR a SAFE url) AND alt, and
+  // ONE such row 400s the WHOLE preview — measured live on this canvas: a URL
+  // pasted BEFORE the alt text is typed ("Preview failed: An image needs alt
+  // text.") and every keystroke of a half-typed URL ("…or a safe image URL.")
+  // left the canvas frozen on its last good render. The predicate mirrors
+  // validateImages/SAFE_HREF_RE 1:1 so a row the SERVER would render is never
+  // dropped from the canvas. Only this canvas draft is filtered — funnel.ts's
+  // collectImages (the SAVE collector) and PUT /funnels/:id/frame validation
+  // are untouched, so Save still rejects exactly the same row.
+  function previewSafeImageHref(raw) {
+    var s = String(raw).trim().toLowerCase();
+    if (s.indexOf('https://') === 0 || s.indexOf('http://') === 0) { return true; }
+    if (s.charAt(0) === '#' || s.indexOf('tel:') === 0 || s.indexOf('mailto:') === 0) { return true; }
+    return s.charAt(0) === '/' && s.charAt(1) !== '/';
+  }
+  function imageRowRenderable(mediaId, url, alt) {
+    if (String(alt).trim() === '') { return false; }
+    if (String(mediaId).trim() !== '') { return true; }
+    return String(url).trim() !== '' && previewSafeImageHref(url);
+  }
+
   function collectImages() {
     var rows = qa(tplListEl('images'), '[data-img-item-row]');
     var out = [];
@@ -1078,9 +1102,14 @@
       var mediaId = valOf(rows[i], '[data-list-field="media_id"]');
       var url = valOf(rows[i], '[data-img-item-url]');
       var alt = valOf(rows[i], '[data-img-item-alt]');
-      // PREVIEW-safe, same rule as the brand-logo items above: an image row
-      // with no media/url yet cannot render and would 400 the whole preview.
+      // the no-source short-circuit stays VERBATIM and first: it is the exact
+      // line the brand-logo collector above uses, the symmetry
+      // test/leadgen-templates-canvas-r2.test.ts pins across BOTH media-bearing
+      // collectors ("a half-typed image / brand-logo row never blanks the
+      // canvas"). imageRowRenderable then widens it to the alt / unsafe-url
+      // shapes that same drive measured.
       if (mediaId === '' && url === '') { continue; }
+      if (!imageRowRenderable(mediaId, url, alt)) { continue; }
       var idEl = q(rows[i], '[data-img-item-id]');
       var item = {
         id: (idEl && idEl.value) || ('img_preview_' + i),

@@ -160,7 +160,6 @@ html,body{height:100%;overflow-x:hidden}
 .lg-studio{display:grid;grid-template-columns:260px minmax(0,1fr) 320px;gap:12px;align-items:start}
 @media (max-width:1100px){.lg-studio{grid-template-columns:1fr}}
 .lg-studio-left{display:flex;flex-direction:column;gap:12px}
-.lg-canvas-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px;border:1px solid var(--c-border);border-radius:8px;margin-bottom:8px}
 .lg-chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--c-border);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--c-muted);background:var(--c-bg,#f6f7f9)}
 .lg-chip strong{color:var(--c-text)}
 .lg-publish-chip[data-publish-verdict=blocked]{background:var(--c-danger-bg,#fdecea);color:var(--c-danger,#8a1f11);border-color:var(--c-danger,#e5a49a)}
@@ -192,10 +191,8 @@ html,body{height:100%;overflow-x:hidden}
 .lg-role-strip{display:flex;flex-wrap:wrap;gap:4px}
 .lg-role-swatch{width:22px;height:22px;border-radius:6px;border:1px solid var(--c-border);cursor:pointer;padding:0}
 .lg-role-swatch.selected{outline:2px solid var(--c-primary);outline-offset:1px}
-.lg-slot-banner{background:var(--c-warn-bg,#fff4e5);border:1px solid var(--c-warn,#e0a04a);border-radius:6px;padding:10px 12px;margin:8px 0;font-size:13px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .lg-structure-row{display:flex;align-items:center;gap:6px;padding:6px;border:1px solid var(--c-border);border-radius:6px;margin-bottom:6px}
 .lg-structure-row .lg-grow{flex:1;min-width:0}
-.lg-structure-row button[data-select-slide]{background:none;border:0;padding:0;cursor:pointer;color:var(--c-text);text-align:left;font:inherit}
 .lg-structure-row.lg-slide-current{border-color:var(--c-primary)}
 /* --- Round-4 P3b: pages-first structure panel (fixes 10J/Image41) ----------
    ONE grid/stack model for the section rows replaces the old .lg-section-row
@@ -251,7 +248,6 @@ html,body{height:100%;overflow-x:hidden}
 .lg-list-row .form-input{flex:1;min-width:90px}
 .lg-override-switch{display:flex;gap:12px;align-items:center;border:1px dashed var(--c-border);border-radius:6px;padding:6px 10px;margin-bottom:10px;font-size:12px;flex-wrap:wrap}
 .lg-override-badge{position:sticky;top:0;z-index:2}
-.lg-step-controls{display:inline-flex;align-items:center;gap:6px}
 .lg-panel-card{border:1px solid var(--c-border);border-radius:8px;padding:12px;background:var(--c-card,#fff)}
 .lg-panel-card h3{margin:0 0 8px;font-size:14px}
 .lg-panel-card h4{margin:14px 0 8px;font-size:13px}

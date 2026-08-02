@@ -168,3 +168,30 @@ Scope-verified: `editor-panel-{ab,activation,analytics,builder,templates}`,
 `quotes-list-{empty,seeded}`, `quotes-new` and `quotes-not-found` were
 re-captured by the same ritual and RESTORED byte-for-byte from their pre-capture
 bytes after the diff proved minted-id noise only — 12/12 green afterwards.
+
+2026-08-02 re-capture (P7 D2 fallout — the dead-island removal's own fixture
+debt, plus R1/R3): `87f64f0` changed the editor page twice (the ADJ-N8
+rules-label value side, and the removal of the dead §4.1 frame-studio island)
+and deliberately did NOT re-capture, leaving this fixture red. Re-captured
+here together with this round's own three edits. NINE fixtures changed;
+`editor-panel-analytics.html` and `editor-panel-themes.html` were re-captured
+by the same ritual and came back byte-identical (sha256 unchanged, no restore
+needed).
+
+Every differing NORMALIZED line classified, five buckets, `editor-full.html`
+487/487 attributed (39 hunks), **0 unexplained**:
+
+| bucket | hunks | -del | +add | lines |
+|---|---|---|---|---|
+| 87f64f0 dead frame-studio island (canvas state, 11 `schedulePreview()` call sites, region click-select, the viewport/preview-mode/stepper toolbar, structure-panel slide selection) | 13 | 307 | 28 | 335 |
+| 87f64f0 ADJ-N8 rules-label value side (`fmtValue`/`rowSentence`/`cardSentence`/`makeValueOf`/`valueText` + the choice map on `answerFields`) | 19 | 25 | 84 | 109 |
+| R1 preview-safe images guard (`previewSafeImageHref` + `imageRowRenderable` in `quotes-tabs/templates.ts`, keeping the pinned no-source short-circuit verbatim) | 2 | 2 | 31 | 33 |
+| R3 stale operator copy (the persona-image error no longer points at the deleted "canvas toolbar, above") | 1 | 1 | 5 | 6 |
+| R3 dead CSS (`.lg-canvas-toolbar`, `.lg-slot-banner`, `.lg-structure-row button[data-select-slide]`, `.lg-step-controls` — grep-proven zero emitters) | 4 | 4 | 0 | 4 |
+
+The four `quotes-*.html` list pages differ by exactly those 4 CSS lines and
+nothing else (they embed `LG_QUOTES_STYLES`); `editor-panel-templates.html`
+differs by exactly the 33-line R1 guard; `editor-panel-{ab,activation,
+builder}.html` differ by minted ids only (0 normalized lines). The dead-CSS
+removal note lives in TypeScript ABOVE the `LG_QUOTES_STYLES` template literal,
+not inside it, so it costs 0 served bytes on every leadgen admin page.

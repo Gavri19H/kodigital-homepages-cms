@@ -6,12 +6,40 @@
 
 import { describe, expect, it, beforeAll } from "vitest";
 import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { QUOTE_EDITOR_SCRIPT } from "../src/admin/leadgen/quotes-tabs/funnel";
+import { renderTemplatesTabPanel } from "../src/admin/leadgen/quotes-tabs/templates";
 import { mintPublicId } from "../src/leadgen/ids";
+
+// The REAL Templates-tab island, produced by the same function the router
+// embeds in the served editor page (renderTemplatesTabPanel -> <script>).
+const TEMPLATES_PANEL_HTML = renderTemplatesTabPanel(true, []);
+const TEMPLATES_ISLAND = TEMPLATES_PANEL_HTML.slice(
+  TEMPLATES_PANEL_HTML.lastIndexOf("<script>") + "<script>".length,
+  TEMPLATES_PANEL_HTML.lastIndexOf("</script>"),
+);
+
+// Lift a `function name(...) { ... }` declaration out of the island source by
+// brace balance (the leadgen-p2-tail sliceIslandFunction idiom) so the REAL
+// shipped predicate — not a hand-written copy of it — can be executed here.
+function sliceIslandFunction(island: string, name: string): string {
+  const start = island.indexOf(`function ${name}(`);
+  expect(start, `island function ${name}`).toBeGreaterThan(-1);
+  let depth = 0;
+  let seenBody = false;
+  for (let i = start; i < island.length; i += 1) {
+    const ch = island[i];
+    if (ch === "{") { depth += 1; seenBody = true; } else if (ch === "}") {
+      depth -= 1;
+      if (seenBody && depth === 0) return island.slice(start, i + 1);
+    }
+  }
+  throw new Error(`unbalanced island function ${name}`);
+}
 
 type SqliteStatement = { run(...p: unknown[]): unknown; get(...p: unknown[]): unknown; all(...p: unknown[]): unknown[] };
 type SqliteDb = { prepare(sql: string): SqliteStatement; close(): void; [m: string]: unknown };
@@ -129,8 +157,19 @@ describe("island script (client-side) regressions — string-level guard", () =>
     expect(QUOTE_EDITOR_SCRIPT).not.toContain("frameTemplateRecordItems(");
   });
 
-  it("R2 handoff: the funnel-builder's preview draft strips incomplete image rows before the preview POST", () => {
-    expect(QUOTE_EDITOR_SCRIPT).toContain("stripIncompleteImagesForPreview");
+  // RE-POINTED (P7 D2 fallout / R1): this used to pin
+  // `stripIncompleteImagesForPreview` in QUOTE_EDITOR_SCRIPT — the funnel
+  // studio's dead §4.1 canvas, deleted in 87f64f0 with the DOM the P3b board
+  // rewrite had already removed. The CLAIM ("an image row that cannot render
+  // never rides the preview POST") still applies, on the one surviving preview
+  // path: the Templates tab's live canvas (#lg-tpl-canvas-iframe). Its
+  // collectImages() drops such a row at COLLECT time via imageRowRenderable —
+  // proven behaviourally, against the real server validator, in the
+  // "preview-safe images split" describe block below.
+  it("R2 handoff / R1: the LIVE Templates canvas draft drops image rows that cannot render", () => {
+    expect(QUOTE_EDITOR_SCRIPT).not.toContain("stripIncompleteImagesForPreview");
+    expect(TEMPLATES_ISLAND).toContain("function imageRowRenderable(");
+    expect(TEMPLATES_ISLAND).toContain("if (!imageRowRenderable(mediaId, url, alt)) { continue; }");
   });
 
   it("R2 handoff: the site select syncs to the first-Active default at init", () => {
@@ -292,6 +331,67 @@ describeDb("R2 handoff — preview-safe images split (save keeps validating)", (
       env,
     );
     expect(res.status).toBe(400);
+  });
+
+  // ---------------------------------------------------------------------
+  // P7 D2 fallout / R1 — the guard MOVED to the live Templates canvas, and
+  // the two shapes the retired funnel-studio version never covered are now
+  // covered too. Measured live at 127.0.0.1:8901 BEFORE this fix (evidence
+  // docs/leadgen/r2/evidence/p7-owner/d2-fallout/fail-before-drive.json):
+  // typing a URL BEFORE the alt text -> POST 400 "An image needs alt text.",
+  // canvas frozen on its last render; every keystroke of a half-typed URL ->
+  // POST 400 "…or a safe image URL.". Both are 200 with the row simply
+  // omitted after it (pass-after-drive.json).
+  //
+  // Producer x consumer with no hand-built copy on either side: the predicate
+  // is LIFTED OUT OF THE SHIPPED ISLAND and its keep/drop verdict is checked
+  // against what the REAL server does with that very row.
+  // ---------------------------------------------------------------------
+  const renderable = runInNewContext(
+    [
+      sliceIslandFunction(TEMPLATES_ISLAND, "previewSafeImageHref"),
+      sliceIslandFunction(TEMPLATES_ISLAND, "imageRowRenderable"),
+      "imageRowRenderable",
+    ].join("\n"),
+    {},
+    { filename: "templates-island-imageRowRenderable.vm.js" },
+  ) as (mediaId: string, url: string, alt: string) => boolean;
+
+  const ROWS: Array<{ name: string; mediaId: string; url: string; alt: string }> = [
+    { name: "alt only, no media/url (the retired guard's own class)", mediaId: "", url: "", alt: "half typed, no media/url yet" },
+    { name: "url pasted BEFORE the alt text is typed", mediaId: "", url: "https://example.com/portrait.png", alt: "" },
+    { name: "half-typed url 'htt' + alt", mediaId: "", url: "htt", alt: "Persona portrait" },
+    { name: "media picked, alt still empty", mediaId: "media/persona.png", url: "", alt: "" },
+    { name: "complete: url + alt", mediaId: "", url: "https://example.com/portrait.png", alt: "Persona portrait" },
+    { name: "complete: media + alt", mediaId: "media/persona.png", url: "", alt: "Persona portrait" },
+    { name: "complete: root-relative url + alt", mediaId: "", url: "/uploads/persona.png", alt: "Persona portrait" },
+  ];
+
+  it.each(ROWS)("the shipped island predicate agrees with the server for: $name", async (row) => {
+    const item: Record<string, unknown> = { id: "img_r1", alt: row.alt, slot: "above_section", size: "m", align: "left" };
+    if (row.mediaId !== "") item["media_id"] = row.mediaId;
+    if (row.url !== "") item["url"] = row.url;
+    const res = await admin.request(
+      `${API}/variants/${variantId}/preview`,
+      jsonInit("POST", { mode: "section", viewport: "desktop", draft_frame_config: { version: 1, template: "centered", images: [item] } }),
+      env,
+    );
+    const serverAccepts = res.status === 200;
+    // keep <=> the server can render it; drop <=> the server would 400 the
+    // WHOLE preview. Neither direction may drift: a false keep blanks the
+    // canvas, a false drop hides an image the operator really authored.
+    expect(renderable(row.mediaId, row.url, row.alt), `island keep/drop vs server ${res.status}`).toBe(serverAccepts);
+  });
+
+  it("PASS-AFTER on the live path: with the unrenderable rows dropped, the same draft renders 200", async () => {
+    const dropped = ROWS.filter((r) => !renderable(r.mediaId, r.url, r.alt));
+    expect(dropped).toHaveLength(4); // 3 shapes measured live + the media-picked/alt-empty twin
+    const res = await admin.request(
+      `${API}/variants/${variantId}/preview`,
+      jsonInit("POST", { mode: "section", viewport: "desktop", draft_frame_config: { version: 1, template: "centered", images: [] } }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
   });
 });
 

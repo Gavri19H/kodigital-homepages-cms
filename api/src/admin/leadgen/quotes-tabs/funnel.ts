@@ -3144,7 +3144,11 @@ export const QUOTE_EDITOR_SCRIPT = `
     var errEl = itemRow.querySelector('[data-img-item-gen-error]');
     var personaKey = personaEl ? personaEl.value : '';
     if (personaKey === '') { showInlineNote(errEl, 'Choose a persona first.'); return; }
-    if (!siteId) { showInlineNote(errEl, 'Choose a preview site (canvas toolbar, above) to generate a persona image.'); return; }
+    // R2 P7 D2 fallout: this used to send the operator to the "canvas
+    // toolbar, above" — a control the P3b board rewrite deleted. The preview
+    // site is chosen in the top bar's Preview site selector (#lg-site-chip /
+    // #lg-site-select), which is what this same siteId actually reads.
+    if (!siteId) { showInlineNote(errEl, 'Choose a preview site in the Preview site selector at the top of this page to generate a persona image.'); return; }
     showInlineNote(errEl, null);
     el.disabled = true;
     var altEl = itemRow.querySelector('[data-img-item-alt]');

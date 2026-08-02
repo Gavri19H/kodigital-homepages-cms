@@ -160,7 +160,6 @@ html,body{height:100%;overflow-x:hidden}
 .lg-studio{display:grid;grid-template-columns:260px minmax(0,1fr) 320px;gap:12px;align-items:start}
 @media (max-width:1100px){.lg-studio{grid-template-columns:1fr}}
 .lg-studio-left{display:flex;flex-direction:column;gap:12px}
-.lg-canvas-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px;border:1px solid var(--c-border);border-radius:8px;margin-bottom:8px}
 .lg-chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--c-border);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--c-muted);background:var(--c-bg,#f6f7f9)}
 .lg-chip strong{color:var(--c-text)}
 .lg-publish-chip[data-publish-verdict=blocked]{background:var(--c-danger-bg,#fdecea);color:var(--c-danger,#8a1f11);border-color:var(--c-danger,#e5a49a)}
@@ -192,10 +191,8 @@ html,body{height:100%;overflow-x:hidden}
 .lg-role-strip{display:flex;flex-wrap:wrap;gap:4px}
 .lg-role-swatch{width:22px;height:22px;border-radius:6px;border:1px solid var(--c-border);cursor:pointer;padding:0}
 .lg-role-swatch.selected{outline:2px solid var(--c-primary);outline-offset:1px}
-.lg-slot-banner{background:var(--c-warn-bg,#fff4e5);border:1px solid var(--c-warn,#e0a04a);border-radius:6px;padding:10px 12px;margin:8px 0;font-size:13px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .lg-structure-row{display:flex;align-items:center;gap:6px;padding:6px;border:1px solid var(--c-border);border-radius:6px;margin-bottom:6px}
 .lg-structure-row .lg-grow{flex:1;min-width:0}
-.lg-structure-row button[data-select-slide]{background:none;border:0;padding:0;cursor:pointer;color:var(--c-text);text-align:left;font:inherit}
 .lg-structure-row.lg-slide-current{border-color:var(--c-primary)}
 /* --- Round-4 P3b: pages-first structure panel (fixes 10J/Image41) ----------
    ONE grid/stack model for the section rows replaces the old .lg-section-row
@@ -251,7 +248,6 @@ html,body{height:100%;overflow-x:hidden}
 .lg-list-row .form-input{flex:1;min-width:90px}
 .lg-override-switch{display:flex;gap:12px;align-items:center;border:1px dashed var(--c-border);border-radius:6px;padding:6px 10px;margin-bottom:10px;font-size:12px;flex-wrap:wrap}
 .lg-override-badge{position:sticky;top:0;z-index:2}
-.lg-step-controls{display:inline-flex;align-items:center;gap:6px}
 .lg-panel-card{border:1px solid var(--c-border);border-radius:8px;padding:12px;background:var(--c-card,#fff)}
 .lg-panel-card h3{margin:0 0 8px;font-size:14px}
 .lg-panel-card h4{margin:14px 0 8px;font-size:13px}
@@ -386,7 +382,7 @@ html,body{height:100%;overflow-x:hidden}
         <div class="header-actions"></div>
       </header>
       <div class="admin-content"><nav class="leadgen-tabs" aria-label="LeadGen sections"><a href="/admin/leadgen/offers" class="leadgen-tab">Offers</a><a href="/admin/leadgen/sections" class="leadgen-tab">Sections</a><a href="/admin/leadgen/quotes" class="leadgen-tab active" aria-current="page">Quotes</a><a href="/admin/leadgen/auction" class="leadgen-tab">Auction</a></nav>
-<div id="lg-quote-editor" data-quote-id="1" data-quote-public-id="lgq_01KZ1BWBS3FVNM07FKP0KFE919" data-variant-public-id="lgn_01KZ1BWBS3RBHHKYAGKYKNHCD5" data-variant-funnel-id="lgf_01KZ1BWBS3H6GS50V8T5EW9PD6" data-variant-funnel-variant-id="lgn_01KZ1BWBS3RBHHKYAGKYKNHCD5" data-funnel-public-id="lgf_01KZ1BWBS3H6GS50V8T5EW9PD6">
+<div id="lg-quote-editor" data-quote-id="1" data-quote-public-id="lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507" data-variant-public-id="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC" data-variant-funnel-id="lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ" data-variant-funnel-variant-id="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC" data-funnel-public-id="lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ">
   <div class="lg-editor-head">
     <a href="/admin/leadgen/quotes" class="btn btn-outline">&#8592; Quotes</a>
     <h2 class="lg-editor-title" id="lg-quote-title">&lt;b&gt;Quote&lt;/b&gt;</h2>
@@ -399,14 +395,14 @@ html,body{height:100%;overflow-x:hidden}
     <span class="badge badge-draft">draft</span>
     <span class="lg-chip" data-quote-activity>Activity: <strong>quote_funnel</strong></span>
     <span class="lg-chip">life</span><span class="lg-chip">health</span>
-    <span id="lg-publish-badge" class="lg-chip lg-publish-chip" data-publish-verdict="blocked" data-publish-errors="1" data-publish-warnings="0">Blocked (1 error)</span><div id="lg-publish-why" class="lg-publish-why" data-publish-why-count="1" role="group" aria-label="Why this Quote cannot be published"><span class="lg-publish-why-title">To publish, fix this:</span><ol class="lg-publish-why-list"><li data-publish-reason>The shared first page needs at least one section.<a class="lg-publish-why-fix" href="/admin/leadgen/quotes/lgq_01KZ1BWBS3FVNM07FKP0KFE919/edit">Open Quote Builder</a></li></ol></div>
+    <span id="lg-publish-badge" class="lg-chip lg-publish-chip" data-publish-verdict="blocked" data-publish-errors="1" data-publish-warnings="0">Blocked (1 error)</span><div id="lg-publish-why" class="lg-publish-why" data-publish-why-count="1" role="group" aria-label="Why this Quote cannot be published"><span class="lg-publish-why-title">To publish, fix this:</span><ol class="lg-publish-why-list"><li data-publish-reason>The shared first page needs at least one section.<a class="lg-publish-why-fix" href="/admin/leadgen/quotes/lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507/edit">Open Quote Builder</a></li></ol></div>
     <span class="lg-editor-spacer"></span>
     <span class="lg-chip" id="lg-site-chip">Preview site: <select id="lg-site-select" class="form-select" data-site-select aria-label="Preview site"><option value="">CMS fallback branding</option><option value="site-1" data-badge="Not activated yet">Site One — Not activated yet</option></select></span>
     <button type="button" id="lg-variant-save" class="btn btn-primary">Save</button>
     <button type="button" id="lg-publish-goto" class="btn btn-secondary" data-goto-tab="activation">Publish&#8230;</button>
   </div>
   <details class="lg-advanced"><summary>Advanced</summary>
-    <p class="form-help">Reference id: <code class="lg-editor-pubid">lgq_01KZ1BWBS3FVNM07FKP0KFE919</code></p>
+    <p class="form-help">Reference id: <code class="lg-editor-pubid">lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507</code></p>
   </details>
   <p id="lg-quote-error" class="alert alert-error" hidden role="alert"></p>
   <p id="lg-quote-ok" class="alert alert-success" hidden role="status"></p>
@@ -428,10 +424,10 @@ html,body{height:100%;overflow-x:hidden}
       <div class="lg-lib-filters" data-lib-filters><button type="button" class="lg-filter-pill active" data-lib-filter="">All</button><button type="button" class="lg-filter-pill" data-lib-filter="health">health</button><button type="button" class="lg-filter-pill" data-lib-filter="life">life</button></div>
     </div>
     <div class="lg-lib-list" data-lib-list>
-      <div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ1BWBS3GK68CG715AC3Y6DE" data-section-name="Second" data-vertical-key="health" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section Second to a page">
+      <div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ1GZ0PQRRAQR4S76FE2WNTS" data-section-name="Second" data-vertical-key="health" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section Second to a page">
     <div class="lg-lc-top"><span class="lg-grip" aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span><span class="lg-lc-name">Second</span></div>
     <div class="lg-lc-meta"><span class="lg-chip-activity">quote_funnel · health</span><span class="lg-chip-inuse-here" data-pin="8.2-library-inuse-badge">In this funnel</span></div>
-  </div><div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ1BWBS3QYED2XX3MKQSRTJ8" data-section-name="&lt;i&gt;First&lt;/i&gt;" data-vertical-key="life" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section &lt;i&gt;First&lt;/i&gt; to a page">
+  </div><div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ1GZ0PQ43Y2FR7DS5X5N21N" data-section-name="&lt;i&gt;First&lt;/i&gt;" data-vertical-key="life" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section &lt;i&gt;First&lt;/i&gt; to a page">
     <div class="lg-lc-top"><span class="lg-grip" aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span><span class="lg-lc-name">&lt;i&gt;First&lt;/i&gt;</span></div>
     <div class="lg-lc-meta"><span class="lg-chip-activity">quote_funnel · life</span><span class="lg-chip-inuse-here" data-pin="8.2-library-inuse-badge">In this funnel</span></div>
   </div>
@@ -455,7 +451,7 @@ html,body{height:100%;overflow-x:hidden}
       <div class="lg-hint-neutral">Only one shared page — its sections can be A/B'd per slot.</div>
     </div>
   </div>
-          <div class="lg-col lg-col-funnel is-default" data-funnel-col data-funnel-public-id="lgf_01KZ1BWBS3H6GS50V8T5EW9PD6" data-funnel-id="1" data-funnel-active-variant="lgn_01KZ1BWBS3RBHHKYAGKYKNHCD5" data-pin="8.2-funnel-column">
+          <div class="lg-col lg-col-funnel is-default" data-funnel-col data-funnel-public-id="lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ" data-funnel-id="1" data-funnel-active-variant="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC" data-pin="8.2-funnel-column">
     <div class="lg-col-head" data-pin="8.2-funnel-header">
       <div class="lg-col-title-row">
         <span class="lg-col-title" data-funnel-name data-pin="8.2-inline-rename" tabindex="0" role="textbox" aria-label="Funnel name (click to rename)">&lt;b&gt;Quote&lt;/b&gt; — Funnel A</span>
@@ -471,26 +467,26 @@ html,body{height:100%;overflow-x:hidden}
         <span class="lg-btn-ghost lg-col-preview" data-preview data-pin="8.2-preview" role="button" tabindex="0">Preview<svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       </div>
     </div>
-    <div class="lg-col-body" data-funnel-body><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ1BWBS4D871RXXNQ56YCKG4" data-page-index="0" data-pin="8.2-page-card">
+    <div class="lg-col-body" data-funnel-body><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ1GZ0PRS7HVT48RZ2GZXX84" data-page-index="0" data-pin="8.2-page-card">
     <div class="lg-page-head">
       <span class="lg-grip lg-page-grip" data-page-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
       <span class="lg-page-num">Page 1</span>
       <span class="lg-kebab-btn lg-page-kebab" data-page-kebab data-chip-menu="page" role="button" tabindex="0" aria-label="Page options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
     </div>
-    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ1BWBS3QYED2XX3MKQSRTJ8" data-slot-id="1" data-slot-kind="fixed">
+    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ1GZ0PQ43Y2FR7DS5X5N21N" data-slot-id="1" data-slot-kind="fixed">
     <span class="lg-grip lg-chip-grip" data-chip-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
     <span class="lg-map-dot" data-mapping-status="none" title="No Offers selected yet"></span>
     <span class="lg-sc-name">&lt;i&gt;First&lt;/i&gt;</span>
     <span class="lg-kebab-btn lg-chip-kebab" data-chip-kebab data-chip-menu="funnel-chip" role="button" tabindex="0" aria-label="Section options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
   </div></div>
     <span class="lg-add-section" data-add-section role="button" tabindex="0"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg> ＋ section</span>
-  </div><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ1BWBS497N0N81XDAFCG67M" data-page-index="1" data-pin="8.2-page-card">
+  </div><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ1GZ0PRHKH63HJXBCDTYWMX" data-page-index="1" data-pin="8.2-page-card">
     <div class="lg-page-head">
       <span class="lg-grip lg-page-grip" data-page-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
       <span class="lg-page-num">Page 2</span>
       <span class="lg-kebab-btn lg-page-kebab" data-page-kebab data-chip-menu="page" role="button" tabindex="0" aria-label="Page options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
     </div>
-    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ1BWBS3GK68CG715AC3Y6DE" data-slot-id="2" data-slot-kind="fixed">
+    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ1GZ0PQRRAQR4S76FE2WNTS" data-slot-id="2" data-slot-kind="fixed">
     <span class="lg-grip lg-chip-grip" data-chip-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
     <span class="lg-map-dot" data-mapping-status="none" title="No Offers selected yet"></span>
     <span class="lg-sc-name">Second</span>
@@ -508,7 +504,7 @@ html,body{height:100%;overflow-x:hidden}
       </div>
     </div>
     <div class="lg-board-right" data-rules-rail>
-      <div class="lg-qr-rail" id="lg-qr-rail" data-pin="8.2-rules-rail" data-quote-public-id="lgq_01KZ1BWBS3FVNM07FKP0KFE919"><style>
+      <div class="lg-qr-rail" id="lg-qr-rail" data-pin="8.2-rules-rail" data-quote-public-id="lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507"><style>
 .lg-qr-rail{display:flex;flex-direction:column;min-height:0}
 .lg-qr-head{padding:16px 16px 12px;border-bottom:1px solid rgba(20,32,54,.08)}
 .lg-qr-title{font-size:14px;font-weight:800;color:#14233a;margin-bottom:6px}
@@ -588,7 +584,7 @@ html,body{height:100%;overflow-x:hidden}
 .lg-qr-sentence{font-size:12px;color:#374966;background:#f7f9fb;border-radius:8px;padding:10px 12px;line-height:1.5}
 .lg-qr-sentlab{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#8894a8;display:block;margin-bottom:4px}
 .lg-qr-modal-foot{display:flex;justify-content:flex-end;gap:10px;padding-top:14px}
-</style><div class="lg-qr-head"><div class="lg-qr-title">Routing rules</div><div class="lg-qr-desc">Rules decide which funnel a visitor sees, and can tag the lead, set the FB multiplier, or redirect. Lowest priority number wins when more than one matches.</div></div><div class="lg-qr-colhead"><span class="lg-qr-cprio">Priority</span><span class="lg-qr-cname">Name · Checkpoint · Conditions · Actions · Status</span></div><div class="lg-qr-list" id="lg-qr-list" data-pin="8.2-rules-table"><div data-qr-cards></div><div class="lg-qr-newbtn" data-pin="8.2-new-rule-btn" role="button" tabindex="0" data-qr-new>+ New rule</div></div><div class="lg-qr-overlay" id="lg-qr-modal" data-pin="8.2-rule-modal" role="dialog" aria-modal="true" aria-label="Routing rule" hidden><div class="lg-qr-modal card"><div class="lg-qr-modal-head"><h3 id="lg-qr-modal-title">New routing rule</h3><span class="lg-qr-x" role="button" tabindex="0" data-qr-cancel aria-label="Close">✖</span></div><div class="lg-qr-modal-body"><div class="lg-qr-fieldblock" data-pin="8.2-rule-name"><label class="lg-qr-label" for="lg-qr-name">Rule name<span class="lg-qr-req">*</span> <span class="lg-qr-opt">· up to 80 characters</span></label><input class="form-input" id="lg-qr-name" type="text" maxlength="80" data-qr-modal-name /></div><div class="lg-qr-grid2"><div data-pin="4.3-3-checkpoint"><label class="lg-qr-label">Checkpoint <span class="lg-qr-opt">· read-only</span></label><div class="lg-qr-readonly" data-qr-modal-checkpoint>Entry</div><div class="lg-qr-help">Derived from the conditions — where this rule can first apply.</div><div class="lg-qr-callout warn" data-qr-modal-a6 data-pin="A-6-inline" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>This rule can never apply before a visitor enters a funnel that asks these questions.</span></div></div><div data-pin="8.2-rule-priority"><label class="lg-qr-label" for="lg-qr-priority">Priority</label><input class="form-input" id="lg-qr-priority" type="number" min="1" max="100" step="1" value="100" data-qr-modal-priority /><div class="lg-qr-help">1 = highest priority, 100 = lowest.</div></div></div><div class="lg-qr-cardblock" data-pin="8.2-rule-conditions"><div class="lg-qr-cbhead"><span class="lg-qr-cbtitle">Conditions</span><div class="lg-qr-seg" data-pin="8.2-anyall" data-qr-matchmode><span class="lg-qr-segitem active" data-qr-match="all" role="button" tabindex="0">Match ALL</span><span class="lg-qr-segitem" data-qr-match="any" role="button" tabindex="0">Match ANY</span></div></div><div id="lg-qr-cond-mount"></div><input type="hidden" data-qr-cond-out /><div class="lg-qr-help">Sources: answer fields (by name) · UTM Source/Medium/Campaign/Content · Device · OS · State · Hour · Weekday. Operators map to eq · neq · gt · lt · gte · lte.</div></div><div data-pin="4.3-9-actions"><div class="lg-qr-actions-head"><span class="lg-qr-cbtitle">Actions</span> <span class="lg-qr-opt">· pick at least one</span></div><div class="lg-qr-arow" data-pin="action-target-funnel" data-qr-action="target_funnel"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Target funnel</div><div class="lg-qr-adesc">Serve this funnel to matching visitors.</div><select class="form-select" data-qr-target-funnel aria-label="Target funnel"><option value="">— choose a funnel —</option><option value="lgf_01KZ1BWBS3H6GS50V8T5EW9PD6" data-funnel-id="1">&lt;b&gt;Quote&lt;/b&gt; — Funnel A (Default)</option></select></div></div><div class="lg-qr-arow" data-pin="action-feed-name" data-qr-action="feed_name"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Feed name</div><div class="lg-qr-adesc">Tag matching leads for analytics &amp; offer routing.</div><input class="form-input" type="text" list="lg-qr-feeds" data-qr-feed-name aria-label="Feed name" /><datalist id="lg-qr-feeds"></datalist><div class="lg-qr-help" data-qr-feed-help>No feed names used yet.</div></div></div><div class="lg-qr-arow" data-pin="action-fb-multiplier" data-qr-action="value_multiplier"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">FB multiplier</div><div class="lg-qr-adesc">Replaces the base S2S multiplier for this conversion.</div><input class="form-input" type="number" step="any" min="0" data-qr-multiplier aria-label="FB multiplier" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-pct" data-qr-action="redirect_pct"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect %</div><div class="lg-qr-adesc">0 = no redirect. Share of matching sessions sent to the target instead of our funnel; the rest continue with the other actions.</div><input class="form-input" type="number" step="any" min="0" max="100" data-qr-redirect-pct aria-label="Redirect percent" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-target" data-qr-action="redirect_target"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect target</div><div class="lg-qr-adesc">Where redirected sessions go — an offer, or an allowlisted URL.</div><div class="lg-qr-seg" data-qr-target-mode><span class="lg-qr-segitem active" data-qr-mode="offer" role="button" tabindex="0">Offer</span><span class="lg-qr-segitem" data-qr-mode="url" role="button" tabindex="0">Allowlisted URL</span></div><select class="form-select" data-qr-target-offer aria-label="Redirect offer"><option value="">— choose an offer —</option></select><div data-qr-url-wrap hidden><input class="form-input" type="text" data-qr-redirect-url aria-label="Allowlisted redirect URL" placeholder="https://…" /><div class="lg-qr-help">Only hosts on the site allowlist can be entered here.</div></div></div></div></div><div class="lg-qr-errmsg" data-pin="A-11-validation" data-qr-action-error hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span>Pick at least one action for this rule.</div><p class="alert alert-error lg-qr-error" data-qr-modal-error role="alert" hidden></p><div class="lg-qr-sentence" data-pin="8.2-rule-sentence"><span class="lg-qr-sentlab">In plain language</span> <span data-qr-sentence></span></div></div><div class="lg-qr-modal-foot"><span class="btn btn-outline" role="button" tabindex="0" data-qr-cancel>Cancel</span><span class="btn btn-primary" role="button" tabindex="0" data-qr-save>Save rule</span></div></div></div><script id="lg-qr-data" type="application/json">{"quote_public_id":"lgq_01KZ1BWBS3FVNM07FKP0KFE919","rules":[],"funnels":[{"id":1,"public_id":"lgf_01KZ1BWBS3H6GS50V8T5EW9PD6","name":"\u003cb>Quote\u003c/b> — Funnel A","is_default":true,"pages":[{"position":0,"fields":["f"]},{"position":1,"fields":["f"]}]}],"default_funnel_id":1,"shared_page_fields":[],"answer_fields":[{"internal_field":"f","label":"Second · f"}],"entry_fields":[{"internal_field":"utm_source","label":"UTM Source"},{"internal_field":"utm_medium","label":"UTM Medium"},{"internal_field":"utm_campaign","label":"UTM Campaign"},{"internal_field":"utm_content","label":"UTM Content"},{"internal_field":"device","label":"Device"},{"internal_field":"os","label":"OS"},{"internal_field":"state","label":"State"},{"internal_field":"hour","label":"Hour"},{"internal_field":"weekday","label":"Weekday"}],"offers":[],"feed_values":[]}</script></div>
+</style><div class="lg-qr-head"><div class="lg-qr-title">Routing rules</div><div class="lg-qr-desc">Rules decide which funnel a visitor sees, and can tag the lead, set the FB multiplier, or redirect. Lowest priority number wins when more than one matches.</div></div><div class="lg-qr-colhead"><span class="lg-qr-cprio">Priority</span><span class="lg-qr-cname">Name · Checkpoint · Conditions · Actions · Status</span></div><div class="lg-qr-list" id="lg-qr-list" data-pin="8.2-rules-table"><div data-qr-cards></div><div class="lg-qr-newbtn" data-pin="8.2-new-rule-btn" role="button" tabindex="0" data-qr-new>+ New rule</div></div><div class="lg-qr-overlay" id="lg-qr-modal" data-pin="8.2-rule-modal" role="dialog" aria-modal="true" aria-label="Routing rule" hidden><div class="lg-qr-modal card"><div class="lg-qr-modal-head"><h3 id="lg-qr-modal-title">New routing rule</h3><span class="lg-qr-x" role="button" tabindex="0" data-qr-cancel aria-label="Close">✖</span></div><div class="lg-qr-modal-body"><div class="lg-qr-fieldblock" data-pin="8.2-rule-name"><label class="lg-qr-label" for="lg-qr-name">Rule name<span class="lg-qr-req">*</span> <span class="lg-qr-opt">· up to 80 characters</span></label><input class="form-input" id="lg-qr-name" type="text" maxlength="80" data-qr-modal-name /></div><div class="lg-qr-grid2"><div data-pin="4.3-3-checkpoint"><label class="lg-qr-label">Checkpoint <span class="lg-qr-opt">· read-only</span></label><div class="lg-qr-readonly" data-qr-modal-checkpoint>Entry</div><div class="lg-qr-help">Derived from the conditions — where this rule can first apply.</div><div class="lg-qr-callout warn" data-qr-modal-a6 data-pin="A-6-inline" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>This rule can never apply before a visitor enters a funnel that asks these questions.</span></div></div><div data-pin="8.2-rule-priority"><label class="lg-qr-label" for="lg-qr-priority">Priority</label><input class="form-input" id="lg-qr-priority" type="number" min="1" max="100" step="1" value="100" data-qr-modal-priority /><div class="lg-qr-help">1 = highest priority, 100 = lowest.</div></div></div><div class="lg-qr-cardblock" data-pin="8.2-rule-conditions"><div class="lg-qr-cbhead"><span class="lg-qr-cbtitle">Conditions</span><div class="lg-qr-seg" data-pin="8.2-anyall" data-qr-matchmode><span class="lg-qr-segitem active" data-qr-match="all" role="button" tabindex="0">Match ALL</span><span class="lg-qr-segitem" data-qr-match="any" role="button" tabindex="0">Match ANY</span></div></div><div id="lg-qr-cond-mount"></div><input type="hidden" data-qr-cond-out /><div class="lg-qr-help">Sources: answer fields (by name) · UTM Source/Medium/Campaign/Content · Device · OS · State · Hour · Weekday. Operators map to eq · neq · gt · lt · gte · lte.</div></div><div data-pin="4.3-9-actions"><div class="lg-qr-actions-head"><span class="lg-qr-cbtitle">Actions</span> <span class="lg-qr-opt">· pick at least one</span></div><div class="lg-qr-arow" data-pin="action-target-funnel" data-qr-action="target_funnel"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Target funnel</div><div class="lg-qr-adesc">Serve this funnel to matching visitors.</div><select class="form-select" data-qr-target-funnel aria-label="Target funnel"><option value="">— choose a funnel —</option><option value="lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ" data-funnel-id="1">&lt;b&gt;Quote&lt;/b&gt; — Funnel A (Default)</option></select></div></div><div class="lg-qr-arow" data-pin="action-feed-name" data-qr-action="feed_name"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Feed name</div><div class="lg-qr-adesc">Tag matching leads for analytics &amp; offer routing.</div><input class="form-input" type="text" list="lg-qr-feeds" data-qr-feed-name aria-label="Feed name" /><datalist id="lg-qr-feeds"></datalist><div class="lg-qr-help" data-qr-feed-help>No feed names used yet.</div></div></div><div class="lg-qr-arow" data-pin="action-fb-multiplier" data-qr-action="value_multiplier"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">FB multiplier</div><div class="lg-qr-adesc">Replaces the base S2S multiplier for this conversion.</div><input class="form-input" type="number" step="any" min="0" data-qr-multiplier aria-label="FB multiplier" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-pct" data-qr-action="redirect_pct"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect %</div><div class="lg-qr-adesc">0 = no redirect. Share of matching sessions sent to the target instead of our funnel; the rest continue with the other actions.</div><input class="form-input" type="number" step="any" min="0" max="100" data-qr-redirect-pct aria-label="Redirect percent" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-target" data-qr-action="redirect_target"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect target</div><div class="lg-qr-adesc">Where redirected sessions go — an offer, or an allowlisted URL.</div><div class="lg-qr-seg" data-qr-target-mode><span class="lg-qr-segitem active" data-qr-mode="offer" role="button" tabindex="0">Offer</span><span class="lg-qr-segitem" data-qr-mode="url" role="button" tabindex="0">Allowlisted URL</span></div><select class="form-select" data-qr-target-offer aria-label="Redirect offer"><option value="">— choose an offer —</option></select><div data-qr-url-wrap hidden><input class="form-input" type="text" data-qr-redirect-url aria-label="Allowlisted redirect URL" placeholder="https://…" /><div class="lg-qr-help">Only hosts on the site allowlist can be entered here.</div></div></div></div></div><div class="lg-qr-errmsg" data-pin="A-11-validation" data-qr-action-error hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span>Pick at least one action for this rule.</div><p class="alert alert-error lg-qr-error" data-qr-modal-error role="alert" hidden></p><div class="lg-qr-sentence" data-pin="8.2-rule-sentence"><span class="lg-qr-sentlab">In plain language</span> <span data-qr-sentence></span></div></div><div class="lg-qr-modal-foot"><span class="btn btn-outline" role="button" tabindex="0" data-qr-cancel>Cancel</span><span class="btn btn-primary" role="button" tabindex="0" data-qr-save>Save rule</span></div></div></div><script id="lg-qr-data" type="application/json">{"quote_public_id":"lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507","rules":[],"funnels":[{"id":1,"public_id":"lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ","name":"\u003cb>Quote\u003c/b> — Funnel A","is_default":true,"pages":[{"position":0,"fields":["f"]},{"position":1,"fields":["f"]}]}],"default_funnel_id":1,"shared_page_fields":[],"answer_fields":[{"internal_field":"f","label":"Second · f"}],"entry_fields":[{"internal_field":"utm_source","label":"UTM Source"},{"internal_field":"utm_medium","label":"UTM Medium"},{"internal_field":"utm_campaign","label":"UTM Campaign"},{"internal_field":"utm_content","label":"UTM Content"},{"internal_field":"device","label":"Device"},{"internal_field":"os","label":"OS"},{"internal_field":"state","label":"State"},{"internal_field":"hour","label":"Hour"},{"internal_field":"weekday","label":"Weekday"}],"offers":[],"feed_values":[]}</script></div>
     </div>
   </div>
   <div class="lg-board-menus" data-board-menus>
@@ -605,7 +601,7 @@ html,body{height:100%;overflow-x:hidden}
     </div>
   </div>
   <div class="lg-template-menu lg-hidden" data-template-menu role="menu"></div>
-  <div class="lg-board-guard lg-hidden" data-funnel-settings role="dialog" aria-modal="true" aria-labelledby="lg-funnel-settings-title" data-settings-variant="lgn_01KZ1BWBS3RBHHKYAGKYKNHCD5">
+  <div class="lg-board-guard lg-hidden" data-funnel-settings role="dialog" aria-modal="true" aria-labelledby="lg-funnel-settings-title" data-settings-variant="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC">
     <div class="lg-board-guard-panel">
       <div class="lg-board-guard-head"><h3 id="lg-funnel-settings-title">Funnel settings</h3></div>
       <div class="lg-fsettings-body">
@@ -658,7 +654,7 @@ html,body{height:100%;overflow-x:hidden}
       </div>
     </div>
   </div>
-  <script type="application/json" id="lg-board-data">{"quote_public_id":"lgq_01KZ1BWBS3FVNM07FKP0KFE919","default_funnel_id":1,"shared_page_id":null,"shared_sections":[],"shared_slots":[],"funnels":[{"public_id":"lgf_01KZ1BWBS3H6GS50V8T5EW9PD6","id":1,"name":"\u003cb>Quote\u003c/b> — Funnel A","display_order":1,"is_default":true,"active_variant_public_id":"lgn_01KZ1BWBS3RBHHKYAGKYKNHCD5","arms":1,"frame_template_id":null,"settings":{"variant_public_id":"lgn_01KZ1BWBS3RBHHKYAGKYKNHCD5","lander_enabled":false,"lander_headline":"","lander_subheadline":"","lander_hero_media_url":"","funnel_design_id":"default","auction_id":null},"pages":[{"page_id":"lgpg_01KZ1BWBS4D871RXXNQ56YCKG4","slots":[{"slot_id":1,"kind":"fixed","section_ids":["lgs_01KZ1BWBS3QYED2XX3MKQSRTJ8"],"allocations":null,"rules":null}]},{"page_id":"lgpg_01KZ1BWBS497N0N81XDAFCG67M","slots":[{"slot_id":2,"kind":"fixed","section_ids":["lgs_01KZ1BWBS3GK68CG715AC3Y6DE"],"allocations":null,"rules":null}]}]}],"sections":[{"public_id":"lgs_01KZ1BWBS3GK68CG715AC3Y6DE","name":"Second","activity":"quote_funnel","vertical":"health"},{"public_id":"lgs_01KZ1BWBS3QYED2XX3MKQSRTJ8","name":"\u003ci>First\u003c/i>","activity":"quote_funnel","vertical":"life"}],"templates":[{"id":"centered","label":"Centered card"},{"id":"header-footer","label":"Site header + footer"},{"id":"header-cta","label":"Header + call CTA"},{"id":"full-background","label":"Full background"},{"id":"white-trust","label":"White + trust bar"},{"id":"minimal","label":"Minimal"}]}</script>
+  <script type="application/json" id="lg-board-data">{"quote_public_id":"lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507","default_funnel_id":1,"shared_page_id":null,"shared_sections":[],"shared_slots":[],"funnels":[{"public_id":"lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ","id":1,"name":"\u003cb>Quote\u003c/b> — Funnel A","display_order":1,"is_default":true,"active_variant_public_id":"lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC","arms":1,"frame_template_id":null,"settings":{"variant_public_id":"lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC","lander_enabled":false,"lander_headline":"","lander_subheadline":"","lander_hero_media_url":"","funnel_design_id":"default","auction_id":null},"pages":[{"page_id":"lgpg_01KZ1GZ0PRS7HVT48RZ2GZXX84","slots":[{"slot_id":1,"kind":"fixed","section_ids":["lgs_01KZ1GZ0PQ43Y2FR7DS5X5N21N"],"allocations":null,"rules":null}]},{"page_id":"lgpg_01KZ1GZ0PRHKH63HJXBCDTYWMX","slots":[{"slot_id":2,"kind":"fixed","section_ids":["lgs_01KZ1GZ0PQRRAQR4S76FE2WNTS"],"allocations":null,"rules":null}]}]}],"sections":[{"public_id":"lgs_01KZ1GZ0PQRRAQR4S76FE2WNTS","name":"Second","activity":"quote_funnel","vertical":"health"},{"public_id":"lgs_01KZ1GZ0PQ43Y2FR7DS5X5N21N","name":"\u003ci>First\u003c/i>","activity":"quote_funnel","vertical":"life"}],"templates":[{"id":"centered","label":"Centered card"},{"id":"header-footer","label":"Site header + footer"},{"id":"header-cta","label":"Header + call CTA"},{"id":"full-background","label":"Full background"},{"id":"white-trust","label":"White + trust bar"},{"id":"minimal","label":"Minimal"}]}</script>
 </div>
   <div class="lg-qpanel" data-panel="templates">
   <style>
@@ -1732,6 +1728,30 @@ html,body{height:100%;overflow-x:hidden}
     return out;
   }
 
+  // R2 P7 D2 / R1 — the funnel studio's stripIncompleteImagesForPreview died
+  // with the dead §4.1 canvas; this is its equivalent on the LIVE canvas path,
+  // widened to the two shapes it never covered. frames.ts validateImages
+  // refuses an image row unless it has (media_id OR a SAFE url) AND alt, and
+  // ONE such row 400s the WHOLE preview — measured live on this canvas: a URL
+  // pasted BEFORE the alt text is typed ("Preview failed: An image needs alt
+  // text.") and every keystroke of a half-typed URL ("…or a safe image URL.")
+  // left the canvas frozen on its last good render. The predicate mirrors
+  // validateImages/SAFE_HREF_RE 1:1 so a row the SERVER would render is never
+  // dropped from the canvas. Only this canvas draft is filtered — funnel.ts's
+  // collectImages (the SAVE collector) and PUT /funnels/:id/frame validation
+  // are untouched, so Save still rejects exactly the same row.
+  function previewSafeImageHref(raw) {
+    var s = String(raw).trim().toLowerCase();
+    if (s.indexOf('https://') === 0 || s.indexOf('http://') === 0) { return true; }
+    if (s.charAt(0) === '#' || s.indexOf('tel:') === 0 || s.indexOf('mailto:') === 0) { return true; }
+    return s.charAt(0) === '/' && s.charAt(1) !== '/';
+  }
+  function imageRowRenderable(mediaId, url, alt) {
+    if (String(alt).trim() === '') { return false; }
+    if (String(mediaId).trim() !== '') { return true; }
+    return String(url).trim() !== '' && previewSafeImageHref(url);
+  }
+
   function collectImages() {
     var rows = qa(tplListEl('images'), '[data-img-item-row]');
     var out = [];
@@ -1740,9 +1760,14 @@ html,body{height:100%;overflow-x:hidden}
       var mediaId = valOf(rows[i], '[data-list-field="media_id"]');
       var url = valOf(rows[i], '[data-img-item-url]');
       var alt = valOf(rows[i], '[data-img-item-alt]');
-      // PREVIEW-safe, same rule as the brand-logo items above: an image row
-      // with no media/url yet cannot render and would 400 the whole preview.
+      // the no-source short-circuit stays VERBATIM and first: it is the exact
+      // line the brand-logo collector above uses, the symmetry
+      // test/leadgen-templates-canvas-r2.test.ts pins across BOTH media-bearing
+      // collectors ("a half-typed image / brand-logo row never blanks the
+      // canvas"). imageRowRenderable then widens it to the alt / unsafe-url
+      // shapes that same drive measured.
       if (mediaId === '' && url === '') { continue; }
+      if (!imageRowRenderable(mediaId, url, alt)) { continue; }
       var idEl = q(rows[i], '[data-img-item-id]');
       var item = {
         id: (idEl && idEl.value) || ('img_preview_' + i),
@@ -3219,21 +3244,21 @@ html,body{height:100%;overflow-x:hidden}
   <div class="card">
     <h3>Traffic allocation (§16.2)</h3>
     <p class="form-help">Test this funnel against variants of itself — a different template, theme, sections, or rules. Add a variant, change what you want on it, then split the traffic below (must sum to <strong>100%</strong>; stored as basis points, per-test Σ == 10000) before a test can start. Equal arms; no control.</p>
-    <div id="lg-ab-variant-list" class="lg-alloc-list"><div class="lg-alloc-row" data-variant="lgn_01KZ1BWBS3RBHHKYAGKYKNHCD5">
+    <div id="lg-ab-variant-list" class="lg-alloc-list"><div class="lg-alloc-row" data-variant="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC">
     <span class="lg-alloc-label"><strong>A</strong></span>
     <label class="lg-alloc-pct"><input type="number" class="form-input lg-alloc-input" data-alloc-input
-      data-variant-id="lgn_01KZ1BWBS3RBHHKYAGKYKNHCD5" data-variant-label="A"
+      data-variant-id="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC" data-variant-label="A"
       min="0" max="100" step="0.01" value="100" /> %</label>
-    <p class="form-help" data-arm-overrides="lgn_01KZ1BWBS3RBHHKYAGKYKNHCD5">Same layout as funnel (no overrides)</p>
-    <p class="form-help" data-arm-varies="lgn_01KZ1BWBS3RBHHKYAGKYKNHCD5">Base variant</p>
+    <p class="form-help" data-arm-overrides="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC">Same layout as funnel (no overrides)</p>
+    <p class="form-help" data-arm-varies="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC">Base variant</p>
     
-    <p class="form-help lg-hidden" data-delete-variant-err="lgn_01KZ1BWBS3RBHHKYAGKYKNHCD5" role="alert"></p>
+    <p class="form-help lg-hidden" data-delete-variant-err="lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC" role="alert"></p>
   </div></div>
     <p class="lg-alloc-summary">Σ = <strong data-alloc-sum>&mdash;</strong> <span data-alloc-sum-note class="form-help"></span></p>
     <div class="toolbar">
       <button type="button" id="lg-save-allocations" class="btn btn-primary">Save allocations</button>
       <button type="button" id="lg-add-variant" class="btn btn-secondary" data-add-variant-state="no-test" disabled aria-disabled="true" aria-describedby="lg-add-variant-why" title="a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press &quot;Create A/B test&quot;, then &quot;Start A/B test&quot;, then add the variant.">Add variant&#8230;</button>
-      <button type="button" id="lg-create-experiment" class="btn btn-secondary" data-quote-public-id="lgq_01KZ1BWBS3FVNM07FKP0KFE919">Create A/B test</button>
+      <button type="button" id="lg-create-experiment" class="btn btn-secondary" data-quote-public-id="lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507">Create A/B test</button>
     </div>
     <p class="form-help lg-ab-order" data-ab-order>Order to A/B this funnel: <strong>1.</strong> Create A/B test &rarr; <strong>2.</strong> Start A/B test &rarr; <strong>3.</strong> Add variant (it becomes the test&#39;s second arm, split 50/50). Until a test is running the funnel keeps exactly one variant.</p>
     <p class="form-help lg-ab-add-why" id="lg-add-variant-why" data-add-variant-blocked="no-test" role="status">&#9888; <strong>Add variant is unavailable:</strong> a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press &quot;Create A/B test&quot;, then &quot;Start A/B test&quot;, then add the variant.</p>
@@ -3243,7 +3268,7 @@ html,body{height:100%;overflow-x:hidden}
   <div class="lg-qpanel" data-panel="activation">
   <div class="card">
     <h3>Activation preflight (§5.2)</h3>
-    <div id="lg-preflight-panel" data-preflight-state="blocked"><p class="lg-preflight-blocked-title">Cannot activate this Quote.</p><div id="lg-preflight-problems" data-problem-count="1"><div class="lg-problem-group" data-problem-scope="section"><h4 class="lg-problem-group-title">Slides</h4><div class="lg-problem-row" data-problem-severity="error" data-problem-path="activation.shared_page"><span class="lg-problem-chip" data-severity="error">Error</span><span class="lg-problem-msg">The shared first page needs at least one section.</span><a class="btn btn-sm btn-secondary" href="/admin/leadgen/quotes/lgq_01KZ1BWBS3FVNM07FKP0KFE919/edit">Open Quote Builder</a></div></div></div></div>
+    <div id="lg-preflight-panel" data-preflight-state="blocked"><p class="lg-preflight-blocked-title">Cannot activate this Quote.</p><div id="lg-preflight-problems" data-problem-count="1"><div class="lg-problem-group" data-problem-scope="section"><h4 class="lg-problem-group-title">Slides</h4><div class="lg-problem-row" data-problem-severity="error" data-problem-path="activation.shared_page"><span class="lg-problem-chip" data-severity="error">Error</span><span class="lg-problem-msg">The shared first page needs at least one section.</span><a class="btn btn-sm btn-secondary" href="/admin/leadgen/quotes/lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507/edit">Open Quote Builder</a></div></div></div></div>
   </div>
   <div class="card">
     <h3>Site activation (§17)</h3>
@@ -3292,7 +3317,7 @@ html,body{height:100%;overflow-x:hidden}
     <div class="lg-media-grid" id="lg-media-picker-grid"></div>
   </div>
 </div>
-  <script type="application/json" id="lg-quote-data">{"quote_public_id":"lgq_01KZ1BWBS3FVNM07FKP0KFE919","quote_id":"lgq_01KZ1BWBS3FVNM07FKP0KFE919","activity":"quote_funnel","selected_variant":"lgn_01KZ1BWBS3RBHHKYAGKYKNHCD5","selected_variant_is_control":true,"funnel_public_id":"lgf_01KZ1BWBS3H6GS50V8T5EW9PD6","sections":[{"public_id":"lgs_01KZ1BWBS3QYED2XX3MKQSRTJ8","name":"\u003ci>First\u003c/i>"},{"public_id":"lgs_01KZ1BWBS3GK68CG715AC3Y6DE","name":"Second"}],"frame":{"frame_config":null,"effective_frame":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"template_defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"problems":[]},"theme":{"theme":null,"effective_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"problems":[]},"base_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"templates":[{"id":"centered","label":"Centered card","defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-footer","label":"Site header + footer","defaults":{"version":1,"template":"header-footer","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"left","tagline":null,"secure_badge":{"enabled":true,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":true,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-cta","label":"Header + call CTA","defaults":{"version":1,"template":"header-cta","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"below_card","label":"Back","history_fallback":true},"disclosure":{"enabled":true,"location":"top_bar","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"full-background","label":"Full background","defaults":{"version":1,"template":"full-background","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"dots","position":"above_unit","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"brand_primary","image_media_id":null,"style":"brand"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"white-trust","label":"White + trust bar","defaults":{"version":1,"template":"white-trust","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"s","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"footer","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"card_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"minimal","label":"Minimal","defaults":{"version":1,"template":"minimal","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"under_header_left","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":false,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}}],"sites":[{"site_id":"site-1","site_name":"Site One","badge":"Not activated yet"}],"overrides":null,"preflight":{"ok":true,"quote_id":"lgq_01KZ1BWBS3FVNM07FKP0KFE919","funnel_id":"lgf_01KZ1BWBS3H6GS50V8T5EW9PD6","funnel_variant_id":"lgn_01KZ1BWBS3RBHHKYAGKYKNHCD5","blocks":[],"computed_at":1785678671655,"problems":[{"path":"activation.shared_page","scope":"section","severity":"error","message":"The shared first page needs at least one section.","fix_url":"/admin/leadgen/quotes/lgq_01KZ1BWBS3FVNM07FKP0KFE919/edit"}]}}</script>
+  <script type="application/json" id="lg-quote-data">{"quote_public_id":"lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507","quote_id":"lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507","activity":"quote_funnel","selected_variant":"lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC","selected_variant_is_control":true,"funnel_public_id":"lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ","sections":[{"public_id":"lgs_01KZ1GZ0PQ43Y2FR7DS5X5N21N","name":"\u003ci>First\u003c/i>"},{"public_id":"lgs_01KZ1GZ0PQRRAQR4S76FE2WNTS","name":"Second"}],"frame":{"frame_config":null,"effective_frame":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"template_defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"problems":[]},"theme":{"theme":null,"effective_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"problems":[]},"base_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"templates":[{"id":"centered","label":"Centered card","defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-footer","label":"Site header + footer","defaults":{"version":1,"template":"header-footer","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"left","tagline":null,"secure_badge":{"enabled":true,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":true,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-cta","label":"Header + call CTA","defaults":{"version":1,"template":"header-cta","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"below_card","label":"Back","history_fallback":true},"disclosure":{"enabled":true,"location":"top_bar","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"full-background","label":"Full background","defaults":{"version":1,"template":"full-background","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"dots","position":"above_unit","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"brand_primary","image_media_id":null,"style":"brand"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"white-trust","label":"White + trust bar","defaults":{"version":1,"template":"white-trust","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"s","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"footer","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"card_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"minimal","label":"Minimal","defaults":{"version":1,"template":"minimal","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"under_header_left","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":false,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}}],"sites":[{"site_id":"site-1","site_name":"Site One","badge":"Not activated yet"}],"overrides":null,"preflight":{"ok":true,"quote_id":"lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507","funnel_id":"lgf_01KZ1GZ0PQYS0QCP9GRC85EMXZ","funnel_variant_id":"lgn_01KZ1GZ0PQHPKXJ1JRFB13RMFC","blocks":[],"computed_at":1785684001499,"problems":[{"path":"activation.shared_page","scope":"section","severity":"error","message":"The shared first page needs at least one section.","fix_url":"/admin/leadgen/quotes/lgq_01KZ1GZ0PQ0V4Q29XFYZJTF507/edit"}]}}</script>
 </div></div>
     </main>
   </div>
@@ -4147,23 +4172,10 @@ if (!document.getElementById('toast-animations')) {
   var themeDirty = false;
   var overridesDirty = false;
   var overrideMode = {};
-  var viewport = 'desktop';
-  var previewMode = 'section';
-  var currentSlideId = slideList.length > 0 ? slideList[0].public_id : null;
-  var pages = [];
-  var pageIndex = 0;
-  // Phase D stepper perf (16 "all-slides stepper perf"): above this slide
-  // count, mode:'all' fetches ONE composed page per step (the additive
-  // page:k protocol) instead of the full pages[]; at or below it the eager
-  // pages[] flow is byte-identical to Phase B. pageCount is the stepper's
-  // authoritative total in BOTH flows; knownSectionCount tracks the server's
-  // section_count echo (boot value = the SSR slide list).
-  var LAZY_SLIDES_THRESHOLD = 8;
-  var pageCount = 0;
-  var knownSectionCount = slideList.length;
-  function lazyAllMode() { return knownSectionCount > LAZY_SLIDES_THRESHOLD; }
-  var lastCss = '';
-  var selectedRegion = null;
+  // R2 P7: the dead frame-studio canvas took its state with it (viewport,
+  // previewMode, currentSlideId, pages/pageIndex/pageCount, the lazy-stepper
+  // threshold, lastCss, selectedRegion). siteId stays — the persona-image and
+  // media-upload paths read it and [data-site-select] still sets it.
   var siteId = '';
 
   function templateDefaults(id) {
@@ -4245,7 +4257,6 @@ if (!document.getElementById('toast-animations')) {
     }
     markDirty();
     updateOverrideBadge();
-    schedulePreview();
   }
   function updateOverrideBadge() {
     var badge = byId('lg-override-badge');
@@ -4286,7 +4297,6 @@ if (!document.getElementById('toast-animations')) {
     }
     populateAllControls();
     updateOverrideBadge();
-    schedulePreview();
   });
 
   // --- inspector control binding ---------------------------------------------
@@ -4658,7 +4668,6 @@ if (!document.getElementById('toast-animations')) {
     markDirty();
     paintSwatches();
     markStripSelection();
-    schedulePreview();
   }
   // R2 P2 FIX-FIRST-2 (MAJOR-1 residue) — THE CONVERGENT PALETTE SEAM
   // (producer side; the consumer is quotes-tabs/themes.ts's own island).
@@ -4692,7 +4701,6 @@ if (!document.getElementById('toast-animations')) {
       paintSwatches();
       markStripSelection();
       updateOverrideBadge();
-      schedulePreview();
     } else {
       if (!isRecordVal(workingTheme.palette)) { workingTheme.palette = {}; }
       writeThemeValue('palette.' + role, value);
@@ -4721,7 +4729,7 @@ if (!document.getElementById('toast-animations')) {
       delete workingOverrides.theme.palette[resetRole];
       overridesDirty = true;
       markDirty();
-      paintSwatches(); markStripSelection(); updateOverrideBadge(); schedulePreview();
+      paintSwatches(); markStripSelection(); updateOverrideBadge();
       emitPaletteDraft(resetRole, null);
       return;
     }
@@ -5943,7 +5951,11 @@ if (!document.getElementById('toast-animations')) {
     var errEl = itemRow.querySelector('[data-img-item-gen-error]');
     var personaKey = personaEl ? personaEl.value : '';
     if (personaKey === '') { showInlineNote(errEl, 'Choose a persona first.'); return; }
-    if (!siteId) { showInlineNote(errEl, 'Choose a preview site (canvas toolbar, above) to generate a persona image.'); return; }
+    // R2 P7 D2 fallout: this used to send the operator to the "canvas
+    // toolbar, above" — a control the P3b board rewrite deleted. The preview
+    // site is chosen in the top bar's Preview site selector (#lg-site-chip /
+    // #lg-site-select), which is what this same siteId actually reads.
+    if (!siteId) { showInlineNote(errEl, 'Choose a preview site in the Preview site selector at the top of this page to generate a persona image.'); return; }
     showInlineNote(errEl, null);
     el.disabled = true;
     var altEl = itemRow.querySelector('[data-img-item-alt]');
@@ -6033,147 +6045,29 @@ if (!document.getElementById('toast-animations')) {
     });
   }());
 
-  // --- the canvas (server-rendered composed page in a srcdoc iframe) ---------
-  var canvas = byId('lg-preview-iframe');
-  var previewTimer = null;
-  // DEV-58 (Phase D): the draft params mirror the STORED columns 1:1 —
-  // draft_frame_config = the working FUNNEL frame, draft_theme = the working
-  // funnel theme, and UNSAVED per-arm override edits ride the ADDITIVE
-  // draft_frame_overrides param (the same frame+theme split as the stored
-  // column). The server substitutes the WORKING overrides for the stored
-  // ones in the same composition slot, so re-editing a field that ALREADY
-  // has a stored override previews the WORKING value exactly (render-only;
-  // nothing persists).
-  // R2 handoff (S2a's templates.ts idiom, adopted here — funnel.ts's
-  // collectors are SHARED save+preview, unlike templates.ts's separate
-  // canvas-only one): a half-typed images row (no media_id AND no url yet)
-  // cannot render and would 400 the WHOLE preview. This filters ONLY the
-  // draft CLONE the preview POST sends — workingFrame/workingOverrides (and
-  // therefore the actual Save PUT, funnelBase + '/frame' /
-  // frame_overrides_json) are UNTOUCHED, so Save still validates an
-  // incomplete row exactly as before ("save keeps validating").
-  function stripIncompleteImagesForPreview(images) {
-    if (!images || !images.length) { return images; }
-    var out = []; var i;
-    for (i = 0; i < images.length; i++) {
-      var it = images[i];
-      if (it && (it.media_id || it.url)) { out.push(it); }
-    }
-    return out;
-  }
-  function draftFrameConfig() {
-    var d = deepClone(workingFrame);
-    if (d.template === undefined) { d.template = currentTemplateId(); }
-    d.version = 1;
-    if (d.images) { d.images = stripIncompleteImagesForPreview(d.images); }
-    return d;
-  }
-  function draftTheme() {
-    return deepClone(workingTheme);
-  }
-  // Attach the per-arm overrides draft ONLY while the arm has unsaved
-  // override edits ({} substitutes "no overrides" for this render — the
-  // preview mirror of the save payload's null). Untouched arms keep the
-  // server-side STORED merge.
-  function draftOverridesParam(body) {
-    if (overridesDirty) {
-      var ov = deepClone(workingOverrides);
-      if (ov.images) { ov.images = stripIncompleteImagesForPreview(ov.images); }
-      body.draft_frame_overrides = ov;
-    }
-    return body;
-  }
-  function canvasStatus(text) {
-    var el = byId('lg-canvas-status');
-    if (el) { clearChildren(el); if (text) { el.appendChild(document.createTextNode(text)); } }
-  }
-  var REGION_SELECT_CSS = '[data-frame-region]{cursor:pointer}' +
-    '.lg-region-sel{outline:3px solid #2563eb;outline-offset:-3px}';
-  function setCanvasDoc(bodyHtml, css) {
-    if (!canvas) { return; }
-    canvas.style.width = viewport === 'mobile' ? '375px' : '1280px';
-    var doc = '<!doctype html><html><head><meta charset="utf-8"><style>' + (css || '') + REGION_SELECT_CSS + '</style></head><body>' + (bodyHtml || '') + '</body></html>';
-    canvas.setAttribute('srcdoc', doc);
-  }
-  function slideStillPresent(publicId) {
-    if (!publicId) { return false; }
-    var rows = root.querySelectorAll('.lg-section-row[data-section-public-id]');
-    var i;
-    for (i = 0; i < rows.length; i++) {
-      if (rows[i].getAttribute('data-section-public-id') === publicId) { return true; }
-    }
-    return false;
-  }
-  function previewBody(draftF) {
-    var body = draftOverridesParam({
-      mode: previewMode,
-      viewport: viewport,
-      draft_frame_config: draftF === undefined ? draftFrameConfig() : draftF,
-      draft_theme: draftTheme()
-    });
-    if (siteId) { body.site_id = siteId; }
-    // a removed/unsaved slide must not ride the POST (the server 400s on a
-    // public id outside the PERSISTED order) — fall back to the first slide.
-    if (previewMode === 'section' && currentSlideId && slideStillPresent(currentSlideId)) {
-      body.section_public_id = currentSlideId;
-    }
-    // Phase D stepper perf: long funnels fetch ONE composed page per step.
-    if (previewMode === 'all' && lazyAllMode()) { body.page = pageIndex + 1; }
-    return body;
-  }
-  // ONE preview endpoint for the canvas AND the theme mini preview (13 §13.4).
-  function previewUrl() { return '/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId) + '/preview'; }
-  // Monotonic render-request sequence: two overlapping preview POSTs can
-  // resolve out of order, and a stale (older) response must never overwrite
-  // the newer render. Every renderPreview call takes the next seq; a response
-  // (or failure) applies only while its seq is still the latest issued.
-  var previewSeq = 0;
-  function renderPreview(draftF) {
-    previewSeq += 1;
-    var seq = previewSeq;
-    fetch(previewUrl(), {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify(previewBody(draftF))
-    }).then(function (r) {
-      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
-    }).then(function (res) {
-      if (seq !== previewSeq) { return; } // stale — a newer request owns the canvas
-      if (!res.ok) {
-        canvasStatus(res.body && res.body.error ? 'Preview failed: ' + res.body.error : 'Preview failed');
-        return;
-      }
-      canvasStatus('');
-      var p = res.body.preview || {};
-      lastCss = p.css || '';
-      if (typeof p.section_count === 'number') { knownSectionCount = p.section_count; }
-      if (previewMode === 'all') {
-        if (typeof p.page === 'number') {
-          // Phase D lazy leg: ONE composed page (html) for step p.page.
-          pages = [];
-          pageCount = typeof p.section_count === 'number' ? p.section_count : 0;
-          if (pageIndex >= pageCount) { pageIndex = pageCount > 0 ? pageCount - 1 : 0; }
-          setCanvasDoc(p.html || '', lastCss);
-          updateStepLabel();
-        } else {
-          pages = p.pages || [];
-          pageCount = pages.length;
-          if (pageIndex >= pages.length) { pageIndex = 0; }
-          setCanvasDoc(pages[pageIndex] || '', lastCss);
-          updateStepLabel();
-        }
-      } else {
-        setCanvasDoc(p.html || '', lastCss);
-      }
-    }).catch(function () {
-      if (seq !== previewSeq) { return; } // stale failure — never clobber the newer render's status
-      canvasStatus('Preview failed: network error');
-    });
-  }
-  function schedulePreview() {
-    if (previewTimer) { window.clearTimeout(previewTimer); }
-    previewTimer = window.setTimeout(function () { previewTimer = null; renderPreview(); }, 300);
-  }
+  // R2 P7 (conformance sweep §4 "Exists but cannot be reached") — THE FRAME-
+  // STUDIO CANVAS ISLAND IS GONE. The P3b board rewrite deleted its DOM
+  // (renderBuilderPanel emits board + library + rules rail + dialogs: no
+  // iframe, no toolbar, no inspector, no banner) but left the whole island
+  // behind: #lg-preview-iframe / #lg-canvas-status / [data-region-panel] /
+  // #lg-slot-banner / [data-viewport-btn] / [data-preview-mode-btn] /
+  // #lg-step-* all resolve to 0 nodes in the served page, so the canvas var
+  // was permanently null and setCanvasDoc returned at its first guard.
+  //
+  // It was not merely clutter: schedulePreview() still fired from 11 live call
+  // sites (boot + every frame/theme/palette/site edit) and renderPreview POSTed
+  // /variants/:id/preview — a real server compose per builder edit — then threw
+  // the whole composed response into the null iframe. Removed here with every
+  // now-unreachable call site and the state that served only them (canvas,
+  // previewTimer, previewSeq, viewport, previewMode, pages/pageIndex/pageCount,
+  // knownSectionCount/LAZY_SLIDES_THRESHOLD/lazyAllMode, lastCss,
+  // selectedRegion, currentSlideId).
+  //
+  // The Templates tab's canvas (#lg-tpl-canvas-iframe) is a DIFFERENT, LIVE
+  // island with its own renderCanvasPreview/scheduleCanvasPreview against the
+  // same endpoint (quotes-tabs/templates.ts) — untouched, still previewing.
+  // siteId stays: the persona-image and upload paths below read it, and the
+  // [data-site-select] handler that sets it is emitted by templates.ts/shared.ts.
 
   // ==========================================================================
   // P6b — theme PRESETS (the KV lg-funnel-themes catalog): a picker to apply
@@ -6399,130 +6293,6 @@ if (!document.getElementById('toast-animations')) {
   // activate('themes') hook above also refreshes it on every switch).
   loadThemePresetOptions();
 
-  // --- region click-select (same-origin contentDocument delegation) ----------
-  function outlineSelection(doc) {
-    var all = doc.querySelectorAll('[data-frame-region]');
-    var i;
-    for (i = 0; i < all.length; i++) {
-      var name = all[i].getAttribute('data-frame-region');
-      var match = selectedRegion !== null && (name === selectedRegion || (selectedRegion === 'header' && name === 'logo'));
-      var cls = String(all[i].className || '').replace(/\s*lg-region-sel/g, '');
-      all[i].className = match ? cls + ' lg-region-sel' : cls;
-    }
-  }
-  function showRegionPanel(name) {
-    var panels = root.querySelectorAll('[data-region-panel]');
-    var i;
-    for (i = 0; i < panels.length; i++) {
-      panels[i].className = panels[i].getAttribute('data-region-panel') === name
-        ? 'lg-inspector-panel lg-panel-card active' : 'lg-inspector-panel lg-panel-card';
-    }
-    var hint = byId('lg-inspector-hint');
-    if (hint) { hint.hidden = name !== null && name !== undefined; }
-  }
-  function hideSlotBanner() {
-    var banner = byId('lg-slot-banner');
-    if (banner) { banner.className = 'lg-slot-banner lg-hidden'; }
-  }
-  function showSlotBanner() {
-    var banner = byId('lg-slot-banner');
-    if (!banner) { return; }
-    var link = byId('lg-slot-banner-open');
-    if (link) {
-      link.setAttribute('href', currentSlideId
-        ? '/admin/leadgen/sections/' + encodeURIComponent(currentSlideId) + '/edit'
-        : '/admin/leadgen/sections');
-    }
-    banner.className = 'lg-slot-banner';
-  }
-  function selectRegion(name) {
-    selectedRegion = name;
-    showRegionPanel(name);
-    if (canvas && canvas.contentDocument) { outlineSelection(canvas.contentDocument); }
-  }
-  function onCanvasClick(ev) {
-    if (ev.preventDefault) { ev.preventDefault(); }
-    var node = ev.target;
-    var interior = false;
-    var region = null;
-    while (node && node.getAttribute) {
-      if (node.getAttribute('data-lg-section') !== null || node.getAttribute('data-lg-slot-placeholder') !== null) { interior = true; }
-      var r = node.getAttribute('data-frame-region');
-      if (r !== null && r !== undefined && r !== '') { region = r; break; }
-      node = node.parentNode;
-    }
-    if (region === 'logo') { region = 'header'; }
-    if (region === 'section_slot' && interior) { showSlotBanner(); return; }
-    hideSlotBanner();
-    // 04 §4.1/§4.4 background fallback: the .lg-frame-background layer is
-    // pointer-events:none BEHIND the content (frame CSS), so a canvas click
-    // can never target it. A click whose walk found NO region and NO
-    // slot-interior landed on #lg-funnel-root itself (or bare canvas) — the
-    // page background IS what was clicked. A real region hit above always
-    // wins (the walk broke on the nearest data-frame-region stamp).
-    if (region === null && !interior) { region = 'background'; }
-    if (region !== null) { selectRegion(region); }
-  }
-  if (canvas) {
-    canvas.addEventListener('load', function () {
-      var doc = canvas.contentDocument;
-      if (!doc) { return; }
-      doc.addEventListener('click', onCanvasClick);
-      outlineSelection(doc);
-    });
-  }
-
-  // --- toolbar: viewport / preview mode / stepper / site / variant mirror ----
-  function pressGroup(attr, value) {
-    var buttons = root.querySelectorAll('[' + attr + ']');
-    var i;
-    for (i = 0; i < buttons.length; i++) {
-      buttons[i].setAttribute('aria-pressed', buttons[i].getAttribute(attr) === value ? 'true' : 'false');
-    }
-  }
-  root.addEventListener('click', function (ev) {
-    var el = ev.target;
-    if (!el || !el.getAttribute) { return; }
-    var vp = el.getAttribute('data-viewport-btn');
-    if (vp !== null) { viewport = vp; pressGroup('data-viewport-btn', vp); schedulePreview(); return; }
-    var pm = el.getAttribute('data-preview-mode-btn');
-    if (pm !== null) {
-      previewMode = pm;
-      pressGroup('data-preview-mode-btn', pm);
-      var steps = byId('lg-step-controls');
-      if (steps) { steps.className = pm === 'all' ? 'lg-step-controls' : 'lg-step-controls lg-hidden'; }
-      pageIndex = 0;
-      schedulePreview();
-      return;
-    }
-  });
-  function updateStepLabel() {
-    var label = byId('lg-step-label');
-    if (label) {
-      clearChildren(label);
-      // pageCount == pages.length in the eager flow (byte-identical label);
-      // in the lazy flow it is the server's section_count echo.
-      label.appendChild(document.createTextNode('Slide ' + (pageCount === 0 ? 0 : pageIndex + 1) + ' of ' + pageCount));
-    }
-  }
-  (function () {
-    var prev = byId('lg-step-prev');
-    var next = byId('lg-step-next');
-    // Eager flow (≤ threshold): swap the already-fetched page locally.
-    // Lazy flow (> threshold): fetch the ONE composed page for the new step
-    // (renderPreview reads pageIndex through previewBody's page param); the
-    // label updates in renderPreview's completion path AFTER that per-step
-    // response lands — canvas and label always move together (a stale
-    // response never leaves the label ahead of the canvas; the seq guard
-    // drops it for both).
-    function showStep() {
-      if (lazyAllMode()) { renderPreview(); return; }
-      setCanvasDoc(pages[pageIndex] || '', lastCss);
-      updateStepLabel();
-    }
-    if (prev) { prev.addEventListener('click', function () { if (pageIndex > 0) { pageIndex--; showStep(); } }); }
-    if (next) { next.addEventListener('click', function () { if (pageIndex < pageCount - 1) { pageIndex++; showStep(); } }); }
-  }());
   (function () {
     var selects = root.querySelectorAll('[data-site-select]');
     var i;
@@ -6530,7 +6300,6 @@ if (!document.getElementById('toast-animations')) {
       siteId = this.value || '';
       var j;
       for (j = 0; j < selects.length; j++) { if (selects[j] !== this) { selects[j].value = siteId; } }
-      schedulePreview();
     }
     for (i = 0; i < selects.length; i++) { selects[i].addEventListener('change', onSiteChange); }
     // R2 handoff: sync this tab's site select at INIT so it agrees with the
@@ -6565,24 +6334,6 @@ if (!document.getElementById('toast-animations')) {
   // removed — confirmed dead for the SAME reason as #lg-variant-select
   // above (the P3b board rewrite removed the canvas's own variant-select
   // mirror along with the canvas that hosted it).
-
-  // --- structure panel: slide selection --------------------------------------
-  root.addEventListener('click', function (ev) {
-    var el = ev.target;
-    if (!el || !el.getAttribute || el.getAttribute('data-select-slide') === null) { return; }
-    var row = el;
-    while (row && row.getAttribute && row.getAttribute('data-section-public-id') === null) { row = row.parentNode; }
-    if (!row || !row.getAttribute) { return; }
-    currentSlideId = row.getAttribute('data-section-public-id') || null;
-    var rows = root.querySelectorAll('.lg-structure-row[data-section-public-id]');
-    var i;
-    for (i = 0; i < rows.length; i++) {
-      var cls = String(rows[i].className).replace(/\s*lg-slide-current/g, '');
-      rows[i].className = rows[i] === row ? cls + ' lg-slide-current' : cls;
-    }
-    if (previewMode === 'section') { schedulePreview(); }
-  });
-
   // §10/S5.1: the OLD canvas-embedded "6-arrangement template picker" wiring
   // (togglePanel/#lg-template-btn/#lg-template-picker/showTemplateConfirm/
   // hideTemplateConfirm/#lg-template-confirm/the data-template-pick card
@@ -6605,7 +6356,6 @@ if (!document.getElementById('toast-animations')) {
   initOverrideSwitches();
   populateAllControls();
   updateOverrideBadge();
-  schedulePreview();
 
   // --- A/B (§16.2): allocation Σ, save, lifecycle (create/start/stop), preview -
   function allocInputs() { return root.querySelectorAll('[data-alloc-input]'); }
@@ -8227,30 +7977,59 @@ if (!document.getElementById('toast-animations')) {
 
   // ---- sentences ------------------------------------------------------------
 
-  function fmtValue(v) {
+  // ADJ-N8 mirror of resolveChoiceValueText/valueResolver: label → humanized
+  // token (choice field only) → verbatim (no choices).
+  function humanizeToken(token) {
+    var spaced = String(token).replace(/[_-]+/g, ' ').replace(/^\s+|\s+$/g, '');
+    if (spaced === '') { return String(token); }
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  }
+  function makeValueOf(fieldsArg) {
+    return function (field, v) {
+      var raw = (v === undefined || v === null) ? '' : String(v);
+      var i, j, choices;
+      for (i = 0; i < fieldsArg.length; i++) {
+        if (fieldsArg[i].internal_field !== field) { continue; }
+        choices = isArr(fieldsArg[i].choices) ? fieldsArg[i].choices : null;
+        if (!choices || choices.length === 0) { return raw; }
+        for (j = 0; j < choices.length; j++) {
+          if (String(choices[j].value) === raw && choices[j].label) { return String(choices[j].label); }
+        }
+        return humanizeToken(raw);
+      }
+      return raw;
+    };
+  }
+  function fmtValue(v, field, valueOf) {
     if (typeof v === 'boolean') { return v ? 'Yes' : 'No'; }
-    if (typeof v === 'number') { return String(v); }
+    if (typeof v === 'number' && !valueOf) { return String(v); }
     if (v === undefined || v === '') { return '""'; }
+    if (valueOf && field !== undefined) {
+      var resolved = valueOf(field, v);
+      if (typeof v === 'number' && resolved === String(v)) { return resolved; }
+      return '"' + resolved + '"';
+    }
     return '"' + v + '"';
   }
-  function fmtList(chips) {
+  function fmtList(chips, field, valueOf) {
     if (!chips || chips.length === 0) { return '(no values yet)'; }
     var parts = [];
     var i;
-    for (i = 0; i < chips.length; i++) { parts.push(fmtValue(chips[i].value)); }
+    for (i = 0; i < chips.length; i++) { parts.push(fmtValue(chips[i].value, field, valueOf)); }
     return parts.join(', ');
   }
-  function rowSentence(row, labelOf) {
+  function rowSentence(row, labelOf, valueOf) {
     var label = row.field === '' ? '(choose a field)' : labelOf(row.field);
-    if (row.op === 'eq') { return label + ' is ' + fmtValue(row.value); }
-    if (row.op === 'neq') { return label + ' is not ' + fmtValue(row.value); }
-    if (row.op === 'gt') { return label + ' is greater than ' + fmtValue(row.value); }
-    if (row.op === 'lt') { return label + ' is less than ' + fmtValue(row.value); }
-    if (row.op === 'gte') { return label + ' is at least ' + fmtValue(row.value); }
-    if (row.op === 'lte') { return label + ' is at most ' + fmtValue(row.value); }
+    var f = row.field;
+    if (row.op === 'eq') { return label + ' is ' + fmtValue(row.value, f, valueOf); }
+    if (row.op === 'neq') { return label + ' is not ' + fmtValue(row.value, f, valueOf); }
+    if (row.op === 'gt') { return label + ' is greater than ' + fmtValue(row.value, f, valueOf); }
+    if (row.op === 'lt') { return label + ' is less than ' + fmtValue(row.value, f, valueOf); }
+    if (row.op === 'gte') { return label + ' is at least ' + fmtValue(row.value, f, valueOf); }
+    if (row.op === 'lte') { return label + ' is at most ' + fmtValue(row.value, f, valueOf); }
     if (row.op === 'range') { return label + ' is between ' + String(finiteNum(row.from) ? row.from : 0) + ' and ' + String(finiteNum(row.to) ? row.to : 0); }
-    if (row.op === 'in') { return label + ' is any of ' + fmtList(row.values); }
-    if (row.op === 'not_in') { return label + ' is none of ' + fmtList(row.values); }
+    if (row.op === 'in') { return label + ' is any of ' + fmtList(row.values, f, valueOf); }
+    if (row.op === 'not_in') { return label + ' is none of ' + fmtList(row.values, f, valueOf); }
     if (row.op === 'is_empty') { return label + ' is empty'; }
     return label + ' is not empty';
   }
@@ -8264,7 +8043,7 @@ if (!document.getElementById('toast-animations')) {
     }
     return out;
   }
-  function cardSentence(rows, labelOf) {
+  function cardSentence(rows, labelOf, valueOf) {
     if (rows.length === 0) { return 'Always matches \u2014 no conditions.'; }
     var clusters = clustersOf(normalizeClusterOrder(rows));
     var parts = [];
@@ -8272,7 +8051,7 @@ if (!document.getElementById('toast-animations')) {
     for (i = 0; i < clusters.length; i++) {
       var inner = [];
       var j;
-      for (j = 0; j < clusters[i].rows.length; j++) { inner.push(rowSentence(clusters[i].rows[j], labelOf)); }
+      for (j = 0; j < clusters[i].rows.length; j++) { inner.push(rowSentence(clusters[i].rows[j], labelOf, valueOf)); }
       var s = inner.join(' or ');
       parts.push(clusters[i].rows.length > 1 ? '(' + s + ')' : s);
     }
@@ -8338,7 +8117,7 @@ if (!document.getElementById('toast-animations')) {
       state.ext.value = json;
       if (!silent) { fire(state.ext, 'input'); fire(state.ext, 'change'); }
     }
-    if (state.sentenceEl) { state.sentenceEl.textContent = cardSentence(state.rows, state.labelOf); }
+    if (state.sentenceEl) { state.sentenceEl.textContent = cardSentence(state.rows, state.labelOf, state.valueOf); }
     if (state.jsonEl && state.mode !== 'raw') {
       try { state.jsonEl.textContent = JSON.stringify(JSON.parse(json), null, 2); }
       catch (e) { state.jsonEl.textContent = json; }
@@ -8775,6 +8554,7 @@ if (!document.getElementById('toast-animations')) {
     var mirror = data.rules.length === 1;
     var fields = isArr(data.fields) ? data.fields : [];
     var labelOf = makeLabelOf(fields);
+    var valueOf = makeValueOf(fields);
 
     var i;
     for (i = 0; i < data.rules.length; i++) {
@@ -8785,7 +8565,7 @@ if (!document.getElementById('toast-animations')) {
       if (entry.unsupported_reason) {
         // Raw fallback: SSR already carries the exact original bytes in the
         // hidden input + Advanced view; the island must never rewrite them.
-        states.push({ index: entry.index, mode: 'raw', raw: entry.raw, rows: [], out: out, ext: null, mirror: false, labelOf: labelOf, fields: fields, card: card });
+        states.push({ index: entry.index, mode: 'raw', raw: entry.raw, rows: [], out: out, ext: null, mirror: false, labelOf: labelOf, valueOf: valueOf, fields: fields, card: card });
         continue;
       }
       var state = {
@@ -8797,6 +8577,7 @@ if (!document.getElementById('toast-animations')) {
         ext: ext,
         mirror: mirror,
         labelOf: labelOf,
+        valueOf: valueOf,
         fields: fields,
         card: card,
         zone: card.querySelector('[data-lg-rb-clusters]'),
@@ -8843,7 +8624,7 @@ if (!document.getElementById('toast-animations')) {
       details.appendChild(pre);
       container.appendChild(details);
       out.value = rawString;
-      var rawState = { index: -1, mode: 'raw', raw: rawString, rows: [], out: out, ext: null, mirror: false, labelOf: makeLabelOf(fields), fields: fields, card: container };
+      var rawState = { index: -1, mode: 'raw', raw: rawString, rows: [], out: out, ext: null, mirror: false, labelOf: makeLabelOf(fields), valueOf: makeValueOf(fields), fields: fields, card: container };
       states.push(rawState);
       return { state: rawState, serialize: function () { return rawString; } };
     }
@@ -8875,6 +8656,7 @@ if (!document.getElementById('toast-animations')) {
       ext: opts.mirrorEl || null,
       mirror: !!opts.mirrorEl,
       labelOf: makeLabelOf(fields),
+      valueOf: makeValueOf(fields),
       fields: fields,
       card: container,
       zone: zone,
@@ -9040,11 +8822,35 @@ if (!document.getElementById('toast-animations')) {
     var m = { eq: 'is', neq: 'is not', gt: 'greater than', lt: 'less than', gte: 'at least', lte: 'at most', range: 'between', 'in': 'in', not_in: 'not in' };
     return m[op] || op;
   }
-  function valueText(g) {
+  // ADJ-N8 (owner A.1 #11C "using jargon") — mirror of the SSR
+  // qrFieldChoices/resolveChoiceValueText pair: a choice question's stored slug
+  // is printed as the operator's own choice LABEL; a slug with no surviving
+  // choice degrades to humanized words; a field with no choices (free text /
+  // UTM / number) keeps its stored string verbatim.
+  function humanizeChoiceToken(token) {
+    var spaced = String(token).replace(/[_-]+/g, ' ').replace(/^\s+|\s+$/g, '');
+    if (spaced === '') { return String(token); }
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  }
+  function choiceValueText(field, v) {
+    var raw = (v === undefined || v === null) ? '' : String(v);
+    var i, j, choices;
+    for (i = 0; i < answerFields.length; i++) {
+      if (answerFields[i].internal_field !== field) { continue; }
+      choices = isArr(answerFields[i].choices) ? answerFields[i].choices : null;
+      if (!choices || choices.length === 0) { return raw; }
+      for (j = 0; j < choices.length; j++) {
+        if (String(choices[j].value) === raw && choices[j].label) { return String(choices[j].label); }
+      }
+      return humanizeChoiceToken(raw);
+    }
+    return raw;
+  }
+  function valueText(g, field) {
     if (g.op === 'range') { return String(g.from == null ? '' : g.from) + '\u2013' + String(g.to == null ? '' : g.to); }
-    if (g.op === 'in' || g.op === 'not_in') { var vals = isArr(g.values) ? g.values : []; var out = []; var i; for (i = 0; i < vals.length; i++) { out.push(String(vals[i])); } return out.join(', '); }
+    if (g.op === 'in' || g.op === 'not_in') { var vals = isArr(g.values) ? g.values : []; var out = []; var i; for (i = 0; i < vals.length; i++) { out.push(choiceValueText(field, vals[i])); } return out.join(', '); }
     if (typeof g.value === 'boolean') { return g.value ? 'Yes' : 'No'; }
-    return g.value == null ? '' : String(g.value);
+    return g.value == null ? '' : choiceValueText(field, g.value);
   }
   function conditionChips(rule) {
     var conditions = rule.conditions_json;
@@ -9054,7 +8860,7 @@ if (!document.getElementById('toast-animations')) {
     for (i = 0; i < conditions.groups.length; i++) {
       var g = conditions.groups[i];
       if (!g || typeof g !== 'object') { continue; }
-      chips.push(fieldLabel(g.field || '') + ' ' + opWord(g.op || 'eq') + ' ' + valueText(g));
+      chips.push(fieldLabel(g.field || '') + ' ' + opWord(g.op || 'eq') + ' ' + valueText(g, g.field || ''));
     }
     return chips.length > 0 ? chips : ['Always'];
   }
@@ -9164,7 +8970,10 @@ if (!document.getElementById('toast-animations')) {
   function combinedFields() {
     var out = [];
     var i;
-    for (i = 0; i < answerFields.length; i++) { out.push({ internal_field: answerFields[i].internal_field, label: 'Answer: ' + answerFields[i].label }); }
+    // ADJ-N8 — the choice map rides along so the mounted §21.4 builder's own
+    // "Matches when ..." line resolves the value side too (the modal shows
+    // BOTH sentences; fixing only one leaves the jargon on screen).
+    for (i = 0; i < answerFields.length; i++) { out.push({ internal_field: answerFields[i].internal_field, label: 'Answer: ' + answerFields[i].label, choices: isArr(answerFields[i].choices) ? answerFields[i].choices : null }); }
     for (i = 0; i < entryFields.length; i++) { out.push({ internal_field: entryFields[i].internal_field, label: entryFields[i].label }); }
     return out;
   }

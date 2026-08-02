@@ -729,6 +729,13 @@ describeDb("15 §15.2 glossary-lint — normal-mode language over the emitted bu
     expect(studio.normal).not.toContain("Raw node JSON");
   });
 
+  // ONE scanner for the C6 ban and its calibration below: the WORD "slide"
+  // (slide/slides/slideshow…) in any casing, with 20 chars of context. Exempt
+  // by regex shape: "slider" (ARIA role, ::-webkit-slider-thumb, the §8.3 item
+  // name) and interior identifier fragments (toastSlideIn has no word boundary
+  // before "Slide"). A fresh RegExp per call — matchAll refuses a shared /g/.
+  const c6SlideScanner = (): RegExp => /.{0,20}\bslide(?!r)[a-z]*.{0,20}/gi;
+
   it("C6: 'slide' never appears ANYWHERE in the served Section-Builder pages (full page — supersedes the wave-1 studio lint)", async () => {
     const all = await pages();
     const violations: string[] = [];
@@ -737,17 +744,31 @@ describeDb("15 §15.2 glossary-lint — normal-mode language over the emitted bu
       // regex shape: "slider" (ARIA role, ::-webkit-slider-thumb, the §8.3
       // item name) and interior identifier fragments (toastSlideIn has no
       // word boundary before "Slide").
-      const hits = [...p.raw.matchAll(/.{0,20}\bslide(?!r)[a-z]*.{0,20}/gi)].map((m) => `${p.label} :: ${m[0]}`);
+      const hits = [...p.raw.matchAll(c6SlideScanner())].map((m) => `${p.label} :: ${m[0]}`);
       violations.push(...hits);
     }
     expect(violations, `Section-Builder pages say 'slide' ${violations.length}x`).toEqual([]);
   });
 
-  it("C6 calibration: 'Slide' remains ALLOWED Quote-Builder vocabulary (the quote editor still says it)", async () => {
+  it("C6 calibration: the scanner really fires — 'slide' remains ALLOWED Quote-Builder vocabulary", async () => {
     const all = await pages();
     const quotesEdit = all.find((x) => x.label === "quotes-edit")!;
-    // the all-slides stepper label — SSR'd "Slide 1" + island "Slide N of M"
-    expect(quotesEdit.raw).toMatch(/\bSlide\b/);
+    // RE-ANCHORED (P7 D2 fallout / R2). This used to pin /\bSlide\b/ — the
+    // capitalised all-slides stepper label ("Slide 1", island "Slide N of M").
+    // 87f64f0 deleted that stepper with the dead §4.1 canvas, so the pinned
+    // string no longer exists ANYWHERE and the calibration had stopped
+    // calibrating: a C6 scan whose control word cannot be found is a scan
+    // that can no longer fail. Re-anchored to the SAME scanner the C6 case
+    // above runs (not a second hand-written regex) over the word that IS
+    // still Quote-Builder vocabulary — the lower-case "slide"/"slides" of the
+    // live scope/progress copy — so the Section-Builder assertion keeps its
+    // teeth: this proves the pattern finds real hits when they exist.
+    const hits = [...quotesEdit.raw.matchAll(c6SlideScanner())].map((m) => m[0]);
+    expect(hits.length, "the C6 scanner finds Quote-Builder 'slide' copy").toBeGreaterThan(0);
+    // …and it is real operator COPY, not an identifier or a stylesheet name:
+    // the two live scope/progress sentences the Quote Builder still shows.
+    expect(quotesEdit.raw).toContain("affects every slide and every component default of this funnel");
+    expect(quotesEdit.raw).toContain("Progress counts the slides of this funnel variant automatically.");
   });
 
   it("raw component type identifiers never appear as normal-mode operator copy (both builders)", async () => {

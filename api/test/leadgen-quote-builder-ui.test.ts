@@ -512,20 +512,31 @@ describeDb("Quote Builder frame studio — §4.1 panels", () => {
     expect(html).not.toContain('id="lg-slot-banner"');
   });
 
-  it("E4: the island's click-walk resolves a no-region canvas click to `background` (the served layer is pointer-events:none behind #lg-funnel-root and can never be the click target)", async () => {
+  // RETIRED (P7 D2 fallout / R2, commit 87f64f0). This pinned two SOURCE LINES
+  // of onCanvasClick — the click delegation the island wired onto the frame
+  // studio's #lg-preview-iframe. The P3b board rewrite (§8.2/§10) had already
+  // deleted that canvas DOM, so the walk could never run; 87f64f0 deleted the
+  // orphaned island code, so the pinned strings no longer exist and the claim
+  // ("a bare canvas click reaches the §4.4 Background inspector") has no
+  // surface left to be true or false on — there is no canvas to click.
+  // WHAT COVERS THE SURVIVING BEHAVIOUR: the §4.4 Background inspector is now
+  // opened by the Templates tab's element box picker
+  // (data-tplbox-pick="background" -> data-tplbox-panel="background"), pinned
+  // in test/leadgen-element-j-r2.test.ts ("the footer tile is lettered J, sits
+  // LAST, and neither A–F nor I·Progress moved" — it asserts the exact
+  // "A:Background" tile) and driven behaviourally in
+  // test/leadgen-quote-builder-seam.test.ts's E4 retirement block. The sibling
+  // absence-proofs directly above ("the OLD canvas toolbar is gone", "the OLD
+  // section-slot interior banner is gone") already hold this file's end of it;
+  // this case adds the click-walk's own removal to them.
+  it("the OLD canvas click-walk is gone (§8.2/§10 + P7 D2: no canvas, no delegation)", async () => {
     const { html } = await harness();
     const island = html.match(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)!.join("\n");
-    // the walk-miss fallback: no data-frame-region ancestor + no slot
-    // interior → the background region (04 §4.1 click-select reaches the
-    // §4.4 Background inspector)
-    const fallbackSrc = "if (region === null && !interior) { region = 'background'; }";
-    expect(island).toContain(fallbackSrc);
-    // precedence: the slot-interior banner short-circuit RETURNS before the
-    // fallback line runs, and a real region hit breaks the walk before both
-    const bannerSrc = "if (region === 'section_slot' && interior) { showSlotBanner(); return; }";
-    const bannerAt = island.indexOf(bannerSrc);
-    expect(bannerAt).toBeGreaterThan(-1);
-    expect(island.indexOf(fallbackSrc)).toBeGreaterThan(bannerAt);
+    expect(island).not.toContain("if (region === null && !interior) { region = 'background'; }");
+    expect(island).not.toContain("if (region === 'section_slot' && interior) { showSlotBanner(); return; }");
+    expect(island).not.toContain("function onCanvasClick(");
+    expect(island).not.toContain("function showSlotBanner(");
+    expect(html).not.toContain('id="lg-preview-iframe"');
   });
 
   it("top bar: publish chip (14 §14.2 count copy), activity chip, site selector chip, one Save", async () => {

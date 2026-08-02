@@ -1,0 +1,347 @@
+{
+ "quote": "lgq_01KZ1H3N4AEC29ACFF1V7RZ8MT",
+ "steps": [
+  {
+   "name": "0-boot (no image row)",
+   "canvas": {
+    "srcdocLen": 69742,
+    "srcdocHead": "<!doctype html><html><head><meta charset=\"utf-8\"><style>[data-funnel-design=\"default-funne",
+    "status": ""
+   },
+   "lastPreviewStatus": 200,
+   "imagesInBody": []
+  },
+  {
+   "name": "A-alt-only (no media_id, no url)",
+   "canvas": {
+    "srcdocLen": 69742,
+    "srcdocHead": "<!doctype html><html><head><meta charset=\"utf-8\"><style>[data-funnel-design=\"default-funne",
+    "status": ""
+   },
+   "lastPreviewStatus": 200,
+   "imagesInBody": []
+  },
+  {
+   "name": "B-url-set, alt EMPTY",
+   "canvas": {
+    "srcdocLen": 69742,
+    "srcdocHead": "<!doctype html><html><head><meta charset=\"utf-8\"><style>[data-funnel-design=\"default-funne",
+    "status": ""
+   },
+   "lastPreviewStatus": 200,
+   "imagesInBody": []
+  },
+  {
+   "name": "C-partial url 'htt' + alt",
+   "canvas": {
+    "srcdocLen": 69742,
+    "srcdocHead": "<!doctype html><html><head><meta charset=\"utf-8\"><style>[data-funnel-design=\"default-funne",
+    "status": ""
+   },
+   "lastPreviewStatus": 200,
+   "imagesInBody": []
+  },
+  {
+   "name": "D-complete row (url + alt)",
+   "canvas": {
+    "srcdocLen": 70050,
+    "srcdocHead": "<!doctype html><html><head><meta charset=\"utf-8\"><style>[data-funnel-design=\"default-funne",
+    "status": ""
+   },
+   "lastPreviewStatus": 200,
+   "imagesInBody": [
+    {
+     "id": "img_1785684165699_35344",
+     "alt": "Persona portrait",
+     "slot": "above_section",
+     "size": "s",
+     "align": "left",
+     "url": "https://example.com/portrait.png"
+    }
+   ],
+   "imgTagInCanvas": true
+  }
+ ],
+ "previews": [
+  {
+   "phase": "req",
+   "url": "http://127.0.0.1:8901/api/admin/leadgen/sections/preview",
+   "body": {
+    "content_json": {
+     "components": [
+      {
+       "type": "QuestionHeadline",
+       "question_id": "r2fix_q_head",
+       "props": {
+        "text": "Which carrier do you want a quote from?"
+       }
+      },
+      {
+       "type": "ButtonAnswerGroup",
+       "question_id": "r2fix_q_carrier",
+       "question_key": "r2fix_carrier",
+       "internal_field": "r2fix_carrier",
+       "answer_type": "enum",
+       "required": true,
+       "choices": [
+        {
+         "label": "Acme Insurance",
+         "value": "acme_insurance",
+         "analytics_id": "r2fix_acme_insurance"
+        },
+        {
+         "label": "Beta Mutual",
+         "value": "beta_mutual",
+         "analytics_id": "r2fix_beta_mutual"
+        },
+        {
+         "label": "Gamma Direct",
+         "value": "gamma_direct",
+         "analytics_id": "r2fix_gamma_direct"
+        }
+       ]
+      },
+      {
+       "type": "ContinueButton",
+       "question_id": "r2fix_q_cont",
+       "props": {
+        "label": "Continue"
+       }
+      }
+     ]
+    },
+    "viewport": "desktop",
+    "frame_context": {
+     "funnel_public_id": "lgf_01KZ1H3N4A57T80JPJBJEKVHV1",
+     "variant_public_id": "lgn_01KZ1H3N4AZ5ZAFTVGT7G6NXSR"
+    }
+   }
+  },
+  {
+   "phase": "req",
+   "url": "http://127.0.0.1:8901/api/admin/leadgen/variants/lgn_01KZ1H3N4AZ5ZAFTVGT7G6NXSR/preview",
+   "body": {
+    "mode": "section",
+    "viewport": "desktop",
+    "draft_frame_config": {
+     "template": "centered",
+     "background": {
+      "image_media_id": null
+     },
+     "version": 1
+    },
+    "section_public_id": "lgs_01KZ1H3N4NGHQE4J00N1AEGCMV",
+    "site_id": "st_b42ed775787d4776"
+   }
+  },
+  {
+   "phase": "res",
+   "status": 200,
+   "htmlLen": 2244
+  },
+  {
+   "phase": "res",
+   "status": 200,
+   "htmlLen": 5688
+  },
+  {
+   "phase": "req",
+   "url": "http://127.0.0.1:8901/api/admin/leadgen/variants/lgn_01KZ1H3N4AZ5ZAFTVGT7G6NXSR/preview",
+   "body": {
+    "mode": "section",
+    "viewport": "desktop",
+    "draft_frame_config": {
+     "template": "centered",
+     "cta_slots": [],
+     "disclosure": {
+      "entries": []
+     },
+     "free_text": [],
+     "brand_logos": {
+      "enabled": false,
+      "layout": "row",
+      "items": [],
+      "slot": "below_section",
+      "align": "left"
+     },
+     "footer": {
+      "blocks": []
+     },
+     "images": [],
+     "background": {
+      "image_media_id": null
+     },
+     "version": 1
+    },
+    "section_public_id": "lgs_01KZ1H3N4NGHQE4J00N1AEGCMV",
+    "site_id": "st_b42ed775787d4776"
+   }
+  },
+  {
+   "phase": "res",
+   "status": 200,
+   "htmlLen": 5688
+  },
+  {
+   "phase": "req",
+   "url": "http://127.0.0.1:8901/api/admin/leadgen/variants/lgn_01KZ1H3N4AZ5ZAFTVGT7G6NXSR/preview",
+   "body": {
+    "mode": "section",
+    "viewport": "desktop",
+    "draft_frame_config": {
+     "template": "centered",
+     "cta_slots": [],
+     "disclosure": {
+      "entries": []
+     },
+     "free_text": [],
+     "brand_logos": {
+      "enabled": false,
+      "layout": "row",
+      "items": [],
+      "slot": "below_section",
+      "align": "left"
+     },
+     "footer": {
+      "blocks": []
+     },
+     "images": [],
+     "background": {
+      "image_media_id": null
+     },
+     "version": 1
+    },
+    "section_public_id": "lgs_01KZ1H3N4NGHQE4J00N1AEGCMV",
+    "site_id": "st_b42ed775787d4776"
+   }
+  },
+  {
+   "phase": "res",
+   "status": 200,
+   "htmlLen": 5688
+  },
+  {
+   "phase": "req",
+   "url": "http://127.0.0.1:8901/api/admin/leadgen/variants/lgn_01KZ1H3N4AZ5ZAFTVGT7G6NXSR/preview",
+   "body": {
+    "mode": "section",
+    "viewport": "desktop",
+    "draft_frame_config": {
+     "template": "centered",
+     "cta_slots": [],
+     "disclosure": {
+      "entries": []
+     },
+     "free_text": [],
+     "brand_logos": {
+      "enabled": false,
+      "layout": "row",
+      "items": [],
+      "slot": "below_section",
+      "align": "left"
+     },
+     "footer": {
+      "blocks": []
+     },
+     "images": [],
+     "background": {
+      "image_media_id": null
+     },
+     "version": 1
+    },
+    "section_public_id": "lgs_01KZ1H3N4NGHQE4J00N1AEGCMV",
+    "site_id": "st_b42ed775787d4776"
+   }
+  },
+  {
+   "phase": "res",
+   "status": 200,
+   "htmlLen": 5688
+  },
+  {
+   "phase": "req",
+   "url": "http://127.0.0.1:8901/api/admin/leadgen/variants/lgn_01KZ1H3N4AZ5ZAFTVGT7G6NXSR/preview",
+   "body": {
+    "mode": "section",
+    "viewport": "desktop",
+    "draft_frame_config": {
+     "template": "centered",
+     "cta_slots": [],
+     "disclosure": {
+      "entries": []
+     },
+     "free_text": [],
+     "brand_logos": {
+      "enabled": false,
+      "layout": "row",
+      "items": [],
+      "slot": "below_section",
+      "align": "left"
+     },
+     "footer": {
+      "blocks": []
+     },
+     "images": [],
+     "background": {
+      "image_media_id": null
+     },
+     "version": 1
+    },
+    "section_public_id": "lgs_01KZ1H3N4NGHQE4J00N1AEGCMV",
+    "site_id": "st_b42ed775787d4776"
+   }
+  },
+  {
+   "phase": "res",
+   "status": 200,
+   "htmlLen": 5688
+  },
+  {
+   "phase": "req",
+   "url": "http://127.0.0.1:8901/api/admin/leadgen/variants/lgn_01KZ1H3N4AZ5ZAFTVGT7G6NXSR/preview",
+   "body": {
+    "mode": "section",
+    "viewport": "desktop",
+    "draft_frame_config": {
+     "template": "centered",
+     "cta_slots": [],
+     "disclosure": {
+      "entries": []
+     },
+     "free_text": [],
+     "brand_logos": {
+      "enabled": false,
+      "layout": "row",
+      "items": [],
+      "slot": "below_section",
+      "align": "left"
+     },
+     "footer": {
+      "blocks": []
+     },
+     "images": [
+      {
+       "id": "img_1785684165699_35344",
+       "alt": "Persona portrait",
+       "slot": "above_section",
+       "size": "s",
+       "align": "left",
+       "url": "https://example.com/portrait.png"
+      }
+     ],
+     "background": {
+      "image_media_id": null
+     },
+     "version": 1
+    },
+    "section_public_id": "lgs_01KZ1H3N4NGHQE4J00N1AEGCMV",
+    "site_id": "st_b42ed775787d4776"
+   }
+  },
+  {
+   "phase": "res",
+   "status": 200,
+   "htmlLen": 5996
+  }
+ ]
+}

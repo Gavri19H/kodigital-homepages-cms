@@ -432,16 +432,21 @@ interface IslandProbe {
   dirty: boolean;
   isControl: boolean;
   selectedRegion: string | null;
-  pendingSwitch: { id: string; merged: Record<string, unknown> } | null;
   clientEffective(): Record<string, unknown>;
   currentTemplateId(): string;
-  draftFrameConfig(): Record<string, unknown>;
-  draftTheme(): Record<string, unknown>;
   collectRules(): Array<Record<string, unknown>>;
   collectSections(): Array<Record<string, unknown>>;
 }
 
 // ES5 exporter source (getters over island locals — NOT an eval bridge).
+// P7 D2 fallout: draftFrameConfig / draftTheme / pendingSwitch are NOT here
+// any more — 87f64f0 deleted the funnel studio's dead §4.1 canvas (and, in the
+// §10/S5.1 sweep before it, the canvas-embedded template picker), so those
+// three island locals no longer exist and a getter over them would throw a
+// ReferenceError the moment a seam touched it. What the island still owns —
+// workingFrame/workingTheme/workingOverrides and the dirty flags — is
+// unchanged, and every invariant the removed accessors used to observe is
+// re-observed below through the surviving composed-preview endpoint.
 const SEAM_EXPORTER = `
 ;__seamExpose({
   get workingFrame() { return workingFrame; },
@@ -455,11 +460,8 @@ const SEAM_EXPORTER = `
   get dirty() { return dirty; },
   get isControl() { return isControl; },
   get selectedRegion() { return selectedRegion; },
-  get pendingSwitch() { return pendingSwitch; },
   clientEffective: function () { return clientEffective(); },
   currentTemplateId: function () { return currentTemplateId(); },
-  draftFrameConfig: function () { return draftFrameConfig(); },
-  draftTheme: function () { return draftTheme(); },
   collectRules: function () { return collectRules(); },
   collectSections: function () { return collectSections(); }
 });
@@ -544,20 +546,22 @@ async function bootStudio(env: Env, html: string, opts: { rulesIsland?: boolean 
   // would make the island take its "old DOM present" branch and send a
   // WRONG (data-losing) PUT body, which is exactly the money-path bug
   // collectPayload's null-guards exist to prevent in production.
-  // NOTE: lg-preview-iframe/lg-canvas-toolbar/lg-inspector-column are
-  // DELIBERATELY NOT added here even though they are ALSO gone from the
-  // real page — several OTHER seams in this file (the Phase D lazy stepper,
-  // DEV-66 mobile toggle, E4 click-delegation) drive the island's OWN
-  // canvas-interaction FUNCTIONS in isolation via this executed-VM harness
-  // and depend on a fake node existing at those ids to observe the island's
-  // writes (srcdoc, aria-pressed, etc.) — those functions are unreachable
-  // dead code in a real browser today (no canvas DOM to click into) but
-  // their INTERNAL LOGIC is still real, tested code; nullifying those three
-  // ids broke those OTHER tests when tried (verified by running with them
-  // included, then reverting) and is out of this repair's scope. (§10/S5.1:
-  // FIX 9, formerly also in this list, is RETIRED — its dead-template-pick
-  // trigger is gone, see that describe block's own retirement note.)
+  // P7 D2 (87f64f0): lg-preview-iframe/lg-canvas-toolbar/lg-inspector-column
+  // ARE in this list now. They used to be held back because three OTHER seams
+  // here (the Phase D lazy stepper, the DEV-66 mobile toggle, the E4
+  // click-delegation) drove the island's canvas functions in isolation and
+  // needed a fake node to observe srcdoc/aria-pressed writes. Those functions
+  // no longer exist — 87f64f0 deleted the whole frame-studio island once its
+  // DOM had been gone since the P3b board rewrite — and all three seams are
+  // retired below with their own citations, so auto-vivifying these ids would
+  // now do exactly what this list exists to prevent: hand the island a DOM the
+  // real page does not have. (§10/S5.1: FIX 9, formerly also called out here,
+  // is RETIRED — its dead-template-pick trigger is gone, see that describe
+  // block's own retirement note.)
   const explicitNull = new Set([
+    "lg-preview-iframe",
+    "lg-canvas-toolbar",
+    "lg-inspector-column",
     "lg-rules-builder-root",
     "lg-section-list",
     "lg-add-section",
@@ -784,31 +788,37 @@ describeDb("quote builder EXECUTED island — (a) boot decode equals server trut
     expect(studio.probe.clientEffective()).toEqual(server.effective_frame);
     expect(studio.probe.currentTemplateId()).toBe("header-cta");
 
-    // the boot preview went through the LIVE composed endpoint with the
-    // island's frame draft + the first slide of the PERSISTED order; a clean
-    // boot (no unsaved override edits) sends NO draft_frame_overrides —
-    // the server keeps its stored merge (DEV-58 conditionality)
-    const boot = studio.calls.find((c) => c.url.endsWith(`/variants/${h.variantId}/preview`));
-    expect(boot, "boot preview POST captured").toBeDefined();
-    expect(boot!.status).toBe(200);
-    const bootBody = boot!.body as Record<string, unknown>;
-    expect(bootBody["mode"]).toBe("section");
-    // LEADGEN-REWORK-03 P3b RETIREMENT (§8.2/§10): section_public_id here
-    // depends on slideStillPresent(), which queries
-    // '.lg-section-row[data-section-public-id]' — the OLD structure panel's
-    // row class, which no longer renders (the §8.2 board replaces it with
-    // chip markup). The canvas preview flow this feeds is ITSELF dead code
-    // in production (canvas is null — no DOM to click into — so
-    // setCanvasDoc no-ops before this field would ever matter); this
-    // specific property can no longer be verified against a real DOM signal.
-    // NOT retired: the boot preview POST still fires + succeeds (asserted
-    // above), and draft_frame_config/draft_frame_overrides fidelity below
-    // (config-merge correctness, unrelated to canvas chrome).
-    expect(bootBody["draft_frame_config"]).toEqual(studio.probe.draftFrameConfig());
-    expect(bootBody["draft_frame_overrides"]).toBeUndefined();
-    // …and the canvas iframe received the server document
-    const canvas = studio.byId("lg-preview-iframe");
-    expect(canvas.attrs["srcdoc"]).toContain("data-frame-region");
+    // RE-CHANNELLED (P7 D2 fallout / R2): this used to observe the island's
+    // OWN boot preview POST (draftFrameConfig() -> POST /variants/:id/preview
+    // -> #lg-preview-iframe srcdoc). 87f64f0 deleted that whole flow: the P3b
+    // board rewrite had already removed its DOM, so the POST was firing into a
+    // null iframe. The INVARIANT is still live and is NOT dropped — the state
+    // this island decodes must be exactly what the composer accepts and
+    // renders — so it is re-observed on the surviving path: the island's own
+    // decoded frame (the probe, never a hand-built copy) is posted to the same
+    // live composed endpoint the Templates canvas uses.
+    // Asserted before: POST captured · 200 · mode 'section' ·
+    //   body.draft_frame_config == probe.draftFrameConfig() ·
+    //   draft_frame_overrides undefined · srcdoc contains data-frame-region.
+    // Asserted now: the same 200 · the same data-frame-region in the composed
+    //   document · the DEV-58 conditionality at its source (overridesDirty is
+    //   false on a clean boot, which is WHY no override param was sent) ·
+    //   plus the composed page really carries the decoded template.
+    expect(studio.probe.overridesDirty, "clean boot has no unsaved override edits").toBe(false);
+    const islandDraft: Record<string, unknown> = {
+      ...(studio.probe.workingFrame as Record<string, unknown>),
+      version: 1,
+      template: studio.probe.currentTemplateId(),
+    };
+    const composed = await admin.request(
+      `${API}/variants/${h.variantId}/preview`,
+      jsonInit("POST", { mode: "section", viewport: "desktop", draft_frame_config: islandDraft }),
+      h.env,
+    );
+    expect(composed.status, await composed.clone().text()).toBe(200);
+    const composedBody = (await composed.json()) as { preview: { html: string } };
+    expect(composedBody.preview.html).toContain("data-frame-region");
+    expect(composedBody.preview.html).toContain('data-frame-template="header-cta"');
   });
 
   it("unknown stored template: island and server AGREE on the 'centered' fallback (client decode == server fallback)", async () => {
@@ -1031,14 +1041,37 @@ describeDb("quote builder EXECUTED island — (b) edit → save path replays thr
     // draft_frame_overrides param in the stored-column shape; the funnel
     // frame draft NO LONGER folds it (the stored-merge approximation is
     // gone — the server substitutes the WORKING overrides exactly).
-    const previews = studio.calls.filter((c) => c.url.endsWith(`/variants/${forked.public_id}/preview`));
-    const lastPreview = previews[previews.length - 1]!;
-    expect(lastPreview.status).toBe(200);
-    const lastPreviewBody = lastPreview.body as Record<string, unknown>;
-    expect(lastPreviewBody["draft_frame_overrides"]).toEqual({ progress: { style: "dots" } });
-    expect((lastPreviewBody["draft_frame_config"] as Record<string, unknown>)["progress"]).toBeUndefined();
-    // …and the composed render REALLY shows the working override (dots).
-    expect((lastPreview.response as { preview: { html: string } }).preview.html).toContain("lg-steps");
+    // RE-CHANNELLED (P7 D2 fallout / R2): the debounced preview POST that used
+    // to carry that param died with the funnel studio's dead §4.1 canvas
+    // (87f64f0 — the DOM was already gone, the POSTs fired into a null
+    // iframe). The invariant is NOT dropped: the island's WORKING (unsaved)
+    // override must really compose — dots, not the stored bar — while never
+    // folding into the funnel frame. Re-observed by posting the island's OWN
+    // working state to the same live composed endpoint.
+    // Asserted before: last preview POST 200 · body.draft_frame_overrides ==
+    //   {progress:{style:'dots'}} · body.draft_frame_config.progress undefined
+    //   · response html contains 'lg-steps'.
+    // Asserted now: the same three, from the probe's own state, plus
+    //   overridesDirty (the flag that gates sending the param at all).
+    expect(studio.probe.overridesDirty, "the arm has unsaved override edits").toBe(true);
+    const forkedDraft: Record<string, unknown> = {
+      ...(studio.probe.workingFrame as Record<string, unknown>),
+      version: 1,
+      template: studio.probe.currentTemplateId(),
+    };
+    expect(forkedDraft["progress"], "the override never folds into the funnel frame").toBeUndefined();
+    const composed = await admin.request(
+      `${API}/variants/${forked.public_id}/preview`,
+      jsonInit("POST", {
+        mode: "section",
+        viewport: "desktop",
+        draft_frame_config: forkedDraft,
+        draft_frame_overrides: studio.probe.workingOverrides,
+      }),
+      h.env,
+    );
+    expect(composed.status, await composed.clone().text()).toBe(200);
+    expect(((await composed.json()) as { preview: { html: string } }).preview.html).toContain("lg-steps");
 
     const structure = await getJson<StructureBody>(h.env, `${API}/quotes/${h.quotePublicId}/structure`);
     const arm = structure.funnels[0]!.variants.find((v) => v.public_id === forked.public_id)!;
@@ -1491,104 +1524,43 @@ describeDb("quote builder EXECUTED island — Phase D C2 LIVE activation 409 →
 // Phase D — the mode:"all" lazy stepper (EXECUTED): >8 slides fetch ONE page
 // per step (page:k protocol); ≤8 slides keep the eager pages[] flow with
 // LOCAL stepping (no extra fetches — byte-identical Phase-B behavior).
+//
+// P7 D2 RETIREMENT (commit 87f64f0, conformance sweep §4): both cases drove
+// the funnel studio's CLIENT stepper — [data-preview-mode-btn], #lg-step-next,
+// #lg-step-label, #lg-preview-iframe. The P3b board rewrite (§8.2/§10) deleted
+// that canvas DOM; 87f64f0 then deleted the orphaned island code (schedule/
+// renderPreview, the page cursor, updateStepLabel) that was still POSTing into
+// a null iframe. There is no client stepper on any surviving surface — the
+// Templates tab's live canvas is a single mode:'section' render with no
+// step controls — so these two cases can no longer be driven at all.
+// WHAT STILL COVERS THE CLAIM: the page:k protocol they exercised is SERVER
+// behaviour and is proven directly, per-byte, in
+// test/leadgen-preview-modes.test.ts — ">8 sections: page:k ≡ the eager
+// pages[k-1] byte-for-byte, with section_count + clamping", "≤8 sections: the
+// eager pages[] shape is byte-identical (no page key) and page:k still equals
+// its eager page", "rejects malformed page params: non-integer / <1 / wrong
+// mode → 400 fields" and "mode:'all' → pages[]: one composed document per
+// Section with correct per-step progress values".
 // ===========================================================================
 
-describeDb("quote builder EXECUTED island — Phase D lazy all-slides stepper", () => {
-  const STEP_FRAME = { version: 1, template: "centered", progress: { style: "bar", show_label: true } };
-
-  it(">8 slides: mode:'all' fetches page:1; Next fetches page:2 — one composed page per step, canvas + label follow", async () => {
+describeDb("quote builder EXECUTED island — Phase D lazy all-slides stepper [RETIRED: P7 D2/§8.2, the client stepper + canvas are gone]", () => {
+  it("the OLD stepper DOM/ids have no current admin surface (see describe-block citation)", async () => {
     const h = await studioHarness();
-    const extra: Array<{ id: number; public_id: string }> = [];
-    for (let i = 3; i <= 9; i++) extra.push(seedSection(h.sdb, `Slide ${i}`));
-    const putSections = await admin.request(
-      `${API}/variants/${h.variantId}`,
-      jsonInit("PUT", { sections: [...h.sections, ...extra].map((s) => ({ section_id: s.id })) }),
-      h.env,
-    );
-    expect(putSections.status, await putSections.clone().text()).toBe(200);
-    const putFrame = await admin.request(
-      `${API}/funnels/${h.funnelPublicId}/frame`,
-      jsonInit("PUT", { frame_config_json: STEP_FRAME }),
-      h.env,
-    );
-    expect(putFrame.status, await putFrame.clone().text()).toBe(200);
-
     const html = await editorPage(h.env, h.quotePublicId);
-    const studio = await bootStudio(h.env, html);
-
-    const before = studio.calls.length;
-    studio.fire(studio.root, "click", fakeTarget("data-preview-mode-btn", "all"));
-    await studio.settle();
-    const first = studio.calls.slice(before).filter((c) => c.url.endsWith("/preview"));
-    expect(first).toHaveLength(1);
-    const firstBody = first[0]!.body as Record<string, unknown>;
-    expect(firstBody["mode"]).toBe("all");
-    expect(firstBody["page"]).toBe(1); // 10 slides > the 8-slide threshold → lazy
-    const firstPreview = (first[0]!.response as { preview: Record<string, unknown> }).preview;
-    expect(firstPreview["page"]).toBe(1);
-    expect(firstPreview["pages"]).toBeUndefined(); // ONE page, not all ten
-    // §4.3-11: studioHarness's 2 own sections + 7 extra (i=3..9) + the quote's
-    // 1 shared-page section (seeded by studioHarness too) = 10.
-    expect(firstPreview["section_count"]).toBe(10);
-    expect(studio.byId("lg-preview-iframe").attrs["srcdoc"]).toContain("Step 1 of 10");
-    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 1 of 10");
-
-    // Next → a NEW lazy fetch for page 2 (the eager flow would swap locally)
-    const mid = studio.calls.length;
-    studio.fire(studio.byId("lg-step-next"), "click");
-    // label-after-response ordering: the click issues the per-step fetch but
-    // the label must NOT move optimistically — a promise can never resolve
-    // synchronously, so right here the page-2 response has not landed and
-    // the label still names the CURRENT step (it updates in renderPreview's
-    // completion path, together with the canvas).
-    expect(textOf(studio.byId("lg-step-label")), "label unchanged while the page-2 fetch is in flight").toBe(
-      "Slide 1 of 10",
-    );
-    await studio.settle();
-    const second = studio.calls.slice(mid).filter((c) => c.url.endsWith("/preview"));
-    expect(second).toHaveLength(1);
-    expect((second[0]!.body as Record<string, unknown>)["page"]).toBe(2);
-    const secondPreview = (second[0]!.response as { preview: Record<string, unknown> }).preview;
-    expect(secondPreview["page"]).toBe(2);
-    const srcdoc = studio.byId("lg-preview-iframe").attrs["srcdoc"] ?? "";
-    expect(srcdoc).toContain("Step 2 of 10");
-    expect(srcdoc).toContain(String(secondPreview["html"]).slice(0, 120)); // the canvas holds the served page
-    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 2 of 10");
-  });
-
-  it("≤8 slides: the eager pages[] flow is untouched — no page param, Next steps LOCALLY with zero extra fetches", async () => {
-    // §4.3-11: studioHarness's 2 own sections + the quote's 1 shared-page
-    // section (studioHarness seeds one too) = 3 slides — still ≤8 (eager).
-    const h = await studioHarness();
-    const putFrame = await admin.request(
-      `${API}/funnels/${h.funnelPublicId}/frame`,
-      jsonInit("PUT", { frame_config_json: STEP_FRAME }),
-      h.env,
-    );
-    expect(putFrame.status, await putFrame.clone().text()).toBe(200);
-
-    const html = await editorPage(h.env, h.quotePublicId);
-    const studio = await bootStudio(h.env, html);
-
-    const before = studio.calls.length;
-    studio.fire(studio.root, "click", fakeTarget("data-preview-mode-btn", "all"));
-    await studio.settle();
-    const first = studio.calls.slice(before).filter((c) => c.url.endsWith("/preview"));
-    expect(first).toHaveLength(1);
-    expect((first[0]!.body as Record<string, unknown>)["page"]).toBeUndefined(); // eager — byte-identical Phase B
-    const preview = (first[0]!.response as { preview: { pages?: string[] } }).preview;
-    expect(preview.pages).toHaveLength(3);
-    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 1 of 3");
-
-    // Next swaps the LOCAL page — zero additional fetches
-    const count = studio.calls.length;
-    studio.fire(studio.byId("lg-step-next"), "click");
-    await studio.settle();
-    expect(studio.calls.length).toBe(count);
-    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 2 of 3");
-    expect(studio.byId("lg-preview-iframe").attrs["srcdoc"]).toContain("Step 2 of 3");
+    expect(html).not.toContain('id="lg-preview-iframe"');
+    expect(html).not.toContain('id="lg-step-next"');
+    expect(html).not.toContain('id="lg-step-label"');
+    // the MARKUP form (a valued attribute), never the bare name: 87f64f0's own
+    // removal note inside the island source still SPELLS these ids/attributes
+    // when it explains what went — a comment is not a surface.
+    expect(html).not.toContain('data-preview-mode-btn="all"');
+    expect(html).not.toContain('data-preview-mode-btn="section"');
+    // …and the island that drove them is gone too (no orphaned POST source).
+    expect(html).not.toContain("updateStepLabel(");
+    expect(html).not.toContain("lazyAllMode(");
   });
 });
+
 
 // ===========================================================================
 // Phase D — DEV-66 routing (EXECUTED): the Quote-Builder canvas mobile toggle
@@ -1596,40 +1568,41 @@ describeDb("quote builder EXECUTED island — Phase D lazy all-slides stepper", 
 // document rides srcdoc inside an iframe whose element width becomes 375px,
 // so the design's @media (max-width: 480px) block genuinely fires at mobile
 // width (an inline injection into the wide admin DOM never could).
+//
+// P7 D2 RETIREMENT (commit 87f64f0, conformance sweep §4): the toggle this
+// drove — [data-viewport-btn] writing #lg-preview-iframe's element width and
+// re-POSTing viewport:'mobile' — belonged to the funnel studio's §4.1 canvas.
+// The P3b board rewrite (§8.2/§10) deleted that DOM; 87f64f0 deleted the
+// orphaned island (setCanvasDoc, the viewport state, the re-render) that was
+// still writing srcdoc onto a null element. The surviving Quote-Builder
+// preview — the Templates tab's live canvas — has NO viewport toggle: it
+// renders one desktop composition, so there is no toggle left to drive.
+// WHAT STILL COVERS THE CLAIM: the viewport half of the composed contract is
+// server behaviour, proven in test/leadgen-preview-modes.test.ts — "rejects
+// malformed v2.5 params with 400 fields (mode/viewport/site_id types)", whose
+// last leg posts viewport:'mobile' and asserts 200; the design's own
+// @media (max-width: 480px) block is pinned in
+// test/leadgen-rework-render.test.ts, and the REAL 375px preview-drawer iframe
+// idiom keeps its driven proof in the Section Builder's own
+// test/leadgen-section-preview-frame.test.ts.
 // ===========================================================================
 
-describeDb("quote builder EXECUTED island — DEV-66 canvas mobile = real 375 iframe", () => {
-  it("the mobile toggle re-renders the srcdoc iframe at width 375px (desktop 1280px) with the mobile media query aboard", async () => {
+describeDb("quote builder EXECUTED island — DEV-66 canvas mobile [RETIRED: P7 D2/§8.2, the canvas + viewport toggle are gone]", () => {
+  it("the OLD viewport toggle and its canvas have no current admin surface (see describe-block citation)", async () => {
     const h = await studioHarness();
-    const putFrame = await admin.request(
-      `${API}/funnels/${h.funnelPublicId}/frame`,
-      jsonInit("PUT", { frame_config_json: { version: 1, template: "centered" } }),
-      h.env,
-    );
-    expect(putFrame.status, await putFrame.clone().text()).toBe(200);
-
     const html = await editorPage(h.env, h.quotePublicId);
-    const studio = await bootStudio(h.env, html);
-    const canvas = studio.byId("lg-preview-iframe");
-
-    // boot renders desktop
-    expect(canvas.style["width"]).toBe("1280px");
-
-    studio.fire(studio.root, "click", fakeTarget("data-viewport-btn", "mobile"));
-    await studio.settle();
-    // the REAL iframe narrows to 375 — its internal viewport is 375px, so the
-    // srcdoc's own media query evaluates true at mobile width
-    expect(canvas.style["width"]).toBe("375px");
-    const srcdoc = canvas.attrs["srcdoc"] ?? "";
-    expect(srcdoc).toContain("<style>"); // srcdoc is a full document with the style block
-    expect(srcdoc).toMatch(/@media \(max-width: ?480px\)/); // the design's mobile block rides INSIDE the iframe
-
-    // back to desktop — unchanged behavior
-    studio.fire(studio.root, "click", fakeTarget("data-viewport-btn", "desktop"));
-    await studio.settle();
-    expect(canvas.style["width"]).toBe("1280px");
+    // the MARKUP form (a valued attribute), never the bare name: 87f64f0's own
+    // removal note inside the island source still SPELLS these when it
+    // explains what went — a comment is not a surface.
+    expect(html).not.toContain('data-viewport-btn="mobile"');
+    expect(html).not.toContain('data-viewport-btn="desktop"');
+    expect(html).not.toContain('id="lg-preview-iframe"');
+    expect(html).not.toContain('id="lg-canvas-status"');
+    // the SURVIVING preview canvas is the Templates tab's, and it is real
+    expect(html).toContain('id="lg-tpl-canvas-iframe"');
   });
 });
+
 
 // ===========================================================================
 // Phase E (slice E4) — EXECUTED canvas click-walk: the background region is
@@ -1642,106 +1615,38 @@ describeDb("quote builder EXECUTED island — DEV-66 canvas mobile = real 375 if
 // and the slot-interior banner keep precedence.
 // ===========================================================================
 
-// Minimal click-chain node for the composed document (getAttribute +
-// parentNode are all onCanvasClick walks; className is what outlineSelection
-// writes).
-function clickNode(attrs: Record<string, string>, parent: unknown = null): {
-  parentNode: unknown;
-  className: string;
-  getAttribute(n: string): string | null;
-} {
-  const node = {
-    parentNode: parent,
-    className: "",
-    getAttribute(n: string) { return Object.prototype.hasOwnProperty.call(attrs, n) ? attrs[n]! : null; },
-  };
-  return node;
-}
+// P7 D2 RETIREMENT (commit 87f64f0, conformance sweep §4): this seam drove
+// onCanvasClick — the click delegation the island wired onto
+// #lg-preview-iframe's contentDocument on 'load' — plus outlineSelection,
+// showRegionPanel, #lg-inspector-hint and #lg-slot-banner. Every one of those
+// belonged to the funnel studio's §4.1 canvas: the P3b board rewrite
+// (§8.2/§10) deleted the DOM, and 87f64f0 deleted the orphaned island code,
+// so there is no canvas to click into and no click handler to register (the
+// measured failure here was exactly that: "canvas click delegation
+// registered: expected undefined to be 1"). Click-to-select is not how a
+// region is chosen any more.
+// WHAT STILL COVERS THE CLAIM: the §4.4 Background inspector — the thing this
+// click-walk existed to reach — is now opened by the Templates tab's element
+// box picker (data-tplbox-pick="background" -> data-tplbox-panel="background"),
+// whose tile census + editor wiring is pinned in
+// test/leadgen-element-j-r2.test.ts ("the footer tile is lettered J, sits
+// LAST, and neither A–F nor I·Progress moved", which asserts the exact
+// "A:Background" tile), and the absence of the retired chrome is pinned in
+// test/leadgen-quote-builder-ui.test.ts ("the OLD canvas toolbar is gone",
+// "the OLD section-slot interior banner is gone").
+// ===========================================================================
 
-describeDb("quote builder EXECUTED island — E4 bare canvas clicks resolve to the background region", () => {
-  it("a #lg-funnel-root / empty-area click selects `background` and opens its inspector; a real region still wins; slot-interior still banners", async () => {
+describeDb("quote builder EXECUTED island — E4 canvas click-walk [RETIRED: P7 D2/§8.2, no canvas to click into]", () => {
+  it("the OLD canvas click surface has no current admin surface (see describe-block citation)", async () => {
     const h = await studioHarness();
-    const putFrame = await admin.request(
-      `${API}/funnels/${h.funnelPublicId}/frame`,
-      jsonInit("PUT", { frame_config_json: { version: 1, template: "centered" } }),
-      h.env,
-    );
-    expect(putFrame.status, await putFrame.clone().text()).toBe(200);
-
     const html = await editorPage(h.env, h.quotePublicId);
-    const studio = await bootStudio(h.env, html);
-    const canvas = studio.byId("lg-preview-iframe");
-
-    // the inspector panels showRegionPanel() toggles (root.querySelectorAll)
-    const panelNames = ["header", "progress", "background", "section_slot"];
-    const panels = panelNames.map((name) => {
-      const p = makeNode("div");
-      p.attrs["data-region-panel"] = name;
-      p.className = "lg-inspector-panel lg-panel-card";
-      return p;
-    });
-    studio.root.sel["[data-region-panel]"] = panels;
-    const panelOf = (name: string): FakeNode => panels[panelNames.indexOf(name)]!;
-
-    // the composed document, exactly the renderQuoteFrame nesting: body →
-    // #lg-funnel-root (data-frame-template, NO data-frame-region) containing
-    // the aria-hidden background layer (never a click target —
-    // pointer-events:none), a content region, and the section slot with a
-    // swapped section inside.
-    const iframeBody = clickNode({});
-    const funnelRoot = clickNode({ "data-frame-template": "centered" }, iframeBody);
-    const bgLayer = clickNode({ "data-frame-region": "background" }, funnelRoot);
-    const progressRegion = clickNode({ "data-frame-region": "progress" }, funnelRoot);
-    const progressInner = clickNode({}, progressRegion); // e.g. the track div
-    const slotRegion = clickNode({ "data-frame-region": "section_slot" }, funnelRoot);
-    const sectionInner = clickNode({ "data-lg-section": "s1" }, slotRegion);
-    const docHandlers: Record<string, Array<(ev?: unknown) => unknown>> = {};
-    const fakeDoc = {
-      addEventListener(t: string, f: (ev?: unknown) => unknown) { (docHandlers[t] = docHandlers[t] ?? []).push(f); },
-      querySelectorAll(sel: string) { return sel === "[data-frame-region]" ? [bgLayer, progressRegion, slotRegion] : []; },
-    };
-    (canvas as unknown as { contentDocument: unknown }).contentDocument = fakeDoc;
-    studio.fire(canvas, "load"); // the island wires onCanvasClick onto the doc
-    expect(docHandlers["click"]?.length, "canvas click delegation registered").toBe(1);
-    const clickDoc = (target: unknown): void => {
-      for (const f of docHandlers["click"] ?? []) f({ target, preventDefault() { /* noop */ } });
-    };
-    const hint = studio.byId("lg-inspector-hint");
-    const banner = studio.byId("lg-slot-banner");
-
-    // (1) bare click on #lg-funnel-root (the measured real-world target) →
-    // background selected, its §4.4 panel active, hint hidden, the canvas
-    // outline marks the background layer.
-    clickDoc(funnelRoot);
-    expect(studio.probe.selectedRegion).toBe("background");
-    expect(panelOf("background").className).toBe("lg-inspector-panel lg-panel-card active");
-    expect(panelOf("progress").className).toBe("lg-inspector-panel lg-panel-card");
-    expect(hint.hidden, "inspector hint hides once a region is selected").toBe(true);
-    expect(bgLayer.className).toContain("lg-region-sel");
-    expect(progressRegion.className).not.toContain("lg-region-sel");
-
-    // (1b) a click outside the root entirely (iframe body) resolves the same
-    clickDoc(iframeBody);
-    expect(studio.probe.selectedRegion).toBe("background");
-
-    // (2) a click INSIDE a real region still wins over the fallback
-    clickDoc(progressInner);
-    expect(studio.probe.selectedRegion).toBe("progress");
-    expect(panelOf("progress").className).toBe("lg-inspector-panel lg-panel-card active");
-    expect(panelOf("background").className).toBe("lg-inspector-panel lg-panel-card");
-    expect(progressRegion.className).toContain("lg-region-sel");
-    expect(bgLayer.className).not.toContain("lg-region-sel");
-
-    // (3) slot-interior click still shows the §4.1 banner and does NOT
-    // reroute the selection (precedence unchanged)
-    clickDoc(sectionInner);
-    expect(banner.className).toBe("lg-slot-banner");
-    expect(studio.probe.selectedRegion, "banner path never re-selects").toBe("progress");
-
-    // (4) a following bare click hides the banner and lands on background
-    clickDoc(funnelRoot);
-    expect(banner.className).toBe("lg-slot-banner lg-hidden");
-    expect(studio.probe.selectedRegion).toBe("background");
-    expect(panelOf("background").className).toBe("lg-inspector-panel lg-panel-card active");
+    expect(html).not.toContain('id="lg-preview-iframe"');
+    expect(html).not.toContain('id="lg-slot-banner"');
+    expect(html).not.toContain('id="lg-inspector-hint"');
+    expect(html).not.toContain("onCanvasClick(");
+    expect(html).not.toContain("outlineSelection(");
+    // the surviving route to the same §4.4 Background inspector
+    expect(html).toContain('data-tplbox-pick="background"');
+    expect(html).toContain('data-tplbox-panel="background"');
   });
 });
