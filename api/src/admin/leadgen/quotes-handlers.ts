@@ -6933,6 +6933,13 @@ export async function experimentAssignmentPreviewHandler(c: AdminContext): Promi
 // below — the single source of display labels for this control (I3).
 // quotes-tabs/funnel.ts's renderFunnelSettingsDialog renders `d.label` as
 // delivered; it does not maintain a second, parallel label map.
+//
+// R2 P8-3 F5 MINOR-7 (review-p8-3): this runs on EVERY quote-editor render
+// (ui-quotes.ts calls it while building the GET /quotes/:id/edit response),
+// so funnelDesignLabel below must never throw here — a distinct design id
+// added tomorrow with no label would 500 the operator's whole editor rather
+// than degrade. See funnelDesignLabel's own doc comment for where the
+// completeness guarantee moved.
 export function listFunnelDesignOptions(): Array<{ id: string; label: string }> {
   const distinctIds = [...new Set(Object.values(FUNNEL_DESIGNS).map((d) => d.id))];
   return distinctIds.map((id) => ({ id, label: funnelDesignLabel(id) }));
@@ -6948,17 +6955,35 @@ export const FUNNEL_DESIGN_LABELS: Readonly<Record<string, string>> = {
   "default-funnel": "Default Funnel Design",
 };
 
-// I2/I4: a distinct design id this map does not cover must never fall
-// through to rendering its raw registry key — that would reproduce the
-// exact defect this fixes. Throwing turns a future unlabeled design id into
-// a visible failure, surfaced here (before listFunnelDesignOptions ever
-// returns) rather than a silent id leak at render time; completeness
-// against the real registry's distinct ids is asserted directly by
-// test/leadgen-p8-n1-design-label.test.ts.
+// R2 P8-3 F5 MINOR-7: funnelDesignLabel sits on the OPERATOR'S render path
+// (listFunnelDesignOptions above, called by every GET /quotes/:id/edit —
+// ui-quotes.ts:928), so it degrades here, it never throws. A distinct
+// design id this map does not cover falls back to a neutral, honest word —
+// never the raw id, which would reinstate the exact N1 defect S3.7 fixed —
+// so a future unlabeled design still renders a usable editor instead of a
+// 500. The completeness GUARANTEE a throw used to provide here moves to
+// assertFunnelDesignLabelsComplete below: a developer-facing check
+// (test/leadgen-p8-n1-design-label.test.ts calls it directly against the
+// real registry), never reachable from an operator's request.
 export function funnelDesignLabel(id: string): string {
   const label = FUNNEL_DESIGN_LABELS[id];
-  if (label === undefined) {
-    throw new Error(`listFunnelDesignOptions: funnel design id "${id}" has no operator label — add one to FUNNEL_DESIGN_LABELS`);
+  return label !== undefined ? label : "Design";
+}
+
+// I4, relocated OFF the render path (F5 MINOR-7): throws if any id in
+// `ids` (defaulted to every DISTINCT id the REAL registry resolves to) is
+// missing from FUNNEL_DESIGN_LABELS — a developer-visible failure (called
+// directly by test/leadgen-p8-n1-design-label.test.ts; fits equally into
+// any future CI completeness check), never an operator-visible 500. The
+// optional `ids` param lets a test prove the throw deterministically
+// against a synthetic id, without needing a second real distinct design
+// registered in registry.ts.
+export function assertFunnelDesignLabelsComplete(
+  ids: readonly string[] = [...new Set(Object.values(FUNNEL_DESIGNS).map((d) => d.id))],
+): void {
+  for (const id of ids) {
+    if (FUNNEL_DESIGN_LABELS[id] === undefined) {
+      throw new Error(`FUNNEL_DESIGN_LABELS is missing an entry for distinct design id "${id}" — add one before this design reaches an operator`);
+    }
   }
-  return label;
 }

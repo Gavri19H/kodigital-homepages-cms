@@ -792,7 +792,17 @@ describeDb("Quote Builder frame studio — theme editor (09 §9.3)", () => {
     // and the card/answer-button focus ring). This HARD-CODED pin is deliberately
     // kept rather than deferred to that file's I3 leg, which reads the same
     // ROLE_META array it asserts against; this one is the independent copy.
-    expect(html).toContain("Used by: buttons, focus ring");
+    //
+    // R2 P8-3 FIX ROUND F7 (review MINOR-4) — "progress fill" restored. The
+    // paragraph above over-counted: `progress.fillColor` (the JS token) is
+    // still frozen, but default-funnel/styles.ts:2553-2558 paints
+    // `.lg-frame-progress--role-brand_primary .lg-progress-fill{background:
+    // …!important}` directly from the role, bypassing that frozen token — so
+    // the rendered fill DOES move with brand_primary (F3's sweep; pinned at
+    // test/leadgen-p8-m2-role-usedby.test.ts's I2 leg). Three phrases survive
+    // now, not two — only "selected borders"/"logo text" stay out, measured
+    // frozen.
+    expect(html).toContain("Used by: buttons, progress fill, focus ring");
     expect(html).toContain("data-role-source");
     expect(html).toContain(">Base design</span>");
   });

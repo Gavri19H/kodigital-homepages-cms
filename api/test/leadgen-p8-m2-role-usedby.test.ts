@@ -24,6 +24,13 @@
 // coincidence, not by any live wiring):
 //   brand_primary:      "buttons, progress fill, selected borders, logo text"
 //                     -> "buttons, focus ring"
+//                     -> FIX ROUND F3 (MINOR-4): "buttons, progress fill,
+//                        focus ring". The review proved the S3.11 pass had
+//                        narrowed this BELOW measured truth — "progress fill"
+//                        was true and should not have been dropped. See the
+//                        SURFACES entry for the frames.ts:645 default plus the
+//                        default-funnel/styles.ts:2553-2558 role rule that
+//                        paints it. "selected borders"/"logo text" stay out.
 //   surface_wash:       "selected fills, quiet panels"
 //                     -> "range-slider focus ring"
 //   text_primary:       "headlines, labels"
@@ -32,9 +39,21 @@
 //                     -> "labels, disclosure text"
 //   button_secondary_bg:"back button-style, quiet buttons"
 //                     -> "benefit bar, disclosure bar"
-// brand_secondary/accent/success/error/page_background/card_background/
-// border/button_primary_bg/button_primary_text were audited and left
-// unchanged — every one of their phrases already maps to a real consumer.
+// brand_secondary/accent/success/error/page_background/border/
+// button_primary_bg/button_primary_text were audited and left unchanged —
+// every one of their phrases already maps to a real consumer.
+//
+// R2 P8-3 FIX ROUND F8 (a LATER round than the S3.11 slice above; the MINOR-4
+// "help text must not describe LESS than the control does" corollary,
+// established for brand_primary above, applied to one more role): the
+// dead-controls guard's label->target sweep carried card_background's ONE
+// off-target coordinate as a written residual (input.lg-input background) —
+// its token (color.card) is ALSO `.lg-input`'s resting background
+// (default-funnel/styles.ts:1845), which "question card, answer cards" never
+// named. Widened to "question card, answer cards, input fields" (shared.ts +
+// ui-theme-manager.ts, in lockstep); the new phrase's SURFACES entry is
+// below, and the residual is deleted from the guard file — it now proves the
+// label covers the paint instead of exempting it.
 //
 // HOW THIS FILE AVOIDS E10/E11 (a test that hand-builds BOTH sides). Neither
 // side is hand-written:
@@ -140,6 +159,26 @@ const SURFACES: Surface[] = [
   // ring shared by icon cards + answer buttons.
   { role: "brand_primary", phrase: "buttons", selector: `${SCOPE} .lg-range-stepper-btn`, property: "color", render: (v) => v },
   { role: "brand_primary", phrase: "focus ring", selector: `${SCOPE} .lg-card:focus-visible`, property: "outline", render: (v) => `2px solid ${v}` },
+  // FIX ROUND F3 (MINOR-4) — "progress fill" RESTORED. S3.11 dropped it after
+  // looking only at the token (`progress.fillColor`, default-funnel/tokens.ts:84,
+  // genuinely a frozen `linear-gradient(90deg,#1B3A5C,#2A5080)` literal) and
+  // missing the rule that paints the live frame: designs/frames.ts:645 gives
+  // EVERY frame `progress.color_role: "brand_primary"` by default and
+  // default-funnel/styles.ts:2553-2558 emits, per role,
+  // `.lg-frame-progress--role-<role> .lg-progress-fill{background:<role
+  // token>!important}` — the !important exists precisely to beat that frozen
+  // token. So the default frame's progress fill DOES move with brand_primary,
+  // and the I2 sweep below proves it on the REAL generated stylesheet. The two
+  // phrases dropped alongside it ("selected borders", "logo text") stay out:
+  // no such role rule exists for iconCard.selectedBorderColor or
+  // header.logoColor, so nothing re-writes them.
+  {
+    role: "brand_primary",
+    phrase: "progress fill",
+    selector: `${SCOPE} .lg-frame-progress--role-brand_primary .lg-progress-fill`,
+    property: "background",
+    render: (v) => `${v}!important`,
+  },
 
   // brand_secondary — :2480 the operator-selectable "brand_gradient" frame
   // background style (frames.ts FRAME_BACKGROUND_STYLES, produced at
@@ -186,6 +225,10 @@ const SURFACES: Surface[] = [
   // `.lg-tscard`, which only exists when button_defaults.layout === "card").
   { role: "card_background", phrase: "question card", selector: `${SCOPE} .lg-question-card`, property: "background", render: (v) => v },
   { role: "card_background", phrase: "answer cards", selector: `${SCOPE} .lg-btn.lg-btn-answer`, property: "background", render: (v) => `var(--lg-answer-bg, ${v})` },
+  // R2 P8-3 FIX ROUND F8 — the residual the label->target sweep carried:
+  // color.card is ALSO `.lg-input`'s UNCONDITIONAL resting background
+  // (default-funnel/styles.ts:1845, direct token read, no var() wrap).
+  { role: "card_background", phrase: "input fields", selector: `${SCOPE} .lg-input`, property: "background", render: (v) => v },
 
   // surface_wash (S3.11 fix) — :1222 the range dial's keyboard focus ring,
   // color.primaryWash's ONLY real consumer (the CardPanel/BackgroundPanel

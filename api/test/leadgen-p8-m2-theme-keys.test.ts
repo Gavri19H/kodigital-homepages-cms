@@ -509,11 +509,21 @@ describe("R2 P8 M2 I6 — every applier is opt-in (an untouched funnel is byte-i
     expect(computed(colourOnly, "lg-btn-answer", "text-transform")).toBeUndefined();
   });
 
-  it("the pre-existing card_defaults targets are still written (this fix is additive, never a re-route)", () => {
+  // R2 P8-3 (review MAJOR-1) — this leg used to claim all THREE pre-existing
+  // card_defaults targets survived. Only TWO do. `background_role`'s third
+  // target, the global `design.color.card` role token, was DELIBERATELY REMOVED:
+  // a component-scoped control was re-pointing the card_background ROLE, so
+  // "Card background" flooded the whole frame and made every text input
+  // unreadable (measured live in the P8-3 review). theme.ts:1495 now writes only
+  // the component slot. The title and the body are scoped to that reality, and
+  // the removal is asserted — not merely un-asserted — so a re-route cannot
+  // come back silently.
+  it("the two remaining pre-existing card_defaults targets are still written — content.cardRadius + cardPanel.border (background_role's global color.card write is deliberately gone)", () => {
     const eff = resolveTokens(BASE, {
       card_defaults: { background_role: "surface_wash", border_role: "accent", radius: "xl" },
     });
-    expect(eff.design.color.card).toBe(BASE.color.primaryWash);
+    expect(eff.design.color.card, "the global role token is NOT re-pointed").toBe(BASE.color.card);
+    expect(eff.design.questionCard.background, "…the component slot carries it instead").toBe(BASE.color.primaryWash);
     expect(eff.design.content.cardRadius).toBe(BASE.radius.xl);
     expect(eff.design.cardPanel.border).toBe(`1px solid ${BASE.color.accent}`);
   });

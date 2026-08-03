@@ -84,15 +84,19 @@ import { createContext, runInContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
 import {
+  classifyDiffByTarget,
   declaredFields as declaredFieldsOf,
+  describeCoord,
   visibleDiffAnyViewport,
   visibleFingerprint,
   visiblePage,
   typeAliasRhs,
   vocabularyOf,
   type DeclaredField as HelperDeclaredField,
+  type DiffCoord,
 } from "./helpers/leadgen-visible-paint";
 
+import { ROLE_META } from "../src/admin/leadgen/quotes-tabs/shared";
 import { themePresetResolveSnippet } from "../src/admin/leadgen/quotes-tabs/theme-preset-resolve";
 
 import { renderSectionComponents } from "../src/public/leadgen/components/presets";
@@ -1010,6 +1014,14 @@ function sweepPage(opts: {
   record?: ThemeRecord | null;
   template?: string;
   frame?: Record<string, unknown>;
+  /**
+   * Section 6 only. The sweep's own probes NEVER pass this: they keep the bare
+   * SWEEP_NODES page, so every assertion above is byte-identical. The
+   * label→target legs need pages that CONTAIN the surface a control's label
+   * names (a category label, a badge, a labelled field), which SWEEP_NODES
+   * deliberately does not render.
+   */
+  nodes?: LeadgenComponentNode[];
 }): SweepPage {
   const tokens = resolveTokens(
     defaultFunnelDesign,
@@ -1026,7 +1038,7 @@ function sweepPage(opts: {
     problems.filter((p) => p.severity === "error"),
     `the probe frame config validates: ${JSON.stringify(problems)}`,
   ).toEqual([]);
-  const sections = renderSectionComponents(SWEEP_NODES, tokens.design as typeof defaultFunnelDesign, {
+  const sections = renderSectionComponents(opts.nodes ?? SWEEP_NODES, tokens.design as typeof defaultFunnelDesign, {
     headline_text: "Probe headline",
     subheadline_text: "Probe subheadline",
     theme_controls: tokens.theme_controls,
@@ -1626,5 +1638,680 @@ describe("R2 P8 M2/R3 sweep — the predicate itself fails on a dead, a MIS-TARG
       html,
     });
     expect(visibleDiffAnyViewport(readByARule("#D32F2F"), readByARule("#0E7C3A")).length).toBeGreaterThan(0);
+  });
+});
+
+
+// ===========================================================================
+// 6. THE LABEL→TARGET INVARIANT (P8-3 fix round F6, review MINOR-2 + MINOR-3).
+// ===========================================================================
+//
+// WHAT §4's PREDICATE PROVED, AND WHAT IT DID NOT. The sweep above asks "does
+// flipping this key move a value on SOME visible element?". That closes R3's
+// DEAD branch. It does NOT close R3's MIS-TARGETED branch, and the P8-3 review
+// falsified the difference live: `card_defaults.background_role` — a control
+// labelled "Card background" — passed §4 green while it was flooding the whole
+// 1280x900 frame background and making every text input unreadable. It moved a
+// visible value; it moved the WRONG one. §4's own red-proof leg (b) injects a
+// selector the page renders NO element for, so it only ever demonstrates the
+// dead case.
+//
+// THE INVARIANT THIS SECTION ADDS: a control must move the element its OWN
+// OPERATOR-FACING LABEL names, and must not move an element that label does
+// not name.
+//   ON-TARGET  empty  => the control does not reach the surface it advertises
+//                        (review MINOR-3: every colour role used to be proven
+//                        through ONE universal consumer, the progress bar, so
+//                        `palette.accent`'s category-label consumer could have
+//                        been deleted with the guard still green. The role
+//                        pages below switch the progress bar OFF — `progress.
+//                        style: "hidden"` — precisely so no role can borrow it.)
+//   OFF-TARGET non-empty => the control reaches a surface it does not
+//                        advertise (review MINOR-2: the MAJOR-1 shape).
+//
+// WHERE THE TWO SIDES COME FROM (neither is hand-built — E10/E11):
+//   • the LABEL side is read at run time out of the REAL admin source: the
+//     `themeSelect(...)`/`themeSelectRaw(...)`/`frameControl(..., renderRoleStrip
+//     ("theme:KEY"))` call sites in quotes-tabs/themes.ts, each carrying the
+//     panel heading it is rendered under, plus the LIVE `ROLE_META` import
+//     (label + "Used by:" line) that quotes-tabs/themes.ts renders verbatim for
+//     every colour role. Relabel a control and this file re-derives; relabel it
+//     to name a different element and the target set moves with it.
+//   • the PAINT side is the same REAL producer chain §4 uses (resolveTokens ->
+//     funnelChromeCss + renderSectionComponents -> renderQuoteFrame), resolved
+//     by the same cascade helper.
+// The NOUN GLOSSARY below is the translation between them, and it is the only
+// hand-authored part: matching is by WORD, never by exact label string, so a
+// sibling's rewording does not silently invalidate a target — and a label whose
+// words name no element at all yields NO targets and the key is listed, by
+// name, as OUT OF COVERAGE rather than being quietly credited.
+//
+// WHAT THIS SECTION STILL DOES NOT PROVE. Everything the helper's limitations
+// banner says (no layout, no box, no pseudo-state, no runtime), plus: it cannot
+// tell whether the LABEL is the right label — only whether paint and label
+// agree. And "names" is judged at the granularity of the noun glossary, not of
+// English: "Card background" naming `.lg-question-card` is checked; whether the
+// operator pictured THAT card is not something a static resolver can know.
+// ---------------------------------------------------------------------------
+
+const THEMES_TAB_FILE = path.join(ADMIN_LEADGEN_DIR, "quotes-tabs", "themes.ts");
+
+/**
+ * Every theme authoring key the Themes rail offers a control for, with the
+ * operator text that control is rendered under: its own label plus the nearest
+ * preceding panel heading (an operator reads "Buttons > Button style > Fill",
+ * not "Fill"). Source-derived — never a typed roster.
+ */
+function railControlLabels(): Map<string, string> {
+  const src = readFileSync(THEMES_TAB_FILE, "utf8");
+  const out = new Map<string, string>();
+  const headingAt = (index: number): string => {
+    const before = src.slice(0, index);
+    const heads = [...before.matchAll(/<(h[1-6])[^>]*>([^<]+)<\/\1>/g)];
+    return heads.length === 0 ? "" : `${(heads[heads.length - 1] as RegExpMatchArray)[2] as string} `;
+  };
+  for (const m of src.matchAll(/themeSelect(?:Raw)?\(\s*"([^"]+)"\s*,\s*"([^"]+)"/g)) {
+    out.set(m[2] as string, `${headingAt(m.index ?? 0)}${m[1] as string}`);
+  }
+  for (const m of src.matchAll(/frameControl\(\s*"([^"]+)"\s*,\s*renderRoleStrip\("theme:([^"]+)"\)/g)) {
+    out.set(m[2] as string, `${headingAt(m.index ?? 0)}${m[1] as string}`);
+  }
+  return out;
+}
+
+const RAIL_LABELS = railControlLabels();
+
+/** The LIVE operator text for a colour role: its label + its "Used by:" line. */
+function roleOperatorText(role: string): string | null {
+  const meta = ROLE_META.find((r) => r.role === role);
+  return meta === undefined ? null : `${meta.label} ${meta.used_by}`;
+}
+
+// ---------------------------------------------------------------------------
+// THE NOUN GLOSSARY — operator noun -> the elements that noun names.
+//
+// Ordered longest-phrase-first so "category label" is not swallowed by "label".
+// A selector here must be pseudo-free (the helper treats any `:` selector as
+// non-matching), and `X *` means "and everything inside X" — a control that
+// names a component names the component's own innards too (the check badge
+// inside an answer button is part of "Selected style").
+// ---------------------------------------------------------------------------
+const NOUN_TARGETS: ReadonlyArray<{ noun: RegExp; selectors: readonly string[] }> = [
+  { noun: /\b(frame|page) background\b/i, selectors: [".lg-frame", ".lg-frame-background"] },
+  // PAGE-WIDE (see PAGE_WIDE_NOUNS): "body text" is not one element, it is the
+  // page's whole text layer — the frame and everything inside it.
+  { noun: /\bbody text\b/i, selectors: [".lg-frame", ".lg-frame *"] },
+  { noun: /\bcategory label\b/i, selectors: [".lg-category", ".lg-category *"] },
+  { noun: /\bbenefit bar\b/i, selectors: [".lg-frame-benefit", ".lg-frame-benefit *"] },
+  { noun: /\bgradient/i, selectors: [".lg-frame-background"] },
+  { noun: /\bsecondary emphasis\b/i, selectors: [".lg-frame-background"] },
+  { noun: /\bhighlight/i, selectors: [".lg-logo-accent", ".lg-banner", ".lg-banner *"] },
+  { noun: /\brecommended\b/i, selectors: [".lg-banner", ".lg-banner *"] },
+  { noun: /\breassurance\b/i, selectors: [".lg-badge", ".lg-badge *"] },
+  { noun: /\bvalid states\b/i, selectors: [".lg-success", ".lg-success *"] },
+  { noun: /\bdisclosure\b/i, selectors: [".lg-frame-disclosure", ".lg-frame-disclosure *", ".lg-frame-disc2--full", ".lg-frame-disc2--full *"] },
+  { noun: /\bprogress\b/i, selectors: [".lg-frame-progress", ".lg-frame-progress *"] },
+  { noun: /\bcards?\b/i, selectors: [".lg-question-card", ".lg-card", ".lg-tscard", ".lg-btn-answer"] },
+  { noun: /\banswers?\b/i, selectors: [".lg-btn-answer", ".lg-btn-answer *", ".lg-answer-group"] },
+  // "buttons" in an operator's language is every pressable pill on the page:
+  // the Continue/CTA and the answer buttons share `.lg-btn`; the range
+  // stepper's +/- are buttons that carry their own class.
+  { noun: /\bbuttons?\b|\bcta\b|\bcontinue\b/i, selectors: [".lg-btn", ".lg-btn *", ".lg-range-stepper-btn"] },
+  { noun: /\b(field|input)s?\b/i, selectors: [".lg-input", ".lg-field", ".lg-field *"] },
+  { noun: /\blabels?\b/i, selectors: [".lg-label"] },
+  { noun: /\bheadlines?\b|\bdisplay\b/i, selectors: [".lg-headline"] },
+];
+
+/**
+ * The elements an operator text names, and the nouns that named them.
+ *
+ * A matched noun is CONSUMED from the working text before the shorter nouns are
+ * tried, which is what makes the longest-first ordering real: "category label"
+ * names the category strip and must NOT also drag in `.lg-label`, or accent
+ * would be silently permitted to paint the field label.
+ */
+function targetsFor(operatorText: string): { selectors: string[]; nouns: string[] } {
+  const selectors = new Set<string>();
+  const nouns: string[] = [];
+  let remaining = operatorText;
+  for (const entry of NOUN_TARGETS) {
+    if (!entry.noun.test(remaining)) continue;
+    nouns.push(entry.noun.source);
+    for (const sel of entry.selectors) selectors.add(sel);
+    remaining = remaining.replace(
+      new RegExp(entry.noun.source, entry.noun.flags.includes("g") ? entry.noun.flags : `${entry.noun.flags}g`),
+      " ",
+    );
+  }
+  return { selectors: [...selectors].sort(), nouns };
+}
+
+// ---------------------------------------------------------------------------
+// PAGE-WIDE LABELS — where the "and nothing else" half does not apply.
+//
+// A control labelled with a page-wide noun ("body text") is SUPPOSED to reach
+// every surface of that kind; asking it not to would be asking it to be a
+// different control. For those keys the ON-TARGET half still binds — they must
+// still move the layer they name — and the OFF-TARGET half is declared
+// inapplicable HERE, by name, rather than being quietly satisfied by a target
+// set so wide it can never fail. The set is pinned below.
+// ---------------------------------------------------------------------------
+const PAGE_WIDE_NOUNS: ReadonlyArray<{ noun: RegExp; reason: string }> = [
+  {
+    noun: /\bbody text\b/i,
+    reason:
+      "The page's whole text layer. `palette.text_primary` ('Text — body text, input text') is the page text COLOUR and `typography.size` ('Body text size') is the page text SCALE; both are meant to move the back link, the headline, the field and both button kinds at once. There is no element they could be 'mis-targeted' onto.",
+  },
+];
+
+/** true ⇒ this control's label names a page-wide layer, not one element. */
+function isPageWide(operatorText: string): boolean {
+  return PAGE_WIDE_NOUNS.some((n) => n.noun.test(operatorText));
+}
+
+// ---------------------------------------------------------------------------
+// OUT OF COVERAGE — named, with the reason, and PINNED as an exact set.
+//
+// R3's rule is about a control that names a surface. A control whose label
+// names NO element — a page-wide scale or a page-wide font — has no target for
+// this invariant to check, and pretending otherwise is the precise over-claim
+// the P8-3 review falsified once already. These keys stay fully covered by §4
+// (they must still move SOMETHING visible); they are simply outside THIS leg.
+// ---------------------------------------------------------------------------
+const LABEL_TARGET_OUT_OF_COVERAGE: ReadonlyArray<{ key: string; reason: string }> = [
+  {
+    key: "typography.body",
+    reason:
+      "Labelled 'Typography Body font (paragraphs)'. A page-wide font default names no single element — it is SUPPOSED to reach every body surface (measured: the scope root, the Continue pill and the answer buttons). There is no off-target for it to have.",
+  },
+  {
+    key: "scales.spacing",
+    reason:
+      "Labelled 'Scales Spacing'. A global density scale; 'Spacing' names no element and the key deliberately moves margins/gaps across the frame, the slot, the back link and both button kinds.",
+  },
+  {
+    key: "scales.radius",
+    reason:
+      "Labelled 'Scales Corners'. The GLOBAL radius scale (the per-component tiers are button_defaults.radius / card_defaults.radius, both of which ARE covered here). 'Corners' names no element.",
+  },
+  {
+    key: "scales.shadow",
+    reason:
+      "Labelled 'Scales Shadows'. The GLOBAL shadow scale (the per-component tier card_defaults.shadow IS covered here). 'Shadows' names no element.",
+  },
+];
+
+// The key families this leg does not enumerate at all, each with its reason.
+// Named so no reader infers coverage that is not here.
+const LABEL_TARGET_EXCLUDED_FAMILIES: ReadonlyArray<{ family: string; reason: string }> = [
+  {
+    family: "ThemeRecord roles.* / extra_roles.*",
+    reason:
+      "The SAME FunnelTokenRole layer as palette.*, re-authored through the record tier: THEME_RECORD_ROLE_TO_TOKEN_ROLE and THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE map every one of them onto a token role the palette legs below drive directly, and §1b already proves the record tier survives the preset->inline fork. Their own labels live in ui-theme-manager.ts, audited against the same used_by phrases by leadgen-p8-m2-role-usedby.test.ts (I4).",
+  },
+  {
+    family: "ThemeRecord controls / typography / button_style / spacing",
+    reason:
+      "The record tier's non-role keys. `controls` is driven per-value by §1 and §1b; the rest have no rail control of their own (the record editor is the standalone Themes manager page, a different admin surface with its own labels).",
+  },
+  {
+    family: "EffectiveFrameConfig group keys",
+    reason:
+      "The Templates tab's controls (frameSelect/frameCheck/frameInput in quotes-tabs/funnel.ts), not the Themes rail's. §4 sweeps them for DEADness; a label→target leg for them is a separate admin surface and is NOT claimed here.",
+  },
+];
+
+// ---------------------------------------------------------------------------
+// THE ROLE PAGES — each colour role measured on a page that CONTAINS the
+// surface its own "Used by:" line names (review MINOR-3).
+//
+// `nodes`/`frame` are the page shape that surface needs; `unreachable`, when
+// present, states why this static resolver cannot see the role's own surface
+// and what the entry proves instead. Every entry is checked against the LIVE
+// ROLE_META text below: if a role's operator text stops containing the noun
+// this entry was built for, the entry is stale and the suite says so.
+// ---------------------------------------------------------------------------
+
+const CATEGORY_NODE = { type: "CategoryLabel", question_id: "sw_cat", props: { text: "Probe category" } };
+const BADGE_NODE = { type: "ReassuranceBadge", question_id: "sw_badge", props: { text: "Probe reassurance" } };
+const SUCCESS_NODE = { type: "SuccessState", question_id: "sw_success", props: { heading: "Done", message: "Probe" } };
+const LABELLED_FIELD_NODE = {
+  type: "FreeTextQuestion",
+  question_id: "sw_labelled",
+  question_key: "swl",
+  internal_field: "swl",
+  props: { label: "Probe field label" },
+};
+const STEPPER_NODE = {
+  type: "NumberRangeQuestion",
+  question_id: "sw_range",
+  question_key: "swr",
+  internal_field: "swr",
+  answer_type: "number",
+  props: { slider_type: "stepper", min: 0, max: 10, step: 1 },
+};
+
+// Every role page hides the progress bar. That is the point of MINOR-3: the
+// progress fill reads whichever role `progress.color_role` selects, so leaving
+// it on lets EVERY role prove itself on one surface that belongs to none of
+// them. Switched off, a role has to paint its own.
+const ROLE_PAGE_FRAME_BASE: Record<string, unknown> = { progress: { style: "hidden" } };
+
+interface RolePage {
+  role: string;
+  /** A noun the role's LIVE operator text must still contain for this entry to be current. */
+  expects: RegExp;
+  nodes?: LeadgenComponentNode[];
+  frame?: Record<string, unknown>;
+  unreachable?: string;
+}
+
+const ROLE_PAGES: readonly RolePage[] = [
+  {
+    role: "brand_primary",
+    expects: /\bbutton/i,
+    nodes: [STEPPER_NODE as unknown as LeadgenComponentNode],
+    // "focus ring" is a `:focus-visible` selector — the helper treats every
+    // pseudo as non-matching (limitations banner), so the ring cannot be the
+    // proof. The stepper's +/- buttons are the role's real RESTING consumer.
+  },
+  {
+    role: "brand_secondary",
+    expects: /\bgradient|secondary emphasis\b/i,
+    frame: { background: { role: "page_background", style: "brand_gradient" } },
+  },
+  { role: "accent", expects: /\bcategory label\b/i, nodes: [CATEGORY_NODE as unknown as LeadgenComponentNode] },
+  {
+    role: "success",
+    expects: /\breassurance\b|\bvalid states\b/i,
+    nodes: [BADGE_NODE as unknown as LeadgenComponentNode, SUCCESS_NODE as unknown as LeadgenComponentNode],
+  },
+  {
+    role: "error",
+    expects: /\bvalidation errors\b/i,
+    unreachable:
+      "The role's only consumer is `.lg-input[aria-invalid=\"true\"]` — a state the RUNTIME island sets when a visitor submits an invalid answer, never present in server-rendered output, which is all this resolver sees. FALLBACK: the role is still swept by §4 (it must move SOMETHING visible) and its label claim is proven at stylesheet-declaration level by leadgen-p8-m2-role-usedby.test.ts's S3.11 I2 leg against that exact selector. What would close it here: a driven funnel with a failed validation, screenshotted (E6) — the conductor's lane, not this one.",
+  },
+  { role: "page_background", expects: /\bframe background\b/i },
+  { role: "card_background", expects: /\bcards?\b/i },
+  {
+    role: "surface_wash",
+    expects: /\brange-slider focus ring\b/i,
+    unreachable:
+      "The role's only consumer is `.lg-range-radial:focus-within .lg-range-radial-outer` — a pseudo-class selector, and every pseudo is deliberately treated as NON-MATCHING here (helper limitations banner), so no page shape can make it register. FALLBACK: §4 still requires the role to move something visible, and leadgen-p8-m2-role-usedby.test.ts's S3.11 I2 leg proves the declaration really carries the role's value. What would close it here: a driven funnel, the dial keyboard-focused, screenshotted (E6).",
+  },
+  { role: "border", expects: /\bcards?\b|\b(field|input)s?\b/i },
+  { role: "text_primary", expects: /\bbody text\b|\binput text\b/i },
+  {
+    role: "text_muted",
+    expects: /\blabels?\b|\bdisclosure\b/i,
+    nodes: [LABELLED_FIELD_NODE as unknown as LeadgenComponentNode],
+    frame: { disclosure: { enabled: true, location: "footer", link_label: "Disclosure", text: "Probe disclosure copy" } },
+  },
+  { role: "button_primary_bg", expects: /\bcontinue\b|\bcta\b|\bbutton/i },
+  { role: "button_primary_text", expects: /\bcontinue\b|\bcta\b|\bbutton/i },
+  {
+    role: "button_secondary_bg",
+    expects: /\bbenefit bar\b|\bdisclosure bar\b/i,
+    frame: {
+      benefit_bar: { enabled: true, items: [{ icon: "check", text: "Fast" }], placement: "below_unit" },
+      disclosure: { enabled: true, location: "top_bar", link_label: "Disclosure", text: "Probe disclosure copy" },
+    },
+  },
+];
+
+function rolePageFor(role: string): RolePage | undefined {
+  return ROLE_PAGES.find((p) => p.role === role);
+}
+
+/** The page a key is measured on: its labelled surfaces present, progress off. */
+function labelledPage(key: string, value: unknown): SweepPage {
+  const role = key.startsWith("palette.") ? (key.split(".")[1] as string) : null;
+  const page = role === null ? undefined : rolePageFor(role);
+  return sweepPage({
+    theme: setDotted({}, key, value) as ThemeJson,
+    nodes: page?.nodes === undefined ? undefined : [...SWEEP_NODES, ...page.nodes],
+    frame: deepMerge(structuredClone(ROLE_PAGE_FRAME_BASE), structuredClone(page?.frame ?? {})),
+  });
+}
+
+/** The operator text a key's control is rendered under, or null if it has none. */
+function operatorTextFor(key: string): string | null {
+  if (key.startsWith("palette.")) return roleOperatorText(key.split(".")[1] as string);
+  return RAIL_LABELS.get(key) ?? null;
+}
+
+interface LabelVerdict {
+  key: string;
+  operatorText: string;
+  selectors: string[];
+  onTarget: string[];
+  offTarget: string[];
+  /** The same off-target coordinates WITHOUT the structural path — the shape a
+   * residual is pinned by, so an unrelated node moving on the probe page does
+   * not invalidate a residual while the element+property identity is unchanged. */
+  offTargetShapes: string[];
+}
+
+function labelVerdict(spec: KeySpec): LabelVerdict {
+  const operatorText = operatorTextFor(spec.key) as string;
+  const { selectors } = targetsFor(operatorText);
+  const { onTarget, offTarget } = classifyDiffByTarget(
+    labelledPage(spec.key, spec.values[0]),
+    labelledPage(spec.key, spec.values[1]),
+    selectors,
+  );
+  return {
+    key: spec.key,
+    operatorText,
+    selectors,
+    onTarget: onTarget.map(describeCoord),
+    offTarget: [...new Set(offTarget.map(describeCoord))].sort(),
+    offTargetShapes: [...new Set(offTarget.map(coordShape))].sort(),
+  };
+}
+
+/** `"input.lg-input background"` — describeCoord minus the structural path. */
+function coordShape(c: DiffCoord): string {
+  const where = c.classes.length === 0 ? c.tag : `${c.tag}.${c.classes.join(".")}`;
+  return `${where} ${c.prop}`;
+}
+
+// The keys this leg claims: every inline theme_json key that has a rail control
+// (or, for a colour role, a live ROLE_META entry) AND whose operator text names
+// at least one element. Derived, then PINNED, so the set can never shrink
+// quietly.
+const LABEL_TARGET_KEYS: KeySpec[] = INLINE_KEYS.filter((k) => {
+  const text = operatorTextFor(k.key);
+  if (text === null) return false;
+  if (LABEL_TARGET_OUT_OF_COVERAGE.some((o) => o.key === k.key)) return false;
+  const role = k.key.startsWith("palette.") ? (k.key.split(".")[1] as string) : null;
+  if (role !== null && rolePageFor(role)?.unreachable !== undefined) return false;
+  return targetsFor(text).selectors.length > 0;
+});
+
+// ---------------------------------------------------------------------------
+// THE RESIDUALS — off-target coordinates that exist at THIS HEAD, each a
+// LABEL UNDER-CLAIM in a file this slice does not own, reported not hidden.
+//
+// This is NOT an allowlist of keys: it is a list of exact `element [path]
+// property` coordinates. Every OTHER off-target coordinate on the same key —
+// including the whole-frame flood the P8-3 review measured — still fails.
+// Each entry is re-checked above and fails if it stops being produced.
+//
+// EMPTY (R2 P8-3 FIX ROUND F8). The one entry this list ever carried —
+// `palette.card_background -> input.lg-input background` — is CLOSED, not
+// deleted-and-forgotten: shared.ts's ROLE_META (+ ui-theme-manager.ts's
+// converged copy) widened "question card, answer cards" to "…, input
+// fields", which the NOUN_TARGETS glossary's `/\b(field|input)s?\b/i` entry
+// maps onto `.lg-input` — so the coordinate now lands in `onTarget`, not
+// `offTarget`, and this leg proves the label covers the paint instead of
+// exempting it. Measured empty by hand: emptying this array and re-running
+// `OFF TARGET` (below) produces `stray: []`, not a re-appearance of the old
+// coordinate — see this slice's report for the raw before/after counts.
+// ---------------------------------------------------------------------------
+const LABEL_TARGET_RESIDUALS: ReadonlyArray<{ key: string; coords: readonly string[]; reason: string }> = [];
+
+/** The two probe values §4 drives a key with (so a residual re-check matches). */
+function keyValues(key: string): readonly unknown[] {
+  const spec = INLINE_KEYS.find((k) => k.key === key);
+  if (spec === undefined) throw new Error(`no enumerated inline key "${key}"`);
+  return spec.values;
+}
+
+describe("R2 P8-3 F6 — a control moves the element its OWN LABEL names (the MIS-TARGET branch of R3)", () => {
+  it("the label side is read from the REAL admin source and covers every rail control", () => {
+    // Calibration: if the parse silently found nothing, every claim below is
+    // vacuous. These are keys the Themes rail demonstrably offers.
+    expect(RAIL_LABELS.size, "rail controls parsed out of quotes-tabs/themes.ts").toBeGreaterThanOrEqual(18);
+    for (const key of ["card_defaults.background_role", "button_defaults.casing", "field_defaults.min_height"]) {
+      expect(RAIL_LABELS.get(key), `${key} has an operator-facing label`).toBeTruthy();
+    }
+    // …and every colour role the rail renders has live label + used_by text.
+    expect(ROLE_META.length).toBe(14);
+    for (const r of ROLE_META) expect(roleOperatorText(r.role)?.trim().length ?? 0).toBeGreaterThan(8);
+  });
+
+  it("every ROLE PAGE is still current — the noun it was built for is still in the role's LIVE text", () => {
+    for (const page of ROLE_PAGES) {
+      const text = roleOperatorText(page.role);
+      expect(text, `ROLE_PAGES names a role the rail no longer has: ${page.role}`).not.toBeNull();
+      expect(
+        page.expects.test(text as string),
+        `ROLE_PAGES entry for "${page.role}" was built for ${page.expects} but its LIVE operator text is now ` +
+          `"${text as string}" — the page shape it builds may no longer be the surface the label names.`,
+      ).toBe(true);
+    }
+    // Every rail role has an entry: a role with no page would silently skip.
+    expect(ROLE_PAGES.map((p) => p.role).sort()).toEqual(ROLE_META.map((r) => r.role).sort());
+  });
+
+  it("the out-of-coverage list is PINNED, reasoned, and never a place to park a mis-target", () => {
+    for (const entry of LABEL_TARGET_OUT_OF_COVERAGE) {
+      expect(entry.reason.trim().length, `${entry.key} states why it has no target`).toBeGreaterThan(120);
+      // The claim is "this label names NO element" — checked, not asserted.
+      const text = operatorTextFor(entry.key);
+      expect(text, `${entry.key} still has a rail control`).not.toBeNull();
+      expect(
+        targetsFor(text as string).selectors,
+        `${entry.key} claims its label names no element, but the glossary now finds one`,
+      ).toEqual([]);
+    }
+    expect(LABEL_TARGET_OUT_OF_COVERAGE.map((o) => o.key).sort()).toEqual([
+      "scales.radius",
+      "scales.shadow",
+      "scales.spacing",
+      "typography.body",
+    ]);
+    // …and the page-wide set, where only the OFF-TARGET half is inapplicable.
+    for (const n of PAGE_WIDE_NOUNS) expect(n.reason.trim().length).toBeGreaterThan(120);
+    expect(LABEL_TARGET_KEYS.filter((k) => isPageWide(operatorTextFor(k.key) as string)).map((k) => k.key).sort()).toEqual([
+      "palette.text_primary",
+      "typography.size",
+    ]);
+    for (const f of LABEL_TARGET_EXCLUDED_FAMILIES) expect(f.reason.trim().length).toBeGreaterThan(120);
+    expect(LABEL_TARGET_EXCLUDED_FAMILIES.length).toBe(3);
+    // Roles whose own surface this static resolver cannot reach: named, with
+    // the fallback stated. Two, both pseudo/runtime — never "not wired yet".
+    const unreachable = ROLE_PAGES.filter((p) => p.unreachable !== undefined);
+    expect(unreachable.map((p) => p.role).sort()).toEqual(["error", "surface_wash"]);
+    for (const p of unreachable) expect((p.unreachable as string).trim().length).toBeGreaterThan(200);
+  });
+
+  it("the covered key set is PINNED — a key cannot leave this leg quietly", () => {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[F6 label->target] covered=${LABEL_TARGET_KEYS.length} ` +
+        `out-of-coverage=${LABEL_TARGET_OUT_OF_COVERAGE.length} ` +
+        `unreachable-roles=${ROLE_PAGES.filter((p) => p.unreachable !== undefined).length} ` +
+        `of inline theme_json=${INLINE_KEYS.length}`,
+    );
+    expect(LABEL_TARGET_KEYS.map((k) => k.key).sort()).toEqual([
+      "button_defaults.background_role",
+      "button_defaults.casing",
+      "button_defaults.fill",
+      "button_defaults.layout",
+      "button_defaults.min_height",
+      "button_defaults.radius",
+      "button_defaults.selected",
+      "button_defaults.text_role",
+      "card_defaults.background_role",
+      "card_defaults.border_role",
+      "card_defaults.radius",
+      "card_defaults.shadow",
+      "field_defaults.min_height",
+      "palette.accent",
+      "palette.border",
+      "palette.brand_primary",
+      "palette.brand_secondary",
+      "palette.button_primary_bg",
+      "palette.button_primary_text",
+      "palette.button_secondary_bg",
+      "palette.card_background",
+      "palette.page_background",
+      "palette.success",
+      "palette.text_muted",
+      "palette.text_primary",
+      "typography.display",
+      "typography.display_size",
+      "typography.size",
+    ]);
+    // Every covered key + every named exclusion accounts for all 34 inline keys.
+    const accounted = new Set<string>([
+      ...LABEL_TARGET_KEYS.map((k) => k.key),
+      ...LABEL_TARGET_OUT_OF_COVERAGE.map((o) => o.key),
+      ...ROLE_PAGES.filter((p) => p.unreachable !== undefined).map((p) => `palette.${p.role}`),
+    ]);
+    expect(INLINE_KEYS.filter((k) => !accounted.has(k.key)).map((k) => k.key)).toEqual([]);
+  });
+
+  // MINOR-3 — each key, including every colour role, proves itself on a surface
+  // its OWN label names. The progress bar is switched off on every role page.
+  it("ON TARGET — every covered key moves the element its label names", { timeout: 120_000 }, () => {
+    const silent: string[] = [];
+    for (const spec of LABEL_TARGET_KEYS) {
+      const v = labelVerdict(spec);
+      if (v.onTarget.length === 0) silent.push(`${v.key} (label "${v.operatorText}" -> ${v.selectors.join(", ")})`);
+    }
+    expect(silent, "keys that move nothing on the surface their own label names").toEqual([]);
+  });
+
+  // MINOR-2 — and moves nothing else. RESIDUALS are pinned coordinate-exactly
+  // below, so this stays red for any NEW off-target.
+  it("OFF TARGET — no covered key moves an element its label does not name", { timeout: 120_000 }, () => {
+    const stray: string[] = [];
+    for (const spec of LABEL_TARGET_KEYS) {
+      const v = labelVerdict(spec);
+      if (isPageWide(v.operatorText)) continue; // declared inapplicable, pinned above
+      const tolerated = new Set(
+        LABEL_TARGET_RESIDUALS.filter((r) => r.key === v.key).flatMap((r) => r.coords),
+      );
+      for (const coord of v.offTargetShapes) if (!tolerated.has(coord)) stray.push(`${v.key} -> ${coord}`);
+    }
+    expect(stray, "keys painting a visible element their own operator label does not name").toEqual([]);
+  });
+
+  it("every residual is coordinate-exact, reasoned, and STILL REAL (a stale one fails here)", () => {
+    for (const r of LABEL_TARGET_RESIDUALS) {
+      expect(r.reason.trim().length, `residual ${r.key} states why`).toBeGreaterThan(120);
+      const v = labelVerdict({ group: r.key.split(".")[0] as string, key: r.key, values: keyValues(r.key) });
+      for (const coord of r.coords) {
+        expect(
+          v.offTargetShapes,
+          `residual "${r.key} -> ${coord}" is no longer produced — delete it instead of carrying a dead exemption`,
+        ).toContain(coord);
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6b. THE LABEL→TARGET INVARIANT'S OWN PROOF — it goes RED on a MIS-TARGET.
+//
+// §4's red-proof could only ever demonstrate the DEAD case (its injected rule
+// names a selector the page renders no element for). These legs inject the
+// shape that actually shipped: a REAL declaration change on a REAL, VISIBLE,
+// WRONG element — and require the leg to name the guilty key.
+// ---------------------------------------------------------------------------
+
+/**
+ * A distinct, deterministic colour per probe VALUE, so an injected sabotage
+ * rule really differs between the two renders (the key's own values are role
+ * NAMES like "error"/"success", not colours).
+ */
+function probeHexFor(value: string): string {
+  let n = 0;
+  for (const ch of value) n = (n * 31 + ch.charCodeAt(0)) % 0xff_ff_ff;
+  return `#${n.toString(16).padStart(6, "0")}`;
+}
+
+/** The off-target coordinates a key produces when `sabotage` rewrites its sheet. */
+function offTargetUnder(key: string, sabotage: (css: string, value: string) => string): string[] {
+  const text = operatorTextFor(key) as string;
+  const { selectors } = targetsFor(text);
+  const [a, b] = keyValues(key) as [string, string];
+  const page = (value: string): SweepPage => {
+    const real = labelledPage(key, value);
+    return { css: sabotage(real.css, value), html: real.html };
+  };
+  return [...new Set(classifyDiffByTarget(page(a), page(b), selectors).offTarget.map(describeCoord))].sort();
+}
+
+describe("R2 P8-3 F6 — the label→target leg itself goes RED on a MIS-TARGETED key", () => {
+  it("MIS-TARGET: 'Card background' also flooding the frame background is caught and NAMED", () => {
+    // The exact shape the P8-3 review measured live: the card control reaching
+    // the whole-page background. Injected as a REAL rule on the REAL rendered
+    // page, carrying the key's OWN value — nothing hand-built on the markup
+    // side, and `.lg-frame-background` is an element the page really renders.
+    const stray = offTargetUnder("card_defaults.background_role", (css, value) =>
+      withExtraRule(css, `${DEFAULT_FUNNEL_SCOPE} .lg-frame-background{background:${probeHexFor(String(value))} !important}`),
+    );
+    expect(stray.length, "the mis-target is reported").toBeGreaterThan(0);
+    expect(stray.join(" | ")).toContain("lg-frame-background");
+    // The label "Cards Card background" names the card, so the FRAME is the
+    // wrong element — while the card itself is still correctly on target.
+    expect(targetsFor(operatorTextFor("card_defaults.background_role") as string).selectors).toContain(
+      ".lg-question-card",
+    );
+    // …and unsabotaged, the SAME key is clean: the leg is discriminating.
+    expect(labelVerdict(INLINE_KEYS.find((k) => k.key === "card_defaults.background_role") as KeySpec).offTarget).toEqual(
+      [],
+    );
+  });
+
+  it("MIS-TARGET: a FIELD control reaching the headline is caught and NAMED", () => {
+    // A second, different mis-target so the leg is not tuned to one selector:
+    // "Fields Field height" moving the headline's box.
+    const stray = offTargetUnder("field_defaults.min_height", (css, value) =>
+      withExtraRule(css, `${DEFAULT_FUNNEL_SCOPE} .lg-headline{padding-top:${String(value).length * 3}px}`),
+    );
+    expect(stray.join(" | ")).toContain("lg-headline");
+    expect(labelVerdict(INLINE_KEYS.find((k) => k.key === "field_defaults.min_height") as KeySpec).offTarget).toEqual([]);
+  });
+
+  it("SILENT ON ITS OWN SURFACE: deleting accent's category-label consumer is caught", () => {
+    // Review MINOR-3, verbatim: "palette.accent's category-label consumer could
+    // be deleted and the guard would stay green." Deleting it from the REAL
+    // sheet must now make the ON-TARGET leg report accent silent.
+    const spec = INLINE_KEYS.find((k) => k.key === "palette.accent") as KeySpec;
+    expect(labelVerdict(spec).onTarget.length, "accent paints its own category label today").toBeGreaterThan(0);
+    // The consumer is DELETED the way it exists. The category label is painted
+    // TWICE by the real product — renderCategoryLabel writes the accent as an
+    // INLINE `color` on the element (components/presets.ts) and the sheet
+    // carries a `.lg-category{color:…}` rule — so "deleted" means both, removed
+    // from the REAL artifacts. A real page minus its real consumer; nothing is
+    // hand-built on either side. (Removing only one leaves the other painting,
+    // which is itself measured below.)
+    const withoutConsumer = (value: unknown): SweepPage => {
+      const real = labelledPage("palette.accent", value);
+      const html = real.html.replace(
+        /(<div class="lg-category"[^>]*style="[^"]*?)color:[^;"]*;?/,
+        (_m, before: string) => before,
+      );
+      const css = real.css
+        .split("\n")
+        .filter((line) => !line.startsWith(`${DEFAULT_FUNNEL_SCOPE} .lg-category{`))
+        .join("\n");
+      expect(html, "the category label's inline colour really was removed").not.toBe(real.html);
+      expect(css, "the category label's stylesheet rule really was removed").not.toBe(real.css);
+      return { css, html };
+    };
+    const { selectors } = targetsFor(operatorTextFor("palette.accent") as string);
+    const { onTarget } = classifyDiffByTarget(
+      withoutConsumer(spec.values[0]),
+      withoutConsumer(spec.values[1]),
+      selectors,
+    );
+    expect(onTarget.map(describeCoord), "accent with its labelled consumer deleted is SILENT").toEqual([]);
+  });
+
+  it("the progress bar is OFF on every role page — no role can borrow another's surface", () => {
+    const { html } = labelledPage("palette.accent", "#112233");
+    expect(html).not.toContain("lg-progress-fill");
+    // …and with it off, the universal-consumer proof really is gone: a role
+    // whose own labelled surface is absent from the page paints nothing.
+    const bare = (v: string): SweepPage =>
+      sweepPage({ theme: { palette: { accent: v } } as ThemeJson, frame: structuredClone(ROLE_PAGE_FRAME_BASE) });
+    expect(visibleDiffAnyViewport(bare("#112233"), bare("#AA5566"))).toEqual([]);
   });
 });

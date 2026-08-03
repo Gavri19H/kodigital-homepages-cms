@@ -460,12 +460,25 @@ export const PREFLIGHT_PASS_CHECKS: ReadonlyArray<{ id: string; label: string }>
 // authored). MEASURED at this HEAD (grep + tokens.ts literal cross-reference;
 // test/leadgen-p8-m2-role-usedby.test.ts pins the surviving claims to the REAL
 // generated stylesheet):
-//   - brand_primary: "progress fill" (progress.fillColor, a frozen gradient
-//     literal) / "selected borders" (iconCard.selectedBorderColor, frozen) /
-//     "logo text" (header.logoColor, frozen) never move — NONE is written by
-//     setRoleToken or any applier. Replaced with the two surfaces that DO:
+//   - brand_primary: "selected borders" (iconCard.selectedBorderColor, frozen)
+//     / "logo text" (header.logoColor, frozen) never move — neither is written
+//     by setRoleToken or any applier. Replaced with the two surfaces that DO:
 //     the range stepper button (rest state) and the card/answer-button focus
 //     ring, both direct `color.primary` reads.
+//     R2 P8-3 FIX ROUND F3 (MINOR-4) — "progress fill" was ALSO dropped in
+//     that pass and that was WRONG: the drop looked only at the token
+//     (`progress.fillColor`, default-funnel/tokens.ts:84, which is indeed a
+//     frozen `linear-gradient(90deg,#1B3A5C,#2A5080)` literal) and missed the
+//     rule that actually paints the live frame. designs/frames.ts:645 gives
+//     EVERY frame `progress.color_role: "brand_primary"` by default, and
+//     default-funnel/styles.ts:2553-2558 emits, per role,
+//     `.lg-frame-progress--role-<role> .lg-progress-fill{background:
+//     baseTokenForRole(design,role)!important}` — the `!important` is there
+//     precisely to beat the frozen token. So on the default frame the progress
+//     fill DOES move with brand_primary. Restored; pinned by
+//     test/leadgen-p8-m2-role-usedby.test.ts's I2 sentinel sweep against that
+//     exact selector. "selected borders"/"logo text" stay out — measured
+//     frozen, no such role rule exists for them.
 //   - surface_wash: "selected fills"/"quiet panels" — color.primaryWash's only
 //     consumer is a range-dial focus ring; the CardPanel/BackgroundPanel
 //     "wash" background option and the answer-button wash-selected fill both
@@ -484,19 +497,32 @@ export const PREFLIGHT_PASS_CHECKS: ReadonlyArray<{ id: string; label: string }>
 //     reads of color.primaryGhost are :hover states) never move at rest.
 //     Replaced with the two resting backgrounds that DO: the benefit bar and
 //     the top-bar disclosure band.
-// brand_secondary/accent/success/error/page_background/card_background/
-// border/button_primary_bg/button_primary_text were audited too and are
-// unchanged (each phrase maps to a real, direct consumer).
+//   card_background: "question card, answer cards" -> "question card, answer
+//     cards, input fields" — R2 P8-3 FIX ROUND F8 (the MINOR-4 "help text
+//     must not describe LESS than the control does" corollary, one more
+//     role). The role's token (color.card) is ALSO the resting background of
+//     `.lg-input` (default-funnel/styles.ts:1845), so an operator repainting
+//     "Card background" repaints every text field too — measured as the
+//     label->target sweep's own residual (test/leadgen-r2-dead-controls-
+//     guard.test.ts LABEL_TARGET_RESIDUALS, now removed: the widened text
+//     covers the coordinate instead of exempting it). No other surface is
+//     added: `.lg-frame-background`/`--lg-card` only move when the operator
+//     ALSO points the frame's OWN Background role control at
+//     "card_background" (FrameBackgroundConfig.role, a different control) —
+//     not exercised by editing this swatch alone, so not claimed here.
+// brand_secondary/accent/success/error/page_background/border/
+// button_primary_bg/button_primary_text were audited too and are unchanged
+// (each phrase maps to a real, direct consumer).
 // ---------------------------------------------------------------------------
 
 export const ROLE_META: ReadonlyArray<{ role: string; label: string; used_by: string }> = [
-  { role: "brand_primary", label: "Brand primary", used_by: "buttons, focus ring" },
+  { role: "brand_primary", label: "Brand primary", used_by: "buttons, progress fill, focus ring" },
   { role: "brand_secondary", label: "Brand secondary", used_by: "gradients, secondary emphasis" },
   { role: "accent", label: "Accent", used_by: "category label, highlights, recommended" },
   { role: "success", label: "Success", used_by: "reassurance, valid states" },
   { role: "error", label: "Error", used_by: "validation errors" },
   { role: "page_background", label: "Page background", used_by: "frame background" },
-  { role: "card_background", label: "Card background", used_by: "question card, answer cards" },
+  { role: "card_background", label: "Card background", used_by: "question card, answer cards, input fields" },
   { role: "surface_wash", label: "Soft fill", used_by: "range-slider focus ring" },
   { role: "border", label: "Border", used_by: "card/input borders" },
   { role: "text_primary", label: "Text", used_by: "body text, input text" },
@@ -568,6 +594,49 @@ export const OVERRIDE_GROUP_LABELS: Readonly<Record<string, string>> = {
 // own removal note in quotes-tabs/funnel.ts. This sheet ships on EVERY leadgen
 // admin page, so the note lives here in TS (0 bytes served) rather than inside
 // the template literal.
+//
+// R2 P8-3 FIX ROUND F3 (BLOCKER-1) — `.lg-scalars`: THE SELECT BOX, NOT THE
+// STRING. FAIL-BEFORE (reviewer, driven at 1280): `repeat(2,1fr)` inside the
+// theme rail cut every scalar select to w=151 / content=125.00px, so THREE of
+// the 16 selects displayed a truncated version of their own selected value —
+// "Literata (shows as default font)" 191.43px (+66.43), "System (…)" 191.41
+// (+66.41), "Sora (…)" 174.31 (+49.31), "Bigger + check badge" 135.82
+// (+10.82). The previous round shortened one string and left the container, so
+// the next labels this phase wrote overflowed the same box: the container was
+// always the cause.
+//   MECHANISM: auto-fit + a minmax() floor. A column is never narrower than
+//   220px; a container that cannot seat two 220px columns plus the 12px gap
+//   collapses to ONE full-width column instead of halving every box.
+//   ARITHMETIC for the only consumer of this rule (quotes-tabs/themes.ts's
+//   rail — flex:0 1 340px, min-width:280px, max-width:380px, inside
+//   .lg-panel-card padding:12px + border:1px): panel content 254..354px, and
+//   2*220+12 = 452 > 354, so the rail is single-column at EVERY width it can
+//   take. Worst-case select content = 254 - 26 = 228.00px against the longest
+//   label the rail emits (191.43px measured / 214.3px by the conservative
+//   model). It holds for labels longer than today's because the box now scales
+//   WITH the rail instead of being halved, and because the 220px floor stops a
+//   2-up layout from ever going below 220-26 = 194px of content.
+//   test/leadgen-p8-n-theme-ui.test.ts recomputes this arithmetic FROM THIS
+//   DECLARATION for every option of every select in the real rail markup, so a
+//   revert to repeat(2,1fr) — or a label longer than the box — fails there.
+//   The old `@media (max-width:640px)` companion is GONE as dead weight:
+//   auto-fit already yields one column at every width this rail reaches, so
+//   the query could not change the outcome.
+//
+// R2 P8-3 FIX ROUND F3 (MAJOR-2) — `.lg-preset-apply-row .btn:disabled` +
+// `.lg-preset-help-blocked`: a disabled preset action must LOOK unavailable.
+// FAIL-BEFORE (reviewer, both states, 1280 and 375): the `disabled` property
+// flipped true/false while colour, background, border, opacity, filter and
+// text-decoration stayed IDENTICAL and `cursor` read `pointer` in BOTH — a
+// control that looks live and does nothing. `.btn` (templates/layout.ts:452)
+// carries no :disabled state at all, so nothing painted the difference. Six
+// computed properties now differ: background, border-color, color, opacity,
+// cursor, box-shadow. Scoped to this row (the two controls N11 names) rather
+// than a global `.btn:disabled`, which would repaint every disabled button on
+// every admin page — that global gap is reported to the conductor, not fixed
+// here. `.lg-preset-help-blocked` is what puts the REASON on screen instead of
+// only in a `title`; THEMES_TAB_SCRIPT adds it only once the zero-preset state
+// is CONFIRMED, so an ordinary load never flashes a false alarm.
 // ---------------------------------------------------------------------------
 
 export const LG_QUOTES_STYLES = `
@@ -580,8 +649,7 @@ export const LG_QUOTES_STYLES = `
 .lg-qtab.active{color:var(--c-primary);border-bottom-color:var(--c-primary)}
 .lg-qpanel{display:none}
 .lg-qpanel.active{display:block}
-.lg-scalars{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-@media (max-width:640px){.lg-scalars{grid-template-columns:1fr}}
+.lg-scalars{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
 .lg-section-row{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--c-border);border-radius:6px;margin-bottom:6px}
 .lg-section-row .lg-grow{flex:1}
 .lg-auction-entry-mark{background:var(--c-warn-bg,#fff4e5);color:var(--c-warn,#8a5300);border:1px dashed var(--c-warn,#e0a04a);border-radius:6px;padding:8px;margin:6px 0;font-size:13px}
@@ -733,6 +801,9 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 /* --- P6b: Themes-tab presets (apply picker + embedded theme-manager) ------- */
 .lg-preset-apply-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
 .lg-preset-apply-row select{flex:1 1 220px;min-width:160px}
+.lg-preset-apply-row .btn:disabled{background:var(--c-bg-alt);border-color:var(--c-border);color:var(--c-muted);opacity:.55;cursor:not-allowed;box-shadow:none}
+.lg-preset-apply-row .btn:disabled:hover{background:var(--c-bg-alt);border-color:var(--c-border);color:var(--c-muted)}
+.lg-preset-help-blocked{color:var(--c-warn,#8a5300);background:var(--c-warn-bg,#fff4e5);border:1px dashed var(--c-warn,#e0a04a);border-radius:6px;padding:6px 8px;font-weight:600}
 .lg-theme-presets-frame{display:block;width:100%;height:820px;border:1px solid var(--c-border);border-radius:8px;margin-top:10px}
 /* === P3b (§8.2) — Funnel-builder BOARD ==================================== */
 /* Geometry pinned to docs/leadgen/rework/design-pack/board.html: 292px left

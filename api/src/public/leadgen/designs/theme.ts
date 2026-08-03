@@ -1467,7 +1467,31 @@ export function resolveTokens(
   // label now reaches the surface it names as well as the ones it already did.
   const cd = theme.card_defaults ?? {};
   if (cd.background_role !== undefined) {
-    design.color.card = roles[cd.background_role];
+    // R2 P8 F4 (review MAJOR-1) — THE `design.color.card = …` WRITE THAT USED TO
+    // SIT HERE IS GONE, deliberately.
+    //
+    // `color.card` is NOT a card slot: it is the base token OF THE
+    // `card_background` ROLE (ROLE_TO_BASE_TOKEN, top of file). Writing it from
+    // a COMPONENT control re-pointed the role itself, so a control the operator
+    // reads as "Card background" dragged every consumer of that role with it.
+    // MEASURED on the live product (docs/leadgen/r2/evidence/p8/review-p8-3/
+    // REVIEW.md) with `palette.card_background` pinned #FFFFFF and
+    // `palette.page_background` pinned #F5F7FA in BOTH arms and ONLY
+    // `card_defaults.background_role` flipped error -> success:
+    //   .lg-question-card    rgb(194,24,7) -> rgb(18,165,148)   INTENDED, 420x484
+    //   input.lg-input       rgb(194,24,7) -> rgb(18,165,148)   4/4 fields, 326x54
+    //   .lg-frame-background rgb(194,24,7) -> rgb(18,165,148)   1280x900 FIXED OVERLAY
+    // The page flooded, all four form fields went teal-on-teal, and the
+    // operator's OWN `palette.card_background` swatch — a DIFFERENT control in
+    // the same rail — was silently overridden.
+    //
+    // A component-scoped control writes its component's slot ONLY. The role
+    // keeps its own writers (setRoleToken + the palette block above), so
+    // `palette.card_background` still moves `.lg-input`, `.lg-frame-background`,
+    // `--lg-card` and the answer-card fill exactly as before: nothing is
+    // re-routed, and the two controls now COMPOSE (role paints the family, the
+    // component control wins the card). Pinned both ways, plus the negative leg,
+    // by leadgen-p8-f4-component-scope.test.ts.
     design.questionCard.background = roles[cd.background_role];
   }
   if (cd.radius !== undefined) {
@@ -1496,7 +1520,15 @@ export function resolveTokens(
   const explicitCardShadow = cd.shadow !== undefined ? shadowStepValue(baseDesign, cd.shadow) : undefined;
   if (explicitCardShadow !== undefined) design.questionCard.boxShadow = explicitCardShadow;
   const card_defaults: EffectiveCardDefaults = {
-    background: design.color.card,
+    // F4: the value that PAINTS the card (one resolution, never a second
+    // opinion), exactly like `shadow` below. Until F4 this read
+    // `design.color.card` — the ROLE token — which after the fix above can
+    // legitimately differ from what the card paints, so the readout would have
+    // reported the role while the card showed the component control's colour.
+    // With no component control authored this is the role's value anyway
+    // (the palette block writes both slots), so an unauthored/palette-only
+    // theme reports byte-identically to before.
+    background: design.questionCard.background,
     border_color: cd.border_role !== undefined ? roles[cd.border_role] : design.color.border,
     border_radius: design.content.cardRadius,
     // The readout is the value that PAINTS (one resolution, never a second
@@ -2174,6 +2206,33 @@ const THEME_TOP_KEYS: ReadonlySet<string> = new Set([
 
 const HEX_COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 
+// R2 P8 F4 — the component-default VOCABULARIES, hoisted out of validateTheme's
+// two call sites below so they are ONE named, exhaustive universe instead of two
+// inline literals. `satisfies Record<keyof …, DefaultsFieldKind>` makes them
+// compile-time exhaustive over their own interfaces (the ROLE_TO_BASE_TOKEN
+// idiom at the top of this file): a NEW key on ThemeButtonDefaults /
+// ThemeCardDefaults is a compile error until it is listed here — which is what
+// lets leadgen-p8-f4-component-scope.test.ts sweep "every component-default key"
+// over a universe that cannot silently grow, rather than a hand-copied list.
+export const THEME_BUTTON_DEFAULT_FIELDS = {
+  background_role: "role",
+  text_role: "role",
+  radius: "radius_step",
+  min_height: "min_height",
+  casing: "casing",
+  // P6 (deliverable 3): the button-style vocabulary — each a closed enum.
+  fill: "btn_fill",
+  layout: "btn_layout",
+  selected: "btn_selected",
+} as const satisfies Record<keyof ThemeButtonDefaults, DefaultsFieldKind>;
+
+export const THEME_CARD_DEFAULT_FIELDS = {
+  background_role: "role",
+  border_role: "role",
+  radius: "radius_step",
+  shadow: "shadow_step",
+} as const satisfies Record<keyof ThemeCardDefaults, DefaultsFieldKind>;
+
 export function validateTheme(raw: unknown): ThemeValidation {
   const problems: Problem[] = [];
   const push = (severity: ProblemSeverity, path: string, message: string): void => {
@@ -2322,23 +2381,14 @@ export function validateTheme(raw: unknown): ThemeValidation {
   }
 
   // --- button_defaults / card_defaults ------------------------------------------
-  validateComponentDefaults(raw["button_defaults"], "theme.button_defaults", "button", push, {
-    background_role: "role",
-    text_role: "role",
-    radius: "radius_step",
-    min_height: "min_height",
-    casing: "casing",
-    // P6 (deliverable 3): the button-style vocabulary — each a closed enum.
-    fill: "btn_fill",
-    layout: "btn_layout",
-    selected: "btn_selected",
-  });
-  validateComponentDefaults(raw["card_defaults"], "theme.card_defaults", "card", push, {
-    background_role: "role",
-    border_role: "role",
-    radius: "radius_step",
-    shadow: "shadow_step",
-  });
+  validateComponentDefaults(
+    raw["button_defaults"],
+    "theme.button_defaults",
+    "button",
+    push,
+    THEME_BUTTON_DEFAULT_FIELDS,
+  );
+  validateComponentDefaults(raw["card_defaults"], "theme.card_defaults", "card", push, THEME_CARD_DEFAULT_FIELDS);
   // R2 F-3 — the field box, validated through the SAME helper (unknown key ->
   // error, off-vocabulary value -> error) so the new axis can never be looser
   // than its two siblings.

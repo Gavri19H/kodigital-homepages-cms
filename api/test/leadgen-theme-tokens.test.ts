@@ -264,7 +264,17 @@ describe("theme-inheritance — §9.3 typography + component defaults", () => {
     const eff = resolveTokens(base, {
       card_defaults: { background_role: "surface_wash", border_role: "accent", radius: "xl", shadow: "lg" },
     });
-    expect(eff.design.color.card).toBe("#E8EEF4");
+    // R2 P8-3 (review MAJOR-1) — a COMPONENT-scoped control must not re-point a
+    // GLOBAL role token. `card_defaults.background_role` used to write
+    // `design.color.card`, the card_background ROLE's own token, which every
+    // consumer of that role reads (the field's resting background among them) —
+    // measured live as a "Card background" control flooding the whole frame and
+    // making every text input unreadable. theme.ts:1495 now writes ONLY the
+    // component slot. Asserted from the base token rather than a literal, and
+    // paired with the slot that MUST move, so neither half can regress alone.
+    expect(eff.design.color.card, "the global role token is NOT re-pointed").toBe(base.color.card);
+    expect(eff.design.color.card).toBe("#FFFFFF");
+    expect(eff.design.questionCard.background, "…and the card's own slot IS painted").toBe("#E8EEF4");
     expect(eff.design.content.cardRadius).toBe("20px");
     expect(eff.design.cardPanel.border).toBe("1px solid #E85D26");
     expect(eff.card_defaults).toEqual({

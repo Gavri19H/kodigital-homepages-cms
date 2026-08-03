@@ -65,6 +65,17 @@
 // theme.ts:1397-1406), so the whole file reads as ONE rule. Pinned below in
 // both orders, so a flip fails.
 //
+// R2 P8 F4 (review MAJOR-1) COMPLETES THAT RULE: the component control wins the
+// CARD AND NOTHING ELSE. It used to ALSO write `design.color.card` — the
+// `card_background` ROLE's base token — so it re-pointed the role itself and
+// dragged the 1280x900 `.lg-frame-background` overlay and every `input.lg-input`
+// with it, overriding the operator's own palette swatch (driven:
+// docs/leadgen/r2/evidence/p8/review-p8-3/REVIEW.md). That write is gone. The
+// role side below is UNCHANGED — `palette.card_background` still writes
+// color.card AND questionCard.background — so every leg in this file holds; the
+// scoping half of the rule is pinned on the real full page (frame + sections) by
+// leadgen-p8-f4-component-scope.test.ts, and one leg of it is asserted here too.
+//
 // HOW THIS FILE AVOIDS THE FAILURE MODE THAT LET M2 SHIP (E10/E11). "The bytes
 // changed" is the assertion a MIS-TARGETED key PASSES — palette.card_background
 // did change bytes at HEAD, on the wrong element. So no leg below is a
@@ -421,8 +432,11 @@ describe("R2 P8 M2 S3.6 I2 — palette.card_background paints .lg-question-card 
   });
 
   it("I4 — the pre-existing .lg-input painting SURVIVES (this fix is additive, never a re-route)", () => {
-    // color.card also paints `.lg-input` (styles.ts:1828), pinned by
-    // leadgen-theme-tokens.test.ts:267. The role must still move it.
+    // `color.card` — the ROLE's own base token (ROLE_TO_BASE_TOKEN
+    // card_background) — also paints `.lg-input` (styles.ts:1828) and the
+    // per-role frame-background rule. The ROLE must still move all of them;
+    // only the COMPONENT control (card_defaults.background_role) was scoped off
+    // them by F4.
     expect(resolveTokens(BASE, cardBg(A)).design.color.card).toBe(A);
     expect(paint(cardBg(A)).css).toContain(`${SCOPE} .lg-input`);
     const inputBg = winning(
@@ -450,6 +464,10 @@ describe("R2 P8 M2 S3.6 I3 — the explicit card control beats the theme-wide ro
     ).toBe(BASE.color.error);
     // If the order flipped, this would paint `A`.
     expect(computed(both, "lg-question-card", "background")).not.toBe(A);
+    // R2 P8 F4 — …AND WINS NOTHING ELSE. `color.card` is the ROLE's base token,
+    // read by `.lg-input`, `--lg-card` and the per-role frame-background rule;
+    // the operator's palette swatch must still own it. (Before F4 this was `#D32F2F`.)
+    expect(resolveTokens(BASE, both).design.color.card, "the operator's palette swatch survives").toBe(A);
   });
 
   it("…and with ONLY the palette role set, the role still paints the card (the control is not shadowed)", () => {
@@ -469,9 +487,12 @@ describe("R2 P8 M2 S3.6 I3 — the explicit card control beats the theme-wide ro
   });
 
   it("the card_defaults readout still reports the value that PAINTS the input-side token", () => {
-    // Guards the sibling slice's contract: `card_defaults.background` is
-    // design.color.card, which the palette role also writes.
+    // Guards the sibling slice's contract. R2 P8 F4 re-sourced the readout from
+    // `design.questionCard.background` (the value that PAINTS the card) — with
+    // the palette role authored and no component control, the two are the same
+    // value, so this assertion is unchanged and still pins the same promise.
     expect(resolveTokens(BASE, cardBg(A)).card_defaults.background).toBe(A);
+    expect(resolveTokens(BASE, cardBg(A)).design.color.card).toBe(A);
   });
 });
 

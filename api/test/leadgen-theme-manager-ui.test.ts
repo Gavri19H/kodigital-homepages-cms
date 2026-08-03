@@ -481,6 +481,14 @@ describeDb("GET /admin/leadgen/themes — full page (§10.2/§10.3, Appendix A)"
   //     `iconCard.selectedBorderColor` is the frozen literal "#1B3A5C" (the
   //     SAME hex as color.primary by coincidence, not by wiring) — no applier
   //     ever rewrites either, so authoring this role moved neither surface.
+  //     R2 P8-3 FIX ROUND F7 (review MINOR-4) — "progress" was OVER-corrected
+  //     above: the frozen progress.fillColor token never moves, but a
+  //     SEPARATE rule (default-funnel/styles.ts:2553-2558) paints
+  //     `.lg-progress-fill` background directly from the brand_primary role
+  //     with `!important`, bypassing that frozen token — the rendered fill
+  //     DOES move. Restored to "buttons · progress fill · focus ring";
+  //     measured by F3's sweep, pinned at test/leadgen-p8-m2-role-
+  //     usedby.test.ts's I2 leg.
   //  2. accent "highlights · recommended" — UNCHANGED, still true, still pinned.
   //  3. page_bg "behind the card" -> "frame background". THE OLD TEXT WAS NOT
   //     FALSE: page_background paints the scope root's own background-color,
@@ -493,6 +501,14 @@ describeDb("GET /admin/leadgen/themes — full page (§10.2/§10.3, Appendix A)"
   //     was true but INCOMPLETE: card_background also paints
   //     `.lg-btn.lg-btn-answer`'s resting background, not only
   //     `.lg-question-card`. Same I4 convergence; strictly more of the truth.
+  //     R2 P8-3 FIX ROUND F8 (MINOR-4 corollary, one more role) — STILL
+  //     INCOMPLETE after the re-mint above: card_background's token
+  //     (color.card) is ALSO `.lg-input`'s resting background (default-funnel/
+  //     styles.ts:1845), which neither "question card" nor "answer cards"
+  //     names. Widened to "question card · answer cards · input fields" —
+  //     measured by the label->target sweep's own residual (test/leadgen-r2-
+  //     dead-controls-guard.test.ts LABEL_TARGET_RESIDUALS), now CLOSED
+  //     (the label covers the paint) rather than exempted.
   //  5. text "headings &amp; body" -> "body text · input text". THE OLD TEXT WAS
   //     HALF FALSE: text_primary writes only `page.textColor` ("#1A1F36");
   //     `headline.color` is a DIFFERENT frozen literal ("#16324f") that no
@@ -501,15 +517,18 @@ describeDb("GET /admin/leadgen/themes — full page (§10.2/§10.3, Appendix A)"
   //
   // NOT WEAKENED: the four re-minted strings are pinned as the FULL sublabel
   // text (previously three of them were partial substrings), so this leg now
-  // constrains more bytes than it did before.
+  // constrains more bytes than it did before. F8 extends the same discipline:
+  // "question card · answer cards · input fields" pins the FULL sublabel, not
+  // the old "question card · answer cards" prefix (which would still silently
+  // match — never rely on a stale substring to keep passing).
   it("role sublabels + role note + size-language note render verbatim (Appendix A)", async () => {
     const { sdb, env } = newHarness();
     await seedFixture(sdb, env);
     const { html } = await getHtml(env, "/admin/leadgen/themes");
-    expect(html).toContain("buttons · focus ring");
+    expect(html).toContain("buttons · progress fill · focus ring");
     expect(html).toContain("highlights · recommended");
     expect(html).toContain("frame background");
-    expect(html).toContain("question card · answer cards");
+    expect(html).toContain("question card · answer cards · input fields");
     expect(html).toContain("body text · input text");
     expect(html).toContain("reassurance · valid");
     expect(html).toContain(

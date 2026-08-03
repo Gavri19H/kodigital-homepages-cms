@@ -480,6 +480,8 @@ export interface PaintedEl {
   style: Map<string, { value: string; selector: string }>;
   text: string;
   attrs: Array<[string, string]>;
+  /** The parsed element itself, so a caller can re-run selector matching on it. */
+  el: ParsedEl;
 }
 
 export interface VisiblePage {
@@ -488,6 +490,8 @@ export interface VisiblePage {
   /** Elements dropped as display:none / visibility:hidden (self or ancestor). */
   hiddenPaths: string[];
   fingerprint: string;
+  /** The whole parsed tree (selector matching needs the ancestor/sibling links). */
+  els: ParsedEl[];
 }
 
 function pathOf(el: ParsedEl, els: ParsedEl[]): string {
@@ -554,6 +558,7 @@ export function visiblePage(css: string, html: string, viewport: Viewport = "des
         const v = el.attrs.get(a);
         return v === undefined || v === null ? [] : [[a, v]];
       }),
+      el,
     });
   }
   const fingerprint = visible
@@ -566,7 +571,83 @@ export function visiblePage(css: string, html: string, viewport: Viewport = "des
       return `${v.path}|${v.tag}.${v.classes.join(".")}|${decls}|${attrs}|${v.text}`;
     })
     .join("\n");
-  return { visible, hiddenPaths, fingerprint };
+  return { visible, hiddenPaths, fingerprint, els };
+}
+
+/**
+ * ONE visitor-facing coordinate that moved between two renders of the SAME
+ * page shape — the element it moved ON, not just its structural path.
+ *
+ * `prop` is a CSS property name, or one of the pseudo-properties
+ * `<text>` / `<attrs>` / `<classes>` / `<element appeared|disappeared>`.
+ * `el` is the element on whichever side of the diff it exists (an element that
+ * appeared exists only on side b), together with `els`, its own tree — both are
+ * what `specIfMatches` needs to answer "is this the element the control's
+ * operator-facing label names?".
+ */
+export interface DiffCoord {
+  viewport: Viewport;
+  path: string;
+  prop: string;
+  tag: string;
+  classes: string[];
+  el: ParsedEl;
+  els: ParsedEl[];
+}
+
+/** `"0/2/1|background"` — the string form `visibleDiff` has always returned. */
+export function coordKey(c: DiffCoord): string {
+  return `${c.path}|${c.prop}`;
+}
+
+/** `"@mobile div.lg-question-card [0/2/1] background"` — for a failure message. */
+export function describeCoord(c: DiffCoord): string {
+  const where = c.classes.length === 0 ? c.tag : `${c.tag}.${c.classes.join(".")}`;
+  return `${c.viewport === "mobile" ? "@mobile " : ""}${where} [${c.path}] ${c.prop}`;
+}
+
+/**
+ * The visible-paint diff between two renders of the SAME page shape, as
+ * coordinates that still carry their element. `visibleDiff` is this function's
+ * string projection — the two can never disagree.
+ */
+export function visibleDiffCoords(
+  a: { css: string; html: string },
+  b: { css: string; html: string },
+  viewport: Viewport = "desktop",
+): DiffCoord[] {
+  const pa = visiblePage(a.css, a.html, viewport);
+  const pb = visiblePage(b.css, b.html, viewport);
+  const byPath = (p: VisiblePage): Map<string, PaintedEl> => new Map(p.visible.map((v) => [v.path, v]));
+  const ma = byPath(pa);
+  const mb = byPath(pb);
+  const out: DiffCoord[] = [];
+  for (const path of new Set([...ma.keys(), ...mb.keys()])) {
+    const ea = ma.get(path);
+    const eb = mb.get(path);
+    const side = (ea ?? eb) as PaintedEl;
+    const els = ea === undefined ? pb.els : pa.els;
+    const at = (prop: string): DiffCoord => ({
+      viewport,
+      path,
+      prop,
+      tag: side.tag,
+      classes: side.classes,
+      el: side.el,
+      els,
+    });
+    if (ea === undefined || eb === undefined) {
+      out.push(at(`<element ${ea === undefined ? "appeared" : "disappeared"}>`));
+      continue;
+    }
+    if (ea.text !== eb.text) out.push(at("<text>"));
+    if (JSON.stringify(ea.attrs) !== JSON.stringify(eb.attrs)) out.push(at("<attrs>"));
+    if (ea.classes.join(".") !== eb.classes.join(".")) out.push(at("<classes>"));
+    for (const prop of new Set([...ea.style.keys(), ...eb.style.keys()])) {
+      if (ea.style.get(prop)?.value !== eb.style.get(prop)?.value) out.push(at(prop));
+    }
+  }
+  return out.sort((x, y) => (coordKey(x) < coordKey(y) ? -1 : coordKey(x) > coordKey(y) ? 1 : 0));
 }
 
 /**
@@ -579,27 +660,7 @@ export function visibleDiff(
   b: { css: string; html: string },
   viewport: Viewport = "desktop",
 ): string[] {
-  const pa = visiblePage(a.css, a.html, viewport);
-  const pb = visiblePage(b.css, b.html, viewport);
-  const byPath = (p: VisiblePage): Map<string, PaintedEl> => new Map(p.visible.map((v) => [v.path, v]));
-  const ma = byPath(pa);
-  const mb = byPath(pb);
-  const out: string[] = [];
-  for (const path of new Set([...ma.keys(), ...mb.keys()])) {
-    const ea = ma.get(path);
-    const eb = mb.get(path);
-    if (ea === undefined || eb === undefined) {
-      out.push(`${path}|<element ${ea === undefined ? "appeared" : "disappeared"}>`);
-      continue;
-    }
-    if (ea.text !== eb.text) out.push(`${path}|<text>`);
-    if (JSON.stringify(ea.attrs) !== JSON.stringify(eb.attrs)) out.push(`${path}|<attrs>`);
-    if (ea.classes.join(".") !== eb.classes.join(".")) out.push(`${path}|<classes>`);
-    for (const prop of new Set([...ea.style.keys(), ...eb.style.keys()])) {
-      if (ea.style.get(prop)?.value !== eb.style.get(prop)?.value) out.push(`${path}|${prop}`);
-    }
-  }
-  return out.sort();
+  return visibleDiffCoords(a, b, viewport).map(coordKey);
 }
 
 /** Diff across BOTH viewports — a mobile-only key is alive too. */
@@ -608,6 +669,38 @@ export function visibleDiffAnyViewport(
   b: { css: string; html: string },
 ): string[] {
   return [...visibleDiff(a, b, "desktop"), ...visibleDiff(a, b, "mobile").map((d) => `@mobile ${d}`)];
+}
+
+/** Coordinates across BOTH viewports (the `visibleDiffAnyViewport` universe). */
+export function visibleDiffCoordsAnyViewport(
+  a: { css: string; html: string },
+  b: { css: string; html: string },
+): DiffCoord[] {
+  return [...visibleDiffCoords(a, b, "desktop"), ...visibleDiffCoords(a, b, "mobile")];
+}
+
+/**
+ * Split a visible diff by WHERE it landed: coordinates on an element one of
+ * `targetSelectors` matches, and coordinates on every other element.
+ *
+ * This is the machinery behind "a key must paint the element its own label
+ * names, and nothing else": `onTarget` empty ⇒ the control does not reach the
+ * surface it advertises; `offTarget` non-empty ⇒ it reaches a surface it does
+ * not advertise (the MIS-TARGET class). A target selector carrying a pseudo can
+ * never match (see the limitations banner) — callers must not pass one.
+ */
+export function classifyDiffByTarget(
+  a: { css: string; html: string },
+  b: { css: string; html: string },
+  targetSelectors: readonly string[],
+): { onTarget: DiffCoord[]; offTarget: DiffCoord[] } {
+  const onTarget: DiffCoord[] = [];
+  const offTarget: DiffCoord[] = [];
+  for (const coord of visibleDiffCoordsAnyViewport(a, b)) {
+    const hit = targetSelectors.some((sel) => specIfMatches(sel, coord.el, coord.els) !== null);
+    (hit ? onTarget : offTarget).push(coord);
+  }
+  return { onTarget, offTarget };
 }
 
 /**

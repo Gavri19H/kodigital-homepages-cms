@@ -178,6 +178,41 @@ const THEME_FONT_SELECT_IDS: readonly string[] = [
   ...THEME_FONT_IDS.filter((id) => THEME_FONT_LEGACY_IDS.has(id)),
 ];
 
+// R2 P8-3 FIX ROUND F3 (MINOR-1) — ONE FONT VOCABULARY, FINISHED.
+//
+// Register N20 asks for one vocabulary across the funnel-theme rail and the
+// standalone Themes manager. F2 converged 8 of 11 names; the reviewer measured
+// the remaining split: the rail still OFFERED Literata/Sora/System and the
+// manager still OFFERED Newsreader/Inter/Roboto Mono — six families that exist
+// on one surface and not the other, and (fonts.generated.ts's
+// LEADGEN_SELF_HOSTED_FONT_FAMILIES) none of the six is vendored, so picking
+// one AFRESH cannot be honoured. Contract §4 R3 corollary: "A control that
+// cannot be honoured must not be offered."
+//
+// So the six are no longer OFFERED on either surface — the offered vocabulary
+// on both is now exactly the 8 vendored families, same words, same order —
+// while a family ALREADY STORED stays fully selectable and renders exactly as
+// today. The mechanism is the same on both files: the option element is still
+// emitted with its EXACT enum value and its EXACT label, carrying `hidden`, so
+// it is absent from the dropdown a human opens but is still a real option the
+// select can hold. On this rail the stored value is not known at SSR time
+// (quotes-tabs/funnel.ts:2598 assigns `.value` from the loaded theme after
+// hydration), so the three stay hidden permanently and the closed select still
+// paints the selected option's own label; ui-theme-manager.ts knows its
+// selection server-side and un-hides exactly the one that is stored.
+// NOT a data change: THEME_FONT_IDS, the stored ids and THEME_FONT_STACKS are
+// untouched, so a funnel storing `literata` resolves the identical
+// `'Literata',Georgia,serif` stack it resolved before (pinned in
+// test/leadgen-p8-n-theme-ui.test.ts through the REAL resolveTokens +
+// funnelChromeCss pair).
+function themeFontOptions(): string {
+  return THEME_FONT_SELECT_IDS.map((id) => {
+    const label = THEME_FONT_LABELS[id] ?? id.replace(/_/g, " ");
+    const notOffered = THEME_FONT_LEGACY_IDS.has(id) ? " hidden" : "";
+    return `<option value="${escapeHtml(id)}"${notOffered}>${escapeHtml(label)}</option>`;
+  }).join("");
+}
+
 
 // R2 F-3 — the two SIZE rails.
 //
@@ -221,17 +256,25 @@ function renderThemeEditorPanel(isControl: boolean): string {
   </div>`,
   ).join("");
 
-  // R2 P8-3 N7 — this blank/default option's own text was "Inherit from base
-  // design" (24 chars); the rail's `.lg-scalars` grid (shared.ts) is a
-  // 2-column layout inside a ~340px-max rail, so the CLOSED <select> (which
-  // always shows exactly this text for every untouched field) had no room
-  // and truncated to "Inherit from base de…". The grid's column count
-  // (shared.ts) and the select's own width:100% (templates/layout.ts) are
-  // both outside this file; the string is the one lever inside it, so this
-  // shortens the text rather than reflowing shared layout every other rail
-  // control also uses. The stored VALUE stays "" (inherit) — display only.
+  // R2 P8-3 N7 — no select may show a truncated version of its own value.
+  //
+  // FIX ROUND F3 (BLOCKER-1): the F2 pass treated the STRING as the only lever
+  // ("Inherit from base design" -> "Inherit from base") and left the container
+  // alone, so the very next labels this file wrote overflowed the same 125px
+  // box (measured +66.43px for "Literata (shows as default font)", +10.82px
+  // for "Bigger + check badge"). The cause was always the box, and the box is
+  // now fixed where it lives: quotes-tabs/shared.ts's `.lg-scalars` is an
+  // auto-fit/minmax grid that collapses to one full-width column rather than
+  // halving every select (see that rule's own arithmetic comment — worst-case
+  // content 228.00px in this rail against a longest emitted label of
+  // 191.43px measured / 214.3px by the conservative model). This function is
+  // unchanged except for the option source; the shortened blank text is KEPT
+  // (it is good copy on its own merits, it is pinned by three other suites,
+  // and re-lengthening it would be a second, unrelated change).
   const themeSelect = (label: string, key: string, values: readonly string[], labels?: Readonly<Record<string, string>>): string =>
-    `<div class="form-group"><label class="form-label">${escapeHtml(label)}</label><select class="form-select" data-theme-key="${escapeHtml(key)}"><option value="">Inherit from base</option>${enumOptions(values, labels)}</select></div>`;
+    themeSelectRaw(label, key, enumOptions(values, labels));
+  const themeSelectRaw = (label: string, key: string, optionsHtml: string): string =>
+    `<div class="form-group"><label class="form-label">${escapeHtml(label)}</label><select class="form-select" data-theme-key="${escapeHtml(key)}"><option value="">Inherit from base</option>${optionsHtml}</select></div>`;
 
   // R2 P2 S2b: the OLD `lg-theme-minipreview`/`lg-theme-minipreview-frame`
   // mini-preview strip (a `data-mini-preview-mode="frame"` request, which
@@ -256,8 +299,8 @@ function renderThemeEditorPanel(isControl: boolean): string {
   <h3>Typography</h3>
   <p class="form-help">Display sets headlines, big numbers and the display size below. Body sets paragraphs, labels and inputs — the two never share a size or a font by accident.</p>
   <div class="lg-scalars">
-    ${themeSelect("Display font (headlines)", "typography.display", THEME_FONT_SELECT_IDS, THEME_FONT_LABELS)}
-    ${themeSelect("Body font (paragraphs)", "typography.body", THEME_FONT_SELECT_IDS, THEME_FONT_LABELS)}
+    ${themeSelectRaw("Display font (headlines)", "typography.display", themeFontOptions())}
+    ${themeSelectRaw("Body font (paragraphs)", "typography.body", themeFontOptions())}
     ${themeSelect("Body text size", "typography.size", THEME_SIZE_SCALES, { s: "Small", m: "Medium", l: "Large" })}
     ${themeSelect("Display size", "typography.display_size", THEME_DISPLAY_SIZE_SCALES, { m: "Base", l: "Large", xl: "X-Large", xxl: "XX-Large" })}
   </div>
@@ -325,15 +368,25 @@ function renderThemeEditorPanel(isControl: boolean): string {
 // the same "disabled control + a note naming why" idiom quotes-tabs/funnel.ts
 // already uses for the theme override switch when it is off-target. Every
 // state below is CONFIRMED by THEMES_TAB_SCRIPT's refreshPresetAvailability
-// (a plain read of the existing GET /api/admin/leadgen/themes list, never
-// assumed) — no new save-blocker, validator or gate: this only makes the
-// existing buttons' presentation agree with what a click on them can do.
+// (a plain read of the picker funnel.ts already fills from the existing
+// catalog GET — never a second request, never assumed) — no new save-blocker,
+// validator or gate: this only makes the existing buttons' presentation agree
+// with what a click on them can do.
+// FIX ROUND F3 (MAJOR-2): `disabled` alone was invisible — the reviewer
+// measured colour/background/border/opacity/filter/text-decoration identical
+// between the two states and `cursor:pointer` in BOTH. shared.ts now paints
+// the disabled state (`.lg-preset-apply-row .btn:disabled`) and the island
+// marks the help line `.lg-preset-help-blocked`, so the reason is on screen
+// rather than only in a `title`.
+// The SSR `data-lg-preset-ssr` marker below is how the island tells "the
+// page's own catalog read has not landed yet" from "it landed and there are
+// none" without issuing a read of its own (MINOR-9).
 function renderThemePresetsPanel(): string {
   return `<div class="lg-panel-card" id="lg-theme-presets">
   <h3>Theme presets</h3>
   <p class="form-help" id="lg-theme-preset-help">Checking for saved presets&#8230;</p>
   <div class="lg-preset-apply-row">
-    <select class="form-select" id="lg-theme-preset-select" aria-label="Theme preset"><option value="">Loading presets&#8230;</option></select>
+    <select class="form-select" id="lg-theme-preset-select" aria-label="Theme preset"><option value="" data-lg-preset-ssr="1">Loading presets&#8230;</option></select>
     <button type="button" class="btn btn-sm btn-secondary" id="lg-theme-preset-apply" disabled title="Checking for saved presets&#8230;">Apply to this funnel</button>
     <button type="button" class="btn btn-sm btn-outline" id="lg-theme-ab-this" disabled title="Checking for saved presets&#8230;">A/B this theme</button>
   </div>
@@ -1370,28 +1423,73 @@ const THEMES_TAB_SCRIPT = `
   var PRESET_FAILED_HELP = 'Could not check for saved presets \\u2014 reload the page to try again.';
   var PRESET_ZERO_TITLE = 'No presets saved yet \\u2014 create one from the Themes manager first.';
   var PRESET_AB_READY_TITLE = 'Fork this variant with the picked preset as its theme, then set the traffic split';
-  function refreshPresetAvailability() {
+  var PRESET_TICK_MS = 400;
+  var PRESET_UNKNOWN_LIMIT = 25;
+  var presetShown = '';
+  var presetUnknownTicks = 0;
+
+  // FIX ROUND F3 (MINOR-9) — DO NOT ISSUE A SECOND CATALOG READ.
+  // FAIL-BEFORE (reviewer, driven): 4x GET /api/admin/leadgen/themes on one
+  // Themes-tab load; the 4th was this island's own, added by F2 on top of the
+  // three quotes-tabs/funnel.ts's loadThemePresetOptions already issues (its
+  // eager boot call, the activate('themes') hook and the presets-frame load
+  // handler). The catalog is already on the page: funnel.ts writes it into
+  // #lg-theme-preset-select, and that select is the EXACT list "Apply to this
+  // funnel" can act on — so deriving availability from it is not merely
+  // cheaper, it is more correct than a second GET (a fresh GET is how the
+  // buttons came to read "ready" while the picker beside them was empty).
+  //
+  // The SSR placeholder carries data-lg-preset-ssr (renderThemePresetsPanel,
+  // this file) so "funnel.ts has not repopulated yet" is distinguishable from
+  // "repopulated, and there are none" WITHOUT pinning any of funnel.ts's
+  // strings here — clearChildren() destroys the marker the moment the real
+  // list lands. Unknown stays disabled (fail closed).
+  function presetSelectState() {
+    var sel = byId('lg-theme-preset-select');
+    if (!sel || !sel.options) { return 'unknown'; }
+    if (sel.options.length > 1) { return 'ready'; }
+    if (sel.options.length === 1 && sel.options[0] && sel.options[0].getAttribute && sel.options[0].getAttribute('data-lg-preset-ssr') === '1') { return 'unknown'; }
+    if (sel.options.length === 0) { return 'unknown'; }
+    return 'zero';
+  }
+  function applyPresetState(state) {
     var applyBtn = byId('lg-theme-preset-apply');
     var abBtn = byId('lg-theme-ab-this');
     var helpEl = byId('lg-theme-preset-help');
-    fetch('/api/admin/leadgen/themes', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
-      .then(function (r) { return r.json(); })
-      .then(function (body) {
-        var items = (body && body.items) || [];
-        var hasPresets = items.length > 0;
-        if (applyBtn) { applyBtn.disabled = !hasPresets; applyBtn.title = hasPresets ? '' : PRESET_ZERO_TITLE; }
-        if (abBtn) { abBtn.disabled = !hasPresets; abBtn.title = hasPresets ? PRESET_AB_READY_TITLE : PRESET_ZERO_TITLE; }
-        if (helpEl) { helpEl.textContent = hasPresets ? PRESET_READY_HELP : PRESET_ZERO_HELP; }
-      })
-      .catch(function () {
-        // Fail closed on the DISPLAY, same as everywhere else in this
-        // island: unconfirmed never reads as ready. The buttons stay
-        // disabled (their SSR default); only the copy tells the operator
-        // WHY, rather than leaving "Checking…" showing forever.
-        if (helpEl) { helpEl.textContent = PRESET_FAILED_HELP; }
-        if (applyBtn) { applyBtn.title = PRESET_FAILED_HELP; }
-        if (abBtn) { abBtn.title = PRESET_FAILED_HELP; }
-      });
+    var hasPresets = state === 'ready';
+    var title = state === 'failed' ? PRESET_FAILED_HELP : PRESET_ZERO_TITLE;
+    if (applyBtn) { applyBtn.disabled = !hasPresets; applyBtn.title = hasPresets ? '' : title; }
+    if (abBtn) { abBtn.disabled = !hasPresets; abBtn.title = hasPresets ? PRESET_AB_READY_TITLE : title; }
+    if (helpEl) {
+      helpEl.textContent = hasPresets ? PRESET_READY_HELP : (state === 'failed' ? PRESET_FAILED_HELP : PRESET_ZERO_HELP);
+      // MAJOR-2: the reason is ON SCREEN, not only in a tooltip — and only
+      // once the blocked state is CONFIRMED, so an ordinary load never
+      // flashes a warning while funnel.ts's read is still in flight.
+      helpEl.className = hasPresets ? 'form-help' : 'form-help lg-preset-help-blocked';
+    }
+  }
+  function refreshPresetAvailability() {
+    var state = presetSelectState();
+    if (state === 'unknown') {
+      presetUnknownTicks = presetUnknownTicks + 1;
+      if (presetUnknownTicks >= PRESET_UNKNOWN_LIMIT) {
+        // Fail closed on the DISPLAY, same as everywhere else in this island:
+        // unconfirmed never reads as ready. The buttons stay disabled (their
+        // SSR default); the copy tells the operator WHY rather than leaving
+        // "Checking…" showing forever.
+        applyPresetState('failed');
+        presetShown = 'failed';
+        return;
+      }
+    } else if (state !== presetShown) {
+      applyPresetState(state);
+      presetShown = state;
+    }
+    // A DOM read, never a request: funnel.ts repopulates the picker when the
+    // operator re-enters this tab (a preset created in the standalone manager
+    // arrives that way), so the two buttons keep agreeing with the picker for
+    // the life of the page at zero network cost.
+    if (window.setTimeout) { window.setTimeout(refreshPresetAvailability, PRESET_TICK_MS); }
   }
 
   // P8-1 F1: name the funnel before anything else paints, so the panel is

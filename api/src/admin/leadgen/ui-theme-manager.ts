@@ -697,10 +697,18 @@ function renderLeftList(
 // behaviour changes (renderCenterEditor's own `ROLE_META.map(...)` call is
 // unchanged).
 export const ROLE_META: ReadonlyArray<{ key: ThemeRecordRoleKey; label: string; sub: string; border: boolean }> = [
-  { key: "brand_primary", label: "Brand primary", sub: "buttons · focus ring", border: false },
+  // FIX ROUND F3 (MINOR-4) — "progress fill" restored in lockstep with
+  // shared.ts's ROLE_META (same evidence: frames.ts:645 defaults every frame's
+  // progress to the brand_primary role and default-funnel/styles.ts:2553-2558
+  // paints `.lg-frame-progress--role-brand_primary .lg-progress-fill` from it).
+  { key: "brand_primary", label: "Brand primary", sub: "buttons · progress fill · focus ring", border: false },
   { key: "accent", label: "Accent", sub: "category label · highlights · recommended", border: false },
   { key: "page_bg", label: "Page background", sub: "frame background", border: true },
-  { key: "card", label: "Card", sub: "question card · answer cards", border: true },
+  // R2 P8-3 FIX ROUND F8 — "input fields" added, in lockstep with
+  // shared.ts's ROLE_META (same evidence: color.card is ALSO `.lg-input`'s
+  // resting background, default-funnel/styles.ts:1845 — see shared.ts's own
+  // ROLE_META comment for the full measurement).
+  { key: "card", label: "Card", sub: "question card · answer cards · input fields", border: true },
   { key: "text", label: "Text", sub: "body text · input text", border: false },
   { key: "success", label: "Success", sub: "reassurance · valid states", border: false },
 ];
@@ -760,10 +768,25 @@ function fontDisplayLabel(name: ThemeRecordFontName): string {
   return THEME_RECORD_FONT_LEGACY_NAMES.has(name) ? `${name} (shows as default font)` : name;
 }
 
+// FIX ROUND F3 (MINOR-1) — ONE FONT VOCABULARY, FINISHED.
+// N20 asks for one vocabulary across this manager and the funnel-theme rail.
+// F2 converged 8 of 11 names and the reviewer measured the rest still split:
+// this page OFFERED Newsreader/Inter/Roboto Mono, the rail OFFERED Literata/
+// Sora/System — six families on one surface and not the other, and none of
+// the six is vendored (fonts.generated.ts), so picking one afresh cannot be
+// honoured (contract §4 R3 corollary). The three are therefore no longer
+// OFFERED — `hidden` keeps them out of the dropdown a human opens — while the
+// one that is ALREADY STORED is un-hidden, stays `selected`, keeps its exact
+// enum value and renders through the untouched THEME_RECORD_FONT_STACKS
+// lookup, byte-identically to today. Same mechanism, same words, in
+// quotes-tabs/themes.ts's themeFontOptions(); the offered set on the two
+// surfaces is now identical — do not let them drift apart again.
 function fontOptionsHtml(selected: ThemeRecordFontName): string {
-  return THEME_RECORD_FONT_SELECT_NAMES.map(
-    (name) => `<option value="${escapeHtml(name)}"${name === selected ? " selected" : ""}>${escapeHtml(fontDisplayLabel(name))}</option>`,
-  ).join("");
+  return THEME_RECORD_FONT_SELECT_NAMES.map((name) => {
+    const isSelected = name === selected;
+    const notOffered = THEME_RECORD_FONT_LEGACY_NAMES.has(name) && !isSelected ? " hidden" : "";
+    return `<option value="${escapeHtml(name)}"${isSelected ? " selected" : ""}${notOffered}>${escapeHtml(fontDisplayLabel(name))}</option>`;
+  }).join("");
 }
 
 function fontSelectRow(id: string, label: string, current: ThemeRecordFontName, themeId: string): string {
@@ -860,6 +883,43 @@ function advancedHexRow(topGroup: "roles" | "extra_roles", key: string, hex: str
   return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0"><span style="font-size:12px;color:${TM_COLOR.segInactiveText}">${escapeHtml(key)}</span><input data-tm-hex data-top="${topGroup}" data-role="${key}" data-theme-id="${escapeHtml(themeId)}" value="${escapeHtml(hex)}" spellcheck="false" style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:${TM_COLOR.monoTextStrong};background:${TM_COLOR.monoBg};padding:2px 8px;border-radius:5px;border:1px solid transparent;width:88px;text-align:right" /></div>`;
 }
 
+// R2 P8-3 FIX ROUND F3 (BLOCKER-1) — THE FONT SELECT'S BOX, NOT ITS LABEL.
+// Two edits below, both in this function's markup (kept out here in TS so the
+// served bytes carry none of it):
+//
+// 1. data-pin="8.4-editor-controls" — min-width:0 -> min-width:300px.
+//    FAIL-BEFORE (reviewer, driven at 375): min-width:0 let this column shrink
+//    without limit instead of letting its flex line WRAP, so it measured ~118px
+//    and squeezed #tm-headline-font to a 14.00px content box (every option
+//    overflowed, even "Poppins" at 52px) while #tm-body-font collapsed to w=0
+//    and vanished. A real shrink floor makes the row wrap instead of grinding
+//    both columns down. 1280 IS UNCHANGED: hypothetical sizes 300 + 26 (gap) +
+//    340 (the flex:0 1 340px preview column) = 666 still fit the 670px row the
+//    reviewer measured (304 + 26 + 340), and this column still grows to that
+//    same 304px. At 375 the row is ~343px, 666 > 343, so the two columns stack
+//    and this one takes the full 343px.
+//
+// 2. data-pin="8.4-typography-grid" — 1fr 1fr -> repeat(auto-fit,minmax(320px,
+//    1fr)). FAIL-BEFORE (reviewer, driven at 1280): 1fr 1fr gave each font
+//    select a 107.00px content box, so the select truncated its OWN selected
+//    value — "Inter (shows as default font)" 181.2px (+74.2), "Roboto Mono (…)"
+//    238.2px (+131.2), "Newsreader (…)" 229.3px (+122.3). Same mechanism as the
+//    rail's .lg-scalars (quotes-tabs/shared.ts): auto-fit plus a minmax floor,
+//    so a column that cannot seat two full-size cells becomes ONE full-width
+//    cell instead of halving the box.
+//    ARITHMETIC: a cell loses 24 (wrap padding) + 2 (wrap border) + 12
+//    (chevron) = 38px to chrome, and the widest label this select can ever
+//    show is a STORED non-vendored family — "Roboto Mono (shows as default
+//    font)", 238.2px measured / 255.1px by the test's conservative model — so
+//    a cell must clear ~293px. The 320px floor does: one column below 654px
+//    (worst case = this column's own 300px floor -> 262.00px of content), two
+//    320px columns at or above it (-> 282.00px). At 1280 the column is 304px,
+//    so the two selects stack and each box is 266.00px. The 220px floor tried
+//    first was NOT enough and the spec caught it: at a 454px column it went
+//    2-up with 182.00px boxes and all three stored-family labels overflowed.
+//    test/leadgen-p8-n-theme-ui.test.ts recomputes this from THESE inline
+//    styles for every option of both selects at every column width, so a
+//    revert to 1fr 1fr (or to min-width:0, or a narrower floor) fails there.
 function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], canvasHtml: string): string {
   const colorRows = ROLE_META.map(
     (meta) =>
@@ -918,7 +978,7 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], ca
   // nav) degrades on the same rule.
   return `<div style="flex:1 1 auto;overflow-y:auto;padding:24px 28px;min-width:0">
     <div style="display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start">
-    <div style="flex:1 1 240px;min-width:0" data-pin="8.4-editor-controls">
+    <div style="flex:1 1 240px;min-width:300px" data-pin="8.4-editor-controls">
       <div style="display:flex;align-items:center;gap:13px;margin-bottom:5px">
         ${bigSwatch(theme.roles.brand_primary, false)}
         <!-- R4a E3-NEW-6: the server already supports PATCH {name}
@@ -947,7 +1007,7 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], ca
       </div>
 
       <div style="font-size:11px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:${TM_COLOR.sectionEyebrow};margin-bottom:13px">Typography</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div data-pin="8.4-typography-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:14px">
         ${fontSelectRow("tm-headline-font", "Headline font", theme.typography.headline_font, theme.id)}
         ${fontSelectRow("tm-body-font", "Body font", theme.typography.body_font, theme.id)}
       </div>

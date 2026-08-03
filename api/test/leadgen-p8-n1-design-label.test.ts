@@ -41,8 +41,14 @@
 //
 // I4 (completeness enforced, not assumed): FUNNEL_DESIGN_LABELS is asserted
 // complete against every DISTINCT id the real registry resolves to, AND
-// shown to THROW (a visible failure) for an id the map does not cover — so a
-// future unlabeled design id cannot silently leak its raw id.
+// assertFunnelDesignLabelsComplete is shown to THROW (a visible, developer-
+// facing failure) for an id it is given that the map does not cover — so a
+// future unlabeled design id cannot silently leak its raw id. F5 MINOR-7
+// (review-p8-3): that throw moved OFF funnelDesignLabel/listFunnelDesign-
+// Options (the operator's render path — ui-quotes.ts:928 on every quote-
+// editor GET) into this dedicated, test-invoked completeness check.
+// funnelDesignLabel itself now degrades to a neutral, non-id label instead
+// of throwing, so an unlabeled design id never 500s the editor.
 
 import { describe, expect, it, beforeAll } from "vitest";
 import { readFileSync } from "node:fs";
@@ -52,7 +58,7 @@ import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { FUNNEL_DESIGNS, getFunnelDesign } from "../src/public/leadgen/designs/registry";
 import { funnelChromeCss } from "../src/public/leadgen/designs/default-funnel/styles";
-import { FUNNEL_DESIGN_LABELS, funnelDesignLabel, listFunnelDesignOptions } from "../src/admin/leadgen/quotes-handlers";
+import { FUNNEL_DESIGN_LABELS, assertFunnelDesignLabelsComplete, funnelDesignLabel, listFunnelDesignOptions } from "../src/admin/leadgen/quotes-handlers";
 
 // --- node:sqlite harness (repo pattern; duplicated per test file, e.g. -----
 // --- leadgen-rework-board.test.ts, leadgen-p3a-split-parity.test.ts) -------
@@ -200,7 +206,7 @@ describe("I1 — listFunnelDesignOptions dedupes registry KEYS down to DISTINCT 
 // rendered as its own option post-S3.7). Pure (no DB).
 // -----------------------------------------------------------------------
 
-describe("I4 — FUNNEL_DESIGN_LABELS is complete against every DISTINCT design the real registry resolves to; an unlabeled id is a visible failure, never a silent id leak", () => {
+describe("I4 — FUNNEL_DESIGN_LABELS is complete against every DISTINCT design the real registry resolves to; an unlabeled id is a developer-visible failure (never reachable from an operator's request), never a silent id leak", () => {
   const distinctDesignIds = [...new Set(Object.values(FUNNEL_DESIGNS).map((d) => d.id))];
 
   it("the real registry resolves to at least one distinct design (sanity: this proof is not vacuous)", () => {
@@ -220,8 +226,31 @@ describe("I4 — FUNNEL_DESIGN_LABELS is complete against every DISTINCT design 
     }
   });
 
-  it("an id the map does not cover throws (visible failure) instead of silently returning the raw id — surfaced as early as listFunnelDesignOptions itself", () => {
-    expect(() => funnelDesignLabel("some-future-design-nobody-labelled")).toThrow(/no operator label/);
+  it("assertFunnelDesignLabelsComplete passes for the REAL registry's distinct ids (nothing unlabeled today)", () => {
+    expect(() => assertFunnelDesignLabelsComplete()).not.toThrow();
+  });
+
+  // F5 MINOR-7 (review-p8-3) RETIRED: "an id the map does not cover throws
+  // (visible failure) ... surfaced as early as listFunnelDesignOptions
+  // itself" — that throw WAS the defect: a distinct design id added without
+  // a label would 500 the operator's quote editor on every render (it is
+  // unreachable today — one design, labelled — but registering a second
+  // would crash the editor rather than degrade). Replaced by the two tests
+  // below: funnelDesignLabel now degrades gracefully on the render path,
+  // and assertFunnelDesignLabelsComplete (never called from that path) is
+  // what now throws for an uncovered id — the SAME completeness guarantee,
+  // moved off the operator's request.
+  it("funnelDesignLabel NEVER throws — an id the map does not cover degrades to a neutral, honest label, never the raw id, never a render-path failure", () => {
+    expect(() => funnelDesignLabel("some-future-design-nobody-labelled")).not.toThrow();
+    const label = funnelDesignLabel("some-future-design-nobody-labelled");
+    expect(label).not.toBe("some-future-design-nobody-labelled");
+    expect(label.length).toBeGreaterThan(0);
+  });
+
+  it("assertFunnelDesignLabelsComplete throws (a developer-visible failure) when given an id the map does not cover", () => {
+    expect(() => assertFunnelDesignLabelsComplete(["default-funnel", "some-future-design-nobody-labelled"])).toThrow(
+      /FUNNEL_DESIGN_LABELS is missing an entry/,
+    );
   });
 });
 

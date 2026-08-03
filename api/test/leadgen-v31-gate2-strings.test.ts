@@ -741,10 +741,26 @@ describeDb("Gate 2 strings — Themes manager (Appendix A, D1+KV)", () => {
     // funnelChromeCss, no hand-built side). Two of the six ("highlights ·
     // recommended", "reassurance · valid") were audited as still true and are
     // unchanged.
+    //
+    // R2 P8-3 FIX ROUND F7 (review MINOR-4) — brand_primary's roster entry
+    // restored to "buttons · progress fill · focus ring". The M2/S3.11
+    // sibling-leg reasoning above over-corrected: brand_primary's own frozen
+    // progress.fillColor token never moves, but a separate CSS rule
+    // (default-funnel/styles.ts:2553-2558) paints `.lg-progress-fill`
+    // background directly from the role with `!important`, bypassing that
+    // frozen token — the rendered fill DOES move with brand_primary (F3's
+    // sweep; pinned at test/leadgen-p8-m2-role-usedby.test.ts's I2 leg).
+    //
+    // R2 P8-3 FIX ROUND F8 (MINOR-4 corollary, one more role) — card's roster
+    // entry widened to "question card · answer cards · input fields": its
+    // token (color.card) is ALSO `.lg-input`'s resting background
+    // (default-funnel/styles.ts:1845). Full per-string evidence in the
+    // sibling leg's F8 addendum (test/leadgen-theme-manager-ui.test.ts).
     assertAllPresent(
       html,
       [
-        "buttons · focus ring", "highlights · recommended", "frame background", "question card · answer cards",
+        "buttons · progress fill · focus ring", "highlights · recommended", "frame background",
+        "question card · answer cards · input fields",
         "body text · input text", "reassurance · valid",
         "Components reference these roles, never fixed shades — change one here and every question in the funnel reskins.",
       ],

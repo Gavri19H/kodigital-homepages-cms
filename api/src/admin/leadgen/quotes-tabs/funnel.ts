@@ -431,16 +431,34 @@ function templateLabelFor(funnel: FunnelNode, templates: FrameTemplateItem[]): s
 // best HONEST label from what the board's FunnelNode already carries
 // (theme_json) -- no new endpoint/join threaded in (R1 scope discipline):
 // null -> "Default"; an inline override (no theme_id key) -> "Custom"; a
-// {theme_id} preset pointer -> the record's own name IF the board's data
-// already carried it -- it doesn't (no preset catalog is threaded into
-// renderBuilderPanel/renderFunnelColumn), reported to the conductor as the
-// named gap -- so this falls back to the raw id, per the contract's own
-// stated fallback ("the record's name if already available ... else the id").
-function themeChipLabel(funnel: FunnelNode): string {
+// {theme_id} preset pointer -> the record's own name.
+//
+// R2 P8-3 F5 MINOR-5 (review-p8-3): the pointer case used to fall back to
+// the raw KV id (funnel A's chip read "thm_p8-repro" instead of "P8 Repro")
+// because no preset catalog is threaded into renderBuilderPanel/render-
+// FunnelColumn -- SSR is synchronous, and threading one in here would be
+// "adding a request" (this is a name lookup, not new scope). N1 (contract
+// Sec7: "Raw tokens as visible labels") makes that raw id non-negotiable
+// this phase, so the SSR fallback below is a neutral word -- "Theme",
+// mirroring templateLabelFor's own "Template" fallback immediately above --
+// never the id (Sec4 R3 corollary: a control that cannot yet honour a real
+// name must not print a database key instead). The REAL name resolves
+// client-side, from the SAME /api/admin/leadgen/themes catalog fetch the
+// island already performs eagerly at boot for the preset <select>
+// (loadThemePresetOptions below) -- no new request. themePresetIdOf exposes
+// the raw id ONLY as a data attribute (renderFunnelColumn) so that boot-time
+// fetch can find and rename this exact chip once the catalog resolves; an
+// unmatched id (deleted preset, or the fetch hasn't landed yet) keeps this
+// honest "Theme" word rather than reverting to the id.
+function themePresetIdOf(funnel: FunnelNode): string {
   const themeJson = funnel.theme_json;
-  if (themeJson === null || themeJson === undefined) { return "Default"; }
-  const themeId = typeof themeJson["theme_id"] === "string" ? (themeJson["theme_id"] as string) : "";
-  return themeId !== "" ? themeId : "Custom";
+  if (themeJson === null || themeJson === undefined) { return ""; }
+  return typeof themeJson["theme_id"] === "string" ? (themeJson["theme_id"] as string) : "";
+}
+
+function themeChipLabel(funnel: FunnelNode): string {
+  if (funnel.theme_json === null || funnel.theme_json === undefined) { return "Default"; }
+  return themePresetIdOf(funnel) !== "" ? "Theme" : "Custom";
 }
 
 
@@ -471,7 +489,7 @@ function renderFunnelColumn(
         <span class="lg-kebab-btn lg-funnel-kebab" data-funnel-kebab data-chip-menu="funnel" role="button" tabindex="0" aria-label="Funnel options">${BOARD_ICON.kebab}</span>
       </div>
       <div class="lg-col-meta">
-        <span class="lg-pickchip" data-theme-picker data-pin="8.2-theme-picker" data-chip-funnel-public-id="${escapeHtml(funnel.public_id)}" data-chip-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" role="button" tabindex="0">${escapeHtml(themeChipLabel(funnel))}</span>
+        <span class="lg-pickchip" data-theme-picker data-pin="8.2-theme-picker" data-chip-funnel-public-id="${escapeHtml(funnel.public_id)}" data-chip-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" data-theme-preset-id="${escapeHtml(themePresetIdOf(funnel))}" role="button" tabindex="0">${escapeHtml(themeChipLabel(funnel))}</span>
         <span class="lg-pickchip" data-template-picker data-pin="8.2-template-picker" data-chip-funnel-public-id="${escapeHtml(funnel.public_id)}" data-chip-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" role="button" tabindex="0">${escapeHtml(templateName)}</span>
       </div>
       <div class="lg-col-actions">
@@ -3914,6 +3932,25 @@ export const QUOTE_EDITOR_SCRIPT = `
   // reason to know about (it has no "current funnel" context).
   // ==========================================================================
 
+  // R2 P8-3 F5 MINOR-5 (review-p8-3): rename every board Theme chip pointing
+  // at a preset this fetch just resolved -- the SAME catalog GET
+  // loadThemePresetOptions below already performs for the <select> (no new
+  // request). A chip whose preset id is not in the fetched items (a deleted
+  // preset, or this fetch hasn't landed yet) is left on the SSR "Theme"
+  // fallback (themeChipLabel above) -- never reverted to a raw id.
+  function applyThemeChipNames(items) {
+    var chips = root.querySelectorAll('[data-theme-picker][data-theme-preset-id]');
+    var nameById = {};
+    var i;
+    for (i = 0; i < items.length; i++) { nameById[items[i].id] = items[i].name; }
+    for (i = 0; i < chips.length; i++) {
+      var pid = chips[i].getAttribute('data-theme-preset-id') || '';
+      if (pid !== '' && Object.prototype.hasOwnProperty.call(nameById, pid)) {
+        chips[i].textContent = nameById[pid];
+      }
+    }
+  }
+
   function loadThemePresetOptions() {
     var sel = byId('lg-theme-preset-select');
     if (!sel) { return; }
@@ -3937,10 +3974,16 @@ export const QUOTE_EDITOR_SCRIPT = `
         // resolve time preserves whatever the operator has chosen by then.
         var keep = sel.value;
         var items = (body && body.items) || [];
+        applyThemeChipNames(items);
         clearChildren(sel);
         var placeholder = document.createElement('option');
         placeholder.value = '';
-        placeholder.textContent = items.length === 0 ? 'No presets yet \\u2014 create one below' : 'Choose a preset\\u2026';
+        // R2 P8-3 F5 MAJOR-3 (review-p8-3, contract Sec6 M9.4's own cited
+        // stale-copy example): this used to read 'create one below' -- the
+        // N11 panel's help line (quotes-tabs/themes.ts PRESET_ZERO_HELP)
+        // points the operator at the Themes manager instead, and there is
+        // nothing below this select. Same destination, both places.
+        placeholder.textContent = items.length === 0 ? 'No presets yet \\u2014 create one from the Themes manager' : 'Choose a preset\\u2026';
         sel.appendChild(placeholder);
         var i;
         for (i = 0; i < items.length; i++) {
